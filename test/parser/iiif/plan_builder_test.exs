@@ -260,4 +260,64 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
 
     assert [%Resize{}, %Flip{axis: :horizontal}] = ops
   end
+
+  describe "size operations carry max bounds" do
+    test "max threads bounds onto the resize with maxHeight inferred from maxWidth" do
+      {:ok, %Plan{pipelines: [%{operations: [%Resize{} = resize]}]}} =
+        PlanBuilder.image_plan(
+          @source,
+          %{
+            region: :full,
+            size: {:max, false},
+            rotation: {false, 0},
+            quality: :default,
+            format: :jpg
+          },
+          max_width: 2000
+        )
+
+      assert resize.max_width == 2000
+      assert resize.max_height == 2000
+      assert resize.max_area == nil
+    end
+
+    test "explicit size also carries the bounds (area too)" do
+      {:ok, %Plan{pipelines: [%{operations: [%Resize{} = resize]}]}} =
+        PlanBuilder.image_plan(
+          @source,
+          %{
+            region: :full,
+            size: {:w, 4000, false},
+            rotation: {false, 0},
+            quality: :default,
+            format: :jpg
+          },
+          max_width: 2000,
+          max_area: 3_000_000
+        )
+
+      assert resize.max_width == 2000
+      assert resize.max_height == 2000
+      assert resize.max_area == 3_000_000
+    end
+
+    test "no bounds configured leaves the resize unbounded" do
+      {:ok, %Plan{pipelines: [%{operations: [%Resize{} = resize]}]}} =
+        PlanBuilder.image_plan(
+          @source,
+          %{
+            region: :full,
+            size: {:max, false},
+            rotation: {false, 0},
+            quality: :default,
+            format: :jpg
+          },
+          auto_rotate: true
+        )
+
+      assert resize.max_width == nil
+      assert resize.max_height == nil
+      assert resize.max_area == nil
+    end
+  end
 end

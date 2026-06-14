@@ -55,9 +55,16 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
           {:ok, Plan.t()} | {:error, term()}
   def image_plan(source, tokens, opts \\ []) do
     auto_rotate = Keyword.get(opts, :auto_rotate, false)
+    max_width = Keyword.get(opts, :max_width)
+
+    bounds = %{
+      max_width: max_width,
+      max_height: Keyword.get(opts, :max_height) || max_width,
+      max_area: Keyword.get(opts, :max_area)
+    }
 
     with {:ok, region_ops} <- region_operations(tokens.region),
-         {:ok, size_ops} <- size_operations(tokens.size),
+         {:ok, size_ops} <- size_operations(tokens.size, bounds),
          {:ok, rotation_ops} <- rotation_operations(tokens.rotation),
          {:ok, quality_ops} <- quality_operations(tokens.quality),
          {:ok, output} <- output_plan(tokens.format) do
@@ -100,52 +107,83 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
     end
   end
 
-  defp size_operations({:max, up?}) do
+  defp size_operations({:max, up?}, bounds) do
     with {:ok, op} <-
-           Operation.resize(:fit, :auto, :auto, enlargement: enlargement(up?, :deny)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:w, w, up?}) do
-    with {:ok, op} <-
-           Operation.resize(:fit, {:px, w}, :auto, enlargement: enlargement(up?, :reject)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:h, h, up?}) do
-    with {:ok, op} <-
-           Operation.resize(:fit, :auto, {:px, h}, enlargement: enlargement(up?, :reject)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:wh, w, h, up?}) do
-    with {:ok, op} <-
-           Operation.resize(:stretch, {:px, w}, {:px, h}, enlargement: enlargement(up?, :reject)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:confined, w, h, up?}) do
-    with {:ok, op} <-
-           Operation.resize(:fit, {:px, w}, {:px, h}, enlargement: enlargement(up?, :reject)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:pct, {:ratio, num, den}, up?}) do
-    zoom = num / den
-
-    with {:ok, op} <-
-           Operation.resize(:fit, :auto, :auto,
-             zoom_x: zoom,
-             zoom_y: zoom,
-             enlargement: enlargement(up?, :reject)
+           Operation.resize(
+             :fit,
+             :auto,
+             :auto,
+             [enlargement: enlargement(up?, :deny)] ++ bound_opts(bounds)
            ) do
       {:ok, [op]}
     end
+  end
+
+  defp size_operations({:w, w, up?}, bounds) do
+    with {:ok, op} <-
+           Operation.resize(
+             :fit,
+             {:px, w},
+             :auto,
+             [enlargement: enlargement(up?, :reject)] ++ bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp size_operations({:h, h, up?}, bounds) do
+    with {:ok, op} <-
+           Operation.resize(
+             :fit,
+             :auto,
+             {:px, h},
+             [enlargement: enlargement(up?, :reject)] ++ bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp size_operations({:wh, w, h, up?}, bounds) do
+    with {:ok, op} <-
+           Operation.resize(
+             :stretch,
+             {:px, w},
+             {:px, h},
+             [enlargement: enlargement(up?, :reject)] ++ bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp size_operations({:confined, w, h, up?}, bounds) do
+    with {:ok, op} <-
+           Operation.resize(
+             :fit,
+             {:px, w},
+             {:px, h},
+             [enlargement: enlargement(up?, :reject)] ++ bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp size_operations({:pct, {:ratio, num, den}, up?}, bounds) do
+    zoom = num / den
+
+    with {:ok, op} <-
+           Operation.resize(
+             :fit,
+             :auto,
+             :auto,
+             [zoom_x: zoom, zoom_y: zoom, enlargement: enlargement(up?, :reject)] ++
+               bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp bound_opts(%{max_width: mw, max_height: mh, max_area: ma}) do
+    [max_width: mw, max_height: mh, max_area: ma]
   end
 
   defp rotation_operations({false, 0}), do: {:ok, []}
