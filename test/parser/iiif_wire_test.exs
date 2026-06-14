@@ -483,6 +483,10 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   test "rot_mirror: percent-encoded ! (%2190) ≡ !90" do
     conn = call_iiif("/img/full/max/%2190/default.png", iiif_opts(OriginImage))
     assert conn.status == 200
+
+    img = decoded_image(conn)
+    # %21 decodes to ! ; result must match !90 → 200×300 source turned to 300×200
+    assert Image.width(img) == 300 and Image.height(img) == 200
   end
 
   # ---------------------------------------------------------------------------
