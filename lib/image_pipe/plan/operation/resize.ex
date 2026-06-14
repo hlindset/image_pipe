@@ -11,7 +11,10 @@ defmodule ImagePipe.Plan.Operation.Resize do
                 min_width: nil,
                 min_height: nil,
                 zoom_x: 1.0,
-                zoom_y: 1.0
+                zoom_y: 1.0,
+                max_width: nil,
+                max_height: nil,
+                max_area: nil
               ]
 
   @type mode :: :fit | :cover | :stretch | :auto
@@ -43,6 +46,9 @@ defmodule ImagePipe.Plan.Operation.Resize do
           min_width: dimension() | nil,
           min_height: dimension() | nil,
           zoom_x: pos_integer() | float(),
-          zoom_y: pos_integer() | float()
+          zoom_y: pos_integer() | float(),
+          max_width: pos_integer() | nil,
+          max_height: pos_integer() | nil,
+          max_area: pos_integer() | nil
         }
 end

@@ -812,7 +812,10 @@ defmodule ImagePipe.Transform.PlanExecutor do
       zoom_y: operation.zoom_y,
       dpr: tagged_dpr_float(operation.dpr),
       enlarge: operation.enlargement == :allow,
-      reject_enlargement: operation.enlargement == :reject
+      reject_enlargement: operation.enlargement == :reject,
+      max_width: operation.max_width,
+      max_height: operation.max_height,
+      max_area: operation.max_area
     }
   end
 

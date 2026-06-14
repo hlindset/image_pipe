@@ -38,7 +38,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
           zoom_y: float(),
           dpr: float(),
           enlarge: boolean(),
-          reject_enlargement: boolean()
+          reject_enlargement: boolean(),
+          max_width: pos_integer() | nil,
+          max_height: pos_integer() | nil,
+          max_area: pos_integer() | nil
         }
 
   @type resolved_dimensions() :: %{
@@ -63,7 +66,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
             zoom_y: 1.0,
             dpr: 1.0,
             enlarge: false,
-            reject_enlargement: false
+            reject_enlargement: false,
+            max_width: nil,
+            max_height: nil,
+            max_area: nil
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :resize
@@ -129,6 +135,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
     upscale_required =
       axis_exceeds?(unclamped.width, source.width) or
         axis_exceeds?(unclamped.height, source.height)
+
+    grow? = grow_to_bounds?(operation)
+    target = apply_bounds(target, operation, grow?)
+    intermediate = apply_bounds(intermediate, operation, grow?)
 
     %{
       requested_width: requested.width,
@@ -422,6 +432,69 @@ defmodule ImagePipe.Transform.Operation.Resize do
       dimensions
     end
   end
+
+  # The grow-to-ceiling case is exactly `^max`: enlarge + bare auto/auto + no zoom/dpr factor.
+  defp grow_to_bounds?(%__MODULE__{enlarge: true, width: :auto, height: :auto} = operation),
+    do: not factor_requested?(operation)
+
+  defp grow_to_bounds?(%__MODULE__{}), do: false
+
+  defp apply_bounds(dims, %__MODULE__{} = operation, grow?) do
+    case bound_scales(dims, operation) do
+      [] ->
+        dims
+
+      scales ->
+        scale = Enum.min(scales)
+        scale = if grow?, do: scale, else: min(1.0, scale)
+        # Any active max_area makes `w·h <= max_area` a MUST. Floor (rather than
+        # round) both axes whenever an area bound applies, so rounding an axis up
+        # can never push the product over the ceiling — regardless of which bound
+        # is the binding (smallest-scale) one. When the area term binds,
+        # (w·s)(h·s) == max_area exactly; when an axis binds, the product is
+        # strictly below max_area; flooring keeps both <= max_area.
+        floor? = area_bounded?(operation) and scale != 1.0
+
+        %{
+          width: scaled_bound_axis(dims.width, scale, floor?),
+          height: scaled_bound_axis(dims.height, scale, floor?)
+        }
+    end
+  end
+
+  # Each configured bound contributes a scale term, skipping :auto axes.
+  defp bound_scales(%{width: w, height: h}, %__MODULE__{} = op) do
+    []
+    |> add_axis_scale(op.max_width, w)
+    |> add_axis_scale(op.max_height, h)
+    |> add_area_scale(op.max_area, w, h)
+  end
+
+  defp add_axis_scale(scales, nil, _value), do: scales
+  defp add_axis_scale(scales, _max, :auto), do: scales
+  defp add_axis_scale(scales, max, value), do: [max / value | scales]
+
+  defp add_area_scale(scales, nil, _w, _h), do: scales
+  defp add_area_scale(scales, _max, :auto, _h), do: scales
+  defp add_area_scale(scales, _max, _w, :auto), do: scales
+  defp add_area_scale(scales, max, w, h), do: [:math.sqrt(max / (w * h)) | scales]
+
+  # True whenever a max_area ceiling is configured. When set, both axes are floored
+  # (not rounded) on any real scale — regardless of which bound binds — so rounding
+  # an axis up can never push w*h over max_area. Do NOT narrow this to "only when the
+  # area term binds": a binding axis term rounded up can co-bind and overshoot.
+  defp area_bounded?(%__MODULE__{max_area: nil}), do: false
+  defp area_bounded?(%__MODULE__{}), do: true
+
+  # Degenerate edge: when the region aspect ratio exceeds max_area (a pathologically
+  # tiny host-configured area), the unavoidable `max(1, …)` per-axis floor can leave
+  # w·h marginally above max_area — a 1px axis can't shrink further. This is
+  # best-effort and reachable only via extreme host config (max_area is host-config
+  # `:pos_integer`, never request input), and mirrors libvips/imgproxy's own 1px
+  # dimension floor.
+  defp scaled_bound_axis(:auto, _scale, _floor?), do: :auto
+  defp scaled_bound_axis(value, scale, true), do: max(1, trunc(value * scale))
+  defp scaled_bound_axis(value, scale, false), do: positive_round(value * scale)
 
   defp positive_round(value) when is_number(value) do
     value

@@ -49,5 +49,11 @@ defmodule ImagePipe.Parser.IIIF.Info do
         params.formats |> Enum.reject(&(&1 in [:jpg, :png])) |> Enum.map(&to_string/1),
       "extraFeatures" => @extra_features
     }
+    |> maybe_put("maxWidth", params.max_width)
+    |> maybe_put("maxHeight", params.max_height)
+    |> maybe_put("maxArea", params.max_area)
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

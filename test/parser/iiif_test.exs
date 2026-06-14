@@ -16,6 +16,8 @@ defmodule ImagePipe.Parser.IIIFTest do
 
   defp validated(opts), do: IIIF.validate_options!(opts)
 
+  defp opts_with(extra), do: [iiif: Keyword.merge(@opts[:iiif], extra)]
+
   test "image request -> {:ok, %Plan{}} with explicit jpeg output" do
     assert {:ok, %Plan{render: :image, output: %{mode: {:explicit, :jpeg}}}} =
              IIIF.parse(conn(:get, "/abc/full/max/0/default.jpg"), validated(@opts))
@@ -53,6 +55,37 @@ defmodule ImagePipe.Parser.IIIFTest do
 
     assert params.id =~ "/abc"
     assert params.offers != []
+  end
+
+  describe "max bounds option validation" do
+    test "accepts max_width alone (does not raise)" do
+      validated = IIIF.validate_options!(opts_with(max_width: 2000))
+      assert Keyword.fetch!(Keyword.fetch!(validated, :iiif), :max_width) == 2000
+    end
+
+    test "accepts max_width + max_height" do
+      validated = IIIF.validate_options!(opts_with(max_width: 2000, max_height: 1500))
+      iiif = Keyword.fetch!(validated, :iiif)
+      assert Keyword.fetch!(iiif, :max_width) == 2000
+      assert Keyword.fetch!(iiif, :max_height) == 1500
+    end
+
+    test "accepts max_area alone" do
+      validated = IIIF.validate_options!(opts_with(max_area: 3_000_000))
+      assert Keyword.fetch!(Keyword.fetch!(validated, :iiif), :max_area) == 3_000_000
+    end
+
+    test "rejects max_height without max_width" do
+      assert_raise ArgumentError, ~r/max_height requires max_width/, fn ->
+        IIIF.validate_options!(opts_with(max_height: 1500))
+      end
+    end
+
+    test "rejects a non-positive bound (NimbleOptions)" do
+      assert_raise NimbleOptions.ValidationError, fn ->
+        IIIF.validate_options!(opts_with(max_width: 0))
+      end
+    end
   end
 end
 

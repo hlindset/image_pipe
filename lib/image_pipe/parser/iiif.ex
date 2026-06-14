@@ -18,24 +18,32 @@ defmodule ImagePipe.Parser.IIIF do
   alias ImagePipe.Parser.IIIF.Path
   alias ImagePipe.Parser.IIIF.PlanBuilder
 
-  # Note: IIIF `maxWidth`/`maxHeight`/`maxArea` are intentionally NOT a config
-  # surface yet — advertising them in info.json without enforcing the limit in the
-  # size pipeline would be a conformance lie (and `maxHeight` without `maxWidth` is
-  # spec-invalid). We shrink the unsupported surface rather than advertise it; a
-  # future change can wire them through `image_plan/3`'s size mapping + add the
-  # cross-field validation.
   @schema NimbleOptions.new!(
             resolver: [type: {:custom, __MODULE__, :validate_resolver, []}, required: true],
             auto_rotate: [type: :boolean, default: true],
             formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
             qualities: [type: {:list, :atom}, default: [:default, :color, :gray, :bitonal]],
-            tile_size: [type: :pos_integer, default: 512]
+            tile_size: [type: :pos_integer, default: 512],
+            max_width: [type: :pos_integer],
+            max_height: [type: :pos_integer],
+            max_area: [type: :pos_integer]
           )
 
   @impl true
   def validate_options!(opts) do
     iiif = Keyword.get(opts, :iiif, [])
-    Keyword.put(opts, :iiif, NimbleOptions.validate!(iiif, @schema))
+    validated = NimbleOptions.validate!(iiif, @schema)
+    validate_max_bounds!(validated)
+    Keyword.put(opts, :iiif, validated)
+  end
+
+  # IIIF Image API 3.0 §5.1: maxWidth must be specified if maxHeight is specified.
+  defp validate_max_bounds!(iiif) do
+    if Keyword.has_key?(iiif, :max_height) and not Keyword.has_key?(iiif, :max_width) do
+      raise ArgumentError, "iiif: max_height requires max_width (IIIF Image API 3.0 §5.1)"
+    end
+
+    :ok
   end
 
   @doc false

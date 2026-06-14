@@ -346,4 +346,148 @@ defmodule ImagePipe.Transform.ResizeDimensionTest do
 
     assert result.intermediate_width == 100
   end
+
+  describe "max bounds" do
+    # max (no ^): :fit auto/auto, deny enlarge. Ceiling larger than source -> source.
+    test "max with ceiling larger than source clamps to source (no upscale)" do
+      op = %Resize{
+        mode: :fit,
+        width: :auto,
+        height: :auto,
+        enlarge: false,
+        max_width: 10_000,
+        max_height: 10_000
+      }
+
+      r = Resize.resolve_dimensions(op, source_width: 6000, source_height: 4000)
+      assert r.intermediate_width == 6000
+      assert r.intermediate_height == 4000
+    end
+
+    # ^max: :fit auto/auto, enlarge. Ceiling larger than source -> grow to box.
+    test "^max grows to the ceiling box (width-binding)" do
+      op = %Resize{
+        mode: :fit,
+        width: :auto,
+        height: :auto,
+        enlarge: true,
+        max_width: 10_000,
+        max_height: 10_000
+      }
+
+      r = Resize.resolve_dimensions(op, source_width: 6000, source_height: 4000)
+      assert r.intermediate_width == 10_000
+      assert r.intermediate_height == 6667
+    end
+
+    # ^max with ceiling smaller than source -> downscale to box (no upscale needed).
+    test "^max with sub-source ceiling downscales to the box" do
+      op = %Resize{
+        mode: :fit,
+        width: :auto,
+        height: :auto,
+        enlarge: true,
+        max_width: 2000,
+        max_height: 2000
+      }
+
+      r = Resize.resolve_dimensions(op, source_width: 6000, source_height: 4000)
+      assert r.intermediate_width == 2000
+      assert r.intermediate_height == 1333
+    end
+
+    # max with sub-source ceiling -> clamp down.
+    test "max clamps down to a sub-source ceiling" do
+      op = %Resize{
+        mode: :fit,
+        width: :auto,
+        height: :auto,
+        enlarge: false,
+        max_width: 2000,
+        max_height: 2000
+      }
+
+      r = Resize.resolve_dimensions(op, source_width: 6000, source_height: 4000)
+      assert r.intermediate_width == 2000
+      assert r.intermediate_height == 1333
+    end
+
+    # Explicit width (no ^) exceeding maxWidth -> clamped down. Mode :fit, width {:pixels,4000}.
+    test "explicit width exceeding maxWidth is clamped down" do
+      op = %Resize{
+        mode: :fit,
+        width: {:pixels, 4000},
+        height: :auto,
+        enlarge: false,
+        max_width: 2000,
+        max_height: 2000
+      }
+
+      r = Resize.resolve_dimensions(op, source_width: 6000, source_height: 4000)
+      assert r.intermediate_width == 2000
+      assert r.intermediate_height <= 2000
+    end
+
+    # maxArea-only ^max upscales until area ~= max_area, and never exceeds it.
+    test "maxArea-only ^max scales to the area ceiling without exceeding it" do
+      op = %Resize{
+        mode: :fit,
+        width: :auto,
+        height: :auto,
+        enlarge: true,
+        max_area: 50_000_000
+      }
+
+      r = Resize.resolve_dimensions(op, source_width: 6000, source_height: 4000)
+      assert r.intermediate_width * r.intermediate_height <= 50_000_000
+      # close to the ceiling (within one row/col of pixels)
+      assert r.intermediate_width * r.intermediate_height >= 50_000_000 - 6000 * 2
+    end
+
+    # maxArea cap on a large image never exceeds the area MUST.
+    test "maxArea caps area and never exceeds it" do
+      op = %Resize{
+        mode: :fit,
+        width: :auto,
+        height: :auto,
+        enlarge: false,
+        max_area: 2_000_000
+      }
+
+      r = Resize.resolve_dimensions(op, source_width: 6000, source_height: 4000)
+      assert r.intermediate_width * r.intermediate_height <= 2_000_000
+    end
+
+    # All-nil bounds are a byte-identical no-op vs. the same op without bound fields.
+    test "all-nil bounds are a no-op" do
+      bounded = %Resize{mode: :fit, width: {:pixels, 800}, height: :auto, enlarge: false}
+      r = Resize.resolve_dimensions(bounded, source_width: 6000, source_height: 4000)
+      assert r.intermediate_width == 800
+    end
+
+    # NON-binding bounds (far larger than any resulting dimension) must not perturb
+    # the configured baseline: a bounded op resolves to IDENTICAL dims as the same
+    # op with no bounds. The all-nil tests only compare nil-vs-nil; this proves the
+    # bound machinery is a genuine identity when the ceilings cannot bind.
+    test "non-binding bounds resolve identically to the unbounded op" do
+      base = %Resize{mode: :fit, width: {:pixels, 800}, height: :auto, enlarge: false}
+
+      plain = Resize.resolve_dimensions(base, source_width: 6000, source_height: 4000)
+
+      bounded =
+        Resize.resolve_dimensions(
+          %Resize{
+            base
+            | max_width: 1_000_000,
+              max_height: 1_000_000,
+              max_area: 1_000_000_000_000
+          },
+          source_width: 6000,
+          source_height: 4000
+        )
+
+      assert bounded.intermediate_width == plain.intermediate_width
+      assert bounded.intermediate_height == plain.intermediate_height
+    end
+  end
 end

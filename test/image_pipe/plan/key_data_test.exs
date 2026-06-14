@@ -31,4 +31,19 @@ defmodule ImagePipe.Plan.KeyDataTest do
 
     refute KeyData.data(op50) == KeyData.data(op60)
   end
+
+  test "Resize key data includes max bounds and distinguishes them" do
+    {:ok, bounded} =
+      Operation.resize(:fit, :auto, :auto, max_width: 2000, max_area: 3_000_000)
+
+    {:ok, unbounded} = Operation.resize(:fit, :auto, :auto)
+
+    bounded_data = KeyData.data(bounded)
+    unbounded_data = KeyData.data(unbounded)
+
+    assert Keyword.get(bounded_data, :max_width) == 2000
+    assert Keyword.get(bounded_data, :max_area) == 3_000_000
+    assert Keyword.get(bounded_data, :max_height) == nil
+    refute bounded_data == unbounded_data
+  end
 end

@@ -50,9 +50,6 @@
     switch (kind) {
       case "max":
         iiifState.size = { kind: "max" };
-        // `^max` is inert until maxWidth/maxHeight/maxArea support lands (#257), so
-        // don't emit it — `^` only meaningfully applies to an explicit target size.
-        iiifState.upscale = false;
         break;
       case "w":
         iiifState.size = { kind: "w", w: 400 };
@@ -204,14 +201,12 @@
     />
   {/if}
 
-  {#if iiifState.size.kind !== "max"}
-    <label class="switch-field">
-      <Switch.Root class="switch-root" bind:checked={iiifState.upscale}>
-        <Switch.Thumb class="switch-thumb" />
-      </Switch.Root>
-      <span>Allow upscaling (^)</span>
-    </label>
-  {/if}
+  <label class="switch-field">
+    <Switch.Root class="switch-root" bind:checked={iiifState.upscale}>
+      <Switch.Thumb class="switch-thumb" />
+    </Switch.Root>
+    <span>Allow upscaling (^)</span>
+  </label>
 </section>
 
 <section class="tool-section">

@@ -16,7 +16,8 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
 
   `source` is an `ImagePipe.Plan.Source.*` struct already resolved by the caller.
   `id_uri` is the absolute base URI for the image identifier (the IIIF `id` field).
-  `opts` accepts `formats`, `qualities`, `tile_size`.
+  `opts` accepts `formats`, `qualities`, `tile_size`, `max_width`, `max_height`,
+  `max_area`.
   """
   @spec info_plan(Plan.Source.t(), String.t(), keyword()) :: {:ok, Plan.t()}
   def info_plan(source, id_uri, opts) do
@@ -29,7 +30,10 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
       ],
       formats: Keyword.get(opts, :formats, [:jpg, :png, :webp, :avif]),
       qualities: Keyword.get(opts, :qualities, [:default, :color, :gray, :bitonal]),
-      tile_size: Keyword.get(opts, :tile_size, 512)
+      tile_size: Keyword.get(opts, :tile_size, 512),
+      max_width: Keyword.get(opts, :max_width),
+      max_height: Keyword.get(opts, :max_height),
+      max_area: Keyword.get(opts, :max_area)
     }
 
     {:ok,
@@ -49,15 +53,25 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   `source` is an `ImagePipe.Plan.Source.*` struct already resolved by the caller.
   `tokens` is a map with keys `:region`, `:size`, `:rotation`, `:quality`, `:format`
   carrying the typed grammar values produced by `ImagePipe.Parser.IIIF.Grammar`.
-  `opts` accepts `auto_rotate: boolean()` (default `false`).
+  `opts` accepts `auto_rotate: boolean()` (default `false`) and the size-ceiling
+  bounds `max_width`/`max_height`/`max_area`.
   """
   @spec image_plan(ImagePipe.Plan.Source.t(), map(), keyword()) ::
           {:ok, Plan.t()} | {:error, term()}
   def image_plan(source, tokens, opts \\ []) do
     auto_rotate = Keyword.get(opts, :auto_rotate, false)
+    max_width = Keyword.get(opts, :max_width)
+
+    # IIIF Image API 3.0 §5.1: when maxHeight is unset, clients infer
+    # maxHeight = maxWidth — enforce the same inference server-side.
+    bounds = %{
+      max_width: max_width,
+      max_height: Keyword.get(opts, :max_height) || max_width,
+      max_area: Keyword.get(opts, :max_area)
+    }
 
     with {:ok, region_ops} <- region_operations(tokens.region),
-         {:ok, size_ops} <- size_operations(tokens.size),
+         {:ok, size_ops} <- size_operations(tokens.size, bounds),
          {:ok, rotation_ops} <- rotation_operations(tokens.rotation),
          {:ok, quality_ops} <- quality_operations(tokens.quality),
          {:ok, output} <- output_plan(tokens.format) do
@@ -100,52 +114,83 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
     end
   end
 
-  defp size_operations({:max, up?}) do
+  defp size_operations({:max, up?}, bounds) do
     with {:ok, op} <-
-           Operation.resize(:fit, :auto, :auto, enlargement: enlargement(up?, :deny)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:w, w, up?}) do
-    with {:ok, op} <-
-           Operation.resize(:fit, {:px, w}, :auto, enlargement: enlargement(up?, :reject)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:h, h, up?}) do
-    with {:ok, op} <-
-           Operation.resize(:fit, :auto, {:px, h}, enlargement: enlargement(up?, :reject)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:wh, w, h, up?}) do
-    with {:ok, op} <-
-           Operation.resize(:stretch, {:px, w}, {:px, h}, enlargement: enlargement(up?, :reject)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:confined, w, h, up?}) do
-    with {:ok, op} <-
-           Operation.resize(:fit, {:px, w}, {:px, h}, enlargement: enlargement(up?, :reject)) do
-      {:ok, [op]}
-    end
-  end
-
-  defp size_operations({:pct, {:ratio, num, den}, up?}) do
-    zoom = num / den
-
-    with {:ok, op} <-
-           Operation.resize(:fit, :auto, :auto,
-             zoom_x: zoom,
-             zoom_y: zoom,
-             enlargement: enlargement(up?, :reject)
+           Operation.resize(
+             :fit,
+             :auto,
+             :auto,
+             [enlargement: enlargement(up?, :deny)] ++ bound_opts(bounds)
            ) do
       {:ok, [op]}
     end
+  end
+
+  defp size_operations({:w, w, up?}, bounds) do
+    with {:ok, op} <-
+           Operation.resize(
+             :fit,
+             {:px, w},
+             :auto,
+             [enlargement: enlargement(up?, :reject)] ++ bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp size_operations({:h, h, up?}, bounds) do
+    with {:ok, op} <-
+           Operation.resize(
+             :fit,
+             :auto,
+             {:px, h},
+             [enlargement: enlargement(up?, :reject)] ++ bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp size_operations({:wh, w, h, up?}, bounds) do
+    with {:ok, op} <-
+           Operation.resize(
+             :stretch,
+             {:px, w},
+             {:px, h},
+             [enlargement: enlargement(up?, :reject)] ++ bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp size_operations({:confined, w, h, up?}, bounds) do
+    with {:ok, op} <-
+           Operation.resize(
+             :fit,
+             {:px, w},
+             {:px, h},
+             [enlargement: enlargement(up?, :reject)] ++ bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp size_operations({:pct, {:ratio, num, den}, up?}, bounds) do
+    zoom = num / den
+
+    with {:ok, op} <-
+           Operation.resize(
+             :fit,
+             :auto,
+             :auto,
+             [zoom_x: zoom, zoom_y: zoom, enlargement: enlargement(up?, :reject)] ++
+               bound_opts(bounds)
+           ) do
+      {:ok, [op]}
+    end
+  end
+
+  defp bound_opts(%{max_width: mw, max_height: mh, max_area: ma}) do
+    [max_width: mw, max_height: mh, max_area: ma]
   end
 
   defp rotation_operations({false, 0}), do: {:ok, []}
