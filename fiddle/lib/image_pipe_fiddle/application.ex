@@ -9,6 +9,7 @@ defmodule ImagePipeFiddle.Application do
   def start(_type, _args) do
     :persistent_term.put({__MODULE__, :imgproxy_opts}, build_imgproxy_opts())
     :persistent_term.put({__MODULE__, :iiif_opts}, build_iiif_opts())
+    :persistent_term.put({__MODULE__, :twicpics_opts}, build_twicpics_opts())
     ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
     maybe_attach_tracer()
 
@@ -102,6 +103,19 @@ defmodule ImagePipeFiddle.Application do
     end
 
     map
+  end
+
+  defp build_twicpics_opts do
+    static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
+
+    [
+      parser: ImagePipe.Parser.TwicPics,
+      sources: [
+        path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
+      ]
+    ]
+    |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
+    |> ImagePipe.Plug.init()
   end
 
   defp maybe_put_cache(opts, nil), do: opts
