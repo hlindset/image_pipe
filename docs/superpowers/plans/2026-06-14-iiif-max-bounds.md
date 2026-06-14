@@ -462,14 +462,20 @@ Add these private functions to `lib/image_pipe/transform/operation/resize.ex` (n
   defp grow_to_bounds?(%__MODULE__{}), do: false
 
   defp apply_bounds(dims, %__MODULE__{} = operation, grow?) do
-    case bound_terms(dims, operation) do
+    case bound_scales(dims, operation) do
       [] ->
         dims
 
-      terms ->
-        {scale, area_binding?} = binding_scale(terms)
+      scales ->
+        scale = Enum.min(scales)
         scale = if grow?, do: scale, else: min(1.0, scale)
-        floor? = area_binding? and scale != 1.0
+        # Any active max_area makes `w·h <= max_area` a MUST. Floor (rather than
+        # round) both axes whenever an area bound applies, so rounding an axis up
+        # can never push the product over the ceiling — regardless of which bound
+        # is the binding (smallest-scale) one. When the area term binds,
+        # (w·s)(h·s) == max_area exactly; when an axis binds, the product is
+        # strictly below max_area; flooring keeps both <= max_area.
+        floor? = area_bounded?(operation) and scale != 1.0
 
         %{
           width: scaled_bound_axis(dims.width, scale, floor?),
@@ -478,28 +484,26 @@ Add these private functions to `lib/image_pipe/transform/operation/resize.ex` (n
     end
   end
 
-  # Each configured bound contributes a {scale, area?} term, skipping :auto axes.
-  defp bound_terms(%{width: w, height: h}, %__MODULE__{} = op) do
+  # Each configured bound contributes a scale term, skipping :auto axes.
+  defp bound_scales(%{width: w, height: h}, %__MODULE__{} = op) do
     []
-    |> add_axis_term(op.max_width, w)
-    |> add_axis_term(op.max_height, h)
-    |> add_area_term(op.max_area, w, h)
+    |> add_axis_scale(op.max_width, w)
+    |> add_axis_scale(op.max_height, h)
+    |> add_area_scale(op.max_area, w, h)
   end
 
-  defp add_axis_term(terms, nil, _value), do: terms
-  defp add_axis_term(terms, _max, :auto), do: terms
-  defp add_axis_term(terms, max, value), do: [{max / value, false} | terms]
+  defp add_axis_scale(scales, nil, _value), do: scales
+  defp add_axis_scale(scales, _max, :auto), do: scales
+  defp add_axis_scale(scales, max, value), do: [max / value | scales]
 
-  defp add_area_term(terms, nil, _w, _h), do: terms
-  defp add_area_term(terms, _max, w, h) when w == :auto or h == :auto, do: terms
-  defp add_area_term(terms, max, w, h), do: [{:math.sqrt(max / (w * h)), true} | terms]
+  defp add_area_scale(scales, nil, _w, _h), do: scales
+  defp add_area_scale(scales, _max, :auto, _h), do: scales
+  defp add_area_scale(scales, _max, _w, :auto), do: scales
+  defp add_area_scale(scales, max, w, h), do: [:math.sqrt(max / (w * h)) | scales]
 
-  # The binding (smallest-scale) term wins; report whether it is the area constraint.
-  defp binding_scale(terms) do
-    Enum.reduce(terms, fn {s, a}, {acc_s, acc_a} ->
-      if s < acc_s, do: {s, a}, else: {acc_s, acc_a}
-    end)
-  end
+  # True when a max_area ceiling is in force on a candidate with both axes numeric.
+  defp area_bounded?(%__MODULE__{max_area: nil}), do: false
+  defp area_bounded?(%__MODULE__{}), do: true
 
   defp scaled_bound_axis(:auto, _scale, _floor?), do: :auto
   defp scaled_bound_axis(value, scale, true), do: max(1, trunc(value * scale))
@@ -507,9 +511,9 @@ Add these private functions to `lib/image_pipe/transform/operation/resize.ex` (n
 ```
 
 Notes for the implementer:
-- `binding_scale/1` uses `Enum.reduce/2` (no accumulator) — `terms` is always non-empty in the branch that calls it.
-- `floor?` flooring applies only when the **area** term binds *and* an actual scale (≠ 1.0) is applied — this guarantees `w·h ≤ max_area` while leaving pure axis-cap fits on exact `positive_round`.
-- `:auto` axes pass through in both `add_axis_term` (no term) and `scaled_bound_axis` (returned as `:auto`).
+- `Enum.min/1` is only called in the non-empty branch (`scales` guaranteed non-empty there).
+- **Flooring rule (the maxArea MUST):** floor both axes whenever *any* `max_area` is configured and a real scale (≠ 1.0) applies — **not** only when the area term is the binding one. A binding *axis* term with `positive_round` could otherwise push `w·h` marginally over `max_area` when an axis and the area co-bind (verified counterexample: source 7622×1774, max_width=max_height=3874, max_area=3_494_075 → 3874×902 = 3_494_348 > max_area). Flooring closes it. (`area_bounded?/1` here keys only on `max_area != nil`; a `:auto` axis means no `max_area` *scale term* was added anyway, and flooring an `:auto` axis is a no-op via `scaled_bound_axis(:auto, …)`.)
+- `:auto` axes pass through in both `add_axis_scale` (no term) and `scaled_bound_axis` (returned as `:auto`).
 
 - [ ] **Step 5: Run to verify pass**
 
@@ -552,15 +556,39 @@ defmodule ImagePipe.Transform.ResizeBoundsPropertyTest do
     end
   end
 
-  property "all-nil bounds equal the same op with no bound fields set" do
+  # The IIIF path sets all three bounds at once (max_height inferred + max_area).
+  # This is the case the single-bound properties above miss; it exercises the
+  # floor-when-area-bounded rule.
+  property "all three bounds combined never exceed any ceiling" do
+    check all src_w <- integer(64..8000),
+              src_h <- integer(64..8000),
+              max_w <- integer(64..4000),
+              max_h <- integer(64..4000),
+              max_a <- integer(10_000..40_000_000),
+              enlarge <- boolean() do
+      op = %Resize{mode: :fit, width: :auto, height: :auto, enlarge: enlarge,
+                   max_width: max_w, max_height: max_h, max_area: max_a}
+      r = Resize.resolve_dimensions(op, source_width: src_w, source_height: src_h)
+      assert r.intermediate_width <= max_w
+      assert r.intermediate_height <= max_h
+      assert r.intermediate_width * r.intermediate_height <= max_a
+    end
+  end
+
+  # all-nil is a genuine no-op: the bounded-but-unset op resolves identically to
+  # the same op with the field-free struct default (no rounding perturbation).
+  property "all-nil bounds resolve identically to the default struct" do
     check all src_w <- integer(64..8000),
               src_h <- integer(64..8000),
               w <- integer(1..8000) do
-      op = %Resize{mode: :fit, width: {:pixels, w}, height: :auto, enlarge: false}
-      r = Resize.resolve_dimensions(op, source_width: src_w, source_height: src_h)
-      # max_* default nil on the struct, so this is the no-op path by construction.
-      assert is_integer(r.intermediate_width)
-      assert r.intermediate_width >= 1
+      base = %Resize{mode: :fit, width: {:pixels, w}, height: :auto, enlarge: false}
+      explicit_nil = %Resize{base | max_width: nil, max_height: nil, max_area: nil}
+
+      r_base = Resize.resolve_dimensions(base, source_width: src_w, source_height: src_h)
+      r_nil = Resize.resolve_dimensions(explicit_nil, source_width: src_w, source_height: src_h)
+
+      assert r_base.intermediate_width == r_nil.intermediate_width
+      assert r_base.intermediate_height == r_nil.intermediate_height
     end
   end
 end
@@ -569,7 +597,7 @@ end
 - [ ] **Step 7: Run the property test**
 
 Run: `mise exec -- mix test test/image_pipe/transform/resize_bounds_property_test.exs`
-Expected: PASS. If the axis-ceiling property fails on a rounding edge (result == max+1 from `positive_round`), the design intends axis caps to be *exact fits*; investigate whether a binding axis term rounded up — if so, the binding axis should also floor. (Expected: a binding axis term `max/value` applied to `value` gives `positive_round(max) == max` exactly when `max` is integer, so this should hold; the floor is only needed for the area term.)
+Expected: PASS (all three properties). A pure axis-cap fit holds on `positive_round` because a binding axis term `max/value` applied to `value` gives `positive_round(max) == max` exactly (integer `max`). The combined-bounds property is the one that would fail without the `area_bounded?` flooring — if it fails with `w·h == max_a + small`, confirm `floor?` floors whenever `max_area` is configured (not only when the area term binds).
 
 - [ ] **Step 8: Run the full transform resize suite (regression)**
 
@@ -627,16 +655,19 @@ git commit -m "feat(transform): carry resize max bounds through resize_from/2"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `test/parser/iiif_test.exs` (the alias `IIIF` is in scope; `@opts` exists):
+Append to `test/parser/iiif_test.exs`. The file has a module-level `@opts` (`[iiif: [resolver: {...}]]`) and a module-level `defp validated/1`. Add the helper at **module level** (next to `validated/1`), not inside the `describe` block (the file's style; a `defp` inside `describe` compiles but reads poorly):
+
+```elixir
+  defp opts_with(extra), do: [iiif: Keyword.merge(@opts[:iiif], extra)]
+```
+
+Then the `describe` block:
 
 ```elixir
   describe "max bounds option validation" do
-    defp opts_with(extra) do
-      [iiif: Keyword.merge(@opts[:iiif], extra)]
-    end
-
-    test "accepts max_width alone" do
-      assert %{} = IIIF.validate_options!(opts_with(max_width: 2000)) |> Keyword.fetch!(:iiif) |> Map.new()
+    test "accepts max_width alone (does not raise)" do
+      assert validated = IIIF.validate_options!(opts_with(max_width: 2000))
+      assert Keyword.fetch!(Keyword.fetch!(validated, :iiif), :max_width) == 2000
     end
 
     test "accepts max_width + max_height" do
@@ -736,45 +767,45 @@ git commit -m "feat(iiif): add max_width/max_height/max_area options with cross-
 
 - [ ] **Step 1: Write the failing producer test**
 
-Append to `test/parser/iiif/plan_builder_test.exs` (match the file's existing aliases — it builds plans via `PlanBuilder.image_plan/3`; check how it constructs `tokens` and `source`):
+The file already has: `@source %SourcePath{segments: ["images", "beach.jpg"]}`, a `defp build(tokens), do: PlanBuilder.image_plan(@source, tokens, auto_rotate: true)` (which hardcodes opts and **cannot** thread bounds — call `image_plan/3` directly instead), `Resize` aliased **directly** (`%Resize{}`, not `%Operation.Resize{}`), and pipelines matched as bare maps `[%{operations: ops}]` (there is **no `Pipeline` alias**). A `{:max, _}`/`{:w, _, _}` size with `region: :full` produces the resize as the **only** op (region `:full` → `[]`), so pattern-match `[%Resize{} = resize]` directly. Append:
 
 ```elixir
   describe "size operations carry max bounds" do
-    test "max threads bounds onto the resize op with maxHeight inferred from maxWidth" do
-      {:ok, plan} =
+    test "max threads bounds onto the resize with maxHeight inferred from maxWidth" do
+      {:ok, %Plan{pipelines: [%{operations: [%Resize{} = resize]}]}} =
         PlanBuilder.image_plan(
-          source(),
-          tokens(size: {:max, false}),
+          @source,
+          %{region: :full, size: {:max, false}, rotation: {false, 0}, quality: :default, format: :jpg},
           max_width: 2000
         )
 
-      [%Pipeline{operations: ops}] = plan.pipelines
-      resize = Enum.find(ops, &match?(%Operation.Resize{}, &1))
       assert resize.max_width == 2000
       assert resize.max_height == 2000
       assert resize.max_area == nil
     end
 
-    test "explicit size also carries the bounds" do
-      {:ok, plan} =
+    test "explicit size also carries the bounds (area too)" do
+      {:ok, %Plan{pipelines: [%{operations: [%Resize{} = resize]}]}} =
         PlanBuilder.image_plan(
-          source(),
-          tokens(size: {:w, 4000, false}),
+          @source,
+          %{region: :full, size: {:w, 4000, false}, rotation: {false, 0}, quality: :default, format: :jpg},
           max_width: 2000,
           max_area: 3_000_000
         )
 
-      [%Pipeline{operations: ops}] = plan.pipelines
-      resize = Enum.find(ops, &match?(%Operation.Resize{}, &1))
       assert resize.max_width == 2000
       assert resize.max_height == 2000
       assert resize.max_area == 3_000_000
     end
 
     test "no bounds configured leaves the resize unbounded" do
-      {:ok, plan} = PlanBuilder.image_plan(source(), tokens(size: {:max, false}))
-      [%Pipeline{operations: ops}] = plan.pipelines
-      resize = Enum.find(ops, &match?(%Operation.Resize{}, &1))
+      {:ok, %Plan{pipelines: [%{operations: [%Resize{} = resize]}]}} =
+        PlanBuilder.image_plan(
+          @source,
+          %{region: :full, size: {:max, false}, rotation: {false, 0}, quality: :default, format: :jpg},
+          auto_rotate: true
+        )
+
       assert resize.max_width == nil
       assert resize.max_height == nil
       assert resize.max_area == nil
@@ -782,7 +813,7 @@ Append to `test/parser/iiif/plan_builder_test.exs` (match the file's existing al
   end
 ```
 
-Add small `source/0` and `tokens/1` helpers if the file doesn't already provide them (check the existing tests — they likely build `tokens` as `%{region: :full, size: ..., rotation: {false, 0}, quality: :default, format: :jpg}` and `source` as a `%Plan.Source.Path{}`). Reuse the file's existing pattern rather than inventing one; the above is illustrative of the assertions, not the fixture style.
+(`%Plan{}` is already aliased in the file. The first two tests omit `auto_rotate` — `image_plan/3` defaults it to `false`, irrelevant to these assertions.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -857,28 +888,46 @@ git commit -m "feat(iiif): thread max bounds through image_plan and size_operati
 - Modify: `lib/image_pipe/parser/iiif/plan_builder.ex` (`info_plan/3` params), `lib/image_pipe/parser/iiif/info.ex` (`document/2`)
 - Test: `test/parser/iiif/info_test.exs`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Extend the shared `@params` attribute first (prevents a KeyError regression)**
 
-Append to `test/parser/iiif/info_test.exs` (match its existing style — it calls `Info.document(info, params)`; reuse its `info`/`params` fixtures):
+The file has a module-level `@info %SourceInfo{format: :jpeg, width: 1000, height: 600, orientation: 1}` and a shared `@params` map (`id`/`level`/`offers`/`formats`/`qualities`/`tile_size`) reused by ~6 existing tests. Once `Info.document/2` dot-accesses `params.max_width` (Step 4), **every existing test that passes `@params` will `KeyError`** unless `@params` carries the keys. So add them to the attribute itself (default `nil`):
+
+```elixir
+  @params %{
+    id: "http://x/iiif/abc",
+    level: "level2",
+    offers: [],
+    formats: [:jpg, :png],
+    qualities: [:default, :color, :gray, :bitonal],
+    tile_size: 512,
+    max_width: nil,
+    max_height: nil,
+    max_area: nil
+  }
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Append to `test/parser/iiif/info_test.exs`. Reuse `@info` and `%{@params | ...}` overrides (the file's established style):
 
 ```elixir
   describe "max bounds advertising" do
     test "emits maxWidth/maxHeight/maxArea when configured" do
-      doc = Info.document(source_info(), params(max_width: 2000, max_height: 1500, max_area: 3_000_000))
+      doc = Info.document(@info, %{@params | max_width: 2000, max_height: 1500, max_area: 3_000_000})
       assert doc["maxWidth"] == 2000
       assert doc["maxHeight"] == 1500
       assert doc["maxArea"] == 3_000_000
     end
 
-    test "omits unset bounds" do
-      doc = Info.document(source_info(), params(max_width: 2000))
+    test "omits unset bounds (only maxWidth configured)" do
+      doc = Info.document(@info, %{@params | max_width: 2000})
       assert doc["maxWidth"] == 2000
       refute Map.has_key?(doc, "maxHeight")
       refute Map.has_key?(doc, "maxArea")
     end
 
-    test "omits all when none configured" do
-      doc = Info.document(source_info(), params([]))
+    test "omits all when none configured (the @params default)" do
+      doc = Info.document(@info, @params)
       refute Map.has_key?(doc, "maxWidth")
       refute Map.has_key?(doc, "maxHeight")
       refute Map.has_key?(doc, "maxArea")
@@ -886,14 +935,12 @@ Append to `test/parser/iiif/info_test.exs` (match its existing style — it call
   end
 ```
 
-Add a `params/1` helper that merges the bound keys (always present, nil when unset) into the existing params fixture, and `source_info/0` reusing the file's existing `%SourceInfo{}` builder. Check the file: `params` must already carry `:tile_size`, `:id`, `:level`, etc. — extend that fixture with `max_width:`/`max_height:`/`max_area:` (default nil).
-
-- [ ] **Step 2: Run to verify failure**
+- [ ] **Step 3: Run to verify failure**
 
 Run: `mise exec -- mix test test/parser/iiif/info_test.exs`
-Expected: FAIL — either `KeyError` (params lacks `:max_width`) or the keys aren't in the doc. (If `KeyError`, that confirms why params must always carry the keys.)
+Expected: FAIL — the `maxWidth`/etc. keys aren't in the doc yet (the new `describe` tests fail; the existing tests still pass now that `@params` carries the keys).
 
-- [ ] **Step 3: Add the keys to `info_plan/3` params**
+- [ ] **Step 4: Add the keys to `info_plan/3` params**
 
 In `lib/image_pipe/parser/iiif/plan_builder.ex`, `info_plan/3`, extend the `params` map (after `tile_size:`):
 
@@ -907,16 +954,16 @@ In `lib/image_pipe/parser/iiif/plan_builder.ex`, `info_plan/3`, extend the `para
 
 (Raw configured values, `nil` when absent. Note: advertise only configured `max_height` — do **not** apply the `|| max_width` inference here; that inference is enforcement-only, per spec.)
 
-- [ ] **Step 4: Emit the keys in `Info.document/2`**
+- [ ] **Step 5: Emit the keys in `Info.document/2`**
 
-In `lib/image_pipe/parser/iiif/info.ex`, change `document/2` to add the bounds via a `maybe_put` after building the base map:
+In `lib/image_pipe/parser/iiif/info.ex`, `document/2` currently returns a **bare map literal** ending in `"extraFeatures" => @extra_features`. Wrap that literal in parentheses and pipe it into `maybe_put` (the map literal is the last expression in the function, so the pipe must attach to the whole literal):
 
 ```elixir
-    %{
-      "@context" => @context,
-      # ... existing keys ...
-      "extraFeatures" => @extra_features
-    }
+    (%{
+       "@context" => @context,
+       # ... existing keys unchanged ...
+       "extraFeatures" => @extra_features
+     })
     |> maybe_put("maxWidth", params.max_width)
     |> maybe_put("maxHeight", params.max_height)
     |> maybe_put("maxArea", params.max_area)
@@ -926,12 +973,14 @@ In `lib/image_pipe/parser/iiif/info.ex`, change `document/2` to add the bounds v
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 ```
 
-- [ ] **Step 5: Run to verify pass**
+(If `mix format` prefers a temp binding over the parenthesized literal — e.g. `doc = %{...}; doc |> maybe_put(...)` — either form is fine; the parens just make the pipe target unambiguous. `@extra_features` stays untouched.)
+
+- [ ] **Step 6: Run to verify pass**
 
 Run: `mise exec -- mix test test/parser/iiif/info_test.exs`
-Expected: PASS.
+Expected: PASS (new `describe` + all existing tests).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/image_pipe/parser/iiif/plan_builder.ex lib/image_pipe/parser/iiif/info.ex test/parser/iiif/info_test.exs
@@ -945,61 +994,82 @@ git commit -m "feat(iiif): advertise maxWidth/maxHeight/maxArea in info.json whe
 **Files:**
 - Test: `test/parser/iiif_wire_test.exs`
 
-Real `ImagePipe.call/2` requests, decode the body, assert dimensions + info.json. Read the existing file's helpers first (how it mounts `ImagePipe.Plug` with `iiif:` opts, makes requests, decodes the body to assert dims — it already has gray-pixel and dimension checks). Reuse those helpers; configure an endpoint variant with bounds. A small enough source (`woman.jpg` 1200×800 if present, else any sample) is needed so `^max` visibly upscales above source.
+Real end-to-end requests, decode the body, assert dimensions + info.json. **The file's real helpers (read them first):**
+- `call_iiif(path, opts, req_headers \\ [])` — mounts `ImagePipe.Plug` under `script_name: ["iiif"]`; `path` is e.g. `"/img/full/^max/0/default.png"` (no `/iiif` prefix).
+- `iiif_opts(origin_plug)` — base opts with `iiif: [resolver: static_resolver()]`. **There is no `@opts` attribute.** Add a bounded variant (Step 1a).
+- `dimensions(conn)` → `{width, height}` (decodes `conn.resp_body`). `decoded_image(conn)` → the `Image`.
+- The only origin is `OriginImage`, a **fixed 200×300 opaque PNG**. The resolver maps `"img"`/`"imgrgba"` → 200×300. **There is no "small"/"large" source** — use `"img"` (200×300) and choose ceilings relative to it: a ceiling **> 300** makes `^max` upscale; a ceiling **< 200** makes `max`/explicit clamp.
+- info.json: decode with `JSON.decode!(conn.resp_body)` (already used elsewhere in the file).
 
-- [ ] **Step 1: Write the failing wire tests**
+- [ ] **Step 1a: Add a bounded opts helper**
 
-Append a `describe "max bounds"` block to `test/parser/iiif_wire_test.exs`, modeled on the file's existing request+decode helpers. Conceptual shape (adapt to the file's actual helper names — e.g. `call/2`, `decode_dims/1`, the `@opts` mount config):
+Next to `iiif_opts_tile/2`, add:
+
+```elixir
+  defp iiif_opts_bounded(origin_plug, bounds) do
+    [
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: static_resolver()] ++ bounds,
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
+      ]
+    ]
+  end
+```
+
+- [ ] **Step 1b: Write the failing wire tests**
+
+Append to `test/parser/iiif_wire_test.exs`. Expected dims are computed from the real **200×300** source (portrait → height binds for a square ceiling):
 
 ```elixir
   describe "max bounds (#257)" do
-    # Endpoint configured with a sub-source ceiling so behavior is observable.
-    @bounded_iiif_opts # build from the file's base opts + [max_width: 1000, max_height: 1000]
-
-    test "^max upscales a small source above its native size" do
-      # source smaller than the 1000 ceiling, e.g. 800x600 sample
-      conn = request("/small/full/^max/0/default.png", @bounded_iiif_opts)
+    test "^max upscales the 200x300 source toward a larger ceiling box" do
+      # 1000-box on 200x300 (height-binding): scale 1000/300 -> 667x1000.
+      conn = call_iiif("/img/full/^max/0/default.png", iiif_opts_bounded(OriginImage, max_width: 1000, max_height: 1000))
       assert conn.status == 200
-      {w, h} = decode_dims(conn.resp_body)
-      assert w == 1000 or h == 1000           # grown to the ceiling box
-      assert w > native_w or h > native_h     # actually upscaled
+      {w, h} = dimensions(conn)
+      assert h == 1000               # grew to the ceiling on the binding axis
+      assert w > 200                 # actually upscaled past native width
     end
 
-    test "max clamps a large source down to the ceiling" do
-      conn = request("/large/full/max/0/default.png", @bounded_iiif_opts)
-      {w, h} = decode_dims(conn.resp_body)
-      assert w <= 1000 and h <= 1000
-      assert w == 1000 or h == 1000           # fits the box on the binding axis
+    test "max clamps the 200x300 source down to a sub-source ceiling" do
+      # 100-box on 200x300 (height-binding): scale 100/300 -> 67x100.
+      conn = call_iiif("/img/full/max/0/default.png", iiif_opts_bounded(OriginImage, max_width: 100, max_height: 100))
+      {w, h} = dimensions(conn)
+      assert w <= 100 and h <= 100
+      assert h == 100                # fits the box on the binding axis
     end
 
     test "explicit width exceeding maxWidth is clamped down (not 400)" do
-      conn = request("/large/full/2000,/0/default.png", @bounded_iiif_opts)
+      # request width 150 (<= 200, no upscale-400) with maxWidth 100 -> clamped.
+      conn = call_iiif("/img/full/150,/0/default.png", iiif_opts_bounded(OriginImage, max_width: 100))
       assert conn.status == 200
-      {w, _h} = decode_dims(conn.resp_body)
-      assert w <= 1000
+      {w, _h} = dimensions(conn)
+      assert w <= 100
     end
 
     test "info.json advertises configured bounds" do
-      conn = request("/large/info.json", @bounded_iiif_opts)
+      conn = call_iiif("/img/info.json", iiif_opts_bounded(OriginImage, max_width: 1000, max_height: 800, max_area: 500_000))
       body = JSON.decode!(conn.resp_body)
       assert body["maxWidth"] == 1000
-      assert body["maxHeight"] == 1000
+      assert body["maxHeight"] == 800
+      assert body["maxArea"] == 500_000
     end
 
     test "info.json omits bounds when unconfigured" do
-      conn = request("/large/info.json", @unbounded_iiif_opts)
+      conn = call_iiif("/img/info.json", iiif_opts(OriginImage))
       body = JSON.decode!(conn.resp_body)
       refute Map.has_key?(body, "maxWidth")
+      refute Map.has_key?(body, "maxHeight")
+      refute Map.has_key?(body, "maxArea")
     end
   end
 ```
 
-Use the file's real identifiers/sources (it maps identifiers to sample images via a Static resolver). Pick a small sample for the `^max` upscale assertion and a large one for the clamp assertions. If the file lacks a `decode_dims` helper, use `Image.from_binary/1` + `Image.width/1`/`Image.height/1` (the file already decodes bodies for pixel checks — find that helper).
-
 - [ ] **Step 2: Run to verify failure**
 
 Run: `mise exec -- mix test test/parser/iiif_wire_test.exs`
-Expected: FAIL only on the new block if any helper wiring is off; the production code is already in place from Tasks 1–9, so these may **pass** once the test harness is wired correctly. If they pass immediately, that's fine — these are end-to-end confirmations of the already-implemented path. (If a test is red, debug the test harness/opts, not the production code.)
+Expected: FAIL on the new block (production code from Tasks 1–9 is already in place, so failures here indicate test-harness wiring; if they pass immediately that's a valid end-to-end confirmation). If a test is red on dims, recompute the expected box from the real 200×300 source — do not change production code unless a genuine bug surfaces.
 
 - [ ] **Step 3: Make the tests green**
 
@@ -1102,7 +1172,7 @@ git commit -m "feat(fiddle): demo IIIF max bounds + re-enable ^max upscaling tog
 
 In `docs/iiif_3_support_matrix.md`:
 
-- The Size table `max` / `^max` row (~line 38) currently reads "Bounded by `maxWidth`/`maxHeight`/`maxArea` when configured." Keep it accurate now that it's true; expand to note `^max` grows to the ceiling and `max` clamps down.
+- The Size table `max` / `^max` row (~line 38) already reads "Bounded by `maxWidth`/`maxHeight`/`maxArea` when configured." **Edit that row in place** (do not append a second overlapping description elsewhere) to note `^max` grows to the ceiling and `max` clamps down.
 - The info.json `maxWidth` / `maxHeight` / `maxArea` row (~line 85) currently says "➖ **Not advertised** … conformance lie." Replace with ✅:
 
 ```markdown
@@ -1166,6 +1236,6 @@ git add -A && git commit -m "chore: mix format" || true
 ## Self-review notes (for the executor)
 
 - **Spec coverage:** schema+cross-field (T7), enforcement in size mapping (T5+T8), info.json advertising (T9), `^max` re-enable + demo bounds (T11), matrix sync incl. validator-N/A + divergence (T12). All spec sections map to a task.
-- **Type consistency:** `max_width`/`max_height`/`max_area` (`pos_integer | nil`) used identically across `Plan.Operation.Resize` (T1), constructor/`semantic?` (T2), `key_data` (T3), `Transform.Operation.Resize` (T4/T5), `resize_from` (T6). `bound_opts/1` (plan_builder), `apply_bounds/3`/`grow_to_bounds?/1`/`bound_terms/2`/`binding_scale/1`/`scaled_bound_axis/3` (resize), `maybe_put/3` (info), `optional_positive_integer/2`/`optional_positive_integer_value/1`/`validate_max_bounds!/1` (operation/iiif) — each defined in exactly one task and referenced consistently.
-- **Critical correctness (from spec review):** `^max` grows from `intermediate` (source), `target` stays `:auto` (T5); per-candidate scale; floor area-binding axis for the `w·h ≤ maxArea` MUST (T5); validator endpoint stays bounds-free (T12/T13); cross-field via post-`validate!` not `:custom` (T7).
+- **Type consistency:** `max_width`/`max_height`/`max_area` (`pos_integer | nil`) used identically across `Plan.Operation.Resize` (T1), constructor/`semantic?` (T2), `key_data` (T3), `Transform.Operation.Resize` (T4/T5), `resize_from` (T6). `bound_opts/1` (plan_builder), `apply_bounds/3`/`grow_to_bounds?/1`/`bound_scales/2`/`add_axis_scale/3`/`add_area_scale/4`/`area_bounded?/1`/`scaled_bound_axis/3` (resize), `maybe_put/3` (info), `optional_positive_integer/2`/`optional_positive_integer_value/1`/`validate_max_bounds!/1` (operation/iiif) — each defined in exactly one task and referenced consistently.
+- **Critical correctness (from spec + plan review):** `^max` grows from `intermediate` (source), `target` stays `:auto` (T5); per-candidate scale; **floor both axes whenever `max_area` is configured** (not only when the area term binds) for the `w·h ≤ maxArea` MUST, with a combined-bounds property guarding it (T5); validator endpoint stays bounds-free (T12/T13); cross-field via post-`validate!` not `:custom` (T7); test fixtures use the real `@source`/`@params`/`call_iiif`/`dimensions`/`iiif_opts_bounded` shapes and the fixed 200×300 wire source (T8/T9/T10).
 - **TDD:** every production change is preceded by a red test except the pure struct/threading tasks (T1, T4, T6), which are covered by downstream tests and would fail compilation if wrong.
