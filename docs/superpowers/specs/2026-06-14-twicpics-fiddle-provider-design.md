@@ -102,12 +102,13 @@ export type TwicAnchor =
   | "top" | "bottom" | "left" | "right"
   | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
-// A resize dimension: pixels, percent (p), scale (s), or auto (-).
-export type TwicDim =
-  | { unit: "px"; value: number }
-  | { unit: "p"; value: number }
-  | { unit: "s"; value: number }
-  | { unit: "auto" };
+// A resize dimension. `unit: "auto"` emits "-" and ignores `value`; the other
+// units carry a numeric `value`. Flat (not a discriminated union) so the Svelte
+// controls can `bind:value` directly without per-branch type narrowing — a
+// union would make `step.w.value` a type error inside a generic axis renderer.
+// `auto` dims are normalized to `value: 0`, so the URL round-trip is exact.
+export type TwicResizeUnit = "px" | "p" | "s" | "auto";
+export type TwicDim = { unit: TwicResizeUnit; value: number };
 
 // Discriminated union keyed by `type`, each with a stable `id` for sortable keying.
 export type TransformStep =
