@@ -97,6 +97,16 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     ]
   end
 
+  defp iiif_opts_bounded(origin_plug, bounds) do
+    [
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: static_resolver()] ++ bounds,
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
+      ]
+    ]
+  end
+
   defp iiif_opts_with_rgba do
     [
       parser: ImagePipe.Parser.IIIF,
@@ -502,5 +512,75 @@ defmodule ImagePipe.Parser.IIIFWireTest do
 
     refute Enum.any?(vary, &String.contains?(String.downcase(&1), "accept")),
            "image response must not carry vary: accept, got: #{inspect(vary)}"
+  end
+
+  # ---------------------------------------------------------------------------
+  # max bounds (#257)
+  # ---------------------------------------------------------------------------
+
+  describe "max bounds (#257)" do
+    test "^max upscales the 200x300 source toward a larger ceiling box" do
+      # 1000-box on 200x300 (height-binding): scale 1000/300 -> 667x1000.
+      conn =
+        call_iiif(
+          "/img/full/^max/0/default.png",
+          iiif_opts_bounded(OriginImage, max_width: 1000, max_height: 1000)
+        )
+
+      assert conn.status == 200
+      {w, h} = dimensions(conn)
+      # grew to the ceiling on the binding axis
+      assert h == 1000
+      # actually upscaled past native width
+      assert w > 200
+    end
+
+    test "max clamps the 200x300 source down to a sub-source ceiling" do
+      # 100-box on 200x300 (height-binding): scale 100/300 -> 67x100.
+      conn =
+        call_iiif(
+          "/img/full/max/0/default.png",
+          iiif_opts_bounded(OriginImage, max_width: 100, max_height: 100)
+        )
+
+      {w, h} = dimensions(conn)
+      assert w <= 100 and h <= 100
+      # fits the box on the binding axis
+      assert h == 100
+    end
+
+    test "explicit width exceeding maxWidth is clamped down (not 400)" do
+      # request width 150 (<= 200, no upscale-400) with maxWidth 100 -> clamped.
+      conn =
+        call_iiif(
+          "/img/full/150,/0/default.png",
+          iiif_opts_bounded(OriginImage, max_width: 100)
+        )
+
+      assert conn.status == 200
+      {w, _h} = dimensions(conn)
+      assert w <= 100
+    end
+
+    test "info.json advertises configured bounds" do
+      conn =
+        call_iiif(
+          "/img/info.json",
+          iiif_opts_bounded(OriginImage, max_width: 1000, max_height: 800, max_area: 500_000)
+        )
+
+      body = JSON.decode!(conn.resp_body)
+      assert body["maxWidth"] == 1000
+      assert body["maxHeight"] == 800
+      assert body["maxArea"] == 500_000
+    end
+
+    test "info.json omits bounds when unconfigured" do
+      conn = call_iiif("/img/info.json", iiif_opts(OriginImage))
+      body = JSON.decode!(conn.resp_body)
+      refute Map.has_key?(body, "maxWidth")
+      refute Map.has_key?(body, "maxHeight")
+      refute Map.has_key?(body, "maxArea")
+    end
   end
 end
