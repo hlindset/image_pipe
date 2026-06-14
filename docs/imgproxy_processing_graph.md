@@ -80,7 +80,7 @@ internal computation (preshrink, colorspace, result-crop, format-limit fixups).
 | 3 | `scaleOnLoad` | internal: preshrink from `width`/`height`/`dpr`/`enlarge` | OSS (auto) |
 | 4 | `colorspaceToProcessing` | internal; respects `preserve_hdr` / `ph` | OSS (auto) |
 | 5 | `crop` | `crop` / `c` (+ `crop_gravity`, falls back to `gravity`) | OSS |
-| 6 | `scale` | `width` `height` `resize` `resizing_type` `enlarge` `dpr` `zoom` `min_width` `min_height` | OSS |
+| 6 | `scale` | `width` `height` `resize` `resizing_type` `enlarge` `dpr` `zoom` `min-width` `min-height` | OSS |
 | 7 | `rotateAndFlip` | `rotate` `flip` `auto_rotate` | OSS |
 | 8 | `cropToResult` | internal result-space crop, uses `gravity` | OSS (auto) |
 | 9 | `applyFilters` | `blur` `sharpen` `pixelate` | OSS |
@@ -116,8 +116,8 @@ flowchart TD
     zoom[zoom / z]
     ex[extend / ex]
     exar[extend_aspect_ratio / exar]
-    mw[min_width / mw]
-    mh[min_height / mh]
+    mw[min-width / mw]
+    mh[min-height / mh]
     mrd[max_result_dimension / mrd]
     crop[crop / c]
     car["crop_aspect_ratio / car (Pro)"]
@@ -164,19 +164,30 @@ flowchart TD
     cg -. fallback .-> g
 ```
 
+The diagram shows the highest-interaction pairs. Three further edges from the
+[Edge reference](#edge-reference-verified-against-oss-source) table are omitted to
+keep it legible: `resizing_type=fill-down → result crop`, `cropToResult → gravity`,
+and `rotate`+`auto_rotate → crop dims`. The table is authoritative.
+
 ### Reading the key edges
 
 - **`exar` ⟹ `width` & `height`.** Extend-aspect-ratio only fires when *both*
   target dimensions are set (`TargetWidth > 0 && TargetHeight > 0`,
   `prepare.go:204`). One dimension missing → no-op.
 - **`ex` dominates `exar`.** `extend` runs *before* `extendAspectRatio`
-  (pipeline 10 → 11) and fills the image to the exact target box. `exar`'s canvas
-  is always ≤ that box, so `extendImage` early-returns
-  (`if width <= imgWidth && height <= imgHeight { return nil }`, `extend.go:7`).
-  Since `exar`'s eligibility (both dims set) is exactly the regime where `extend`
-  fills the box, **whenever `extend` is enabled with both dimensions, `exar` is
-  inert** — including its gravity. The two are effectively mutually exclusive with
-  `extend` holding priority. `exar` only ever affects pixels with `extend` off.
+  (pipeline 10 → 11). The image reaching `extend` has already been clamped to ≤ the
+  target box by `cropToResult` (it crops to `ResultCropWidth`×`ResultCropHeight`,
+  which equals the target box), so `extend` grows it to *exactly* the box. `exar`'s
+  canvas is derived from `outWidth/outHeight = MinNonZero(ScaledWidth, ResultCropWidth)`
+  (`prepare.go:205-206`) — also ≤ the target box, by construction. So once `extend`
+  has filled the box, `exar`'s canvas is ≤ the current image and `extendImage`
+  early-returns (`if width <= imgWidth && height <= imgHeight { return nil }`,
+  `extend.go:7`). Since `exar` requires both dims set, that is the only regime it can
+  fire in — so **whenever `extend` is enabled with both dimensions, `exar` is inert**,
+  gravity included. The two are effectively mutually exclusive with `extend` holding
+  priority; `exar` only affects pixels with `extend` off. (This holds even when
+  `min-width`/`min-height` force a *larger* scale: `cropToResult` still crops back to
+  the box before `extend`.)
 - **`dpr` scales, `zoom` does not (everything).** Both multiply target
   width/height (`TargetW = Scale(width, DprScale * ZoomWidth)`, `prepare.go:176`).
   But **`dpr` also scales padding** (`padding.go:12`) and **absolute gravity
@@ -199,19 +210,19 @@ flowchart TD
 | From → To | Type | Condition | imgproxy ref |
 | --- | --- | --- | --- |
 | `exar` → `width`,`height` | requires | fires only if `TargetWidth>0 && TargetHeight>0` and the scaled image doesn't already match the target ratio | `prepare.go:204` |
-| `ex` → `width`/`height` | requires | needs ≥1 target dim > 0; fills to `TargetWidth`×`TargetHeight` | `extend.go:3-30` |
-| `ex` → `exar` | dominates | `ex` fills the box first; `exar` canvas ≤ box ⇒ early return | `extend.go:7`, pipeline 10→11 |
+| `ex` → `width`/`height` | requires | needs ≥1 target dim > 0; grows the image up to `TargetWidth`×`TargetHeight` (grow-only, never shrinks) | `extend.go:3-30` |
+| `ex` → `exar` | dominates | `ex` fills the box first; `exar` canvas is ≤ box by construction (`MinNonZero(scaled, target)`) ⇒ early return | `extend.go:7`, `prepare.go:205-206` |
 | `enlarge` → `width`/`height` | gates | off ⇒ no upscaling; target becomes a ceiling | `prepare.go:120-143` |
 | `resizing_type` → `width`/`height` | gates | picks shrink (fit=max, fill/fill-down=min); governs missing-dim behaviour | `prepare.go:67-111` |
-| `min_width`/`min_height` → `width`/`height` | gates | post-enlarge floor; overrides target to guarantee a minimum result | `prepare.go:146-158` |
+| `min-width`/`min-height` → `width`/`height` | gates | post-enlarge floor; overrides target to guarantee a minimum result | `prepare.go:146-158` |
 | `resizing_type=fill-down` → result crop | gates | `fill-down && !enlarge` ⇒ asymmetric result crop | `prepare.go:182-202` |
 | `max_result_dimension` → scale | gates | post-padding ceiling; downscales all scales if exceeded | `prepare.go:223-264` |
 | `dpr` → `width`/`height` | scales | `TargetDim = Scale(dim, DprScale·Zoom)` | `prepare.go:176-177` |
 | `dpr` → `padding` | scales | `pad = ScaleToEven(pad, DprScale)` | `padding.go:12-15` |
-| `dpr` → gravity offsets | scales | absolute (`\|off\|≥1`) only; relative untouched | `calc_position.go:25-35` |
+| `dpr` → gravity offsets | scales | absolute offsets (magnitude ≥ 1) only; relative untouched | `calc_position.go:25-35` |
 | `zoom` → `width`/`height` | scales | multiplies target dims; **not** offsets/padding | `prepare.go:176-177` |
 | `crop` → scale | gates | crop reduces `widthToScale=MinNonZero(CropW,SrcW)` baseline | `prepare.go:274-280` |
-| `crop_aspect_ratio` (Pro) → `crop` | gates | corrects crop-area aspect before scaling | docs `processing.mdx#crop-aspect-ratio` |
+| `crop_aspect_ratio` (Pro) → `crop` | gates | corrects crop-area aspect before scaling | docs `processing.mdx#crop-aspect-ratio` (inferred; Pro is closed-source) |
 | `trim` → all geometry | recalculates | `trim()` ⇒ `CalcParams()` re-derives src/crop/scale | `trim.go:27` |
 | `crop` → `crop_gravity` | gravity | own slot; falls back to general `gravity` if unset | `crop.go:33`, pipeline gravity wiring |
 | `cropToResult` → `gravity` | gravity | post-scale crop uses general `gravity` | `crop.go:63-66` |
@@ -247,15 +258,15 @@ points back to §2 where relevant.
 
 | Option | Alias | Avail | Syntax |
 | --- | --- | --- | --- |
-| `resize` | `rs` | OSS | `rs:%type:%width:%height:%enlarge:%extend` |
+| `resize` | `rs` | OSS | `rs:%resizing_type:%width:%height:%enlarge:%extend` |
 | `size` | `s` | OSS | `s:%width:%height:%enlarge:%extend` |
-| `resizing_type` | `rt` | OSS | `rt:%type` (fit/fill/fill-down/force/auto) |
+| `resizing_type` | `rt` | OSS | `rt:%resizing_type` (fit/fill/fill-down/force/auto) |
 | `resizing_algorithm` | `ra` | Pro | `ra:%algorithm` (nearest/linear/cubic/lanczos2/lanczos3) |
 | `width` | `w` | OSS | `w:%width` |
 | `height` | `h` | OSS | `h:%height` |
 | `min-width` | `mw` | OSS | `mw:%width` |
 | `min-height` | `mh` | OSS | `mh:%height` |
-| `zoom` | `z` | OSS | `z:%zoom` or `z:%zoom_x:%zoom_y` |
+| `zoom` | `z` | OSS | `z:%zoom_x_y` or `z:%zoom_x:%zoom_y` |
 | `dpr` | — | OSS | `dpr:%dpr` |
 | `enlarge` | `el` | OSS | `el:%enlarge` |
 | `extend` | `ex` | OSS | `ex:%extend:%gravity` |
