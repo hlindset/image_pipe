@@ -446,6 +446,46 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   end
 
   # ---------------------------------------------------------------------------
+  # rot_non90: arbitrary rotation → grown bounding box + transparent corners (png)
+  # ---------------------------------------------------------------------------
+
+  test "rot_non90: 45° on png → larger image with a transparent corner" do
+    conn = call_iiif("/img/full/max/45/default.png", iiif_opts(OriginImage))
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    assert Image.width(img) > 200 and Image.height(img) > 300
+    assert Image.has_alpha?(img)
+    assert List.last(Image.get_pixel!(img, 0, 0)) == 0
+  end
+
+  test "rot_non90: 45° on jpg → opaque (corners flattened onto background)" do
+    conn = call_iiif("/img/full/max/45/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    refute Image.has_alpha?(img)
+  end
+
+  # ---------------------------------------------------------------------------
+  # rot_mirror: !n mirrors before rotating
+  # ---------------------------------------------------------------------------
+
+  test "rot_mirror: !90 → 200 quarter-turn (lossless dims swapped)" do
+    conn = call_iiif("/img/full/max/!90/default.png", iiif_opts(OriginImage))
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    # source 200x300 -> 90° turn -> 300x200
+    assert Image.width(img) == 300 and Image.height(img) == 200
+  end
+
+  test "rot_mirror: percent-encoded ! (%2190) ≡ !90" do
+    conn = call_iiif("/img/full/max/%2190/default.png", iiif_opts(OriginImage))
+    assert conn.status == 200
+  end
+
+  # ---------------------------------------------------------------------------
   # Contract 10: image responses do NOT carry vary: accept (IIIF format is per-URL)
   # ---------------------------------------------------------------------------
 
