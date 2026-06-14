@@ -11,7 +11,10 @@ defmodule ImagePipe.Parser.IIIF.InfoTest do
     offers: [],
     formats: [:jpg, :png],
     qualities: [:default, :color, :gray, :bitonal],
-    tile_size: 512
+    tile_size: 512,
+    max_width: nil,
+    max_height: nil,
+    max_area: nil
   }
 
   test "document has required IIIF 3.0 fields with display dims" do
@@ -80,5 +83,30 @@ defmodule ImagePipe.Parser.IIIF.InfoTest do
       InfoRenderer.render(%RenderContext{info: @info}, @params, [])
 
     assert IO.iodata_to_binary(body) =~ "ImageService3"
+  end
+
+  describe "max bounds advertising" do
+    test "emits maxWidth/maxHeight/maxArea when configured" do
+      doc =
+        Info.document(@info, %{@params | max_width: 2000, max_height: 1500, max_area: 3_000_000})
+
+      assert doc["maxWidth"] == 2000
+      assert doc["maxHeight"] == 1500
+      assert doc["maxArea"] == 3_000_000
+    end
+
+    test "omits unset bounds (only maxWidth configured)" do
+      doc = Info.document(@info, %{@params | max_width: 2000})
+      assert doc["maxWidth"] == 2000
+      refute Map.has_key?(doc, "maxHeight")
+      refute Map.has_key?(doc, "maxArea")
+    end
+
+    test "omits all when none configured (the @params default)" do
+      doc = Info.document(@info, @params)
+      refute Map.has_key?(doc, "maxWidth")
+      refute Map.has_key?(doc, "maxHeight")
+      refute Map.has_key?(doc, "maxArea")
+    end
   end
 end

@@ -29,7 +29,10 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
       ],
       formats: Keyword.get(opts, :formats, [:jpg, :png, :webp, :avif]),
       qualities: Keyword.get(opts, :qualities, [:default, :color, :gray, :bitonal]),
-      tile_size: Keyword.get(opts, :tile_size, 512)
+      tile_size: Keyword.get(opts, :tile_size, 512),
+      max_width: Keyword.get(opts, :max_width),
+      max_height: Keyword.get(opts, :max_height),
+      max_area: Keyword.get(opts, :max_area)
     }
 
     {:ok,
