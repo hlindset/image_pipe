@@ -27,10 +27,24 @@ defmodule ImagePipe.Parser.IIIF.GrammarTest do
   end
 
   test "rotation / quality / format" do
-    assert Grammar.rotation("0") == {:ok, 0}
-    assert Grammar.rotation("90") == {:ok, 90}
-    assert {:error, {:invalid_rotation, "45"}} = Grammar.rotation("45")
-    assert {:error, {:invalid_rotation, "!90"}} = Grammar.rotation("!90")
+    assert Grammar.rotation("0") == {:ok, {false, 0}}
+    assert Grammar.rotation("90") == {:ok, {false, 90}}
+    assert Grammar.rotation("90.0") == {:ok, {false, 90}}
+    assert Grammar.rotation("360") == {:ok, {false, 0}}
+    assert Grammar.rotation("45") == {:ok, {false, 45}}
+    assert Grammar.rotation("22.5") == {:ok, {false, 22.5}}
+    assert Grammar.rotation("!90") == {:ok, {true, 90}}
+    assert Grammar.rotation("!0") == {:ok, {true, 0}}
+    assert Grammar.rotation("045") == {:ok, {false, 45}}
+    assert {:error, {:invalid_rotation, "-5"}} = Grammar.rotation("-5")
+    assert {:error, {:invalid_rotation, "361"}} = Grammar.rotation("361")
+    assert {:error, {:invalid_rotation, "45."}} = Grammar.rotation("45.")
+    assert {:error, {:invalid_rotation, ".5"}} = Grammar.rotation(".5")
+    assert {:error, {:invalid_rotation, "45deg"}} = Grammar.rotation("45deg")
+    assert {:error, {:invalid_rotation, "+45"}} = Grammar.rotation("+45")
+    assert {:error, {:invalid_rotation, " 45"}} = Grammar.rotation(" 45")
+    assert {:error, {:invalid_rotation, "!"}} = Grammar.rotation("!")
+    assert {:error, {:invalid_rotation, "abc"}} = Grammar.rotation("abc")
     assert Grammar.quality("gray") == {:ok, :gray}
     assert Grammar.quality("bitonal") == {:ok, :bitonal}
     assert {:error, {:invalid_quality, "sepia"}} = Grammar.quality("sepia")

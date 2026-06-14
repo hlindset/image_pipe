@@ -423,8 +423,8 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     assert elem(dimensions(conn), 0) == 400
   end
 
-  test "contract 9c: bad rotation (45) → 400" do
-    conn = call_iiif("/img/full/max/45/default.jpg", iiif_opts(OriginImage))
+  test "contract 9c: out-of-range rotation (370) → 400" do
+    conn = call_iiif("/img/full/max/370/default.jpg", iiif_opts(OriginImage))
     assert conn.status == 400
   end
 

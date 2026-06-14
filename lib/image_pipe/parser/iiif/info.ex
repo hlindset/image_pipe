@@ -17,6 +17,8 @@ defmodule ImagePipe.Parser.IIIF.Info do
     "sizeByConfinedWh",
     "sizeUpscaling",
     "rotationBy90s",
+    "rotationArbitrary",
+    "mirroring",
     "baseUriRedirect",
     "cors",
     "jsonldMediaType"
