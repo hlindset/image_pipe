@@ -21,9 +21,11 @@ Verbatim:
 - `max`: *"The extracted region is returned at the maximum size available, but will not be upscaled. The resulting image will have the pixel dimensions of the extracted region, unless it is constrained to a smaller size by `maxWidth`, `maxHeight`, or `maxArea`."*
 - `^max`: *"The extracted region is scaled to the maximum size permitted by `maxWidth`, `maxHeight`, or `maxArea`. If the resulting dimensions are greater than the pixel width and height of the extracted region, the extracted region is upscaled."*
 - The only **400** SHOULD is the upscale-beyond-region case: *"Requests for sizes not prefixed with `^` that result in a scaled region with pixel dimensions greater than the pixel dimensions of the extracted region are errors that should result in a 400 (Bad Request) status code."* (Already handled by `enlargement: :reject`.)
-- General server MUST (the reason enforcement is **uniform**, not `max`-only): *"For all requests the pixel dimensions of the scaled region must not be … greater than the server-imposed limits."*
+- General server MUST (the reason enforcement is **uniform**, not `max`-only): *"For all requests the pixel dimensions of the scaled region must not be less than 1 pixel or greater than the server-imposed limits."* (The ≥ 1px floor is separately preserved by `positive_round/1`.)
+- Direct form-level support for the clamp: the confined `!w,h` / `^!w,h` rows say the result *"must be as large as possible but not larger than … or server-imposed limits"* — the one size form whose own definition bakes in the max-clamp.
 - `maxWidth`/`maxHeight`/`maxArea` are written as **client** constraints (*"clients must not expect requests with a width greater than this value to be supported"*) — there is **no** mandated 400 for an explicit size that exceeds a max.
 - Cross-field rules: *"`maxWidth` must be specified if `maxHeight` is specified"*; *"If `maxWidth` is specified and `maxHeight` is not, then clients should infer that `maxHeight = maxWidth`"*; `maxArea` may be specified on its own.
+- `sizeUpscaling` coupling (§5.7): *"A server that supports `sizeUpscaling` must specify `maxWidth` or `maxArea`."* Our parser advertises `sizeUpscaling` unconditionally (it supports `^`-prefixed **explicit** sizes — `^w,`/`^pct:n`/`^!w,h` — which upscale with no ceiling needed). Only `^max` is degenerate when no bound is configured (it has no ceiling to scale *to*, so it falls back to source size = the unbounded no-op). We deliberately **do not** force every IIIF host to configure a bound (a greenfield zero-config default must keep working), so unbounded `^max` → source is a **documented divergence** from this MUST, recorded in the matrix — not a hard config rejection.
 
 **Design consequence.** Because the maxes *are* the advertised "server-imposed limits," the MUST means a scaled result must never exceed them **for any request** — not just `max`/`^max`. A `max`/`^max`-only enforcement would leave a real hole: with `maxWidth` configured **below** the source, an explicit `3000,` (no `^`, ≤ source, so no upscale-400) would return a 3000px image while we advertise `maxWidth: 2000`. So enforcement is a **uniform output ceiling** applied to every size form, satisfying the MUST. (Decision confirmed with the issue owner: uniform clamp, clamp-down on overflow — not a 400.)
 
@@ -40,23 +42,29 @@ Two structs change in lockstep (the same Plan-op / Transform-op pairing every re
 
 ### The ceiling resolution — direction falls out of the existing op signature
 
-In `Transform.Operation.Resize.resolve_dimensions/2`, after the existing target/intermediate dims are computed, apply a single bounding step. Given a candidate `{w, h}` and the configured ceilings, compute the per-constraint scales and take the binding (smallest) one:
+In `Transform.Operation.Resize.resolve_dimensions/2`, **after** the existing `normalize/1` and the target/intermediate dims are computed, apply a bounding step. The predicate and `bound_scale` read the **normalized** operation (so `max`/`^max` are `width: :auto, height: :auto`) and the transform op's **`enlarge` boolean** (resize.ex, *not* the plan op's `enlargement` atom). The step is **per-candidate** — it runs separately on the `intermediate` dims and the `target` dims, computing `bound_scale` from *that candidate's own* `{w, h}` (the two can differ; for IIIF's `:fit`/`:force` they coincide in pixel terms, but the rule must be per-candidate to stay correct):
 
 ```
-bound_scale = min over configured bounds of:
+# all-nil fast path: if max_width, max_height, max_area are all nil → return the
+# candidate unchanged (no scale constructed, no re-round) so behavior is byte-identical to today.
+bound_scale(candidate {w, h}) = min over CONFIGURED bounds of:
   max_width  / w
   max_height / h
   sqrt(max_area / (w * h))
 ```
 
-(`nil` bounds contribute no term; if all three are `nil`, the bounding step is a no-op and the op behaves exactly as today.)
+`nil` bounds contribute no term. **A `:auto` axis is passed through untouched** — never multiplied (`scale_dimensions/2` would raise on `:auto`), and it contributes no `max_width`/`max_height` term for that axis.
 
 Then choose the direction from the op's own shape — **no new flag, no parser lookahead**:
 
-- **Grow-to-ceiling** — apply `bound_scale` even when `> 1.0` — **iff** the op is the bare `max`/`^max` signature *with* enlargement: `enlarge and width == :auto and height == :auto and not factor_requested?(operation)`. That predicate is exactly `^max` (the `max` keyword maps to `Resize{mode: :fit, width: :auto, height: :auto}`; `pct` sets `zoom_*` so `factor_requested?` is true and is excluded). This makes `^max` "scaled to the maximum size permitted by the bounds," including the **`maxArea`-only** case (scale source up until `w·h == maxArea`).
+- **Grow-to-ceiling** — apply `bound_scale` even when `> 1.0` — **iff** the op is the bare `max`/`^max` signature *with* enlargement: `enlarge and width == :auto and height == :auto and not factor_requested?(operation)`. That predicate is exactly `^max` (the `max` keyword maps to `Resize{mode: :fit, width: :auto, height: :auto}`; `pct` sets `zoom_*` so `factor_requested?` is true and is excluded; `^w,`/`^,h` leave one axis `{:px,_}` after normalize so the predicate is false → clamp-down). **For this case `target` is `{:auto, :auto}` and `intermediate` is `source`** (traced: `resolve_base_dimensions` → auto/auto → `target_dimensions` auto/auto, `intermediate_dimensions` → source). So the grow scale is derived from and applied to the **`intermediate` (source) dims**; the grown intermediate is what drives the pixel resize (`fit_resize_and_result_crop` reads `intermediate_*`). `target` stays `:auto` — no consumer needs a numeric `target` for `^max` (response/info dims come from the resized image, not `target`). This makes `^max` "scaled to the maximum size permitted by the bounds," including the **`maxArea`-only** case (scale source up until `w·h ≈ maxArea`).
 - **Clamp-down** — apply `min(1.0, bound_scale)` — for **everything else**: plain `max` (never upscales), and every explicit form (`w,`/`,h`/`w,h`/`!w,h`/`pct`, including their `^` variants, which upscale to *their own* target and are then capped). This is the uniform clamp satisfying the spec MUST.
 
-Apply the chosen scale to the resolved **intermediate** (actual resize) dims and the **target** dims, via the existing `scale_dimensions/2` + `positive_round/1` helpers (preserving the ≥ 1px floor). For the `:force` (`w,h` stretch) mode the uniform scale preserves the requested stretch ratio while fitting both axis caps and the area cap.
+Apply the chosen scale via `scale_dimensions/2` + `positive_round/1` (preserving the ≥ 1px floor). For the `:force` (`w,h` stretch) mode the uniform scale preserves the requested stretch ratio while fitting both axis caps and the area cap.
+
+**maxArea must never be exceeded (it's a MUST, not a SHOULD).** Per-axis `positive_round` of a `sqrt`-derived scale can push `w·h` marginally *above* `max_area`. When the **area term is the binding constraint**, round the result **down** (floor the area-binding axis / floor the scale) so the invariant `w·h ≤ max_area` holds exactly. A unit test asserts `w·h ≤ max_area` across shapes (including the rounding-edge cases).
+
+**`effective_dpr` is intentionally not re-derived after the bound step**, and `result_box_*` (the cover/fill result-crop box) is **not** scaled by `bound_scale`. This is correct for the IIIF surface (`:fit`/`:force`): IIIF's bounded forms never produce a *biting* result-crop (`max`/`^max`/`pct` have `:auto` result box; explicit `w,`/`,h`/`!w,h` set no `min_width`/`min_height` so the fit crop is a no-op), so the crop box and dpr-scaled offsets are unaffected. **Scope guard:** bounds are therefore only honored for `:fit` and `:force`. The fields are product-neutral and `resize_from/2` copies them onto *every* mode, so a future `:cover`/`:fill` op with bounds set would resize the intermediate but crop to an *unscaled* `result_box` → wrong crop. No producer sets bounds on a cover resize today; this is left **out of scope and untested** (documented here so a future cover-bounds consumer knows to also scale `result_box_*`), rather than building speculative support.
 
 **Traced cases (against the resolver):**
 
@@ -83,11 +91,11 @@ When `maxWidth` is configured and `maxHeight` is not, the effective height ceili
   - `max_height: [type: :pos_integer]`
   - `max_area: [type: :pos_integer]`
 
-  NimbleOptions enforces `pos_integer` per field; a custom cross-field validation (in `validate_options!/1`, after `NimbleOptions.validate!`, or via a `:custom` keyword-level check) rejects `max_height` present without `max_width`. `max_area` alone and `max_width` alone are valid. **Remove** the "conformance lie" comment block (lines ~21–26) cleanly — no narration of the removal.
-- **`PlanBuilder.image_plan/3`** — read `max_width`/`max_height`/`max_area` from `opts`; compute `bounds = %{max_width: mw, max_height: mh || mw, max_area: ma}` (nils preserved); thread `bounds` into every `size_operations/2` call.
-- **`PlanBuilder.size_operations/2`** — each clause passes `max_width: bounds.max_width, max_height: bounds.max_height, max_area: bounds.max_area` into its `Operation.resize(...)` opts. `{:max, up?}` keeps `:auto, :auto` (the grow-to-ceiling signature); explicit forms keep their existing width/height target (the clamp-down path). No other mapping change.
-- **`PlanBuilder.info_plan/3`** — add `max_width`/`max_height`/`max_area` to the info `params` map (raw configured values, nil when absent).
-- **`Info.document/2`** — emit `"maxWidth"`/`"maxHeight"`/`"maxArea"` keys **only when the corresponding param is non-nil** (omit otherwise). Place alongside `width`/`height`. Never emit an inferred `maxHeight`.
+  NimbleOptions enforces `pos_integer` per field. The cross-field rule (`max_height` present without `max_width` → reject) goes in `validate_options!/1` **after** `NimbleOptions.validate!` — *not* a `:custom` per-key validator, which can't see a sibling key. This follows the established pattern: imgproxy's `validate_options!` already does post-`validate!` work (signature, source encryption). `max_area` alone and `max_width` alone are valid. **Remove** the "conformance lie" comment block (lines ~21–26) cleanly — no narration of the removal.
+- **`PlanBuilder.image_plan/3`** — read `max_width`/`max_height`/`max_area` from `opts`; compute `bounds = %{max_width: mw, max_height: mh || mw, max_area: ma}` (nils preserved; `mh || mw` is the spec's `maxHeight = maxWidth` inference); thread `bounds` into every `size_operations` call.
+- **`PlanBuilder.size_operations/1` → `/2`** — this is an **arity bump** (today it is `size_operations(tokens.size)`, arity 1): add a `bounds` parameter to every clause. Each clause passes `max_width: bounds.max_width, max_height: bounds.max_height, max_area: bounds.max_area` into its `Operation.resize(...)` opts. `{:max, up?}` keeps `:auto, :auto` (the grow-to-ceiling signature); explicit forms keep their existing width/height target (the clamp-down path). No other mapping change.
+- **`PlanBuilder.info_plan/3`** — the `params` map is built inline (`plan_builder.ex:23-33`); **always** add `max_width`/`max_height`/`max_area` keys (raw configured value or `nil`). Always present (even as `nil`) so `Info.document`'s dot-access (`params.max_width`) can't `KeyError`. `InfoRenderer` is a pass-through and needs no change.
+- **`Info.document/2`** — emit `"maxWidth"`/`"maxHeight"`/`"maxArea"` keys **only when the corresponding param is non-nil** (omit otherwise; read via the always-present param key so dot-access is safe). Place alongside `width`/`height`. Never emit an inferred `maxHeight`. `@extra_features` is **untouched** — the maxes are top-level technical properties, not registry features.
 
 ### Plan model + cache + validation
 
@@ -95,6 +103,7 @@ When `maxWidth` is configured and `maxHeight` is not, the effective height ceili
 - **`valid_resize?/1` (`semantic?` gate)** — add `pos_integer | nil` checks for the three fields so the gate stays exhaustive over the struct.
 - **`Plan.KeyData.data(%Resize{})`** — add `max_width`/`max_height`/`max_area` to the key data (they change stored bytes → part of storage identity per the Cache guidelines). ETag derives from the canonical plan, so it picks them up for free.
 - **`PlanExecutor.resize_from/2`** — copy `max_width`/`max_height`/`max_area` from the `PlanResize` onto the transform `%Resize{}` (alongside `min_width`/`min_height`).
+- **No telemetry/Logger change.** No event is added, renamed, or re-meta'd — an existing op struct merely gains fields, which the per-op `:params` dump surfaces automatically. (Stated to preempt the AGENTS telemetry-sync flag.)
 
 ### Materialization / decode planning
 
@@ -113,7 +122,8 @@ Update `docs/iiif_3_support_matrix.md`:
 - **Fix the existing contradiction.** Line ~38 ("`max` / `^max` … Bounded by maxWidth/maxHeight/maxArea when configured") was written optimistically; line ~85 says "Not advertised." Reconcile: the row now accurately describes the implemented behavior, and the info.json row flips from ➖ to ✅.
 - **Surface axis** — info.json `maxWidth`/`maxHeight`/`maxArea` row → ✅: advertised when configured, with the cross-field rule (`maxHeight` requires `maxWidth`; `maxArea` standalone; only configured values emitted).
 - **Stage/order + behavioral/pixel axis** — note the uniform output ceiling: every size form is clamped down to fit `maxWidth`×`maxHeight` (effective `maxHeight = maxWidth` when only `maxWidth` set) and `maxArea`; `^max` (and `max`) additionally *grow to* the ceiling via the auto/auto + enlarge signature; the clamp satisfies the spec's "for all requests … server-imposed limits" MUST.
-- **Validator** — record that the official image-validator has **no** maxWidth/maxHeight/maxArea test (confirmed against its test list), so there is nothing to wire by name; our wire tests are the coverage. (Contrast #305, which wired `rot_*` tests by name.)
+- **Validator** — record that the official image-validator has **no** maxWidth/maxHeight/maxArea test (confirmed against its test list), so there is nothing to wire by name; our wire tests are the coverage. (Contrast #305, which wired `rot_*` tests by name.) The validator *does* run `size_up.py` (`^max`), which asserts `^max` == **full source size** and does not consult the info.json maxes — so the validator endpoint (`validator/server.exs`) must remain **bounds-free** for the gate to stay green. The demo bounds are scoped to the fiddle endpoint only; **do not** add bounds to `validator/server.exs`.
+- **Divergence (`sizeUpscaling` ↔ max coupling).** Add a "Diverges" note: the spec §5.7 MUST *"A server that supports `sizeUpscaling` must specify `maxWidth` or `maxArea`"* is not enforced as a hard config requirement. We advertise `sizeUpscaling` unconditionally (explicit `^` forms work unbounded); when no bound is configured, `^max` degrades to source size (the unbounded no-op). A greenfield zero-config default must keep working, so we accept this as a documented divergence rather than forcing every host to configure a bound.
 - No imgproxy parity row — imgproxy has no analogous output-dimension ceiling; this is IIIF-driven (IIIF spec is ground truth).
 
 ## Testing
@@ -126,8 +136,10 @@ Per `AGENTS.md`:
   - `^max` / `max` with ceiling < source → downscale to box.
   - explicit `w,h` / `pct` exceeding a ceiling → clamped down, result ≤ ceiling on every axis and `w·h ≤ maxArea`.
   - `maxArea`-only `^max` → `w·h ≈ maxArea` (upscale or downscale as needed).
+  - **`maxArea` invariant**: across shapes/scales (incl. rounding-edge cases) the result satisfies `w·h ≤ max_area` exactly (the area MUST — guards the floor-the-binding-axis rounding).
   - effective `maxHeight = maxWidth` when only `maxWidth` set (height ceiling honored).
-  - all-`nil` bounds → byte-identical to no-bounds behavior (no-op regression guard).
+  - all-`nil` bounds → byte-identical to no-bounds behavior (no-op regression guard; exercises the all-nil fast path).
+  - (Cover/fill + bounds is **out of scope and untested** — IIIF uses only `:fit`/`:force`; see the scope guard in "ceiling resolution".)
   - **No materialization claim changes** — `Resize` stays non-materializing; no sequential-safety harness entry is added (the bounding step is pure dim arithmetic, already covered by the op's existing sequential classification).
 - **IIIF wire conformance** (`test/parser/iiif_wire_test.exs`) — real `ImagePipe.call/2`, decode the body, assert dims:
   - `^max` with demo bounds on a small source → decoded dims **> source** (visible upscale).
@@ -144,16 +156,16 @@ Per `AGENTS.md`:
 - `lib/image_pipe/plan/operation/resize.ex` — `defstruct` + `@type` add `max_width`/`max_height`/`max_area` (`pos_integer | nil`, default `nil`).
 - `lib/image_pipe/plan/operation.ex` — `@semantic_resize_keys` + `resize/4` build + `valid_resize?/1` add the three fields with `pos_integer | nil` validation.
 - `lib/image_pipe/plan/key_data.ex` — `data(%Resize{})` adds the three fields (`optional_data/1`).
-- `lib/image_pipe/transform/operation/resize.ex` — `defstruct` + `@type` add the fields; `resolve_dimensions/2` applies the grow/clamp bounding step (new private helpers `apply_bounds/3` + `bound_scale/2` + the grow-vs-clamp predicate).
+- `lib/image_pipe/transform/operation/resize.ex` — `defstruct` + `@type` add the fields; `resolve_dimensions/2` applies the **per-candidate** grow/clamp bounding step to `intermediate` and `target` (new private helpers `apply_bounds/2` + `bound_scale/2` + the grow-vs-clamp predicate), with `:auto`-axis pass-through, an all-nil fast path, and floor-the-area-binding-axis so `w·h ≤ max_area`.
 - `lib/image_pipe/transform/plan_executor.ex` — `resize_from/2` copies the three fields onto the transform `Resize`.
-- `lib/image_pipe/parser/iiif.ex` — `@schema` adds the three options + cross-field validation; remove the "conformance lie" comment.
-- `lib/image_pipe/parser/iiif/plan_builder.ex` — `image_plan/3` reads bounds + computes `eff_max_height`; `size_operations/2` threads bounds into every resize; `info_plan/3` adds bounds to `params`.
-- `lib/image_pipe/parser/iiif/info.ex` — `document/2` emits `maxWidth`/`maxHeight`/`maxArea` when configured.
+- `lib/image_pipe/parser/iiif.ex` — `@schema` adds the three options + post-`validate!` cross-field check; remove the "conformance lie" comment.
+- `lib/image_pipe/parser/iiif/plan_builder.ex` — `image_plan/3` reads bounds + computes `eff_max_height = mh || mw`; `size_operations/1 → /2` (arity bump) threads bounds into every resize; `info_plan/3` adds the three keys to `params` (always present, nil when unset).
+- `lib/image_pipe/parser/iiif/info.ex` — `document/2` emits `maxWidth`/`maxHeight`/`maxArea` when configured (`@extra_features` untouched).
 - `fiddle/lib/image_pipe_fiddle/application.ex` — demo bounds in `build_iiif_opts/0`.
 - `fiddle/assets/IiifControls.svelte` — re-enable the `^` toggle for `max`.
 - `fiddle/assets/iiif-path.ts` — stale-comment cleanup only (if any).
-- `docs/iiif_3_support_matrix.md` — surface + stage/order + behavioral/pixel + validator-N/A + contradiction fix.
-- **No edit needed**: `grammar.ex` (bounds are config, not URL); the Docker validator task (no by-name test to add).
+- `docs/iiif_3_support_matrix.md` — surface + stage/order + behavioral/pixel + validator-N/A + `sizeUpscaling`-divergence note + contradiction fix.
+- **No edit needed**: `grammar.ex` (bounds are config, not URL); `info_renderer.ex` (pass-through); the Docker validator task **and `validator/server.exs`** (no by-name test; endpoint stays bounds-free); telemetry `Logger` (no event change).
 
 ## Out of scope (separate #257 slice)
 
@@ -162,12 +174,12 @@ Per `AGENTS.md`:
 - Per-request fill / granular tiling config and info/derivative caching — unrelated follow-ups.
 - Optimizing decode-shrink for clamped-down explicit requests — correctness holds; perf is deferred.
 
-## Review cycle (per AGENTS.md)
+## Review cycle (per AGENTS.md) — RUN, findings folded in
 
-Run a parallel reviewer cycle on **this spec** before implementation, with disjoint lenses, at least one being **IIIF compatibility** (the spec touches a parser option, size-mapping behavior, and info.json advertising — an observable compatibility axis):
+Three parallel reviewers ran with disjoint lenses; all findings were verified against the code/spec and folded into this spec.
 
-1. **IIIF compatibility** — verify against the IIIF 3.0 spec (and the local docs/spec checkout): `max`/`^max` semantics, the uniform-ceiling reading of the "for all requests … server-imposed limits" MUST, the `maxHeight = maxWidth` inference, cross-field validation, advertise-only-configured-values, and that no upstream validator test is being missed.
-2. **Transform/resize correctness** — the grow-vs-clamp predicate, the `bound_scale` math (incl. `maxArea` and the `:force` stretch case), interaction with `reject_enlargement`/`upscale_required`, the all-nil no-op guarantee, and the unchanged materialization classification.
-3. **Architecture/boundaries + cache** — product-neutrality of the new fields, key-data inclusion vs ETag, the `semantic?` gate, and that no IIIF concept leaks into the core model.
+1. **IIIF compatibility** (ground truth: local `/Users/hlindset/src/iiif-image-api-3.0-spec/spec.md`) — confirmed `max`/`^max` semantics, the uniform-ceiling reading of the "for all requests … server-imposed limits" MUST, the `maxHeight = maxWidth` enforce-but-advertise-only-configured decision, cross-field rules, per-form behavior, and that no upstream validator test is missed. **Folded:** the §5.7 `sizeUpscaling`-requires-`maxWidth`-or-`maxArea` MUST → documented divergence (not a hard config gate); the `maxArea` rounding-overshoot → floor-the-binding-axis so `w·h ≤ max_area`; the `validator/server.exs` must-stay-bounds-free note (`size_up.py` expects `^max` == full source); full-quote + confined-form citations.
+2. **Transform/resize correctness** — confirmed the predicate excludes `pct`/`^w,`/`^,h`, the `reject_enlargement`/`upscale_required` independence, the all-nil no-op, the `maxArea`-only `^max` math, and the non-materializing/decode-planner claims. **Folded (blockers):** `^max` has `target = :auto` and `intermediate = source`, so the grow scale derives from + applies to **`intermediate`** with `:auto`-axis pass-through; the predicate reads the **normalized** op + the `enlarge` boolean; **per-candidate** `bound_scale`; the all-nil **early return**; the cover/fill `result_box`-not-scaled **scope guard** (bounds honored for `:fit`/`:force` only).
+3. **Architecture/boundaries + cache** — confirmed product-neutrality (symmetric to `min_*`), key-data inclusion + "ETag for free" (both consume the same `plan_material`), the constructor/`semantic?` validation as a distinct Plan boundary, no new Boundary crossing/export, and no key-data version bump. **Folded:** cross-field check via post-`validate!` (not `:custom`); `size_operations/1 → /2` is an arity bump; `params` keys always present for safe dot-access; the explicit "no Logger change" note.
 
-Apply accepted feedback, rerun relevant doc checks, and commit the reviewed spec before implementation starts.
+Spec re-reviewed inline after folding (no placeholders, internally consistent, single-slice scope).
