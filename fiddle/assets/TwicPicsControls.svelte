@@ -1,6 +1,8 @@
 <script lang="ts">
   import { SortableList, sortItems } from "@rodrigodagostino/svelte-sortable-list";
   import "@rodrigodagostino/svelte-sortable-list/styles.css";
+  import { DropdownMenu } from "bits-ui";
+  import type { TransitionConfig } from "svelte/transition";
   import RangeNumber from "./RangeNumber.svelte";
   import { type SourceImage } from "./processing-path";
   import {
@@ -66,18 +68,15 @@
     "bottom-right": "↘",
   };
 
+  // Suppress the library's default scale/fly intro so pre-existing chain items
+  // don't animate in on load (the "falls down then snaps" effect). Reorder/remove
+  // animations are left to the library's defaults.
+  const instant = (): TransitionConfig => ({ duration: 0 });
+
   function addStep(type: TransformType): void {
     const step = defaultStep(type, nextStepId());
     twicpicsState.chain = [...twicpicsState.chain, step];
     openCards[step.id] = true;
-  }
-
-  function onAddSelect(event: Event & { currentTarget: HTMLSelectElement }): void {
-    const value = event.currentTarget.value;
-    if (value !== "") {
-      addStep(value as TransformType);
-      event.currentTarget.value = "";
-    }
   }
 
   function removeStep(id: string): void {
@@ -139,7 +138,6 @@
   <div class="accordion-heading">
     <div>
       <h2>Transform chain</h2>
-      <p>{twicpicsState.chain.length} step{twicpicsState.chain.length === 1 ? "" : "s"}</p>
     </div>
   </div>
 
@@ -149,7 +147,7 @@
 
   <SortableList.Root gap={8} ondragend={handleDragEnd}>
     {#each twicpicsState.chain as step, index (step.id)}
-      <SortableList.Item id={step.id} {index}>
+      <SortableList.Item id={step.id} {index} transitionIn={instant}>
         <div class="chain-card">
           <div class="chain-card-head">
             <SortableList.ItemHandle>
@@ -162,6 +160,7 @@
               onclick={() => toggleCard(step.id)}
             >
               <span class="card-name">{step.type}</span>
+              <span class="card-chevron" aria-hidden="true"></span>
               <span class="card-summary">{stepSummary(step)}</span>
             </button>
             <SortableList.ItemRemove
@@ -286,15 +285,19 @@
     {/each}
   </SortableList.Root>
 
-  <label class="field add-transform">
-    <span>Add transform</span>
-    <select value="" onchange={onAddSelect}>
-      <option value="" disabled>+ Add transform…</option>
+  <DropdownMenu.Root>
+    <DropdownMenu.Trigger class="twic-add-trigger">
+      + Add transform
+      <span class="twic-add-chevron" aria-hidden="true"></span>
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content class="twic-menu-content" sideOffset={4} align="start">
       {#each transformTypes as item}
-        <option value={item.type}>{item.label}</option>
+        <DropdownMenu.Item class="twic-menu-item" onSelect={() => addStep(item.type)}>
+          {item.label}
+        </DropdownMenu.Item>
       {/each}
-    </select>
-  </label>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 </section>
 
 <section class="tool-section">
@@ -325,27 +328,53 @@
   }
 
   .chain-card {
+    /* A lighter gray than BOTH inner control surfaces — the inputs/selects
+       (--surface-control) and the slider tracks (--surface-control-track) — so they
+       read as recessed against it (mixing toward the text color keeps it distinct in
+       light and dark themes alike). Also retheme the library's handle/remove buttons,
+       which default to their own gray scale: no hover background, one color, and an
+       opacity-only hover (see below). */
+    background: color-mix(in srgb, var(--surface-control) 82%, var(--text-primary) 18%);
+    --ssl-gray-400: var(--text-primary);
+    --ssl-gray-150: transparent;
+    --ssl-gray-700: var(--text-primary);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
-    background: var(--surface-control);
     overflow: hidden;
   }
 
   .chain-card-head {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
+    gap: 2px;
+    padding: 6px;
+  }
+
+  /* The library pulls the handle/remove out by -1rem (assumes a 1rem container
+     padding); reset so they sit inside our card padding instead of on the border. */
+  .chain-card :global(.ssl-item-handle),
+  .chain-card :global(.ssl-item-remove) {
+    margin: 0;
+    padding: 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 120ms ease;
+  }
+
+  .chain-card :global(.ssl-item-handle:hover),
+  .chain-card :global(.ssl-item-handle:focus-visible),
+  .chain-card :global(.ssl-item-remove:hover),
+  .chain-card :global(.ssl-item-remove:focus-visible) {
+    opacity: 1;
+  }
+
+  .chain-card :global(.ssl-item-handle) {
+    cursor: grab;
   }
 
   .drag-handle {
     display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 28px;
-    color: var(--text-muted);
-    cursor: grab;
     font-size: 16px;
     line-height: 1;
   }
@@ -354,14 +383,28 @@
     flex: 1;
     min-width: 0;
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
     border: 0;
     background: transparent;
     color: var(--text-primary);
     cursor: pointer;
     text-align: start;
-    padding: 4px 2px;
+    padding: 6px 4px;
+  }
+
+  .card-chevron {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-inline-end: 2px solid var(--text-muted);
+    border-block-end: 2px solid var(--text-muted);
+    transform: rotate(45deg) translate(-1px, -1px);
+    transition: transform 150ms ease;
+  }
+
+  .card-toggle[aria-expanded="false"] .card-chevron {
+    transform: rotate(-45deg);
   }
 
   .card-name {
@@ -371,6 +414,10 @@
 
   .card-summary {
     min-width: 0;
+    /* Pushed to the trailing edge of the toggle: name + chevron sit left, the
+       params readout sits right, just before the remove button. */
+    margin-inline-start: auto;
+    padding-inline-start: 8px;
     overflow: hidden;
     color: var(--text-muted);
     font-family: var(--font-mono);
@@ -380,30 +427,15 @@
   }
 
   .chain-card :global(.card-remove) {
-    width: 26px;
-    height: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
     font-size: 18px;
     line-height: 1;
-  }
-
-  .chain-card :global(.card-remove:hover) {
-    background: var(--surface-button-quiet);
-    color: var(--text-heading);
   }
 
   .chain-card-body {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 8px;
+    gap: 12px;
+    padding: 12px;
     border-block-start: 1px solid var(--border-subtle);
   }
 
@@ -445,10 +477,80 @@
   .anchor-cell-empty {
     border: 1px dashed var(--border-subtle);
     border-radius: 6px;
+    cursor: default;
   }
 
-  .add-transform {
+  /* "+ Add transform" dropdown (bits-ui), mirroring the obj-class Select styling. */
+  :global(.twic-add-trigger) {
+    width: 100%;
+    height: 38px;
     margin-block-start: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    padding-inline: 12px 10px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 18px;
+    cursor: pointer;
+    text-align: start;
+  }
+
+  :global(.twic-add-trigger:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  .twic-add-chevron {
+    width: 5px;
+    height: 5px;
+    flex-shrink: 0;
+    border-inline-end: 2px solid var(--text-muted);
+    border-block-end: 2px solid var(--text-muted);
+    transform: rotate(45deg) translate(-1px, -1px);
+    margin-inline-end: 4px;
+  }
+
+  :global(.twic-add-trigger[data-state="open"]) .twic-add-chevron {
+    transform: rotate(-135deg) translate(-1px, -1px);
+  }
+
+  :global(.twic-menu-content) {
+    min-width: var(--bits-dropdown-menu-anchor-width, 180px);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-sidebar);
+    box-shadow: var(--image-shadow);
+    overflow: hidden;
+    padding: 4px;
+    z-index: 50;
+  }
+
+  :global(.twic-menu-item) {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    padding-inline: 8px;
+    width: 100%;
+    text-align: start;
+  }
+
+  :global(.twic-menu-item:hover),
+  :global(.twic-menu-item[data-highlighted]) {
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-control));
+    color: var(--text-heading);
   }
 
   /* Keep the sortable list flush with the surrounding panel. */
