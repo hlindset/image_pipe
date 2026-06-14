@@ -198,6 +198,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultStep,
   defaultTwicPicsState,
+  setResizeAxisUnit,
   stepToken,
   twicBrowserPath,
   twicFetchPath,
@@ -296,6 +297,32 @@ describe("defaultStep factory", () => {
     }
   });
 });
+
+describe("setResizeAxisUnit", () => {
+  it("never leaves both resize axes auto (which would emit resize=-)", () => {
+    const step: Extract<TransformStep, { type: "resize" }> = {
+      type: "resize",
+      id: "1",
+      w: { unit: "px", value: 300 },
+      h: { unit: "auto", value: 0 },
+    };
+    setResizeAxisUnit(step, "w", "auto");
+    const autoCount = [step.w.unit, step.h.unit].filter((unit) => unit === "auto").length;
+    expect(autoCount).toBeLessThan(2);
+    expect(stepToken(step)).not.toBe("resize=-");
+  });
+
+  it("preserves a positive value when switching units", () => {
+    const step: Extract<TransformStep, { type: "resize" }> = {
+      type: "resize",
+      id: "1",
+      w: { unit: "px", value: 250 },
+      h: { unit: "auto", value: 0 },
+    };
+    setResizeAxisUnit(step, "w", "p");
+    expect(step.w).toEqual({ unit: "p", value: 250 });
+  });
+});
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -392,6 +419,28 @@ export function defaultStep(type: TransformType, id: string): TransformStep {
     case "focus":
       return { type: "focus", id, anchor: "top" };
   }
+}
+
+// Editing helper for the resize axes. Setting one axis to "auto" while the other
+// is already auto would serialize a degenerate `resize=-` that the parser rejects
+// (and that parseTwicTail itself refuses to round-trip), so this keeps at least
+// one concrete axis.
+export function setResizeAxisUnit(
+  step: Extract<TransformStep, { type: "resize" }>,
+  axis: "w" | "h",
+  unit: TwicResizeUnit,
+): void {
+  if (unit === "auto") {
+    step[axis] = { unit: "auto", value: 0 };
+    const other = axis === "w" ? "h" : "w";
+    if (step[other].unit === "auto") {
+      step[other] = { unit: "px", value: 300 };
+    }
+    return;
+  }
+
+  const prev = step[axis].value;
+  step[axis] = { unit, value: prev > 0 ? prev : unit === "s" ? 1 : unit === "p" ? 100 : 300 };
 }
 
 // --- encoding ---
@@ -865,8 +914,8 @@ acceptance pass in Task 7. Built before Task 6 so the App import resolves.
   import {
     defaultStep,
     nextStepId,
+    setResizeAxisUnit,
     stepSummary,
-    twicAnchors,
     twicOutputs,
     type TransformStep,
     type TransformType,
@@ -960,20 +1009,6 @@ acceptance pass in Task 7. Built before Task 6 so the App import resolves.
     );
   }
 
-  function setResizeUnit(
-    step: Extract<TransformStep, { type: "resize" }>,
-    axis: "w" | "h",
-    unit: TwicResizeUnit,
-  ): void {
-    if (unit === "auto") {
-      step[axis] = { unit: "auto", value: 0 };
-      return;
-    }
-    const prev = step[axis].value;
-    const value = prev > 0 ? prev : unit === "s" ? 1 : unit === "p" ? 100 : 300;
-    step[axis] = { unit, value };
-  }
-
   function toggleCropOrigin(step: Extract<TransformStep, { type: "crop" }>, on: boolean): void {
     step.origin = on ? { x: 1, y: 1 } : null;
   }
@@ -985,7 +1020,7 @@ acceptance pass in Task 7. Built before Task 6 so the App import resolves.
     <div class="resize-axis">
       <select
         value={step[axis].unit}
-        onchange={(e) => setResizeUnit(step, axis, e.currentTarget.value as TwicResizeUnit)}
+        onchange={(e) => setResizeAxisUnit(step, axis, e.currentTarget.value as TwicResizeUnit)}
       >
         {#each resizeUnits as unit}
           <option value={unit.value}>{unit.label}</option>
@@ -1521,7 +1556,9 @@ and after the iiif-path import (line 14) add:
   }, 150);
 ```
 
-(e) Replace the four `$derived` (lines 125–143) with explicit three-way forms:
+(e) Replace the `$derived` block (lines 125–143) with explicit three-way forms.
+The block has five `$derived`; four are provider-dependent and become three-way,
+and `sizeLabel` is unchanged but reproduced so the whole block matches exactly:
 ```ts
   const previewParameters = $derived(
     appState.provider === "imgproxy"
@@ -1670,8 +1707,9 @@ re-run the gate and amend the relevant commit.
 
 - [ ] **Step 2: Acceptance pass against a running fiddle**
 
-Start the server: `mise run server` (or the project's documented dev command), then
-verify each acceptance criterion from issue #306:
+Start the server: `mise run server` (defined in `mise.toml` as `mix phx.server` in
+`fiddle/`, which boots the Vite watcher via `config/dev.exs`). Then verify each
+acceptance criterion from issue #306:
 
 1. **Provider selector** shows "TwicPics"; selecting it renders the chain builder.
 2. **Add / remove / reorder** — add `resize`, `cover`, `focus`; drag to reorder;

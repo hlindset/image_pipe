@@ -158,9 +158,11 @@ export type TwicPicsState = {
 - `resize` token: when H is `auto`, emit the single token `encodeDim(w)`
   (`resize=340`); otherwise `encodeDim(w) + "x" + encodeDim(h)` (`resize=340x200`,
   `resize=-x200`). Both forms parse back identically through the parser's
-  `Units.size`. A both-`auto` resize is never produced by the UI (it would be a
-  degenerate no-op; the parser would actually *accept* `resize=-x-` as a no-op, so
-  this is a UI non-emission, not a parser rejection).
+  `Units.size`. A both-`auto` resize is never produced by the UI — the editing
+  helper `setResizeAxisUnit` keeps at least one concrete axis when a user switches
+  the other to `auto` (a bare `resize=-` would be a degenerate no-op that
+  `parseTwicTail` itself rejects, breaking the round-trip). This is a UI
+  non-emission enforced by that helper, not a parser rejection.
 - `cover` size → `WxH`; `cover` ratio → `W:H`.
 - `contain` / `inside` → `WxH`.
 - `crop` → `WxH`, plus `@XxY` when an origin is set. (Note: the issue's scope table
