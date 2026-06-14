@@ -38,7 +38,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
           zoom_y: float(),
           dpr: float(),
           enlarge: boolean(),
-          reject_enlargement: boolean()
+          reject_enlargement: boolean(),
+          max_width: pos_integer() | nil,
+          max_height: pos_integer() | nil,
+          max_area: pos_integer() | nil
         }
 
   @type resolved_dimensions() :: %{
@@ -63,7 +66,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
             zoom_y: 1.0,
             dpr: 1.0,
             enlarge: false,
-            reject_enlargement: false
+            reject_enlargement: false,
+            max_width: nil,
+            max_height: nil,
+            max_area: nil
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :resize
