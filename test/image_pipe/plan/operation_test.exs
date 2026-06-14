@@ -429,6 +429,10 @@ defmodule ImagePipe.Plan.OperationTest do
       assert {:ok, %Rotate{angle: 0}} = Operation.rotate(360)
     end
 
+    test "normalizes 360.0 (float) to 0" do
+      assert {:ok, %Rotate{angle: 0}} = Operation.rotate(360.0)
+    end
+
     test "accepts mirror" do
       assert {:ok, %Rotate{angle: 90, mirror: true}} = Operation.rotate(90, true)
     end

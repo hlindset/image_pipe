@@ -99,7 +99,6 @@ defmodule ImagePipe.Plan.Operation do
   @type error ::
           {:invalid_operation, atom(), term()} | {:unknown_operation_options, atom(), [atom()]}
 
-  @spec rotate(term()) :: {:ok, Rotate.t()} | {:error, error()}
   @spec rotate(term(), term()) :: {:ok, Rotate.t()} | {:error, error()}
   def rotate(angle, mirror \\ false)
 
