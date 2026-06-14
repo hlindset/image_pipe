@@ -479,7 +479,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
   defp add_area_scale(scales, _max, _w, :auto), do: scales
   defp add_area_scale(scales, max, w, h), do: [:math.sqrt(max / (w * h)) | scales]
 
-  # True when a max_area ceiling is in force on a candidate with both axes numeric.
+  # True whenever a max_area ceiling is configured. When set, both axes are floored
+  # (not rounded) on any real scale — regardless of which bound binds — so rounding
+  # an axis up can never push w*h over max_area. Do NOT narrow this to "only when the
+  # area term binds": a binding axis term rounded up can co-bind and overshoot.
   defp area_bounded?(%__MODULE__{max_area: nil}), do: false
   defp area_bounded?(%__MODULE__{}), do: true
 
