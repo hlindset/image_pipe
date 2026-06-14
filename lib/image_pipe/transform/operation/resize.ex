@@ -136,6 +136,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
       axis_exceeds?(unclamped.width, source.width) or
         axis_exceeds?(unclamped.height, source.height)
 
+    grow? = grow_to_bounds?(operation)
+    target = apply_bounds(target, operation, grow?)
+    intermediate = apply_bounds(intermediate, operation, grow?)
+
     %{
       requested_width: requested.width,
       requested_height: requested.height,
@@ -428,6 +432,60 @@ defmodule ImagePipe.Transform.Operation.Resize do
       dimensions
     end
   end
+
+  # The grow-to-ceiling case is exactly `^max`: enlarge + bare auto/auto + no zoom/dpr factor.
+  defp grow_to_bounds?(%__MODULE__{enlarge: true, width: :auto, height: :auto} = operation),
+    do: not factor_requested?(operation)
+
+  defp grow_to_bounds?(%__MODULE__{}), do: false
+
+  defp apply_bounds(dims, %__MODULE__{} = operation, grow?) do
+    case bound_scales(dims, operation) do
+      [] ->
+        dims
+
+      scales ->
+        scale = Enum.min(scales)
+        scale = if grow?, do: scale, else: min(1.0, scale)
+        # Any active max_area makes `w·h <= max_area` a MUST. Floor (rather than
+        # round) both axes whenever an area bound applies, so rounding an axis up
+        # can never push the product over the ceiling — regardless of which bound
+        # is the binding (smallest-scale) one. When the area term binds,
+        # (w·s)(h·s) == max_area exactly; when an axis binds, the product is
+        # strictly below max_area; flooring keeps both <= max_area.
+        floor? = area_bounded?(operation) and scale != 1.0
+
+        %{
+          width: scaled_bound_axis(dims.width, scale, floor?),
+          height: scaled_bound_axis(dims.height, scale, floor?)
+        }
+    end
+  end
+
+  # Each configured bound contributes a scale term, skipping :auto axes.
+  defp bound_scales(%{width: w, height: h}, %__MODULE__{} = op) do
+    []
+    |> add_axis_scale(op.max_width, w)
+    |> add_axis_scale(op.max_height, h)
+    |> add_area_scale(op.max_area, w, h)
+  end
+
+  defp add_axis_scale(scales, nil, _value), do: scales
+  defp add_axis_scale(scales, _max, :auto), do: scales
+  defp add_axis_scale(scales, max, value), do: [max / value | scales]
+
+  defp add_area_scale(scales, nil, _w, _h), do: scales
+  defp add_area_scale(scales, _max, :auto, _h), do: scales
+  defp add_area_scale(scales, _max, _w, :auto), do: scales
+  defp add_area_scale(scales, max, w, h), do: [:math.sqrt(max / (w * h)) | scales]
+
+  # True when a max_area ceiling is in force on a candidate with both axes numeric.
+  defp area_bounded?(%__MODULE__{max_area: nil}), do: false
+  defp area_bounded?(%__MODULE__{}), do: true
+
+  defp scaled_bound_axis(:auto, _scale, _floor?), do: :auto
+  defp scaled_bound_axis(value, scale, true), do: max(1, trunc(value * scale))
+  defp scaled_bound_axis(value, scale, false), do: positive_round(value * scale)
 
   defp positive_round(value) when is_number(value) do
     value
