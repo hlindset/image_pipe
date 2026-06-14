@@ -14,7 +14,7 @@ export type IiifSize =
   | { kind: "confined"; w: number; h: number } // !w,h positive ints
   | { kind: "pct"; n: number }; // pct:n  >0; >100 only with upscale
 
-export type IiifRotation = 0 | 90 | 180 | 270;
+export type IiifRotation = { degrees: number; mirror: boolean };
 export type IiifQuality = "default" | "color" | "gray" | "bitonal";
 export type IiifFormat = "jpg" | "png" | "webp" | "avif";
 
@@ -30,7 +30,6 @@ export type IiifState = {
 
 const iiifQualities: readonly IiifQuality[] = ["default", "color", "gray", "bitonal"];
 const iiifFormats: readonly IiifFormat[] = ["jpg", "png", "webp", "avif"];
-const iiifRotations: readonly IiifRotation[] = [0, 90, 180, 270];
 
 // images/dog.jpg -> "dog". Sample filenames are URL-safe (no spaces/% / #), so the
 // path basename equals the real filename and matches the backend's Path.rootname —
@@ -52,7 +51,7 @@ export const defaultIiifState: IiifState = {
   region: { kind: "full" },
   size: { kind: "max" },
   upscale: false,
-  rotation: 0,
+  rotation: { degrees: 0, mirror: false },
   quality: "default",
   format: "jpg",
 };
@@ -101,7 +100,8 @@ export function iiifPathTail(state: IiifState): string {
   const id = iiifIdForSource(state.source);
   const region = iiifRegionSegment(state.region);
   const size = iiifSizeSegment(state.size, state.upscale);
-  return `${id}/${region}/${size}/${state.rotation}/${state.quality}.${state.format}`;
+  const rotation = `${state.rotation.mirror ? "!" : ""}${state.rotation.degrees}`;
+  return `${id}/${region}/${size}/${rotation}/${state.quality}.${state.format}`;
 }
 
 export function iiifBrowserPath(state: IiifState): string {
@@ -195,10 +195,12 @@ function parseSize(rawToken: string): { size: IiifSize; upscale: boolean } | nul
 }
 
 function parseRotation(token: string): IiifRotation | null {
-  const value = Number(token);
-  return iiifRotations.includes(value as IiifRotation) && /^\d+$/.test(token)
-    ? (value as IiifRotation)
-    : null;
+  const mirror = token.startsWith("!");
+  const body = mirror ? token.slice(1) : token;
+  if (!/^\d+(\.\d+)?$/.test(body)) return null;
+  const degrees = Number(body);
+  if (!Number.isFinite(degrees) || degrees < 0 || degrees > 360) return null;
+  return { degrees: degrees === 360 ? 0 : degrees, mirror };
 }
 
 export function parseIiifTail(tail: string): IiifState | null {
