@@ -25,7 +25,6 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Trim
 
   @enlargements [:allow, :deny, :reject]
-  @right_angles [90, 180, 270]
   @flip_axes [:horizontal, :vertical, :both]
   @x_anchors [:left, :center, :right]
   @y_anchors [:top, :center, :bottom]
@@ -101,8 +100,33 @@ defmodule ImagePipe.Plan.Operation do
           {:invalid_operation, atom(), term()} | {:unknown_operation_options, atom(), [atom()]}
 
   @spec rotate(term()) :: {:ok, Rotate.t()} | {:error, error()}
-  def rotate(angle) when angle in @right_angles, do: {:ok, %Rotate{angle: angle}}
-  def rotate(angle), do: invalid(:rotate, [angle])
+  @spec rotate(term(), term()) :: {:ok, Rotate.t()} | {:error, error()}
+  def rotate(angle, mirror \\ false)
+
+  def rotate(angle, mirror) when is_number(angle) and is_boolean(mirror) do
+    case normalize_rotation_angle(angle) do
+      {:ok, normalized} -> {:ok, %Rotate{angle: normalized, mirror: mirror}}
+      :error -> invalid(:rotate, [angle, mirror])
+    end
+  end
+
+  def rotate(angle, mirror), do: invalid(:rotate, [angle, mirror])
+
+  # Accept the closed interval [0, 360]; fold 360 -> 0 and whole floats -> ints so
+  # right angles route to the lossless rotate path.
+  defp normalize_rotation_angle(angle) when angle >= 0 and angle <= 360 do
+    reduced = if angle == 360, do: 0, else: angle
+    {:ok, whole_to_integer(reduced)}
+  end
+
+  defp normalize_rotation_angle(_angle), do: :error
+
+  defp whole_to_integer(value) when is_float(value) do
+    truncated = trunc(value)
+    if value == truncated, do: truncated, else: value
+  end
+
+  defp whole_to_integer(value), do: value
 
   @spec flip(term()) :: {:ok, Flip.t()} | {:error, error()}
   def flip(axis) when axis in @flip_axes, do: {:ok, %Flip{axis: axis}}
@@ -394,7 +418,8 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Canvas{} = operation), do: valid_canvas?(operation)
   def semantic?(%Padding{} = operation), do: valid_padding?(operation)
   def semantic?(%Background{} = operation), do: valid_background?(operation)
-  def semantic?(%Rotate{angle: angle}) when angle in @right_angles, do: true
+  def semantic?(%Rotate{angle: angle, mirror: mirror}),
+    do: is_number(angle) and angle >= 0 and angle < 360 and is_boolean(mirror)
   def semantic?(%Flip{axis: axis}) when axis in @flip_axes, do: true
   def semantic?(%Blur{} = operation), do: valid_positive_float?(operation.sigma)
   def semantic?(%Sharpen{} = operation), do: valid_positive_float?(operation.sigma)

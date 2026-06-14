@@ -406,13 +406,44 @@ defmodule ImagePipe.Plan.OperationTest do
     end
 
     test "rejects orientation values outside the explicit allowlist" do
-      assert Operation.rotate(0) == {:error, {:invalid_operation, :rotate, [0]}}
-      assert Operation.rotate(45) == {:error, {:invalid_operation, :rotate, [45]}}
       assert Operation.flip(:diagonal) == {:error, {:invalid_operation, :flip, [:diagonal]}}
 
-      refute Operation.semantic?(%Rotate{angle: 0})
-      refute Operation.semantic?(%Rotate{angle: 45})
       refute Operation.semantic?(%Flip{axis: :diagonal})
+    end
+  end
+
+  describe "rotate/2 (arbitrary angle + mirror)" do
+    test "accepts a right angle, mirror defaults false" do
+      assert {:ok, %Rotate{angle: 90, mirror: false}} = Operation.rotate(90)
+    end
+
+    test "accepts an arbitrary float angle" do
+      assert {:ok, %Rotate{angle: 45.5, mirror: false}} = Operation.rotate(45.5)
+    end
+
+    test "normalizes a whole-number float to an integer (lossless routing)" do
+      assert {:ok, %Rotate{angle: 90, mirror: false}} = Operation.rotate(90.0)
+    end
+
+    test "normalizes 360 to 0" do
+      assert {:ok, %Rotate{angle: 0}} = Operation.rotate(360)
+    end
+
+    test "accepts mirror" do
+      assert {:ok, %Rotate{angle: 90, mirror: true}} = Operation.rotate(90, true)
+    end
+
+    test "rejects out-of-range and non-numeric angles" do
+      assert {:error, _} = Operation.rotate(-1)
+      assert {:error, _} = Operation.rotate(361)
+      assert {:error, _} = Operation.rotate("90")
+    end
+
+    test "semantic? accepts arbitrary + mirror, rejects out of range" do
+      assert Operation.semantic?(%Rotate{angle: 45.5, mirror: true})
+      assert Operation.semantic?(%Rotate{angle: 0, mirror: false})
+      refute Operation.semantic?(%Rotate{angle: 360, mirror: false})
+      refute Operation.semantic?(%Rotate{angle: -1, mirror: false})
     end
   end
 

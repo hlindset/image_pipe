@@ -1,11 +1,16 @@
 defmodule ImagePipe.Plan.Operation.Rotate do
   @moduledoc """
-  Semantic request to rotate the image by a right angle.
+  Semantic request to rotate the image clockwise by `angle` degrees, optionally
+  mirrored (horizontal flip) first.
+
+  `angle` is any number in `[0, 360)` (degrees, clockwise); whole-number angles
+  are stored as integers so that right-angle multiples route to the lossless
+  rotate path. `mirror` applies a horizontal flip *before* the rotation (IIIF `!`
+  semantics).
   """
 
   @enforce_keys [:angle]
-  defstruct @enforce_keys
+  defstruct [:angle, mirror: false]
 
-  @type angle :: 90 | 180 | 270
-  @type t :: %__MODULE__{angle: angle()}
+  @type t :: %__MODULE__{angle: number(), mirror: boolean()}
 end
