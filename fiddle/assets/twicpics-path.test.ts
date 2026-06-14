@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultStep,
   defaultTwicPicsState,
+  parseTwicTail,
   setResizeAxisUnit,
   stepSummary,
   stepToken,
@@ -197,5 +198,149 @@ describe("setResizeAxisUnit", () => {
     };
     setResizeAxisUnit(step, "w", "p");
     expect(step.w).toEqual({ unit: "p", value: 250 });
+  });
+});
+
+// Chain ids are session-local (never serialized), so round-trip comparisons drop
+// them: the URL preserves order + params, not the synthetic id.
+function stripIds(state: TwicPicsState) {
+  return { ...state, chain: state.chain.map(({ id: _id, ...rest }) => rest) };
+}
+
+// Build the location.search string the SPA would read back for a given state.
+function searchFor(state: TwicPicsState): string {
+  return `?twic=${twicParam(state)}`;
+}
+
+describe("twicpics round-trips (browser path -> state)", () => {
+  const cases: TwicPicsState[] = [
+    defaultTwicPicsState,
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
+      ],
+    },
+    // the relative-unit showcase: order matters; percents resolve against the running image
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
+        { type: "resize", id: "2", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
+      ],
+    },
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "px", value: 200 } },
+        { type: "resize", id: "2", w: { unit: "auto", value: 0 }, h: { unit: "px", value: 100 } },
+        { type: "resize", id: "3", w: { unit: "s", value: 0.5 }, h: { unit: "auto", value: 0 } },
+      ],
+    },
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        { type: "focus", id: "1", anchor: "top-left" },
+        { type: "cover", id: "2", mode: "size", w: 100, h: 100 },
+      ],
+    },
+    { ...defaultTwicPicsState, chain: [{ type: "cover", id: "1", mode: "ratio", w: 16, h: 9 }] },
+    { ...defaultTwicPicsState, chain: [{ type: "contain", id: "1", w: 200, h: 200 }] },
+    { ...defaultTwicPicsState, chain: [{ type: "inside", id: "1", w: 200, h: 200 }] },
+    { ...defaultTwicPicsState, chain: [{ type: "crop", id: "1", w: 200, h: 150, origin: null }] },
+    {
+      ...defaultTwicPicsState,
+      chain: [{ type: "crop", id: "1", w: 200, h: 150, origin: { x: 10, y: 20 } }],
+    },
+    { ...defaultTwicPicsState, output: "avif", quality: 50 },
+    {
+      ...defaultTwicPicsState,
+      source: "images/beach.jpg",
+      chain: [
+        { type: "resize", id: "1", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
+        { type: "focus", id: "2", anchor: "top-left" },
+      ],
+      output: "png",
+      quality: 90,
+    },
+  ];
+
+  for (const state of cases) {
+    it(`round-trips ${twicParam(state)}`, () => {
+      const parsed = parseTwicTail(state.source, searchFor(state));
+      expect(parsed).not.toBeNull();
+      expect(stripIds(parsed!)).toEqual(stripIds(state));
+    });
+  }
+
+  it("preserves a long chain order exactly", () => {
+    const state: TwicPicsState = {
+      ...defaultTwicPicsState,
+      chain: [
+        { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
+        { type: "resize", id: "2", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
+        { type: "focus", id: "3", anchor: "top-left" },
+        { type: "cover", id: "4", mode: "size", w: 100, h: 100 },
+        { type: "crop", id: "5", w: 80, h: 80, origin: null },
+      ],
+    };
+    const parsed = parseTwicTail(state.source, searchFor(state));
+    expect(parsed!.chain.map((s) => s.type)).toEqual([
+      "resize",
+      "resize",
+      "focus",
+      "cover",
+      "crop",
+    ]);
+  });
+
+  it("assigns a non-empty, unique id to every parsed step", () => {
+    const parsed = parseTwicTail(
+      "images/dog.jpg",
+      "?twic=v1/resize=340/resize=50p/output=auto/quality=80",
+    );
+    const ids = parsed!.chain.map((s) => s.id);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.every((id) => id.length > 0)).toBe(true);
+  });
+});
+
+describe("twicpics parse rejection", () => {
+  it("rejects an unknown source", () => {
+    expect(parseTwicTail("images/nope.jpg", "?twic=v1/output=auto/quality=80")).toBeNull();
+  });
+
+  it("rejects a missing v1 prefix", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v2/resize=340")).toBeNull();
+  });
+
+  it("rejects an unsupported transform", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/zoom=2")).toBeNull();
+  });
+
+  it("rejects an unsupported focus anchor (no center)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=center")).toBeNull();
+  });
+
+  it("rejects a malformed segment without '='", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/resize")).toBeNull();
+  });
+
+  it("rejects an out-of-range quality", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/quality=0")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/quality=101")).toBeNull();
+  });
+
+  it("rejects an unsupported output format", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/output=heif")).toBeNull();
+  });
+
+  it("returns an empty chain for a valid source with no twic param", () => {
+    const parsed = parseTwicTail("images/dog.jpg", "");
+    expect(parsed).not.toBeNull();
+    expect(parsed!.chain).toEqual([]);
+    expect(parsed!.output).toBe("auto");
+    expect(parsed!.quality).toBe(80);
   });
 });

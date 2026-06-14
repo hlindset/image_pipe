@@ -192,3 +192,150 @@ export function stepSummary(step: TransformStep): string {
       return step.anchor;
   }
 }
+
+// --- parsing (mirror lib/image_pipe/parser/twic_pics; pixel-only subset matching
+// the UI surface — see the design spec) ---
+
+const anchorSet = new Set<string>(twicAnchors);
+
+function parsePositiveInt(value: string): number | null {
+  return /^\d+$/.test(value) && Number(value) > 0 ? Number(value) : null;
+}
+
+function parsePositiveNumber(value: string): number | null {
+  return /^\d+(\.\d+)?$/.test(value) && Number(value) > 0 ? Number(value) : null;
+}
+
+function parseResizeDim(token: string): TwicDim | null {
+  if (token === "-") return { unit: "auto", value: 0 };
+  if (token.endsWith("p")) {
+    const n = parsePositiveNumber(token.slice(0, -1));
+    return n === null ? null : { unit: "p", value: n };
+  }
+  if (token.endsWith("s")) {
+    const n = parsePositiveNumber(token.slice(0, -1));
+    return n === null ? null : { unit: "s", value: n };
+  }
+  const n = parsePositiveInt(token);
+  return n === null ? null : { unit: "px", value: n };
+}
+
+function parsePxPair(args: string): { w: number; h: number } | null {
+  const parts = args.split("x");
+  if (parts.length !== 2) return null;
+  const w = parsePositiveInt(parts[0]!);
+  const h = parsePositiveInt(parts[1]!);
+  return w === null || h === null ? null : { w, h };
+}
+
+function parseResize(args: string, id: string): TransformStep | null {
+  if (args.includes(":")) return null; // ratio resize is rejected by the parser
+  const parts = args.split("x");
+  if (parts.length === 1) {
+    const w = parseResizeDim(parts[0]!);
+    if (w === null || w.unit === "auto") return null; // bare "-" / both-auto not emitted
+    return { type: "resize", id, w, h: { unit: "auto", value: 0 } };
+  }
+  if (parts.length === 2) {
+    const w = parseResizeDim(parts[0]!);
+    const h = parseResizeDim(parts[1]!);
+    if (w === null || h === null) return null;
+    if (w.unit === "auto" && h.unit === "auto") return null;
+    return { type: "resize", id, w, h };
+  }
+  return null;
+}
+
+function parseCover(args: string, id: string): TransformStep | null {
+  if (args.includes(":")) {
+    const parts = args.split(":");
+    if (parts.length !== 2) return null;
+    const w = parsePositiveNumber(parts[0]!);
+    const h = parsePositiveNumber(parts[1]!);
+    return w === null || h === null ? null : { type: "cover", id, mode: "ratio", w, h };
+  }
+  const pair = parsePxPair(args);
+  return pair === null ? null : { type: "cover", id, mode: "size", w: pair.w, h: pair.h };
+}
+
+function parseCrop(args: string, id: string): TransformStep | null {
+  const parts = args.split("@");
+  if (parts.length > 2) return null;
+  const size = parsePxPair(parts[0]!);
+  if (size === null) return null;
+  if (parts.length === 1) {
+    return { type: "crop", id, w: size.w, h: size.h, origin: null };
+  }
+  const origin = parsePxPair(parts[1]!); // XxY
+  return origin === null
+    ? null
+    : { type: "crop", id, w: size.w, h: size.h, origin: { x: origin.w, y: origin.h } };
+}
+
+function parseStep(name: string, args: string): TransformStep | null {
+  const id = nextStepId();
+  switch (name) {
+    case "resize":
+      return parseResize(args, id);
+    case "cover":
+      return parseCover(args, id);
+    case "contain": {
+      const pair = parsePxPair(args);
+      return pair === null ? null : { type: "contain", id, w: pair.w, h: pair.h };
+    }
+    case "inside": {
+      const pair = parsePxPair(args);
+      return pair === null ? null : { type: "inside", id, w: pair.w, h: pair.h };
+    }
+    case "crop":
+      return parseCrop(args, id);
+    case "focus":
+      return anchorSet.has(args) ? { type: "focus", id, anchor: args as TwicAnchor } : null;
+    default:
+      return null;
+  }
+}
+
+export function parseTwicTail(sourceTail: string, search: string): TwicPicsState | null {
+  const source = sourceForTwicPath(sourceTail);
+  if (source === null) return null;
+
+  const twic = new URLSearchParams(search).get("twic");
+  if (twic === null || twic === "") {
+    return { source, chain: [], output: "auto", quality: 80 };
+  }
+
+  if (twic !== "v1" && !twic.startsWith("v1/")) return null;
+  const body = twic === "v1" ? "" : twic.slice("v1/".length);
+  const segments = body.split("/").filter((segment) => segment !== "");
+
+  const chain: TransformStep[] = [];
+  let output: TwicOutput = "auto";
+  let quality = 80;
+
+  for (const segment of segments) {
+    const eq = segment.indexOf("=");
+    if (eq <= 0) return null; // every segment must be name=args
+
+    const name = segment.slice(0, eq);
+    const args = segment.slice(eq + 1);
+
+    if (name === "output") {
+      if (!twicOutputs.includes(args as TwicOutput)) return null;
+      output = args as TwicOutput;
+      continue;
+    }
+    if (name === "quality") {
+      const q = parsePositiveInt(args);
+      if (q === null || q > 100) return null;
+      quality = q;
+      continue;
+    }
+
+    const step = parseStep(name, args);
+    if (step === null) return null;
+    chain.push(step);
+  }
+
+  return { source, chain, output, quality };
+}
