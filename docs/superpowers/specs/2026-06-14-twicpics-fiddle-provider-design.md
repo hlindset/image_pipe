@@ -157,11 +157,15 @@ export type TwicPicsState = {
 - `resize` token: when H is `auto`, emit the single token `encodeDim(w)`
   (`resize=340`); otherwise `encodeDim(w) + "x" + encodeDim(h)` (`resize=340x200`,
   `resize=-x200`). Both forms parse back identically through the parser's
-  `Units.size`. A both-`auto` resize is never produced (degenerate; the parser
-  rejects it).
+  `Units.size`. A both-`auto` resize is never produced by the UI (it would be a
+  degenerate no-op; the parser would actually *accept* `resize=-x-` as a no-op, so
+  this is a UI non-emission, not a parser rejection).
 - `cover` size → `WxH`; `cover` ratio → `W:H`.
 - `contain` / `inside` → `WxH`.
-- `crop` → `WxH`, plus `@XxY` when an origin is set.
+- `crop` → `WxH`, plus `@XxY` when an origin is set. (Note: the issue's scope table
+  writes the origin as `@X,Y`, but the parser splits coordinates on `x`
+  (`Units.coordinates`), so the wire form is `@XxY` — used consistently here and in
+  the tests.)
 - `focus` → the anchor literal.
 
 The fiddle parser is **not** a general TwicPics parser — it only needs to
@@ -200,10 +204,18 @@ can be reviewed as a whole.
    matches the UI surface, not the full library grammar.
 
 6. **Drag + remove wiring.** Reorder uses the sortable list's `ondragend` event
-   with `sortItems(chain, draggedItemIndex, targetItemIndex)`, applied only when
-   the drag was not canceled and a target index exists. Remove uses
-   `SortableList.ItemRemove`'s `onclick` → `removeStep(id)`. Keyboard reordering
-   (Space/arrows/Home/End/Esc) is provided by the library out of the box.
+   (which fires for both pointer and keyboard drags) with
+   `sortItems(chain, draggedItemIndex, targetItemIndex)`, applied only when the
+   drag was not canceled (`!isCanceled`) **and** `targetItemIndex !== null` — an
+   explicit null check, because `0` is a valid target index (a falsy check would
+   drop a reorder to the first position). The library does not mutate `chain`; the
+   reassignment `chain = sortItems(…)` is the consumer's responsibility. Remove
+   uses `SortableList.ItemRemove`'s `onclick` → `removeStep(id)` (in v2.1.18
+   `ItemRemove` only manages focus and forwards `onclick`; it does not splice the
+   array, despite its doc comment). Each `SortableList.Item` is given **both**
+   `id={step.id}` and `index={i}` (both are required props), and the `{#each}` is
+   keyed on `step.id`. Keyboard reordering (Space/arrows/Home/End/Esc) is provided
+   by the library out of the box.
 
 ## 6. Shared-code changes
 
@@ -224,27 +236,44 @@ can be reviewed as a whole.
 
 ### `fiddle/assets/App.svelte`
 
+> **Critical structural note.** Several of the sites below are written today as a
+> **binary** `provider === "imgproxy" ? … : <iiif>` — the `else` branch *is* IIIF,
+> unconditionally. Adding TwicPics is **not** "append an arm"; each must be
+> **rewritten to an explicit three-way** (nested ternary or a `switch` on
+> `provider`/`parsed.provider`) so that the fall-through no longer silently means
+> IIIF. A literal "add a branch" reading would leave TwicPics reading
+> `appState.iiif.*` — a real correctness trap. The affected sites are: the provider
+> `$effect`, `restoreStateFromLocation`, and the four `$derived`
+> (`previewParameters` / `outputLabel` / `requestSummary` / `currentSource`).
+
 - Import `TwicPicsControls`, and `defaultTwicPicsState` / `twicFetchPath` from
   `twicpics-path`.
-- `path` initial value and the provider `$effect` get a `twicpics` arm
-  (`path = twicFetchPath(appState.twicpics)`, with `pathRequestId += 1` to
-  invalidate in-flight imgproxy signing, exactly like the IIIF arm).
-- `initialAppState()` / `restoreStateFromLocation()` pass
-  `window.location.search` to `parseAppPath`; `restoreStateFromLocation` preserves
-  the two inactive slices when restoring a TwicPics URL.
-- `updateFiddleLocation` guard compares `window.location.pathname +
-  window.location.search`.
-- `previewParameters`, `outputLabel`, `requestSummary`, `currentSource`,
-  `updateSource`, `resetSettings` each gain a `twicpics` arm:
-  - `previewParameters`: `path.replace(/^\/twic\//, "")`.
+- `path` initial value and the provider `$effect` become three-way; the `twicpics`
+  arm sets `path = twicFetchPath(appState.twicpics)` with `pathRequestId += 1` to
+  invalidate in-flight imgproxy signing, exactly like the IIIF arm.
+- `initialAppState()` / `restoreStateFromLocation()` pass `window.location.search`
+  to `parseAppPath`. `restoreStateFromLocation` is rewritten to switch on
+  `parsed.provider`: take `parsed.<that-slice>` and **preserve the other two**
+  in-memory slices from `appState` (the current two-way hard-codes
+  `provider: "imgproxy"` in its else, which would mis-handle a parsed TwicPics URL).
+- `updateFiddleLocation`'s change-guard compares `window.location.pathname +
+  window.location.search === nextPath`. `nextPath` comes from `appPathForState`,
+  which for TwicPics returns a path-*with-query*; the imgproxy/IIIF branches have
+  empty `search`, so they still compare equal. Without this fix the guard never
+  matches for TwicPics and `replaceState` fires on every edit.
+- The four `$derived` get explicit `twicpics` arms:
+  - `previewParameters`: `path.replace(/^\/twic\//, "")` → `<source>?twic=v1/…`.
+    This intentionally keeps the `?twic=` chain in the readout (that *is* the
+    TwicPics request); it is not stripped to a bare option tail like the other
+    providers.
   - `outputLabel`: `appState.twicpics.output`.
   - `requestSummary`: `appState.twicpics.source.replace(/^images\//, "")`.
   - `currentSource`: `appState.twicpics.source`.
-  - `updateSource`: also set `appState.twicpics = { ...appState.twicpics, source }`
-    (no source-dimension-bound fields to reset — crop pixels are independent and
-    the backend clips out-of-bounds).
-  - `resetSettings`: `appState.twicpics = { ...defaultTwicPicsState, source:
-    appState.twicpics.source }`.
+- `updateSource` also sets `appState.twicpics = { ...appState.twicpics, source }`
+  (no source-dimension-bound fields to reset — crop pixels are independent and the
+  backend clips out-of-bounds).
+- `resetSettings` gets a `twicpics` arm: `appState.twicpics =
+  { ...defaultTwicPicsState, source: appState.twicpics.source }`.
 - The controls block renders `<TwicPicsControls bind:twicpicsState … />` in the
   `twicpics` branch.
 
@@ -363,6 +392,16 @@ wire tests are needed**.
 
 `mise run precommit:fiddle` (Elixir gate + fiddle JS test/check/lint/format/build)
 must pass before finishing.
+
+### Process notes
+
+- **TDD ordering, auditable in history.** Commit the (reviewed) spec first, then the
+  red `twicpics-path.test.ts`, then the `twicpics-path.ts` module that turns it
+  green. A draft test already exists uncommitted from an earlier false start; it is
+  re-driven test-first under the implementation plan, not "implemented against."
+- **Landing-time (AGENTS.md).** Before the first push, rename the branch to a
+  descriptive name (e.g. `feat/fiddle-twicpics-provider`). The PR body carries a
+  bare `Fixes #306` line so the issue auto-closes.
 
 ## 10. Conformance-doc impact
 
