@@ -49,7 +49,10 @@ defmodule ImagePipe.Plan.Operation do
     :min_width,
     :min_height,
     :zoom_x,
-    :zoom_y
+    :zoom_y,
+    :max_width,
+    :max_height,
+    :max_area
   ]
   @crop_guided_keys [:x_offset, :y_offset, :aspect_ratio, :enlarge]
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
@@ -367,7 +370,10 @@ defmodule ImagePipe.Plan.Operation do
          {:ok, min_width} <- optional_tagged_resize_dimension(opts, :min_width),
          {:ok, min_height} <- optional_tagged_resize_dimension(opts, :min_height),
          {:ok, zoom_x} <- numeric(opts, :zoom_x, 1.0),
-         {:ok, zoom_y} <- numeric(opts, :zoom_y, 1.0) do
+         {:ok, zoom_y} <- numeric(opts, :zoom_y, 1.0),
+         {:ok, max_width} <- optional_positive_integer(opts, :max_width),
+         {:ok, max_height} <- optional_positive_integer(opts, :max_height),
+         {:ok, max_area} <- optional_positive_integer(opts, :max_area) do
       {:ok,
        %Resize{
          mode: mode,
@@ -381,7 +387,10 @@ defmodule ImagePipe.Plan.Operation do
          min_width: min_width,
          min_height: min_height,
          zoom_x: zoom_x,
-         zoom_y: zoom_y
+         zoom_y: zoom_y,
+         max_width: max_width,
+         max_height: max_height,
+         max_area: max_area
        }}
     else
       {:error, {:unknown_operation_options, _operation, _keys} = reason} ->
@@ -458,7 +467,10 @@ defmodule ImagePipe.Plan.Operation do
          :ok <- optional_resize_dimension(operation.min_width),
          :ok <- optional_resize_dimension(operation.min_height),
          :ok <- positive_number(operation.zoom_x),
-         :ok <- positive_number(operation.zoom_y) do
+         :ok <- positive_number(operation.zoom_y),
+         :ok <- optional_positive_integer_value(operation.max_width),
+         :ok <- optional_positive_integer_value(operation.max_height),
+         :ok <- optional_positive_integer_value(operation.max_area) do
       true
     else
       _error -> false
@@ -951,6 +963,18 @@ defmodule ImagePipe.Plan.Operation do
       :error -> {:ok, default}
     end
   end
+
+  defp optional_positive_integer(attrs, key) do
+    case Keyword.get(attrs, key) do
+      nil -> {:ok, nil}
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      _ -> {:error, key}
+    end
+  end
+
+  defp optional_positive_integer_value(nil), do: :ok
+  defp optional_positive_integer_value(value) when is_integer(value) and value > 0, do: :ok
+  defp optional_positive_integer_value(_value), do: {:error, :max_bound}
 
   defp signed_numeric(attrs, key, default) do
     case Keyword.fetch(attrs, key) do
