@@ -35,7 +35,7 @@ describe("parseAppPath dispatch", () => {
     expect(parsed.provider).toBe("iiif");
     expect(parsed.iiif.region).toEqual({ kind: "px", x: 0, y: 0, w: 100, h: 100 });
     expect(parsed.iiif.size).toEqual({ kind: "w", w: 50 });
-    expect(parsed.iiif.rotation).toBe(90);
+    expect(parsed.iiif.rotation).toEqual({ degrees: 90, mirror: false });
   });
 
   it("defaults to imgproxy for root or unknown prefix", () => {

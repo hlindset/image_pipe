@@ -205,7 +205,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
   describe "orientation operation data" do
     test "returns key data for semantic orientation operations" do
-      assert KeyData.data(%Rotate{angle: 270}) == [op: :rotate, angle: 270]
+      assert KeyData.data(%Rotate{angle: 270}) == [op: :rotate, angle: 270, mirror: false]
       assert KeyData.data(%Flip{axis: :both}) == [op: :flip, axis: :both]
     end
   end

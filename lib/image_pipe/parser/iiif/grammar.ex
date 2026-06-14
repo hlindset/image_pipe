@@ -79,19 +79,49 @@ defmodule ImagePipe.Parser.IIIF.Grammar do
   end
 
   @doc """
-  Parses a IIIF rotation token. Accepts only 0, 90, 180, and 270.
-  Mirror prefix (`!`) is not supported.
+  Parses a IIIF rotation token: an optional leading `!` (mirror = reflection on
+  the vertical axis, applied before rotation) followed by a clockwise angle in
+  the closed interval `[0, 360]` (any floating point number). `360` folds to `0`
+  and whole-number floats fold to integers (so right angles take the lossless
+  rotate path).
 
-  Returns `{:ok, 0 | 90 | 180 | 270}` or `{:error, {:invalid_rotation, raw}}`.
+  Returns `{:ok, {mirror :: boolean, angle :: number}}` or
+  `{:error, {:invalid_rotation, raw}}`.
   """
   @spec rotation(String.t()) ::
-          {:ok, 0 | 90 | 180 | 270}
+          {:ok, {boolean(), number()}}
           | {:error, {:invalid_rotation, String.t()}}
   def rotation(raw) do
-    case Integer.parse(raw) do
-      {degrees, ""} when degrees in [0, 90, 180, 270] -> {:ok, degrees}
-      _ -> {:error, {:invalid_rotation, raw}}
+    {mirror, rest} =
+      case raw do
+        "!" <> rest -> {true, rest}
+        rest -> {false, rest}
+      end
+
+    case parse_rotation_angle(rest) do
+      {:ok, angle} -> {:ok, {mirror, angle}}
+      :error -> {:error, {:invalid_rotation, raw}}
     end
+  end
+
+  # Strict remainder ("" only) like every other numeric token in this grammar:
+  # rejects "45.", ".5", "45deg", "+45", leading/trailing whitespace, "" ("!"
+  # alone). Float.parse handles ints too, so "90" -> 90.0 -> normalized to 90.
+  # Note: Float.parse/1 accepts a leading "+", so we reject it explicitly.
+  defp parse_rotation_angle("+" <> _), do: :error
+
+  defp parse_rotation_angle(string) do
+    case Float.parse(string) do
+      {value, ""} when value >= 0.0 and value <= 360.0 -> {:ok, normalize_rotation(value)}
+      _ -> :error
+    end
+  end
+
+  defp normalize_rotation(360.0), do: 0
+
+  defp normalize_rotation(value) do
+    truncated = trunc(value)
+    if value == truncated, do: truncated, else: value
   end
 
   @doc """

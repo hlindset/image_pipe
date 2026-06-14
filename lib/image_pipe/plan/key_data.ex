@@ -134,7 +134,7 @@ defmodule ImagePipe.Plan.KeyData do
     ]
   end
 
-  def data(%Rotate{angle: angle}), do: [op: :rotate, angle: angle]
+  def data(%Rotate{angle: angle, mirror: mirror}), do: [op: :rotate, angle: angle, mirror: mirror]
   def data(%Flip{axis: axis}), do: [op: :flip, axis: axis]
   def data(%Blur{sigma: sigma}), do: [op: :blur, sigma: sigma]
   def data(%Sharpen{sigma: sigma}), do: [op: :sharpen, sigma: sigma]

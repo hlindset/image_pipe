@@ -32,6 +32,12 @@ defmodule ImagePipe.Parser.IIIF.InfoTest do
     assert doc["extraFormats"] == ["webp", "avif"]
   end
 
+  test "extraFeatures advertises rotationArbitrary and mirroring" do
+    doc = Info.document(@info, @params)
+    assert "rotationArbitrary" in doc["extraFeatures"]
+    assert "mirroring" in doc["extraFeatures"]
+  end
+
   test "quarter-turn orientation swaps width/height in info" do
     doc =
       Info.document(

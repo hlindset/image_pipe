@@ -33,8 +33,8 @@ defmodule ImagePipe.Parser.IIIFTest do
   end
 
   test "bad rotation token -> {:error, {:invalid_rotation, _}}" do
-    assert {:error, {:invalid_rotation, "45"}} =
-             IIIF.parse(conn(:get, "/abc/full/max/45/default.jpg"), validated(@opts))
+    assert {:error, {:invalid_rotation, "370"}} =
+             IIIF.parse(conn(:get, "/abc/full/max/370/default.jpg"), validated(@opts))
   end
 
   test "handle_error: resolver miss -> 404; bad token -> 400" do

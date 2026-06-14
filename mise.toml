@@ -106,11 +106,13 @@ run = "mix phx.server"
 description = "Run a local Jaeger (OTLP + UI) for the fiddle's OpenTelemetry traces"
 run = "docker compose -f fiddle/docker-compose.yml up"
 
-# IIIF Level 2 image-validator gate (requires Docker).
+# IIIF image-validator gate (requires Docker).
 # Builds the iiif-validator Docker image, starts a local IIIF server on port
-# 4000, runs the official iiif-validate.py tool at Level 2, then tears down.
+# 4001, runs the official iiif-validate.py tool — first the Level 2 suite, then
+# the arbitrary-rotation + mirroring extraFeatures tests by name (#257) — then
+# tears down.
 [tasks.validator]
-description = "Run the IIIF Level 2 image-validator gate against a live server (requires Docker)"
+description = "Run the IIIF image-validator gate (Level 2 + rotation/mirror extraFeatures) against a live server (requires Docker)"
 run = """
 # `set -eu` (not `-o pipefail`): mise runs tasks under `sh`/dash on Linux runners,
 # which rejects `pipefail`; this task has no pipelines that need it.
@@ -158,4 +160,19 @@ docker run --rm --add-host=host.docker.internal:host-gateway iiif-validator \\
   -i "$IMAGE_ID" \\
   --version=3.0 \\
   --level 2
+
+echo "==> Running IIIF rotation/mirror extraFeatures validator (#257)..."
+# rotationArbitrary + mirroring are IIIF extraFeatures (the validator assigns these
+# tests level 3). `--test` runs tests by name and ignores --level, so we cover them
+# without opting into full Level 3 conformance (which would pull in tests for
+# features we do not implement, e.g. size_up).
+docker run --rm --add-host=host.docker.internal:host-gateway iiif-validator \\
+  -s "host.docker.internal:$PORT" \\
+  -p iiif \\
+  -i "$IMAGE_ID" \\
+  --version=3.0 \\
+  --test rot_full_non90 \\
+  --test rot_region_non90 \\
+  --test rot_mirror \\
+  --test rot_mirror_180
 """

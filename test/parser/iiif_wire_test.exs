@@ -423,8 +423,8 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     assert elem(dimensions(conn), 0) == 400
   end
 
-  test "contract 9c: bad rotation (45) → 400" do
-    conn = call_iiif("/img/full/max/45/default.jpg", iiif_opts(OriginImage))
+  test "contract 9c: out-of-range rotation (370) → 400" do
+    conn = call_iiif("/img/full/max/370/default.jpg", iiif_opts(OriginImage))
     assert conn.status == 400
   end
 
@@ -443,6 +443,50 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     # which IIIF Path.classify/1 cannot match → :not_found → 404
     conn = call_iiif("/a/b/full/max/0/default.jpg", iiif_opts(OriginImage))
     assert conn.status == 404
+  end
+
+  # ---------------------------------------------------------------------------
+  # rot_non90: arbitrary rotation → grown bounding box + transparent corners (png)
+  # ---------------------------------------------------------------------------
+
+  test "rot_non90: 45° on png → larger image with a transparent corner" do
+    conn = call_iiif("/img/full/max/45/default.png", iiif_opts(OriginImage))
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    assert Image.width(img) > 200 and Image.height(img) > 300
+    assert Image.has_alpha?(img)
+    assert List.last(Image.get_pixel!(img, 0, 0)) == 0
+  end
+
+  test "rot_non90: 45° on jpg → opaque (corners flattened onto background)" do
+    conn = call_iiif("/img/full/max/45/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    refute Image.has_alpha?(img)
+  end
+
+  # ---------------------------------------------------------------------------
+  # rot_mirror: !n mirrors before rotating
+  # ---------------------------------------------------------------------------
+
+  test "rot_mirror: !90 → 200 quarter-turn (lossless dims swapped)" do
+    conn = call_iiif("/img/full/max/!90/default.png", iiif_opts(OriginImage))
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    # source 200x300 -> 90° turn -> 300x200
+    assert Image.width(img) == 300 and Image.height(img) == 200
+  end
+
+  test "rot_mirror: percent-encoded ! (%2190) ≡ !90" do
+    conn = call_iiif("/img/full/max/%2190/default.png", iiif_opts(OriginImage))
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    # %21 decodes to ! ; result must match !90 → 200×300 source turned to 300×200
+    assert Image.width(img) == 300 and Image.height(img) == 200
   end
 
   # ---------------------------------------------------------------------------

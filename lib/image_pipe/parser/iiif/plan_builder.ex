@@ -5,6 +5,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Bitonal
+  alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
@@ -147,10 +148,11 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
     end
   end
 
-  defp rotation_operations(0), do: {:ok, []}
+  defp rotation_operations({false, 0}), do: {:ok, []}
+  defp rotation_operations({true, 0}), do: {:ok, [%Flip{axis: :horizontal}]}
 
-  defp rotation_operations(angle) when angle in [90, 180, 270] do
-    with {:ok, op} <- Operation.rotate(angle) do
+  defp rotation_operations({mirror, angle}) do
+    with {:ok, op} <- Operation.rotate(angle, mirror) do
       {:ok, [op]}
     end
   end

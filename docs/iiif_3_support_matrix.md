@@ -18,7 +18,7 @@ Status legend: ✅ supported · ➖ deliberately deferred (an optional `extraFea
 
 ## Compliance level
 
-We implement **Level 2**: all of Level 0/1 plus the Level-2-required `regionByPx`, `regionByPct`, `sizeByW`, `sizeByH`, `sizeByWh`, `sizeByConfinedWh`, `sizeByPct`, `rotationBy90s`, and the `color`/`gray`/`bitonal` qualities. A handful of `extraFeatures` are implemented beyond Level 2 (`regionSquare`, `sizeUpscaling`, `webp`/`avif` formats); the rest are deferred (see "Deferred extraFeatures").
+We implement **Level 2**: all of Level 0/1 plus the Level-2-required `regionByPx`, `regionByPct`, `sizeByW`, `sizeByH`, `sizeByWh`, `sizeByConfinedWh`, `sizeByPct`, `rotationBy90s`, and the `color`/`gray`/`bitonal` qualities. A handful of `extraFeatures` are implemented beyond Level 2 (`regionSquare`, `sizeUpscaling`, `rotationArbitrary`, `mirroring`, `webp`/`avif` formats); the rest are deferred (see "Deferred extraFeatures").
 
 ## Region (→ crop op; `full` emits no op)
 
@@ -49,7 +49,9 @@ A leading `^` enables upscaling. Without `^`, an explicit-size form that would u
 | --- | --- | --- | --- |
 | `0` | — | ✅ | No op. |
 | `90` / `180` / `270` | `rotationBy90s` | ✅ | `Plan.Operation.Rotate{angle: …}`. Applied *after* the region crop (see "auto_rotate" below). |
-| `!n` (mirroring), arbitrary angle | `mirroring`, `rotationArbitrary` (extra) | ➖ | Deferred. A non-90 multiple or `!`-prefixed rotation is a **400**. |
+| `!n` (mirroring), arbitrary angle | `mirroring`, `rotationArbitrary` (extra) | ✅ | `!` mirrors (horizontal flip) before rotating; any `[0,360]` angle (360 folds to 0). Right-angle non-mirrored rotation uses the lossless deferred `vips_rot` path; arbitrary or mirrored rotation runs as a materializing `Transform.Operation.Rotate` chain op. |
+
+**Arbitrary/mirrored rotation (stage/order + behavioral, [#257](https://github.com/hlindset/image_pipe/issues/257)):** runs as a materializing `Transform.Operation.Rotate` chain op *after* resize, *before* quality. Because it is `requires_materialization?: true`, `Chain`/`Materializer` flushes the pending EXIF orientation first, so rotation lands in the display frame. Right-angle multiples (incl. when mirrored) use the lossless `vips_rot` primitive (no #211 seam); other angles use the affine `vips_rotate` with premultiplied alpha and a transparent background. (`!0` — mirror with zero angle — is the exception: it emits a standalone horizontal `Flip` folded into `pending_orientation` via the deferred path, not a `Rotate` chain op.) Exposed corners are transparent; for a non-alpha output format the encoder flattens onto `Plan.Output.flatten_background` (IIIF defines no per-request fill knob). No imgproxy parity reference — imgproxy `rot` is right-angle only, so arbitrary rotation is IIIF-driven (IIIF spec is ground truth). Validator-checked by the official `rot_full_non90` / `rot_region_non90` / `rot_mirror` / `rot_mirror_180` tests, run by name in the validator gate (see "Official validator gate" below).
 
 ## Quality (→ `gray` op or no-op)
 
@@ -124,17 +126,17 @@ The opaque IIIF `{identifier}` is resolved by a host-configured `ImagePipe.Parse
 
 ## Diverges / intentional notes
 
-- **`auto_rotate` defaults `true`** (configurable via `iiif: [auto_rotate: …]`). IIIF region/size/rotation and the info.json dimensions are defined in the **displayed** (post-EXIF-orientation) coordinate system. This is the more correct behavior, not a divergence: an absolute-coordinate `CropRegion` is made display-correct by flushing the EXIF pending orientation *before* the crop (rescaling against the orientation-swapped `decode_shrink`); the IIIF rotation param folds into `pending_orientation` and is applied *after* the region crop. The validator reference image is orientation-1, so the gate is unaffected.
+- **`auto_rotate` defaults `true`** (configurable via `iiif: [auto_rotate: …]`). IIIF region/size/rotation and the info.json dimensions are defined in the **displayed** (post-EXIF-orientation) coordinate system. This is the more correct behavior, not a divergence: an absolute-coordinate `CropRegion` is made display-correct by flushing the EXIF pending orientation *before* the crop (rescaling against the orientation-swapped `decode_shrink`); the IIIF rotation param folds into `pending_orientation` (right-angle, non-mirrored) and is applied after the region crop; an arbitrary or mirrored rotation instead runs as a materializing chain op (see Rotation). The validator reference image is orientation-1, so the gate is unaffected.
 - **Upscale-without-`^` returns the spec-recommended 400** via the `{:bad_request, _}` transform reason. The *general*, host-customizable error→status mapping is tracked by [#267](https://github.com/hlindset/image_pipe/issues/267).
 - **`gray` on a non-alpha output format (e.g. `gray.jpg`) with an alpha source flattens onto the background** (valid output) via the encoder's format-driven flatten ([#269](https://github.com/hlindset/image_pipe/pull/269)); `gray` preserves alpha for alpha-capable formats (`gray.png`/`gray.webp`/`gray.avif`).
 
 ## Deferred extraFeatures
 
-All optional at every compliance level; tracked separately if a consumer needs them: arbitrary-angle rotation (`rotationArbitrary`), mirroring (`mirroring`, `!n`), and `jp2`/`gif`/`tif`/`pdf` output formats.
+All optional at every compliance level; tracked separately if a consumer needs them: `jp2`/`gif`/`tif`/`pdf` output formats.
 
 ## Verification
 
 - **Wire tests:** `test/parser/iiif_wire_test.exs` — real `ImagePipe.call/2` end-to-end (status, headers, `Vary`, CORS, decoded dimensions, gray pixel checks incl. the RGBA→JPEG flatten, info.json + ld+json negotiation, 303 redirect, the 400/404 status mapping).
-- **Official validator gate:** the Python `image-validator` runs against a live IIIF endpoint serving the canonical `67352ccc-…` reference image via the Static resolver, at `--version=3.0 --level 2` (see `validator/`). The `--level 2` flag is mandatory — the tool defaults to Level 1 and would otherwise silently skip the Level-2 tests.
+- **Official validator gate:** the Python `image-validator` runs against a live IIIF endpoint serving the canonical `67352ccc-…` reference image via the Static resolver, at `--version=3.0 --level 2` (see `validator/`). The `--level 2` flag is mandatory — the tool defaults to Level 1 and would otherwise silently skip the Level-2 tests. The gate then runs the arbitrary-rotation + mirroring extraFeatures tests by name (`--test rot_full_non90 --test rot_region_non90 --test rot_mirror --test rot_mirror_180`); `--test` ignores `--level`, so these level-3 tests run without opting into full Level-3 conformance (which would pull in tests for unimplemented features such as `size_up`). All pass (Level 2: 33 tests; rotation/mirror: 4 tests; 0 failures).
 - **Tiling unit/property:** `test/parser/iiif/tiling_test.exs` — Cantaloupe reference values, universal invariants with a tautology self-check, OSD `levelSizes` adoption on representative sources.
 - **Viewer-simulation gate:** `test/parser/iiif/openseadragon_sim_test.exs` — replicates OpenSeadragon's `getTileUrl` to drive a full tile traversal through `ImagePipe.call/2`, asserting status + decoded dims for every tile and an independent gradient-derived pixel oracle for interior/edge/corner tiles at multiple scale factors.

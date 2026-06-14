@@ -72,7 +72,12 @@ describe("iiif segment building", () => {
 
   it("encodes rotation, quality, format", () => {
     expect(
-      iiifPathTail({ ...defaultIiifState, rotation: 90, quality: "gray", format: "png" }),
+      iiifPathTail({
+        ...defaultIiifState,
+        rotation: { degrees: 90, mirror: false },
+        quality: "gray",
+        format: "png",
+      }),
     ).toBe("dog/full/max/90/gray.png");
   });
 
@@ -94,7 +99,12 @@ describe("iiif tail parsing round-trips", () => {
     { ...defaultIiifState, size: { kind: "confined", w: 400, h: 300 } },
     { ...defaultIiifState, size: { kind: "pct", n: 50 } },
     { ...defaultIiifState, size: { kind: "pct", n: 200 }, upscale: true },
-    { ...defaultIiifState, rotation: 270, quality: "bitonal", format: "webp" },
+    {
+      ...defaultIiifState,
+      rotation: { degrees: 270, mirror: false },
+      quality: "bitonal",
+      format: "webp",
+    },
   ];
 
   for (const state of cases) {
@@ -105,8 +115,19 @@ describe("iiif tail parsing round-trips", () => {
 
   it("rejects a malformed tail", () => {
     expect(parseIiifTail("dog/full/max/0")).toBeNull(); // missing quality.format
-    expect(parseIiifTail("dog/full/max/45/default.jpg")).toBeNull(); // bad rotation
     expect(parseIiifTail("nope/full/max/0/default.jpg")).toBeNull(); // unknown id
     expect(parseIiifTail("dog/full/!400,300,5/0/default.jpg")).toBeNull(); // confined extra comma
+  });
+
+  it("parses arbitrary + mirror rotation", () => {
+    expect(parseIiifTail("dog/full/max/45/default.jpg")?.rotation ?? null).toEqual({
+      degrees: 45,
+      mirror: false,
+    });
+    expect(parseIiifTail("dog/full/max/!90/default.jpg")?.rotation ?? null).toEqual({
+      degrees: 90,
+      mirror: true,
+    });
+    expect(parseIiifTail("dog/full/max/370/default.jpg")).toBeNull(); // out of range
   });
 });
