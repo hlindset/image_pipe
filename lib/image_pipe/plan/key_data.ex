@@ -102,6 +102,9 @@ defmodule ImagePipe.Plan.KeyData do
       y_offset: operation.y_offset,
       min_width: optional_data(operation.min_width),
       min_height: optional_data(operation.min_height),
+      max_width: operation.max_width,
+      max_height: operation.max_height,
+      max_area: operation.max_area,
       zoom_x: operation.zoom_x,
       zoom_y: operation.zoom_y
     ]
