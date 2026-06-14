@@ -174,7 +174,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   # Right-angle, non-mirrored rotation defers into pending_orientation (lossless
-  # vips_rot at the flush, imgproxy parity, #211 seam avoidance). Unchanged path.
+  # vips_rot at the flush, imgproxy parity, #211 seam avoidance). Same body as before.
   defp execute_operation(%PlanRotate{angle: angle, mirror: false}, %State{} = state, _ctx, _opts)
        when angle in [0, 90, 180, 270] do
     po = state.pending_orientation || %PendingOrientation{}
