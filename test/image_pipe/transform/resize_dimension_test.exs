@@ -464,5 +464,30 @@ defmodule ImagePipe.Transform.ResizeDimensionTest do
       r = Resize.resolve_dimensions(bounded, source_width: 6000, source_height: 4000)
       assert r.intermediate_width == 800
     end
+
+    # NON-binding bounds (far larger than any resulting dimension) must not perturb
+    # the configured baseline: a bounded op resolves to IDENTICAL dims as the same
+    # op with no bounds. The all-nil tests only compare nil-vs-nil; this proves the
+    # bound machinery is a genuine identity when the ceilings cannot bind.
+    test "non-binding bounds resolve identically to the unbounded op" do
+      base = %Resize{mode: :fit, width: {:pixels, 800}, height: :auto, enlarge: false}
+
+      plain = Resize.resolve_dimensions(base, source_width: 6000, source_height: 4000)
+
+      bounded =
+        Resize.resolve_dimensions(
+          %Resize{
+            base
+            | max_width: 1_000_000,
+              max_height: 1_000_000,
+              max_area: 1_000_000_000_000
+          },
+          source_width: 6000,
+          source_height: 4000
+        )
+
+      assert bounded.intermediate_width == plain.intermediate_width
+      assert bounded.intermediate_height == plain.intermediate_height
+    end
   end
 end

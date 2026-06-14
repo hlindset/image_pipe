@@ -549,8 +549,26 @@ defmodule ImagePipe.Parser.IIIFWireTest do
       assert h == 100
     end
 
+    test "maxHeight inferred from maxWidth bounds the unspecified axis (§5.1)" do
+      # ONLY max_width: 100 — maxHeight is inferred = maxWidth = 100 per IIIF §5.1.
+      # On the 200×300 portrait source, `max` fits within a 100×100 box, which is
+      # height-binding (100/300 < 100/200) -> 67×100. Pinning h == 100 is the key:
+      # if image_plan dropped the `|| max_width` inference, height would be
+      # unbounded and the result would be 100×150 -> this assertion fails.
+      conn =
+        call_iiif(
+          "/img/full/max/0/default.png",
+          iiif_opts_bounded(OriginImage, max_width: 100)
+        )
+
+      assert conn.status == 200
+      assert {67, 100} = dimensions(conn)
+    end
+
     test "explicit width exceeding maxWidth is clamped down (not 400)" do
-      # request width 150 (<= 200, no upscale-400) with maxWidth 100 -> clamped.
+      # request width 150 (<= 200, no upscale-400) with maxWidth 100 (maxHeight
+      # inferred = 100). The inferred 100×100 cap is height-binding on the 200×300
+      # source -> 67×100. Pin both axes (h == 100 is the binding-axis guard).
       conn =
         call_iiif(
           "/img/full/150,/0/default.png",
@@ -558,8 +576,23 @@ defmodule ImagePipe.Parser.IIIFWireTest do
         )
 
       assert conn.status == 200
-      {w, _h} = dimensions(conn)
-      assert w <= 100
+      assert {67, 100} = dimensions(conn)
+    end
+
+    test "info.json does NOT advertise inferred maxHeight (raw configured only)" do
+      # ONLY max_width configured. Advertising is raw-configured-only per spec:
+      # info_plan performs NO §5.1 inference, so maxHeight/maxArea must be absent.
+      # If info_plan ever grew the `|| max_width` inference, maxHeight would appear.
+      conn =
+        call_iiif(
+          "/img/info.json",
+          iiif_opts_bounded(OriginImage, max_width: 1000)
+        )
+
+      body = JSON.decode!(conn.resp_body)
+      assert body["maxWidth"] == 1000
+      refute Map.has_key?(body, "maxHeight")
+      refute Map.has_key?(body, "maxArea")
     end
 
     test "info.json advertises configured bounds" do
@@ -573,6 +606,15 @@ defmodule ImagePipe.Parser.IIIFWireTest do
       assert body["maxWidth"] == 1000
       assert body["maxHeight"] == 800
       assert body["maxArea"] == 500_000
+    end
+
+    test "unbounded ^max degrades to the source dimensions" do
+      # With no bounds configured, the grow-with-empty-scales branch leaves the
+      # source untouched: ^max on 200×300 must yield the source dims, not enlarge.
+      conn = call_iiif("/img/full/^max/0/default.png", iiif_opts(OriginImage))
+
+      assert conn.status == 200
+      assert {200, 300} = dimensions(conn)
     end
 
     test "info.json omits bounds when unconfigured" do

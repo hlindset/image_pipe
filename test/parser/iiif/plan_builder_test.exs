@@ -301,6 +301,38 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
       assert resize.max_area == 3_000_000
     end
 
+    # Guards against a dropped `bound_opts` on any single `size_operations/2`
+    # clause: every one of the SIX size forms must thread the configured bounds
+    # (with maxHeight inferred = maxWidth) onto its resize op. Region :full keeps
+    # the resize as the only op, so a missing thread fails the match here.
+    for size_token <- [
+          {:max, false},
+          {:w, 400, false},
+          {:h, 400, false},
+          {:wh, 400, 300, false},
+          {:confined, 400, 300, false},
+          {:pct, {:ratio, 50, 100}, false}
+        ] do
+      test "size form #{inspect(size_token)} threads bounds onto its resize op" do
+        {:ok, %Plan{pipelines: [%{operations: [%Resize{} = resize]}]}} =
+          PlanBuilder.image_plan(
+            @source,
+            %{
+              region: :full,
+              size: unquote(Macro.escape(size_token)),
+              rotation: {false, 0},
+              quality: :default,
+              format: :jpg
+            },
+            max_width: 2000
+          )
+
+        assert resize.max_width == 2000
+        # §5.1 inference: maxHeight unset -> inferred = maxWidth.
+        assert resize.max_height == 2000
+      end
+    end
+
     test "no bounds configured leaves the resize unbounded" do
       {:ok, %Plan{pipelines: [%{operations: [%Resize{} = resize]}]}} =
         PlanBuilder.image_plan(

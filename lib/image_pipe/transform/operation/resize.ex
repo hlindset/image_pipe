@@ -486,6 +486,12 @@ defmodule ImagePipe.Transform.Operation.Resize do
   defp area_bounded?(%__MODULE__{max_area: nil}), do: false
   defp area_bounded?(%__MODULE__{}), do: true
 
+  # Degenerate edge: when the region aspect ratio exceeds max_area (a pathologically
+  # tiny host-configured area), the unavoidable `max(1, …)` per-axis floor can leave
+  # w·h marginally above max_area — a 1px axis can't shrink further. This is
+  # best-effort and reachable only via extreme host config (max_area is host-config
+  # `:pos_integer`, never request input), and mirrors libvips/imgproxy's own 1px
+  # dimension floor.
   defp scaled_bound_axis(:auto, _scale, _floor?), do: :auto
   defp scaled_bound_axis(value, scale, true), do: max(1, trunc(value * scale))
   defp scaled_bound_axis(value, scale, false), do: positive_round(value * scale)
