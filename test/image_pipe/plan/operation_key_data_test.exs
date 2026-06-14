@@ -96,6 +96,9 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                y_offset: {:scale, -0.25},
                min_width: nil,
                min_height: nil,
+               max_width: nil,
+               max_height: nil,
+               max_area: nil,
                zoom_x: 1.0,
                zoom_y: 1.0,
                rule: :auto_orientation_match_v1

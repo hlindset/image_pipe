@@ -1277,6 +1277,9 @@ defmodule ImagePipe.Request.RunnerTest do
                  y_offset: {:pixels, 0.0},
                  min_width: nil,
                  min_height: nil,
+                 max_width: nil,
+                 max_height: nil,
+                 max_area: nil,
                  zoom_x: 1.0,
                  zoom_y: 1.0
                ]
