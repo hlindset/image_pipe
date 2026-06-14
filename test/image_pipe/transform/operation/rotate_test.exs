@@ -43,7 +43,10 @@ defmodule ImagePipe.Transform.Operation.RotateTest do
   test "arbitrary angle does not dark-fringe opaque content (premultiply works)" do
     {:ok, image} = Image.new(60, 60, color: [240, 240, 240])
     result = run(%Rotate{angle: 10}, image)
-    [r, g, b | _] = Image.get_pixel!(result, div(Image.width(result), 2), div(Image.height(result), 2))
+
+    [r, g, b | _] =
+      Image.get_pixel!(result, div(Image.width(result), 2), div(Image.height(result), 2))
+
     assert r > 200 and g > 200 and b > 200, "interior darkened: #{inspect([r, g, b])}"
   end
 
@@ -53,6 +56,7 @@ defmodule ImagePipe.Transform.Operation.RotateTest do
     assert Image.has_alpha?(result)
     # exposed corner fully transparent
     assert List.last(Image.get_pixel!(result, 0, 0)) == 0
+
     # interior keeps the source's semi-transparent alpha (~128), not double-premultiplied to 0/opaque
     interior = Image.get_pixel!(result, div(Image.width(result), 2), div(Image.height(result), 2))
     a = List.last(interior)

@@ -99,7 +99,12 @@ describe("iiif tail parsing round-trips", () => {
     { ...defaultIiifState, size: { kind: "confined", w: 400, h: 300 } },
     { ...defaultIiifState, size: { kind: "pct", n: 50 } },
     { ...defaultIiifState, size: { kind: "pct", n: 200 }, upscale: true },
-    { ...defaultIiifState, rotation: { degrees: 270, mirror: false }, quality: "bitonal", format: "webp" },
+    {
+      ...defaultIiifState,
+      rotation: { degrees: 270, mirror: false },
+      quality: "bitonal",
+      format: "webp",
+    },
   ];
 
   for (const state of cases) {

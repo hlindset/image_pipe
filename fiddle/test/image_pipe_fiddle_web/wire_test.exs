@@ -47,8 +47,8 @@ defmodule ImagePipeFiddleWeb.WireTest do
     assert Image.height(image) == 50
   end
 
-  test "GET /iiif-image rejects a bad rotation with 400", %{conn: conn} do
-    conn = get(conn, "/iiif-image/dog/full/max/45/default.jpg")
+  test "GET /iiif-image rejects a malformed rotation with 400", %{conn: conn} do
+    conn = get(conn, "/iiif-image/dog/full/max/abc/default.jpg")
     assert conn.status == 400
   end
 

@@ -417,8 +417,10 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Canvas{} = operation), do: valid_canvas?(operation)
   def semantic?(%Padding{} = operation), do: valid_padding?(operation)
   def semantic?(%Background{} = operation), do: valid_background?(operation)
+
   def semantic?(%Rotate{angle: angle, mirror: mirror}),
     do: is_number(angle) and angle >= 0 and angle < 360 and is_boolean(mirror)
+
   def semantic?(%Flip{axis: axis}) when axis in @flip_axes, do: true
   def semantic?(%Blur{} = operation), do: valid_positive_float?(operation.sigma)
   def semantic?(%Sharpen{} = operation), do: valid_positive_float?(operation.sigma)

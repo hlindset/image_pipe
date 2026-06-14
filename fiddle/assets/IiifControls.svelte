@@ -24,7 +24,9 @@
   // Section summaries mirror the URL tokens they produce.
   const regionSummary = $derived(iiifRegionSegment(iiifState.region));
   const sizeSummary = $derived(iiifSizeSegment(iiifState.size, iiifState.upscale));
-  const rotationSummary = $derived(`${iiifState.rotation.mirror ? "!" : ""}${iiifState.rotation.degrees}°`);
+  const rotationSummary = $derived(
+    `${iiifState.rotation.mirror ? "!" : ""}${iiifState.rotation.degrees}°`,
+  );
   const outputSummary = $derived(`${iiifState.quality} · ${iiifState.format}`);
 
   function setRegionKind(kind: IiifRegion["kind"]): void {
@@ -220,13 +222,7 @@
     </div>
   </div>
 
-  <RangeNumber
-    label="Degrees"
-    bind:value={iiifState.rotation.degrees}
-    min={0}
-    max={360}
-    step={1}
-  />
+  <RangeNumber label="Degrees" bind:value={iiifState.rotation.degrees} min={0} max={360} step={1} />
 
   <label class="switch-field">
     <Switch.Root class="switch-root" bind:checked={iiifState.rotation.mirror}>
