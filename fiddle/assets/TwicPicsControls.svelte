@@ -1,7 +1,7 @@
 <script lang="ts">
   import { SortableList, sortItems } from "@rodrigodagostino/svelte-sortable-list";
   import "@rodrigodagostino/svelte-sortable-list/styles.css";
-  import { DropdownMenu } from "bits-ui";
+  import { DropdownMenu, Slider, Switch } from "bits-ui";
   import type { TransitionConfig } from "svelte/transition";
   import RangeNumber from "./RangeNumber.svelte";
   import { type SourceImage } from "./processing-path";
@@ -38,13 +38,6 @@
     { type: "focus", label: "focus" },
   ];
 
-  const resizeUnits: { value: TwicResizeUnit; label: string }[] = [
-    { value: "px", label: "px" },
-    { value: "p", label: "%" },
-    { value: "s", label: "scale" },
-    { value: "auto", label: "auto" },
-  ];
-
   // 3x3 anchor grid (center cell is null — TwicPics has no center anchor).
   const anchorGrid: (TwicAnchor | null)[] = [
     "top-left",
@@ -68,9 +61,26 @@
     "bottom-right": "↘",
   };
 
-  // Suppress the library's default scale/fly intro so pre-existing chain items
-  // don't animate in on load (the "falls down then snaps" effect). Reorder/remove
-  // animations are left to the library's defaults.
+  // Per-unit slider range + suffix for a resize dimension.
+  function resizeRange(unit: TwicResizeUnit): {
+    min: number;
+    max: number;
+    step: number;
+    suffix: string;
+  } {
+    switch (unit) {
+      case "p":
+        return { min: 1, max: 300, step: 1, suffix: "%" };
+      case "s":
+        return { min: 0.1, max: 4, step: 0.1, suffix: "×" };
+      default:
+        return { min: 1, max: 4000, step: 1, suffix: "px" };
+    }
+  }
+
+  // Suppress the library's default scale/fly in+out transitions: pre-existing chain
+  // items were animating in on load (and a transient duplicate fading out). Reorder
+  // movement (the library's CSS transition) is unaffected.
   const instant = (): TransitionConfig => ({ duration: 0 });
 
   function addStep(type: TransformType): void {
@@ -100,6 +110,32 @@
     );
   }
 
+  function selectNumberInput(event: FocusEvent): void {
+    const input = event.currentTarget;
+    if (input instanceof HTMLInputElement) input.select();
+  }
+
+  function setResizeValue(
+    step: Extract<TransformStep, { type: "resize" }>,
+    axis: "w" | "h",
+    value: number,
+  ): void {
+    if (Number.isNaN(value)) return;
+    const { min, max } = resizeRange(step[axis].unit);
+    step[axis] = { unit: step[axis].unit, value: Math.min(Math.max(value, min), max) };
+  }
+
+  // Switch a resize axis unit (keeps the both-auto guard in setResizeAxisUnit), then
+  // clamp the carried value into the new unit's range.
+  function changeResizeUnit(
+    step: Extract<TransformStep, { type: "resize" }>,
+    axis: "w" | "h",
+    unit: TwicResizeUnit,
+  ): void {
+    setResizeAxisUnit(step, axis, unit);
+    if (step[axis].unit !== "auto") setResizeValue(step, axis, step[axis].value);
+  }
+
   function toggleCropOrigin(step: Extract<TransformStep, { type: "crop" }>, on: boolean): void {
     step.origin = on ? { x: 1, y: 1 } : null;
   }
@@ -110,27 +146,54 @@
   axis: "w" | "h",
   label: string,
 )}
-  <div class="field">
-    <span>{label}</span>
-    <div class="resize-axis">
-      <select
-        value={step[axis].unit}
-        onchange={(e) => setResizeAxisUnit(step, axis, e.currentTarget.value as TwicResizeUnit)}
+  {@const dim = step[axis]}
+  {@const range = resizeRange(dim.unit)}
+  <div class="dim-control">
+    <label class="value-row">
+      <span>{label}</span>
+      <span class="value-controls">
+        {#if dim.unit !== "auto"}
+          <input
+            type="number"
+            min={range.min}
+            max={range.max}
+            step={range.step}
+            value={dim.value}
+            aria-label={`${label} value`}
+            onfocus={selectNumberInput}
+            oninput={(e) => setResizeValue(step, axis, e.currentTarget.valueAsNumber)}
+          />
+          <span class="unit-suffix">{range.suffix}</span>
+        {/if}
+        <select
+          class="dim-unit"
+          value={dim.unit}
+          aria-label={`${label} unit`}
+          onchange={(e) => changeResizeUnit(step, axis, e.currentTarget.value as TwicResizeUnit)}
+        >
+          <option value="px">px</option>
+          <option value="p">%</option>
+          <option value="s">scale</option>
+          <option value="auto">auto</option>
+        </select>
+      </span>
+    </label>
+
+    {#if dim.unit !== "auto"}
+      <Slider.Root
+        class="slider-root"
+        type="single"
+        min={range.min}
+        max={range.max}
+        step={range.step}
+        value={Math.min(Math.max(dim.value, range.min), range.max)}
+        onValueChange={(v) => setResizeValue(step, axis, v)}
+        onValueCommit={(v) => setResizeValue(step, axis, v)}
       >
-        {#each resizeUnits as unit}
-          <option value={unit.value}>{unit.label}</option>
-        {/each}
-      </select>
-      {#if step[axis].unit !== "auto"}
-        <input
-          class="text-input resize-value"
-          type="number"
-          min="1"
-          step={step[axis].unit === "s" ? "any" : "1"}
-          bind:value={step[axis].value}
-        />
-      {/if}
-    </div>
+        <Slider.Range class="slider-range" />
+        <Slider.Thumb class="slider-thumb" index={0} aria-label={`${label} slider`} />
+      </Slider.Root>
+    {/if}
   </div>
 {/snippet}
 
@@ -147,7 +210,7 @@
 
   <SortableList.Root gap={8} ondragend={handleDragEnd}>
     {#each twicpicsState.chain as step, index (step.id)}
-      <SortableList.Item id={step.id} {index} transitionIn={instant}>
+      <SortableList.Item id={step.id} {index} transitionIn={instant} transitionOut={instant}>
         <div class="chain-card">
           <div class="chain-card-head">
             <SortableList.ItemHandle>
@@ -234,11 +297,13 @@
                   suffix="px"
                 />
                 <label class="switch-field">
-                  <input
-                    type="checkbox"
+                  <Switch.Root
+                    class="switch-root"
                     checked={step.origin !== null}
-                    onchange={(e) => toggleCropOrigin(step, e.currentTarget.checked)}
-                  />
+                    onCheckedChange={(checked) => toggleCropOrigin(step, checked)}
+                  >
+                    <Switch.Thumb class="switch-thumb" />
+                  </Switch.Root>
                   <span>Origin (@ XxY)</span>
                 </label>
                 {#if step.origin !== null}
@@ -328,17 +393,15 @@
   }
 
   .chain-card {
-    /* A lighter gray than BOTH inner control surfaces — the inputs/selects
-       (--surface-control) and the slider tracks (--surface-control-track) — so they
-       read as recessed against it (mixing toward the text color keeps it distinct in
-       light and dark themes alike). Also retheme the library's handle/remove buttons,
-       which default to their own gray scale: no hover background, one color, and an
-       opacity-only hover (see below). */
-    background: color-mix(in srgb, var(--surface-control) 82%, var(--text-primary) 18%);
+    /* Same surface as the sidebar it sits on; the border is what delineates the
+       card, so the inner control surfaces (inputs, slider tracks) clearly stand out
+       against it. Also retheme the library's handle/remove buttons (they default to
+       their own gray scale): no background, one color, opacity-only hover. */
+    background: var(--surface-sidebar);
     --ssl-gray-400: var(--text-primary);
     --ssl-gray-150: transparent;
     --ssl-gray-700: var(--text-primary);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
     overflow: hidden;
   }
@@ -351,14 +414,16 @@
   }
 
   /* The library pulls the handle/remove out by -1rem (assumes a 1rem container
-     padding); reset so they sit inside our card padding instead of on the border. */
+     padding); reset so they sit inside our card padding instead of on the border.
+     No background in any state — just an opacity fade on hover/focus. */
   .chain-card :global(.ssl-item-handle),
   .chain-card :global(.ssl-item-remove) {
     margin: 0;
     padding: 6px;
     border-radius: 6px;
+    background: transparent;
     cursor: pointer;
-    opacity: 0.55;
+    opacity: 0.5;
     transition: opacity 120ms ease;
   }
 
@@ -439,13 +504,113 @@
     border-block-start: 1px solid var(--border-subtle);
   }
 
-  .resize-axis {
+  /* Resize dimension control — value + unit dropdown + slider (slider hidden when
+     the unit is "auto"), matching the imgproxy crop/resize dimension controls. */
+  .dim-control {
     display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--text-label);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .value-row,
+  .value-controls {
+    display: flex;
+    align-items: center;
     gap: 8px;
   }
 
-  .resize-value {
-    width: 96px;
+  .value-row {
+    justify-content: space-between;
+  }
+
+  .dim-control input[type="number"] {
+    width: auto;
+    min-width: 5ch;
+    max-width: 10ch;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    field-sizing: content;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 18px;
+    padding-inline: 4px;
+    text-align: right;
+    appearance: textfield;
+    -moz-appearance: textfield;
+
+    &::-webkit-inner-spin-button,
+    &::-webkit-outer-spin-button {
+      margin: 0;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+
+    &:hover,
+    &:focus {
+      border-color: var(--border-strong);
+      background: var(--surface-control);
+      outline: none;
+    }
+  }
+
+  .unit-suffix {
+    width: 14px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    text-align: left;
+  }
+
+  .dim-unit {
+    width: 84px;
+    min-height: 32px;
+    height: 32px;
+    padding-inline: 8px 28px;
+    background-position:
+      calc(100% - 13px) 14px,
+      calc(100% - 8px) 14px;
+  }
+
+  .dim-control :global(.slider-root) {
+    position: relative;
+    width: 100%;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .dim-control :global(.slider-root::before) {
+    content: "";
+    position: absolute;
+    inset: 11px 0;
+    border-radius: 999px;
+    background: var(--surface-control-track);
+  }
+
+  .dim-control :global(.slider-range) {
+    position: absolute;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+
+  .dim-control :global(.slider-thumb) {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--surface-sidebar);
+    border-radius: 999px;
+    background: var(--text-primary);
+  }
+
+  .dim-control :global(.slider-thumb:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
   }
 
   .anchor-grid {
