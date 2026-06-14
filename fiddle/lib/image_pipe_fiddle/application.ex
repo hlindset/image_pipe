@@ -69,7 +69,11 @@ defmodule ImagePipeFiddle.Application do
 
     [
       parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: {ImagePipe.Parser.IIIF.Resolver.Static, map: iiif_source_map()}],
+      iiif: [
+        resolver: {ImagePipe.Parser.IIIF.Resolver.Static, map: iiif_source_map()},
+        max_width: 4000,
+        max_height: 4000
+      ],
       sources: [
         path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
       ]
