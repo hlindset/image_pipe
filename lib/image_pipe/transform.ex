@@ -19,6 +19,7 @@ defmodule ImagePipe.Transform do
       Detector,
       Detector.Warmup,
       Operation.Resize,
+      Operation.Rotate,
       Operation.ExtendCanvas,
       Operation.Padding,
       Operation.Background,
