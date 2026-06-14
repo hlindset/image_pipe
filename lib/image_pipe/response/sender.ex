@@ -109,6 +109,14 @@ defmodule ImagePipe.Response.Sender do
     |> send_resp(status, "")
   end
 
+  @spec send_method_not_allowed(Plug.Conn.t()) :: Plug.Conn.t()
+  def send_method_not_allowed(%Plug.Conn{} = conn) do
+    conn
+    |> put_resp_header("allow", "GET, HEAD")
+    |> put_resp_content_type("text/plain")
+    |> send_resp(405, "method not allowed")
+  end
+
   @spec send_not_modified(Plug.Conn.t(), CacheHeaders.t()) :: Plug.Conn.t()
   def send_not_modified(%Plug.Conn{} = conn, %CacheHeaders{} = prepared) do
     prepared

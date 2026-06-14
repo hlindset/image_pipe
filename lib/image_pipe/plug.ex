@@ -47,6 +47,15 @@ defmodule ImagePipe.Plug do
     end)
   end
 
+  defp do_call(%Plug.Conn{method: method} = conn, opts) when method not in ["GET", "HEAD"] do
+    {conn, _send_metadata} =
+      send_response(conn, opts, :method_not_allowed, fn ->
+        Sender.send_method_not_allowed(conn)
+      end)
+
+    {conn, %{result: :method_not_allowed}}
+  end
+
   defp do_call(%Plug.Conn{} = conn, opts) do
     parser = Keyword.fetch!(opts, :parser)
 

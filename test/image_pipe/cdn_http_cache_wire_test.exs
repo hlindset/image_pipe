@@ -124,6 +124,38 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
+  test "HEAD emits the same cache-control and etag as GET", %{opts: opts} do
+    get = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    flush_messages()
+
+    head = ImagePipe.Plug.call(conn(:head, "/_/plain/beach.jpg"), opts)
+
+    assert head.status == 200
+    assert get_resp_header(head, "etag") != []
+    assert get_resp_header(head, "etag") == get_resp_header(get, "etag")
+    assert get_resp_header(head, "cache-control") == get_resp_header(get, "cache-control")
+  end
+
+  test "matching if-none-match on a HEAD returns 304 before cache lookup and source fetch",
+       %{opts: opts} do
+    first = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    [etag] = get_resp_header(first, "etag")
+
+    assert_received :source_fetch_called
+    flush_messages()
+
+    conn =
+      :head
+      |> conn("/_/plain/beach.jpg")
+      |> put_req_header("if-none-match", etag)
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 304
+    assert get_resp_header(conn, "etag") == [etag]
+    refute_received {:cache_get, %Key{}}
+    refute_received :source_fetch_called
+  end
+
   test "existing vary is merged in the final response", %{opts: opts} do
     conn =
       :get

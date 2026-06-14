@@ -504,7 +504,8 @@ Generated CDN HTTP cache handling emits non-span events:
 
 - `[:image_pipe, :http_cache, :prepare]` with `:effective_mode`,
   `:byte_identity`, and `:etag`.
-- `[:image_pipe, :http_cache, :conditional, :match]` with `method: :get`.
+- `[:image_pipe, :http_cache, :conditional, :match]` with `method: :get` or
+  `method: :head`.
 - `[:image_pipe, :http_cache, :fallback, :no_store]` with `:adapter`,
   `:source_kind`, and `:reason`.
 - `[:image_pipe, :http_cache, :cache_hit, :headers]` with booleans for `:etag`,

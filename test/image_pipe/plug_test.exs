@@ -837,6 +837,29 @@ defmodule ImagePipe.PlugTest do
     assert byte_size(conn.resp_body) > 0
   end
 
+  test "a non-GET/HEAD method returns 405 with an Allow header before any processing" do
+    test_pid = self()
+
+    conn =
+      :post
+      |> conn("/_/plain/images/beach.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        origin_req_options: [
+          plug: fn conn ->
+            send(test_pid, :origin_fetched)
+            Plug.Conn.send_resp(conn, 200, "x")
+          end
+        ]
+      )
+
+    assert conn.status == 405
+    assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+    # The 405 short-circuits before source resolution/fetch — the origin is never hit.
+    refute_received :origin_fetched
+  end
+
   test "streaming sends headers once and resumes for subsequent chunks" do
     conn = conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
     test_pid = self()

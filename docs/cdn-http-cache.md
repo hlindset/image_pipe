@@ -62,8 +62,8 @@ internal caching without generated HTTP cache headers.
 
 ## Generated Headers
 
-For successful `GET` responses with generated HTTP caching enabled and strong
-byte identity, ImagePipe emits:
+For successful `GET` and `HEAD` responses with generated HTTP caching enabled and
+strong byte identity, ImagePipe emits:
 
 ```http
 Cache-Control: public, max-age=31536000, immutable
@@ -100,12 +100,13 @@ generated public cache headers.
 
 ## Conditional Requests
 
-ImagePipe handles `If-None-Match` only for generated ETags. A matching `GET`
-returns `304 Not Modified` after source resolution and before cache lookup,
-source fetch, decode, transform, or encode.
+ImagePipe handles `If-None-Match` only for generated ETags. A matching `GET` or
+`HEAD` returns `304 Not Modified` after source resolution and before cache lookup,
+source fetch, decode, transform, or encode. HEAD response metadata
+(`ETag`/`Cache-Control`/`Vary`) matches the equivalent `GET`, per RFC 9110 §9.3.2.
 
-`If-None-Match` uses weak comparison for `GET`, so both of these match the
-generated ETag `"ip1-token"`:
+`If-None-Match` uses weak comparison for `GET` and `HEAD`, so both of these match
+the generated ETag `"ip1-token"`:
 
 ```http
 If-None-Match: "ip1-token"
@@ -113,7 +114,10 @@ If-None-Match: W/"ip1-token"
 ```
 
 v1 ignores `If-None-Match: *`, including on internal cache hits.
-Non-`GET` methods skip generated conditional handling.
+
+ImagePipe serves only `GET` and `HEAD`. Any other method receives
+`405 Method Not Allowed` with `Allow: GET, HEAD`, before parsing, source
+resolution, or cache access.
 
 ImagePipe doesn't interpret host-supplied ETags. If an earlier Plug sets
 `ETag`, ImagePipe preserves it, suppresses its generated ETag, and doesn't use
@@ -195,8 +199,8 @@ A conditional `304` emits:
 [:image_pipe, :http_cache, :conditional, :match]
 ```
 
-Metadata includes the method as `method: :get`. It doesn't include paths or
-ETag values.
+Metadata includes the method as `method: :get` or `method: :head`. It doesn't
+include paths or ETag values.
 
 Internal cache hits that receive freshly prepared HTTP cache headers emit:
 

@@ -78,17 +78,17 @@ defmodule ImagePipe.Request.HTTPCache do
   @spec evaluate_conditional(Plug.Conn.t(), CacheHeaders.t(), keyword()) ::
           :proceed | {:not_modified, CacheHeaders.t()}
   def evaluate_conditional(
-        %Plug.Conn{method: "GET"} = conn,
+        %Plug.Conn{method: method} = conn,
         %CacheHeaders{etag: etag} = prepared,
         opts
       )
-      when is_binary(etag) do
+      when method in ["GET", "HEAD"] and is_binary(etag) do
     if if_none_match?(conn, etag) do
       Telemetry.execute(
         Telemetry.telemetry_opts(opts),
         [:http_cache, :conditional, :match],
         %{},
-        %{method: :get}
+        %{method: conditional_method(method)}
       )
 
       {:not_modified, prepared}
@@ -98,6 +98,9 @@ defmodule ImagePipe.Request.HTTPCache do
   end
 
   def evaluate_conditional(%Plug.Conn{}, %CacheHeaders{}, _opts), do: :proceed
+
+  defp conditional_method("GET"), do: :get
+  defp conditional_method("HEAD"), do: :head
 
   defp effective_mode(%Resolved{http_cache: :inherit}, opts),
     do: opts |> Keyword.fetch!(:http_cache) |> Keyword.fetch!(:mode)
@@ -123,7 +126,7 @@ defmodule ImagePipe.Request.HTTPCache do
          :enabled,
          _representation_headers
        )
-       when method != "GET",
+       when method not in ["GET", "HEAD"],
        do: {[], nil, nil}
 
   defp generated_cache_headers(conn, plan, resolved, opts, :enabled, representation_headers) do
