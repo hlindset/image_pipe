@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultFiddleState } from "./processing-path";
 import { defaultIiifState } from "./iiif-path";
+import { defaultTwicPicsState } from "./twicpics-path";
 import { appPathForState, parseAppPath, type AppState } from "./fiddle-url-state";
 
 function baseAppState(): AppState {
@@ -8,6 +9,7 @@ function baseAppState(): AppState {
     provider: "imgproxy",
     imgproxy: { ...defaultFiddleState },
     iiif: { ...defaultIiifState },
+    twicpics: { ...defaultTwicPicsState },
   };
 }
 
@@ -55,10 +57,46 @@ describe("parseAppPath dispatch", () => {
       provider: "iiif",
       imgproxy: { ...defaultFiddleState, resizeEnabled: true, width: 999 },
       iiif: { ...defaultIiifState },
+      twicpics: { ...defaultTwicPicsState },
     };
     const url = appPathForState(state);
     expect(url.startsWith("/iiif/")).toBe(true);
     expect(url).not.toContain("999");
     expect(url).not.toContain("plain");
+  });
+});
+
+describe("twicpics provider dispatch", () => {
+  it("emits the twicpics browser path when the provider is twicpics", () => {
+    const state: AppState = {
+      ...baseAppState(),
+      provider: "twicpics",
+      twicpics: {
+        ...defaultTwicPicsState,
+        chain: [
+          { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
+        ],
+      },
+    };
+    expect(appPathForState(state)).toBe(
+      "/twicpics/images/dog.jpg?twic=v1/resize=340/output=auto/quality=80",
+    );
+  });
+
+  it("routes a twicpics-prefixed path + search to the twicpics slice", () => {
+    const parsed = parseAppPath(
+      "/twicpics/images/dog.jpg",
+      "?twic=v1/resize=340/resize=50p/output=webp/quality=70",
+    );
+    expect(parsed.provider).toBe("twicpics");
+    expect(parsed.twicpics.chain.map((s) => s.type)).toEqual(["resize", "resize"]);
+    expect(parsed.twicpics.output).toBe("webp");
+    expect(parsed.twicpics.quality).toBe(70);
+  });
+
+  it("stays on the twicpics provider for a malformed tail, with a default slice", () => {
+    const parsed = parseAppPath("/twicpics/images/dog.jpg", "?twic=v1/zoom=2");
+    expect(parsed.provider).toBe("twicpics");
+    expect(parsed.twicpics).toEqual(defaultTwicPicsState);
   });
 });

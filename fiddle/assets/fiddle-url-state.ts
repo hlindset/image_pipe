@@ -18,6 +18,12 @@ import {
   type TrimBackgroundMode,
 } from "./processing-path";
 import { defaultIiifState, iiifBrowserPath, parseIiifTail, type IiifState } from "./iiif-path";
+import {
+  defaultTwicPicsState,
+  parseTwicTail,
+  twicBrowserPath,
+  type TwicPicsState,
+} from "./twicpics-path";
 
 // Classes offered in the fiddle's object-gravity UI. A subset of COCO-80 chosen
 // to match the default source images (dog, cat) and the most common fiddles
@@ -1112,17 +1118,19 @@ function parseNumber(value: string | undefined): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-export type Provider = "imgproxy" | "iiif";
+export type Provider = "imgproxy" | "iiif" | "twicpics";
 
 export const providers: readonly { id: Provider; label: string }[] = [
   { id: "imgproxy", label: "imgproxy" },
   { id: "iiif", label: "IIIF (Image API 3.0)" },
+  { id: "twicpics", label: "TwicPics" },
 ];
 
 export type AppState = {
   provider: Provider;
   imgproxy: FiddleState;
   iiif: IiifState;
+  twicpics: TwicPicsState;
 };
 
 export function defaultAppState(): AppState {
@@ -1130,6 +1138,7 @@ export function defaultAppState(): AppState {
     provider: "imgproxy",
     imgproxy: { ...defaultFiddleState },
     iiif: { ...defaultIiifState },
+    twicpics: { ...defaultTwicPicsState },
   };
 }
 
@@ -1140,14 +1149,28 @@ export function appPathForState(state: AppState): string {
     return iiifBrowserPath(state.iiif);
   }
 
+  if (state.provider === "twicpics") {
+    return twicBrowserPath(state.twicpics);
+  }
+
   return `/imgproxy${fiddlePathForState(state.imgproxy)}`;
 }
 
 // Parses a browser URL into an AppState. The inactive slice is defaulted here;
 // App.svelte merges to preserve the in-memory inactive slice across popstate.
 // Dispatch is on the first path segment.
-export function parseAppPath(pathname: string): AppState {
+export function parseAppPath(pathname: string, search = ""): AppState {
   const [, first = "", ...rest] = pathname.split("/");
+
+  if (first === "twicpics") {
+    const twicpics = parseTwicTail(rest.join("/"), search);
+    return {
+      provider: "twicpics",
+      imgproxy: { ...defaultFiddleState },
+      iiif: { ...defaultIiifState },
+      twicpics: twicpics ?? { ...defaultTwicPicsState },
+    };
+  }
 
   if (first === "iiif") {
     const iiif = parseIiifTail(rest.join("/"));
@@ -1155,6 +1178,7 @@ export function parseAppPath(pathname: string): AppState {
       provider: "iiif",
       imgproxy: { ...defaultFiddleState },
       iiif: iiif ?? { ...defaultIiifState },
+      twicpics: { ...defaultTwicPicsState },
     };
   }
 
@@ -1163,6 +1187,7 @@ export function parseAppPath(pathname: string): AppState {
       provider: "imgproxy",
       imgproxy: parseFiddlePath("/" + rest.join("/")),
       iiif: { ...defaultIiifState },
+      twicpics: { ...defaultTwicPicsState },
     };
   }
 
