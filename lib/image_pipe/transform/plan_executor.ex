@@ -49,6 +49,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.Operation.Trim
@@ -172,11 +173,19 @@ defmodule ImagePipe.Transform.PlanExecutor do
     end
   end
 
-  # User rotate/flip fold into the pending orientation instead of emitting an
-  # executable op; the flush replays them with EXIF auto-orient late.
-  defp execute_operation(%PlanRotate{angle: angle}, %State{} = state, _ctx, _opts) do
+  # Right-angle, non-mirrored rotation defers into pending_orientation (lossless
+  # vips_rot at the flush, imgproxy parity, #211 seam avoidance). Unchanged path.
+  defp execute_operation(%PlanRotate{angle: angle, mirror: false}, %State{} = state, _ctx, _opts)
+       when angle in [0, 90, 180, 270] do
     po = state.pending_orientation || %PendingOrientation{}
     {:ok, %State{state | pending_orientation: PendingOrientation.fold_rotate(po, angle)}}
+  end
+
+  # Arbitrary angle or mirror: run as a materializing chain op. Chain's pre-op
+  # materialize flushes any pending EXIF orientation first, so the rotation lands
+  # in the display frame (EXIF auto-orient -> then user rotation).
+  defp execute_operation(%PlanRotate{} = operation, %State{} = state, ctx, opts) do
+    run_executable(operation, state, ctx, opts)
   end
 
   defp execute_operation(%PlanFlip{axis: axis}, %State{} = state, _ctx, _opts) do
@@ -635,6 +644,9 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp executable_operations(%PlanBitonal{}, %State{}, _context), do: [%Bitonal{}]
 
   defp executable_operations(%PlanGray{}, %State{}, _context), do: [%Gray{}]
+
+  defp executable_operations(%PlanRotate{angle: angle, mirror: mirror}, %State{}, _context),
+    do: [%Rotate{angle: angle, mirror: mirror}]
 
   defp executable_operations(%PlanSaturation{value: value}, %State{}, _context),
     do: [%Saturation{value: value}]

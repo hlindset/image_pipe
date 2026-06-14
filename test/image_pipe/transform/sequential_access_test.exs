@@ -17,6 +17,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.PendingOrientation
@@ -173,6 +174,11 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
       [%Duotone{intensity: 0.8, shadow: [0, 0, 0], highlight: [255, 255, 255]}],
       File.read!(@beach)
     )
+  end
+
+  test "Rotate op is materializing (known-random; cannot stream)" do
+    assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 45})
+    assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 90, mirror: true})
   end
 
   defp oriented_jpeg_body(orientation) do
