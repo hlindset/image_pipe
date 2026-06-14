@@ -47,6 +47,18 @@ defmodule ImagePipe.Transform.Operation.RotateTest do
     assert r > 200 and g > 200 and b > 200, "interior darkened: #{inspect([r, g, b])}"
   end
 
+  test "arbitrary angle on an already-alpha source preserves interior alpha and transparent corners" do
+    {:ok, image} = Image.new(40, 40, color: [200, 100, 50, 128], bands: 4)
+    result = run(%Rotate{angle: 30}, image)
+    assert Image.has_alpha?(result)
+    # exposed corner fully transparent
+    assert List.last(Image.get_pixel!(result, 0, 0)) == 0
+    # interior keeps the source's semi-transparent alpha (~128), not double-premultiplied to 0/opaque
+    interior = Image.get_pixel!(result, div(Image.width(result), 2), div(Image.height(result), 2))
+    a = List.last(interior)
+    assert a > 100 and a < 160, "interior alpha not preserved: #{inspect(interior)}"
+  end
+
   test "mirror flips horizontally before rotating" do
     {:ok, left} = Image.new(20, 20, color: [255, 0, 0])
     {:ok, right} = Image.new(20, 20, color: [0, 0, 255])

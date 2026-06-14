@@ -52,6 +52,11 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   defp maybe_mirror(image, false), do: {:ok, image}
   defp maybe_mirror(image, true), do: Image.flip(image, :horizontal)
 
+  # Angles arrive pre-normalized to integers for whole numbers (folded by the
+  # Plan.Operation.rotate/2 constructor and the IIIF grammar), so exact right-angle
+  # multiples match these integer clauses and take the lossless vips_rot path; only
+  # genuinely fractional angles reach the affine clause below.
+  #
   # Exact right angles: the lossless vips_rot primitive (same one OrientationFlush
   # and imgproxy use). Direct Vix call — the `image` facade has no exact-rotate.
   defp rotate(image, 0), do: {:ok, image}
@@ -64,6 +69,8 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   # premultiply; rotating un-premultiplied RGBA dark-fringes the resampled edges,
   # the same reason blur/sharpen premultiply). Call Vix directly: the `image`
   # facade's Image.rotate/3 rejects a 4-element RGBA background.
+  # Unlike blur.ex (which premultiplies only when alpha already exists), arbitrary
+  # rotation always ensures alpha so that exposed corners can be fully transparent.
   defp rotate(image, angle) do
     with {:ok, rgba} <- ensure_alpha(image),
          band_format = VipsImage.format(rgba),
