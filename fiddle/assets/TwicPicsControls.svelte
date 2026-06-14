@@ -4,12 +4,14 @@
   import { DropdownMenu, Slider, Switch } from "bits-ui";
   import type { TransitionConfig } from "svelte/transition";
   import RangeNumber from "./RangeNumber.svelte";
+  import TwicCropOriginPicker from "./TwicCropOriginPicker.svelte";
   import { type SourceImage } from "./processing-path";
   import {
     defaultStep,
     nextStepId,
     setResizeAxisUnit,
     stepSummary,
+    twicFetchPath,
     twicOutputs,
     type TransformStep,
     type TransformType,
@@ -307,6 +309,19 @@
                   <span>Origin (@ XxY)</span>
                 </label>
                 {#if step.origin !== null}
+                  {@const originPreviewSrc = twicFetchPath({
+                    source: twicpicsState.source,
+                    chain: twicpicsState.chain.slice(0, index),
+                    output: "jpeg",
+                    quality: 80,
+                  })}
+                  <TwicCropOriginPicker
+                    previewSrc={originPreviewSrc}
+                    width={step.w}
+                    height={step.h}
+                    bind:x={step.origin.x}
+                    bind:y={step.origin.y}
+                  />
                   <RangeNumber
                     label="X"
                     bind:value={step.origin.x}
