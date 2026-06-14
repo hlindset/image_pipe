@@ -47,27 +47,31 @@ Foundation: make the canonical plan model carry arbitrary angle + mirror, and ma
 
 **Files:**
 - Modify: `lib/image_pipe/plan/operation/rotate.ex`
-- Modify: `lib/image_pipe/plan/operation.ex:104-105` (constructor), `:397` (semantic?)
+- Modify: `lib/image_pipe/plan/operation.ex:28` (delete `@right_angles`), `:104-105` (constructor), `:397` (semantic?)
 - Modify: `lib/image_pipe/plan/key_data.ex:137`
-- Test: `test/image_pipe/plan/operation_test.exs` (or the existing operation constructor test file — see step 1)
+- Test: `test/image_pipe/plan/operation_test.exs` (exists), `test/image_pipe/plan/operation_key_data_test.exs` (exists)
 
-- [ ] **Step 1: Locate the constructor test file**
+- [ ] **Step 1: Fix the EXISTING conflicting assertions (they describe the old reject-everything-but-right-angles behavior)**
 
-Run: `ls test/image_pipe/plan/ | grep -i operation`
-Expected: a file like `operation_test.exs`. If none exists, create `test/image_pipe/plan/operation_test.exs` with:
+`test/image_pipe/plan/operation_test.exs` already exists. Update these assertions (they break once arbitrary angles are valid):
+- line ~409 `assert Operation.rotate(0) == {:error, {:invalid_operation, :rotate, [0]}}` → **delete** (0 is now valid: `{:ok, %Rotate{angle: 0}}`).
+- line ~410 `assert Operation.rotate(45) == {:error, {:invalid_operation, :rotate, [45]}}` → **delete** (45 is now valid).
+- line ~413 `refute Operation.semantic?(%Rotate{angle: 0})` → **delete** (now true).
+- line ~414 `refute Operation.semantic?(%Rotate{angle: 45})` → **delete** (now true).
+- Leave lines ~399 (`semantic?(%Rotate{angle: 90})`) and ~404 (`rotate(90) == {:ok, %Rotate{angle: 90}}`) — the `%Rotate{angle: 90}` literal picks up `mirror: false` on both sides, so they still pass.
 
+In `test/image_pipe/plan/operation_key_data_test.exs`, line ~208:
 ```elixir
-defmodule ImagePipe.Plan.OperationTest do
-  use ExUnit.Case, async: true
-
-  alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.Rotate
-end
+      assert KeyData.data(%Rotate{angle: 270}) == [op: :rotate, angle: 270]
+```
+→
+```elixir
+      assert KeyData.data(%Rotate{angle: 270}) == [op: :rotate, angle: 270, mirror: false]
 ```
 
 - [ ] **Step 2: Write failing tests for the widened constructor + gate**
 
-Add to that test module:
+Add to `test/image_pipe/plan/operation_test.exs` (it already aliases `Operation` and `Rotate`):
 
 ```elixir
 describe "rotate/2 (arbitrary angle + mirror)" do
@@ -176,7 +180,7 @@ Replace `semantic?(%Rotate{...})` (line 397):
     do: is_number(angle) and angle >= 0 and angle < 360 and is_boolean(mirror)
 ```
 
-Note: `@right_angles` (line 28) is now used only by `rotate/2`'s callers indirectly — leave it; it is still referenced elsewhere (e.g. imgproxy). Verify with `grep -n "@right_angles" lib/image_pipe/plan/operation.ex` that no other clause needs it removed.
+**Delete `@right_angles` (line 28).** It was referenced ONLY by the two clauses just rewritten (`rotate/1` line 104 and `semantic?` line 397); after this task it is unused, which fails `mix compile --warnings-as-errors`. (It is a private module attribute — imgproxy references the `Operation.rotate` *function*, not this attribute.) Verify with `grep -n "@right_angles" lib/image_pipe/plan/operation.ex` → no remaining references after the edit.
 
 - [ ] **Step 6: Add `mirror` to the cache key data**
 
@@ -656,8 +660,8 @@ Expected: PASS.
 
 In `test/parser/iiif/plan_builder_test.exs`:
 - update the `import`/alias line 6 to also alias `Flip`: `alias ImagePipe.Plan.Operation.{Bitonal, CropGuided, CropRegion, Flip, Gray, Resize, Rotate}`.
-- change every `rotation: 90` / `rotation: 0` in token maps to the tuple form `rotation: {false, 90}` / `rotation: {false, 0}`.
-- in the IIIF-order test (line 23) the assertion stays `%Rotate{angle: 90}` (mirror defaults false).
+- change **every** `rotation:` value in a token map to the tuple form: `rotation: 90 → {false, 90}`, `rotation: 0 → {false, 0}`, `rotation: 180 → {false, 180}`. Run `grep -n "rotation:" test/parser/iiif/plan_builder_test.exs` first — there are ~17 occurrences (incl. the "rotation 180 emits rotate op" test); update all of them, or the file won't compile against the new tuple-only `rotation_operations/1`.
+- existing assertions like `%Rotate{angle: 90}` / `%Rotate{angle: 180}` stay (mirror defaults false).
 - add a new test:
 
 ```elixir
@@ -723,35 +727,13 @@ In `lib/image_pipe/parser/iiif/info.ex`, add to `@extra_features` (after `"rotat
     "mirroring",
 ```
 
-- [ ] **Step 10: Run the IIIF parser + compile gate**
+- [ ] **Step 10: Fix the now-obsolete "rotation rejected" assertions (they break behaviorally here, not in Task 5)**
 
-Run: `mise exec -- mix test test/parser/iiif/ && mise exec -- mix compile --warnings-as-errors`
-Expected: PASS / clean.
+`45`/`!90` are now valid, so two existing assertions that expected rejection break the moment Task 4 lands. Fix them in THIS task so the boundary stays green:
 
-- [ ] **Step 11: Commit**
-
-```bash
-git add lib/image_pipe/parser/iiif/grammar.ex lib/image_pipe/parser/iiif/plan_builder.ex lib/image_pipe/parser/iiif/info.ex test/parser/iiif/grammar_test.exs test/parser/iiif/plan_builder_test.exs
-git commit -m "feat(iiif): parse arbitrary rotation + mirroring; advertise features (#257)"
-```
-
----
-
-## Task 5: IIIF wire conformance (end-to-end)
-
-Make real `ImagePipe.call/2` requests asserting status, dimensions, transparency, and that the previously-rejected `45`/`!90` are now valid. Fix the now-obsolete "45 → 400" assertions.
-
-**Files:**
-- Modify: `test/parser/iiif_wire_test.exs`, `test/parser/iiif_test.exs`
-
-- [ ] **Step 1: Find and fix the obsolete "rotation 45 rejected" assertions**
-
-Run: `grep -rn "45\|rotation" test/parser/iiif_wire_test.exs test/parser/iiif_test.exs | grep -i "rot\|45\|400"`
-Expected: locate "contract 9c" (45 → 400) in the wire test and the "Rotation 45 rejected" case in `iiif_test.exs`. These now describe valid requests.
-
-- [ ] **Step 2: Replace contract 9c with a genuinely-invalid rotation**
-
-In `test/parser/iiif_wire_test.exs`, change the contract-9c test so the invalid token is out-of-range / malformed (still 400), e.g.:
+- `test/parser/iiif/grammar_test.exs` — already handled in Step 1 (the whole rotation block was rewritten).
+- `test/parser/iiif_test.exs` — find the "rotation 45 rejected" case (`grep -n "45" test/parser/iiif_test.exs`). Update it to assert `45` now parses (200 / `{:ok, ...}`), or switch the rejected token to an out-of-range one like `370` — match the file's existing assertion style.
+- `test/parser/iiif_wire_test.exs` — the "contract 9c: bad rotation (45) → 400" test (`grep -n "9c\|/45/" test/parser/iiif_wire_test.exs`). Replace the invalid token with an out-of-range one:
 
 ```elixir
   test "contract 9c: out-of-range rotation (370) → 400" do
@@ -760,9 +742,30 @@ In `test/parser/iiif_wire_test.exs`, change the contract-9c test so the invalid 
   end
 ```
 
-In `test/parser/iiif_test.exs`, update the "Rotation 45 rejected" case to assert `45` now parses (200) or to use `370`/`45deg` as the rejected token — match the file's existing assertion style.
+- [ ] **Step 11: Run the IIIF parser + wire + compile gate**
 
-- [ ] **Step 3: Write the failing arbitrary-rotation + mirror wire tests**
+Run: `mise exec -- mix test test/parser/iiif/ test/parser/iiif_test.exs test/parser/iiif_wire_test.exs && mise exec -- mix compile --warnings-as-errors`
+Expected: PASS / clean (the obsolete assertions are fixed; the NEW arbitrary/mirror wire tests come in Task 5).
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add lib/image_pipe/parser/iiif/grammar.ex lib/image_pipe/parser/iiif/plan_builder.ex lib/image_pipe/parser/iiif/info.ex test/parser/iiif/grammar_test.exs test/parser/iiif/plan_builder_test.exs test/parser/iiif_test.exs test/parser/iiif_wire_test.exs
+git commit -m "feat(iiif): parse arbitrary rotation + mirroring; advertise features (#257)"
+```
+
+---
+
+## Task 5: IIIF wire conformance (end-to-end, new behavior)
+
+Make real `ImagePipe.call/2` requests asserting status, dimensions, and transparency for the new arbitrary/mirror behavior. (The obsolete `45 → 400` assertions were already fixed in Task 4.)
+
+**Files:**
+- Modify: `test/parser/iiif_wire_test.exs`
+
+**Note on materialization failure → 415:** the new `Transform.Operation.Rotate` is `requires_materialization?: true`, so a `copy_memory` failure flows through the *generic, op-agnostic* `Chain` → `{:materialize_error, _}` → `Request.Processor` → `{:decode, _}` → 415 path (same as `Trim`). No op-specific wiring exists, and forcing a `copy_memory` failure on a valid request is contrived — so no dedicated rotate-415 test is added; the inherited mapping is covered by the existing materialization tests. (Confirm during execution that the op's own `{:error, {__MODULE__, _}}` execute-time errors — which only fire on a libvips failure for a valid materialized image, effectively never — are not mistaken for the materialization path.)
+
+- [ ] **Step 1: Write the failing arbitrary-rotation + mirror wire tests**
 
 Add to `test/parser/iiif_wire_test.exs` (near the other contracts):
 
@@ -808,20 +811,20 @@ Add to `test/parser/iiif_wire_test.exs` (near the other contracts):
 
 (If `call_iiif`/`decoded_image`/`iiif_opts` helper names differ, copy the exact pattern used by the existing contract-2b bitonal test in this file.)
 
-- [ ] **Step 4: Run the wire tests to verify they fail then pass**
+- [ ] **Step 2: Run the wire tests to verify they pass**
 
 Run: `mise exec -- mix test test/parser/iiif_wire_test.exs`
 Expected: the new tests reference already-implemented behavior (Tasks 1-4), so they should PASS once the URL-decode of `%2190` and routing are correct. If `rot_mirror !90` fails on dimensions, confirm the chain op path runs (Task 3). If any helper name is wrong, fix per the existing tests.
 
-- [ ] **Step 5: Run the whole IIIF test tree**
+- [ ] **Step 3: Run the whole IIIF test tree**
 
 Run: `mise exec -- mix test test/parser/iiif_wire_test.exs test/parser/iiif_test.exs`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add test/parser/iiif_wire_test.exs test/parser/iiif_test.exs
+git add test/parser/iiif_wire_test.exs
 git commit -m "test(iiif): wire conformance for arbitrary rotation + mirroring (#257)"
 ```
 
@@ -829,12 +832,19 @@ git commit -m "test(iiif): wire conformance for arbitrary rotation + mirroring (
 
 ## Task 6: Demo (fiddle) controls + URL state
 
-Add an arbitrary-angle input + mirror toggle to the IIIF demo and its URL-path state. Confined to `iiif-path.ts`/`IiifControls.svelte`/`iiif-path.test.ts` (the imgproxy `rotate` path in `fiddle-url-state.ts` is unrelated).
+Add an arbitrary-angle input + mirror toggle to the IIIF demo and its URL-path state. The `IiifState.rotation` shape changes from `number` to `{ degrees, mirror }`, so every `.rotation` use site updates. (The imgproxy `rotate` option in `fiddle-url-state.ts` `parseRotate` is unrelated and must NOT change.)
 
 **Files:**
-- Modify: `fiddle/assets/iiif-path.ts`, `fiddle/assets/IiifControls.svelte`, `fiddle/assets/iiif-path.test.ts`
+- Modify: `fiddle/assets/iiif-path.ts`, `fiddle/assets/IiifControls.svelte`, `fiddle/assets/iiif-path.test.ts`, `fiddle/assets/fiddle-url-state.test.ts`
+
+**All `.rotation` use sites** (verified — update every one): `iiif-path.ts` (type/state/tail/parse), `IiifControls.svelte` (summary + control), `iiif-path.test.ts` (encode/round-trip/parse tests), and `fiddle/assets/fiddle-url-state.test.ts:38` (`expect(parsed.iiif.rotation).toBe(90)`). `App.svelte` binds the whole `iiifState` object and never reads `.rotation`, so it needs no change.
 
 - [ ] **Step 1: Update the failing TS path tests (red)**
+
+In `fiddle/assets/fiddle-url-state.test.ts`, line ~38 (the parse round-trip through the signed URL):
+```ts
+    expect(parsed.iiif.rotation).toEqual({ degrees: 90, mirror: false });
+```
 
 In `fiddle/assets/iiif-path.test.ts`:
 - the `encodes rotation, quality, format` test (line ~73-76): change `rotation: 90` to `rotation: { degrees: 90, mirror: false }`; the expected tail keeps `.../90/...`.
@@ -923,15 +933,15 @@ In `fiddle/assets/IiifControls.svelte`:
     step={1}
   />
 
-  <div class="field switch-field">
-    <span>Mirror (!)</span>
+  <label class="switch-field">
     <Switch.Root class="switch-root" bind:checked={iiifState.rotation.mirror}>
       <Switch.Thumb class="switch-thumb" />
     </Switch.Root>
-  </div>
+    <span>Mirror (!)</span>
+  </label>
 ```
 
-(Match the exact `Switch`/`RangeNumber` markup used by the existing upscale toggle around line 207 and the size inputs around line 162.)
+This mirror toggle uses the **exact** markup of the existing upscale toggle (`<label class="switch-field">` with the `<span>` *after* the `Switch.Root` — verify against lines ~205-212). The `RangeNumber` props (`label`/`bind:value`/`min`/`max`/`step`) match its existing size-input usage.
 
 - [ ] **Step 6: Run the fiddle check/lint/build**
 
@@ -941,7 +951,7 @@ Expected: PASS — no type errors (every `iiifState.rotation` use now matches th
 - [ ] **Step 7: Commit**
 
 ```bash
-git add fiddle/assets/iiif-path.ts fiddle/assets/IiifControls.svelte fiddle/assets/iiif-path.test.ts
+git add fiddle/assets/iiif-path.ts fiddle/assets/IiifControls.svelte fiddle/assets/iiif-path.test.ts fiddle/assets/fiddle-url-state.test.ts
 git commit -m "feat(fiddle): IIIF arbitrary rotation + mirror controls (#257)"
 ```
 
@@ -963,6 +973,8 @@ In `docs/iiif_3_support_matrix.md`, change the row (line ~52):
 ```
 
 Update the Level-2 summary line (line ~21) and the "Deferred extraFeatures" line (line ~133) to drop `rotationArbitrary`/`mirroring` from the deferred list.
+
+Also fix the now-partial claim at **line ~127**: it states "the IIIF rotation param folds into `pending_orientation` and is applied after the region crop." Scope it to right angles, e.g. "the IIIF rotation param folds into `pending_orientation` (right-angle, non-mirrored) and is applied after the region crop; an arbitrary or mirrored rotation instead runs as a materializing chain op (see below)." (`grep -n "folds into" docs/iiif_3_support_matrix.md` to locate.)
 
 - [ ] **Step 2: Add the stage/order + behavioral note**
 
