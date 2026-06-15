@@ -10,6 +10,10 @@
 
 **Spec:** [`docs/superpowers/specs/2026-06-15-unified-coordinate-unit-model-design.md`](../specs/2026-06-15-unified-coordinate-unit-model-design.md)
 
+**Scope deltas from the spec (deliberate, after plan review):**
+- **Role-named resolver functions deferred.** The spec §4.3 proposed `Geometry.resolve_dimension/resolve_position/resolve_focal`. This PR only adds the `{:ratio}` clause to `Geometry.to_pixels/2` (the minimum to make ratios resolvable); the existing `crop.ex`/`resize.ex` helpers keep their per-consumer rounding. Introducing the role functions without rewiring every consumer would be dead code; rewiring them is a behavior-preserving refactor deferred to a follow-up. The unification still lands: one canonical vocabulary + one ratio-aware `to_pixels`.
+- **TwicPics `inside` stays px-only this PR.** Its resize+canvas composition entangles relative units with canvas aspect-ratio semantics (a px/relative mix hits `:mixed_canvas_units`; a both-relative `inside` would silently become an aspect-ratio canvas). `inside` is not named by #313/#314/#315; relative `inside` is a follow-up. Only `crop` (region + guided) loses its px-only gate.
+
 **Conventions used throughout:**
 - Run Elixir via `mise exec -- mix ...`.
 - If this is a fresh worktree, first run: `mise trust && mise exec -- mix deps.get` (see project memory on fresh-worktree mise trust). If `mix format --check-formatted` fails repo-wide, check for a dangling untracked `.credo.exs` symlink and `rm` it.
@@ -30,8 +34,9 @@
 - `lib/image_pipe/plan/key_data.ex` — drop dead `{:percent}`/`{:scale}` `data/1` clauses.
 
 **Modify (transform boundary):**
-- `lib/image_pipe/transform/geometry.ex` — add `{:ratio, n, d}` to `to_pixels/2`; add role-named resolver functions.
-- `lib/image_pipe/transform/operation/resize.ex` — `resolve_relative_dimension/2` ratio clause; drop percent/scale clauses.
+- `lib/image_pipe/transform/geometry.ex` — add `{:ratio, n, d}` clause to `to_pixels/2`.
+- `lib/image_pipe/transform/plan_executor.ex:826-834` — add `{:ratio}` clause to `tagged_executable_resize_dimension/1` (the Plan→transform bridge).
+- `lib/image_pipe/transform/operation/resize.ex` — widen transform `@type dimension()` (line 28) to include `{:ratio}`; `resolve_relative_dimension/2` ratio clause; drop percent/scale clauses.
 - (`lib/image_pipe/transform/operation/crop.ex` resolution helpers stay; only verified, not changed.)
 
 **Modify (parser boundary):**
@@ -42,8 +47,8 @@
 - `docs/twicpics_support_matrix.md`, `docs/imgproxy_support_matrix.md`, `docs/iiif_3_support_matrix.md`.
 - `fiddle/assets/TwicCropControls.svelte`, `TwicCropOriginPicker.svelte`, `TwicPicsControls.svelte`, `twicpics-path.ts`, `twicpics-path.test.ts`.
 
-**Test files touched:**
-- `test/image_pipe/plan/measure_test.exs` (new), `test/image_pipe/transform/geometry_test.exs` (new or extend), `test/image_pipe/transform/resize_relative_resolution_property_test.exs` (rewrite RHS), `test/image_pipe/key_data_test.exs` (update), `test/image_pipe/twic_pics_wire_conformance_test.exs` (extend), `test/image_pipe/architecture_boundary_test.exs` (add export).
+**Test files touched (verified paths):**
+- `test/image_pipe/plan/measure_test.exs` (new), `test/image_pipe/transform/geometry_test.exs` (new or extend), `test/image_pipe/transform/resize_relative_resolution_property_test.exs` (rewrite — builds the transform struct directly), `test/image_pipe/plan/key_data_test.exs` + `test/image_pipe/plan/operation_key_data_test.exs` (update), `test/parser/twic_pics/units_test.exs` + `test/parser/twic_pics/plan_builder_test.exs` (extend), `test/image_pipe/twic_pics_wire_conformance_test.exs` (extend), `test/parser/iiif_wire_test.exs` (regression guard), `test/image_pipe/architecture_boundary_test.exs` (add export).
 
 ---
 
@@ -241,7 +246,7 @@ In `lib/image_pipe/plan.ex`, add `Measure,` to the `exports:` list (alongside `K
 
 - [ ] **Step 2: Add to the architecture test assertion**
 
-In `test/image_pipe/architecture_boundary_test.exs`, find `assert_boundary_exports(plan, [` and add `Measure,` to that list (keep it sorted the same way the file does — alongside `KeyData`).
+In `test/image_pipe/architecture_boundary_test.exs`, find `assert_boundary_exports(plan, [` and add the **fully-qualified** `ImagePipe.Plan.Measure,` to that list (the test compares fully-qualified names, unlike the bare `Measure,` in `plan.ex` exports; keep it sorted alongside `ImagePipe.Plan.KeyData`).
 
 - [ ] **Step 3: Verify build + boundary test**
 
@@ -257,13 +262,15 @@ git commit -m "chore(plan): export Plan.Measure from the plan boundary"
 
 ---
 
-## Task 3: `Geometry` — exact-ratio resolution + role-named functions
+## Task 3: `Geometry.to_pixels/2` — exact-ratio resolution
 
 **Files:**
 - Modify: `lib/image_pipe/transform/geometry.ex`
 - Test: `test/image_pipe/transform/geometry_test.exs` (create if absent)
 
-Add a `{:ratio, n, d}` clause to `to_pixels/2`, then introduce role-named resolver functions that **preserve current rounding** (dimensions half-away via `round/1`; positions/offsets ties-to-even). These wrap the existing arithmetic so the per-consumer rounding is documented in one module; behavior is unchanged.
+Add a single `{:ratio, n, d}` clause to `to_pixels/2`. This is the minimum needed for ratio measures to resolve; it reuses the same arithmetic + rounding (`round/1`, half-away) as the existing `{:scale, num, den}` clause, so it is purely additive and behavior-preserving for every current caller.
+
+> Role-named resolver functions (`resolve_dimension`/`resolve_position`/`resolve_focal`) are **deferred** — see "Scope deltas from the spec" at the top. They would be dead code unless `crop.ex`/`resize.ex` are rewired through them, which is a separate behavior-preserving refactor.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -275,26 +282,10 @@ defmodule ImagePipe.Transform.GeometryTest do
   alias ImagePipe.Transform.Geometry
 
   describe "to_pixels/2 with {:ratio, n, d}" do
-    test "resolves a ratio against a reference (half-away rounding)" do
+    test "resolves a ratio against a reference (half-away rounding, same as :scale)" do
       assert Geometry.to_pixels(200, {:ratio, 1, 2}) == 100
       assert Geometry.to_pixels(5, {:ratio, 1, 2}) == 3
-    end
-  end
-
-  describe "resolve_dimension/3 (half-away; optional clamp)" do
-    test "ratio dimension, no clamp" do
-      assert Geometry.resolve_dimension({:ratio, 3, 2}, 100, clamp: false) == 150
-    end
-
-    test "clamp caps at the reference" do
-      assert Geometry.resolve_dimension({:ratio, 3, 2}, 100, clamp: true) == 100
-      assert Geometry.resolve_dimension({:px, 999}, 100, clamp: true) == 100
-    end
-  end
-
-  describe "resolve_focal/2 (0..1, clamped)" do
-    test "ratio resolves to its fraction" do
-      assert Geometry.resolve_focal({:ratio, 1, 4}, 800) == 0.25
+      assert Geometry.to_pixels(300, {:ratio, 1, 3}) == 100
     end
   end
 end
@@ -303,11 +294,11 @@ end
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- mix test test/image_pipe/transform/geometry_test.exs`
-Expected: FAIL — `to_pixels/2` has no `{:ratio, …}` clause; `resolve_dimension/3`, `resolve_focal/2` undefined.
+Expected: FAIL — `to_pixels/2` has no `{:ratio, …}` clause.
 
-- [ ] **Step 3: Extend Geometry**
+- [ ] **Step 3: Add the clause**
 
-Add a `{:ratio, n, d}` clause to `to_pixels/2` (place it next to the `{:scale, num, den}` clause) and the role-named functions. In `lib/image_pipe/transform/geometry.ex`:
+In `lib/image_pipe/transform/geometry.ex`, add the `{:ratio, n, d}` clause next to the `{:scale, num, den}` clause:
 
 ```elixir
   def to_pixels(length, {:scale, numerator, denominator}),
@@ -319,86 +310,68 @@ Add a `{:ratio, n, d}` clause to `to_pixels/2` (place it next to the `{:scale, n
   def to_pixels(length, {:percent, percent}), do: round(percent / 100 * length)
 ```
 
-Then add, after `to_pixels` (these are the documented role entry points; rounding is per the spec table):
-
-```elixir
-  # Dimension role: extent. Half-away rounding (imgproxy imath.Scale/Round),
-  # resolving to at least 1. `clamp: true` caps at the reference (crop size).
-  @spec resolve_dimension(ImagePipe.Plan.Measure.t(), integer(), keyword()) :: integer()
-  def resolve_dimension(measure, reference, opts \\ []) do
-    px = max(1, to_pixels(reference, measure_to_unit(measure)))
-    if Keyword.get(opts, :clamp, false), do: min(px, reference), else: px
-  end
-
-  # Position role: zero-based coordinate. Half-away rounding, floored at 0.
-  @spec resolve_position(ImagePipe.Plan.Measure.t(), integer()) :: integer()
-  def resolve_position(measure, reference),
-    do: max(0, to_pixels(reference, measure_to_unit(measure)))
-
-  # Focal role: a fraction in 0..1, clamped. Ratio-only this PR.
-  @spec resolve_focal({:ratio, non_neg_integer(), pos_integer()}, integer()) :: float()
-  def resolve_focal({:ratio, num, den}, _reference),
-    do: num / den |> max(0.0) |> min(1.0)
-
-  defp measure_to_unit({:px, value}), do: value
-  defp measure_to_unit({:ratio, _, _} = ratio), do: ratio
-```
-
-> Note: `resolve_offset/3` is intentionally **not** introduced — offsets keep their
-> existing `crop.ex` `crop_offset/3` path unchanged (float `{:scale}`/`{:pixels}`,
-> rounded-to-even at composition). See spec §4.1/§4.3.
-
 - [ ] **Step 4: Run the new test + the existing transform tests**
 
 Run: `mise exec -- mix test test/image_pipe/transform/geometry_test.exs test/image_pipe/transform/`
-Expected: PASS. (The `{:ratio}` `to_pixels` clause is additive; existing call sites are untouched.)
+Expected: PASS. (Additive clause; existing call sites untouched.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add lib/image_pipe/transform/geometry.ex test/image_pipe/transform/geometry_test.exs
-git commit -m "feat(transform): Geometry exact-ratio to_pixels + role-named resolvers"
+git commit -m "feat(transform): Geometry.to_pixels resolves exact {:ratio} measures"
 ```
 
 ---
 
-## Task 4: Normalize `Resize` dimensions to px + ratio
+## Task 4: Normalize `Resize` dimensions to px + ratio (both layers)
 
 **Files:**
-- Modify: `lib/image_pipe/plan/operation/resize.ex:21` (the `dimension` type)
+- Modify: `lib/image_pipe/plan/operation/resize.ex:21` (Plan-layer `dimension` type)
 - Modify: `lib/image_pipe/plan/operation.ex:597-608` (`tagged_resize_dimension/1`)
-- Modify: `lib/image_pipe/transform/operation/resize.ex:209-215` (`resolve_relative_dimension/2`)
-- Test: `test/image_pipe/transform/resize_relative_resolution_property_test.exs` (rewrite RHS); native-API pixel test (extend an existing resize wire/transform test file — see Step 6)
+- Modify: `lib/image_pipe/transform/plan_executor.ex:826-834` (`tagged_executable_resize_dimension/1` — the Plan→transform bridge)
+- Modify: `lib/image_pipe/transform/operation/resize.ex:28` (transform-layer `@type dimension()`) and `:209-215` (`resolve_relative_dimension/2`)
+- Test: `test/image_pipe/transform/resize_relative_resolution_property_test.exs` (rewrite — it builds the **transform** struct directly); native-API pixel test (see Step 7)
 
-The native constructor keeps accepting `percent`/`scale` *sugar* and converts to a stored `{:ratio}` via `Plan.Measure`. The executor's `resolve_relative_dimension` keeps emitting `{:pixels, px}` (downstream unchanged); only its accepted input tag changes from `{:percent}`/`{:scale}` to `{:ratio}`.
+There are **two** `Resize` structs: `ImagePipe.Plan.Operation.Resize` (the parsed Plan) and `ImagePipe.Transform.Operation.Resize` (the executable). The `PlanExecutor` bridges them via `tagged_executable_resize_dimension/1`. **Both** layers and the bridge must learn `{:ratio}`, or every relative resize crashes (e.g. the existing wire test `resize=340/resize=50p`). The native constructor keeps accepting `percent`/`scale` *sugar* and converts to a stored `{:ratio}` via `Plan.Measure`; the bridge passes `{:ratio}` straight through; the executor's `resolve_relative_dimension` resolves it to `{:pixels, px}` (downstream unchanged).
 
-- [ ] **Step 1: Update the struct type**
+- [ ] **Step 1: Update both struct types**
 
-In `lib/image_pipe/plan/operation/resize.ex`, change the `dimension` type:
+In `lib/image_pipe/plan/operation/resize.ex`, change the Plan-layer `dimension` type:
 
 ```elixir
   @type dimension :: :auto | {:px, pos_integer()} | {:ratio, pos_integer(), pos_integer()}
 ```
 
-- [ ] **Step 2: Rewrite the property test RHS to the ratio order (failing first)**
-
-In `test/image_pipe/transform/resize_relative_resolution_property_test.exs`, the assertion currently pins the float order `round(percent / 100 * running)`. Rewrite it to compute the expected value from the **stored ratio** in the same order the executor now uses (`round(running * num / den)`). Concretely, derive the ratio the constructor will store and assert against it. Example shape:
+In `lib/image_pipe/transform/operation/resize.ex:28`, widen the transform-layer type to add `{:ratio}` (keep the rest as-is):
 
 ```elixir
-# For a percent input p applied to a running dimension `running`:
-{:ok, {:ratio, num, den}} = ImagePipe.Plan.Measure.from_percent(p)
-expected = max(1, round(running * num / den))
+  @type dimension() :: :auto | pixels() | {:ratio, pos_integer(), pos_integer()} | {:percent, number()} | {:scale, number()}
+```
+
+(Keeping `{:percent}`/`{:scale}` in the transform type is harmless — nothing produces them anymore after this task — but `{:ratio}` must be added.)
+
+- [ ] **Step 2: Rewrite the property test (failing first)**
+
+`test/image_pipe/transform/resize_relative_resolution_property_test.exs` builds the **transform** struct *directly* (`%ImagePipe.Transform.Operation.Resize{width: {:percent, percent}}`) — it does **not** go through the Plan constructor. So two edits: (a) build `width: {:ratio, num, den}` (the new transform tag), and (b) assert the RHS in ratio order. Example shape:
+
+```elixir
+# choose a ratio directly (or derive from a percent via Measure for parity with the parser):
+{:ok, {:ratio, num, den}} = ImagePipe.Plan.Measure.from_percent(percent)
+op = %ImagePipe.Transform.Operation.Resize{width: {:ratio, num, den}, height: :auto, ...}
+result = ImagePipe.Transform.Operation.Resize.resolve_dimensions(op, source)
+expected = max(1, round(source.width * num / den))
 assert result.intermediate_width == expected
 ```
 
-Mirror the same change for the scale branch (`Measure.from_scale/1`) and for height. Keep the StreamData generators as-is.
+Mirror for the scale branch (`Measure.from_scale/1`) and for height. Keep the StreamData generators as-is.
 
 - [ ] **Step 3: Run the property test to see it fail against current code**
 
 Run: `mise exec -- mix test test/image_pipe/transform/resize_relative_resolution_property_test.exs`
-Expected: FAIL — current executor still resolves via `{:percent}`/`{:scale}` (float order) and the constructor still stores those tags, so `result` won't match the ratio-order expectation.
+Expected: FAIL — the transform `resolve_relative_dimension` has no `{:ratio}` clause yet, so `{:ratio}` falls through the `other` passthrough and isn't resolved.
 
-- [ ] **Step 4: Update the constructor to convert sugar → ratio**
+- [ ] **Step 4: Update the Plan constructor to convert sugar → ratio**
 
 In `lib/image_pipe/plan/operation.ex`, replace `tagged_resize_dimension/1` (lines 597-608) with:
 
@@ -425,7 +398,20 @@ In `lib/image_pipe/plan/operation.ex`, replace `tagged_resize_dimension/1` (line
 
 (`from_percent`/`from_scale` already guarantee `> 0` for the values reaching here; `Measure.dimension/1` enforces `> 0` for a directly-supplied ratio.)
 
-- [ ] **Step 5: Update the executor to resolve ratio dimensions**
+- [ ] **Step 5: Update the Plan→transform bridge**
+
+In `lib/image_pipe/transform/plan_executor.ex`, add a `{:ratio}` clause to `tagged_executable_resize_dimension/1` (after line 829) so the stored ratio reaches the transform struct intact. Drop the now-unreachable `{:percent}`/`{:scale}` clauses (the Plan layer no longer stores them):
+
+```elixir
+  defp tagged_executable_resize_dimension(:auto), do: :auto
+  defp tagged_executable_resize_dimension({:px, value}), do: {:pixels, value}
+  defp tagged_executable_resize_dimension({:ratio, numerator, denominator}),
+    do: {:ratio, numerator, denominator}
+```
+
+(`tagged_executable_resize_dimension/1` is also used for `min_width`/`min_height` via line 834's optional path — the same clauses cover those.)
+
+- [ ] **Step 6: Update the transform executor to resolve ratio dimensions**
 
 In `lib/image_pipe/transform/operation/resize.ex`, replace the `{:percent}`/`{:scale}` clauses of `resolve_relative_dimension/2` (lines 209-213) with a single ratio clause (output shape identical — `{:pixels, max(1, …)}`):
 
@@ -436,7 +422,7 @@ In `lib/image_pipe/transform/operation/resize.ex`, replace the `{:percent}`/`{:s
   defp resolve_relative_dimension(other, _length), do: other
 ```
 
-- [ ] **Step 6: Add a native-API pixel test incl. a tie case**
+- [ ] **Step 7: Add a native-API pixel test incl. a tie case**
 
 In the existing resize transform/wire test file (e.g. `test/image_pipe/transform/resize_test.exs` — pick the file that already decodes resize output; if none, add to `resize_relative_resolution_property_test.exs` as an example test), add a decode-and-compare test:
 
@@ -452,19 +438,20 @@ end
 
 Use the test file's established decode helper to assert the output width. The key assertions: the stored dimension is `{:ratio, 1, 2}` (not `{:percent, 50}`), and the decoded width matches `round(5 * 1/2) = 3`.
 
-- [ ] **Step 7: Run the resize tests + full transform suite**
+- [ ] **Step 8: Run the resize tests + the TwicPics wire test (existing relative-resize regression)**
 
-Run: `mise exec -- mix test test/image_pipe/transform/resize_relative_resolution_property_test.exs test/image_pipe/transform/`
-Expected: PASS.
+Run: `mise exec -- mix test test/image_pipe/transform/ test/image_pipe/twic_pics_wire_conformance_test.exs`
+Expected: PASS — in particular the existing `resize=340/resize=50p` and `resize=4s` wire cases must still pass (they exercise the full Plan→bridge→executor path the bridge clause in Step 5 fixes).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-# include the resize pixel-test file you added the native tie-case to in Step 6
+# include the resize pixel-test file you added the native tie-case to in Step 7
 git add lib/image_pipe/plan/operation/resize.ex lib/image_pipe/plan/operation.ex \
+        lib/image_pipe/transform/plan_executor.ex \
         lib/image_pipe/transform/operation/resize.ex \
         test/image_pipe/transform/resize_relative_resolution_property_test.exs
-git commit -m "feat(plan): normalize Resize relative dims to exact ratio (#315 groundwork)"
+git commit -m "feat(plan): normalize Resize relative dims to exact ratio, both layers (#315 groundwork)"
 ```
 
 ---
@@ -473,13 +460,13 @@ git commit -m "feat(plan): normalize Resize relative dims to exact ratio (#315 g
 
 **Files:**
 - Modify: `lib/image_pipe/plan/key_data.ex:173-177` (the `{:percent}`/`{:scale}` `data/1` clauses)
-- Test: `test/image_pipe/key_data_test.exs`
+- Test: `test/image_pipe/plan/key_data_test.exs` and `test/image_pipe/plan/operation_key_data_test.exs`
 
 Once `Resize` stores `{:ratio}`, the `{:percent}`/`{:scale}` `data/1` clauses have no in-repo producer. `data({:ratio, …})` (line 179) already encodes ratios, so `50p` and `0.5s` (both stored as `{:ratio, 1, 2}`) now produce the **same** key.
 
-- [ ] **Step 1: Update the key_data test (failing first)**
+- [ ] **Step 1: Update the key_data tests (failing first)**
 
-In `test/image_pipe/key_data_test.exs`, find the assertions that feed `{:percent, 50}` / `{:scale, 0.5}` into `Operation.resize` and assert *distinct* encodings (`unit: :percent` / `unit: :scale`). Rewrite them to assert the **stored ratio** encoding and the **collapse**:
+In `test/image_pipe/plan/key_data_test.exs` (and `test/image_pipe/plan/operation_key_data_test.exs` if it has the same assertions), find the cases that feed `{:percent, 50}` / `{:scale, 0.5}` into `Operation.resize` and assert *distinct* encodings (`unit: :percent` / `unit: :scale`). Rewrite them to assert the **stored ratio** encoding and the **collapse**:
 
 ```elixir
 test "percent and scale resize dimensions collapse to the same ratio key" do
@@ -493,8 +480,8 @@ Remove any assertion asserting `unit: :percent` / `unit: :scale` for resize dime
 
 - [ ] **Step 2: Run to confirm the old assertions fail**
 
-Run: `mise exec -- mix test test/image_pipe/key_data_test.exs`
-Expected: FAIL on the rewritten/removed assertions until the producer change (Task 4) is in — since Task 4 precedes this, the new collapse test should actually already PASS; the step is to confirm the test file no longer asserts distinct percent/scale encodings. If `data({:percent})` is referenced nowhere else, proceed.
+Run: `mise exec -- mix test test/image_pipe/plan/key_data_test.exs test/image_pipe/plan/operation_key_data_test.exs`
+Expected: the old `unit: :percent` / `unit: :scale` assertions FAIL (Task 4 now stores `{:ratio}`); the new collapse test PASSES. Confirm the files no longer assert distinct percent/scale encodings.
 
 - [ ] **Step 3: Confirm no remaining producer, then delete dead clauses**
 
@@ -519,13 +506,13 @@ If a producer remains (e.g. some other op still emits `{:percent}`/`{:scale}` th
 
 - [ ] **Step 4: Run key_data + cache tests**
 
-Run: `mise exec -- mix test test/image_pipe/key_data_test.exs test/image_pipe/cache_key_test.exs`
+Run: `mise exec -- mix test test/image_pipe/plan/key_data_test.exs test/image_pipe/plan/operation_key_data_test.exs test/image_pipe/cache_test.exs`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/image_pipe/plan/key_data.ex test/image_pipe/key_data_test.exs
+git add lib/image_pipe/plan/key_data.ex test/image_pipe/plan/key_data_test.exs test/image_pipe/plan/operation_key_data_test.exs
 git commit -m "refactor(cache): ratio key encoding for resize dims; 50p/0.5s collapse"
 ```
 
@@ -535,7 +522,7 @@ git commit -m "refactor(cache): ratio key encoding for resize dims; 50p/0.5s col
 
 **Files:**
 - Modify: `lib/image_pipe/parser/twic_pics/units.ex`
-- Test: `test/image_pipe/parser/twic_pics/units_test.exs` (extend if present; else add to the parser test file used for units)
+- Test: `test/parser/twic_pics/units_test.exs`
 
 Split `length/1` into `dimension_length/1` (px `> 0`) and `position_length/1` (px `≥ 0`). Both convert `p`/`s` to exact `{:ratio, n, d}` via the file's existing `decimal_term`/`scaled_integer` machinery (string-exact). The percent denominator is `× 100`; scale is as-is. `position_length` allows zero.
 
@@ -571,7 +558,7 @@ end
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mise exec -- mix test <twicpics units test file>`
+Run: `mise exec -- mix test test/parser/twic_pics/units_test.exs`
 Expected: FAIL — `dimension_length/1`, `position_length/1` undefined; `coordinates("0x0")` currently errors.
 
 - [ ] **Step 3: Implement the split in `units.ex`**
@@ -658,13 +645,13 @@ Update `size/1` / `crop_size/1`'s internal `dimension/2` helper to call `dimensi
 
 - [ ] **Step 4: Run the units tests**
 
-Run: `mise exec -- mix test <twicpics units test file>`
+Run: `mise exec -- mix test test/parser/twic_pics/units_test.exs`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/image_pipe/parser/twic_pics/units.ex test/...
+git add lib/image_pipe/parser/twic_pics/units.ex test/parser/twic_pics/units_test.exs
 git commit -m "feat(twicpics): dimension/position length split; p/s -> exact ratio; zero-based coords"
 ```
 
@@ -676,7 +663,7 @@ git commit -m "feat(twicpics): dimension/position length split; p/s -> exact rat
 - Modify: `lib/image_pipe/parser/twic_pics/plan_builder.ex`
 - Test: `test/image_pipe/twic_pics_wire_conformance_test.exs`
 
-Delete `pixels_only/2`, the `region_size` px-gate, and the `crop_coordinates` px-gate. `crop_region`, `crop_guided`, and `inside` now accept ratio + zero. A region crop still requires both axes explicit.
+Remove the px-only gates on **crop** only: the `region_size` px-gate, the `crop_coordinates` px-gate, and the `pixels_only/2` call inside `crop_guided`. `crop_region` and `crop_guided` now accept ratio + zero; a region crop still requires both axes explicit. **`inside` stays px-only** (keep its `pixels_only/2` call) — its resize+canvas composition entangles relative units with canvas aspect-ratio semantics (see "Scope deltas" at top). Keep `pixels_only/2` + `pixel_dimension?/1` (still used by `inside`).
 
 - [ ] **Step 1: Write the failing wire tests**
 
@@ -725,7 +712,7 @@ Replace `crop_coordinates/1` (lines 133-139):
   defp crop_coordinates(coords), do: Units.coordinates(coords)
 ```
 
-Update `crop_guided/2` (lines 105-111) and `inside/2` (lines 84-96) to drop the `pixels_only/2` call:
+Update `crop_guided/2` (lines 105-111) to drop only its `pixels_only/2` call (leave `inside/2` unchanged):
 
 ```elixir
   defp crop_guided(size, acc) do
@@ -736,27 +723,12 @@ Update `crop_guided/2` (lines 105-111) and `inside/2` (lines 84-96) to drop the 
   end
 ```
 
-```elixir
-  defp inside(args, acc) do
-    if String.contains?(args, ":") do
-      {:error, {:unsupported_transform_ratio, "inside"}}
-    else
-      with {:ok, {w, h}} <- Units.size(args),
-           {:ok, resize} <- Operation.resize(:fit, w, h),
-           {:ok, canvas} <- Operation.canvas(w, h, :center, fill: :transparent),
-           {:ok, acc} <- push(acc, resize) do
-        push(acc, canvas)
-      end
-    end
-  end
-```
-
-Delete `pixels_only/2`, `pixel_dimension?/1` (lines 161-173). Note: `Units.size`/`crop_size` now emit `{:ratio}` for `p`/`s` via `dimension_length`; `Operation.resize`/`canvas`/`crop_region`/`crop_guided` already accept `{:ratio}` dimensions, and `Operation.crop_region` accepts `{:ratio}`/zero coordinates (`tagged_crop_coordinate`, operation.ex:752).
+Keep `pixels_only/2` and `pixel_dimension?/1` (lines 161-173) — `inside/2` still calls them. Note: `Units.size`/`crop_size` now emit `{:ratio}` for `p`/`s` via `dimension_length`; `Operation.resize`/`canvas`/`crop_region`/`crop_guided` already accept `{:ratio}` dimensions, and `Operation.crop_region` accepts `{:ratio}`/zero coordinates (`tagged_crop_coordinate`, operation.ex:752).
 
 - [ ] **Step 4: Run the wire tests + full TwicPics suite**
 
-Run: `mise exec -- mix test test/image_pipe/twic_pics_wire_conformance_test.exs test/image_pipe/parser/twic_pics/`
-Expected: PASS.
+Run: `mise exec -- mix test test/image_pipe/twic_pics_wire_conformance_test.exs test/parser/twic_pics/`
+Expected: PASS. (Confirm `inside` with a relative unit still returns the `:unsupported_unit` rejection — its gate is intentionally retained.)
 
 - [ ] **Step 5: Commit**
 
@@ -791,9 +763,15 @@ end
 test "focus=auto and focus=center are rejected" do
   # ?twic=v1/focus=auto -> 400 ; ?twic=v1/focus=center -> 400
 end
+
+test "out-of-range relative focus is rejected before source fetch" do
+  # ?twic=v1/focus=150px50p -> 400 at the parser (ratio > 1), NOT a late
+  # execution error. Assert no source fetch occurred (use the file's
+  # no-source-fetch helper, as the other request-safety tests do).
+end
 ```
 
-Note `25p` etc. — `focus` coordinates use `position_length`, so a relative axis yields a `{:ratio}`. A pixel axis yields `{:px, n}` (to be rejected here, deferred).
+Note `25p` etc. — `focus` coordinates use `position_length`, so a relative axis yields a `{:ratio}`. A pixel axis yields `{:px, n}` (rejected here, deferred). An out-of-range relative axis (`150p` → `{:ratio, 3, 2}`) must be rejected **at the parser** for request-safety (it would otherwise pass plan construction — `tagged_ratio` has no upper bound — and fail only late in `crop.ex` after source fetch + decode).
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -827,11 +805,15 @@ In `plan_builder.ex`, extend `focus/2` (lines 141-149). Keep the `auto`/`center`
     end
   end
 
-  defp focal_ratio({:ratio, _, _} = ratio), do: {:ok, ratio}
-  defp focal_ratio({:px, _}), do: {:error, :bare_pixel_focus_deferred}
+  # In-range relative focus only. A ratio > 1 (e.g. 150p) is an out-of-image
+  # focus point and must be rejected HERE (the plan-construction gate
+  # `tagged_ratio` has no upper bound, so it would otherwise pass parse/plan and
+  # fail only late in crop.ex after source fetch). Bare-px is deferred.
+  defp focal_ratio({:ratio, num, den}) when num <= den, do: {:ok, {:ratio, num, den}}
+  defp focal_ratio(_measure), do: {:error, :out_of_range_or_deferred_focus}
 ```
 
-`Operation.crop_guided`/`resize` already validate a `{:focal, ratio, ratio}` guide (`resize_guide`/`tagged_crop_guide` → `tagged_ratio`, operation.ex:704-711, 777-782); a ratio focus point `> 1` (e.g. `200p`) will be rejected there, which is correct (focus must be within the image).
+This keeps focus rejections at the parser boundary (before source fetch / cache access), consistent with the request-safety guideline. (`Operation.crop_guided`/`resize` validate the focal ratio's *shape* via `tagged_ratio`, operation.ex:879, but **not** its `0..1` bound — the executor `crop.ex crop_gravity` enforces `<= 1.0` only at execution time, which is too late.)
 
 - [ ] **Step 4: Run the wire tests**
 
@@ -854,7 +836,7 @@ git commit -m "feat(twicpics): relative-unit coordinate focus (#313, p/s; bare-p
 
 - [ ] **Step 1: TwicPics matrix**
 
-Flip the rows: Coordinates → zero-based (`0x0` = top-left, `639x479` = bottom-right of 640×480); Crop size / Crop coordinates → relative units (`p`/`s`) supported; `focus=<coords>` → supported for `p`/`s` (✅), bare-px and `auto` remain 🚫 with a follow-up reference. Add a note that out-of-range *positive* focus/coordinate clamping is a deliberate, upstream-unverified host choice. Reference this spec.
+Flip the rows: Coordinates → zero-based (`0x0` = top-left, `639x479` = bottom-right of 640×480); Crop size / Crop coordinates → relative units (`p`/`s`) supported; `focus=<coords>` → supported for `p`/`s` (✅), bare-px and `auto` remain 🚫 with a follow-up reference. Notes: a relative **focus** coordinate out of range (`> 100%`) is **rejected at the parser** (must be within the image); a crop **region origin** out of range is clamped by the executor (`max(0, …)`, existing behavior) — that clamp is the documented, upstream-unverified host choice (TwicPics docs are silent). Reference this spec.
 
 - [ ] **Step 2: imgproxy matrix**
 
@@ -932,7 +914,7 @@ Expected: GREEN. The consolidation preserves imgproxy rounding/arithmetic/encodi
 
 - [ ] **Step 3: IIIF wire conformance (pixel-neutrality regression guard)**
 
-Run: `mise exec -- mix test test/image_pipe/iiif_wire_test.exs`
+Run: `mise exec -- mix test test/parser/iiif_wire_test.exs`
 Expected: PASS (IIIF is pixel-neutral this PR).
 
 - [ ] **Step 4: Fiddle verify suite**
@@ -955,3 +937,5 @@ git commit -m "chore: format + gate fixups for unified coordinate/unit model"
 - **`focus=auto` / smart guide** — a `:smart` focal guide (also satisfies imgproxy `g:sm`).
 - **crop-size half-away alignment** — `crop.ex` crop-size uses ties-to-even vs imgproxy `CalcCropSize` half-away; bake-gated fix, needs a fractional `c:0.x` fixture.
 - **`zoom_x`/`zoom_y` → exact-ratio** (IIIF `pct:n`) — separate `apply_zoom` path + constructor validation; needs a tie-hitting `pct:n` fixture.
+- **Relative-unit `inside`** (TwicPics) — requires resolving the resize+canvas composition without triggering aspect-ratio canvas semantics / mixed-unit errors.
+- **Role-named resolver consolidation** — rewire `crop.ex`/`resize.ex` through shared `Geometry.resolve_dimension/resolve_position/resolve_focal` (behavior-preserving refactor; spec §4.3).
