@@ -14,6 +14,7 @@ defmodule ImagePipe.Plan do
       SourceInfo,
       Color,
       KeyData,
+      Measure,
       Source,
       Source.Identity,
       Source.Path,
