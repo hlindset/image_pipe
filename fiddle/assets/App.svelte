@@ -3,6 +3,7 @@
   import { Collapsible, RadioGroup } from "bits-ui";
   import ImgproxyControls from "./ImgproxyControls.svelte";
   import IiifControls from "./IiifControls.svelte";
+  import TwicPicsControls from "./TwicPicsControls.svelte";
   import {
     appPathForState,
     defaultAppState,
@@ -12,6 +13,7 @@
     type AppState,
   } from "./fiddle-url-state";
   import { defaultIiifState, iiifFetchPath } from "./iiif-path";
+  import { defaultTwicPicsState, twicFetchPath } from "./twicpics-path";
   import {
     buildProcessingPath,
     debounce,
@@ -42,9 +44,11 @@
   const initial = initialAppState();
   let appState: AppState = $state(initial);
   let path = $state(
-    initial.provider === "iiif"
-      ? iiifFetchPath(initial.iiif)
-      : buildProcessingPath(initial.imgproxy),
+    initial.provider === "imgproxy"
+      ? buildProcessingPath(initial.imgproxy)
+      : initial.provider === "iiif"
+        ? iiifFetchPath(initial.iiif)
+        : twicFetchPath(initial.twicpics),
   );
   let previewImageUrl: string | null = $state(null);
   let previewLoading = $state(true);
@@ -74,7 +78,10 @@
     void loadPreview(nextPath);
   }, 150);
   const updateFiddleLocation = debounce((nextPath: string) => {
-    if (typeof window === "undefined" || window.location.pathname === nextPath) {
+    if (
+      typeof window === "undefined" ||
+      window.location.pathname + window.location.search === nextPath
+    ) {
       return;
     }
 
@@ -104,9 +111,12 @@
   $effect(() => {
     if (appState.provider === "imgproxy") {
       updateProcessingPath(appState.imgproxy);
-    } else {
+    } else if (appState.provider === "iiif") {
       pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
       path = iiifFetchPath(appState.iiif);
+    } else {
+      pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
+      path = twicFetchPath(appState.twicpics);
     }
   });
   $effect(() => {
@@ -125,21 +135,31 @@
   const previewParameters = $derived(
     appState.provider === "imgproxy"
       ? path.replace(/^\/[^/]+\/[^/]+\//, "")
-      : path.replace(/^\/iiif-image\//, ""),
+      : appState.provider === "iiif"
+        ? path.replace(/^\/iiif-image\//, "")
+        : path.replace(/^\/twic\//, ""),
   );
   const outputLabel = $derived(
     appState.provider === "imgproxy"
       ? resolvedOutputLabel(appState.imgproxy, processedMetadata)
-      : appState.iiif.format,
+      : appState.provider === "iiif"
+        ? appState.iiif.format
+        : appState.twicpics.output,
   );
   const sizeLabel = $derived(previewError ?? processedSizeLabel(processedMetadata));
   const requestSummary = $derived(
     appState.provider === "imgproxy"
       ? `${appState.imgproxy.source.replace(/^images\//, "")} / ${requestSignatureLabel(appState.imgproxy, signingError)}`
-      : appState.iiif.source.replace(/^images\//, ""),
+      : appState.provider === "iiif"
+        ? appState.iiif.source.replace(/^images\//, "")
+        : appState.twicpics.source.replace(/^images\//, ""),
   );
   const currentSource = $derived(
-    appState.provider === "iiif" ? appState.iiif.source : appState.imgproxy.source,
+    appState.provider === "iiif"
+      ? appState.iiif.source
+      : appState.provider === "twicpics"
+        ? appState.twicpics.source
+        : appState.imgproxy.source,
   );
 
   function initialAppState(): AppState {
@@ -147,15 +167,37 @@
       return defaultAppState();
     }
 
-    return parseAppPath(window.location.pathname);
+    return parseAppPath(window.location.pathname, window.location.search);
   }
 
   function restoreStateFromLocation(): void {
-    const parsed = parseAppPath(window.location.pathname);
-    appState =
-      parsed.provider === "iiif"
-        ? { provider: "iiif", imgproxy: appState.imgproxy, iiif: parsed.iiif }
-        : { provider: "imgproxy", imgproxy: parsed.imgproxy, iiif: appState.iiif };
+    const parsed = parseAppPath(window.location.pathname, window.location.search);
+
+    switch (parsed.provider) {
+      case "iiif":
+        appState = {
+          provider: "iiif",
+          imgproxy: appState.imgproxy,
+          iiif: parsed.iiif,
+          twicpics: appState.twicpics,
+        };
+        break;
+      case "twicpics":
+        appState = {
+          provider: "twicpics",
+          imgproxy: appState.imgproxy,
+          iiif: appState.iiif,
+          twicpics: parsed.twicpics,
+        };
+        break;
+      default:
+        appState = {
+          provider: "imgproxy",
+          imgproxy: parsed.imgproxy,
+          iiif: appState.iiif,
+          twicpics: appState.twicpics,
+        };
+    }
   }
 
   function requestSignatureLabel(
@@ -341,6 +383,7 @@
     // source-dimension-bound pixels (imgproxy crop, IIIF px region).
     appState.imgproxy = resetCropPixelsToSource({ ...appState.imgproxy, source });
     appState.iiif = { ...appState.iiif, source, region: { kind: "full" } };
+    appState.twicpics = { ...appState.twicpics, source };
   }
 
   function setThemeMode(nextMode: string): void {
@@ -350,8 +393,10 @@
   function resetSettings(): void {
     if (appState.provider === "imgproxy") {
       appState.imgproxy = resetFiddleSettings(appState.imgproxy);
-    } else {
+    } else if (appState.provider === "iiif") {
       appState.iiif = { ...defaultIiifState, source: appState.iiif.source };
+    } else {
+      appState.twicpics = { ...defaultTwicPicsState, source: appState.twicpics.source };
     }
   }
 
@@ -522,8 +567,13 @@
 
       {#if appState.provider === "imgproxy"}
         <ImgproxyControls bind:fiddleState={appState.imgproxy} source={appState.imgproxy.source} />
-      {:else}
+      {:else if appState.provider === "iiif"}
         <IiifControls bind:iiifState={appState.iiif} source={appState.iiif.source} />
+      {:else}
+        <TwicPicsControls
+          bind:twicpicsState={appState.twicpics}
+          source={appState.twicpics.source}
+        />
       {/if}
     </div>
 

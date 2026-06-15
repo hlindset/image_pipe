@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Collapsible, Select, Switch, Tabs } from "bits-ui";
   import CropDimensionControl from "./CropDimensionControl.svelte";
+  import ImagePointPicker from "./ImagePointPicker.svelte";
   import RangeNumber from "./RangeNumber.svelte";
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
   import ToolToggleHeader from "./ToolToggleHeader.svelte";
@@ -9,7 +10,6 @@
     controlLimits,
     cropOptionSegment,
     cropPixelLimit,
-    focalPointFromBounds,
     gravitySegment,
     resizeOptionSegment,
     resetCropPixelsToSource,
@@ -28,8 +28,6 @@
   let orientationOpen = $state(true);
   let scaleOptionsOpen = $state(true);
   let effectsOpen = $state(true);
-
-  let focalPickerSurface: HTMLSpanElement | null = $state(null);
 
   const fiddleObjClassesForPicker = fiddleObjClasses as readonly string[];
 
@@ -218,67 +216,9 @@
     return `${selected.length} classes`;
   }
 
-  function updateFocalPoint(event: MouseEvent | PointerEvent): void {
-    if (event instanceof MouseEvent && event.type === "click" && event.detail === 0) {
-      return;
-    }
-
-    if (focalPickerSurface === null) {
-      return;
-    }
-
-    const focalPoint = focalPointFromBounds(
-      event.clientX,
-      event.clientY,
-      focalPickerSurface.getBoundingClientRect(),
-    );
-
-    fiddleState.gravityFocalX = focalPoint.x;
-    fiddleState.gravityFocalY = focalPoint.y;
-  }
-
-  function startFocalPointDrag(event: PointerEvent): void {
-    const target = event.currentTarget;
-
-    if (target instanceof HTMLElement) {
-      target.setPointerCapture(event.pointerId);
-    }
-
-    updateFocalPoint(event);
-  }
-
-  function moveFocalPoint(event: KeyboardEvent): void {
-    const step = event.shiftKey ? 0.1 : 0.01;
-
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      fiddleState.gravityFocalX = Math.max(0, roundedFocalPoint(fiddleState.gravityFocalX - step));
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      fiddleState.gravityFocalX = Math.min(1, roundedFocalPoint(fiddleState.gravityFocalX + step));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      fiddleState.gravityFocalY = Math.max(0, roundedFocalPoint(fiddleState.gravityFocalY - step));
-    } else if (event.key === "ArrowDown") {
-      event.preventDefault();
-      fiddleState.gravityFocalY = Math.min(1, roundedFocalPoint(fiddleState.gravityFocalY + step));
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      fiddleState.gravityFocalX = 0.5;
-      fiddleState.gravityFocalY = 0.5;
-    }
-  }
-
-  function roundedFocalPoint(value: number): number {
-    return Math.round(value * 100) / 100;
-  }
-
-  function dragFocalPoint(event: PointerEvent): void {
-    if (event.buttons !== 1) {
-      return;
-    }
-
-    updateFocalPoint(event);
+  function setFocalPoint(nx: number, ny: number): void {
+    fiddleState.gravityFocalX = nx;
+    fiddleState.gravityFocalY = ny;
   }
 </script>
 
@@ -440,23 +380,13 @@
     {#if fiddleState.gravityMode === "focalPoint"}
       <div class="focal-picker-field">
         <span>Focal point</span>
-        <button
-          class="focal-picker"
-          type="button"
-          aria-label={`Set focal point, currently ${fiddleState.gravityFocalX}, ${fiddleState.gravityFocalY}`}
-          onclick={updateFocalPoint}
-          onkeydown={moveFocalPoint}
-          onpointerdown={startFocalPointDrag}
-          onpointermove={dragFocalPoint}
-        >
-          <span class="focal-image-surface" bind:this={focalPickerSurface}>
-            <img src={`/${source}`} alt="" draggable="false" />
-            <span
-              class="focal-marker"
-              style={`left: ${fiddleState.gravityFocalX * 100}%; top: ${fiddleState.gravityFocalY * 100}%;`}
-            ></span>
-          </span>
-        </button>
+        <ImagePointPicker
+          src={`/${source}`}
+          markerX={fiddleState.gravityFocalX}
+          markerY={fiddleState.gravityFocalY}
+          ariaLabel={`Set focal point, currently ${fiddleState.gravityFocalX}, ${fiddleState.gravityFocalY}`}
+          onPick={setFocalPoint}
+        />
       </div>
 
       <RangeNumber
@@ -1113,6 +1043,9 @@
 
 <style>
   .focal-picker-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     color: var(--text-label);
     font-size: 13px;
     line-height: 18px;
@@ -1128,79 +1061,6 @@
       font-family: var(--font-mono);
       font-size: 11px;
     }
-  }
-
-  .focal-picker-field {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .focal-picker {
-    width: 100%;
-    height: 148px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    border: 1px solid var(--border-strong);
-    border-radius: 7px;
-    background: repeating-conic-gradient(var(--checker-square) 0 25%, var(--surface-control) 0 50%)
-      50% / 16px 16px;
-    cursor: crosshair;
-    padding: 8px;
-    touch-action: none;
-  }
-
-  .focal-image-surface {
-    position: relative;
-    display: inline-flex;
-    max-width: 100%;
-    max-height: 100%;
-    box-shadow: var(--image-shadow);
-  }
-
-  .focal-image-surface img {
-    display: block;
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: 130px;
-    pointer-events: none;
-    user-select: none;
-  }
-
-  .focal-marker {
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    border: 2px solid var(--accent);
-    border-radius: 999px;
-    box-shadow:
-      0 0 0 1px var(--surface-sidebar),
-      0 2px 10px rgb(0 0 0 / 0.38);
-    pointer-events: none;
-    transform: translate(-50%, -50%);
-  }
-
-  .focal-marker::before,
-  .focal-marker::after {
-    position: absolute;
-    inset: 50% auto auto 50%;
-    display: block;
-    background: var(--accent);
-    content: "";
-    transform: translate(-50%, -50%);
-  }
-
-  .focal-marker::before {
-    width: 24px;
-    height: 2px;
-  }
-
-  .focal-marker::after {
-    width: 2px;
-    height: 24px;
   }
 
   .field > span {
@@ -1398,10 +1258,5 @@
 
   .muted-label {
     color: var(--text-muted);
-  }
-
-  .focal-picker:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 2px;
   }
 </style>
