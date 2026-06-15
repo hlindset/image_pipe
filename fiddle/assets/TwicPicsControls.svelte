@@ -123,8 +123,13 @@
     value: number,
   ): void {
     if (Number.isNaN(value)) return;
-    const { min, max } = resizeRange(step[axis].unit);
-    step[axis] = { unit: step[axis].unit, value: Math.min(Math.max(value, min), max) };
+    const { min, max, step: stepSize } = resizeRange(step[axis].unit);
+    const clamped = Math.min(Math.max(value, min), max);
+    // Snap to the unit's step precision so float drift from the slider doesn't
+    // surface as e.g. `resize=0.7000000000000001s` in the URL (scale = 1 decimal,
+    // px/% = integer).
+    const factor = stepSize < 1 ? 10 : 1;
+    step[axis] = { unit: step[axis].unit, value: Math.round(clamped * factor) / factor };
   }
 
   // Switch a resize axis unit (keeps the both-auto guard in setResizeAxisUnit), then
