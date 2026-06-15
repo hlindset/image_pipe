@@ -236,10 +236,16 @@ resize path.
   `dimension_length/1`.
 
 **TwicPics `plan_builder.ex`:**
-- Delete `pixels_only/2`, the `region_size` px-gate, and the `crop_coordinates`
-  px-gate. `crop_region`, `crop_guided`, and `inside` accept ratio + zero. A
-  region crop still requires *both* axes explicit (no `:auto`/`:full_axis` for a
-  region size) — only the px-only restriction goes. → **closes #314 and #315.**
+- Delete the `region_size` px-gate and the `crop_coordinates` px-gate, and the
+  `pixels_only/2` call on `crop_guided`. `crop_region` and `crop_guided` accept
+  ratio + zero. A region crop still requires *both* axes explicit (no
+  `:auto`/`:full_axis` for a region size) — only the px-only restriction goes.
+  → **closes #314 and #315.**
+- **`inside` stays px-only this PR** (its size dimensions): relative-unit
+  `inside` dims are deferred (the resize+canvas composition entangles relative
+  units with canvas aspect-ratio semantics), so `inside` keeps its `pixels_only/2`
+  gate. (The separate `inside=<ratio>` *form* — pad/letterbox to an aspect ratio —
+  is supported; only relative-unit *dimensions* on `inside` are deferred.)
 
 **imgproxy / IIIF parsers:** IIIF `pct:` regions already emit `{:ratio,…}` and
 flow through the shared resolver unchanged. IIIF `pct:n` size keeps its current

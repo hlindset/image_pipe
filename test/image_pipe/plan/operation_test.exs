@@ -128,6 +128,14 @@ defmodule ImagePipe.Plan.OperationTest do
                Operation.resize(:fit, {:scale, -1.0}, :auto)
     end
 
+    test "rejects a tiny positive percent/scale that rounds to a zero-extent ratio" do
+      assert {:error, {:invalid_operation, :resize, _}} =
+               Operation.resize(:fit, {:scale, 0.00000001}, :auto)
+
+      assert {:error, {:invalid_operation, :resize, _}} =
+               Operation.resize(:fit, {:percent, 0.00000001}, :auto)
+    end
+
     test "still accepts px and auto" do
       assert {:ok, %Resize{width: {:px, 300}, height: :auto}} =
                Operation.resize(:fit, {:px, 300}, :auto)

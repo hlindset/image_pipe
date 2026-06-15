@@ -611,7 +611,10 @@ defmodule ImagePipe.Plan.Operation do
 
   defp tagged_resize_dimension(_dimension), do: {:error, :dimension}
 
-  defp rewrap_dimension({:ok, {:ratio, _, _}} = ok), do: ok
+  # Re-validate the converted ratio as a *dimension* (strictly positive): a tiny
+  # positive percent/scale can round to {:ratio, 0, 1}, which is not a valid
+  # extent. Measure.dimension/1 rejects it.
+  defp rewrap_dimension({:ok, {:ratio, _, _} = ratio}), do: Measure.dimension(ratio)
   defp rewrap_dimension({:error, _}), do: {:error, :dimension}
 
   defp optional_tagged_resize_dimension(attrs, key) do
