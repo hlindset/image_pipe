@@ -42,15 +42,18 @@ export type TwicCropOrigin = { x: TwicLen; y: TwicLen } | null;
 // Cover (in size mode) and contain mirror the resize unit set exactly — the
 // parser feeds both through `Units.size` with no `pixels_only` gate, so px / %
 // / scale / auto all round-trip. They carry the same `TwicDim` shape as resize.
-// Cover *ratio* mode keeps plain numbers (`W:H`). Inside is pixels-only (the
-// parser's `pixels_only([w,h], :inside)` gate rejects relative units), so it
-// keeps plain `number` dimensions.
+// Cover *ratio* mode keeps plain numbers (`W:H`). Inside mirrors cover's
+// size/ratio split: size mode is pixels-only (the parser's
+// `pixels_only([w,h], :inside)` gate rejects relative units), so it keeps plain
+// `number` px dimensions; ratio mode pads/letterboxes to a plain `W:H` aspect
+// ratio.
 export type TransformStep =
   | { type: "resize"; id: string; w: TwicDim; h: TwicDim }
   | { type: "cover"; id: string; mode: "size"; w: TwicDim; h: TwicDim }
   | { type: "cover"; id: string; mode: "ratio"; w: number; h: number }
   | { type: "contain"; id: string; w: TwicDim; h: TwicDim }
-  | { type: "inside"; id: string; w: number; h: number }
+  | { type: "inside"; id: string; mode: "size"; w: number; h: number }
+  | { type: "inside"; id: string; mode: "ratio"; w: number; h: number }
   | { type: "crop"; id: string; w: TwicLen; h: TwicLen; origin: TwicCropOrigin }
   | { type: "focus"; id: string; mode: "anchor"; anchor: TwicAnchor }
   | { type: "focus"; id: string; mode: "coord"; x: TwicRelLen; y: TwicRelLen };
@@ -109,7 +112,7 @@ export function defaultStep(type: TransformType, id: string): TransformStep {
         h: { unit: "px", value: 300 },
       };
     case "inside":
-      return { type: "inside", id, w: 300, h: 300 };
+      return { type: "inside", id, mode: "size", w: 300, h: 300 };
     case "crop":
       return {
         type: "crop",
@@ -191,7 +194,7 @@ export function stepToken(step: TransformStep): string {
     case "contain":
       return `contain=${encodeDimPair(step.w, step.h)}`;
     case "inside":
-      return `inside=${step.w}x${step.h}`;
+      return step.mode === "ratio" ? `inside=${step.w}:${step.h}` : `inside=${step.w}x${step.h}`;
     case "crop":
       return step.origin === null
         ? `crop=${encodeLen(step.w)}x${encodeLen(step.h)}`
@@ -257,7 +260,7 @@ export function stepSummary(step: TransformStep): string {
     case "contain":
       return `${dimLabel(step.w)} × ${dimLabel(step.h)}`;
     case "inside":
-      return `${step.w}×${step.h}`;
+      return step.mode === "ratio" ? `${step.w}:${step.h}` : `${step.w}×${step.h}`;
     case "crop":
       return step.origin === null
         ? `${lenLabel(step.w)}×${lenLabel(step.h)}`
@@ -391,6 +394,22 @@ function parseCover(args: string, id: string): TransformStep | null {
   return pair === null ? null : { type: "cover", id, mode: "size", w: pair.w, h: pair.h };
 }
 
+// Inside mirrors cover's size/ratio split: a `W:H` arg is a ratio (plain
+// positive numbers), otherwise a px `WxH` size pair. Size is pixels-only — the
+// parser's `pixels_only([w,h], :inside)` gate rejects relative units, so the UI
+// must never parse (or emit) a % / scale here.
+function parseInside(args: string, id: string): TransformStep | null {
+  if (args.includes(":")) {
+    const parts = args.split(":");
+    if (parts.length !== 2) return null;
+    const w = parsePositiveNumber(parts[0]!);
+    const h = parsePositiveNumber(parts[1]!);
+    return w === null || h === null ? null : { type: "inside", id, mode: "ratio", w, h };
+  }
+  const pair = parsePxPair(args);
+  return pair === null ? null : { type: "inside", id, mode: "size", w: pair.w, h: pair.h };
+}
+
 function parseCrop(args: string, id: string): TransformStep | null {
   const parts = args.split("@");
   if (parts.length > 2) return null;
@@ -427,12 +446,8 @@ function parseStep(name: string, args: string): TransformStep | null {
       const pair = parseDimPair(args);
       return pair === null ? null : { type: "contain", id, w: pair.w, h: pair.h };
     }
-    case "inside": {
-      // Pixels-only: the parser's `pixels_only([w,h], :inside)` gate rejects
-      // relative units, so the UI must never parse (or emit) a % / scale here.
-      const pair = parsePxPair(args);
-      return pair === null ? null : { type: "inside", id, w: pair.w, h: pair.h };
-    }
+    case "inside":
+      return parseInside(args, id);
     case "crop":
       return parseCrop(args, id);
     case "focus":

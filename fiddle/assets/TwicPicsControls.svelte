@@ -164,6 +164,22 @@
         : { type: "cover", id: step.id, mode: "ratio", w: 16, h: 9 };
   }
 
+  // --- inside ---
+
+  type InsideStep = Extract<TransformStep, { type: "inside" }>;
+
+  // Switch an inside card between size and ratio. Size mode is pixels-only (the
+  // parser rejects relative units for inside size); ratio mode is a plain W:H
+  // aspect ratio. The two modes carry the same plain-number shape, but the whole
+  // step is rebuilt to flip `mode` and reset to sensible defaults.
+  function setInsideMode(step: InsideStep, mode: "size" | "ratio", index: number): void {
+    if (mode === step.mode) return;
+    twicpicsState.chain[index] =
+      mode === "size"
+        ? { type: "inside", id: step.id, mode: "size", w: 300, h: 300 }
+        : { type: "inside", id: step.id, mode: "ratio", w: 4, h: 3 };
+  }
+
   // --- focus ---
 
   type FocusStep = Extract<TransformStep, { type: "focus" }>;
@@ -412,22 +428,38 @@
                   {@render dimAxis(step, "w", "Width")}
                   {@render dimAxis(step, "h", "Height")}
                 {:else if step.type === "inside"}
-                  <RangeNumber
-                    label="Width"
-                    bind:value={step.w}
-                    min={1}
-                    max={8000}
-                    step={1}
-                    suffix="px"
-                  />
-                  <RangeNumber
-                    label="Height"
-                    bind:value={step.h}
-                    min={1}
-                    max={8000}
-                    step={1}
-                    suffix="px"
-                  />
+                  <label class="field">
+                    <span>Mode</span>
+                    <select
+                      value={step.mode}
+                      onchange={(e) =>
+                        setInsideMode(step, e.currentTarget.value as "size" | "ratio", index)}
+                    >
+                      <option value="size">size (WxH)</option>
+                      <option value="ratio">ratio (W:H)</option>
+                    </select>
+                  </label>
+                  {#if step.mode === "ratio"}
+                    <RangeNumber label="W" bind:value={step.w} min={1} max={8000} step={1} />
+                    <RangeNumber label="H" bind:value={step.h} min={1} max={8000} step={1} />
+                  {:else}
+                    <RangeNumber
+                      label="Width"
+                      bind:value={step.w}
+                      min={1}
+                      max={8000}
+                      step={1}
+                      suffix="px"
+                    />
+                    <RangeNumber
+                      label="Height"
+                      bind:value={step.h}
+                      min={1}
+                      max={8000}
+                      step={1}
+                      suffix="px"
+                    />
+                  {/if}
                 {:else if step.type === "crop"}
                   {@const cropPreviewSrc = twicFetchPath({
                     source: twicpicsState.source,

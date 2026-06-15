@@ -113,7 +113,10 @@ describe("twicpics step token encoding", () => {
         h: { unit: "px", value: 150 },
       }),
     ).toBe("contain=-x150");
-    expect(stepToken({ type: "inside", id: "x", w: 200, h: 200 })).toBe("inside=200x200");
+    expect(stepToken({ type: "inside", id: "x", mode: "size", w: 200, h: 200 })).toBe(
+      "inside=200x200",
+    );
+    expect(stepToken({ type: "inside", id: "x", mode: "ratio", w: 4, h: 3 })).toBe("inside=4:3");
   });
 
   it("encodes crop with and without an origin", () => {
@@ -285,6 +288,14 @@ describe("stepSummary", () => {
         h: { unit: "auto", value: 0 },
       }),
     ).toBe("50% × auto");
+  });
+
+  it("formats an inside in size mode (px)", () => {
+    expect(stepSummary({ type: "inside", id: "x", mode: "size", w: 200, h: 200 })).toBe("200×200");
+  });
+
+  it("formats an inside in ratio mode", () => {
+    expect(stepSummary({ type: "inside", id: "x", mode: "ratio", w: 4, h: 3 })).toBe("4:3");
   });
 
   it("formats a contain with relative units", () => {
@@ -480,7 +491,11 @@ describe("twicpics round-trips (browser path -> state)", () => {
         },
       ],
     },
-    { ...defaultTwicPicsState, chain: [{ type: "inside", id: "1", w: 200, h: 200 }] },
+    {
+      ...defaultTwicPicsState,
+      chain: [{ type: "inside", id: "1", mode: "size", w: 200, h: 200 }],
+    },
+    { ...defaultTwicPicsState, chain: [{ type: "inside", id: "1", mode: "ratio", w: 4, h: 3 }] },
     {
       ...defaultTwicPicsState,
       chain: [
@@ -670,11 +685,21 @@ describe("twicpics parse rejection", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/contain=-x150")).not.toBeNull();
   });
 
-  it("rejects relative units for inside (pixels-only, mirroring the parser)", () => {
+  it("rejects relative units for inside size (pixels-only, mirroring the parser)", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=50px100")).toBeNull();
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=100x0.5s")).toBeNull();
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=100")).toBeNull();
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=-x100")).toBeNull();
+  });
+
+  it("parses inside=W:H as ratio mode and inside=WxH as px size mode", () => {
+    const ratio = parseTwicTail("images/dog.jpg", "?twic=v1/inside=4:3");
+    expect(ratio).not.toBeNull();
+    expect(ratio!.chain[0]).toMatchObject({ type: "inside", mode: "ratio", w: 4, h: 3 });
+
+    const size = parseTwicTail("images/dog.jpg", "?twic=v1/inside=100x80");
+    expect(size).not.toBeNull();
+    expect(size!.chain[0]).toMatchObject({ type: "inside", mode: "size", w: 100, h: 80 });
   });
 
   it("parseDimPair refuses a degenerate both-auto cover/contain (UI round-trip guard)", () => {
