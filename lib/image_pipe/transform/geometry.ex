@@ -13,7 +13,7 @@ defmodule ImagePipe.Transform.Geometry do
           | {:percent, scalar()}
           | {:scale, scalar()}
           | {:scale, scalar(), scalar()}
-          | {:ratio, integer(), integer()}
+          | {:ratio, integer(), pos_integer()}
 
   @spec to_pixels(integer(), length_unit()) :: integer()
   def to_pixels(length, size_unit)
