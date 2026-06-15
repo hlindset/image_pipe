@@ -10,13 +10,14 @@
   import {
     defaultStep,
     nextStepId,
-    setResizeAxisUnit,
+    setDimAxisUnit,
     stepSummary,
     twicFetchPath,
     twicOutputs,
     type TransformStep,
     type TransformType,
     type TwicAnchor,
+    type TwicDim,
     type TwicPicsState,
     type TwicRelUnit,
     type TwicResizeUnit,
@@ -119,11 +120,12 @@
     if (input instanceof HTMLInputElement) input.select();
   }
 
-  function setResizeValue(
-    step: Extract<TransformStep, { type: "resize" }>,
-    axis: "w" | "h",
-    value: number,
-  ): void {
+  // A step carrying a two-axis TwicDim pair: resize, cover-size, and contain all
+  // share the same px/%/scale/auto unit set (the parser feeds each through
+  // `Units.size` with no pixels-only gate), so they share one dimension control.
+  type DimStep = { w: TwicDim; h: TwicDim };
+
+  function setDimValue(step: DimStep, axis: "w" | "h", value: number): void {
     if (Number.isNaN(value)) return;
     const { min, max, step: stepSize } = resizeRange(step[axis].unit);
     const clamped = Math.min(Math.max(value, min), max);
@@ -134,15 +136,32 @@
     step[axis] = { unit: step[axis].unit, value: Math.round(clamped * factor) / factor };
   }
 
-  // Switch a resize axis unit (keeps the both-auto guard in setResizeAxisUnit), then
+  // Switch a dimension axis unit (keeps the both-auto guard in setDimAxisUnit), then
   // clamp the carried value into the new unit's range.
-  function changeResizeUnit(
-    step: Extract<TransformStep, { type: "resize" }>,
-    axis: "w" | "h",
-    unit: TwicResizeUnit,
-  ): void {
-    setResizeAxisUnit(step, axis, unit);
-    if (step[axis].unit !== "auto") setResizeValue(step, axis, step[axis].value);
+  function changeDimUnit(step: DimStep, axis: "w" | "h", unit: TwicResizeUnit): void {
+    setDimAxisUnit(step, axis, unit);
+    if (step[axis].unit !== "auto") setDimValue(step, axis, step[axis].value);
+  }
+
+  // --- cover ---
+
+  type CoverStep = Extract<TransformStep, { type: "cover" }>;
+
+  // Switch a cover card between size and ratio. The two modes carry different
+  // dimension shapes (size = px/%/scale/auto TwicDim; ratio = plain W:H numbers),
+  // so the whole step is rebuilt rather than just rebinding `mode`.
+  function setCoverMode(step: CoverStep, mode: "size" | "ratio", index: number): void {
+    if (mode === step.mode) return;
+    twicpicsState.chain[index] =
+      mode === "size"
+        ? {
+            type: "cover",
+            id: step.id,
+            mode: "size",
+            w: { unit: "px", value: 200 },
+            h: { unit: "px", value: 200 },
+          }
+        : { type: "cover", id: step.id, mode: "ratio", w: 16, h: 9 };
   }
 
   // --- focus ---
@@ -224,11 +243,7 @@
   }
 </script>
 
-{#snippet resizeAxis(
-  step: Extract<TransformStep, { type: "resize" }>,
-  axis: "w" | "h",
-  label: string,
-)}
+{#snippet dimAxis(step: DimStep, axis: "w" | "h", label: string)}
   {@const dim = step[axis]}
   {@const range = resizeRange(dim.unit)}
   <div class="dim-control">
@@ -244,7 +259,7 @@
             value={dim.value}
             aria-label={`${label} value`}
             onfocus={selectNumberInput}
-            oninput={(e) => setResizeValue(step, axis, e.currentTarget.valueAsNumber)}
+            oninput={(e) => setDimValue(step, axis, e.currentTarget.valueAsNumber)}
           />
           <span class="unit-suffix">{range.suffix}</span>
         {/if}
@@ -252,7 +267,7 @@
           class="dim-unit"
           value={dim.unit}
           aria-label={`${label} unit`}
-          onchange={(e) => changeResizeUnit(step, axis, e.currentTarget.value as TwicResizeUnit)}
+          onchange={(e) => changeDimUnit(step, axis, e.currentTarget.value as TwicResizeUnit)}
         >
           <option value="px">px</option>
           <option value="p">%</option>
@@ -270,8 +285,8 @@
         max={range.max}
         step={range.step}
         value={Math.min(Math.max(dim.value, range.min), range.max)}
-        onValueChange={(v) => setResizeValue(step, axis, v)}
-        onValueCommit={(v) => setResizeValue(step, axis, v)}
+        onValueChange={(v) => setDimValue(step, axis, v)}
+        onValueCommit={(v) => setDimValue(step, axis, v)}
       >
         <Slider.Range class="slider-range" />
         <Slider.Thumb class="slider-thumb" index={0} aria-label={`${label} slider`} />
@@ -372,31 +387,31 @@
             {#if openCards[step.id]}
               <div class="chain-card-body">
                 {#if step.type === "resize"}
-                  {@render resizeAxis(step, "w", "Width")}
-                  {@render resizeAxis(step, "h", "Height")}
+                  {@render dimAxis(step, "w", "Width")}
+                  {@render dimAxis(step, "h", "Height")}
                 {:else if step.type === "cover"}
                   <label class="field">
                     <span>Mode</span>
-                    <select bind:value={step.mode}>
-                      <option value="size">size (WxH px)</option>
+                    <select
+                      value={step.mode}
+                      onchange={(e) =>
+                        setCoverMode(step, e.currentTarget.value as "size" | "ratio", index)}
+                    >
+                      <option value="size">size (WxH)</option>
                       <option value="ratio">ratio (W:H)</option>
                     </select>
                   </label>
-                  <RangeNumber
-                    label={step.mode === "ratio" ? "W" : "Width"}
-                    bind:value={step.w}
-                    min={1}
-                    max={8000}
-                    step={1}
-                  />
-                  <RangeNumber
-                    label={step.mode === "ratio" ? "H" : "Height"}
-                    bind:value={step.h}
-                    min={1}
-                    max={8000}
-                    step={1}
-                  />
-                {:else if step.type === "contain" || step.type === "inside"}
+                  {#if step.mode === "ratio"}
+                    <RangeNumber label="W" bind:value={step.w} min={1} max={8000} step={1} />
+                    <RangeNumber label="H" bind:value={step.h} min={1} max={8000} step={1} />
+                  {:else}
+                    {@render dimAxis(step, "w", "Width")}
+                    {@render dimAxis(step, "h", "Height")}
+                  {/if}
+                {:else if step.type === "contain"}
+                  {@render dimAxis(step, "w", "Width")}
+                  {@render dimAxis(step, "h", "Height")}
+                {:else if step.type === "inside"}
                   <RangeNumber
                     label="Width"
                     bind:value={step.w}

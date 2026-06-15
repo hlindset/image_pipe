@@ -39,10 +39,17 @@ export type TwicRelLen = { unit: TwicRelUnit; value: number };
 
 export type TwicCropOrigin = { x: TwicLen; y: TwicLen } | null;
 
+// Cover (in size mode) and contain mirror the resize unit set exactly — the
+// parser feeds both through `Units.size` with no `pixels_only` gate, so px / %
+// / scale / auto all round-trip. They carry the same `TwicDim` shape as resize.
+// Cover *ratio* mode keeps plain numbers (`W:H`). Inside is pixels-only (the
+// parser's `pixels_only([w,h], :inside)` gate rejects relative units), so it
+// keeps plain `number` dimensions.
 export type TransformStep =
   | { type: "resize"; id: string; w: TwicDim; h: TwicDim }
-  | { type: "cover"; id: string; mode: "size" | "ratio"; w: number; h: number }
-  | { type: "contain"; id: string; w: number; h: number }
+  | { type: "cover"; id: string; mode: "size"; w: TwicDim; h: TwicDim }
+  | { type: "cover"; id: string; mode: "ratio"; w: number; h: number }
+  | { type: "contain"; id: string; w: TwicDim; h: TwicDim }
   | { type: "inside"; id: string; w: number; h: number }
   | { type: "crop"; id: string; w: TwicLen; h: TwicLen; origin: TwicCropOrigin }
   | { type: "focus"; id: string; mode: "anchor"; anchor: TwicAnchor }
@@ -87,9 +94,20 @@ export function defaultStep(type: TransformType, id: string): TransformStep {
     case "resize":
       return { type: "resize", id, w: { unit: "px", value: 300 }, h: { unit: "auto", value: 0 } };
     case "cover":
-      return { type: "cover", id, mode: "size", w: 200, h: 200 };
+      return {
+        type: "cover",
+        id,
+        mode: "size",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 200 },
+      };
     case "contain":
-      return { type: "contain", id, w: 300, h: 300 };
+      return {
+        type: "contain",
+        id,
+        w: { unit: "px", value: 300 },
+        h: { unit: "px", value: 300 },
+      };
     case "inside":
       return { type: "inside", id, w: 300, h: 300 };
     case "crop":
@@ -105,12 +123,12 @@ export function defaultStep(type: TransformType, id: string): TransformStep {
   }
 }
 
-// Editing helper for the resize axes. Setting one axis to "auto" while the other
-// is already auto would serialize a degenerate `resize=-` that the parser rejects
-// (and that parseTwicTail itself refuses to round-trip), so this keeps at least
-// one concrete axis.
-export function setResizeAxisUnit(
-  step: Extract<TransformStep, { type: "resize" }>,
+// Editing helper for any two-axis dimension control (resize, cover-size, contain).
+// Setting one axis to "auto" while the other is already auto would serialize a
+// degenerate both-auto token (`resize=-` / `cover=-` / `contain=-`) that
+// parseTwicTail refuses to round-trip, so this keeps at least one concrete axis.
+export function setDimAxisUnit(
+  step: { w: TwicDim; h: TwicDim },
   axis: "w" | "h",
   unit: TwicResizeUnit,
 ): void {
@@ -155,16 +173,23 @@ function encodeLen(len: TwicLen): string {
   }
 }
 
+// A two-axis dimension pair (resize, cover-size, contain): an auto height
+// collapses to the single-axis `W` form (the omitted axis is implicit), matching
+// what the parser's `Units.size` accepts.
+function encodeDimPair(w: TwicDim, h: TwicDim): string {
+  return h.unit === "auto" ? encodeDim(w) : `${encodeDim(w)}x${encodeDim(h)}`;
+}
+
 export function stepToken(step: TransformStep): string {
   switch (step.type) {
     case "resize":
-      return step.h.unit === "auto"
-        ? `resize=${encodeDim(step.w)}`
-        : `resize=${encodeDim(step.w)}x${encodeDim(step.h)}`;
+      return `resize=${encodeDimPair(step.w, step.h)}`;
     case "cover":
-      return step.mode === "ratio" ? `cover=${step.w}:${step.h}` : `cover=${step.w}x${step.h}`;
+      return step.mode === "ratio"
+        ? `cover=${step.w}:${step.h}`
+        : `cover=${encodeDimPair(step.w, step.h)}`;
     case "contain":
-      return `contain=${step.w}x${step.h}`;
+      return `contain=${encodeDimPair(step.w, step.h)}`;
     case "inside":
       return `inside=${step.w}x${step.h}`;
     case "crop":
@@ -226,8 +251,11 @@ export function stepSummary(step: TransformStep): string {
     case "resize":
       return `${dimLabel(step.w)} × ${dimLabel(step.h)}`;
     case "cover":
-      return step.mode === "ratio" ? `${step.w}:${step.h}` : `${step.w}×${step.h}`;
+      return step.mode === "ratio"
+        ? `${step.w}:${step.h}`
+        : `${dimLabel(step.w)} × ${dimLabel(step.h)}`;
     case "contain":
+      return `${dimLabel(step.w)} × ${dimLabel(step.h)}`;
     case "inside":
       return `${step.w}×${step.h}`;
     case "crop":
@@ -272,6 +300,26 @@ function parsePxPair(args: string): { w: number; h: number } | null {
   const w = parsePositiveInt(parts[0]!);
   const h = parsePositiveInt(parts[1]!);
   return w === null || h === null ? null : { w, h };
+}
+
+// A two-axis dimension pair (resize, cover-size, contain): px / % / scale / auto
+// per axis, single-axis `W` implies an auto height, both-auto is refused (its
+// degenerate `-` token is never emitted). Ratio (`W:H`) is handled by the caller.
+function parseDimPair(args: string): { w: TwicDim; h: TwicDim } | null {
+  const parts = args.split("x");
+  if (parts.length === 1) {
+    const w = parseResizeDim(parts[0]!);
+    if (w === null || w.unit === "auto") return null;
+    return { w, h: { unit: "auto", value: 0 } };
+  }
+  if (parts.length === 2) {
+    const w = parseResizeDim(parts[0]!);
+    const h = parseResizeDim(parts[1]!);
+    if (w === null || h === null) return null;
+    if (w.unit === "auto" && h.unit === "auto") return null;
+    return { w, h };
+  }
+  return null;
 }
 
 // A non-negative integer / number (for zero-based origin coordinates).
@@ -326,20 +374,8 @@ function parseRelLen(token: string): TwicRelLen | null {
 
 function parseResize(args: string, id: string): TransformStep | null {
   if (args.includes(":")) return null; // ratio resize is rejected by the parser
-  const parts = args.split("x");
-  if (parts.length === 1) {
-    const w = parseResizeDim(parts[0]!);
-    if (w === null || w.unit === "auto") return null; // bare "-" / both-auto not emitted
-    return { type: "resize", id, w, h: { unit: "auto", value: 0 } };
-  }
-  if (parts.length === 2) {
-    const w = parseResizeDim(parts[0]!);
-    const h = parseResizeDim(parts[1]!);
-    if (w === null || h === null) return null;
-    if (w.unit === "auto" && h.unit === "auto") return null;
-    return { type: "resize", id, w, h };
-  }
-  return null;
+  const pair = parseDimPair(args);
+  return pair === null ? null : { type: "resize", id, w: pair.w, h: pair.h };
 }
 
 function parseCover(args: string, id: string): TransformStep | null {
@@ -350,7 +386,7 @@ function parseCover(args: string, id: string): TransformStep | null {
     const h = parsePositiveNumber(parts[1]!);
     return w === null || h === null ? null : { type: "cover", id, mode: "ratio", w, h };
   }
-  const pair = parsePxPair(args);
+  const pair = parseDimPair(args);
   return pair === null ? null : { type: "cover", id, mode: "size", w: pair.w, h: pair.h };
 }
 
@@ -387,10 +423,12 @@ function parseStep(name: string, args: string): TransformStep | null {
     case "cover":
       return parseCover(args, id);
     case "contain": {
-      const pair = parsePxPair(args);
+      const pair = parseDimPair(args);
       return pair === null ? null : { type: "contain", id, w: pair.w, h: pair.h };
     }
     case "inside": {
+      // Pixels-only: the parser's `pixels_only([w,h], :inside)` gate rejects
+      // relative units, so the UI must never parse (or emit) a % / scale here.
       const pair = parsePxPair(args);
       return pair === null ? null : { type: "inside", id, w: pair.w, h: pair.h };
     }
