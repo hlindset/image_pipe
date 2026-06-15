@@ -51,7 +51,6 @@
 </script>
 
 <div class="origin-picker-field">
-  <span>Origin (click to set)</span>
   <ImagePointPicker
     src={previewSrc}
     {markerX}

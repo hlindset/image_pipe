@@ -409,11 +409,10 @@
     font-size: 13px;
   }
 
-  /* Row = drag handle (in a left gutter, outside the card) + the card. */
+  /* The drag handle is absolutely positioned in the gutter (see below), so it takes
+     no layout space and the card spans the full lane width, flush to the left. */
   .chain-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    position: relative;
     /* Retheme the library's handle/remove buttons (they default to their own gray
        scale): no background, one color, opacity-only hover. */
     --ssl-gray-400: var(--text-primary);
@@ -424,8 +423,6 @@
   .chain-card {
     /* Same surface as the sidebar it sits on; the border delineates the card so the
        inner control surfaces (inputs, slider tracks) clearly stand out against it. */
-    flex: 1;
-    min-width: 0;
     background: var(--surface-sidebar);
     border: 1px solid var(--border-strong);
     border-radius: 8px;
@@ -462,22 +459,26 @@
     opacity: 1;
   }
 
-  /* Match the collapsed card height (header + border) and center the grip, so it
-     lines up with the card's vertical center; it stays by the header when the card
-     expands taller (the row is flex-start). */
+  /* Float in the gutter to the left of the card (no layout space), spanning the
+     collapsed card height (header + border) with the grip centered; it stays by the
+     header when the card expands taller. No internal padding, so the grip glyph
+     itself is the full hit/visual area. */
   .chain-row :global(.ssl-item-handle) {
-    cursor: grab;
-    box-sizing: border-box;
+    position: absolute;
+    top: 0;
+    right: 100%;
+    margin-right: 8px;
     height: 44px;
-    padding: 0 4px;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    cursor: grab;
   }
 
   .drag-handle {
     display: inline-flex;
-    font-size: 16px;
+    font-size: 20px;
     line-height: 1;
   }
 
