@@ -331,16 +331,16 @@ defmodule ImagePipe.Transform.ResizeDimensionTest do
     assert result.intermediate_height == 800
   end
 
-  test "percent width resolves against the running source width" do
-    operation = %Resize{mode: :fit, width: {:percent, 50}, height: :auto, enlarge: true}
+  test "ratio width resolves against the running source width" do
+    operation = %Resize{mode: :fit, width: {:ratio, 1, 2}, height: :auto, enlarge: true}
 
     result = Resize.resolve_dimensions(operation, source_width: 340, source_height: 200)
 
     assert result.intermediate_width == 170
   end
 
-  test "scale width resolves against the running source width" do
-    operation = %Resize{mode: :fit, width: {:scale, 0.25}, height: :auto, enlarge: true}
+  test "fractional ratio width resolves against the running source width" do
+    operation = %Resize{mode: :fit, width: {:ratio, 1, 4}, height: :auto, enlarge: true}
 
     result = Resize.resolve_dimensions(operation, source_width: 400, source_height: 300)
 

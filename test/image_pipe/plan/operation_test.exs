@@ -74,8 +74,8 @@ defmodule ImagePipe.Plan.OperationTest do
       assert Operation.resize(:fit, {:px, 0}, :auto) ==
                {:error, {:invalid_operation, :resize, [:fit, {:px, 0}, :auto, []]}}
 
-      assert Operation.resize(:fit, {:ratio, 1, 2}, :auto) ==
-               {:error, {:invalid_operation, :resize, [:fit, {:ratio, 1, 2}, :auto, []]}}
+      assert Operation.resize(:fit, {:ratio, 1, 0}, :auto) ==
+               {:error, {:invalid_operation, :resize, [:fit, {:ratio, 1, 0}, :auto, []]}}
 
       assert Operation.resize(:fit, {:px, 300}, :auto, min_width: {:px, 0}) ==
                {:error,
@@ -112,11 +112,11 @@ defmodule ImagePipe.Plan.OperationTest do
   end
 
   describe "resize/4 relative dimensions" do
-    test "accepts percent and scale width/height" do
-      assert {:ok, %Resize{width: {:percent, 50}, height: :auto}} =
+    test "normalizes percent and scale width/height to an exact ratio" do
+      assert {:ok, %Resize{width: {:ratio, 1, 2}, height: :auto}} =
                Operation.resize(:fit, {:percent, 50}, :auto)
 
-      assert {:ok, %Resize{width: {:scale, 0.5}, height: {:px, 100}}} =
+      assert {:ok, %Resize{width: {:ratio, 1, 2}, height: {:px, 100}}} =
                Operation.resize(:cover, {:scale, 0.5}, {:px, 100})
     end
 

@@ -4,6 +4,7 @@ defmodule ImagePipe.Plan.Operation do
   """
 
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Measure
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Bitonal
   alias ImagePipe.Plan.Operation.Blur
@@ -599,13 +600,19 @@ defmodule ImagePipe.Plan.Operation do
   defp tagged_resize_dimension({:px, value}) when is_integer(value) and value > 0,
     do: {:ok, {:px, value}}
 
+  defp tagged_resize_dimension({:ratio, _num, _den} = ratio),
+    do: Measure.dimension(ratio) |> rewrap_dimension()
+
   defp tagged_resize_dimension({:percent, value}) when is_number(value) and value > 0,
-    do: {:ok, {:percent, value}}
+    do: Measure.from_percent(value) |> rewrap_dimension()
 
   defp tagged_resize_dimension({:scale, value}) when is_number(value) and value > 0,
-    do: {:ok, {:scale, value}}
+    do: Measure.from_scale(value) |> rewrap_dimension()
 
   defp tagged_resize_dimension(_dimension), do: {:error, :dimension}
+
+  defp rewrap_dimension({:ok, {:ratio, _, _}} = ok), do: ok
+  defp rewrap_dimension({:error, _}), do: {:error, :dimension}
 
   defp optional_tagged_resize_dimension(attrs, key) do
     case Keyword.fetch(attrs, key) do

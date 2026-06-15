@@ -23,7 +23,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
              build([{"resize", "340"}, {"resize", "50p"}])
 
     assert %Operation.Resize{width: {:px, 340}} = a
-    assert %Operation.Resize{width: {:percent, 50}} = b
+    assert %Operation.Resize{width: {:ratio, 1, 2}} = b
   end
 
   test "focus anchor steers the next cover" do
