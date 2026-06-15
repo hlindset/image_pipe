@@ -746,35 +746,16 @@ defmodule ImagePipe.Plan.Operation do
 
   defp tagged_crop_dimension(:full_axis), do: {:ok, :full_axis}
 
-  defp tagged_crop_dimension({:px, value}) when is_integer(value) and value > 0,
-    do: {:ok, {:px, value}}
+  defp tagged_crop_dimension(dimension), do: Measure.dimension(dimension)
 
-  defp tagged_crop_dimension({:ratio, numerator, denominator})
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0,
-       do: {:ok, {:ratio, numerator, denominator}}
+  defp tagged_crop_coordinate(coordinate) do
+    case Measure.position(coordinate) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> {:error, :coordinate}
+    end
+  end
 
-  defp tagged_crop_dimension(_dimension), do: {:error, :dimension}
-
-  defp tagged_crop_coordinate({:px, value}) when is_integer(value) and value >= 0,
-    do: {:ok, {:px, value}}
-
-  defp tagged_crop_coordinate({:ratio, numerator, denominator})
-       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
-              denominator > 0,
-       do: {:ok, {:ratio, numerator, denominator}}
-
-  defp tagged_crop_coordinate(_coordinate), do: {:error, :coordinate}
-
-  defp tagged_crop_region_dimension({:px, value}) when is_integer(value) and value > 0,
-    do: {:ok, {:px, value}}
-
-  defp tagged_crop_region_dimension({:ratio, numerator, denominator})
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0,
-       do: {:ok, {:ratio, numerator, denominator}}
-
-  defp tagged_crop_region_dimension(_dimension), do: {:error, :dimension}
+  defp tagged_crop_region_dimension(dimension), do: Measure.dimension(dimension)
 
   defp tagged_crop_guide(guide) when guide in @crop_anchor_guides, do: {:ok, guide}
 
