@@ -25,12 +25,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   alias ImagePipe.Transform.State
 
   @type pixels() :: {:pixels, non_neg_integer() | float()}
-  @type dimension() ::
-          :auto
-          | pixels()
-          | {:ratio, pos_integer(), pos_integer()}
-          | {:percent, number()}
-          | {:scale, number()}
+  @type dimension() :: :auto | pixels() | {:ratio, pos_integer(), pos_integer()}
   @type mode() :: :fit | :fill | :fill_down | :force
 
   @type t :: %__MODULE__{
