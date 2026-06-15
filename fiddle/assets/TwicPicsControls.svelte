@@ -1,10 +1,10 @@
 <script lang="ts">
   import { SortableList, sortItems } from "@rodrigodagostino/svelte-sortable-list";
   import "@rodrigodagostino/svelte-sortable-list/styles.css";
-  import { DropdownMenu, Slider, Switch } from "bits-ui";
+  import { DropdownMenu, Slider } from "bits-ui";
   import type { TransitionConfig } from "svelte/transition";
   import RangeNumber from "./RangeNumber.svelte";
-  import TwicCropOriginPicker from "./TwicCropOriginPicker.svelte";
+  import TwicCropControls from "./TwicCropControls.svelte";
   import { type SourceImage } from "./processing-path";
   import {
     defaultStep,
@@ -136,10 +136,6 @@
   ): void {
     setResizeAxisUnit(step, axis, unit);
     if (step[axis].unit !== "auto") setResizeValue(step, axis, step[axis].value);
-  }
-
-  function toggleCropOrigin(step: Extract<TransformStep, { type: "crop" }>, on: boolean): void {
-    step.origin = on ? { x: 1, y: 1 } : null;
   }
 </script>
 
@@ -283,47 +279,18 @@
                     suffix="px"
                   />
                 {:else if step.type === "crop"}
-                  <RangeNumber
-                    label="Width"
-                    bind:value={step.w}
-                    min={1}
-                    max={8000}
-                    step={1}
-                    suffix="px"
+                  {@const cropPreviewSrc = twicFetchPath({
+                    source: twicpicsState.source,
+                    chain: twicpicsState.chain.slice(0, index),
+                    output: "jpeg",
+                    quality: 80,
+                  })}
+                  <TwicCropControls
+                    previewSrc={cropPreviewSrc}
+                    bind:width={step.w}
+                    bind:height={step.h}
+                    bind:origin={step.origin}
                   />
-                  <RangeNumber
-                    label="Height"
-                    bind:value={step.h}
-                    min={1}
-                    max={8000}
-                    step={1}
-                    suffix="px"
-                  />
-                  <label class="switch-field">
-                    <Switch.Root
-                      class="switch-root"
-                      checked={step.origin !== null}
-                      onCheckedChange={(checked) => toggleCropOrigin(step, checked)}
-                    >
-                      <Switch.Thumb class="switch-thumb" />
-                    </Switch.Root>
-                    <span>Origin (@ XxY)</span>
-                  </label>
-                  {#if step.origin !== null}
-                    {@const originPreviewSrc = twicFetchPath({
-                      source: twicpicsState.source,
-                      chain: twicpicsState.chain.slice(0, index),
-                      output: "jpeg",
-                      quality: 80,
-                    })}
-                    <TwicCropOriginPicker
-                      previewSrc={originPreviewSrc}
-                      width={step.w}
-                      height={step.h}
-                      bind:x={step.origin.x}
-                      bind:y={step.origin.y}
-                    />
-                  {/if}
                 {:else if step.type === "focus"}
                   <div class="anchor-grid" role="group" aria-label="Focus anchor">
                     {#each anchorGrid as cell}
