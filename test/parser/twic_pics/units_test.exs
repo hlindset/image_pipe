@@ -3,31 +3,44 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
 
   alias ImagePipe.Parser.TwicPics.Units
 
-  describe "length/1" do
-    test "bare numbers are pixels" do
-      assert Units.length("250") == {:ok, {:px, 250}}
+  describe "dimension_length/1 (>0)" do
+    test "pixels, percent, scale" do
+      assert Units.dimension_length("100") == {:ok, {:px, 100}}
+      assert Units.dimension_length("50p") == {:ok, {:ratio, 1, 2}}
+      assert Units.dimension_length("0.5s") == {:ok, {:ratio, 1, 2}}
+      assert Units.dimension_length("0") == {:error, {:invalid_length, "0"}}
+      assert Units.dimension_length("0p") == {:error, {:invalid_length, "0p"}}
     end
 
     test "px is not a TwicPics length unit (only p and s)" do
       # TwicPics has no `px` unit — pixels are bare. A standalone `250px` token
       # is invalid as a length; the `px` mixing case (`10px150`) is handled at
       # the Size level by splitting on `x` first (see size/1 below).
-      assert {:error, _} = Units.length("250px")
+      assert {:error, _} = Units.dimension_length("250px")
     end
 
-    test "percent suffix" do
-      assert Units.length("50p") == {:ok, {:percent, 50}}
-      assert Units.length("4.5p") == {:ok, {:percent, 4.5}}
+    test "percent and scale fractions" do
+      assert Units.dimension_length("4.5p") == {:ok, {:ratio, 9, 200}}
     end
 
-    test "scale suffix" do
-      assert Units.length("0.5s") == {:ok, {:scale, 0.5}}
+    test "rejects malformed" do
+      assert {:error, _} = Units.dimension_length("abc")
+      assert {:error, _} = Units.dimension_length("-3")
     end
+  end
 
-    test "rejects malformed and non-positive pixels" do
-      assert {:error, _} = Units.length("abc")
-      assert {:error, _} = Units.length("0")
-      assert {:error, _} = Units.length("-3")
+  describe "position_length/1 (>=0)" do
+    test "allows zero pixels and zero percent" do
+      assert Units.position_length("0") == {:ok, {:px, 0}}
+      assert Units.position_length("0p") == {:ok, {:ratio, 0, 1}}
+      assert Units.position_length("50p") == {:ok, {:ratio, 1, 2}}
+      assert Units.position_length("-1") == {:error, {:invalid_length, "-1"}}
+    end
+  end
+
+  describe "coordinates/1 uses position lengths" do
+    test "zero-based origin" do
+      assert Units.coordinates("0x0") == {:ok, {{:px, 0}, {:px, 0}}}
     end
   end
 
@@ -42,8 +55,8 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
     test "mixed units: `10px150` is 10 percent by 150 pixels (split on x first)" do
       # Per the TwicPics docs, `10px150` is a Size mixing a percent width (`10p`)
       # with a pixel height (`150`) — NOT `10px` (there is no `px` unit).
-      assert Units.size("10px150") == {:ok, {{:percent, 10}, {:px, 150}}}
-      assert Units.size("250px") == {:ok, {{:percent, 250}, :auto}}
+      assert Units.size("10px150") == {:ok, {{:ratio, 1, 10}, {:px, 150}}}
+      assert Units.size("250px") == {:ok, {{:ratio, 5, 2}, :auto}}
     end
   end
 

@@ -1,68 +1,82 @@
 defmodule ImagePipe.Parser.TwicPics.Units do
   @moduledoc false
 
-  import Kernel, except: [length: 1]
-
-  @type length :: {:px, pos_integer()} | {:percent, number()} | {:scale, number()}
+  @type measure :: {:px, non_neg_integer()} | {:ratio, non_neg_integer(), pos_integer()}
 
   # TwicPics lengths have only two unit suffixes: `p` (percent) and `s` (scale).
   # Pixels are bare numbers — there is NO `px` unit. A `px` substring only ever
   # appears inside a Size/Coordinates token (e.g. `10px150`), where the caller
-  # splits on `x` first (`10p` × `150` = 10% × 150px), so `length/1` never
-  # receives a `px`-suffixed token from real input.
-  @spec length(String.t()) :: {:ok, length()} | {:error, term()}
-  def length("-"), do: {:error, {:invalid_length, "-"}}
+  # splits on `x` first (`10p` × `150` = 10% × 150px), so a length parser never
+  # receives a `px`-suffixed token from real input. Percent/scale suffixes are
+  # converted to an exact `{:ratio, n, d}` from the string form (no float
+  # rounding): percent divides by 100, scale is the raw fraction.
 
-  def length(value) when is_binary(value) do
+  # Dimension length: strictly positive.
+  @spec dimension_length(String.t()) :: {:ok, measure()} | {:error, term()}
+  def dimension_length(value), do: parse_length(value, :positive)
+
+  # Position length: zero-based, non-negative.
+  @spec position_length(String.t()) :: {:ok, measure()} | {:error, term()}
+  def position_length(value), do: parse_length(value, :non_negative)
+
+  defp parse_length("-" <> _ = value, _sign), do: {:error, {:invalid_length, value}}
+
+  defp parse_length(value, sign) when is_binary(value) do
     cond do
-      String.ends_with?(value, "p") -> percent(String.trim_trailing(value, "p"))
-      String.ends_with?(value, "s") -> scale(String.trim_trailing(value, "s"))
-      true -> pixels(value)
+      String.ends_with?(value, "p") -> to_ratio(String.trim_trailing(value, "p"), 100, sign, value)
+      String.ends_with?(value, "s") -> to_ratio(String.trim_trailing(value, "s"), 1, sign, value)
+      true -> to_pixels_measure(value, sign)
     end
   end
 
-  defp pixels(value) do
+  defp to_pixels_measure(value, sign) do
     case Integer.parse(value) do
       {n, ""} when n > 0 -> {:ok, {:px, n}}
+      {0, ""} when sign == :non_negative -> {:ok, {:px, 0}}
       _ -> {:error, {:invalid_length, value}}
     end
   end
 
-  defp percent(value) do
-    with {:ok, n} <- number(value), true <- n > 0 do
-      {:ok, {:percent, n}}
-    else
-      _ -> {:error, {:invalid_length, value}}
+  # decimal_term parses a strictly-positive decimal into {integer, exponent}.
+  # For positions we also accept "0"/"0.0" as {0, 0}.
+  defp to_ratio(decimal, unit_denominator, sign, raw) do
+    case decimal_measure(decimal, sign) do
+      {:ok, {n, exp}} ->
+        denominator = unit_denominator * Integer.pow(10, exp)
+        gcd = max(1, Integer.gcd(n, denominator))
+        {:ok, {:ratio, div(n, gcd), div(denominator, gcd)}}
+
+      :error ->
+        {:error, {:invalid_length, raw}}
     end
   end
 
-  defp scale(value) do
-    with {:ok, n} <- number(value), true <- n > 0 do
-      {:ok, {:scale, n}}
-    else
-      _ -> {:error, {:invalid_length, value}}
+  defp decimal_measure(decimal, sign) do
+    case decimal_term(decimal) do
+      {:ok, term} -> {:ok, term}
+      :error when sign == :non_negative -> zero_decimal(decimal)
+      :error -> :error
     end
   end
 
-  @spec number(String.t()) :: {:ok, number()} | :error
-  defp number(value) do
-    case Integer.parse(value) do
-      {n, ""} ->
-        {:ok, n}
+  defp zero_decimal(decimal) do
+    case Float.parse(decimal) do
+      {+0.0, ""} ->
+        {:ok, {0, 0}}
 
       _ ->
-        case Float.parse(value) do
-          {n, ""} -> {:ok, n}
+        case Integer.parse(decimal) do
+          {0, ""} -> {:ok, {0, 0}}
           _ -> :error
         end
     end
   end
 
-  @spec size(String.t()) :: {:ok, {length() | :auto, length() | :auto}} | {:error, term()}
+  @spec size(String.t()) :: {:ok, {measure() | :auto, measure() | :auto}} | {:error, term()}
   def size(value), do: pair(value, :auto)
 
   @spec crop_size(String.t()) ::
-          {:ok, {length() | :full_axis, length() | :full_axis}} | {:error, term()}
+          {:ok, {measure() | :full_axis, measure() | :full_axis}} | {:error, term()}
   def crop_size(value), do: pair(value, :full_axis)
 
   defp pair(value, omitted) do
@@ -80,7 +94,7 @@ defmodule ImagePipe.Parser.TwicPics.Units do
 
   defp dimension("-", omitted), do: {:ok, omitted}
   defp dimension("", omitted), do: {:ok, omitted}
-  defp dimension(value, _omitted), do: length(value)
+  defp dimension(value, _omitted), do: dimension_length(value)
 
   # Ratios accept two strictly-positive numbers — integer or decimal, e.g. `16:9`
   # or `1.5:2`. Each term is scaled to an integer by its number of fractional
@@ -120,11 +134,11 @@ defmodule ImagePipe.Parser.TwicPics.Units do
     end
   end
 
-  @spec coordinates(String.t()) :: {:ok, {length(), length()}} | {:error, term()}
+  @spec coordinates(String.t()) :: {:ok, {measure(), measure()}} | {:error, term()}
   def coordinates(value) do
     with [x, y] <- String.split(value, "x", parts: 2),
-         {:ok, x} <- length(x),
-         {:ok, y} <- length(y) do
+         {:ok, x} <- position_length(x),
+         {:ok, y} <- position_length(y) do
       {:ok, {x, y}}
     else
       _ -> {:error, {:invalid_coordinates, value}}
