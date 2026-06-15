@@ -86,6 +86,18 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Canvas{fill: :transparent} = canvas
   end
 
+  test "inside ratio -> single pad-to-ratio transparent canvas" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [canvas]}]}} =
+             build([{"inside", "4:3"}])
+
+    assert %Operation.Canvas{
+             width: {:ratio, 4, 1},
+             height: {:ratio, 3, 1},
+             placement: :center,
+             fill: :transparent
+           } = canvas
+  end
+
   test "crop without coords uses the guide; with coords resets to center and emits CropRegion" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [guided]}]}} =
              build([{"focus", "top"}, {"crop", "100x100"}])

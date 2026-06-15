@@ -83,7 +83,15 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp inside(args, acc) do
     if String.contains?(args, ":") do
-      {:error, {:unsupported_transform_ratio, "inside"}}
+      # Pad-to-ratio: fit the whole image inside a box of this aspect ratio and
+      # letterbox with transparent borders. The Canvas ratio rule reads each axis
+      # as a magnitude, so the W:H aspect is expressed as width {:ratio, w, 1},
+      # height {:ratio, h, 1} (a single shared ratio on both axes is a 1:1 box).
+      with {:ok, {:ratio, w, h}} <- Units.ratio(args),
+           {:ok, op} <-
+             Operation.canvas({:ratio, w, 1}, {:ratio, h, 1}, :center, fill: :transparent) do
+        push(acc, op)
+      end
     else
       with {:ok, {w, h}} <- Units.size(args),
            :ok <- pixels_only([w, h], :inside),

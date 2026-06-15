@@ -181,6 +181,23 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     assert dimensions(conn) == {200, 200}
   end
 
+  test "inside ratio letterboxes (pads, not crops) the source into the ratio box" do
+    inside = call("/images/beach.jpg?twic=v1/inside=4:3/output=png")
+    assert inside.status == 200
+
+    # The 4000x2667 source (aspect 1.5) padded into a 4:3 (1.333...) box expands
+    # the HEIGHT: width stays 4000, height grows to 4000 * 3 / 4 = 3000. The image
+    # is centered with transparent bars top and bottom -- taller than the source,
+    # never cropped narrower.
+    {w, h} = dimensions(inside)
+    assert {w, h} == {4000, 3000}
+    assert h > 2667
+    assert_in_delta w / h, 4 / 3, 0.001
+
+    img = Image.open!(inside.resp_body, access: :random, fail_on: :error)
+    assert Image.has_alpha?(img)
+  end
+
   test "crop=WxH@0x0 crops from the top-left" do
     topleft = call("/images/beach.jpg?twic=v1/crop=100x100@0x0/output=png")
     elsewhere = call("/images/beach.jpg?twic=v1/crop=100x100@3900x2567/output=png")
