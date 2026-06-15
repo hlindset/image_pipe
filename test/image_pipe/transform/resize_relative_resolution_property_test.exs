@@ -2,12 +2,14 @@ defmodule ImagePipe.Transform.ResizeRelativeResolutionPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias ImagePipe.Plan.Measure
+  alias ImagePipe.Plan.Operation, as: PlanOperation
   alias ImagePipe.Transform.Operation.Resize
 
   property "ratio width resolves proportionally against the running width" do
     check all running <- integer(1..6000),
               percent <- integer(1..400) do
-      {:ok, {:ratio, num, den}} = ImagePipe.Plan.Measure.from_percent(percent)
+      {:ok, {:ratio, num, den}} = Measure.from_percent(percent)
       op = %Resize{mode: :fit, width: {:ratio, num, den}, height: :auto, enlarge: true}
       result = Resize.resolve_dimensions(op, source_width: running, source_height: running)
 
@@ -22,7 +24,7 @@ defmodule ImagePipe.Transform.ResizeRelativeResolutionPropertyTest do
   property "scale height resolves proportionally against the running height" do
     check all running <- integer(1..6000),
               scale <- float(min: 0.01, max: 4.0) do
-      {:ok, {:ratio, num, den}} = ImagePipe.Plan.Measure.from_scale(scale)
+      {:ok, {:ratio, num, den}} = Measure.from_scale(scale)
       op = %Resize{mode: :fit, width: :auto, height: {:ratio, num, den}, enlarge: true}
       result = Resize.resolve_dimensions(op, source_width: running, source_height: running)
 
@@ -31,10 +33,10 @@ defmodule ImagePipe.Transform.ResizeRelativeResolutionPropertyTest do
   end
 
   test "Plan constructor normalizes percent and scale sugar to an exact ratio" do
-    assert {:ok, op} = ImagePipe.Plan.Operation.resize(:fit, {:percent, 50}, :auto)
+    assert {:ok, op} = PlanOperation.resize(:fit, {:percent, 50}, :auto)
     assert op.width == {:ratio, 1, 2}
 
-    assert {:ok, op} = ImagePipe.Plan.Operation.resize(:fit, {:scale, 0.5}, :auto)
+    assert {:ok, op} = PlanOperation.resize(:fit, {:scale, 0.5}, :auto)
     assert op.width == {:ratio, 1, 2}
   end
 
