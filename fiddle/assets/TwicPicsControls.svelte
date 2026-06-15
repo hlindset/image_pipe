@@ -213,153 +213,155 @@
   <SortableList.Root gap={8} ondragend={handleDragEnd}>
     {#each twicpicsState.chain as step, index (step.id)}
       <SortableList.Item id={step.id} {index} transitionIn={instant} transitionOut={instant}>
-        <div class="chain-card">
-          <div class="chain-card-head">
-            <SortableList.ItemHandle>
-              <span class="drag-handle" aria-hidden="true">⠿</span>
-            </SortableList.ItemHandle>
-            <button
-              type="button"
-              class="card-toggle"
-              aria-expanded={openCards[step.id] ? "true" : "false"}
-              onclick={() => toggleCard(step.id)}
-            >
-              <span class="card-name">{step.type}</span>
-              <span class="card-chevron" aria-hidden="true"></span>
-              <span class="card-summary">{stepSummary(step)}</span>
-            </button>
-            <SortableList.ItemRemove
-              class="card-remove"
-              aria-label={`Remove ${step.type}`}
-              onclick={() => removeStep(step.id)}
-            >
-              ×
-            </SortableList.ItemRemove>
-          </div>
-
-          {#if openCards[step.id]}
-            <div class="chain-card-body">
-              {#if step.type === "resize"}
-                {@render resizeAxis(step, "w", "Width")}
-                {@render resizeAxis(step, "h", "Height")}
-              {:else if step.type === "cover"}
-                <label class="field">
-                  <span>Mode</span>
-                  <select bind:value={step.mode}>
-                    <option value="size">size (WxH px)</option>
-                    <option value="ratio">ratio (W:H)</option>
-                  </select>
-                </label>
-                <RangeNumber
-                  label={step.mode === "ratio" ? "W" : "Width"}
-                  bind:value={step.w}
-                  min={1}
-                  max={8000}
-                  step={1}
-                />
-                <RangeNumber
-                  label={step.mode === "ratio" ? "H" : "Height"}
-                  bind:value={step.h}
-                  min={1}
-                  max={8000}
-                  step={1}
-                />
-              {:else if step.type === "contain" || step.type === "inside"}
-                <RangeNumber
-                  label="Width"
-                  bind:value={step.w}
-                  min={1}
-                  max={8000}
-                  step={1}
-                  suffix="px"
-                />
-                <RangeNumber
-                  label="Height"
-                  bind:value={step.h}
-                  min={1}
-                  max={8000}
-                  step={1}
-                  suffix="px"
-                />
-              {:else if step.type === "crop"}
-                <RangeNumber
-                  label="Width"
-                  bind:value={step.w}
-                  min={1}
-                  max={8000}
-                  step={1}
-                  suffix="px"
-                />
-                <RangeNumber
-                  label="Height"
-                  bind:value={step.h}
-                  min={1}
-                  max={8000}
-                  step={1}
-                  suffix="px"
-                />
-                <label class="switch-field">
-                  <Switch.Root
-                    class="switch-root"
-                    checked={step.origin !== null}
-                    onCheckedChange={(checked) => toggleCropOrigin(step, checked)}
-                  >
-                    <Switch.Thumb class="switch-thumb" />
-                  </Switch.Root>
-                  <span>Origin (@ XxY)</span>
-                </label>
-                {#if step.origin !== null}
-                  {@const originPreviewSrc = twicFetchPath({
-                    source: twicpicsState.source,
-                    chain: twicpicsState.chain.slice(0, index),
-                    output: "jpeg",
-                    quality: 80,
-                  })}
-                  <TwicCropOriginPicker
-                    previewSrc={originPreviewSrc}
-                    width={step.w}
-                    height={step.h}
-                    bind:x={step.origin.x}
-                    bind:y={step.origin.y}
-                  />
-                  <RangeNumber
-                    label="X"
-                    bind:value={step.origin.x}
-                    min={1}
-                    max={8000}
-                    step={1}
-                    suffix="px"
-                  />
-                  <RangeNumber
-                    label="Y"
-                    bind:value={step.origin.y}
-                    min={1}
-                    max={8000}
-                    step={1}
-                    suffix="px"
-                  />
-                {/if}
-              {:else if step.type === "focus"}
-                <div class="anchor-grid" role="group" aria-label="Focus anchor">
-                  {#each anchorGrid as cell}
-                    {#if cell === null}
-                      <span class="anchor-cell anchor-cell-empty" aria-hidden="true"></span>
-                    {:else}
-                      <button
-                        type="button"
-                        class="anchor-cell"
-                        aria-pressed={step.anchor === cell ? "true" : "false"}
-                        aria-label={cell}
-                        onclick={() => (step.anchor = cell)}
-                      >
-                        {anchorGlyph[cell]}
-                      </button>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
+        <div class="chain-row">
+          <SortableList.ItemHandle>
+            <span class="drag-handle" aria-hidden="true">⠿</span>
+          </SortableList.ItemHandle>
+          <div class="chain-card">
+            <div class="chain-card-head">
+              <button
+                type="button"
+                class="card-toggle"
+                aria-expanded={openCards[step.id] ? "true" : "false"}
+                onclick={() => toggleCard(step.id)}
+              >
+                <span class="card-name">{step.type}</span>
+                <span class="card-chevron" aria-hidden="true"></span>
+                <span class="card-summary">{stepSummary(step)}</span>
+              </button>
+              <SortableList.ItemRemove
+                class="card-remove"
+                aria-label={`Remove ${step.type}`}
+                onclick={() => removeStep(step.id)}
+              >
+                ×
+              </SortableList.ItemRemove>
             </div>
-          {/if}
+
+            {#if openCards[step.id]}
+              <div class="chain-card-body">
+                {#if step.type === "resize"}
+                  {@render resizeAxis(step, "w", "Width")}
+                  {@render resizeAxis(step, "h", "Height")}
+                {:else if step.type === "cover"}
+                  <label class="field">
+                    <span>Mode</span>
+                    <select bind:value={step.mode}>
+                      <option value="size">size (WxH px)</option>
+                      <option value="ratio">ratio (W:H)</option>
+                    </select>
+                  </label>
+                  <RangeNumber
+                    label={step.mode === "ratio" ? "W" : "Width"}
+                    bind:value={step.w}
+                    min={1}
+                    max={8000}
+                    step={1}
+                  />
+                  <RangeNumber
+                    label={step.mode === "ratio" ? "H" : "Height"}
+                    bind:value={step.h}
+                    min={1}
+                    max={8000}
+                    step={1}
+                  />
+                {:else if step.type === "contain" || step.type === "inside"}
+                  <RangeNumber
+                    label="Width"
+                    bind:value={step.w}
+                    min={1}
+                    max={8000}
+                    step={1}
+                    suffix="px"
+                  />
+                  <RangeNumber
+                    label="Height"
+                    bind:value={step.h}
+                    min={1}
+                    max={8000}
+                    step={1}
+                    suffix="px"
+                  />
+                {:else if step.type === "crop"}
+                  <RangeNumber
+                    label="Width"
+                    bind:value={step.w}
+                    min={1}
+                    max={8000}
+                    step={1}
+                    suffix="px"
+                  />
+                  <RangeNumber
+                    label="Height"
+                    bind:value={step.h}
+                    min={1}
+                    max={8000}
+                    step={1}
+                    suffix="px"
+                  />
+                  <label class="switch-field">
+                    <Switch.Root
+                      class="switch-root"
+                      checked={step.origin !== null}
+                      onCheckedChange={(checked) => toggleCropOrigin(step, checked)}
+                    >
+                      <Switch.Thumb class="switch-thumb" />
+                    </Switch.Root>
+                    <span>Origin (@ XxY)</span>
+                  </label>
+                  {#if step.origin !== null}
+                    {@const originPreviewSrc = twicFetchPath({
+                      source: twicpicsState.source,
+                      chain: twicpicsState.chain.slice(0, index),
+                      output: "jpeg",
+                      quality: 80,
+                    })}
+                    <TwicCropOriginPicker
+                      previewSrc={originPreviewSrc}
+                      width={step.w}
+                      height={step.h}
+                      bind:x={step.origin.x}
+                      bind:y={step.origin.y}
+                    />
+                    <RangeNumber
+                      label="X"
+                      bind:value={step.origin.x}
+                      min={1}
+                      max={8000}
+                      step={1}
+                      suffix="px"
+                    />
+                    <RangeNumber
+                      label="Y"
+                      bind:value={step.origin.y}
+                      min={1}
+                      max={8000}
+                      step={1}
+                      suffix="px"
+                    />
+                  {/if}
+                {:else if step.type === "focus"}
+                  <div class="anchor-grid" role="group" aria-label="Focus anchor">
+                    {#each anchorGrid as cell}
+                      {#if cell === null}
+                        <span class="anchor-cell anchor-cell-empty" aria-hidden="true"></span>
+                      {:else}
+                        <button
+                          type="button"
+                          class="anchor-cell"
+                          aria-pressed={step.anchor === cell ? "true" : "false"}
+                          aria-label={cell}
+                          onclick={() => (step.anchor = cell)}
+                        >
+                          {anchorGlyph[cell]}
+                        </button>
+                      {/if}
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          </div>
         </div>
       </SortableList.Item>
     {/each}
@@ -407,32 +409,43 @@
     font-size: 13px;
   }
 
-  .chain-card {
-    /* Same surface as the sidebar it sits on; the border is what delineates the
-       card, so the inner control surfaces (inputs, slider tracks) clearly stand out
-       against it. Also retheme the library's handle/remove buttons (they default to
-       their own gray scale): no background, one color, opacity-only hover. */
-    background: var(--surface-sidebar);
+  /* Row = drag handle (in a left gutter, outside the card) + the card. */
+  .chain-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    /* Retheme the library's handle/remove buttons (they default to their own gray
+       scale): no background, one color, opacity-only hover. */
     --ssl-gray-400: var(--text-primary);
     --ssl-gray-150: transparent;
     --ssl-gray-700: var(--text-primary);
+  }
+
+  .chain-card {
+    /* Same surface as the sidebar it sits on; the border delineates the card so the
+       inner control surfaces (inputs, slider tracks) clearly stand out against it. */
+    flex: 1;
+    min-width: 0;
+    background: var(--surface-sidebar);
     border: 1px solid var(--border-strong);
     border-radius: 8px;
     overflow: hidden;
   }
 
   .chain-card-head {
+    min-height: 42px;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     gap: 2px;
     padding: 6px;
   }
 
-  /* The library pulls the handle/remove out by -1rem (assumes a 1rem container
-     padding); reset so they sit inside our card padding instead of on the border.
-     No background in any state — just an opacity fade on hover/focus. */
-  .chain-card :global(.ssl-item-handle),
-  .chain-card :global(.ssl-item-remove) {
+  /* Handle lives in the left gutter (outside the card); remove stays inside the head.
+     Both: the library pulls them out by -1rem — reset that — with no background in
+     any state, just an opacity fade on hover/focus. */
+  .chain-row :global(.ssl-item-handle),
+  .chain-row :global(.ssl-item-remove) {
     margin: 0;
     padding: 6px;
     border-radius: 6px;
@@ -442,15 +455,24 @@
     transition: opacity 120ms ease;
   }
 
-  .chain-card :global(.ssl-item-handle:hover),
-  .chain-card :global(.ssl-item-handle:focus-visible),
-  .chain-card :global(.ssl-item-remove:hover),
-  .chain-card :global(.ssl-item-remove:focus-visible) {
+  .chain-row :global(.ssl-item-handle:hover),
+  .chain-row :global(.ssl-item-handle:focus-visible),
+  .chain-row :global(.ssl-item-remove:hover),
+  .chain-row :global(.ssl-item-remove:focus-visible) {
     opacity: 1;
   }
 
-  .chain-card :global(.ssl-item-handle) {
+  /* Match the collapsed card height (header + border) and center the grip, so it
+     lines up with the card's vertical center; it stays by the header when the card
+     expands taller (the row is flex-start). */
+  .chain-row :global(.ssl-item-handle) {
     cursor: grab;
+    box-sizing: border-box;
+    height: 44px;
+    padding: 0 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .drag-handle {
