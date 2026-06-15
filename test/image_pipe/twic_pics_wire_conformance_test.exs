@@ -99,6 +99,63 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     refute average(centered) == average(topleft)
   end
 
+  test "relative coordinate focus steers the next cover" do
+    # focus=50px50p splits on x -> ["50p","50p"] -> x=50%, y=50% (no `px` unit; the
+    # `x` is the separator), a {:focal, {:ratio,1,2}, {:ratio,1,2}} guide. Covering
+    # 100x100 from the 4000x2667 source scales to ~150x100, so only the horizontal
+    # axis has crop slack; a 50% focal x lands the window mid-range (left=25),
+    # distinct from the left-clamped corner anchors.
+    focal = call("/images/beach.jpg?twic=v1/focus=50px50p/cover=100x100/output=jpeg")
+    topleft = call("/images/beach.jpg?twic=v1/focus=top-left/cover=100x100/output=jpeg")
+    bottomright = call("/images/beach.jpg?twic=v1/focus=bottom-right/cover=100x100/output=jpeg")
+
+    assert dimensions(focal) == {100, 100}
+    # The focal point actually biases the cover crop: a centered focus lands
+    # between the two opposing corner anchors, so it differs from both.
+    refute average(focal) == average(topleft)
+    refute average(focal) == average(bottomright)
+  end
+
+  test "out-of-range relative focus is rejected before source fetch" do
+    opts =
+      Keyword.put(@opts, :sources,
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+      )
+
+    # focus=150px50p -> ["150p","50p"] -> x ratio 3/2 (>100%) is an out-of-image
+    # focal point; the parser rejects it before any source resolution.
+    conn = call("/images/beach.jpg?twic=v1/focus=150px50p", opts)
+    assert conn.status == 400
+  end
+
+  test "bare-pixel coordinate focus is rejected (deferred)" do
+    opts =
+      Keyword.put(@opts, :sources,
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+      )
+
+    # focus=20x10 -> ["20","10"] -> both bare px; bare-pixel focus needs
+    # running-dim-at-focus-position resolution and is deferred -> rejected.
+    conn = call("/images/beach.jpg?twic=v1/focus=20x10", opts)
+    assert conn.status == 400
+  end
+
+  test "focus=auto and focus=center are rejected" do
+    opts =
+      Keyword.put(@opts, :sources,
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+      )
+
+    assert call("/images/beach.jpg?twic=v1/focus=auto", opts).status == 400
+    assert call("/images/beach.jpg?twic=v1/focus=center", opts).status == 400
+  end
+
   test "cover ratio crops to the target ratio without scaling" do
     conn = call("/images/beach.jpg?twic=v1/cover=16:9/output=jpeg")
     {w, h} = dimensions(conn)

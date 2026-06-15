@@ -33,6 +33,33 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Resize{mode: :cover, guide: {:anchor, :center, :top}} = cover
   end
 
+  test "relative-unit coordinate focus -> focal ratio guide on the next cover" do
+    # focus=25px75p splits on x -> ["25p","75p"] -> x=25% (1/4), y=75% (3/4).
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [cover]}]}} =
+             build([{"focus", "25px75p"}, {"cover", "100x100"}])
+
+    assert %Operation.Resize{
+             mode: :cover,
+             guide: {:focal, {:ratio, 1, 4}, {:ratio, 3, 4}}
+           } = cover
+  end
+
+  test "an edge focal ratio of exactly 1 (100p) is in-range" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [cover]}]}} =
+             build([{"focus", "100px0p"}, {"cover", "100x100"}])
+
+    assert %Operation.Resize{guide: {:focal, {:ratio, 1, 1}, {:ratio, 0, 1}}} = cover
+  end
+
+  test "out-of-range, bare-pixel, and named focus values are rejected" do
+    # focus=150px50p -> x ratio 3/2 (>100%) is out of the image.
+    assert {:error, {:unsupported_focus, "150px50p"}} = build([{"focus", "150px50p"}])
+    # focus=20x10 -> both bare px; deferred (needs running-dim resolution).
+    assert {:error, {:unsupported_focus, "20x10"}} = build([{"focus", "20x10"}])
+    assert {:error, _} = build([{"focus", "auto"}])
+    assert {:error, _} = build([{"focus", "center"}])
+  end
+
   test "cover ratio -> guided ratio crop" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [crop]}]}} = build([{"cover", "16:9"}])
 

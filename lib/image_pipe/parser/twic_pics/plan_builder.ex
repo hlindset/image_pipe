@@ -137,9 +137,27 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   defp focus(args, acc) do
     case Units.anchor(args) do
       {:ok, guide} -> {:ok, %{acc | guide: guide}}
-      {:error, _} -> {:error, {:unsupported_focus, args}}
+      {:error, _} -> focus_coordinates(args, acc)
     end
   end
+
+  # Relative (p/s) coordinate focus -> focal ratio guide. Bare-pixel coordinates
+  # need running-dim-at-focus-position resolution and are deferred (separate issue).
+  defp focus_coordinates(args, acc) do
+    with {:ok, {x, y}} <- Units.coordinates(args),
+         {:ok, fx} <- focal_ratio(x),
+         {:ok, fy} <- focal_ratio(y) do
+      {:ok, %{acc | guide: {:focal, fx, fy}}}
+    else
+      _ -> {:error, {:unsupported_focus, args}}
+    end
+  end
+
+  # In-range relative focus only. A ratio > 1 (e.g. 150p) is an out-of-image focus
+  # point and must be rejected here (the plan-construction gate has no upper bound,
+  # so it would otherwise fail only late in crop.ex after source fetch). Bare-px deferred.
+  defp focal_ratio({:ratio, num, den}) when num <= den, do: {:ok, {:ratio, num, den}}
+  defp focal_ratio(_measure), do: {:error, :out_of_range_or_deferred_focus}
 
   defp output(args, acc) do
     with {:ok, format} <- Output.format(args), do: {:ok, %{acc | format: format}}
