@@ -323,22 +323,6 @@
                       bind:x={step.origin.x}
                       bind:y={step.origin.y}
                     />
-                    <RangeNumber
-                      label="X"
-                      bind:value={step.origin.x}
-                      min={1}
-                      max={8000}
-                      step={1}
-                      suffix="px"
-                    />
-                    <RangeNumber
-                      label="Y"
-                      bind:value={step.origin.y}
-                      min={1}
-                      max={8000}
-                      step={1}
-                      suffix="px"
-                    />
                   {/if}
                 {:else if step.type === "focus"}
                   <div class="anchor-grid" role="group" aria-label="Focus anchor">

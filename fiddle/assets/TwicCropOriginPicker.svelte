@@ -4,6 +4,7 @@
   // result (the chain up to, but not including, this crop), so the pixel space
   // matches what `crop=WxH@XxY` addresses at this point in the pipeline.
   import ImagePointPicker from "./ImagePointPicker.svelte";
+  import RangeNumber from "./RangeNumber.svelte";
 
   type Props = {
     previewSrc: string;
@@ -69,6 +70,23 @@
       {/if}
     {/snippet}
   </ImagePointPicker>
+
+  <RangeNumber
+    label="X"
+    bind:value={x}
+    min={1}
+    max={runningWidth > 0 ? runningWidth : 8000}
+    step={1}
+    suffix="px"
+  />
+  <RangeNumber
+    label="Y"
+    bind:value={y}
+    min={1}
+    max={runningHeight > 0 ? runningHeight : 8000}
+    step={1}
+    suffix="px"
+  />
 </div>
 
 <style>
