@@ -143,9 +143,10 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
   end
 
   test "relative crop coordinates resolve to the same origin as their pixel equivalent" do
-    # @0.25sx0.5s on a 4000x2667 source resolves to origin (1000, 1333).
+    # @0.25sx0.5s on a 4000x2667 source resolves to origin (1000, 1334):
+    # round(4000 × 0.25) = 1000, round(2667 × 0.5) = round(1333.5) = 1334.
     relative = call("/images/beach.jpg?twic=v1/crop=200x200@0.25sx0.5s/output=png")
-    pixels = call("/images/beach.jpg?twic=v1/crop=200x200@1000x1333/output=png")
+    pixels = call("/images/beach.jpg?twic=v1/crop=200x200@1000x1334/output=png")
 
     assert relative.status == 200
     assert dimensions(relative) == {200, 200}
