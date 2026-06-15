@@ -69,7 +69,7 @@ Split only at separators that are outside parentheses.
 | `padding` | `top,right,bottom,left`; `top,horizontal,bottom`; `vertical,horizontal`; `both` | Each item is a `length`. Examples include `10,100,23,47`, `0,25p`, `(1/3)s`. |
 | `anchor` | one of eight literals | `top`, `bottom`, `left`, `right`, `top-left`, `top-right`, `bottom-left`, `bottom-right`. The API anchor list excludes `center`, although center is the default focus. Overlay path config has its own anchor list and does accept `center`. |
 | `axis` | `both`, `h`, `horizontal`, `v`, `vertical`, `x`, `y` | `h`, `horizontal`, and `x` mean horizontal. `v`, `vertical`, and `y` mean vertical. |
-| `angle` | `<number>` or named literal | TwicPics rounds numeric degrees to the nearest quarter-turn. Named forms: `anticlockwise`, `counterclockwise`, and `left` mean a counterclockwise quarter-turn; `clockwise` and `right` mean a clockwise quarter-turn; `flip` and `reverse` mean a half-turn. |
+| `angle` | `<number>` or named literal | TwicPics rounds numeric degrees to the nearest quarter-turn. Named forms: `anticlockwise`, `counterclockwise`, and `left` mean a counterclockwise quarter-turn; `clockwise` and `right` mean a clockwise quarter-turn; `flip` and `reverse` mean a half-turn. Note that `left` and `right` are overloaded: they are `angle` literals here but also `anchor` literals; resolve them by parameter position (after `turn=` they are angles, after `@` or in `focus=` they are anchors). |
 | `boolean` | `true`, `yes`, `on`, `false`, `no`, `off` | Used by `truecolor=<boolean>`. |
 | `color` | name, hex, RGB/RGBA, HSL/HSLA, `transparent` | Hex forms: 3, 4, 6, or 8 characters. Function forms: `rgb(...)`, `rgba(...)`, `hsl(...)`, `hsla(...)`. Color names, 3-char hex, and 6-char hex can take an alpha suffix: `violet.25`, `008.75`, `808080.3`. |
 
@@ -126,15 +126,16 @@ and follows the `padding` grammar.
 | --- | --- | --- |
 | `output` | `output=<format>`; `output=<preview-type>`; `output=auto` | TwicPics uses only the last `output` in the manipulation. `auto` re-enables TwicPics' browser-dependent format choice, including when a path default set a format. |
 | `quality` | `quality=<number>` | Output quality from 1 to 100. Ignored when output is a preview format, or when output is PNG and `truecolor` is on. |
-| `quality-max` | `quality-max=<number>` | Applies only when the supplied quality is below current quality. Example: `quality=100/quality-max=50` -> `50`; `quality=20/quality-max=50` -> `20`. |
-| `quality-min` | `quality-min=<number>` | Applies only when the supplied quality is greater than current quality. Example: `quality=20/quality-min=50` -> `50`; `quality=100/quality-min=50` -> `100`. |
+| `quality-max` | `quality-max=<number>` | Applies only when the given quality is below the current quality. Examples: `quality=100/quality-max=50` -> `50`; `quality=20/quality-max=50` -> `20`; `quality-max=50/quality=100` -> `100` (a later plain `quality` overrides the conditional). |
+| `quality-min` | `quality-min=<number>` | Applies only when the given quality is above the current quality. Examples: `quality=20/quality-min=50` -> `50`; `quality=100/quality-min=50` -> `100`; `quality-min=50/quality=20` -> `20` (a later plain `quality` overrides the conditional). |
 | `truecolor` | `truecolor=<boolean>`; `truecolor` | Controls PNG quantization. Bare form means `true`; default is `false`, allowing PNG quantization. |
 | `download` | `download`; `download=<base-name>`; `download=<base-name>.<extension>` | Forces browser download. With no name, TwicPics derives `image` or `video` plus the final output extension. With a base name only, TwicPics still uses the final output extension. |
 | `noop` | `noop` | Passes the media through without re-encoding and without API or default-manipulation transforms. Path configuration must permit it; TwicPics ignores it by default. |
 
-`output=<format>` accepts these image formats: `auto`, `avif`, `heif`, `image`,
-`jpeg`, `png`, `webp`. `image` means JPEG or WebP depending on browser support,
-and can return the first frame of a video.
+`output=<format>` accepts these image formats: `avif`, `heif`, `image`, `jpeg`,
+`png`, `webp`. `auto` is not an image format; it is the separate smart-guess
+keyword above. `image` means JPEG or WebP depending on browser support, and can
+return the first frame of a video.
 
 Video output formats: `h264`, `h265`, `vp9`.
 
