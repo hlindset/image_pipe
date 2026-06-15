@@ -3,20 +3,23 @@
   import "@rodrigodagostino/svelte-sortable-list/styles.css";
   import { DropdownMenu, Slider } from "bits-ui";
   import type { TransitionConfig } from "svelte/transition";
+  import ImagePointPicker from "./ImagePointPicker.svelte";
   import RangeNumber from "./RangeNumber.svelte";
   import TwicCropControls from "./TwicCropControls.svelte";
   import { type SourceImage } from "./processing-path";
   import {
     defaultStep,
     nextStepId,
-    setResizeAxisUnit,
+    setDimAxisUnit,
     stepSummary,
     twicFetchPath,
     twicOutputs,
     type TransformStep,
     type TransformType,
     type TwicAnchor,
+    type TwicDim,
     type TwicPicsState,
+    type TwicRelUnit,
     type TwicResizeUnit,
   } from "./twicpics-path";
 
@@ -117,11 +120,12 @@
     if (input instanceof HTMLInputElement) input.select();
   }
 
-  function setResizeValue(
-    step: Extract<TransformStep, { type: "resize" }>,
-    axis: "w" | "h",
-    value: number,
-  ): void {
+  // A step carrying a two-axis TwicDim pair: resize, cover-size, and contain all
+  // share the same px/%/scale/auto unit set (the parser feeds each through
+  // `Units.size` with no pixels-only gate), so they share one dimension control.
+  type DimStep = { w: TwicDim; h: TwicDim };
+
+  function setDimValue(step: DimStep, axis: "w" | "h", value: number): void {
     if (Number.isNaN(value)) return;
     const { min, max, step: stepSize } = resizeRange(step[axis].unit);
     const clamped = Math.min(Math.max(value, min), max);
@@ -132,23 +136,130 @@
     step[axis] = { unit: step[axis].unit, value: Math.round(clamped * factor) / factor };
   }
 
-  // Switch a resize axis unit (keeps the both-auto guard in setResizeAxisUnit), then
+  // Switch a dimension axis unit (keeps the both-auto guard in setDimAxisUnit), then
   // clamp the carried value into the new unit's range.
-  function changeResizeUnit(
-    step: Extract<TransformStep, { type: "resize" }>,
-    axis: "w" | "h",
-    unit: TwicResizeUnit,
+  function changeDimUnit(step: DimStep, axis: "w" | "h", unit: TwicResizeUnit): void {
+    setDimAxisUnit(step, axis, unit);
+    if (step[axis].unit !== "auto") setDimValue(step, axis, step[axis].value);
+  }
+
+  // --- cover ---
+
+  type CoverStep = Extract<TransformStep, { type: "cover" }>;
+
+  // Switch a cover card between size and ratio. The two modes carry different
+  // dimension shapes (size = px/%/scale/auto TwicDim; ratio = plain W:H numbers),
+  // so the whole step is rebuilt rather than just rebinding `mode`.
+  function setCoverMode(step: CoverStep, mode: "size" | "ratio", index: number): void {
+    if (mode === step.mode) return;
+    twicpicsState.chain[index] =
+      mode === "size"
+        ? {
+            type: "cover",
+            id: step.id,
+            mode: "size",
+            w: { unit: "px", value: 200 },
+            h: { unit: "px", value: 200 },
+          }
+        : { type: "cover", id: step.id, mode: "ratio", w: 16, h: 9 };
+  }
+
+  // --- inside ---
+
+  type InsideStep = Extract<TransformStep, { type: "inside" }>;
+
+  // Switch an inside card between size and ratio. Size mode is pixels-only (the
+  // parser rejects relative units for inside size); ratio mode is a plain W:H
+  // aspect ratio. The two modes carry the same plain-number shape, but the whole
+  // step is rebuilt to flip `mode` and reset to sensible defaults.
+  function setInsideMode(step: InsideStep, mode: "size" | "ratio", index: number): void {
+    if (mode === step.mode) return;
+    twicpicsState.chain[index] =
+      mode === "size"
+        ? { type: "inside", id: step.id, mode: "size", w: 300, h: 300 }
+        : { type: "inside", id: step.id, mode: "ratio", w: 4, h: 3 };
+  }
+
+  // --- focus ---
+
+  type FocusStep = Extract<TransformStep, { type: "focus" }>;
+
+  function focusMode(step: FocusStep): "anchor" | "coord" {
+    return step.mode;
+  }
+
+  // Switch a focus card between the 8-anchor grid and a relative coordinate. The
+  // parser rejects bare-pixel and auto/center focus, so the coordinate mode is
+  // relative-only (p/s) and never offers those.
+  function setFocusMode(step: FocusStep, mode: "anchor" | "coord", index: number): void {
+    if (mode === step.mode) return;
+    twicpicsState.chain[index] =
+      mode === "anchor"
+        ? { type: "focus", id: step.id, mode: "anchor", anchor: "top" }
+        : {
+            type: "focus",
+            id: step.id,
+            mode: "coord",
+            x: { unit: "p", value: 50 },
+            y: { unit: "p", value: 50 },
+          };
+  }
+
+  // Per-unit range + suffix for a relative focus coordinate. In-range only: the
+  // parser rejects ratio > 1 (max 100% / 1×).
+  function focusRange(unit: TwicRelUnit): { max: number; step: number; suffix: string } {
+    return unit === "s" ? { max: 1, step: 0.01, suffix: "×" } : { max: 100, step: 1, suffix: "%" };
+  }
+
+  function roundFocus(value: number, unit: TwicRelUnit): number {
+    const factor = unit === "s" ? 100 : 1;
+    return Math.round(value * factor) / factor;
+  }
+
+  function clampFocus(value: number, unit: TwicRelUnit): number {
+    const { max } = focusRange(unit);
+    return roundFocus(Math.min(Math.max(value, 0), max), unit);
+  }
+
+  function setFocusAxis(
+    step: Extract<FocusStep, { mode: "coord" }>,
+    axis: "x" | "y",
+    value: number,
   ): void {
-    setResizeAxisUnit(step, axis, unit);
-    if (step[axis].unit !== "auto") setResizeValue(step, axis, step[axis].value);
+    if (Number.isNaN(value)) return;
+    step[axis] = { unit: step[axis].unit, value: clampFocus(value, step[axis].unit) };
+  }
+
+  function changeFocusUnit(
+    step: Extract<FocusStep, { mode: "coord" }>,
+    axis: "x" | "y",
+    unit: TwicRelUnit,
+  ): void {
+    // Preserve the on-image fraction across the unit switch (50% <-> 0.5×).
+    const range = focusRange(step[axis].unit);
+    const fraction = step[axis].value / range.max;
+    const next = focusRange(unit).max * fraction;
+    step[axis] = { unit, value: clampFocus(next, unit) };
+  }
+
+  // Map a normalized minimap point (0..1) to both relative coordinates at once.
+  function pickFocus(step: Extract<FocusStep, { mode: "coord" }>, nx: number, ny: number): void {
+    step.x = {
+      unit: step.x.unit,
+      value: clampFocus(nx * focusRange(step.x.unit).max, step.x.unit),
+    };
+    step.y = {
+      unit: step.y.unit,
+      value: clampFocus(ny * focusRange(step.y.unit).max, step.y.unit),
+    };
+  }
+
+  function focusMarker(len: { unit: TwicRelUnit; value: number }): number {
+    return len.value / focusRange(len.unit).max;
   }
 </script>
 
-{#snippet resizeAxis(
-  step: Extract<TransformStep, { type: "resize" }>,
-  axis: "w" | "h",
-  label: string,
-)}
+{#snippet dimAxis(step: DimStep, axis: "w" | "h", label: string)}
   {@const dim = step[axis]}
   {@const range = resizeRange(dim.unit)}
   <div class="dim-control">
@@ -164,7 +275,7 @@
             value={dim.value}
             aria-label={`${label} value`}
             onfocus={selectNumberInput}
-            oninput={(e) => setResizeValue(step, axis, e.currentTarget.valueAsNumber)}
+            oninput={(e) => setDimValue(step, axis, e.currentTarget.valueAsNumber)}
           />
           <span class="unit-suffix">{range.suffix}</span>
         {/if}
@@ -172,7 +283,7 @@
           class="dim-unit"
           value={dim.unit}
           aria-label={`${label} unit`}
-          onchange={(e) => changeResizeUnit(step, axis, e.currentTarget.value as TwicResizeUnit)}
+          onchange={(e) => changeDimUnit(step, axis, e.currentTarget.value as TwicResizeUnit)}
         >
           <option value="px">px</option>
           <option value="p">%</option>
@@ -190,13 +301,63 @@
         max={range.max}
         step={range.step}
         value={Math.min(Math.max(dim.value, range.min), range.max)}
-        onValueChange={(v) => setResizeValue(step, axis, v)}
-        onValueCommit={(v) => setResizeValue(step, axis, v)}
+        onValueChange={(v) => setDimValue(step, axis, v)}
+        onValueCommit={(v) => setDimValue(step, axis, v)}
       >
         <Slider.Range class="slider-range" />
         <Slider.Thumb class="slider-thumb" index={0} aria-label={`${label} slider`} />
       </Slider.Root>
     {/if}
+  </div>
+{/snippet}
+
+{#snippet focusAxis(
+  step: Extract<TransformStep, { type: "focus"; mode: "coord" }>,
+  axis: "x" | "y",
+  label: string,
+)}
+  {@const len = step[axis]}
+  {@const range = focusRange(len.unit)}
+  <div class="dim-control">
+    <label class="value-row">
+      <span>{label}</span>
+      <span class="value-controls">
+        <input
+          type="number"
+          min={0}
+          max={range.max}
+          step={range.step}
+          value={len.value}
+          aria-label={`${label} value`}
+          onfocus={selectNumberInput}
+          oninput={(e) => setFocusAxis(step, axis, e.currentTarget.valueAsNumber)}
+        />
+        <span class="unit-suffix">{range.suffix}</span>
+        <select
+          class="dim-unit"
+          value={len.unit}
+          aria-label={`${label} unit`}
+          onchange={(e) => changeFocusUnit(step, axis, e.currentTarget.value as TwicRelUnit)}
+        >
+          <option value="p">%</option>
+          <option value="s">scale</option>
+        </select>
+      </span>
+    </label>
+
+    <Slider.Root
+      class="slider-root"
+      type="single"
+      min={0}
+      max={range.max}
+      step={range.step}
+      value={Math.min(Math.max(len.value, 0), range.max)}
+      onValueChange={(v) => setFocusAxis(step, axis, v)}
+      onValueCommit={(v) => setFocusAxis(step, axis, v)}
+    >
+      <Slider.Range class="slider-range" />
+      <Slider.Thumb class="slider-thumb" index={0} aria-label={`${label} slider`} />
+    </Slider.Root>
   </div>
 {/snippet}
 
@@ -242,47 +403,63 @@
             {#if openCards[step.id]}
               <div class="chain-card-body">
                 {#if step.type === "resize"}
-                  {@render resizeAxis(step, "w", "Width")}
-                  {@render resizeAxis(step, "h", "Height")}
+                  {@render dimAxis(step, "w", "Width")}
+                  {@render dimAxis(step, "h", "Height")}
                 {:else if step.type === "cover"}
                   <label class="field">
                     <span>Mode</span>
-                    <select bind:value={step.mode}>
-                      <option value="size">size (WxH px)</option>
+                    <select
+                      value={step.mode}
+                      onchange={(e) =>
+                        setCoverMode(step, e.currentTarget.value as "size" | "ratio", index)}
+                    >
+                      <option value="size">size (WxH)</option>
                       <option value="ratio">ratio (W:H)</option>
                     </select>
                   </label>
-                  <RangeNumber
-                    label={step.mode === "ratio" ? "W" : "Width"}
-                    bind:value={step.w}
-                    min={1}
-                    max={8000}
-                    step={1}
-                  />
-                  <RangeNumber
-                    label={step.mode === "ratio" ? "H" : "Height"}
-                    bind:value={step.h}
-                    min={1}
-                    max={8000}
-                    step={1}
-                  />
-                {:else if step.type === "contain" || step.type === "inside"}
-                  <RangeNumber
-                    label="Width"
-                    bind:value={step.w}
-                    min={1}
-                    max={8000}
-                    step={1}
-                    suffix="px"
-                  />
-                  <RangeNumber
-                    label="Height"
-                    bind:value={step.h}
-                    min={1}
-                    max={8000}
-                    step={1}
-                    suffix="px"
-                  />
+                  {#if step.mode === "ratio"}
+                    <RangeNumber label="W" bind:value={step.w} min={1} max={8000} step={1} />
+                    <RangeNumber label="H" bind:value={step.h} min={1} max={8000} step={1} />
+                  {:else}
+                    {@render dimAxis(step, "w", "Width")}
+                    {@render dimAxis(step, "h", "Height")}
+                  {/if}
+                {:else if step.type === "contain"}
+                  {@render dimAxis(step, "w", "Width")}
+                  {@render dimAxis(step, "h", "Height")}
+                {:else if step.type === "inside"}
+                  <label class="field">
+                    <span>Mode</span>
+                    <select
+                      value={step.mode}
+                      onchange={(e) =>
+                        setInsideMode(step, e.currentTarget.value as "size" | "ratio", index)}
+                    >
+                      <option value="size">size (WxH)</option>
+                      <option value="ratio">ratio (W:H)</option>
+                    </select>
+                  </label>
+                  {#if step.mode === "ratio"}
+                    <RangeNumber label="W" bind:value={step.w} min={1} max={8000} step={1} />
+                    <RangeNumber label="H" bind:value={step.h} min={1} max={8000} step={1} />
+                  {:else}
+                    <RangeNumber
+                      label="Width"
+                      bind:value={step.w}
+                      min={1}
+                      max={8000}
+                      step={1}
+                      suffix="px"
+                    />
+                    <RangeNumber
+                      label="Height"
+                      bind:value={step.h}
+                      min={1}
+                      max={8000}
+                      step={1}
+                      suffix="px"
+                    />
+                  {/if}
                 {:else if step.type === "crop"}
                   {@const cropPreviewSrc = twicFetchPath({
                     source: twicpicsState.source,
@@ -297,23 +474,63 @@
                     bind:origin={step.origin}
                   />
                 {:else if step.type === "focus"}
-                  <div class="anchor-grid" role="group" aria-label="Focus anchor">
-                    {#each anchorGrid as cell}
-                      {#if cell === null}
-                        <span class="anchor-cell anchor-cell-empty" aria-hidden="true"></span>
-                      {:else}
-                        <button
-                          type="button"
-                          class="anchor-cell"
-                          aria-pressed={step.anchor === cell ? "true" : "false"}
-                          aria-label={cell}
-                          onclick={() => (step.anchor = cell)}
-                        >
-                          {anchorGlyph[cell]}
-                        </button>
-                      {/if}
-                    {/each}
+                  <div class="focus-mode" role="group" aria-label="Focus mode">
+                    <button
+                      type="button"
+                      class="focus-mode-tab"
+                      aria-pressed={focusMode(step) === "anchor" ? "true" : "false"}
+                      onclick={() => setFocusMode(step, "anchor", index)}
+                    >
+                      Anchor
+                    </button>
+                    <button
+                      type="button"
+                      class="focus-mode-tab"
+                      aria-pressed={focusMode(step) === "coord" ? "true" : "false"}
+                      onclick={() => setFocusMode(step, "coord", index)}
+                    >
+                      Coordinate
+                    </button>
                   </div>
+
+                  {#if step.mode === "anchor"}
+                    <div class="anchor-grid" role="group" aria-label="Focus anchor">
+                      {#each anchorGrid as cell}
+                        {#if cell === null}
+                          <span class="anchor-cell anchor-cell-empty" aria-hidden="true"></span>
+                        {:else}
+                          <button
+                            type="button"
+                            class="anchor-cell"
+                            aria-pressed={step.anchor === cell ? "true" : "false"}
+                            aria-label={cell}
+                            onclick={() => (step.anchor = cell)}
+                          >
+                            {anchorGlyph[cell]}
+                          </button>
+                        {/if}
+                      {/each}
+                    </div>
+                  {:else}
+                    {@const focusPreviewSrc = twicFetchPath({
+                      source: twicpicsState.source,
+                      chain: twicpicsState.chain.slice(0, index),
+                      output: "jpeg",
+                      quality: 80,
+                    })}
+                    {@const xRange = focusRange(step.x.unit)}
+                    {@const yRange = focusRange(step.y.unit)}
+                    <ImagePointPicker
+                      src={focusPreviewSrc}
+                      markerX={focusMarker(step.x)}
+                      markerY={focusMarker(step.y)}
+                      ariaLabel={`Set focus point, currently ${step.x.value}${xRange.suffix}, ${step.y.value}${yRange.suffix}`}
+                      onPick={(nx, ny) => pickFocus(step, nx, ny)}
+                    />
+
+                    {@render focusAxis(step, "x", "X")}
+                    {@render focusAxis(step, "y", "Y")}
+                  {/if}
                 {/if}
               </div>
             {/if}
@@ -603,6 +820,37 @@
   }
 
   .dim-control :global(.slider-thumb:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  .focus-mode {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-control);
+    align-self: flex-start;
+  }
+
+  .focus-mode-tab {
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    padding: 4px 12px;
+  }
+
+  .focus-mode-tab[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--surface-sidebar);
+  }
+
+  .focus-mode-tab:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }

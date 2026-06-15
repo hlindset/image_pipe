@@ -83,7 +83,15 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp inside(args, acc) do
     if String.contains?(args, ":") do
-      {:error, {:unsupported_transform_ratio, "inside"}}
+      # Pad-to-ratio: fit the whole image inside a box of this aspect ratio and
+      # letterbox with transparent borders. The Canvas ratio rule reads each axis
+      # as a magnitude, so the W:H aspect is expressed as width {:ratio, w, 1},
+      # height {:ratio, h, 1} (a single shared ratio on both axes is a 1:1 box).
+      with {:ok, {:ratio, w, h}} <- Units.ratio(args),
+           {:ok, op} <-
+             Operation.canvas({:ratio, w, 1}, {:ratio, h, 1}, :center, fill: :transparent) do
+        push(acc, op)
+      end
     else
       with {:ok, {w, h}} <- Units.size(args),
            :ok <- pixels_only([w, h], :inside),
@@ -104,7 +112,6 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp crop_guided(size, acc) do
     with {:ok, {w, h}} <- Units.crop_size(size),
-         :ok <- pixels_only([w, h], :crop),
          {:ok, op} <- Operation.crop_guided(w, h, acc.guide) do
       push(acc, op)
     end
@@ -119,24 +126,18 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
     end
   end
 
-  # A region crop (`crop=WxH@XxY`) requires explicit pixel W and H — an omitted
-  # axis (`crop=100@…`, which `Units.size` yields as `:auto`) or a relative unit
-  # is not a valid region size in v1.
+  # A region crop (`crop=WxH@XxY`) requires both axes explicit — an omitted axis
+  # (`crop=100@…`, which `Units.size` yields as `:auto`) is not a valid region
+  # size.
   defp region_size(size) do
     case Units.size(size) do
-      {:ok, {{:px, _} = w, {:px, _} = h}} -> {:ok, {w, h}}
+      {:ok, {w, h}} when w != :auto and h != :auto -> {:ok, {w, h}}
       {:ok, _partial} -> {:error, {:unsupported_crop_region_size, size}}
       {:error, _reason} = error -> error
     end
   end
 
-  # v1 crop coordinates: pixels only (percent/scale coords deferred)
-  defp crop_coordinates(coords) do
-    case Units.coordinates(coords) do
-      {:ok, {{:px, _} = x, {:px, _} = y}} -> {:ok, {x, y}}
-      _ -> {:error, {:unsupported_crop_coordinates, coords}}
-    end
-  end
+  defp crop_coordinates(coords), do: Units.coordinates(coords)
 
   defp focus("auto", _acc), do: {:error, {:unsupported_focus, "auto"}}
   defp focus("center", _acc), do: {:error, {:unsupported_focus, "center"}}
@@ -144,9 +145,27 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   defp focus(args, acc) do
     case Units.anchor(args) do
       {:ok, guide} -> {:ok, %{acc | guide: guide}}
-      {:error, _} -> {:error, {:unsupported_focus, args}}
+      {:error, _} -> focus_coordinates(args, acc)
     end
   end
+
+  # Relative (p/s) coordinate focus -> focal ratio guide. Bare-pixel coordinates
+  # need running-dim-at-focus-position resolution and are deferred (separate issue).
+  defp focus_coordinates(args, acc) do
+    with {:ok, {x, y}} <- Units.coordinates(args),
+         {:ok, fx} <- focal_ratio(x),
+         {:ok, fy} <- focal_ratio(y) do
+      {:ok, %{acc | guide: {:focal, fx, fy}}}
+    else
+      _ -> {:error, {:unsupported_focus, args}}
+    end
+  end
+
+  # In-range relative focus only. A ratio > 1 (e.g. 150p) is an out-of-image focus
+  # point and must be rejected here (the plan-construction gate has no upper bound,
+  # so it would otherwise fail only late in crop.ex after source fetch). Bare-px deferred.
+  defp focal_ratio({:ratio, num, den}) when num <= den, do: {:ok, {:ratio, num, den}}
+  defp focal_ratio(_measure), do: {:error, :out_of_range_or_deferred_focus}
 
   defp output(args, acc) do
     with {:ok, format} <- Output.format(args), do: {:ok, %{acc | format: format}}
@@ -158,9 +177,9 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp push(acc, op), do: {:ok, %{acc | ops: [op | acc.ops]}}
 
-  # v1: crop/inside accept pixel dimensions only (crop also :full_axis for an
-  # omitted axis). Relative units (percent/scale) on crop/inside are deferred —
-  # resize/cover/contain carry full relative-unit support.
+  # `inside` accepts pixel dimensions only. Its resize+canvas composition
+  # entangles relative units with canvas aspect-ratio semantics, so percent/scale
+  # dimensions are rejected here.
   defp pixels_only(dims, transform) do
     if Enum.all?(dims, &pixel_dimension?/1),
       do: :ok,

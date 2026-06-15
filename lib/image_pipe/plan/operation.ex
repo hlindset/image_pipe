@@ -4,6 +4,7 @@ defmodule ImagePipe.Plan.Operation do
   """
 
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Measure
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Bitonal
   alias ImagePipe.Plan.Operation.Blur
@@ -599,13 +600,22 @@ defmodule ImagePipe.Plan.Operation do
   defp tagged_resize_dimension({:px, value}) when is_integer(value) and value > 0,
     do: {:ok, {:px, value}}
 
+  defp tagged_resize_dimension({:ratio, _num, _den} = ratio),
+    do: Measure.dimension(ratio) |> rewrap_dimension()
+
   defp tagged_resize_dimension({:percent, value}) when is_number(value) and value > 0,
-    do: {:ok, {:percent, value}}
+    do: Measure.from_percent(value) |> rewrap_dimension()
 
   defp tagged_resize_dimension({:scale, value}) when is_number(value) and value > 0,
-    do: {:ok, {:scale, value}}
+    do: Measure.from_scale(value) |> rewrap_dimension()
 
   defp tagged_resize_dimension(_dimension), do: {:error, :dimension}
+
+  # Re-validate the converted ratio as a *dimension* (strictly positive): a tiny
+  # positive percent/scale can round to {:ratio, 0, 1}, which is not a valid
+  # extent. Measure.dimension/1 rejects it.
+  defp rewrap_dimension({:ok, {:ratio, _, _} = ratio}), do: Measure.dimension(ratio)
+  defp rewrap_dimension({:error, _}), do: {:error, :dimension}
 
   defp optional_tagged_resize_dimension(attrs, key) do
     case Keyword.fetch(attrs, key) do
@@ -739,35 +749,16 @@ defmodule ImagePipe.Plan.Operation do
 
   defp tagged_crop_dimension(:full_axis), do: {:ok, :full_axis}
 
-  defp tagged_crop_dimension({:px, value}) when is_integer(value) and value > 0,
-    do: {:ok, {:px, value}}
+  defp tagged_crop_dimension(dimension), do: Measure.dimension(dimension)
 
-  defp tagged_crop_dimension({:ratio, numerator, denominator})
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0,
-       do: {:ok, {:ratio, numerator, denominator}}
+  defp tagged_crop_coordinate(coordinate) do
+    case Measure.position(coordinate) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> {:error, :coordinate}
+    end
+  end
 
-  defp tagged_crop_dimension(_dimension), do: {:error, :dimension}
-
-  defp tagged_crop_coordinate({:px, value}) when is_integer(value) and value >= 0,
-    do: {:ok, {:px, value}}
-
-  defp tagged_crop_coordinate({:ratio, numerator, denominator})
-       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
-              denominator > 0,
-       do: {:ok, {:ratio, numerator, denominator}}
-
-  defp tagged_crop_coordinate(_coordinate), do: {:error, :coordinate}
-
-  defp tagged_crop_region_dimension({:px, value}) when is_integer(value) and value > 0,
-    do: {:ok, {:px, value}}
-
-  defp tagged_crop_region_dimension({:ratio, numerator, denominator})
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0,
-       do: {:ok, {:ratio, numerator, denominator}}
-
-  defp tagged_crop_region_dimension(_dimension), do: {:error, :dimension}
+  defp tagged_crop_region_dimension(dimension), do: Measure.dimension(dimension)
 
   defp tagged_crop_guide(guide) when guide in @crop_anchor_guides, do: {:ok, guide}
 

@@ -545,6 +545,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.SourceInfo,
       ImagePipe.Plan.Color,
       ImagePipe.Plan.KeyData,
+      ImagePipe.Plan.Measure,
       ImagePipe.Plan.Source,
       ImagePipe.Plan.Source.Identity,
       ImagePipe.Plan.Source.Path,

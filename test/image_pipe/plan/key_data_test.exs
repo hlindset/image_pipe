@@ -5,12 +5,12 @@ defmodule ImagePipe.Plan.KeyDataTest do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Resize
 
-  test "encodes percent and scale resize dimensions" do
+  test "encodes percent and scale resize dimensions as exact ratios" do
     {:ok, %Resize{} = op} = Operation.resize(:fit, {:percent, 50}, {:scale, 0.5})
     data = KeyData.data(op)
 
-    assert data[:width] == [unit: :percent, value: 50]
-    assert data[:height] == [unit: :scale, value: 0.5]
+    assert data[:width] == [unit: :ratio, numerator: 1, denominator: 2]
+    assert data[:height] == [unit: :ratio, numerator: 1, denominator: 2]
   end
 
   test "whole-valued floats canonicalize to integers (50p and 50.0p share a key)" do
@@ -18,11 +18,17 @@ defmodule ImagePipe.Plan.KeyDataTest do
     {:ok, float_op} = Operation.resize(:fit, {:percent, 50.0}, {:scale, 2.0})
 
     assert KeyData.data(int_op) == KeyData.data(float_op)
-    assert KeyData.data(int_op)[:width] == [unit: :percent, value: 50]
+    assert KeyData.data(int_op)[:width] == [unit: :ratio, numerator: 1, denominator: 2]
 
-    # Genuinely fractional values keep their float form.
+    # Genuinely fractional values keep their exact ratio form.
     {:ok, frac_op} = Operation.resize(:fit, {:percent, 50.5}, :auto)
-    assert KeyData.data(frac_op)[:width] == [unit: :percent, value: 50.5]
+    assert KeyData.data(frac_op)[:width] == [unit: :ratio, numerator: 101, denominator: 200]
+  end
+
+  test "percent and scale resize dimensions collapse to the same ratio key" do
+    {:ok, percent_op} = Operation.resize(:fit, {:percent, 50}, :auto)
+    {:ok, scale_op} = Operation.resize(:fit, {:scale, 0.5}, :auto)
+    assert KeyData.data(percent_op) == KeyData.data(scale_op)
   end
 
   test "distinct relative magnitudes produce distinct key data" do

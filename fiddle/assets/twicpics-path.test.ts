@@ -3,7 +3,7 @@ import {
   defaultStep,
   defaultTwicPicsState,
   parseTwicTail,
-  setResizeAxisUnit,
+  setDimAxisUnit,
   stepSummary,
   stepToken,
   twicBrowserPath,
@@ -57,30 +57,136 @@ describe("twicpics step token encoding", () => {
     ).toBe("resize=-x200");
   });
 
-  it("encodes cover size and ratio", () => {
-    expect(stepToken({ type: "cover", id: "x", mode: "size", w: 100, h: 100 })).toBe(
-      "cover=100x100",
-    );
+  it("encodes cover size (px/%/scale/auto) and ratio", () => {
+    expect(
+      stepToken({
+        type: "cover",
+        id: "x",
+        mode: "size",
+        w: { unit: "px", value: 100 },
+        h: { unit: "px", value: 100 },
+      }),
+    ).toBe("cover=100x100");
+    expect(
+      stepToken({
+        type: "cover",
+        id: "x",
+        mode: "size",
+        w: { unit: "p", value: 50 },
+        h: { unit: "s", value: 0.5 },
+      }),
+    ).toBe("cover=50px0.5s");
+    expect(
+      stepToken({
+        type: "cover",
+        id: "x",
+        mode: "size",
+        w: { unit: "px", value: 200 },
+        h: { unit: "auto", value: 0 },
+      }),
+    ).toBe("cover=200");
     expect(stepToken({ type: "cover", id: "x", mode: "ratio", w: 16, h: 9 })).toBe("cover=16:9");
   });
 
-  it("encodes contain and inside", () => {
-    expect(stepToken({ type: "contain", id: "x", w: 200, h: 200 })).toBe("contain=200x200");
-    expect(stepToken({ type: "inside", id: "x", w: 200, h: 200 })).toBe("inside=200x200");
+  it("encodes contain (px/%/scale/auto) and inside (px-only)", () => {
+    expect(
+      stepToken({
+        type: "contain",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 200 },
+      }),
+    ).toBe("contain=200x200");
+    expect(
+      stepToken({
+        type: "contain",
+        id: "x",
+        w: { unit: "p", value: 75 },
+        h: { unit: "s", value: 2 },
+      }),
+    ).toBe("contain=75px2s");
+    expect(
+      stepToken({
+        type: "contain",
+        id: "x",
+        w: { unit: "auto", value: 0 },
+        h: { unit: "px", value: 150 },
+      }),
+    ).toBe("contain=-x150");
+    expect(stepToken({ type: "inside", id: "x", mode: "size", w: 200, h: 200 })).toBe(
+      "inside=200x200",
+    );
+    expect(stepToken({ type: "inside", id: "x", mode: "ratio", w: 4, h: 3 })).toBe("inside=4:3");
   });
 
   it("encodes crop with and without an origin", () => {
-    expect(stepToken({ type: "crop", id: "x", w: 200, h: 150, origin: null })).toBe("crop=200x150");
-    expect(stepToken({ type: "crop", id: "x", w: 200, h: 150, origin: { x: 10, y: 20 } })).toBe(
-      "crop=200x150@10x20",
-    );
+    expect(
+      stepToken({
+        type: "crop",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 150 },
+        origin: null,
+      }),
+    ).toBe("crop=200x150");
+    expect(
+      stepToken({
+        type: "crop",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 150 },
+        origin: { x: { unit: "px", value: 10 }, y: { unit: "px", value: 20 } },
+      }),
+    ).toBe("crop=200x150@10x20");
+  });
+
+  it("encodes crop with relative size and a zero-based origin", () => {
+    expect(
+      stepToken({
+        type: "crop",
+        id: "x",
+        w: { unit: "p", value: 50 },
+        h: { unit: "s", value: 0.5 },
+        origin: { x: { unit: "px", value: 0 }, y: { unit: "px", value: 0 } },
+      }),
+    ).toBe("crop=50px0.5s@0x0");
+    expect(
+      stepToken({
+        type: "crop",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 150 },
+        origin: { x: { unit: "p", value: 25 }, y: { unit: "s", value: 0.1 } },
+      }),
+    ).toBe("crop=200x150@25px0.1s");
   });
 
   it("encodes focus anchors", () => {
-    expect(stepToken({ type: "focus", id: "x", anchor: "top" })).toBe("focus=top");
-    expect(stepToken({ type: "focus", id: "x", anchor: "bottom-right" })).toBe(
+    expect(stepToken({ type: "focus", id: "x", mode: "anchor", anchor: "top" })).toBe("focus=top");
+    expect(stepToken({ type: "focus", id: "x", mode: "anchor", anchor: "bottom-right" })).toBe(
       "focus=bottom-right",
     );
+  });
+
+  it("encodes a relative coordinate focus (no bare pixels)", () => {
+    expect(
+      stepToken({
+        type: "focus",
+        id: "x",
+        mode: "coord",
+        x: { unit: "p", value: 30 },
+        y: { unit: "p", value: 70 },
+      }),
+    ).toBe("focus=30px70p");
+    expect(
+      stepToken({
+        type: "focus",
+        id: "x",
+        mode: "coord",
+        x: { unit: "s", value: 0.25 },
+        y: { unit: "s", value: 0.75 },
+      }),
+    ).toBe("focus=0.25sx0.75s");
   });
 });
 
@@ -94,7 +200,7 @@ describe("twicpics manipulation param", () => {
       ...defaultTwicPicsState,
       chain: [
         { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
-        { type: "focus", id: "2", anchor: "top-left" },
+        { type: "focus", id: "2", mode: "anchor", anchor: "top-left" },
         { type: "resize", id: "3", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
       ],
     };
@@ -161,21 +267,92 @@ describe("stepSummary", () => {
   });
 
   it("formats a cover in size mode", () => {
-    expect(stepSummary({ type: "cover", id: "x", mode: "size", w: 100, h: 100 })).toBe("100×100");
+    expect(
+      stepSummary({
+        type: "cover",
+        id: "x",
+        mode: "size",
+        w: { unit: "px", value: 100 },
+        h: { unit: "px", value: 100 },
+      }),
+    ).toBe("100px × 100px");
+  });
+
+  it("formats a cover in size mode with relative units and auto", () => {
+    expect(
+      stepSummary({
+        type: "cover",
+        id: "x",
+        mode: "size",
+        w: { unit: "p", value: 50 },
+        h: { unit: "auto", value: 0 },
+      }),
+    ).toBe("50% × auto");
+  });
+
+  it("formats an inside in size mode (px)", () => {
+    expect(stepSummary({ type: "inside", id: "x", mode: "size", w: 200, h: 200 })).toBe("200×200");
+  });
+
+  it("formats an inside in ratio mode", () => {
+    expect(stepSummary({ type: "inside", id: "x", mode: "ratio", w: 4, h: 3 })).toBe("4:3");
+  });
+
+  it("formats a contain with relative units", () => {
+    expect(
+      stepSummary({
+        type: "contain",
+        id: "x",
+        w: { unit: "s", value: 0.5 },
+        h: { unit: "px", value: 200 },
+      }),
+    ).toBe("0.5s × 200px");
   });
 
   it("formats a crop with an origin", () => {
-    expect(stepSummary({ type: "crop", id: "x", w: 200, h: 150, origin: { x: 10, y: 20 } })).toBe(
-      "200×150 @ 10,20",
-    );
+    expect(
+      stepSummary({
+        type: "crop",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 150 },
+        origin: { x: { unit: "px", value: 10 }, y: { unit: "px", value: 20 } },
+      }),
+    ).toBe("200px×150px @ 10px,20px");
+  });
+
+  it("formats a crop with relative size and a zero origin", () => {
+    expect(
+      stepSummary({
+        type: "crop",
+        id: "x",
+        w: { unit: "p", value: 50 },
+        h: { unit: "s", value: 0.5 },
+        origin: { x: { unit: "px", value: 0 }, y: { unit: "px", value: 0 } },
+      }),
+    ).toBe("50%×0.5s @ 0px,0px");
   });
 
   it("formats a focus by anchor name", () => {
-    expect(stepSummary({ type: "focus", id: "x", anchor: "top-left" })).toBe("top-left");
+    expect(stepSummary({ type: "focus", id: "x", mode: "anchor", anchor: "top-left" })).toBe(
+      "top-left",
+    );
+  });
+
+  it("formats a relative coordinate focus", () => {
+    expect(
+      stepSummary({
+        type: "focus",
+        id: "x",
+        mode: "coord",
+        x: { unit: "p", value: 30 },
+        y: { unit: "p", value: 70 },
+      }),
+    ).toBe("30%,70%");
   });
 });
 
-describe("setResizeAxisUnit", () => {
+describe("setDimAxisUnit", () => {
   it("never leaves both resize axes auto (which would emit resize=-)", () => {
     const step: Extract<TransformStep, { type: "resize" }> = {
       type: "resize",
@@ -183,7 +360,7 @@ describe("setResizeAxisUnit", () => {
       w: { unit: "px", value: 300 },
       h: { unit: "auto", value: 0 },
     };
-    setResizeAxisUnit(step, "w", "auto");
+    setDimAxisUnit(step, "w", "auto");
     const autoCount = [step.w.unit, step.h.unit].filter((unit) => unit === "auto").length;
     expect(autoCount).toBeLessThan(2);
     expect(stepToken(step)).not.toBe("resize=-");
@@ -196,8 +373,22 @@ describe("setResizeAxisUnit", () => {
       w: { unit: "px", value: 250 },
       h: { unit: "auto", value: 0 },
     };
-    setResizeAxisUnit(step, "w", "p");
+    setDimAxisUnit(step, "w", "p");
     expect(step.w).toEqual({ unit: "p", value: 250 });
+  });
+
+  it("guards both-auto on a cover-size step and keeps it round-trippable", () => {
+    const step: Extract<TransformStep, { type: "cover"; mode: "size" }> = {
+      type: "cover",
+      id: "1",
+      mode: "size",
+      w: { unit: "px", value: 200 },
+      h: { unit: "auto", value: 0 },
+    };
+    setDimAxisUnit(step, "w", "auto");
+    const autoCount = [step.w.unit, step.h.unit].filter((unit) => unit === "auto").length;
+    expect(autoCount).toBeLessThan(2);
+    expect(stepToken(step)).not.toBe("cover=-");
   });
 });
 
@@ -240,17 +431,145 @@ describe("twicpics round-trips (browser path -> state)", () => {
     {
       ...defaultTwicPicsState,
       chain: [
-        { type: "focus", id: "1", anchor: "top-left" },
-        { type: "cover", id: "2", mode: "size", w: 100, h: 100 },
+        { type: "focus", id: "1", mode: "anchor", anchor: "top-left" },
+        {
+          type: "cover",
+          id: "2",
+          mode: "size",
+          w: { unit: "px", value: 100 },
+          h: { unit: "px", value: 100 },
+        },
+      ],
+    },
+    // cover size with relative units (% width, scale height)
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "cover",
+          id: "1",
+          mode: "size",
+          w: { unit: "p", value: 50 },
+          h: { unit: "s", value: 0.5 },
+        },
+      ],
+    },
+    // cover size with a single (auto-height) axis
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "cover",
+          id: "1",
+          mode: "size",
+          w: { unit: "px", value: 200 },
+          h: { unit: "auto", value: 0 },
+        },
       ],
     },
     { ...defaultTwicPicsState, chain: [{ type: "cover", id: "1", mode: "ratio", w: 16, h: 9 }] },
-    { ...defaultTwicPicsState, chain: [{ type: "contain", id: "1", w: 200, h: 200 }] },
-    { ...defaultTwicPicsState, chain: [{ type: "inside", id: "1", w: 200, h: 200 }] },
-    { ...defaultTwicPicsState, chain: [{ type: "crop", id: "1", w: 200, h: 150, origin: null }] },
     {
       ...defaultTwicPicsState,
-      chain: [{ type: "crop", id: "1", w: 200, h: 150, origin: { x: 10, y: 20 } }],
+      chain: [
+        {
+          type: "contain",
+          id: "1",
+          w: { unit: "px", value: 200 },
+          h: { unit: "px", value: 200 },
+        },
+      ],
+    },
+    // contain with relative units and an auto width
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "contain",
+          id: "1",
+          w: { unit: "auto", value: 0 },
+          h: { unit: "p", value: 75 },
+        },
+      ],
+    },
+    {
+      ...defaultTwicPicsState,
+      chain: [{ type: "inside", id: "1", mode: "size", w: 200, h: 200 }],
+    },
+    { ...defaultTwicPicsState, chain: [{ type: "inside", id: "1", mode: "ratio", w: 4, h: 3 }] },
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "crop",
+          id: "1",
+          w: { unit: "px", value: 200 },
+          h: { unit: "px", value: 150 },
+          origin: null,
+        },
+      ],
+    },
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "crop",
+          id: "1",
+          w: { unit: "px", value: 200 },
+          h: { unit: "px", value: 150 },
+          origin: { x: { unit: "px", value: 10 }, y: { unit: "px", value: 20 } },
+        },
+      ],
+    },
+    // relative crop size + zero-based origin
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "crop",
+          id: "1",
+          w: { unit: "p", value: 50 },
+          h: { unit: "s", value: 0.5 },
+          origin: { x: { unit: "px", value: 0 }, y: { unit: "px", value: 0 } },
+        },
+      ],
+    },
+    // relative-unit origin coordinates
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "crop",
+          id: "1",
+          w: { unit: "px", value: 200 },
+          h: { unit: "px", value: 150 },
+          origin: { x: { unit: "p", value: 25 }, y: { unit: "s", value: 0.1 } },
+        },
+      ],
+    },
+    // relative coordinate focus (percent and scale)
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "focus",
+          id: "1",
+          mode: "coord",
+          x: { unit: "p", value: 30 },
+          y: { unit: "p", value: 70 },
+        },
+      ],
+    },
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "focus",
+          id: "1",
+          mode: "coord",
+          x: { unit: "s", value: 0.25 },
+          y: { unit: "s", value: 0.75 },
+        },
+      ],
     },
     { ...defaultTwicPicsState, output: "avif", quality: 50 },
     {
@@ -258,7 +577,7 @@ describe("twicpics round-trips (browser path -> state)", () => {
       source: "images/beach.jpg",
       chain: [
         { type: "resize", id: "1", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
-        { type: "focus", id: "2", anchor: "top-left" },
+        { type: "focus", id: "2", mode: "anchor", anchor: "top-left" },
       ],
       output: "png",
       quality: 90,
@@ -279,9 +598,21 @@ describe("twicpics round-trips (browser path -> state)", () => {
       chain: [
         { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
         { type: "resize", id: "2", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
-        { type: "focus", id: "3", anchor: "top-left" },
-        { type: "cover", id: "4", mode: "size", w: 100, h: 100 },
-        { type: "crop", id: "5", w: 80, h: 80, origin: null },
+        { type: "focus", id: "3", mode: "anchor", anchor: "top-left" },
+        {
+          type: "cover",
+          id: "4",
+          mode: "size",
+          w: { unit: "px", value: 100 },
+          h: { unit: "px", value: 100 },
+        },
+        {
+          type: "crop",
+          id: "5",
+          w: { unit: "px", value: 80 },
+          h: { unit: "px", value: 80 },
+          origin: null,
+        },
       ],
     };
     const parsed = parseTwicTail(state.source, searchFor(state));
@@ -321,6 +652,59 @@ describe("twicpics parse rejection", () => {
 
   it("rejects an unsupported focus anchor (no center)", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=center")).toBeNull();
+  });
+
+  it("rejects focus=auto (parser-rejected, not emittable)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=auto")).toBeNull();
+  });
+
+  it("rejects bare-pixel focus coordinates (relative units only)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100x200")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100px200")).toBeNull();
+  });
+
+  it("rejects an out-of-range relative focus coordinate (ratio > 1)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=150px50p")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=0.5sx2s")).toBeNull();
+  });
+
+  it("accepts in-range relative focus coordinates", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=30px70p")).not.toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100px0p")).not.toBeNull();
+  });
+
+  it("accepts a zero-based crop origin and rejects a zero crop size", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/crop=200x150@0x0")).not.toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/crop=0x150")).toBeNull();
+  });
+
+  it("accepts relative units for cover (size mode) and contain", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/cover=50px0.5s")).not.toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/contain=75px2s")).not.toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/cover=200")).not.toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/contain=-x150")).not.toBeNull();
+  });
+
+  it("rejects relative units for inside size (pixels-only, mirroring the parser)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=50px100")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=100x0.5s")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=100")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=-x100")).toBeNull();
+  });
+
+  it("parses inside=W:H as ratio mode and inside=WxH as px size mode", () => {
+    const ratio = parseTwicTail("images/dog.jpg", "?twic=v1/inside=4:3");
+    expect(ratio).not.toBeNull();
+    expect(ratio!.chain[0]).toMatchObject({ type: "inside", mode: "ratio", w: 4, h: 3 });
+
+    const size = parseTwicTail("images/dog.jpg", "?twic=v1/inside=100x80");
+    expect(size).not.toBeNull();
+    expect(size!.chain[0]).toMatchObject({ type: "inside", mode: "size", w: 100, h: 80 });
+  });
+
+  it("parseDimPair refuses a degenerate both-auto cover/contain (UI round-trip guard)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/cover=-")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/contain=-x-")).toBeNull();
   });
 
   it("rejects a malformed segment without '='", () => {
