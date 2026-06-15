@@ -26,13 +26,27 @@ export const twicAnchors: readonly TwicAnchor[] = [
 export type TwicResizeUnit = "px" | "p" | "s" | "auto";
 export type TwicDim = { unit: TwicResizeUnit; value: number };
 
+// A TwicPics length with a unit suffix: px (bare number), p (percent), s (scale).
+// Used by crop W/H (strictly > 0), crop origin coordinates (>= 0), and — without
+// the "px" member — by relative coordinate focus (the parser rejects bare-pixel
+// focus, so the UI must never emit it).
+export type TwicLenUnit = "px" | "p" | "s";
+export type TwicLen = { unit: TwicLenUnit; value: number };
+// Coordinate focus accepts relative units only (p/s); a bare-pixel focus is
+// parser-rejected.
+export type TwicRelUnit = "p" | "s";
+export type TwicRelLen = { unit: TwicRelUnit; value: number };
+
+export type TwicCropOrigin = { x: TwicLen; y: TwicLen } | null;
+
 export type TransformStep =
   | { type: "resize"; id: string; w: TwicDim; h: TwicDim }
   | { type: "cover"; id: string; mode: "size" | "ratio"; w: number; h: number }
   | { type: "contain"; id: string; w: number; h: number }
   | { type: "inside"; id: string; w: number; h: number }
-  | { type: "crop"; id: string; w: number; h: number; origin: { x: number; y: number } | null }
-  | { type: "focus"; id: string; anchor: TwicAnchor };
+  | { type: "crop"; id: string; w: TwicLen; h: TwicLen; origin: TwicCropOrigin }
+  | { type: "focus"; id: string; mode: "anchor"; anchor: TwicAnchor }
+  | { type: "focus"; id: string; mode: "coord"; x: TwicRelLen; y: TwicRelLen };
 
 export type TransformType = TransformStep["type"];
 
@@ -79,9 +93,15 @@ export function defaultStep(type: TransformType, id: string): TransformStep {
     case "inside":
       return { type: "inside", id, w: 300, h: 300 };
     case "crop":
-      return { type: "crop", id, w: 200, h: 200, origin: null };
+      return {
+        type: "crop",
+        id,
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 200 },
+        origin: null,
+      };
     case "focus":
-      return { type: "focus", id, anchor: "top" };
+      return { type: "focus", id, mode: "anchor", anchor: "top" };
   }
 }
 
@@ -122,6 +142,19 @@ function encodeDim(dim: TwicDim): string {
   }
 }
 
+// A unit-suffixed length (crop W/H, crop origin, relative focus): px is a bare
+// number, p/s carry their suffix.
+function encodeLen(len: TwicLen): string {
+  switch (len.unit) {
+    case "px":
+      return `${len.value}`;
+    case "p":
+      return `${len.value}p`;
+    case "s":
+      return `${len.value}s`;
+  }
+}
+
 export function stepToken(step: TransformStep): string {
   switch (step.type) {
     case "resize":
@@ -136,10 +169,12 @@ export function stepToken(step: TransformStep): string {
       return `inside=${step.w}x${step.h}`;
     case "crop":
       return step.origin === null
-        ? `crop=${step.w}x${step.h}`
-        : `crop=${step.w}x${step.h}@${step.origin.x}x${step.origin.y}`;
+        ? `crop=${encodeLen(step.w)}x${encodeLen(step.h)}`
+        : `crop=${encodeLen(step.w)}x${encodeLen(step.h)}@${encodeLen(step.origin.x)}x${encodeLen(step.origin.y)}`;
     case "focus":
-      return `focus=${step.anchor}`;
+      return step.mode === "anchor"
+        ? `focus=${step.anchor}`
+        : `focus=${encodeLen(step.x)}x${encodeLen(step.y)}`;
   }
 }
 
@@ -175,6 +210,17 @@ function dimLabel(dim: TwicDim): string {
   }
 }
 
+function lenLabel(len: TwicLen): string {
+  switch (len.unit) {
+    case "px":
+      return `${len.value}px`;
+    case "p":
+      return `${len.value}%`;
+    case "s":
+      return `${len.value}s`;
+  }
+}
+
 export function stepSummary(step: TransformStep): string {
   switch (step.type) {
     case "resize":
@@ -186,10 +232,10 @@ export function stepSummary(step: TransformStep): string {
       return `${step.w}×${step.h}`;
     case "crop":
       return step.origin === null
-        ? `${step.w}×${step.h}`
-        : `${step.w}×${step.h} @ ${step.origin.x},${step.origin.y}`;
+        ? `${lenLabel(step.w)}×${lenLabel(step.h)}`
+        : `${lenLabel(step.w)}×${lenLabel(step.h)} @ ${lenLabel(step.origin.x)},${lenLabel(step.origin.y)}`;
     case "focus":
-      return step.anchor;
+      return step.mode === "anchor" ? step.anchor : `${lenLabel(step.x)},${lenLabel(step.y)}`;
   }
 }
 
@@ -228,6 +274,56 @@ function parsePxPair(args: string): { w: number; h: number } | null {
   return w === null || h === null ? null : { w, h };
 }
 
+// A non-negative integer / number (for zero-based origin coordinates).
+function parseNonNegativeInt(value: string): number | null {
+  return /^\d+$/.test(value) ? Number(value) : null;
+}
+
+function parseNonNegativeNumber(value: string): number | null {
+  return /^\d+(\.\d+)?$/.test(value) ? Number(value) : null;
+}
+
+// A unit-suffixed TwicPics length: px (bare integer), p (percent), s (scale).
+// `allowZero` distinguishes crop size (strictly > 0) from origin coordinates (>= 0,
+// so `@0x0` is the top-left).
+function parseLen(token: string, allowZero: boolean): TwicLen | null {
+  const num = allowZero ? parseNonNegativeNumber : parsePositiveNumber;
+  const int = allowZero ? parseNonNegativeInt : parsePositiveInt;
+  if (token.endsWith("p")) {
+    const n = num(token.slice(0, -1));
+    return n === null ? null : { unit: "p", value: n };
+  }
+  if (token.endsWith("s")) {
+    const n = num(token.slice(0, -1));
+    return n === null ? null : { unit: "s", value: n };
+  }
+  const n = int(token);
+  return n === null ? null : { unit: "px", value: n };
+}
+
+function parseLenPair(args: string, allowZero: boolean): { x: TwicLen; y: TwicLen } | null {
+  const parts = args.split("x");
+  if (parts.length !== 2) return null;
+  const x = parseLen(parts[0]!, allowZero);
+  const y = parseLen(parts[1]!, allowZero);
+  return x === null || y === null ? null : { x, y };
+}
+
+// A relative (p/s) focus coordinate. Bare-pixel focus is rejected by the parser,
+// and the in-range guard mirrors the plan-builder's `focal_ratio` (ratio <= 1,
+// i.e. <= 100% / <= 1s).
+function parseRelLen(token: string): TwicRelLen | null {
+  if (token.endsWith("p")) {
+    const n = parseNonNegativeNumber(token.slice(0, -1));
+    return n === null || n > 100 ? null : { unit: "p", value: n };
+  }
+  if (token.endsWith("s")) {
+    const n = parseNonNegativeNumber(token.slice(0, -1));
+    return n === null || n > 1 ? null : { unit: "s", value: n };
+  }
+  return null; // bare-pixel focus coordinates are not supported
+}
+
 function parseResize(args: string, id: string): TransformStep | null {
   if (args.includes(":")) return null; // ratio resize is rejected by the parser
   const parts = args.split("x");
@@ -261,15 +357,26 @@ function parseCover(args: string, id: string): TransformStep | null {
 function parseCrop(args: string, id: string): TransformStep | null {
   const parts = args.split("@");
   if (parts.length > 2) return null;
-  const size = parsePxPair(parts[0]!);
+  const size = parseLenPair(parts[0]!, false); // size: strictly > 0
   if (size === null) return null;
   if (parts.length === 1) {
-    return { type: "crop", id, w: size.w, h: size.h, origin: null };
+    return { type: "crop", id, w: size.x, h: size.y, origin: null };
   }
-  const origin = parsePxPair(parts[1]!); // XxY
+  const origin = parseLenPair(parts[1]!, true); // origin: >= 0 (zero-based)
   return origin === null
     ? null
-    : { type: "crop", id, w: size.w, h: size.h, origin: { x: origin.w, y: origin.h } };
+    : { type: "crop", id, w: size.x, h: size.y, origin: { x: origin.x, y: origin.y } };
+}
+
+function parseFocus(args: string, id: string): TransformStep | null {
+  if (anchorSet.has(args)) {
+    return { type: "focus", id, mode: "anchor", anchor: args as TwicAnchor };
+  }
+  const parts = args.split("x");
+  if (parts.length !== 2) return null;
+  const x = parseRelLen(parts[0]!);
+  const y = parseRelLen(parts[1]!);
+  return x === null || y === null ? null : { type: "focus", id, mode: "coord", x, y };
 }
 
 function parseStep(name: string, args: string): TransformStep | null {
@@ -290,7 +397,7 @@ function parseStep(name: string, args: string): TransformStep | null {
     case "crop":
       return parseCrop(args, id);
     case "focus":
-      return anchorSet.has(args) ? { type: "focus", id, anchor: args as TwicAnchor } : null;
+      return parseFocus(args, id);
     default:
       return null;
   }

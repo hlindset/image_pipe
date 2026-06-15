@@ -70,17 +70,73 @@ describe("twicpics step token encoding", () => {
   });
 
   it("encodes crop with and without an origin", () => {
-    expect(stepToken({ type: "crop", id: "x", w: 200, h: 150, origin: null })).toBe("crop=200x150");
-    expect(stepToken({ type: "crop", id: "x", w: 200, h: 150, origin: { x: 10, y: 20 } })).toBe(
-      "crop=200x150@10x20",
-    );
+    expect(
+      stepToken({
+        type: "crop",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 150 },
+        origin: null,
+      }),
+    ).toBe("crop=200x150");
+    expect(
+      stepToken({
+        type: "crop",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 150 },
+        origin: { x: { unit: "px", value: 10 }, y: { unit: "px", value: 20 } },
+      }),
+    ).toBe("crop=200x150@10x20");
+  });
+
+  it("encodes crop with relative size and a zero-based origin", () => {
+    expect(
+      stepToken({
+        type: "crop",
+        id: "x",
+        w: { unit: "p", value: 50 },
+        h: { unit: "s", value: 0.5 },
+        origin: { x: { unit: "px", value: 0 }, y: { unit: "px", value: 0 } },
+      }),
+    ).toBe("crop=50px0.5s@0x0");
+    expect(
+      stepToken({
+        type: "crop",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 150 },
+        origin: { x: { unit: "p", value: 25 }, y: { unit: "s", value: 0.1 } },
+      }),
+    ).toBe("crop=200x150@25px0.1s");
   });
 
   it("encodes focus anchors", () => {
-    expect(stepToken({ type: "focus", id: "x", anchor: "top" })).toBe("focus=top");
-    expect(stepToken({ type: "focus", id: "x", anchor: "bottom-right" })).toBe(
+    expect(stepToken({ type: "focus", id: "x", mode: "anchor", anchor: "top" })).toBe("focus=top");
+    expect(stepToken({ type: "focus", id: "x", mode: "anchor", anchor: "bottom-right" })).toBe(
       "focus=bottom-right",
     );
+  });
+
+  it("encodes a relative coordinate focus (no bare pixels)", () => {
+    expect(
+      stepToken({
+        type: "focus",
+        id: "x",
+        mode: "coord",
+        x: { unit: "p", value: 30 },
+        y: { unit: "p", value: 70 },
+      }),
+    ).toBe("focus=30px70p");
+    expect(
+      stepToken({
+        type: "focus",
+        id: "x",
+        mode: "coord",
+        x: { unit: "s", value: 0.25 },
+        y: { unit: "s", value: 0.75 },
+      }),
+    ).toBe("focus=0.25sx0.75s");
   });
 });
 
@@ -94,7 +150,7 @@ describe("twicpics manipulation param", () => {
       ...defaultTwicPicsState,
       chain: [
         { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
-        { type: "focus", id: "2", anchor: "top-left" },
+        { type: "focus", id: "2", mode: "anchor", anchor: "top-left" },
         { type: "resize", id: "3", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
       ],
     };
@@ -165,13 +221,45 @@ describe("stepSummary", () => {
   });
 
   it("formats a crop with an origin", () => {
-    expect(stepSummary({ type: "crop", id: "x", w: 200, h: 150, origin: { x: 10, y: 20 } })).toBe(
-      "200×150 @ 10,20",
-    );
+    expect(
+      stepSummary({
+        type: "crop",
+        id: "x",
+        w: { unit: "px", value: 200 },
+        h: { unit: "px", value: 150 },
+        origin: { x: { unit: "px", value: 10 }, y: { unit: "px", value: 20 } },
+      }),
+    ).toBe("200px×150px @ 10px,20px");
+  });
+
+  it("formats a crop with relative size and a zero origin", () => {
+    expect(
+      stepSummary({
+        type: "crop",
+        id: "x",
+        w: { unit: "p", value: 50 },
+        h: { unit: "s", value: 0.5 },
+        origin: { x: { unit: "px", value: 0 }, y: { unit: "px", value: 0 } },
+      }),
+    ).toBe("50%×0.5s @ 0px,0px");
   });
 
   it("formats a focus by anchor name", () => {
-    expect(stepSummary({ type: "focus", id: "x", anchor: "top-left" })).toBe("top-left");
+    expect(stepSummary({ type: "focus", id: "x", mode: "anchor", anchor: "top-left" })).toBe(
+      "top-left",
+    );
+  });
+
+  it("formats a relative coordinate focus", () => {
+    expect(
+      stepSummary({
+        type: "focus",
+        id: "x",
+        mode: "coord",
+        x: { unit: "p", value: 30 },
+        y: { unit: "p", value: 70 },
+      }),
+    ).toBe("30%,70%");
   });
 });
 
@@ -240,17 +328,87 @@ describe("twicpics round-trips (browser path -> state)", () => {
     {
       ...defaultTwicPicsState,
       chain: [
-        { type: "focus", id: "1", anchor: "top-left" },
+        { type: "focus", id: "1", mode: "anchor", anchor: "top-left" },
         { type: "cover", id: "2", mode: "size", w: 100, h: 100 },
       ],
     },
     { ...defaultTwicPicsState, chain: [{ type: "cover", id: "1", mode: "ratio", w: 16, h: 9 }] },
     { ...defaultTwicPicsState, chain: [{ type: "contain", id: "1", w: 200, h: 200 }] },
     { ...defaultTwicPicsState, chain: [{ type: "inside", id: "1", w: 200, h: 200 }] },
-    { ...defaultTwicPicsState, chain: [{ type: "crop", id: "1", w: 200, h: 150, origin: null }] },
     {
       ...defaultTwicPicsState,
-      chain: [{ type: "crop", id: "1", w: 200, h: 150, origin: { x: 10, y: 20 } }],
+      chain: [
+        {
+          type: "crop",
+          id: "1",
+          w: { unit: "px", value: 200 },
+          h: { unit: "px", value: 150 },
+          origin: null,
+        },
+      ],
+    },
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "crop",
+          id: "1",
+          w: { unit: "px", value: 200 },
+          h: { unit: "px", value: 150 },
+          origin: { x: { unit: "px", value: 10 }, y: { unit: "px", value: 20 } },
+        },
+      ],
+    },
+    // relative crop size + zero-based origin
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "crop",
+          id: "1",
+          w: { unit: "p", value: 50 },
+          h: { unit: "s", value: 0.5 },
+          origin: { x: { unit: "px", value: 0 }, y: { unit: "px", value: 0 } },
+        },
+      ],
+    },
+    // relative-unit origin coordinates
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "crop",
+          id: "1",
+          w: { unit: "px", value: 200 },
+          h: { unit: "px", value: 150 },
+          origin: { x: { unit: "p", value: 25 }, y: { unit: "s", value: 0.1 } },
+        },
+      ],
+    },
+    // relative coordinate focus (percent and scale)
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "focus",
+          id: "1",
+          mode: "coord",
+          x: { unit: "p", value: 30 },
+          y: { unit: "p", value: 70 },
+        },
+      ],
+    },
+    {
+      ...defaultTwicPicsState,
+      chain: [
+        {
+          type: "focus",
+          id: "1",
+          mode: "coord",
+          x: { unit: "s", value: 0.25 },
+          y: { unit: "s", value: 0.75 },
+        },
+      ],
     },
     { ...defaultTwicPicsState, output: "avif", quality: 50 },
     {
@@ -258,7 +416,7 @@ describe("twicpics round-trips (browser path -> state)", () => {
       source: "images/beach.jpg",
       chain: [
         { type: "resize", id: "1", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
-        { type: "focus", id: "2", anchor: "top-left" },
+        { type: "focus", id: "2", mode: "anchor", anchor: "top-left" },
       ],
       output: "png",
       quality: 90,
@@ -279,9 +437,15 @@ describe("twicpics round-trips (browser path -> state)", () => {
       chain: [
         { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
         { type: "resize", id: "2", w: { unit: "p", value: 50 }, h: { unit: "auto", value: 0 } },
-        { type: "focus", id: "3", anchor: "top-left" },
+        { type: "focus", id: "3", mode: "anchor", anchor: "top-left" },
         { type: "cover", id: "4", mode: "size", w: 100, h: 100 },
-        { type: "crop", id: "5", w: 80, h: 80, origin: null },
+        {
+          type: "crop",
+          id: "5",
+          w: { unit: "px", value: 80 },
+          h: { unit: "px", value: 80 },
+          origin: null,
+        },
       ],
     };
     const parsed = parseTwicTail(state.source, searchFor(state));
@@ -321,6 +485,30 @@ describe("twicpics parse rejection", () => {
 
   it("rejects an unsupported focus anchor (no center)", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=center")).toBeNull();
+  });
+
+  it("rejects focus=auto (parser-rejected, not emittable)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=auto")).toBeNull();
+  });
+
+  it("rejects bare-pixel focus coordinates (relative units only)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100x200")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100px200")).toBeNull();
+  });
+
+  it("rejects an out-of-range relative focus coordinate (ratio > 1)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=150px50p")).toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=0.5sx2s")).toBeNull();
+  });
+
+  it("accepts in-range relative focus coordinates", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=30px70p")).not.toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100px0p")).not.toBeNull();
+  });
+
+  it("accepts a zero-based crop origin and rejects a zero crop size", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/crop=200x150@0x0")).not.toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/crop=0x150")).toBeNull();
   });
 
   it("rejects a malformed segment without '='", () => {
