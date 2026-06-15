@@ -184,25 +184,28 @@
 
   type FocusStep = Extract<TransformStep, { type: "focus" }>;
 
-  function focusMode(step: FocusStep): "anchor" | "coord" {
+  function focusMode(step: FocusStep): "anchor" | "coord" | "auto" {
     return step.mode;
   }
 
-  // Switch a focus card between the 8-anchor grid and a relative coordinate. The
-  // parser rejects bare-pixel and auto/center focus, so the coordinate mode is
-  // relative-only (p/s) and never offers those.
-  function setFocusMode(step: FocusStep, mode: "anchor" | "coord", index: number): void {
+  // Switch a focus card between the 8-anchor grid, a relative coordinate, and
+  // auto (content-aware smart gravity). The coordinate mode is relative-only
+  // (p/s) -- the parser rejects bare-pixel and center focus, so the UI never
+  // offers those.
+  function setFocusMode(step: FocusStep, mode: "anchor" | "coord" | "auto", index: number): void {
     if (mode === step.mode) return;
     twicpicsState.chain[index] =
       mode === "anchor"
         ? { type: "focus", id: step.id, mode: "anchor", anchor: "top" }
-        : {
-            type: "focus",
-            id: step.id,
-            mode: "coord",
-            x: { unit: "p", value: 50 },
-            y: { unit: "p", value: 50 },
-          };
+        : mode === "auto"
+          ? { type: "focus", id: step.id, mode: "auto" }
+          : {
+              type: "focus",
+              id: step.id,
+              mode: "coord",
+              x: { unit: "p", value: 50 },
+              y: { unit: "p", value: 50 },
+            };
   }
 
   // Per-unit range + suffix for a relative focus coordinate. In-range only: the
@@ -491,6 +494,14 @@
                     >
                       Coordinate
                     </button>
+                    <button
+                      type="button"
+                      class="focus-mode-tab"
+                      aria-pressed={focusMode(step) === "auto" ? "true" : "false"}
+                      onclick={() => setFocusMode(step, "auto", index)}
+                    >
+                      Auto
+                    </button>
                   </div>
 
                   {#if step.mode === "anchor"}
@@ -511,7 +522,7 @@
                         {/if}
                       {/each}
                     </div>
-                  {:else}
+                  {:else if step.mode === "coord"}
                     {@const focusPreviewSrc = twicFetchPath({
                       source: twicpicsState.source,
                       chain: twicpicsState.chain.slice(0, index),
@@ -530,6 +541,11 @@
 
                     {@render focusAxis(step, "x", "X")}
                     {@render focusAxis(step, "y", "Y")}
+                  {:else}
+                    <p class="focus-auto-note">
+                      Content-aware subject detection picks the focus point. Steers the next
+                      cover/crop via libvips attention smart gravity.
+                    </p>
                   {/if}
                 {/if}
               </div>
@@ -853,6 +869,13 @@
   .focus-mode-tab:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+  }
+
+  .focus-auto-note {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
   }
 
   .anchor-grid {

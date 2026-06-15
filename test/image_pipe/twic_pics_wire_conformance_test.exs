@@ -144,7 +144,19 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     assert conn.status == 400
   end
 
-  test "focus=auto and focus=center are rejected" do
+  test "focus=auto steers the cover crop (smart gravity, differs from centered baseline)" do
+    # focus=auto -> :smart guide (libvips attention smart crop), the same content-aware
+    # approximation ImagePipe uses for imgproxy g:sm. The smart window differs from a
+    # plain centered cover.
+    centered = call("/images/beach.jpg?twic=v1/cover=200x200/output=jpeg")
+    smart = call("/images/beach.jpg?twic=v1/focus=auto/cover=200x200/output=jpeg")
+
+    assert dimensions(centered) == {200, 200}
+    assert dimensions(smart) == {200, 200}
+    refute average(centered) == average(smart)
+  end
+
+  test "focus=center is rejected" do
     opts =
       Keyword.put(@opts, :sources,
         path:
@@ -152,7 +164,6 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
            root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
       )
 
-    assert call("/images/beach.jpg?twic=v1/focus=auto", opts).status == 400
     assert call("/images/beach.jpg?twic=v1/focus=center", opts).status == 400
   end
 

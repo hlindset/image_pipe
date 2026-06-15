@@ -51,12 +51,26 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Resize{guide: {:focal, {:ratio, 1, 1}, {:ratio, 0, 1}}} = cover
   end
 
-  test "out-of-range, bare-pixel, and named focus values are rejected" do
+  test "focus=auto -> smart guide on the next cover" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [cover]}]}} =
+             build([{"focus", "auto"}, {"cover", "100x100"}])
+
+    assert %Operation.Resize{mode: :cover, guide: :smart} = cover
+  end
+
+  test "focus=auto -> smart guide on the next guided crop" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [guided]}]}} =
+             build([{"focus", "auto"}, {"crop", "100x100"}])
+
+    assert %Operation.CropGuided{guide: :smart} = guided
+  end
+
+  test "out-of-range, bare-pixel, and center focus values are rejected" do
     # focus=150px50p -> x ratio 3/2 (>100%) is out of the image.
     assert {:error, {:unsupported_focus, "150px50p"}} = build([{"focus", "150px50p"}])
     # focus=20x10 -> both bare px; deferred (needs running-dim resolution).
     assert {:error, {:unsupported_focus, "20x10"}} = build([{"focus", "20x10"}])
-    assert {:error, _} = build([{"focus", "auto"}])
+    # center is not a TwicPics anchor literal -- only the default focus.
     assert {:error, _} = build([{"focus", "center"}])
   end
 
@@ -125,7 +139,6 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
   test "rejected non-goals fail the whole build" do
     assert {:error, {:unsupported_transform, "zoom"}} = build([{"zoom", "2"}])
     assert {:error, _} = build([{"resize", "16:9"}])
-    assert {:error, _} = build([{"focus", "auto"}])
     assert {:error, _} = build([{"focus", "center"}])
   end
 

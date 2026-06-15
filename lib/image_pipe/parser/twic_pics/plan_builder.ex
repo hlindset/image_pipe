@@ -139,7 +139,10 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp crop_coordinates(coords), do: Units.coordinates(coords)
 
-  defp focus("auto", _acc), do: {:error, {:unsupported_focus, "auto"}}
+  # Content-aware subject detection -> the `:smart` guide (libvips attention smart
+  # crop), the same approximation ImagePipe uses for imgproxy `g:sm`. Steers the
+  # next `cover` / `crop`; emits no operation.
+  defp focus("auto", acc), do: {:ok, %{acc | guide: :smart}}
   defp focus("center", _acc), do: {:error, {:unsupported_focus, "center"}}
 
   defp focus(args, acc) do

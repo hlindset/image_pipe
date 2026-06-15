@@ -56,7 +56,8 @@ export type TransformStep =
   | { type: "inside"; id: string; mode: "ratio"; w: number; h: number }
   | { type: "crop"; id: string; w: TwicLen; h: TwicLen; origin: TwicCropOrigin }
   | { type: "focus"; id: string; mode: "anchor"; anchor: TwicAnchor }
-  | { type: "focus"; id: string; mode: "coord"; x: TwicRelLen; y: TwicRelLen };
+  | { type: "focus"; id: string; mode: "coord"; x: TwicRelLen; y: TwicRelLen }
+  | { type: "focus"; id: string; mode: "auto" };
 
 export type TransformType = TransformStep["type"];
 
@@ -200,9 +201,14 @@ export function stepToken(step: TransformStep): string {
         ? `crop=${encodeLen(step.w)}x${encodeLen(step.h)}`
         : `crop=${encodeLen(step.w)}x${encodeLen(step.h)}@${encodeLen(step.origin.x)}x${encodeLen(step.origin.y)}`;
     case "focus":
-      return step.mode === "anchor"
-        ? `focus=${step.anchor}`
-        : `focus=${encodeLen(step.x)}x${encodeLen(step.y)}`;
+      switch (step.mode) {
+        case "anchor":
+          return `focus=${step.anchor}`;
+        case "coord":
+          return `focus=${encodeLen(step.x)}x${encodeLen(step.y)}`;
+        case "auto":
+          return "focus=auto";
+      }
   }
 }
 
@@ -266,7 +272,14 @@ export function stepSummary(step: TransformStep): string {
         ? `${lenLabel(step.w)}×${lenLabel(step.h)}`
         : `${lenLabel(step.w)}×${lenLabel(step.h)} @ ${lenLabel(step.origin.x)},${lenLabel(step.origin.y)}`;
     case "focus":
-      return step.mode === "anchor" ? step.anchor : `${lenLabel(step.x)},${lenLabel(step.y)}`;
+      switch (step.mode) {
+        case "anchor":
+          return step.anchor;
+        case "coord":
+          return `${lenLabel(step.x)},${lenLabel(step.y)}`;
+        case "auto":
+          return "auto";
+      }
   }
 }
 
@@ -425,6 +438,9 @@ function parseCrop(args: string, id: string): TransformStep | null {
 }
 
 function parseFocus(args: string, id: string): TransformStep | null {
+  if (args === "auto") {
+    return { type: "focus", id, mode: "auto" };
+  }
   if (anchorSet.has(args)) {
     return { type: "focus", id, mode: "anchor", anchor: args as TwicAnchor };
   }
