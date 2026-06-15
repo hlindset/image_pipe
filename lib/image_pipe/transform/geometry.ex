@@ -13,6 +13,7 @@ defmodule ImagePipe.Transform.Geometry do
           | {:percent, scalar()}
           | {:scale, scalar()}
           | {:scale, scalar(), scalar()}
+          | {:ratio, integer(), integer()}
 
   @spec to_pixels(integer(), length_unit()) :: integer()
   def to_pixels(length, size_unit)
@@ -22,6 +23,9 @@ defmodule ImagePipe.Transform.Geometry do
   def to_pixels(length, {:scale, factor}), do: round(length * factor)
 
   def to_pixels(length, {:scale, numerator, denominator}),
+    do: round(length * numerator / denominator)
+
+  def to_pixels(length, {:ratio, numerator, denominator}),
     do: round(length * numerator / denominator)
 
   def to_pixels(length, {:percent, percent}), do: round(percent / 100 * length)
