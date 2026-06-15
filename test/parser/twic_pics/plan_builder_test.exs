@@ -90,12 +90,36 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert {:error, _} = build([{"focus", "center"}])
   end
 
-  test "relative units on crop/inside are rejected in v1 (pixel-only)" do
+  test "relative units on inside are rejected (pixel-only)" do
     assert {:error, {:unsupported_unit, :inside}} = build([{"inside", "50p"}])
-    assert {:error, {:unsupported_unit, :crop}} = build([{"crop", "50p"}])
   end
 
-  test "a region crop requires explicit pixel WxH (single-dim size is rejected)" do
+  test "relative crop dimensions and zero-based coordinates build a plan" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [guided]}]}} =
+             build([{"crop", "50px50p"}])
+
+    assert %Operation.CropGuided{width: {:ratio, 1, 2}, height: {:ratio, 1, 2}} = guided
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [region]}]}} =
+             build([{"crop", "200x200@0.25sx0.5s"}])
+
+    assert %Operation.CropRegion{
+             x: {:ratio, 1, 4},
+             y: {:ratio, 1, 2},
+             width: {:px, 200},
+             height: {:px, 200}
+           } = region
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: [%Operation.CropRegion{x: {:px, 0}, y: {:px, 0}}]}
+              ]
+            }} =
+             build([{"crop", "100x100@0x0"}])
+  end
+
+  test "a region crop requires both axes explicit (omitted axis is rejected)" do
     assert {:error, {:unsupported_crop_region_size, "100"}} =
              build([{"crop", "100@20x50"}])
   end

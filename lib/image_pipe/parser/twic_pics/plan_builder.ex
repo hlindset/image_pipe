@@ -104,7 +104,6 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp crop_guided(size, acc) do
     with {:ok, {w, h}} <- Units.crop_size(size),
-         :ok <- pixels_only([w, h], :crop),
          {:ok, op} <- Operation.crop_guided(w, h, acc.guide) do
       push(acc, op)
     end
@@ -119,24 +118,18 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
     end
   end
 
-  # A region crop (`crop=WxH@XxY`) requires explicit pixel W and H — an omitted
-  # axis (`crop=100@…`, which `Units.size` yields as `:auto`) or a relative unit
-  # is not a valid region size in v1.
+  # A region crop (`crop=WxH@XxY`) requires both axes explicit — an omitted axis
+  # (`crop=100@…`, which `Units.size` yields as `:auto`) is not a valid region
+  # size.
   defp region_size(size) do
     case Units.size(size) do
-      {:ok, {{:px, _} = w, {:px, _} = h}} -> {:ok, {w, h}}
+      {:ok, {w, h}} when w != :auto and h != :auto -> {:ok, {w, h}}
       {:ok, _partial} -> {:error, {:unsupported_crop_region_size, size}}
       {:error, _reason} = error -> error
     end
   end
 
-  # v1 crop coordinates: pixels only (percent/scale coords deferred)
-  defp crop_coordinates(coords) do
-    case Units.coordinates(coords) do
-      {:ok, {{:px, _} = x, {:px, _} = y}} -> {:ok, {x, y}}
-      _ -> {:error, {:unsupported_crop_coordinates, coords}}
-    end
-  end
+  defp crop_coordinates(coords), do: Units.coordinates(coords)
 
   defp focus("auto", _acc), do: {:error, {:unsupported_focus, "auto"}}
   defp focus("center", _acc), do: {:error, {:unsupported_focus, "center"}}
@@ -158,9 +151,9 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp push(acc, op), do: {:ok, %{acc | ops: [op | acc.ops]}}
 
-  # v1: crop/inside accept pixel dimensions only (crop also :full_axis for an
-  # omitted axis). Relative units (percent/scale) on crop/inside are deferred —
-  # resize/cover/contain carry full relative-unit support.
+  # `inside` accepts pixel dimensions only. Its resize+canvas composition
+  # entangles relative units with canvas aspect-ratio semantics, so percent/scale
+  # dimensions are rejected here.
   defp pixels_only(dims, transform) do
     if Enum.all?(dims, &pixel_dimension?/1),
       do: :ok,

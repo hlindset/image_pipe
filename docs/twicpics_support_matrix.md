@@ -82,8 +82,8 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | `contain-max` / `contain-min` (aliases `max` / `min`) | 🚫 Rejected | Conditional variants deferred. |
 | `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). **Pixel dimensions only** in v1 (relative units deferred). |
 | `inside=W:H` (ratio) | 🚫 Rejected | Ratio form deferred (same reason as `resize=W:H`). |
-| `crop=WxH` | ✅ Supported | `CropGuided(W, H, guide: focus)`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. **Pixel dimensions only** in v1 (relative crop dims → `{:ratio}` deferred). |
-| `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; resets focus → center. |
+| `crop=WxH` | ✅ Supported | `CropGuided(W, H, guide: focus)`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. Pixel **and** relative (`p` / `s` → `{:ratio}`) dimensions, resolved against the running image at execution time. |
+| `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; resets focus → center. Both axes must be explicit (an omitted axis is rejected). Pixel **and** relative dimensions/coordinates; zero-based coordinates (`@0x0`) supported. |
 | `focus=<anchor>` | ✅ Supported | One of the eight anchors; sets the current guide for the next `cover` / `crop`; emits no operation. |
 | `focus=<coords>` (px/percent/scale) | 🚫 Rejected | Coordinate focus deferred — the Plan focal guide is a 0..1 ratio; pixel-coordinate focus needs a runtime-resolved focal guide (mirrors the resize relative-unit work). v1 focus is anchor-only. |
 | `focus=auto` | 🚫 Rejected | Smart / content-aware (ML-ish) subject detection; no model. Consistent with rejecting imgproxy `g:sm`. A future `:smart` guide (libvips attention/entropy) could satisfy both. |
@@ -132,7 +132,7 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 | Length (px / `p` percent / `s` scale) | ✅ Supported | `{:px, n}` / `{:percent, n}` / `{:scale, f}`. Bare number = pixels. |
 | Size (`WxH`, `-` auto) | ✅ Supported | One dimension may be `-` for auto. Mixed units allowed. |
 | Ratio (`W:H`) | ✅ Supported | Two strictly-positive numbers, integer or decimal (e.g. `16:9`, `1.5:2`), reduced to an integer `{:ratio, n, d}` via exact string-based scaling. |
-| Coordinates (`XxY`) | ✅ Supported | Two Lengths; v1 uses them for the `crop=…@XxY` origin (pixel coords → `CropRegion`). Coordinate focus is deferred. |
+| Coordinates (`XxY`) | ✅ Supported | Two zero-based Lengths; used for the `crop=…@XxY` origin (pixel **or** relative `p` / `s` coords → `CropRegion`, resolved against the running image). Coordinate focus is deferred. |
 | Anchor (8 named positions) | ✅ Supported | `top`, `bottom`, `left`, `right`, four corners → Plan guides. No `center` anchor — `center` is the default focus only. |
 | Crop size | ✅ Supported | Distinct from Size: omitted dim / `-` means `1s` = full running axis (`:full_axis`), **not** aspect-preserving auto. `crop=320` ≡ `320x-` ≡ `320x1s`. |
 | Number with expressions `(1/3)`, `+ - * /` | 🚫 Rejected | Arithmetic engine deferred; only decimal literals in v1. |

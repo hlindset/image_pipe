@@ -124,6 +124,61 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     assert dimensions(conn) == {200, 200}
   end
 
+  test "crop=WxH@0x0 crops from the top-left" do
+    topleft = call("/images/beach.jpg?twic=v1/crop=100x100@0x0/output=png")
+    elsewhere = call("/images/beach.jpg?twic=v1/crop=100x100@3900x2567/output=png")
+
+    assert topleft.status == 200
+    assert dimensions(topleft) == {100, 100}
+    # The zero-based origin is honored: a top-left region differs in pixels from a
+    # bottom-right region of the same size.
+    refute average(topleft) == average(elsewhere)
+  end
+
+  test "relative crop dimensions resolve against the running dimensions" do
+    # crop=50px50p is a guided crop of 50% x 50% of the 4000x2667 source.
+    conn = call("/images/beach.jpg?twic=v1/crop=50px50p/output=jpeg")
+    assert conn.status == 200
+    assert dimensions(conn) == {2000, 1334}
+  end
+
+  test "relative crop coordinates resolve to the same origin as their pixel equivalent" do
+    # @0.25sx0.5s on a 4000x2667 source resolves to origin (1000, 1333).
+    relative = call("/images/beach.jpg?twic=v1/crop=200x200@0.25sx0.5s/output=png")
+    pixels = call("/images/beach.jpg?twic=v1/crop=200x200@1000x1333/output=png")
+
+    assert relative.status == 200
+    assert dimensions(relative) == {200, 200}
+    assert dimensions(pixels) == {200, 200}
+    # Same region, so the decoded pixels match (compared via average to tolerate
+    # encode-time byte nondeterminism).
+    assert average(relative) == average(pixels)
+  end
+
+  test "crop dimensions still reject zero before any source fetch" do
+    opts =
+      Keyword.put(@opts, :sources,
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+      )
+
+    conn = call("/images/beach.jpg?twic=v1/crop=0x100", opts)
+    assert conn.status == 400
+  end
+
+  test "inside still rejects relative units" do
+    opts =
+      Keyword.put(@opts, :sources,
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+      )
+
+    conn = call("/images/beach.jpg?twic=v1/inside=50p", opts)
+    assert conn.status == 400
+  end
+
   test "explicit output bypasses negotiation; auto sets Vary: Accept" do
     explicit = call("/images/beach.jpg?twic=v1/resize=100/output=avif")
     assert Plug.Conn.get_resp_header(explicit, "content-type") == ["image/avif"]
