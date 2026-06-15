@@ -188,6 +188,10 @@ describe("twicpics step token encoding", () => {
       }),
     ).toBe("focus=0.25sx0.75s");
   });
+
+  it("encodes focus=auto", () => {
+    expect(stepToken({ type: "focus", id: "x", mode: "auto" })).toBe("focus=auto");
+  });
 });
 
 describe("twicpics manipulation param", () => {
@@ -349,6 +353,10 @@ describe("stepSummary", () => {
         y: { unit: "p", value: 70 },
       }),
     ).toBe("30%,70%");
+  });
+
+  it("formats focus=auto", () => {
+    expect(stepSummary({ type: "focus", id: "x", mode: "auto" })).toBe("auto");
   });
 });
 
@@ -571,6 +579,11 @@ describe("twicpics round-trips (browser path -> state)", () => {
         },
       ],
     },
+    // auto (content-aware smart gravity) focus
+    {
+      ...defaultTwicPicsState,
+      chain: [{ type: "focus", id: "1", mode: "auto" }],
+    },
     { ...defaultTwicPicsState, output: "avif", quality: 50 },
     {
       ...defaultTwicPicsState,
@@ -654,8 +667,9 @@ describe("twicpics parse rejection", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=center")).toBeNull();
   });
 
-  it("rejects focus=auto (parser-rejected, not emittable)", () => {
-    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=auto")).toBeNull();
+  it("parses focus=auto (content-aware smart gravity)", () => {
+    const state = parseTwicTail("images/dog.jpg", "?twic=v1/focus=auto");
+    expect(state?.chain).toEqual([{ type: "focus", id: expect.any(String), mode: "auto" }]);
   });
 
   it("rejects bare-pixel focus coordinates (relative units only)", () => {
