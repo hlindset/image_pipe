@@ -25,6 +25,12 @@ defmodule ImagePipe.Plan.KeyDataTest do
     assert KeyData.data(frac_op)[:width] == [unit: :ratio, numerator: 101, denominator: 200]
   end
 
+  test "percent and scale resize dimensions collapse to the same ratio key" do
+    {:ok, percent_op} = Operation.resize(:fit, {:percent, 50}, :auto)
+    {:ok, scale_op} = Operation.resize(:fit, {:scale, 0.5}, :auto)
+    assert KeyData.data(percent_op) == KeyData.data(scale_op)
+  end
+
   test "distinct relative magnitudes produce distinct key data" do
     {:ok, op50} = Operation.resize(:fit, {:percent, 50}, :auto)
     {:ok, op60} = Operation.resize(:fit, {:percent, 60}, :auto)

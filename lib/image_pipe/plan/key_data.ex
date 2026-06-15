@@ -42,8 +42,6 @@ defmodule ImagePipe.Plan.KeyData do
           :auto
           | :full_axis
           | {:px, pos_integer()}
-          | {:percent, number()}
-          | {:scale, number()}
           | {:ratio, non_neg_integer(), pos_integer()}
 
   @type ratio_data :: [
@@ -170,12 +168,6 @@ defmodule ImagePipe.Plan.KeyData do
   def data({:px, value}) when is_integer(value) and value >= 0,
     do: [unit: :logical_px, value: value]
 
-  def data({:percent, value}) when is_number(value),
-    do: [unit: :percent, value: canonical_number(value)]
-
-  def data({:scale, value}) when is_number(value),
-    do: [unit: :scale, value: canonical_number(value)]
-
   def data({:ratio, numerator, denominator})
       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
              denominator > 0 do
@@ -192,18 +184,6 @@ defmodule ImagePipe.Plan.KeyData do
 
   defp optional_data(nil), do: nil
   defp optional_data(value), do: data(value)
-
-  # Canonicalize relative-dimension magnitudes so the cache key is deterministic
-  # regardless of int-vs-float spelling: `50p` and `50.0p` resolve to identical
-  # pixels and must share one key/ETag. Whole-valued floats fold to integers;
-  # genuinely fractional values keep their float form (distinct magnitude ⇒
-  # distinct key). Mirrors how DPR is canonicalized before reaching key data.
-  defp canonical_number(value) when is_float(value) do
-    truncated = trunc(value)
-    if truncated == value, do: truncated, else: value
-  end
-
-  defp canonical_number(value) when is_integer(value), do: value
 
   defp crop_aspect_ratio_data(nil), do: nil
 
