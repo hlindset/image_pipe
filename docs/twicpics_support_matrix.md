@@ -130,7 +130,7 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 
 | TwicPics type | Status | Notes |
 | --- | --- | --- |
-| Length (px / `p` percent / `s` scale) | ✅ Supported | `{:px, n}` / `{:percent, n}` / `{:scale, f}`. Bare number = pixels. |
+| Length (px / `p` percent / `s` scale) | ✅ Supported | `{:px, n}` (bare number = pixels); `p`/`s` convert to an exact `{:ratio, n, d}`. Dimensions are strictly positive; coordinates are zero-based. |
 | Size (`WxH`, `-` auto) | ✅ Supported | One dimension may be `-` for auto. Mixed units allowed. |
 | Ratio (`W:H`) | ✅ Supported | Two strictly-positive numbers, integer or decimal (e.g. `16:9`, `1.5:2`), reduced to an integer `{:ratio, n, d}` via exact string-based scaling. |
 | Coordinates (`XxY`) | ✅ Supported | Two zero-based Lengths; used for the `crop=…@XxY` origin (pixel **or** relative `p` / `s` coords → `CropRegion`, resolved against the running image) and for relative-unit `focus` (→ `{:focal}` guide; bare-pixel coordinate focus deferred). |
