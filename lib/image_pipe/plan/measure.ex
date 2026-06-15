@@ -69,12 +69,8 @@ defmodule ImagePipe.Plan.Measure do
     end
   end
 
-  defp reduce(_num, den) when den <= 0, do: {:error, :measure}
-
-  defp reduce(num, den) when num >= 0 do
-    gcd = max(1, Integer.gcd(num, den))
+  defp reduce(num, den) do
+    gcd = Integer.gcd(num, den)
     {:ok, {:ratio, div(num, gcd), div(den, gcd)}}
   end
-
-  defp reduce(_num, _den), do: {:error, :measure}
 end
