@@ -1043,6 +1043,9 @@
 
 <style>
   .focal-picker-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     color: var(--text-label);
     font-size: 13px;
     line-height: 18px;
@@ -1058,12 +1061,6 @@
       font-family: var(--font-mono);
       font-size: 11px;
     }
-  }
-
-  .focal-picker-field {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
   }
 
   .field > span {
