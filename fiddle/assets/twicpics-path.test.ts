@@ -677,7 +677,7 @@ describe("twicpics parse rejection", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/inside=-x100")).toBeNull();
   });
 
-  it("rejects a degenerate both-auto cover/contain (never emitted)", () => {
+  it("parseDimPair refuses a degenerate both-auto cover/contain (UI round-trip guard)", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/cover=-")).toBeNull();
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/contain=-x-")).toBeNull();
   });

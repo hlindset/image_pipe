@@ -124,9 +124,9 @@ export function defaultStep(type: TransformType, id: string): TransformStep {
 }
 
 // Editing helper for any two-axis dimension control (resize, cover-size, contain).
-// Setting one axis to "auto" while the other is already auto would serialize a
-// degenerate both-auto token (`resize=-` / `cover=-` / `contain=-`) that
-// parseTwicTail refuses to round-trip, so this keeps at least one concrete axis.
+// Setting one axis to "auto" while the other is already auto would emit a
+// degenerate both-auto token (`resize=-` / `cover=-` / `contain=-`) that is a
+// no-op; this keeps at least one concrete axis as a UI round-trip guard.
 export function setDimAxisUnit(
   step: { w: TwicDim; h: TwicDim },
   axis: "w" | "h",
@@ -303,8 +303,9 @@ function parsePxPair(args: string): { w: number; h: number } | null {
 }
 
 // A two-axis dimension pair (resize, cover-size, contain): px / % / scale / auto
-// per axis, single-axis `W` implies an auto height, both-auto is refused (its
-// degenerate `-` token is never emitted). Ratio (`W:H`) is handled by the caller.
+// per axis, single-axis `W` implies an auto height, both-auto is refused as a
+// UI round-trip guard (avoids emitting the degenerate no-op `-` token). Ratio
+// (`W:H`) is handled by the caller.
 function parseDimPair(args: string): { w: TwicDim; h: TwicDim } | null {
   const parts = args.split("x");
   if (parts.length === 1) {
