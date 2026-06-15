@@ -20,22 +20,29 @@
   let runningHeight = $state(0);
   const ready = $derived(runningWidth > 0 && runningHeight > 0);
 
+  // Mirror the backend's region clamping (crop.ex): the crop size is capped to the
+  // running image, and the origin (top-left) is shifted into [0, running - size] so
+  // the rectangle always fits. So the effective max origin shrinks as the crop grows,
+  // and the preview box below is exactly the resulting crop — never drawn outside.
+  const effWidth = $derived(ready ? Math.min(width, runningWidth) : width);
+  const effHeight = $derived(ready ? Math.min(height, runningHeight) : height);
+  const maxX = $derived(ready ? Math.max(1, runningWidth - effWidth) : 8000);
+  const maxY = $derived(ready ? Math.max(1, runningHeight - effHeight) : 8000);
+
   function clampX(value: number): number {
-    return runningWidth > 0 ? Math.min(Math.max(Math.round(value), 1), runningWidth) : value;
+    return ready ? Math.min(Math.max(Math.round(value), 1), maxX) : value;
   }
 
   function clampY(value: number): number {
-    return runningHeight > 0 ? Math.min(Math.max(Math.round(value), 1), runningHeight) : value;
+    return ready ? Math.min(Math.max(Math.round(value), 1), maxY) : value;
   }
 
-  // Re-clamp the origin into the running frame whenever a new preview loads (a
-  // changed earlier chain step can shrink the running image).
+  // Re-clamp the origin into the effective range whenever the running image or the
+  // crop size changes (both move where a fully-in-frame origin can sit).
   $effect(() => {
-    if (runningWidth > 0) {
+    if (ready) {
       const cx = clampX(x);
       if (cx !== x) x = cx;
-    }
-    if (runningHeight > 0) {
       const cy = clampY(y);
       if (cy !== y) y = cy;
     }
@@ -65,28 +72,14 @@
       {#if ready}
         <span
           class="origin-rect"
-          style={`left:${markerX * 100}%; top:${markerY * 100}%; width:${(width / runningWidth) * 100}%; height:${(height / runningHeight) * 100}%;`}
+          style={`left:${markerX * 100}%; top:${markerY * 100}%; width:${(effWidth / runningWidth) * 100}%; height:${(effHeight / runningHeight) * 100}%;`}
         ></span>
       {/if}
     {/snippet}
   </ImagePointPicker>
 
-  <RangeNumber
-    label="X"
-    bind:value={x}
-    min={1}
-    max={runningWidth > 0 ? runningWidth : 8000}
-    step={1}
-    suffix="px"
-  />
-  <RangeNumber
-    label="Y"
-    bind:value={y}
-    min={1}
-    max={runningHeight > 0 ? runningHeight : 8000}
-    step={1}
-    suffix="px"
-  />
+  <RangeNumber label="X" bind:value={x} min={1} max={maxX} step={1} suffix="px" />
+  <RangeNumber label="Y" bind:value={y} min={1} max={maxY} step={1} suffix="px" />
 </div>
 
 <style>
@@ -99,8 +92,7 @@
     line-height: 18px;
   }
 
-  /* The crop region anchored at the origin (top-left). Clipped by the picker's
-     overflow when it extends past the running frame. */
+  /* The resulting crop region (origin = top-left), already clamped to fit the frame. */
   .origin-rect {
     position: absolute;
     border: 1px solid var(--accent);
