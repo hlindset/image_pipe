@@ -23,9 +23,14 @@ defmodule ImagePipe.Parser.TwicPics.Units do
 
   defp parse_length(value, sign) when is_binary(value) do
     cond do
-      String.ends_with?(value, "p") -> to_ratio(String.trim_trailing(value, "p"), 100, sign, value)
-      String.ends_with?(value, "s") -> to_ratio(String.trim_trailing(value, "s"), 1, sign, value)
-      true -> to_pixels_measure(value, sign)
+      String.ends_with?(value, "p") ->
+        to_ratio(String.trim_trailing(value, "p"), 100, sign, value)
+
+      String.ends_with?(value, "s") ->
+        to_ratio(String.trim_trailing(value, "s"), 1, sign, value)
+
+      true ->
+        to_pixels_measure(value, sign)
     end
   end
 
