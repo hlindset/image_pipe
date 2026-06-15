@@ -103,19 +103,22 @@
   const markerY = $derived(ready ? yPx / runningHeight : 0);
 
   // Per-unit range + suffix for the numeric X/Y sliders (origin is zero-based).
-  function originRange(unit: TwicLenUnit): { max: number; step: number; suffix: string } {
+  function originRange(
+    unit: TwicLenUnit,
+    axisPx: number,
+  ): { max: number; step: number; suffix: string } {
     switch (unit) {
       case "p":
         return { max: 100, step: 1, suffix: "%" };
       case "s":
         return { max: 1, step: 0.01, suffix: "×" };
       default:
-        return { max: ready ? runningWidth : 8000, step: 1, suffix: "px" };
+        return { max: ready ? axisPx : 8000, step: 1, suffix: "px" };
     }
   }
 
-  const xRange = $derived(originRange(x.unit));
-  const yRange = $derived(originRange(y.unit));
+  const xRange = $derived(originRange(x.unit, runningWidth));
+  const yRange = $derived(originRange(y.unit, runningHeight));
 </script>
 
 <div class="origin-picker-field">

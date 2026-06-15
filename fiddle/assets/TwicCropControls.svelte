@@ -51,7 +51,7 @@
     const floor = allowZero ? 0 : 1;
     switch (unit) {
       case "p":
-        return { min: allowZero ? 0 : 1, max: 100, step: 1, suffix: "%" };
+        return { min: floor, max: 100, step: 1, suffix: "%" };
       case "s":
         return { min: allowZero ? 0 : 0.1, max: 1, step: 0.1, suffix: "×" };
       default:
