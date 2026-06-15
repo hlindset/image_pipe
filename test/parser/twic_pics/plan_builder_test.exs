@@ -51,18 +51,18 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Resize{guide: {:focal, {:ratio, 1, 1}, {:ratio, 0, 1}}} = cover
   end
 
-  test "focus=auto -> smart guide on the next cover" do
+  test "focus=auto -> face-assist smart guide on the next cover" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [cover]}]}} =
              build([{"focus", "auto"}, {"cover", "100x100"}])
 
-    assert %Operation.Resize{mode: :cover, guide: :smart} = cover
+    assert %Operation.Resize{mode: :cover, guide: {:smart, :face_assist}} = cover
   end
 
-  test "focus=auto -> smart guide on the next guided crop" do
+  test "focus=auto -> face-assist smart guide on the next guided crop" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [guided]}]}} =
              build([{"focus", "auto"}, {"crop", "100x100"}])
 
-    assert %Operation.CropGuided{guide: :smart} = guided
+    assert %Operation.CropGuided{guide: {:smart, :face_assist}} = guided
   end
 
   test "out-of-range, bare-pixel, and center focus values are rejected" do

@@ -543,8 +543,9 @@
                     {@render focusAxis(step, "y", "Y")}
                   {:else}
                     <p class="focus-auto-note">
-                      Content-aware subject detection picks the focus point. Steers the next
-                      cover/crop via libvips attention smart gravity.
+                      Content-aware subject focus picks the point automatically. Steers the next
+                      cover/crop via attention saliency blended toward detected faces (falls back to
+                      plain attention with no detector).
                     </p>
                   {/if}
                 {/if}

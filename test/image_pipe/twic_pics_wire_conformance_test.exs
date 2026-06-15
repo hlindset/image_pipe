@@ -145,9 +145,10 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
   end
 
   test "focus=auto steers the cover crop (smart gravity, differs from centered baseline)" do
-    # focus=auto -> :smart guide (libvips attention smart crop), the same content-aware
-    # approximation ImagePipe uses for imgproxy g:sm. The smart window differs from a
-    # plain centered cover.
+    # focus=auto -> {:smart, :face_assist} guide, the same attention(+face) engine
+    # ImagePipe uses for imgproxy g:sm. With no detector configured (this lane) it
+    # falls back to plain libvips attention, so the smart window still differs from a
+    # plain centered cover. Face blending is exercised where a detector is live.
     centered = call("/images/beach.jpg?twic=v1/cover=200x200/output=jpeg")
     smart = call("/images/beach.jpg?twic=v1/focus=auto/cover=200x200/output=jpeg")
 
