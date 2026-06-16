@@ -174,14 +174,43 @@ the previous focus for placement and resets focus to the center of the crop
 result.
 
 The official docs don't state how `turn`, `flip`, `inside`, `resize`, `contain`,
-or color transforms update existing focus state. A faithful port should either:
+or color transforms update existing focus state. Black-box probing against live
+TwicPics (`tools/twicpics_focus_probe.exs`) settles it: **focus is carried as
+part of image state and transformed with the image data**, so a later consumer
+steers to the same content regardless of the geometry between. Confirmed:
 
-- carry focus as part of image state and transform it with the image data, then
-  confirm behavior with black-box TwicPics requests, or
-- document any deliberate divergence.
+- `resize` / `contain` (pure scale): the focus scales with the image. This is
+  what makes the running-state examples hold (`resize=50p/focus=20x10` → source
+  `40x20`), and it is order-sensitive — the identical `focus=50x50` resolves to a
+  different source point depending on whether a `resize` precedes or follows it.
+- `cover`: the focus **persists through the consumer** — `focus=X/cover/crop`
+  crops around `X`'s content, so `cover` does not reset the focus; the trailing
+  `crop` reads the carried point.
+- `inside`: both the fit **and** the letterbox/canvas offset are applied to the
+  focus. A focus on content lands on that content after it is centered in the
+  padded box, never on the padding.
+- `turn` / `flip`: the focus rotates / reflects with the image (a quarter turn,
+  half turn, and horizontal/vertical flip all keep the focus on its content).
+- `zoom`: the focus is the zoom centre and survives into a later consumer.
+- Multiple consumers: a focus is **not** consumed-and-cleared; it persists and
+  steers every following consumer (`focus/cover/crop/crop`) until a `crop@coords`
+  reset. The only thing that redefines it is another `focus` segment, which
+  resolves against the frame at *its* position — so the identical `focus=75x75`
+  yields a different source point with `resize` before vs after it.
+- Out-of-bounds: a coordinate **past the far edge clamps to the edge** — `focus=500x500`
+  on a 400×400 source resolves to the bottom-right, and a relative `focus=150p`
+  (150%) clamps to the edge rather than being rejected. A **negative** coordinate
+  is **rejected** (HTTP error). Coordinates are 0-based, so the last pixel of a
+  400-wide image is `399`. (Because every consumer centers on the focus, padding
+  moves it inward, and scale is proportional, no operation can push an in-bounds
+  focus out of frame — OOB only arises at the `focus` segment itself.)
 
-Don't keep absolute focus coordinates unchanged across geometry transforms.
-That contradicts the docs' running-state examples.
+The practical consequence for a port: model the focus as a point carried in
+image state and apply each geometry op's own transform to it (scale → multiply,
+crop/letterbox → subtract/add the origin, turn/flip → rotate/reflect), rather
+than baking an absolute coordinate or a static fraction at parse time. Don't keep
+absolute focus coordinates unchanged across geometry transforms — that
+contradicts both the docs' running-state examples and the probe results.
 
 ## Fixed or late processing
 
