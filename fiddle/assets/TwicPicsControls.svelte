@@ -18,8 +18,9 @@
     type TransformType,
     type TwicAnchor,
     type TwicDim,
+    type TwicLen,
+    type TwicLenUnit,
     type TwicPicsState,
-    type TwicRelUnit,
     type TwicResizeUnit,
   } from "./twicpics-path";
 
@@ -188,10 +189,28 @@
     return step.mode;
   }
 
-  // Switch a focus card between the 8-anchor grid, a relative coordinate, and
-  // auto (content-aware smart gravity). The coordinate mode is relative-only
-  // (p/s) -- the parser rejects bare-pixel and center focus, so the UI never
-  // offers those.
+  // The running-image pixel dims at the focus position, learned from a hidden
+  // loader of the same preview the minimap uses, so a px focus axis is bounded by
+  // the addressable extent (only one focus card's coord controls are open at a
+  // time, so a shared probe suffices).
+  let focusRunningWidth = $state(0);
+  let focusRunningHeight = $state(0);
+
+  function onFocusDimsLoad(event: Event): void {
+    const img = event.currentTarget;
+    if (img instanceof HTMLImageElement) {
+      focusRunningWidth = img.naturalWidth;
+      focusRunningHeight = img.naturalHeight;
+    }
+  }
+
+  function focusAxisPx(axis: "x" | "y"): number {
+    return axis === "x" ? focusRunningWidth : focusRunningHeight;
+  }
+
+  // Switch a focus card between the 8-anchor grid, a coordinate (px / p / s), and
+  // auto (content-aware smart gravity). center is not a TwicPics anchor literal, so
+  // the UI never offers it.
   function setFocusMode(step: FocusStep, mode: "anchor" | "coord" | "auto", index: number): void {
     if (mode === step.mode) return;
     twicpicsState.chain[index] =
@@ -208,19 +227,31 @@
             };
   }
 
-  // Per-unit range + suffix for a relative focus coordinate. In-range only: the
-  // parser rejects ratio > 1 (max 100% / 1×).
-  function focusRange(unit: TwicRelUnit): { max: number; step: number; suffix: string } {
-    return unit === "s" ? { max: 1, step: 0.01, suffix: "×" } : { max: 100, step: 1, suffix: "%" };
+  // Per-unit range + suffix for a focus coordinate. Pixel tracks the running axis
+  // (cap at the addressable extent); percent is 0..100%, scale 0..1× of that axis.
+  // An out-of-range positive is clamped server-side, so the in-bounds authoring
+  // range here is faithful to where the focus actually lands.
+  function focusRange(
+    unit: TwicLenUnit,
+    axisPx: number,
+  ): { max: number; step: number; suffix: string } {
+    switch (unit) {
+      case "s":
+        return { max: 1, step: 0.01, suffix: "×" };
+      case "p":
+        return { max: 100, step: 1, suffix: "%" };
+      default:
+        return { max: axisPx > 0 ? axisPx : 8000, step: 1, suffix: "px" };
+    }
   }
 
-  function roundFocus(value: number, unit: TwicRelUnit): number {
+  function roundFocus(value: number, unit: TwicLenUnit): number {
     const factor = unit === "s" ? 100 : 1;
     return Math.round(value * factor) / factor;
   }
 
-  function clampFocus(value: number, unit: TwicRelUnit): number {
-    const { max } = focusRange(unit);
+  function clampFocus(value: number, unit: TwicLenUnit, axisPx: number): number {
+    const { max } = focusRange(unit, axisPx);
     return roundFocus(Math.min(Math.max(value, 0), max), unit);
   }
 
@@ -230,35 +261,47 @@
     value: number,
   ): void {
     if (Number.isNaN(value)) return;
-    step[axis] = { unit: step[axis].unit, value: clampFocus(value, step[axis].unit) };
+    step[axis] = {
+      unit: step[axis].unit,
+      value: clampFocus(value, step[axis].unit, focusAxisPx(axis)),
+    };
   }
 
   function changeFocusUnit(
     step: Extract<FocusStep, { mode: "coord" }>,
     axis: "x" | "y",
-    unit: TwicRelUnit,
+    unit: TwicLenUnit,
   ): void {
-    // Preserve the on-image fraction across the unit switch (50% <-> 0.5×).
-    const range = focusRange(step[axis].unit);
+    // Preserve the on-image fraction across the unit switch (50% <-> 0.5× <-> px).
+    const axisPx = focusAxisPx(axis);
+    const range = focusRange(step[axis].unit, axisPx);
     const fraction = step[axis].value / range.max;
-    const next = focusRange(unit).max * fraction;
-    step[axis] = { unit, value: clampFocus(next, unit) };
+    const next = focusRange(unit, axisPx).max * fraction;
+    step[axis] = { unit, value: clampFocus(next, unit, axisPx) };
   }
 
-  // Map a normalized minimap point (0..1) to both relative coordinates at once.
+  // Map a normalized minimap point (0..1) to both coordinates at once.
   function pickFocus(step: Extract<FocusStep, { mode: "coord" }>, nx: number, ny: number): void {
     step.x = {
       unit: step.x.unit,
-      value: clampFocus(nx * focusRange(step.x.unit).max, step.x.unit),
+      value: clampFocus(
+        nx * focusRange(step.x.unit, focusAxisPx("x")).max,
+        step.x.unit,
+        focusAxisPx("x"),
+      ),
     };
     step.y = {
       unit: step.y.unit,
-      value: clampFocus(ny * focusRange(step.y.unit).max, step.y.unit),
+      value: clampFocus(
+        ny * focusRange(step.y.unit, focusAxisPx("y")).max,
+        step.y.unit,
+        focusAxisPx("y"),
+      ),
     };
   }
 
-  function focusMarker(len: { unit: TwicRelUnit; value: number }): number {
-    return len.value / focusRange(len.unit).max;
+  function focusMarker(len: TwicLen, axisPx: number): number {
+    return len.value / focusRange(len.unit, axisPx).max;
   }
 </script>
 
@@ -320,7 +363,7 @@
   label: string,
 )}
   {@const len = step[axis]}
-  {@const range = focusRange(len.unit)}
+  {@const range = focusRange(len.unit, focusAxisPx(axis))}
   <div class="dim-control">
     <label class="value-row">
       <span>{label}</span>
@@ -340,8 +383,9 @@
           class="dim-unit"
           value={len.unit}
           aria-label={`${label} unit`}
-          onchange={(e) => changeFocusUnit(step, axis, e.currentTarget.value as TwicRelUnit)}
+          onchange={(e) => changeFocusUnit(step, axis, e.currentTarget.value as TwicLenUnit)}
         >
+          <option value="px">px</option>
           <option value="p">%</option>
           <option value="s">scale</option>
         </select>
@@ -529,12 +573,20 @@
                       output: "jpeg",
                       quality: 80,
                     })}
-                    {@const xRange = focusRange(step.x.unit)}
-                    {@const yRange = focusRange(step.y.unit)}
+                    {@const xRange = focusRange(step.x.unit, focusRunningWidth)}
+                    {@const yRange = focusRange(step.y.unit, focusRunningHeight)}
+                    <!-- Hidden loader so a px focus axis tracks the running image. -->
+                    <img
+                      class="focus-dims-probe"
+                      src={focusPreviewSrc}
+                      alt=""
+                      aria-hidden="true"
+                      onload={onFocusDimsLoad}
+                    />
                     <ImagePointPicker
                       src={focusPreviewSrc}
-                      markerX={focusMarker(step.x)}
-                      markerY={focusMarker(step.y)}
+                      markerX={focusMarker(step.x, focusRunningWidth)}
+                      markerY={focusMarker(step.y, focusRunningHeight)}
                       ariaLabel={`Set focus point, currently ${step.x.value}${xRange.suffix}, ${step.y.value}${yRange.suffix}`}
                       onPick={(nx, ny) => pickFocus(step, nx, ny)}
                     />
@@ -877,6 +929,14 @@
     color: var(--text-secondary);
     font-size: 13px;
     line-height: 1.4;
+  }
+
+  .focus-dims-probe {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .anchor-grid {

@@ -83,10 +83,10 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). **Pixel dimensions only** in v1 (relative units deferred). |
 | `inside=W:H` (ratio) | ✅ Supported | `Canvas({:ratio, w, 1}, {:ratio, h, 1}, placement: center, fill: transparent)` — pads/letterboxes the whole image into a box of this aspect ratio with transparent borders (expands the image's canvas on the needed axis; never crops). Single op, no resize. Integer and decimal ratios (e.g. `4:3`, `1.5:2`) both supported. (`cover=W:H` crops to the ratio; `inside=W:H` pads to it.) **Transparent fill only**; user-specified `background` deferred. Non-alpha output flattens the letterbox. |
 | `crop=WxH` | ✅ Supported | `CropGuided(W, H, guide: focus)`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. Pixel **and** relative (`p` / `s` → `{:ratio}`) dimensions, resolved against the running image at execution time. |
-| `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; resets focus → center. Both axes must be explicit (an omitted axis is rejected). Pixel **and** relative dimensions/coordinates; zero-based coordinates (`@0x0`) supported. |
-| `focus=<anchor>` | ✅ Supported | One of the eight anchors; sets the current guide for the next `cover` / `crop`; emits no operation. |
-| `focus=<coords>` (relative `p` / `s`) | ✅ Supported | A relative coordinate is a scale-invariant fraction → `{:focal, {:ratio}, {:ratio}}` guide for the next `cover` / `crop`; emits no operation. An **out-of-range** relative focus (a ratio > 1, e.g. `150p`) is an out-of-image focal point and is rejected **at the parser**, before any source fetch (the plan-construction gate has no upper bound, so it would otherwise fail only late in crop after decode). A ratio of exactly 1 (`100p`) is an in-range edge/corner focus. |
-| `focus=<coords>` (bare pixel) | 🚫 Rejected | Pixel-coordinate focus is **deferred** ([#321](https://github.com/hlindset/image_pipe/issues/321)): unlike a relative fraction it is not scale-invariant, so it needs running-dim-at-focus-position resolution into a focal ratio (plus an EXIF-orientation-frame interaction). |
+| `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; resets the carried focus to the crop-result centre (recovers from any prior focus). Both axes must be explicit (an omitted axis is rejected). Pixel **and** relative dimensions/coordinates; zero-based coordinates (`@0x0`) supported. |
+| `focus=<anchor>` | ✅ Supported | One of the eight anchors, resolved at its chain position to a concrete point and carried as `State.focus` for the following `cover` / `crop`; emits a positional `SetFocus` (no pixel operation). |
+| `focus=<coords>` (relative `p` / `s`) | ✅ Supported | A relative coordinate resolves against the running frame at its chain position into a carried `State.focus` point; emits a positional `SetFocus` (no pixel operation). An **out-of-range** relative focus (a ratio > 1, e.g. `150p`) is **clamped to the far edge** at resolution — matching live TwicPics — not rejected. A ratio of exactly 1 (`100p`) is the edge/corner. |
+| `focus=<coords>` (bare pixel) | ✅ Supported | Pixel-coordinate focus ([#321](https://github.com/hlindset/image_pipe/issues/321)) resolves against the running frame at its chain position (rescaled by any shrink-on-load) into a carried `State.focus` point; emits a positional `SetFocus` (no pixel operation). Mixed-unit pairs (`100x50p`) are supported. Positive out-of-bounds clamps to the far edge; negative coordinates are rejected before any source fetch. |
 | `focus=auto` | ✅ Supported | Content-aware subject focus → the `{:smart, :face_assist}` guide for the next `cover` / `crop`; emits no operation. **Diverges (behavioral):** TwicPics leaves `auto` unspecified ("chosen automagically" — no documented algorithm; its explicit object detection lives in the separate `refit*` family). ImagePipe approximates it with libvips attention saliency blended toward detected faces (~0.7), the same engine as imgproxy `g:sm` with face detection. Falls back to plain attention (`VIPS_INTERESTING_ATTENTION`) when no detector is configured, so detector-less hosts get pure saliency. |
 | `focus=center` | 🚫 Rejected | `center` is not a TwicPics anchor literal — it is only the default focus. Rejected as a literal in v1 for fidelity; candidate lenient extension later. |
 | `zoom=N` | 🚫 Rejected | Deferred; `Resize` already has `zoom_x` / `zoom_y` so a fast follow is cheap. |
@@ -101,6 +101,28 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | `download` | ⭕ Missing | Forces browser download; `Response` disposition could model it later. |
 | `noop` | ⭕ Missing | Pass-through; deferred. |
 | `duration` / `from` / `to` | 🛑 Out of scope | Video slicing. ImagePipe treats video as out of scope. |
+
+### Focus state (carried)
+
+TwicPics carries the focus as **image state transformed with the pixels**, not as a
+value baked onto the consuming op (confirmed by black-box probing of live TwicPics
+— see `docs/twicpics_porting_reference.md` → "Focus state", `tools/twicpics_focus_probe.exs`).
+ImagePipe models this faithfully:
+
+- A `focus` segment emits a positional `ImagePipe.Plan.Operation.SetFocus` that
+  resolves its operand (anchor / literal px / relative `p`/`s`, including mixed
+  pairs) **once**, against the running frame at its chain position, into an
+  exact-rational point stored as `ImagePipe.Transform.State.focus`.
+- Each geometry **transformer** (`resize`/`contain`, `cover`'s scale, `inside`'s fit
+  + letterbox, the EXIF/orientation flush) applies its own realized affine to the
+  carried point; **consumers** (`cover`, `crop`) read it via the `:carried` gravity
+  and normalize it to a focal point at the libvips boundary (the only rounding
+  point). The point persists across multiple consumers until a `crop=…@XxY` reset.
+- This is order-sensitive (focus resolves against the frame at its position) and
+  carries faithfully through EXIF-oriented sources. `focus=auto` stays a
+  consumer-resolved smart-gravity mode (not a carried point). `zoom`/`turn`/`flip`
+  are focus consumers/transformers too but their TwicPics segments are deferred
+  (above), so they compose with this model once they land.
 
 ## Output and encoding
 

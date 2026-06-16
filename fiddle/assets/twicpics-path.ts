@@ -27,15 +27,10 @@ export type TwicResizeUnit = "px" | "p" | "s" | "auto";
 export type TwicDim = { unit: TwicResizeUnit; value: number };
 
 // A TwicPics length with a unit suffix: px (bare number), p (percent), s (scale).
-// Used by crop W/H (strictly > 0), crop origin coordinates (>= 0), and — without
-// the "px" member — by relative coordinate focus (the parser rejects bare-pixel
-// focus, so the UI must never emit it).
+// Used by crop W/H (strictly > 0), crop origin coordinates (>= 0), and coordinate
+// focus (>= 0; px / p / s, resolved against the running frame at execution).
 export type TwicLenUnit = "px" | "p" | "s";
 export type TwicLen = { unit: TwicLenUnit; value: number };
-// Coordinate focus accepts relative units only (p/s); a bare-pixel focus is
-// parser-rejected.
-export type TwicRelUnit = "p" | "s";
-export type TwicRelLen = { unit: TwicRelUnit; value: number };
 
 export type TwicCropOrigin = { x: TwicLen; y: TwicLen } | null;
 
@@ -56,7 +51,7 @@ export type TransformStep =
   | { type: "inside"; id: string; mode: "ratio"; w: number; h: number }
   | { type: "crop"; id: string; w: TwicLen; h: TwicLen; origin: TwicCropOrigin }
   | { type: "focus"; id: string; mode: "anchor"; anchor: TwicAnchor }
-  | { type: "focus"; id: string; mode: "coord"; x: TwicRelLen; y: TwicRelLen }
+  | { type: "focus"; id: string; mode: "coord"; x: TwicLen; y: TwicLen }
   | { type: "focus"; id: string; mode: "auto" };
 
 export type TransformType = TransformStep["type"];
@@ -374,21 +369,6 @@ function parseLenPair(args: string, allowZero: boolean): { x: TwicLen; y: TwicLe
   return x === null || y === null ? null : { x, y };
 }
 
-// A relative (p/s) focus coordinate. Bare-pixel focus is rejected by the parser,
-// and the in-range guard mirrors the plan-builder's `focal_ratio` (ratio <= 1,
-// i.e. <= 100% / <= 1s).
-function parseRelLen(token: string): TwicRelLen | null {
-  if (token.endsWith("p")) {
-    const n = parseNonNegativeNumber(token.slice(0, -1));
-    return n === null || n > 100 ? null : { unit: "p", value: n };
-  }
-  if (token.endsWith("s")) {
-    const n = parseNonNegativeNumber(token.slice(0, -1));
-    return n === null || n > 1 ? null : { unit: "s", value: n };
-  }
-  return null; // bare-pixel focus coordinates are not supported
-}
-
 function parseResize(args: string, id: string): TransformStep | null {
   if (args.includes(":")) return null; // ratio resize is rejected by the parser
   const pair = parseDimPair(args);
@@ -444,11 +424,10 @@ function parseFocus(args: string, id: string): TransformStep | null {
   if (anchorSet.has(args)) {
     return { type: "focus", id, mode: "anchor", anchor: args as TwicAnchor };
   }
-  const parts = args.split("x");
-  if (parts.length !== 2) return null;
-  const x = parseRelLen(parts[0]!);
-  const y = parseRelLen(parts[1]!);
-  return x === null || y === null ? null : { type: "focus", id, mode: "coord", x, y };
+  // Coordinate focus: px / p / s, zero-based (positions allow 0). Out-of-range
+  // positives are clamped server-side, so the parser does not gate the magnitude.
+  const pair = parseLenPair(args, true);
+  return pair === null ? null : { type: "focus", id, mode: "coord", x: pair.x, y: pair.y };
 }
 
 function parseStep(name: string, args: string): TransformStep | null {
