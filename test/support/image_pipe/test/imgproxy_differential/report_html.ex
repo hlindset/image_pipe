@@ -8,10 +8,10 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
   produced by `Mix.Tasks.Imgproxy.GenReport`.
   """
 
-  use Boundary, top_level?: true, deps: []
+  use Boundary, top_level?: true, deps: [ImagePipe.Test.Differential.ReportShell]
 
-  @slider_css "https://cdn.jsdelivr.net/npm/img-comparison-slider@8/dist/styles.css"
-  @slider_js "https://cdn.jsdelivr.net/npm/img-comparison-slider@8/dist/index.js"
+  alias ImagePipe.Test.Differential.ReportShell
+
   @fonts "https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&display=swap"
   @issue_base "https://github.com/hlindset/image_pipe/issues/"
 
@@ -19,28 +19,19 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
   def render(%{provenance: prov, cards: cards}) do
     ordered = Enum.sort_by(cards, fn c -> if(c.flagged?, do: 0, else: 1) end)
 
-    """
-    <!doctype html>
-    <html lang="en">
-    <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>imgproxy differential — visual diff</title>
-    <link rel="stylesheet" href="#{@slider_css}">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="stylesheet" href="#{@fonts}">
-    <script defer src="#{@slider_js}"></script>
-    <style>#{css()}</style>
-    </head>
-    <body data-heat="banded" data-status="all" data-type="all">
-    #{header(prov, cards)}
-    <main class="cards">
-    #{Enum.map_join(ordered, "\n", &card/1)}
-    </main>
-    #{script()}
-    </body>
-    </html>
-    """
+    head_extras =
+      "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n" <>
+        "<link rel=\"stylesheet\" href=\"#{@fonts}\">\n"
+
+    ReportShell.page(%{
+      title: "imgproxy differential — visual diff",
+      css: css(),
+      script: script(),
+      header: header(prov, cards),
+      cards: Enum.map_join(ordered, "\n", &card/1),
+      head_extras: head_extras,
+      body_attrs: ~s| data-heat="banded"|
+    })
   end
 
   defp header(prov, cards) do
@@ -200,14 +191,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
   defp fmt(nil), do: ""
   defp fmt({w, h}), do: "#{w}×#{h}"
 
-  defp esc(value) do
-    value
-    |> to_string()
-    |> String.replace("&", "&amp;")
-    |> String.replace("<", "&lt;")
-    |> String.replace(">", "&gt;")
-    |> String.replace("\"", "&quot;")
-  end
+  defp esc(value), do: ReportShell.esc(value)
 
   defp script do
     """
