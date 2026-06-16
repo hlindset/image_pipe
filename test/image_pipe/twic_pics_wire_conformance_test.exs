@@ -101,10 +101,10 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
 
   test "relative coordinate focus steers the next cover" do
     # focus=50px50p splits on x -> ["50p","50p"] -> x=50%, y=50% (no `px` unit; the
-    # `x` is the separator), a {:focal, {:ratio,1,2}, {:ratio,1,2}} guide. Covering
-    # 100x100 from the 4000x2667 source scales to ~150x100, so only the horizontal
-    # axis has crop slack; a 50% focal x lands the window mid-range (left=25),
-    # distinct from the left-clamped corner anchors.
+    # `x` is the separator), carried as a 50% focal point. Covering 100x100 from the
+    # 4000x2667 source scales to ~150x100, so only the horizontal axis has crop
+    # slack; a 50% focal x lands the window mid-range, distinct from the
+    # left-clamped corner anchors.
     focal = call("/images/beach.jpg?twic=v1/focus=50px50p/cover=100x100/output=jpeg")
     topleft = call("/images/beach.jpg?twic=v1/focus=top-left/cover=100x100/output=jpeg")
     bottomright = call("/images/beach.jpg?twic=v1/focus=bottom-right/cover=100x100/output=jpeg")
@@ -116,7 +116,32 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     refute average(focal) == average(bottomright)
   end
 
-  test "out-of-range relative focus is rejected before source fetch" do
+  test "bare-pixel coordinate focus steers the next cover (#321)" do
+    # The 4000-wide source covers 100x100 with horizontal crop slack only; a
+    # mid-source px focus lands the window between the opposing corner anchors, so
+    # it differs from both. (Bare-pixel focus is supported, not rejected.)
+    focal = call("/images/beach.jpg?twic=v1/focus=2000x1334/cover=100x100/output=jpeg")
+    topleft = call("/images/beach.jpg?twic=v1/focus=top-left/cover=100x100/output=jpeg")
+    bottomright = call("/images/beach.jpg?twic=v1/focus=bottom-right/cover=100x100/output=jpeg")
+
+    assert dimensions(focal) == {100, 100}
+    refute average(focal) == average(topleft)
+    refute average(focal) == average(bottomright)
+  end
+
+  test "relative focus > 1 clamps to the far edge rather than 4xx'ing (#321)" do
+    # focus=150px150p -> both 150%; clamps to the far edge. The cover has only
+    # horizontal crop slack, so the clamped focus matches the right/bottom-right
+    # anchor exactly (the vertical axis has no slack).
+    clamped = call("/images/beach.jpg?twic=v1/focus=150px150p/cover=100x100/output=jpeg")
+    corner = call("/images/beach.jpg?twic=v1/focus=bottom-right/cover=100x100/output=jpeg")
+
+    assert clamped.status == 200
+    assert dimensions(clamped) == {100, 100}
+    assert average(clamped) == average(corner)
+  end
+
+  test "negative focus is rejected before any source fetch (#321)" do
     opts =
       Keyword.put(@opts, :sources,
         path:
@@ -124,24 +149,32 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
            root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
       )
 
-    # focus=150px50p -> ["150p","50p"] -> x ratio 3/2 (>100%) is an out-of-image
-    # focal point; the parser rejects it before any source resolution.
-    conn = call("/images/beach.jpg?twic=v1/focus=150px50p", opts)
+    conn = call("/images/beach.jpg?twic=v1/focus=-50x-50/cover=100x100", opts)
     assert conn.status == 400
   end
 
-  test "bare-pixel coordinate focus is rejected (deferred)" do
-    opts =
-      Keyword.put(@opts, :sources,
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-      )
+  test "focus resolves against the running frame at its chain position (order-sensitive) (#321)" do
+    # resize=50p first -> the focus x=1000 is 50% of the 2000-wide resized frame;
+    # focus first -> x=1000 is 25% of the 4000-wide source, carried through the
+    # resize. Different source content, so the cover crops differ.
+    after_resize = call("/images/beach.jpg?twic=v1/resize=50p/focus=1000x500/cover=100x100/output=jpeg")
+    before_resize = call("/images/beach.jpg?twic=v1/focus=1000x500/resize=50p/cover=100x100/output=jpeg")
 
-    # focus=20x10 -> ["20","10"] -> both bare px; bare-pixel focus needs
-    # running-dim-at-focus-position resolution and is deferred -> rejected.
-    conn = call("/images/beach.jpg?twic=v1/focus=20x10", opts)
-    assert conn.status == 400
+    assert dimensions(after_resize) == {100, 100}
+    assert dimensions(before_resize) == {100, 100}
+    refute average(after_resize) == average(before_resize)
+  end
+
+  test "a carried focus steers a SECOND consumer, not only the cover (#321)" do
+    # Both steer the cover identically; the carried variant's trailing crop follows
+    # the focus into the cover result, while the @-coordinate variant pins a fixed
+    # centred region there. They differ only if the focus carries into the 2nd crop.
+    carried = call("/images/beach.jpg?twic=v1/focus=top-left/cover=200x200/crop=120x120/output=jpeg")
+    fixed = call("/images/beach.jpg?twic=v1/focus=top-left/cover=200x200/crop=120x120@40x40/output=jpeg")
+
+    assert dimensions(carried) == {120, 120}
+    assert dimensions(fixed) == {120, 120}
+    refute average(carried) == average(fixed)
   end
 
   test "focus=auto steers the cover crop (smart gravity, differs from centered baseline)" do
@@ -166,6 +199,23 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
       )
 
     assert call("/images/beach.jpg?twic=v1/focus=center", opts).status == 400
+  end
+
+  test "focus resolves in the display frame of an EXIF-oriented source (#321)" do
+    # oriented.jpg: a 40x80 portrait with a red top-left square, EXIF orientation 6
+    # (90 CW) -> displays 80x40 with the red block on the RIGHT half. A display-frame
+    # focus on the right lands on red; the left lands on white. cover=20x20 leaves
+    # horizontal crop slack, so the focus axis is decisive.
+    right = call("/images/oriented.jpg?twic=v1/focus=72x20/cover=20x20/output=png", exif_opts())
+    left = call("/images/oriented.jpg?twic=v1/focus=8x20/cover=20x20/output=png", exif_opts())
+
+    assert dimensions(right) == {20, 20}
+    assert dimensions(left) == {20, 20}
+    # White ([255,255,255]) has a high green channel; red ([255,0,0]) a low one, so
+    # the right (red) focus is distinctly less green than the left (white) focus.
+    [_r1, g_right, _b1 | _] = average(right)
+    [_r2, g_left, _b2 | _] = average(left)
+    assert g_right < g_left
   end
 
   test "cover ratio crops to the target ratio without scaling" do
