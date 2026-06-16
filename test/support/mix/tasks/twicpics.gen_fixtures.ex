@@ -45,17 +45,22 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     # triaged cases; only the conformance COMPARISON is quarantined, not the bake.
     cases = Constellations.all()
 
-    entries =
-      cases
-      |> Enum.reduce(%{}, fn c, acc ->
-        Map.put(acc, c.id, bake_case(c, sources, prior.entries[c.id], opts[:force], only))
+    {entries, baked_count} =
+      Enum.reduce(cases, {%{}, 0}, fn c, {acc, n} ->
+        {entry, baked?} = bake_case(c, sources, prior.entries[c.id], opts[:force], only)
+        {Map.put(acc, c.id, entry), n + if(baked?, do: 1, else: 0)}
       end)
 
     prune_orphans!(entries)
-    manifest = %{twicpics_api: "v1", baked_at: timestamp(), sources: sources, entries: entries}
+
+    # Keep a no-op re-bake idempotent: only stamp a new `baked_at` when something was
+    # actually fetched. Otherwise the timestamp (and REPORT) would churn git on every
+    # incremental run that skips everything.
+    baked_at = if baked_count > 0, do: timestamp(), else: prior.baked_at || timestamp()
+    manifest = %{twicpics_api: "v1", baked_at: baked_at, sources: sources, entries: entries}
     Manifest.write!(@manifest_path, manifest)
     write_report!(manifest)
-    Mix.shell().info("Baked #{map_size(entries)} cases (#{@manifest_path}).")
+    Mix.shell().info("Baked #{baked_count}/#{map_size(entries)} cases (#{@manifest_path}).")
   end
 
   defp validate_parses!() do
@@ -89,7 +94,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
       :keep ->
         Mix.shell().info("skip  #{c.id} (unchanged)")
         # prior is non-nil here (decide only returns :keep with a prior entry).
-        %{prior | authored_sha256: Manifest.authored_sha256(c)}
+        {%{prior | authored_sha256: Manifest.authored_sha256(c)}, false}
 
       :bake ->
         Mix.shell().info("bake  #{c.id}")
@@ -108,15 +113,15 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
             )
         end
 
-        %{
-          authored_sha256: Manifest.authored_sha256(c),
-          oracle_signature: sig,
-          fixture_filename: fixture,
-          fixture_sha256: Manifest.file_sha256(path),
-          dims: rec.dims,
-          bands: rec.bands,
-          cells: rec.cells
-        }
+        {%{
+           authored_sha256: Manifest.authored_sha256(c),
+           oracle_signature: sig,
+           fixture_filename: fixture,
+           fixture_sha256: Manifest.file_sha256(path),
+           dims: rec.dims,
+           bands: rec.bands,
+           cells: rec.cells
+         }, true}
     end
   end
 
