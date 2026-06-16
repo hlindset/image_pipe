@@ -197,6 +197,13 @@ steers to the same content regardless of the geometry between. Confirmed:
   reset. The only thing that redefines it is another `focus` segment, which
   resolves against the frame at *its* position — so the identical `focus=75x75`
   yields a different source point with `resize` before vs after it.
+- Out-of-bounds: a coordinate **past the far edge clamps to the edge** — `focus=500x500`
+  on a 400×400 source resolves to the bottom-right, and a relative `focus=150p`
+  (150%) clamps to the edge rather than being rejected. A **negative** coordinate
+  is **rejected** (HTTP error). Coordinates are 0-based, so the last pixel of a
+  400-wide image is `399`. (Because every consumer centers on the focus, padding
+  moves it inward, and scale is proportional, no operation can push an in-bounds
+  focus out of frame — OOB only arises at the `focus` segment itself.)
 
 The practical consequence for a port: model the focus as a point carried in
 image state and apply each geometry op's own transform to it (scale → multiply,

@@ -86,7 +86,35 @@ defmodule TwicFocusProbe do
       expect: {1, 1}
     },
     # focus first => 75x75 is in the 400x400 source => source (75,75) = cell (0,0), carried
-    %{name: "noncommute focus/resize", chain: "focus=75x75/resize=50p/crop=12x12", expect: {0, 0}}
+    %{
+      name: "noncommute focus/resize",
+      chain: "focus=75x75/resize=50p/crop=12x12",
+      expect: {0, 0}
+    },
+
+    # --- out-of-bounds (CONFIRMED against live TwicPics). Source is 400x400, cells
+    # 100px, so cell (3,3) is the bottom-right corner.
+    # CONFIRMED: a positive coordinate past the far edge CLAMPS to the edge.
+    %{name: "oob px beyond extent", chain: "focus=500x500/crop=12x12", expect: {3, 3}},
+    # CONFIRMED: relative >100% also clamps (NOT rejected) — our parser currently
+    # rejects ratio>1, which is the divergence #321 fixes (clamp instead).
+    %{name: "oob relative >100%", chain: "focus=150px150p/crop=12x12", expect: {3, 3}},
+    # px on the very last pixel (edge, in-bounds) — 0-based corner convention.
+    %{name: "edge last pixel", chain: "focus=399x399/crop=12x12", expect: {3, 3}},
+    # CONFIRMED: a negative coordinate is REJECTED (HTTP 404). `expect` can't encode a
+    # reject, so this row shows "??? {:http, 404}" — that IS the expected signal.
+    %{name: "oob negative", chain: "focus=-50x-50/crop=12x12", expect: {0, 0}},
+    # reset recovers from an OOB focus: crop@coords resets to the region centre (150,150)
+    # = cell (1,1), regardless of the prior OOB focus.
+    %{
+      name: "reset after oob",
+      chain: "focus=500x500/crop=100x100@100x100/crop=12x12",
+      expect: {1, 1}
+    }
+    # NOT probed (structurally impossible in TwicPics — see notes): focus "removed by a
+    # crop" or "moved OOB by a transform". Every consumer centres on the focus, pad moves
+    # it inward, scale is proportional, turn/flip stay in-frame — so no op ejects an
+    # in-bounds focus. OOB only ever originates at set time.
   ]
 
   # ---- entrypoint ---------------------------------------------------------
