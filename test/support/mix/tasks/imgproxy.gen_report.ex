@@ -15,6 +15,8 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
+  alias ImagePipe.Test.Differential.Heatmap
+
   alias ImagePipe.Test.ImgproxyDifferential.{
     Constellations,
     Harness,
@@ -24,13 +26,11 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
     ReportHtml
   }
 
-  alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
   @base "test/support/image_pipe/test/imgproxy_differential"
   @manifest_path "#{@base}/manifest.exs"
   @default_out "#{@base}/report.html"
-  @raw_amp 8
 
   @impl Mix.Task
   def run(args) do
@@ -182,15 +182,13 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
     Map.merge(card, %{
       imgproxy_img: data_uri("image/png", File.read!(Harness.fixture_path(entry))),
       pipe_img: data_uri(content_type, body),
-      heat_banded: data_uri("image/png", png(banded_heatmap(a, b, threshold))),
-      heat_raw: data_uri("image/png", png(raw_heatmap(a, b))),
-      heat_normalized: data_uri("image/png", png(normalized_heatmap(a, b)))
+      heat_banded: data_uri("image/png", Heatmap.png(Heatmap.banded_heatmap(a, b, threshold))),
+      heat_raw: data_uri("image/png", Heatmap.png(Heatmap.raw_heatmap(a, b))),
+      heat_normalized: data_uri("image/png", Heatmap.png(Heatmap.normalized_heatmap(a, b)))
     })
   end
 
   defp data_uri(content_type, bytes), do: "data:#{content_type};base64,#{Base.encode64(bytes)}"
-
-  defp png(image), do: Image.write!(image, :memory, suffix: ".png")
 
   # Align to a common 3-band RGB frame so the diff never raises on band-count
   # mismatch (RGB vs RGBA, e.g. alpha_resize / background_alpha). Visualizes RGB
@@ -201,59 +199,6 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
       n when n > 3 -> ok!(Operation.extract_band(image, 0, n: 3))
       _ -> image
     end
-  end
-
-  # Banded: per-pixel max |Δ| across RGB → 256-entry LUT that dims pixels at/under
-  # the case's own threshold and ramps over-threshold pixels hot.
-  defp banded_heatmap(a, b, threshold) do
-    delta = abs_diff(a, b)
-    maxd = band_max(delta)
-    idx = ok!(Operation.cast(maxd, :VIPS_FORMAT_UCHAR))
-    ok!(Operation.maplut(idx, heat_lut(threshold)))
-  end
-
-  # Raw: |Δ| amplified for visibility, clamped to uchar (no threshold).
-  defp raw_heatmap(a, b) do
-    delta = abs_diff(a, b)
-    amped = ok!(Operation.linear(delta, [@raw_amp * 1.0], [0.0]))
-    ok!(Operation.cast(amped, :VIPS_FORMAT_UCHAR))
-  end
-
-  # Normalized: per-pixel max |Δ| contrast-stretched to THIS frame's own peak
-  # (`Operation.scale` maps min→0, max→255), so a diffuse, low-magnitude divergence
-  # (e.g. the scp0 colorspace case) fills the dynamic range and is visible where the
-  # banded/raw maps render near-black. Magnitudes are NOT comparable across cards —
-  # each is self-scaled. `scale` is safe on an all-equal frame (no divide-by-zero).
-  defp normalized_heatmap(a, b) do
-    delta = abs_diff(a, b)
-    maxd = band_max(delta)
-    idx = ok!(Operation.cast(ok!(Operation.scale(maxd)), :VIPS_FORMAT_UCHAR))
-    ok!(Operation.maplut(idx, heat_lut(0)))
-  end
-
-  # subtract promotes uchar→signed short (no wrap); abs makes it non-negative.
-  defp abs_diff(a, b), do: ok!(Operation.abs(ok!(Operation.subtract(a, b))))
-
-  defp band_max(delta) do
-    b0 = ok!(Operation.extract_band(delta, 0))
-    b1 = ok!(Operation.extract_band(delta, 1))
-    b2 = ok!(Operation.extract_band(delta, 2))
-    ok!(Operation.maxpair(ok!(Operation.maxpair(b0, b1)), b2))
-  end
-
-  # 256×1 3-band uchar LUT: indices ≤ threshold → dim; above → cool→hot ramp.
-  defp heat_lut(threshold) do
-    bin =
-      for i <- 0..255, into: <<>> do
-        if i <= threshold do
-          <<24, 24, 28>>
-        else
-          t = (i - threshold) / max(255 - threshold, 1)
-          <<round(60 + t * 195), round(20 + t * 60), round(40 - t * 40)>>
-        end
-      end
-
-    ok!(VixImage.new_from_binary(bin, 256, 1, 3, :VIPS_FORMAT_UCHAR))
   end
 
   defp ok!({:ok, value}), do: value
