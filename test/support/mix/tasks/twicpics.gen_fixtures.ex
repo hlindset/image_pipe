@@ -180,11 +180,14 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
 
   # --- sources: reuse recorded hosted URL + verify remote matches committed bytes;
   # upload to catbox only when no hosted URL is recorded. ---
-  defp resolve_sources(_prior) do
+  defp resolve_sources(prior) do
     Map.new(SourceInventory.all(), fn entry ->
       path = Path.join(@sources_dir, entry.file)
       committed = Manifest.file_sha256(path)
-      hosted_url = entry.hosted_url || upload_catbox!(path, entry)
+      # Prefer the inventory's pinned URL; else reuse a URL recorded by a prior bake
+      # (so an uploaded source isn't re-uploaded each run); else upload once.
+      recorded_url = get_in(prior, [entry.file, :hosted_url])
+      hosted_url = entry.hosted_url || recorded_url || upload_catbox!(path, entry)
       verify_remote!(entry, committed)
       {entry.file, %{sha256: committed, hosted_url: hosted_url}}
     end)

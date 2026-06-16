@@ -157,8 +157,12 @@ inputs.
 3. The bake downloads the bare hosted source bytes and commits them under
    `sources/`, recording sha256 + hosted URL. ImagePipe renders against these
    committed bytes via a local source plug (same as the imgproxy harness).
-4. Determinism pins on every request: `output=png`, `dpr=1`, no path-default
-   manipulation (the probe's `output=png/dpr=1` suffix). The grid's 16
+4. Determinism pins on every request: `output=png`, no path-default
+   manipulation. (`dpr=1` from the probe's suffix was dropped during
+   implementation: the live default DPR is already 1× — verified byte-identical
+   with and without `dpr=1` — and ImagePipe's parser doesn't implement `dpr`, so
+   pinning it would only break the shared render path with no determinism gain.)
+   The grid's 16
    well-separated colours survive PNG palette quantization intact, and nearest-cell
    decode absorbs any residual encoder noise, so no `truecolor` pin is required.
 
