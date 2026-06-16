@@ -2,6 +2,9 @@ defmodule ImagePipe.Transform.FocusTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Parser.TwicPics.PlanBuilder
+  alias ImagePipe.Plan
+  alias ImagePipe.Plan.Operation.CropGuided
+  alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Focus
@@ -208,6 +211,53 @@ defmodule ImagePipe.Transform.FocusTest do
                {"crop", "100x100@100x100"},
                {"crop", "12x12"}
              ]) == {1, 1}
+    end
+  end
+
+  describe "nil-focus carried crop equals a centred crop under pending orientation" do
+    # A nil State.focus makes a :carried crop fall back to the centre anchor, so it
+    # MUST be pixel-identical to an explicit :center crop under any pending EXIF
+    # orientation. This is the invariant `compensate_crop(:carried)` preserves via
+    # center_bias (Orientation.center_discard_sides) — dropping it shifts the kept
+    # pixel by one on an odd-extent axis the flush reverses (regressed when the
+    # TwicPics default guide moved from :center to :carried; caught in PR review).
+
+    # A fine, per-pixel-distinct pattern so a 1px discard difference is visible
+    # (the 100px-cell grid above would hide it).
+    defp fine_pattern(w, h) do
+      for x <- 0..(w - 1), y <- 0..(h - 1), reduce: Image.new!(w, h, color: [0, 0, 0]) do
+        acc -> Image.Draw.rect!(acc, x, y, 1, 1, color: [rem(x * 6, 256), rem(y * 3, 256), 200])
+      end
+    end
+
+    defp guided_crop_bytes(image, orient, guide, {w, h}) do
+      plan = %Plan{
+        source: %Source.Path{segments: ["x.png"]},
+        pipelines: [
+          %Pipeline{operations: [%CropGuided{width: {:px, w}, height: {:px, h}, guide: guide}]}
+        ],
+        output: nil,
+        auto_rotate: true
+      }
+
+      {:ok, state} =
+        PlanExecutor.execute(plan, %State{image: Image.set_orientation!(image, orient)},
+          seed_orientation: true
+        )
+
+      Image.write!(state.image, :memory, suffix: ".png")
+    end
+
+    test "carried (nil focus) == center across axis-reversing orientations and odd extents" do
+      image = fine_pattern(41, 81)
+
+      # orientations 2/4/6/7 reverse an axis (or quarter-turn) where center_bias
+      # bites; odd-extent crops give the centre an extra pixel to discard.
+      for orient <- [2, 4, 6, 7], size <- [{20, 30}, {21, 31}, {20, 31}, {21, 30}] do
+        carried = guided_crop_bytes(image, orient, :carried, size)
+        centered = guided_crop_bytes(image, orient, :center, size)
+        assert carried == centered, "orient=#{orient} crop=#{inspect(size)} diverged"
+      end
     end
   end
 
