@@ -230,7 +230,7 @@ defmodule ImagePipe.Transform.FocusTest do
       end
     end
 
-    defp guided_crop_bytes(image, orient, guide, {w, h}) do
+    defp guided_crop_image(image, orient, guide, {w, h}) do
       plan = %Plan{
         source: %Source.Path{segments: ["x.png"]},
         pipelines: [
@@ -245,7 +245,17 @@ defmodule ImagePipe.Transform.FocusTest do
           seed_orientation: true
         )
 
-      Image.write!(state.image, :memory, suffix: ".png")
+      state.image
+    end
+
+    defp assert_images_equal(left, right, context) do
+      assert {Image.width(left), Image.height(left)} == {Image.width(right), Image.height(right)},
+             "#{context}: dimensions diverged"
+
+      for x <- 0..(Image.width(left) - 1), y <- 0..(Image.height(left) - 1) do
+        assert Image.get_pixel!(left, x, y) == Image.get_pixel!(right, x, y),
+               "#{context}: pixel mismatch at (#{x},#{y})"
+      end
     end
 
     test "carried (nil focus) == center across axis-reversing orientations and odd extents" do
@@ -254,9 +264,9 @@ defmodule ImagePipe.Transform.FocusTest do
       # orientations 2/4/6/7 reverse an axis (or quarter-turn) where center_bias
       # bites; odd-extent crops give the centre an extra pixel to discard.
       for orient <- [2, 4, 6, 7], size <- [{20, 30}, {21, 31}, {20, 31}, {21, 30}] do
-        carried = guided_crop_bytes(image, orient, :carried, size)
-        centered = guided_crop_bytes(image, orient, :center, size)
-        assert carried == centered, "orient=#{orient} crop=#{inspect(size)} diverged"
+        carried = guided_crop_image(image, orient, :carried, size)
+        centered = guided_crop_image(image, orient, :center, size)
+        assert_images_equal(carried, centered, "orient=#{orient} crop=#{inspect(size)}")
       end
     end
   end
