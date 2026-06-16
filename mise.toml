@@ -31,6 +31,11 @@ run = [
   "mix compile --force",
 ]
 
+[tasks."twic:bake"]
+description = "Bake TwicPics differential fixtures from the live hosted API (network)"
+env = { MIX_ENV = "test" }
+run = ["mix twicpics.gen_fixtures"]
+
 [tasks.precommit]
 description = "Elixir library checks: format, compile (warnings as errors), credo, test"
 run = [

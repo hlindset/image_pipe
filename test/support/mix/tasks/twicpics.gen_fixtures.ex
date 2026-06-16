@@ -1,0 +1,232 @@
+defmodule Mix.Tasks.Twicpics.GenFixtures do
+  @shortdoc "Bake TwicPics differential fixtures from the live hosted API (network)"
+  @moduledoc """
+  Incremental bake against live hosted TwicPics. For each constellation, fetches
+  the oracle output ONLY when new / signature-changed / PNG missing-or-corrupt;
+  unchanged cases are skipped with zero requests. Uploads any source lacking a
+  recorded hosted URL to catbox. Prunes orphaned entries + PNGs. Writes
+  `manifest.exs`, reference PNGs, and `REPORT.md`. Requires network; never on the
+  default test lane.
+
+      mise run twic:bake                 # incremental
+      mix twicpics.gen_fixtures --force  # re-bake all
+      mix twicpics.gen_fixtures --only cover_square,inside_wide_lr
+  """
+  use Mix.Task
+  use Boundary, top_level?: true, check: [out: false]
+
+  alias ImagePipe.Test.TwicpicsDifferential.{Constellations, Manifest, SourceInventory, StructureCompare}
+
+  @base "test/support/image_pipe/test/twicpics_differential"
+  @sources_dir "#{@base}/sources"
+  @fixtures_dir "#{@base}/fixtures"
+  @manifest_path "#{@base}/manifest.exs"
+  @catbox "https://catbox.moe/user/api.php"
+
+  @impl Mix.Task
+  def run(args) do
+    {opts, _, _} = OptionParser.parse(args, strict: [force: :boolean, only: :string])
+    {:ok, _} = Application.ensure_all_started(:image_pipe)
+    {:ok, _} = Application.ensure_all_started(:req)
+    File.mkdir_p!(@fixtures_dir)
+
+    # Fail fast: a chain that doesn't parse must abort BEFORE any live oracle call
+    # (network is the expensive/rate-limited resource here) — imgproxy's pre-bake
+    # parse gate, adapted. Triaged cases (known parser gaps) are skipped.
+    validate_parses!()
+
+    only = opts[:only] && String.split(opts[:only], ",", trim: true) |> MapSet.new()
+    prior = if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: empty_manifest()
+
+    sources = resolve_sources(prior.sources)
+    cases = Enum.filter(Constellations.all(), &is_nil(&1[:triage]))
+
+    entries =
+      cases
+      |> Enum.reduce(%{}, fn c, acc ->
+        Map.put(acc, c.id, bake_case(c, sources, prior.entries[c.id], opts[:force], only))
+      end)
+
+    prune_orphans!(entries)
+    manifest = %{twicpics_api: "v1", baked_at: timestamp(), sources: sources, entries: entries}
+    Manifest.write!(@manifest_path, manifest)
+    write_report!(manifest)
+    Mix.shell().info("Baked #{map_size(entries)} cases (#{@manifest_path}).")
+  end
+
+  defp validate_parses!() do
+    import Plug.Test, only: [conn: 2]
+
+    failures =
+      Constellations.all()
+      |> Enum.reject(& &1[:triage])
+      |> Enum.flat_map(fn c ->
+        case ImagePipe.Parser.TwicPics.parse(conn(:get, Constellations.twicpics_path(c)), []) do
+          {:ok, _} -> []
+          other -> [{c.id, c.chain, other}]
+        end
+      end)
+
+    if failures != [] do
+      detail = Enum.map_join(failures, "\n", fn {id, ch, r} -> "  #{id}: #{ch} → #{inspect(r)}" end)
+      Mix.raise("parse gate: #{length(failures)} chain(s) don't parse — fix or triage:\n#{detail}")
+    end
+  end
+
+  # --- per-case ---
+  defp bake_case(c, sources, prior, force, only) do
+    src = sources[Constellations.source_file(c)]
+    grid = SourceInventory.grid(Constellations.source_file(c))
+    sig = Manifest.oracle_signature(%{chain: c.chain, suffix: Constellations.suffix(), source_sha256: src.sha256})
+    fixture = "#{c.id}.png"
+    path = Path.join(@fixtures_dir, fixture)
+
+    case decide(c, prior, sig, path, force, only) do
+      :keep ->
+        Mix.shell().info("skip  #{c.id} (unchanged)")
+        # prior is non-nil here (decide only returns :keep with a prior entry).
+        %{prior | authored_sha256: Manifest.authored_sha256(c)}
+
+      :bake ->
+        Mix.shell().info("bake  #{c.id}")
+        body = fetch_oracle!(c)
+        File.write!(path, body)
+        img = decode(body)
+        rec = StructureCompare.extract(img, grid)
+
+        case StructureCompare.low_confidence_samples(img, grid) do
+          [] ->
+            :ok
+
+          idx ->
+            Mix.shell().info(
+              "  ⚠ #{c.id}: low-confidence samples at #{inspect(idx)} — review margin (truecolor?)."
+            )
+        end
+
+        %{
+          authored_sha256: Manifest.authored_sha256(c),
+          oracle_signature: sig,
+          fixture_filename: fixture,
+          fixture_sha256: Manifest.file_sha256(path),
+          dims: rec.dims,
+          bands: rec.bands,
+          cells: rec.cells
+        }
+    end
+  end
+
+  # Pure-ish skip decision (the staleness check itself is Manifest.fresh?/3):
+  #   --force            → bake everything
+  #   --only, listed     → bake (explicit request)
+  #   --only, unlisted   → keep prior if present (no network), else bake (no prior to keep)
+  #   no flags, fresh    → keep
+  #   no flags, stale    → bake
+  defp decide(c, prior, sig, path, force, only) do
+    cond do
+      force -> :bake
+      only && MapSet.member?(only, c.id) -> :bake
+      only && not is_nil(prior) -> :keep
+      is_nil(only) and Manifest.fresh?(prior, sig, path) -> :keep
+      true -> :bake
+    end
+  end
+
+  defp fetch_oracle!(c) do
+    src = SourceInventory.all() |> Enum.find(&(&1.file == Constellations.source_file(c)))
+    url = "#{src.hosted_url}?twic=v1/#{c.chain}/#{Constellations.suffix()}"
+
+    case Req.get(url, decode_body: false, retry: :transient, max_retries: 3) do
+      {:ok, %{status: 200, body: body}} -> body
+      {:ok, %{status: s}} -> Mix.raise("#{c.id}: TwicPics returned #{s} for #{url}")
+      {:error, e} -> Mix.raise("#{c.id}: #{Exception.message(e)} for #{url}")
+    end
+  end
+
+  defp decode(body), do: Image.open!(body, access: :random, fail_on: :error)
+
+  # --- sources: reuse recorded hosted URL + verify remote matches committed bytes;
+  # upload to catbox only when no hosted URL is recorded. ---
+  defp resolve_sources(_prior) do
+    Map.new(SourceInventory.all(), fn entry ->
+      path = Path.join(@sources_dir, entry.file)
+      committed = Manifest.file_sha256(path)
+      hosted_url = entry.hosted_url || upload_catbox!(path, entry)
+      verify_remote!(entry, committed)
+      {entry.file, %{sha256: committed, hosted_url: hosted_url}}
+    end)
+  end
+
+  defp verify_remote!(%{source_bytes_url: nil}, _committed), do: :ok
+
+  defp verify_remote!(%{source_bytes_url: url} = entry, committed) do
+    case Req.get(url, decode_body: false, retry: :transient) do
+      {:ok, %{status: 200, body: body}} ->
+        remote = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+
+        if remote != committed do
+          Mix.raise(
+            "source #{entry.file}: hosted bytes (#{url}) differ from committed — re-upload or re-download."
+          )
+        end
+
+      other ->
+        Mix.raise("source #{entry.file}: could not verify hosted bytes (#{inspect(other)}).")
+    end
+  end
+
+  # Anonymous catbox upload → returns the file URL as plain text.
+  defp upload_catbox!(path, entry) do
+    form = [
+      reqtype: "fileupload",
+      fileToUpload: {File.read!(path), filename: entry.file, content_type: "image/png"}
+    ]
+
+    case Req.post(@catbox, form_multipart: form) do
+      {:ok, %{status: 200, body: body}} ->
+        id = body |> String.trim() |> Path.basename()
+        "https://imagepipe.twic.pics/#{id}"
+
+      other ->
+        Mix.raise("catbox upload failed for #{entry.file}: #{inspect(other)}")
+    end
+  end
+
+  defp prune_orphans!(entries) do
+    keep = entries |> Map.values() |> Enum.map(& &1.fixture_filename) |> MapSet.new()
+
+    @fixtures_dir
+    |> Path.join("*.png")
+    |> Path.wildcard()
+    |> Enum.reject(&MapSet.member?(keep, Path.basename(&1)))
+    |> Enum.each(fn orphan ->
+      Mix.shell().info("prune #{Path.basename(orphan)}")
+      File.rm!(orphan)
+    end)
+  end
+
+  defp empty_manifest, do: %{twicpics_api: "v1", baked_at: nil, sources: %{}, entries: %{}}
+  defp write_report!(manifest), do: File.write!("#{@base}/REPORT.md", report_md(manifest))
+
+  defp report_md(m) do
+    rows =
+      m.entries
+      |> Enum.sort_by(fn {id, _} -> id end)
+      |> Enum.map_join("\n", fn {id, e} ->
+        "| `#{id}` | #{elem(e.dims, 0)}×#{elem(e.dims, 1)} | #{e.bands} | #{cells_glyph(e.cells)} |"
+      end)
+
+    "# TwicPics differential — bake report\n\nBaked: #{m.baked_at}\n\n" <>
+      "| case | dims | bands | cell-map |\n|---|---|---|---|\n" <> rows <> "\n"
+  end
+
+  defp cells_glyph(cells),
+    do:
+      Enum.map_join(cells, " ", fn
+        {:cell, {c, r}} -> "#{c}#{r}"
+        :padding -> "·"
+        :ambiguous -> "?"
+      end)
+
+  defp timestamp, do: DateTime.utc_now() |> DateTime.to_iso8601()
+end
