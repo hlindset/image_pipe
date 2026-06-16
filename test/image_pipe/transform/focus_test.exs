@@ -31,6 +31,51 @@ defmodule ImagePipe.Transform.FocusTest do
     end
   end
 
+  describe "resolve/3 (SetFocus unit resolution)" do
+    # ctx/1: no orientation, no shrink (display == storage). ctx/2: + decode_shrink.
+    defp ctx(dims), do: %{display: dims, storage: dims, decode_shrink: nil}
+    defp ctx(dims, shrink), do: %{display: dims, storage: dims, decode_shrink: shrink}
+
+    test "resolves px against the live frame" do
+      assert Focus.resolve({:coord, {:px, 20}, {:px, 10}}, ctx({400, 400}), nil) ==
+               {{:ratio, 20, 1}, {:ratio, 10, 1}}
+    end
+
+    test "resolves a relative ratio against the live frame" do
+      assert Focus.resolve({:coord, {:ratio, 1, 2}, {:ratio, 1, 4}}, ctx({400, 400}), nil) ==
+               {{:ratio, 200, 1}, {:ratio, 100, 1}}
+    end
+
+    test "clamps positive OOB (px and relative >1) to the far edge (dim-1)" do
+      assert Focus.resolve({:coord, {:px, 500}, {:px, 500}}, ctx({400, 400}), nil) ==
+               {{:ratio, 399, 1}, {:ratio, 399, 1}}
+
+      assert Focus.resolve({:coord, {:ratio, 3, 2}, {:ratio, 3, 2}}, ctx({400, 400}), nil) ==
+               {{:ratio, 399, 1}, {:ratio, 399, 1}}
+    end
+
+    test "resolves anchors to corner/edge points" do
+      assert Focus.resolve({:anchor, :left, :top}, ctx({400, 400}), nil) ==
+               {{:ratio, 0, 1}, {:ratio, 0, 1}}
+
+      assert Focus.resolve({:anchor, :right, :bottom}, ctx({400, 400}), nil) ==
+               {{:ratio, 399, 1}, {:ratio, 399, 1}}
+
+      assert Focus.resolve({:anchor, :center, :center}, ctx({400, 400}), nil) ==
+               {{:ratio, 200, 1}, {:ratio, 200, 1}}
+    end
+
+    test "bare-pixel focus rescales by decode_shrink; relative/anchor do not" do
+      shrunk = ctx({100, 100}, %{w: 4.0, h: 4.0})
+
+      assert Focus.resolve({:coord, {:px, 100}, {:px, 100}}, shrunk, nil) ==
+               {{:ratio, 25, 1}, {:ratio, 25, 1}}
+
+      assert Focus.resolve({:coord, {:ratio, 1, 2}, {:ratio, 1, 2}}, shrunk, nil) ==
+               {{:ratio, 50, 1}, {:ratio, 50, 1}}
+    end
+  end
+
   describe "to_fp/1" do
     test "normalizes to a 0..1 fraction against the live image dims" do
       img = Image.new!(400, 400, color: [0, 0, 0])
@@ -105,6 +150,30 @@ defmodule ImagePipe.Transform.FocusTest do
     |> Enum.take(3)
     |> Enum.map(&round/1)
     |> nearest_cell()
+  end
+
+  describe "SetFocus executes through PlanExecutor" do
+    alias ImagePipe.Parser.TwicPics.PlanBuilder
+    alias ImagePipe.Plan.Source
+    alias ImagePipe.Transform.PlanExecutor
+
+    test "focus=150x150/crop=12x12 steers to the focused cell via the full plan" do
+      {:ok, plan} =
+        PlanBuilder.to_plan(%Source.Path{segments: ["x.png"]}, [
+          {"focus", "150x150"},
+          {"crop", "12x12"}
+        ])
+
+      {:ok, state} = PlanExecutor.execute(plan, %State{image: grid()}, [])
+
+      px =
+        state.image
+        |> Image.get_pixel!(div(Image.width(state.image), 2), div(Image.height(state.image), 2))
+        |> Enum.take(3)
+        |> Enum.map(&round/1)
+
+      assert nearest_cell(px) == {1, 1}
+    end
   end
 
   describe "carry through geometry ops" do

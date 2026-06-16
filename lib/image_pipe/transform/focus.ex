@@ -10,6 +10,7 @@ defmodule ImagePipe.Transform.Focus do
   # translate can transiently negate it (focus left/above the crop window); a
   # later canvas embed brings it back in range. Only `to_fp/1` clamps.
 
+  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
 
@@ -50,6 +51,85 @@ defmodule ImagePipe.Transform.Focus do
     {fx2, fy2} = forward_fraction({ratio_div(x, pre_w), ratio_div(y, pre_h)}, po)
     {post_w, post_h} = if PendingOrientation.quarter_turn?(po), do: {pre_h, pre_w}, else: {pre_w, pre_h}
     %State{state | focus: {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}}
+  end
+
+  @typedoc """
+  Resolution context for `resolve/3`: the live display-frame dims the operand
+  resolves against, the live storage-frame dims the carried point is stored in
+  (equal to `display` when no orientation is pending), and the realized
+  shrink-on-load factor (or `nil`).
+  """
+  @type resolve_ctx :: %{
+          display: {pos_integer(), pos_integer()},
+          storage: {pos_integer(), pos_integer()},
+          decode_shrink: %{w: float(), h: float()} | nil
+        }
+
+  @doc """
+  Resolve a `SetFocus` operand into a stored carried point.
+
+  The operand (literal px, relative ratio, or anchor) is resolved against the
+  live **display** frame, bare-pixel coordinates are rescaled by the
+  shrink-on-load factor, positive out-of-bounds is clamped to the far edge
+  (`dim-1`), and — when an orientation is pending — the display point is
+  inverse-mapped into the live **storage** frame (so it rides the storage image
+  like every other geometry value; the flush forward-maps it back). Negative
+  coordinates never reach here (rejected by the parser's `Units`).
+  """
+  @spec resolve(SetFocus.operand(), resolve_ctx(), PendingOrientation.t() | nil) :: point()
+  def resolve(operand, %{display: {dw, dh}, storage: {sw, sh}, decode_shrink: shrink}, po) do
+    {sx, sy} = orient_shrink(shrink, po)
+    x = resolve_axis(operand_x(operand), dw, sx)
+    y = resolve_axis(operand_y(operand), dh, sy)
+
+    if is_nil(po) or PendingOrientation.identity?(po) do
+      {x, y}
+    else
+      {fx, fy} = inverse_fraction({ratio_div(x, dw), ratio_div(y, dh)}, po)
+      {ratio_mul(fx, {:ratio, sw, 1}), ratio_mul(fy, {:ratio, sh, 1})}
+    end
+  end
+
+  defp operand_x({:coord, x, _y}), do: x
+  defp operand_x({:anchor, h, _v}), do: {:anchor_component, h}
+  defp operand_y({:coord, _x, y}), do: y
+  defp operand_y({:anchor, _h, v}), do: {:anchor_component, v}
+
+  # Per-axis resolution against the display dim, then clamp to [0, dim-1].
+  defp resolve_axis(axis, dim, shrink_factor) do
+    axis
+    |> resolve_axis_value(dim, shrink_factor)
+    |> clamp_axis(dim)
+  end
+
+  defp resolve_axis_value({:px, n}, _dim, nil), do: {:ratio, n, 1}
+  defp resolve_axis_value({:px, n}, _dim, shrink), do: {:ratio, max(0, round(n / shrink)), 1}
+  defp resolve_axis_value({:ratio, n, d}, dim, _shrink), do: reduce(n * dim, d)
+  defp resolve_axis_value({:anchor_component, near}, _dim, _shrink) when near in [:left, :top],
+    do: {:ratio, 0, 1}
+
+  defp resolve_axis_value({:anchor_component, :center}, dim, _shrink), do: reduce(dim, 2)
+
+  defp resolve_axis_value({:anchor_component, far}, dim, _shrink) when far in [:right, :bottom],
+    do: {:ratio, dim - 1, 1}
+
+  defp clamp_axis({:ratio, n, d}, dim) do
+    hi = dim - 1
+
+    cond do
+      n < 0 -> {:ratio, 0, 1}
+      n > hi * d -> {:ratio, hi, 1}
+      true -> reduce(n, d)
+    end
+  end
+
+  # Shrink-on-load factors are storage-frame; under a pending quarter turn the
+  # display axes are swapped, so swap the per-axis factors before applying them to
+  # the display-frame px operand (mirrors PlanExecutor.orient_decode_shrink).
+  defp orient_shrink(nil, _po), do: {nil, nil}
+
+  defp orient_shrink(%{w: w, h: h}, po) do
+    if not is_nil(po) and PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
   end
 
   # ── orientation transforms on a normalized rational fraction ─────────────────
