@@ -27,10 +27,11 @@
 **Mix tasks (`test/support/mix/tasks/`):**
 - `twicpics.gen_fixtures.ex`, `twicpics.diagnose.ex`, `twicpics.gen_report.ex`, `twicpics.reauthor.ex`
 
-**Tests:**
+**Tests:** (unit tests live under `test/`, NOT `test/support/` — `test/support` is in `elixirc_paths` but is not a test path, so a bare `mix test` won't discover `*_test.exs` there. Mirror imgproxy, whose unit tests sit in `test/image_pipe/imgproxy_differential/`.)
 - `test/image_pipe/twicpics_differential_conformance_test.exs`
 - `test/image_pipe/twicpics_source_inventory_test.exs`
-- `test/support/image_pipe/test/differential/*_test.exs` (for extracted shared logic)
+- `test/image_pipe/differential/manifest_term_test.exs` (shared)
+- `test/image_pipe/twicpics_differential/{structure_compare,constellations,manifest}_test.exs`
 
 **Other:**
 - `test/test_helper.exs` (add `:twicpics_triage`, `:twicpics_report` excludes)
@@ -49,13 +50,13 @@ These two are the clean, low-risk extractions the TwicPics suite directly depend
 
 **Files:**
 - Create: `test/support/image_pipe/test/differential/manifest_term.ex`
-- Create: `test/support/image_pipe/test/differential/manifest_term_test.exs`
+- Create: `test/image_pipe/differential/manifest_term_test.exs`
 - Modify: `test/support/image_pipe/test/imgproxy_differential/manifest.ex`
 
 - [ ] **Step 1: Write the failing test**
 
 ```elixir
-# test/support/image_pipe/test/differential/manifest_term_test.exs
+# test/image_pipe/differential/manifest_term_test.exs
 defmodule ImagePipe.Test.Differential.ManifestTermTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Test.Differential.ManifestTerm
@@ -83,7 +84,7 @@ end
 
 - [ ] **Step 2: Run test, verify it fails**
 
-Run: `mise exec -- mix test test/support/image_pipe/test/differential/manifest_term_test.exs`
+Run: `mise exec -- mix test test/image_pipe/differential/manifest_term_test.exs`
 Expected: FAIL — `ImagePipe.Test.Differential.ManifestTerm` undefined.
 
 - [ ] **Step 3: Create the module**
@@ -155,17 +156,17 @@ end
 
 In `test/support/image_pipe/test/imgproxy_differential/manifest.ex`: add `alias ImagePipe.Test.Differential.ManifestTerm`. Replace the private `sorted_map_literal/pair_literal/value_literal` with calls to `ManifestTerm.sorted_map_literal/1`; change `write!/2` to build the body string (the current `render/1` output) and call `ManifestTerm.write!(path, body)`; delegate `file_sha256/1` to `ManifestTerm.file_sha256/1`; change `authored_sha256/1` to `ManifestTerm.authored_sha256(constellation, @authored_keys)`. Keep `load!/validate!/validate_entry!` and `@authored_keys` exactly as-is.
 
-**Boundary note:** `manifest.ex` stays **unbounded** (no `use Boundary`, same as today). Calling into `ManifestTerm` (a `top_level?: true, deps: []` boundary) is ingress into that boundary's root module — allowed; Boundary only constrains a boundary's *outgoing* deps, and a `deps: []` boundary may still call external libs (`Image`/`Vix`). Do **not** add `check: [out: false]` to `Manifest` to "fix" a non-error. Reserve `check: [out: false]` for the mix tasks + harness that alias several sibling boundaries. The same applies to the TwicPics `Manifest` (Task 6).
+**Boundary note (corrected during Task 1 implementation):** an *unbounded* module is absorbed into the `ImagePipe` boundary, and `ImagePipe` does not list the new `top_level?: true` `ManifestTerm` as a dep — so an unbounded `Manifest` calling `ManifestTerm` trips a `forbidden reference` error under `mix compile --warnings-as-errors`. The fix is to give `Manifest` its own boundary: add `use Boundary, top_level?: true, check: [out: false]` (exactly as `ImgproxyDifferential.Harness` already declares). The same applies to the TwicPics `Manifest` (Task 6) and any other currently-unbounded module that starts calling a `Differential.*` boundary. Do **not** read the `Boundary` library source to confirm this — it is settled; just declare the boundary.
 
 - [ ] **Step 5: Run shared + imgproxy suite, verify green**
 
-Run: `mise exec -- mix test test/support/image_pipe/test/differential/manifest_term_test.exs test/image_pipe/imgproxy_differential_conformance_test.exs`
+Run: `mise exec -- mix test test/image_pipe/differential/manifest_term_test.exs test/image_pipe/imgproxy_differential_conformance_test.exs`
 Expected: PASS (imgproxy authored/source hashes unchanged — pure refactor).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add test/support/image_pipe/test/differential/manifest_term.ex test/support/image_pipe/test/differential/manifest_term_test.exs test/support/image_pipe/test/imgproxy_differential/manifest.ex
+git add test/support/image_pipe/test/differential/manifest_term.ex test/image_pipe/differential/manifest_term_test.exs test/support/image_pipe/test/imgproxy_differential/manifest.ex
 git commit -m "refactor(differential): extract shared ManifestTerm serializer/hasher"
 ```
 
@@ -283,14 +284,14 @@ Build and prove the gating machinery against hand-fed structural records before 
 
 **Files:**
 - Create: `test/support/image_pipe/test/twicpics_differential/structure_compare.ex`
-- Create: `test/support/image_pipe/test/twicpics_differential/structure_compare_test.exs`
+- Create: `test/image_pipe/twicpics_differential/structure_compare_test.exs`
 
 - [ ] **Step 1: Write the failing test**
 
 Build a synthetic 4×4 grid image (same encoding as the source), extract its record, assert the identity cell-map; build a single-cell flat image and assert all samples decode to that cell; build an RGBA image with a transparent strip and assert `:padding`.
 
 ```elixir
-# test/support/image_pipe/test/twicpics_differential/structure_compare_test.exs
+# test/image_pipe/twicpics_differential/structure_compare_test.exs
 defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompareTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Test.TwicpicsDifferential.StructureCompare, as: SC
@@ -302,11 +303,16 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompareTest do
   defp grid_image(cols, rows, cell) do
     base = Image.new!(cols * cell, rows * cell, color: [0, 0, 0])
 
-    for col <- 0..(cols - 1), row <- 0..(rows - 1), reduce: base do
-      acc ->
-        c = Image.new!(cell, cell, color: [chan(col, cols), chan(row, rows), 255])
-        Image.compose!(acc, c, x: col * cell, y: row * cell)
-    end
+    composed =
+      for col <- 0..(cols - 1), row <- 0..(rows - 1), reduce: base do
+        acc ->
+          c = Image.new!(cell, cell, color: [chan(col, cols), chan(row, rows), 255])
+          Image.compose!(acc, c, x: col * cell, y: row * cell)
+      end
+
+    # Image.compose! promotes to RGBA; flatten back to a genuine 3-band RGB grid so
+    # this fixture exercises the 3-band path (the padding test covers 4-band).
+    Image.flatten!(composed)
   end
 
   @spec_4x4 %{cols: 4, rows: 4}
@@ -353,7 +359,7 @@ end
 
 - [ ] **Step 2: Run test, verify it fails**
 
-Run: `mise exec -- mix test test/support/image_pipe/test/twicpics_differential/structure_compare_test.exs`
+Run: `mise exec -- mix test test/image_pipe/twicpics_differential/structure_compare_test.exs`
 Expected: FAIL — module undefined.
 
 - [ ] **Step 3: Implement the module**
@@ -375,7 +381,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
   use Boundary, top_level?: true, deps: []
 
   @type cell :: {:cell, {non_neg_integer(), non_neg_integer()}} | :padding | :ambiguous
-  @type record :: %{
+  @type t :: %{
           dims: {pos_integer(), pos_integer()},
           bands: pos_integer(),
           cols: pos_integer(),
@@ -393,7 +399,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
   record carries `cols` so `cell_at/3` can index the lattice for any grid shape.
   `compare/2` reads only dims/bands/cells, so the manifest stores those (not cols).
   """
-  @spec extract(Vix.Vips.Image.t(), map(), map()) :: record()
+  @spec extract(Vix.Vips.Image.t(), map(), map()) :: t()
   def extract(image, spec, tol \\ @default_tol) do
     w = Image.width(image)
     h = Image.height(image)
@@ -423,14 +429,14 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
   end
 
   @doc "Lattice index `(li, lj)` → decoded cell of `record` (row-major cols×rows)."
-  @spec cell_at(record(), non_neg_integer(), non_neg_integer()) :: cell()
+  @spec cell_at(t(), non_neg_integer(), non_neg_integer()) :: cell()
   def cell_at(%{cells: cells, cols: cols}, li, lj), do: Enum.at(cells, lj * cols + li)
 
   @doc """
   Compare two records. `:match` when dims, bands, and every cell agree; otherwise
   `{:mismatch, %{dims, bands, cells}}` where `cells` lists `{index, expected, got}`.
   """
-  @spec compare(record(), record()) :: :match | {:mismatch, map()}
+  @spec compare(t(), t()) :: :match | {:mismatch, map()}
   def compare(expected, got) do
     cell_diffs =
       [expected.cells, got.cells]
@@ -492,13 +498,13 @@ end
 
 - [ ] **Step 4: Run test, verify it passes**
 
-Run: `mise exec -- mix test test/support/image_pipe/test/twicpics_differential/structure_compare_test.exs`
+Run: `mise exec -- mix test test/image_pipe/twicpics_differential/structure_compare_test.exs`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add test/support/image_pipe/test/twicpics_differential/structure_compare.ex test/support/image_pipe/test/twicpics_differential/structure_compare_test.exs
+git add test/support/image_pipe/test/twicpics_differential/structure_compare.ex test/image_pipe/twicpics_differential/structure_compare_test.exs
 git commit -m "feat(twicpics-diff): structural cell-map extractor + comparator"
 ```
 
@@ -527,9 +533,10 @@ Expected: `PNG image data, 400 x 400, 8-bit/color RGBA, non-interlaced`.
 # test/image_pipe/twicpics_source_inventory_test.exs
 defmodule ImagePipe.TwicpicsSourceInventoryTest do
   use ExUnit.Case, async: true
-  alias ImagePipe.Test.TwicpicsDifferential.{Constellations, SourceInventory}
+  alias ImagePipe.Test.TwicpicsDifferential.SourceInventory
 
   @sources_dir "test/support/image_pipe/test/twicpics_differential/sources"
+  alias Vix.Vips.Image, as: VixImage
 
   test "every committed source has an inventory entry and vice versa" do
     on_disk = @sources_dir |> Path.join("*") |> Path.wildcard() |> Enum.map(&Path.basename/1) |> MapSet.new()
@@ -537,27 +544,31 @@ defmodule ImagePipe.TwicpicsSourceInventoryTest do
     assert on_disk == inventoried
   end
 
+  # Read facts via the same API the imgproxy drift test uses (proven): `header_value`
+  # for the band format, `VixImage.interpretation/1` for colour interpretation. Note
+  # `Image.interpretation/1` does NOT exist — use `VixImage.interpretation/1`.
   test "inventory facts match the decoded bytes" do
     for entry <- SourceInventory.all() do
-      img = Image.open!(File.read!(Path.join(@sources_dir, entry.file)), access: :random, fail_on: :error)
-      assert {Image.width(img), Image.height(img)} == {entry.width, entry.height}
-      assert Image.bands(img) == entry.bands
-      assert Vix.Vips.Image.format(img) == entry.format
-      assert Image.interpretation(img) == entry.interpretation
-    end
-  end
+      {:ok, img} = VixImage.new_from_file(Path.join(@sources_dir, entry.file))
+      {:ok, format} = VixImage.header_value(img, "format")
+      profile? = match?({:ok, _}, VixImage.header_value(img, "icc-profile-data"))
 
-  test "every constellation source is inventoried" do
-    inv = SourceInventory.all() |> Enum.map(& &1.file) |> MapSet.new()
-    for c <- Constellations.all(), do: assert(MapSet.member?(inv, Constellations.source_file(c)))
+      assert {VixImage.width(img), VixImage.height(img)} == {entry.width, entry.height}
+      assert VixImage.bands(img) == entry.bands
+      assert format == entry.format
+      assert VixImage.interpretation(img) == entry.interpretation
+      assert profile? == entry.profile?
+    end
   end
 end
 ```
 
+(The "every constellation source is inventoried" check lives in Task 5's `constellations_test.exs`, where `Constellations` exists — keeping this file self-contained and green now.)
+
 - [ ] **Step 3: Run test, verify it fails**
 
 Run: `mise exec -- mix test test/image_pipe/twicpics_source_inventory_test.exs`
-Expected: FAIL — `SourceInventory`/`Constellations` undefined. (Constellations lands in Task 5; this test stays red until then — note it in the commit.)
+Expected: FAIL — `SourceInventory` undefined (lands in Step 4).
 
 - [ ] **Step 4: Implement `SourceInventory`**
 
@@ -586,10 +597,10 @@ defmodule ImagePipe.Test.TwicpicsDifferential.SourceInventory do
       width: 400,
       height: 400,
       bands: 4,
-      # Confirm `format`/`interpretation` against the decoded bytes during impl
-      # (the drift test asserts them); `file` reports 8-bit RGBA, so UCHAR/sRGB.
+      # Decoded facts (drift test asserts them): 400×400 RGBA, UCHAR/sRGB, no profile.
       format: :VIPS_FORMAT_UCHAR,
       interpretation: :VIPS_INTERPRETATION_sRGB,
+      profile?: false,
       grid: @grid_4x4,
       produced_by: "Colour grid from the #321 focus probe (tools/make_grid.exs), uploaded to catbox.",
       consumers: [:twicpics_differential],
@@ -619,26 +630,34 @@ git commit -m "feat(twicpics-diff): commit seed grid source + SourceInventory + 
 **Files:**
 - Create: `test/support/image_pipe/test/twicpics_differential/constellations.ex`
 - Create: `test/support/image_pipe/test/twicpics_differential/harness.ex`
-- Create: `test/support/image_pipe/test/twicpics_differential/constellations_test.exs`
+- Create: `test/image_pipe/twicpics_differential/constellations_test.exs`
 
 - [ ] **Step 1: Write the failing test (parse + shape guarantees)**
 
 Every chain must parse via the real TwicPics parser (fail fast, like imgproxy's parse gate), ids must be unique, and the request path must be well-formed.
 
 ```elixir
-# test/support/image_pipe/test/twicpics_differential/constellations_test.exs
+# test/image_pipe/twicpics_differential/constellations_test.exs
 defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
   use ExUnit.Case, async: true
-  alias ImagePipe.Test.TwicpicsDifferential.Constellations
+  alias ImagePipe.Test.TwicpicsDifferential.{Constellations, SourceInventory}
 
   test "ids are unique" do
     ids = Enum.map(Constellations.all(), & &1.id)
     assert ids == Enum.uniq(ids)
   end
 
+  # Lives here (not in the source-inventory drift test) because it needs Constellations.
+  test "every constellation source is inventoried" do
+    inv = SourceInventory.all() |> Enum.map(& &1.file) |> MapSet.new()
+    for c <- Constellations.all() do
+      assert MapSet.member?(inv, Constellations.source_file(c)), "uninventoried source for #{c.id}"
+    end
+  end
+
   test "twicpics_path builds the ?twic=v1 form with the pinned suffix" do
     c = %{id: "x", source: :grid_4x4, chain: "cover=200x100", verdict: :equal, group: :cover}
-    assert Constellations.twicpics_path(c) == "/grid_4x4.png?twic=v1/cover=200x100/output=png/dpr=1"
+    assert Constellations.twicpics_path(c) == "/grid_4x4.png?twic=v1/cover=200x100/output=png"
   end
 
   test "every non-triaged chain parses via ImagePipe.Parser.TwicPics" do
@@ -658,7 +677,7 @@ Note: confirm the `ImagePipe.Parser.TwicPics.parse/2` arity/return against `lib/
 
 - [ ] **Step 2: Run test, verify it fails**
 
-Run: `mise exec -- mix test test/support/image_pipe/test/twicpics_differential/constellations_test.exs`
+Run: `mise exec -- mix test test/image_pipe/twicpics_differential/constellations_test.exs`
 Expected: FAIL — `Constellations` undefined.
 
 - [ ] **Step 3: Implement `Constellations` (full initial scope)**
@@ -671,13 +690,16 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
   conformance test so the two cannot drift. Each entry is authored intent
   (`id`, `source`, `chain`, `verdict`, `group`, optional `tol`/`triage`);
   provenance (dims/bands/cell-map/oracle signature/reference PNG) lives in the
-  generated manifest, joined by `:id`. Every output is pinned `output=png/dpr=1`,
-  no path-default manipulation.
+  generated manifest, joined by `:id`. Every output is pinned `output=png`, no
+  path-default manipulation. (`dpr=1` is intentionally omitted: live TwicPics'
+  default DPR is already 1× — verified byte-identical output with and without
+  `dpr=1` — and ImagePipe's TwicPics parser doesn't implement `dpr`, so pinning it
+  would only break the shared render path with no determinism gain.)
   """
   use Boundary, top_level?: true, deps: []
 
   @source_files %{grid_4x4: "grid_4x4.png"}
-  @suffix "output=png/dpr=1"
+  @suffix "output=png"
 
   @doc "Map of `source` atom -> committed source filename."
   def source_files, do: @source_files
@@ -759,9 +781,10 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
     ]
   end
 
-  @default_tol ImagePipe.Test.TwicpicsDifferential.StructureCompare.default_tol()
-  @doc "Decode tolerance for a case carrying no explicit `:tol`."
-  def default_tol, do: @default_tol
+  # No default_tol/0 here: the decode tolerance is owned by StructureCompare
+  # (`StructureCompare.default_tol/0`); callers use `c[:tol] || StructureCompare.default_tol()`.
+  # Constellations stays `deps: []` (referencing StructureCompare here would be a
+  # forbidden cross-boundary reference).
 
   defp c(id, chain, group, opts \\ []) do
     Map.merge(
@@ -803,13 +826,13 @@ end
 
 - [ ] **Step 5: Run constellations + inventory tests, verify green**
 
-Run: `mise exec -- mix test test/support/image_pipe/test/twicpics_differential/constellations_test.exs test/image_pipe/twicpics_source_inventory_test.exs`
+Run: `mise exec -- mix test test/image_pipe/twicpics_differential/constellations_test.exs test/image_pipe/twicpics_source_inventory_test.exs`
 Expected: PASS. If any chain fails to parse, that is a real parser gap — mark the case `triage: %{reason: "...", issue: 323}` (it stays in the list, excluded from the parse gate) and note it for the compat reviewer; do not delete it.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add test/support/image_pipe/test/twicpics_differential/constellations.ex test/support/image_pipe/test/twicpics_differential/harness.ex test/support/image_pipe/test/twicpics_differential/constellations_test.exs
+git add test/support/image_pipe/test/twicpics_differential/constellations.ex test/support/image_pipe/test/twicpics_differential/harness.ex test/image_pipe/twicpics_differential/constellations_test.exs
 git commit -m "feat(twicpics-diff): full-initial-scope constellations + harness wrapper"
 ```
 
@@ -817,14 +840,14 @@ git commit -m "feat(twicpics-diff): full-initial-scope constellations + harness 
 
 **Files:**
 - Create: `test/support/image_pipe/test/twicpics_differential/manifest.ex`
-- Create: `test/support/image_pipe/test/twicpics_differential/manifest_test.exs`
+- Create: `test/image_pipe/twicpics_differential/manifest_test.exs`
 - Create: `test/image_pipe/twicpics_differential_conformance_test.exs`
 - Modify: `test/test_helper.exs`
 
 - [ ] **Step 1: Write the failing Manifest test (round-trip + validate)**
 
 ```elixir
-# test/support/image_pipe/test/twicpics_differential/manifest_test.exs
+# test/image_pipe/twicpics_differential/manifest_test.exs
 defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Test.TwicpicsDifferential.Manifest
@@ -904,7 +927,7 @@ end
 
 - [ ] **Step 2: Run test, verify it fails**
 
-Run: `mise exec -- mix test test/support/image_pipe/test/twicpics_differential/manifest_test.exs`
+Run: `mise exec -- mix test test/image_pipe/twicpics_differential/manifest_test.exs`
 Expected: FAIL — module undefined.
 
 - [ ] **Step 3: Implement `Manifest`**
@@ -918,6 +941,9 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Manifest do
   crossing a serialization boundary, so `load!/1` validates shape and fails loudly.
   Serialization is delegated to `Differential.ManifestTerm`.
   """
+  # Own boundary (not unbounded) so calling the `ManifestTerm` boundary doesn't trip
+  # a forbidden-reference error under --warnings-as-errors — see the Task 1 boundary note.
+  use Boundary, top_level?: true, check: [out: false]
   alias ImagePipe.Test.Differential.ManifestTerm
 
   # Authored fields whose change requires a reauthor (verdict/tol) — NOT the
@@ -999,7 +1025,7 @@ end
 
 - [ ] **Step 4: Run Manifest test, verify it passes**
 
-Run: `mise exec -- mix test test/support/image_pipe/test/twicpics_differential/manifest_test.exs`
+Run: `mise exec -- mix test test/image_pipe/twicpics_differential/manifest_test.exs`
 Expected: PASS.
 
 - [ ] **Step 5: Write the conformance test (bootstrap-aware) + register excludes**
@@ -1064,12 +1090,14 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
   end
 
   defp grid_spec(c), do: SourceInventory.grid(Constellations.source_file(c))
-  defp tol(c), do: c[:tol] || Constellations.default_tol()
+  defp tol(c), do: c[:tol] || StructureCompare.default_tol()
 
   # :equal asserts pipe == oracle record; :diverges asserts pipe == recorded
   # ImagePipe-divergent record (oracle differs, by design).
-  defp expected_record(%{verdict: :equal}, e), do: %{dims: e.dims, bands: e.bands, cells: e.cells}
-  defp expected_record(%{verdict: :diverges}, e), do: e.divergence.pipe
+  # v1 quarantines divergences via `:triage`, not a `:diverges` verdict, so every live
+  # case asserts pipe == oracle. (Add a `:diverges` clause reading a hand-authored
+  # expected-pipe record only if a divergence is ever deliberately modelled.)
+  defp expected_record(_c, e), do: %{dims: e.dims, bands: e.bands, cells: e.cells}
 
   defp fetch_entry!(manifest, id) do
     case Map.fetch(manifest.entries, id) do
@@ -1090,7 +1118,7 @@ Expected: FAIL — every test errors in `setup_all` with "No fixtures: ... Boots
 - [ ] **Step 7: Commit**
 
 ```bash
-git add test/support/image_pipe/test/twicpics_differential/manifest.ex test/support/image_pipe/test/twicpics_differential/manifest_test.exs test/image_pipe/twicpics_differential_conformance_test.exs test/test_helper.exs
+git add test/support/image_pipe/test/twicpics_differential/manifest.ex test/image_pipe/twicpics_differential/manifest_test.exs test/image_pipe/twicpics_differential_conformance_test.exs test/test_helper.exs
 git commit -m "feat(twicpics-diff): manifest module + conformance test (pre-bake bootstrap)"
 ```
 
@@ -1150,7 +1178,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     prior = if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: empty_manifest()
 
     sources = resolve_sources(prior.sources)
-    cases = Enum.filter(Constellations.all(), &is_nil(&1[:triage]))
+    cases = Constellations.all()  # bake all incl. triaged (parse gate skips triaged); only the comparison is quarantined
 
     entries =
       cases
@@ -1408,7 +1436,7 @@ defmodule Mix.Tasks.Twicpics.Diagnose do
     |> Enum.filter(&(is_nil(&1[:triage]) and (Enum.empty?(want) or MapSet.member?(want, &1.id))))
     |> Enum.each(fn c ->
       entry = manifest.entries[c.id]
-      pipe = StructureCompare.extract(Harness.render_image(c, plug_opts), SourceInventory.grid(Constellations.source_file(c)), c[:tol] || Constellations.default_tol())
+      pipe = StructureCompare.extract(Harness.render_image(c, plug_opts), SourceInventory.grid(Constellations.source_file(c)), c[:tol] || StructureCompare.default_tol())
       expected = %{dims: entry.dims, bands: entry.bands, cells: entry.cells}
 
       verdict =
@@ -1699,7 +1727,7 @@ defmodule Mix.Tasks.Twicpics.GenReport do
     entry = manifest.entries[c.id]
     {body, _ct} = Harness.render(c, plug_opts)
     pipe_img = Image.open!(body, access: :random, fail_on: :error)
-    pipe = StructureCompare.extract(pipe_img, SourceInventory.grid(Constellations.source_file(c)), c[:tol] || Constellations.default_tol())
+    pipe = StructureCompare.extract(pipe_img, SourceInventory.grid(Constellations.source_file(c)), c[:tol] || StructureCompare.default_tol())
     oracle_bytes = File.read!(Harness.fixture_path(entry.fixture_filename))
     expected = %{dims: entry.dims, bands: entry.bands, cells: entry.cells}
     status = if StructureCompare.compare(expected, pipe) == :match, do: :match, else: :mismatch
