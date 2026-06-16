@@ -803,7 +803,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp resize_from(operation, mode) do
     %Resize{
-      mode: resize_mode(mode),
+      mode: resize_mode(mode, operation),
       width: tagged_executable_resize_dimension(operation.width),
       height: tagged_executable_resize_dimension(operation.height),
       min_width: tagged_executable_optional_resize_dimension(operation.min_width),
@@ -819,9 +819,10 @@ defmodule ImagePipe.Transform.PlanExecutor do
     }
   end
 
-  defp resize_mode(:cover), do: :fill
-  defp resize_mode(:fit), do: :fit
-  defp resize_mode(:stretch), do: :force
+  defp resize_mode(:cover, %PlanResize{down: true}), do: :fill_down
+  defp resize_mode(:cover, %PlanResize{}), do: :fill
+  defp resize_mode(:fit, %PlanResize{}), do: :fit
+  defp resize_mode(:stretch, %PlanResize{}), do: :force
 
   defp tagged_executable_resize_dimension(:auto), do: :auto
   defp tagged_executable_resize_dimension({:px, value}), do: {:pixels, value}

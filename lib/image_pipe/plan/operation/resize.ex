@@ -1,11 +1,17 @@
 defmodule ImagePipe.Plan.Operation.Resize do
   @moduledoc """
   Product-neutral semantic resize intent.
+
+  `down: true` qualifies a `:cover` resize as the "don't scale up" variant: the
+  image is never enlarged to fill the box, and when it is smaller than the box the
+  result is cropped to the requested aspect ratio instead of left at its own
+  (imgproxy's `fill-down`). It maps to the transform layer's `:fill_down` mode.
   """
 
   @enforce_keys [:mode, :width, :height, :dpr, :enlargement, :guide]
   defstruct @enforce_keys ++
               [
+                down: false,
                 x_offset: {:pixels, 0.0},
                 y_offset: {:pixels, 0.0},
                 min_width: nil,
@@ -39,6 +45,7 @@ defmodule ImagePipe.Plan.Operation.Resize do
           width: dimension(),
           height: dimension(),
           dpr: dpr(),
+          down: boolean(),
           enlargement: enlargement(),
           guide: guide(),
           x_offset: offset(),
