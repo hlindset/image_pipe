@@ -194,6 +194,12 @@ defmodule ImagePipe.Transform.FocusTest do
       assert plan_cell([{"focus", "150x150"}, {"crop", "1x1"}]) == {1, 1}
     end
 
+    test "an anchor focus carries as a point through a preceding resize" do
+      # top-right anchor resolves to (399, 0) against the 400² frame, then carries
+      # (scaled) through resize=50p; the trailing carried crop lands on cell (3,0).
+      assert plan_cell([{"focus", "top-right"}, {"resize", "50p"}, {"crop", "1x1"}]) == {3, 0}
+    end
+
     test "crop@coords resets the focus and recovers from a prior OOB focus" do
       # focus=500x500 (clamped) is discarded by the region crop; the trailing
       # carried crop reads the reset centre of the region = cell (1,1).
