@@ -143,6 +143,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
+            | :carried
             | :smart
             | {:smart, :face_assist}
             | {:detect,

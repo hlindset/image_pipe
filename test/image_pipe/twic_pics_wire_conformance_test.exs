@@ -168,6 +168,34 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     refute average(after_resize) == average(before_resize)
   end
 
+  test "a mixed-unit focus resolves each axis in its own unit (#321)" do
+    # focus=2000x50p: x=2000px (= 50% of the 4000-wide source), y=50%. Covering
+    # 100x100 has horizontal crop slack only, so the px x-axis must resolve to the
+    # same fraction as the pure-relative form -> identical crop, and distinct from
+    # the corner anchors.
+    mixed = call("/images/beach.jpg?twic=v1/focus=2000x50p/cover=100x100/output=jpeg")
+    relative = call("/images/beach.jpg?twic=v1/focus=50px50p/cover=100x100/output=jpeg")
+    topleft = call("/images/beach.jpg?twic=v1/focus=top-left/cover=100x100/output=jpeg")
+
+    assert dimensions(mixed) == {100, 100}
+    assert average(mixed) == average(relative)
+    refute average(mixed) == average(topleft)
+  end
+
+  test "a carried focus survives a non-consumer transformer (contain) into a later crop (#321)" do
+    # contain only scales (it is not a focus consumer); the carried focus rides the
+    # scale and steers the trailing crop, so opposing focus corners still differ.
+    topleft =
+      call("/images/beach.jpg?twic=v1/focus=top-left/contain=400x400/crop=50x50/output=jpeg")
+
+    bottomright =
+      call("/images/beach.jpg?twic=v1/focus=bottom-right/contain=400x400/crop=50x50/output=jpeg")
+
+    assert dimensions(topleft) == {50, 50}
+    assert dimensions(bottomright) == {50, 50}
+    refute average(topleft) == average(bottomright)
+  end
+
   test "a carried focus steers a SECOND consumer, not only the cover (#321)" do
     # Both steer the cover identically; the carried variant's trailing crop follows
     # the focus into the cover result, while the @-coordinate variant pins a fixed
