@@ -63,6 +63,109 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # placement grid's sharp per-cell edges make any 1px window misplacement a maxΔ≈255
       # divergence while the crop stays lossless (maxΔ=0 when correct).
       c("crop_gravity_placement", :placement, "c:120:90/g:nowe"),
+      # Gravity × offset matrix: every imgproxy common gravity type, with and without an
+      # x/y offset, as a lossless inline crop on the aperiodic `:placement` grid. Each
+      # direction is a distinct `calc_position.go` branch and the offset is applied with a
+      # per-edge sign — near edge `pos = offset`, far edge `pos = bounds - crop - offset`,
+      # center `centered-base + offset` (calc_position.go:23-54) — so this is realization
+      # coverage of the shared `gravity_position` math (same function family as #200's
+      # offset clamp), exercised once per branch in the clean no-resample form. Lossless
+      # crop ⇒ maxΔ=0 when correct; a 1px placement error is maxΔ≈255 on the grid. Crop
+      # 480×360 is non-square so an x/y axis swap can't hide; offset 120:80 is asymmetric
+      # and even (no RoundToEven tie) and moves the window inward for every type, so
+      # nothing clamps (clamp itself is pinned by #200).
+      c("grav_ce", :placement, "c:480:360:ce"),
+      c("grav_ce_off", :placement, "c:480:360:ce:120:80"),
+      c("grav_no", :placement, "c:480:360:no"),
+      c("grav_no_off", :placement, "c:480:360:no:120:80"),
+      c("grav_so", :placement, "c:480:360:so"),
+      c("grav_so_off", :placement, "c:480:360:so:120:80"),
+      c("grav_ea", :placement, "c:480:360:ea"),
+      c("grav_ea_off", :placement, "c:480:360:ea:120:80"),
+      c("grav_we", :placement, "c:480:360:we"),
+      c("grav_we_off", :placement, "c:480:360:we:120:80"),
+      c("grav_noea", :placement, "c:480:360:noea"),
+      c("grav_noea_off", :placement, "c:480:360:noea:120:80"),
+      c("grav_nowe", :placement, "c:480:360:nowe"),
+      c("grav_nowe_off", :placement, "c:480:360:nowe:120:80"),
+      c("grav_soea", :placement, "c:480:360:soea"),
+      c("grav_soea_off", :placement, "c:480:360:soea:120:80"),
+      c("grav_sowe", :placement, "c:480:360:sowe"),
+      c("grav_sowe_off", :placement, "c:480:360:sowe:120:80"),
+      # Relative-unit offset (|offset| < 1) exercises the `ScaleToEven(bounds·frac)`
+      # branch of calc_position.go rather than the `RoundToEven` absolute branch above:
+      # 0.1·1600 = 160, 0.05·1200 = 60. Asymmetric so an axis swap still can't hide.
+      c("grav_ce_rel_off", :placement, "c:480:360:ce:0.1:0.05"),
+      # Bare-crop gravity-offset inheritance: a `c:W:H` with no inline gravity args takes
+      # BOTH the type and the x/y offsets from the top-level `g:` option (imgproxy crop
+      # doc: "When gravity is not set, [crop] will use the value of the gravity option").
+      # So this must be byte-identical to the inline `grav_no_off` (`c:480:360:no:120:80`)
+      # above. imgproxy bakes the offset applied; the comparison probes whether ImagePipe
+      # inherits the *offset* (not just the type) for a bare crop.
+      c("crop_inherit_grav_offset", :placement, "c:480:360/g:no:120:80"),
+      # Cross-option interaction edges from docs/imgproxy_processing_graph.md §2 that were
+      # implemented but never differentially verified — realization coverage of the
+      # relationship branches (the class the bare-crop offset bug above hid in).
+      #
+      # `ex` dominates `exar`: extend fills the box first (pipeline 10 → 11), so exar
+      # early-returns inert (extend.go:7). Must equal extend alone (cf. extend_small).
+      c("ex_dominates_exar", :small, "rs:fit:300:200/ex:1/exar:1"),
+      # `zoom` scales target dims but NOT padding (unlike dpr): pd stays 20 under z:1.5
+      # (padding.go scales by DprScale only). A leaked zoom→padding scale changes dims.
+      c("zoom_padding_no_scale", :border, "rs:fit:200:150/pd:20/z:1.5"),
+      # `zoom` does NOT scale gravity offsets either (cf. cover_offset_dpr_marker, where
+      # dpr DOES). The (10,20) offset must stay put under z:1.5 (mirrors gravity_offset_marker).
+      c("zoom_offset_no_scale", :marker, "rs:fill:120:120/g:no:10:20/z:1.5"),
+      # `dpr` scales ABSOLUTE offsets but not RELATIVE ones (|offset| < 1): the 0.1 offset
+      # scales by the result dimension, not by dpr (calc_position.go:23-35). The absolute
+      # sibling is cover_offset_dpr_marker.
+      c("cover_rel_offset_dpr_marker", :marker, "rs:fill:300:200/g:no:0:0.1/dpr:2"),
+      # `exar` honors its own gravity slot (default centre): south anchors the image to the
+      # bottom of the aspect-ratio canvas. Every other exar case is default-centre.
+      c("exar_gravity_south_small", :small, "rs:fit:200:400/exar:1:so"),
+      # fill-down with target > source: fill-down never upscales (!enlarge), so the
+      # asymmetric result-crop branch fires (prepare.go:182-202) — distinct from fill,
+      # which would scale the 120×90 source up to the 600×400 box.
+      c("fill_down_target_gt_source_small", :small, "rs:fill-down:600:400"),
+      # Implemented OSS option/forms with no differential coverage (form realization).
+      # `size`/`s` (width+height+enlarge+extend, no resizing_type → default fit). The
+      # 267×200 fit lands on an odd width whose resample skews the red marker edge
+      # (maxΔ 28, ~101 band-bytes, 0 over Δ32 — a real shift would blow past the budget).
+      %{c("size_marker", :marker, "s:300:200") | tol: %{threshold: 2, budget: 256}},
+      # Single-dimension resize: height 0 = auto (aspect-derived), and standalone `w:`.
+      c("resize_width_only_marker", :marker, "rs:fit:300:0"),
+      c("width_only_marker", :marker, "w:300"),
+      # Resize-tail enlarge (4th) + extend (5th) args, vs the standalone `el:`/`ex:` forms.
+      c("resize_tail_enlarge_extend_small", :small, "rs:fit:400:400:1:1"),
+      # Relative (`< 1` → fraction of source) and full-axis (`0`) crop dimensions.
+      c("crop_relative_dims_placement", :placement, "c:0.5:0.5"),
+      c("crop_full_axis_placement", :placement, "c:0:600"),
+      # Trim with an explicit background colour (2nd arg) instead of the smart getpoint(0,0):
+      # trims the [30,30,30] field, leaving the red marker rect's bounding box.
+      c("trim_color_marker", :marker, "t:10:1e1e1e"),
+      # `bg` hex form (vs the RGB-triple form in background_alpha) — same flatten result.
+      c("bg_hex_alpha", :alpha, "rs:fit:64:64/bg:ff0000"),
+      # Single `mw` (no `mh`): one-axis min-dimension floor forcing an upscale.
+      c("min_width_only_marker", :marker, "rs:fit:300:300/mw:400"),
+      # `resizing_type`/`rt` as a standalone option with separate `w:`/`h:`, instead of the
+      # meta `rs:type:w:h` — a different parse path that must resolve to the same resize
+      # (≡ rs:fit:300:200 → 267×200, same odd-width resample skew as size_marker).
+      %{
+        c("resizing_type_direct_marker", :marker, "rt:fit/w:300/h:200")
+        | tol: %{threshold: 2, budget: 256}
+      },
+      # Quarantine-as-spec: `max_result_dimension`/`mrd` is a post-everything scale ceiling
+      # (prepare.go:223-264) that ImagePipe's parser does not implement yet. imgproxy bakes
+      # the fixture (rs:fit:800:600 → 800×600, then mrd:400 caps the long axis → 400×300);
+      # the `:triage` skips the ImagePipe parse so the suite stays green. Drop the triage
+      # when mrd lands and this lights up as a ready-made conformance test.
+      %{
+        c("mrd_ceiling_marker", :marker, "rs:fit:800:600/mrd:400")
+        | triage:
+            "max_result_dimension (mrd) not implemented in the ImagePipe parser — " <>
+              "quarantine-as-spec (imgproxy bakes the fixture). Drop :triage when mrd " <>
+              "lands; see docs/imgproxy_support_matrix.md differential-conformance note."
+      },
       c("trim_border_equal", :border, "t:10"),
       c("alpha_resize", :alpha, "rs:fit:64:64"),
       c("rotate_exif", :exif_6, "rs:fit:120:120"),

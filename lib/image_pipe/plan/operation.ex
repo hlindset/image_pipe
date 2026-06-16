@@ -43,6 +43,7 @@ defmodule ImagePipe.Plan.Operation do
   @resize_modes [:fit, :cover, :stretch, :auto]
   @semantic_resize_keys [
     :dpr,
+    :down,
     :enlargement,
     :guide,
     :x_offset,
@@ -364,6 +365,7 @@ defmodule ImagePipe.Plan.Operation do
          {:ok, dpr} <- resize_dpr(Keyword.get(opts, :dpr, 1)),
          {:ok, enlargement} <-
            optional_member(opts, :enlargement, @enlargements, :deny),
+         {:ok, down} <- resize_down(opts),
          {:ok, guide} <- resize_guide(Keyword.get(opts, :guide, :center)),
          {:ok, x_offset} <- offset(opts, :x_offset, {:pixels, 0.0}),
          {:ok, y_offset} <- offset(opts, :y_offset, {:pixels, 0.0}),
@@ -381,6 +383,7 @@ defmodule ImagePipe.Plan.Operation do
          width: width,
          height: height,
          dpr: dpr,
+         down: down,
          enlargement: enlargement,
          guide: guide,
          x_offset: x_offset,
@@ -594,6 +597,13 @@ defmodule ImagePipe.Plan.Operation do
 
   defp resize_mode(mode) when mode in @resize_modes, do: {:ok, mode}
   defp resize_mode(_mode), do: {:error, :mode}
+
+  defp resize_down(opts) do
+    case Keyword.get(opts, :down, false) do
+      value when is_boolean(value) -> {:ok, value}
+      _ -> {:error, :down}
+    end
+  end
 
   defp tagged_resize_dimension(:auto), do: {:ok, :auto}
 

@@ -50,6 +50,11 @@ if Code.ensure_loaded?(Testcontainers) do
         Testcontainers.Container.new(@image)
         |> Testcontainers.Container.with_exposed_port(8080)
         |> Testcontainers.Container.with_environment("IMGPROXY_LOCAL_FILESYSTEM_ROOT", "/srv")
+        # Honour URL security options (`mrd`, `msr`, `msfs`, `maf`, `mafr`), which imgproxy
+        # gates behind this flag (apply.go IsSecurityOptionsAllowed). A no-op for any
+        # constellation that doesn't use one; required so quarantine-as-spec cases for
+        # those still-unimplemented options can bake their imgproxy fixture (e.g. `mrd`).
+        |> Testcontainers.Container.with_environment("IMGPROXY_ALLOW_SECURITY_OPTIONS", "true")
         |> Testcontainers.Container.with_bind_mount(Path.expand(@sources_dir), "/srv", "ro")
 
       {:ok, started} = Testcontainers.start_container(container)

@@ -208,6 +208,15 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert down.enlargement == :deny
+    # fill-down is a :cover resize distinguished by the `down` flag — it never upscales
+    # and crops to the requested aspect ratio when the source is smaller than the box.
+    assert down.down == true
+
+    assert {:ok,
+            %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{mode: :cover} = fill]}]}} =
+             plan_pipeline(resizing_type: :fill, width: {:pixels, 100}, height: {:pixels, 100})
+
+    assert fill.down == false
 
     assert {:ok,
             %Plan{
@@ -439,10 +448,12 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert crop.y_offset == {:scale, -0.5}
   end
 
-  test "crop without explicit gravity inherits top-level gravity" do
+  test "crop without explicit gravity inherits top-level gravity type and offsets" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              plan_pipeline(
                gravity: {:anchor, :left, :top},
+               gravity_x_offset: {:pixels, 120.0},
+               gravity_y_offset: {:pixels, 80.0},
                crop: %ImagePipe.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
                  height: {:pixels, 100},
@@ -451,6 +462,26 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert crop.guide == :top_left
+    assert crop.x_offset == {:pixels, 120.0}
+    assert crop.y_offset == {:pixels, 80.0}
+  end
+
+  test "inline crop gravity uses its own offsets, not the top-level gravity offsets" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               gravity: {:anchor, :right, :bottom},
+               gravity_x_offset: {:pixels, 120.0},
+               gravity_y_offset: {:pixels, 80.0},
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:anchor, :left, :top}
+               }
+             )
+
+    assert crop.guide == :top_left
+    assert crop.x_offset == {:pixels, 0.0}
+    assert crop.y_offset == {:pixels, 0.0}
   end
 
   test "plans crop focal-point gravity and relative offsets" do

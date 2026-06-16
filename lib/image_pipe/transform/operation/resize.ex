@@ -127,7 +127,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
         operation.enlarge
       )
 
-    result_box = result_crop_box(operation, effective_dpr)
+    result_box =
+      operation
+      |> result_crop_box(effective_dpr)
+      |> fill_down_result_box(operation, intermediate)
 
     unclamped =
       target_dimensions(operation.mode, requested, min_dimensions, source, true)
@@ -169,6 +172,36 @@ defmodule ImagePipe.Transform.Operation.Resize do
       height: result_box_axis(operation.height, operation.zoom_y, effective_dpr)
     }
   end
+
+  # imgproxy calcSizes (prepare.go:182-202): for fill-down WITHOUT enlarge, when the
+  # un-upscaled image (`intermediate`, imgproxy's ScaledWidth/Height) is smaller than the
+  # requested box (`box`, imgproxy's TargetWidth/Height) on an axis, the result crop is
+  # the image clamped to the requested ASPECT RATIO — an asymmetric crop on the
+  # longer-overflow axis — not the literal requested box (which, bounded to the smaller
+  # image by cropToResult, would be a no-op and leave the wrong aspect ratio). Only fires
+  # when both box axes are concrete; an `:auto` axis keeps the default box.
+  defp fill_down_result_box(
+         %{width: box_w, height: box_h} = box,
+         %__MODULE__{mode: :fill_down, enlarge: false},
+         %{width: scaled_w, height: scaled_h}
+       )
+       when is_integer(box_w) and is_integer(box_h) do
+    diff_w = box_w / scaled_w
+    diff_h = box_h / scaled_h
+
+    cond do
+      diff_w > diff_h and diff_w > 1.0 ->
+        %{width: scaled_w, height: positive_round(scaled_w * box_h / box_w)}
+
+      diff_h > diff_w and diff_h > 1.0 ->
+        %{width: positive_round(scaled_h * box_w / box_h), height: scaled_h}
+
+      true ->
+        box
+    end
+  end
+
+  defp fill_down_result_box(box, %__MODULE__{}, _intermediate), do: box
 
   defp result_box_axis(:auto, _zoom, _effective_dpr), do: :auto
 

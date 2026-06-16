@@ -67,6 +67,12 @@
       fixture_sha256: "cdcaf41f0c8f64c3f76aa258be5789dea1cd6f7843e95230e10fd7099ce29713",
       kind: :transform
     },
+    "bg_hex_alpha" => %{
+      authored_sha256: "a1dcddf19252e361a9ec21be97b172c2074b24c777c3806958449e140bef1cf3",
+      fixture_filename: "bg_hex_alpha.png",
+      fixture_sha256: "cdcaf41f0c8f64c3f76aa258be5789dea1cd6f7843e95230e10fd7099ce29713",
+      kind: :transform
+    },
     "blur_zone" => %{
       authored_sha256: "f74b9ff49a4d8a450b85cbb88d267a3fbf7a8ad6e3f775ecccdbbf9e56a1df85",
       fixture_filename: "blur_zone.png",
@@ -133,6 +139,12 @@
       fixture_sha256: "5eacf1059134d3a40971cee9b56b2af7e7d4635b646ecebe98e58feec9027293",
       kind: :transform
     },
+    "cover_rel_offset_dpr_marker" => %{
+      authored_sha256: "cd0235bbf4a0aca49c9c83f02f114490a115643e34db64f5ea606c1018f11cdb",
+      fixture_filename: "cover_rel_offset_dpr_marker.png",
+      fixture_sha256: "781e18414afe7ea6005a01834ad6847d447e304ff94cb9096663637f750fa180",
+      kind: :transform
+    },
     "cover_west_gravity_marker" => %{
       authored_sha256: "54e3be50efd25b894d04cdb91d4d4a16213d4335f673dc54b45f65ea6538de27",
       fixture_filename: "cover_west_gravity_marker.png",
@@ -163,16 +175,34 @@
       fixture_sha256: "e94d29d26fea3e9828f883d73b3a04b1cf311a831dcb89b108c2ff738c954628",
       kind: :transform
     },
+    "crop_full_axis_placement" => %{
+      authored_sha256: "cf82181bcfc6d010b14443b3ad6133469a467800acfc4001c25aa26e872021b8",
+      fixture_filename: "crop_full_axis_placement.png",
+      fixture_sha256: "d2727e0883ca0e97c2f49ae5a67a139d49f97b0ac88a09bdcc466dc6bd5405cf",
+      kind: :transform
+    },
     "crop_gravity_placement" => %{
       authored_sha256: "09b7e24186bed6f0a06848365bf1fff59d15f73bbabd98274dfcca547b401e3c",
       fixture_filename: "crop_gravity_placement.png",
       fixture_sha256: "65c19f17fcf0110fa45ef5e46a77e3ca9d90f1f4f017f229019d3b16aa089ff3",
       kind: :transform
     },
+    "crop_inherit_grav_offset" => %{
+      authored_sha256: "72e10ef2d8356448b931261fe8b054cc36a653c4bb1a282e7e3db639dc9bdeef",
+      fixture_filename: "crop_inherit_grav_offset.png",
+      fixture_sha256: "c3753086394cdf7a5c01ae0dcc3c01c951b0246303a1252b5910418f30141868",
+      kind: :transform
+    },
     "crop_offset_dpr_placement" => %{
       authored_sha256: "365c53ef270d5edec06b89b54b0cbbbf71865514b60bc07a7825cc0ac0656f0b",
       fixture_filename: "crop_offset_dpr_placement.png",
       fixture_sha256: "cdc7023e6f2d4cc112de67cfeebf47b23d2914e96ca99cc6f1f8c4390d15a8e1",
+      kind: :transform
+    },
+    "crop_relative_dims_placement" => %{
+      authored_sha256: "d0cf4fe68272480c4444de1ab320d9fe4f2a19a29ec2623eb86b34aa6c8b5000",
+      fixture_filename: "crop_relative_dims_placement.png",
+      fixture_sha256: "74ec816c74c1305442de87b6240744ef92bf19447405184875f30cff0a481f1e",
       kind: :transform
     },
     "crop_resize_two_gravities_marker" => %{
@@ -221,6 +251,18 @@
       authored_sha256: "0d9961c83de9d80484bc44550ec74ae802741ad0d8034bbf63829eba31df9322",
       fixture_filename: "enlarge_small.png",
       fixture_sha256: "566e927840c7a479afe63b1042d32bdd2df82edce0230e3a3c573a42e00c65ce",
+      kind: :transform
+    },
+    "ex_dominates_exar" => %{
+      authored_sha256: "e6a4cd3f54b7212869146203a30756d0ca40384238c123b4d0e490924ecf91dd",
+      fixture_filename: "ex_dominates_exar.png",
+      fixture_sha256: "c17cded72bf2ad1924f0646d3b6225e95a724c825cc43225b39ec01151002a18",
+      kind: :transform
+    },
+    "exar_gravity_south_small" => %{
+      authored_sha256: "694be3d10767eed4c92b92f05af1d9657e80b424b51d94a7633aa51221a32172",
+      fixture_filename: "exar_gravity_south_small.png",
+      fixture_sha256: "33f879ec91797827a19aff9a8134162103c5f8e9b154ae5d01e7a10458201028",
       kind: :transform
     },
     "exif_182_auto_branch" => %{
@@ -529,6 +571,12 @@
       fixture_sha256: "40fe6df290e2ee1a48feb5d21891f9d31e03ccc71c5ee5ed7d5c1e0aa8b0a5b9",
       kind: :transform
     },
+    "fill_down_target_gt_source_small" => %{
+      authored_sha256: "264497bb802ed092c086befe388b43dd6d5e3031901ced831565f3ebe4c36905",
+      fixture_filename: "fill_down_target_gt_source_small.png",
+      fixture_sha256: "86c67d8c5bbdb74b0e939795f0d825795b4a0fdd685995405bf5f9ddf043f376",
+      kind: :transform
+    },
     "fill_mw_mh_above_target" => %{
       authored_sha256: "c26ff2550e7bbe5d61754dde805e32b2ad082628d08c938da5c6ec4d92e286e4",
       fixture_filename: "fill_mw_mh_above_target.png",
@@ -563,6 +611,120 @@
       authored_sha256: "e315d4ab65b3b0b400aa1eb003eaf9a4bc2c4a36f1227383743f609a515967e4",
       fixture_filename: "fp_min_dims_dpr_marker.png",
       fixture_sha256: "09a7917cd51390935f6dcba58d9d1b0603fcfbdfae3edb8219eeda50170aaf3f",
+      kind: :transform
+    },
+    "grav_ce" => %{
+      authored_sha256: "5b24c080c42bd1158fecb722c9735aa31f988ed484ad1d935c326d7abab8879c",
+      fixture_filename: "grav_ce.png",
+      fixture_sha256: "8c5f8a35d273d31a061054118d4149d61b5fda4100775333603c9bb867218127",
+      kind: :transform
+    },
+    "grav_ce_off" => %{
+      authored_sha256: "eb66621acbbb7b03df44a928f65a62fe57840080cbbc02702350a99bed7c7659",
+      fixture_filename: "grav_ce_off.png",
+      fixture_sha256: "9fa1b4c9fe2661ae107ed97911b02365ab3bdb4b27a63e098b8ab4be16435f5a",
+      kind: :transform
+    },
+    "grav_ce_rel_off" => %{
+      authored_sha256: "85b6f1db0a139ef33bc4c71d374f409256398d0ade75a972a0936d0b2b7bba1d",
+      fixture_filename: "grav_ce_rel_off.png",
+      fixture_sha256: "b33090cff7904ff433f17c5ebd0d56e57df96668995c2de4e1ca639f00d43e75",
+      kind: :transform
+    },
+    "grav_ea" => %{
+      authored_sha256: "4b8479a120ac5876992ac1dbb502d3eb5ac9f9c17af92bf9ae47dfe1ae914894",
+      fixture_filename: "grav_ea.png",
+      fixture_sha256: "a48b1dcdf9b4e9101eef6043c1c1a0e3661fe3dde1f00ff8a9ba5508eede530f",
+      kind: :transform
+    },
+    "grav_ea_off" => %{
+      authored_sha256: "29b29cdaf0204c4746b682fa65ce0619b6e3072bf9b13ecf611af21995bb395a",
+      fixture_filename: "grav_ea_off.png",
+      fixture_sha256: "c83aeabe1453421a79b25c5f505f244337adf5a12e4d4b0ec72a66ece85d98b9",
+      kind: :transform
+    },
+    "grav_no" => %{
+      authored_sha256: "38bc0523bd351b0de6fffc53cb91ce2ee57a3fb5a4a10759027cde51c6388dbb",
+      fixture_filename: "grav_no.png",
+      fixture_sha256: "f5aac4fb68af709ea600b4ee05ced38d54ae748daa89fcf851394501e6beea57",
+      kind: :transform
+    },
+    "grav_no_off" => %{
+      authored_sha256: "fa034d0725ae3c7a642d1acb6f5a99910ef7d0a3d3191abb1d446aa2ca79f39d",
+      fixture_filename: "grav_no_off.png",
+      fixture_sha256: "c3753086394cdf7a5c01ae0dcc3c01c951b0246303a1252b5910418f30141868",
+      kind: :transform
+    },
+    "grav_noea" => %{
+      authored_sha256: "fa027a97d5f8a24b67ef26bcb9dcd7ec50117f872561270cd649ec25562baea8",
+      fixture_filename: "grav_noea.png",
+      fixture_sha256: "ac77f8ef309cb4aab23b0f2fdd708a0d24c3f905a41f1fb99df078ef33a2d2fc",
+      kind: :transform
+    },
+    "grav_noea_off" => %{
+      authored_sha256: "8ba0ee5385aaac57e9debbf984115f053f70d7619d3b6ea45d3df16ec2d1bca1",
+      fixture_filename: "grav_noea_off.png",
+      fixture_sha256: "182ca208fc74158e4c101b3352c7c87eea3ce1b31ba6e3034f87420daa2950dc",
+      kind: :transform
+    },
+    "grav_nowe" => %{
+      authored_sha256: "c223d7a4f57843821ca3bd75b3ab70ecda64482428a0b75622dbd89a0ca6edd1",
+      fixture_filename: "grav_nowe.png",
+      fixture_sha256: "0ab4eb180619392ae26411bc8850d9d45d8daa7ca8e659a1d6485378c8750386",
+      kind: :transform
+    },
+    "grav_nowe_off" => %{
+      authored_sha256: "ba05e860646f990449a3653ec361fc965a6915bed9681754316120ae56116c26",
+      fixture_filename: "grav_nowe_off.png",
+      fixture_sha256: "0b228be1541dc6b840d455aa2669c79de9472d3a7e1e0fbdc059a01ca50de663",
+      kind: :transform
+    },
+    "grav_so" => %{
+      authored_sha256: "75fea5fa682e72c96222bee77ed01cc7168d9e1904760b9b8d0e43822a89b337",
+      fixture_filename: "grav_so.png",
+      fixture_sha256: "e1d6133c192b8581eae0e87ccc2ec83c9a7a0e919c30f30b6ed330109e004b90",
+      kind: :transform
+    },
+    "grav_so_off" => %{
+      authored_sha256: "b43847743b210b2838ae4f26d8ef42e0c43ef40a00a7e3cf0036a6ff2d2af7ca",
+      fixture_filename: "grav_so_off.png",
+      fixture_sha256: "580873e641a942c4b1fbdd4a61d5427075198e9fe7f1af8402ceb9c1ad4ce783",
+      kind: :transform
+    },
+    "grav_soea" => %{
+      authored_sha256: "7c457b2ea452dd04760060550a3d18c35a5dda0a7d41a7efd8bfb9b8e78dc270",
+      fixture_filename: "grav_soea.png",
+      fixture_sha256: "29439158c8bf45616731fbace2b9e1a439fc199070630c84aab89b88e52464d4",
+      kind: :transform
+    },
+    "grav_soea_off" => %{
+      authored_sha256: "5f19529fe5e018cf9909c45f83b95cf3ee90690497caae2ae173dfcdadcd1451",
+      fixture_filename: "grav_soea_off.png",
+      fixture_sha256: "42cdba3868e3a8585ec2781c0b1d220eceed857f7629c719b93d296db1d4891d",
+      kind: :transform
+    },
+    "grav_sowe" => %{
+      authored_sha256: "bae5982dcd6cacd8ec00dc84f1317fb7763b84abdc50a938f49b52ba0a553f0e",
+      fixture_filename: "grav_sowe.png",
+      fixture_sha256: "8adfabe6abf936711caa1c5346faf10d4c89eedfab9f24fce7b517304f9be38d",
+      kind: :transform
+    },
+    "grav_sowe_off" => %{
+      authored_sha256: "bb4229319459d0eacbb434f63b8c620f0c2523f59bbdf9bdb128fd140943f38c",
+      fixture_filename: "grav_sowe_off.png",
+      fixture_sha256: "5568cd750bfb92d57cad44503714f02f945047e2563ebc2885f13d43a6ed12e6",
+      kind: :transform
+    },
+    "grav_we" => %{
+      authored_sha256: "9e022877d30d5275473d1d8992468bfd2fcc8bc8f42d66ba2a0bb9d9189d7c50",
+      fixture_filename: "grav_we.png",
+      fixture_sha256: "19b03f87ecea0020a6d281a699b174c9a963312b7de138f31477afd60508675c",
+      kind: :transform
+    },
+    "grav_we_off" => %{
+      authored_sha256: "44e7cdcf271d09a4f0fa0009edde4636ff0fe5b2c1f11bfa5e284cd748015539",
+      fixture_filename: "grav_we_off.png",
+      fixture_sha256: "73e3f0b5fbe124a79e4dede376fe331ef2a69d1b3d1e25bb06cb4ad2eec0638a",
       kind: :transform
     },
     "gravity_offset_marker" => %{
@@ -610,6 +772,18 @@
       fixture_sha256: "7221abf6b9829f098ce93de522b7697f8b7c798c04d8dabf4f37393c1d556690",
       kind: :transform
     },
+    "min_width_only_marker" => %{
+      authored_sha256: "43ba0e1578fcfe290cac0beb36954697ef3163692ff00a4132c475e6bea9c914",
+      fixture_filename: "min_width_only_marker.png",
+      fixture_sha256: "bd1ebd7079f7d41f861fa3249b43d1b290e30f913f14744d6b8c897d00b0c103",
+      kind: :transform
+    },
+    "mrd_ceiling_marker" => %{
+      authored_sha256: "0a9f52959ec41086465553dcd34d9d14e913fa24398e96ab6fdf4512b414ab0c",
+      fixture_filename: "mrd_ceiling_marker.png",
+      fixture_sha256: "bba860e367017abb1dcfc0797f5f581329399223baf36bd5ddb2ac59e79a8558",
+      kind: :transform
+    },
     "padding_asym_dpr_exif" => %{
       authored_sha256: "4e1d728e1c102b020405ea0dcbdabb3680d9667e16613b573c82407aba5e0252",
       fixture_filename: "padding_asym_dpr_exif.png",
@@ -632,6 +806,24 @@
       authored_sha256: "fe696e069a5d3aabb3ba361c9ee56de7cec97d835733e2d3741b1784029e08ad",
       fixture_filename: "pixelate_marker.png",
       fixture_sha256: "522a35bf4f754db93a6d6816cf413c067a62cd11e2bee2fa4c0cb6c6de32f9e6",
+      kind: :transform
+    },
+    "resize_tail_enlarge_extend_small" => %{
+      authored_sha256: "9f68495f8e93e8c0684a87ab2be198e81d22093780e19868b9c7a6eec12a7a63",
+      fixture_filename: "resize_tail_enlarge_extend_small.png",
+      fixture_sha256: "8d7631377411352bb6dd7cde573eb082005f1a93567646ea22fa3dd38857f651",
+      kind: :transform
+    },
+    "resize_width_only_marker" => %{
+      authored_sha256: "abf791739ce98e5ec8189748f94f3bd1242ddc74241a16107446669cc3d986c3",
+      fixture_filename: "resize_width_only_marker.png",
+      fixture_sha256: "47851b26cfab3e08e0eb98a52fc3a08d9fe173b2da123889199a71d53a4a52cf",
+      kind: :transform
+    },
+    "resizing_type_direct_marker" => %{
+      authored_sha256: "0233ae5d7c6e470cb1f08d7eb1f268b9d00d4ba4ccaf3a6c59a52d92db5e05c1",
+      fixture_filename: "resizing_type_direct_marker.png",
+      fixture_sha256: "a2bb00551c4e82f9951c5437fbaee04b568c81fd916e3f84f5f326b173257e07",
       kind: :transform
     },
     "rgb16_preserve_hdr" => %{
@@ -718,6 +910,12 @@
       fixture_sha256: "ad6fb7b30b6afe83d7bd7c808d010cdd5f06feef5088b54a8ea6b6c8adaae7ee",
       kind: :transform
     },
+    "size_marker" => %{
+      authored_sha256: "923a1b1f9630995eb112ed0dcc51e0642c4b2d7e9ee1840f6037cd6fb2134bd3",
+      fixture_filename: "size_marker.png",
+      fixture_sha256: "a2bb00551c4e82f9951c5437fbaee04b568c81fd916e3f84f5f326b173257e07",
+      kind: :transform
+    },
     "strip_exif" => %{
       authored_sha256: "fd84a77b9cb362428575bae75b4cb195c29724e320e851c74a0a8a9c03ec3a4b",
       fixture_filename: "strip_exif.png",
@@ -728,6 +926,12 @@
       authored_sha256: "f5f5861b668af243635c745d337f978a1c9adc08bf10e6b54f648edc77b22f38",
       fixture_filename: "trim_border_equal.png",
       fixture_sha256: "f25e7af1bf08e3df79b6ace82515d7276dc92575f96006f24d37b3b72bf48336",
+      kind: :transform
+    },
+    "trim_color_marker" => %{
+      authored_sha256: "6b5909ffc568a7738880d815d550097cded75b763ac870680339a46743557d56",
+      fixture_filename: "trim_color_marker.png",
+      fixture_sha256: "b996b43cc151cc430653ff4a67788fef9772ed5aba702b7afa8405b40b8f51b3",
       kind: :transform
     },
     "trim_equal_h_exif5" => %{
@@ -766,6 +970,12 @@
       fixture_sha256: "25ec6ecdb9819a322dc873f4481293cdc9eff940c04e2fb39ef0983ed9961240",
       kind: :transform
     },
+    "width_only_marker" => %{
+      authored_sha256: "17269bf3f0022cf968190061321de249604bd91f6d110c35575b9f3843ddcc48",
+      fixture_filename: "width_only_marker.png",
+      fixture_sha256: "47851b26cfab3e08e0eb98a52fc3a08d9fe173b2da123889199a71d53a4a52cf",
+      kind: :transform
+    },
     "zoom_anisotropic_marker" => %{
       authored_sha256: "eac5b3fab00b438243d765085142566dc4f815b41c948ffc04a586a9c4d95340",
       fixture_filename: "zoom_anisotropic_marker.png",
@@ -782,6 +992,18 @@
       authored_sha256: "3a33335df8e72cbf2c6db4143d2e4ac8ec22f334aab7fd1885e73fa9244c6ea5",
       fixture_filename: "zoom_marker.png",
       fixture_sha256: "95170ad3b1694484cb35070a6dcbb15a7d32dd23bda9bb14e87b4a6d444c6a23",
+      kind: :transform
+    },
+    "zoom_offset_no_scale" => %{
+      authored_sha256: "6508625200a2da4a98daaa6259dae03a82ab86537b5d34d1afdc600521f134a1",
+      fixture_filename: "zoom_offset_no_scale.png",
+      fixture_sha256: "35334171012f49dbaf4ca819b88ab02b17529de5aeb59f4b90eb70d4babf814f",
+      kind: :transform
+    },
+    "zoom_padding_no_scale" => %{
+      authored_sha256: "e706d7b7ff1bdd18bd4ed608a24930337b789ab9133bcdc66e22ea1e6f44574a",
+      fixture_filename: "zoom_padding_no_scale.png",
+      fixture_sha256: "91b109d0aedc3142ab9cd8bb8c6fc595b099c59b629654799c66d64bba40575d",
       kind: :transform
     }
   }

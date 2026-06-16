@@ -284,23 +284,36 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp crop_operations(%PipelineRequest{crop: nil}), do: {:ok, []}
 
   defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop} = request) do
+    {gravity, x_offset, y_offset} = crop_gravity(crop, request)
+
     with {:ok, width} <- imgproxy_tagged_crop_dimension(crop.width),
          {:ok, height} <- imgproxy_tagged_crop_dimension(crop.height),
-         {:ok, guide} <-
-           tagged_gravity(crop.gravity || request.gravity, request.smart_crop_face_detection),
+         {:ok, guide} <- tagged_gravity(gravity, request.smart_crop_face_detection),
          {:ok, operation} <-
            Operation.crop_guided(
              width,
              height,
              guide,
-             x_offset: crop.x_offset,
-             y_offset: crop.y_offset,
+             x_offset: x_offset,
+             y_offset: y_offset,
              aspect_ratio: crop_aspect_ratio(request),
              enlarge: request.crop_aspect_ratio_enlarge
            ) do
       {:ok, [operation]}
     end
   end
+
+  # A bare crop (`c:W:H` with no inline gravity args) inherits the ENTIRE top-level `g:`
+  # option — both the type and its x/y offsets — per imgproxy's crop semantics ("when
+  # gravity is not set, it will use the value of the gravity option"). An inline crop
+  # gravity (`c:W:H:type[:x:y]`) fully specifies its own gravity, so its own offsets are
+  # used (a crop can't carry offsets without an inline type, so `gravity: nil` always
+  # means zero crop offsets).
+  defp crop_gravity(%CropRequest{gravity: nil}, %PipelineRequest{} = request),
+    do: {request.gravity, request.gravity_x_offset, request.gravity_y_offset}
+
+  defp crop_gravity(%CropRequest{} = crop, %PipelineRequest{}),
+    do: {crop.gravity, crop.x_offset, crop.y_offset}
 
   defp crop_aspect_ratio(%PipelineRequest{crop_aspect_ratio: nil}), do: nil
   defp crop_aspect_ratio(%PipelineRequest{crop_aspect_ratio: ratio}) when ratio == 0.0, do: nil
@@ -567,6 +580,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
          {:ok, guide} <- resize_guide(request.gravity, request.smart_crop_face_detection) do
       resize_opts = [
         dpr: request.dpr || 1.0,
+        down: request.resizing_type == :fill_down,
         enlargement: enlargement(request),
         guide: guide,
         min_width: min_width,
