@@ -171,3 +171,28 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 | --- | --- | --- |
 | [Placeholders API](https://www.twicpics.com/docs/reference/placeholders.md) | ⭕ Missing | LQIP / placeholder generation; out of scope for v1. |
 | [TwicPics Native attributes](https://www.twicpics.com/docs/reference/native-attributes.md) | 🛑 Out of scope | Client-side frontend attribute system, not a server URL API. |
+
+## Differential conformance
+
+`test/image_pipe/twicpics_differential_conformance_test.exs` verifies ImagePipe's
+geometry/placement against committed structural records baked from the live hosted
+TwicPics Image API (`mise run twic:bake`). It is the **behavioral/placement**
+enforcement of this matrix.
+
+The suite asserts decoded output dims, band count, and a decoded colour-grid cell-map
+— not pixels. The colour-grid source encodes content identity, so sampling the output
+at a fixed cell-centre lattice and decoding each sample to its nearest cell yields a
+placement fingerprint that survives TwicPics' non-libvips engine. This runs on the
+default `mix test` lane without network access.
+
+- **`:equal`** cases assert that ImagePipe's cell-map matches the oracle's.
+- Quarantined cases (`@tag :twicpics_triage`) are excluded by default; they record
+  known divergences or lattice-boundary artifacts under investigation.
+
+Any placement divergence surfaced by the suite and deliberately modelled as a
+permanent difference should be documented here with a "Diverges" note in the relevant
+transformation row above.
+
+Regeneration, the source-hosting handshake, and the bake/triage workflow are
+documented in
+`test/support/image_pipe/test/twicpics_differential/README.md`.
