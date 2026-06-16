@@ -155,6 +155,8 @@ end
 
 In `test/support/image_pipe/test/imgproxy_differential/manifest.ex`: add `alias ImagePipe.Test.Differential.ManifestTerm`. Replace the private `sorted_map_literal/pair_literal/value_literal` with calls to `ManifestTerm.sorted_map_literal/1`; change `write!/2` to build the body string (the current `render/1` output) and call `ManifestTerm.write!(path, body)`; delegate `file_sha256/1` to `ManifestTerm.file_sha256/1`; change `authored_sha256/1` to `ManifestTerm.authored_sha256(constellation, @authored_keys)`. Keep `load!/validate!/validate_entry!` and `@authored_keys` exactly as-is.
 
+**Boundary note:** `manifest.ex` stays **unbounded** (no `use Boundary`, same as today). Calling into `ManifestTerm` (a `top_level?: true, deps: []` boundary) is ingress into that boundary's root module — allowed; Boundary only constrains a boundary's *outgoing* deps, and a `deps: []` boundary may still call external libs (`Image`/`Vix`). Do **not** add `check: [out: false]` to `Manifest` to "fix" a non-error. Reserve `check: [out: false]` for the mix tasks + harness that alias several sibling boundaries. The same applies to the TwicPics `Manifest` (Task 6).
+
 - [ ] **Step 5: Run shared + imgproxy suite, verify green**
 
 Run: `mise exec -- mix test test/support/image_pipe/test/differential/manifest_term_test.exs test/image_pipe/imgproxy_differential_conformance_test.exs`
@@ -314,6 +316,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompareTest do
     rec = SC.extract(img, @spec_4x4)
     assert rec.dims == {160, 160}
     assert rec.bands == 3
+    assert rec.cols == 4
     # cell-centre lattice (4×4) over an identity grid → each sample its own cell
     assert SC.cell_at(rec, 0, 0) == {:cell, {0, 0}}
     assert SC.cell_at(rec, 3, 3) == {:cell, {3, 3}}
@@ -339,6 +342,11 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompareTest do
     b = %{a | cells: [{:cell, {0, 0}}, {:cell, {2, 2}}]}
     assert {:mismatch, diff} = SC.compare(a, b)
     assert diff.cells == [{1, {:cell, {1, 1}}, {:cell, {2, 2}}}]
+  end
+
+  test "low_confidence_samples flags none for a clean grid" do
+    img = grid_image(4, 4, 40)
+    assert SC.low_confidence_samples(img, @spec_4x4) == []
   end
 end
 ```
@@ -367,7 +375,12 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
   use Boundary, top_level?: true, deps: []
 
   @type cell :: {:cell, {non_neg_integer(), non_neg_integer()}} | :padding | :ambiguous
-  @type record :: %{dims: {pos_integer(), pos_integer()}, bands: pos_integer(), cells: [cell()]}
+  @type record :: %{
+          dims: {pos_integer(), pos_integer()},
+          bands: pos_integer(),
+          cols: pos_integer(),
+          cells: [cell()]
+        }
 
   # Default decode tolerances. `color_dist` is the max squared RGB distance (sum of
   # per-channel squared diffs, 0..3*255²) for a confident nearest-cell match; beyond
@@ -375,19 +388,43 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
   @default_tol %{color_dist: 1600, alpha: 16}
   def default_tol, do: @default_tol
 
-  @doc "Extract the structural record from `image` for grid `spec` (%{cols, rows})."
+  @doc """
+  Extract the structural record from `image` for grid `spec` (%{cols, rows}). The
+  record carries `cols` so `cell_at/3` can index the lattice for any grid shape.
+  `compare/2` reads only dims/bands/cells, so the manifest stores those (not cols).
+  """
   @spec extract(Vix.Vips.Image.t(), map(), map()) :: record()
   def extract(image, spec, tol \\ @default_tol) do
     w = Image.width(image)
     h = Image.height(image)
     bands = Image.bands(image)
-    cells = Enum.map(lattice(spec), fn {fx, fy} -> decode(image, w, h, fx, fy, spec, tol) end)
-    %{dims: {w, h}, bands: bands, cells: cells}
+    cells = Enum.map(lattice(spec), fn {fx, fy} -> elem(decode(image, w, h, fx, fy, spec, tol), 0) end)
+    %{dims: {w, h}, bands: bands, cols: spec.cols, cells: cells}
+  end
+
+  @doc """
+  Lattice indices (0-based) of samples whose nearest-cell distance is past the
+  half-way mark to the `:ambiguous` threshold — the low-confidence-margin guard. A
+  clean grid returns `[]`; any flagged index is the bake's signal to consider
+  pinning `truecolor` or nudging the lattice (it is a diagnostic, never a gate).
+  """
+  @spec low_confidence_samples(Vix.Vips.Image.t(), map(), map()) :: [non_neg_integer()]
+  def low_confidence_samples(image, spec, tol \\ @default_tol) do
+    w = Image.width(image)
+    h = Image.height(image)
+
+    spec
+    |> lattice()
+    |> Enum.map(fn {fx, fy} -> decode(image, w, h, fx, fy, spec, tol) end)
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {{value, dist}, i} ->
+      if match?({:cell, _}, value) and dist > tol.color_dist / 2, do: [i], else: []
+    end)
   end
 
   @doc "Lattice index `(li, lj)` → decoded cell of `record` (row-major cols×rows)."
   @spec cell_at(record(), non_neg_integer(), non_neg_integer()) :: cell()
-  def cell_at(%{cells: cells}, li, lj), do: Enum.at(cells, lj * lattice_cols() + li)
+  def cell_at(%{cells: cells, cols: cols}, li, lj), do: Enum.at(cells, lj * cols + li)
 
   @doc """
   Compare two records. `:match` when dims, bands, and every cell agree; otherwise
@@ -420,16 +457,15 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
     for vy <- fy, vx <- fx, do: {vx, vy}
   end
 
-  # cols of the *default* 4×4 lattice for cell_at/3 indexing; the suite uses 4×4.
-  defp lattice_cols, do: 4
-
+  # Returns `{value, nearest_dist}` so the caller can both record the decoded value
+  # and report decode confidence. `:padding`/`:ambiguous` carry a sentinel distance.
   defp decode(image, w, h, fx, fy, spec, tol) do
     x = min(round(fx * w), w - 1)
     y = min(round(fy * h), h - 1)
     px = Image.get_pixel!(image, x, y) |> Enum.map(&round/1)
 
     cond do
-      length(px) == 4 and List.last(px) <= tol.alpha -> :padding
+      length(px) == 4 and List.last(px) <= tol.alpha -> {:padding, 0}
       true -> nearest(Enum.take(px, 3), spec, tol)
     end
   end
@@ -439,11 +475,11 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
       for(col <- 0..(cols - 1), row <- 0..(rows - 1), do: {col, row})
       |> Enum.map(fn {col, row} ->
         {cr, cg, cb} = {chan(col, cols), chan(row, rows), 255}
-        {{col, row}, (cr - r) ** 2 + (cg - g) ** 2 + (cb - b) ** 2}
+        {{col, row}, (cr - r) * (cr - r) + (cg - g) * (cg - g) + (cb - b) * (cb - b)}
       end)
       |> Enum.min_by(&elem(&1, 1))
 
-    if dist <= tol.color_dist, do: {:cell, best}, else: :ambiguous
+    if dist <= tol.color_dist, do: {{:cell, best}, dist}, else: {:ambiguous, dist}
   end
 
   defp chan(_i, 1), do: 0
@@ -506,6 +542,8 @@ defmodule ImagePipe.TwicpicsSourceInventoryTest do
       img = Image.open!(File.read!(Path.join(@sources_dir, entry.file)), access: :random, fail_on: :error)
       assert {Image.width(img), Image.height(img)} == {entry.width, entry.height}
       assert Image.bands(img) == entry.bands
+      assert Vix.Vips.Image.format(img) == entry.format
+      assert Image.interpretation(img) == entry.interpretation
     end
   end
 
@@ -548,6 +586,10 @@ defmodule ImagePipe.Test.TwicpicsDifferential.SourceInventory do
       width: 400,
       height: 400,
       bands: 4,
+      # Confirm `format`/`interpretation` against the decoded bytes during impl
+      # (the drift test asserts them); `file` reports 8-bit RGBA, so UCHAR/sRGB.
+      format: :VIPS_FORMAT_UCHAR,
+      interpretation: :VIPS_INTERPRETATION_sRGB,
       grid: @grid_4x4,
       produced_by: "Colour grid from the #321 focus probe (tools/make_grid.exs), uploaded to catbox.",
       consumers: [:twicpics_differential],
@@ -601,24 +643,18 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
 
   test "every non-triaged chain parses via ImagePipe.Parser.TwicPics" do
     for c <- Constellations.all(), is_nil(c[:triage]) do
-      path = Constellations.twicpics_path(c)
-      assert {:ok, _plan} = parse(path), "chain failed to parse: #{c.id} (#{c.chain})"
+      assert {:ok, _plan} = parse(Constellations.twicpics_path(c)),
+             "chain failed to parse: #{c.id} (#{c.chain})"
     end
   end
 
-  defp parse(path) do
-    %{query_string: qs, path: p} = URI.parse("http://h" <> path) |> Map.put(:path, hd(String.split(path, "?")))
-    conn = Plug.Test.conn(:get, path)
-    case ImagePipe.Parser.TwicPics.parse(conn, []) do
-      {:ok, plan} -> {:ok, plan}
-      other -> other
-    end
-    _ = {qs, p}
-  end
+  # `ImagePipe.Parser.TwicPics.parse/2` takes (%Plug.Conn{}, opts); `Plug.Test.conn/2`
+  # already populates path_info + the `twic` query param the parser reads.
+  defp parse(path), do: ImagePipe.Parser.TwicPics.parse(Plug.Test.conn(:get, path), [])
 end
 ```
 
-Note: the exact `ImagePipe.Parser.TwicPics.parse/2` entry signature must be confirmed against `lib/image_pipe/parser/twic_pics.ex` during implementation; adjust `parse/1` to call the real arity. If the parser only runs inside `ImagePipe.Plug`, replace the parse helper with a `Harness.render` smoke that asserts a 200 + decodes — but prefer the direct parser call for a fast gate.
+Note: confirm the `ImagePipe.Parser.TwicPics.parse/2` arity/return against `lib/image_pipe/parser/twic_pics.ex` during implementation (reviewed as `(%Plug.Conn{}, opts) :: {:ok, plan} | {:error, _}`). `import Plug.Test` (or qualify) at the top of the test.
 
 - [ ] **Step 2: Run test, verify it fails**
 
@@ -654,45 +690,72 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
   def twicpics_path(%{source: source, chain: chain}),
     do: "/#{Map.fetch!(@source_files, source)}?twic=v1/#{chain}/#{@suffix}"
 
-  @doc "The authored constellation list (full issue initial scope)."
+  @doc """
+  The authored constellation list (full issue initial scope).
+
+  Discrimination note: the source is square (400×400), so a SYMMETRIC consumer
+  (`cover=NxN`, `contain=NxN`) on it is a pure uniform downscale — no crop, no
+  letterbox — and its cell-map is the identity grid regardless of focus. Such
+  cases pin only output *dims* (kept + labelled `dims-pin`). To actually exercise
+  focus placement, crop region, and fit, the focus/crop cases use ASYMMETRIC
+  consumers (`cover=300x100`, `cover=100x300`, ratio crops) or a small guided
+  `crop` (which, like the #321 probe, lands on a single cell and reads the carried
+  point). Negative-focus *rejection* (TwicPics 404s; ImagePipe 400s) has no grid to
+  decode, so it is out of this structural suite — it lives in the `Units` parser
+  unit tests; see the suite README.
+  """
   def all do
     [
-      # --- focus: anchors (the carried point steers cover) ---
-      c("focus_center_cover_sq", "focus=center/cover=200x200", :focus),
-      c("focus_topleft_cover_sq", "focus=top-left/cover=200x200", :focus),
-      c("focus_bottomright_cover_sq", "focus=bottom-right/cover=200x200", :focus),
-      c("focus_top_cover_wide", "focus=top/cover=300x100", :focus),
+      # --- focus anchors steer an ASYMMETRIC cover (the cropped axis reveals the point) ---
+      c("focus_center_cover_wide", "focus=center/cover=300x100", :focus),
+      c("focus_topleft_cover_wide", "focus=top-left/cover=300x100", :focus),
+      c("focus_bottomright_cover_wide", "focus=bottom-right/cover=300x100", :focus),
       c("focus_left_cover_tall", "focus=left/cover=100x300", :focus),
-      # --- focus: pixel + relative coordinates (0-based) ---
-      c("focus_px_corner_cover", "focus=0x0/cover=150x150", :focus),
-      c("focus_px_last_cover", "focus=399x399/cover=150x150", :focus),
-      c("focus_rel_mid_cover", "focus=50px50p/cover=150x150", :focus),
-      c("focus_mixed_units_cover", "focus=300x50p/cover=150x150", :focus),
-      # --- focus: out-of-bounds clamp (confirmed live: clamps to edge) ---
-      c("focus_oob_clamp_cover", "focus=500x500/cover=150x150", :focus),
-      c("focus_oob_rel_clamp_cover", "focus=150px150p/cover=150x150", :focus),
-      # --- focus carry-through: scale before/after is order-sensitive ---
-      c("focus_carry_resize_then", "focus=100x100/resize=50p/cover=80x80", :focus),
-      c("focus_carry_then_resize", "resize=50p/focus=50x50/cover=80x80", :focus),
-      c("focus_carry_zoomless_multi", "focus=top-left/cover=300x300/crop=120x120", :focus),
-      # --- cover: size (asymmetric crop axes) + ratio ---
-      c("cover_square", "cover=200x200", :cover),
+      c("focus_right_cover_tall", "focus=right/cover=100x300", :focus),
+      # --- focus pixel + relative coords (0-based), asymmetric consumer ---
+      c("focus_px_origin_cover_wide", "focus=0x0/cover=300x100", :focus),
+      c("focus_px_last_cover_tall", "focus=399x399/cover=100x300", :focus),
+      c("focus_rel_mid_cover_wide", "focus=50px50p/cover=300x100", :focus),
+      c("focus_mixed_units_cover_tall", "focus=300x50p/cover=100x300", :focus),
+      # --- focus OOB clamp (confirmed live: positive past-edge clamps to the edge) ---
+      c("focus_oob_clamp_cover_wide", "focus=500x500/cover=300x100", :focus),
+      # `150px150p` is 150p × 150p (150% × 150%) — NOT a `px` pixel unit; both clamp to
+      # the far edge (confirmed live; the parser clamps ratio>1 per #321).
+      c("focus_oob_rel_clamp_cover_tall", "focus=150px150p/cover=100x300", :focus),
+      # --- cover-RATIO steered by focus (the documented ratio consumer, #321) ---
+      c("focus_topleft_cover_ratio", "focus=top-left/cover=16:9", :focus),
+      c("focus_bottomright_cover_ratio", "focus=bottom-right/cover=2:3", :focus),
+      # --- focus carry-through: identical focus, resize before vs after → different cell ---
+      # resize first (400→200): focus 50x50 in the 200-frame = source (100,100) = cell (1,1)
+      c("focus_carry_then_crop", "resize=50p/focus=50x50/crop=40x40", :focus),
+      # focus first in the 400-frame: source (50,50) = cell (0,0), carried through resize
+      c("focus_carry_resize_then_crop", "focus=50x50/resize=50p/crop=40x40", :focus),
+      # --- focus persists across MULTIPLE consumers (asymmetric cover, then crop) ---
+      c("focus_multi_consumer", "focus=top-left/cover=300x100/crop=40x40", :focus),
+      # --- cover: size (asymmetric = discriminating; square = dims-pin) + ratio ---
       c("cover_wide", "cover=300x100", :cover),
       c("cover_tall", "cover=100x300", :cover),
+      c("cover_square_dimspin", "cover=200x200", :cover),
       c("cover_ratio_wide", "cover=16:9", :cover),
       c("cover_ratio_tall", "cover=2:3", :cover),
-      # --- contain: fits inside box, may be smaller, no pad ---
-      c("contain_square", "contain=150x150", :contain),
+      # --- contain: fits inside box, may be smaller, no pad (wide/tall discriminate) ---
       c("contain_wide", "contain=300x100", :contain),
       c("contain_tall", "contain=100x300", :contain),
-      # --- inside: fits + letterbox to exact box (translucent borders) ---
-      c("inside_square", "inside=150x150", :inside),
+      c("contain_square_dimspin", "contain=150x150", :contain),
+      # --- inside: fits + letterbox to the exact box (translucent borders). Square-in-
+      # square produces NO letterbox (== contain) so it can't discriminate; only the
+      # asymmetric boxes letterbox and are worth baking. ---
       c("inside_wide_lr", "inside=300x100", :inside),
       c("inside_tall_tb", "inside=100x300", :inside),
       # --- crop: guided (focus) vs region@coords (resets focus to crop centre) ---
-      c("crop_guided_focus", "focus=top-left/crop=120x120", :crop),
+      c("crop_guided_focus_tl", "focus=top-left/crop=120x120", :crop),
       c("crop_region_origin", "crop=160x160@40x40", :crop),
-      c("crop_region_reset", "focus=0x0/crop=160x160@200x200/crop=80x80", :crop)
+      # region@coords RESETS focus to the crop centre (source ~(280,280) = cell (2,2)),
+      # so the trailing guided crop reads (2,2) despite the earlier focus=0x0…
+      c("crop_region_reset", "focus=0x0/crop=160x160@200x200/crop=80x80", :crop),
+      # …and this contrast case (same focus=0x0, guided crop, no region reset) must
+      # read cell (0,0) — the pair makes the reset observable, not coincidental.
+      c("crop_guided_no_reset_contrast", "focus=0x0/crop=80x80", :crop)
     ]
   end
 
@@ -789,10 +852,12 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
     assert Manifest.load!(path).entries["cover_square"].dims == {200, 200}
   end
 
-  test "load! raises on a malformed entry" do
+  test "load! raises on a malformed entry (whole manifest, so the entry guard fires)" do
     path = Path.join(System.tmp_dir!(), "twic_bad_#{System.unique_integer([:positive])}.exs")
-    File.write!(path, inspect(put_in(@manifest.entries["cover_square"].dims, "nope"), limit: :infinity))
-    assert_raise RuntimeError, fn -> Manifest.load!(path) end
+    bad = put_in(@manifest.entries["cover_square"].dims, "nope")
+    File.write!(path, inspect(bad, limit: :infinity))
+    # Top-level keys are intact, so this reaches validate_entry! and rejects `dims: "nope"`.
+    assert_raise RuntimeError, ~r/cover_square/, fn -> Manifest.load!(path) end
   end
 
   test "oracle_signature depends on chain + suffix + source identity, not tol/verdict" do
@@ -801,6 +866,38 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
     s2 = Manifest.oracle_signature(base)
     s3 = Manifest.oracle_signature(%{base | chain: "cover=300x100"})
     assert s1 == s2 and s1 != s3
+  end
+
+  describe "fresh?/3 (the incremental-bake staleness predicate)" do
+    setup do
+      path = Path.join(System.tmp_dir!(), "twic_fx_#{System.unique_integer([:positive])}.png")
+      File.write!(path, "pngbytes")
+      sha = Manifest.file_sha256(path)
+      entry = %{oracle_signature: "sig1", fixture_sha256: sha}
+      on_exit(fn -> File.rm(path) end)
+      {:ok, path: path, sha: sha, entry: entry}
+    end
+
+    test "nil prior is never fresh (new case)", %{path: path} do
+      refute Manifest.fresh?(nil, "sig1", path)
+    end
+
+    test "matching signature + present + matching hash is fresh", %{path: path, entry: entry} do
+      assert Manifest.fresh?(entry, "sig1", path)
+    end
+
+    test "changed signature is stale", %{path: path, entry: entry} do
+      refute Manifest.fresh?(entry, "sig2", path)
+    end
+
+    test "missing fixture file is stale", %{entry: entry} do
+      refute Manifest.fresh?(entry, "sig1", "/no/such/fixture.png")
+    end
+
+    test "corrupted fixture (hash mismatch) is stale", %{path: path, entry: entry} do
+      File.write!(path, "different")
+      refute Manifest.fresh?(entry, "sig1", path)
+    end
   end
 end
 ```
@@ -840,6 +937,19 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Manifest do
   def oracle_signature(%{chain: chain, suffix: suffix, source_sha256: src}) do
     :crypto.hash(:sha256, :erlang.term_to_binary({chain, suffix, src}, [:deterministic]))
     |> Base.encode16(case: :lower)
+  end
+
+  @doc """
+  The incremental-bake staleness predicate: a prior entry is fresh (skip the
+  oracle) only when its oracle signature still matches AND its committed PNG is
+  present AND that PNG's bytes still match the recorded hash. A `nil` prior (new
+  case) is never fresh. Keeps the skip decision pure and testable.
+  """
+  @spec fresh?(map() | nil, String.t(), Path.t()) :: boolean()
+  def fresh?(nil, _sig, _path), do: false
+
+  def fresh?(%{oracle_signature: recorded_sig, fixture_sha256: recorded_hash}, sig, path) do
+    recorded_sig == sig and File.exists?(path) and file_sha256(path) == recorded_hash
   end
 
   @doc "Pretty-print the manifest term to `path` (mix-format stable, key-sorted)."
@@ -940,6 +1050,19 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
     end
   end
 
+  # The reference PNG is non-gating (the structural record is the gate), but the
+  # manifest records its hash precisely so corruption/edits are detectable — verify
+  # it, matching imgproxy's fixture-hash discipline.
+  test "committed reference PNGs match the manifest's recorded hashes", %{manifest: manifest} do
+    for {id, %{fixture_filename: f, fixture_sha256: recorded}} <- manifest.entries do
+      path = Harness.fixture_path(f)
+      assert File.exists?(path), "#{id}: missing reference PNG #{path} — re-bake (`mise run twic:bake`)."
+
+      assert Manifest.file_sha256(path) == recorded,
+             "#{id}: reference PNG #{f} sha256 mismatch — corrupted or edited; re-bake."
+    end
+  end
+
   defp grid_spec(c), do: SourceInventory.grid(Constellations.source_file(c))
   defp tol(c), do: c[:tol] || Constellations.default_tol()
 
@@ -1018,6 +1141,11 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     {:ok, _} = Application.ensure_all_started(:req)
     File.mkdir_p!(@fixtures_dir)
 
+    # Fail fast: a chain that doesn't parse must abort BEFORE any live oracle call
+    # (network is the expensive/rate-limited resource here) — imgproxy's pre-bake
+    # parse gate, adapted. Triaged cases (known parser gaps) are skipped.
+    validate_parses!()
+
     only = opts[:only] && String.split(opts[:only], ",", trim: true) |> MapSet.new()
     prior = if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: empty_manifest()
 
@@ -1037,33 +1165,76 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     Mix.shell().info("Baked #{map_size(entries)} cases (#{@manifest_path}).")
   end
 
+  defp validate_parses!() do
+    import Plug.Test, only: [conn: 2]
+
+    failures =
+      Constellations.all()
+      |> Enum.reject(&(&1[:triage]))
+      |> Enum.flat_map(fn c ->
+        case ImagePipe.Parser.TwicPics.parse(conn(:get, Constellations.twicpics_path(c)), []) do
+          {:ok, _} -> []
+          other -> [{c.id, c.chain, other}]
+        end
+      end)
+
+    if failures != [] do
+      detail = Enum.map_join(failures, "\n", fn {id, ch, r} -> "  #{id}: #{ch} → #{inspect(r)}" end)
+      Mix.raise("parse gate: #{length(failures)} chain(s) don't parse — fix or triage:\n#{detail}")
+    end
+  end
+
   # --- per-case ---
   defp bake_case(c, sources, prior, force, only) do
     src = sources[Constellations.source_file(c)]
+    grid = SourceInventory.grid(Constellations.source_file(c))
     sig = Manifest.oracle_signature(%{chain: c.chain, suffix: Constellations.suffix(), source_sha256: src.sha256})
     fixture = "#{c.id}.png"
     path = Path.join(@fixtures_dir, fixture)
-    targeted? = is_nil(only) or MapSet.member?(only, c.id)
 
-    if not force and not (only && targeted?) and prior && prior.oracle_signature == sig and
-         File.exists?(path) and Manifest.file_sha256(path) == prior.fixture_sha256 do
-      Mix.shell().info("skip  #{c.id} (unchanged)")
-      prior |> Map.put(:authored_sha256, Manifest.authored_sha256(c))
-    else
-      Mix.shell().info("bake  #{c.id}")
-      body = fetch_oracle!(c)
-      File.write!(path, body)
-      rec = StructureCompare.extract(decode(body), SourceInventory.grid(Constellations.source_file(c)))
+    case decide(c, prior, sig, path, force, only) do
+      :keep ->
+        Mix.shell().info("skip  #{c.id} (unchanged)")
+        # prior is non-nil here (decide only returns :keep with a prior entry).
+        %{prior | authored_sha256: Manifest.authored_sha256(c)}
 
-      %{
-        authored_sha256: Manifest.authored_sha256(c),
-        oracle_signature: sig,
-        fixture_filename: fixture,
-        fixture_sha256: Manifest.file_sha256(path),
-        dims: rec.dims,
-        bands: rec.bands,
-        cells: rec.cells
-      }
+      :bake ->
+        Mix.shell().info("bake  #{c.id}")
+        body = fetch_oracle!(c)
+        File.write!(path, body)
+        img = decode(body)
+        rec = StructureCompare.extract(img, grid)
+
+        case StructureCompare.low_confidence_samples(img, grid) do
+          [] -> :ok
+          idx -> Mix.shell().info("  ⚠ #{c.id}: low-confidence samples at #{inspect(idx)} — review margin (truecolor?).")
+        end
+
+        %{
+          authored_sha256: Manifest.authored_sha256(c),
+          oracle_signature: sig,
+          fixture_filename: fixture,
+          fixture_sha256: Manifest.file_sha256(path),
+          dims: rec.dims,
+          bands: rec.bands,
+          cells: rec.cells
+        }
+    end
+  end
+
+  # Pure-ish skip decision (the staleness check itself is Manifest.fresh?/3):
+  #   --force            → bake everything
+  #   --only, listed     → bake (explicit request)
+  #   --only, unlisted   → keep prior if present (no network), else bake (no prior to keep)
+  #   no flags, fresh    → keep
+  #   no flags, stale    → bake
+  defp decide(c, prior, sig, path, force, only) do
+    cond do
+      force -> :bake
+      only && MapSet.member?(only, c.id) -> :bake
+      only && not is_nil(prior) -> :keep
+      is_nil(only) and Manifest.fresh?(prior, sig, path) -> :keep
+      true -> :bake
     end
   end
 
@@ -1191,7 +1362,10 @@ Expected: `bake <id>` for every case, then `Baked N cases`. `manifest.exs`, `fix
 - [ ] **Step 5: Run the conformance lane against real fixtures**
 
 Run: `mise exec -- mix test test/image_pipe/twicpics_differential_conformance_test.exs`
-Expected: PASS for `:equal` cases where ImagePipe matches TwicPics' placement. **Any mismatch is a finding** — diagnose in Task 8 and sort: a real divergence → `verdict: :diverges` with a recorded `divergence.pipe` (ImagePipe's own structure) + rationale, or `triage:` + a tracking issue; a decode-tolerance artifact (e.g. an `:ambiguous` on a boundary sample) → widen that case's `tol` decode params with a one-line rationale. **Never** loosen tol to bury a genuine placement shift (a shifted cell, not an `:ambiguous`, is structural).
+Expected: PASS for `:equal` cases where ImagePipe matches TwicPics' placement. **Any mismatch is a finding** — diagnose in Task 8 and sort:
+- a **decode-tolerance artifact** (an `:ambiguous` or a low-confidence sample, not a *shifted* cell) → widen that case's `tol` decode params (or pin `truecolor` in the suffix) with a one-line rationale, then `mix twicpics.reauthor`. **Never** loosen tol to bury a genuine placement shift — a shifted cell (not `:ambiguous`) is structural and reads ~a whole cell off.
+- an **untriaged / not-yet-modelled divergence** → `triage:` + a tracking issue (default for v1; quarantines the case, keeps it in the suite).
+- a **deliberately-modelled divergence** → `verdict: :diverges` with a hand-authored `divergence: %{pipe: %{dims, bands, cells}, reason: "..."}` (ImagePipe's intended structure; the bake records the oracle's). **In the same change**, add the matching "Diverges" note to `docs/twicpics_support_matrix.md` (behavioral/pixel axis per `AGENTS.md`), and have the compat reviewer confirm it reflects real live-TwicPics behavior.
 
 - [ ] **Step 6: Commit the baked fixtures + task**
 
@@ -1575,7 +1749,11 @@ git commit -m "feat(twicpics-diff): visual-diff report (cell-map + informational
 
 - [ ] **Step 1: Write the suite README**
 
-Mirror the imgproxy differential README's sections, adapted: the bake→diagnose→tolerance→quarantine workflow; the mix-task table (`mise run twic:bake`, `mix twicpics.diagnose`, `mix twicpics.gen_report`, `mix twicpics.reauthor`); and the TwicPics-specific notes — **structural not pixel** (assert dims+bands+cell-map; generous colour tolerance only in the decode), the **catbox source-hosting handshake** (committed bytes must equal hosted bytes; the bake verifies), **incremental bake** (oracle signature; `--force`/`--only`), and **no libvips provenance** (the cell-map gate is resampler-independent). State that pixel heatmaps in the report are informational only.
+Mirror the imgproxy differential README's sections, adapted: the bake→diagnose→tolerance→quarantine workflow; the mix-task table (`mise run twic:bake`, `mix twicpics.diagnose`, `mix twicpics.gen_report`, `mix twicpics.reauthor`); and the TwicPics-specific notes — **structural not pixel** (assert dims+bands+cell-map; generous colour tolerance only in the decode), the **catbox source-hosting handshake** (committed bytes must equal hosted bytes; the bake verifies), **incremental bake** (oracle signature = `{chain, suffix, source-byte identity}`; `--force`/`--only`; pruning removes a deleted constellation's PNG), and **no libvips provenance** (the cell-map gate is resampler-independent). Also state explicitly:
+- **`reauthor` does NOT prune** — only the bake prunes orphaned entries/PNGs. After deleting a constellation, re-bake (it raises in reauthor with that guidance).
+- **Negative-focus rejection is out of this suite's scope** — TwicPics 404s and ImagePipe 400s, so there is no grid to decode; that contract is covered by the `Units` parser unit tests.
+- **SourceInventory drift** decode-checks dims/bands/format/interpretation (imgproxy parity).
+- Pixel heatmaps in the report are **informational only**, never a gate.
 
 - [ ] **Step 2: Add the support-matrix note**
 
@@ -1620,5 +1798,22 @@ git commit -m "chore(twicpics-diff): boundary declarations + full gate green"
 ## Self-review notes (addressed)
 
 - **Spec coverage:** core model (Task 3,6), hybrid record+PNG (Task 6,7), incremental bake/oracle signature (Task 7), catbox handshake + remote verify (Task 7), shared extraction ManifestTerm/Harness/Heatmap/ReportShell (Tasks 1,2,10,11), full initial scope constellations (Task 5), source inventory drift (Task 4), conformance + triage + source-hash (Task 6), diagnose/reauthor (Tasks 8,9), report with informational heatmap (Task 12), no-libvips-provenance (reflected by absence; noted in README Task 13), docs (Task 13), boundaries (Task 14).
-- **Open verification during impl (flagged in-task):** the exact `ImagePipe.Parser.TwicPics` parse entry arity (Task 5 Step 1), and Req's `form_multipart` file-tuple shape (Task 7 Step 3). Both have in-task fallbacks.
-- **Compat reviewer:** per `AGENTS.md`, the plan-review cycle must include a TwicPics-compatibility reviewer confirming baked records + any `:diverges` reflect real live-TwicPics behavior.
+- **Open verification during impl (flagged in-task):** the exact `ImagePipe.Parser.TwicPics` parse entry arity (Task 5 Step 1 — reviewed as `(%Plug.Conn{}, opts)`), Req's `form_multipart` file-tuple shape (Task 7 Step 3), and the seed grid's `format`/`interpretation` facts (Task 4 — drift test asserts them).
+- **Compat reviewer:** per `AGENTS.md`, the plan-review cycle must include a TwicPics-compatibility reviewer confirming baked records + any `:diverges` reflect real live-TwicPics behavior. In particular, at bake time confirm the recorded cell-maps for the ratio cases (`cover_ratio_*`, `focus_*_cover_ratio`) are a centre/corner band as expected, not an unexpected alignment.
+
+## Applied review feedback (parallel cycle, 2026-06-16)
+
+Four disjoint-lens reviewers (TwicPics-compat, architecture/boundary, test/correctness, differential-discipline). Accepted and applied:
+- **Incremental skip was inverted** for the default no-`--only` path → extracted `Manifest.fresh?/3` (unit-tested) + a clean `decide/6` cond (Task 6, 7).
+- **`parse/1` helper returned garbage** → collapsed to the real `parse/2` arity (Task 5).
+- **`cell_at` hardcoded 4 cols** → record carries `cols`; index by it (Task 3).
+- **Constellation set under-tested behaviors** → asymmetric/discriminating consumers, cover-*ratio* focus steering, the carry-order crop pair, the reset-contrast pair, square cases relabelled `dims-pin`, square `inside` dropped (Task 5).
+- **No pre-bake parse gate** → added `validate_parses!/0` aborting before any oracle call (Task 7).
+- **`fixture_sha256` recorded but unverified** → added a per-fixture hash test (Task 6).
+- **Malformed-manifest test fired the wrong clause** → write the whole manifest so the entry guard fires (Task 6).
+- **SourceInventory drift omitted format/interpretation** → added both to the entry + drift test (Task 4).
+- **`:diverges` must update the support matrix same-change** → instruction added (Task 7 Step 5).
+- **Negative-focus rejection** scoped to parser unit tests + documented (Task 5 moduledoc, Task 13).
+- **Low-confidence margin guard** → `StructureCompare.low_confidence_samples/3` + bake warning (Task 3, 7).
+- **Manifest stays unbounded** (ingress into `deps: []` boundaries is allowed) — boundary note so the implementer doesn't over-annotate (Task 1, 6).
+- **reauthor doesn't prune** — documented (Task 13).
