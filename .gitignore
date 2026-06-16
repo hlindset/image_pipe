@@ -54,3 +54,6 @@ tmp/
 
 # Generated imgproxy differential visual-diff report (regenerate on demand)
 test/support/image_pipe/test/imgproxy_differential/report.html
+
+# Generated TwicPics differential visual-diff report (regenerate on demand)
+test/support/image_pipe/test/twicpics_differential/report.html
