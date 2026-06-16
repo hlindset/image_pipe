@@ -5,17 +5,20 @@ export type TwicAnchor =
   | "bottom"
   | "left"
   | "right"
+  | "center"
   | "top-left"
   | "top-right"
   | "bottom-left"
   | "bottom-right";
 
-// 3x3 reading order (no center — center is the default focus, not an anchor literal).
+// 3x3 reading order. `center` is omitted from the documented anchor list but
+// accepted by live `focus` (resolves to the centre point).
 export const twicAnchors: readonly TwicAnchor[] = [
   "top-left",
   "top",
   "top-right",
   "left",
+  "center",
   "right",
   "bottom-left",
   "bottom",

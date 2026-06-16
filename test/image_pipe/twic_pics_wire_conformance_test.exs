@@ -226,15 +226,15 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     refute average(centered) == average(smart)
   end
 
-  test "focus=center is rejected" do
-    opts =
-      Keyword.put(@opts, :sources,
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-      )
+  test "focus=center is accepted and steers to the centre (#321)" do
+    # Live TwicPics accepts focus=center (resolves to the centre point); it is a
+    # divergence to reject it. The centre focus differs from a corner anchor.
+    center = call("/images/beach.jpg?twic=v1/focus=center/cover=100x100/output=jpeg")
+    topleft = call("/images/beach.jpg?twic=v1/focus=top-left/cover=100x100/output=jpeg")
 
-    assert call("/images/beach.jpg?twic=v1/focus=center", opts).status == 400
+    assert center.status == 200
+    assert dimensions(center) == {100, 100}
+    refute average(center) == average(topleft)
   end
 
   test "focus resolves in the display frame of an EXIF-oriented source (#321)" do

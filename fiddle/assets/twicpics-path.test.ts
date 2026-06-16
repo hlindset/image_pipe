@@ -682,8 +682,14 @@ describe("twicpics parse rejection", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/zoom=2")).toBeNull();
   });
 
-  it("rejects an unsupported focus anchor (no center)", () => {
-    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=center")).toBeNull();
+  it("parses focus=center as a centre anchor (#321)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=center")?.chain).toEqual([
+      { type: "focus", id: expect.any(String), mode: "anchor", anchor: "center" },
+    ]);
+  });
+
+  it("rejects an unsupported focus anchor", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=middle")).toBeNull();
   });
 
   it("parses focus=auto (content-aware smart gravity)", () => {

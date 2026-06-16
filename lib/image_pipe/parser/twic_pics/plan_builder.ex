@@ -147,7 +147,9 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   # attention when no detector is configured. Steers the next `cover` / `crop`;
   # emits no operation.
   defp focus("auto", acc), do: {:ok, %{acc | guide: {:smart, :face_assist}}}
-  defp focus("center", _acc), do: {:error, {:unsupported_focus, "center"}}
+  # Live TwicPics accepts `focus=center` (resolves to the centre point) even though
+  # the documented anchor list omits it; emit a centre-anchor SetFocus.
+  defp focus("center", acc), do: emit_focus({:anchor, :center, :center}, acc)
 
   defp focus(args, acc) do
     case Units.anchor(args) do

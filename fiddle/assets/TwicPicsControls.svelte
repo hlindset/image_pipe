@@ -44,13 +44,14 @@
     { type: "focus", label: "focus" },
   ];
 
-  // 3x3 anchor grid (center cell is null — TwicPics has no center anchor).
+  // 3x3 anchor grid. The centre is `center` — omitted from the documented anchor
+  // list but accepted by live `focus` (resolves to the centre point).
   const anchorGrid: (TwicAnchor | null)[] = [
     "top-left",
     "top",
     "top-right",
     "left",
-    null,
+    "center",
     "right",
     "bottom-left",
     "bottom",
@@ -61,6 +62,7 @@
     top: "↑",
     "top-right": "↗",
     left: "←",
+    center: "●",
     right: "→",
     "bottom-left": "↙",
     bottom: "↓",
@@ -208,9 +210,8 @@
     return axis === "x" ? focusRunningWidth : focusRunningHeight;
   }
 
-  // Switch a focus card between the 8-anchor grid, a coordinate (px / p / s), and
-  // auto (content-aware smart gravity). center is not a TwicPics anchor literal, so
-  // the UI never offers it.
+  // Switch a focus card between the 9-cell anchor grid (8 edges/corners + centre),
+  // a coordinate (px / p / s), and auto (content-aware smart gravity).
   function setFocusMode(step: FocusStep, mode: "anchor" | "coord" | "auto", index: number): void {
     if (mode === step.mode) return;
     twicpicsState.chain[index] =

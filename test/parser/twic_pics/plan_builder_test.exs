@@ -88,11 +88,18 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.CropGuided{guide: {:smart, :face_assist}} = guided
   end
 
-  test "negative focus is rejected; center is not an anchor literal (#321)" do
-    # negative coordinates are rejected before any fetch (Units rejects them).
+  test "negative focus is rejected before any fetch (#321)" do
     assert {:error, _} = build([{"focus", "-50x-50"}])
-    # center is not a TwicPics anchor literal -- only the default focus.
-    assert {:error, _} = build([{"focus", "center"}])
+  end
+
+  test "focus=center emits a centre SetFocus (live TwicPics accepts it)" do
+    # Live TwicPics accepts focus=center (resolves to the centre point), even though
+    # the documented anchor list omits it. We emit a centre-anchor SetFocus.
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, cover]}]}} =
+             build([{"focus", "center"}, {"cover", "100x100"}])
+
+    assert %Operation.SetFocus{point: {:anchor, :center, :center}} = set_focus
+    assert %Operation.Resize{mode: :cover, guide: :carried} = cover
   end
 
   test "cover ratio -> guided ratio crop" do
@@ -163,7 +170,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
   test "rejected non-goals fail the whole build" do
     assert {:error, {:unsupported_transform, "zoom"}} = build([{"zoom", "2"}])
     assert {:error, _} = build([{"resize", "16:9"}])
-    assert {:error, _} = build([{"focus", "center"}])
+    assert {:error, {:unsupported_focus, "middle"}} = build([{"focus", "middle"}])
   end
 
   test "relative units on inside are rejected (pixel-only)" do
