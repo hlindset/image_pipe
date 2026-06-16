@@ -67,7 +67,7 @@ Split only at separators that are outside parentheses.
 | `coordinates` | `<length>x<length>` | X then Y in CSS image coordinates: zero-based, left to right, top to bottom. `0x0` is the top-left pixel; for an image 640 pixels wide and 480 pixels high, `639x479` is the bottom-right pixel. A value may mix units, for example `100x50p`. |
 | `crop size` | `<size>` with different `-` semantics | Omitted dimensions mean the full input axis, not aspect-ratio auto. `320` and `320x-` mean `320x1s`; `-x240` means `1sx240`. |
 | `padding` | `top,right,bottom,left`; `top,horizontal,bottom`; `vertical,horizontal`; `both` | Each item is a `length`. Examples include `10,100,23,47`, `0,25p`, `(1/3)s`. |
-| `anchor` | one of eight literals | `top`, `bottom`, `left`, `right`, `top-left`, `top-right`, `bottom-left`, `bottom-right`. The API anchor list excludes `center`, although center is the default focus. Overlay path config has its own anchor list and does accept `center`. |
+| `anchor` | nine literals accepted live (eight documented + `center`) | `top`, `bottom`, `left`, `right`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, and `center`. The `parameters.md` list documents only the eight edges/corners, but **live TwicPics accepts `center` on every chain anchor consumer** — `focus`, `refit-cover@`, and `refit-inside@` all return `200` for each of the nine and `404` for a bogus literal (`middle`, `centre`, `top_left`) — so the accepted set is uniform across consumers, not focus-specific (probed directly; the doc list is just incomplete). The overlay path-config anchor list documents `center` explicitly. For `focus`, `center` resolves to the centre point (= the default focus). |
 | `axis` | `both`, `h`, `horizontal`, `v`, `vertical`, `x`, `y` | `h`, `horizontal`, and `x` mean horizontal. `v`, `vertical`, and `y` mean vertical. |
 | `angle` | `<number>` or named literal | TwicPics rounds numeric degrees to the nearest quarter-turn. Named forms: `anticlockwise`, `counterclockwise`, and `left` mean a counterclockwise quarter-turn; `clockwise` and `right` mean a clockwise quarter-turn; `flip` and `reverse` mean a half-turn. Note that `left` and `right` are overloaded: they are `angle` literals here but also `anchor` literals; resolve them by parameter position (after `turn=` they are angles, after `@` or in `focus=` they are anchors). |
 | `boolean` | `true`, `yes`, `on`, `false`, `no`, `off` | Used by `truecolor=<boolean>`. |
@@ -157,8 +157,10 @@ The default focus point is the center of the image.
 
 `focus` sets the focus point and emits no pixel operation. Coordinates resolve
 using the current image state at the point where the `focus` segment appears.
-Anchors set the focus to a corner or to the midpoint of an edge. `focus=auto`
-selects a point through TwicPics' automatic subject detection.
+Anchors set the focus to a corner or to the midpoint of an edge; `focus=center`
+(accepted live, though omitted from the documented anchor list) sets it to the
+centre point. `focus=auto` selects a point through TwicPics' automatic subject
+detection.
 
 The documented consumers are:
 

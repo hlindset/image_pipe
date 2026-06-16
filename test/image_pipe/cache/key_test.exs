@@ -1237,4 +1237,33 @@ defmodule ImagePipe.Cache.KeyTest do
     assert preset_key.hash == expanded_key.hash
     refute inspect(preset_key.data) =~ "thumb"
   end
+
+  describe "TwicPics carried focus (#321)" do
+    alias ImagePipe.Parser.TwicPics.PlanBuilder
+
+    defp twic_plan!(chain) do
+      {:ok, plan} = PlanBuilder.to_plan(%Source.Path{segments: ["images", "cat.jpg"]}, chain)
+      plan
+    end
+
+    # The cache-key / ETag fast path (Key.plan_material -> KeyData.data per op) must
+    # handle the :carried guide and %SetFocus{} ops the TwicPics parser now emits.
+    # The default guide is :carried, so even a focus-less cover exercises it.
+    test "plan_material handles a carried cover with no focus segment" do
+      assert {:ok, _material} = Key.plan_material(twic_plan!([{"cover", "100x100"}]), [])
+    end
+
+    test "plan_material keys the SetFocus operand in a coordinate-focus plan" do
+      assert {:ok, material} =
+               Key.plan_material(twic_plan!([{"focus", "20x10"}, {"crop", "12x12"}]), [])
+
+      assert inspect(material) =~ "set_focus"
+    end
+
+    test "distinct focus points produce distinct key material" do
+      {:ok, a} = Key.plan_material(twic_plan!([{"focus", "20x10"}, {"crop", "12x12"}]), [])
+      {:ok, b} = Key.plan_material(twic_plan!([{"focus", "30x10"}, {"crop", "12x12"}]), [])
+      refute a == b
+    end
+  end
 end

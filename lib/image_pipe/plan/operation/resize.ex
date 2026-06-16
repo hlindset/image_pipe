@@ -31,6 +31,7 @@ defmodule ImagePipe.Plan.Operation.Resize do
   @type weights :: %{optional(:default) => number(), optional(String.t()) => number()}
   @type guide ::
           :center
+          | :carried
           | {:anchor, anchor(), anchor()}
           | {:focal, ratio(), ratio()}
           | :smart

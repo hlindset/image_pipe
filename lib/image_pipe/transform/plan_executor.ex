@@ -29,11 +29,13 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
   alias ImagePipe.Plan.Operation.Saturation, as: PlanSaturation
+  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Plan.Operation.Sharpen, as: PlanSharpen
   alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Chain
+  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
@@ -193,6 +195,21 @@ defmodule ImagePipe.Transform.PlanExecutor do
     {:ok, %State{state | pending_orientation: PendingOrientation.fold_flip(po, axis)}}
   end
 
+  # Positional focus: resolve the operand against the live frame at this chain
+  # position and store the carried point. No pixel work, no flush — a following
+  # cover resize still sizes against the (possibly shrunk) source frame. The user
+  # authors focus in the display frame; Focus.resolve maps it into the live
+  # storage frame when an orientation is pending.
+  defp execute_operation(%SetFocus{point: operand}, %State{} = state, _ctx, _opts) do
+    ctx = %{
+      display: display_live_dims(state),
+      storage: {VipsImage.width(state.image), VipsImage.height(state.image)},
+      decode_shrink: state.decode_shrink
+    }
+
+    {:ok, %State{state | focus: Focus.resolve(operand, ctx, state.pending_orientation)}}
+  end
+
   # A crop runs before the residual resize in the fixed pipeline order. After it
   # executes, the live (cropped) image is the frame the resize must size against —
   # so clear the stored source frame (source_dimensions/decode_shrink). With
@@ -202,7 +219,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # When no shrink fired both are already nil and this is a no-op.
   defp execute_operation(%CropRegion{} = operation, %State{} = state, ctx, opts) do
     with {:ok, %State{} = state} <- do_execute_crop(operation, state, ctx, opts) do
-      {:ok, clear_source_frame(state)}
+      {:ok, state |> clear_source_frame() |> reset_focus_center()}
     end
   end
 
@@ -334,6 +351,18 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp clear_source_frame(%State{} = state),
     do: %State{state | source_dimensions: nil, decode_shrink: nil}
 
+  # crop=…@XxY is a focus reset (TwicPics): it ignores the prior focus and resets
+  # to the crop-result centre (fraction 1/2 per axis), recovering from any prior
+  # state. Only resets when a focus is carried; a plain region crop stays nil.
+  defp reset_focus_center(%State{focus: nil} = state), do: state
+
+  defp reset_focus_center(%State{image: image} = state) do
+    %State{
+      state
+      | focus: {{:ratio, VipsImage.width(image), 2}, {:ratio, VipsImage.height(image), 2}}
+    }
+  end
+
   # Region crop runs literally on oriented pixels: flush pending first. The flush
   # rotates the still-shrunk image into the display frame, so the region coords —
   # authored in the display frame — rescale against swapped per-axis decode_shrink
@@ -414,6 +443,28 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp materializing_gravity?({:smart, _}), do: true
   defp materializing_gravity?({:detect, _}), do: true
   defp materializing_gravity?(_other), do: false
+
+  # A carried-focus crop reads State.focus, which lives in the storage frame and
+  # already tracks the focused content — so it must NOT be gravity-remapped like an
+  # imgproxy focus-point spec. Only the crop box needs the quarter-turn dim swap;
+  # the flush then rotates image + focus together. (imgproxy never emits :carried.)
+  # This clause MUST precede the {crop_from: :gravity, gravity} clause below, which
+  # a :carried crop would otherwise match (it is crop_from: :gravity).
+  #
+  # A nil State.focus makes Crop.execute fall back to a centred crop, so this crop
+  # still needs the center-discard-side compensation (#146 Bug 2) that the gravity
+  # clause applies — otherwise a focus-less TwicPics cover under a pending flip/turn
+  # with an odd centre-crop discard keeps the wrong display-side pixel (a regression
+  # from the pre-#321 `:center` guide, which took the gravity clause). For a set
+  # focus the crop resolves to `:fp` gravity, which ignores center_bias, so setting
+  # it unconditionally here is harmless.
+  defp compensate_crop(%Crop{gravity: :carried} = crop, %PendingOrientation{} = po) do
+    crop = %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
+
+    if PendingOrientation.quarter_turn?(po),
+      do: %Crop{crop | width: crop.height, height: crop.width},
+      else: crop
+  end
 
   defp compensate_crop(
          %Crop{crop_from: :gravity, gravity: gravity} = crop,
@@ -1060,6 +1111,17 @@ defmodule ImagePipe.Transform.PlanExecutor do
     if not is_nil(po) and PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
   end
 
+  # The live image dims in the display frame: a focus operand resolves against the
+  # running frame at its chain position (the live image, possibly already resized
+  # — unlike display_source_dims, which uses the residual-resize source frame),
+  # with the axes swapped when a quarter turn is pending.
+  defp display_live_dims(%State{pending_orientation: po, image: image}) do
+    w = VipsImage.width(image)
+    h = VipsImage.height(image)
+
+    if not is_nil(po) and PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
+  end
+
   defp scaled_padding_side({:px, value}, scale), do: round_half_to_even(value * scale)
 
   defp round_half_to_even(value) do
@@ -1084,6 +1146,10 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp tagged_executable_gravity(:bottom), do: {:anchor, :center, :bottom}
   defp tagged_executable_gravity(:bottom_right), do: {:anchor, :right, :bottom}
   defp tagged_executable_gravity({:anchor, x, y}), do: {:anchor, x, y}
+
+  # Carried (TwicPics) gravity passes through to the executable Crop, which reads
+  # State.focus and normalizes it to a focal point at the libvips boundary.
+  defp tagged_executable_gravity(:carried), do: :carried
 
   defp tagged_executable_gravity({:focal, x, y}),
     do: {:fp, tagged_ratio_to_float(x), tagged_ratio_to_float(y)}

@@ -168,7 +168,7 @@ describe("twicpics step token encoding", () => {
     );
   });
 
-  it("encodes a relative coordinate focus (no bare pixels)", () => {
+  it("encodes a coordinate focus (px / relative / mixed)", () => {
     expect(
       stepToken({
         type: "focus",
@@ -187,6 +187,25 @@ describe("twicpics step token encoding", () => {
         y: { unit: "s", value: 0.75 },
       }),
     ).toBe("focus=0.25sx0.75s");
+    // bare-pixel and mixed-unit coordinates (#321)
+    expect(
+      stepToken({
+        type: "focus",
+        id: "x",
+        mode: "coord",
+        x: { unit: "px", value: 20 },
+        y: { unit: "px", value: 10 },
+      }),
+    ).toBe("focus=20x10");
+    expect(
+      stepToken({
+        type: "focus",
+        id: "x",
+        mode: "coord",
+        x: { unit: "px", value: 100 },
+        y: { unit: "p", value: 50 },
+      }),
+    ).toBe("focus=100x50p");
   });
 
   it("encodes focus=auto", () => {
@@ -663,8 +682,14 @@ describe("twicpics parse rejection", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/zoom=2")).toBeNull();
   });
 
-  it("rejects an unsupported focus anchor (no center)", () => {
-    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=center")).toBeNull();
+  it("parses focus=center as a centre anchor (#321)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=center")?.chain).toEqual([
+      { type: "focus", id: expect.any(String), mode: "anchor", anchor: "center" },
+    ]);
+  });
+
+  it("rejects an unsupported focus anchor", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=middle")).toBeNull();
   });
 
   it("parses focus=auto (content-aware smart gravity)", () => {
@@ -672,17 +697,38 @@ describe("twicpics parse rejection", () => {
     expect(state?.chain).toEqual([{ type: "focus", id: expect.any(String), mode: "auto" }]);
   });
 
-  it("rejects bare-pixel focus coordinates (relative units only)", () => {
-    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100x200")).toBeNull();
-    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100px200")).toBeNull();
+  it("parses bare-pixel focus coordinates (#321)", () => {
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100x200")?.chain).toEqual([
+      {
+        type: "focus",
+        id: expect.any(String),
+        mode: "coord",
+        x: { unit: "px", value: 100 },
+        y: { unit: "px", value: 200 },
+      },
+    ]);
   });
 
-  it("rejects an out-of-range relative focus coordinate (ratio > 1)", () => {
-    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=150px50p")).toBeNull();
-    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=0.5sx2s")).toBeNull();
+  it("parses a mixed-unit focus coordinate (px + relative) (#321)", () => {
+    // focus=100x50p -> px 100 (the `x` separates), 50%.
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100x50p")?.chain).toEqual([
+      {
+        type: "focus",
+        id: expect.any(String),
+        mode: "coord",
+        x: { unit: "px", value: 100 },
+        y: { unit: "p", value: 50 },
+      },
+    ]);
   });
 
-  it("accepts in-range relative focus coordinates", () => {
+  it("accepts an out-of-range relative focus coordinate (clamped server-side) (#321)", () => {
+    // The parser no longer rejects ratio > 1 -- TwicPics clamps it to the edge.
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=150px50p")).not.toBeNull();
+    expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=0.5sx2s")).not.toBeNull();
+  });
+
+  it("accepts relative focus coordinates", () => {
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=30px70p")).not.toBeNull();
     expect(parseTwicTail("images/dog.jpg", "?twic=v1/focus=100px0p")).not.toBeNull();
   });
