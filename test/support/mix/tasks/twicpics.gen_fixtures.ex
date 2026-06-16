@@ -8,6 +8,11 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   `manifest.exs`, reference PNGs, and `REPORT.md`. Requires network; never on the
   default test lane.
 
+  When a new source is uploaded to catbox, its `source_bytes_url` (the catbox
+  direct-download URL) must be added to the corresponding `SourceInventory` entry
+  so that future `verify_remote!` runs can confirm the hosted bytes still match the
+  committed source file.
+
       mise run twic:bake                 # incremental
       mix twicpics.gen_fixtures --force  # re-bake all
       mix twicpics.gen_fixtures --only cover_square,inside_wide_lr
@@ -27,7 +32,6 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   def run(args) do
     {opts, _, _} = OptionParser.parse(args, strict: [force: :boolean, only: :string])
     {:ok, _} = Application.ensure_all_started(:image_pipe)
-    {:ok, _} = Application.ensure_all_started(:req)
     File.mkdir_p!(@fixtures_dir)
 
     # Fail fast: a chain that doesn't parse must abort BEFORE any live oracle call
@@ -98,9 +102,9 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
 
       :bake ->
         Mix.shell().info("bake  #{c.id}")
-        body = fetch_oracle!(c)
-        File.write!(path, body)
+        body = fetch_oracle!(c, sources)
         img = decode(body)
+        File.write!(path, body)
         rec = StructureCompare.extract(img, grid)
 
         case StructureCompare.low_confidence_samples(img, grid) do
@@ -109,7 +113,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
 
           idx ->
             Mix.shell().info(
-              "  ⚠ #{c.id}: low-confidence samples at #{inspect(idx)} — review margin (truecolor?)."
+              "  WARN #{c.id}: low-confidence samples at #{inspect(idx)} — review margin (truecolor?)."
             )
         end
 
@@ -141,8 +145,8 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     end
   end
 
-  defp fetch_oracle!(c) do
-    src = SourceInventory.all() |> Enum.find(&(&1.file == Constellations.source_file(c)))
+  defp fetch_oracle!(c, sources) do
+    src = sources[Constellations.source_file(c)]
     url = "#{src.hosted_url}?twic=v1/#{c.chain}/#{Constellations.suffix()}"
 
     case Req.get(url, decode_body: false, retry: :transient, max_retries: 3) do
@@ -179,8 +183,11 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
           )
         end
 
-      other ->
-        Mix.raise("source #{entry.file}: could not verify hosted bytes (#{inspect(other)}).")
+      {:ok, %{status: s}} ->
+        Mix.raise("source #{entry.file}: hosted bytes returned HTTP #{s} (#{url}).")
+
+      {:error, e} ->
+        Mix.raise("source #{entry.file}: could not fetch hosted bytes — #{Exception.message(e)} (#{url}).")
     end
   end
 
@@ -191,7 +198,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
       fileToUpload: {File.read!(path), filename: entry.file, content_type: "image/png"}
     ]
 
-    case Req.post(@catbox, form_multipart: form) do
+    case Req.post(@catbox, form_multipart: form, decode_body: false) do
       {:ok, %{status: 200, body: body}} ->
         id = body |> String.trim() |> Path.basename()
         "https://imagepipe.twic.pics/#{id}"
