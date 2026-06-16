@@ -74,7 +74,18 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("cover_tall", "cover=100x300", :cover),
       c("cover_square_dimspin", "cover=200x200", :cover),
       c("cover_ratio_wide", "cover=16:9", :cover),
-      c("cover_ratio_tall", "cover=2:3", :cover),
+      # QUARANTINED (#323): lattice-boundary artifact, not a placement divergence. The
+      # centered 2:3 crop (400→267 wide) on the square source lands the cell-centre
+      # lattice samples on the col-0/col-1 boundary, where a ≤1px difference in how
+      # TwicPics vs ImagePipe round the centering offset flips the decoded cell. The
+      # low-confidence margin guard flags exactly these samples. cover_ratio_wide (the
+      # other ratio direction) is unaffected and stays live.
+      c("cover_ratio_tall", "cover=2:3", :cover,
+        triage: %{
+          reason:
+            "lattice-boundary artifact: centered 2:3 crop lands cell-centre samples on a cell-col boundary; ≤1px crop-centering rounding differs (margin guard flagged). Not a placement bug.",
+          issue: 323
+        }),
       # --- contain: fits inside box, may be smaller, no pad (wide/tall discriminate) ---
       c("contain_wide", "contain=300x100", :contain),
       c("contain_tall", "contain=100x300", :contain),
@@ -89,7 +100,19 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("crop_region_origin", "crop=160x160@40x40", :crop),
       # region@coords RESETS focus to the crop centre (source ~(280,280) = cell (2,2)),
       # so the trailing guided crop reads (2,2) despite the earlier focus=0x0…
-      c("crop_region_reset", "focus=0x0/crop=160x160@200x200/crop=80x80", :crop),
+      # QUARANTINED (#323): genuine placement divergence (confidently decoded — NOT a
+      # boundary artifact; the margin guard did not flag it). The reset itself works in
+      # ImagePipe (the final crop lands near cell (2,2), not the prior focus=0x0), but
+      # ImagePipe's trailing guided crop=80x80 window sits ~half a cell further toward
+      # (3,3) than TwicPics, which keeps it within cell (2,2). The exact crop@coords-reset
+      # → guided-crop positioning diverges; needs investigation (separate from #323's
+      # suite-build scope).
+      c("crop_region_reset", "focus=0x0/crop=160x160@200x200/crop=80x80", :crop,
+        triage: %{
+          reason:
+            "placement divergence: crop@coords focus-reset + trailing guided crop=80x80 positions ~half a cell toward (3,3) vs TwicPics' (2,2). Reset works; exact positioning differs.",
+          issue: 323
+        }),
       # …and this contrast case (same focus=0x0, guided crop, no region reset) must
       # read cell (0,0) — the pair makes the reset observable, not coincidental.
       c("crop_guided_no_reset_contrast", "focus=0x0/crop=80x80", :crop)

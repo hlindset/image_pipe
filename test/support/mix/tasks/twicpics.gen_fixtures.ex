@@ -39,7 +39,11 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     prior = if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: empty_manifest()
 
     sources = resolve_sources(prior.sources)
-    cases = Enum.filter(Constellations.all(), &is_nil(&1[:triage]))
+    # Bake EVERY case, including triaged ones (imgproxy discipline): a triaged case
+    # still has valid oracle output, and keeping its fixture lets the report show it and
+    # lets un-triaging light it up without a re-bake. The parse gate (above) skips
+    # triaged cases; only the conformance COMPARISON is quarantined, not the bake.
+    cases = Constellations.all()
 
     entries =
       cases

@@ -56,10 +56,11 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
   defp grid_spec(c), do: SourceInventory.grid(Constellations.source_file(c))
   defp tol(c), do: c[:tol] || StructureCompare.default_tol()
 
-  # :equal asserts pipe == oracle record; :diverges asserts pipe == recorded
-  # ImagePipe-divergent record (oracle differs, by design).
-  defp expected_record(%{verdict: :equal}, e), do: %{dims: e.dims, bands: e.bands, cells: e.cells}
-  defp expected_record(%{verdict: :diverges}, e), do: e.divergence.pipe
+  # Every live case asserts pipe == the recorded oracle record. (A genuine divergence
+  # is quarantined via `:triage`, not modelled as a separate verdict — v1 has no
+  # `:diverges` cases. If one is ever deliberately modelled, add a `:diverges` clause
+  # here reading the hand-authored expected-pipe record.)
+  defp expected_record(_c, e), do: %{dims: e.dims, bands: e.bands, cells: e.cells}
 
   defp fetch_entry!(manifest, id) do
     case Map.fetch(manifest.entries, id) do
