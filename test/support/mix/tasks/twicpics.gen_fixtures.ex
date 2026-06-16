@@ -20,7 +20,14 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
-  alias ImagePipe.Test.TwicpicsDifferential.{Constellations, Manifest, SourceInventory, StructureCompare}
+  alias ImagePipe.Parser.TwicPics
+
+  alias ImagePipe.Test.TwicpicsDifferential.{
+    Constellations,
+    Manifest,
+    SourceInventory,
+    StructureCompare
+  }
 
   @base "test/support/image_pipe/test/twicpics_differential"
   @sources_dir "#{@base}/sources"
@@ -40,7 +47,9 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     validate_parses!()
 
     only = opts[:only] && String.split(opts[:only], ",", trim: true) |> MapSet.new()
-    prior = if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: empty_manifest()
+
+    prior =
+      if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: empty_manifest()
 
     sources = resolve_sources(prior.sources)
     # Bake EVERY case, including triaged ones (imgproxy discipline): a triaged case
@@ -67,22 +76,26 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     Mix.shell().info("Baked #{baked_count}/#{map_size(entries)} cases (#{@manifest_path}).")
   end
 
-  defp validate_parses!() do
+  defp validate_parses! do
     import Plug.Test, only: [conn: 2]
 
     failures =
       Constellations.all()
       |> Enum.reject(& &1[:triage])
       |> Enum.flat_map(fn c ->
-        case ImagePipe.Parser.TwicPics.parse(conn(:get, Constellations.twicpics_path(c)), []) do
+        case TwicPics.parse(conn(:get, Constellations.twicpics_path(c)), []) do
           {:ok, _} -> []
           other -> [{c.id, c.chain, other}]
         end
       end)
 
     if failures != [] do
-      detail = Enum.map_join(failures, "\n", fn {id, ch, r} -> "  #{id}: #{ch} → #{inspect(r)}" end)
-      Mix.raise("parse gate: #{length(failures)} chain(s) don't parse — fix or triage:\n#{detail}")
+      detail =
+        Enum.map_join(failures, "\n", fn {id, ch, r} -> "  #{id}: #{ch} → #{inspect(r)}" end)
+
+      Mix.raise(
+        "parse gate: #{length(failures)} chain(s) don't parse — fix or triage:\n#{detail}"
+      )
     end
   end
 
@@ -90,7 +103,14 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   defp bake_case(c, sources, prior, force, only) do
     src = sources[Constellations.source_file(c)]
     grid = SourceInventory.grid(Constellations.source_file(c))
-    sig = Manifest.oracle_signature(%{chain: c.chain, suffix: Constellations.suffix(), source_sha256: src.sha256})
+
+    sig =
+      Manifest.oracle_signature(%{
+        chain: c.chain,
+        suffix: Constellations.suffix(),
+        source_sha256: src.sha256
+      })
+
     fixture = "#{c.id}.png"
     path = Path.join(@fixtures_dir, fixture)
 
@@ -187,7 +207,9 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
         Mix.raise("source #{entry.file}: hosted bytes returned HTTP #{s} (#{url}).")
 
       {:error, e} ->
-        Mix.raise("source #{entry.file}: could not fetch hosted bytes — #{Exception.message(e)} (#{url}).")
+        Mix.raise(
+          "source #{entry.file}: could not fetch hosted bytes — #{Exception.message(e)} (#{url})."
+        )
     end
   end
 

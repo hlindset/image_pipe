@@ -1,5 +1,6 @@
 defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
   use ExUnit.Case, async: true
+  alias ImagePipe.Parser.TwicPics
   alias ImagePipe.Test.TwicpicsDifferential.{Constellations, SourceInventory}
 
   test "ids are unique" do
@@ -12,7 +13,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
     inv = SourceInventory.all() |> Enum.map(& &1.file) |> MapSet.new()
 
     for c <- Constellations.all() do
-      assert MapSet.member?(inv, Constellations.source_file(c)), "uninventoried source for #{c.id}"
+      assert MapSet.member?(inv, Constellations.source_file(c)),
+             "uninventoried source for #{c.id}"
     end
   end
 
@@ -30,5 +32,5 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
 
   # `ImagePipe.Parser.TwicPics.parse/2` takes (%Plug.Conn{}, opts); `Plug.Test.conn/2`
   # already populates path_info + the `twic` query param the parser reads.
-  defp parse(path), do: ImagePipe.Parser.TwicPics.parse(Plug.Test.conn(:get, path), [])
+  defp parse(path), do: TwicPics.parse(Plug.Test.conn(:get, path), [])
 end

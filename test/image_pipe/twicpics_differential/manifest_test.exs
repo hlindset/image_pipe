@@ -5,7 +5,9 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
   @manifest %{
     twicpics_api: "v1",
     baked_at: "2026-06-16T00:00:00Z",
-    sources: %{"grid_4x4.png" => %{sha256: String.duplicate("a", 64), hosted_url: "https://h/x.png"}},
+    sources: %{
+      "grid_4x4.png" => %{sha256: String.duplicate("a", 64), hosted_url: "https://h/x.png"}
+    },
     entries: %{
       "cover_square" => %{
         authored_sha256: String.duplicate("b", 64),
@@ -34,7 +36,12 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
   end
 
   test "oracle_signature depends on chain + suffix + source identity, not tol/verdict" do
-    base = %{chain: "cover=200x200", suffix: "output=png/dpr=1", source_sha256: String.duplicate("a", 64)}
+    base = %{
+      chain: "cover=200x200",
+      suffix: "output=png/dpr=1",
+      source_sha256: String.duplicate("a", 64)
+    }
+
     s1 = Manifest.oracle_signature(base)
     s2 = Manifest.oracle_signature(base)
     s3 = Manifest.oracle_signature(%{base | chain: "cover=300x100"})

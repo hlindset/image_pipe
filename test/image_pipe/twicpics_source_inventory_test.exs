@@ -6,7 +6,13 @@ defmodule ImagePipe.TwicpicsSourceInventoryTest do
   alias Vix.Vips.Image, as: VixImage
 
   test "every committed source has an inventory entry and vice versa" do
-    on_disk = @sources_dir |> Path.join("*") |> Path.wildcard() |> Enum.map(&Path.basename/1) |> MapSet.new()
+    on_disk =
+      @sources_dir
+      |> Path.join("*")
+      |> Path.wildcard()
+      |> Enum.map(&Path.basename/1)
+      |> MapSet.new()
+
     inventoried = SourceInventory.all() |> Enum.map(& &1.file) |> MapSet.new()
     assert on_disk == inventoried
   end

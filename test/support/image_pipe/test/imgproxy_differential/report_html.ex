@@ -20,8 +20,8 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     ordered = Enum.sort_by(cards, fn c -> if(c.flagged?, do: 0, else: 1) end)
 
     head_extras =
-      "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n" <>
-        "<link rel=\"stylesheet\" href=\"#{@fonts}\">\n"
+      ~s(<link rel="preconnect" href="https://fonts.googleapis.com">\n) <>
+        ~s(<link rel="stylesheet" href="#{@fonts}">\n)
 
     ReportShell.page(%{
       title: "imgproxy differential — visual diff",

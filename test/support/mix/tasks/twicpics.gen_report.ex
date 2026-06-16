@@ -19,7 +19,15 @@ defmodule Mix.Tasks.Twicpics.GenReport do
   use Boundary, top_level?: true, check: [out: false]
 
   alias ImagePipe.Test.Differential.Heatmap
-  alias ImagePipe.Test.TwicpicsDifferential.{Constellations, Harness, Manifest, SourceInventory, StructureCompare}
+
+  alias ImagePipe.Test.TwicpicsDifferential.{
+    Constellations,
+    Harness,
+    Manifest,
+    SourceInventory,
+    StructureCompare
+  }
+
   alias ImagePipe.Test.TwicpicsDifferential.ReportHtml
 
   @base "test/support/image_pipe/test/twicpics_differential"

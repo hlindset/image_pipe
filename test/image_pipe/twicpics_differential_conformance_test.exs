@@ -1,7 +1,13 @@
 defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Test.TwicpicsDifferential.{Constellations, Harness, Manifest, SourceInventory, StructureCompare}
+  alias ImagePipe.Test.TwicpicsDifferential.{
+    Constellations,
+    Harness,
+    Manifest,
+    SourceInventory,
+    StructureCompare
+  }
 
   @base "test/support/image_pipe/test/twicpics_differential"
   @sources_dir "#{@base}/sources"
@@ -46,7 +52,9 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
   test "committed reference PNGs match the manifest's recorded hashes", %{manifest: manifest} do
     for {id, %{fixture_filename: f, fixture_sha256: recorded}} <- manifest.entries do
       path = Harness.fixture_path(f)
-      assert File.exists?(path), "#{id}: missing reference PNG #{path} — re-bake (`mise run twic:bake`)."
+
+      assert File.exists?(path),
+             "#{id}: missing reference PNG #{path} — re-bake (`mise run twic:bake`)."
 
       assert Manifest.file_sha256(path) == recorded,
              "#{id}: reference PNG #{f} sha256 mismatch — corrupted or edited; re-bake."

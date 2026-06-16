@@ -35,7 +35,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompareTest do
   end
 
   test "uniform single-cell image: every sample is that cell" do
-    img = Image.new!(50, 50, color: [170, 85, 255])  # col 2, row 1 of a 4×4
+    # col 2, row 1 of a 4×4
+    img = Image.new!(50, 50, color: [170, 85, 255])
     rec = SC.extract(img, @spec_4x4)
     assert Enum.all?(rec.cells, &(&1 == {:cell, {2, 1}}))
   end

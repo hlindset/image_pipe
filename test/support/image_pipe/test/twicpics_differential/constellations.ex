@@ -85,7 +85,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
           reason:
             "lattice-boundary artifact: centered 2:3 crop lands cell-centre samples on a cell-col boundary; ≤1px crop-centering rounding differs (margin guard flagged). Not a placement bug.",
           issue: 323
-        }),
+        }
+      ),
       # --- contain: fits inside box, may be smaller, no pad (wide/tall discriminate) ---
       c("contain_wide", "contain=300x100", :contain),
       c("contain_tall", "contain=100x300", :contain),
@@ -112,7 +113,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
           reason:
             "placement divergence: crop@coords focus-reset + trailing guided crop=80x80 positions ~half a cell toward (3,3) vs TwicPics' (2,2). Reset works; exact positioning differs.",
           issue: 323
-        }),
+        }
+      ),
       # …and this contrast case (same focus=0x0, guided crop, no region reset) must
       # read cell (0,0) — the pair makes the reset observable, not coincidental.
       c("crop_guided_no_reset_contrast", "focus=0x0/crop=80x80", :crop)

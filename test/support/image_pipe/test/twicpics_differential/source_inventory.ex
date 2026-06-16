@@ -26,7 +26,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.SourceInventory do
       interpretation: :VIPS_INTERPRETATION_sRGB,
       profile?: false,
       grid: @grid_4x4,
-      produced_by: "Colour grid from the #321 focus probe (tools/make_grid.exs), uploaded to catbox.",
+      produced_by:
+        "Colour grid from the #321 focus probe (tools/make_grid.exs), uploaded to catbox.",
       consumers: [:twicpics_differential],
       invariant:
         "4×4 cells of 100px; cell (col,row) = [chan(col,4),chan(row,4),255]. Decoding any " <>

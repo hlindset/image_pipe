@@ -36,11 +36,13 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
     w = Image.width(image)
     h = Image.height(image)
     bands = Image.bands(image)
+
     cells =
       Enum.map(lattice(spec), fn {fx, fy} ->
         {value, _dist} = decode(image, w, h, fx, fy, spec, tol)
         value
       end)
+
     %{dims: {w, h}, bands: bands, cols: spec.cols, cells: cells}
   end
 
@@ -112,9 +114,10 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
     y = min(round(fy * h), h - 1)
     px = Image.get_pixel!(image, x, y) |> Enum.map(&round/1)
 
-    cond do
-      length(px) == 4 and List.last(px) <= tol.alpha -> {:padding, 0}
-      true -> nearest(Enum.take(px, 3), spec, tol)
+    if length(px) == 4 and List.last(px) <= tol.alpha do
+      {:padding, 0}
+    else
+      nearest(Enum.take(px, 3), spec, tol)
     end
   end
 

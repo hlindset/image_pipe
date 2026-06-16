@@ -1718,7 +1718,11 @@ defmodule Mix.Tasks.Twicpics.GenReport do
     manifest = Manifest.load!(@manifest_path)
     plug_opts = Harness.plug_opts()
 
-    cards = Enum.map(Enum.reject(Constellations.all(), &(&1[:triage])), &build_card(&1, manifest, plug_opts))
+    # Render ALL cases incl. triaged: every TwicPics chain parses (the 2 triaged are
+    # divergences, not parser gaps), so they render fine — and the quarantined cases
+    # are exactly the ones worth eyeballing. build_card carries `triaged?` so the
+    # report can flag them.
+    cards = Enum.map(Constellations.all(), &build_card(&1, manifest, plug_opts))
     File.write!(out, ImagePipe.Test.TwicpicsDifferential.ReportHtml.render(%{baked_at: manifest.baked_at, cards: cards}))
     Mix.shell().info("Wrote #{length(cards)} cards to #{Path.expand(out)}")
   end
