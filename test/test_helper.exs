@@ -13,7 +13,7 @@
 ExUnit.start(
   capture_log: true,
   assert_receive_timeout: 2_000,
-  exclude: [:image_vision, :imgproxy_triage, :imgproxy_report, :twicpics_triage, :twicpics_report]
+  exclude: [:image_vision, :imgproxy_triage, :imgproxy_report, :twicpics_triage]
 )
 
 {:ok, _} = Application.ensure_all_started(:req)

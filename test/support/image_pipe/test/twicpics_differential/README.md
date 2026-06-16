@@ -72,10 +72,12 @@ interpretation, embedded-profile presence, how it is produced, who consumes it, 
 the invariant it must preserve. That module is the single source of truth.
 
 - **It is drift-checked.** `test/image_pipe/twicpics_source_inventory_test.exs`
-  decodes every file and fails if the inventory and the bytes disagree, if a source
-  is added or removed without an entry, or if a `Constellations` source is not
-  inventoried. Adding, removing, or regenerating a source means updating its entry —
-  the test enforces it.
+  decodes every file and fails if the inventory and the bytes disagree (dims, bands,
+  format, interpretation, profile?), or if a source is added or removed without an
+  entry. The complementary "every constellation source is inventoried" check lives in
+  `test/image_pipe/twicpics_differential/constellations_test.exs` (it needs
+  `Constellations`). Adding, removing, or regenerating a source means updating its
+  entry — the tests enforce it.
 
 ### Source-hosting handshake (catbox)
 
