@@ -22,6 +22,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Resize
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
+  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Plan.Operation.Sharpen
   alias ImagePipe.Plan.Operation.Trim
 
@@ -78,6 +79,8 @@ defmodule ImagePipe.Plan.Operation do
           Rotate.t()
           | Flip.t()
 
+  @type focus_operation :: SetFocus.t()
+
   @type effect_operation ::
           Bitonal.t()
           | Blur.t()
@@ -98,6 +101,7 @@ defmodule ImagePipe.Plan.Operation do
           | padding_operation()
           | background_operation()
           | orientation_operation()
+          | focus_operation()
           | effect_operation()
           | trim_operation()
 
@@ -236,6 +240,21 @@ defmodule ImagePipe.Plan.Operation do
       {:error, _reason} -> invalid(:crop_region, [x, y, width, height])
     end
   end
+
+  @spec set_focus(term()) :: {:ok, SetFocus.t()} | {:error, error()}
+  def set_focus({:coord, x, y}) do
+    with {:ok, x} <- Measure.position(x),
+         {:ok, y} <- Measure.position(y) do
+      {:ok, %SetFocus{point: {:coord, x, y}}}
+    else
+      _ -> invalid(:set_focus, [{:coord, x, y}])
+    end
+  end
+
+  def set_focus({:anchor, h, v}) when h in @x_anchors and v in @y_anchors,
+    do: {:ok, %SetFocus{point: {:anchor, h, v}}}
+
+  def set_focus(other), do: invalid(:set_focus, [other])
 
   @spec canvas(term(), term(), term(), keyword()) :: {:ok, Canvas.t()} | {:error, error()}
   def canvas(width, height, placement, opts \\ [])
@@ -446,7 +465,14 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
   def semantic?(%Bitonal{}), do: true
   def semantic?(%Gray{}), do: true
+  def semantic?(%SetFocus{point: point}), do: valid_set_focus_point?(point)
   def semantic?(_operation), do: false
+
+  defp valid_set_focus_point?({:coord, x, y}),
+    do: match?({:ok, _}, Measure.position(x)) and match?({:ok, _}, Measure.position(y))
+
+  defp valid_set_focus_point?({:anchor, h, v}) when h in @x_anchors and v in @y_anchors, do: true
+  defp valid_set_focus_point?(_point), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
 
@@ -717,6 +743,7 @@ defmodule ImagePipe.Plan.Operation do
   defp canonical_dpr_ratio(_numerator, _denominator), do: {:error, :dpr}
 
   defp resize_guide(:center), do: {:ok, :center}
+  defp resize_guide(:carried), do: {:ok, :carried}
 
   defp resize_guide({:anchor, x, y} = guide) when x in @x_anchors and y in @y_anchors,
     do: {:ok, guide}
@@ -770,6 +797,7 @@ defmodule ImagePipe.Plan.Operation do
 
   defp tagged_crop_region_dimension(dimension), do: Measure.dimension(dimension)
 
+  defp tagged_crop_guide(:carried), do: {:ok, :carried}
   defp tagged_crop_guide(guide) when guide in @crop_anchor_guides, do: {:ok, guide}
 
   defp tagged_crop_guide({:anchor, x, y} = guide) when x in @x_anchors and y in @y_anchors,

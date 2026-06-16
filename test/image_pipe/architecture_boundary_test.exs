@@ -69,7 +69,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Flip,
     :Padding,
     :Rotate,
-    :Resize
+    :Resize,
+    :SetFocus
   ]
   @concrete_transform_names [
     :Scale,
@@ -570,6 +571,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation.Rotate,
       ImagePipe.Plan.Operation.Resize,
       ImagePipe.Plan.Operation.Saturation,
+      ImagePipe.Plan.Operation.SetFocus,
       ImagePipe.Plan.Operation.Sharpen,
       ImagePipe.Plan.Operation.Trim
     ])

@@ -13,7 +13,49 @@ defmodule ImagePipe.Plan.OperationTest do
   alias ImagePipe.Plan.Operation.Resize
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
+  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Plan.Operation.Sharpen
+
+  describe "set_focus constructor (#321)" do
+    test "builds a positional focus operation from a coordinate operand" do
+      assert {:ok, %SetFocus{point: {:coord, {:px, 20}, {:px, 10}}}} =
+               Operation.set_focus({:coord, {:px, 20}, {:px, 10}})
+
+      assert {:ok, %SetFocus{point: {:coord, {:ratio, 3, 2}, {:ratio, 1, 2}}}} =
+               Operation.set_focus({:coord, {:ratio, 3, 2}, {:ratio, 1, 2}})
+    end
+
+    test "builds a positional focus operation from an anchor operand" do
+      assert {:ok, %SetFocus{point: {:anchor, :left, :top}}} =
+               Operation.set_focus({:anchor, :left, :top})
+
+      assert {:ok, %SetFocus{point: {:anchor, :right, :bottom}}} =
+               Operation.set_focus({:anchor, :right, :bottom})
+    end
+
+    test "rejects malformed operands" do
+      assert {:error, _} = Operation.set_focus({:coord, {:px, -5}, {:px, 10}})
+      assert {:error, _} = Operation.set_focus({:anchor, :middle, :top})
+      assert {:error, _} = Operation.set_focus(:nonsense)
+    end
+
+    test "a SetFocus op is a valid semantic operation" do
+      {:ok, op} = Operation.set_focus({:coord, {:px, 20}, {:px, 10}})
+      assert Operation.semantic?(op)
+      {:ok, anchor} = Operation.set_focus({:anchor, :left, :top})
+      assert Operation.semantic?(anchor)
+    end
+  end
+
+  describe "carried guide (#321)" do
+    test "carried is a valid crop and cover guide" do
+      assert {:ok, %Operation.CropGuided{guide: :carried}} =
+               Operation.crop_guided({:px, 100}, {:px, 100}, :carried)
+
+      assert {:ok, %Operation.Resize{guide: :carried}} =
+               Operation.resize(:cover, {:px, 100}, {:px, 100}, guide: :carried)
+    end
+  end
 
   describe "resize constructors" do
     test "build unified resize operations through exported constructor" do

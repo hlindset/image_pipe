@@ -39,6 +39,7 @@ defmodule ImagePipe.Plan do
       Operation.Rotate,
       Operation.Resize,
       Operation.Saturation,
+      Operation.SetFocus,
       Operation.Sharpen,
       Operation.Trim
     ]
