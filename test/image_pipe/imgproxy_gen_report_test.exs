@@ -285,5 +285,11 @@ defmodule ImagePipe.ImgproxyGenReportTest do
     # path; the run must not crash on a band-count mismatch.
     assert html =~ "alpha_resize"
     assert html =~ "background_alpha"
+
+    # A triaged parser-gap case (mrd is unimplemented in the ImagePipe parser) renders
+    # an ImagePipe error response, not an image. The report must NOT crash on it; it
+    # emits a render-error card so the quarantined case is still listed.
+    assert html =~ ~s(id="mrd_ceiling_marker"), "render-error case dropped from report"
+    assert html =~ "status-render_error", "parser-gap case not marked as a render error"
   end
 end

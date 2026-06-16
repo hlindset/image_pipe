@@ -61,24 +61,64 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   defp build_card(c, manifest, plug_opts) do
     entry = Map.fetch!(manifest.entries, c.id)
     {body, content_type} = Harness.render(c, plug_opts)
-    pipe = Image.open!(body, access: :random, fail_on: :error)
 
-    card =
-      %{
-        id: c.id,
-        group: display_group(c),
-        verdict: c.verdict,
-        url: Constellations.imgproxy_path(c),
-        summary: OptsSummary.describe(c.opts),
-        triage: c.triage,
-        tol: c.tol,
-        hash_drift?: Manifest.authored_sha256(c) != entry.authored_sha256,
-        pipe_dims: dims(pipe)
-      }
-      |> Map.merge(group_fields(c, entry, pipe, content_type))
-      |> finalize_flags()
+    case try_open(body) do
+      {:ok, pipe} ->
+        card =
+          %{
+            id: c.id,
+            group: display_group(c),
+            verdict: c.verdict,
+            url: Constellations.imgproxy_path(c),
+            summary: OptsSummary.describe(c.opts),
+            triage: c.triage,
+            tol: c.tol,
+            hash_drift?: Manifest.authored_sha256(c) != entry.authored_sha256,
+            pipe_dims: dims(pipe)
+          }
+          |> Map.merge(group_fields(c, entry, pipe, content_type))
+          |> finalize_flags()
 
-    attach_images(card, body, content_type, pipe, entry)
+        attach_images(card, body, content_type, pipe, entry)
+
+      :error ->
+        render_error_card(c, entry, body)
+    end
+  end
+
+  # ImagePipe returned a non-image response (a parser gap / unsupported option such as
+  # an unimplemented `mrd` — typically a triaged constellation). Don't crash the whole
+  # report: emit a render-error card that still lists the case (with its imgproxy
+  # reference) so the quarantined gap is visible.
+  defp try_open(body) do
+    {:ok, Image.open!(body, access: :random, fail_on: :error)}
+  rescue
+    _ -> :error
+  end
+
+  defp render_error_card(c, entry, body) do
+    %{
+      id: c.id,
+      group: display_group(c),
+      verdict: c.verdict,
+      url: Constellations.imgproxy_path(c),
+      summary: OptsSummary.describe(c.opts),
+      triage: c.triage,
+      tol: c.tol,
+      hash_drift?: Manifest.authored_sha256(c) != entry.authored_sha256,
+      pipe_dims: nil,
+      fixture_dims: nil,
+      status: :render_error,
+      metric_text:
+        "render error — ImagePipe produced no image (parser gap / unsupported option): " <>
+          (body |> to_string() |> String.slice(0, 200)),
+      imgproxy_img: data_uri("image/png", File.read!(Harness.fixture_path(entry))),
+      pipe_img: nil,
+      heat_banded: nil,
+      heat_raw: nil,
+      heat_normalized: nil
+    }
+    |> finalize_flags()
   end
 
   # The `:diverges` constellation is stored as `group: :transform, verdict:
@@ -140,7 +180,13 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   defp finalize_flags(card) do
     failure? =
       card.hash_drift? or
-        card.status in [:over_budget, :diverges_below_floor, :dims_mismatch, :contract_mismatch]
+        card.status in [
+          :over_budget,
+          :diverges_below_floor,
+          :dims_mismatch,
+          :contract_mismatch,
+          :render_error
+        ]
 
     # `flagged?` is anything noteworthy (a divergence, quarantined or not). `failing?`
     # is the stricter "would the default `mix test` lane go red" subset: a quarantined

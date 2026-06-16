@@ -124,10 +124,16 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
 
   defp triage(%{triage: nil}), do: ""
 
+  # Structured triage: reason + a clickable issue link.
   defp triage(%{triage: %{reason: reason, issue: issue}}) do
     n = String.trim_leading(issue, "#")
 
     ~s(<p class="triage-note">⚠ quarantined: #{esc(reason)} — <a href="#{@issue_base}#{esc(n)}">#{esc(issue)}</a></p>)
+  end
+
+  # Plain-string triage (the form imgproxy constellations actually use, e.g. mrd).
+  defp triage(%{triage: reason}) when is_binary(reason) do
+    ~s(<p class="triage-note">⚠ quarantined: #{esc(reason)}</p>)
   end
 
   defp drift_banner(%{hash_drift?: true}),
@@ -145,6 +151,17 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     """
     <div class="visuals">
       #{panel(c.pipe_img, "ImagePipe (contract only — no imgproxy reference)")}
+    </div>
+    """
+  end
+
+  # Render error: ImagePipe produced no image (parser gap / unsupported option). Show
+  # the imgproxy reference alone with a note; no pipe panel / slider / heatmap.
+  defp visuals(%{status: :render_error} = c) do
+    """
+    <div class="visuals">
+      #{panel(c.imgproxy_img, "imgproxy reference")}
+      <p class="render-error">ImagePipe produced no image for this request (parser gap / unsupported option).</p>
     </div>
     """
   end
