@@ -21,4 +21,20 @@ defmodule ImagePipe.Test.Differential.ManifestTermTest do
     assert ManifestTerm.file_sha256(path) ==
              "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
   end
+
+  test "write!/2 produces a format-stable file that round-trips via Code.eval_file" do
+    dir = Path.join(System.tmp_dir!(), "mt_write_#{System.unique_integer([:positive])}")
+    path = Path.join(dir, "manifest.exs")
+    body = ManifestTerm.sorted_map_literal(%{verdict: :equal, chain: "abc"})
+
+    ManifestTerm.write!(path, body)
+
+    {term, _bindings} = Code.eval_file(path)
+    assert term == %{chain: "abc", verdict: :equal}
+
+    # format-stable: writing the same body again produces identical bytes
+    first_bytes = File.read!(path)
+    ManifestTerm.write!(path, body)
+    assert File.read!(path) == first_bytes
+  end
 end
