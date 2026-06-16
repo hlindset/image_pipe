@@ -36,7 +36,11 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
     w = Image.width(image)
     h = Image.height(image)
     bands = Image.bands(image)
-    cells = Enum.map(lattice(spec), fn {fx, fy} -> elem(decode(image, w, h, fx, fy, spec, tol), 0) end)
+    cells =
+      Enum.map(lattice(spec), fn {fx, fy} ->
+        {value, _dist} = decode(image, w, h, fx, fy, spec, tol)
+        value
+      end)
     %{dims: {w, h}, bands: bands, cols: spec.cols, cells: cells}
   end
 
@@ -56,7 +60,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
     |> Enum.map(fn {fx, fy} -> decode(image, w, h, fx, fy, spec, tol) end)
     |> Enum.with_index()
     |> Enum.flat_map(fn {{value, dist}, i} ->
-      if match?({:cell, _}, value) and dist > tol.color_dist / 2, do: [i], else: []
+      if match?({:cell, _}, value) and dist > div(tol.color_dist, 2), do: [i], else: []
     end)
   end
 
@@ -81,6 +85,11 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
       %{}
       |> put_if(:dims, expected.dims != got.dims, {expected.dims, got.dims})
       |> put_if(:bands, expected.bands != got.bands, {expected.bands, got.bands})
+      |> put_if(
+        :cell_count,
+        length(expected.cells) != length(got.cells),
+        {length(expected.cells), length(got.cells)}
+      )
       |> put_if(:cells, cell_diffs != [], cell_diffs)
 
     if diff == %{}, do: :match, else: {:mismatch, diff}
@@ -88,15 +97,16 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompare do
 
   # cell-centre lattice derived from the grid: fractions (i+0.5)/n. Stored row-major
   # (rows outer, cols inner) so cell_at/3 indexing matches.
-  @doc false
-  def lattice(%{cols: cols, rows: rows}) do
+  defp lattice(%{cols: cols, rows: rows}) do
     fx = for i <- 0..(cols - 1), do: (i + 0.5) / cols
     fy = for j <- 0..(rows - 1), do: (j + 0.5) / rows
     for vy <- fy, vx <- fx, do: {vx, vy}
   end
 
   # Returns `{value, nearest_dist}` so the caller can both record the decoded value
-  # and report decode confidence. `:padding`/`:ambiguous` carry a sentinel distance.
+  # and report decode confidence. Only `{:cell, _}` distances are meaningful;
+  # `:padding`'s `0` and `:ambiguous`'s distance are not consumed as confidence
+  # (only `low_confidence_samples/3` reads `{:cell, _}` distances).
   defp decode(image, w, h, fx, fy, spec, tol) do
     x = min(round(fx * w), w - 1)
     y = min(round(fy * h), h - 1)

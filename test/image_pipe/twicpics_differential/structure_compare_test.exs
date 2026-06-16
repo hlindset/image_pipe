@@ -59,4 +59,13 @@ defmodule ImagePipe.Test.TwicpicsDifferential.StructureCompareTest do
     img = grid_image(4, 4, 40)
     assert SC.low_confidence_samples(img, @spec_4x4) == []
   end
+
+  test "low_confidence_samples flags samples in the marginal-confidence band" do
+    # cell (0,0) of a 4×4 grid has colour [0, 0, 255].
+    # Shifting R by 30 gives squared distance 900, which is in (800, 1600] —
+    # past the div(color_dist,2)=800 threshold but within color_dist=1600, so
+    # it decodes to {:cell, _} but with low confidence.
+    img = Image.new!(40, 40, color: [30, 0, 255])
+    assert SC.low_confidence_samples(img, @spec_4x4) != []
+  end
 end
