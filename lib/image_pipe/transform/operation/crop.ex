@@ -204,27 +204,31 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
     case crop_coordinates(params, state, image_width, image_height) do
       {:ok, %{left: left, top: top, width: crop_width, height: crop_height}} ->
-        case Image.crop(state.image, left, top, crop_width, crop_height) do
-          {:ok, cropped_image} ->
-            # A gravity crop is a geometry transformer for a carried focus: the
-            # focus translates by the realized (clamped) crop origin into the
-            # cropped frame. A coordinate crop (crop_from: %{…}) does not translate
-            # — it resets the focus at the PlanExecutor boundary instead.
-            state =
-              if params.crop_from == :gravity,
-                do: Focus.translate(state, -left, -top),
-                else: state
-
-            {:ok, set_image(state, cropped_image)}
-
-          {:error, error} ->
-            {:error, {__MODULE__, error}}
-        end
+        crop_image(params, state, {left, top, crop_width, crop_height})
 
       {:error, error} ->
         {:error, {__MODULE__, error}}
     end
   end
+
+  defp crop_image(%__MODULE__{} = params, %State{} = state, {left, top, crop_width, crop_height}) do
+    case Image.crop(state.image, left, top, crop_width, crop_height) do
+      {:ok, cropped_image} ->
+        {:ok, set_image(carry_focus_through_crop(state, params, left, top), cropped_image)}
+
+      {:error, error} ->
+        {:error, {__MODULE__, error}}
+    end
+  end
+
+  # A gravity crop is a geometry transformer for a carried focus: the focus
+  # translates by the realized (clamped) crop origin into the cropped frame. A
+  # coordinate crop (crop_from: %{…}) does not translate — it resets the focus at
+  # the PlanExecutor boundary instead.
+  defp carry_focus_through_crop(%State{} = state, %__MODULE__{crop_from: :gravity}, left, top),
+    do: Focus.translate(state, -left, -top)
+
+  defp carry_focus_through_crop(%State{} = state, %__MODULE__{}, _left, _top), do: state
 
   defp crop_coordinates(
          %__MODULE__{crop_from: :gravity} = params,

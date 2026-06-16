@@ -157,8 +157,11 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     # resize=50p first -> the focus x=1000 is 50% of the 2000-wide resized frame;
     # focus first -> x=1000 is 25% of the 4000-wide source, carried through the
     # resize. Different source content, so the cover crops differ.
-    after_resize = call("/images/beach.jpg?twic=v1/resize=50p/focus=1000x500/cover=100x100/output=jpeg")
-    before_resize = call("/images/beach.jpg?twic=v1/focus=1000x500/resize=50p/cover=100x100/output=jpeg")
+    after_resize =
+      call("/images/beach.jpg?twic=v1/resize=50p/focus=1000x500/cover=100x100/output=jpeg")
+
+    before_resize =
+      call("/images/beach.jpg?twic=v1/focus=1000x500/resize=50p/cover=100x100/output=jpeg")
 
     assert dimensions(after_resize) == {100, 100}
     assert dimensions(before_resize) == {100, 100}
@@ -169,8 +172,13 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     # Both steer the cover identically; the carried variant's trailing crop follows
     # the focus into the cover result, while the @-coordinate variant pins a fixed
     # centred region there. They differ only if the focus carries into the 2nd crop.
-    carried = call("/images/beach.jpg?twic=v1/focus=top-left/cover=200x200/crop=120x120/output=jpeg")
-    fixed = call("/images/beach.jpg?twic=v1/focus=top-left/cover=200x200/crop=120x120@40x40/output=jpeg")
+    carried =
+      call("/images/beach.jpg?twic=v1/focus=top-left/cover=200x200/crop=120x120/output=jpeg")
+
+    fixed =
+      call(
+        "/images/beach.jpg?twic=v1/focus=top-left/cover=200x200/crop=120x120@40x40/output=jpeg"
+      )
 
     assert dimensions(carried) == {120, 120}
     assert dimensions(fixed) == {120, 120}

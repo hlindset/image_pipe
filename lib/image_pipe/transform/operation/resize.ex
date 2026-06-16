@@ -106,7 +106,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
           # it correct through shrink-on-load and cover intermediates.
           state =
             state
-            |> Focus.scale({:ratio, Image.width(image), before_w}, {:ratio, Image.height(image), before_h})
+            |> Focus.scale(
+              {:ratio, Image.width(image), before_w},
+              {:ratio, Image.height(image), before_h}
+            )
             |> set_image(image)
 
           {:ok, %State{state | source_dimensions: nil, decode_shrink: nil}}

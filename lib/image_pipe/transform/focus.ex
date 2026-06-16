@@ -49,8 +49,14 @@ defmodule ImagePipe.Transform.Focus do
 
   def reflect_rotate(%State{focus: {x, y}} = state, %PendingOrientation{} = po, {pre_w, pre_h}) do
     {fx2, fy2} = forward_fraction({ratio_div(x, pre_w), ratio_div(y, pre_h)}, po)
-    {post_w, post_h} = if PendingOrientation.quarter_turn?(po), do: {pre_h, pre_w}, else: {pre_w, pre_h}
-    %State{state | focus: {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}}
+
+    {post_w, post_h} =
+      if PendingOrientation.quarter_turn?(po), do: {pre_h, pre_w}, else: {pre_w, pre_h}
+
+    %State{
+      state
+      | focus: {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}
+    }
   end
 
   @typedoc """
@@ -105,6 +111,7 @@ defmodule ImagePipe.Transform.Focus do
   defp resolve_axis_value({:px, n}, _dim, nil), do: {:ratio, n, 1}
   defp resolve_axis_value({:px, n}, _dim, shrink), do: {:ratio, max(0, round(n / shrink)), 1}
   defp resolve_axis_value({:ratio, n, d}, dim, _shrink), do: reduce(n * dim, d)
+
   defp resolve_axis_value({:anchor_component, near}, _dim, _shrink) when near in [:left, :top],
     do: {:ratio, 0, 1}
 

@@ -1,12 +1,16 @@
 defmodule ImagePipe.Transform.FocusTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Parser.TwicPics.PlanBuilder
+  alias ImagePipe.Plan.Source
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.OrientationFlush
   alias ImagePipe.Transform.PendingOrientation
+  alias ImagePipe.Transform.PlanExecutor
   alias ImagePipe.Transform.State
 
   describe "rational helpers" do
@@ -155,13 +159,8 @@ defmodule ImagePipe.Transform.FocusTest do
   # Build a full TwicPics plan from a manipulation chain and run it through
   # PlanExecutor on the grid, decoding the result's centre cell.
   defp plan_cell(chain) do
-    {:ok, plan} =
-      ImagePipe.Parser.TwicPics.PlanBuilder.to_plan(
-        %ImagePipe.Plan.Source.Path{segments: ["x.png"]},
-        chain
-      )
-
-    {:ok, state} = ImagePipe.Transform.PlanExecutor.execute(plan, %State{image: grid()}, [])
+    {:ok, plan} = PlanBuilder.to_plan(%Source.Path{segments: ["x.png"]}, chain)
+    {:ok, state} = PlanExecutor.execute(plan, %State{image: grid()}, [])
     w = Image.width(state.image)
     h = Image.height(state.image)
 
@@ -254,7 +253,7 @@ defmodule ImagePipe.Transform.FocusTest do
         materialized?: false
       }
 
-      {:ok, state} = ImagePipe.Transform.OrientationFlush.flush(state)
+      {:ok, state} = OrientationFlush.flush(state)
       {:fp, fx, fy} = Focus.to_fp(state)
 
       {:ok, state} =
