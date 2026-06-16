@@ -152,27 +152,57 @@ defmodule ImagePipe.Transform.FocusTest do
     |> nearest_cell()
   end
 
+  # Build a full TwicPics plan from a manipulation chain and run it through
+  # PlanExecutor on the grid, decoding the result's centre cell.
+  defp plan_cell(chain) do
+    {:ok, plan} =
+      ImagePipe.Parser.TwicPics.PlanBuilder.to_plan(
+        %ImagePipe.Plan.Source.Path{segments: ["x.png"]},
+        chain
+      )
+
+    {:ok, state} = ImagePipe.Transform.PlanExecutor.execute(plan, %State{image: grid()}, [])
+    w = Image.width(state.image)
+    h = Image.height(state.image)
+
+    state.image
+    |> Image.get_pixel!(div(w, 2), div(h, 2))
+    |> Enum.take(3)
+    |> Enum.map(&round/1)
+    |> nearest_cell()
+  end
+
   describe "SetFocus executes through PlanExecutor" do
-    alias ImagePipe.Parser.TwicPics.PlanBuilder
-    alias ImagePipe.Plan.Source
-    alias ImagePipe.Transform.PlanExecutor
-
     test "focus=150x150/crop=12x12 steers to the focused cell via the full plan" do
-      {:ok, plan} =
-        PlanBuilder.to_plan(%Source.Path{segments: ["x.png"]}, [
-          {"focus", "150x150"},
-          {"crop", "12x12"}
-        ])
+      assert plan_cell([{"focus", "150x150"}, {"crop", "12x12"}]) == {1, 1}
+    end
+  end
 
-      {:ok, state} = PlanExecutor.execute(plan, %State{image: grid()}, [])
+  describe "0-based boundary round-trip and OOB (probe-seeded)" do
+    test "the last pixel (399) lands on the bottom-right cell" do
+      assert plan_cell([{"focus", "399x399"}, {"crop", "1x1"}]) == {3, 3}
+    end
 
-      px =
-        state.image
-        |> Image.get_pixel!(div(Image.width(state.image), 2), div(Image.height(state.image), 2))
-        |> Enum.take(3)
-        |> Enum.map(&round/1)
+    test "a positive OOB px (500) clamps to the far edge -> bottom-right" do
+      assert plan_cell([{"focus", "500x500"}, {"crop", "1x1"}]) == {3, 3}
+    end
 
-      assert nearest_cell(px) == {1, 1}
+    test "a relative >100% focus (150p) clamps to the far edge -> bottom-right" do
+      assert plan_cell([{"focus", "150px150p"}, {"crop", "1x1"}]) == {3, 3}
+    end
+
+    test "a cell-midpoint coordinate lands on its cell" do
+      assert plan_cell([{"focus", "150x150"}, {"crop", "1x1"}]) == {1, 1}
+    end
+
+    test "crop@coords resets the focus and recovers from a prior OOB focus" do
+      # focus=500x500 (clamped) is discarded by the region crop; the trailing
+      # carried crop reads the reset centre of the region = cell (1,1).
+      assert plan_cell([
+               {"focus", "500x500"},
+               {"crop", "100x100@100x100"},
+               {"crop", "12x12"}
+             ]) == {1, 1}
     end
   end
 
