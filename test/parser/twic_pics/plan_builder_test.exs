@@ -26,29 +26,52 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Resize{width: {:ratio, 1, 2}} = b
   end
 
-  test "focus anchor steers the next cover" do
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [cover]}]}} =
+  test "focus anchor emits a positional SetFocus and a carried cover (#321)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, cover]}]}} =
              build([{"focus", "top"}, {"cover", "100x100"}])
 
-    assert %Operation.Resize{mode: :cover, guide: {:anchor, :center, :top}} = cover
+    assert %Operation.SetFocus{point: {:anchor, :center, :top}} = set_focus
+    assert %Operation.Resize{mode: :cover, guide: :carried} = cover
   end
 
-  test "relative-unit coordinate focus -> focal ratio guide on the next cover" do
+  test "relative-unit coordinate focus emits SetFocus + carried cover (#321)" do
     # focus=25px75p splits on x -> ["25p","75p"] -> x=25% (1/4), y=75% (3/4).
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [cover]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, cover]}]}} =
              build([{"focus", "25px75p"}, {"cover", "100x100"}])
 
-    assert %Operation.Resize{
-             mode: :cover,
-             guide: {:focal, {:ratio, 1, 4}, {:ratio, 3, 4}}
-           } = cover
+    assert %Operation.SetFocus{point: {:coord, {:ratio, 1, 4}, {:ratio, 3, 4}}} = set_focus
+    assert %Operation.Resize{mode: :cover, guide: :carried} = cover
   end
 
-  test "an edge focal ratio of exactly 1 (100p) is in-range" do
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [cover]}]}} =
+  test "bare-pixel coordinate focus emits SetFocus + carried cover (#321)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, cover]}]}} =
+             build([{"focus", "20x10"}, {"cover", "100x100"}])
+
+    assert %Operation.SetFocus{point: {:coord, {:px, 20}, {:px, 10}}} = set_focus
+    assert %Operation.Resize{mode: :cover, guide: :carried} = cover
+  end
+
+  test "mixed-unit coordinate focus (100x50p) parses to px + relative (#321)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, _cover]}]}} =
+             build([{"focus", "100x50p"}, {"cover", "100x100"}])
+
+    assert %Operation.SetFocus{point: {:coord, {:px, 100}, {:ratio, 1, 2}}} = set_focus
+  end
+
+  test "relative focus > 1 is clamped at execution, not rejected at the parser (#321)" do
+    # focus=150px150p -> both 150% (ratio 3/2). The parser no longer rejects it;
+    # it emits a SetFocus that clamps to the edge at execution.
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, _cover]}]}} =
+             build([{"focus", "150px150p"}, {"cover", "100x100"}])
+
+    assert %Operation.SetFocus{point: {:coord, {:ratio, 3, 2}, {:ratio, 3, 2}}} = set_focus
+  end
+
+  test "an edge focal ratio of exactly 1 (100p) emits SetFocus (#321)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, _cover]}]}} =
              build([{"focus", "100px0p"}, {"cover", "100x100"}])
 
-    assert %Operation.Resize{guide: {:focal, {:ratio, 1, 1}, {:ratio, 0, 1}}} = cover
+    assert %Operation.SetFocus{point: {:coord, {:ratio, 1, 1}, {:ratio, 0, 1}}} = set_focus
   end
 
   test "focus=auto -> face-assist smart guide on the next cover" do
@@ -65,11 +88,9 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.CropGuided{guide: {:smart, :face_assist}} = guided
   end
 
-  test "out-of-range, bare-pixel, and center focus values are rejected" do
-    # focus=150px50p -> x ratio 3/2 (>100%) is out of the image.
-    assert {:error, {:unsupported_focus, "150px50p"}} = build([{"focus", "150px50p"}])
-    # focus=20x10 -> both bare px; deferred (needs running-dim resolution).
-    assert {:error, {:unsupported_focus, "20x10"}} = build([{"focus", "20x10"}])
+  test "negative focus is rejected; center is not an anchor literal (#321)" do
+    # negative coordinates are rejected before any fetch (Units rejects them).
+    assert {:error, _} = build([{"focus", "-50x-50"}])
     # center is not a TwicPics anchor literal -- only the default focus.
     assert {:error, _} = build([{"focus", "center"}])
   end
@@ -112,12 +133,15 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
            } = canvas
   end
 
-  test "crop without coords uses the guide; with coords resets to center and emits CropRegion" do
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [guided]}]}} =
+  test "crop without coords carries the focus; with coords emits CropRegion (#321)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, guided]}]}} =
              build([{"focus", "top"}, {"crop", "100x100"}])
 
-    assert %Operation.CropGuided{guide: {:anchor, :center, :top}} = guided
+    assert %Operation.SetFocus{point: {:anchor, :center, :top}} = set_focus
+    assert %Operation.CropGuided{guide: :carried} = guided
 
+    # crop@coords emits a CropRegion; the running guide stays :carried (the focus
+    # point is reset at execution to the crop-result centre).
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [region, after_crop]}]}} =
              build([{"crop", "100x100@20x50"}, {"cover", "10x10"}])
 
@@ -128,7 +152,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
              height: {:px, 100}
            } = region
 
-    assert %Operation.Resize{mode: :cover, guide: :center} = after_crop
+    assert %Operation.Resize{mode: :cover, guide: :carried} = after_crop
   end
 
   test "output/quality last-wins, applied to Output not the pipeline" do

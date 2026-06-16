@@ -8,7 +8,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
 
-  @initial %{ops: [], guide: :center, format: :auto, quality: :default}
+  @initial %{ops: [], guide: :carried, format: :auto, quality: :default}
 
   @spec to_plan(Source.t(), [{String.t(), String.t()}]) :: {:ok, Plan.t()} | {:error, term()}
   def to_plan(source, chain) when is_list(chain) do
@@ -121,8 +121,9 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
     with {:ok, {w, h}} <- region_size(size),
          {:ok, {x, y}} <- crop_coordinates(coords),
          {:ok, op} <- Operation.crop_region(x, y, w, h) do
-      # explicit coordinates reset the focus to center
-      push(%{acc | guide: :center}, op)
+      # crop@coords resets the carried focus to the crop-result centre at
+      # execution; the running guide stays :carried so the next consumer reads it.
+      push(%{acc | guide: :carried}, op)
     end
   end
 
@@ -150,28 +151,29 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp focus(args, acc) do
     case Units.anchor(args) do
-      {:ok, guide} -> {:ok, %{acc | guide: guide}}
+      {:ok, {:anchor, h, v}} -> emit_focus({:anchor, h, v}, acc)
       {:error, _} -> focus_coordinates(args, acc)
     end
   end
 
-  # Relative (p/s) coordinate focus -> focal ratio guide. Bare-pixel coordinates
-  # need running-dim-at-focus-position resolution and are deferred (separate issue).
+  # A coordinate focus (literal px, relative p/s, or mixed) emits a positional
+  # SetFocus that resolves its units against the running frame at execution and
+  # carries the resolved point. Out-of-range positives are clamped there; negative
+  # coordinates are rejected by Units before this point.
   defp focus_coordinates(args, acc) do
     with {:ok, {x, y}} <- Units.coordinates(args),
-         {:ok, fx} <- focal_ratio(x),
-         {:ok, fy} <- focal_ratio(y) do
-      {:ok, %{acc | guide: {:focal, fx, fy}}}
+         {:ok, op} <- Operation.set_focus({:coord, x, y}) do
+      {:ok, %{acc | ops: [op | acc.ops], guide: :carried}}
     else
       _ -> {:error, {:unsupported_focus, args}}
     end
   end
 
-  # In-range relative focus only. A ratio > 1 (e.g. 150p) is an out-of-image focus
-  # point and must be rejected here (the plan-construction gate has no upper bound,
-  # so it would otherwise fail only late in crop.ex after source fetch). Bare-px deferred.
-  defp focal_ratio({:ratio, num, den}) when num <= den, do: {:ok, {:ratio, num, den}}
-  defp focal_ratio(_measure), do: {:error, :out_of_range_or_deferred_focus}
+  defp emit_focus(anchor, acc) do
+    with {:ok, op} <- Operation.set_focus(anchor) do
+      {:ok, %{acc | ops: [op | acc.ops], guide: :carried}}
+    end
+  end
 
   defp output(args, acc) do
     with {:ok, format} <- Output.format(args), do: {:ok, %{acc | format: format}}
