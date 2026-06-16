@@ -191,23 +191,23 @@
     return step.mode;
   }
 
-  // The running-image pixel dims at the focus position, learned from a hidden
-  // loader of the same preview the minimap uses, so a px focus axis is bounded by
-  // the addressable extent (only one focus card's coord controls are open at a
-  // time, so a shared probe suffices).
-  let focusRunningWidth = $state(0);
-  let focusRunningHeight = $state(0);
+  // The running-image pixel dims at each focus card's chain position, learned from
+  // a hidden loader of the same preview the minimap uses, so a px focus axis is
+  // bounded by the addressable extent. Keyed by card id: several coord cards can be
+  // open at once and each has its own probe, so a shared pair would clobber.
+  let focusDimsByStepId = $state<Record<string, { w: number; h: number }>>({});
 
-  function onFocusDimsLoad(event: Event): void {
+  function onFocusDimsLoad(stepId: string, event: Event): void {
     const img = event.currentTarget;
     if (img instanceof HTMLImageElement) {
-      focusRunningWidth = img.naturalWidth;
-      focusRunningHeight = img.naturalHeight;
+      focusDimsByStepId[stepId] = { w: img.naturalWidth, h: img.naturalHeight };
     }
   }
 
-  function focusAxisPx(axis: "x" | "y"): number {
-    return axis === "x" ? focusRunningWidth : focusRunningHeight;
+  function focusAxisPx(stepId: string, axis: "x" | "y"): number {
+    const dims = focusDimsByStepId[stepId];
+    if (dims === undefined) return 0;
+    return axis === "x" ? dims.w : dims.h;
   }
 
   // Switch a focus card between the 9-cell anchor grid (8 edges/corners + centre),
@@ -264,7 +264,7 @@
     if (Number.isNaN(value)) return;
     step[axis] = {
       unit: step[axis].unit,
-      value: clampFocus(value, step[axis].unit, focusAxisPx(axis)),
+      value: clampFocus(value, step[axis].unit, focusAxisPx(step.id, axis)),
     };
   }
 
@@ -274,7 +274,7 @@
     unit: TwicLenUnit,
   ): void {
     // Preserve the on-image fraction across the unit switch (50% <-> 0.5× <-> px).
-    const axisPx = focusAxisPx(axis);
+    const axisPx = focusAxisPx(step.id, axis);
     const range = focusRange(step[axis].unit, axisPx);
     const fraction = step[axis].value / range.max;
     const next = focusRange(unit, axisPx).max * fraction;
@@ -286,23 +286,26 @@
     step.x = {
       unit: step.x.unit,
       value: clampFocus(
-        nx * focusRange(step.x.unit, focusAxisPx("x")).max,
+        nx * focusRange(step.x.unit, focusAxisPx(step.id, "x")).max,
         step.x.unit,
-        focusAxisPx("x"),
+        focusAxisPx(step.id, "x"),
       ),
     };
     step.y = {
       unit: step.y.unit,
       value: clampFocus(
-        ny * focusRange(step.y.unit, focusAxisPx("y")).max,
+        ny * focusRange(step.y.unit, focusAxisPx(step.id, "y")).max,
         step.y.unit,
-        focusAxisPx("y"),
+        focusAxisPx(step.id, "y"),
       ),
     };
   }
 
+  // Normalized 0..1 minimap marker. Clamp: an out-of-range (e.g. pasted >100%)
+  // value would otherwise place the marker outside the surface.
   function focusMarker(len: TwicLen, axisPx: number): number {
-    return len.value / focusRange(len.unit, axisPx).max;
+    const fraction = len.value / focusRange(len.unit, axisPx).max;
+    return Math.min(1, Math.max(0, fraction));
   }
 </script>
 
@@ -364,7 +367,7 @@
   label: string,
 )}
   {@const len = step[axis]}
-  {@const range = focusRange(len.unit, focusAxisPx(axis))}
+  {@const range = focusRange(len.unit, focusAxisPx(step.id, axis))}
   <div class="dim-control">
     <label class="value-row">
       <span>{label}</span>
@@ -574,20 +577,20 @@
                       output: "jpeg",
                       quality: 80,
                     })}
-                    {@const xRange = focusRange(step.x.unit, focusRunningWidth)}
-                    {@const yRange = focusRange(step.y.unit, focusRunningHeight)}
+                    {@const xRange = focusRange(step.x.unit, focusAxisPx(step.id, "x"))}
+                    {@const yRange = focusRange(step.y.unit, focusAxisPx(step.id, "y"))}
                     <!-- Hidden loader so a px focus axis tracks the running image. -->
                     <img
                       class="focus-dims-probe"
                       src={focusPreviewSrc}
                       alt=""
                       aria-hidden="true"
-                      onload={onFocusDimsLoad}
+                      onload={(e) => onFocusDimsLoad(step.id, e)}
                     />
                     <ImagePointPicker
                       src={focusPreviewSrc}
-                      markerX={focusMarker(step.x, focusRunningWidth)}
-                      markerY={focusMarker(step.y, focusRunningHeight)}
+                      markerX={focusMarker(step.x, focusAxisPx(step.id, "x"))}
+                      markerY={focusMarker(step.y, focusAxisPx(step.id, "y"))}
                       ariaLabel={`Set focus point, currently ${step.x.value}${xRange.suffix}, ${step.y.value}${yRange.suffix}`}
                       onPick={(nx, ny) => pickFocus(step, nx, ny)}
                     />

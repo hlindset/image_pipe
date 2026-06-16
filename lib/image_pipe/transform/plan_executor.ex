@@ -450,7 +450,17 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # the flush then rotates image + focus together. (imgproxy never emits :carried.)
   # This clause MUST precede the {crop_from: :gravity, gravity} clause below, which
   # a :carried crop would otherwise match (it is crop_from: :gravity).
+  #
+  # A nil State.focus makes Crop.execute fall back to a centred crop, so this crop
+  # still needs the center-discard-side compensation (#146 Bug 2) that the gravity
+  # clause applies — otherwise a focus-less TwicPics cover under a pending flip/turn
+  # with an odd centre-crop discard keeps the wrong display-side pixel (a regression
+  # from the pre-#321 `:center` guide, which took the gravity clause). For a set
+  # focus the crop resolves to `:fp` gravity, which ignores center_bias, so setting
+  # it unconditionally here is harmless.
   defp compensate_crop(%Crop{gravity: :carried} = crop, %PendingOrientation{} = po) do
+    crop = %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
+
     if PendingOrientation.quarter_turn?(po),
       do: %Crop{crop | width: crop.height, height: crop.width},
       else: crop

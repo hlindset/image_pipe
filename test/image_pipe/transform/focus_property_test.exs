@@ -82,8 +82,12 @@ defmodule ImagePipe.Transform.FocusPropertyTest do
 
       assert s4.focus == start
 
-      # the intermediate single turn lands in the swapped (400x300) frame: the new
-      # x came from the old y reflected, so it must be within [0, 400).
+      # The intermediate single turn lands in the swapped (400x300) frame: the new
+      # x came from the old y reflected (continuous coordinate dim - y), so it lies
+      # in the CLOSED interval [0, 400] — y = 0 reflects to the right boundary 400
+      # (fraction 1.0, the far edge), which to_fp clamps to the last pixel. (This is
+      # the continuous-coordinate reflection, matching Orientation.flip_x_point's
+      # `1 - u`; it is not an integer pixel index, so dim is a valid boundary value.)
       {{:ratio, nx, dx}, _ny} = s1.focus
       assert nx / dx >= 0 and nx / dx <= 400
     end
