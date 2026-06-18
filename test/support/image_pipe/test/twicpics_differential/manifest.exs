@@ -29,7 +29,7 @@
       oracle_signature: "761a5b9a4e222d5a0e890d77c17377cac0aba130d8166f9ee2d4c3f66e02f719"
     },
     "cover_ratio_tall" => %{
-      authored_sha256: "101d0c5d657ab1fdb6b620e33816f2a69495aceec447569fe7cdc3553c1a7cc6",
+      authored_sha256: "63b43b3b290e6d71fbc52aa41557003d974a27030278a2f860e3b5a6051c7f72",
       fixture_filename: "cover_ratio_tall.png",
       fixture_sha256: "7f96a5653fc31537669d0f4669c0dbdf103b40f9ef528d361109e5b40461412d",
       oracle_signature: "3961b4a682439215cabedb1ebbc71d7ac9e550bb69517aef815f70c6015c51a9"
@@ -83,7 +83,7 @@
       oracle_signature: "eb7e5842e0b850fa0a470e40c60efee97e1eec1697e62641214611eb8d52f03d"
     },
     "focus_bottomright_cover_ratio" => %{
-      authored_sha256: "61a683c0c4a41d4017b1760cf49ddf3a9a53319ead2a69346877ba44aa75171a",
+      authored_sha256: "a962578a779e39fea8425340153034eeba2552e40686c94bbc8f72ed4cd28717",
       fixture_filename: "focus_bottomright_cover_ratio.png",
       fixture_sha256: "cb36b7be93f44c3543513a4d75fae21a78d56dfcc12d5866253363d8fb7b48ef",
       oracle_signature: "64f9e4b76fbd3efc934f87ac6e7c17eda7fa61f6ae9ef9773fb48db992c0ccca"

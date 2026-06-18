@@ -90,10 +90,24 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ManifestTest do
       verdict: :diverges,
       group: :transform,
       tol: nil,
-      divergence: %{metric: :fraction_over, threshold: 2, floor: 0.01, issue: "#124"}
+      divergence: %{
+        reason: "accepted resampling divergence",
+        max_delta: 60..160,
+        outliers: 3_000..4_600,
+        issue: 124
+      }
     }
 
-    b = %{a | divergence: %{issue: "#124", floor: 0.01, threshold: 2, metric: :fraction_over}}
+    b = %{
+      a
+      | divergence: %{
+          issue: 124,
+          outliers: 3_000..4_600,
+          max_delta: 60..160,
+          reason: "accepted resampling divergence"
+        }
+    }
+
     assert Manifest.authored_sha256(a) == Manifest.authored_sha256(b)
   end
 

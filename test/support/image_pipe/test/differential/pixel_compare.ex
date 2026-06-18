@@ -109,6 +109,151 @@ defmodule ImagePipe.Test.Differential.PixelCompare do
 
   @default_thresholds [2, 16, 32]
 
+  @typedoc """
+  An accepted-and-monitored divergence's expected band (authored on a `:diverges`
+  constellation). `max_delta` and `outliers` are the two-sided bands the live diff
+  must fall within; `reason`/`issue` are documentation carried alongside.
+  """
+  @type divergence_map :: %{
+          required(:reason) => String.t(),
+          required(:max_delta) => Range.t(),
+          required(:outliers) => Range.t(),
+          optional(:issue) => integer()
+        }
+
+  @doc """
+  Classify an accepted divergence against its expected two-sided band — the shared
+  gate for `verdict: :diverges` constellations. Returns `:ok` when both the
+  per-sample `max_delta` and the Δ2 `outliers` count from `diagnose/3` fall inside
+  their authored bands.
+
+  On a miss it reports *which* metric and *which* bound was crossed:
+
+  - `:above_ceiling` → the divergence **grew** (a likely regression — investigate).
+  - `:below_floor` → the divergence **shrank/vanished** (a libvips update may have
+    made it match — consider promoting the case back to `:equal`).
+
+  The two images must be dimension/band comparable (the conformance test asserts
+  same dims first); a `:diverges` case is by definition a same-frame pixel diff.
+  """
+  @spec classify_divergence(VipsImage.t(), VipsImage.t(), divergence_map()) ::
+          :ok
+          | {:error, :below_floor | :above_ceiling,
+             %{metric: :max_delta | :outliers, value: non_neg_integer(), band: Range.t()}}
+  def classify_divergence(out, fixture, %{max_delta: md_band, outliers: ol_band}) do
+    diag = diagnose(out, fixture, [2])
+
+    with :ok <- check_band(:max_delta, diag.max_delta, md_band) do
+      check_band(:outliers, Map.fetch!(diag.over, 2), ol_band)
+    end
+  end
+
+  defp check_band(metric, value, band) do
+    cond do
+      value < band.first -> {:error, :below_floor, %{metric: metric, value: value, band: band}}
+      value > band.last -> {:error, :above_ceiling, %{metric: metric, value: value, band: band}}
+      true -> :ok
+    end
+  end
+
+  @default_radius 1
+  @default_value_tol 2
+  @default_overshoot 8
+
+  @doc """
+  Count of differing band-samples **not** explainable by the reference's local
+  neighborhood — a neighborhood-aware triage signal (informational, never a gate)
+  that separates resampling/phase artifacts from genuine geometry shifts.
+
+  A differing sample is a *resampling artifact* (haloing/ringing) when its value is a
+  blend of its local neighborhood: it lies within `[local_min − ε, local_max + ε]` of
+  the corresponding window (square, half-width `radius`) in the reference image `b`
+  (`ε` = `overshoot`, absorbing Lanczos overshoot). A *geometry difference* moves an
+  edge, producing samples whose values fall outside that range — those are counted.
+  Only samples differing by more than `value_tol` (8-bit-equivalent levels) are
+  considered. `b` is the reference (the differential fixture); `a` is the candidate.
+
+  `radius` *defines* "negligible geometry difference": a ≤`radius`-px hard shift is
+  spatially indistinguishable from sub-pixel resampling, so keep it small (1–2) — a
+  ≥2px shift then reads as non-zero, sub-pixel/phase skew as ≈0.
+
+  Opts: `radius` (default `1`), `value_tol` (default `2` levels), `overshoot`
+  (default `8` levels). Raises on dimension/band-layout mismatch.
+  """
+  @spec structural_outliers(VipsImage.t(), VipsImage.t(), keyword()) :: non_neg_integer()
+  def structural_outliers(a, b, opts \\ []) do
+    unless same_dims?(a, b) do
+      raise ArgumentError, "dimension mismatch: #{inspect(dims(a))} vs #{inspect(dims(b))}"
+    end
+
+    radius = Keyword.get(opts, :radius, @default_radius)
+    value_tol = Keyword.get(opts, :value_tol, @default_value_tol)
+    overshoot = Keyword.get(opts, :overshoot, @default_overshoot)
+    format = VipsImage.format(a)
+
+    win = 2 * radius + 1
+    lo_img = Operation.rank!(b, win, win, 0)
+    hi_img = Operation.rank!(b, win, win, win * win - 1)
+
+    {:ok, ab} = VipsImage.write_to_binary(a)
+    {:ok, bb} = VipsImage.write_to_binary(b)
+    {:ok, lob} = VipsImage.write_to_binary(lo_img)
+    {:ok, hib} = VipsImage.write_to_binary(hi_img)
+
+    unless byte_size(ab) == byte_size(bb) do
+      raise ArgumentError, "band layout mismatch: #{byte_size(ab)} vs #{byte_size(bb)}"
+    end
+
+    count_structural(
+      format,
+      ab,
+      bb,
+      lob,
+      hib,
+      raw_threshold(value_tol, format),
+      raw_threshold(overshoot, format),
+      0
+    )
+  end
+
+  # A differing candidate sample (|a − b| > value_tol) is structural when it falls
+  # outside the reference neighborhood's [min − ε, max + ε]. Walks all four raw
+  # buffers (candidate, reference, reference local-min, reference local-max) in
+  # lockstep, per-format like the other scanners.
+  defp count_structural(_format, <<>>, <<>>, <<>>, <<>>, _vt, _eps, acc), do: acc
+
+  defp count_structural(
+         :VIPS_FORMAT_USHORT,
+         <<av::native-unsigned-16, ar::binary>>,
+         <<bv::native-unsigned-16, br::binary>>,
+         <<lo::native-unsigned-16, lr::binary>>,
+         <<hi::native-unsigned-16, hr::binary>>,
+         vt,
+         eps,
+         acc
+       ) do
+    acc = bump_structural(av, bv, lo, hi, vt, eps, acc)
+    count_structural(:VIPS_FORMAT_USHORT, ar, br, lr, hr, vt, eps, acc)
+  end
+
+  defp count_structural(
+         format,
+         <<av, ar::binary>>,
+         <<bv, br::binary>>,
+         <<lo, lr::binary>>,
+         <<hi, hr::binary>>,
+         vt,
+         eps,
+         acc
+       ) do
+    acc = bump_structural(av, bv, lo, hi, vt, eps, acc)
+    count_structural(format, ar, br, lr, hr, vt, eps, acc)
+  end
+
+  defp bump_structural(av, bv, lo, hi, vt, eps, acc) do
+    if abs(av - bv) > vt and (av < lo - eps or av > hi + eps), do: acc + 1, else: acc
+  end
+
   @doc """
   Single-pass triage summary for a live-vs-fixture comparison: dims, band layout,
   the maximum absolute sample delta, and a sample count over each threshold — all

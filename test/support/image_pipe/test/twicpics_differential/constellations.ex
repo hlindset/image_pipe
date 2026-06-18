@@ -83,17 +83,20 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       ),
       # --- cover-RATIO steered by focus (the documented ratio consumer, #321) ---
       c("focus_topleft_cover_ratio", "focus=top-left/cover=16:9", :focus),
-      # QUARANTINED — accepted behavioral divergence (#331), same root cause as
-      # `cover_ratio_tall`: the largest 2:3 area on the 400×400 source is 266.667-wide
-      # (fractional), so TwicPics sub-pixel-resamples it to the rounded integer output,
-      # antialiasing the cropped-axis cell edges; ImagePipe does a sharp integer crop.
-      # Placement matches to sub-pixel — see the `cover=W:H` "Diverges" note in the
-      # support matrix. Kept (not deleted) so the input stays exercised and the diff
-      # stays visible under `--include twicpics_triage`.
+      # MONITORED DIVERGENCE (#331), same root cause as `cover_ratio_tall`: the largest
+      # 2:3 area on the 400×400 source is 266.667-wide (fractional), so TwicPics
+      # sub-pixel-resamples it to the rounded integer output, antialiasing the
+      # cropped-axis cell edges; ImagePipe does a sharp integer crop. Placement matches
+      # to sub-pixel. Accepted and permanent — stays on the default lane inside a
+      # two-sided band (regresses if it grows toward a real shift, promotes if a libvips
+      # update makes it match). See the `cover=W:H` "Diverges" note in the support matrix.
       c("focus_bottomright_cover_ratio", "focus=bottom-right/cover=2:3", :focus,
-        triage: %{
+        verdict: :diverges,
+        divergence: %{
           reason:
-            "accepted behavioral divergence (~Δ43): bottom-right focus on the 2:3 cover-ratio crop. The largest matching area is fractional (266.667w), so TwicPics sub-pixel-resamples it to the integer output (cell-edge antialiasing); ImagePipe integer-crops. Placement matches to sub-pixel. Permanent — see the cover=W:H Diverges note in docs/twicpics_support_matrix.md.",
+            "Bottom-right focus on the 2:3 cover-ratio crop. The largest matching area is fractional (266.667w), so TwicPics sub-pixel-resamples it to the integer output (cell-edge antialiasing); ImagePipe integer-crops. Placement matches to sub-pixel. Permanent — see the cover=W:H Diverges note in docs/twicpics_support_matrix.md.",
+          max_delta: 24..96,
+          outliers: 2_700..4_400,
           issue: 331
         }
       ),
@@ -111,16 +114,19 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       # `cover=16:9` on the 400×400 source extracts a 400×225 area — an exact integer
       # crop, byte-identical to TwicPics, so it stays a live `:equal` case.
       c("cover_ratio_wide", "cover=16:9", :cover),
-      # QUARANTINED — accepted behavioral divergence (#331). The largest 2:3 area is
-      # 266.667-wide (fractional); TwicPics sub-pixel-resamples that float area to the
-      # rounded 267-wide output, antialiasing the vertical cell edges, where ImagePipe
-      # does a sharp integer crop. Placement matches to sub-pixel (only the boundary
-      # lines differ) — see the `cover=W:H` "Diverges" note in the support matrix. Kept
-      # quarantined (not deleted) so the input stays exercised and the diff stays visible.
+      # MONITORED DIVERGENCE (#331). The largest 2:3 area is 266.667-wide (fractional);
+      # TwicPics sub-pixel-resamples that float area to the rounded 267-wide output,
+      # antialiasing the vertical cell edges, where ImagePipe does a sharp integer crop.
+      # Placement matches to sub-pixel (only the boundary lines differ) — see the
+      # `cover=W:H` "Diverges" note in the support matrix. Accepted and permanent: stays
+      # on the default lane inside a two-sided band rather than excluded.
       c("cover_ratio_tall", "cover=2:3", :cover,
-        triage: %{
+        verdict: :diverges,
+        divergence: %{
           reason:
-            "accepted behavioral divergence (~Δ92, confined to the cell-boundary lines): the largest 2:3 area is fractional (266.667w), so TwicPics sub-pixel-resamples it to the integer output (cell-edge antialiasing); ImagePipe integer-crops. Placement matches to sub-pixel. Permanent — see the cover=W:H Diverges note in docs/twicpics_support_matrix.md.",
+            "Confined to the cell-boundary lines (~Δ92): the largest 2:3 area is fractional (266.667w), so TwicPics sub-pixel-resamples it to the integer output (cell-edge antialiasing); ImagePipe integer-crops. Placement matches to sub-pixel. Permanent — see the cover=W:H Diverges note in docs/twicpics_support_matrix.md.",
+          max_delta: 60..160,
+          outliers: 3_000..4_600,
           issue: 331
         }
       ),

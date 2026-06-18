@@ -24,6 +24,7 @@ defmodule ImagePipe.TwicpicsGenReportTest do
           failing?: false,
           hash_drift?: false,
           triage: nil,
+          divergence: nil,
           tol: nil,
           metric_text: "0 band-bytes over Δ2 (budget 64)",
           oracle_img: "data:image/png;base64,AAAA",
@@ -37,17 +38,23 @@ defmodule ImagePipe.TwicpicsGenReportTest do
         %{
           id: "cover_ratio_tall",
           group: :cover,
-          verdict: :equal,
+          verdict: :diverges,
           url: "/grid_4x4.png?twic=v1/cover=2:3/output=png",
           summary: "cover=2:3",
-          status: :over_budget,
+          status: :diverges,
+          # monitored divergence → noteworthy (flagged), in band → passes the lane
           flagged?: true,
-          # quarantined → noteworthy (flagged) but NOT a lane failure
           failing?: false,
           hash_drift?: false,
-          triage: %{reason: "centered 2:3 cover crop divergence", issue: 323},
+          triage: nil,
+          divergence: %{
+            reason: "fractional 2:3 area sub-pixel resampling",
+            max_delta: 60..160,
+            outliers: 3_000..4_600,
+            issue: 331
+          },
           tol: nil,
-          metric_text: "9001 band-bytes over Δ2 (budget 64)",
+          metric_text: "maxΔ 92 ∈ 60..160, 3869 over Δ2 ∈ 3000..4600 — within band",
           oracle_img: "data:image/png;base64,EEEE",
           pipe_img: "data:image/png;base64,FFFF",
           heat_banded: "data:image/png;base64,GGGG",
@@ -67,6 +74,7 @@ defmodule ImagePipe.TwicpicsGenReportTest do
           failing?: true,
           hash_drift?: false,
           triage: nil,
+          divergence: nil,
           tol: nil,
           metric_text: "dims 81×80 ≠ TwicPics 80×80",
           oracle_img: "data:image/png;base64,MMMM",
@@ -75,6 +83,29 @@ defmodule ImagePipe.TwicpicsGenReportTest do
           heat_raw: nil,
           heat_normalized: nil,
           pipe_dims: {81, 80},
+          fixture_dims: {80, 80}
+        },
+        %{
+          id: "quarantined_example",
+          group: :inside,
+          verdict: :equal,
+          url: "/grid_4x4.png?twic=v1/inside=80x80/output=png",
+          summary: "inside=80x80",
+          status: :over_budget,
+          flagged?: true,
+          # quarantined → noteworthy (flagged) but NOT a lane failure (excluded)
+          failing?: false,
+          hash_drift?: false,
+          triage: %{reason: "centered 2:3 cover crop divergence", issue: 323},
+          divergence: nil,
+          tol: nil,
+          metric_text: "9001 band-bytes over Δ2 (budget 64)",
+          oracle_img: "data:image/png;base64,QQQQ",
+          pipe_img: "data:image/png;base64,RRRR",
+          heat_banded: "data:image/png;base64,SSSS",
+          heat_raw: "data:image/png;base64,TTTT",
+          heat_normalized: "data:image/png;base64,UUUU",
+          pipe_dims: {80, 80},
           fixture_dims: {80, 80}
         }
       ]
@@ -113,9 +144,10 @@ defmodule ImagePipe.TwicpicsGenReportTest do
       html = ReportHtml.render(sample_doc())
       assert html =~ "2 cover"
       assert html =~ "1 crop"
-      # cover_ratio_tall (quarantined over-budget) + dims-mismatch are both flagged;
-      # only the non-quarantined dims-mismatch is a lane failure; only one is quarantined.
-      assert html =~ "2 flagged"
+      # cover_ratio_tall (monitored divergence), dims-mismatch, and quarantined_example
+      # are all flagged; only the dims-mismatch is a lane failure; only the triaged
+      # case is quarantined.
+      assert html =~ "3 flagged"
       assert html =~ "1 failing"
       assert html =~ "1 quarantined"
     end
@@ -160,6 +192,21 @@ defmodule ImagePipe.TwicpicsGenReportTest do
       refute html =~ "status-over_budget flagged failing"
     end
 
+    test "a monitored :diverges card carries the right status, badge, and band note" do
+      html = ReportHtml.render(sample_doc())
+      # status-diverges class (filterable), flagged but NOT failing/quarantined
+      assert html =~ "status-diverges flagged"
+      refute html =~ "status-diverges flagged failing"
+      # the monitored badge + the band note with a clickable issue link
+      assert html =~ ~s(<span class="badge monitored">monitored</span>)
+      assert html =~ "monitored divergence"
+      assert html =~ "60..160"
+      assert html =~ "3000..4600"
+      assert html =~ ~s(href="https://github.com/hlindset/image_pipe/issues/331")
+      # in-band → the metric reads as ok, not a failure
+      assert html =~ ~s(class="metric ok")
+    end
+
     test "slider panel is capped to the render width" do
       html = ReportHtml.render(sample_doc())
       assert html =~ ~s(class="panel slider" style="width:280px")
@@ -191,10 +238,12 @@ defmodule ImagePipe.TwicpicsGenReportTest do
     assert html =~ "band-bytes over Δ", "per-case metric text not rendered"
     assert html =~ "data:image/png;base64,", "no inlined PNG images in report"
 
-    # The quarantined divergences are exactly the ones worth eyeballing; the report
-    # must not drop them.
+    # The monitored `:diverges` divergences are exactly the ones worth eyeballing; the
+    # report must keep them, rendered under the monitored (status-diverges) state.
     for id <- ["cover_ratio_tall", "focus_bottomright_cover_ratio"] do
-      assert html =~ ~s(id="#{id}"), "quarantined case #{id} dropped from report"
+      assert html =~ ~s(id="#{id}"), "monitored divergence #{id} dropped from report"
     end
+
+    assert html =~ "status-diverges", "no card rendered under the monitored :diverges status"
   end
 end

@@ -175,6 +175,8 @@ defmodule ImagePipe.Test.Differential.ReportUI do
     .badge { font-size:11px; padding:2px 7px; border-radius:999px;
       background:var(--surface-control); color:var(--text-muted); }
     .badge.triage { background:color-mix(in srgb, var(--danger) 25%, transparent); color:var(--text-primary); }
+    /* a monitored, accepted divergence (verdict :diverges) — on the lane, in band */
+    .badge.monitored { background:color-mix(in srgb, var(--accent) 22%, transparent); color:var(--text-primary); }
     .summary { margin:8px 0 2px; }
     .url { margin:0 0 8px; color:var(--text-muted); font-size:12px; word-break:break-all; }
     .triage-note { font-size:12px; color:var(--text-primary); margin:6px 0; }

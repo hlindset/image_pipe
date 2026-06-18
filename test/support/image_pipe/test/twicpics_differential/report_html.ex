@@ -84,6 +84,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ReportHtml do
       <p class="summary">#{esc(c.summary)}</p>
       <p class="url"><code>#{esc(c.url)}</code></p>
       #{triage(c)}
+      #{divergence(c)}
       #{drift_banner(c)}
       <p class="metric #{metric_class(c)}">#{esc(c.metric_text)}</p>
       #{visuals(c)}
@@ -104,7 +105,10 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ReportHtml do
 
     triage = if c.triage, do: [~s(<span class="badge triage">quarantined</span>)], else: []
 
-    Enum.join(base ++ tol ++ triage, " ")
+    monitored =
+      if c.divergence, do: [~s(<span class="badge monitored">monitored</span>)], else: []
+
+    Enum.join(base ++ tol ++ triage ++ monitored, " ")
   end
 
   defp triage(%{triage: nil}), do: ""
@@ -116,13 +120,28 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ReportHtml do
     ~s(<p class="triage-note">⚠ quarantined: #{esc(reason)} — <a href="#{@issue_base}#{esc(n)}">##{esc(n)}</a></p>)
   end
 
+  defp divergence(%{divergence: nil}), do: ""
+
+  # A monitored, accepted divergence (`verdict: :diverges`): reason + band + issue
+  # link. Unlike `:triage` it stays on the default lane, asserted inside its band.
+  defp divergence(%{divergence: %{reason: reason, max_delta: md, outliers: ol} = div}) do
+    issue = div |> Map.get(:issue) |> to_string() |> String.trim_leading("#")
+
+    link =
+      if issue == "",
+        do: "",
+        else: ~s| — <a href="#{@issue_base}#{esc(issue)}">##{esc(issue)}</a>|
+
+    ~s|<p class="triage-note">↔ monitored divergence (maxΔ #{esc(inspect(md))}, outliers #{esc(inspect(ol))}): #{esc(reason)}#{link}</p>|
+  end
+
   defp drift_banner(%{hash_drift?: true}),
     do:
       ~s(<p class="banner drift">authored fields changed since generation — run <code>mix twicpics.reauthor</code> or regenerate.</p>)
 
   defp drift_banner(_), do: ""
 
-  defp metric_class(c), do: if(c.status == :pass, do: "ok", else: "bad")
+  defp metric_class(c), do: if(c.status in [:pass, :diverges], do: "ok", else: "bad")
 
   # Dims mismatch: the two renders side by side; no slider/heatmap (the mismatch is
   # the finding).

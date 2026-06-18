@@ -80,13 +80,7 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
     out = Harness.render_image(c)
     fixture = fixture_image(c, entry)
     assert_same_dims!(c, out, fixture)
-
-    tol = c.tol || Constellations.default_tol()
-    outliers = PixelCompare.outliers(out, fixture, tol.threshold)
-
-    assert outliers <= tol.budget,
-           "#{c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})" <>
-             libvips_drift_hint(manifest)
+    assert_verdict(c, out, fixture, manifest)
   end
 
   defp run_constellation(%{group: :lossy} = c, entry, _manifest) do
@@ -99,6 +93,36 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
     assert content_type == entry.content_type,
            "#{c.id}: content-type #{inspect(content_type)} != #{inspect(entry.content_type)}"
   end
+
+  # Dispatch on verdict: `:equal` asserts a per-band tolerance budget; `:diverges`
+  # asserts the live diff sits inside its expected two-sided band (a monitored,
+  # accepted divergence). imgproxy has no `:diverges` constellation yet — this is the
+  # shared mechanism, wired uniformly so it works the moment one needs it. `:triage`
+  # cases never reach here (they are `@tag`-excluded above).
+  defp assert_verdict(%{verdict: :diverges} = c, out, fixture, manifest) do
+    case PixelCompare.classify_divergence(out, fixture, c.divergence) do
+      :ok ->
+        :ok
+
+      {:error, bound, %{metric: metric, value: value, band: band}} ->
+        flunk(
+          "#{c.id}: :diverges #{metric}=#{value} is #{band_msg(bound)} band #{inspect(band)}" <>
+            libvips_drift_hint(manifest)
+        )
+    end
+  end
+
+  defp assert_verdict(c, out, fixture, manifest) do
+    tol = c.tol || Constellations.default_tol()
+    outliers = PixelCompare.outliers(out, fixture, tol.threshold)
+
+    assert outliers <= tol.budget,
+           "#{c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})" <>
+             libvips_drift_hint(manifest)
+  end
+
+  defp band_msg(:above_ceiling), do: "above its expected"
+  defp band_msg(:below_floor), do: "below its expected (consider promoting to :equal)"
 
   defp assert_same_dims!(c, out, fixture) do
     assert PixelCompare.same_dims?(out, fixture),

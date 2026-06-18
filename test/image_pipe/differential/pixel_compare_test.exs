@@ -138,6 +138,100 @@ defmodule ImagePipe.Differential.PixelCompareTest do
     end
   end
 
+  describe "structural_outliers/3" do
+    # A 1-band grayscale image from horizontally-joined solid column blocks, each
+    # `{width, value}`. Lets us author exact vertical-edge geometry for the
+    # neighborhood-range math.
+    defp columns(blocks, height) do
+      blocks
+      |> Enum.map(fn {w, v} -> img(w, height, [v]) end)
+      |> Enum.reduce(fn block, acc -> Operation.join!(acc, block, :VIPS_DIRECTION_HORIZONTAL) end)
+    end
+
+    test "identical images have no structural outliers" do
+      a = columns([{4, 50}, {4, 200}], 8)
+      assert PixelCompare.structural_outliers(a, a) == 0
+    end
+
+    test "a haloed (antialiased) edge is neighborhood-explainable → ~0" do
+      # reference: sharp vertical edge between col 3 and 4 (50 | 200)
+      ref = columns([{4, 50}, {4, 200}], 8)
+      # test image: the two boundary columns are a 125 blend of their neighbours —
+      # every differing sample lies inside [local_min, local_max] of the reference.
+      test = columns([{3, 50}, {2, 125}, {3, 200}], 8)
+
+      assert PixelCompare.structural_outliers(test, ref) == 0
+    end
+
+    test "a ≥2px hard shift produces out-of-range samples → non-zero" do
+      # reference edge between col 3 and 4; test edge shifted 3px right (between 6 and 7).
+      # The interior shifted columns (5, 6) are wholly the wrong colour: their reference
+      # neighborhood is uniformly 200, so a value of 50 falls outside it.
+      ref = columns([{4, 50}, {4, 200}], 8)
+      test = columns([{7, 50}, {1, 200}], 8)
+
+      assert PixelCompare.structural_outliers(test, ref) > 0
+    end
+
+    test "overshoot within ε is not structural; beyond ε is" do
+      ref = columns([{4, 50}, {4, 200}], 8)
+      # a single boundary column that overshoots the neighborhood max (200) by 6 levels
+      within = columns([{3, 50}, {1, 206}, {4, 200}], 8)
+      assert PixelCompare.structural_outliers(within, ref, overshoot: 8) == 0
+      # tighten ε below the overshoot → the same sample now reads as structural
+      assert PixelCompare.structural_outliers(within, ref, overshoot: 2) > 0
+    end
+  end
+
+  describe "classify_divergence/3" do
+    # out=[10,20,30] vs fixture=[30,40,50]: every band-sample differs by exactly 20,
+    # so max_delta == 20 and over[2] == 16*16*3 == 768.
+    defp diverging_pair, do: {img(16, 16, [10, 20, 30]), img(16, 16, [30, 40, 50])}
+
+    test ":ok when both metrics fall inside their bands" do
+      {out, fixture} = diverging_pair()
+
+      assert PixelCompare.classify_divergence(out, fixture, %{
+               reason: "test",
+               max_delta: 10..30,
+               outliers: 700..800
+             }) == :ok
+    end
+
+    test "max_delta below the floor → :below_floor (promote signal)" do
+      {out, fixture} = diverging_pair()
+
+      assert {:error, :below_floor, %{metric: :max_delta, value: 20, band: 50..100}} =
+               PixelCompare.classify_divergence(out, fixture, %{
+                 reason: "test",
+                 max_delta: 50..100,
+                 outliers: 700..800
+               })
+    end
+
+    test "max_delta above the ceiling → :above_ceiling (regression)" do
+      {out, fixture} = diverging_pair()
+
+      assert {:error, :above_ceiling, %{metric: :max_delta, value: 20, band: 0..10}} =
+               PixelCompare.classify_divergence(out, fixture, %{
+                 reason: "test",
+                 max_delta: 0..10,
+                 outliers: 700..800
+               })
+    end
+
+    test "outlier count out of band is reported with the outliers metric" do
+      {out, fixture} = diverging_pair()
+
+      assert {:error, :below_floor, %{metric: :outliers, value: 768, band: 1000..2000}} =
+               PixelCompare.classify_divergence(out, fixture, %{
+                 reason: "test",
+                 max_delta: 10..30,
+                 outliers: 1000..2000
+               })
+    end
+  end
+
   describe "diagnose/3" do
     test "identical images: comparable, zero max delta, empty histogram" do
       a = img(16, 16, [10, 20, 30])

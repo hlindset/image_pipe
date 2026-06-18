@@ -9,11 +9,11 @@ TwicPics is **libvips-based** — the same engine ImagePipe renders with — so 
 comparison is the right, stricter gate, not the foreign-engine mismatch the suite
 originally assumed. This was discovered empirically: of the 30 committed fixtures 20 are
 byte-identical to ImagePipe's libvips output, 8 show only low resampling skew (maxΔ=12,
-absorbed by per-case tolerance), and 2 are quarantined as an accepted behavioral
-divergence (the `cover=2:3` fractional-area resampling — see *Quarantine mechanism*
-below). The third originally-surfaced divergence (`crop=WxH@XxY` focus-carry) was a real
-ImagePipe bug, now fixed to match live TwicPics
-([#331](https://github.com/hlindset/image_pipe/issues/331)).
+absorbed by per-case tolerance), and 2 are a `:diverges` (monitored) accepted behavioral
+divergence kept on the default lane inside an expected band (the `cover=2:3`
+fractional-area resampling — see *Verdicts* below). The third originally-surfaced
+divergence (`crop=WxH@XxY` focus-carry) was a real ImagePipe bug, now fixed to match live
+TwicPics ([#331](https://github.com/hlindset/image_pipe/issues/331)).
 
 ## Bake (requires network)
 
@@ -156,15 +156,41 @@ mise exec -- mix twicpics.diagnose cover_wide contain_tall   # specific cases
 mise exec -- mix twicpics.diagnose                            # whole suite
 ```
 
-**Reading it — skew vs structural.** `maxΔ` is the deciding signal:
+**Reading it — skew vs structural.** Each comparable line ends with a
+`structural=N (r1) → …` field, the neighborhood-aware
+`PixelCompare.structural_outliers/3` count (radius 1): differing band-samples whose
+value is **not** explainable by the reference's local range, i.e. not a blend of its
+neighborhood. It makes the skew-vs-structural call quantitative rather than
+eyeballing `maxΔ`:
 
-- **Diffuse resampling skew** (a libvips-version difference, not a bug) keeps `maxΔ`
-  low — tens of levels — even when many samples exceed Δ2. Absorb it with a tolerance.
+- **Diffuse resampling/sub-pixel skew** (a libvips-version difference or fractional-area
+  phase, not a bug) keeps `maxΔ` low — tens of levels — and `structural` a small
+  minority of the Δ2 diff (the line reads `→ resampling/phase`). Absorb with a tolerance,
+  or — for an accepted permanent difference — a `:diverges` band (see *Verdicts*).
 - **A placement/crop/scale shift** misaligns high-contrast edges, pushing `maxΔ`
-  toward ~255. That is a real divergence — never widen a tol to hide it; quarantine
-  (`:triage` + a tracking issue) or fix.
+  toward ~255 and making `structural` the *majority* of the diff (`→ geometry shift`).
+  That is a real divergence — never widen a tol to hide it; fix it, or quarantine
+  (`:triage` + a tracking issue) while investigating.
 - **A band/dim mismatch** prints `FINDING` (not pixel-comparable) — itself a
   divergence.
+
+`structural_outliers` is a triage aid only — it is **not** asserted by the conformance
+test (it has tuning knobs: `radius`, `value_tol`, `overshoot`).
+
+### Verdicts
+
+- **`:equal`** (default) → assert ImagePipe matches TwicPics within the per-case `tol`
+  budget. On the lane.
+- **`:diverges`** → an *accepted, monitored* divergence: assert the live diff sits inside
+  an expected two-sided band (`divergence: %{reason, max_delta: lo..hi, outliers: lo..hi,
+  issue}`, evaluated by `PixelCompare.classify_divergence/3`). Stays **on the lane** — it
+  fails if the divergence *grows* (regression, above the ceiling) or *shrinks/vanishes*
+  (promote signal, below the floor → consider returning the case to `:equal`). Use it for
+  a real, understood, permanent difference (the `cover=2:3` fractional-area cases), not
+  one under active investigation. `:divergence` is an authored field, so editing a band
+  needs `mix twicpics.reauthor` (no re-bake — bands don't change pixels).
+- **`:triage`** → a divergence *under investigation*: `@tag :twicpics_triage`, **excluded**
+  from the default lane (see *Quarantine mechanism*).
 
 **Tolerance conventions** (`tol: %{threshold, budget}` on the constellation; default
 `Δ2 / budget 64`):
@@ -192,21 +218,23 @@ require a manifest reauthor. The bake still fetches oracle output for triaged ca
 (the parse gate skips them, but the bake runs them — only the conformance comparison
 is quarantined).
 
-**Current quarantined cases (2)** — both an accepted, permanent behavioral divergence
-(not "under investigation"), tracked under
+**Current quarantined cases (0).** The two `cover=2:3` fractional-area cases are no
+longer quarantined — they moved to `verdict: :diverges` (monitored on the lane, see
+*Verdicts* above), tracked under
 [#331](https://github.com/hlindset/image_pipe/issues/331):
 
 - `cover_ratio_tall` (`cover=2:3`) and `focus_bottomright_cover_ratio`
   (`focus=bottom-right/cover=2:3`) — the largest 2:3 area on the 400×400 source is
   266.667-wide (fractional). TwicPics sub-pixel-resamples that float area to the rounded
   267-wide output, antialiasing the cropped-axis cell edges; ImagePipe does a sharp
-  integer crop. Placement matches to sub-pixel — only the boundary lines differ — so
-  this is a resampling divergence, not a placement bug. It is **not** absorbed by
-  widening tolerance: the haloing spans whole boundary lines (~thousands of band-bytes
-  over Δ2), so a tolerance large enough to pass would also mask a real half-cell shift.
-  The integer-area direction (`cover=16:9` → `cover_ratio_wide`) stays a live `:equal`
-  case and is byte-identical. See the `cover=W:H` "Diverges" note in
-  `docs/twicpics_support_matrix.md`.
+  integer crop. Placement matches to sub-pixel — only the boundary lines differ
+  (`structural` ≈ a small minority of the diff) — so this is a resampling divergence,
+  not a placement bug. It is **not** absorbed by widening tolerance: the haloing spans
+  whole boundary lines (~thousands of band-bytes over Δ2), so a tolerance large enough to
+  pass would also mask a real half-cell shift — hence a two-sided `:diverges` band, which
+  rejects both a growing shift and a now-byte-identical match. The integer-area direction
+  (`cover=16:9` → `cover_ratio_wide`) stays a live `:equal` case and is byte-identical.
+  See the `cover=W:H` "Diverges" note in `docs/twicpics_support_matrix.md`.
 
 The third originally-quarantined case, `crop_region_reset`, was a real ImagePipe bug,
 not a sub-pixel skew: `crop=WxH@XxY` was **resetting** the carried focus to the
