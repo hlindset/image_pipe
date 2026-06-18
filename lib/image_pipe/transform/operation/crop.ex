@@ -90,9 +90,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
       center_origin: 2,
       image_height: 1,
       image_width: 1,
+      resolve_dimension: 3,
       round_half_away_from_zero: 1,
-      round_ties_to_even: 1,
-      to_pixels: 2
+      round_ties_to_even: 1
     ]
 
   alias ImagePipe.Telemetry
@@ -238,8 +238,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
          image_height
        ) do
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
-         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
+         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -275,8 +275,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     target_height = if params.height == :auto, do: image_height, else: params.height
 
     # make sure crop is within image bounds
-    crop_width = max(1, min(image_width, to_pixels(image_width, target_width)))
-    crop_height = max(1, min(image_height, to_pixels(image_height, target_height)))
+    crop_width = resolve_dimension(target_width, image_width, clamp?: true)
+    crop_height = resolve_dimension(target_height, image_height, clamp?: true)
 
     # figure out the crop anchor
     {center_x, center_y} =
@@ -294,8 +294,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_height = image_height(state)
 
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
-         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
+         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -350,8 +350,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_height = image_height(state)
 
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
-         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
+         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -573,31 +573,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp round_offset_to_even(offset), do: round_ties_to_even(offset)
 
   defp clamp_position(value, max_value), do: max(0, min(max_value, value))
-
-  defp crop_dimension(:auto, bounds), do: {:ok, bounds}
-
-  defp crop_dimension(value, bounds) when is_integer(value) and value > 0,
-    do: {:ok, min(value, bounds)}
-
-  defp crop_dimension(value, bounds) when is_float(value) and value > 0,
-    do: {:ok, min(round_half_away_from_zero(value), bounds)}
-
-  defp crop_dimension({:pixels, value}, bounds), do: crop_dimension(value, bounds)
-
-  defp crop_dimension({:scale, numerator, denominator}, bounds)
-       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0 do
-    {:ok, min(round_half_away_from_zero(bounds * numerator / denominator), bounds)}
-  end
-
-  defp crop_dimension({:scale, value}, bounds) when is_number(value) and value > 0 do
-    {:ok, min(round_half_away_from_zero(bounds * value), bounds)}
-  end
-
-  defp crop_dimension({:percent, value}, bounds) when is_number(value) and value > 0 do
-    {:ok, min(round_half_away_from_zero(bounds * value / 100), bounds)}
-  end
-
-  defp crop_dimension(value, _bounds), do: {:error, {:invalid_crop_dimension, value}}
 
   defp crop_offset(value, _bounds, _offset_scale) when is_number(value), do: {:ok, value}
 

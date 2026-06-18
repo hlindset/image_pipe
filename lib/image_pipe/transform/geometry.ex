@@ -66,6 +66,8 @@ defmodule ImagePipe.Transform.Geometry do
           opts
         )
 
+  def resolve_dimension(:auto, reference, _opts), do: reference
+
   def resolve_dimension(n, reference, opts) when is_integer(n) and n > 0,
     do: apply_dimension_clamp(n, reference, opts)
 
