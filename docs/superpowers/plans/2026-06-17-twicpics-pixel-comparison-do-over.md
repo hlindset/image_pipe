@@ -37,7 +37,7 @@ Re-shape the TwicPics differential suite to be "the imgproxy suite with a live-A
 
 ## Tasks
 
-- [ ] **0. Zone-plate confirmation (belt-and-suspenders, network).** Generate a high-frequency source (zone plate / noise), upload to catbox, add to `SourceInventory` (with `source_bytes_url`), bake one scale op, pixel-compare vs ImagePipe. Expect maxΔ tiny → confirms libvips on high-freq content (the flat grid only proved it at edges). If it diverges materially, STOP and reassess (keep cell-map). [Optional but recommended before deleting StructureCompare.]
+- [x] **0. Zone-plate confirmation (belt-and-suspenders, network).** DONE 2026-06-18. Generated a 400×400 RGB radial-sine zone plate (highest-frequency resampling stress), uploaded to catbox, baked `resize=137/output=png` (0.3425× non-integer downscale) live, pixel-compared vs ImagePipe: **maxΔ=0, byte-identical** (over Δ2/16/32/64 all 0). Confirms libvips on high-frequency interior content, not just the flat grid's edges. Premise airtight → proceed with the do-over and delete StructureCompare.
 - [ ] **1. Lift `PixelCompare` → `Differential.PixelCompare`** (shared, `deps: []`), refactor imgproxy suite to use it; imgproxy conformance (162) + `:imgproxy_report` smoke stay green.
 - [ ] **2. Reshape TwicPics `Manifest`** to imgproxy-style entry shape + `validate_entry!`; provenance fields (`twicpics_version`, `pipe_libvips_at_gen`). Keep `oracle_signature`/`fresh?`/serialization.
 - [ ] **3. Migrate the committed manifest** to the new shape from the existing PNGs (no network): a one-time `reauthor`-style pass that records `fixture_sha256` + authored tols per the calibration table. (The 30 PNGs are reused.)
