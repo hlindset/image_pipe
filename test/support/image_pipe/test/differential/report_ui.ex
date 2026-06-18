@@ -55,13 +55,26 @@ defmodule ImagePipe.Test.Differential.ReportUI do
 
     ReportShell.page(%{
       title: title,
-      css: css(),
+      css: css() <> "\n" <> type_axis_css(type_axis),
       script: script(),
       header: header(title, provenance_html, counts_html, type_axis),
       cards: Enum.join(cards, "\n"),
       head_extras: head_extras,
       body_attrs: ~s| data-heat="banded"|
     })
+  end
+
+  # Per-axis card-hide rules for the suite-supplied type/group filter. Generated from
+  # the axis vocab (not hardcoded) so any suite filters correctly — imgproxy's
+  # transform/known_divergence/lossy and TwicPics' focus/cover/contain/inside/crop
+  # alike. A card is hidden when the active `data-type` doesn't match its `group-<set>`
+  # class; the "all" button has no rule (it hides nothing).
+  defp type_axis_css(%{buttons: buttons}) do
+    buttons
+    |> Enum.reject(&(&1.set == "all"))
+    |> Enum.map_join("\n", fn %{set: set} ->
+      ~s|body[data-type="#{set}"] .card:not(.group-#{set}) { display:none; }|
+    end)
   end
 
   defp header(title, provenance_html, counts_html, type_axis) do
@@ -197,13 +210,11 @@ defmodule ImagePipe.Test.Differential.ReportUI do
     body[data-heat="raw"] .heat-banded, body[data-heat="raw"] .heat-normalized { display:none; }
     body[data-heat="normalized"] .heat-banded, body[data-heat="normalized"] .heat-raw { display:none; }
     /* status and type are independent axes — a card hidden by either stays hidden,
-       so the two filters intersect (e.g. status=failing + type=transform) */
+       so the two filters intersect (e.g. status=failing + type=transform). The
+       per-type hide rules are appended by `type_axis_css/1` from the suite's vocab. */
     body[data-status="flagged"] .card:not(.flagged) { display:none; }
     body[data-status="failing"] .card:not(.failing) { display:none; }
     body[data-status="quarantined"] .card:not(.quarantined) { display:none; }
-    body[data-type="transform"] .card:not(.group-transform) { display:none; }
-    body[data-type="known_divergence"] .card:not(.group-known_divergence) { display:none; }
-    body[data-type="lossy"] .card:not(.group-lossy) { display:none; }
     """
   end
 

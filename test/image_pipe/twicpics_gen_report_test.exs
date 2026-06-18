@@ -144,6 +144,11 @@ defmodule ImagePipe.TwicpicsGenReportTest do
       assert html =~ ~s(data-group="cover")
       assert html =~ ~s(data-status="all")
       assert html =~ ~s(data-type="all")
+      # the group filter must actually HIDE non-matching cards: the suite's vocab
+      # gets a matching CSS hide rule (not just a button + live count). Guards the
+      # ReportUI type-axis-css generation against regressing to imgproxy-only vocab.
+      assert html =~ ~s/body[data-type="focus"] .card:not(.group-focus) { display:none; }/
+      assert html =~ ~s/body[data-type="crop"] .card:not(.group-crop) { display:none; }/
     end
 
     test "status classes distinguish failing, flagged, and quarantined" do

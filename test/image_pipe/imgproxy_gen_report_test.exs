@@ -240,6 +240,9 @@ defmodule ImagePipe.ImgproxyGenReportTest do
       # the body carries both independent axes, defaulting to all/all
       assert html =~ ~s(data-status="all")
       assert html =~ ~s(data-type="all")
+      # the type filter actually hides non-matching cards (CSS rule, generated from
+      # the axis vocab — not just a button + live count)
+      assert html =~ ~s/body[data-type="transform"] .card:not(.group-transform) { display:none; }/
     end
 
     test "status classes distinguish failing, flagged, and quarantined" do
