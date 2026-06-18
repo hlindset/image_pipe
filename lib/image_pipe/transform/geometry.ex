@@ -10,7 +10,6 @@ defmodule ImagePipe.Transform.Geometry do
   @type length_unit() ::
           scalar()
           | {:pixels, scalar()}
-          | {:percent, scalar()}
           | {:scale, scalar()}
           | {:scale, scalar(), scalar()}
           | {:ratio, integer(), pos_integer()}
