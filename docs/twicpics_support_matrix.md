@@ -175,19 +175,21 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 ## Differential conformance
 
 `test/image_pipe/twicpics_differential_conformance_test.exs` verifies ImagePipe's
-geometry/placement against committed structural records baked from the live hosted
+geometry/placement against committed reference output baked from the live hosted
 TwicPics Image API (`mise run twic:bake`). It is the **behavioral/placement**
 enforcement of this matrix.
 
-The suite asserts decoded output dims, band count, and a decoded colour-grid cell-map
-— not pixels. The colour-grid source encodes content identity, so sampling the output
-at a fixed cell-centre lattice and decoding each sample to its nearest cell yields a
-placement fingerprint that survives TwicPics' non-libvips engine. This runs on the
-default `mix test` lane without network access.
+The suite decodes both TwicPics' committed output and ImagePipe's live output and
+**compares pixels** (`PixelCompare.outliers ≤ tol.budget`), because **TwicPics is
+libvips-based** — the same engine ImagePipe renders with — so per-pixel comparison is
+the right, stricter gate. This runs on the default `mix test` lane without network
+access.
 
-- **`:equal`** cases assert that ImagePipe's cell-map matches the oracle's.
+- **`:equal`** cases assert that ImagePipe matches TwicPics within the per-case
+  tolerance budget (minor cross-version resampling skew absorbed).
 - Quarantined cases (`@tag :twicpics_triage`) are excluded by default; they record
-  known divergences or lattice-boundary artifacts under investigation.
+  known placement divergences under investigation (3, all under
+  [#323](https://github.com/hlindset/image_pipe/issues/323)).
 
 Any placement divergence surfaced by the suite and deliberately modelled as a
 permanent difference should be documented here with a "Diverges" note in the relevant

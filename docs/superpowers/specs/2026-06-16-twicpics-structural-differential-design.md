@@ -4,6 +4,18 @@
 **Date:** 2026-06-16
 **Status:** approved (pre-implementation)
 
+> **⚠️ SUPERSEDED.** This design's central premise — that "TwicPics is a different
+> rendering engine" and so the suite must assert a colour-grid cell-map instead of
+> pixels — was empirically disproven: TwicPics renders with **libvips** (19/30 baked
+> fixtures are byte-identical to ImagePipe's libvips output, including a non-integer
+> zone-plate downscale). The suite was reworked to direct pixel comparison
+> (`PixelCompare.outliers ≤ tol.budget` with per-case tolerances), which is the
+> stricter, correct gate. See the do-over plan
+> `docs/superpowers/plans/2026-06-17-twicpics-pixel-comparison-do-over.md` and the
+> suite README (`test/support/image_pipe/test/twicpics_differential/README.md`) for
+> the current model. The cell-map description below is retained only as a historical
+> planning artifact.
+
 ## Motivation
 
 Add a TwicPics conformance suite that uses the **hosted TwicPics Image API as a

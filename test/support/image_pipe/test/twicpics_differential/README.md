@@ -1,18 +1,16 @@
-# TwicPics structural differential conformance — fixtures
+# TwicPics differential conformance — fixtures
 
 Reference fixtures generated from the live hosted TwicPics Image API. The
 comparison test (`test/image_pipe/twicpics_differential_conformance_test.exs`) reads
-them on the default `mix test` lane — no network in the hot path.
+them on the default `mix test` lane — no network in the hot path. It decodes both
+TwicPics' committed output and ImagePipe's live output and compares pixels.
 
-Unlike the imgproxy suite, this suite does **not** compare pixels: TwicPics is a
-non-libvips engine, so per-pixel equality is not a meaningful target. Instead it
-asserts **geometry/placement structure**: decoded output dims, band count, and a
-decoded colour-grid cell-map. The colour-grid source encodes content identity — each
-cell `(col, row)` is a distinct colour — so sampling the output at a fixed
-cell-centre lattice and decoding each sample to its nearest cell yields a placement
-fingerprint that survives the foreign engine's resampling. Generous colour tolerance
-lives only inside the per-sample decode step (`StructureCompare`); the gate itself is
-structural, not pixel.
+TwicPics is **libvips-based** — the same engine ImagePipe renders with — so per-pixel
+comparison is the right, stricter gate, not the foreign-engine mismatch the suite
+originally assumed. This was discovered empirically: of 30 committed fixtures 19 are
+byte-identical to ImagePipe's libvips output (including a high-frequency zone-plate
+non-integer downscale), 8 show only low resampling skew (maxΔ=12), and 3 diverge on
+port-level placement bugs. The remaining skew is absorbed by per-case tolerance.
 
 ## Bake (requires network)
 
@@ -53,15 +51,19 @@ TwicPics default DPR is already 1x — verified byte-identical output with and w
 would break the shared render path with no determinism gain. No path-default
 manipulation.
 
-## No libvips provenance
+## libvips provenance — record both, compare anyway
 
-The cell-map gate is resampler-independent: it decodes colours, not comparing raw
-pixels, so the oracle engine's resampler and ImagePipe's libvips version are
-irrelevant to the gate. There is no libvips version note in the manifest.
+TwicPics renders with libvips. Its responses carry a `Server: TwicPics/1.8.2` header,
+recorded as `twicpics_version` in `manifest.exs`. Fixtures are baked by TwicPics'
+libvips; ImagePipe runs its own (`Vix.Vips.version()`, recorded as
+`pipe_libvips_at_gen` at bake time). The two are independent libvips builds, so a
+pixel diff can be a kernel-version skew rather than an ImagePipe regression.
 
-The visual-diff report (`mix twicpics.gen_report`) shows per-case pixel heatmaps
-where dims + bands match, but these are **informational only, never a gate** — engine
-differences in resampling are expected and fine.
+The conformance test therefore makes no version-match claim: it always runs the pixel
+comparison and emits a `libvips_drift_hint` when the runtime libvips differs from the
+recorded `pipe_libvips_at_gen`, so a failure can be read as version skew vs a real
+divergence — read the hint when triaging. The `:equal` tolerances absorb minor
+resampling skew between libvips versions.
 
 ## Source inventory (keep it in sync)
 
@@ -115,9 +117,10 @@ deleted — run it after removing a case to clean up.
 
 ## Visual-diff report (no network)
 
-Generate a self-contained `report.html` for eyeball triage — oracle vs ImagePipe
-side by side, the decoded cell-maps for both, and informational heatmaps where dims
-match:
+Generate a self-contained `report.html` for eyeball triage — TwicPics vs ImagePipe
+side by side, a comparison slider, and three diff heatmaps (banded over the case
+threshold, raw amplified, and normalized), with the live-recomputed
+metric/verdict/triage per case:
 
 ```shell
 mise exec -- mix twicpics.gen_report             # writes report.html here
@@ -125,33 +128,46 @@ mise exec -- mix twicpics.gen_report --out /tmp/r.html
 ```
 
 It renders ImagePipe live and reads the committed fixtures — no network, no fixture or
-manifest changes. The default `report.html` is gitignored. Triaged/quarantined cases
-are included in the report (they are the ones most worth eyeballing).
+manifest changes. The default `report.html` is gitignored (it inlines ImagePipe PNGs
+as base64; regenerate on demand). Cases needing attention sort to the top
+(attention-sort, flagged first) and a top-of-page counts line summarizes them; status
+and group filter axes narrow the view. Triaged/quarantined cases are included in the
+report (they are the ones most worth eyeballing).
+
+The end-to-end smoke test that renders the report across every constellation is tagged
+`:twicpics_report` and excluded by default in `test/test_helper.exs` (it bakes every
+constellation + inlines PNGs — slow, and not unit coverage). The
+`mix twicpics.gen_report` task above is unaffected; to run the test itself:
+`mise exec -- mix test test/image_pipe/twicpics_gen_report_test.exs --include twicpics_report`.
 
 ## Triage a bake (no network)
 
-When a case fails the conformance lane, `mix twicpics.diagnose` prints a one-line
-structural summary per constellation — output dims, band count, and a PASS/MISMATCH
-verdict — by rendering ImagePipe live against the committed structural record:
+When a freshly baked case fails the conformance lane, `mix twicpics.diagnose` prints a
+one-line summary per constellation — output dims, band layout, the maximum per-sample
+delta (`maxΔ`), a `>Δ2`/`>Δ16`/`>Δ32` histogram, and PASS/over-budget against the
+authored tol — by rendering ImagePipe live against the committed fixture (the same
+`Harness` the conformance test uses). It includes triaged cases.
 
 ```shell
 mise exec -- mix twicpics.diagnose cover_wide contain_tall   # specific cases
-mise exec -- mix twicpics.diagnose                            # whole suite (non-triaged)
+mise exec -- mix twicpics.diagnose                            # whole suite
 ```
 
-**Reading it — skew vs structural.** A `:ambiguous` sample (the nearest cell is
-beyond the tolerance distance) or a `low_confidence_samples` warning at bake time is
-a decode-confidence issue — consider widening the `color_dist` tolerance on the
-constellation, or investigate whether a lattice-boundary artifact is causing the
-margin guard to flag it. A **shifted cell** (the decoded cell index is wrong, not just
-ambiguous) is a genuine placement divergence; never widen tolerance to hide it.
+**Reading it — skew vs structural.** `maxΔ` is the deciding signal:
 
-**Tolerance** (`tol: %{color_dist, alpha}` on the constellation; defaults are in
-`StructureCompare.default_tol/0`):
+- **Diffuse resampling skew** (a libvips-version difference, not a bug) keeps `maxΔ`
+  low — tens of levels — even when many samples exceed Δ2. Absorb it with a tolerance.
+- **A placement/crop/scale shift** misaligns high-contrast edges, pushing `maxΔ`
+  toward ~255. That is a real divergence — never widen a tol to hide it; quarantine
+  (`:triage` + a tracking issue) or fix.
+- **A band/dim mismatch** prints `FINDING` (not pixel-comparable) — itself a
+  divergence.
 
-- `color_dist` is the maximum squared RGB distance for a confident nearest-cell match
-  (sum of per-channel squared diffs, 0..3x255²). Beyond it a sample is `:ambiguous`.
-- `alpha` is the maximum alpha value (0..255) counted as transparent padding.
+**Tolerance conventions** (`tol: %{threshold, budget}` on the constellation; default
+`Δ2 / budget 64`):
+
+- The 8 focus-cover skew cases use `Δ16 / 64` — threshold just above the measured
+  maxΔ=12, with a tight budget so a structural shift still blows it.
 
 After changing only a `tol`, refresh the authored hashes with `mix twicpics.reauthor`
 (no network) rather than re-baking.
@@ -173,16 +189,18 @@ require a manifest reauthor. The bake still fetches oracle output for triaged ca
 (the parse gate skips them, but the bake runs them — only the conformance comparison
 is quarantined).
 
-**Current quarantined cases (2)**, both tracked under
+**Current quarantined cases (3)**, all pixel divergences tracked under
 [#323](https://github.com/hlindset/image_pipe/issues/323):
 
-- `cover_ratio_tall` — lattice-boundary artifact: a centered 2:3 crop on the square
-  source lands the cell-centre samples on a cell-column boundary; a <=1px
-  crop-centering rounding difference flips the decoded cell, and the low-confidence
-  margin guard flags it. Not a placement bug.
-- `crop_region_reset` — genuine placement divergence: `crop@coords` focus-reset +
-  trailing guided `crop=80x80` positions the window approximately half a cell toward
-  `(3,3)` vs TwicPics' `(2,2)`. The reset itself works; exact positioning differs.
+- `focus_bottomright_cover_ratio` — placement divergence (~Δ43): bottom-right gravity
+  on the 2:3 cover-ratio crop positions the window off TwicPics; the cover-ratio
+  gravity math needs investigation. This was a **new** quarantine surfaced by pixel
+  comparison — the prior structural gate missed it.
+- `cover_ratio_tall` — pixel divergence (~Δ92): the centered 2:3 cover crop differs by
+  more than resampling skew (crop-centering offset math).
+- `crop_region_reset` — pixel divergence (~Δ85): `crop@coords` focus-reset + trailing
+  guided `crop=80x80` positions the window approximately half a cell off TwicPics. The
+  reset itself works; exact positioning differs.
 
 ## Reauthor does not prune
 
@@ -194,9 +212,19 @@ manifest entry and PNG.
 (`reauthor` raises with a clear message if an entry has no matching constellation, so
 you cannot silently accumulate orphaned entries.)
 
+## Source discrimination (caveats)
+
+The flat colour-grid source has high discriminating power for *placement* but low for
+*resampling*: only the cell edges carry signal, so a sub-cell resampling difference is
+nearly invisible. A few small crops land entirely inside a single uniform cell
+(`contrast=0` in diagnose) — they pin output colour + dims but cannot catch a sub-cell
+placement error. TwicPics *default* processing has so far only been characterized on
+PNG downscales and crops; upscale, non-PNG output, and quality/chroma divergences are
+unexplored and out of scope for this suite.
+
 ## Negative-focus rejection is out of scope
 
 TwicPics 404s on negative-coordinate focus (`focus=-1x-1`); ImagePipe 400s. There is
-no grid to decode from either response, so this contract cannot be exercised by the
-structural suite. It is covered by the TwicPics parser unit/wire tests
+no usable output to decode from either response, so this contract cannot be exercised
+by the differential suite. It is covered by the TwicPics parser unit/wire tests
 (`test/image_pipe/twic_pics_wire_conformance_test.exs`).
