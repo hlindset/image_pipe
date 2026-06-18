@@ -11,8 +11,6 @@ defmodule ImagePipe.Test.TwicpicsDifferential.SourceInventory do
   """
   use Boundary, top_level?: true, deps: []
 
-  @grid_4x4 %{cols: 4, rows: 4}
-
   @entries [
     %{
       file: "grid_4x4.png",
@@ -25,19 +23,15 @@ defmodule ImagePipe.Test.TwicpicsDifferential.SourceInventory do
       format: :VIPS_FORMAT_UCHAR,
       interpretation: :VIPS_INTERPRETATION_sRGB,
       profile?: false,
-      grid: @grid_4x4,
       produced_by:
         "Colour grid from the #321 focus probe (tools/make_grid.exs), uploaded to catbox.",
       consumers: [:twicpics_differential],
       invariant:
-        "4×4 cells of 100px; cell (col,row) = [chan(col,4),chan(row,4),255]. Decoding any " <>
-          "output sample back to its cell is the placement gate. Opaque cells; alpha marks inside-letterbox padding."
+        "400×400 RGBA, 4×4 grid of 100px cells; cell (col,row) = [chan(col,4),chan(row,4),255]. " <>
+          "Opaque cells; alpha marks inside-letterbox padding."
     }
   ]
 
   @doc "All inventory entries."
   def all, do: @entries
-
-  @doc "The grid spec (%{cols, rows}) for a source file."
-  def grid(file), do: Enum.find(@entries, &(&1.file == file)).grid
 end

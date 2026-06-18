@@ -86,7 +86,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("focus_bottomright_cover_ratio", "focus=bottom-right/cover=2:3", :focus,
         triage: %{
           reason:
-            "placement divergence: bottom-right gravity on the 2:3 cover-ratio crop positions the window ~Δ43 off TwicPics (cell-map missed this; pixel comparison surfaces it). Cover-ratio gravity math needs investigation.",
+            "placement divergence (~Δ43): bottom-right gravity on the 2:3 cover-ratio crop positions the window off TwicPics. Cover-ratio gravity math needs investigation.",
           issue: 323
         }
       ),
@@ -107,7 +107,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("cover_ratio_tall", "cover=2:3", :cover,
         triage: %{
           reason:
-            "pixel divergence (~Δ92): centered 2:3 cover crop differs from TwicPics by more than resampling skew — crop-centering offset math. Was a lattice-boundary note under the cell-map; under pixel comparison it is a real placement divergence.",
+            "pixel divergence (~Δ92): centered 2:3 cover crop differs from TwicPics by more than resampling skew — crop-centering offset math.",
           issue: 323
         }
       ),
