@@ -219,7 +219,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # When no shrink fired both are already nil and this is a no-op.
   defp execute_operation(%CropRegion{} = operation, %State{} = state, ctx, opts) do
     with {:ok, %State{} = state} <- do_execute_crop(operation, state, ctx, opts) do
-      {:ok, state |> clear_source_frame() |> reset_focus_center()}
+      {:ok, clear_source_frame(state)}
     end
   end
 
@@ -350,18 +350,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp clear_source_frame(%State{} = state),
     do: %State{state | source_dimensions: nil, decode_shrink: nil}
-
-  # crop=…@XxY is a focus reset (TwicPics): it ignores the prior focus and resets
-  # to the crop-result centre (fraction 1/2 per axis), recovering from any prior
-  # state. Only resets when a focus is carried; a plain region crop stays nil.
-  defp reset_focus_center(%State{focus: nil} = state), do: state
-
-  defp reset_focus_center(%State{image: image} = state) do
-    %State{
-      state
-      | focus: {{:ratio, VipsImage.width(image), 2}, {:ratio, VipsImage.height(image), 2}}
-    }
-  end
 
   # Region crop runs literally on oriented pixels: flush pending first. The flush
   # rotates the still-shrunk image into the display frame, so the region coords —

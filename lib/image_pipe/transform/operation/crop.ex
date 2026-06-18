@@ -222,14 +222,13 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
-  # A gravity crop is a geometry transformer for a carried focus: the focus
-  # translates by the realized (clamped) crop origin into the cropped frame. A
-  # coordinate crop (crop_from: %{…}) does not translate — it resets the focus at
-  # the PlanExecutor boundary instead.
-  defp carry_focus_through_crop(%State{} = state, %__MODULE__{crop_from: :gravity}, left, top),
+  # Every crop is a geometry transformer for a carried focus: the focus translates
+  # by the realized (clamped) crop origin into the cropped frame. This holds for
+  # both gravity crops and coordinate crops (`crop=WxH@XxY`) — live TwicPics carries
+  # the focus through a region crop (translated + clamped, the same as any other
+  # geometry op), it does NOT reset it to the crop-result centre.
+  defp carry_focus_through_crop(%State{} = state, %__MODULE__{}, left, top),
     do: Focus.translate(state, -left, -top)
-
-  defp carry_focus_through_crop(%State{} = state, %__MODULE__{}, _left, _top), do: state
 
   defp crop_coordinates(
          %__MODULE__{crop_from: :gravity} = params,

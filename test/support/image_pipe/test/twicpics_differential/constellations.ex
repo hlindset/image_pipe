@@ -83,11 +83,18 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       ),
       # --- cover-RATIO steered by focus (the documented ratio consumer, #321) ---
       c("focus_topleft_cover_ratio", "focus=top-left/cover=16:9", :focus),
+      # QUARANTINED — accepted behavioral divergence (#331), same root cause as
+      # `cover_ratio_tall`: the largest 2:3 area on the 400×400 source is 266.667-wide
+      # (fractional), so TwicPics sub-pixel-resamples it to the rounded integer output,
+      # antialiasing the cropped-axis cell edges; ImagePipe does a sharp integer crop.
+      # Placement matches to sub-pixel — see the `cover=W:H` "Diverges" note in the
+      # support matrix. Kept (not deleted) so the input stays exercised and the diff
+      # stays visible under `--include twicpics_triage`.
       c("focus_bottomright_cover_ratio", "focus=bottom-right/cover=2:3", :focus,
         triage: %{
           reason:
-            "placement divergence (~Δ43): bottom-right gravity on the 2:3 cover-ratio crop positions the window off TwicPics. Cover-ratio gravity math needs investigation.",
-          issue: 323
+            "accepted behavioral divergence (~Δ43): bottom-right focus on the 2:3 cover-ratio crop. The largest matching area is fractional (266.667w), so TwicPics sub-pixel-resamples it to the integer output (cell-edge antialiasing); ImagePipe integer-crops. Placement matches to sub-pixel. Permanent — see the cover=W:H Diverges note in docs/twicpics_support_matrix.md.",
+          issue: 331
         }
       ),
       # --- focus carry-through: identical focus, resize before vs after → different cell ---
@@ -101,14 +108,20 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("cover_wide", "cover=300x100", :cover),
       c("cover_tall", "cover=100x300", :cover),
       c("cover_square_dimspin", "cover=200x200", :cover),
+      # `cover=16:9` on the 400×400 source extracts a 400×225 area — an exact integer
+      # crop, byte-identical to TwicPics, so it stays a live `:equal` case.
       c("cover_ratio_wide", "cover=16:9", :cover),
-      # QUARANTINED (#323): pixel divergence on the centered 2:3 cover crop. The other
-      # ratio direction (cover_ratio_wide) is pixel-identical and stays live.
+      # QUARANTINED — accepted behavioral divergence (#331). The largest 2:3 area is
+      # 266.667-wide (fractional); TwicPics sub-pixel-resamples that float area to the
+      # rounded 267-wide output, antialiasing the vertical cell edges, where ImagePipe
+      # does a sharp integer crop. Placement matches to sub-pixel (only the boundary
+      # lines differ) — see the `cover=W:H` "Diverges" note in the support matrix. Kept
+      # quarantined (not deleted) so the input stays exercised and the diff stays visible.
       c("cover_ratio_tall", "cover=2:3", :cover,
         triage: %{
           reason:
-            "pixel divergence (~Δ92): centered 2:3 cover crop differs from TwicPics by more than resampling skew — crop-centering offset math.",
-          issue: 323
+            "accepted behavioral divergence (~Δ92, confined to the cell-boundary lines): the largest 2:3 area is fractional (266.667w), so TwicPics sub-pixel-resamples it to the integer output (cell-edge antialiasing); ImagePipe integer-crops. Placement matches to sub-pixel. Permanent — see the cover=W:H Diverges note in docs/twicpics_support_matrix.md.",
+          issue: 331
         }
       ),
       # --- contain: fits inside box, may be smaller, no pad (wide/tall discriminate) ---
@@ -120,26 +133,18 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       # asymmetric boxes letterbox and are worth baking. ---
       c("inside_wide_lr", "inside=300x100", :inside),
       c("inside_tall_tb", "inside=100x300", :inside),
-      # --- crop: guided (focus) vs region@coords (resets focus to crop centre) ---
+      # --- crop: guided (focus) vs region@coords ---
       c("crop_guided_focus_tl", "focus=top-left/crop=120x120", :crop),
       c("crop_region_origin", "crop=160x160@40x40", :crop),
-      # region@coords RESETS focus to the crop centre (source ~(280,280)), so the
-      # trailing guided crop reads near that point despite the earlier focus=0x0.
-      # QUARANTINED (#323): genuine placement divergence. The reset itself works in
-      # ImagePipe (the final crop lands near (2,2), not the prior focus=0x0), but
-      # ImagePipe's trailing guided crop=80x80 window sits ~half a cell further toward
-      # (3,3) than TwicPics. The exact crop@coords-reset → guided-crop positioning
-      # diverges; needs investigation (separate from #323's suite-build scope).
-      c("crop_region_reset", "focus=0x0/crop=160x160@200x200/crop=80x80", :crop,
-        triage: %{
-          reason:
-            "pixel divergence (~Δ85): crop@coords focus-reset + trailing guided crop=80x80 positions ~half a cell toward (3,3) vs TwicPics' (2,2). Reset works; exact positioning differs.",
-          issue: 323
-        }
-      ),
-      # …and this contrast case (same focus=0x0, guided crop, no region reset) must
-      # read cell (0,0) — the pair makes the reset observable, not coincidental.
-      c("crop_guided_no_reset_contrast", "focus=0x0/crop=80x80", :crop)
+      # `crop=WxH@XxY` does NOT reset the focus to the crop centre (the official docs
+      # say it does; live TwicPics disagrees — #331). The focus is CARRIED through the
+      # region crop, translated + clamped into the new frame like every other geometry
+      # op, so the trailing guided `crop=80x80` reads the carried point. This pair makes
+      # the carry observable: identical region crop (`crop=200x200@150x150`, source
+      # [150,350]), different pre-region focus → the trailing window lands on a different
+      # cell boundary. A focus-reset (the prior model) would center both identically.
+      c("crop_region_carry_far", "focus=300x300/crop=200x200@150x150/crop=80x80", :crop),
+      c("crop_region_carry_near", "focus=150x150/crop=200x200@150x150/crop=80x80", :crop)
     ]
   end
 

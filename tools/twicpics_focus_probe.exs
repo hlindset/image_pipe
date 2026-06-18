@@ -104,11 +104,19 @@ defmodule TwicFocusProbe do
     # CONFIRMED: a negative coordinate is REJECTED (HTTP 404). `expect` can't encode a
     # reject, so this row shows "??? {:http, 404}" — that IS the expected signal.
     %{name: "oob negative", chain: "focus=-50x-50/crop=12x12", expect: {0, 0}},
-    # reset recovers from an OOB focus: crop@coords resets to the region centre (150,150)
-    # = cell (1,1), regardless of the prior OOB focus.
+    # crop=WxH@XxY does NOT reset the focus (despite the docs). The focus is CARRIED
+    # through the region crop (translated + clamped), so it still steers the trailing
+    # crop. This pair proves it: identical region crop `crop=200x200@100x100` (source
+    # [100,300]), different pre-region focus → the trailing crop lands in a different
+    # cell. A focus-reset (the docs' claim) would center both on the region centre.
     %{
-      name: "reset after oob",
-      chain: "focus=500x500/crop=100x100@100x100/crop=12x12",
+      name: "carry far through @crop",
+      chain: "focus=350x350/crop=200x200@100x100/crop=40x40",
+      expect: {2, 2}
+    },
+    %{
+      name: "carry near through @crop",
+      chain: "focus=120x120/crop=200x200@100x100/crop=40x40",
       expect: {1, 1}
     }
     # NOT probed (structurally impossible in TwicPics — see notes): focus "removed by a

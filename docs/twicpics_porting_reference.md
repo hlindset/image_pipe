@@ -91,7 +91,7 @@ Split only at separators that are outside parentheses.
 | `cover-max` | `cover-max=<pixel size>` | Conditional cover applied only when one requested length is smaller than the corresponding current dimension. |
 | `cover-min` | `cover-min=<pixel size>` | Conditional cover applied only when one requested length is larger than the corresponding current dimension. |
 | `inside` | `inside=<size>`; `inside=<ratio>` | Fits the image inside the target area and adds translucent borders so the final image has the requested physical size or ratio. `background` fills those borders unless `border` overrides it. |
-| `crop` | `crop=<crop size>`; `crop=<crop size>@<coordinates>` | Without coordinates, crops using the current focus point. With coordinates, uses them as the top-left crop origin and resets focus to the center of the crop result. |
+| `crop` | `crop=<crop size>`; `crop=<crop size>@<coordinates>` | Without coordinates, crops using the current focus point. With coordinates, uses them as the top-left crop origin. (The docs say focus is "reset to the center of the crop result"; live TwicPics instead **carries** the focus through the crop — see "Focus state" below and [#331](https://github.com/hlindset/image_pipe/issues/331).) |
 | `zoom` | `zoom=<number>` | Zooms by a factor greater than or equal to 1 toward the current focus point while preserving current image dimensions. |
 | `flip` | `flip=<axis>` | Flips horizontally, vertically, or both. |
 | `turn` | `turn=<angle>` | Rotates. TwicPics rounds numeric angles to the nearest quarter-turn. |
@@ -171,9 +171,15 @@ The documented consumers are:
 - `crop=<crop size>`: chooses a crop origin from the focus.
 - `zoom=<number>`: zooms toward the focus while preserving dimensions.
 
-`crop=<crop size>@<coordinates>` is both a crop and a focus reset. It ignores
-the previous focus for placement and resets focus to the center of the crop
-result.
+`crop=<crop size>@<coordinates>` uses the coordinates (not the focus) for
+placement, but it does **not** reset the focus. The official docs claim it resets
+focus to the center of the crop result; black-box probing against live TwicPics
+([#331](https://github.com/hlindset/image_pipe/issues/331)) shows the focus is
+**carried** through the region crop — translated by the crop origin and clamped
+into the new frame, exactly like every other geometry op below. A `focus` set
+before the region crop therefore still steers a consumer after it (e.g.
+`focus=350x350/crop=160x160@200x200/crop=40x40` lands on the carried point, not the
+region centre). ImagePipe matches this (`Focus.translate`, no reset).
 
 The official docs don't state how `turn`, `flip`, `inside`, `resize`, `contain`,
 or color transforms update existing focus state. Black-box probing against live
@@ -195,8 +201,9 @@ steers to the same content regardless of the geometry between. Confirmed:
   half turn, and horizontal/vertical flip all keep the focus on its content).
 - `zoom`: the focus is the zoom centre and survives into a later consumer.
 - Multiple consumers: a focus is **not** consumed-and-cleared; it persists and
-  steers every following consumer (`focus/cover/crop/crop`) until a `crop@coords`
-  reset. The only thing that redefines it is another `focus` segment, which
+  steers every following consumer (`focus/cover/crop/crop`), including across a
+  `crop@coords` region crop (carried, not reset — see above). The only thing that
+  redefines it is another `focus` segment, which
   resolves against the frame at *its* position — so the identical `focus=75x75`
   yields a different source point with `resize` before vs after it.
 - Out-of-bounds: a coordinate **past the far edge clamps to the edge** — `focus=500x500`

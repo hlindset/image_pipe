@@ -76,14 +76,14 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | `resize=W:H` (ratio) | 🚫 Rejected | Surface-preserving resize-to-ratio has no clean mapping to an existing op; deferred with its own operation design. |
 | `resize-max` / `resize-min` | 🚫 Rejected | Conditional variants deferred; recognized and rejected. |
 | `cover=WxH` | ✅ Supported | `Resize(:cover, …, guide: focus)` — fill + crop to focus. |
-| `cover=W:H` (ratio) | ✅ Supported | `CropGuided(:full_axis, :full_axis, aspect_ratio: …, guide: focus)` — largest matching-ratio area. Integer and decimal ratios (e.g. `16:9`, `1.5:2`) both supported. |
+| `cover=W:H` (ratio) | ✅ Supported | `CropGuided(:full_axis, :full_axis, aspect_ratio: …, guide: focus)` — largest matching-ratio area. Integer and decimal ratios (e.g. `16:9`, `1.5:2`) both supported. **Diverges (behavioral) when the largest-area dimension is fractional.** When the matching-ratio area has an integer dimension (e.g. `cover=16:9` on a 400×400 → 400×225), ImagePipe's integer crop is byte-identical to TwicPics. When it is fractional (e.g. `cover=2:3` on 400×400 → 266.667×400), TwicPics resamples the float area to the rounded integer output with sub-pixel center-crop phase, antialiasing the cropped-axis edges; ImagePipe extracts a sharp integer crop. Placement matches to sub-pixel; the difference is confined to edge antialiasing on the cropped axis. |
 | `cover-max` / `cover-min` | 🚫 Rejected | Conditional variants deferred. |
 | `contain=WxH` | ✅ Supported | `Resize(:fit, …)` — fits inside, may be smaller, no letterbox. |
 | `contain-max` / `contain-min` (aliases `max` / `min`) | 🚫 Rejected | Conditional variants deferred. |
 | `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). **Pixel dimensions only** in v1 (relative units deferred). |
 | `inside=W:H` (ratio) | ✅ Supported | `Canvas({:ratio, w, 1}, {:ratio, h, 1}, placement: center, fill: transparent)` — pads/letterboxes the whole image into a box of this aspect ratio with transparent borders (expands the image's canvas on the needed axis; never crops). Single op, no resize. Integer and decimal ratios (e.g. `4:3`, `1.5:2`) both supported. (`cover=W:H` crops to the ratio; `inside=W:H` pads to it.) **Transparent fill only**; user-specified `background` deferred. Non-alpha output flattens the letterbox. |
 | `crop=WxH` | ✅ Supported | `CropGuided(W, H, guide: :carried)` — reads the carried `State.focus`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. Pixel **and** relative (`p` / `s` → `{:ratio}`) dimensions, resolved against the running image at execution time. |
-| `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; resets the carried focus to the crop-result centre (recovers from any prior focus). Both axes must be explicit (an omitted axis is rejected). Pixel **and** relative dimensions/coordinates; zero-based coordinates (`@0x0`) supported. |
+| `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; **carries** the focus through the crop (translated + clamped into the new frame), like every other geometry op — it does **not** reset it to the crop-result centre. The official docs claim a reset; live TwicPics disagrees ([#331](https://github.com/hlindset/image_pipe/issues/331), confirmed by differential probe). Both axes must be explicit (an omitted axis is rejected). Pixel **and** relative dimensions/coordinates; zero-based coordinates (`@0x0`) supported. |
 | `focus=<anchor>` | ✅ Supported | One of the eight anchors, resolved at its chain position to a concrete point and carried as `State.focus` for the following `cover` / `crop`; emits a positional `SetFocus` (no pixel operation). |
 | `focus=<coords>` (relative `p` / `s`) | ✅ Supported | A relative coordinate resolves against the running frame at its chain position into a carried `State.focus` point; emits a positional `SetFocus` (no pixel operation). An **out-of-range** relative focus (a ratio > 1, e.g. `150p`) is **clamped to the far edge** at resolution — matching live TwicPics — not rejected. A ratio of exactly 1 (`100p`) is the edge/corner. |
 | `focus=<coords>` (bare pixel) | ✅ Supported | Pixel-coordinate focus ([#321](https://github.com/hlindset/image_pipe/issues/321)) resolves against the running frame at its chain position (rescaled by any shrink-on-load) into a carried `State.focus` point; emits a positional `SetFocus` (no pixel operation). Mixed-unit pairs (`100x50p`) are supported. Positive out-of-bounds clamps to the far edge; negative coordinates are rejected before any source fetch. |
@@ -187,9 +187,13 @@ access.
 
 - **`:equal`** cases assert that ImagePipe matches TwicPics within the per-case
   tolerance budget (minor cross-version resampling skew absorbed).
-- Quarantined cases (`@tag :twicpics_triage`) are excluded by default; they record
-  known placement divergences under investigation (3, all under
-  [#323](https://github.com/hlindset/image_pipe/issues/323)).
+- Quarantined cases (`@tag :twicpics_triage`) are excluded by default; they record a
+  divergence with a reason (+ tracking issue) while keeping the case exercised and its
+  fixture baked. There are currently **2**, both the accepted `cover=2:3` behavioral
+  divergence above (`cover_ratio_tall`, `focus_bottomright_cover_ratio`), tracked under
+  [#331](https://github.com/hlindset/image_pipe/issues/331). The third prior quarantine
+  (`crop=WxH@XxY` focus-carry) was a real bug, fixed to match live TwicPics — see the
+  `crop=WxH@XxY` row.
 
 Any placement divergence surfaced by the suite and deliberately modelled as a
 permanent difference should be documented here with a "Diverges" note in the relevant
