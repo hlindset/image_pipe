@@ -170,16 +170,34 @@ defmodule ImagePipe.Parser.TwicPics.Units do
 
   defp take_number(rest, acc), do: {acc, rest}
 
-  # Decimal literal → exact `{integer, pos_integer}` (`"7.2"` → `{72, 10}`,
-  # `".5"` → `{5, 10}`, `"16"` → `{16, 1}`). Allows zero; rejects multiple dots
-  # and empty/non-numeric.
+  # Decimal literal → exact `{integer, pos_integer}` (`"7.2"` → `{72, 10}`, `"16"`
+  # → `{16, 1}`, `"0.05"` → `{5, 100}`). Follows the JSON number grammar: the
+  # integer part is `0` or a no-leading-zero run, and a dot (if present) needs a
+  # non-empty fraction. Rejects `.5`, `5.`, `00.5`, `01`, and multi-dot `1.2.3` —
+  # live TwicPics 404s them. (Exponents like `1e2` are a separate, currently
+  # unsupported grammar; the tokenizer never produces an `e`.)
   defp decimal_to_rational(literal) do
     case String.split(literal, ".") do
-      [whole] -> scaled_rational(whole, "")
-      [whole, frac] -> scaled_rational(whole, frac)
-      _ -> :error
+      [whole] ->
+        with :ok <- valid_int_part(whole), do: scaled_rational(whole, "")
+
+      [whole, frac] ->
+        with :ok <- valid_int_part(whole),
+             :ok <- valid_frac_part(frac),
+             do: scaled_rational(whole, frac)
+
+      _ ->
+        :error
     end
   end
+
+  # Tokenizer guarantees digit-only parts; these enforce the JSON shape on top.
+  defp valid_int_part("0"), do: :ok
+  defp valid_int_part(<<d, _::binary>>) when d in ?1..?9, do: :ok
+  defp valid_int_part(_), do: :error
+
+  defp valid_frac_part(""), do: :error
+  defp valid_frac_part(_frac), do: :ok
 
   defp scaled_rational(whole, frac) do
     case Integer.parse(whole <> frac) do

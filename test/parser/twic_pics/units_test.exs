@@ -77,7 +77,7 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
     test "decimal ratios reduce to an integer ratio (exact, no float rounding)" do
       assert Units.ratio("1.5:2") == {:ok, {:ratio, 3, 4}}
       assert Units.ratio("1.5:2.25") == {:ok, {:ratio, 2, 3}}
-      assert Units.ratio(".5:2") == {:ok, {:ratio, 1, 4}}
+      assert Units.ratio("0.5:2") == {:ok, {:ratio, 1, 4}}
       assert Units.ratio("1.05:2.1") == {:ok, {:ratio, 1, 2}}
     end
 
@@ -166,6 +166,35 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
       assert Units.position_length("0.4") == {:ok, {:px, 0}}
       assert Units.position_length("(7/2)") == {:ok, {:px, 4}}
       assert {:error, _} = Units.position_length("(1-2)")
+    end
+  end
+
+  describe "decimal literals follow the JSON number grammar" do
+    # Live TwicPics 404s a malformed decimal: a leading dot (`.5`), a trailing dot
+    # (`5.`), or a leading zero on the integer part (`00.5`, `01`). A digit is
+    # required on both sides of the dot; the integer part is `0` or a no-leading-
+    # zero run. Fractions may carry leading zeros (`0.05`).
+    test "accepts well-formed decimals" do
+      assert Units.dimension_length("0.5") == {:ok, {:px, 1}}
+      assert Units.dimension_length("1.5") == {:ok, {:px, 2}}
+      assert Units.dimension_length("5.0") == {:ok, {:px, 5}}
+      assert Units.dimension_length("0.05s") == {:ok, {:ratio, 1, 20}}
+    end
+
+    test "rejects a leading or trailing dot" do
+      assert {:error, _} = Units.dimension_length(".5")
+      assert {:error, _} = Units.dimension_length("5.")
+      assert {:error, _} = Units.dimension_length("(.5)")
+      assert {:error, _} = Units.dimension_length("(5.*2)")
+      assert {:error, _} = Units.ratio(".5:2")
+      assert {:error, _} = Units.ratio("1:5.")
+    end
+
+    test "rejects a leading zero on the integer part" do
+      assert {:error, _} = Units.dimension_length("01")
+      assert {:error, _} = Units.dimension_length("00.5")
+      assert {:error, _} = Units.dimension_length("(01)")
+      assert {:error, _} = Units.ratio("00.5:2")
     end
   end
 
