@@ -6,14 +6,21 @@
 # `:imgproxy_triage` quarantines recorded-but-unresolved imgproxy differential
 # discrepancies (see the lane README + issues #194-#197); run them with
 # `--include imgproxy_triage`.
-# `:imgproxy_report` is the full-constellation HTML report render (bakes every
-# constellation + inlines PNGs); it is an integration/report job, not unit
-# coverage, so it is opt-in via `--include imgproxy_report` (or `mix
-# imgproxy.gen_report`). Its rendering logic is unit-tested separately.
+# `:imgproxy_report` / `:twicpics_report` are the full-constellation HTML report
+# renders (render every constellation + inline PNGs); they are integration/report
+# jobs, not unit coverage, so they are opt-in via `--include imgproxy_report` /
+# `--include twicpics_report` (or `mix imgproxy.gen_report` / `mix
+# twicpics.gen_report`). Their rendering logic is unit-tested separately.
 ExUnit.start(
   capture_log: true,
   assert_receive_timeout: 2_000,
-  exclude: [:image_vision, :imgproxy_triage, :imgproxy_report, :twicpics_triage]
+  exclude: [
+    :image_vision,
+    :imgproxy_triage,
+    :imgproxy_report,
+    :twicpics_triage,
+    :twicpics_report
+  ]
 )
 
 {:ok, _} = Application.ensure_all_started(:req)
