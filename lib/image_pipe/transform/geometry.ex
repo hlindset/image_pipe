@@ -75,6 +75,22 @@ defmodule ImagePipe.Transform.Geometry do
     end
   end
 
+  # imgproxy `imath.Scale` -> `imath.Round` -> Go `math.Round`: round half away
+  # from zero. imgproxy resolves crop *sizes* (CalcCropSize, prepare.go) this way,
+  # distinct from the ties-to-even rounding it uses for crop positions/offsets.
+  def round_half_away_from_zero(value) when is_integer(value), do: value
+
+  def round_half_away_from_zero(value) when is_float(value) and value < 0.0,
+    do: -round_half_away_from_zero(-value)
+
+  def round_half_away_from_zero(value) when is_float(value) do
+    floor = Float.floor(value)
+    fraction = value - floor
+    floor = trunc(floor)
+
+    if fraction < 0.5, do: floor, else: floor + 1
+  end
+
   # Centered placement of an `inner`-sized box in an `outer`-sized frame, mirroring
   # imgproxy calc_position.go: `ShrinkToEven(outer - inner + 1, 2)`. Shared by the
   # result crop and the canvas embed so the two place a centered rectangle

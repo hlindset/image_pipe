@@ -90,6 +90,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
       center_origin: 2,
       image_height: 1,
       image_width: 1,
+      round_half_away_from_zero: 1,
       round_ties_to_even: 1,
       to_pixels: 2
     ]
@@ -579,21 +580,21 @@ defmodule ImagePipe.Transform.Operation.Crop do
     do: {:ok, min(value, bounds)}
 
   defp crop_dimension(value, bounds) when is_float(value) and value > 0,
-    do: {:ok, min(round_ties_to_even(value), bounds)}
+    do: {:ok, min(round_half_away_from_zero(value), bounds)}
 
   defp crop_dimension({:pixels, value}, bounds), do: crop_dimension(value, bounds)
 
   defp crop_dimension({:scale, numerator, denominator}, bounds)
        when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0 do
-    {:ok, min(round_ties_to_even(bounds * numerator / denominator), bounds)}
+    {:ok, min(round_half_away_from_zero(bounds * numerator / denominator), bounds)}
   end
 
   defp crop_dimension({:scale, value}, bounds) when is_number(value) and value > 0 do
-    {:ok, min(round_ties_to_even(bounds * value), bounds)}
+    {:ok, min(round_half_away_from_zero(bounds * value), bounds)}
   end
 
   defp crop_dimension({:percent, value}, bounds) when is_number(value) and value > 0 do
-    {:ok, min(round_ties_to_even(bounds * value / 100), bounds)}
+    {:ok, min(round_half_away_from_zero(bounds * value / 100), bounds)}
   end
 
   defp crop_dimension(value, _bounds), do: {:error, {:invalid_crop_dimension, value}}
@@ -661,10 +662,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
     {corrected_width, corrected_height} =
       cond do
         current == target -> {width, height}
-        enlarge and current > target -> {width, round_ties_to_even(width / target)}
-        enlarge -> {round_ties_to_even(height * target), height}
-        current > target -> {round_ties_to_even(height * target), height}
-        true -> {width, round_ties_to_even(width / target)}
+        enlarge and current > target -> {width, round_half_away_from_zero(width / target)}
+        enlarge -> {round_half_away_from_zero(height * target), height}
+        current > target -> {round_half_away_from_zero(height * target), height}
+        true -> {width, round_half_away_from_zero(width / target)}
       end
 
     clamp_to_bounds(corrected_width, corrected_height, image_width, image_height)
@@ -673,8 +674,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp clamp_to_bounds(width, height, image_width, image_height) do
     scale = min(1.0, min(image_width / width, image_height / height))
 
-    width = max(1, min(image_width, round_ties_to_even(width * scale)))
-    height = max(1, min(image_height, round_ties_to_even(height * scale)))
+    width = max(1, min(image_width, round_half_away_from_zero(width * scale)))
+    height = max(1, min(image_height, round_half_away_from_zero(height * scale)))
 
     {width, height}
   end

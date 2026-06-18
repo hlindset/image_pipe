@@ -85,6 +85,24 @@ defmodule ImagePipe.Test.ImgproxyDifferential.SourceInventory do
                    "cannot alias). Keep the step < the smallest crop dimension (#239)."
              },
              %{
+               file: "placement_odd.png",
+               width: 405,
+               height: 305,
+               bands: 3,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_sRGB,
+               profile?: false,
+               produced_by: :gen_sources,
+               content:
+                 "Aperiodic 5px color grid (xorshift-hashed cells, range 40..239) on ODD 405×305 dims — " <>
+                   "the placement.png recipe at a smaller step and odd size.",
+               consumers: [],
+               invariant:
+                 "Both dims odd so `c:0.5:0.5` hits a `.5` crop-SIZE tie (202.5/152.5): imgproxy rounds " <>
+                   "half-away (203×153), ties-to-even gives 202×152 (#318). Keep dims odd and step (5) < the " <>
+                   "crop window so a stray placement also shows."
+             },
+             %{
                file: "border.png",
                width: 1600,
                height: 1200,
