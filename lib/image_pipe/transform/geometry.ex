@@ -100,13 +100,6 @@ defmodule ImagePipe.Transform.Geometry do
       when is_number(n) and is_number(d) and d != 0,
       do: reference * n / d * 1.0
 
-  # resolve_focal: ratio -> normalized float clamped to 0.0..1.0.
-  # Used to convert a {:ratio, n, d} focal-guide coordinate to a fraction.
-  @spec resolve_focal({:ratio, non_neg_integer(), pos_integer()}, pos_integer()) :: float()
-  def resolve_focal({:ratio, n, d}, _reference)
-      when is_integer(n) and n >= 0 and is_integer(d) and d > 0,
-      do: (n / d) |> max(0.0) |> min(1.0)
-
   # imgproxy `imath.RoundToEven`: round half to even (banker's rounding). imgproxy
   # composes integer origins with even-rounded offsets, so positions stay
   # integer-faithful only when ties round the same way.

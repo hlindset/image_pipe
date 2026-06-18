@@ -134,25 +134,4 @@ defmodule ImagePipe.Transform.GeometryTest do
       end
     end
   end
-
-  describe "resolve_focal/2" do
-    test "ratio to float, clamped to 0..1" do
-      assert Geometry.resolve_focal({:ratio, 1, 4}, 100) == 0.25
-      assert Geometry.resolve_focal({:ratio, 0, 1}, 100) == 0.0
-      assert Geometry.resolve_focal({:ratio, 1, 1}, 100) == 1.0
-    end
-
-    test "clamps out-of-range values" do
-      assert Geometry.resolve_focal({:ratio, 3, 2}, 100) == 1.0
-      assert Geometry.resolve_focal({:ratio, 0, 1}, 100) == 0.0
-    end
-
-    property "result is always in 0.0..1.0" do
-      check all n <- integer(0..1000), d <- integer(1..1000) do
-        result = Geometry.resolve_focal({:ratio, n, d}, 100)
-        assert result >= 0.0
-        assert result <= 1.0
-      end
-    end
-  end
 end

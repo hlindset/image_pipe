@@ -30,8 +30,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     focal point tuple `{:fp, x, y}` where `x` and `y` are normalized `0.0..1.0`
     coordinates.
   - `x_offset`: horizontal offset as a number, `{:pixels, value}`,
-    `{:scale, value}`, `{:scale, numerator, denominator}`, or
-    `{:percent, value}`. Defaults to `0.0`.
+    `{:scale, value}`, or `{:scale, numerator, denominator}`. Defaults to `0.0`.
   - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
     to `0.0`.
   - `offset_scale`: multiplier applied to pixel offsets, usually the effective
@@ -59,8 +58,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   crop around a normalized current-image point and clamps it into image bounds.
 
   Result crops are represented as `crop_from: :gravity` with explicit `width`
-  and `height`. Pixel offsets are multiplied by `offset_scale`; scale and
-  percent offsets are resolved relative to the current image bounds.
+  and `height`. Pixel offsets are multiplied by `offset_scale`; scale offsets
+  are resolved relative to the current image bounds.
 
   For coordinate crops, `crop_from` is the requested top-left crop position
   before the rectangle is clamped to image bounds.
@@ -113,7 +112,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
           integer()
           | float()
           | {:pixels, integer() | float()}
-          | {:percent, integer() | float()}
           | {:scale, integer() | float()}
           | {:scale, integer() | float(), integer() | float()}
 
