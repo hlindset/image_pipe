@@ -50,14 +50,17 @@ defmodule ImagePipe.Transform.GeometryTest do
       end
     end
 
-    test "resolves {:px, n} as-is" do
+    test "resolves {:px, n} with min-1 floor" do
       assert Geometry.resolve_dimension({:px, 50}, 100) == 50
       assert Geometry.resolve_dimension({:px, 50}, 100, clamp?: true) == 50
+      assert Geometry.resolve_dimension({:px, 0}, 100) == 1
+      assert Geometry.resolve_dimension({:px, -5}, 100) == 1
     end
 
-    test "resolves {:pixels, n} with half-away" do
+    test "resolves {:pixels, n} with half-away and min-1 floor" do
       assert Geometry.resolve_dimension({:pixels, 50}, 100) == 50
       assert Geometry.resolve_dimension({:pixels, 2.5}, 100) == 3
+      assert Geometry.resolve_dimension({:pixels, 0}, 100) == 1
     end
 
     test "resolves {:scale, n, d}" do

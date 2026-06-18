@@ -37,24 +37,34 @@ defmodule ImagePipe.Transform.Geometry do
   def resolve_dimension(measure, reference, opts \\ [])
 
   def resolve_dimension({:px, n}, reference, opts) when is_integer(n),
-    do: apply_dimension_clamp(n, reference, opts)
+    do: apply_dimension_clamp(max(1, n), reference, opts)
 
   def resolve_dimension({:pixels, n}, reference, opts) when is_integer(n),
-    do: apply_dimension_clamp(n, reference, opts)
+    do: apply_dimension_clamp(max(1, n), reference, opts)
 
   def resolve_dimension({:pixels, n}, reference, opts) when is_float(n),
     do: apply_dimension_clamp(max(1, round_half_away_from_zero(n)), reference, opts)
 
   def resolve_dimension({:scale, n, d}, reference, opts)
       when is_number(n) and is_number(d) and d != 0,
-      do: apply_dimension_clamp(max(1, round_half_away_from_zero(reference * n / d)), reference, opts)
+      do:
+        apply_dimension_clamp(
+          max(1, round_half_away_from_zero(reference * n / d)),
+          reference,
+          opts
+        )
 
   def resolve_dimension({:scale, n}, reference, opts) when is_number(n) and n > 0,
     do: apply_dimension_clamp(max(1, round_half_away_from_zero(reference * n)), reference, opts)
 
   def resolve_dimension({:ratio, n, d}, reference, opts)
       when is_integer(n) and is_integer(d) and d > 0,
-      do: apply_dimension_clamp(max(1, round_half_away_from_zero(reference * n / d)), reference, opts)
+      do:
+        apply_dimension_clamp(
+          max(1, round_half_away_from_zero(reference * n / d)),
+          reference,
+          opts
+        )
 
   def resolve_dimension(n, reference, opts) when is_integer(n) and n > 0,
     do: apply_dimension_clamp(n, reference, opts)
@@ -107,8 +117,9 @@ defmodule ImagePipe.Transform.Geometry do
   # resolve_focal: ratio -> normalized float clamped to 0.0..1.0.
   # Used to convert a {:ratio, n, d} focal-guide coordinate to a fraction.
   @spec resolve_focal({:ratio, non_neg_integer(), pos_integer()}, pos_integer()) :: float()
-  def resolve_focal({:ratio, n, d}, _reference) when is_integer(n) and is_integer(d) and d > 0,
-    do: (n / d) |> max(0.0) |> min(1.0)
+  def resolve_focal({:ratio, n, d}, _reference)
+      when is_integer(n) and n >= 0 and is_integer(d) and d > 0,
+      do: (n / d) |> max(0.0) |> min(1.0)
 
   def anchor_to_scale_units(focus, width, height) do
     x_scale =
