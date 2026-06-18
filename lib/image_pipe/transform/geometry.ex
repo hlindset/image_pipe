@@ -123,33 +123,6 @@ defmodule ImagePipe.Transform.Geometry do
       when is_integer(n) and n >= 0 and is_integer(d) and d > 0,
       do: (n / d) |> max(0.0) |> min(1.0)
 
-  def anchor_to_scale_units(focus, width, height) do
-    x_scale =
-      case focus do
-        {:anchor, :left, _} -> {:scale, 0}
-        {:anchor, :center, _} -> {:scale, 0.5}
-        {:anchor, :right, _} -> {:scale, 1}
-        {:coordinate, left, _top} -> {:scale, to_pixels(width, left) / width}
-      end
-
-    y_scale =
-      case focus do
-        {:anchor, _, :top} -> {:scale, 0}
-        {:anchor, _, :center} -> {:scale, 0.5}
-        {:anchor, _, :bottom} -> {:scale, 1}
-        {:coordinate, _left, top} -> {:scale, to_pixels(height, top) / height}
-      end
-
-    {x_scale, y_scale}
-  end
-
-  def anchor_to_pixels(focus, width, height) do
-    case anchor_to_scale_units(focus, width, height) do
-      {x_scale, y_scale} ->
-        {to_pixels(width, x_scale), to_pixels(height, y_scale)}
-    end
-  end
-
   # imgproxy `imath.RoundToEven`: round half to even (banker's rounding). imgproxy
   # composes integer origins with even-rounded offsets, so positions stay
   # integer-faithful only when ties round the same way.

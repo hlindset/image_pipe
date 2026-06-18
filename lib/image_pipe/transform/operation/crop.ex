@@ -86,12 +86,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   import ImagePipe.Transform.Geometry,
     only: [
-      anchor_to_pixels: 3,
       center_origin: 2,
       image_height: 1,
       image_width: 1,
       resolve_dimension: 3,
       resolve_offset: 3,
+      resolve_position: 2,
       round_half_away_from_zero: 1,
       round_ties_to_even: 1
     ]
@@ -591,11 +591,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
          crop_width,
          crop_height
        ) do
-    # if explicit coordinates are given, they are to be the top-left corner of the crop,
-    # so we need to move the center point based on the crop dimensions
-    {left, top} = anchor_to_pixels({:coordinate, left, top}, image_width, image_height)
-    center_x = round(left + crop_width / 2)
-    center_y = round(top + crop_height / 2)
+    left_px = resolve_position(left, image_width)
+    top_px = resolve_position(top, image_height)
+    center_x = round(left_px + crop_width / 2)
+    center_y = round(top_px + crop_height / 2)
     {center_x, center_y}
   end
 
