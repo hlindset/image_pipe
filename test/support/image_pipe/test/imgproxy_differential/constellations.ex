@@ -13,6 +13,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
     high_freq_webp: "high_freq.webp",
     marker: "marker.png",
     placement: "placement.png",
+    placement_odd: "placement_odd.png",
     border: "border.png",
     border_asym: "border_asym.png",
     alpha: "alpha.png",
@@ -140,6 +141,11 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # Relative (`< 1` → fraction of source) and full-axis (`0`) crop dimensions.
       c("crop_relative_dims_placement", :placement, "c:0.5:0.5"),
       c("crop_full_axis_placement", :placement, "c:0:600"),
+      # #318: fractional crop size on ODD dims hits a `.5` tie (405·0.5 = 202.5,
+      # 305·0.5 = 152.5). imgproxy's CalcCropSize rounds crop SIZES half-away-from-zero
+      # → 203×153; the old ties-to-even gave 202×152. The divergence surfaces as the
+      # output dimensions, so the lossless crop is maxΔ=0 once the size matches.
+      c("crop_relative_dims_odd_tie", :placement_odd, "c:0.5:0.5"),
       # Trim with an explicit background colour (2nd arg) instead of the smart getpoint(0,0):
       # trims the [30,30,30] field, leaving the red marker rect's bounding box.
       c("trim_color_marker", :marker, "t:10:1e1e1e"),

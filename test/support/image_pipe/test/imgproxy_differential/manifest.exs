@@ -26,6 +26,7 @@
     "icc_p3.png" => "80ce9bc055c01a12a9d8bf3db1693a1b46995f66bfdb796503636122de264869",
     "marker.png" => "cbb47b49a36fc7a8b37233c862e1d4b88174ec6bf81876223779b4ce3c52120d",
     "placement.png" => "eb3de4dce6337ed2bd531b35187bcda3265542dc5b661152631839616eca7d09",
+    "placement_odd.png" => "90ef7ea8a82a5f15b4b2e77cf757d7f6df0ff428be24a921e8ce8af0ca153204",
     "rgb16.png" => "e0601a09f13020b00dd88e45794dd7fd59368239607c482609f027ee423d8119",
     "rgba16.png" => "0864f435451fd70d22779252fd5e6e5c4b69d0dd589133c069c3a18dad0ff45e",
     "small.png" => "517719b9e7ad77f867266b8c4e135d383cdc94c3bf14f7bc26c2060a98ae870a"
@@ -197,6 +198,12 @@
       authored_sha256: "365c53ef270d5edec06b89b54b0cbbbf71865514b60bc07a7825cc0ac0656f0b",
       fixture_filename: "crop_offset_dpr_placement.png",
       fixture_sha256: "cdc7023e6f2d4cc112de67cfeebf47b23d2914e96ca99cc6f1f8c4390d15a8e1",
+      kind: :transform
+    },
+    "crop_relative_dims_odd_tie" => %{
+      authored_sha256: "0b7d09f4b1ca4e117c622ff87f3f9cb2f94ba0d1abd359cf2d8b9bde4fba2cd2",
+      fixture_filename: "crop_relative_dims_odd_tie.png",
+      fixture_sha256: "a8ebca7df8186de2e21d1a0ac5619c0a7821cdbd545004d12e605f81a23e1909",
       kind: :transform
     },
     "crop_relative_dims_placement" => %{

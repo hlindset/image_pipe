@@ -34,6 +34,7 @@
 - `crop_gravity_placement` — transform
 - `crop_inherit_grav_offset` — transform
 - `crop_offset_dpr_placement` — transform
+- `crop_relative_dims_odd_tie` — transform
 - `crop_relative_dims_placement` — transform
 - `crop_resize_two_gravities_marker` — transform
 - `crop_smart_marker` — transform

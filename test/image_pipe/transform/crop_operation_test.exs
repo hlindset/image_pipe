@@ -70,6 +70,55 @@ defmodule ImagePipe.Transform.CropOperationTest do
     assert {100, 200} == dimensions(result)
   end
 
+  test "fractional crop size on an odd dimension rounds half away from zero" do
+    # 401 * 0.5 = 200.5 — a `.5` tie. imgproxy's CalcCropSize rounds crop sizes
+    # half-away-from-zero (imath.Scale -> math.Round) -> 201, not ties-to-even 200.
+    op = %Crop{
+      width: {:scale, 0.5},
+      height: :auto,
+      crop_from: :gravity,
+      gravity: {:anchor, :center, :center}
+    }
+
+    {:ok, result} = Crop.execute(op, state(401, 300))
+    assert {201, 300} == dimensions(result)
+  end
+
+  test "aspect-ratio correction rounds the adjusted crop size half away from zero" do
+    # height 201 × ratio 1:2 → 201 * 0.5 = 100.5, a `.5` tie. imgproxy resolves
+    # aspect-ratio-corrected crop SIZES with imath.Scale (half-away, like CalcCropSize
+    # and the OSS ExtendAspectRatio) -> 101, not ties-to-even 100. (#318 follow-up;
+    # car is imgproxy Pro, so this is convention-based, not bake-verifiable.)
+    op = %Crop{
+      width: {:pixels, 300},
+      height: {:pixels, 201},
+      crop_from: :gravity,
+      gravity: {:anchor, :center, :center},
+      aspect_ratio: {:ratio, 1, 2},
+      enlarge: false
+    }
+
+    {:ok, result} = Crop.execute(op, state(400, 300))
+    assert {101, 201} == dimensions(result)
+  end
+
+  test "aspect-ratio bounds clamp rounds the scaled crop size half away from zero" do
+    # corrected 300×200 clamped to a 300×103 image: scale 103/200 = 0.515, so the
+    # width 300 * 0.515 = 154.5 — a `.5` tie. The shrink-to-fit is also a SIZE, so it
+    # rounds half-away (155), not ties-to-even (154).
+    op = %Crop{
+      width: {:pixels, 300},
+      height: {:pixels, 100},
+      crop_from: :gravity,
+      gravity: {:anchor, :center, :center},
+      aspect_ratio: {:ratio, 3, 2},
+      enlarge: true
+    }
+
+    {:ok, result} = Crop.execute(op, state(300, 103))
+    assert {155, 103} == dimensions(result)
+  end
+
   describe "smart gravity" do
     test "smart crop produces the requested dimensions" do
       image = Image.open!("priv/static/images/woman.jpg")

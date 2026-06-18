@@ -35,6 +35,15 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
   @exif_placement_h 300
   @exif_placement_step 50
 
+  # Odd-dimensioned placement grid (#318): both axes odd so a fractional crop
+  # `c:0.5:0.5` lands on a `.5` tie (405·0.5 = 202.5, 305·0.5 = 152.5). imgproxy's
+  # CalcCropSize rounds crop sizes half-away-from-zero (203×153); ties-to-even would
+  # give 202×152 — a 1px crop-SIZE divergence the even-dimensioned sources can't hit.
+  # Step 5 divides 405/305 evenly and stays aperiodic so a stray placement also shows.
+  @placement_odd_w 405
+  @placement_odd_h 305
+  @placement_odd_step 5
+
   @impl Mix.Task
   def run(_args) do
     {:ok, _} = Application.ensure_all_started(:image)
@@ -125,6 +134,9 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
 
     placement = placement_image(@w, @h, @placement_step)
     write!(placement, "placement.png", suffix: ".png")
+
+    placement_odd = placement_image(@placement_odd_w, @placement_odd_h, @placement_odd_step)
+    write!(placement_odd, "placement_odd.png", suffix: ".png")
 
     rgb16 = rgb16_image()
     write!(rgb16, "rgb16.png", suffix: ".png")
