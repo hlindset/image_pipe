@@ -161,6 +161,11 @@ defmodule ImagePipe.Cache.KeyTest do
   defp tagged_resize_dimension(:auto), do: :auto
   defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
+  defp imgproxy_plan!(path) do
+    assert {:ok, plan} = Imgproxy.parse(conn(:get, path), [])
+    plan
+  end
+
   test "builds stable hash and key data from canonical plan fields and source identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
 
@@ -1264,6 +1269,62 @@ defmodule ImagePipe.Cache.KeyTest do
       {:ok, a} = Key.plan_material(twic_plan!([{"focus", "20x10"}, {"crop", "12x12"}]), [])
       {:ok, b} = Key.plan_material(twic_plan!([{"focus", "30x10"}, {"crop", "12x12"}]), [])
       refute a == b
+    end
+  end
+
+  # KeyData.data/1 and guide_data/1 are clause-based with no fallback: a missing
+  # clause for a gravity-derived guide shape raises FunctionClauseError on the
+  # cache-key / ETag fast path (only reached under a strong byte-identity origin),
+  # 500ing the request while staying green in CI. Pin plan_material for every
+  # guide shape the imgproxy parser emits so a future missing clause fails fast at
+  # the cache-key boundary rather than in production (#328, the dialect-agnostic
+  # twin of the TwicPics block above).
+  describe "imgproxy guide-bearing ops (#328)" do
+    test "focal-point resize gravity keys cleanly" do
+      assert {:ok, material} =
+               Key.plan_material(
+                 imgproxy_plan!("/_/rt:fill/w:200/h:100/g:fp:0.3:0.7/plain/images/cat.jpg"),
+                 []
+               )
+
+      assert inspect(material) =~ "focal"
+    end
+
+    test "smart resize gravity keys cleanly" do
+      assert {:ok, material} =
+               Key.plan_material(
+                 imgproxy_plan!("/_/rt:fill/w:200/h:100/g:sm/plain/images/cat.jpg"),
+                 []
+               )
+
+      assert inspect(material) =~ "smart"
+    end
+
+    test "object-detect resize gravity keys cleanly" do
+      assert {:ok, material} =
+               Key.plan_material(
+                 imgproxy_plan!("/_/rt:fill/w:200/h:100/g:obj:face/plain/images/cat.jpg"),
+                 []
+               )
+
+      assert inspect(material) =~ "detect"
+    end
+
+    test "raw-anchor resize gravity keys cleanly" do
+      assert {:ok, material} =
+               Key.plan_material(
+                 imgproxy_plan!("/_/rt:fill/w:200/h:100/g:noea/plain/images/cat.jpg"),
+                 []
+               )
+
+      assert inspect(material) =~ "anchor"
+    end
+
+    test "anchor crop gravity keys cleanly" do
+      assert {:ok, material} =
+               Key.plan_material(imgproxy_plan!("/_/c:100:50:noea/plain/images/cat.jpg"), [])
+
+      assert inspect(material) =~ "top_right"
     end
   end
 end
