@@ -1,11 +1,11 @@
-defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
+defmodule ImagePipe.Test.TwicpicsDifferential.ReportHtml do
   @moduledoc """
   Pure renderer: card data + provenance → a single self-contained HTML string for
-  the imgproxy differential visual-diff report. All images arrive pre-encoded as
+  the TwicPics differential visual-diff report. All images arrive pre-encoded as
   `data:` URIs; the only view-time network deps are the img-comparison-slider CDN
   and Google Fonts (both degrade: the side-by-side panels are the source of truth,
-  fonts fall back to system stacks). Card-data shape is documented in the plan and
-  produced by `Mix.Tasks.Imgproxy.GenReport`.
+  fonts fall back to system stacks). Card-data shape is produced by
+  `Mix.Tasks.Twicpics.GenReport`.
   """
 
   use Boundary,
@@ -27,16 +27,18 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
         ~s(<link rel="stylesheet" href="#{@fonts}">\n)
 
     ReportUI.render(%{
-      title: "imgproxy differential — visual diff",
+      title: "TwicPics differential — visual diff",
       provenance_html: provenance_html(prov),
       counts_html: counts(cards),
       type_axis: %{
-        label: "type",
+        label: "group",
         buttons: [
           %{set: "all", label: "all"},
-          %{set: "transform", label: "transform"},
-          %{set: "known_divergence", label: "known divergence"},
-          %{set: "lossy", label: "lossy"}
+          %{set: "focus", label: "focus"},
+          %{set: "cover", label: "cover"},
+          %{set: "contain", label: "contain"},
+          %{set: "inside", label: "inside"},
+          %{set: "crop", label: "crop"}
         ]
       },
       cards: Enum.map(ordered, &card/1),
@@ -45,7 +47,9 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
   end
 
   defp provenance_html(prov) do
-    "imgproxy <code>#{esc(prov.imgproxy_digest)}</code> · imgproxy libvips <code>#{esc(prov.imgproxy_libvips)}</code> (.so ABI soname) · ImagePipe libvips <code>#{esc(prov.pipe_libvips_at_gen)}</code> (release, at gen) · runtime <code>#{esc(prov.runtime_libvips)}</code> (release) — schemes differ, not directly comparable"
+    "TwicPics <code>#{esc(prov.twicpics_version)}</code> · " <>
+      "ImagePipe libvips <code>#{esc(prov.pipe_libvips_at_gen)}</code> (at gen) · " <>
+      "runtime <code>#{esc(prov.runtime_libvips)}</code>"
   end
 
   defp counts(cards) do
@@ -55,9 +59,11 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     quarantined = Enum.count(cards, &(&1.triage != nil))
     drift = Enum.count(cards, & &1.hash_drift?)
 
-    "#{Map.get(by_group, :transform, 0)} transform · " <>
-      "#{Map.get(by_group, :known_divergence, 0)} known divergence · " <>
-      "#{Map.get(by_group, :lossy, 0)} lossy — " <>
+    "#{Map.get(by_group, :focus, 0)} focus · " <>
+      "#{Map.get(by_group, :cover, 0)} cover · " <>
+      "#{Map.get(by_group, :contain, 0)} contain · " <>
+      "#{Map.get(by_group, :inside, 0)} inside · " <>
+      "#{Map.get(by_group, :crop, 0)} crop — " <>
       "#{flagged} flagged · #{failing} failing · " <>
       "#{quarantined} quarantined · #{drift} hash-drift"
   end
@@ -105,67 +111,40 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
 
   # Structured triage: reason + a clickable issue link.
   defp triage(%{triage: %{reason: reason, issue: issue}}) do
-    n = String.trim_leading(issue, "#")
+    n = issue |> to_string() |> String.trim_leading("#")
 
-    ~s(<p class="triage-note">⚠ quarantined: #{esc(reason)} — <a href="#{@issue_base}#{esc(n)}">#{esc(issue)}</a></p>)
-  end
-
-  # Plain-string triage (the form imgproxy constellations actually use, e.g. mrd).
-  defp triage(%{triage: reason}) when is_binary(reason) do
-    ~s(<p class="triage-note">⚠ quarantined: #{esc(reason)}</p>)
+    ~s(<p class="triage-note">⚠ quarantined: #{esc(reason)} — <a href="#{@issue_base}#{esc(n)}">##{esc(n)}</a></p>)
   end
 
   defp drift_banner(%{hash_drift?: true}),
     do:
-      ~s(<p class="banner drift">authored fields changed since generation — run <code>mix imgproxy.reauthor</code> or regenerate.</p>)
+      ~s(<p class="banner drift">authored fields changed since generation — run <code>mix twicpics.reauthor</code> or regenerate.</p>)
 
   defp drift_banner(_), do: ""
 
-  defp metric_class(c) do
-    if c.status in [:pass, :diverges_ok, :contract_ok], do: "ok", else: "bad"
-  end
-
-  # Lossy: ImagePipe render alone (no imgproxy fixture to compare).
-  defp visuals(%{group: :lossy} = c) do
-    """
-    <div class="visuals">
-      #{panel(c.pipe_img, "ImagePipe (contract only — no imgproxy reference)")}
-    </div>
-    """
-  end
-
-  # Render error: ImagePipe produced no image (parser gap / unsupported option). Show
-  # the imgproxy reference alone with a note; no pipe panel / slider / heatmap.
-  defp visuals(%{status: :render_error} = c) do
-    """
-    <div class="visuals">
-      #{panel(c.imgproxy_img, "imgproxy reference")}
-      <p class="render-error">ImagePipe produced no image for this request (parser gap / unsupported option).</p>
-    </div>
-    """
-  end
+  defp metric_class(c), do: if(c.status == :pass, do: "ok", else: "bad")
 
   # Dims mismatch: the two renders side by side; no slider/heatmap (the mismatch is
   # the finding).
   defp visuals(%{status: :dims_mismatch} = c) do
     """
     <div class="visuals">
-      #{panel(c.imgproxy_img, "imgproxy #{fmt(c.fixture_dims)}")}
+      #{panel(c.oracle_img, "TwicPics #{fmt(c.fixture_dims)}")}
       #{panel(c.pipe_img, "ImagePipe #{fmt(c.pipe_dims)}")}
     </div>
     """
   end
 
-  # All panels flow in one wrapping row: imgproxy, ImagePipe, slider, and the
+  # All panels flow in one wrapping row: TwicPics, ImagePipe, slider, and the
   # active heatmap (the toggle hides the other two).
   defp visuals(c) do
     """
     <div class="visuals">
-      #{panel(c.imgproxy_img, "imgproxy #{fmt(c.fixture_dims)}")}
+      #{panel(c.oracle_img, "TwicPics #{fmt(c.fixture_dims)}")}
       #{panel(c.pipe_img, "ImagePipe #{fmt(c.pipe_dims)}")}
       <figure class="panel slider" style="width:#{min(elem(c.pipe_dims, 0), 280)}px">
         <img-comparison-slider>
-          <img slot="first" src="#{c.imgproxy_img}" alt="imgproxy">
+          <img slot="first" src="#{c.oracle_img}" alt="TwicPics">
           <img slot="second" src="#{c.pipe_img}" alt="ImagePipe">
         </img-comparison-slider>
         <figcaption>slider</figcaption>

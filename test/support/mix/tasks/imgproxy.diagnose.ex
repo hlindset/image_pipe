@@ -37,7 +37,8 @@ defmodule Mix.Tasks.Imgproxy.Diagnose do
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
-  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Harness, Manifest, PixelCompare}
+  alias ImagePipe.Test.Differential.PixelCompare
+  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Harness, Manifest}
 
   @base "test/support/image_pipe/test/imgproxy_differential"
   @manifest_path "#{@base}/manifest.exs"

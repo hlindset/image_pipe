@@ -1,7 +1,7 @@
-defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompareTest do
+defmodule ImagePipe.Differential.PixelCompareTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Test.ImgproxyDifferential.PixelCompare
+  alias ImagePipe.Test.Differential.PixelCompare
   alias Vix.Vips.Operation
 
   defp img(w, h, color), do: Image.new!(w, h, color: color)

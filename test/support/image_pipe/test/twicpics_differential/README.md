@@ -1,0 +1,230 @@
+# TwicPics differential conformance — fixtures
+
+Reference fixtures generated from the live hosted TwicPics Image API. The
+comparison test (`test/image_pipe/twicpics_differential_conformance_test.exs`) reads
+them on the default `mix test` lane — no network in the hot path. It decodes both
+TwicPics' committed output and ImagePipe's live output and compares pixels.
+
+TwicPics is **libvips-based** — the same engine ImagePipe renders with — so per-pixel
+comparison is the right, stricter gate, not the foreign-engine mismatch the suite
+originally assumed. This was discovered empirically: of 30 committed fixtures 19 are
+byte-identical to ImagePipe's libvips output (including a high-frequency zone-plate
+non-integer downscale), 8 show only low resampling skew (maxΔ=12), and 3 diverge on
+port-level placement bugs. The remaining skew is absorbed by per-case tolerance.
+
+## Bake (requires network)
+
+After adding or editing a constellation in `constellations.ex`, run:
+
+```shell
+mise run twic:bake
+```
+
+It bakes every fixture + `manifest.exs` + `REPORT.md` against the live hosted
+TwicPics API (incremental — unchanged cases are skipped with zero requests). A parse
+gate validates every non-triaged constellation's chain first and aborts (listing the
+offenders) before any oracle call, so a typo or unsupported chain fails fast. A
+`triage`-quarantined constellation is skipped by the gate but still baked — see
+*Quarantine mechanism*.
+
+Then review the `REPORT.md` diff, run `mix twicpics.diagnose` on any failures (see
+below), and commit the changed `fixtures/`, `manifest.exs`, and `REPORT.md`.
+
+For a `tol` tweak or a verdict-only edit (no pixels change), skip the bake and
+refresh the manifest's authored hashes: `mix twicpics.reauthor`.
+
+```
+mise run twic:bake                           # incremental
+mix twicpics.gen_fixtures --force            # re-bake all cases
+mix twicpics.gen_fixtures --only id1,id2     # re-bake specific cases
+```
+
+(`twicpics.gen_fixtures`, `twicpics.diagnose`, `twicpics.gen_report`, and
+`twicpics.reauthor` auto-select `MIX_ENV=test` via `mix.exs` `preferred_envs` — no
+prefix needed; the network bake goes through `mise run twic:bake`.)
+
+## Determinism pins
+
+Every constellation pins `output=png`. `dpr` is intentionally omitted: the live
+TwicPics default DPR is already 1x — verified byte-identical output with and without
+`dpr=1` — and ImagePipe's TwicPics parser does not implement `dpr`, so pinning it
+would break the shared render path with no determinism gain. No path-default
+manipulation.
+
+## libvips provenance — record both, compare anyway
+
+TwicPics renders with libvips. Its responses carry a `Server: TwicPics/1.8.2` header,
+recorded as `twicpics_version` in `manifest.exs`. Fixtures are baked by TwicPics'
+libvips; ImagePipe runs its own (`Vix.Vips.version()`, recorded as
+`pipe_libvips_at_gen` at bake time). The two are independent libvips builds, so a
+pixel diff can be a kernel-version skew rather than an ImagePipe regression.
+
+The conformance test therefore makes no version-match claim: it always runs the pixel
+comparison and emits a `libvips_drift_hint` when the runtime libvips differs from the
+recorded `pipe_libvips_at_gen`, so a failure can be read as version skew vs a real
+divergence — read the hint when triaging. The `:equal` tolerances absorb minor
+resampling skew between libvips versions.
+
+## Source inventory (keep it in sync)
+
+Every committed source in `sources/` is catalogued in
+[`source_inventory.ex`](source_inventory.ex)
+(`ImagePipe.Test.TwicpicsDifferential.SourceInventory`) — its dims, bands, format,
+interpretation, embedded-profile presence, how it is produced, who consumes it, and
+the invariant it must preserve. That module is the single source of truth.
+
+- **It is drift-checked.** `test/image_pipe/twicpics_source_inventory_test.exs`
+  decodes every file and fails if the inventory and the bytes disagree (dims, bands,
+  format, interpretation, profile?), or if a source is added or removed without an
+  entry. The complementary "every constellation source is inventoried" check lives in
+  `test/image_pipe/twicpics_differential/constellations_test.exs` (it needs
+  `Constellations`). Adding, removing, or regenerating a source means updating its
+  entry — the tests enforce it.
+
+### Source-hosting handshake (catbox)
+
+Sources are hosted on catbox and served to the live oracle through the
+`imagepipe.twic.pics` catch-all path. The committed source bytes **must equal the
+hosted bytes**: TwicPics renders the hosted file, not the local one, so a mismatch
+means ImagePipe and TwicPics are rendering different inputs.
+
+The bake verifies this automatically: for each source it downloads the bytes from the
+`source_bytes_url` recorded in `SourceInventory` and compares their SHA-256 to the
+committed file. If they differ it raises before fetching any oracle output.
+
+The seed source (`grid_4x4.png`) is a 400x400 RGBA colour grid from the #321 focus
+probe, uploaded to catbox and served via
+`https://imagepipe.twic.pics/b7g72c.png`. When adding a new source, upload it to
+catbox and record its `source_bytes_url` in `SourceInventory`. The bake's
+`resolve_sources/1` handles the upload automatically for entries without a recorded
+`hosted_url`.
+
+## Incremental bake
+
+The oracle signature is `{chain, output suffix, source-byte identity}`. A case is
+skipped (zero requests) when all three hold:
+
+1. The signature matches the prior manifest entry.
+2. The committed reference PNG is present.
+3. The PNG's SHA-256 matches the manifest's recorded hash.
+
+A no-op re-bake (nothing changed) is idempotent: `baked_at` is preserved and no git
+churn is produced. `--force` re-bakes everything; `--only id1,id2` re-bakes specific
+cases and keeps all others from the prior manifest (no requests for unlisted cases).
+
+The bake prunes orphaned manifest entries and reference PNGs when a constellation is
+deleted — run it after removing a case to clean up.
+
+## Visual-diff report (no network)
+
+Generate a self-contained `report.html` for eyeball triage — TwicPics vs ImagePipe
+side by side, a comparison slider, and three diff heatmaps (banded over the case
+threshold, raw amplified, and normalized), with the live-recomputed
+metric/verdict/triage per case:
+
+```shell
+mise exec -- mix twicpics.gen_report             # writes report.html here
+mise exec -- mix twicpics.gen_report --out /tmp/r.html
+```
+
+It renders ImagePipe live and reads the committed fixtures — no network, no fixture or
+manifest changes. The default `report.html` is gitignored (it inlines ImagePipe PNGs
+as base64; regenerate on demand). Cases needing attention sort to the top
+(attention-sort, flagged first) and a top-of-page counts line summarizes them; status
+and group filter axes narrow the view. Triaged/quarantined cases are included in the
+report (they are the ones most worth eyeballing).
+
+The end-to-end smoke test that renders the report across every constellation is tagged
+`:twicpics_report` and excluded by default in `test/test_helper.exs` (it bakes every
+constellation + inlines PNGs — slow, and not unit coverage). The
+`mix twicpics.gen_report` task above is unaffected; to run the test itself:
+`mise exec -- mix test test/image_pipe/twicpics_gen_report_test.exs --include twicpics_report`.
+
+## Triage a bake (no network)
+
+When a freshly baked case fails the conformance lane, `mix twicpics.diagnose` prints a
+one-line summary per constellation — output dims, band layout, the maximum per-sample
+delta (`maxΔ`), a `>Δ2`/`>Δ16`/`>Δ32` histogram, and PASS/over-budget against the
+authored tol — by rendering ImagePipe live against the committed fixture (the same
+`Harness` the conformance test uses). It includes triaged cases.
+
+```shell
+mise exec -- mix twicpics.diagnose cover_wide contain_tall   # specific cases
+mise exec -- mix twicpics.diagnose                            # whole suite
+```
+
+**Reading it — skew vs structural.** `maxΔ` is the deciding signal:
+
+- **Diffuse resampling skew** (a libvips-version difference, not a bug) keeps `maxΔ`
+  low — tens of levels — even when many samples exceed Δ2. Absorb it with a tolerance.
+- **A placement/crop/scale shift** misaligns high-contrast edges, pushing `maxΔ`
+  toward ~255. That is a real divergence — never widen a tol to hide it; quarantine
+  (`:triage` + a tracking issue) or fix.
+- **A band/dim mismatch** prints `FINDING` (not pixel-comparable) — itself a
+  divergence.
+
+**Tolerance conventions** (`tol: %{threshold, budget}` on the constellation; default
+`Δ2 / budget 64`):
+
+- The 8 focus-cover skew cases use `Δ16 / 64` — threshold just above the measured
+  maxΔ=12, with a tight budget so a structural shift still blows it.
+
+After changing only a `tol`, refresh the authored hashes with `mix twicpics.reauthor`
+(no network) rather than re-baking.
+
+## Quarantine mechanism
+
+A constellation can be quarantined while a discrepancy is being triaged: set a
+`:triage` key on its constellation map (a short reason + tracking issue). The
+comparison test tags it `:twicpics_triage`, which `test/test_helper.exs` excludes by
+default, so a plain `mix test` stays green and the case shows as skipped rather than
+failed. Run the quarantined cases with:
+
+```shell
+MIX_ENV=test mise exec -- mix test test/image_pipe/twicpics_differential_conformance_test.exs --include twicpics_triage --only twicpics_triage
+```
+
+`:triage` is not an authored field, so quarantining or un-quarantining alone does not
+require a manifest reauthor. The bake still fetches oracle output for triaged cases
+(the parse gate skips them, but the bake runs them — only the conformance comparison
+is quarantined).
+
+**Current quarantined cases (3)**, all pixel divergences tracked under
+[#323](https://github.com/hlindset/image_pipe/issues/323):
+
+- `focus_bottomright_cover_ratio` — placement divergence (~Δ43): bottom-right gravity
+  on the 2:3 cover-ratio crop positions the window off TwicPics; the cover-ratio
+  gravity math needs investigation. This was a **new** quarantine surfaced by pixel
+  comparison — the prior structural gate missed it.
+- `cover_ratio_tall` — pixel divergence (~Δ92): the centered 2:3 cover crop differs by
+  more than resampling skew (crop-centering offset math).
+- `crop_region_reset` — pixel divergence (~Δ85): `crop@coords` focus-reset + trailing
+  guided `crop=80x80` positions the window approximately half a cell off TwicPics. The
+  reset itself works; exact positioning differs.
+
+## Reauthor does not prune
+
+`mix twicpics.reauthor` refreshes the `authored_sha256` for every manifest entry from
+the current constellation list. It does **not** prune orphaned entries or reference
+PNGs. If you delete a constellation, re-bake (`mise run twic:bake`) to remove its
+manifest entry and PNG.
+
+(`reauthor` raises with a clear message if an entry has no matching constellation, so
+you cannot silently accumulate orphaned entries.)
+
+## Source discrimination (caveats)
+
+The flat colour-grid source has high discriminating power for *placement* but low for
+*resampling*: only the cell edges carry signal, so a sub-cell resampling difference is
+nearly invisible. A few small crops land entirely inside a single uniform cell
+(`contrast=0` in diagnose) — they pin output colour + dims but cannot catch a sub-cell
+placement error. TwicPics *default* processing has so far only been characterized on
+PNG downscales and crops; upscale, non-PNG output, and quality/chroma divergences are
+unexplored and out of scope for this suite.
+
+## Negative-focus rejection is out of scope
+
+TwicPics 404s on negative-coordinate focus (`focus=-1x-1`); ImagePipe 400s. There is
+no usable output to decode from either response, so this contract cannot be exercised
+by the differential suite. It is covered by the TwicPics parser unit/wire tests
+(`test/image_pipe/twic_pics_wire_conformance_test.exs`).
