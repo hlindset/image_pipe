@@ -347,7 +347,7 @@
       oracle_signature: "64f9e4b76fbd3efc934f87ac6e7c17eda7fa61f6ae9ef9773fb48db992c0ccca"
     },
     "focus_bottomright_cover_wide" => %{
-      authored_sha256: "3ef19db81f1732ba081b873576e207e203d8d2d319a20ad32caf1701225c698b",
+      authored_sha256: "9dd9e8ee079e03a7ca18e1ea314a49ce9f36d9b47d5c900085ac615c8662d456",
       bands: 4,
       cells: [
         cell: {0, 2},
@@ -451,7 +451,7 @@
       oracle_signature: "03c570bc5762c9add54aa8d67b8222e414051b4aab79b689db2b590d9aabde05"
     },
     "focus_left_cover_tall" => %{
-      authored_sha256: "c6b423a95b96abddf29d7d933eac40cb43eb9399c2579d8b6ac6cd40737353a4",
+      authored_sha256: "93179a40add0bfe8762be19a57307094b25cccddf23d674e0157dc64f6f218c1",
       bands: 4,
       cells: [
         cell: {0, 0},
@@ -529,7 +529,7 @@
       oracle_signature: "b4aa8d00a11a886688a7077993ee97d9065026a9751a6f5af8aac59df52e1d5a"
     },
     "focus_oob_clamp_cover_wide" => %{
-      authored_sha256: "dd9596ff9713b7ceacbf8e5d8f34d271451b45f4c05dd7bd1c131c6fd30c3e11",
+      authored_sha256: "10b965018c57ce5a10ce6613ebacddba6b7f118f028e64b20499f8251bb6d333",
       bands: 4,
       cells: [
         cell: {0, 2},
@@ -555,7 +555,7 @@
       oracle_signature: "634db13318a51049e4187ce0116b4ded6ffbbfee6e6fa4d5b4a1a3fa4e090949"
     },
     "focus_oob_rel_clamp_cover_tall" => %{
-      authored_sha256: "40d5cc9ac51102e956184b085f99ef7502394f7056fb0300a4b69d29fdb1f3e7",
+      authored_sha256: "c79e8756f222e748cda33a5fe68f0d9c47ba6fc6a172aaf935394410869ef4c0",
       bands: 4,
       cells: [
         cell: {2, 0},
@@ -581,7 +581,7 @@
       oracle_signature: "ad4ae52a6f5d6c8f71a610ccc32d9781872698bfbb5e38557f8fbf04d3777221"
     },
     "focus_px_last_cover_tall" => %{
-      authored_sha256: "bba6f3b2ab9092aa5461faef0854ed43112a767c00760a11ff0b217bb000525e",
+      authored_sha256: "758fcc764091fe8429548a784f36bd4d1aa641098127762af16e2e45776e33e7",
       bands: 4,
       cells: [
         cell: {2, 0},
@@ -607,7 +607,7 @@
       oracle_signature: "2ab419c1054310001ea12d62271578f282f796e3dbe79b7961ac791c7047913c"
     },
     "focus_px_origin_cover_wide" => %{
-      authored_sha256: "1e69314786775c37bb22b58485ab250fbc498e524cff9823f87dd999a67904f1",
+      authored_sha256: "8752d48c0871d9639872002857ee3830df921d7ac1a68a962cb5a14a7bd4a726",
       bands: 4,
       cells: [
         cell: {0, 0},
@@ -659,7 +659,7 @@
       oracle_signature: "6809322fb3aeab712ede957e836ca0bbc956aa6b3c8e4b65d95b41f2bcbeda0b"
     },
     "focus_right_cover_tall" => %{
-      authored_sha256: "bb8b5fcc4b5f7f3ba629e1f775b252362dc3e03239a7c66c3bbd6b6730be1ea9",
+      authored_sha256: "c542249f4cd0753d7f882391494a51b308adc7e81ff628fd5a7a9f380d1379c8",
       bands: 4,
       cells: [
         cell: {2, 0},
@@ -711,7 +711,7 @@
       oracle_signature: "7b4e90bb0c3ac3f42c85b86eca6f0509366dfd89f1c9a89ebf16648bfbe3c04c"
     },
     "focus_topleft_cover_wide" => %{
-      authored_sha256: "cdef8ee4413ea11aea05541c937026ff270f270f64d6e84a05b6ac008fab906b",
+      authored_sha256: "7d1299faf7ebc7e1fea330a6e9199b4dd0146914cb1bd3b354cad991790c6ad1",
       bands: 4,
       cells: [
         cell: {0, 0},

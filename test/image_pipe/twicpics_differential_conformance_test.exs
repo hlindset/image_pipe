@@ -1,13 +1,8 @@
 defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Test.TwicpicsDifferential.{
-    Constellations,
-    Harness,
-    Manifest,
-    SourceInventory,
-    StructureCompare
-  }
+  alias ImagePipe.Test.Differential.PixelCompare
+  alias ImagePipe.Test.TwicpicsDifferential.{Constellations, Harness, Manifest}
 
   @base "test/support/image_pipe/test/twicpics_differential"
   @sources_dir "#{@base}/sources"
@@ -23,6 +18,9 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
 
   for constellation <- Constellations.all() do
     @c constellation
+    # Recorded-but-unresolved TwicPics divergences are quarantined: excluded by
+    # default, runnable via `--include twicpics_triage` (see the constellation's
+    # `:triage` reason + tracking issue).
     if constellation[:triage], do: @tag(:twicpics_triage)
 
     test "#{@c.id} (#{@c.verdict}/#{@c.group})", %{manifest: manifest} do
@@ -31,14 +29,25 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
       assert entry.authored_sha256 == Manifest.authored_sha256(@c),
              "#{@c.id}: authored fields changed — run `mix twicpics.reauthor` (tol/verdict) or re-bake."
 
-      pipe = StructureCompare.extract(Harness.render_image(@c), grid_spec(@c), tol(@c))
-      expected = expected_record(@c, entry)
+      out = Harness.render_image(@c)
+      fixture = fixture_image(@c, entry)
 
-      assert StructureCompare.compare(expected, pipe) == :match,
-             "#{@c.id}: structural mismatch\n  expected: #{inspect(expected)}\n  got:      #{inspect(pipe)}"
+      assert PixelCompare.same_dims?(out, fixture),
+             "#{@c.id}: dims #{inspect(PixelCompare.dims(out))} != fixture #{inspect(PixelCompare.dims(fixture))}"
+
+      tol = @c[:tol] || Constellations.default_tol()
+      outliers = PixelCompare.outliers(out, fixture, tol.threshold)
+
+      assert outliers <= tol.budget,
+             "#{@c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})" <>
+               libvips_drift_hint(manifest)
     end
   end
 
+  # Fixtures are baked against specific source bytes (the manifest records each
+  # source's hash). If a committed source drifts, every fixture comparison silently
+  # compares against stale bytes — so verify the sources match here, with a clear
+  # message, rather than letting it surface as a confusing pixel mismatch.
   test "committed sources match the manifest's recorded hashes", %{manifest: manifest} do
     for {filename, %{sha256: recorded}} <- manifest.sources do
       assert Manifest.file_sha256(Path.join(@sources_dir, filename)) == recorded,
@@ -46,34 +55,44 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
     end
   end
 
-  # The reference PNG is non-gating (the structural record is the gate), but the
-  # manifest records its hash precisely so corruption/edits are detectable — verify
-  # it, matching imgproxy's fixture-hash discipline.
-  test "committed reference PNGs match the manifest's recorded hashes", %{manifest: manifest} do
-    for {id, %{fixture_filename: f, fixture_sha256: recorded}} <- manifest.entries do
-      path = Harness.fixture_path(f)
-
-      assert File.exists?(path),
-             "#{id}: missing reference PNG #{path} — re-bake (`mise run twic:bake`)."
-
-      assert Manifest.file_sha256(path) == recorded,
-             "#{id}: reference PNG #{f} sha256 mismatch — corrupted or edited; re-bake."
-    end
-  end
-
-  defp grid_spec(c), do: SourceInventory.grid(Constellations.source_file(c))
-  defp tol(c), do: c[:tol] || StructureCompare.default_tol()
-
-  # Every live case asserts pipe == the recorded oracle record. (A genuine divergence
-  # is quarantined via `:triage`, not modelled as a separate verdict — v1 has no
-  # `:diverges` cases. If one is ever deliberately modelled, add a `:diverges` clause
-  # here reading the hand-authored expected-pipe record.)
-  defp expected_record(_c, e), do: %{dims: e.dims, bands: e.bands, cells: e.cells}
-
   defp fetch_entry!(manifest, id) do
     case Map.fetch(manifest.entries, id) do
       {:ok, entry} -> entry
       :error -> flunk("#{id}: no manifest entry. Run: mise run twic:bake")
+    end
+  end
+
+  defp fixture_image(c, entry) do
+    path = Harness.fixture_path(entry.fixture_filename)
+
+    unless File.exists?(path) do
+      flunk("#{c.id}: missing fixture #{path}. Run: mise run twic:bake")
+    end
+
+    assert Manifest.file_sha256(path) == entry.fixture_sha256,
+           "#{c.id}: fixture sha256 mismatch — corrupted or edited; re-bake."
+
+    Harness.fixture_image(entry)
+  end
+
+  # Tolerances are calibrated against the ImagePipe libvips that baked the fixtures.
+  # On a different runtime libvips a pixel diff may be version skew rather than a
+  # regression — surface that right in the failure. The manifest may not yet record
+  # the calibration version (added in a later task); when absent, emit no hint.
+  defp libvips_drift_hint(manifest) do
+    case Map.get(manifest, :pipe_libvips_at_gen) do
+      nil ->
+        ""
+
+      at_gen ->
+        runtime = Vix.Vips.version()
+
+        if runtime == at_gen do
+          ""
+        else
+          " (runtime libvips #{runtime}; fixtures calibrated at #{at_gen} — " <>
+            "a diff may be version skew, not a regression)"
+        end
     end
   end
 end

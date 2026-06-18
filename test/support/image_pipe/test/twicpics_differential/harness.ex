@@ -20,4 +20,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Harness do
   def fixtures_dir, do: @fixtures_dir
   def sources_dir, do: @sources_dir
   def fixture_path(filename), do: Path.join(@fixtures_dir, filename)
+
+  @doc "Open a manifest entry's committed fixture PNG to a `Vix.Vips.Image`."
+  def fixture_image(%{fixture_filename: f}),
+    do: Image.open!(File.read!(fixture_path(f)), access: :random, fail_on: :error)
 end
