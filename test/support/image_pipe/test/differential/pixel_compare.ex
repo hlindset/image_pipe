@@ -1,10 +1,11 @@
-defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompare do
+defmodule ImagePipe.Test.Differential.PixelCompare do
   @moduledoc """
-  Pure pixel-comparison primitives for the imgproxy differential conformance
-  harness. Operates on decoded `Vix.Vips.Image` structs. Each band is read once
+  Pure pixel-comparison primitives for differential conformance harnesses.
+  Operates on decoded `Vix.Vips.Image` structs. Each band is read once
   to a raw row-major buffer (`write_to_binary/1`) and indexed in the BEAM, so a
   full-frame comparison costs two FFI reads instead of per-pixel FFI calls.
   """
+  use Boundary, top_level?: true, deps: []
 
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation

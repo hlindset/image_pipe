@@ -2,8 +2,8 @@ defmodule ImagePipe.Test.Differential.Heatmap do
   @moduledoc """
   Generic diff-image renderers for differential reports: given two SAME-dimension
   decoded images, produce banded-over-threshold and raw-amplified diff images.
-  Informational only — never a gate. (imgproxy keeps its delta/outlier *metric* in
-  PixelCompare; only the image-rendering half lives here.)
+  Informational only — never a gate. (The delta/outlier *metric* lives in
+  `Differential.PixelCompare`; only the image-rendering half lives here.)
   """
   use Boundary, top_level?: true, deps: []
 

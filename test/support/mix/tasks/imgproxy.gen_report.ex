@@ -16,13 +16,13 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   use Boundary, top_level?: true, check: [out: false]
 
   alias ImagePipe.Test.Differential.Heatmap
+  alias ImagePipe.Test.Differential.PixelCompare
 
   alias ImagePipe.Test.ImgproxyDifferential.{
     Constellations,
     Harness,
     Manifest,
     OptsSummary,
-    PixelCompare,
     ReportHtml
   }
 

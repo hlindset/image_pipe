@@ -1,7 +1,8 @@
 defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Harness, Manifest, PixelCompare}
+  alias ImagePipe.Test.Differential.PixelCompare
+  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Harness, Manifest}
 
   @base "test/support/image_pipe/test/imgproxy_differential"
   @sources_dir "#{@base}/sources"
