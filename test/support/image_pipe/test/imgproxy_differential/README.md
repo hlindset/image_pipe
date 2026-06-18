@@ -112,15 +112,26 @@ inside, since its signal is the output dimensions. `--undiscriminating` lists on
 flagged cases — a separate axis from `--failing` (correctness). It measures per-band
 *spatial* range, not band-byte range, so a uniform `[200,180,60]` fill reads 0, not 140.
 
-**Reading it — skew vs structural.** `maxΔ` is the deciding signal:
+**Reading it — skew vs structural.** Each comparable line ends with a
+`structural=N (r1) → …` field, the neighborhood-aware
+`PixelCompare.structural_outliers/3` count (radius 1): differing band-samples whose value
+is **not** explainable by the reference's local range. It makes the call below
+quantitative rather than eyeballing `maxΔ` alone:
 
 - **Diffuse resampling skew** (a libvips-version difference, not a bug) keeps `maxΔ` low —
-  tens of levels — even when many samples exceed Δ2. Absorb it with a tolerance.
+  tens of levels — and `structural` a small minority of the Δ2 diff (`→ resampling/phase`).
+  Absorb it with a tolerance.
 - **A placement/crop/scale shift** misaligns high-contrast edges, pushing `maxΔ` toward
-  ~255. That is a real divergence — never widen a tol to hide it; quarantine (`:triage` +
-  a tracking issue) or fix.
+  ~255 and making `structural` the *majority* of the diff (`→ geometry shift`). That is a
+  real divergence — never widen a tol to hide it; quarantine (`:triage` + a tracking
+  issue) or fix.
 - **A band/dim mismatch** prints `FINDING` (not pixel-comparable) — itself a divergence
   (e.g. an extend that adds a spurious alpha channel, #220).
+
+`structural_outliers` is a triage aid only — it is **not** asserted by the conformance
+test. (For an accepted, permanent divergence rather than a bug, a `verdict: :diverges`
+case asserts the diff inside an expected two-sided band on the lane instead of being
+excluded — the shared mechanism is wired here, though no imgproxy case uses it yet.)
 
 **Tolerance conventions** (`tol: %{threshold, budget}` on the constellation; default
 `Δ2 / budget 64`):

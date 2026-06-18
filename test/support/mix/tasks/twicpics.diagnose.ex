@@ -80,18 +80,19 @@ defmodule Mix.Tasks.Twicpics.Diagnose do
     contrast = PixelCompare.spatial_contrast(fixture)
     flat? = contrast < @min_contrast
     attention? = not d.comparable or Map.fetch!(d.over, tol.threshold) > tol.budget
+    structural = if d.comparable, do: PixelCompare.structural_outliers(out, fixture)
 
-    {attention?, pad(c.id) <> body_for(d, tol) <> contrast_suffix(contrast, flat?)}
+    {attention?, pad(c.id) <> body_for(d, tol, structural) <> contrast_suffix(contrast, flat?)}
   end
 
-  defp body_for(%{comparable: false} = d, _tol) do
+  defp body_for(%{comparable: false} = d, _tol, _structural) do
     {{wa, ha}, {wb, hb}} = d.dims
     {ba, bb} = d.bands
     dims = if {wa, ha} == {wb, hb}, do: "#{wa}×#{ha}", else: "#{wa}×#{ha}≠#{wb}×#{hb}"
     "FINDING — bands #{ba}/#{bb}, dims #{dims} (not pixel-comparable)"
   end
 
-  defp body_for(%{comparable: true} = d, tol) do
+  defp body_for(%{comparable: true} = d, tol, structural) do
     {{w, h}, _} = d.dims
     {ba, _} = d.bands
     over = d.over
@@ -99,7 +100,23 @@ defmodule Mix.Tasks.Twicpics.Diagnose do
     pass? = Map.fetch!(over, tol.threshold) <= tol.budget
 
     "dims #{w}×#{h}  bands #{ba}  maxΔ=#{d.max_delta}  #{hist}  " <>
-      "tol Δ#{tol.threshold}/#{tol.budget} → #{if pass?, do: "PASS", else: "OVER BUDGET"}"
+      "tol Δ#{tol.threshold}/#{tol.budget} → #{if pass?, do: "PASS", else: "OVER BUDGET"}  " <>
+      structural_suffix(structural, Map.fetch!(over, 2))
+  end
+
+  # The neighborhood-aware triage signal (`PixelCompare.structural_outliers/3`, radius
+  # 1): differing samples NOT explainable by the reference's local range. A small
+  # minority of the Δ2 diff means resampling/phase skew (sub-pixel); a majority means a
+  # real geometry shift. Informational — never gated.
+  defp structural_suffix(structural, over2) do
+    label =
+      cond do
+        over2 == 0 -> "—"
+        structural * 2 >= over2 -> "geometry shift"
+        true -> "resampling/phase"
+      end
+
+    "structural=#{structural} (r1) → #{label}"
   end
 
   defp contrast_suffix(contrast, flat?) do

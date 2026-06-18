@@ -35,14 +35,38 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
       assert PixelCompare.same_dims?(out, fixture),
              "#{@c.id}: dims #{inspect(PixelCompare.dims(out))} != fixture #{inspect(PixelCompare.dims(fixture))}"
 
-      tol = @c[:tol] || Constellations.default_tol()
-      outliers = PixelCompare.outliers(out, fixture, tol.threshold)
-
-      assert outliers <= tol.budget,
-             "#{@c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})" <>
-               libvips_drift_hint(manifest)
+      assert_verdict(@c, out, fixture, manifest)
     end
   end
+
+  # Dispatch on verdict: `:equal` asserts a per-band tolerance budget; `:diverges`
+  # asserts the live diff sits inside its expected two-sided band (a monitored,
+  # accepted divergence). `:triage` cases never reach here — they are `@tag`-excluded
+  # above.
+  defp assert_verdict(%{verdict: :diverges} = c, out, fixture, manifest) do
+    case PixelCompare.classify_divergence(out, fixture, c.divergence) do
+      :ok ->
+        :ok
+
+      {:error, bound, %{metric: metric, value: value, band: band}} ->
+        flunk(
+          "#{c.id}: :diverges #{metric}=#{value} is #{band_msg(bound)} band #{inspect(band)}" <>
+            libvips_drift_hint(manifest)
+        )
+    end
+  end
+
+  defp assert_verdict(c, out, fixture, manifest) do
+    tol = c[:tol] || Constellations.default_tol()
+    outliers = PixelCompare.outliers(out, fixture, tol.threshold)
+
+    assert outliers <= tol.budget,
+           "#{c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})" <>
+             libvips_drift_hint(manifest)
+  end
+
+  defp band_msg(:above_ceiling), do: "above its expected"
+  defp band_msg(:below_floor), do: "below its expected (consider promoting to :equal)"
 
   # Fixtures are baked against specific source bytes (the manifest records each
   # source's hash). If a committed source drifts, every fixture comparison silently

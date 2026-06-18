@@ -187,11 +187,16 @@ access.
 
 - **`:equal`** cases assert that ImagePipe matches TwicPics within the per-case
   tolerance budget (minor cross-version resampling skew absorbed).
+- **`:diverges`** cases stay on the default lane but assert an *accepted, monitored*
+  divergence sits inside an expected two-sided band — failing if it grows (regression)
+  or shrinks toward a match (promote signal). The two `cover=2:3` fractional-area cases
+  (`cover_ratio_tall`, `focus_bottomright_cover_ratio`) are `:diverges`, tracked under
+  [#331](https://github.com/hlindset/image_pipe/issues/331): the divergence above is
+  real, understood, and permanent, so it is monitored within a band rather than excluded.
 - Quarantined cases (`@tag :twicpics_triage`) are excluded by default; they record a
-  divergence with a reason (+ tracking issue) while keeping the case exercised and its
-  fixture baked. There are currently **2**, both the accepted `cover=2:3` behavioral
-  divergence above (`cover_ratio_tall`, `focus_bottomright_cover_ratio`), tracked under
-  [#331](https://github.com/hlindset/image_pipe/issues/331). The third prior quarantine
+  divergence under active investigation with a reason (+ tracking issue) while keeping
+  the case exercised and its fixture baked. There are currently **0** — the `cover=2:3`
+  cases moved to `:diverges` (monitored), and the third prior quarantine
   (`crop=WxH@XxY` focus-carry) was a real bug, fixed to match live TwicPics — see the
   `crop=WxH@XxY` row.
 

@@ -75,45 +75,76 @@ defmodule Mix.Tasks.Twicpics.GenReport do
         url: Constellations.twicpics_path(c),
         summary: c.chain,
         triage: c[:triage],
+        divergence: c[:divergence],
         tol: c[:tol],
         hash_drift?: Manifest.authored_sha256(c) != entry.authored_sha256,
         pipe_dims: PixelCompare.dims(pipe)
       }
-      |> Map.merge(status_fields(pipe, fixture, tol))
+      |> Map.merge(status_fields(c, pipe, fixture, tol))
       |> finalize_flags()
 
     attach_images(card, body, content_type, pipe, entry, tol)
   end
 
-  defp status_fields(pipe, fixture, tol) do
+  defp status_fields(c, pipe, fixture, tol) do
     fixture_dims = PixelCompare.dims(fixture)
 
-    if PixelCompare.dims(pipe) != fixture_dims do
-      %{
-        fixture_dims: fixture_dims,
-        status: :dims_mismatch,
-        metric_text:
-          "dims #{fmt_dims(PixelCompare.dims(pipe))} ≠ TwicPics #{fmt_dims(fixture_dims)}"
-      }
-    else
-      outliers = PixelCompare.outliers(pipe, fixture, tol.threshold)
+    cond do
+      PixelCompare.dims(pipe) != fixture_dims ->
+        %{
+          fixture_dims: fixture_dims,
+          status: :dims_mismatch,
+          metric_text:
+            "dims #{fmt_dims(PixelCompare.dims(pipe))} ≠ TwicPics #{fmt_dims(fixture_dims)}"
+        }
 
-      %{
-        fixture_dims: fixture_dims,
-        status: if(outliers <= tol.budget, do: :pass, else: :over_budget),
-        metric_text: "#{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})"
-      }
+      c.verdict == :diverges ->
+        Map.put(diverges_fields(pipe, fixture, c.divergence), :fixture_dims, fixture_dims)
+
+      true ->
+        outliers = PixelCompare.outliers(pipe, fixture, tol.threshold)
+
+        %{
+          fixture_dims: fixture_dims,
+          status: if(outliers <= tol.budget, do: :pass, else: :over_budget),
+          metric_text: "#{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})"
+        }
+    end
+  end
+
+  # A `:diverges` case is gated by its two-sided band (`classify_divergence/3`), not
+  # the `:equal` tolerance budget. In band → `:diverges` (monitored, passes the lane);
+  # out of band → `:diverges_out_of_band` (a regression or promote signal — lane red).
+  defp diverges_fields(pipe, fixture, divergence) do
+    d = PixelCompare.diagnose(pipe, fixture, [2])
+
+    case PixelCompare.classify_divergence(pipe, fixture, divergence) do
+      :ok ->
+        %{
+          status: :diverges,
+          metric_text:
+            "maxΔ #{d.max_delta} ∈ #{inspect(divergence.max_delta)}, " <>
+              "#{Map.fetch!(d.over, 2)} over Δ2 ∈ #{inspect(divergence.outliers)} — within band"
+        }
+
+      {:error, bound, %{metric: metric, value: value, band: band}} ->
+        %{
+          status: :diverges_out_of_band,
+          metric_text: "#{metric}=#{value} #{bound} band #{inspect(band)}"
+        }
     end
   end
 
   defp finalize_flags(card) do
-    failure? = card.hash_drift? or card.status in [:over_budget, :dims_mismatch]
+    failure? =
+      card.hash_drift? or card.status in [:over_budget, :dims_mismatch, :diverges_out_of_band]
 
-    # `flagged?` is anything noteworthy (a divergence, quarantined or not). `failing?`
-    # is the stricter "would the default `mix test` lane go red" subset: a quarantined
-    # (`:triage`) case is excluded from the lane, so it is flagged but not failing.
+    # `flagged?` is anything noteworthy (any divergence — quarantined, monitored, or a
+    # failure). `failing?` is the stricter "would the default `mix test` lane go red"
+    # subset: a quarantined (`:triage`) case is excluded from the lane, and an in-band
+    # `:diverges` case passes it, so both are flagged but not failing.
     card
-    |> Map.put(:flagged?, failure?)
+    |> Map.put(:flagged?, failure? or card.status == :diverges)
     |> Map.put(:failing?, failure? and is_nil(card.triage))
   end
 

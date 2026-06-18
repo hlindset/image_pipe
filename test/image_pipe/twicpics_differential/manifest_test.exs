@@ -35,6 +35,53 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
     assert_raise RuntimeError, ~r/cover_square/, fn -> Manifest.load!(path) end
   end
 
+  test "authored_sha256 is stable for a nested :divergence band regardless of key order" do
+    a = %{
+      source: :grid_4x4,
+      chain: "cover=2:3",
+      verdict: :diverges,
+      group: :cover,
+      tol: nil,
+      divergence: %{
+        reason: "fractional area",
+        max_delta: 60..160,
+        outliers: 3_000..4_600,
+        issue: 331
+      }
+    }
+
+    b = %{
+      a
+      | divergence: %{
+          issue: 331,
+          outliers: 3_000..4_600,
+          max_delta: 60..160,
+          reason: "fractional area"
+        }
+    }
+
+    assert Manifest.authored_sha256(a) == Manifest.authored_sha256(b)
+  end
+
+  test "authored_sha256 changes when the divergence band changes" do
+    a = %{
+      source: :grid_4x4,
+      chain: "cover=2:3",
+      verdict: :diverges,
+      group: :cover,
+      tol: nil,
+      divergence: %{
+        reason: "fractional area",
+        max_delta: 60..160,
+        outliers: 3_000..4_600,
+        issue: 331
+      }
+    }
+
+    b = %{a | divergence: %{a.divergence | max_delta: 60..200}}
+    refute Manifest.authored_sha256(a) == Manifest.authored_sha256(b)
+  end
+
   test "oracle_signature depends on chain + suffix + source identity, not tol/verdict" do
     base = %{
       chain: "cover=200x200",
