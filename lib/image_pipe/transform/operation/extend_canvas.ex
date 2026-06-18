@@ -71,6 +71,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   use ImagePipe.Transform
 
   import ImagePipe.Transform.State
+
   import ImagePipe.Transform.Geometry,
     only: [
       center_origin: 2,
