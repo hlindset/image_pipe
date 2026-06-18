@@ -1,6 +1,6 @@
 %{
   twicpics_api: "v1",
-  baked_at: "2026-06-16T19:56:45.068760Z",
+  baked_at: "2026-06-18T20:00:00.032537Z",
   twicpics_version: "1.8.2",
   pipe_libvips_at_gen: "8.18.2",
   sources: %{
@@ -64,23 +64,23 @@
       fixture_sha256: "609bc9c6452a00fd7bfaf2049f5b143a5a5d0acd472acb300a6169c16648b74b",
       oracle_signature: "168baa5ff54ad482210380e83fa3debb7b535eca064c2bdd851a7af9dafc7dbf"
     },
-    "crop_guided_no_reset_contrast" => %{
-      authored_sha256: "c63d454a7ec0ac0c5031ce44845e4cd83dee096d8352e72786267926d2fd8970",
-      fixture_filename: "crop_guided_no_reset_contrast.png",
-      fixture_sha256: "2af9354d0bd9eb69458734b542facae4ab4439fba0632a943515ee57d2011ccb",
-      oracle_signature: "95aa137f173de62b250ad2977a43527384f93c347d5acbcbb285bfbdc17ed2de"
+    "crop_region_carry_far" => %{
+      authored_sha256: "8a4faa6fa40b87a4bdf1e65658f1a60930982ad9c3c6546f513d562eec15df8e",
+      fixture_filename: "crop_region_carry_far.png",
+      fixture_sha256: "12196711363089808c4592f8ed8705e58c8ac49f011bc73b440b48d858a3145e",
+      oracle_signature: "6672e0631f591e34fb52bdc11bf07180732c29b86596d36deacc3d850b7c5154"
+    },
+    "crop_region_carry_near" => %{
+      authored_sha256: "d2beb192268e444fe2a932a74bd17d2a31ce47d26be993a0980532f1f88dad99",
+      fixture_filename: "crop_region_carry_near.png",
+      fixture_sha256: "6303a38667c8df3d6193f526786e79571ad1f409f751e5b4a97fcbe7020f4aac",
+      oracle_signature: "ac74c812a5fe5893638f1af54e7ce40b4db02831a89bdae8b552817120c7023e"
     },
     "crop_region_origin" => %{
       authored_sha256: "fcb6c181942f9a71601c6980fdc448b4aa462ab726e3ff4fe440b415d516df6b",
       fixture_filename: "crop_region_origin.png",
       fixture_sha256: "a551332112cea1612e1140b66e92c88246165c3a199bc36162db741222c27aac",
       oracle_signature: "eb7e5842e0b850fa0a470e40c60efee97e1eec1697e62641214611eb8d52f03d"
-    },
-    "crop_region_reset" => %{
-      authored_sha256: "548b10481008049b9c874badd3d5c90530b18a23df64051e960122e1ea229e51",
-      fixture_filename: "crop_region_reset.png",
-      fixture_sha256: "d25a4bc36721d5ae8c4553b1249075ad0c9d40e565a097586f91e53301c765ad",
-      oracle_signature: "8a8754ddaa46aa4bc1e13b2dc3d1e39dcfd1ef481bc30f47ee5a0ba0d8ddc485"
     },
     "focus_bottomright_cover_ratio" => %{
       authored_sha256: "61a683c0c4a41d4017b1760cf49ddf3a9a53319ead2a69346877ba44aa75171a",

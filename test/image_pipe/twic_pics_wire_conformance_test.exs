@@ -213,6 +213,25 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     refute average(carried) == average(fixed)
   end
 
+  test "crop=WxH@XxY carries the focus through the region crop (no reset) (#331)" do
+    # Identical region crop, opposite pre-region focus. The focus is CARRIED through
+    # the @-coordinate crop (translated + clamped into the region frame), so it steers
+    # the trailing guided crop to opposite ends of the region → different content. A
+    # focus *reset* to the crop-result centre (the docs' claim) would center both
+    # trailing crops identically; live TwicPics carries (confirmed by differential probe).
+    from_tl =
+      call("/images/beach.jpg?twic=v1/focus=0x0/crop=2000x2000@1000x500/crop=400x400/output=jpeg")
+
+    from_br =
+      call(
+        "/images/beach.jpg?twic=v1/focus=3999x2666/crop=2000x2000@1000x500/crop=400x400/output=jpeg"
+      )
+
+    assert dimensions(from_tl) == {400, 400}
+    assert dimensions(from_br) == {400, 400}
+    refute average(from_tl) == average(from_br)
+  end
+
   test "focus=auto steers the cover crop (smart gravity, differs from centered baseline)" do
     # focus=auto -> {:smart, :face_assist} guide, the same attention(+face) engine
     # ImagePipe uses for imgproxy g:sm. With no detector configured (this lane) it

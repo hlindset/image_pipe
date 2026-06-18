@@ -191,9 +191,9 @@ defmodule ImagePipe.TwicpicsGenReportTest do
     assert html =~ "band-bytes over Δ", "per-case metric text not rendered"
     assert html =~ "data:image/png;base64,", "no inlined PNG images in report"
 
-    # The three quarantined cases must render (quarantined divergences are exactly
-    # the ones worth eyeballing); the report must not drop them.
-    for id <- ["focus_bottomright_cover_ratio", "cover_ratio_tall", "crop_region_reset"] do
+    # The quarantined divergences are exactly the ones worth eyeballing; the report
+    # must not drop them.
+    for id <- ["cover_ratio_tall", "focus_bottomright_cover_ratio"] do
       assert html =~ ~s(id="#{id}"), "quarantined case #{id} dropped from report"
     end
   end

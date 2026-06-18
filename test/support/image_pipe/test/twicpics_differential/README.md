@@ -7,10 +7,13 @@ TwicPics' committed output and ImagePipe's live output and compares pixels.
 
 TwicPics is **libvips-based** — the same engine ImagePipe renders with — so per-pixel
 comparison is the right, stricter gate, not the foreign-engine mismatch the suite
-originally assumed. This was discovered empirically: of 30 committed fixtures 19 are
-byte-identical to ImagePipe's libvips output (including a high-frequency zone-plate
-non-integer downscale), 8 show only low resampling skew (maxΔ=12), and 3 diverge on
-port-level placement bugs. The remaining skew is absorbed by per-case tolerance.
+originally assumed. This was discovered empirically: of the 30 committed fixtures 20 are
+byte-identical to ImagePipe's libvips output, 8 show only low resampling skew (maxΔ=12,
+absorbed by per-case tolerance), and 2 are quarantined as an accepted behavioral
+divergence (the `cover=2:3` fractional-area resampling — see *Quarantine mechanism*
+below). The third originally-surfaced divergence (`crop=WxH@XxY` focus-carry) was a real
+ImagePipe bug, now fixed to match live TwicPics
+([#331](https://github.com/hlindset/image_pipe/issues/331)).
 
 ## Bake (requires network)
 
@@ -189,18 +192,29 @@ require a manifest reauthor. The bake still fetches oracle output for triaged ca
 (the parse gate skips them, but the bake runs them — only the conformance comparison
 is quarantined).
 
-**Current quarantined cases (3)**, all pixel divergences tracked under
-[#323](https://github.com/hlindset/image_pipe/issues/323):
+**Current quarantined cases (2)** — both an accepted, permanent behavioral divergence
+(not "under investigation"), tracked under
+[#331](https://github.com/hlindset/image_pipe/issues/331):
 
-- `focus_bottomright_cover_ratio` — placement divergence (~Δ43): bottom-right gravity
-  on the 2:3 cover-ratio crop positions the window off TwicPics; the cover-ratio
-  gravity math needs investigation. This was a **new** quarantine surfaced by pixel
-  comparison — the prior structural gate missed it.
-- `cover_ratio_tall` — pixel divergence (~Δ92): the centered 2:3 cover crop differs by
-  more than resampling skew (crop-centering offset math).
-- `crop_region_reset` — pixel divergence (~Δ85): `crop@coords` focus-reset + trailing
-  guided `crop=80x80` positions the window approximately half a cell off TwicPics. The
-  reset itself works; exact positioning differs.
+- `cover_ratio_tall` (`cover=2:3`) and `focus_bottomright_cover_ratio`
+  (`focus=bottom-right/cover=2:3`) — the largest 2:3 area on the 400×400 source is
+  266.667-wide (fractional). TwicPics sub-pixel-resamples that float area to the rounded
+  267-wide output, antialiasing the cropped-axis cell edges; ImagePipe does a sharp
+  integer crop. Placement matches to sub-pixel — only the boundary lines differ — so
+  this is a resampling divergence, not a placement bug. It is **not** absorbed by
+  widening tolerance: the haloing spans whole boundary lines (~thousands of band-bytes
+  over Δ2), so a tolerance large enough to pass would also mask a real half-cell shift.
+  The integer-area direction (`cover=16:9` → `cover_ratio_wide`) stays a live `:equal`
+  case and is byte-identical. See the `cover=W:H` "Diverges" note in
+  `docs/twicpics_support_matrix.md`.
+
+The third originally-quarantined case, `crop_region_reset`, was a real ImagePipe bug,
+not a sub-pixel skew: `crop=WxH@XxY` was **resetting** the carried focus to the
+crop-result centre, but live TwicPics **carries** the focus through the region crop
+(translated + clamped). Fixed to carry; it is replaced by the discriminating
+`crop_region_carry_far` / `crop_region_carry_near` pair (same region crop, different
+pre-region focus → the carried point steers the trailing crop to a different cell
+boundary; a reset would center both identically).
 
 ## Reauthor does not prune
 
