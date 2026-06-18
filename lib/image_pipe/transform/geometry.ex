@@ -15,21 +15,6 @@ defmodule ImagePipe.Transform.Geometry do
           | {:scale, scalar(), scalar()}
           | {:ratio, integer(), pos_integer()}
 
-  @spec to_pixels(integer(), length_unit()) :: integer()
-  def to_pixels(length, size_unit)
-  def to_pixels(_length, num) when is_integer(num), do: num
-  def to_pixels(_length, num) when is_float(num), do: round(num)
-  def to_pixels(_length, {:pixels, num}), do: round(num)
-  def to_pixels(length, {:scale, factor}), do: round(length * factor)
-
-  def to_pixels(length, {:scale, numerator, denominator}),
-    do: round(length * numerator / denominator)
-
-  def to_pixels(length, {:ratio, numerator, denominator}),
-    do: round(length * numerator / denominator)
-
-  def to_pixels(length, {:percent, percent}), do: round(percent / 100 * length)
-
   # resolve_dimension: "how big?" — half-away rounding, always >= 1.
   # clamp?: true adds min(result, reference) to keep within source bounds.
   # Callers: crop.ex (clamp?: true), resize.ex (clamp?: false), extend_canvas.ex.
