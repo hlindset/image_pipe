@@ -91,6 +91,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
       image_height: 1,
       image_width: 1,
       resolve_dimension: 3,
+      resolve_offset: 3,
       round_half_away_from_zero: 1,
       round_ties_to_even: 1
     ]
@@ -249,12 +250,11 @@ defmodule ImagePipe.Transform.Operation.Crop do
              image_width,
              image_height
            ),
-         {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)),
-         {:ok, offset_scale} <- offset_scale(crop.offset_scale),
-         {:ok, x_offset} <-
-           crop_offset(default_if_nil(params.x_offset, 0.0), image_width, offset_scale),
-         {:ok, y_offset} <-
-           crop_offset(default_if_nil(params.y_offset, 0.0), image_height, offset_scale) do
+         {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
+      offset_scale = crop.offset_scale * 1.0
+      x_offset = resolve_offset(default_if_nil(params.x_offset, 0.0), image_width, offset_scale)
+      y_offset = resolve_offset(default_if_nil(params.y_offset, 0.0), image_height, offset_scale)
+
       {:ok,
        gravity_crop_coordinates(
          image_width,
@@ -573,27 +573,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp round_offset_to_even(offset), do: round_ties_to_even(offset)
 
   defp clamp_position(value, max_value), do: max(0, min(max_value, value))
-
-  defp crop_offset(value, _bounds, _offset_scale) when is_number(value), do: {:ok, value}
-
-  defp crop_offset({:scale, numerator, denominator}, bounds, _offset_scale)
-       when is_number(numerator) and is_number(denominator) and denominator != 0 do
-    {:ok, bounds * numerator / denominator}
-  end
-
-  defp crop_offset({:scale, value}, bounds, _offset_scale) when is_number(value),
-    do: {:ok, bounds * value}
-
-  defp crop_offset({:percent, value}, bounds, _offset_scale) when is_number(value),
-    do: {:ok, bounds * value / 100}
-
-  defp crop_offset({:pixels, value}, _bounds, offset_scale) when is_number(value),
-    do: {:ok, value * offset_scale}
-
-  defp crop_offset(value, _bounds, _offset_scale), do: {:error, {:invalid_crop_offset, value}}
-
-  defp offset_scale(value) when is_number(value) and value > 0, do: {:ok, value * 1.0}
-  defp offset_scale(value), do: {:error, {:invalid_crop_offset_scale, value}}
 
   defp crop_gravity({:anchor, x, y} = gravity)
        when x in [:left, :center, :right] and y in [:top, :center, :bottom],
