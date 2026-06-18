@@ -48,6 +48,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Manifest do
       "%{" <>
         "twicpics_api: #{inspect(manifest.twicpics_api)}," <>
         "baked_at: #{inspect(manifest.baked_at)}," <>
+        "twicpics_version: #{inspect(manifest.twicpics_version)}," <>
+        "pipe_libvips_at_gen: #{inspect(manifest.pipe_libvips_at_gen)}," <>
         "sources: #{ManifestTerm.sorted_map_literal(manifest.sources)}," <>
         "entries: #{ManifestTerm.sorted_map_literal(manifest.entries)}}"
 
@@ -60,8 +62,18 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Manifest do
     validate!(term)
   end
 
-  defp validate!(%{twicpics_api: a, baked_at: b, sources: s, entries: e} = m)
-       when is_binary(a) and is_binary(b) and is_map(s) and is_map(e) do
+  defp validate!(
+         %{
+           twicpics_api: a,
+           baked_at: b,
+           twicpics_version: v,
+           pipe_libvips_at_gen: p,
+           sources: s,
+           entries: e
+         } = m
+       )
+       when is_binary(a) and is_binary(b) and is_binary(v) and is_binary(p) and
+              is_map(s) and is_map(e) do
     Enum.each(e, fn {id, entry} -> validate_entry!(id, entry) end)
     m
   end
@@ -73,13 +85,9 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Manifest do
          authored_sha256: a,
          oracle_signature: o,
          fixture_filename: f,
-         fixture_sha256: fs,
-         dims: {w, h},
-         bands: bands,
-         cells: cells
+         fixture_sha256: fs
        })
-       when is_binary(a) and is_binary(o) and is_binary(f) and is_binary(fs) and
-              is_integer(w) and is_integer(h) and is_integer(bands) and is_list(cells),
+       when is_binary(a) and is_binary(o) and is_binary(f) and is_binary(fs),
        do: :ok
 
   defp validate_entry!(id, entry),

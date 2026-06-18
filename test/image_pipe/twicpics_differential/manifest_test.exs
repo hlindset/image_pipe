@@ -5,6 +5,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
   @manifest %{
     twicpics_api: "v1",
     baked_at: "2026-06-16T00:00:00Z",
+    twicpics_version: "1.8.2",
+    pipe_libvips_at_gen: "8.x",
     sources: %{
       "grid_4x4.png" => %{sha256: String.duplicate("a", 64), hosted_url: "https://h/x.png"}
     },
@@ -13,10 +15,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
         authored_sha256: String.duplicate("b", 64),
         oracle_signature: String.duplicate("c", 64),
         fixture_filename: "cover_square.png",
-        fixture_sha256: String.duplicate("d", 64),
-        dims: {200, 200},
-        bands: 4,
-        cells: [{:cell, {0, 0}}, :padding]
+        fixture_sha256: String.duplicate("d", 64)
       }
     }
   }
@@ -24,14 +23,15 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ManifestTest do
   test "write! then load! round-trips and validates" do
     path = Path.join(System.tmp_dir!(), "twic_manifest_#{System.unique_integer([:positive])}.exs")
     Manifest.write!(path, @manifest)
-    assert Manifest.load!(path).entries["cover_square"].dims == {200, 200}
+    assert Manifest.load!(path).entries["cover_square"].fixture_filename == "cover_square.png"
   end
 
   test "load! raises on a malformed entry (whole manifest, so the entry guard fires)" do
     path = Path.join(System.tmp_dir!(), "twic_bad_#{System.unique_integer([:positive])}.exs")
-    bad = put_in(@manifest.entries["cover_square"].dims, "nope")
+    bad = put_in(@manifest.entries["cover_square"].fixture_sha256, 123)
     File.write!(path, inspect(bad, limit: :infinity))
-    # Top-level keys are intact, so this reaches validate_entry! and rejects `dims: "nope"`.
+    # Top-level keys are intact, so this reaches validate_entry! and rejects the
+    # non-binary fixture_sha256.
     assert_raise RuntimeError, ~r/cover_square/, fn -> Manifest.load!(path) end
   end
 

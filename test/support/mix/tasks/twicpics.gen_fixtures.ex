@@ -25,8 +25,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   alias ImagePipe.Test.TwicpicsDifferential.{
     Constellations,
     Manifest,
-    SourceInventory,
-    StructureCompare
+    SourceInventory
   }
 
   @base "test/support/image_pipe/test/twicpics_differential"
@@ -58,10 +57,12 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     # triaged cases; only the conformance COMPARISON is quarantined, not the bake.
     cases = Constellations.all()
 
-    {entries, baked_count} =
-      Enum.reduce(cases, {%{}, 0}, fn c, {acc, n} ->
-        {entry, baked?} = bake_case(c, sources, prior.entries[c.id], opts[:force], only)
-        {Map.put(acc, c.id, entry), n + if(baked?, do: 1, else: 0)}
+    {entries, baked_count, server_header} =
+      Enum.reduce(cases, {%{}, 0, nil}, fn c, {acc, n, server} ->
+        {entry, baked?, case_server} =
+          bake_case(c, sources, prior.entries[c.id], opts[:force], only)
+
+        {Map.put(acc, c.id, entry), n + if(baked?, do: 1, else: 0), case_server || server}
       end)
 
     prune_orphans!(entries)
@@ -70,7 +71,23 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     # actually fetched. Otherwise the timestamp (and REPORT) would churn git on every
     # incremental run that skips everything.
     baked_at = if baked_count > 0, do: timestamp(), else: prior.baked_at || timestamp()
-    manifest = %{twicpics_api: "v1", baked_at: baked_at, sources: sources, entries: entries}
+
+    # Provenance: capture the live TwicPics version (from the oracle `Server` header)
+    # whenever a case was actually fetched; otherwise preserve the prior value. The
+    # ImagePipe libvips is captured fresh each run (it's the version the recorded
+    # fixtures are calibrated against, feeding the conformance test's libvips_drift_hint).
+    twicpics_version = server_header || prior.twicpics_version || "unknown"
+    pipe_libvips_at_gen = Vix.Vips.version()
+
+    manifest = %{
+      twicpics_api: "v1",
+      baked_at: baked_at,
+      twicpics_version: twicpics_version,
+      pipe_libvips_at_gen: pipe_libvips_at_gen,
+      sources: sources,
+      entries: entries
+    }
+
     Manifest.write!(@manifest_path, manifest)
     write_report!(manifest)
     Mix.shell().info("Baked #{baked_count}/#{map_size(entries)} cases (#{@manifest_path}).")
@@ -102,7 +119,6 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   # --- per-case ---
   defp bake_case(c, sources, prior, force, only) do
     src = sources[Constellations.source_file(c)]
-    grid = SourceInventory.grid(Constellations.source_file(c))
 
     sig =
       Manifest.oracle_signature(%{
@@ -118,34 +134,19 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
       :keep ->
         Mix.shell().info("skip  #{c.id} (unchanged)")
         # prior is non-nil here (decide only returns :keep with a prior entry).
-        {%{prior | authored_sha256: Manifest.authored_sha256(c)}, false}
+        {%{prior | authored_sha256: Manifest.authored_sha256(c)}, false, nil}
 
       :bake ->
         Mix.shell().info("bake  #{c.id}")
-        body = fetch_oracle!(c, sources)
-        img = decode(body)
+        {body, server_header} = fetch_oracle!(c, sources)
         File.write!(path, body)
-        rec = StructureCompare.extract(img, grid)
-
-        case StructureCompare.low_confidence_samples(img, grid) do
-          [] ->
-            :ok
-
-          idx ->
-            Mix.shell().info(
-              "  WARN #{c.id}: low-confidence samples at #{inspect(idx)} — review margin (truecolor?)."
-            )
-        end
 
         {%{
            authored_sha256: Manifest.authored_sha256(c),
            oracle_signature: sig,
            fixture_filename: fixture,
-           fixture_sha256: Manifest.file_sha256(path),
-           dims: rec.dims,
-           bands: rec.bands,
-           cells: rec.cells
-         }, true}
+           fixture_sha256: Manifest.file_sha256(path)
+         }, true, server_header}
     end
   end
 
@@ -170,13 +171,18 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     url = "#{src.hosted_url}?twic=v1/#{c.chain}/#{Constellations.suffix()}"
 
     case Req.get(url, decode_body: false, retry: :transient, max_retries: 3) do
-      {:ok, %{status: 200, body: body}} -> body
-      {:ok, %{status: s}} -> Mix.raise("#{c.id}: TwicPics returned #{s} for #{url}")
-      {:error, e} -> Mix.raise("#{c.id}: #{Exception.message(e)} for #{url}")
+      {:ok, %{status: 200, body: body} = resp} ->
+        # Req lowercases header keys; `server` is a list (e.g. ["TwicPics/1.8.2"]).
+        server = resp.headers["server"] |> List.wrap() |> List.first()
+        {body, server}
+
+      {:ok, %{status: s}} ->
+        Mix.raise("#{c.id}: TwicPics returned #{s} for #{url}")
+
+      {:error, e} ->
+        Mix.raise("#{c.id}: #{Exception.message(e)} for #{url}")
     end
   end
-
-  defp decode(body), do: Image.open!(body, access: :random, fail_on: :error)
 
   # --- sources: reuse recorded hosted URL + verify remote matches committed bytes;
   # upload to catbox only when no hosted URL is recorded. ---
@@ -246,7 +252,16 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     end)
   end
 
-  defp empty_manifest, do: %{twicpics_api: "v1", baked_at: nil, sources: %{}, entries: %{}}
+  defp empty_manifest,
+    do: %{
+      twicpics_api: "v1",
+      baked_at: nil,
+      twicpics_version: nil,
+      pipe_libvips_at_gen: nil,
+      sources: %{},
+      entries: %{}
+    }
+
   defp write_report!(manifest), do: File.write!("#{@base}/REPORT.md", report_md(manifest))
 
   defp report_md(m) do
@@ -254,20 +269,14 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
       m.entries
       |> Enum.sort_by(fn {id, _} -> id end)
       |> Enum.map_join("\n", fn {id, e} ->
-        "| `#{id}` | #{elem(e.dims, 0)}×#{elem(e.dims, 1)} | #{e.bands} | #{cells_glyph(e.cells)} |"
+        "| `#{id}` | #{e.fixture_filename} | #{String.slice(e.fixture_sha256, 0, 12)} |"
       end)
 
-    "# TwicPics differential — bake report\n\nBaked: #{m.baked_at}\n\n" <>
-      "| case | dims | bands | cell-map |\n|---|---|---|---|\n" <> rows <> "\n"
+    "# TwicPics differential — bake report\n\n" <>
+      "Baked: #{m.baked_at} · TwicPics: #{m.twicpics_version} · " <>
+      "libvips (at gen): #{m.pipe_libvips_at_gen}\n\n" <>
+      "| case | fixture | sha256 |\n|---|---|---|\n" <> rows <> "\n"
   end
-
-  defp cells_glyph(cells),
-    do:
-      Enum.map_join(cells, " ", fn
-        {:cell, {c, r}} -> "#{c}#{r}"
-        :padding -> "·"
-        :ambiguous -> "?"
-      end)
 
   defp timestamp, do: DateTime.utc_now() |> DateTime.to_iso8601()
 end
