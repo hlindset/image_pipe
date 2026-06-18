@@ -224,6 +224,43 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
+  # #328: the only guide that reached do_generated_etag under a strong byte
+  # identity before this was :center (the order-invariance test below). A
+  # gravity-derived guide (focal/smart/detect/anchor/carried) exercises the
+  # KeyData.guide_data clauses end-to-end — a missing clause 500s here instead of
+  # staying green. Focal needs no detector, so the 200 body path executes too.
+  test "guide-bearing focal gravity emits an etag on the strong-identity path", %{opts: opts} do
+    conn =
+      ImagePipe.Plug.call(
+        conn(:get, "/_/rt:fill/w:200/h:100/g:fp:0.3:0.7/plain/beach.jpg"),
+        opts
+      )
+
+    assert conn.status == 200
+    assert [etag] = get_resp_header(conn, "etag")
+    assert etag =~ ~r/^"ip1-[A-Za-z0-9_-]+"$/
+  end
+
+  test "TwicPics carried-focus cover emits an etag on the strong-identity path" do
+    opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.TwicPics,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheProbe, test_pid: self()},
+        http_cache: [mode: :enabled]
+      )
+
+    conn =
+      ImagePipe.Plug.call(
+        conn(:get, "/beach.jpg?twic=v1/focus=20x10/cover=100x100"),
+        opts
+      )
+
+    assert conn.status == 200
+    assert [etag] = get_resp_header(conn, "etag")
+    assert etag =~ ~r/^"ip1-[A-Za-z0-9_-]+"$/
+  end
+
   test "transform option order variants produce the same etag", %{opts: opts} do
     left =
       ImagePipe.Plug.call(
