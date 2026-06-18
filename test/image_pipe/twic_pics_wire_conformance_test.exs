@@ -66,6 +66,13 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     assert {4, _} = dimensions(conn)
   end
 
+  test "a JSON exponent folds to the same decoded result as its literal" do
+    exp = call("/images/beach.jpg?twic=v1/resize=2e2/output=jpeg")
+    literal = call("/images/beach.jpg?twic=v1/resize=200/output=jpeg")
+    assert {200, h} = dimensions(exp)
+    assert {200, ^h} = dimensions(literal)
+  end
+
   test "chained relative resize resolves against running dimensions (340 then 50%)" do
     conn = call("/images/beach.jpg?twic=v1/resize=340/resize=50p/output=jpeg")
     assert conn.status == 200

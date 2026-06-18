@@ -198,6 +198,53 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
     end
   end
 
+  describe "JSON exponent notation" do
+    # Live TwicPics accepts a JSON exponent suffix on a number: `[eE][+-]?[0-9]+`
+    # over a well-formed mantissa, folded as mantissa x 10^exp. Probed:
+    # 1e2->100, 1E2->100, (2e1)->20, 1e+2->100, 1.5e2->150, 1e02->100 (leading
+    # zero allowed in the *exponent*), 5e-1=0.5->1, 15e-1=1.5->2, 4e-1=0.4->1.
+    test "accepts an exponent on a bare integer or decimal mantissa" do
+      assert Units.dimension_length("1e2") == {:ok, {:px, 100}}
+      assert Units.dimension_length("1E2") == {:ok, {:px, 100}}
+      assert Units.dimension_length("(2e1)") == {:ok, {:px, 20}}
+      assert Units.dimension_length("1e+2") == {:ok, {:px, 100}}
+      assert Units.dimension_length("1.5e2") == {:ok, {:px, 150}}
+      assert Units.dimension_length("1e02") == {:ok, {:px, 100}}
+    end
+
+    test "a negative exponent stays exact for p/s and rounds/clamps for bare px" do
+      assert Units.dimension_length("5e-1s") == {:ok, {:ratio, 1, 2}}
+      assert Units.dimension_length("15e-1") == {:ok, {:px, 2}}
+      assert Units.dimension_length("4e-1") == {:ok, {:px, 1}}
+    end
+
+    test "exponents work in arithmetic and ratio sides" do
+      assert Units.dimension_length("(1e1*3)") == {:ok, {:px, 30}}
+      assert Units.ratio("1e1:2") == {:ok, {:ratio, 5, 1}}
+    end
+
+    test "extreme exponents fold via exact rationals (deliberate divergence)" do
+      # TwicPics parses numbers into IEEE-754 doubles and 404s overflow/underflow
+      # (`1e309`, `1e-1000`). ImagePipe uses exact rationals by design, so it
+      # accepts any magnitude: an overflow folds to a huge `{:px, n}` (later bound
+      # by downstream dimension limits), an underflow clamps to 1px. Pinned so the
+      # divergence stays intentional — see docs/twicpics_support_matrix.md.
+      assert {:ok, {:px, _huge}} = Units.dimension_length("1e1000")
+      assert Units.dimension_length("1e-1000") == {:ok, {:px, 1}}
+    end
+
+    test "rejects malformed exponents and a zero/leading-zero mantissa" do
+      assert {:error, _} = Units.dimension_length("1e")
+      assert {:error, _} = Units.dimension_length("e2")
+      assert {:error, _} = Units.dimension_length("1e+")
+      assert {:error, _} = Units.dimension_length("1.e2")
+      assert {:error, _} = Units.dimension_length("1e2.5")
+      assert {:error, _} = Units.dimension_length("1ee2")
+      assert {:error, _} = Units.dimension_length("0e2")
+      assert {:error, _} = Units.dimension_length("01e2")
+    end
+  end
+
   describe "arithmetic in ratio sides" do
     test "folds each side to an exact integer ratio" do
       assert Units.ratio("(5*2):3") == {:ok, {:ratio, 10, 3}}

@@ -168,16 +168,46 @@ defmodule ImagePipe.Parser.TwicPics.Units do
   defp take_number(<<c, rest::binary>>, acc) when c in ?0..?9 or c == ?.,
     do: take_number(rest, <<acc::binary, c>>)
 
+  # A JSON exponent suffix begins the moment an `e`/`E` follows the mantissa; the
+  # optional sign and digits belong to this number token (so `1e-2` is one token,
+  # not `1e` minus `2`). Well-formedness is judged by `decimal_to_rational`.
+  defp take_number(<<e, rest::binary>>, acc) when e in [?e, ?E],
+    do: take_exponent(rest, <<acc::binary, e>>)
+
   defp take_number(rest, acc), do: {acc, rest}
 
-  # Decimal literal → exact `{integer, pos_integer}` (`"7.2"` → `{72, 10}`, `"16"`
-  # → `{16, 1}`, `"0.05"` → `{5, 100}`). Follows the JSON number grammar: the
-  # integer part is `0` or a no-leading-zero run, and a dot (if present) needs a
-  # non-empty fraction. Rejects `.5`, `5.`, `00.5`, `01`, and multi-dot `1.2.3` —
-  # live TwicPics 404s them. (Exponents like `1e2` are a separate, currently
-  # unsupported grammar; the tokenizer never produces an `e`.)
+  defp take_exponent(<<s, rest::binary>>, acc) when s in [?+, ?-],
+    do: take_exponent_digits(rest, <<acc::binary, s>>)
+
+  defp take_exponent(rest, acc), do: take_exponent_digits(rest, acc)
+
+  defp take_exponent_digits(<<d, rest::binary>>, acc) when d in ?0..?9,
+    do: take_exponent_digits(rest, <<acc::binary, d>>)
+
+  defp take_exponent_digits(rest, acc), do: {acc, rest}
+
+  # JSON number literal → exact `{integer, pos_integer}` (`"7.2"` → `{72, 10}`,
+  # `"16"` → `{16, 1}`, `"0.05"` → `{5, 100}`, `"1e2"` → `{100, 1}`, `"5e-1"` →
+  # `{5, 10}`). The mantissa follows the JSON grammar: the integer part is `0` or
+  # a no-leading-zero run, and a dot (if present) needs a non-empty fraction. An
+  # optional `[eE][+-]?[0-9]+` exponent folds in as `mantissa × 10^exp` (the
+  # exponent may carry a leading zero — `1e02` = `1e2`). Rejects `.5`, `5.`,
+  # `00.5`, `01`, multi-dot `1.2.3`, and a malformed/empty exponent — live
+  # TwicPics 404s them.
   defp decimal_to_rational(literal) do
-    case String.split(literal, ".") do
+    case String.split(literal, ["e", "E"], parts: 2) do
+      [mantissa] ->
+        mantissa_rational(mantissa)
+
+      [mantissa, exponent] ->
+        with {:ok, rational} <- mantissa_rational(mantissa),
+             {:ok, exp} <- exponent_value(exponent),
+             do: {:ok, apply_exponent(rational, exp)}
+    end
+  end
+
+  defp mantissa_rational(mantissa) do
+    case String.split(mantissa, ".") do
       [whole] ->
         with :ok <- valid_int_part(whole), do: scaled_rational(whole, "")
 
@@ -190,6 +220,24 @@ defmodule ImagePipe.Parser.TwicPics.Units do
         :error
     end
   end
+
+  # `[+-]?` then one or more digits (leading zeros allowed). Empty / sign-only
+  # rejects (`1e`, `1e+`).
+  defp exponent_value("+" <> digits), do: exponent_digits(digits)
+  defp exponent_value("-" <> digits), do: with({:ok, n} <- exponent_digits(digits), do: {:ok, -n})
+  defp exponent_value(digits), do: exponent_digits(digits)
+
+  defp exponent_digits(""), do: :error
+
+  defp exponent_digits(digits) do
+    case Integer.parse(digits) do
+      {n, ""} -> {:ok, n}
+      _ -> :error
+    end
+  end
+
+  defp apply_exponent({n, d}, exp) when exp >= 0, do: {n * Integer.pow(10, exp), d}
+  defp apply_exponent({n, d}, exp), do: {n, d * Integer.pow(10, -exp)}
 
   # Tokenizer guarantees digit-only parts; these enforce the JSON shape on top.
   defp valid_int_part("0"), do: :ok
