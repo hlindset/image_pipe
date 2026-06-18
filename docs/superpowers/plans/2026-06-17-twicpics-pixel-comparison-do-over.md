@@ -2,7 +2,7 @@
 
 > **For agentic workers:** execute with superpowers:subagent-driven-development, fresh subagent per task, two-stage review. Steps use `- [ ]` checkboxes.
 
-**Status:** approved by user 2026-06-17, paused for context compaction before execution. Resume by reading this file.
+**Status:** COMPLETED 2026-06-18 (commits `0bd630cc`..`632e111b`). All tasks done, full gate green (2378 passed, 11 excluded), final whole-implementation review passed. Cell-map deleted; suite is pixel-comparison on the shared `Differential.{PixelCompare,ReportUI}` machinery.
 
 **Branch/PR:** `feat/twicpics-structural-differential` → [PR #330](https://github.com/hlindset/image_pipe/pull/330) (open, green, not merged). This do-over lands on the SAME branch (greenfield, unmerged — replace in place, no back-compat).
 
