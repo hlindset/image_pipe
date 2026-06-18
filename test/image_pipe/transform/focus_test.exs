@@ -266,19 +266,17 @@ defmodule ImagePipe.Transform.FocusTest do
       assert byte_size(lb) == byte_size(rb),
              "#{context}: band layout mismatch #{byte_size(lb)} != #{byte_size(rb)}"
 
-      if lb != rb do
-        bands = div(byte_size(lb), w * h)
+      if lb != rb,
+        do: flunk("#{context}: pixel mismatch at #{inspect(first_pixel_mismatch(lb, rb, w, h))}")
+    end
 
-        {x, y} =
-          Enum.find_value(for(y <- 0..(h - 1), x <- 0..(w - 1), do: {x, y}), fn {x, y} ->
-            offset = (y * w + x) * bands
+    defp first_pixel_mismatch(lb, rb, w, h) do
+      bands = div(byte_size(lb), w * h)
 
-            if :binary.part(lb, offset, bands) != :binary.part(rb, offset, bands),
-              do: {x, y}
-          end)
-
-        flunk("#{context}: pixel mismatch at (#{x},#{y})")
-      end
+      Enum.find(for(y <- 0..(h - 1), x <- 0..(w - 1), do: {x, y}), fn {x, y} ->
+        offset = (y * w + x) * bands
+        :binary.part(lb, offset, bands) != :binary.part(rb, offset, bands)
+      end)
     end
 
     test "carried (nil focus) == center across axis-reversing orientations and odd extents" do
