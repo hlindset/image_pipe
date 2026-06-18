@@ -20,4 +20,12 @@ defmodule ImagePipe.Parser.TwicPics.ManipulationTest do
   test "ignores empty segments from stray slashes" do
     assert {:ok, [{"resize", "10"}]} = Manipulation.parse("v1/resize=10/")
   end
+
+  test "does not split on a `/` inside a parenthesized expression (#325)" do
+    assert Manipulation.parse("v1/resize=(700/2)/output=png") ==
+             {:ok, [{"resize", "(700/2)"}, {"output", "png"}]}
+
+    assert Manipulation.parse("v1/crop=(100/(4/2))x50/output=png") ==
+             {:ok, [{"crop", "(100/(4/2))x50"}, {"output", "png"}]}
+  end
 end

@@ -150,7 +150,15 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       # [150,350]), different pre-region focus → the trailing window lands on a different
       # cell boundary. A focus-reset (the prior model) would center both identically.
       c("crop_region_carry_far", "focus=300x300/crop=200x200@150x150/crop=80x80", :crop),
-      c("crop_region_carry_near", "focus=150x150/crop=200x200@150x150/crop=80x80", :crop)
+      c("crop_region_carry_near", "focus=150x150/crop=200x200@150x150/crop=80x80", :crop),
+      # --- number: parenthesized arithmetic folds to the same render as its literal,
+      # rounds bare-pixel results half away from zero, and clamps a sub-1 dimension to 1
+      # (#325). Confirmed live: (300/2)x(50*2)=150x100, (100/(4/2))=50, (7/2)→4, (1/4)→1.
+      # A `/` inside the parens is division, not a chain separator. ---
+      c("number_fold_asymmetric", "resize=(300/2)x(50*2)", :number),
+      c("number_nested_chain_safe", "resize=(100/(4/2))", :number),
+      c("number_round_half_up", "resize=(7/2)", :number),
+      c("number_clamp_to_one", "resize=(1/4)", :number)
     ]
   end
 

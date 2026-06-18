@@ -152,13 +152,13 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 
 | TwicPics type | Status | Notes |
 | --- | --- | --- |
-| Length (px / `p` percent / `s` scale) | ✅ Supported | `{:px, n}` (bare number = pixels); `p`/`s` convert to an exact `{:ratio, n, d}`. Dimensions are strictly positive; coordinates are zero-based. |
+| Length (px / `p` percent / `s` scale) | ✅ Supported | `{:px, n}` (bare number = pixels); `p`/`s` convert to an exact `{:ratio, n, d}`. Dimensions are strictly positive; coordinates are zero-based. A bare-pixel value is absolute, so a fractional result rounds at parse time half away from zero — matching live TwicPics (`(7/2)` → 4px, `7.2` → 7px, `2.5` → 3px). The sign/zero rule is checked against the *exact* value (an exact `0` or negative is rejected), then a rounded dimension is clamped to ≥ 1 — so a strictly-positive value that rounds down to zero (`(1/4)` = 0.25 → 1px) is kept, not rejected. Positions round the same way but allow `0` and apply no clamp. `p`/`s` stay exact (resolved against the running axis at execution, where the shared transform layer rounds). |
 | Size (`WxH`, `-` auto) | ✅ Supported | One dimension may be `-` for auto. Mixed units allowed. |
-| Ratio (`W:H`) | ✅ Supported | Two strictly-positive numbers, integer or decimal (e.g. `16:9`, `1.5:2`), reduced to an integer `{:ratio, n, d}` via exact string-based scaling. |
+| Ratio (`W:H`) | ✅ Supported | Two strictly-positive numbers — integer, decimal, or expression (e.g. `16:9`, `1.5:2`, `(5*2):3`) — folded to an exact integer `{:ratio, n, d}` (no pixel rounding; a ratio is already exact). |
 | Coordinates (`XxY`) | ✅ Supported | Two zero-based Lengths; used for the `crop=…@XxY` origin (pixel **or** relative `p` / `s` coords → `CropRegion`, resolved against the running image) and for relative-unit `focus` (→ `{:focal}` guide; bare-pixel coordinate focus deferred). |
 | Anchor (8 named positions) | ✅ Supported | `top`, `bottom`, `left`, `right`, four corners → Plan guides. No `center` anchor — `center` is the default focus only. |
 | Crop size | ✅ Supported | Distinct from Size: omitted dim / `-` means `1s` = full running axis (`:full_axis`), **not** aspect-preserving auto. `crop=320` ≡ `320x-` ≡ `320x1s`. |
-| Number with expressions `(1/3)`, `+ - * /` | 🚫 Rejected | Arithmetic engine deferred; only decimal literals in v1. |
+| Number with expressions `(1/3)`, `+ - * /` | ✅ Supported | A `number` is a decimal literal **or** a fully *parenthesized* expression over `+ - * /` with nesting and normal precedence (`(1/3)`, `(5*(7+2)/3)`, `(100/(4/2))`). Constant-folds to an exact rational at parse time. A bare top-level operator (`5*3`) is rejected — live TwicPics 404s it; only `(5*3)` is accepted. The outer-paren requirement lets the chain splitter treat a top-level `/` as a segment separator and an in-paren `/` as division. Applies to every numeric leaf (length, size, coordinates, crop size, ratio). |
 | Color (names / hex / rgb / hsl / alpha) | 🚫 Rejected | Used by color chaining; deferred. |
 | Angle (number / named) | 🚫 Rejected | Used by `turn`; deferred. |
 | Axis (`x` / `y` / `both`) | 🚫 Rejected | Used by `flip`; deferred. |

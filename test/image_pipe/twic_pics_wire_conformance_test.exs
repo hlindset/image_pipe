@@ -53,6 +53,19 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     assert {340, _} = dimensions(conn)
   end
 
+  test "parenthesized arithmetic folds to the same decoded result as its literal (#325)" do
+    folded = call("/images/beach.jpg?twic=v1/resize=(700/2)/output=jpeg")
+    literal = call("/images/beach.jpg?twic=v1/resize=350/output=jpeg")
+    assert {350, h} = dimensions(folded)
+    assert {350, ^h} = dimensions(literal)
+  end
+
+  test "a fractional bare-pixel resize rounds the decoded width (#325)" do
+    # (7/2) = 3.5 -> 4px, matching the live TwicPics round-half-up behavior.
+    conn = call("/images/beach.jpg?twic=v1/resize=(7/2)/output=jpeg")
+    assert {4, _} = dimensions(conn)
+  end
+
   test "chained relative resize resolves against running dimensions (340 then 50%)" do
     conn = call("/images/beach.jpg?twic=v1/resize=340/resize=50p/output=jpeg")
     assert conn.status == 200

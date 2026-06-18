@@ -1,6 +1,6 @@
 %{
   twicpics_api: "v1",
-  baked_at: "2026-06-18T20:00:00.032537Z",
+  baked_at: "2026-06-18T21:34:27.062202Z",
   twicpics_version: "1.8.2",
   pipe_libvips_at_gen: "8.18.2",
   sources: %{
@@ -189,6 +189,30 @@
       fixture_filename: "inside_wide_lr.png",
       fixture_sha256: "1b188ccf76f4c096195e19e7782078b75b913ab869a54f5587fd132e0c34bcc2",
       oracle_signature: "6218dc8ceb42a1372c992193c99ad684adb6a1fb88c236f9a3015fcce68ea675"
+    },
+    "number_clamp_to_one" => %{
+      authored_sha256: "a4e8785197bbba9fbe700b32efdc3139c3f99da9c45755f77ca369ce602c99f1",
+      fixture_filename: "number_clamp_to_one.png",
+      fixture_sha256: "c2f2e90ad979899c67884b279685e8c2709a2092ecd0ac7e34f161352561fabb",
+      oracle_signature: "c23d855de578529b95725d1e37c564bf4137327209c8e45d757b9ae93a61131e"
+    },
+    "number_fold_asymmetric" => %{
+      authored_sha256: "104b92fe440c7a7a73de41b932ceb2515b4afe9494cc99ba0db3c76f0d79566a",
+      fixture_filename: "number_fold_asymmetric.png",
+      fixture_sha256: "9c7e0da699f37126471e8ef7f7ac369cb16c94d20aaaf4a48cb21ed08c8b2201",
+      oracle_signature: "1eb556bf0cf30046baab4baa1c5616161efe01d28a565df5a94c790402837e70"
+    },
+    "number_nested_chain_safe" => %{
+      authored_sha256: "8a47d14c25c128e1f49c0c0b34f63cace4cfd254e1e381aaafaae43c3e0510f0",
+      fixture_filename: "number_nested_chain_safe.png",
+      fixture_sha256: "16c5ad014914239f6222d384d740db0e866ce93f71648b360597e18c4106f630",
+      oracle_signature: "38a4d49313d876bb4cda6b6dc2d75016158f7f4b5b1ea8159a11ede098a7115e"
+    },
+    "number_round_half_up" => %{
+      authored_sha256: "c104d7369135f50bc03d2ed6f2e32139099eb22edbfd1226f1053f19470fbe5c",
+      fixture_filename: "number_round_half_up.png",
+      fixture_sha256: "b4029456b781bc6336db5843f03e0932d31848514276d3b871cc906dd0e81ea8",
+      oracle_signature: "c2d927adcd42750147a94f30139b4348d1991034089371aab0bd77dcee661d90"
     }
   }
 }

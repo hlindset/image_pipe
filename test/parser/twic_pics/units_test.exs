@@ -97,6 +97,90 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
     end
   end
 
+  describe "parenthesized arithmetic in numbers" do
+    test "constant folding to an exact pixel measure" do
+      assert Units.dimension_length("(100/2)") == {:ok, {:px, 50}}
+      assert Units.dimension_length("(700/2)") == {:ok, {:px, 350}}
+    end
+
+    test "nesting and operator precedence (expression must be parenthesized)" do
+      assert Units.dimension_length("(100/(4/2))") == {:ok, {:px, 50}}
+      assert Units.dimension_length("(5*(7+2)/3)") == {:ok, {:px, 15}}
+    end
+
+    test "a bare top-level operator is rejected (TwicPics requires outer parens)" do
+      # Live TwicPics 404s `resize=5*3`; only `(5*3)` is accepted.
+      assert {:error, _} = Units.dimension_length("5*3")
+      assert {:error, _} = Units.dimension_length("2+3")
+      assert {:error, _} = Units.dimension_length("10-3")
+      assert Units.dimension_length("(5*3)") == {:ok, {:px, 15}}
+    end
+
+    test "arithmetic feeds the relative-unit path exactly (no float rounding)" do
+      assert Units.dimension_length("(1/2)s") == {:ok, {:ratio, 1, 2}}
+      assert Units.dimension_length("(1/3)s") == {:ok, {:ratio, 1, 3}}
+      assert Units.dimension_length("(1/3)p") == {:ok, {:ratio, 1, 300}}
+      assert Units.dimension_length("(100/2)p") == {:ok, {:ratio, 1, 2}}
+    end
+
+    test "unary plus inside parens is identity (TwicPics accepts it)" do
+      # Live TwicPics: (+5)->5, (2*+3)->6, (1++2)->3 ; symmetric to unary minus.
+      assert Units.dimension_length("(+5)") == {:ok, {:px, 5}}
+      assert Units.dimension_length("(2*+3)") == {:ok, {:px, 6}}
+      assert Units.dimension_length("(1++2)") == {:ok, {:px, 3}}
+    end
+
+    test "rejects malformed and division by zero" do
+      assert {:error, _} = Units.dimension_length("(1/0)")
+      assert {:error, _} = Units.dimension_length("()")
+      assert {:error, _} = Units.dimension_length("(1+)")
+      assert {:error, _} = Units.dimension_length("(1/2")
+      assert {:error, _} = Units.dimension_length("1++2")
+    end
+  end
+
+  describe "bare-pixel fractional results round like TwicPics" do
+    # Empirically verified against the live hosted TwicPics API: it rounds bare
+    # pixel results half away from zero and clamps dimensions to >= 1.
+    test "round half away from zero" do
+      assert Units.dimension_length("(7/2)") == {:ok, {:px, 4}}
+      assert Units.dimension_length("7.2") == {:ok, {:px, 7}}
+      assert Units.dimension_length("2.5") == {:ok, {:px, 3}}
+      assert Units.dimension_length("200.4") == {:ok, {:px, 200}}
+      assert Units.dimension_length("200.5") == {:ok, {:px, 201}}
+      assert Units.dimension_length("201.5") == {:ok, {:px, 202}}
+    end
+
+    test "strictly-positive value that rounds down to zero clamps to 1 (dimension)" do
+      assert Units.dimension_length("(1/4)") == {:ok, {:px, 1}}
+      assert Units.dimension_length("0.4") == {:ok, {:px, 1}}
+    end
+
+    test "exact zero / negative value is rejected (dimension), not clamped" do
+      assert {:error, _} = Units.dimension_length("(2-2)")
+      assert {:error, _} = Units.dimension_length("(1-2)")
+    end
+
+    test "positions round but allow zero and apply no >= 1 clamp" do
+      assert Units.position_length("(2-2)") == {:ok, {:px, 0}}
+      assert Units.position_length("0.4") == {:ok, {:px, 0}}
+      assert Units.position_length("(7/2)") == {:ok, {:px, 4}}
+      assert {:error, _} = Units.position_length("(1-2)")
+    end
+  end
+
+  describe "arithmetic in ratio sides" do
+    test "folds each side to an exact integer ratio" do
+      assert Units.ratio("(5*2):3") == {:ok, {:ratio, 10, 3}}
+      assert Units.ratio("(16):9") == {:ok, {:ratio, 16, 9}}
+      assert Units.ratio("(3/2):2") == {:ok, {:ratio, 3, 4}}
+    end
+
+    test "rejects a non-positive folded side" do
+      assert {:error, _} = Units.ratio("(2-2):9")
+    end
+  end
+
   describe "anchor/1" do
     test "the eight anchors map to plan guides" do
       assert Units.anchor("top-left") == {:ok, {:anchor, :left, :top}}
