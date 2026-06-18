@@ -173,7 +173,15 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     case Req.get(url, decode_body: false, retry: :transient, max_retries: 3) do
       {:ok, %{status: 200, body: body} = resp} ->
         # Req lowercases header keys; `server` is a list (e.g. ["TwicPics/1.8.2"]).
-        server = resp.headers["server"] |> List.wrap() |> List.first()
+        # Store the bare version (strip the "TwicPics/" product prefix) so the
+        # recorded `twicpics_version` matches the committed value and a re-bake
+        # doesn't churn it.
+        server =
+          case resp.headers["server"] |> List.wrap() |> List.first() do
+            nil -> nil
+            s -> String.replace_prefix(s, "TwicPics/", "")
+          end
+
         {body, server}
 
       {:ok, %{status: s}} ->
