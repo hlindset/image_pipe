@@ -18,6 +18,16 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Resize{mode: :stretch, width: {:px, 100}, height: {:px, 50}} = r2
   end
 
+  test "a folded arithmetic length builds the same plan as its literal equivalent (#325)" do
+    assert build([{"resize", "(100/2)"}]) == build([{"resize", "50"}])
+    assert build([{"resize", "(700/2)x(300/3)"}]) == build([{"resize", "350x100"}])
+  end
+
+  test "a fractional bare-pixel length rounds into the plan (#325)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [r]}]}} = build([{"resize", "(7/2)"}])
+    assert %Operation.Resize{mode: :fit, width: {:px, 4}, height: :auto} = r
+  end
+
   test "relative-unit resize is emitted as one op per segment (no static collapse)" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [a, b]}]}} =
              build([{"resize", "340"}, {"resize", "50p"}])
