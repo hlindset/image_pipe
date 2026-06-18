@@ -87,7 +87,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
         triage: %{
           reason:
             "placement divergence (~Δ43): bottom-right gravity on the 2:3 cover-ratio crop positions the window off TwicPics. Cover-ratio gravity math needs investigation.",
-          issue: 323
+          issue: 331
         }
       ),
       # --- focus carry-through: identical focus, resize before vs after → different cell ---
@@ -102,13 +102,13 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("cover_tall", "cover=100x300", :cover),
       c("cover_square_dimspin", "cover=200x200", :cover),
       c("cover_ratio_wide", "cover=16:9", :cover),
-      # QUARANTINED (#323): pixel divergence on the centered 2:3 cover crop. The other
+      # QUARANTINED (#331): pixel divergence on the centered 2:3 cover crop. The other
       # ratio direction (cover_ratio_wide) is pixel-identical and stays live.
       c("cover_ratio_tall", "cover=2:3", :cover,
         triage: %{
           reason:
             "pixel divergence (~Δ92): centered 2:3 cover crop differs from TwicPics by more than resampling skew — crop-centering offset math.",
-          issue: 323
+          issue: 331
         }
       ),
       # --- contain: fits inside box, may be smaller, no pad (wide/tall discriminate) ---
@@ -125,16 +125,16 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("crop_region_origin", "crop=160x160@40x40", :crop),
       # region@coords RESETS focus to the crop centre (source ~(280,280)), so the
       # trailing guided crop reads near that point despite the earlier focus=0x0.
-      # QUARANTINED (#323): genuine placement divergence. The reset itself works in
+      # QUARANTINED (#331): genuine placement divergence. The reset itself works in
       # ImagePipe (the final crop lands near (2,2), not the prior focus=0x0), but
       # ImagePipe's trailing guided crop=80x80 window sits ~half a cell further toward
       # (3,3) than TwicPics. The exact crop@coords-reset → guided-crop positioning
-      # diverges; needs investigation (separate from #323's suite-build scope).
+      # diverges; needs investigation.
       c("crop_region_reset", "focus=0x0/crop=160x160@200x200/crop=80x80", :crop,
         triage: %{
           reason:
             "pixel divergence (~Δ85): crop@coords focus-reset + trailing guided crop=80x80 positions ~half a cell toward (3,3) vs TwicPics' (2,2). Reset works; exact positioning differs.",
-          issue: 323
+          issue: 331
         }
       ),
       # …and this contrast case (same focus=0x0, guided crop, no region reset) must

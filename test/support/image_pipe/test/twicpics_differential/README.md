@@ -190,7 +190,7 @@ require a manifest reauthor. The bake still fetches oracle output for triaged ca
 is quarantined).
 
 **Current quarantined cases (3)**, all pixel divergences tracked under
-[#323](https://github.com/hlindset/image_pipe/issues/323):
+[#331](https://github.com/hlindset/image_pipe/issues/331):
 
 - `focus_bottomright_cover_ratio` — placement divergence (~Δ43): bottom-right gravity
   on the 2:3 cover-ratio crop positions the window off TwicPics; the cover-ratio

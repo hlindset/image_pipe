@@ -189,7 +189,7 @@ access.
   tolerance budget (minor cross-version resampling skew absorbed).
 - Quarantined cases (`@tag :twicpics_triage`) are excluded by default; they record
   known placement divergences under investigation (3, all under
-  [#323](https://github.com/hlindset/image_pipe/issues/323)).
+  [#331](https://github.com/hlindset/image_pipe/issues/331)).
 
 Any placement divergence surfaced by the suite and deliberately modelled as a
 permanent difference should be documented here with a "Diverges" note in the relevant
