@@ -23,6 +23,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Duotone, as: PlanDuotone
   alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
+  alias ImagePipe.Plan.Operation.Gradient, as: PlanGradient
   alias ImagePipe.Plan.Operation.Gray, as: PlanGray
   alias ImagePipe.Plan.Operation.Monochrome, as: PlanMonochrome
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
@@ -48,6 +49,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
+  alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
   alias ImagePipe.Transform.Operation.Monochrome
   alias ImagePipe.Transform.Operation.Padding
@@ -282,14 +284,17 @@ defmodule ImagePipe.Transform.PlanExecutor do
     end
   end
 
-  # Padding (imgproxy stage 12) and pixelate (applyFilters, stage 9) both run
-  # AFTER rotateAndFlip (stage 7), i.e. in the display frame. ImagePipe defers
-  # orientation, so when one of these runs with an orientation still pending —
-  # the resize-less path, since any resize would already have flushed — flush
-  # first so the op decides in the display frame: padding lands on display sides,
-  # and pixelate's block grid aligns to the display edges (partial edge blocks at
-  # a non-multiple size otherwise land on the rotated edge). An identity pending
-  # is cleared without materializing (streaming fast path preserved).
+  # Padding (imgproxy stage 12), pixelate (applyFilters, stage 9), and gradient
+  # (applyFilters, stage 9) all run AFTER rotateAndFlip (stage 7), i.e. in the
+  # display frame. ImagePipe defers orientation, so when one of these runs with an
+  # orientation still pending — the resize-less path, since any resize would already
+  # have flushed — flush first so the op decides in the display frame: padding lands
+  # on display sides, pixelate's block grid aligns to the display edges (partial
+  # edge blocks at a non-multiple size otherwise land on the rotated edge), and the
+  # gradient's directional ramp runs along the display axes (its dark end otherwise
+  # lands on a storage edge). An identity pending is cleared without materializing
+  # (streaming fast path preserved). colorize is uniform and commutes with
+  # orientation, so it needs no such clause.
   defp execute_operation(
          %PlanPadding{} = operation,
          %State{pending_orientation: po} = state,
@@ -304,6 +309,18 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp execute_operation(
          %PlanPixelate{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    with {:ok, %State{} = state} <- flush_if_pending(state) do
+      run_executable(operation, state, ctx, opts)
+    end
+  end
+
+  defp execute_operation(
+         %PlanGradient{} = operation,
          %State{pending_orientation: po} = state,
          ctx,
          opts
@@ -698,6 +715,18 @@ defmodule ImagePipe.Transform.PlanExecutor do
         opacity: tagged_ratio_to_float(operation.opacity),
         color: Color.to_rgb_list(operation.color),
         keep_alpha: operation.keep_alpha
+      }
+    ]
+  end
+
+  defp executable_operations(%PlanGradient{} = operation, %State{}, _context) do
+    [
+      %Gradient{
+        opacity: tagged_ratio_to_float(operation.opacity),
+        color: Color.to_rgb_list(operation.color),
+        angle: operation.angle,
+        start: operation.start,
+        stop: operation.stop
       }
     ]
   end

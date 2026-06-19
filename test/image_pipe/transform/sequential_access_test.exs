@@ -13,6 +13,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
+  alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
   alias ImagePipe.Transform.Operation.Monochrome
   alias ImagePipe.Transform.Operation.Padding
@@ -158,6 +159,13 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   test "colorize streams" do
     assert_sequential_matches_random(
       [%Colorize{opacity: 0.5, color: [0, 0, 0], keep_alpha: false}],
+      File.read!(@beach)
+    )
+  end
+
+  test "gradient streams" do
+    assert_sequential_matches_random(
+      [%Gradient{opacity: 1.0, color: [0, 0, 0], angle: 0.0, start: 0.0, stop: 1.0}],
       File.read!(@beach)
     )
   end
