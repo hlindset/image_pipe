@@ -572,8 +572,8 @@ defmodule ImagePipe.Plan.OperationTest do
                 }}
 
       assert Operation.brightness(20) == {:ok, %Brightness{value: 20}}
-      assert Operation.contrast(-15) == {:ok, %Contrast{value: -15}}
-      assert Operation.saturation(35) == {:ok, %Saturation{value: 35}}
+      assert Operation.contrast(1.5) == {:ok, %Contrast{value: 1.5}}
+      assert Operation.saturation(1.5) == {:ok, %Saturation{value: 1.5}}
 
       assert Operation.semantic?(%Blur{sigma: 2.5})
       assert Operation.semantic?(%Sharpen{sigma: 0.7})
@@ -587,8 +587,8 @@ defmodule ImagePipe.Plan.OperationTest do
              })
 
       assert Operation.semantic?(%Brightness{value: 20})
-      assert Operation.semantic?(%Contrast{value: -15})
-      assert Operation.semantic?(%Saturation{value: 35})
+      assert Operation.semantic?(%Contrast{value: 1.5})
+      assert Operation.semantic?(%Saturation{value: 1.5})
     end
 
     test "colorize/3 validates opacity ratio, color, keep_alpha" do
@@ -599,12 +599,6 @@ defmodule ImagePipe.Plan.OperationTest do
 
       assert {:error, _} = Operation.colorize({:ratio, 0, 1}, color, false)
       assert {:error, _} = Operation.colorize({:ratio, 1, 2}, :not_a_color, false)
-    end
-
-    test "canonicalizes equivalent adjustment values" do
-      assert Operation.brightness(20) == Operation.brightness(20.0)
-      assert Operation.contrast(-15) == Operation.contrast(-15.0)
-      assert Operation.saturation(35) == Operation.saturation(35.0)
     end
 
     test "rejects non-positive effect values" do
@@ -623,13 +617,16 @@ defmodule ImagePipe.Plan.OperationTest do
     end
 
     test "rejects out-of-range adjustment values" do
-      assert Operation.brightness(101) == {:error, {:invalid_operation, :brightness, [101]}}
-      assert Operation.contrast(-101) == {:error, {:invalid_operation, :contrast, [-101]}}
-      assert Operation.saturation(101) == {:error, {:invalid_operation, :saturation, [101]}}
+      assert Operation.brightness(256) == {:error, {:invalid_operation, :brightness, [256]}}
+      assert Operation.brightness(-256) == {:error, {:invalid_operation, :brightness, [-256]}}
+      assert Operation.contrast(0) == {:error, {:invalid_operation, :contrast, [0]}}
+      assert Operation.contrast(-1.5) == {:error, {:invalid_operation, :contrast, [-1.5]}}
+      assert Operation.saturation(0) == {:error, {:invalid_operation, :saturation, [0]}}
+      assert Operation.saturation(-1.5) == {:error, {:invalid_operation, :saturation, [-1.5]}}
 
-      refute Operation.semantic?(%Brightness{value: 101})
-      refute Operation.semantic?(%Contrast{value: -101})
-      refute Operation.semantic?(%Saturation{value: 101})
+      refute Operation.semantic?(%Brightness{value: 256})
+      refute Operation.semantic?(%Contrast{value: 0})
+      refute Operation.semantic?(%Saturation{value: -1.5})
     end
   end
 end

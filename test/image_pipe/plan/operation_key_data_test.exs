@@ -243,8 +243,8 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
              ]
 
       assert KeyData.data(%Brightness{value: 20}) == [op: :brightness, value: 20]
-      assert KeyData.data(%Contrast{value: -15}) == [op: :contrast, value: -15]
-      assert KeyData.data(%Saturation{value: 35}) == [op: :saturation, value: 35]
+      assert KeyData.data(%Contrast{value: 1.5}) == [op: :contrast, value: 1.5]
+      assert KeyData.data(%Saturation{value: 1.5}) == [op: :saturation, value: 1.5]
     end
 
     test "returns key data for colorize covering opacity, color, and keep_alpha" do
@@ -267,13 +267,6 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       refute KeyData.data(base) == KeyData.data(different_opacity)
       refute KeyData.data(base) == KeyData.data(different_color)
       refute KeyData.data(base) == KeyData.data(different_keep_alpha)
-    end
-
-    test "returns identical key data for equivalent adjustment values" do
-      assert {:ok, integer_brightness} = Operation.brightness(20)
-      assert {:ok, float_brightness} = Operation.brightness(20.0)
-
-      assert KeyData.data(integer_brightness) == KeyData.data(float_brightness)
     end
   end
 
