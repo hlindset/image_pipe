@@ -884,8 +884,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       "/_/mc:1:ffcc00/f:png/plain/images/effects.png",
       "/_/dt:1:112233:ffeecc/f:png/plain/images/effects.png",
       "/_/br:25/f:png/plain/images/effects.png",
-      "/_/co:10/f:png/plain/images/effects.png",
-      "/_/sa:-30/f:png/plain/images/effects.png"
+      "/_/co:1.5/f:png/plain/images/effects.png",
+      "/_/sa:0.4/f:png/plain/images/effects.png"
     ]
 
     for path <- cases do
