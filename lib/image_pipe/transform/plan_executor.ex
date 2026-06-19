@@ -17,6 +17,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Blur, as: PlanBlur
   alias ImagePipe.Plan.Operation.Brightness, as: PlanBrightness
   alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Colorize, as: PlanColorize
   alias ImagePipe.Plan.Operation.Contrast, as: PlanContrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
@@ -42,6 +43,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Bitonal
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Brightness
+  alias ImagePipe.Transform.Operation.Colorize
   alias ImagePipe.Transform.Operation.Contrast
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
@@ -689,6 +691,16 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp executable_operations(%PlanSaturation{value: value}, %State{}, _context),
     do: [%Saturation{value: value}]
+
+  defp executable_operations(%PlanColorize{} = operation, %State{}, _context) do
+    [
+      %Colorize{
+        opacity: tagged_ratio_to_float(operation.opacity),
+        color: Color.to_rgb_list(operation.color),
+        keep_alpha: operation.keep_alpha
+      }
+    ]
+  end
 
   defp executable_operations(%PlanTrim{} = operation, %State{}, _context),
     do: [

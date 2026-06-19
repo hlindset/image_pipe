@@ -27,6 +27,7 @@ defmodule ImagePipe.Plan do
       Operation.Blur,
       Operation.Brightness,
       Operation.Canvas,
+      Operation.Colorize,
       Operation.Contrast,
       Operation.CropGuided,
       Operation.CropRegion,

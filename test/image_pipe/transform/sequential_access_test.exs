@@ -8,6 +8,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Bitonal
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Brightness
+  alias ImagePipe.Transform.Operation.Colorize
   alias ImagePipe.Transform.Operation.Contrast
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
@@ -152,6 +153,13 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   test "saturation streams" do
     assert_sequential_matches_random([%Saturation{value: 1.5}], File.read!(@beach))
+  end
+
+  test "colorize streams" do
+    assert_sequential_matches_random(
+      [%Colorize{opacity: 0.5, color: [0, 0, 0], keep_alpha: false}],
+      File.read!(@beach)
+    )
   end
 
   test "gray streams" do
