@@ -531,6 +531,10 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_duotone(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["colorize", "col"] do
+    parse_colorize(args, segment)
+  end
+
   defp parse_special_option(name, args, segment) when name in ["trim", "t"] do
     parse_trim(args, segment)
   end
@@ -677,6 +681,39 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     with {:ok, color} <- Color.rgb_hex(value) do
       {:ok, [{field, color}]}
     end
+  end
+
+  defp parse_colorize([opacity], _segment) when opacity != "" do
+    with {:ok, opacity} <- parse_intensity(opacity), do: {:ok, [colorize: [opacity: opacity]]}
+  end
+
+  defp parse_colorize([opacity, color], segment) when opacity != "" do
+    parse_colorize([opacity, color, ""], segment)
+  end
+
+  defp parse_colorize([opacity, color, keep_alpha], _segment) when opacity != "" do
+    with {:ok, opacity} <- parse_intensity(opacity),
+         {:ok, color_assignments} <- parse_optional_colorize_color(color),
+         {:ok, keep_assignments} <- parse_optional_keep_alpha(keep_alpha) do
+      {:ok, [colorize: [opacity: opacity] ++ color_assignments ++ keep_assignments]}
+    else
+      {:error, {:invalid_color, _}} -> {:error, {:invalid_colorize, color}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_colorize(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_optional_colorize_color(""), do: {:ok, []}
+
+  defp parse_optional_colorize_color(value) do
+    with {:ok, color} <- Color.rgb_hex(value), do: {:ok, [color: color]}
+  end
+
+  defp parse_optional_keep_alpha(""), do: {:ok, []}
+
+  defp parse_optional_keep_alpha(value) do
+    with {:ok, bool} <- parse_boolean(value), do: {:ok, [keep_alpha: bool]}
   end
 
   defp parse_scale_factor(value) do

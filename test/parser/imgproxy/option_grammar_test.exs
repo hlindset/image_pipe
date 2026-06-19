@@ -350,6 +350,18 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
              {:error, {:invalid_duotone, ["ffffff", "zzzzzz"]}}
   end
 
+  test "colorize parses opacity, optional color, optional keep_alpha" do
+    assert OptionGrammar.parse("col:0.5") ==
+             {:ok, {:pipeline, [colorize: [opacity: {:ratio, 5, 10}]]}}
+
+    assert OptionGrammar.parse("colorize:1:ff0000:1") ==
+             {:ok,
+              {:pipeline,
+               [colorize: [opacity: {:ratio, 1, 1}, color: color!(255, 0, 0), keep_alpha: true]]}}
+
+    assert OptionGrammar.parse("col:0.5:zzz") == {:error, {:invalid_colorize, "zzz"}}
+  end
+
   test "invalid arity pipeline options return invalid option segment errors" do
     for segment <- invalid_pipeline_arity_segments() do
       assert OptionGrammar.parse(segment) == {:error, {:invalid_option_segment, segment}}

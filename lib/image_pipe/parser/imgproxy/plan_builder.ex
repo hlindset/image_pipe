@@ -516,7 +516,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
       duotone_operation(effects),
       brightness_operation(effects),
       contrast_operation(effects),
-      saturation_operation(effects)
+      saturation_operation(effects),
+      colorize_operation(effects)
     ]
     |> Enum.reject(&is_nil/1)
     |> reduce_results()
@@ -571,6 +572,22 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp saturation_operation(%Effects{saturation: nil}), do: nil
   defp saturation_operation(%Effects{saturation: value}) when value == 1.0, do: nil
   defp saturation_operation(%Effects{saturation: value}), do: Operation.saturation(value)
+
+  defp colorize_operation(%Effects{colorize: nil}), do: nil
+
+  defp colorize_operation(%Effects{colorize: colorize}) do
+    case Keyword.fetch!(colorize, :opacity) do
+      {:ratio, 0, _} ->
+        nil
+
+      _opacity ->
+        Operation.colorize(
+          Keyword.fetch!(colorize, :opacity),
+          Keyword.get_lazy(colorize, :color, &default_colorize_color/0),
+          Keyword.get(colorize, :keep_alpha, false)
+        )
+    end
+  end
 
   defp resize_operation(%PipelineRequest{} = request) do
     with {:ok, width} <- imgproxy_resize_dimension(request.width),
@@ -768,6 +785,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp default_monochrome_color, do: color!(179, 179, 179)
   defp default_duotone_shadow, do: color!(0, 0, 0)
   defp default_duotone_highlight, do: color!(255, 255, 255)
+  defp default_colorize_color, do: color!(0, 0, 0)
 
   defp color!(red, green, blue) do
     {:ok, color} = Operation.color(red, green, blue)

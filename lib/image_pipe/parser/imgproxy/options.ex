@@ -16,7 +16,8 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
     :duotone,
     :brightness,
     :contrast,
-    :saturation
+    :saturation,
+    :colorize
   ]
 
   @type request_options :: %{

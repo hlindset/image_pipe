@@ -357,6 +357,21 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert operations == []
   end
 
+  test "colorize plans after saturation" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             plan_pipeline(
+               saturation: 1.5,
+               colorize: [opacity: ratio(1, 2), color: color!(0, 0, 0)]
+             )
+
+    assert [%Operation.Saturation{}, %Operation.Colorize{}] = ops
+  end
+
+  test "colorize opacity 0 is a no-op" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+             plan_pipeline(colorize: [opacity: ratio(0, 1)])
+  end
+
   test "explicit false extend prevents parsed extend tails from planning canvas operations" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -1479,7 +1494,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
         :duotone,
         :brightness,
         :contrast,
-        :saturation
+        :saturation,
+        :colorize
       ])
 
     if effect_attrs == [] do

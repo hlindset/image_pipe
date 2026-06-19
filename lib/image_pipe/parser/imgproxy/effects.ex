@@ -9,7 +9,8 @@ defmodule ImagePipe.Parser.Imgproxy.Effects do
           duotone: keyword() | nil,
           brightness: number() | nil,
           contrast: number() | nil,
-          saturation: number() | nil
+          saturation: number() | nil,
+          colorize: keyword() | nil
         }
 
   defstruct blur: nil,
@@ -19,5 +20,6 @@ defmodule ImagePipe.Parser.Imgproxy.Effects do
             duotone: nil,
             brightness: nil,
             contrast: nil,
-            saturation: nil
+            saturation: nil,
+            colorize: nil
 end
