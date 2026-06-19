@@ -7,6 +7,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
+  alias ImagePipe.Plan.Operation.Colorize
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
@@ -244,6 +245,28 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       assert KeyData.data(%Brightness{value: 20}) == [op: :brightness, value: 20]
       assert KeyData.data(%Contrast{value: -15}) == [op: :contrast, value: -15]
       assert KeyData.data(%Saturation{value: 35}) == [op: :saturation, value: 35]
+    end
+
+    test "returns key data for colorize covering opacity, color, and keep_alpha" do
+      {:ok, black} = Operation.color(0, 0, 0)
+      {:ok, white} = Operation.color(255, 255, 255)
+
+      base = %Colorize{opacity: {:ratio, 1, 2}, color: black, keep_alpha: false}
+
+      assert KeyData.data(base) == [
+               op: :colorize,
+               opacity: [unit: :ratio, numerator: 1, denominator: 2],
+               color: Color.key_data(black),
+               keep_alpha: false
+             ]
+
+      different_opacity = %Colorize{base | opacity: {:ratio, 1, 4}}
+      different_color = %Colorize{base | color: white}
+      different_keep_alpha = %Colorize{base | keep_alpha: true}
+
+      refute KeyData.data(base) == KeyData.data(different_opacity)
+      refute KeyData.data(base) == KeyData.data(different_color)
+      refute KeyData.data(base) == KeyData.data(different_keep_alpha)
     end
 
     test "returns identical key data for equivalent adjustment values" do

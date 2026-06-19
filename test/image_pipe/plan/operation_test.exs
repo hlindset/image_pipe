@@ -5,6 +5,7 @@ defmodule ImagePipe.Plan.OperationTest do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
+  alias ImagePipe.Plan.Operation.Colorize
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
@@ -588,6 +589,16 @@ defmodule ImagePipe.Plan.OperationTest do
       assert Operation.semantic?(%Brightness{value: 20})
       assert Operation.semantic?(%Contrast{value: -15})
       assert Operation.semantic?(%Saturation{value: 35})
+    end
+
+    test "colorize/3 validates opacity ratio, color, keep_alpha" do
+      {:ok, color} = Operation.color(0, 0, 0)
+
+      assert {:ok, %Colorize{opacity: {:ratio, 1, 2}, keep_alpha: true}} =
+               Operation.colorize({:ratio, 1, 2}, color, true)
+
+      assert {:error, _} = Operation.colorize({:ratio, 0, 1}, color, false)
+      assert {:error, _} = Operation.colorize({:ratio, 1, 2}, :not_a_color, false)
     end
 
     test "canonicalizes equivalent adjustment values" do

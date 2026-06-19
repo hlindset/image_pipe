@@ -10,6 +10,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Colorize
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
@@ -88,6 +89,7 @@ defmodule ImagePipe.Plan.Operation do
           | Pixelate.t()
           | Monochrome.t()
           | Duotone.t()
+          | Colorize.t()
           | Brightness.t()
           | Contrast.t()
           | Saturation.t()
@@ -181,6 +183,18 @@ defmodule ImagePipe.Plan.Operation do
 
   def duotone(intensity, shadow, highlight),
     do: invalid(:duotone, [intensity, shadow, highlight])
+
+  @spec colorize(term(), term(), term()) :: {:ok, Colorize.t()} | {:error, error()}
+  def colorize(opacity, %Color{} = color, keep_alpha) when is_boolean(keep_alpha) do
+    with {:ok, opacity} <- effect_intensity(opacity),
+         true <- Color.valid?(color) do
+      {:ok, %Colorize{opacity: opacity, color: color, keep_alpha: keep_alpha}}
+    else
+      _reason -> invalid(:colorize, [opacity, color, keep_alpha])
+    end
+  end
+
+  def colorize(opacity, color, keep_alpha), do: invalid(:colorize, [opacity, color, keep_alpha])
 
   @spec brightness(term()) :: {:ok, Brightness.t()} | {:error, error()}
   def brightness(value) when is_integer(value) and value in @brightness_range,
@@ -468,6 +482,11 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Pixelate{} = operation), do: valid_pixelate_size?(operation.size)
   def semantic?(%Monochrome{} = operation), do: valid_monochrome?(operation)
   def semantic?(%Duotone{} = operation), do: valid_duotone?(operation)
+
+  def semantic?(%Colorize{} = operation),
+    do:
+      valid_effect_intensity?(operation.opacity) and Color.valid?(operation.color) and
+        is_boolean(operation.keep_alpha)
 
   def semantic?(%Brightness{} = operation),
     do: is_integer(operation.value) and operation.value in @brightness_range

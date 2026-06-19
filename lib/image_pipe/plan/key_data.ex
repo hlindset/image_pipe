@@ -12,6 +12,7 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Colorize
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
@@ -161,6 +162,15 @@ defmodule ImagePipe.Plan.KeyData do
       intensity: data(operation.intensity),
       shadow: Color.key_data(operation.shadow),
       highlight: Color.key_data(operation.highlight)
+    ]
+  end
+
+  def data(%Colorize{} = operation) do
+    [
+      op: :colorize,
+      opacity: data(operation.opacity),
+      color: Color.key_data(operation.color),
+      keep_alpha: operation.keep_alpha
     ]
   end
 
