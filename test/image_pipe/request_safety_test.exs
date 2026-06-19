@@ -173,9 +173,9 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid imgproxy color effect values return before source identity cache lookup and origin" do
     for path <- [
-          "/_/br:101/plain/images/cat.jpg",
-          "/_/co:-101/plain/images/cat.jpg",
-          "/_/sa:101/plain/images/cat.jpg"
+          "/_/br:256/plain/images/cat.jpg",
+          "/_/co:0/plain/images/cat.jpg",
+          "/_/sa:-1/plain/images/cat.jpg"
         ] do
       conn =
         ImagePipe.Plug.call(conn(:get, path),
