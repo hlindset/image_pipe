@@ -163,6 +163,16 @@ export type FiddleState = {
   contrast: number;
   saturationEnabled: boolean;
   saturation: number;
+  colorizeEnabled: boolean;
+  colorizeOpacity: number;
+  colorizeColor: string;
+  colorizeKeepAlpha: boolean;
+  gradientEnabled: boolean;
+  gradientOpacity: number;
+  gradientColor: string;
+  gradientDirection: string;
+  gradientStart: number;
+  gradientStop: number;
   gravityEnabled: boolean;
   gravityMode: GravityMode;
   gravity: Gravity;
@@ -247,9 +257,9 @@ export const controlLimits = {
     sharpen: { min: 0.1, max: 10, step: 0.1 },
     pixelate: { min: 2, max: 80, step: 1 },
     intensity: { min: 0, max: 1, step: 0.01 },
-    brightness: { min: -100, max: 100, step: 1 },
-    contrast: { min: -100, max: 100, step: 1 },
-    saturation: { min: -100, max: 100, step: 1 },
+    brightness: { min: -255, max: 255, step: 1 },
+    contrast: { min: 0, max: 4, step: 0.05 },
+    saturation: { min: 0, max: 4, step: 0.05 },
   },
   focalPoint: { min: 0, max: 1, step: 0.01 },
   gravityOffset: { min: -200, max: 200, step: 0.01 },
@@ -363,9 +373,19 @@ export const defaultFiddleState: FiddleState = {
   brightnessEnabled: false,
   brightness: 20,
   contrastEnabled: false,
-  contrast: 20,
+  contrast: 1.2,
   saturationEnabled: false,
-  saturation: 20,
+  saturation: 1.2,
+  colorizeEnabled: false,
+  colorizeOpacity: 0.5,
+  colorizeColor: "#000000",
+  colorizeKeepAlpha: false,
+  gradientEnabled: false,
+  gradientOpacity: 0.5,
+  gradientColor: "#000000",
+  gradientDirection: "down",
+  gradientStart: 0,
+  gradientStop: 1,
   gravityEnabled: false,
   gravityMode: "anchor",
   gravity: "ce",
@@ -533,6 +553,22 @@ export function optionSegments(currentState: FiddleState): string[] {
 
   if (currentState.saturationEnabled) {
     segments.push(`sa:${currentState.saturation}`);
+  }
+
+  if (currentState.colorizeEnabled) {
+    segments.push(
+      `col:${currentState.colorizeOpacity}:${currentState.colorizeColor.replace(/^#/, "")}:${
+        currentState.colorizeKeepAlpha ? 1 : 0
+      }`,
+    );
+  }
+
+  if (currentState.gradientEnabled) {
+    segments.push(
+      `gr:${currentState.gradientOpacity}:${currentState.gradientColor.replace(/^#/, "")}:${
+        currentState.gradientDirection
+      }:${currentState.gradientStart}:${currentState.gradientStop}`,
+    );
   }
 
   if (currentState.gravityEnabled) {

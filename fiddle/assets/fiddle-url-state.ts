@@ -117,7 +117,9 @@ export function expandedToolboxesForState(currentState: FiddleState): ExpandedTo
       currentState.duotoneEnabled ||
       currentState.brightnessEnabled ||
       currentState.contrastEnabled ||
-      currentState.saturationEnabled,
+      currentState.saturationEnabled ||
+      currentState.colorizeEnabled ||
+      currentState.gradientEnabled,
     orientationOpen:
       currentState.autoRotateEnabled || currentState.flip !== "none" || currentState.rotate !== 0,
     requestOpen: true,
@@ -264,16 +266,24 @@ function applyOptionSegment(currentState: FiddleState, segment: string): FiddleS
     case "co":
     case "contrast":
       return parseAdjustmentOption(currentState, args, (value) => ({
-        contrastEnabled: value !== 0,
-        contrast: value !== 0 ? value : defaultFiddleState.contrast,
+        contrastEnabled: value !== 1,
+        contrast: value !== 1 ? value : defaultFiddleState.contrast,
       }));
 
     case "sa":
     case "saturation":
       return parseAdjustmentOption(currentState, args, (value) => ({
-        saturationEnabled: value !== 0,
-        saturation: value !== 0 ? value : defaultFiddleState.saturation,
+        saturationEnabled: value !== 1,
+        saturation: value !== 1 ? value : defaultFiddleState.saturation,
       }));
+
+    case "col":
+    case "colorize":
+      return parseColorize(currentState, args);
+
+    case "gr":
+    case "gradient":
+      return parseGradient(currentState, args);
 
     case "g":
       return parseGravity(currentState, args);
@@ -600,7 +610,7 @@ function parseAdjustmentOption(
 
   const value = parseNumber(args[0]);
 
-  if (value === null || value < -100 || value > 100) {
+  if (value === null) {
     return null;
   }
 
@@ -661,6 +671,81 @@ function parseDuotone(currentState: FiddleState, args: string[]): FiddleState | 
     duotoneShadow: shadow,
     duotoneHighlight: highlight,
   };
+}
+
+function parseColorize(currentState: FiddleState, args: string[]): FiddleState | null {
+  // col:%opacity:%color[:%keep_alpha]
+  if (args.length < 2 || args.length > 3) {
+    return null;
+  }
+
+  const opacity = parseIntensity(args[0]);
+  const color = args[1] === undefined ? null : hexColor(args[1]);
+
+  if (opacity === null || color === null) {
+    return null;
+  }
+
+  const keepAlphaArg = args[2];
+  const keepAlpha = keepAlphaArg === undefined ? false : parseBooleanValue(keepAlphaArg);
+
+  if (keepAlpha === null) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    colorizeEnabled: true,
+    colorizeOpacity: opacity,
+    colorizeColor: color,
+    colorizeKeepAlpha: keepAlpha,
+  };
+}
+
+function parseGradient(currentState: FiddleState, args: string[]): FiddleState | null {
+  // gr:%opacity:%color[:%direction[:%start[:%stop]]]
+  if (args.length < 2 || args.length > 5) {
+    return null;
+  }
+
+  const opacity = parseIntensity(args[0]);
+  const color = args[1] === undefined ? null : hexColor(args[1]);
+
+  if (opacity === null || color === null) {
+    return null;
+  }
+
+  const direction =
+    args[2] === undefined || args[2] === "" ? defaultFiddleState.gradientDirection : args[2];
+
+  const start =
+    args[3] === undefined || args[3] === "" ? defaultFiddleState.gradientStart : parseUnit(args[3]);
+  const stop =
+    args[4] === undefined || args[4] === "" ? defaultFiddleState.gradientStop : parseUnit(args[4]);
+
+  if (start === null || stop === null) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    gradientEnabled: true,
+    gradientOpacity: opacity,
+    gradientColor: color,
+    gradientDirection: direction,
+    gradientStart: start,
+    gradientStop: stop,
+  };
+}
+
+function parseUnit(value: string | undefined): number | null {
+  const number = parseNumber(value);
+
+  if (number === null || number < 0 || number > 1) {
+    return null;
+  }
+
+  return number;
 }
 
 function parseIntensity(value: string | undefined): number | null {

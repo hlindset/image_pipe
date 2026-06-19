@@ -427,9 +427,9 @@ describe("processing path generation", () => {
       brightnessEnabled: true,
       brightness: 20,
       contrastEnabled: true,
-      contrast: -15,
+      contrast: 1.4,
       saturationEnabled: true,
-      saturation: 35,
+      saturation: 0.7,
     };
 
     expect(optionSegments(state)).toEqual([
@@ -440,11 +440,32 @@ describe("processing path generation", () => {
       "mc:0.5:ffcc00",
       "dt:0.25:112233:ffeecc",
       "br:20",
-      "co:-15",
-      "sa:35",
+      "co:1.4",
+      "sa:0.7",
     ]);
     expect(buildProcessingPath(state)).toBe(
-      "/img/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/dog.jpg",
+      "/img/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:1.4/sa:0.7/plain/local:///images/dog.jpg",
+    );
+  });
+
+  it("includes colorize and gradient after the adjustment effects", () => {
+    const state = {
+      ...defaultFiddleState,
+      colorizeEnabled: true,
+      colorizeOpacity: 0.5,
+      colorizeColor: "#ff0000",
+      colorizeKeepAlpha: true,
+      gradientEnabled: true,
+      gradientOpacity: 0.6,
+      gradientColor: "#000000",
+      gradientDirection: "down",
+      gradientStart: 0,
+      gradientStop: 1,
+    };
+
+    expect(optionSegments(state)).toEqual(["col:0.5:ff0000:1", "gr:0.6:000000:down:0:1"]);
+    expect(buildProcessingPath(state)).toBe(
+      "/img/_/col:0.5:ff0000:1/gr:0.6:000000:down:0:1/plain/local:///images/dog.jpg",
     );
   });
 
@@ -1306,7 +1327,7 @@ describe("fiddle URL state", () => {
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
     const parsed = parseFiddlePath(
-      "/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:1/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
+      "/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:1/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:1.4/sa:0.7/plain/local:///images/beach.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -1354,22 +1375,98 @@ describe("fiddle URL state", () => {
       brightnessEnabled: true,
       brightness: 20,
       contrastEnabled: true,
-      contrast: -15,
+      contrast: 1.4,
       saturationEnabled: true,
-      saturation: 35,
+      saturation: 0.7,
     });
   });
 
   it("parses long aliases for color effect options", () => {
     expect(
-      parseFiddlePath("/brightness:20/contrast:-15/saturation:35/plain/local:///images/dog.jpg"),
+      parseFiddlePath("/brightness:20/contrast:1.4/saturation:0.7/plain/local:///images/dog.jpg"),
     ).toMatchObject({
       brightnessEnabled: true,
       brightness: 20,
       contrastEnabled: true,
-      contrast: -15,
+      contrast: 1.4,
       saturationEnabled: true,
-      saturation: 35,
+      saturation: 0.7,
+    });
+  });
+
+  it("treats contrast and saturation of one as a fiddle no-op", () => {
+    expect(parseFiddlePath("/co:1/plain/local:///images/dog.jpg")).toMatchObject({
+      contrastEnabled: false,
+      contrast: defaultFiddleState.contrast,
+    });
+
+    expect(parseFiddlePath("/sa:1/plain/local:///images/dog.jpg")).toMatchObject({
+      saturationEnabled: false,
+      saturation: defaultFiddleState.saturation,
+    });
+  });
+
+  it("enables brightness for a zero-crossing negative level", () => {
+    expect(parseFiddlePath("/br:-200/plain/local:///images/dog.jpg")).toMatchObject({
+      brightnessEnabled: true,
+      brightness: -200,
+    });
+  });
+
+  it("round-trips colorize through the fiddle path", () => {
+    const state = {
+      ...defaultFiddleState,
+      colorizeEnabled: true,
+      colorizeOpacity: 0.5,
+      colorizeColor: "#ff0000",
+      colorizeKeepAlpha: true,
+    };
+
+    expect(parseFiddlePath(fiddlePathForState(state))).toMatchObject({
+      colorizeEnabled: true,
+      colorizeOpacity: 0.5,
+      colorizeColor: "#ff0000",
+      colorizeKeepAlpha: true,
+    });
+  });
+
+  it("round-trips gradient through the fiddle path", () => {
+    const state = {
+      ...defaultFiddleState,
+      gradientEnabled: true,
+      gradientOpacity: 0.6,
+      gradientColor: "#112233",
+      gradientDirection: "right",
+      gradientStart: 0.25,
+      gradientStop: 0.75,
+    };
+
+    expect(parseFiddlePath(fiddlePathForState(state))).toMatchObject({
+      gradientEnabled: true,
+      gradientOpacity: 0.6,
+      gradientColor: "#112233",
+      gradientDirection: "right",
+      gradientStart: 0.25,
+      gradientStop: 0.75,
+    });
+  });
+
+  it("parses colorize and gradient long aliases", () => {
+    expect(
+      parseFiddlePath(
+        "/colorize:0.4:00ff00:0/gradient:0.5:000000:up:0:1/plain/local:///images/dog.jpg",
+      ),
+    ).toMatchObject({
+      colorizeEnabled: true,
+      colorizeOpacity: 0.4,
+      colorizeColor: "#00ff00",
+      colorizeKeepAlpha: false,
+      gradientEnabled: true,
+      gradientOpacity: 0.5,
+      gradientColor: "#000000",
+      gradientDirection: "up",
+      gradientStart: 0,
+      gradientStop: 1,
     });
   });
 
@@ -1397,9 +1494,9 @@ describe("fiddle URL state", () => {
     });
   });
 
-  it("treats zero-valued effects as fiddle no-ops", () => {
+  it("treats no-op-valued effects as fiddle no-ops", () => {
     expect(
-      parseFiddlePath("/bl:0/sh:0/pix:0/br:0/co:0/sa:0/plain/local:///images/dog.jpg"),
+      parseFiddlePath("/bl:0/sh:0/pix:0/br:0/co:1/sa:1/plain/local:///images/dog.jpg"),
     ).toEqual({
       ...defaultFiddleState,
       blurEnabled: false,
@@ -1489,11 +1586,23 @@ describe("fiddle URL state", () => {
   });
 
   it("rejects invalid color effect values in fiddle routes", () => {
-    expect(parseFiddlePath("/br:-101/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
-    expect(parseFiddlePath("/co:101/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
-    expect(parseFiddlePath("/sa:100.5/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/br:abc/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/co:abc/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/sa:abc/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
     expect(parseFiddlePath("/mc:1.1/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
     expect(parseFiddlePath("/dt:0.5:zzz/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+  });
+
+  it("rejects out-of-range colorize and gradient values in fiddle routes", () => {
+    expect(parseFiddlePath("/col:1.1:ff0000:0/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+    expect(parseFiddlePath("/col:0.5:zzz:0/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+    expect(parseFiddlePath("/gr:0.5:000000:down:1.5:1/plain/local:///images/dog.jpg")).toEqual(
       defaultFiddleState,
     );
   });
