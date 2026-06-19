@@ -147,7 +147,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   end
 
   test "contrast streams" do
-    assert_sequential_matches_random([%Contrast{value: 15}], File.read!(@beach))
+    assert_sequential_matches_random([%Contrast{value: 1.5}], File.read!(@beach))
   end
 
   test "saturation streams" do

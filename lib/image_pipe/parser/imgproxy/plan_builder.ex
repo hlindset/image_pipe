@@ -565,7 +565,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp brightness_operation(%Effects{brightness: value}), do: Operation.brightness(value)
 
   defp contrast_operation(%Effects{contrast: nil}), do: nil
-  defp contrast_operation(%Effects{contrast: 0}), do: nil
+  defp contrast_operation(%Effects{contrast: value}) when value == 1.0, do: nil
   defp contrast_operation(%Effects{contrast: value}), do: Operation.contrast(value)
 
   defp saturation_operation(%Effects{saturation: nil}), do: nil

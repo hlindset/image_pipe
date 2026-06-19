@@ -300,7 +300,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                  highlight: color!(255, 238, 204)
                ],
                brightness: 20,
-               contrast: -15,
+               contrast: 1.5,
                saturation: 35
              )
 
@@ -331,7 +331,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert brightness.__struct__ == ImagePipe.Plan.Operation.Brightness
     assert brightness.value == 20
     assert contrast.__struct__ == ImagePipe.Plan.Operation.Contrast
-    assert contrast.value == -15
+    assert contrast.value == 1.5
     assert saturation.__struct__ == ImagePipe.Plan.Operation.Saturation
     assert saturation.value == 35
   end
@@ -345,7 +345,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                monochrome: [intensity: ratio(0, 1)],
                duotone: [intensity: ratio(0, 1)],
                brightness: 0,
-               contrast: 0,
+               contrast: 1.0,
                saturation: 0
              )
 

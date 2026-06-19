@@ -190,7 +190,10 @@ defmodule ImagePipe.Plan.Operation do
   def brightness(value), do: invalid(:brightness, [value])
 
   @spec contrast(term()) :: {:ok, Contrast.t()} | {:error, error()}
-  def contrast(value), do: adjustment(:contrast, Contrast, value)
+  def contrast(value) when is_number(value) and value > 0,
+    do: {:ok, %Contrast{value: value * 1.0}}
+
+  def contrast(value), do: invalid(:contrast, [value])
 
   @spec saturation(term()) :: {:ok, Saturation.t()} | {:error, error()}
   def saturation(value), do: adjustment(:saturation, Saturation, value)
@@ -467,7 +470,9 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Brightness{} = operation),
     do: is_integer(operation.value) and operation.value in @brightness_range
 
-  def semantic?(%Contrast{} = operation), do: valid_adjustment_value?(operation.value)
+  def semantic?(%Contrast{} = operation),
+    do: is_number(operation.value) and operation.value > 0
+
   def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
   def semantic?(%Bitonal{}), do: true
