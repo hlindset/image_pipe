@@ -93,7 +93,7 @@ defmodule ImagePipe.Request.Runner do
                 conn,
                 plan,
                 resolved_source.identity,
-                put_detector_identity(opts, plan)
+                opts
               )
           end
 
@@ -246,15 +246,19 @@ defmodule ImagePipe.Request.Runner do
   defp cache_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
     do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
 
-  # When the plan's output depends on the configured detector, fold the
-  # detector's opaque {module, term} identity into the cache key so a
-  # detector/model change (or availability change) produces a different key
-  # instead of colliding. This covers both {:detect, _} guides and
-  # {:smart, :face_assist} guides: face-assist blends the detected face centroid
-  # into the attention point, so its output also depends on the detector. The
-  # cache boundary never resolves identity itself; the request layer passes it
-  # as a key option.
-  defp put_detector_identity(opts, plan) do
+  @doc """
+  Returns `opts` augmented with the resolved detector identity when the plan's
+  output depends on the configured detector — `{:detect, _}` guides or
+  `{:smart, :face_assist}` (face-assist blends the detected face centroid into
+  the attention point). The identity is folded in as the `:detector_identity`
+  key option so a detector/model change (or availability change) yields a
+  different cache key instead of colliding.
+
+  The request entry point (the plug) calls this once, before `HTTPCache.prepare`
+  and `Runner.run/5`, so the ETag and cache key both derive from a single
+  detector resolution.
+  """
+  def with_detector_identity(opts, plan) do
     detect_classes = Plan.detect_classes(plan)
 
     if detect_classes != nil or Plan.face_assist?(plan) do

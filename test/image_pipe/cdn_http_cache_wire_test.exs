@@ -224,6 +224,32 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
+  test "detector identity change moves the generated ETag end-to-end (#181 regression)", _ctx do
+    etag_for = fn identity ->
+      opts =
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {CacheProbe, test_pid: self()},
+          http_cache: [mode: :enabled],
+          detector: ImagePipe.Test.FakeDetector,
+          identity: identity
+        )
+
+      conn =
+        ImagePipe.Plug.call(
+          conn(:get, "/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/beach.jpg"),
+          opts
+        )
+
+      assert conn.status == 200
+      assert [etag] = get_resp_header(conn, "etag")
+      etag
+    end
+
+    assert etag_for.(:model_v1) != etag_for.(:model_v2)
+  end
+
   # #328: the only guide that reached do_generated_etag under a strong byte
   # identity before this was :center (the order-invariance test below). A
   # gravity-derived guide (focal/smart/detect/anchor/carried) exercises the

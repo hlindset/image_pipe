@@ -79,6 +79,7 @@ defmodule ImagePipe.Plug do
          :ok <- validate_detector_capability(plan, opts),
          {:ok, %Source.Resolved{} = resolved_source} <-
            Source.resolve(plan.source, opts, Options.source_runtime_opts(opts)) do
+      opts = Runner.with_detector_identity(opts, plan)
       prepared_http_cache = HTTPCache.prepare(conn, plan, resolved_source, opts)
       send_conditional_response(conn, plan, resolved_source, prepared_http_cache, opts)
     else
