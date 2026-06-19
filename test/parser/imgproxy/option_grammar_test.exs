@@ -383,6 +383,12 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
              {:ok, {:pipeline, [gradient: [opacity: {:ratio, 1, 1}, angle: 45.0]]}}
 
     assert OptionGrammar.parse("gr:0.5::sideways") == {:error, {:invalid_gradient, "sideways"}}
+
+    # Invalid color → a bare-string payload, mirroring colorize (not list-wrapped).
+    assert OptionGrammar.parse("gr:0.5:zzz") == {:error, {:invalid_gradient, "zzz"}}
+
+    # Out-of-range start/stop are rejected.
+    assert OptionGrammar.parse("gr:0.5::down:1.5") == {:error, {:invalid_gradient, "1.5"}}
   end
 
   test "invalid arity pipeline options return invalid option segment errors" do

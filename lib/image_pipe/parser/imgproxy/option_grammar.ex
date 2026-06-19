@@ -726,10 +726,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     with {:ok, opacity} <- parse_intensity(opacity),
          {:ok, assignments} <- parse_gradient_tail(rest) do
       {:ok, [gradient: [opacity: opacity] ++ assignments]}
-    else
-      {:error, {:invalid_color, c}} -> {:error, {:invalid_gradient, c}}
-      {:error, {:invalid_gradient, _}} = error -> error
-      {:error, _reason} = error -> error
     end
   end
 
@@ -744,6 +740,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
          {:ok, start_kw} <- parse_optional_gradient_pos(:start, start),
          {:ok, stop_kw} <- parse_optional_gradient_pos(:stop, stop) do
       {:ok, color_kw ++ dir_kw ++ start_kw ++ stop_kw}
+    else
+      {:error, {:invalid_color, _}} -> {:error, {:invalid_gradient, color}}
+      {:error, _reason} = error -> error
     end
   end
 
