@@ -899,6 +899,34 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  test "colorize/gradient/adjust change decoded pixels without geometry" do
+    baseline =
+      "/_/f:png/plain/images/effects.png"
+      |> call_imgproxy(effect_origin_opts())
+      |> decoded_image()
+
+    for path <- [
+          "/_/col:0.5:ff0000/f:png/plain/images/effects.png",
+          "/_/gr:0.6:000000:down/f:png/plain/images/effects.png",
+          "/_/a:40:1.4:0.7/f:png/plain/images/effects.png"
+        ] do
+      image = path |> call_imgproxy(effect_origin_opts()) |> decoded_image()
+      assert dimensions(image) == dimensions(baseline)
+      assert sampled_pixels(image) != sampled_pixels(baseline)
+    end
+  end
+
+  test "adjust produces the same bytes as the equivalent br/co/sa" do
+    via_adjust =
+      "/_/a:40:1.4:0.7/f:png/plain/images/effects.png" |> call_imgproxy(effect_origin_opts())
+
+    via_long =
+      "/_/br:40/co:1.4/sa:0.7/f:png/plain/images/effects.png"
+      |> call_imgproxy(effect_origin_opts())
+
+    assert via_adjust.resp_body == via_long.resp_body
+  end
+
   test "imgproxy auto_rotate config and URL options control EXIF autorotation" do
     default_conn =
       "/_/f:jpeg/plain/images/oriented.jpg"
