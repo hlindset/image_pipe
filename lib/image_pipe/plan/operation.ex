@@ -63,6 +63,7 @@ defmodule ImagePipe.Plan.Operation do
   @trim_keys [:threshold, :background, :equal_hor, :equal_ver]
   @effective_padding_modes [:resize, :canvas_preserving]
   @adjustment_range -100..100
+  @brightness_range -255..255
   @type resize_operation :: Resize.t()
 
   @type crop_operation ::
@@ -183,7 +184,10 @@ defmodule ImagePipe.Plan.Operation do
     do: invalid(:duotone, [intensity, shadow, highlight])
 
   @spec brightness(term()) :: {:ok, Brightness.t()} | {:error, error()}
-  def brightness(value), do: adjustment(:brightness, Brightness, value)
+  def brightness(value) when is_integer(value) and value in @brightness_range,
+    do: {:ok, %Brightness{value: value}}
+
+  def brightness(value), do: invalid(:brightness, [value])
 
   @spec contrast(term()) :: {:ok, Contrast.t()} | {:error, error()}
   def contrast(value), do: adjustment(:contrast, Contrast, value)
@@ -459,7 +463,10 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Pixelate{} = operation), do: valid_pixelate_size?(operation.size)
   def semantic?(%Monochrome{} = operation), do: valid_monochrome?(operation)
   def semantic?(%Duotone{} = operation), do: valid_duotone?(operation)
-  def semantic?(%Brightness{} = operation), do: valid_adjustment_value?(operation.value)
+
+  def semantic?(%Brightness{} = operation),
+    do: is_integer(operation.value) and operation.value in @brightness_range
+
   def semantic?(%Contrast{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)

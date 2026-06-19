@@ -227,6 +227,14 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert OptionGrammar.parse("pix:0") == {:ok, {:pipeline, [pixelate: 0]}}
   end
 
+  test "brightness accepts imgproxy integer range -255..255" do
+    assert OptionGrammar.parse("br:255") == {:ok, {:pipeline, [brightness: 255]}}
+    assert OptionGrammar.parse("brightness:-255") == {:ok, {:pipeline, [brightness: -255]}}
+    assert OptionGrammar.parse("br:0") == {:ok, {:pipeline, [brightness: 0]}}
+    assert OptionGrammar.parse("br:256") == {:error, {:invalid_brightness, "256"}}
+    assert OptionGrammar.parse("br:1.5") == {:error, {:invalid_brightness, "1.5"}}
+  end
+
   test "dpr parses positive floats and rejects non-positive values" do
     # imgproxy `parsePositiveNonZeroFloat` (options/parser/parse.go): any float > 0
     # is accepted — including fractional sub-1 DPRs — and <= 0 is rejected. ImagePipe's

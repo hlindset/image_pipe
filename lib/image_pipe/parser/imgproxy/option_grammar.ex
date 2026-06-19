@@ -79,8 +79,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "pixelate" => [{:pixelate, :non_neg_int}],
     "pix" => [{:pixelate, :non_neg_int}],
     "dpr" => [{:dpr, :positive_float}],
-    "brightness" => [{:brightness, :adjustment}],
-    "br" => [{:brightness, :adjustment}],
+    "brightness" => [{:brightness, :brightness_value}],
+    "br" => [{:brightness, :brightness_value}],
     "contrast" => [{:contrast, :adjustment}],
     "co" => [{:contrast, :adjustment}],
     "saturation" => [{:saturation, :adjustment}],
@@ -461,6 +461,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp apply_type(:positive_float, value), do: parse_positive_float(value)
   defp apply_type(:non_neg_int, value), do: parse_non_negative_integer(value)
   defp apply_type(:adjustment, value), do: parse_adjustment_value(value)
+  defp apply_type(:brightness_value, value), do: parse_brightness_value(value)
 
   defp parse_special_option(name, args, segment) when name in ["zoom", "z"] do
     parse_zoom(args, segment)
@@ -649,6 +650,13 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
       {:ok, number} when number >= -100 and number <= 100 -> {:ok, number}
       {:ok, _number} -> {:error, {:invalid_adjustment, value}}
       {:error, _reason} -> {:error, {:invalid_adjustment, value}}
+    end
+  end
+
+  defp parse_brightness_value(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer >= -255 and integer <= 255 -> {:ok, integer}
+      _other -> {:error, {:invalid_brightness, value}}
     end
   end
 

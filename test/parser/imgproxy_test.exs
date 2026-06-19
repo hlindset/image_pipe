@@ -1432,8 +1432,8 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   test "rejects out-of-range imgproxy brightness contrast and saturation values" do
-    assert Imgproxy.parse(conn(:get, "/_/br:101/plain/images/cat.jpg"), []) ==
-             {:error, {:invalid_adjustment, "101"}}
+    assert Imgproxy.parse(conn(:get, "/_/br:256/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_brightness, "256"}}
 
     assert Imgproxy.parse(conn(:get, "/_/co:-101/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_adjustment, "-101"}}
