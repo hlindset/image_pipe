@@ -1333,14 +1333,22 @@ defmodule ImagePipe.Request.RunnerTest do
     plan = plan(pipelines: [%Pipeline{operations: [face_assist_crop_operation(200, 100)]}])
 
     run_lookup = fn fake_identity ->
+      opts =
+        Runner.with_detector_identity(
+          [
+            cache: {CacheReadProbe, entry: entry},
+            detector: ImagePipe.Test.FakeDetector,
+            identity: fake_identity
+          ],
+          plan
+        )
+
       assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
                run(
                  conn(:get, "/_/g:sm/w:200/h:100/f:jpeg/plain/images/beach.jpg"),
                  plan,
                  resolved_source(),
-                 cache: {CacheReadProbe, entry: entry},
-                 detector: ImagePipe.Test.FakeDetector,
-                 identity: fake_identity
+                 opts
                )
 
       assert_received {:cache_lookup, key}

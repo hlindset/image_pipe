@@ -81,6 +81,16 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     def abort_sink(_state, _opts), do: :ok
   end
 
+  defmodule RaisingCommitProbe do
+    @behaviour ImagePipe.Cache
+
+    def get(%Key{}, _opts), do: :miss
+    def open_sink(%Key{}, _metadata, _opts), do: {:ok, %{}}
+    def write_chunk(state, _chunk, _opts), do: {:ok, state}
+    def commit_sink(_state, _opts), do: raise("commit boom")
+    def abort_sink(_state, _opts), do: :ok
+  end
+
   setup do
     opts =
       ImagePipe.Plug.init(
@@ -222,6 +232,105 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert String.starts_with?(etag, "\"ip1-")
     assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
     refute_received :source_fetch_called
+  end
+
+  test "host-set content-disposition is preserved on both miss and cache-hit responses" do
+    probe_opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheProbe, test_pid: self()},
+        http_cache: [mode: :enabled]
+      )
+
+    miss_conn =
+      conn(:get, "/_/plain/beach.jpg")
+      |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
+      |> ImagePipe.Plug.call(probe_opts)
+
+    assert miss_conn.status == 200
+
+    assert get_resp_header(miss_conn, "content-disposition") == [
+             ~s(attachment; filename="custom.jpg")
+           ]
+
+    assert_received {:cache_put, %Entry{} = entry}
+
+    hit_opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry},
+        http_cache: [mode: :enabled]
+      )
+
+    hit_conn =
+      conn(:get, "/_/plain/beach.jpg")
+      |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
+      |> ImagePipe.Plug.call(hit_opts)
+
+    assert hit_conn.status == 200
+
+    assert get_resp_header(hit_conn, "content-disposition") == [
+             ~s(attachment; filename="custom.jpg")
+           ]
+  end
+
+  test "detector identity change moves the generated ETag end-to-end (#181 regression)", _ctx do
+    etag_for = fn identity ->
+      opts =
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {CacheProbe, test_pid: self()},
+          http_cache: [mode: :enabled],
+          detector: ImagePipe.Test.FakeDetector,
+          identity: identity
+        )
+
+      conn =
+        ImagePipe.Plug.call(
+          conn(:get, "/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/beach.jpg"),
+          opts
+        )
+
+      assert conn.status == 200
+      assert [etag] = get_resp_header(conn, "etag")
+      etag
+    end
+
+    assert etag_for.(:model_v1) != etag_for.(:model_v2)
+  end
+
+  test "commit_sink raise still delivers the complete body, byte-identical to a clean cache (#183)" do
+    url = "/_/rs:fill:50:50/f:jpeg/plain/beach.jpg"
+
+    clean =
+      ImagePipe.Plug.call(
+        conn(:get, url),
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {CacheProbe, test_pid: self()},
+          http_cache: [mode: :enabled]
+        )
+      )
+
+    raising =
+      ImagePipe.Plug.call(
+        conn(:get, url),
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {RaisingCommitProbe, []},
+          http_cache: [mode: :enabled]
+        )
+      )
+
+    assert clean.status == 200
+    assert raising.status == 200
+    assert byte_size(raising.resp_body) > 0
+    assert raising.resp_body == clean.resp_body
   end
 
   # #328: the only guide that reached do_generated_etag under a strong byte

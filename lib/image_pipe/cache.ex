@@ -163,6 +163,8 @@ defmodule ImagePipe.Cache do
       unexpected ->
         handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
     end
+  rescue
+    exception -> handle_read_error(exception, key, cache_opts)
   end
 
   defp handle_hit(%Entry{} = entry, key, cache_opts) do

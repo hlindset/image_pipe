@@ -226,6 +226,11 @@ inputs. The generated ETag identifies the client-visible representation. For
 example, `cachebuster` changes the internal cache key but leaves the generated
 ETag unchanged.
 
+Detector and model identity, by contrast, are part of *both* the internal cache
+key and the generated ETag: swapping a detector or model changes the rendition,
+so it must change the validator too — a conditional GET will not return `304`
+against a rendition produced by a different detector.
+
 `Plan.expires` is a parser validity field. It doesn't change generated
 `Cache-Control`.
 

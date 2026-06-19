@@ -163,6 +163,26 @@ defmodule ImagePipe.CacheTest do
     def abort_sink(_state, _opts), do: :ok
   end
 
+  defmodule RaisingGetAdapter do
+    @behaviour ImagePipe.Cache
+
+    def get(%Key{}, _opts), do: raise("adapter get crashed")
+    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
+    def write_chunk(state, _chunk, _opts), do: {:ok, state}
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
+  end
+
+  defmodule RaisingCommitAdapter do
+    @behaviour ImagePipe.Cache
+
+    def get(%Key{}, _opts), do: :miss
+    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
+    def write_chunk(state, _chunk, _opts), do: {:ok, state}
+    def commit_sink(_state, _opts), do: raise("adapter commit crashed")
+    def abort_sink(_state, _opts), do: :ok
+  end
+
   defmodule LegacyPutOnlyAdapter do
     def get(%Key{}, _opts), do: :miss
     def put(%Key{}, %Entry{}, _opts), do: :ok
@@ -423,6 +443,21 @@ defmodule ImagePipe.CacheTest do
     assert log =~ ":read_failed"
   end
 
+  test "lookup returns miss when adapter.get raises" do
+    log =
+      capture_log(fn ->
+        assert {:miss, %Key{}, {:cache_read, %RuntimeError{message: "adapter get crashed"}}} =
+                 Cache.lookup(
+                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+                   plan(),
+                   source_identity(),
+                   cache: {RaisingGetAdapter, []}
+                 )
+      end)
+
+    assert log =~ "cache read error"
+  end
+
   test "unexpected adapter get result is handled as a cache read error" do
     log =
       capture_log(fn ->
@@ -549,6 +584,25 @@ defmodule ImagePipe.CacheTest do
 
     assert_receive {:telemetry_event, [:image_pipe, :cache, :write, :stop], _measurements,
                     %{result: :cache_error, cache: :write_error, error: :commit_failed}}
+  end
+
+  test "commit_sink returns :ok and logs when adapter.commit_sink raises" do
+    attach_telemetry([[:image_pipe, :cache, :write, :stop]])
+
+    sink =
+      cache_key()
+      |> Cache.open_sink(resolved_output(), cache: {RaisingCommitAdapter, []})
+      |> Cache.write_chunk("abc", cache: {RaisingCommitAdapter, []})
+
+    log =
+      capture_log(fn ->
+        assert :ok = Cache.commit_sink(sink, cache: {RaisingCommitAdapter, []})
+      end)
+
+    assert log =~ "cache sink commit error"
+
+    assert_receive {:telemetry_event, [:image_pipe, :cache, :write, :stop], _measurements,
+                    %{result: :cache_error, cache: :write_error}}
   end
 
   test "commit_sink reports admission rejection on the cache write span" do
