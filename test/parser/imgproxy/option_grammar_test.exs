@@ -248,6 +248,23 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert OptionGrammar.parse("sa:0") == {:error, {:invalid_scale_factor, "0"}}
   end
 
+  test "adjust fans out to brightness/contrast/saturation" do
+    assert OptionGrammar.parse("a:50") == {:ok, {:pipeline, [brightness: 50]}}
+    assert OptionGrammar.parse("a::1.5") == {:ok, {:pipeline, [contrast: 1.5]}}
+    assert OptionGrammar.parse("a:::0.8") == {:ok, {:pipeline, [saturation: 0.8]}}
+
+    assert OptionGrammar.parse("adjust:10:1.2:0.9") ==
+             {:ok, {:pipeline, [brightness: 10, contrast: 1.2, saturation: 0.9]}}
+
+    assert OptionGrammar.parse("a:300") == {:error, {:invalid_brightness, "300"}}
+    assert OptionGrammar.parse("a::0") == {:error, {:invalid_scale_factor, "0"}}
+  end
+
+  test "adjust expands to the same effect assignments as the long forms" do
+    assert OptionGrammar.parse("a:50:1.5:0.8") ==
+             {:ok, {:pipeline, [brightness: 50, contrast: 1.5, saturation: 0.8]}}
+  end
+
   test "dpr parses positive floats and rejects non-positive values" do
     # imgproxy `parsePositiveNonZeroFloat` (options/parser/parse.go): any float > 0
     # is accepted — including fractional sub-1 DPRs — and <= 0 is rejected. ImagePipe's

@@ -535,7 +535,41 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_trim(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["adjust", "a"] do
+    parse_adjust(args, segment)
+  end
+
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
+
+  # adjust:%brightness:%contrast:%saturation — parser-only sugar that fans each
+  # present segment out to the existing brightness/contrast/saturation effects.
+  # Empty segments are skipped, leaving each field at its default no-op.
+  defp parse_adjust(args, _segment) when length(args) in 1..3 do
+    specs = [
+      {:brightness, &parse_brightness_value/1},
+      {:contrast, &parse_scale_factor/1},
+      {:saturation, &parse_scale_factor/1}
+    ]
+
+    args
+    |> Enum.zip(specs)
+    |> Enum.reduce_while({:ok, []}, fn
+      {"", _spec}, {:ok, acc} ->
+        {:cont, {:ok, acc}}
+
+      {value, {key, parser}}, {:ok, acc} ->
+        case parser.(value) do
+          {:ok, parsed} -> {:cont, {:ok, [{key, parsed} | acc]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_adjust(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   # trim:%threshold:%color:%equal_hor:%equal_ver — enabled iff threshold is set.
   defp parse_trim([], _segment), do: {:ok, []}
