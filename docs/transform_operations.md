@@ -236,7 +236,7 @@ such as Imgproxy `bl`, `sh`, `pix`, `mc`, `dt`, `br`, `co`, and `sa` stay in
 parser code.
 
 Imgproxy effect order is blur, sharpen, pixelate, monochrome, duotone,
-brightness, contrast, saturation, then colorize. Effects run after result
+brightness, contrast, saturation, colorize, then gradient. Effects run after result
 cropping and before canvas extension, padding, and background composition.
 
 Imgproxy treats these effect values as no-ops:

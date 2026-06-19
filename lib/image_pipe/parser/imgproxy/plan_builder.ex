@@ -517,7 +517,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
       brightness_operation(effects),
       contrast_operation(effects),
       saturation_operation(effects),
-      colorize_operation(effects)
+      colorize_operation(effects),
+      gradient_operation(effects)
     ]
     |> Enum.reject(&is_nil/1)
     |> reduce_results()
@@ -585,6 +586,24 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
           Keyword.fetch!(colorize, :opacity),
           Keyword.get_lazy(colorize, :color, &default_colorize_color/0),
           Keyword.get(colorize, :keep_alpha, false)
+        )
+    end
+  end
+
+  defp gradient_operation(%Effects{gradient: nil}), do: nil
+
+  defp gradient_operation(%Effects{gradient: gradient}) do
+    case Keyword.fetch!(gradient, :opacity) do
+      {:ratio, 0, _} ->
+        nil
+
+      _opacity ->
+        Operation.gradient(
+          Keyword.fetch!(gradient, :opacity),
+          Keyword.get_lazy(gradient, :color, &default_colorize_color/0),
+          Keyword.get(gradient, :angle, 0.0),
+          Keyword.get(gradient, :start, 0.0),
+          Keyword.get(gradient, :stop, 1.0)
         )
     end
   end

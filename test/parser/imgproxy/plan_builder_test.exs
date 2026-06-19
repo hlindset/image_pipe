@@ -372,6 +372,21 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              plan_pipeline(colorize: [opacity: ratio(0, 1)])
   end
 
+  test "gradient plans after colorize" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             plan_pipeline(
+               colorize: [opacity: ratio(1, 2), color: color!(0, 0, 0)],
+               gradient: [opacity: ratio(1, 2), color: color!(0, 0, 0), angle: 0.0]
+             )
+
+    assert [%Operation.Colorize{}, %Operation.Gradient{}] = ops
+  end
+
+  test "gradient opacity 0 is a no-op" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+             plan_pipeline(gradient: [opacity: ratio(0, 1)])
+  end
+
   test "explicit false extend prevents parsed extend tails from planning canvas operations" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -1495,7 +1510,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
         :brightness,
         :contrast,
         :saturation,
-        :colorize
+        :colorize,
+        :gradient
       ])
 
     if effect_attrs == [] do

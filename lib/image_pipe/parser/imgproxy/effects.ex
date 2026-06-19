@@ -10,7 +10,8 @@ defmodule ImagePipe.Parser.Imgproxy.Effects do
           brightness: number() | nil,
           contrast: number() | nil,
           saturation: number() | nil,
-          colorize: keyword() | nil
+          colorize: keyword() | nil,
+          gradient: keyword() | nil
         }
 
   defstruct blur: nil,
@@ -21,5 +22,6 @@ defmodule ImagePipe.Parser.Imgproxy.Effects do
             brightness: nil,
             contrast: nil,
             saturation: nil,
-            colorize: nil
+            colorize: nil,
+            gradient: nil
 end

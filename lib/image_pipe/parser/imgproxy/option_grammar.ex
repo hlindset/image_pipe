@@ -535,6 +535,10 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_colorize(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["gradient", "gr"] do
+    parse_gradient(args, segment)
+  end
+
   defp parse_special_option(name, args, segment) when name in ["trim", "t"] do
     parse_trim(args, segment)
   end
@@ -714,6 +718,62 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_optional_keep_alpha(value) do
     with {:ok, bool} <- parse_boolean(value), do: {:ok, [keep_alpha: bool]}
+  end
+
+  @gradient_directions %{"down" => 0.0, "left" => 90.0, "up" => 180.0, "right" => 270.0}
+
+  defp parse_gradient([opacity | rest], _segment) when opacity != "" and length(rest) <= 4 do
+    with {:ok, opacity} <- parse_intensity(opacity),
+         {:ok, assignments} <- parse_gradient_tail(rest) do
+      {:ok, [gradient: [opacity: opacity] ++ assignments]}
+    else
+      {:error, {:invalid_color, c}} -> {:error, {:invalid_gradient, c}}
+      {:error, {:invalid_gradient, _}} = error -> error
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_gradient(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  # rest = [color, direction, start, stop] (any trailing omitted; empty = default)
+  defp parse_gradient_tail(rest) do
+    [color, direction, start, stop] = rest ++ List.duplicate("", 4 - length(rest))
+
+    with {:ok, color_kw} <- parse_optional_colorize_color(color),
+         {:ok, dir_kw} <- parse_optional_gradient_direction(direction),
+         {:ok, start_kw} <- parse_optional_gradient_pos(:start, start),
+         {:ok, stop_kw} <- parse_optional_gradient_pos(:stop, stop) do
+      {:ok, color_kw ++ dir_kw ++ start_kw ++ stop_kw}
+    end
+  end
+
+  defp parse_optional_gradient_direction(""), do: {:ok, []}
+
+  defp parse_optional_gradient_direction(value) do
+    case Map.fetch(@gradient_directions, value) do
+      {:ok, angle} ->
+        {:ok, [angle: angle]}
+
+      :error ->
+        case parse_number(value) do
+          {:ok, number} -> {:ok, [angle: normalize_angle(number)]}
+          {:error, _} -> {:error, {:invalid_gradient, value}}
+        end
+    end
+  end
+
+  defp parse_optional_gradient_pos(_field, ""), do: {:ok, []}
+
+  defp parse_optional_gradient_pos(field, value) do
+    case parse_number(value) do
+      {:ok, number} when number >= 0 and number <= 1 -> {:ok, [{field, number * 1.0}]}
+      _other -> {:error, {:invalid_gradient, value}}
+    end
+  end
+
+  defp normalize_angle(number) do
+    angle = :math.fmod(number * 1.0, 360.0)
+    if angle < 0, do: angle + 360.0, else: angle
   end
 
   defp parse_scale_factor(value) do

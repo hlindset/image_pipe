@@ -362,6 +362,29 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert OptionGrammar.parse("col:0.5:zzz") == {:error, {:invalid_colorize, "zzz"}}
   end
 
+  test "gradient parses opacity + optional color/direction/start/stop" do
+    assert OptionGrammar.parse("gr:0.5") ==
+             {:ok, {:pipeline, [gradient: [opacity: {:ratio, 5, 10}]]}}
+
+    assert OptionGrammar.parse("gradient:1:ff0000:left:0.25:0.75") ==
+             {:ok,
+              {:pipeline,
+               [
+                 gradient: [
+                   opacity: {:ratio, 1, 1},
+                   color: color!(255, 0, 0),
+                   angle: 90.0,
+                   start: 0.25,
+                   stop: 0.75
+                 ]
+               ]}}
+
+    assert OptionGrammar.parse("gr:1::45") ==
+             {:ok, {:pipeline, [gradient: [opacity: {:ratio, 1, 1}, angle: 45.0]]}}
+
+    assert OptionGrammar.parse("gr:0.5::sideways") == {:error, {:invalid_gradient, "sideways"}}
+  end
+
   test "invalid arity pipeline options return invalid option segment errors" do
     for segment <- invalid_pipeline_arity_segments() do
       assert OptionGrammar.parse(segment) == {:error, {:invalid_option_segment, segment}}
