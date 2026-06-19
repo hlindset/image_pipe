@@ -118,12 +118,20 @@ autoquality:ssim2[:target[:min[:max[:allowed_error]]]]
                                                    -> objective :ssim2 (target = score)
 autoquality:dssim                                  -> bare alias for ssim2-from-config
 aq:...                                             -> alias of autoquality
-max_bytes:%bytes  /  mb:%bytes                     -> max_bytes ceiling
+max_bytes:%bytes  /  mb:%bytes                     -> max_bytes ceiling (0 disables)
 ```
 
 - **All trailing args optional** (imgproxy `processing.mdx:882`: "All arguments
   are optional and can be omitted"). Each omitted field falls back to its config
   default (§4.3).
+- **`max_bytes:0` disables the ceiling** (maps to `nil`), matching imgproxy:
+  `max_bytes` is parsed with `parsePositiveInt` (rejects only `< 0`) and gated on
+  `maxBytes > 0` in `processing.go`. Only a negative or non-numeric value is an
+  error.
+- **`:size` accepts no 5th arg.** imgproxy's grammar is uniform
+  (`method:target:min:max:allowed_error`) and ignores a trailing `allowed_error`
+  for `size`; ImagePipe rejects it instead (`allowed_error` is meaningless for a
+  byte target). A minor, documented grammar divergence (§11).
 - **`dssim` is bare-only.** `autoquality:dssim` parses (method = perceptual, all
   params from config). **Any inline argument is rejected** before side effects
   (`autoquality:dssim:0.02:...` → invalid-option error). This is the deliberate
@@ -189,8 +197,10 @@ malformed values rejected before side effects.
 ## 5. Resolution — `Output.Policy` → `Output.Resolved`
 
 The per-format bracket clamp resolves **after format negotiation**, where the
-output format is finally known — `ImagePipe.Output.Policy.resolved/2` (the same
-place `effective_quality/2` already keys off the negotiated format).
+output format is finally known — inside the private `resolved/2` builder reached
+from the public `ImagePipe.Output.Policy.resolve/2` (the same place
+`effective_quality/2` already keys off the negotiated format). (Tests drive it
+through the public `Policy.resolve/2`.)
 
 ```
 global_min  = url_min ?? config.autoquality_min_quality
@@ -205,24 +215,28 @@ format is not set, the global value is used." URL `min/max` stay global-only
 (imgproxy has no per-format URL form).
 
 `Output.Resolved` gains the resolved, format-specific search descriptor. The
-per-format maps and `max_resolution` are consumed during resolution, so the
-resolved descriptor is a narrower struct — `ImagePipe.Output.ResolvedQualitySearch`
-(its own file, per the one-module-per-file guideline), with the bracket already
-format-clamped:
+per-format maps are consumed during resolution (collapsed into the clamped
+bracket), so the resolved descriptor is a narrower struct —
+`ImagePipe.Output.ResolvedQualitySearch` (its own file, per the one-module-per-file
+guideline), with the bracket already format-clamped and `max_resolution` carried
+forward for the encoder's skip check:
 
 ```elixir
 # lib/image_pipe/output/resolved.ex
 quality_search: :none | %ImagePipe.Output.ResolvedQualitySearch{
-  objective, target, min_quality, max_quality, allowed_error
+  objective, target, min_quality, max_quality, allowed_error, max_resolution
 },
 max_bytes: nil | pos_integer()
 ```
 
-`max_resolution` is evaluated against the resolved result dimensions: when
-`max_resolution > 0` and the result megapixels exceed it, the search is skipped
-(`quality_search` collapses to `:none` for that request) and the single-shot
-encode runs at the resolved base quality. This bounds worst-case cost on huge
-results.
+`max_resolution` is **forwarded** through resolution (it rides along on
+`ResolvedQualitySearch`, default 0) but is **not** evaluated in `Policy` — the
+finalized image's pixel count is only in hand inside the encoder. The skip is
+decided there: `EncodeSearch.skip?/2` returns true when `max_resolution > 0` and
+the finalized megapixels exceed it, in which case the search is bypassed and the
+single-shot encode runs at the resolved base quality (`outcome: :skipped`). This
+bounds worst-case cost on huge results. `max_resolution` is a generation guard,
+so it stays out of the cache key and ETag (see §8).
 
 ## 6. Encoder — the search loop
 
@@ -251,7 +265,21 @@ streaming. So:
 ### 6.2 The search algorithm (our own — imgproxy's is closed)
 
 Integer **binary search on quality** within `[min_quality, max_quality]`, shared
-by all three predicates. Predicate per request:
+by all three predicates.
+
+**Monotonicity contract.** The binary search assumes encoded byte size is
+non-decreasing in quality, and SSIMULACRA2 score is non-decreasing in quality.
+Real encoders can violate this *locally* (adjacent qualities flat, or off by a
+hair; the research note shows the score curve can even wiggle). The consequence
+is bounded and acceptable for a best-effort search: the returned quality may be a
+step or two from the theoretical optimum, but it is always re-measured and always
+within `[min, max]` — never wrong in kind. This is a documented limitation, not a
+bug to "fix" by ripping out the search; widen tolerances if a real-encoder flake
+appears. The property tests (§12) therefore generate non-monotone curves too and
+assert only the kind-invariants (within bracket; `:hit` results actually satisfy
+their predicate), never optimality.
+
+Predicate per request:
 
 - `:size` — accept when `byte_size ≤ target` (want the **highest** quality that
   still fits).
@@ -355,14 +383,21 @@ composition in §6.3), not 10.
 - `quality_search` and `max_bytes` join the cache **key** — they change the
   stored bytes (`ImagePipe.Cache.Key.output_plan_data/2`, mirrored in
   `Plan.KeyData`). Distinct targets/brackets must not collide.
-  - The key contributes the *resolved-after-negotiation* search descriptor where
-    practical, consistent with how `quality`/`format_qualities` already
-    contribute; per-format clamps therefore fold into the key via the resolved
-    bracket.
+  - The key contributes the **native, pre-negotiation** descriptor — objective,
+    target, global bracket, `allowed_error`, and the per-format maps (as sorted
+    lists) — consistent with how `quality`/`format_qualities` already key their
+    *unresolved* plan values (the negotiated format is captured elsewhere in the
+    key via `Accept`/modern candidates). Keying the native descriptor avoids
+    depending on the resolved bracket and is deterministic.
+  - **`max_resolution` is excluded** from the key (and the ETag): it is a runtime
+    generation guard, not stored identity — keep safety limits out of both.
 - The **ETag** rules are unchanged in spirit: the search is deterministic in its
   output given identical inputs (same finalized image + same descriptor → same
-  bytes), so the new fields participate as part of the canonical plan seed, not
-  as a body content-hash. No new fast-path regression.
+  bytes), so the new fields participate as part of the canonical plan seed (they
+  flow into the ETag automatically via `plan_material/2`, which drops only the
+  cachebuster), not as a body content-hash. Two distinct `max_bytes`/`target`s
+  therefore yield distinct ETags — correct, since they change the stored bytes.
+  No new fast-path regression.
 - Greenfield: reshape canonical key data in place; **do not** bump a key data
   version.
 - The search is a cache-**miss** generation concern only; it must not gate
@@ -423,7 +458,7 @@ Per the test guidelines — assert user-visible contracts via real
   config fallback; config-default resolution in `apply_request_defaults`.
 - **Planner:** `Plan.Output.quality_search` / `max_bytes` populated correctly;
   product-neutral mapping (`dssim`→`:ssim2`).
-- **Resolution:** per-format bracket clamp in `Output.Policy.resolved/2`
+- **Resolution:** per-format bracket clamp in `Output.Policy.resolve/2`
   (format-specific min/max with global fallback); `max_resolution` skip.
 - **Wire acceptance** (`imgproxy_wire_conformance_test` style):
   - `size` / `max_bytes` — decode response, assert byte size ≤ target (within

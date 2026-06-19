@@ -36,7 +36,8 @@
 - `lib/image_pipe/parser/imgproxy/plan_builder.ex` — emit `quality_search` + `max_bytes` onto `Plan.Output`.
 - `lib/image_pipe/output/policy.ex` — carry fields; resolve per-format bracket + `max_resolution` skip in `resolved/2`.
 - `lib/image_pipe/output/encoder.ex` — finalize once; buffer-encode path; dispatch to `EncodeSearch`.
-- `lib/image_pipe/request/source_session/producer.ex` — add the search telemetry span inside `[:encode]` (only if not emitted from `EncodeSearch` directly — see Task 14).
+- `lib/image_pipe/output.ex` + `test/image_pipe/architecture_boundary_test.exs` — widen the `output` boundary to depend on `Telemetry` (Task 15a). The `[:encode, :search]` span/probe are emitted **directly** from `EncodeSearch` (output boundary), nested inside the producer's existing `[:encode]` span — matching the `transform` boundary precedent. The producer needs **no** change.
+- `lib/image_pipe/format.ex` — add `supports_quality?/1` (Task 14a).
 - `lib/image_pipe/telemetry/logger.ex` — subscribe + render + level for the new events.
 - `lib/image_pipe/cache/key.ex` — include `quality_search` + `max_bytes` in output key data.
 - `mix.exs` — add `ssimulacra2`.
@@ -306,16 +307,23 @@ test "parses max_bytes and its mb alias into the output scope" do
            ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:51200")
 end
 
-test "rejects non-positive or malformed max_bytes" do
-  assert {:error, _} = ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:0")
+test "mb:0 disables the ceiling (no-op), matching imgproxy" do
+  assert {:ok, {:output, [max_bytes: nil]}} =
+           ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:0")
+end
+
+test "rejects negative or malformed max_bytes" do
+  assert {:error, _} = ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:-5")
   assert {:error, _} = ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:abc")
 end
 ```
 
 > Confirm the actual public entry point name for parsing one segment in that module (it may be `parse_segment/1` or similar); adjust the calls to match. If only a higher-level entry exists, assert through it.
 
+> **imgproxy parity (compat review):** imgproxy parses `max_bytes` with `parsePositiveInt` (guard `i < 0`), and `processing.go` gates on `maxBytes > 0`. So `0` is **valid and disables** the ceiling — not a 4xx. Map `0 -> nil`; reject only negatives / non-numeric.
+
 - [ ] **Step 2: Run, expect fail.**
-- [ ] **Step 3: Implement** — add aliases to the option map (near line 49-66): `"max_bytes" => {:max_bytes, [:max_bytes]}, "mb" => {:max_bytes, [:max_bytes]}`. Add a `parse_known_option(:max_bytes, [:max_bytes], [value], segment)` clause that parses a **positive** integer (reuse the positive-int parser; reject `0`/non-numeric with the canonical invalid-option tag). Add `:max_bytes` to the `scoped_assignments/2` `:output` group.
+- [ ] **Step 3: Implement** — add aliases to the option map (near line 49-66): `"max_bytes" => {:max_bytes, [:max_bytes]}, "mb" => {:max_bytes, [:max_bytes]}`. Add a `parse_known_option(:max_bytes, [:max_bytes], [value], segment)` clause that parses a **non-negative** integer; map `0 -> [max_bytes: nil]` (disabled), `n > 0 -> [max_bytes: n]`; reject negatives/non-numeric with the canonical invalid-option tag. Add `:max_bytes` to the `scoped_assignments/2` `:output` group.
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
@@ -672,17 +680,32 @@ If the package returns a bare float, wrap to `{:ok, float}` here so the loop has
 
 Spec §6. Pure-ish loop: depends on a function that encodes the finalized image to a buffer at a quality, plus (for `:ssim2`) the metric. Inject those so the search is unit-testable without real images.
 
-Design the public entry:
+**Two public functions — keep them distinct (this resolved a review finding):**
 
 ```elixir
-@spec run(VixImage.t(), Resolved.t(), keyword()) ::
-        {:ok, binary, %{quality: 1..100, bytes: non_neg_integer(), iterations: pos_integer(),
-                        outcome: :hit | :best_effort | :skipped, score: float() | nil}}
-        | {:error, term()}
-def run(finalized, resolved, opts)
+# Production wrapper: extracts quality_search/max_bytes from the resolved struct,
+# builds the real encode/score closures, delegates to search/3.
+@type meta :: %{quality: 1..100, bytes: non_neg_integer(), iterations: non_neg_integer(),
+                outcome: :hit | :best_effort | :skipped, score: float() | nil}
+@spec run(Vix.Vips.Image.t(), ImagePipe.Output.Resolved.t(), keyword()) ::
+        {:ok, binary, meta()} | {:error, term()}
+def run(finalized_image, %ImagePipe.Output.Resolved{} = resolved, opts)
+
+# Pure core: consumed directly by unit tests.
+@spec search(:none | ImagePipe.Output.ResolvedQualitySearch.t(), nil | pos_integer(), keyword()) ::
+        {:ok, binary, meta()} | {:error, term()}
+def search(quality_search_or_none, max_bytes, opts)
 ```
 
-`opts` injects `:encode_fun` (`quality -> {:ok, binary}`), `:reference`/`:score_fun` (for ssim2), `:base_quality` (resolved base quality int), and `:max_iterations`. In production `Encoder` supplies real ones; tests supply a synthetic monotone size/score curve.
+`opts` for `search/3` injects:
+- `:encode_fun` — `(quality :: 1..100) -> {:ok, binary}` (memoized by the search per distinct quality).
+- `:score_fun` — `(candidate_bytes :: binary) -> float` (ssim2 only; **takes the already-encoded buffer**, not the quality, so the search never re-encodes to score; production decodes the buffer + runs the metric, tests derive a score from the buffer's byte size).
+- `:base_quality` — resolved base quality int (used as the upper bound for `max_bytes`-alone).
+- `:max_iterations` — cap on **distinct** encodes (not predicate evaluations).
+
+`run/3` builds these from the real encoder/metric and calls `search/3`. In production `Encoder` supplies them; the unit tests below supply synthetic curves.
+
+**Monotonicity contract (state this in the moduledoc).** The binary search assumes byte size is non-decreasing in quality and SSIMULACRA2 score is non-decreasing in quality. Real encoders can violate this *locally* (adjacent qualities flat or off by a hair). The consequence is bounded — the returned quality may be a step or two from the theoretical optimum — and is acceptable for a best-effort search: the result is always re-measured and always within `[min, max]`, never wrong in kind. Do **not** "fix" a real-encoder flake by replacing the search; widen tolerances instead.
 
 - [ ] **Step 1: Failing tests** (use a synthetic `encode_fun` returning a deterministic byte size per quality, e.g. `fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end`, and a synthetic `score_fun` mapping quality→score)
 
@@ -705,20 +728,29 @@ test "size best-effort returns min_quality when even the floor exceeds the budge
            EncodeSearch.search(rs, nil, encode_fun: enc, max_iterations: 8)
 end
 
-# ssim2: lowest quality whose score >= target - allowed_error
+# ssim2: lowest quality whose score >= target - allowed_error.
+# score_fun takes the ENCODED BUFFER; here byte_size == q*100, so score == q+20.
 test "ssim2 picks the lowest quality clearing the tolerance band" do
   rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
   enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
-  score = fn q -> q + 20.0 end          # score == q+20; >=90 at q>=70
+  score = fn bin -> byte_size(bin) / 100 + 20.0 end   # == q+20; >=90 at q>=70
   assert {:ok, _bin, %{quality: 70, outcome: :hit, score: s}} =
            EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
   assert s >= 90.0
 end
 
+test "ssim2 reports :hit at the default iteration cap on a realistic bracket" do
+  rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 70, max_quality: 80, allowed_error: 0.0}
+  enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+  score = fn bin -> byte_size(bin) / 100 + 20.0 end   # >=90 at q>=70 -> picks 70
+  assert {:ok, _bin, %{quality: 70, outcome: :hit}} =
+           EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 6)
+end
+
 test "ssim2 allowed_error loosens the band downward" do
   rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 5.0}
   enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
-  score = fn q -> q + 20.0 end          # accept score >= 85 -> q>=65
+  score = fn bin -> byte_size(bin) / 100 + 20.0 end   # accept score >= 85 -> q>=65
   assert {:ok, _bin, %{quality: 65}} =
            EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
 end
@@ -726,7 +758,7 @@ end
 test "ssim2 best-effort returns max_quality when target unreachable" do
   rs = %RQS{objective: :ssim2, target: 99.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
   enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
-  score = fn q -> q / 2.0 end           # max score 40 < 99
+  score = fn bin -> byte_size(bin) / 100 / 2.0 end    # == q/2; max 40 < 99
   assert {:ok, _bin, %{quality: 80, outcome: :best_effort}} =
            EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
 end
@@ -735,7 +767,7 @@ end
 test "max_bytes lowers the ssim2 pick when it exceeds the budget" do
   rs = %RQS{objective: :ssim2, target: 80.0, min_quality: 10, max_quality: 90, allowed_error: 0.0}
   enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end   # bytes = q*1000
-  score = fn q -> q + 0.0 end                              # score == q; >=80 at q>=80
+  score = fn bin -> byte_size(bin) / 1000 end             # == q; >=80 at q>=80
   # objective picks q=80 (80_000 bytes); max_bytes 60_000 forces down to <=60
   assert {:ok, _bin, %{quality: 60}} =
            EncodeSearch.search(rs, 60_000, encode_fun: enc, score_fun: score, max_iterations: 16)
@@ -749,18 +781,17 @@ test "max_bytes alone searches [10, base] for the highest fit" do
 end
 ```
 
-> The `search/3` arity here takes `(quality_search_or_none, max_bytes, opts)` for unit testing. The production `run/3` wrapper (used by `Encoder`) builds the real `encode_fun`/`score_fun`/`reference` and delegates to `search/3`. Keep the function names you choose consistent with Task 14.
-
 - [ ] **Step 2: Run, expect fail.**
 - [ ] **Step 3: Implement** the loop:
+  - **Memoization & iteration cap.** Keep a `%{quality => binary}` memo; `encode_fun` is called at most once per distinct quality, and `score_fun` (ssim2) is applied to the memoized buffer at most once per distinct quality. `iterations` counts **distinct encodes only** (memo hits are free). Cap distinct encodes at `max_iterations`; on hitting the cap mid-search, stop and return the **best satisfying candidate already probed** (see per-predicate tie-break) with `outcome: :hit` if one satisfied the predicate, else the boundary with `outcome: :best_effort`.
   - **Objective phase** (when a `%RQS{}` is given):
-    - `:size` → binary search `[min,max]` for the **highest** `q` with `byte_size(encode(q)) <= target`; if none, best-effort `min_quality`.
-    - `:ssim2` → binary search `[min,max]` for the **lowest** `q` with `score(q) >= target - allowed_error`; if none, best-effort `max_quality`.
-    - Memoize encodes by quality (a map) so a quality is never encoded twice across phases; count distinct encodes as `iterations`. Cap distinct encodes at `max_iterations`; on cap, return the best candidate seen so far with `outcome: :best_effort`.
-  - **Cap phase** (when `max_bytes` is set): take the objective's chosen quality (or `base_quality` when objective is `:none`) as the upper bound; if its bytes already `<= max_bytes`, keep it; else binary search downward in `[floor, chosen]` for the highest `q` with bytes `<= max_bytes`. `floor = min_quality` when an objective ran, else `10` (spec §6.2/§6.3). Best-effort to `floor`.
-  - Track `outcome`: `:hit` when a predicate-satisfying quality was found; `:best_effort` when a boundary was returned; `:skipped` is set by the caller (Task 13b) not here.
+    - `:size` → binary search `[min,max]` for the **highest** `q` with `byte_size(memo(q)) <= target`. Best-effort = the highest fitting quality probed; if none fit, `min_quality`.
+    - `:ssim2` → binary search `[min,max]` for the **lowest** `q` with `score(memo(q)) >= target - allowed_error`. Best-effort = the lowest clearing quality probed; if none clear, `max_quality`.
+  - **Cap phase** (when `max_bytes` is set): upper bound = the objective's chosen quality (or `base_quality` when objective is `:none`). If `byte_size(memo(upper)) <= max_bytes`, keep it; else binary search downward in `[floor, upper]` for the **highest** `q` with bytes `<= max_bytes`. `floor = min_quality` when an objective ran, else `10` (spec §6.2/§6.3). Best-effort = `floor` (the lowest quality probed) when even the floor exceeds the budget.
+  - **Per-predicate tie-break for a cap-exhausted return** (do not conflate the three): `:size` and `max_bytes` return the *highest fitting* quality probed; `:ssim2` returns the *lowest clearing* quality probed. Never return a quality lower than one already proven to fit (size/max_bytes) or higher than one already proven to clear (ssim2).
+  - Track `outcome`: `:hit` when a predicate-satisfying quality was found; `:best_effort` when a boundary/unsatisfied result was returned; `:skipped` is set by the caller (Task 13b), not here.
   - Return the winning quality's already-encoded buffer (from the memo) so the winner is never re-encoded.
-  - For `:ssim2`, populate `score` with the winner's measured score; `nil` otherwise.
+  - For `:ssim2`, populate `score` with the winner's measured score (re-read from the per-quality score memo); `nil` otherwise.
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
@@ -776,6 +807,30 @@ end
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
+### Task 14a: Add `Format.supports_quality?/1`
+
+**Files:**
+- Modify: `lib/image_pipe/format.ex`
+- Test: `test/image_pipe/format_test.exs`
+
+`Format.supports_quality?/1` does not exist yet (only `supports_color_profile?`/`supports_alpha?`/`supports_hdr?`). The search gates on it, mirroring imgproxy's `SupportsQuality()` capability (not the docs' narrower 4-format list).
+
+- [ ] **Step 1: Failing test**
+
+```elixir
+test "supports_quality?/1 is true for lossy-quality formats, false for png" do
+  assert ImagePipe.Format.supports_quality?(:jpeg)
+  assert ImagePipe.Format.supports_quality?(:webp)
+  assert ImagePipe.Format.supports_quality?(:avif)
+  refute ImagePipe.Format.supports_quality?(:png)
+end
+```
+
+- [ ] **Step 2: Run, expect fail.**
+- [ ] **Step 3: Implement** — `def supports_quality?(format) when format in [:jpeg, :webp, :avif], do: true` / `def supports_quality?(_), do: false`. Place beside the sibling predicates; export if the boundary requires it (Format already exports its detector — follow the module's export pattern).
+- [ ] **Step 4: Run, expect pass.**
+- [ ] **Step 5: Commit.**
+
 ### Task 14: Wire `EncodeSearch` into `Encoder.stream_output`
 
 **Files:**
@@ -784,13 +839,13 @@ end
 
 - [ ] **Step 1: Failing test** — with a real fixture + `Resolved{format: :jpeg, max_bytes: N}`, assert `stream_output/3` returns `{:ok, stream, mime}` whose concatenated bytes are `<= N` (best-effort). With `quality_search: %RQS{objective: :ssim2, ...}`, assert the body decodes and the response is produced (score assertion lives in the wire test, Task 19).
 - [ ] **Step 2: Run, expect fail.**
-- [ ] **Step 3: Implement** — in `stream_output/3`, when `quality_search != :none or max_bytes != nil` and `Format.supports_quality?(format)`:
+- [ ] **Step 3: Implement** — in `stream_output/3`, after finalizing once, when `(resolved.quality_search != :none or resolved.max_bytes != nil) and Format.supports_quality?(format)`:
   - Build `encode_fun = fn q -> encode_to_buffer(finalized, resolved, q) end`.
-  - For `:ssim2`, build `reference = Ssim2Metric.reference(finalized)` and `score_fun = fn q -> {:ok, cand} = encode_fun.(q); {:ok, img} = Image.from_binary(cand); Ssim2Metric.score(reference, img) end` (reuse the memoized buffer — pass the candidate binary into the search so the decode/score happens once per quality; structure `EncodeSearch.run/3` to own this so buffers aren't re-encoded).
-  - Compute base quality from `resolved.quality` (default → a sensible base, e.g. the format default; reuse whatever `output_options/2` would have used — for `:default` use the libvips default, so seed `base_quality` = `max_quality` of the search when present, else 75).
-  - Call `EncodeSearch.run(finalized, resolved, ...)`; wrap the winning buffer as a one-element stream `[binary]` so the producer's streaming contract is unchanged; return `{:ok, [binary], mime_type}`.
-  - Honor `EncodeSearch.skip?/2` (single-shot at base quality) before searching.
-  - Formats without quality (`:png`) bypass the search (single-shot), mirroring imgproxy's `SupportsQuality()` guard.
+  - For `:ssim2`, build `reference = Ssim2Metric.reference(finalized)` and a buffer-based `score_fun = fn candidate_bytes -> {:ok, img} = Image.from_binary(candidate_bytes); {:ok, s} = Ssim2Metric.score(reference, img); s end` (returns a **bare float** to match `search/3`'s `:score_fun` contract; the search applies it to the memoized buffer so each quality is encoded and decoded at most once).
+  - **Base quality:** derive it from `resolved.quality` exactly as the single-shot path already does — reuse the value `output_options/2` would pass (`{:quality, v} -> v`; `:default ->` the encoder's existing default, i.e. whatever `image`/libvips uses when no `:quality` is given). Factor that into a small `base_quality(resolved)` helper shared by both paths so there is **no** invented constant. This is only consulted for the `max_bytes`-alone upper bound.
+  - Call `EncodeSearch.run(finalized, resolved, telemetry_opts: Telemetry.telemetry_opts(opts), max_iterations: <config or default 6>)`; wrap the winning buffer as a one-element stream `[binary]` so the producer's streaming contract is unchanged; return `{:ok, [binary], mime_type}`.
+  - Honor `EncodeSearch.skip?/2` (single-shot at base quality, `outcome: :skipped`) before searching, using the finalized image's megapixels.
+  - Formats without quality (`:png`) and the no-search case keep the existing lazy `stream!/2` path.
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
@@ -798,13 +853,27 @@ end
 
 ## Phase 5 — Telemetry
 
+### Task 15a: Widen the `output` boundary to depend on `Telemetry`
+
+**Files:**
+- Modify: `lib/image_pipe/output.ex` (the `use Boundary, deps: [...]` list)
+- Modify: `test/image_pipe/architecture_boundary_test.exs` (the "output boundary depends only on format and plan data" test, ~line 364-377)
+
+The `output` boundary currently declares `deps: [ImagePipe.Format, ImagePipe.Plan]`, and `architecture_boundary_test.exs:367` asserts exactly that. Emitting telemetry from `EncodeSearch` (Task 15) adds an `output -> Telemetry` edge. This mirrors the **established precedent**: the `transform` boundary declares `deps: [ImagePipe.Plan, ImagePipe.Telemetry]` and emits `[:transform, :operation]`/`[:transform, :execute]` spans directly. Per AGENTS.md, a boundary-rule change ships with its architecture test in the same change.
+
+- [ ] **Step 1: Update the boundary** — add `ImagePipe.Telemetry` to `lib/image_pipe/output.ex`'s `deps:` list.
+- [ ] **Step 2: Update the architecture test** — change the assertion to `assert_boundary_deps(output, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Telemetry])`. Leave the `refute_boundary_deps` list (Source/Parser/Request/Response/Cache/Transform) unchanged — `Telemetry` is not in it.
+- [ ] **Step 3: Compile** — `mise exec -- mix compile --warnings-as-errors` (Boundary runs at compile time; a missing dep edge fails here).
+- [ ] **Step 4: Run** — `mise exec -- mix test test/image_pipe/architecture_boundary_test.exs` → pass.
+- [ ] **Step 5: Commit.**
+
 ### Task 15: Search span + per-probe event
 
 **Files:**
 - Modify: `lib/image_pipe/output/encode_search.ex` (emit via `ImagePipe.Telemetry` helpers)
 - Test: `test/image_pipe/output/encode_search_telemetry_test.exs`
 
-Spec §7. Use the shared `ImagePipe.Telemetry` span/execute helpers. **Use a unique `telemetry_prefix`** in tests (global-handler hygiene — see the test guidelines).
+Spec §7. Use the shared `ImagePipe.Telemetry` span/execute helpers (depends on Task 15a's boundary edge). **Use a unique `telemetry_prefix`** in tests (global-handler hygiene — see the test guidelines). The result-map keys (`quality`/`bytes`/`score`) differ deliberately from the telemetry stop-meta keys (`chosen_quality`/`chosen_bytes`/`final_score`) — map them explicitly, don't assume they match.
 
 - [ ] **Step 1: Failing test** — attach to `[<prefix>, :encode, :search, :stop]` and `[<prefix>, :encode, :search, :probe]`; run a search with a synthetic curve; assert the stop metadata carries `objective`, `iterations`, `chosen_quality`, `chosen_bytes`, `outcome` (and `final_score` for ssim2), and that probe events fired once per distinct quality with `quality`/`bytes`/`index` (+ `score` for ssim2).
 - [ ] **Step 2: Run, expect fail.**
@@ -858,10 +927,23 @@ test "semantically identical searches reuse the same key" do
   assert key_for(output(quality_search: search(target: 90.0))) ==
            key_for(output(quality_search: search(target: 90.0)))
 end
+
+test "max_resolution does not enter the key (it is a generation guard, not stored identity)" do
+  assert key_for(output(quality_search: search(max_resolution: 0))) ==
+           key_for(output(quality_search: search(max_resolution: 50)))
+end
+
+# ETag is derived from the same plan seed (plan_material drops only the cachebuster),
+# so distinct byte-changing inputs must also yield distinct ETags.
+test "different max_bytes targets yield different ETags" do
+  refute etag_for(output(max_bytes: 50_000)) == etag_for(output(max_bytes: 60_000))
+end
 ```
 
+> `etag_for/1` resolves the request's ETag (via the same path `HttpCache.etag_material/2` → `Key.plan_material/2` uses). Locate the existing ETag test helper in the suite and reuse it.
+
 - [ ] **Step 2: Run, expect fail.**
-- [ ] **Step 3: Implement** — add `quality_search: quality_search_key(output.quality_search)` and `max_bytes: output.max_bytes` to both `output_plan_data/2` keyword bodies. Add a private `quality_search_key/1` that maps `:none -> :none` and a `%QualitySearch{}` to a stable keyword (objective, target, min/max, allowed_error, sorted per-format maps). Keep canonical/ordered. Do **not** bump a key data version (greenfield).
+- [ ] **Step 3: Implement** — add `quality_search: quality_search_key(output.quality_search)` and `max_bytes: output.max_bytes` to both `output_plan_data/2` keyword bodies. Add a private `quality_search_key/1` that maps `:none -> :none` and a `%QualitySearch{}` to a stable keyword: `objective`, `target`, `min_quality`, `max_quality`, `allowed_error`, and the per-format maps as sorted lists. **Exclude `max_resolution`** — it is a runtime generation guard (like a safety limit), not stored identity, so it must not enter the key *or* the ETag (AGENTS.md: "Neither the key nor the ETag is a generation gate… keep safety limits out of both"). Keep canonical/ordered. Do **not** bump a key data version (greenfield). The fields flow into the ETag automatically via `plan_material/2`, which is correct — they change the stored bytes, so they are legitimate byte-identity validators (unlike the cachebuster/vary inputs the ETag deliberately excludes).
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
@@ -909,7 +991,12 @@ Spec §12. Real `ImagePipe.call/2` requests against a committed source image.
 **Files:**
 - Create: `test/image_pipe/output/encode_search_property_test.exs`
 
-- [ ] **Step 1: Write** StreamData properties: for random monotone size/score curves and random brackets, `search/3` returns a quality within `[min,max]`; `size` result bytes `<= target` whenever any in-range quality fits; effective bracket from Policy always has `min <= max`.
+- [ ] **Step 1: Write** StreamData properties. Generate random brackets and random size/score curves — **including non-monotone curves** (don't only test the happy monotone case, or the search's robustness claim is untested). Assert the invariants that hold regardless of monotonicity:
+  - `search/3` always returns a quality within `[min, max]`.
+  - When `outcome == :hit` for `:size`/`max_bytes`, the returned quality's bytes are `<= target`.
+  - When `outcome == :hit` for `:ssim2`, the returned quality's score is `>= target - allowed_error`.
+  - The effective bracket from `Policy.resolve/2` always has `min <= max`.
+  Do **not** assert optimality (the search may be a step off the true boundary under non-monotone curves — that's the documented, acceptable behavior, not a bug).
 - [ ] **Step 2..5:** run, implement any fixes, commit.
 
 ### Task 21: Support matrix doc
@@ -919,7 +1006,11 @@ Spec §12. Real `ImagePipe.call/2` requests against a committed source image.
 
 Spec §11.
 
-- [ ] **Step 1: Update** — add option rows for `autoquality`/`aq` and `max_bytes`/`mb` and the `autoquality_*` config options (surface axis); add a pipeline-stage note for the output re-encode search loop (stage axis); document the SSIMULACRA2-vs-DSSIM divergence + bare-`dssim`-only rule + migration table (`dssim:0.02 ≈ ssim2:85`) and the one-line `max_bytes` binary-search behavioral note (behavioral axis); document `ml` as unsupported (deliberate divergence).
+- [ ] **Step 1: Update**
+  - **Surface axis:** option rows for `autoquality`/`aq` and `max_bytes`/`mb`; the `autoquality_*` config options (§4.3). Note `max_bytes:0` disables (parity), and that the search gates on the libvips quality **capability** (jpeg/webp/avif), not the docs' narrower 4-format list.
+  - **Stage axis:** pipeline-stage note for the output re-encode search loop (no option-table knob for the loop mechanics).
+  - **Behavioral axis:** the SSIMULACRA2-vs-DSSIM divergence (metric/scale/direction) + bare-`dssim`-only rule + migration table (`dssim:0.02 ≈ ssim2:85`); `ml` unsupported (deliberate divergence); and two one-line behavioral **notes** (not divergences in the testable sense): (a) `max_bytes` uses a binary search selecting the highest quality under budget vs imgproxy's heuristic descent; (b) under `autoquality + max_bytes` composition our floor is the autoquality `min_quality`, whereas imgproxy's `max_bytes` always floors at 10.
+  - **Minor grammar divergence:** `autoquality:size` accepts no 5th positional arg, whereas imgproxy's uniform grammar tolerates (and ignores) a trailing `allowed_error` on `size`.
 - [ ] **Step 2: Commit.**
 
 ---
