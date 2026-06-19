@@ -17,48 +17,62 @@
 - Modify: `lib/image_pipe/plug.ex:83-84` — call `Runner.with_detector_identity/2` before `HTTPCache.prepare`
 - Test: `test/image_pipe/request/http_cache_test.exs`
 
-- [ ] **Step 1: Write the failing test**
+> **Why a wire-level test, not a `HTTPCache.prepare`-direct test:** the bug lives in
+> `plug.ex`, which feeds *raw* opts (no `:detector_identity`) to `HTTPCache.prepare`. A test
+> that calls `HTTPCache.prepare` with `detector_identity` already in opts passes *before* the
+> fix — it pins `etag_material`'s contract (already covered by `cache/key_test.exs`), not the
+> broken plug wiring. The regression guard must drive the full `ImagePipe.Plug.call/2` so the
+> plug's opts-threading is exercised end-to-end. Three reviewers independently flagged this.
 
-Add to `test/image_pipe/request/http_cache_test.exs`, after the existing `use` / `alias` block. Add `alias ImagePipe.Plan.Pipeline` (already present) and `alias ImagePipe.Plan.Operation.CropGuided`:
+- [ ] **Step 1: Write the failing wire test**
+
+The test uses `ImagePipe.Test.FakeDetector` (`test/support/fake_detector.ex`), whose
+`identity/1` returns `{FakeDetector, Keyword.get(opts, :identity, :fake_v1)}`. The `:identity`
+opt is an unknown-but-tolerated extension key (`Options.validate_known_opts!` passes it
+through to the detector — same mechanism the imgproxy conformance suite uses for
+`face_ver`/`object_ver`). A `g:obj:face` URL parses to a `{:detect, …}` guide, so
+`with_detector_identity` resolves the identity into both the ETag and the cache key.
+
+Add to `test/image_pipe/cdn_http_cache_wire_test.exs`, after the
+`"internal cache hit returns 200 with current prepared etag"` test:
 
 ```elixir
-alias ImagePipe.Plan.Operation.CropGuided
+  test "detector identity change moves the generated ETag end-to-end (#181 regression)", _ctx do
+    etag_for = fn identity ->
+      opts =
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {CacheProbe, test_pid: self()},
+          http_cache: [mode: :enabled],
+          detector: ImagePipe.Test.FakeDetector,
+          identity: identity
+        )
+
+      conn =
+        ImagePipe.Plug.call(
+          conn(:get, "/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/beach.jpg"),
+          opts
+        )
+
+      assert conn.status == 200
+      assert [etag] = get_resp_header(conn, "etag")
+      etag
+    end
+
+    assert etag_for.(:model_v1) != etag_for.(:model_v2)
+  end
 ```
 
-Then add these two tests after the existing `"set-cookie suppresses generated public cache headers"` test:
-
-```elixir
-test "detector_identity in opts produces a different ETag" do
-  base =
-    HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
-
-  with_identity =
-    HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(),
-      opts(detector_identity: {"MyDetector", "model-v2"})
-    )
-
-  assert base.etag != nil
-  assert with_identity.etag != nil
-  assert base.etag != with_identity.etag
-end
-
-test "changing detector_identity does not affect ETag when opts carry no identity" do
-  first = HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
-  second = HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
-
-  assert first.etag == second.etag
-end
-```
-
-- [ ] **Step 2: Run the tests to confirm they pass already**
-
-These tests exercise `HTTPCache.prepare` directly with the opts already containing `detector_identity`, so they pass before the fix — they document the contract of `etag_material`.
+- [ ] **Step 2: Run the test to confirm it FAILS before the fix**
 
 ```bash
-mise exec -- mix test test/image_pipe/request/http_cache_test.exs
+mise exec -- mix test test/image_pipe/cdn_http_cache_wire_test.exs
 ```
 
-Expected: all pass (including the two new ones).
+Expected: the new test FAILS — both calls produce the same ETag because `plug.ex` feeds raw
+opts (detector identity `nil`) to `HTTPCache.prepare`, so the `:model_v1`/`:model_v2`
+difference never reaches the ETag.
 
 - [ ] **Step 3: Update `runner.ex` — rename to public + remove inner call**
 
@@ -107,7 +121,20 @@ change to:
     send_conditional_response(conn, plan, resolved_source, prepared_http_cache, opts)
 ```
 
-- [ ] **Step 5: Run the full test suite**
+The plug now owns the single point of detector-identity resolution. `with_detector_identity`
+is idempotent (`Keyword.put` overwrites with the same value), so a stray second call would be
+harmless — but the inner call in `run_with_cache_config` was removed in Step 3 precisely so
+the key and ETag derive from one resolution. Don't re-introduce it.
+
+- [ ] **Step 5: Run the wire test to confirm it now PASSES**
+
+```bash
+mise exec -- mix test test/image_pipe/cdn_http_cache_wire_test.exs
+```
+
+Expected: the #181 regression test passes — the two ETags now differ.
+
+- [ ] **Step 6: Run the full test suite**
 
 ```bash
 mise exec -- mix test
@@ -115,10 +142,10 @@ mise exec -- mix test
 
 Expected: all green.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add lib/image_pipe/request/runner.ex lib/image_pipe/plug.ex test/image_pipe/request/http_cache_test.exs
+git add lib/image_pipe/request/runner.ex lib/image_pipe/plug.ex test/image_pipe/cdn_http_cache_wire_test.exs
 git commit -m "fix(cache): resolve detector identity once in plug, feed same opts to ETag and cache key (#181)"
 ```
 
@@ -126,38 +153,65 @@ git commit -m "fix(cache): resolve detector identity once in plug, feed same opt
 
 ### Task 2: Fix #183 — Raising adapter fails closed
 
+> **Scope: raises only, deliberately.** `rescue` catches raised exceptions (class `:error`),
+> which is exactly what the issue describes and what realistic third-party adapters do (an
+> S3/Redis client raising on timeout). An adapter that `exit`s or `throw`s, or whose linked
+> process dies, is a *different* failure mode handled by OTP supervision, not by this fix —
+> we do **not** broaden to `try/catch :exit, :throw`, which would also swallow legitimate
+> shutdown/kill signals. The tests are raise-shaped to match.
+>
+> **Confirmed during planning:** `ImagePipe.Error.tag/1` (`lib/image_pipe/error.ex:9-12`) has a
+> catch-all `def tag(_reason), do: :error`, so passing a bare `%RuntimeError{}` into
+> `commit_stop_metadata({:error, exception}, …)` → `Error.tag(exception)` yields `:error` and
+> does **not** re-raise inside the telemetry lambda. Containment holds.
+
 **Files:**
 - Modify: `lib/image_pipe/cache.ex:152-165` — add `rescue` in `get_configured`
 - Modify: `lib/image_pipe/cache/sink.ex:139-157` — add `rescue` in `do_write_chunk`
 - Modify: `lib/image_pipe/cache/sink.ex:160-165` — add `rescue` inside the `Telemetry.span` lambda in `emit_commit_result`
 - Modify: `lib/image_pipe/cache/sink.ex:201-207` — add `rescue` in `abort_adapter`
-- Test: `test/image_pipe/cache_test.exs`
+- Test: `test/image_pipe/cache_test.exs` (unit) and `test/image_pipe/cdn_http_cache_wire_test.exs` (body-delivery)
 
 - [ ] **Step 1: Add raising adapter modules to `cache_test.exs`**
 
-Add these two module definitions alongside the existing adapter modules at the top of `test/image_pipe/cache_test.exs` (after `SinkAdmissionRejectedAdapter` around line 165):
+Add these two module definitions alongside the existing adapter modules at the top of `test/image_pipe/cache_test.exs` (after `SinkAdmissionRejectedAdapter` around line 165). The `@impl true` annotations match the existing adapter modules' style and keep `credo --strict` quiet:
 
 ```elixir
   defmodule RaisingGetAdapter do
     @behaviour ImagePipe.Cache
 
+    @impl true
     def get(%Key{}, _opts), do: raise("adapter get crashed")
+    @impl true
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
+    @impl true
     def write_chunk(state, _chunk, _opts), do: {:ok, state}
+    @impl true
     def commit_sink(_state, _opts), do: :ok
+    @impl true
     def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule RaisingCommitAdapter do
     @behaviour ImagePipe.Cache
 
+    @impl true
     def get(%Key{}, _opts), do: :miss
+    @impl true
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
+    @impl true
     def write_chunk(state, _chunk, _opts), do: {:ok, state}
+    @impl true
     def commit_sink(_state, _opts), do: raise("adapter commit crashed")
+    @impl true
     def abort_sink(_state, _opts), do: :ok
   end
 ```
+
+> Note: the existing adapter modules in this file use bare `def` without `@impl`. If `credo
+> --strict` does not flag the missing `@impl` on those (it currently passes), the `@impl true`
+> additions here are optional consistency. Match whatever the existing modules do — if they
+> stay bare, drop the `@impl true` lines to match. Verify with `mise exec -- mix credo --strict`.
 
 - [ ] **Step 2: Write failing test for `get` raise**
 
@@ -305,7 +359,7 @@ In `lib/image_pipe/cache/sink.ex`, change `abort_adapter/2`:
   end
 ```
 
-- [ ] **Step 9: Run the tests to confirm they pass**
+- [ ] **Step 9: Run the unit tests to confirm they pass**
 
 ```bash
 mise exec -- mix test test/image_pipe/cache_test.exs
@@ -313,10 +367,77 @@ mise exec -- mix test test/image_pipe/cache_test.exs
 
 Expected: all green including the two new tests.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 10: Add the wire-level body-delivery test**
+
+The unit tests above prove `Cache.commit_sink/2` returns `:ok` on a raise, but the issue's
+actual user-visible symptom is a **truncated streamed response** when `commit_sink` raises
+after the body was fully encoded. Prove the complete body still reaches the client by
+comparing the raising-adapter response against a clean-adapter baseline for the same URL —
+byte-identical bodies means no truncation, and no image decode is needed.
+
+Add a raising-commit probe alongside the other probe modules at the top of
+`test/image_pipe/cdn_http_cache_wire_test.exs`:
+
+```elixir
+  defmodule RaisingCommitProbe do
+    @behaviour ImagePipe.Cache
+
+    def get(%Key{}, _opts), do: :miss
+    def open_sink(%Key{}, _metadata, _opts), do: {:ok, %{}}
+    def write_chunk(state, _chunk, _opts), do: {:ok, state}
+    def commit_sink(_state, _opts), do: raise("commit boom")
+    def abort_sink(_state, _opts), do: :ok
+  end
+```
+
+Then add this test after the #181 regression test:
+
+```elixir
+  test "commit_sink raise still delivers the complete body, byte-identical to a clean cache (#183)" do
+    url = "/_/rs:fill:50:50/f:jpeg/plain/beach.jpg"
+
+    clean =
+      ImagePipe.Plug.call(
+        conn(:get, url),
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {CacheProbe, test_pid: self()},
+          http_cache: [mode: :enabled]
+        )
+      )
+
+    raising =
+      ImagePipe.Plug.call(
+        conn(:get, url),
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {RaisingCommitProbe, []},
+          http_cache: [mode: :enabled]
+        )
+      )
+
+    assert clean.status == 200
+    assert raising.status == 200
+    assert byte_size(raising.resp_body) > 0
+    assert raising.resp_body == clean.resp_body
+  end
+```
+
+- [ ] **Step 11: Run the wire test to confirm it passes**
 
 ```bash
-git add lib/image_pipe/cache.ex lib/image_pipe/cache/sink.ex test/image_pipe/cache_test.exs
+mise exec -- mix test test/image_pipe/cdn_http_cache_wire_test.exs
+```
+
+Expected: green. (Before the Step 6 fix this test would 500 / truncate on the raising path;
+with the fix the bodies match.)
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add lib/image_pipe/cache.ex lib/image_pipe/cache/sink.ex test/image_pipe/cache_test.exs test/image_pipe/cdn_http_cache_wire_test.exs
 git commit -m "fix(cache): rescue raises from host cache adapter callbacks, translate to fail-open paths (#183)"
 ```
 
@@ -486,15 +607,34 @@ git commit -m "fix(cache): preserve host-set content-disposition on cache-hit re
 ### Task 4: Gate, docs update, and branch rename
 
 **Files:**
-- Modify: `docs/cdn-http-cache.md` — verify key/ETag divergence list is still accurate after #181 fix
+- Modify: `docs/cdn-http-cache.md` — clarify that detector/model identity is part of *both* the key and the ETag
 
-- [ ] **Step 1: Check the cdn-http-cache doc divergence section**
+> **Why an edit is required (not just a verify):** the #181 fix changes a doc-relevant fact.
+> Pre-fix, detector identity reached the cache key but not the ETag — an accidental key/ETag
+> divergence. Post-fix it's folded into both. The divergence section currently names only the
+> cachebuster and "configured cache key inputs" as key-only, which a reader could wrongly read
+> as also covering detector identity. The compatibility reviewer flagged this as a required
+> `cdn-http-cache.md` edit; `docs/imgproxy_support_matrix.md` needs **no** change (#184 restores
+> the already-documented "host plugs can add fixed response headers" promise; #181 is an
+> ImagePipe-internal cache concern with no imgproxy surface).
 
-```bash
-grep -n "diverge\|cachebuster\|detector\|ETag\|etag" docs/cdn-http-cache.md | head -30
+- [ ] **Step 1: Edit the key-vs-ETag divergence section in `docs/cdn-http-cache.md`**
+
+Find the "Cache Key Relationship" section (around line 223). After the sentence:
+
+> For example, `cachebuster` changes the internal cache key but leaves the generated ETag unchanged.
+
+add a new sentence:
+
+```markdown
+Detector and model identity, by contrast, are part of *both* the internal cache key and the
+generated ETag: swapping a detector or model changes the rendition, so it must change the
+validator too — a conditional GET will not return `304` against a rendition produced by a
+different detector.
 ```
 
-If the doc lists only the cachebuster and vary inputs as deliberate key/ETag divergences (and now detector identity is no longer a divergence — it's included in both), confirm the text is accurate. No changes needed if the doc says "ETag excludes the cachebuster and vary inputs" — that remains true. Detector identity is now correctly included in both.
+Re-read the surrounding paragraph after editing to confirm it still flows and that no other
+sentence now contradicts it (e.g. any wording implying detector identity is key-only).
 
 - [ ] **Step 2: Run the full precommit gate**
 
@@ -504,13 +644,20 @@ mise run precommit
 
 Expected: format ✓, compile ✓, credo ✓, tests ✓.
 
-- [ ] **Step 3: Rename the branch**
+- [ ] **Step 3: Commit the doc edit**
+
+```bash
+git add docs/cdn-http-cache.md
+git commit -m "docs(cache): note detector identity is part of both cache key and ETag (#181)"
+```
+
+- [ ] **Step 4: Rename the branch**
 
 ```bash
 git branch -m fix/cache-etag-detector-raising-adapter-content-disposition
 ```
 
-- [ ] **Step 4: Push to remote**
+- [ ] **Step 5: Push to remote**
 
 ```bash
 git push -u origin fix/cache-etag-detector-raising-adapter-content-disposition
