@@ -15,6 +15,7 @@ defmodule ImagePipe.Transform.FocusTest do
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.PlanExecutor
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
   describe "rational helpers" do
     test "default focus is nil and helpers no-op on nil" do
@@ -249,13 +250,33 @@ defmodule ImagePipe.Transform.FocusTest do
     end
 
     defp assert_images_equal(left, right, context) do
-      assert {Image.width(left), Image.height(left)} == {Image.width(right), Image.height(right)},
+      w = Image.width(left)
+      h = Image.height(left)
+
+      assert {w, h} == {Image.width(right), Image.height(right)},
              "#{context}: dimensions diverged"
 
-      for x <- 0..(Image.width(left) - 1), y <- 0..(Image.height(left) - 1) do
-        assert Image.get_pixel!(left, x, y) == Image.get_pixel!(right, x, y),
-               "#{context}: pixel mismatch at (#{x},#{y})"
-      end
+      # Read each frame to a raw row-major band buffer ONCE rather than crossing
+      # the libvips FFI boundary per pixel: across the 4×4 orientation×size matrix
+      # the old Image.get_pixel!/3 loop was ~20k operation_call/4 invocations,
+      # which tipped this async test past the 60s timeout under CI contention.
+      {:ok, lb} = VipsImage.write_to_binary(left)
+      {:ok, rb} = VipsImage.write_to_binary(right)
+
+      assert byte_size(lb) == byte_size(rb),
+             "#{context}: band layout mismatch #{byte_size(lb)} != #{byte_size(rb)}"
+
+      if lb != rb,
+        do: flunk("#{context}: pixel mismatch at #{inspect(first_pixel_mismatch(lb, rb, w, h))}")
+    end
+
+    defp first_pixel_mismatch(lb, rb, w, h) do
+      bands = div(byte_size(lb), w * h)
+
+      Enum.find(for(y <- 0..(h - 1), x <- 0..(w - 1), do: {x, y}), fn {x, y} ->
+        offset = (y * w + x) * bands
+        :binary.part(lb, offset, bands) != :binary.part(rb, offset, bands)
+      end)
     end
 
     test "carried (nil focus) == center across axis-reversing orientations and odd extents" do
