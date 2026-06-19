@@ -34,17 +34,18 @@ defmodule ImagePipe.Transform.Operation.Colorize do
   # pattern) and rejoin only when keep_alpha is true.
   defp apply_colorize(image, o, color, keep_alpha) do
     case Image.has_alpha?(image) do
-      false ->
-        blend_rgb(image, o, color)
+      false -> blend_rgb(image, o, color)
+      true -> blend_with_alpha(image, o, color, keep_alpha)
+    end
+  end
 
-      true ->
-        color_bands = VipsImage.bands(image) - 1
+  defp blend_with_alpha(image, o, color, keep_alpha) do
+    color_bands = VipsImage.bands(image) - 1
 
-        with {:ok, rgb} <- Operation.extract_band(image, 0, n: color_bands),
-             {:ok, alpha} <- Operation.extract_band(image, color_bands, n: 1),
-             {:ok, blended} <- blend_rgb(rgb, o, color) do
-          if keep_alpha, do: Operation.bandjoin([blended, alpha]), else: {:ok, blended}
-        end
+    with {:ok, rgb} <- Operation.extract_band(image, 0, n: color_bands),
+         {:ok, alpha} <- Operation.extract_band(image, color_bands, n: 1),
+         {:ok, blended} <- blend_rgb(rgb, o, color) do
+      if keep_alpha, do: Operation.bandjoin([blended, alpha]), else: {:ok, blended}
     end
   end
 
