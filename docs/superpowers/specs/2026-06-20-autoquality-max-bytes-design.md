@@ -341,11 +341,20 @@ composition in §6.3), not 10.
 
 ### 6.4 Metric integration
 
-- Depend on `ssimulacra2` (module `Ssimulacra2`) via git SHA (§9).
-- Precompute the reference **once** from the finalized pre-encode image:
-  `Ssimulacra2.Reference`.
-- Each candidate: decode the trial buffer back to a Vix image, compare via the
-  `Ssimulacra2.Vix` bridge (in-memory images directly). No temp files.
+- Depend on `ssimulacra2` (module `Ssimulacra2`) via git SHA (§9), isolated
+  behind the `ImagePipe.Output.Ssim2Metric` adapter (the only module naming
+  `Ssimulacra2.*`).
+- Precompute the reference **once** from the finalized pre-encode image via
+  `Ssimulacra2.Vix.reference/1` → `{:ok, Reference.t()}` (the bridge handles the
+  Vix→packed coercion: sRGB, alpha flattened, bit depth preserved).
+- Each candidate: decode the trial buffer back to a Vix image
+  (`Image.from_binary/1`) and score it against the precomputed reference via
+  `Ssimulacra2.Vix.compare/2` *(reference, image)* → `{:ok, float}`. In-memory
+  only, no temp files. **Upstream prerequisite:** that `compare(reference,
+  image)` arity does not exist on the bridge as of `88bcf76` (it only has
+  `compare(image, image)`, which rebuilds the reference each call); it is added
+  to the `ssimulacra2` repo first and the dep is pinned to that merge SHA (§9,
+  plan Task 0).
 - **No metric conformance check here** — we trust Imazen/`fast-ssim2`; the
   binding-sanity test lives in the `ssimulacra2` repo.
 - Score is SSIMULACRA2-native: 0–100, 100 = identical, ~90 ≈ visually lossless.
@@ -406,11 +415,14 @@ composition in §6.3), not 10.
 ## 9. Dependency & toolchain
 
 ```elixir
-# mix.exs
-{:ssimulacra2, github: "hlindset/ssimulacra2",
- ref: "25df45cd33a0e3af6435cfc269a5fccfb83d3f0d"}
+# mix.exs — pin the Task 0 merge SHA (the `Vix.compare(reference, image)` addition)
+{:ssimulacra2, github: "hlindset/ssimulacra2", ref: "<TASK-0-MERGE-SHA>"}
+# current main pre-Task-0: 88bcf76799fa376b8f873083415e94539a60de7d
 ```
 
+- **Upstream prerequisite (plan Task 0):** add `Ssimulacra2.Vix.compare(reference,
+  image)` to the `ssimulacra2` repo, merge, then pin that SHA here. Current main
+  (`88bcf76`, "Add remaining input formats") has only `compare(image, image)`.
 - Compiles the Rust NIF locally during dev (no precompiled artifacts until a
   release is tagged). **Pin Rust in `mise.toml`** so contributors/CI get the
   toolchain.
