@@ -151,7 +151,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   end
 
   test "saturation streams" do
-    assert_sequential_matches_random([%Saturation{value: 25}], File.read!(@beach))
+    assert_sequential_matches_random([%Saturation{value: 1.5}], File.read!(@beach))
   end
 
   test "gray streams" do

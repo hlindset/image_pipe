@@ -62,7 +62,6 @@ defmodule ImagePipe.Plan.Operation do
   @padding_keys [:pixel_ratio, :fill]
   @trim_keys [:threshold, :background, :equal_hor, :equal_ver]
   @effective_padding_modes [:resize, :canvas_preserving]
-  @adjustment_range -100..100
   @brightness_range -255..255
   @type resize_operation :: Resize.t()
 
@@ -196,7 +195,10 @@ defmodule ImagePipe.Plan.Operation do
   def contrast(value), do: invalid(:contrast, [value])
 
   @spec saturation(term()) :: {:ok, Saturation.t()} | {:error, error()}
-  def saturation(value), do: adjustment(:saturation, Saturation, value)
+  def saturation(value) when is_number(value) and value > 0,
+    do: {:ok, %Saturation{value: value * 1.0}}
+
+  def saturation(value), do: invalid(:saturation, [value])
 
   @spec color(term(), term(), term()) :: {:ok, Color.t()} | {:error, term()}
   def color(red, green, blue), do: Color.rgb(red, green, blue)
@@ -473,7 +475,9 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Contrast{} = operation),
     do: is_number(operation.value) and operation.value > 0
 
-  def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
+  def semantic?(%Saturation{} = operation),
+    do: is_number(operation.value) and operation.value > 0
+
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
   def semantic?(%Bitonal{}), do: true
   def semantic?(%Gray{}), do: true
@@ -487,13 +491,6 @@ defmodule ImagePipe.Plan.Operation do
   defp valid_set_focus_point?(_point), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
-
-  defp adjustment(operation, module, value) do
-    case adjustment_value(value) do
-      {:ok, value} -> {:ok, struct!(module, value: value)}
-      {:error, _reason} -> invalid(operation, [value])
-    end
-  end
 
   defp valid_resize?(%Resize{} = operation) do
     with {:ok, mode} <- resize_mode(operation.mode),
@@ -612,14 +609,6 @@ defmodule ImagePipe.Plan.Operation do
 
   defp valid_effect_intensity?(value) do
     case effect_intensity(value) do
-      {:ok, ^value} -> true
-      {:ok, _value} -> false
-      {:error, _reason} -> false
-    end
-  end
-
-  defp valid_adjustment_value?(value) do
-    case adjustment_value(value) do
       {:ok, ^value} -> true
       {:ok, _value} -> false
       {:error, _reason} -> false
@@ -959,17 +948,6 @@ defmodule ImagePipe.Plan.Operation do
   defp number(value) when is_number(value), do: :ok
   defp number(_value), do: {:error, :number}
 
-  defp adjustment_value(value) when is_integer(value) and value in @adjustment_range,
-    do: {:ok, value}
-
-  defp adjustment_value(value) when is_float(value) and value >= -100.0 and value <= 100.0 do
-    value
-    |> Float.round(7)
-    |> canonical_adjustment_float()
-  end
-
-  defp adjustment_value(_value), do: {:error, :adjustment}
-
   defp effect_intensity({:ratio, numerator, denominator})
        when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
               denominator > 0 and numerator <= denominator do
@@ -978,17 +956,6 @@ defmodule ImagePipe.Plan.Operation do
   end
 
   defp effect_intensity(_value), do: {:error, :intensity}
-
-  defp canonical_adjustment_float(value) when value == 0.0, do: {:ok, 0}
-
-  defp canonical_adjustment_float(value) do
-    integer = trunc(value)
-
-    case value == integer do
-      true -> {:ok, integer}
-      false -> {:ok, value}
-    end
-  end
 
   defp tagged_offset(value) when is_number(value), do: :ok
 

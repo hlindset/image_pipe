@@ -83,8 +83,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "br" => [{:brightness, :brightness_value}],
     "contrast" => [{:contrast, :scale_factor}],
     "co" => [{:contrast, :scale_factor}],
-    "saturation" => [{:saturation, :adjustment}],
-    "sa" => [{:saturation, :adjustment}]
+    "saturation" => [{:saturation, :scale_factor}],
+    "sa" => [{:saturation, :scale_factor}]
   }
 
   @gravity_anchors %{
@@ -460,7 +460,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp apply_type(:non_neg_float, value), do: parse_non_negative_float(value)
   defp apply_type(:positive_float, value), do: parse_positive_float(value)
   defp apply_type(:non_neg_int, value), do: parse_non_negative_integer(value)
-  defp apply_type(:adjustment, value), do: parse_adjustment_value(value)
   defp apply_type(:scale_factor, value), do: parse_scale_factor(value)
   defp apply_type(:brightness_value, value), do: parse_brightness_value(value)
 
@@ -643,14 +642,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_optional_duotone_color(field, value) do
     with {:ok, color} <- Color.rgb_hex(value) do
       {:ok, [{field, color}]}
-    end
-  end
-
-  defp parse_adjustment_value(value) do
-    case parse_number(value) do
-      {:ok, number} when number >= -100 and number <= 100 -> {:ok, number}
-      {:ok, _number} -> {:error, {:invalid_adjustment, value}}
-      {:error, _reason} -> {:error, {:invalid_adjustment, value}}
     end
   end
 

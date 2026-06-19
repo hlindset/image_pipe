@@ -301,7 +301,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                ],
                brightness: 20,
                contrast: 1.5,
-               saturation: 35
+               saturation: 2.0
              )
 
     assert [
@@ -333,7 +333,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert contrast.__struct__ == ImagePipe.Plan.Operation.Contrast
     assert contrast.value == 1.5
     assert saturation.__struct__ == ImagePipe.Plan.Operation.Saturation
-    assert saturation.value == 35
+    assert saturation.value == 2.0
   end
 
   test "skips imgproxy effect no-op values" do
@@ -346,7 +346,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                duotone: [intensity: ratio(0, 1)],
                brightness: 0,
                contrast: 1.0,
-               saturation: 0
+               saturation: 1.0
              )
 
     assert operations == []

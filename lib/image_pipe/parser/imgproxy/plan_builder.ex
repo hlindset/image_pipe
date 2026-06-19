@@ -569,7 +569,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp contrast_operation(%Effects{contrast: value}), do: Operation.contrast(value)
 
   defp saturation_operation(%Effects{saturation: nil}), do: nil
-  defp saturation_operation(%Effects{saturation: 0}), do: nil
+  defp saturation_operation(%Effects{saturation: value}) when value == 1.0, do: nil
   defp saturation_operation(%Effects{saturation: value}), do: Operation.saturation(value)
 
   defp resize_operation(%PipelineRequest{} = request) do
