@@ -31,6 +31,7 @@ defmodule ImagePipe.Transform.GeometryTest do
                 d <- integer(1..100) do
         result = Geometry.resolve_dimension({:ratio, n, d}, ref)
         assert result >= 1
+        assert result > ref
       end
     end
 
