@@ -13,8 +13,8 @@ defmodule ImagePipe.Transform.ResizeRelativeResolutionPropertyTest do
       op = %Resize{mode: :fit, width: {:ratio, num, den}, height: :auto, enlarge: true}
       result = Resize.resolve_dimensions(op, source_width: running, source_height: running)
 
-      # Exact: mirror the production computation order (Geometry.to_pixels does
-      # `round(length * num / den)` for a ratio), then the sub-pixel floor to 1.
+      # Exact: mirror the production computation order (Geometry.resolve_dimension
+      # computes `round(length * num / den)` for a ratio), then the sub-pixel floor to 1.
       # Writing the operands in the SAME order avoids float-associativity drift
       # while keeping the assertion tight (delta 0).
       assert result.intermediate_width == max(1, round(running * num / den))

@@ -255,8 +255,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
     }
   end
 
-  defp resolve_relative_dimension({:ratio, _, _} = unit, length),
-    do: {:pixels, max(1, to_pixels(length, unit))}
+  defp resolve_relative_dimension({:ratio, n, d}, length),
+    do: {:pixels, resolve_dimension({:ratio, n, d}, length)}
 
   defp resolve_relative_dimension(other, _length), do: other
 

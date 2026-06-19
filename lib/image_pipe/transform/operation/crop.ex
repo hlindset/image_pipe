@@ -30,8 +30,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     focal point tuple `{:fp, x, y}` where `x` and `y` are normalized `0.0..1.0`
     coordinates.
   - `x_offset`: horizontal offset as a number, `{:pixels, value}`,
-    `{:scale, value}`, `{:scale, numerator, denominator}`, or
-    `{:percent, value}`. Defaults to `0.0`.
+    `{:scale, value}`, or `{:scale, numerator, denominator}`. Defaults to `0.0`.
   - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
     to `0.0`.
   - `offset_scale`: multiplier applied to pixel offsets, usually the effective
@@ -59,8 +58,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   crop around a normalized current-image point and clamps it into image bounds.
 
   Result crops are represented as `crop_from: :gravity` with explicit `width`
-  and `height`. Pixel offsets are multiplied by `offset_scale`; scale and
-  percent offsets are resolved relative to the current image bounds.
+  and `height`. Pixel offsets are multiplied by `offset_scale`; scale offsets
+  are resolved relative to the current image bounds.
 
   For coordinate crops, `crop_from` is the requested top-left crop position
   before the rectangle is clamped to image bounds.
@@ -86,13 +85,14 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   import ImagePipe.Transform.Geometry,
     only: [
-      anchor_to_pixels: 3,
       center_origin: 2,
       image_height: 1,
       image_width: 1,
+      resolve_dimension: 3,
+      resolve_offset: 3,
+      resolve_position: 2,
       round_half_away_from_zero: 1,
-      round_ties_to_even: 1,
-      to_pixels: 2
+      round_ties_to_even: 1
     ]
 
   alias ImagePipe.Telemetry
@@ -112,7 +112,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
           integer()
           | float()
           | {:pixels, integer() | float()}
-          | {:percent, integer() | float()}
           | {:scale, integer() | float()}
           | {:scale, integer() | float(), integer() | float()}
 
@@ -238,8 +237,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
          image_height
        ) do
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
-         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
+         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -249,12 +248,11 @@ defmodule ImagePipe.Transform.Operation.Crop do
              image_width,
              image_height
            ),
-         {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)),
-         {:ok, offset_scale} <- offset_scale(crop.offset_scale),
-         {:ok, x_offset} <-
-           crop_offset(default_if_nil(params.x_offset, 0.0), image_width, offset_scale),
-         {:ok, y_offset} <-
-           crop_offset(default_if_nil(params.y_offset, 0.0), image_height, offset_scale) do
+         {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
+      offset_scale = crop.offset_scale * 1.0
+      x_offset = resolve_offset(default_if_nil(params.x_offset, 0.0), image_width, offset_scale)
+      y_offset = resolve_offset(default_if_nil(params.y_offset, 0.0), image_height, offset_scale)
+
       {:ok,
        gravity_crop_coordinates(
          image_width,
@@ -275,8 +273,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     target_height = if params.height == :auto, do: image_height, else: params.height
 
     # make sure crop is within image bounds
-    crop_width = max(1, min(image_width, to_pixels(image_width, target_width)))
-    crop_height = max(1, min(image_height, to_pixels(image_height, target_height)))
+    crop_width = resolve_dimension(target_width, image_width, clamp?: true)
+    crop_height = resolve_dimension(target_height, image_height, clamp?: true)
 
     # figure out the crop anchor
     {center_x, center_y} =
@@ -294,8 +292,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_height = image_height(state)
 
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
-         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
+         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -350,8 +348,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_height = image_height(state)
 
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
-         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
+         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -574,52 +572,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp clamp_position(value, max_value), do: max(0, min(max_value, value))
 
-  defp crop_dimension(:auto, bounds), do: {:ok, bounds}
-
-  defp crop_dimension(value, bounds) when is_integer(value) and value > 0,
-    do: {:ok, min(value, bounds)}
-
-  defp crop_dimension(value, bounds) when is_float(value) and value > 0,
-    do: {:ok, min(round_half_away_from_zero(value), bounds)}
-
-  defp crop_dimension({:pixels, value}, bounds), do: crop_dimension(value, bounds)
-
-  defp crop_dimension({:scale, numerator, denominator}, bounds)
-       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0 do
-    {:ok, min(round_half_away_from_zero(bounds * numerator / denominator), bounds)}
-  end
-
-  defp crop_dimension({:scale, value}, bounds) when is_number(value) and value > 0 do
-    {:ok, min(round_half_away_from_zero(bounds * value), bounds)}
-  end
-
-  defp crop_dimension({:percent, value}, bounds) when is_number(value) and value > 0 do
-    {:ok, min(round_half_away_from_zero(bounds * value / 100), bounds)}
-  end
-
-  defp crop_dimension(value, _bounds), do: {:error, {:invalid_crop_dimension, value}}
-
-  defp crop_offset(value, _bounds, _offset_scale) when is_number(value), do: {:ok, value}
-
-  defp crop_offset({:scale, numerator, denominator}, bounds, _offset_scale)
-       when is_number(numerator) and is_number(denominator) and denominator != 0 do
-    {:ok, bounds * numerator / denominator}
-  end
-
-  defp crop_offset({:scale, value}, bounds, _offset_scale) when is_number(value),
-    do: {:ok, bounds * value}
-
-  defp crop_offset({:percent, value}, bounds, _offset_scale) when is_number(value),
-    do: {:ok, bounds * value / 100}
-
-  defp crop_offset({:pixels, value}, _bounds, offset_scale) when is_number(value),
-    do: {:ok, value * offset_scale}
-
-  defp crop_offset(value, _bounds, _offset_scale), do: {:error, {:invalid_crop_offset, value}}
-
-  defp offset_scale(value) when is_number(value) and value > 0, do: {:ok, value * 1.0}
-  defp offset_scale(value), do: {:error, {:invalid_crop_offset_scale, value}}
-
   defp crop_gravity({:anchor, x, y} = gravity)
        when x in [:left, :center, :right] and y in [:top, :center, :bottom],
        do: {:ok, gravity}
@@ -637,11 +589,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
          crop_width,
          crop_height
        ) do
-    # if explicit coordinates are given, they are to be the top-left corner of the crop,
-    # so we need to move the center point based on the crop dimensions
-    {left, top} = anchor_to_pixels({:coordinate, left, top}, image_width, image_height)
-    center_x = round(left + crop_width / 2)
-    center_y = round(top + crop_height / 2)
+    left_px = resolve_position(left, image_width)
+    top_px = resolve_position(top, image_height)
+    center_x = round(left_px + crop_width / 2)
+    center_y = round(top_px + crop_height / 2)
     {center_x, center_y}
   end
 

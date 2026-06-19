@@ -10,52 +10,95 @@ defmodule ImagePipe.Transform.Geometry do
   @type length_unit() ::
           scalar()
           | {:pixels, scalar()}
-          | {:percent, scalar()}
           | {:scale, scalar()}
           | {:scale, scalar(), scalar()}
           | {:ratio, integer(), pos_integer()}
 
-  @spec to_pixels(integer(), length_unit()) :: integer()
-  def to_pixels(length, size_unit)
-  def to_pixels(_length, num) when is_integer(num), do: num
-  def to_pixels(_length, num) when is_float(num), do: round(num)
-  def to_pixels(_length, {:pixels, num}), do: round(num)
-  def to_pixels(length, {:scale, factor}), do: round(length * factor)
+  # resolve_dimension: "how big?" — half-away rounding, always >= 1.
+  # clamp?: true adds min(result, reference) to keep within source bounds.
+  # Callers: crop.ex (clamp?: true), resize.ex (clamp?: false), extend_canvas.ex.
+  @spec resolve_dimension(term(), pos_integer(), keyword()) :: pos_integer()
+  def resolve_dimension(measure, reference, opts \\ [])
 
-  def to_pixels(length, {:scale, numerator, denominator}),
-    do: round(length * numerator / denominator)
+  def resolve_dimension({:px, n}, reference, opts) when is_integer(n),
+    do: apply_dimension_clamp(max(1, n), reference, opts)
 
-  def to_pixels(length, {:ratio, numerator, denominator}),
-    do: round(length * numerator / denominator)
+  def resolve_dimension({:pixels, n}, reference, opts) when is_integer(n),
+    do: apply_dimension_clamp(max(1, n), reference, opts)
 
-  def to_pixels(length, {:percent, percent}), do: round(percent / 100 * length)
+  def resolve_dimension({:pixels, n}, reference, opts) when is_float(n),
+    do: apply_dimension_clamp(max(1, round_half_away_from_zero(n)), reference, opts)
 
-  def anchor_to_scale_units(focus, width, height) do
-    x_scale =
-      case focus do
-        {:anchor, :left, _} -> {:scale, 0}
-        {:anchor, :center, _} -> {:scale, 0.5}
-        {:anchor, :right, _} -> {:scale, 1}
-        {:coordinate, left, _top} -> {:scale, to_pixels(width, left) / width}
-      end
+  def resolve_dimension({:scale, n, d}, reference, opts)
+      when is_number(n) and is_number(d) and d != 0,
+      do:
+        apply_dimension_clamp(
+          max(1, round_half_away_from_zero(reference * n / d)),
+          reference,
+          opts
+        )
 
-    y_scale =
-      case focus do
-        {:anchor, _, :top} -> {:scale, 0}
-        {:anchor, _, :center} -> {:scale, 0.5}
-        {:anchor, _, :bottom} -> {:scale, 1}
-        {:coordinate, _left, top} -> {:scale, to_pixels(height, top) / height}
-      end
+  def resolve_dimension({:scale, n}, reference, opts) when is_number(n) and n > 0,
+    do: apply_dimension_clamp(max(1, round_half_away_from_zero(reference * n)), reference, opts)
 
-    {x_scale, y_scale}
+  def resolve_dimension({:ratio, n, d}, reference, opts)
+      when is_integer(n) and is_integer(d) and d > 0,
+      do:
+        apply_dimension_clamp(
+          max(1, round_half_away_from_zero(reference * n / d)),
+          reference,
+          opts
+        )
+
+  def resolve_dimension(:auto, reference, _opts), do: reference
+
+  def resolve_dimension(n, reference, opts) when is_integer(n) and n > 0,
+    do: apply_dimension_clamp(n, reference, opts)
+
+  def resolve_dimension(n, reference, opts) when is_float(n) and n > 0.0,
+    do: apply_dimension_clamp(max(1, round_half_away_from_zero(n)), reference, opts)
+
+  defp apply_dimension_clamp(value, reference, opts) do
+    if Keyword.get(opts, :clamp?, false), do: min(value, reference), else: value
   end
 
-  def anchor_to_pixels(focus, width, height) do
-    case anchor_to_scale_units(focus, width, height) do
-      {x_scale, y_scale} ->
-        {to_pixels(width, x_scale), to_pixels(height, y_scale)}
-    end
-  end
+  # resolve_position: "where?" — half-away rounding, always >= 0.
+  # Positions are zero-based coordinates (top-left of image = 0).
+  # Caller: crop.ex coordinate-crop origin.
+  @spec resolve_position(term(), pos_integer()) :: non_neg_integer()
+  def resolve_position({:px, n}, _reference) when is_integer(n), do: max(0, n)
+  def resolve_position({:pixels, n}, _reference) when is_integer(n), do: max(0, n)
+
+  def resolve_position({:pixels, n}, _reference) when is_float(n),
+    do: max(0, round_half_away_from_zero(n))
+
+  def resolve_position({:scale, n, d}, reference)
+      when is_number(n) and is_number(d) and d != 0,
+      do: max(0, round_half_away_from_zero(reference * n / d))
+
+  def resolve_position({:ratio, n, d}, reference)
+      when is_integer(n) and is_integer(d) and d > 0,
+      do: max(0, round_half_away_from_zero(reference * n / d))
+
+  def resolve_position(n, _reference) when is_integer(n), do: max(0, n)
+  def resolve_position(n, _reference) when is_float(n), do: max(0, round_half_away_from_zero(n))
+
+  # resolve_offset: "by how much?" — returns an unrounded float.
+  # Rounding to even happens at composition time in crop.ex round_offset_to_even.
+  # {:pixels} offsets are DPR-scaled; {:scale} offsets are resolved as a float
+  # fraction of reference (no DPR — imgproxy's ScaleToEven path).
+  @spec resolve_offset(term(), pos_integer(), float()) :: float()
+  def resolve_offset(value, _reference, _dpr) when is_number(value), do: value * 1.0
+
+  def resolve_offset({:pixels, value}, _reference, dpr) when is_number(value),
+    do: value * dpr * 1.0
+
+  def resolve_offset({:scale, value}, reference, _dpr) when is_number(value),
+    do: reference * value * 1.0
+
+  def resolve_offset({:scale, n, d}, reference, _dpr)
+      when is_number(n) and is_number(d) and d != 0,
+      do: reference * n / d * 1.0
 
   # imgproxy `imath.RoundToEven`: round half to even (banker's rounding). imgproxy
   # composes integer origins with even-rounded offsets, so positions stay

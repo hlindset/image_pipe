@@ -71,7 +71,14 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   use ImagePipe.Transform
 
   import ImagePipe.Transform.State
-  import ImagePipe.Transform.Geometry
+
+  import ImagePipe.Transform.Geometry,
+    only: [
+      center_origin: 2,
+      image_height: 1,
+      image_width: 1,
+      resolve_dimension: 2
+    ]
 
   alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.State
@@ -208,7 +215,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   defp canvas_dimension(_current_size, value) when is_number(value) and value >= 0,
     do: round(value)
 
-  defp canvas_dimension(current_size, size_unit), do: to_pixels(current_size, size_unit)
+  defp canvas_dimension(current_size, size_unit),
+    do: resolve_dimension(size_unit, current_size)
 
   defp alpha_ready_image(image, :transparent) do
     case Image.has_alpha?(image) do
