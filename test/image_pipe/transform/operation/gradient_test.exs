@@ -78,10 +78,13 @@ defmodule ImagePipe.Transform.Operation.GradientTest do
     assert bottom > 110 and bottom < 145
   end
 
+  # A degenerate ramp must not leak NaN into the output. The op casts to uchar, so
+  # every channel must land in the valid byte range; NaN fails this (NaN comparisons
+  # are false), giving a credo-clean check that also catches any out-of-range leak.
   defp refute_nan(image) do
     for x <- [0, 8, 15], y <- [0, 8, 15] do
       [v | _] = List.flatten(VipsImage.get_pixel!(image, x, y))
-      assert v == v, "NaN at #{x},#{y}"
+      assert v >= 0 and v <= 255, "NaN/out-of-range at #{x},#{y}: #{inspect(v)}"
     end
   end
 end
