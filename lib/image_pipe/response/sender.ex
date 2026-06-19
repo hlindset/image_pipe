@@ -272,9 +272,15 @@ defmodule ImagePipe.Response.Sender do
          %CacheHeaders{} = prepared,
          opts
        ) do
-    with {:ok, headers} <- Entry.cacheable_headers(entry.headers),
-         merged_headers <- merge_delivery_headers(conn, headers, prepared),
-         {:ok, headers} <- delivery_headers(merged_headers, response, entry.content_type) do
+    with {:ok, entry_headers} <- Entry.cacheable_headers(entry.headers),
+         {:ok, content_disposition} <- Response.content_disposition(response, entry.content_type) do
+      merged =
+        merge_delivery_headers(
+          conn,
+          entry_headers ++ [{"content-disposition", content_disposition}],
+          prepared
+        )
+
       Telemetry.execute(
         Telemetry.telemetry_opts(opts),
         [:http_cache, :cache_hit, :headers],
@@ -286,7 +292,7 @@ defmodule ImagePipe.Response.Sender do
         }
       )
 
-      send_normalized_cache_entry(conn, entry, headers)
+      send_normalized_cache_entry(conn, entry, merged)
     else
       {:error, error} -> send_cache_error(conn, error)
     end
@@ -453,12 +459,6 @@ defmodule ImagePipe.Response.Sender do
   defp mark_prepared_stream_error(%Plug.Conn{} = conn, reason) do
     Logger.error("prepared_stream_error: #{inspect(reason)}")
     mark_send_processing_error(conn)
-  end
-
-  defp delivery_headers(response_headers, %Response{} = response, content_type) do
-    with {:ok, content_disposition} <- Response.content_disposition(response, content_type) do
-      {:ok, response_headers ++ [{"content-disposition", content_disposition}]}
-    end
   end
 
   defp merge_prepared_stream_headers(

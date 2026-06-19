@@ -234,6 +234,48 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
+  test "host-set content-disposition is preserved on both miss and cache-hit responses" do
+    probe_opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheProbe, test_pid: self()},
+        http_cache: [mode: :enabled]
+      )
+
+    miss_conn =
+      conn(:get, "/_/plain/beach.jpg")
+      |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
+      |> ImagePipe.Plug.call(probe_opts)
+
+    assert miss_conn.status == 200
+
+    assert get_resp_header(miss_conn, "content-disposition") == [
+             ~s(attachment; filename="custom.jpg")
+           ]
+
+    assert_received {:cache_put, %Entry{} = entry}
+
+    hit_opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry},
+        http_cache: [mode: :enabled]
+      )
+
+    hit_conn =
+      conn(:get, "/_/plain/beach.jpg")
+      |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
+      |> ImagePipe.Plug.call(hit_opts)
+
+    assert hit_conn.status == 200
+
+    assert get_resp_header(hit_conn, "content-disposition") == [
+             ~s(attachment; filename="custom.jpg")
+           ]
+  end
+
   test "detector identity change moves the generated ETag end-to-end (#181 regression)", _ctx do
     etag_for = fn identity ->
       opts =
