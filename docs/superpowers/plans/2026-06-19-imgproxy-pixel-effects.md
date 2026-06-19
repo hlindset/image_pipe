@@ -155,6 +155,18 @@ defmodule ImagePipe.Transform.Operation.BrightnessTest do
     assert flat_pixel(out, 0, 0) == [128, 128, 128]
   end
 
+  test "additive offset saturates at 255, not wraps" do
+    light = Image.new!(4, 4, color: [200, 200, 200], bands: 3)
+    {:ok, %State{image: out}} = Brightness.execute(%Brightness{value: 100}, %State{image: light})
+    assert flat_pixel(out, 0, 0) == [255, 255, 255]
+  end
+
+  test "additive offset floors at 0, not wraps" do
+    dark = Image.new!(4, 4, color: [40, 40, 40], bands: 3)
+    {:ok, %State{image: out}} = Brightness.execute(%Brightness{value: -100}, %State{image: dark})
+    assert flat_pixel(out, 0, 0) == [0, 0, 0]
+  end
+
   defp flat_pixel(image, x, y), do: image |> VipsImage.get_pixel!(x, y) |> List.flatten()
 end
 ```
@@ -285,6 +297,8 @@ Add the type + parser (shared by contrast and saturation):
 ```
 
 The `:scale_factor` type is shared by contrast and saturation, so the error tag is the generic `{:invalid_scale_factor, value}` (not per-option). Note the Step 1 test expects `{:error, {:invalid_scale_factor, "0"}}` for `co:0`.
+
+**Number-grammar intent (deliberate divergence):** brightness uses `Integer.parse` (integer-only — `br:1.5` is rejected, per the imgproxy doc "integer number"), while contrast/saturation use `parse_number` (float, per "floating point number"). This split is intentional; the Task 1 (`br:1.5` → error) and Task 2/3 (`co:1.5`/`sa:0.5` → ok) tests pin it.
 
 - [ ] **Step 4: Run parser test, expect pass**
 
@@ -437,7 +451,7 @@ end
 
 - [ ] **Step 9: Fix existing saturation tests** — `mise exec -- mix test test/parser/imgproxy test/image_pipe/transform -k satur` → PASS.
 
-- [ ] **Step 10: Remove now-dead shared adjustment code** — in `plan/operation.ex` delete `adjustment/3`, `adjustment_value/1`, `valid_adjustment_value?/1`, `canonical_adjustment_float/1`, and `@adjustment_range` if no remaining caller references them (grep first: `mise exec -- grep -rn "adjustment_value\|@adjustment_range\|defp adjustment(" lib/`). In `option_grammar.ex` delete `parse_adjustment_value/1` and the `apply_type(:adjustment, …)` clause if unreferenced.
+- [ ] **Step 10: Remove now-dead shared adjustment code** — in `plan/operation.ex` delete `adjustment/3`, `adjustment_value/1`, `valid_adjustment_value?/1`, `canonical_adjustment_float/1`, and `@adjustment_range` if no remaining caller references them. Grep for **every** dead name (the `valid_adjustment_value?` helper is easy to miss and will fail `--warnings-as-errors` as an unused private fn): `mise exec -- grep -rn "adjustment_value\|valid_adjustment_value?\|@adjustment_range\|defp adjustment(\|canonical_adjustment_float" lib/`. In `option_grammar.ex` delete `parse_adjustment_value/1` and the `apply_type(:adjustment, …)` clause if unreferenced.
 
 - [ ] **Step 11: Run the parser + plan + transform effect tests** — `mise exec -- mix test test/parser/imgproxy test/image_pipe/transform/operation` → PASS.
 
@@ -662,6 +676,24 @@ defmodule ImagePipe.Transform.Operation.ColorizeTest do
     assert_in_delta g, 128, 2
     assert_in_delta b, 128, 2
   end
+
+  # Build a 4-band RGBA source (semi-transparent) to pin the keep_alpha contract.
+  defp rgba_source, do: Image.new!(4, 4, color: [255, 255, 255, 128], bands: 4)
+
+  test "keep_alpha: false (default) drops alpha → opaque 3-band result" do
+    op = %Colorize{opacity: 0.5, color: [0, 0, 0], keep_alpha: false}
+    {:ok, %State{image: out}} = Colorize.execute(op, %State{image: rgba_source()})
+    refute Image.has_alpha?(out)
+    assert VipsImage.bands(out) == 3
+  end
+
+  test "keep_alpha: true preserves the source alpha band" do
+    op = %Colorize{opacity: 0.5, color: [0, 0, 0], keep_alpha: true}
+    {:ok, %State{image: out}} = Colorize.execute(op, %State{image: rgba_source()})
+    assert Image.has_alpha?(out)
+    [_r, _g, _b, a] = List.flatten(VipsImage.get_pixel!(out, 0, 0))
+    assert_in_delta a, 128, 2
+  end
 end
 ```
 
@@ -692,33 +724,44 @@ defmodule ImagePipe.Transform.Operation.Colorize do
   def name(%__MODULE__{}), do: :colorize
 
   @impl ImagePipe.Transform
-  def execute(%__MODULE__{opacity: o, color: [cr, cg, cb], keep_alpha: keep_alpha}, %State{} = state) do
-    result =
-      Image.without_alpha_band(state.image, fn rgb ->
-        with {:ok, blended} <-
-               Operation.linear(rgb, [1.0 - o, 1.0 - o, 1.0 - o], [cr * o, cg * o, cb * o]) do
-          Operation.cast(blended, VipsImage.format(rgb))
-        end
-      end)
-
-    case maybe_restore_alpha(result, state.image, keep_alpha) do
+  def execute(%__MODULE__{opacity: o, color: color, keep_alpha: keep_alpha}, %State{} = state) do
+    case apply_colorize(state.image, o, color, keep_alpha) do
       {:ok, image} -> {:ok, set_image(state, image)}
       {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 
-  defp maybe_restore_alpha({:error, _} = error, _src, _keep), do: error
-  defp maybe_restore_alpha({:ok, rgb}, _src, false), do: {:ok, rgb}
+  # IMPORTANT: do NOT use Image.without_alpha_band/2 here. It strips alpha, runs the
+  # fn, and *unconditionally rejoins the original alpha* (see bitonal.ex:34-35). That
+  # is wrong for colorize, whose DEFAULT (keep_alpha: false) must produce an OPAQUE
+  # result. So split alpha explicitly (the input_color_management.ex alpha_split_at
+  # pattern) and rejoin only when keep_alpha is true.
+  defp apply_colorize(image, o, [cr, cg, cb] = color, keep_alpha) do
+    case Image.has_alpha?(image) do
+      false ->
+        blend_rgb(image, o, color)
 
-  defp maybe_restore_alpha({:ok, rgb}, src, true) do
-    case Image.has_alpha?(src) do
-      false -> {:ok, rgb}
-      true -> reattach_alpha(rgb, src)
+      true ->
+        color_bands = VipsImage.bands(image) - 1
+
+        with {:ok, rgb} <- Operation.extract_band(image, 0, n: color_bands),
+             {:ok, alpha} <- Operation.extract_band(image, color_bands, n: 1),
+             {:ok, blended} <- blend_rgb(rgb, o, color) do
+          if keep_alpha, do: Operation.bandjoin([blended, alpha]), else: {:ok, blended}
+        end
     end
   end
+
+  defp blend_rgb(rgb, o, [cr, cg, cb]) do
+    with {:ok, blended} <-
+           Operation.linear(rgb, [1.0 - o, 1.0 - o, 1.0 - o], [cr * o, cg * o, cb * o]) do
+      Operation.cast(blended, VipsImage.format(rgb))
+    end
+  end
+end
 ```
 
-Add a `reattach_alpha/2` helper that extracts the source alpha band and bandjoins it onto `rgb` (mirror how `Duotone`/`without_alpha_band` rejoin alpha — check `lib/image_pipe/transform/operation/duotone.ex` and the `Image.without_alpha_band/2` implementation for the exact rejoin call; reuse it rather than hand-rolling). End the module after the helper.
+(`keep_alpha: false` returns the bare RGB — an opaque result, alpha dropped. `keep_alpha: true` bandjoins the source alpha back. A source with no alpha ignores `keep_alpha` entirely. Mirror `input_color_management.ex`'s `alpha_split_at/2` for the exact `extract_band`/`bandjoin` calls.)
 
 - [ ] **Step 4: Run transform test, expect pass** — PASS.
 
@@ -1073,17 +1116,25 @@ defmodule ImagePipe.Transform.Operation.Gradient do
     # 1. coords = xyz(width,height) → 2-band [x,y]; normalize each axis to [0,1]
     # 2. project: p = nx*dx_pos + ny*dy_pos shifted so p∈[0,1] across the image
     # 3. ramp = clamp01((p - start)/(stop - start)); m = ramp * opacity
-    # Implement with Vix.Vips.Operation.{xyz,linear,extract_band,add,multiply,clamp}.
+    # Implement with Vix.Vips.Operation.{xyz,linear,extract_band,add,multiply,relational/clamp}.
     # Return {:ok, single_band_float_image_in_0..1}.
+    #
+    # DEGENERATE GUARD: when stop == start the divisor is 0. Treat it as a hard step
+    # at `start` (p < start → 0, p >= start → opacity), NOT a division. Guard before
+    # the divide:
+    #   if stop == start, do build_step_mask(...), else build_ramp_mask(...)
     :erlang.error(:todo)
   end
 
   defp blend(rgb, mask, [cr, cg, cb]) do
-    # out = rgb*(1-mask) + color*mask, broadcasting the 1-band mask over 3 bands.
-    with {:ok, inv} <- Operation.linear(mask, [-1.0], [1.0]),
-         {:ok, src_term} <- Operation.multiply(rgb, inv),
+    # out = rgb*(1-mask) + color*mask. libvips arithmetic of a 3-band image with a
+    # 1-band one is not guaranteed to broadcast, so replicate the mask to 3 bands
+    # explicitly rather than relying on the replicate rule.
+    with {:ok, mask3} <- Operation.bandjoin([mask, mask, mask]),
+         {:ok, inv3} <- Operation.linear(mask3, [-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]),
+         {:ok, src_term} <- Operation.multiply(rgb, inv3),
          {:ok, color_img} <- color_constant(rgb, [cr, cg, cb]),
-         {:ok, col_term} <- Operation.multiply(color_img, mask) do
+         {:ok, col_term} <- Operation.multiply(color_img, mask3) do
       Operation.add(src_term, col_term)
     end
   end
@@ -1104,7 +1155,7 @@ end
 - [ ] **Step 4: Iterate to green** — implement `gradient_mask/3`, run:
 
 Run: `mise exec -- mix test test/image_pipe/transform/operation/gradient_test.exs`
-Expected: PASS for down + left. Add up/right/45° cases and a `start`/`stop` case (e.g. `start: 0.25, stop: 0.75` keeps the top quarter fully transparent), re-run until all pass.
+Expected: PASS for down + left. Add up/right/45° cases, a `start`/`stop` case (e.g. `start: 0.25, stop: 0.75` keeps the top quarter fully transparent), and a **degenerate `start == stop` case** (e.g. `start: 0.5, stop: 0.5` → hard step: top half untouched, bottom half full color, and crucially **no crash/NaN**). Re-run until all pass.
 
 - [ ] **Step 5: Export + wire executor** — add `Operation.Gradient` to `transform.ex` exports; in `plan_executor.ex` add `alias ImagePipe.Plan.Operation.Gradient, as: PlanGradient`, `alias ImagePipe.Transform.Operation.Gradient`, and:
 
@@ -1350,9 +1401,9 @@ git commit -m "feat(fiddle): realign br/co/sa controls; add colorize + gradient 
 
 - [ ] **Step 1: Update the effect order in `docs/transform_operations.md`** — change the line "Imgproxy effect order is blur, sharpen, pixelate, monochrome, duotone, brightness, contrast, then saturation." to append "…, saturation, colorize, then gradient."
 
-- [ ] **Step 2: Update `docs/imgproxy_support_matrix.md` "Background, effects, and overlays" table** — add `adjust`/`a` row (✅ Supported, "Meta-option → brightness/contrast/saturation; 1:1 imgproxy args"); flip `colorize`/`col` and `gradient`/`gr` to ✅ Supported with the compositing-contract + "Pro, pixels not bake-verified" note; update `brightness`/`contrast`/`saturation` rows to drop the `-100..100` divergence and state the imgproxy-1:1 argument contract (brightness int `-255..255` additive; contrast/saturation positive float, `1` unchanged).
+- [ ] **Step 2: Update `docs/imgproxy_support_matrix.md` "Background, effects, and overlays" table** — add `adjust`/`a` row (✅ Supported, "Meta-option → brightness/contrast/saturation; 1:1 imgproxy args"); flip `colorize`/`col` and `gradient`/`gr` to ✅ Supported with the compositing-contract + "Pro, pixels not bake-verified" note. For `brightness`/`contrast`/`saturation`: **replace** (do not append to) the existing `-100..100`/"`0` no-op" wording — the current rows literally say "Number from `-100` to `100`. `0` parses as an Imgproxy-compatible no-op," which is now false. State the realigned contract: brightness int `-255..255` additive (no-op at `0`); contrast/saturation positive float, no-op/unchanged at **`1`**. For colorize/gradient, note explicitly that **opacity is clamped to `[0,1]` as an ImagePipe convention — the imgproxy docs state no upper bound** for these two (unlike monochrome/duotone), so this is inference by analogy + the blend model, not a doc-stated range.
 
-- [ ] **Step 3: Update the stage-9 pipeline row** — in the "Main pipeline" stage-9 `applyFilters` row, add colorize/gradient to the overlay ops list realized in the transform chain.
+- [ ] **Step 3: Update the stage-9 pipeline row** — in the "Main pipeline" stage-9 `applyFilters` row, add colorize/gradient to the overlay ops list realized in the transform chain, **and edit the trailing "Pro filters … are entirely missing" sentence to remove `colorize` and `gradient`** (leaving only `unsharp_masking`, `blur_areas`) so the row doesn't claim they're both realized and missing.
 
 - [ ] **Step 4: Add the missing `progressive_blur`/`pbl` ⭕ row** — add a row to the effects table marking `progressive_blur`/`pbl` as ⭕ Missing, linking issue #346 (matrix-inventory gap fix).
 

@@ -62,9 +62,9 @@ No new transform op, no new `Plan.Operation`, no cache-key change beyond what br
 col:%opacity:%color:%keep_alpha
 ```
 
-- `opacity` — overlay opacity; `0` (ratio `0/d`) is a **no-op** (emit no operation), matching the mc/dt `intensity:0` no-op pattern.
+- `opacity` — overlay opacity in `[0,1]`; `0` (ratio `0/d`) is a **no-op** (emit no operation), matching the mc/dt `intensity:0` no-op pattern. **Convention note:** the imgproxy docs state *no upper bound* for colorize/gradient opacity (unlike monochrome/duotone, which the docs explicitly bound to `0..1`). ImagePipe clamps to `[0,1]` by analogy and because the blend model (`o>1` is nonsensical) — this is an ImagePipe convention, not a doc-stated range, and is flagged as such in the support matrix.
 - `color` — optional hex (3/6 digit); default `000` (black).
-- `keep_alpha` — optional boolean (default `false`). `true` → result alpha = source alpha. `false` → result is opaque (overlay covers transparency).
+- `keep_alpha` — optional boolean (default `false`). `true` → result alpha = source alpha. `false` → result is opaque (alpha dropped — the overlay covers transparency). **Realized via an explicit alpha split** (`extract_band`/`bandjoin`), *not* `Image.without_alpha_band/2`, which would rejoin the source alpha unconditionally and break the default-opaque case.
 
 ### `gradient` / `gr`
 
@@ -72,10 +72,10 @@ col:%opacity:%color:%keep_alpha
 gr:%opacity:%color:%direction:%start:%stop
 ```
 
-- `opacity` — gradient opacity; `0` is a **no-op**.
+- `opacity` — gradient opacity in `[0,1]` (same convention note as colorize above); `0` is a **no-op**.
 - `color` — optional hex; default `000`.
 - `direction` — optional. Named (`down` = default, `up`, `right`, `left`) **or** an arbitrary clockwise angle in degrees. Convention: `0°` = down (top transparent → bottom opaque), increasing clockwise; named map: `down`→0°, `left`→90°, `up`→180°, `right`→270°.
-- `start`, `stop` — optional relative ramp positions in `[0,1]`; defaults `0.0` / `1.0`.
+- `start`, `stop` — optional relative ramp positions in `[0,1]`; defaults `0.0` / `1.0`. The degenerate `start == stop` case (zero-width ramp) is handled as a hard step, not a division by zero.
 
 Gradient affects RGB only and preserves the source alpha (no `keep_alpha` arg in the imgproxy grammar).
 
