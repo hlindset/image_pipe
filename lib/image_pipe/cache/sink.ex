@@ -155,11 +155,23 @@ defmodule ImagePipe.Cache.Sink do
         emit_stage_event(:stage_error, :write, reason, sink, opts)
         {:error, reason}
     end
+  rescue
+    exception ->
+      emit_abort_cleanup(abort_adapter(sink, opts), :write_error, sink, opts)
+      Logger.warning("cache sink write error: #{inspect(exception)}")
+      emit_stage_event(:stage_error, :write, exception, sink, opts)
+      {:error, exception}
   end
 
   defp emit_commit_result(%__MODULE__{} = sink, opts) do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
-      result = sink.adapter.commit_sink(sink.state, sink.adapter_opts)
+      result =
+        try do
+          sink.adapter.commit_sink(sink.state, sink.adapter_opts)
+        rescue
+          exception -> {:error, exception}
+        end
+
       {:ok, commit_stop_metadata(result, sink)}
     end)
   end
@@ -204,6 +216,8 @@ defmodule ImagePipe.Cache.Sink do
       {:error, _reason} = error -> error
       unexpected -> {:error, {:invalid_adapter_result, unexpected}}
     end
+  rescue
+    exception -> {:error, exception}
   end
 
   defp emit_abort_cleanup(:ok, _reason, _sink, _opts), do: :ok

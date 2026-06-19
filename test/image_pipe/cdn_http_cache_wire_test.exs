@@ -81,6 +81,16 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     def abort_sink(_state, _opts), do: :ok
   end
 
+  defmodule RaisingCommitProbe do
+    @behaviour ImagePipe.Cache
+
+    def get(%Key{}, _opts), do: :miss
+    def open_sink(%Key{}, _metadata, _opts), do: {:ok, %{}}
+    def write_chunk(state, _chunk, _opts), do: {:ok, state}
+    def commit_sink(_state, _opts), do: raise("commit boom")
+    def abort_sink(_state, _opts), do: :ok
+  end
+
   setup do
     opts =
       ImagePipe.Plug.init(
@@ -248,6 +258,37 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     end
 
     assert etag_for.(:model_v1) != etag_for.(:model_v2)
+  end
+
+  test "commit_sink raise still delivers the complete body, byte-identical to a clean cache (#183)" do
+    url = "/_/rs:fill:50:50/f:jpeg/plain/beach.jpg"
+
+    clean =
+      ImagePipe.Plug.call(
+        conn(:get, url),
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {CacheProbe, test_pid: self()},
+          http_cache: [mode: :enabled]
+        )
+      )
+
+    raising =
+      ImagePipe.Plug.call(
+        conn(:get, url),
+        ImagePipe.Plug.init(
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {RaisingCommitProbe, []},
+          http_cache: [mode: :enabled]
+        )
+      )
+
+    assert clean.status == 200
+    assert raising.status == 200
+    assert byte_size(raising.resp_body) > 0
+    assert raising.resp_body == clean.resp_body
   end
 
   # #328: the only guide that reached do_generated_etag under a strong byte
