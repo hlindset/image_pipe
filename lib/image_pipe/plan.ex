@@ -33,6 +33,7 @@ defmodule ImagePipe.Plan do
       Operation.CropRegion,
       Operation.Duotone,
       Operation.Flip,
+      Operation.Gradient,
       Operation.Gray,
       Operation.Monochrome,
       Operation.Padding,

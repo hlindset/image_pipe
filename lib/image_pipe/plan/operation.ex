@@ -16,6 +16,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Gradient
   alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
@@ -90,6 +91,7 @@ defmodule ImagePipe.Plan.Operation do
           | Monochrome.t()
           | Duotone.t()
           | Colorize.t()
+          | Gradient.t()
           | Brightness.t()
           | Contrast.t()
           | Saturation.t()
@@ -195,6 +197,29 @@ defmodule ImagePipe.Plan.Operation do
   end
 
   def colorize(opacity, color, keep_alpha), do: invalid(:colorize, [opacity, color, keep_alpha])
+
+  @spec gradient(term(), term(), term(), term(), term()) ::
+          {:ok, Gradient.t()} | {:error, error()}
+  def gradient(opacity, %Color{} = color, angle, start, stop)
+      when is_number(angle) and is_number(start) and is_number(stop) and
+             start >= 0 and start <= 1 and stop >= 0 and stop <= 1 do
+    with {:ok, opacity} <- effect_intensity(opacity),
+         true <- Color.valid?(color) do
+      {:ok,
+       %Gradient{
+         opacity: opacity,
+         color: color,
+         angle: angle * 1.0,
+         start: start * 1.0,
+         stop: stop * 1.0
+       }}
+    else
+      _reason -> invalid(:gradient, [opacity, color, angle, start, stop])
+    end
+  end
+
+  def gradient(opacity, color, angle, start, stop),
+    do: invalid(:gradient, [opacity, color, angle, start, stop])
 
   @spec brightness(term()) :: {:ok, Brightness.t()} | {:error, error()}
   def brightness(value) when is_integer(value) and value in @brightness_range,
@@ -487,6 +512,12 @@ defmodule ImagePipe.Plan.Operation do
     do:
       valid_effect_intensity?(operation.opacity) and Color.valid?(operation.color) and
         is_boolean(operation.keep_alpha)
+
+  def semantic?(%Gradient{} = op),
+    do:
+      valid_effect_intensity?(op.opacity) and Color.valid?(op.color) and is_number(op.angle) and
+        is_number(op.start) and is_number(op.stop) and op.start >= 0 and op.start <= 1 and
+        op.stop >= 0 and op.stop <= 1
 
   def semantic?(%Brightness{} = operation),
     do: is_integer(operation.value) and operation.value in @brightness_range

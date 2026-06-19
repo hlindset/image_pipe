@@ -18,6 +18,7 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Gradient
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
   alias ImagePipe.Plan.Operation.Pixelate
@@ -171,6 +172,17 @@ defmodule ImagePipe.Plan.KeyData do
       opacity: data(operation.opacity),
       color: Color.key_data(operation.color),
       keep_alpha: operation.keep_alpha
+    ]
+  end
+
+  def data(%Gradient{} = operation) do
+    [
+      op: :gradient,
+      opacity: data(operation.opacity),
+      color: Color.key_data(operation.color),
+      angle: operation.angle,
+      start: operation.start,
+      stop: operation.stop
     ]
   end
 

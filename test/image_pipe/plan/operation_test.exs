@@ -601,6 +601,18 @@ defmodule ImagePipe.Plan.OperationTest do
       assert {:error, _} = Operation.colorize({:ratio, 1, 2}, :not_a_color, false)
     end
 
+    test "gradient/5 validates fields and clamps start/stop to [0,1]" do
+      {:ok, color} = Operation.color(0, 0, 0)
+
+      assert {:ok, gradient} = Operation.gradient({:ratio, 1, 2}, color, 90.0, 0.0, 1.0)
+      assert %Operation.Gradient{angle: 90.0, start: start, stop: stop} = gradient
+      assert start == 0.0
+      assert stop == 1.0
+
+      assert {:error, _} = Operation.gradient({:ratio, 0, 1}, color, 0.0, 0.0, 1.0)
+      assert {:error, _} = Operation.gradient({:ratio, 1, 2}, color, 0.0, -0.1, 1.0)
+    end
+
     test "rejects non-positive effect values" do
       assert Operation.blur(0) == {:error, {:invalid_operation, :blur, [0]}}
       assert Operation.sharpen(-1.0) == {:error, {:invalid_operation, :sharpen, [-1.0]}}
