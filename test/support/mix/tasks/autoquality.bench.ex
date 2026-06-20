@@ -12,10 +12,13 @@ defmodule Mix.Tasks.Autoquality.Bench do
   is NIF-heavy (the `ssimulacra2` Rust NIF) and slow. Auto-selects `MIX_ENV=test`
   via `mix.exs` `preferred_envs`.
 
-      mise exec -- mix autoquality.bench                 # both parts, default sizes
+      mise exec -- mix autoquality.bench                 # parts A+B, default sizes
       mise exec -- mix autoquality.bench --part a        # cost curve only
       mise exec -- mix autoquality.bench --part b        # accuracy/behavior only
+      mise exec -- mix autoquality.bench --part c        # proxy-seed method + accuracy
+      mise exec -- mix autoquality.bench --part all      # A + B + C
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
+      mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
       mise exec -- mix autoquality.bench --csv           # also write CSVs under /tmp
 
   ## Part A — per-megapixel cost curve
@@ -44,6 +47,20 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   Goal: confirm `:ssim2` lands at/above its target, and surface typical quality /
   savings / iteration counts to validate (or adjust) the shipped defaults.
+
+  ## Part C — downscaled-proxy-seed method + accuracy
+
+  Explores the deferred optimization: instead of searching at full resolution,
+  downscale by `1/k`, run the ssim2 search on the proxy to pick a quality, then
+  encode the **full-res** image once at that quality. For each subject × factor it
+  records the full-res search as ground truth (`q_full`), the proxy's pick
+  (`q_proxy`), and — the real accuracy question — the **delivered** full-res
+  SSIMULACRA2 score of the full-res encode at `q_proxy`, plus byte movement and the
+  measured speedup. Subjects: the committed sRGB high-detail sources at native size
+  plus an adversarial zone-plate at `--proxy-mp` (default 16). The error is
+  two-directional (real content over-picks quality → byte overshoot; the
+  adversarial chirp under-picks → undershoot), so the findings weigh a modest `k`
+  against a confirm-and-adjust step rather than a fixed margin.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
@@ -54,6 +71,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric
   alias ImagePipe.Test.ImgproxyDifferential.SourceInventory
+  alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
   @sources_dir "test/support/image_pipe/test/imgproxy_differential/sources"
@@ -69,30 +87,55 @@ defmodule Mix.Tasks.Autoquality.Bench do
   @default_mps [1, 4, 9, 16, 25, 36]
   @baseline_quality 90
 
+  # Part C subjects: the committed sRGB high-detail sources (the ones with real
+  # savings in Part B), where the downscale-proxy quality-transfer relationship is
+  # meaningful. CMYK / embedded-ICC / 16-bit / alpha sources are excluded to keep
+  # the light finalize (copy_memory + sRGB + flatten) a no-op-equivalent.
+  @part_c_sources [
+    "high_freq.jpg",
+    "marker.png",
+    "border.png",
+    "border_asym.png",
+    "placement.png"
+  ]
+
+  @default_factors [2, 3, 4]
+
   @impl Mix.Task
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
-        strict: [part: :string, mps: :string, csv: :boolean, format: :string]
+        strict: [
+          part: :string,
+          mps: :string,
+          csv: :boolean,
+          format: :string,
+          proxy_factors: :string,
+          proxy_mp: :integer
+        ]
       )
 
     part = Keyword.get(opts, :part, "both")
     csv? = Keyword.get(opts, :csv, false)
     format = opts |> Keyword.get(:format, "jpeg") |> parse_format()
     mps = parse_mps(Keyword.get(opts, :mps))
+    factors = parse_factors(Keyword.get(opts, :proxy_factors))
+    proxy_mp = Keyword.get(opts, :proxy_mp, 16)
 
     {:ok, _} = Application.ensure_all_started(:image_pipe)
     warmup(format)
 
-    a_rows = if part in ["a", "both"], do: run_part_a(mps, format), else: nil
-    b_rows = if part in ["b", "both"], do: run_part_b(format), else: nil
+    a_rows = if part in ["a", "both", "all"], do: run_part_a(mps, format), else: nil
+    b_rows = if part in ["b", "both", "all"], do: run_part_b(format), else: nil
+    c_rows = if part in ["c", "all"], do: run_part_c(factors, proxy_mp, format), else: nil
 
     if csv? do
       if a_rows, do: write_part_a_csv(a_rows)
       if b_rows, do: write_part_b_csv(b_rows)
+      if c_rows, do: write_part_c_csv(c_rows)
     end
 
-    print_findings(a_rows, b_rows, format)
+    print_findings(a_rows, b_rows, c_rows, format)
   end
 
   # Touch every NIF/libvips path once so first-call JIT + library init does not
@@ -351,6 +394,151 @@ defmodule Mix.Tasks.Autoquality.Bench do
     end)
   end
 
+  # --- Part C: downscaled-proxy-seed method + accuracy ----------------------
+
+  # The proxy method: downscale the finalized image by 1/k, run the ssim2 search
+  # on that proxy to pick a quality, then encode the FULL-res image once at that
+  # quality. We measure whether the delivered full-res image still hits the target
+  # (the real accuracy question) against the current full-res search as ground
+  # truth, plus the measured speedup.
+  defp run_part_c(factors, synth_mp, format) do
+    IO.puts("\n== Part C — downscaled-proxy-seed method + accuracy ==")
+    IO.puts("ssim2 target #{@target} [#{@min_q},#{@max_q}]  factors #{inspect(factors)}  ")
+
+    IO.puts(
+      "format #{format}  truth = full-res search  delivered = full-res encode at proxy's q\n"
+    )
+
+    header =
+      pad(["source", 16]) <>
+        pad(["MP", 6]) <>
+        pad(["k", 3]) <>
+        pad(["pMP", 6]) <>
+        pad(["qFull", 6]) <>
+        pad(["qProxy", 7]) <>
+        pad(["dq", 5]) <>
+        pad(["fullSc", 8]) <>
+        pad(["delivSc", 9]) <>
+        pad(["d-#{@target}", 7]) <>
+        pad(["hit?", 6]) <>
+        pad(["bFull", 9]) <>
+        pad(["bProxy", 9]) <>
+        pad(["speedup", 8])
+
+    IO.puts(header)
+    IO.puts(String.duplicate("-", String.length(header)))
+
+    resolved = ssim2_resolved(format)
+
+    subjects =
+      (@part_c_sources
+       |> Enum.map(fn file -> {file, base_image(file)} end)
+       |> Enum.reject(fn {_f, img} -> is_nil(img) end)) ++
+        [{"zone-#{synth_mp}MP", zone_plate_for(synth_mp)}]
+
+    subjects
+    |> Enum.flat_map(fn {label, base} ->
+      bench_proxy_subject(label, base, factors, resolved)
+    end)
+  end
+
+  defp bench_proxy_subject(label, base, factors, resolved) do
+    mp = Float.round(Image.width(base) * Image.height(base) / 1_000_000, 2)
+    {:ok, full_ref} = Ssim2Metric.reference(base)
+
+    {full_us, {:ok, _full_bin, full_meta}} =
+      timed(fn -> EncodeSearch.run(base, resolved, telemetry_opts: []) end)
+
+    Enum.map(factors, fn k ->
+      {ds_us, proxy} = timed(fn -> downscale(base, k) end)
+
+      {proxy_us, {:ok, _pbin, proxy_meta}} =
+        timed(fn -> EncodeSearch.run(proxy, resolved, telemetry_opts: []) end)
+
+      {conf_us, {:ok, conf_bin}} =
+        timed(fn -> Encoder.encode_to_buffer(base, resolved, proxy_meta.quality) end)
+
+      {:ok, candidate} = Image.from_binary(conf_bin)
+      {:ok, delivered} = Ssim2Metric.score(full_ref, candidate)
+
+      pmp = Float.round(Image.width(proxy) * Image.height(proxy) / 1_000_000, 2)
+      dq = proxy_meta.quality - full_meta.quality
+      delta_target = delivered - @target
+      hit? = delivered >= @target
+      proxy_total_us = ds_us + proxy_us + conf_us
+      speedup = ratio(full_us, proxy_total_us)
+
+      IO.puts(
+        pad([label, 16]) <>
+          pad([mp, 6]) <>
+          pad([k, 3]) <>
+          pad([pmp, 6]) <>
+          pad([full_meta.quality, 6]) <>
+          pad([proxy_meta.quality, 7]) <>
+          pad([dq, 5]) <>
+          pad([fmt_score(full_meta.score), 8]) <>
+          pad([fmt_score(delivered), 9]) <>
+          pad([Float.round(delta_target, 2), 7]) <>
+          pad([if(hit?, do: "yes", else: "NO"), 6]) <>
+          pad([full_meta.bytes, 9]) <>
+          pad([byte_size(conf_bin), 9]) <>
+          pad(["#{speedup}x", 8])
+      )
+
+      %{
+        source: label,
+        mp: mp,
+        k: k,
+        proxy_mp: pmp,
+        q_full: full_meta.quality,
+        q_proxy: proxy_meta.quality,
+        dq: dq,
+        full_score: full_meta.score,
+        delivered_score: delivered,
+        delta_target: delta_target,
+        hit?: hit?,
+        bytes_full: full_meta.bytes,
+        bytes_proxy: byte_size(conf_bin),
+        full_us: full_us,
+        proxy_total_us: proxy_total_us,
+        speedup: speedup
+      }
+    end)
+  end
+
+  defp downscale(image, k) do
+    {:ok, resized} = Operation.resize(image, 1.0 / k)
+    resized
+  end
+
+  # Open a committed source and apply a light finalize (realize to memory, force
+  # sRGB, flatten any alpha onto white) so encode_to_buffer to JPEG is valid. Real
+  # production finalization (color management) is a near-no-op for these sRGB
+  # sources, so this keeps Part C self-contained without the private finalize.
+  defp base_image(file) do
+    path = Path.join(@sources_dir, file)
+
+    case Image.open(path, access: :random) do
+      {:ok, img} ->
+        {:ok, mem} = VixImage.copy_memory(img)
+        {:ok, srgb} = Operation.colourspace(mem, :VIPS_INTERPRETATION_sRGB)
+        flatten_alpha(srgb)
+
+      {:error, reason} ->
+        IO.puts("Part C: skipping #{file} (open failed: #{inspect(reason)})")
+        nil
+    end
+  end
+
+  defp flatten_alpha(image) do
+    if Image.has_alpha?(image) do
+      {:ok, flat} = Image.flatten(image, background_color: [255, 255, 255])
+      flat
+    else
+      image
+    end
+  end
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -445,6 +633,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
     srgb
   end
 
+  defp zone_plate_for(mp) do
+    {w, h} = square_dims(mp)
+    zone_plate(w, h)
+  end
+
   defp square_dims(mp) do
     side = round(:math.sqrt(mp * 1_000_000))
     {side, side}
@@ -452,11 +645,12 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   # --- findings --------------------------------------------------------------
 
-  defp print_findings(a_rows, b_rows, format) do
+  defp print_findings(a_rows, b_rows, c_rows, format) do
     IO.puts("\n== Findings ==\n")
 
     if a_rows, do: findings_part_a(a_rows)
     if b_rows, do: findings_part_b(b_rows)
+    if c_rows, do: findings_part_c(c_rows)
 
     IO.puts("\n(format: #{format}; numbers vary with CPU + libvips build — re-run locally)")
   end
@@ -508,6 +702,50 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("  * ssim2 is ~#{speedup}x the cost of size (the decode+metric overhead)\n")
   end
 
+  # Two failure modes, opposite directions:
+  #   * q_proxy < q_full (Δq < 0): the proxy looked "easier" → delivered full-res
+  #     score UNDERSHOOTS the target. The magnitude of −Δq is the quality margin
+  #     that fixes it (the full search picks the lowest q clearing the target, so
+  #     by monotonicity q_proxy ≥ q_full ⟹ delivered ≥ target).
+  #   * q_proxy > q_full (Δq > 0): the proxy looked "harder" → delivered overshoots
+  #     and the encode is LARGER than the optimal full-res pick — savings erode.
+  # A single additive margin only addresses the first; it makes the second worse.
+  defp findings_part_c(rows) do
+    IO.puts("Part C — downscaled-proxy-seed method + accuracy:")
+
+    rows
+    |> Enum.group_by(& &1.k)
+    |> Enum.sort_by(fn {k, _} -> k end)
+    |> Enum.each(fn {k, group} ->
+      n = length(group)
+      hits = Enum.count(group, & &1.hit?)
+      mean_dq = group |> Enum.map(& &1.dq) |> avg() |> Float.round(1)
+      worst_dq = group |> Enum.map(& &1.dq) |> Enum.min()
+      margin = max(0, -worst_dq)
+      worst_under = group |> Enum.map(& &1.delta_target) |> Enum.min() |> Float.round(2)
+      worst_bytes = group |> Enum.map(&byte_overshoot/1) |> Enum.max()
+      mean_speedup = group |> Enum.map(& &1.speedup) |> avg() |> Float.round(1)
+      mean_proxy_ms = group |> Enum.map(& &1.proxy_total_us) |> avg() |> ms()
+
+      IO.puts(
+        "  k=#{k}: hit #{hits}/#{n}@margin0  |  Δq mean #{mean_dq}/worst #{worst_dq} (+#{margin}q fixes)  |  " <>
+          "worst undershoot #{worst_under}  |  worst byte overshoot +#{worst_bytes}%  |  " <>
+          "~#{mean_speedup}x (#{mean_proxy_ms} ms)"
+      )
+    end)
+
+    IO.puts("  -> bias direction is content-dependent: real high-detail content tends")
+    IO.puts("     to over-pick q (hits target, but inflates bytes — savings erode);")
+    IO.puts("     the adversarial chirp under-picks (undershoots). A modest k≈2 keeps")
+    IO.puts("     both small; aggressive k needs a full-res confirm-and-adjust, not a")
+    IO.puts("     fixed margin (the one full-res confirm metric is already affordable).\n")
+  end
+
+  defp byte_overshoot(%{bytes_proxy: bp, bytes_full: bf}) when bf > 0,
+    do: round((bp - bf) / bf * 100)
+
+  defp byte_overshoot(_), do: 0
+
   # --- CSV -------------------------------------------------------------------
 
   defp write_part_a_csv(rows) do
@@ -544,6 +782,24 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("wrote #{path}")
   end
 
+  defp write_part_c_csv(rows) do
+    path = "/tmp/autoquality_bench_part_c.csv"
+
+    head =
+      "source,mp,k,proxy_mp,q_full,q_proxy,dq,full_score,delivered_score,delta_target,hit," <>
+        "bytes_full,bytes_proxy,full_us,proxy_total_us,speedup\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.mp},#{r.k},#{r.proxy_mp},#{r.q_full},#{r.q_proxy},#{r.dq}," <>
+          "#{fmt_score(r.full_score)},#{fmt_score(r.delivered_score)},#{Float.round(r.delta_target, 2)}," <>
+          "#{r.hit?},#{r.bytes_full},#{r.bytes_proxy},#{r.full_us},#{r.proxy_total_us},#{r.speedup}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
   # --- helpers ---------------------------------------------------------------
 
   defp timed(fun) do
@@ -570,6 +826,14 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {int, ""} -> int
       _ -> s |> Float.parse() |> elem(0)
     end
+  end
+
+  defp parse_factors(nil), do: @default_factors
+
+  defp parse_factors(str) do
+    str
+    |> String.split(",", trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> String.to_integer()))
   end
 
   defp ms(us) when is_integer(us), do: Float.round(us / 1000, 1)

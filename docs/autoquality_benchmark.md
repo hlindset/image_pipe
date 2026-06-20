@@ -11,11 +11,14 @@ benchmark tool and the numbers it produced.
 ## Running it
 
 ```shell
-mise exec -- mix autoquality.bench            # both parts, default sizes, prints tables
+mise exec -- mix autoquality.bench            # parts A+B, default sizes, prints tables
 mise exec -- mix autoquality.bench --part a   # cost curve only
 mise exec -- mix autoquality.bench --part b   # accuracy/behavior only
+mise exec -- mix autoquality.bench --part c   # downscaled-proxy-seed method + accuracy
+mise exec -- mix autoquality.bench --part all # A + B + C
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
-mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b}.csv
+mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
+mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c}.csv
 ```
 
 [`mix autoquality.bench`](../test/support/mix/tasks/autoquality.bench.ex) is
@@ -45,6 +48,17 @@ correct pre-encode finalized reference), never an ad-hoc baseline.
   `size`, and `max_bytes` (the latter two to `round(q90 bytes * 0.6)`). Output:
   whether ssim2 lands at/above target, typical quality/savings/iterations, and
   how much cheaper the metric-free objectives are.
+- **Part C — downscaled-proxy-seed method + accuracy.** For each subject and
+  downscale factor `k`: run the full-res search (ground truth `q_full`), then
+  downscale by `1/k`, run the search on the proxy (`q_proxy`), encode the
+  **full-res** image once at `q_proxy`, and score that delivered output against
+  the full-res reference. Subjects: the committed sRGB high-detail sources at
+  native size (genuine content, modest scale) plus an adversarial zone-plate at
+  16 MP (large-scale + worst-case for the metric). Output: does the proxy's
+  quality choice still hit the target at full res, how the bytes move, and the
+  measured speedup. **Caveat:** no large *real* sources exist in-repo, so
+  cross-scale generalization to 16–36 MP photos is inferred from the ≤2 MP real
+  signal; the only large subject is the adversarial synthetic.
 
 > The bracket used here (`[40,95]`, target 88) is a deliberate **worst-case**: it
 > is wide, so the binary search spends close to its full 6-iteration budget, and
@@ -101,6 +115,53 @@ the portable conclusions**. Re-run locally to calibrate a host's budget.
   skip the decode+metric entirely, so their cost is just the encode probes; the
   ~15× gap *is* the decode+metric overhead and matches Part A's ~83% metric share.
 
+### Part C — downscaled-proxy-seed method + accuracy
+
+Per source × downscale factor, full-res search vs. proxy-seed. `Δq = q_proxy −
+q_full`; `delivered` is the true full-res SSIMULACRA2 score of the full-res encode
+at `q_proxy`; `bytesΔ` is delivered bytes vs. the full-res optimum.
+
+| source        | MP   | k | q_full | q_proxy | Δq  | delivered | Δtarget | hit | bytesΔ | speedup |
+|---------------|------|---|--------|---------|-----|-----------|---------|-----|--------|---------|
+| high_freq.jpg | 1.92 | 2 | 40     | 41      | +1  | 90.03     | +2.03   | yes | +2%    | 3.1×    |
+| high_freq.jpg | 1.92 | 3 | 40     | 58      | +18 | 91.71     | +3.71   | yes | +19%   | 6.1×    |
+| high_freq.jpg | 1.92 | 4 | 40     | 75      | +35 | 93.64     | +5.64   | yes | +49%   | 9.8×    |
+| marker.png    | 1.92 | 2 | 74     | 83      | +9  | 90.26     | +2.26   | yes | +1%    | 3.5×    |
+| border.png    | 1.92 | 4 | 73     | 73      | 0   | 88.71     | +0.71   | yes | 0%     | 9.6×    |
+| placement.png | 1.92 | 2 | 90     | 90      | 0   | 88.85     | +0.85   | yes | 0%     | 3.3×    |
+| placement.png | 1.92 | 4 | 90     | 90      | 0   | 88.85     | +0.85   | yes | 0%     | 8.9×    |
+| zone-16MP     | 16.0 | 2 | 95     | 94      | −1  | 87.47     | −0.53   | **NO** | −7% | 3.6×    |
+| zone-16MP     | 16.0 | 3 | 95     | 91      | −4  | 82.85     | −5.15   | **NO** | −19% | 7.0×  |
+| zone-16MP     | 16.0 | 4 | 95     | 94      | −1  | 87.47     | −0.53   | **NO** | −7% | 9.6×    |
+
+Aggregated per factor (5 real subjects + 1 adversarial synthetic):
+
+| k | target hit @margin 0 | Δq mean / worst | margin that fixes | worst undershoot | worst byte overshoot | speedup |
+|---|----------------------|-----------------|-------------------|------------------|----------------------|---------|
+| 2 | 5/6                  | +3.2 / −1       | +1q               | −0.53            | +2%                  | ~3.4×   |
+| 3 | 5/6                  | +6.0 / −4       | +4q               | −5.15            | +19%                 | ~6.7×   |
+| 4 | 5/6                  | +9.3 / −1       | +1q               | −0.53            | +49%                 | ~9.7×   |
+
+**The proxy method works, but its error is two-directional and content-dependent
+— it is not a clean win:**
+
+- **Real high-detail content over-picks quality** (Δq ≥ 0): the downscaled proxy
+  loses the hard-to-compress detail, so the search on it reads the content as
+  *harder* and picks a higher quality. The delivered full-res image clears the
+  target (every real source hit, all k) — but the encode is **larger than the
+  optimal full-res pick**, eroding the very savings autoquality exists to capture.
+  At `k=4`, `high_freq` delivered **+49% bytes** vs. the full-res optimum (q75 vs.
+  the correct q40).
+- **The adversarial chirp under-picks** (Δq < 0): the zone-plate downscales into a
+  lower-frequency zone-plate the metric scores more easily, so `q_proxy` lands
+  below `q_full` and the delivered full-res score **undershoots** (e.g. `k=3`:
+  82.85 vs. target 88). This is the quality-risk failure mode.
+- **A single additive margin can't satisfy both directions** — the margin that
+  rescues the undershoot makes the byte overshoot worse.
+- **`k=2` is the sweet spot:** ~3.4× speedup with Δq in `[−1, +9]`, worst
+  undershoot −0.53 (a +1q margin fixes it), and ≤+2% byte overshoot. Aggressive
+  downscale (`k≥3`) trades that balance for speed.
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
@@ -134,13 +195,30 @@ defaults. (`max_iterations 6` is already generous for the `[70,80]` default
 bracket, which needs only ~4 probes; lowering it would not help the dominant
 metric cost on the wide-bracket worst case but would cap pathological brackets.)
 
-### 3. The deferred downscaled-proxy-seed optimization is worth doing
+### 3. The downscaled-proxy-seed optimization works, but needs the right shape
 
-A resolution cap only *disables* autoquality above the threshold (the request
-falls back to fixed quality), forfeiting the 40–58% savings exactly on the large,
-high-detail images where they matter most. Because cost is ~83% metric and scales
-with pixel count, running the **search on a downscaled proxy** to pick the quality
-and then doing a single full-res confirm encode would cut the dominant cost by the
-square of the downscale factor — turning a 20 s 36 MP search into well under a
-second while keeping most of the savings. The data supports prioritizing this over
-relying on the cap alone.
+The motivation holds: a resolution cap only *disables* autoquality above the
+threshold (the request falls back to fixed quality), forfeiting the 40–58% savings
+exactly on the large, high-detail images where they matter most. And the speedup
+is real — Part C measured ~3.4× at `k=2` up to ~9.7× at `k=4`, matching the `k²`
+expectation.
+
+But Part C also shows the naïve form — *downscale, search, deliver* — is **not** a
+clean win: the quality-transfer error is two-directional and content-dependent
+(real content over-picks → byte overshoot up to +49%; the adversarial chirp
+under-picks → quality undershoot), and a single additive margin can't fix both.
+Two shapes survive the data:
+
+- **Modest downscale (`k≈2`)** — ~3.4× faster with Δq in `[−1, +9]`, ≤+2% byte
+  overshoot, and a +1q margin covering the only undershoot. Simple; most of the
+  win with little risk.
+- **Confirm-and-adjust for aggressive downscale** — search on the proxy, then do
+  the *one* full-res confirm metric (already part of the per-request budget — it's
+  a single pass, vs. the 4–6 the full search runs) and bump quality if it missed.
+  This makes the method robust at high `k` (the only way to keep both quality and
+  savings when the bias is large).
+
+Recommendation: prototype `k≈2` first (cheapest, lowest-risk), and gate anything
+more aggressive behind a full-res confirm. Do **not** ship a fixed-margin proxy.
+Note the accuracy caveat above — the large-scale real-content signal is inferred,
+so validate on genuinely large photos before committing to a default `k`.
