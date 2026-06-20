@@ -364,7 +364,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "output boundary depends only on format and plan data" do
     output = boundary_declaration(ImagePipe.Output)
 
-    assert_boundary_deps(output, [ImagePipe.Format, ImagePipe.Plan])
+    assert_boundary_deps(output, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Telemetry])
 
     refute_boundary_deps(output, [
       ImagePipe.Source,
@@ -541,6 +541,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(plan, [
       ImagePipe.Plan.Pipeline,
       ImagePipe.Plan.Output,
+      ImagePipe.Plan.Output.QualitySearch,
       ImagePipe.Plan.RenderContext,
       ImagePipe.Plan.Response,
       ImagePipe.Plan.SourceInfo,

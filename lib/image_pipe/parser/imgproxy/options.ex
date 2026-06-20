@@ -7,6 +7,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   alias ImagePipe.Parser.Imgproxy.PipelineRequest
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Output.QualitySearch
 
   @effect_fields [
     :blur,
@@ -34,12 +35,10 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   def parse(option_segments, %Presets{} = presets, defaults \\ []) when is_list(defaults) do
     with {:ok, options} <- initial_request_options() |> apply_default_preset(presets),
          {:ok, options} <- apply_segments(option_segments, options, presets, []),
-         {:ok, options} <- drain_queued_preset_groups(options, presets) do
-      request =
-        options
-        |> finalize_request_options()
-        |> apply_request_defaults(defaults)
-        |> Map.take([:pipelines, :auto_rotate, :output, :policy, :cache, :response])
+         {:ok, options} <- drain_queued_preset_groups(options, presets),
+         {:ok, options} <-
+           options |> finalize_request_options() |> apply_request_defaults(defaults) do
+      request = Map.take(options, [:pipelines, :auto_rotate, :output, :policy, :cache, :response])
 
       {:ok, request}
     end
@@ -317,15 +316,92 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
       |> reject_empty_pipelines()
 
-    output =
-      output
-      |> resolve_metadata_defaults(defaults)
-      |> Map.put(:strip_color_profile, strip_color_profile?)
-      |> Map.put(:color_profile, color_profile)
+    with {:ok, output} <-
+           output
+           |> resolve_metadata_defaults(defaults)
+           |> Map.put(:strip_color_profile, strip_color_profile?)
+           |> Map.put(:color_profile, color_profile)
+           |> resolve_quality_search_defaults(defaults) do
+      options =
+        options
+        |> Map.put(:auto_rotate, auto_rotate?)
+        |> Map.merge(%{pipelines: pipelines, output: output})
 
-    options
-    |> Map.put(:auto_rotate, auto_rotate?)
-    |> Map.merge(%{pipelines: pipelines, output: output})
+      {:ok, options}
+    end
+  end
+
+  @doc false
+  @spec resolve_quality_search_defaults(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def resolve_quality_search_defaults(output, defaults) do
+    case effective_quality_search_method(output.quality_search, defaults) do
+      :none ->
+        {:ok, %{output | quality_search: :none}}
+
+      objective ->
+        build_quality_search(
+          objective,
+          url_quality_search_fields(output.quality_search),
+          defaults
+        )
+        |> case do
+          {:ok, search} -> {:ok, %{output | quality_search: search}}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp effective_quality_search_method({:autoquality, :disabled}, _defaults), do: :none
+
+  defp effective_quality_search_method({:autoquality, fields}, defaults) when is_list(fields),
+    do: Keyword.get(fields, :objective, Keyword.get(defaults, :autoquality_method, :none))
+
+  defp effective_quality_search_method(:none, defaults),
+    do: Keyword.get(defaults, :autoquality_method, :none)
+
+  defp url_quality_search_fields({:autoquality, fields}) when is_list(fields), do: fields
+  defp url_quality_search_fields(_quality_search), do: []
+
+  defp build_quality_search(objective, fields, defaults) do
+    case resolve_quality_search_target(objective, fields, defaults) do
+      {:ok, target} ->
+        {:ok,
+         %QualitySearch{
+           objective: objective,
+           target: target,
+           min_quality:
+             Keyword.get(
+               fields,
+               :min_quality,
+               Keyword.get(defaults, :autoquality_min_quality, 70)
+             ),
+           max_quality:
+             Keyword.get(
+               fields,
+               :max_quality,
+               Keyword.get(defaults, :autoquality_max_quality, 80)
+             ),
+           allowed_error:
+             Keyword.get(
+               fields,
+               :allowed_error,
+               Keyword.get(defaults, :autoquality_allowed_error, 1.0)
+             ),
+           format_min: Keyword.get(defaults, :autoquality_format_min_quality, %{}),
+           format_max: Keyword.get(defaults, :autoquality_format_max_quality, %{}),
+           max_resolution: Keyword.get(defaults, :autoquality_max_resolution, 0)
+         }}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp resolve_quality_search_target(_objective, fields, defaults) do
+    case Keyword.get(fields, :target, Keyword.get(defaults, :autoquality_target)) do
+      nil -> {:error, {:invalid_option, :autoquality, :missing_target}}
+      target -> {:ok, target}
+    end
   end
 
   defp resolve_metadata_defaults(output, defaults) do

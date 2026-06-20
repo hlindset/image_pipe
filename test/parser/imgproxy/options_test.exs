@@ -2,6 +2,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Parser.Imgproxy.Options
+  alias ImagePipe.Parser.Imgproxy.ParsedRequest
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Plan.Color
 
@@ -229,6 +230,82 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert request.response.disposition == :attachment
   end
 
+  test "max_bytes and autoquality accumulate onto the output map" do
+    assert {:ok, request} =
+             Options.parse(
+               ~w(mb:51200 autoquality:ssim2:90:70:80:1),
+               Presets.empty()
+             )
+
+    assert request.output.max_bytes == 51_200
+
+    assert %ImagePipe.Plan.Output.QualitySearch{
+             objective: :ssim2,
+             target: 90.0,
+             min_quality: 70,
+             max_quality: 80,
+             allowed_error: 1.0
+           } = request.output.quality_search
+  end
+
+  describe "autoquality resolution" do
+    test "bare ssim2 fills target/bracket/allowed_error/per-format from config defaults" do
+      defaults = [
+        autoquality_target: 90.0,
+        autoquality_min_quality: 70,
+        autoquality_max_quality: 80,
+        autoquality_allowed_error: 1.0,
+        autoquality_format_min_quality: %{avif: 60},
+        autoquality_format_max_quality: %{avif: 65},
+        autoquality_max_resolution: 0
+      ]
+
+      out = resolve_output(%{quality_search: {:autoquality, [objective: :ssim2]}}, defaults)
+
+      assert %ImagePipe.Plan.Output.QualitySearch{} = out.quality_search
+      assert out.quality_search.objective == :ssim2
+      assert out.quality_search.target == 90.0
+      assert out.quality_search.min_quality == 70 and out.quality_search.max_quality == 80
+      assert out.quality_search.allowed_error == 1.0
+      assert out.quality_search.format_min == %{avif: 60}
+      assert out.quality_search.format_max == %{avif: 65}
+      assert out.quality_search.max_resolution == 0
+    end
+
+    test "autoquality:none resolves to :none regardless of config method" do
+      out =
+        resolve_output(%{quality_search: {:autoquality, :disabled}}, autoquality_method: :ssim2)
+
+      assert out.quality_search == :none
+    end
+
+    test "absent autoquality falls back to the config method (:none default => off)" do
+      out = resolve_output(%{quality_search: :none}, [])
+      assert out.quality_search == :none
+    end
+
+    test "config method ssim2 with no URL autoquality enables the search from config" do
+      defaults = [
+        autoquality_method: :ssim2,
+        autoquality_target: 88.0,
+        autoquality_min_quality: 70,
+        autoquality_max_quality: 80,
+        autoquality_allowed_error: 1.0
+      ]
+
+      out = resolve_output(%{quality_search: :none}, defaults)
+      assert out.quality_search.objective == :ssim2 and out.quality_search.target == 88.0
+    end
+
+    test "size method without a target (URL or config) is an invalid option" do
+      assert {:error, _} =
+               resolve_output_result(
+                 %{quality_search: {:autoquality, [objective: :size]}},
+                 autoquality_method: :none
+               )
+    end
+  end
+
   test "pipeline separators finalize the current pipeline and start the next one" do
     assert {:ok, request} = Options.parse(~w(w:500 - h:200), Presets.empty())
 
@@ -271,5 +348,15 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert {:ok, request} = Options.parse(option_segments, Presets.empty())
     [pipeline] = request.pipelines
     pipeline
+  end
+
+  defp resolve_output(overrides, defaults) do
+    assert {:ok, output} = resolve_output_result(overrides, defaults)
+    output
+  end
+
+  defp resolve_output_result(overrides, defaults) do
+    output = ParsedRequest.output_request(overrides)
+    Options.resolve_quality_search_defaults(output, defaults)
   end
 end

@@ -95,6 +95,55 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     end
   end
 
+  test "accepts imgproxy autoquality host config" do
+    opts =
+      Imgproxy.validate_options!(
+        imgproxy: [
+          autoquality_method: :ssim2,
+          autoquality_target: 90.0,
+          autoquality_min_quality: 70,
+          autoquality_max_quality: 80
+        ]
+      )
+
+    assert opts[:imgproxy][:autoquality_method] == :ssim2
+    assert opts[:imgproxy][:autoquality_target] == 90.0
+  end
+
+  test "rejects an inverted global autoquality bracket" do
+    assert_raise ArgumentError, ~r/invalid imgproxy config.*autoquality_min_quality/, fn ->
+      Imgproxy.validate_options!(
+        imgproxy: [autoquality_min_quality: 80, autoquality_max_quality: 70]
+      )
+    end
+  end
+
+  test "rejects a per-format autoquality bracket inverted against the base bracket" do
+    # format_min jpeg=88 with no format_max[:jpeg] falls back to the base max (72) → 88..72.
+    assert_raise ArgumentError, ~r/invalid imgproxy config.*jpeg/, fn ->
+      Imgproxy.validate_options!(
+        imgproxy: [
+          autoquality_max_quality: 72,
+          autoquality_format_min_quality: %{jpeg: 88}
+        ]
+      )
+    end
+  end
+
+  test "accepts a per-format bracket that is ordered after fallback" do
+    opts =
+      Imgproxy.validate_options!(
+        imgproxy: [
+          autoquality_min_quality: 70,
+          autoquality_max_quality: 80,
+          autoquality_format_min_quality: %{avif: 60},
+          autoquality_format_max_quality: %{avif: 65}
+        ]
+      )
+
+    assert opts[:imgproxy][:autoquality_format_min_quality] == %{avif: 60}
+  end
+
   test "validates imgproxy auto_rotate config" do
     assert Imgproxy.validate_options!(imgproxy: [auto_rotate: true])[:imgproxy][:auto_rotate] ==
              true

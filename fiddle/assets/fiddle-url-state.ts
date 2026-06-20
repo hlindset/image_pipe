@@ -294,6 +294,14 @@ function applyOptionSegment(currentState: FiddleState, segment: string): FiddleS
     case "q":
       return parseQuality(currentState, args);
 
+    case "autoquality":
+    case "aq":
+      return parseAutoquality(currentState, args);
+
+    case "max_bytes":
+    case "mb":
+      return parseMaxBytes(currentState, args);
+
     case "sm":
       return parseStripMetadata(currentState, args);
 
@@ -1110,6 +1118,101 @@ function parsePreserveHdr(currentState: FiddleState, args: string[]): FiddleStat
     ...currentState,
     preserveHdr: value,
   };
+}
+
+// autoquality:none | autoquality:size:%target[:%min[:%max]]
+// | autoquality:ssim2:%target[:%min[:%max[:%allowed_error]]]
+function parseAutoquality(currentState: FiddleState, args: string[]): FiddleState | null {
+  const [method, ...rest] = args as [string?, ...string[]];
+
+  if (method === "none" && rest.length === 0) {
+    return { ...currentState, autoqualityMethod: "none" };
+  }
+
+  if (method === "size" && rest.length <= 3) {
+    const [target, min, max] = rest;
+    return {
+      ...currentState,
+      autoqualityMethod: "size",
+      autoqualityTarget: parsePositiveInteger(target) ?? currentState.autoqualityTarget,
+      autoqualityMinQuality: parseQualityValue(min) ?? currentState.autoqualityMinQuality,
+      autoqualityMaxQuality: parseQualityValue(max) ?? currentState.autoqualityMaxQuality,
+    };
+  }
+
+  if (method === "ssim2" && rest.length <= 4) {
+    const [target, min, max, allowedError] = rest;
+    const parsedTarget = parseScoreValue(target);
+    return {
+      ...currentState,
+      autoqualityMethod: "ssim2",
+      autoqualityTarget: parsedTarget ?? currentState.autoqualityTarget,
+      autoqualityMinQuality: parseQualityValue(min) ?? currentState.autoqualityMinQuality,
+      autoqualityMaxQuality: parseQualityValue(max) ?? currentState.autoqualityMaxQuality,
+      autoqualityAllowedError:
+        parseNonNegativeNumber(allowedError) ?? currentState.autoqualityAllowedError,
+    };
+  }
+
+  return null;
+}
+
+function parseMaxBytes(currentState: FiddleState, args: string[]): FiddleState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const maxBytes = parsePositiveInteger(args[0]);
+
+  if (maxBytes === null) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    maxBytesEnabled: true,
+    maxBytes,
+  };
+}
+
+function parsePositiveInteger(value: string | undefined): number | null {
+  const number = parseNumber(value);
+
+  if (number === null || !Number.isInteger(number) || number <= 0) {
+    return null;
+  }
+
+  return number;
+}
+
+function parseQualityValue(value: string | undefined): number | null {
+  const number = parseNumber(value);
+
+  if (number === null || !Number.isInteger(number) || number < 1 || number > 100) {
+    return null;
+  }
+
+  return number;
+}
+
+function parseScoreValue(value: string | undefined): number | null {
+  const number = parseNumber(value);
+
+  if (number === null || number < 0 || number > 100) {
+    return null;
+  }
+
+  return number;
+}
+
+function parseNonNegativeNumber(value: string | undefined): number | null {
+  const number = parseNumber(value);
+
+  if (number === null || number < 0) {
+    return null;
+  }
+
+  return number;
 }
 
 function parseBooleanValue(value: string | undefined): boolean | null {

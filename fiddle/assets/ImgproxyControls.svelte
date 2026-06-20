@@ -7,6 +7,7 @@
   import ToolToggleHeader from "./ToolToggleHeader.svelte";
   import { fiddleObjClasses, expandedToolboxesForState } from "./fiddle-url-state";
   import {
+    autoqualityOptionSegment,
     controlLimits,
     cropOptionSegment,
     cropPixelLimit,
@@ -75,6 +76,10 @@
   );
   const effectsSummary = $derived(effectSegments(fiddleState).join("/") || "Off");
   const metadataSummary = $derived(metadataSegments(fiddleState).join("/") || "On");
+  const autoqualitySummary = $derived(autoqualityOptionSegment(fiddleState) ?? "Off");
+  const maxBytesSummary = $derived(
+    fiddleState.maxBytesEnabled && fiddleState.maxBytes > 0 ? `mb:${fiddleState.maxBytes}` : "Off",
+  );
   const cropSummary = $derived(
     fiddleState.cropEnabled ? (cropOptionSegment(fiddleState) ?? "Off") : "Off",
   );
@@ -1068,6 +1073,97 @@
       min={controlLimits.quality.min}
       max={controlLimits.quality.max}
       step={controlLimits.quality.step}
+    />
+  {/if}
+</section>
+
+<section class="tool-section">
+  <div class="accordion-heading">
+    <div>
+      <h2>Autoquality</h2>
+      <p>{autoqualitySummary}</p>
+    </div>
+  </div>
+
+  <label class="field">
+    <span>Method</span>
+    <select bind:value={fiddleState.autoqualityMethod}>
+      <option value="none">none</option>
+      <option value="size">size</option>
+      <option value="ssim2">ssim2</option>
+    </select>
+  </label>
+
+  {#if fiddleState.autoqualityMethod === "size"}
+    <RangeNumber
+      label="Target (bytes)"
+      bind:value={fiddleState.autoqualityTarget}
+      min={controlLimits.autoquality.sizeTarget.min}
+      max={controlLimits.autoquality.sizeTarget.max}
+      step={controlLimits.autoquality.sizeTarget.step}
+    />
+    <RangeNumber
+      label="Min quality"
+      bind:value={fiddleState.autoqualityMinQuality}
+      min={controlLimits.autoquality.quality.min}
+      max={controlLimits.autoquality.quality.max}
+      step={controlLimits.autoquality.quality.step}
+    />
+    <RangeNumber
+      label="Max quality"
+      bind:value={fiddleState.autoqualityMaxQuality}
+      min={controlLimits.autoquality.quality.min}
+      max={controlLimits.autoquality.quality.max}
+      step={controlLimits.autoquality.quality.step}
+    />
+  {/if}
+
+  {#if fiddleState.autoqualityMethod === "ssim2"}
+    <RangeNumber
+      label="Target (SSIMULACRA2)"
+      bind:value={fiddleState.autoqualityTarget}
+      min={controlLimits.autoquality.ssim2Target.min}
+      max={controlLimits.autoquality.ssim2Target.max}
+      step={controlLimits.autoquality.ssim2Target.step}
+    />
+    <RangeNumber
+      label="Min quality"
+      bind:value={fiddleState.autoqualityMinQuality}
+      min={controlLimits.autoquality.quality.min}
+      max={controlLimits.autoquality.quality.max}
+      step={controlLimits.autoquality.quality.step}
+    />
+    <RangeNumber
+      label="Max quality"
+      bind:value={fiddleState.autoqualityMaxQuality}
+      min={controlLimits.autoquality.quality.min}
+      max={controlLimits.autoquality.quality.max}
+      step={controlLimits.autoquality.quality.step}
+    />
+    <RangeNumber
+      label="Allowed error"
+      bind:value={fiddleState.autoqualityAllowedError}
+      min={controlLimits.autoquality.allowedError.min}
+      max={controlLimits.autoquality.allowedError.max}
+      step={controlLimits.autoquality.allowedError.step}
+    />
+  {/if}
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Max bytes"
+    summary={maxBytesSummary}
+    bind:checked={fiddleState.maxBytesEnabled}
+  />
+
+  {#if fiddleState.maxBytesEnabled}
+    <RangeNumber
+      label="Max bytes"
+      bind:value={fiddleState.maxBytes}
+      min={controlLimits.maxBytes.min}
+      max={controlLimits.maxBytes.max}
+      step={controlLimits.maxBytes.step}
     />
   {/if}
 </section>

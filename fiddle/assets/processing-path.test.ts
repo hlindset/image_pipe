@@ -1133,6 +1133,64 @@ describe("processing path generation", () => {
     );
   });
 
+  it("omits autoquality when the method is none", () => {
+    const state = {
+      ...activeFiddleState,
+      autoqualityMethod: "none" as const,
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:85"]);
+  });
+
+  it("serializes size autoquality as target:min:max", () => {
+    const state = {
+      ...activeFiddleState,
+      autoqualityMethod: "size" as const,
+      autoqualityTarget: 40000,
+      autoqualityMinQuality: 60,
+      autoqualityMaxQuality: 90,
+    };
+
+    expect(optionSegments(state)).toEqual([
+      "rs:fill:640:360:0",
+      "g:ce",
+      "q:85",
+      "autoquality:size:40000:60:90",
+    ]);
+  });
+
+  it("serializes ssim2 autoquality with the allowed_error field", () => {
+    const state = {
+      ...activeFiddleState,
+      autoqualityMethod: "ssim2" as const,
+      autoqualityTarget: 80,
+      autoqualityMinQuality: 50,
+      autoqualityMaxQuality: 95,
+      autoqualityAllowedError: 1.5,
+    };
+
+    expect(optionSegments(state)).toEqual([
+      "rs:fill:640:360:0",
+      "g:ce",
+      "q:85",
+      "autoquality:ssim2:80:50:95:1.5",
+    ]);
+  });
+
+  it("omits max bytes when disabled or zero", () => {
+    const disabled = { ...activeFiddleState, maxBytesEnabled: false, maxBytes: 50000 };
+    const zero = { ...activeFiddleState, maxBytesEnabled: true, maxBytes: 0 };
+
+    expect(optionSegments(disabled)).toEqual(["rs:fill:640:360:0", "g:ce", "q:85"]);
+    expect(optionSegments(zero)).toEqual(["rs:fill:640:360:0", "g:ce", "q:85"]);
+  });
+
+  it("serializes max bytes as mb:%n when enabled", () => {
+    const state = { ...activeFiddleState, maxBytesEnabled: true, maxBytes: 75000 };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:85", "mb:75000"]);
+  });
+
   it("omits top-level gravity when gravity is disabled", () => {
     const state = {
       ...activeFiddleState,
@@ -1323,6 +1381,88 @@ describe("fiddle URL state", () => {
     expect(parseFiddlePath("/trim:10:ff00ff:0:2/plain/local:///images/dog.jpg")).toEqual(
       defaultFiddleState,
     );
+  });
+
+  it("round-trips size autoquality through the fiddle path", () => {
+    const parsed = parseFiddlePath("/autoquality:size:40000:60:90/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      autoqualityMethod: "size",
+      autoqualityTarget: 40000,
+      autoqualityMinQuality: 60,
+      autoqualityMaxQuality: 90,
+    });
+
+    expect(fiddlePathForState(parsed)).toBe(
+      "/autoquality:size:40000:60:90/plain/local:///images/dog.jpg",
+    );
+  });
+
+  it("round-trips ssim2 autoquality including allowed_error", () => {
+    const parsed = parseFiddlePath("/autoquality:ssim2:80:50:95:1.5/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      autoqualityMethod: "ssim2",
+      autoqualityTarget: 80,
+      autoqualityMinQuality: 50,
+      autoqualityMaxQuality: 95,
+      autoqualityAllowedError: 1.5,
+    });
+
+    expect(fiddlePathForState(parsed)).toBe(
+      "/autoquality:ssim2:80:50:95:1.5/plain/local:///images/dog.jpg",
+    );
+  });
+
+  it("parses the aq short alias for autoquality", () => {
+    const parsed = parseFiddlePath("/aq:size:40000/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      autoqualityMethod: "size",
+      autoqualityTarget: 40000,
+    });
+  });
+
+  it("treats autoquality:none as the disabled method", () => {
+    const parsed = parseFiddlePath("/autoquality:none/plain/local:///images/dog.jpg");
+
+    expect(parsed.autoqualityMethod).toBe("none");
+    expect(optionSegments(parsed)).toEqual([]);
+  });
+
+  it("rejects invalid autoquality values in fiddle routes", () => {
+    expect(parseFiddlePath("/autoquality:bogus/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+    expect(parseFiddlePath("/autoquality:size:1:2:3:4/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+  });
+
+  it("round-trips max bytes through the mb alias", () => {
+    const parsed = parseFiddlePath("/mb:75000/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      maxBytesEnabled: true,
+      maxBytes: 75000,
+    });
+
+    expect(fiddlePathForState(parsed)).toBe("/mb:75000/plain/local:///images/dog.jpg");
+  });
+
+  it("parses the long max_bytes alias", () => {
+    const parsed = parseFiddlePath("/max_bytes:75000/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      maxBytesEnabled: true,
+      maxBytes: 75000,
+    });
+  });
+
+  it("rejects invalid max bytes values in fiddle routes", () => {
+    expect(parseFiddlePath("/mb:0/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/mb:-5/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/mb:bad/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
   });
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {

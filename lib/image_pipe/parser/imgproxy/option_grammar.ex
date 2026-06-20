@@ -50,6 +50,10 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "q" => {:quality, [:quality]},
     "format_quality" => {:format_quality, [:format, :quality]},
     "fq" => {:format_quality, [:format, :quality]},
+    "max_bytes" => {:max_bytes, [:max_bytes]},
+    "mb" => {:max_bytes, [:max_bytes]},
+    "autoquality" => {:autoquality, [:autoquality]},
+    "aq" => {:autoquality, [:autoquality]},
     "cachebuster" => {:cachebuster, [:cachebuster]},
     "cb" => {:cachebuster, [:cachebuster]},
     "expires" => {:expires, [:expires]},
@@ -156,6 +160,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
               :format,
               :quality,
               :format_quality,
+              :max_bytes,
+              :autoquality,
               :strip_metadata,
               :keep_copyright,
               :preserve_hdr
@@ -235,6 +241,18 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
+  defp parse_known_option(:max_bytes, [:max_bytes], [value], segment) when value != "" do
+    case parse_non_negative_integer(value) do
+      {:ok, 0} -> {:ok, [max_bytes: nil]}
+      {:ok, max_bytes} -> {:ok, [max_bytes: max_bytes]}
+      {:error, _reason} -> {:error, {:invalid_option, :max_bytes, segment}}
+    end
+  end
+
+  defp parse_known_option(:autoquality, [:autoquality], args, segment) do
+    parse_autoquality(args, segment)
+  end
+
   defp parse_known_option(:resize, fields, args, segment) when length(args) <= 8 do
     with {base_args, extend_gravity_parts} <- Enum.split(args, 5),
          {:ok, assignments} <- parse_fields(fields, base_args, skip_empty: true),
@@ -265,6 +283,93 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_known_option(_kind, _fields, _args, segment),
     do: {:error, {:invalid_option_segment, segment}}
+
+  # autoquality:%method[:%method_args...] — emits the tagged
+  # {:autoquality, fields | :disabled} shape, carrying only the URL-present
+  # fields; config fills the rest in a later resolution step.
+  defp parse_autoquality(["none"], _segment),
+    do: {:ok, [quality_search: {:autoquality, :disabled}]}
+
+  defp parse_autoquality(["size" | rest], segment) when length(rest) <= 3 do
+    with {:ok, fields} <-
+           parse_autoquality_args(rest, [:target_bytes, :min_quality, :max_quality]) do
+      autoquality_result([objective: :size] ++ fields, segment)
+    end
+  end
+
+  defp parse_autoquality(["ssim2" | rest], segment) when length(rest) <= 4 do
+    with {:ok, fields} <-
+           parse_autoquality_args(rest, [
+             :target_float,
+             :min_quality,
+             :max_quality,
+             :allowed_error
+           ]) do
+      autoquality_result([objective: :ssim2] ++ fields, segment)
+    end
+  end
+
+  defp parse_autoquality(["dssim"], _segment),
+    do: {:ok, [quality_search: {:autoquality, [objective: :ssim2]}]}
+
+  defp parse_autoquality(_args, segment),
+    do: {:error, {:invalid_option, :autoquality, segment}}
+
+  defp autoquality_result(fields, segment) do
+    min = Keyword.get(fields, :min_quality)
+    max = Keyword.get(fields, :max_quality)
+
+    if is_integer(min) and is_integer(max) and min > max do
+      {:error, {:invalid_option, :autoquality, segment}}
+    else
+      {:ok, [quality_search: {:autoquality, fields}]}
+    end
+  end
+
+  defp parse_autoquality_args(values, specs) do
+    specs
+    |> Enum.zip(values)
+    |> Enum.reduce_while({:ok, []}, fn {spec, value}, {:ok, acc} ->
+      case parse_autoquality_field(spec, value) do
+        {:ok, {key, parsed}} -> {:cont, {:ok, [{key, parsed} | acc]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_autoquality_field(:target_bytes, value) do
+    with {:ok, target} <- parse_positive_integer(value), do: {:ok, {:target, target}}
+  end
+
+  defp parse_autoquality_field(:target_float, value) do
+    case parse_float(value) do
+      {:ok, float} when float >= 0.0 and float <= 100.0 -> {:ok, {:target, float}}
+      {:ok, _float} -> {:error, {:invalid_float, value}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_autoquality_field(key, value) when key in [:min_quality, :max_quality] do
+    case Integer.parse(value) do
+      {integer, ""} when integer in 1..100 -> {:ok, {key, integer}}
+      _other -> {:error, {:invalid_non_negative_integer, value}}
+    end
+  end
+
+  defp parse_autoquality_field(:allowed_error, value) do
+    with {:ok, error} <- parse_non_negative_float(value), do: {:ok, {:allowed_error, error}}
+  end
+
+  defp parse_positive_integer(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer > 0 -> {:ok, integer}
+      _other -> {:error, {:invalid_positive_integer, value}}
+    end
+  end
 
   defp parse_filename(value, false) do
     with {:ok, decoded} <- decode_percent_encoded(value),

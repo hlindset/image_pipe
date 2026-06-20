@@ -89,6 +89,15 @@ defmodule ImagePipe.FormatTest do
     end
   end
 
+  describe "supports_quality?/1" do
+    test "is true for lossy-quality formats, false for png" do
+      assert Format.supports_quality?(:jpeg)
+      assert Format.supports_quality?(:webp)
+      assert Format.supports_quality?(:avif)
+      refute Format.supports_quality?(:png)
+    end
+  end
+
   test "maps MIME types to encoder suffixes" do
     assert Format.suffix!("image/avif") == ".avif"
     assert Format.suffix!("image/webp") == ".webp"

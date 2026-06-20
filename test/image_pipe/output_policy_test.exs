@@ -6,7 +6,9 @@ defmodule ImagePipe.Output.PolicyTest do
 
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Output.ResolvedQualitySearch
   alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Output.QualitySearch
 
   describe "from_output_plan/3" do
     test "automatic output policy exposes Vary Accept and selected candidates from Accept" do
@@ -340,6 +342,85 @@ defmodule ImagePipe.Output.PolicyTest do
                   keep_copyright: true,
                   color_profile: :strip
                 }}
+    end
+  end
+
+  describe "quality search resolution" do
+    defp policy_with(search, opts \\ []) do
+      %Policy{
+        mode: {:explicit, Keyword.get(opts, :format, :jpeg)},
+        modern_candidates: [],
+        headers: [],
+        quality: :default,
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        color_profile: :strip,
+        quality_search: search,
+        max_bytes: Keyword.get(opts, :max_bytes)
+      }
+    end
+
+    test "per-format clamp overrides the global bracket for the negotiated format" do
+      search = %QualitySearch{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 70,
+        max_quality: 80,
+        allowed_error: 1.0,
+        format_min: %{avif: 60},
+        format_max: %{avif: 65}
+      }
+
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch{} = rs}} =
+               Policy.resolve(policy_with(search, format: :avif), nil)
+
+      assert rs.min_quality == 60 and rs.max_quality == 65
+    end
+
+    test "unlisted format falls back to the global bracket" do
+      search = %QualitySearch{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 70,
+        max_quality: 80,
+        allowed_error: 1.0,
+        format_min: %{avif: 60},
+        format_max: %{avif: 65}
+      }
+
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch{} = rs}} =
+               Policy.resolve(policy_with(search, format: :jpeg), nil)
+
+      assert rs.min_quality == 70 and rs.max_quality == 80
+    end
+
+    test "carries objective, target, allowed_error, and max_resolution through" do
+      search = %QualitySearch{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 70,
+        max_quality: 80,
+        allowed_error: 1.0,
+        max_resolution: 16
+      }
+
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch{} = rs}} =
+               Policy.resolve(policy_with(search), nil)
+
+      assert rs.objective == :ssim2
+      assert rs.target == 90.0
+      assert rs.allowed_error == 1.0
+      assert rs.max_resolution == 16
+    end
+
+    test "none stays none" do
+      assert {:ok, %Resolved{quality_search: :none}} = Policy.resolve(policy_with(:none), nil)
+    end
+
+    test "max_bytes is carried through to Resolved" do
+      assert {:ok, %Resolved{max_bytes: 51_200}} =
+               Policy.resolve(policy_with(:none, max_bytes: 51_200), nil)
     end
   end
 

@@ -11,6 +11,7 @@ export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type ColorProfile = "none" | "srgb" | "display-p3" | "adobe-rgb";
+export type AutoqualityMethod = "none" | "size" | "ssim2";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
 export type SignatureMode = "unsigned" | "signed";
@@ -204,6 +205,13 @@ export type FiddleState = {
   format: OutputFormat;
   qualityEnabled: boolean;
   quality: number;
+  autoqualityMethod: AutoqualityMethod;
+  autoqualityTarget: number;
+  autoqualityMinQuality: number;
+  autoqualityMaxQuality: number;
+  autoqualityAllowedError: number;
+  maxBytesEnabled: boolean;
+  maxBytes: number;
   stripMetadata: boolean;
   keepCopyright: boolean;
   stripColorProfile: boolean;
@@ -264,6 +272,13 @@ export const controlLimits = {
   focalPoint: { min: 0, max: 1, step: 0.01 },
   gravityOffset: { min: -200, max: 200, step: 0.01 },
   quality: { min: 0, max: 100, step: 1 },
+  autoquality: {
+    sizeTarget: { min: 1, max: 5_000_000, step: 1 },
+    ssim2Target: { min: 0, max: 100, step: 0.1 },
+    quality: { min: 1, max: 100, step: 1 },
+    allowedError: { min: 0, max: 100, step: 0.1 },
+  },
+  maxBytes: { min: 1, max: 5_000_000, step: 1 },
 } satisfies {
   resize: Record<ImageDimensionAxis, NumericControlLimit>;
   crop: { percent: NumericControlLimit };
@@ -277,6 +292,11 @@ export const controlLimits = {
   focalPoint: NumericControlLimit;
   gravityOffset: NumericControlLimit;
   quality: NumericControlLimit;
+  autoquality: Record<
+    "sizeTarget" | "ssim2Target" | "quality" | "allowedError",
+    NumericControlLimit
+  >;
+  maxBytes: NumericControlLimit;
 };
 
 export { sampleImages };
@@ -412,6 +432,13 @@ export const defaultFiddleState: FiddleState = {
   format: "jpeg",
   qualityEnabled: false,
   quality: 85,
+  autoqualityMethod: "none",
+  autoqualityTarget: 50000,
+  autoqualityMinQuality: 70,
+  autoqualityMaxQuality: 90,
+  autoqualityAllowedError: 1,
+  maxBytesEnabled: false,
+  maxBytes: 50000,
   stripMetadata: true,
   keepCopyright: true,
   stripColorProfile: true,
@@ -583,6 +610,16 @@ export function optionSegments(currentState: FiddleState): string[] {
     segments.push(`q:${currentState.quality}`);
   }
 
+  const autoqualitySegment = autoqualityOptionSegment(currentState);
+
+  if (autoqualitySegment !== null) {
+    segments.push(autoqualitySegment);
+  }
+
+  if (currentState.maxBytesEnabled && currentState.maxBytes > 0) {
+    segments.push(`mb:${currentState.maxBytes}`);
+  }
+
   if (!currentState.stripMetadata) {
     segments.push("sm:0");
   } else if (!currentState.keepCopyright) {
@@ -602,6 +639,33 @@ export function optionSegments(currentState: FiddleState): string[] {
   }
 
   return segments;
+}
+
+// autoquality:size:%target:%min:%max | autoquality:ssim2:%target:%min:%max:%allowed_error
+// "none" disables the search and emits nothing.
+export function autoqualityOptionSegment(currentState: FiddleState): string | null {
+  if (currentState.autoqualityMethod === "size") {
+    return [
+      "autoquality",
+      "size",
+      currentState.autoqualityTarget,
+      currentState.autoqualityMinQuality,
+      currentState.autoqualityMaxQuality,
+    ].join(":");
+  }
+
+  if (currentState.autoqualityMethod === "ssim2") {
+    return [
+      "autoquality",
+      "ssim2",
+      currentState.autoqualityTarget,
+      currentState.autoqualityMinQuality,
+      currentState.autoqualityMaxQuality,
+      currentState.autoqualityAllowedError,
+    ].join(":");
+  }
+
+  return null;
 }
 
 export function trimOptionSegment(currentState: FiddleState): string | null {

@@ -3,6 +3,7 @@ defmodule ImagePipe.Output.Encoder do
 
   alias ImagePipe.Format
   alias ImagePipe.Output.ColorProfile
+  alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Color
   alias Vix.Vips.Image, as: VixImage
@@ -38,13 +39,75 @@ defmodule ImagePipe.Output.Encoder do
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, opts) do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, finalized} <- finalize(image, resolved_output) do
-      image_module = Keyword.get(opts, :image_module, Image)
-      stream = image_module.stream!(finalized, output_options(suffix, resolved_output))
-      {:ok, stream, mime_type}
+      if search?(resolved_output) and Format.supports_quality?(resolved_output.format) and
+           not skip_search?(finalized, resolved_output) do
+        search_output(finalized, resolved_output, mime_type, opts)
+      else
+        lazy_output(finalized, resolved_output, mime_type, suffix, opts)
+      end
     end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
+
+  defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do
+    image_module = Keyword.get(opts, :image_module, Image)
+    stream = image_module.stream!(finalized, output_options(suffix, resolved_output))
+    {:ok, stream, mime_type}
+  end
+
+  # A quality search runs when a search objective or a hard byte budget is set.
+  defp search?(%Resolved{quality_search: quality_search, max_bytes: max_bytes}),
+    do: quality_search != :none or max_bytes != nil
+
+  # The search descriptor carries the megapixel skip threshold; a max_bytes-alone
+  # request has no descriptor, so it never skips (max_resolution 0).
+  defp skip_search?(finalized, %Resolved{quality_search: quality_search}) do
+    max_resolution =
+      case quality_search do
+        %{max_resolution: mr} -> mr
+        :none -> 0
+      end
+
+    megapixels = Image.width(finalized) * Image.height(finalized) / 1_000_000
+    EncodeSearch.skip?(%{max_resolution: max_resolution}, megapixels)
+  end
+
+  # The search owns building the encode/score closures, the iteration cap, and
+  # the objective/cap phases; we only hand it the finalized image and wrap the
+  # winning buffer as a one-element list so the streaming contract is unchanged.
+  defp search_output(finalized, resolved_output, mime_type, opts) do
+    search_opts = [telemetry_opts: ImagePipe.Telemetry.telemetry_opts(opts)]
+
+    case EncodeSearch.run(finalized, resolved_output, search_opts) do
+      {:ok, binary, _meta} -> {:ok, [binary], mime_type}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  @doc """
+  Encode `image` to an in-memory binary at a specific `quality`, returning
+  `{:ok, binary}`. Used by the quality-search loop, which probes candidate
+  qualities against an already-finalized image; the caller owns finalization
+  and reuses the resolved suffix. Errors are tagged `{:encode, exception, stack}`
+  to match the module's existing encode-error shape.
+  """
+  @spec encode_to_buffer(VixImage.t(), Resolved.t(), 1..100) ::
+          {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
+  def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
+    with {:ok, _mime_type, suffix} <- output_format(resolved_output),
+         {:ok, binary} <- Image.write(image, :memory, suffix: suffix, quality: quality) do
+      {:ok, binary}
+    else
+      {:error, {:encode, _exception, _stack} = tagged} -> {:error, tagged}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
+  rescue
+    exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  defp encode_error(reason),
+    do: ArgumentError.exception("failed to encode to buffer: #{inspect(reason)}")
 
   # Color finalize (port of imgproxy `colorspaceToResult`) + metadata strip.
   # We realize ONCE via copy_memory here, in the producer's own call stack, so a

@@ -50,7 +50,22 @@ defmodule ImagePipe.Parser.Imgproxy do
                      keep_copyright: [type: :boolean, default: true],
                      strip_color_profile: [type: :boolean, default: true],
                      preserve_hdr: [type: :boolean, default: false],
-                     smart_crop_face_detection: [type: :boolean, default: false]
+                     smart_crop_face_detection: [type: :boolean, default: false],
+                     autoquality_method: [type: {:in, [:none, :size, :ssim2]}, default: :none],
+                     autoquality_target: [type: {:or, [:integer, :float]}],
+                     autoquality_min_quality: [type: :pos_integer, default: 70],
+                     autoquality_max_quality: [type: :pos_integer, default: 80],
+                     autoquality_allowed_error: [type: {:or, [:integer, :float]}, default: 1.0],
+                     autoquality_format_min_quality: [
+                       type: {:map, :atom, :pos_integer},
+                       default: %{avif: 60}
+                     ],
+                     autoquality_format_max_quality: [
+                       type: {:map, :atom, :pos_integer},
+                       default: %{avif: 65}
+                     ],
+                     autoquality_max_resolution: [type: :non_neg_integer, default: 0],
+                     autoquality_max_iterations: [type: :pos_integer, default: 6]
                    )
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
@@ -90,6 +105,8 @@ defmodule ImagePipe.Parser.Imgproxy do
   defp validate_imgproxy_options!(imgproxy_opts) when is_list(imgproxy_opts) do
     case NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
       {:ok, validated} ->
+        validate_autoquality_brackets!(validated)
+
         validated
         |> Keyword.update(:signature, Signature.disabled(), &Signature.normalize_config!/1)
         |> normalize_source_encryption()
@@ -101,6 +118,45 @@ defmodule ImagePipe.Parser.Imgproxy do
 
   defp validate_imgproxy_options!(_imgproxy_opts),
     do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
+
+  # NimbleOptions validates each autoquality quality is 1..100 but cannot express
+  # the cross-field constraint that the effective per-format bracket is ordered.
+  # `Output.Policy.resolve_search/2` falls back per side independently
+  # (`format_min[fmt]` else base min; `format_max[fmt]` else base max), so a
+  # config like `format_min: %{jpeg: 88}` with base `max: 72` resolves jpeg to an
+  # inverted 88..72 bracket. Reject it here, at the config boundary, before it can
+  # reach the search.
+  defp validate_autoquality_brackets!(validated) do
+    base_min = Keyword.fetch!(validated, :autoquality_min_quality)
+    base_max = Keyword.fetch!(validated, :autoquality_max_quality)
+    format_min = Keyword.fetch!(validated, :autoquality_format_min_quality)
+    format_max = Keyword.fetch!(validated, :autoquality_format_max_quality)
+
+    if base_min > base_max do
+      raise ArgumentError,
+            "invalid imgproxy config: autoquality_min_quality (#{base_min}) exceeds " <>
+              "autoquality_max_quality (#{base_max})"
+    end
+
+    format_min
+    |> Map.keys()
+    |> Enum.concat(Map.keys(format_max))
+    |> Enum.uniq()
+    |> Enum.each(fn format ->
+      effective_min = Map.get(format_min, format, base_min)
+      effective_max = Map.get(format_max, format, base_max)
+
+      if effective_min > effective_max do
+        raise ArgumentError,
+              "invalid imgproxy config: effective autoquality bracket for #{inspect(format)} " <>
+                "is inverted (min #{effective_min} > max #{effective_max}); reconcile " <>
+                "autoquality_format_min_quality/autoquality_format_max_quality with the base " <>
+                "autoquality_min_quality/autoquality_max_quality"
+      end
+    end)
+
+    :ok
+  end
 
   @doc false
   def validate_source_schemes(%{} = schemes) do
@@ -233,7 +289,18 @@ defmodule ImagePipe.Parser.Imgproxy do
       strip_metadata: Keyword.get(imgproxy_opts, :strip_metadata, true),
       keep_copyright: Keyword.get(imgproxy_opts, :keep_copyright, true),
       strip_color_profile: Keyword.get(imgproxy_opts, :strip_color_profile, true),
-      preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, false)
+      preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, false),
+      autoquality_method: Keyword.get(imgproxy_opts, :autoquality_method, :none),
+      autoquality_target: Keyword.get(imgproxy_opts, :autoquality_target),
+      autoquality_min_quality: Keyword.get(imgproxy_opts, :autoquality_min_quality, 70),
+      autoquality_max_quality: Keyword.get(imgproxy_opts, :autoquality_max_quality, 80),
+      autoquality_allowed_error: Keyword.get(imgproxy_opts, :autoquality_allowed_error, 1.0),
+      autoquality_format_min_quality:
+        Keyword.get(imgproxy_opts, :autoquality_format_min_quality, %{avif: 60}),
+      autoquality_format_max_quality:
+        Keyword.get(imgproxy_opts, :autoquality_format_max_quality, %{avif: 65}),
+      autoquality_max_resolution: Keyword.get(imgproxy_opts, :autoquality_max_resolution, 0),
+      autoquality_max_iterations: Keyword.get(imgproxy_opts, :autoquality_max_iterations, 6)
     ]
   end
 

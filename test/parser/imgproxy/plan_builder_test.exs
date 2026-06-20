@@ -12,6 +12,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
@@ -1191,6 +1192,58 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
       assert quality_plan.pipelines == default_plan.pipelines
     end
+  end
+
+  test "threads quality_search and max_bytes onto the automatic output plan" do
+    search = %QualitySearch{
+      objective: :ssim2,
+      target: 90.0,
+      min_quality: 70,
+      max_quality: 80
+    }
+
+    request = %ParsedRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: "images/cat.jpg",
+      pipelines: [%PipelineRequest{width: {:pixels, 300}}],
+      output: output_request(quality_search: search, max_bytes: 51_200)
+    }
+
+    assert {:ok,
+            %Plan{
+              output: %Output{
+                mode: :automatic,
+                quality_search: ^search,
+                max_bytes: 51_200
+              }
+            }} = PlanBuilder.to_plan(request, [])
+  end
+
+  test "threads quality_search and max_bytes onto the explicit-format output plan" do
+    search = %QualitySearch{
+      objective: :ssim2,
+      target: 90.0,
+      min_quality: 70,
+      max_quality: 80
+    }
+
+    request = %ParsedRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: "images/cat.jpg",
+      pipelines: [%PipelineRequest{width: {:pixels, 300}}],
+      output: output_request(format: :webp, quality_search: search, max_bytes: 51_200)
+    }
+
+    assert {:ok,
+            %Plan{
+              output: %Output{
+                mode: {:explicit, :webp},
+                quality_search: ^search,
+                max_bytes: 51_200
+              }
+            }} = PlanBuilder.to_plan(request, [])
   end
 
   test "projects imgproxy request facets into product-neutral plan facets" do
