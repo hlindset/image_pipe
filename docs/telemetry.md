@@ -63,6 +63,7 @@ streaming spans.
 [:image_pipe, :transform, :operation, ...]
 [:image_pipe, :transform, :materialize, ...]
 [:image_pipe, :encode, ...]
+[:image_pipe, :encode, :search, ...]
 [:image_pipe, :cache, :write, ...]
 [:image_pipe, :render, ...]
 [:image_pipe, :send, ...]
@@ -254,6 +255,62 @@ Stop metadata:
   `:processing_error` to `:warning`.
 - `:output_format` — the negotiated output format atom.
 - `:error` — a stable error category when the encode failed (e.g. `:empty_stream`).
+
+### Encode-quality search span (`[:encode, :search]`)
+
+When automatic encode-quality search runs (a `:size`/`:ssim2` objective and/or a
+hard `max_bytes` budget on a quality-bearing format), ImagePipe wraps the binary
+search over encoder quality in a `[:image_pipe, :encode, :search]` span, emitted
+from inside the encode stage (nested under `[:encode]`). The search probes
+candidate qualities, re-encoding the finalized image at each one, and returns the
+winning buffer.
+
+Start metadata (product-neutral search descriptor):
+
+- `:objective` — `:size`, `:ssim2`, or `:none` (a `max_bytes`-alone search).
+- `:min_quality` / `:max_quality` — the per-format-clamped quality bracket
+  (absent for a `:none` search).
+- `:target` — the objective target (byte target for `:size`, score band centre for
+  `:ssim2`; absent for `:none`).
+- `:max_bytes` — the hard byte budget when set.
+
+Stop metadata (the search verdict; keys deliberately differ from the internal
+result `meta`):
+
+- `:result` — `:ok`, or `:processing_error` when the search failed (e.g. an
+  encode/score error).
+- `:objective` — the objective above.
+- `:chosen_quality` — the delivered quality.
+- `:chosen_bytes` — the encoded byte size of the delivered buffer.
+- `:iterations` — the number of distinct encodes performed.
+- `:outcome` — `:hit` (objective/budget met), `:best_effort` (fell back to the
+  bracket floor/ceiling because the target was unreachable), or `:skipped`.
+- `:final_score` — the SSIMULACRA2 score of the delivered quality for an `:ssim2`
+  search, otherwise absent.
+
+The default Logger escalates an `outcome: :best_effort` stop (and an exception) to
+`:warning`; other outcomes log at the base level. It renders the stop as:
+
+```text
+image_pipe encode search: ok (hit q62 12345b score 90.42)
+```
+
+### Encode-quality search probe (`[:encode, :search, :probe]`)
+
+Each distinct encode the search performs emits a one-shot (non-span)
+`[:image_pipe, :encode, :search, :probe]` event with empty measurements. Re-using
+an already-memoized quality does **not** emit a probe.
+
+Metadata:
+
+- `:quality` — the probed quality.
+- `:bytes` — the encoded byte size at that quality.
+- `:index` — the distinct-encode ordinal (1-based).
+- `:score` — the SSIMULACRA2 score at that quality for an `:ssim2` search,
+  otherwise absent.
+
+All values are product-neutral numbers (no URLs, secrets, or PII). The default
+Logger renders the probe at the base level via the generic fallback.
 
 ### Delivery streaming span (`[:deliver]`)
 
@@ -571,6 +628,7 @@ defmodule MyApp.ImagePipeTelemetry do
     [:transform, :operation],
     [:transform, :materialize],
     [:encode],
+    [:encode, :search],
     [:render],
     [:cache, :stage],
     [:cache, :write],

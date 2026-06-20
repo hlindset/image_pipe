@@ -10,7 +10,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # group => span event suffixes (each gets :stop + :exception)
   @group_span_events %{
-    request: [[:request], [:send], [:encode], [:deliver], [:render]],
+    request: [[:request], [:send], [:encode], [:encode, :search], [:deliver], [:render]],
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
     transform: [
@@ -41,6 +41,11 @@ defmodule ImagePipe.Telemetry.Logger do
   # output one-shot events (already terminal; not spans)
   @output_oneshot [
     [:output, :clamp]
+  ]
+
+  # request one-shot events (already terminal; not spans)
+  @request_oneshot [
+    [:encode, :search, :probe]
   ]
 
   @all_groups Map.keys(@group_span_events)
@@ -79,10 +84,12 @@ defmodule ImagePipe.Telemetry.Logger do
     cache_oneshots = if :cache in groups, do: @cache_oneshot, else: []
     transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
     output_oneshots = if :output in groups, do: @output_oneshot, else: []
+    request_oneshots = if :request in groups, do: @request_oneshot, else: []
 
-    Enum.map(spans ++ cache_oneshots ++ transform_oneshots ++ output_oneshots, fn e ->
-      prefix ++ e
-    end)
+    Enum.map(
+      spans ++ cache_oneshots ++ transform_oneshots ++ output_oneshots ++ request_oneshots,
+      fn e -> prefix ++ e end
+    )
   end
 
   @doc false
@@ -110,6 +117,17 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # --- level ---
   defp level_for([:output, :clamp | _], _metadata, _base), do: :warning
+
+  # A best-effort encode-quality search (the objective/budget could not be met
+  # within the bracket) degrades the result; surface it, and any search
+  # exception, as a warning. Other outcomes (:hit, :skipped) log at the base level.
+  defp level_for([:encode, :search | _] = suffix, metadata, base) do
+    cond do
+      List.last(suffix) == :exception -> :warning
+      metadata[:outcome] == :best_effort -> :warning
+      true -> base
+    end
+  end
 
   defp level_for(suffix, metadata, base) do
     cond do
@@ -206,6 +224,13 @@ defmodule ImagePipe.Telemetry.Logger do
 
     "image_pipe output clamp: #{sw}x#{sh} -> #{w}x#{h} for #{meta[:format]} " <>
       "(caps w:#{cap(mw)} h:#{cap(mh)} px:#{cap(mp)})"
+  end
+
+  defp message([:encode, :search | _], _m, meta) do
+    score = if meta[:final_score], do: " score #{round2(meta[:final_score])}", else: ""
+
+    "image_pipe encode search: #{outcome(meta)} (#{meta[:outcome]} " <>
+      "q#{meta[:chosen_quality]} #{meta[:chosen_bytes]}b#{score})"
   end
 
   defp message([:encode | _], _m, meta) do
