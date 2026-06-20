@@ -17,12 +17,17 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part b        # accuracy/behavior only
       mise exec -- mix autoquality.bench --part c        # proxy-seed method + accuracy
       mise exec -- mix autoquality.bench --part d        # cheap full-res metric narrowing
-      mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring
+      mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring, per source
+      mise exec -- mix autoquality.bench --part e --corpus DIR --corpus-cap 24  # cap/source
       mise exec -- mix autoquality.bench --part all      # A + B + C + D + E
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
       mise exec -- mix autoquality.bench --part c --proxy-files a.jpg,b.jpg # large real photos
       mise exec -- mix autoquality.bench --csv           # also write CSVs under /tmp
+
+  Fetch the corpus first with `mix autoquality.corpus`. Under `--corpus DIR`, each
+  subdirectory is a per-source group, reported separately then macro-averaged so no
+  single content type dominates.
 
   ## Part A — per-megapixel cost curve
 
@@ -162,7 +167,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
           proxy_factors: :string,
           proxy_mp: :integer,
           proxy_files: :string,
-          corpus: :string
+          corpus: :string,
+          corpus_cap: :integer
         ]
       )
 
@@ -173,7 +179,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
     factors = parse_factors(Keyword.get(opts, :proxy_factors))
     proxy_files = parse_files(Keyword.get(opts, :proxy_files))
     proxy_mp = Keyword.get(opts, :proxy_mp, 16)
-    corpus_files = corpus_files(Keyword.get(opts, :corpus), proxy_files)
 
     {:ok, _} = Application.ensure_all_started(:image_pipe)
     warmup(format)
@@ -184,7 +189,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       factors: factors,
       proxy_mp: proxy_mp,
       proxy_files: proxy_files,
-      corpus_files: corpus_files,
+      corpus_dir: Keyword.get(opts, :corpus),
+      corpus_cap: Keyword.get(opts, :corpus_cap, 24),
       format: format
     }
 
@@ -201,7 +207,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
       if part in ["c", "all"], do: run_part_c(ctx.factors, ctx.proxy_mp, ctx.proxy_files, format)
 
     if part in ["d", "all"], do: run_part_d(ctx.proxy_files, ctx.proxy_mp, format)
-    e = if part in ["e", "all"], do: run_part_e(ctx.corpus_files, ctx.proxy_mp, format)
+
+    e =
+      if part in ["e", "all"],
+        do: run_part_e(ctx.corpus_dir, ctx.proxy_files, ctx.corpus_cap, ctx.proxy_mp, format)
+
     {a, b, c, e}
   end
 
@@ -862,108 +872,169 @@ defmodule Mix.Tasks.Autoquality.Bench do
   @tile 512
   @subsample_k 16
 
-  defp run_part_e(corpus_files, synth_mp, format) do
+  @e_exts ~w(.png .jpg .jpeg .webp)
+
+  defp run_part_e(corpus_dir, fallback_files, cap, synth_mp, format) do
     IO.puts("\n== Part E — crop-based scoring vs full-frame (#1) ==")
     IO.puts("oracle = full-frame full-res ssim2, target #{@target} [#{@min_q},#{@max_q}]  ")
-    IO.puts("tile #{@tile}px  subsample K=#{@subsample_k}  format #{format}\n")
+
+    IO.puts(
+      "tile #{@tile}px  K=#{@subsample_k}  q#{@baseline_quality} savings baseline  ≤#{cap}/source  format #{format}\n"
+    )
 
     resolved = ssim2_resolved(format)
-    subjects = load_subjects(corpus_files, synth_mp)
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
 
     header =
-      pad(["source", 16]) <>
-        pad(["MP", 6]) <>
-        pad(["HET", 6]) <>
-        pad(["tiles", 6]) <>
-        pad(["fullSc", 8]) <>
-        pad(["worst", 7]) <>
-        pad(["p10", 7]) <>
-        pad(["mean", 7]) <>
-        pad(["subWorst", 9]) <>
-        pad(["wSmooth", 8])
+      pad(["source", 14]) <>
+        pad(["imgs", 6]) <>
+        pad(["hit", 7]) <>
+        pad(["q̄", 5]) <>
+        pad(["save%", 7]) <>
+        pad(["p10off", 8]) <>
+        pad(["p10sprd", 9]) <>
+        pad(["subPen", 8]) <>
+        pad(["full ms", 9]) <>
+        pad(["k16 ms", 8])
 
     IO.puts(header)
     IO.puts(String.duplicate("-", String.length(header)))
 
-    subjects
-    |> Enum.map(fn {label, base} -> bench_crop_subject(label, base, resolved, format) end)
-    |> Enum.reject(&is_nil/1)
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      rows = Enum.map(subjects, &bench_crop_subject(sname, &1, resolved, format))
+      print_source_row(sname, rows)
+      rows
+    end)
   end
 
-  defp bench_crop_subject(label, base, resolved, format) do
-    {:ok, _bin, om} = EncodeSearch.run(base, resolved, telemetry_opts: [])
-    mp = Float.round(Image.width(base) * Image.height(base) / 1_000_000, 1)
+  # One summary line per source as it finishes (per-image rows go to the CSV).
+  defp print_source_row(sname, rows) do
+    n = length(rows)
+    hits = Enum.filter(rows, & &1.hit?)
 
-    if om.score < @target do
-      IO.puts(
-        pad([label, 16]) <>
-          pad([mp, 6]) <> "skipped (full-res misses target: #{fmt_score(om.score)})"
-      )
-
-      nil
+    if hits == [] do
+      IO.puts(pad([sname, 14]) <> pad([n, 6]) <> "0/#{n} hit — no boundary")
     else
-      crop_subject_row(label, base, mp, om, format)
+      offs = Enum.map(hits, &(&1.p10 - &1.full_score))
+
+      IO.puts(
+        pad([sname, 14]) <>
+          pad([n, 6]) <>
+          pad(["#{length(hits)}/#{n}", 7]) <>
+          pad([round(avg(Enum.map(hits, & &1.quality))), 5]) <>
+          pad(["#{round(avg(Enum.map(hits, & &1.savings)))}%", 7]) <>
+          pad([Float.round(median(offs), 2), 8]) <>
+          pad([Float.round(Enum.max(offs) - Enum.min(offs), 2), 9]) <>
+          pad([Float.round(avg(Enum.map(hits, &(&1.sub_worst - &1.worst))), 2), 8]) <>
+          pad([ms(round(avg(Enum.map(hits, & &1.full_us)))), 9]) <>
+          pad([ms(round(avg(Enum.map(hits, & &1.per_tile_us)) * @subsample_k)), 8])
+      )
     end
   end
 
-  defp crop_subject_row(label, base, mp, om, format) do
-    {:ok, cbin} = Encoder.encode_to_buffer(base, plain_resolved(format, om.quality), om.quality)
+  defp bench_crop_subject(source, {label, base}, resolved, format) do
+    {:ok, _bin, om} = EncodeSearch.run(base, resolved, telemetry_opts: [])
+    mp = Float.round(Image.width(base) * Image.height(base) / 1_000_000, 1)
+
+    {:ok, b90} =
+      Encoder.encode_to_buffer(base, plain_resolved(format, @baseline_quality), @baseline_quality)
+
+    row = %{
+      source: source,
+      label: label,
+      mp: mp,
+      hit?: om.score >= @target,
+      quality: om.quality,
+      full_score: om.score,
+      bytes: om.bytes,
+      iters: om.iterations,
+      savings: pct(byte_size(b90) - om.bytes, byte_size(b90))
+    }
+
+    if om.score >= @target,
+      do: Map.merge(row, crop_metrics(base, om.quality, format)),
+      else: row
+  end
+
+  # The crop-scoring measurements for one subject (E fields only; B fields and the
+  # hit/miss decision live in bench_crop_subject).
+  defp crop_metrics(base, quality, format) do
+    {:ok, cbin} = Encoder.encode_to_buffer(base, plain_resolved(format, quality), quality)
     {:ok, cand} = Image.from_binary(cbin)
 
     {:ok, fref} = Ssim2Metric.reference(base)
     {full_us, {:ok, _}} = timed(fn -> Ssim2Metric.score(fref, cand) end)
 
-    coords = tile_coords(Image.width(base), Image.height(base), @tile)
-    tiles = Enum.map(coords, &tile_metrics(base, cand, &1))
+    tiles =
+      Image.width(base)
+      |> tile_coords(Image.height(base), @tile)
+      |> Enum.map(&tile_metrics(base, cand, &1))
 
     scores = Enum.map(tiles, & &1.score)
     texs = Enum.map(tiles, & &1.tex)
     n = length(tiles)
     sorted = Enum.sort(scores)
-    worst = hd(sorted)
-    p10 = percentile(sorted, 0.10)
-    mean = avg(scores)
 
     lowtex = Enum.count(texs, &(&1 < 2.0)) / n
     busy = Enum.count(texs, &(&1 > 6.0)) / n
-    het = Float.round(min(lowtex, busy), 2)
-
-    worst_tile = Enum.min_by(tiles, & &1.score)
-    worst_smooth? = worst_tile.tex < 2.0
-
-    sub = subsample(tiles, @subsample_k)
-    sub_sorted = sub |> Enum.map(& &1.score) |> Enum.sort()
-    sub_worst = hd(sub_sorted)
-    sub_p10 = percentile(sub_sorted, 0.10)
-
-    IO.puts(
-      pad([label, 16]) <>
-        pad([mp, 6]) <>
-        pad([het, 6]) <>
-        pad([n, 6]) <>
-        pad([fmt_score(om.score), 8]) <>
-        pad([fmt_score(worst), 7]) <>
-        pad([fmt_score(p10), 7]) <>
-        pad([fmt_score(mean), 7]) <>
-        pad([fmt_score(sub_worst), 9]) <>
-        pad([if(worst_smooth?, do: "yes", else: "no"), 8])
-    )
+    sub = subsample(tiles, @subsample_k) |> Enum.map(& &1.score) |> Enum.sort()
 
     %{
-      label: label,
-      mp: mp,
-      het: het,
+      het: Float.round(min(lowtex, busy), 2),
       n_tiles: n,
-      full_score: om.score,
-      worst: worst,
-      p10: p10,
-      mean: mean,
-      sub_worst: sub_worst,
-      sub_p10: sub_p10,
-      worst_smooth?: worst_smooth?,
+      worst: hd(sorted),
+      p10: percentile(sorted, 0.10),
+      mean: avg(scores),
+      sub_worst: hd(sub),
+      sub_p10: percentile(sub, 0.10),
+      worst_smooth?: Enum.min_by(tiles, & &1.score).tex < 2.0,
       full_us: full_us,
       per_tile_us: round(avg(Enum.map(tiles, & &1.ssim2_us)))
     }
+  end
+
+  # Sources for Part E: each subdirectory of `--corpus DIR` is a source (content
+  # type); a flat dir is one "corpus" source; no `--corpus` falls back to the
+  # committed high-detail set + a synthetic anchor. Per-source N is capped for
+  # balanced macro-averaging and bounded runtime.
+  defp discover_sources(nil, fallback_files, _cap, synth_mp) do
+    files =
+      if fallback_files == [],
+        do: Enum.map(@part_c_sources, &Path.join(@sources_dir, &1)),
+        else: fallback_files
+
+    [{"corpus", load_bases(files) ++ [{"zone-#{synth_mp}MP", zone_plate_for(synth_mp)}]}]
+  end
+
+  defp discover_sources(corpus_dir, _fallback, cap, _synth_mp) do
+    subdirs =
+      corpus_dir |> Path.join("*") |> Path.wildcard() |> Enum.filter(&File.dir?/1) |> Enum.sort()
+
+    sourced =
+      for d <- subdirs,
+          imgs = images_in(d, cap),
+          imgs != [],
+          do: {Path.basename(d), load_bases(imgs)}
+
+    case sourced do
+      [] -> [{"corpus", load_bases(images_in(corpus_dir, cap))}]
+      list -> list
+    end
+  end
+
+  defp images_in(dir, cap) do
+    dir
+    |> Path.join("*")
+    |> Path.wildcard()
+    |> Enum.filter(&(Path.extname(&1) |> String.downcase() |> Kernel.in(@e_exts)))
+    |> Enum.sort()
+    |> Enum.take(cap)
+  end
+
+  defp load_bases(files) do
+    files
+    |> Enum.map(&{Path.basename(&1), base_image_at(&1)})
+    |> Enum.reject(fn {_label, base} -> is_nil(base) end)
   end
 
   # Tile coordinates covering the frame with exactly tile-sized windows; the last
@@ -1028,70 +1099,75 @@ defmodule Mix.Tasks.Autoquality.Bench do
   end
 
   defp findings_part_e([]),
-    do: IO.puts("Part E — crop-based scoring: no subjects hit the target\n")
+    do: IO.puts("Part E — crop-based scoring: no subjects processed\n")
 
   defp findings_part_e(rows) do
-    IO.puts("Part E — crop-based scoring vs full-frame:")
-    # 1. Tracking: the OFFSET (tile aggregate − full-frame score) at the boundary.
-    #    A tight offset spread ⇒ setting the tile threshold to `@target + median
-    #    offset` reproduces the full-frame boundary; the spread is the residual
-    #    error. (The raw aggregate spread would be inflated by full_score's own
-    #    integer-quality quantization, so we report the offset, not the raw value.)
-    IO.puts(
-      "  tracking — offset (tile aggregate − full-frame score) at the boundary; tight = tracks:"
-    )
+    hits = Enum.filter(rows, & &1.hit?)
+    by_source = rows |> Enum.group_by(& &1.source) |> Enum.sort_by(&elem(&1, 0))
 
-    Enum.each([{:worst, "worst-tile"}, {:p10, "p10-tile"}, {:mean, "mean-tile"}], fn {k, name} ->
-      offs = Enum.map(rows, &Float.round(Map.get(&1, k) - &1.full_score, 2))
+    IO.puts("Part E — crop-based scoring vs full-frame (per source, macro-averaged):")
 
-      IO.puts(
-        "    #{String.pad_trailing(name, 11)} median #{Float.round(median(offs), 2)}  spread #{spread_note(offs)}"
-      )
+    # B refresh (free byproduct of the full-frame oracle search), per source.
+    IO.puts("  B refresh — ssim2 over real content (savings vs q#{@baseline_quality}):")
+
+    Enum.each(by_source, fn {src, rs} ->
+      hs = Enum.filter(rs, & &1.hit?)
+      hit_note = "#{length(hs)}/#{length(rs)} hit target"
+
+      if hs == [] do
+        IO.puts("    #{String.pad_trailing(src, 14)} #{hit_note}")
+      else
+        IO.puts(
+          "    #{String.pad_trailing(src, 14)} #{hit_note}, q̄ #{round(avg(Enum.map(hs, & &1.quality)))}, " <>
+            "save #{round(avg(Enum.map(hs, & &1.savings)))}%, iters #{Float.round(avg(Enum.map(hs, & &1.iters)), 1)}"
+        )
+      end
     end)
 
-    # 2. Sub-sampling penalty: K tiles vs all tiles, by HET bin (heterogeneous
-    #    images are where a sparse sample misses the localized worst region).
-    IO.puts(
-      "\n  sub-sampling penalty (K=#{@subsample_k} tiles vs full coverage), by heterogeneity:"
-    )
+    # E tracking: per-source p10 offset (tile p10 − full-frame score) at the
+    # boundary; tight ⇒ a calibrated global threshold reproduces the decision.
+    IO.puts("\n  E tracking — p10 offset (tile p10 − full-frame score), per source:")
+    src_offset_medians = report_e_tracking(by_source)
 
-    Enum.each(
-      [{"uniform HET<0.1", &(&1.het < 0.1)}, {"hetero HET>=0.1", &(&1.het >= 0.1)}],
-      fn {name, pred} ->
-        grp = Enum.filter(rows, pred)
+    macro_off = src_offset_medians |> avg() |> Float.round(2)
+    macro_save = macro_over_sources(by_source, & &1.savings) |> round()
+    smooth_worst = Enum.count(hits, & &1.worst_smooth?)
 
-        if grp != [] do
-          worst_gap =
-            grp |> Enum.map(&Float.round(&1.sub_worst - &1.worst, 2)) |> avg() |> Float.round(2)
-
-          worst_max = grp |> Enum.map(&Float.round(&1.sub_worst - &1.worst, 2)) |> Enum.max()
-
-          IO.puts(
-            "    #{String.pad_trailing(name, 16)} n=#{length(grp)}  sub_worst − true_worst: mean +#{worst_gap}, worst +#{worst_max}"
-          )
-        end
-      end
-    )
-
-    # 3. Banding localization + cost.
-    smooth_worst = Enum.count(rows, & &1.worst_smooth?)
-    avg_full = rows |> Enum.map(& &1.full_us) |> avg() |> ms()
-    avg_tile = rows |> Enum.map(& &1.per_tile_us) |> avg()
-    k_ms = Float.round(avg_tile * @subsample_k / 1000, 1)
-    avg_n = rows |> Enum.map(& &1.n_tiles) |> avg() |> Float.round(1)
+    IO.puts("\n  macro-average across sources:")
+    IO.puts("    p10 offset (mean of per-source medians): #{macro_off}")
 
     IO.puts(
-      "\n  worst tile sits in a smooth/low-texture region: #{smooth_worst}/#{length(rows)} subjects"
+      "    savings: #{macro_save}%  |  worst tile in a smooth region: #{smooth_worst}/#{length(hits)}"
     )
 
-    IO.puts(
-      "  cost: full-frame ~#{avg_full}ms  |  full coverage ~#{avg_n} tiles (≈ no saving)  |  K=#{@subsample_k} tiles ~#{k_ms}ms (fixed, size-independent)"
-    )
+    IO.puts("  -> crops keep native resolution, so they TRACK full-frame across content types")
 
-    IO.puts("  -> crops keep native resolution, so (unlike Part C's proxy) they TRACK")
-    IO.puts("     full-frame — p10 offset is the tightest. Full coverage saves nothing;")
-    IO.puts("     K-tile sub-sampling is a fixed budget that only wins above the tile-")
-    IO.puts("     count crossover (i.e. large images), at small sub-sampling error.\n")
+    IO.puts("     (p10 offset, above); the fixed K-tile budget wins on the large sources.\n")
+  end
+
+  defp report_e_tracking(by_source) do
+    for {src, rs} <- by_source, hs = Enum.filter(rs, & &1.hit?), hs != [] do
+      offs = Enum.map(hs, &(&1.p10 - &1.full_score))
+      med = median(offs)
+      sub_pen = Float.round(avg(Enum.map(hs, &(&1.sub_worst - &1.worst))), 2)
+      k16 = ms(round(avg(Enum.map(hs, & &1.per_tile_us)) * @subsample_k))
+      full = ms(round(avg(Enum.map(hs, & &1.full_us))))
+      win = if k16 < full, do: "#{Float.round(full / k16, 1)}× win", else: "loss"
+
+      IO.puts(
+        "    #{String.pad_trailing(src, 14)} median #{Float.round(med, 2)}  spread #{spread_note(offs)}  " <>
+          "subPen +#{sub_pen}  cost #{full}→#{k16}ms (#{win})"
+      )
+
+      med
+    end
+  end
+
+  defp macro_over_sources(by_source, field_fun) do
+    for {_src, rs} <- by_source, hs = Enum.filter(rs, & &1.hit?), hs != [] do
+      avg(Enum.map(hs, field_fun))
+    end
+    |> avg()
   end
 
   # --- resolved descriptors --------------------------------------------------
@@ -1346,18 +1422,29 @@ defmodule Mix.Tasks.Autoquality.Bench do
     path = "/tmp/autoquality_bench_part_e.csv"
 
     head =
-      "source,mp,het,n_tiles,full_score,worst,p10,mean,sub_worst,sub_p10," <>
-        "worst_smooth,full_us,per_tile_us\n"
+      "source,label,mp,hit,quality,full_score,bytes,savings,iters," <>
+        "het,n_tiles,worst,p10,mean,sub_worst,sub_p10,worst_smooth,full_us,per_tile_us\n"
 
     body =
       Enum.map_join(rows, fn r ->
-        "#{r.label},#{r.mp},#{r.het},#{r.n_tiles},#{fmt_score(r.full_score)},#{fmt_score(r.worst)}," <>
-          "#{fmt_score(r.p10)},#{fmt_score(r.mean)},#{fmt_score(r.sub_worst)},#{fmt_score(r.sub_p10)}," <>
-          "#{r.worst_smooth?},#{r.full_us},#{r.per_tile_us}\n"
+        "#{r.source},#{r.label},#{r.mp},#{r.hit?},#{r.quality},#{fmt_score(r.full_score)}," <>
+          "#{r.bytes},#{r.savings},#{r.iters}," <>
+          "#{e_cell(r, :het)},#{e_cell(r, :n_tiles)},#{e_cell(r, :worst, &fmt_score/1)}," <>
+          "#{e_cell(r, :p10, &fmt_score/1)},#{e_cell(r, :mean, &fmt_score/1)}," <>
+          "#{e_cell(r, :sub_worst, &fmt_score/1)},#{e_cell(r, :sub_p10, &fmt_score/1)}," <>
+          "#{e_cell(r, :worst_smooth?)},#{e_cell(r, :full_us)},#{e_cell(r, :per_tile_us)}\n"
       end)
 
     File.write!(path, head <> body)
     IO.puts("wrote #{path}")
+  end
+
+  # E fields are absent on miss rows (no boundary); render those cells blank.
+  defp e_cell(row, key, fmt \\ &to_string/1) do
+    case Map.get(row, key) do
+      nil -> ""
+      value -> fmt.(value)
+    end
   end
 
   defp write_part_c_csv(rows) do
@@ -1416,19 +1503,6 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp parse_files(nil), do: []
   defp parse_files(str), do: str |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
-
-  # A directory of images (Part E corpus) takes precedence over --proxy-files.
-  defp corpus_files(nil, proxy_files), do: proxy_files
-
-  defp corpus_files(dir, _proxy_files) do
-    dir
-    |> Path.join("*")
-    |> Path.wildcard()
-    |> Enum.filter(&(Path.extname(&1) |> String.downcase() |> image_ext?()))
-    |> Enum.sort()
-  end
-
-  defp image_ext?(ext), do: ext in [".jpg", ".jpeg", ".png", ".webp"]
 
   defp ms(us) when is_integer(us), do: Float.round(us / 1000, 1)
   defp ms(us), do: Float.round(us / 1000, 1)
