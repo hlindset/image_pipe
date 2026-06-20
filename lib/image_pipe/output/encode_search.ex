@@ -33,6 +33,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric
+  alias ImagePipe.Telemetry
 
   @default_max_iterations 6
   @max_bytes_alone_floor 10
@@ -57,7 +58,8 @@ defmodule ImagePipe.Output.EncodeSearch do
               encode_memo: %{},
               score_memo: %{},
               iterations: 0,
-              max_iterations: 0
+              max_iterations: 0,
+              telemetry_opts: []
   end
 
   @doc """
@@ -67,12 +69,27 @@ defmodule ImagePipe.Output.EncodeSearch do
   @spec search(:none | RQS.t(), nil | pos_integer(), keyword()) ::
           {:ok, binary(), meta()} | {:error, term()}
   def search(quality_search, max_bytes, opts) do
+    telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
+
     ctx = %Ctx{
       encode_fun: Keyword.fetch!(opts, :encode_fun),
       score_fun: Keyword.get(opts, :score_fun),
-      max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations)
+      max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
+      telemetry_opts: telemetry_opts
     }
 
+    Telemetry.span(
+      telemetry_opts,
+      [:encode, :search],
+      search_start_meta(quality_search, max_bytes),
+      fn ->
+        result = do_search(quality_search, max_bytes, ctx, opts)
+        {result, search_stop_meta(quality_search, result)}
+      end
+    )
+  end
+
+  defp do_search(quality_search, max_bytes, ctx, opts) do
     with {:ok, objective_q, objective_outcome, objective_score, ctx} <-
            objective_phase(quality_search, ctx, opts),
          {:ok, final_q, final_outcome, ctx} <-
@@ -80,6 +97,52 @@ defmodule ImagePipe.Output.EncodeSearch do
       build_result(final_q, final_outcome, objective_q, objective_score, quality_search, ctx)
     end
   end
+
+  # Product-neutral search descriptor for the span start: objective + bracket +
+  # target/budget. `:none` (max_bytes-alone) carries nils for the objective-only
+  # fields. No URLs/secrets — derived from the resolved descriptor and budget.
+  defp search_start_meta(%RQS{} = rqs, max_bytes) do
+    %{
+      objective: rqs.objective,
+      min_quality: rqs.min_quality,
+      max_quality: rqs.max_quality,
+      target: rqs.target,
+      max_bytes: max_bytes
+    }
+  end
+
+  defp search_start_meta(:none, max_bytes) do
+    %{
+      objective: :none,
+      min_quality: nil,
+      max_quality: nil,
+      target: nil,
+      max_bytes: max_bytes
+    }
+  end
+
+  # Map the result `meta` onto telemetry keys. The keys deliberately differ from
+  # the internal `meta` (`chosen_*` vs `quality`/`bytes`) so an observer reads
+  # the search verdict, not the loop's bookkeeping. `:result` gives the generic
+  # Logger fallback an outcome.
+  defp search_stop_meta(quality_search, {:ok, _binary, meta}) do
+    %{
+      result: :ok,
+      objective: objective_of(quality_search),
+      chosen_quality: meta.quality,
+      chosen_bytes: meta.bytes,
+      iterations: meta.iterations,
+      outcome: meta.outcome,
+      final_score: meta.score
+    }
+  end
+
+  defp search_stop_meta(quality_search, {:error, reason}) do
+    %{result: :processing_error, objective: objective_of(quality_search), error: reason}
+  end
+
+  defp objective_of(:none), do: :none
+  defp objective_of(%RQS{objective: objective}), do: objective
 
   @doc """
   Production wrapper. Builds the real encode/score closures from an already
@@ -99,7 +162,8 @@ defmodule ImagePipe.Output.EncodeSearch do
           encode_fun: encode_fun,
           score_fun: score_fun,
           base_quality: base_quality,
-          max_iterations: max_iterations
+          max_iterations: max_iterations,
+          telemetry_opts: Keyword.get(opts, :telemetry_opts, [])
         )
       catch
         {:image_pipe_score_error, reason} -> {:error, {:encode, reason}}
@@ -303,12 +367,31 @@ defmodule ImagePipe.Output.EncodeSearch do
             }
 
             ctx = maybe_score(q, binary, ctx)
+            emit_probe(q, binary, ctx)
             {:ok, byte_size(binary), Map.get(ctx.score_memo, q), ctx}
 
           {:error, _} = err ->
             err
         end
     end
+  end
+
+  # One probe event per NEW distinct encode (memo hits never reach here).
+  # `:index` is the distinct-encode ordinal (`iterations` after the increment);
+  # `:score` is the scored value when an ssim2 score_fun ran, else nil. All
+  # product-neutral numbers.
+  defp emit_probe(q, binary, %Ctx{telemetry_opts: telemetry_opts} = ctx) do
+    Telemetry.execute(
+      telemetry_opts,
+      [:encode, :search, :probe],
+      %{},
+      %{
+        quality: q,
+        bytes: byte_size(binary),
+        index: ctx.iterations,
+        score: Map.get(ctx.score_memo, q)
+      }
+    )
   end
 
   defp maybe_score(_q, _binary, %Ctx{score_fun: nil} = ctx), do: ctx

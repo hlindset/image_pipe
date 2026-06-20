@@ -76,8 +76,10 @@ defmodule ImagePipe.Output.Encoder do
   # The search owns building the encode/score closures, the iteration cap, and
   # the objective/cap phases; we only hand it the finalized image and wrap the
   # winning buffer as a one-element list so the streaming contract is unchanged.
-  defp search_output(finalized, resolved_output, mime_type, _opts) do
-    case EncodeSearch.run(finalized, resolved_output, []) do
+  defp search_output(finalized, resolved_output, mime_type, opts) do
+    search_opts = [telemetry_opts: ImagePipe.Telemetry.telemetry_opts(opts)]
+
+    case EncodeSearch.run(finalized, resolved_output, search_opts) do
       {:ok, binary, _meta} -> {:ok, [binary], mime_type}
       {:error, _reason} = err -> err
     end
