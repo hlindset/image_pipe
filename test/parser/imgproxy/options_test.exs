@@ -2,6 +2,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Parser.Imgproxy.Options
+  alias ImagePipe.Parser.Imgproxy.ParsedRequest
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Plan.Color
 
@@ -355,7 +356,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
   end
 
   defp resolve_output_result(overrides, defaults) do
-    output = ImagePipe.Parser.Imgproxy.ParsedRequest.output_request(overrides)
+    output = ParsedRequest.output_request(overrides)
     Options.resolve_quality_search_defaults(output, defaults)
   end
 end
