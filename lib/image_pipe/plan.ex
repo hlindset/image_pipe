@@ -9,6 +9,7 @@ defmodule ImagePipe.Plan do
     exports: [
       Pipeline,
       Output,
+      Output.QualitySearch,
       RenderContext,
       Response,
       SourceInfo,

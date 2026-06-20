@@ -50,7 +50,22 @@ defmodule ImagePipe.Parser.Imgproxy do
                      keep_copyright: [type: :boolean, default: true],
                      strip_color_profile: [type: :boolean, default: true],
                      preserve_hdr: [type: :boolean, default: false],
-                     smart_crop_face_detection: [type: :boolean, default: false]
+                     smart_crop_face_detection: [type: :boolean, default: false],
+                     autoquality_method: [type: {:in, [:none, :size, :ssim2]}, default: :none],
+                     autoquality_target: [type: {:or, [:integer, :float]}],
+                     autoquality_min_quality: [type: :pos_integer, default: 70],
+                     autoquality_max_quality: [type: :pos_integer, default: 80],
+                     autoquality_allowed_error: [type: {:or, [:integer, :float]}, default: 1.0],
+                     autoquality_format_min_quality: [
+                       type: {:map, :atom, :pos_integer},
+                       default: %{avif: 60}
+                     ],
+                     autoquality_format_max_quality: [
+                       type: {:map, :atom, :pos_integer},
+                       default: %{avif: 65}
+                     ],
+                     autoquality_max_resolution: [type: :non_neg_integer, default: 0],
+                     autoquality_max_iterations: [type: :pos_integer, default: 6]
                    )
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
@@ -233,7 +248,18 @@ defmodule ImagePipe.Parser.Imgproxy do
       strip_metadata: Keyword.get(imgproxy_opts, :strip_metadata, true),
       keep_copyright: Keyword.get(imgproxy_opts, :keep_copyright, true),
       strip_color_profile: Keyword.get(imgproxy_opts, :strip_color_profile, true),
-      preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, false)
+      preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, false),
+      autoquality_method: Keyword.get(imgproxy_opts, :autoquality_method, :none),
+      autoquality_target: Keyword.get(imgproxy_opts, :autoquality_target),
+      autoquality_min_quality: Keyword.get(imgproxy_opts, :autoquality_min_quality, 70),
+      autoquality_max_quality: Keyword.get(imgproxy_opts, :autoquality_max_quality, 80),
+      autoquality_allowed_error: Keyword.get(imgproxy_opts, :autoquality_allowed_error, 1.0),
+      autoquality_format_min_quality:
+        Keyword.get(imgproxy_opts, :autoquality_format_min_quality, %{avif: 60}),
+      autoquality_format_max_quality:
+        Keyword.get(imgproxy_opts, :autoquality_format_max_quality, %{avif: 65}),
+      autoquality_max_resolution: Keyword.get(imgproxy_opts, :autoquality_max_resolution, 0),
+      autoquality_max_iterations: Keyword.get(imgproxy_opts, :autoquality_max_iterations, 6)
     ]
   end
 

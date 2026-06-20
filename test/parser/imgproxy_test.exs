@@ -95,6 +95,21 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     end
   end
 
+  test "accepts imgproxy autoquality host config" do
+    opts =
+      Imgproxy.validate_options!(
+        imgproxy: [
+          autoquality_method: :ssim2,
+          autoquality_target: 90.0,
+          autoquality_min_quality: 70,
+          autoquality_max_quality: 80
+        ]
+      )
+
+    assert opts[:imgproxy][:autoquality_method] == :ssim2
+    assert opts[:imgproxy][:autoquality_target] == 90.0
+  end
+
   test "validates imgproxy auto_rotate config" do
     assert Imgproxy.validate_options!(imgproxy: [auto_rotate: true])[:imgproxy][:auto_rotate] ==
              true
