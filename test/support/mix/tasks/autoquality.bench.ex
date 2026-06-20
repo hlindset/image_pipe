@@ -16,9 +16,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part a        # cost curve only
       mise exec -- mix autoquality.bench --part b        # accuracy/behavior only
       mise exec -- mix autoquality.bench --part c        # proxy-seed method + accuracy
-      mise exec -- mix autoquality.bench --part all      # A + B + C
+      mise exec -- mix autoquality.bench --part d        # cheap full-res metric narrowing
+      mise exec -- mix autoquality.bench --part all      # A + B + C + D
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
+      mise exec -- mix autoquality.bench --part c --proxy-files a.jpg,b.jpg # large real photos
       mise exec -- mix autoquality.bench --csv           # also write CSVs under /tmp
 
   ## Part A — per-megapixel cost curve
@@ -67,6 +69,26 @@ defmodule Mix.Tasks.Autoquality.Bench do
   +56% bytes). That savings loss is the expensive direction to undo; a cheap
   confirm-and-adjust only rescues the rarer undershoot. So a naive downscale+margin
   proxy is not viable — a correct one needs its target calibrated across resolution.
+
+  ## Part D — cheap full-res metric narrowing (#6)
+
+  Tests whether a CHEAP full-res metric (PSNR variants — no XYB/multiscale SSIM
+  cost) can narrow the search so SSIMULACRA2 runs ~once instead of ~4–6×. The final
+  decision stays full-res SSIMULACRA2, so there is no resolution bias (Part C's
+  trap). Viability hinges on whether the cheap metric's value AT the SSIMULACRA2
+  boundary is stable across images: a tight spread ⇒ one global threshold narrows
+  reliably; a wide spread ⇒ content-dependent, so a global threshold mis-locates the
+  boundary. We measure that spread, then simulate the global-threshold strategy
+  (cheap bisection to a quality, one SSIMULACRA2 confirm) against the full-res
+  search as oracle. Subjects/flags as Part C.
+
+  Finding: PSNR-class metrics are NOT viable here. The cheap value at the boundary
+  spans 11–22 dB across content (high-frequency images clear the target at low PSNR;
+  clean graphics need high PSNR), so a global threshold underpicks by up to ~28q or
+  overpicks by >100% bytes. The metric is ~9–11× cheaper, but it does not track the
+  perceptual boundary. Narrowing would need a cheaper *perceptual* metric
+  (MS-SSIM/butteraugli — not in our stack) or per-image SSIMULACRA2 anchoring (which
+  saves ~0 probes on the shipped narrow [70,80] bracket).
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
@@ -140,6 +162,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       if part in ["c", "all"],
         do: run_part_c(factors, proxy_mp, proxy_files, format),
         else: nil
+
+    if part in ["d", "all"], do: run_part_d(proxy_files, proxy_mp, format)
 
     if csv? do
       if a_rows, do: write_part_a_csv(a_rows)
@@ -441,22 +465,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts(String.duplicate("-", String.length(header)))
 
     resolved = ssim2_resolved(format)
-
-    # External files (e.g. genuinely large real photos) replace the small
-    # committed set when given, so the run can target production-scale content the
-    # repo can't carry. The adversarial synthetic always anchors the worst case.
-    real =
-      case proxy_files do
-        [] ->
-          Enum.map(@part_c_sources, fn f -> {f, base_image_at(Path.join(@sources_dir, f))} end)
-
-        paths ->
-          Enum.map(paths, fn p -> {Path.basename(p), base_image_at(p)} end)
-      end
-
-    subjects =
-      Enum.reject(real, fn {_l, img} -> is_nil(img) end) ++
-        [{"zone-#{synth_mp}MP", zone_plate_for(synth_mp)}]
+    subjects = load_subjects(proxy_files, synth_mp)
 
     subjects
     |> Enum.flat_map(fn {label, base} ->
@@ -556,6 +565,244 @@ defmodule Mix.Tasks.Autoquality.Bench do
       flat
     else
       image
+    end
+  end
+
+  # Shared by Parts C and D. External files (e.g. genuinely large real photos)
+  # replace the small committed set when given, so the run can target
+  # production-scale content the repo can't carry. The adversarial synthetic
+  # always anchors the worst case.
+  defp load_subjects(proxy_files, synth_mp) do
+    real =
+      case proxy_files do
+        [] ->
+          Enum.map(@part_c_sources, fn f -> {f, base_image_at(Path.join(@sources_dir, f))} end)
+
+        paths ->
+          Enum.map(paths, fn p -> {Path.basename(p), base_image_at(p)} end)
+      end
+
+    Enum.reject(real, fn {_l, img} -> is_nil(img) end) ++
+      [{"zone-#{synth_mp}MP", zone_plate_for(synth_mp)}]
+  end
+
+  # --- Part D: cheap full-res metric narrowing (#6) --------------------------
+
+  # Can a CHEAP full-res metric (PSNR variants — no XYB/multiscale SSIM cost)
+  # narrow the search so SSIMULACRA2 runs ~once instead of ~4-6×, landing on the
+  # quality the full-res search picks? The final decision stays full-res
+  # SSIMULACRA2, so there is no resolution bias (Part C's trap). The viability
+  # hinges on ONE thing: is the cheap metric's value AT the SSIMULACRA2 boundary
+  # stable across images? A tight spread ⇒ a single global threshold narrows
+  # reliably; a wide spread ⇒ the cheap→target mapping is content-dependent and a
+  # global threshold under/over-picks. We measure that spread, then simulate the
+  # global-threshold strategy (cheap bisection to q, then one SSIMULACRA2 confirm)
+  # against the full-res search as oracle.
+  @cheap_metrics [:psnr_rgb, :psnr_luma]
+
+  defp run_part_d(proxy_files, synth_mp, format) do
+    IO.puts("\n== Part D — cheap full-res metric narrowing (#6) ==")
+    IO.puts("oracle = full-res ssim2 search, target #{@target} [#{@min_q},#{@max_q}]  ")
+    IO.puts("cheap metrics #{inspect(@cheap_metrics)}  format #{format}\n")
+
+    resolved = ssim2_resolved(format)
+    subjects = load_subjects(proxy_files, synth_mp)
+
+    # Pass 1: oracle + the cheap value(s) at the oracle boundary (only meaningful
+    # where the oracle actually hit the target — a best-effort ceiling has no
+    # boundary, so it can't calibrate or be scored).
+    pass1 =
+      Enum.map(subjects, fn {label, base} ->
+        {:ok, _bin, om} = EncodeSearch.run(base, resolved, telemetry_opts: [])
+
+        boundary =
+          if om.score >= @target,
+            do: cheap_values(base, om.quality, format),
+            else: nil
+
+        %{
+          label: label,
+          base: base,
+          q_oracle: om.quality,
+          score_oracle: om.score,
+          oracle_probes: om.iterations,
+          bytes_oracle: om.bytes,
+          boundary: boundary
+        }
+      end)
+
+    calibrated = Enum.filter(pass1, & &1.boundary)
+
+    thresholds =
+      Map.new(@cheap_metrics, fn m -> {m, median(Enum.map(calibrated, & &1.boundary[m]))} end)
+
+    cheap_us = sample_cheap_us(pass1, format)
+    report_part_d(pass1, calibrated, thresholds, resolved, format, cheap_us)
+  end
+
+  defp report_part_d(pass1, calibrated, thresholds, resolved, format, cheap_us) do
+    Enum.each(@cheap_metrics, fn metric ->
+      threshold = thresholds[metric]
+      IO.puts("--- #{metric}: global threshold #{Float.round(threshold, 2)} ---")
+
+      vals = Enum.map(calibrated, & &1.boundary[metric])
+
+      IO.puts(
+        "  cheap@boundary spread: #{spread_note(vals)}  (n=#{length(calibrated)} subjects that hit target)"
+      )
+
+      header =
+        pad(["source", 18]) <>
+          pad(["qOracle", 8]) <>
+          pad(["qCheap", 8]) <>
+          pad(["dq", 5]) <>
+          pad(["cheap@bnd", 11]) <>
+          pad(["bytesΔ", 9]) <>
+          pad(["verdict", 10])
+
+      IO.puts(header)
+      IO.puts(String.duplicate("-", String.length(header)))
+
+      rows = Enum.map(calibrated, &part_d_row(&1, metric, threshold, resolved, format))
+      print_part_d_findings(metric, rows, pass1, cheap_us)
+    end)
+
+    report_skipped(pass1)
+  end
+
+  defp part_d_row(s, metric, threshold, resolved, format) do
+    q_cheap = bisect_cheap_q(s.base, format, metric, threshold)
+    bytes_cheap = byte_size_at(s.base, resolved, q_cheap)
+    dq = q_cheap - s.q_oracle
+    bytes_delta = pct(bytes_cheap - s.bytes_oracle, s.bytes_oracle)
+    verdict = verdict_for(dq)
+
+    IO.puts(
+      pad([s.label, 18]) <>
+        pad([s.q_oracle, 8]) <>
+        pad([q_cheap, 8]) <>
+        pad([dq, 5]) <>
+        pad([Float.round(s.boundary[metric], 2), 11]) <>
+        pad(["#{bytes_delta}%", 9]) <>
+        pad([verdict, 10])
+    )
+
+    %{
+      label: s.label,
+      metric: metric,
+      q_oracle: s.q_oracle,
+      q_cheap: q_cheap,
+      dq: dq,
+      bytes_delta: bytes_delta
+    }
+  end
+
+  defp verdict_for(dq) when dq < 0, do: "UNDERPICK"
+  defp verdict_for(dq) when dq > 0, do: "overpick"
+  defp verdict_for(_dq), do: "exact"
+
+  defp report_skipped(pass1) do
+    skipped = Enum.reject(pass1, & &1.boundary)
+
+    if skipped != [] do
+      labels =
+        Enum.map_join(
+          skipped,
+          ", ",
+          &"#{&1.label} (oracle #{fmt_score(&1.score_oracle)} < target)"
+        )
+
+      IO.puts("(excluded — full-res search itself misses target, no boundary: #{labels})")
+    end
+  end
+
+  defp print_part_d_findings(_metric, rows, pass1, {cheap_us, ssim2_us}) do
+    n = length(rows)
+    exact = Enum.count(rows, &(&1.dq == 0))
+    within1 = Enum.count(rows, &(abs(&1.dq) <= 1))
+    underpicks = Enum.filter(rows, &(&1.dq < 0))
+    worst_under = rows |> Enum.map(& &1.dq) |> Enum.min()
+    overpicks = Enum.filter(rows, &(&1.dq > 0))
+    worst_waste = overpicks |> Enum.map(& &1.bytes_delta) |> max_or_zero()
+    oracle_probes = pass1 |> Enum.map(& &1.oracle_probes) |> avg() |> Float.round(1)
+
+    IO.puts("  exact-q #{exact}/#{n}, within-1q #{within1}/#{n}")
+
+    IO.puts(
+      "  underpick (dangerous) #{length(underpicks)}/#{n} (worst #{worst_under}q)  |  " <>
+        "overpick byte waste worst +#{worst_waste}%"
+    )
+
+    IO.puts(
+      "  ssim2 probes: oracle ~#{oracle_probes} → candidate 1 confirm (+1-2 on underpick retry)  |  " <>
+        "cheap eval ~#{ms(cheap_us)}ms vs ssim2 ~#{ms(ssim2_us)}ms (#{ratio(ssim2_us, cheap_us)}× cheaper)\n"
+    )
+  end
+
+  # Cheap metric value(s) of a candidate encoded at `q` against the finalized
+  # reference. PSNR in dB (higher = better, monotone-ish in q).
+  defp cheap_values(base, q, format) do
+    {:ok, bin} = Encoder.encode_to_buffer(base, plain_resolved(format, q), q)
+    {:ok, cand} = Image.from_binary(bin)
+    Map.new(@cheap_metrics, fn m -> {m, cheap_metric(m, base, cand)} end)
+  end
+
+  defp cheap_metric(:psnr_rgb, ref, cand), do: psnr(ref, cand)
+
+  defp cheap_metric(:psnr_luma, ref, cand) do
+    {:ok, ref_l} = Operation.colourspace(ref, :VIPS_INTERPRETATION_B_W)
+    {:ok, cand_l} = Operation.colourspace(cand, :VIPS_INTERPRETATION_B_W)
+    psnr(ref_l, cand_l)
+  end
+
+  defp psnr(ref, cand) do
+    {:ok, rf} = Operation.cast(ref, :VIPS_FORMAT_FLOAT)
+    {:ok, cf} = Operation.cast(cand, :VIPS_FORMAT_FLOAT)
+    {:ok, diff} = Operation.subtract(rf, cf)
+    {:ok, sq} = Operation.multiply(diff, diff)
+    {:ok, mse} = Operation.avg(sq)
+    if mse <= 0.0, do: 99.0, else: 10 * :math.log10(255 * 255 / mse)
+  end
+
+  # Lowest q whose cheap metric clears `threshold` (monotone-increasing in q).
+  # Pure cheap probes — no SSIMULACRA2.
+  defp bisect_cheap_q(base, format, metric, threshold) do
+    do_bisect_cheap(base, format, metric, threshold, @min_q, @max_q, @max_q)
+  end
+
+  defp do_bisect_cheap(_base, _format, _metric, _threshold, lo, hi, best) when lo > hi, do: best
+
+  defp do_bisect_cheap(base, format, metric, threshold, lo, hi, best) do
+    mid = div(lo + hi, 2)
+    {:ok, bin} = Encoder.encode_to_buffer(base, plain_resolved(format, mid), mid)
+    {:ok, cand} = Image.from_binary(bin)
+
+    if cheap_metric(metric, base, cand) >= threshold,
+      do: do_bisect_cheap(base, format, metric, threshold, lo, mid - 1, mid),
+      else: do_bisect_cheap(base, format, metric, threshold, mid + 1, hi, best)
+  end
+
+  defp byte_size_at(base, resolved, q) do
+    {:ok, bin} = Encoder.encode_to_buffer(base, resolved, q)
+    byte_size(bin)
+  end
+
+  # One paired timing of a cheap eval vs a full SSIMULACRA2 eval, on the first
+  # calibrated subject, to quantify "how much cheaper".
+  defp sample_cheap_us(pass1, format) do
+    case Enum.find(pass1, & &1.boundary) do
+      nil ->
+        {1, 1}
+
+      s ->
+        {:ok, bin} =
+          Encoder.encode_to_buffer(s.base, plain_resolved(format, s.q_oracle), s.q_oracle)
+
+        {:ok, cand} = Image.from_binary(bin)
+        {cheap_us, _} = timed(fn -> cheap_metric(:psnr_rgb, s.base, cand) end)
+        {:ok, ref} = Ssim2Metric.reference(s.base)
+        {ssim2_us, _} = timed(fn -> Ssim2Metric.score(ref, cand) end)
+        {cheap_us, ssim2_us}
     end
   end
 
@@ -874,6 +1121,28 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp avg([]), do: 0
   defp avg(list), do: Enum.sum(list) / length(list)
+
+  defp median([]), do: 0.0
+
+  defp median(list) do
+    sorted = Enum.sort(list)
+    n = length(sorted)
+    mid = div(n, 2)
+
+    if rem(n, 2) == 1,
+      do: Enum.at(sorted, mid),
+      else: (Enum.at(sorted, mid - 1) + Enum.at(sorted, mid)) / 2
+  end
+
+  defp max_or_zero([]), do: 0
+  defp max_or_zero(list), do: Enum.max(list)
+
+  defp spread_note([]), do: "n/a"
+
+  defp spread_note(vals) do
+    "#{Float.round(Enum.min(vals), 2)}…#{Float.round(Enum.max(vals), 2)} " <>
+      "(range #{Float.round(Enum.max(vals) - Enum.min(vals), 2)})"
+  end
 
   defp fmt_score(nil), do: "-"
   defp fmt_score(score), do: Float.round(score, 2)

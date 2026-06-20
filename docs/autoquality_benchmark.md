@@ -173,6 +173,36 @@ win:**
   bytes by +56%. The earlier caveat (no large real sources) was the right one to
   flag — the cross-scale signal reverses the conclusion.
 
+### Part D — cheap full-res metric narrowing (#6)
+
+Can a *cheap* full-res metric (PSNR — no XYB/multiscale-SSIM cost) narrow the
+search so SSIMULACRA2 runs ~once instead of ~4–6×, while the final decision stays
+full-res SSIMULACRA2 (no resolution bias)? Viability hinges on one statistic:
+**is the cheap metric's value at the SSIMULACRA2 boundary stable across images?**
+If yes, a single calibrated threshold locates the boundary; if it drifts per image,
+a global threshold mis-picks.
+
+It drifts — badly. The cheap value at the boundary spans **11–22 dB**:
+
+| corpus | metric | cheap@boundary spread | exact-q | underpick (worst) | overpick byte waste (worst) | cheaper |
+|--------|--------|------------------------|---------|-------------------|-----------------------------|---------|
+| committed ≤2 MP | PSNR-RGB  | 38.8 … 50.0 dB (11 dB) | 2/6 | 3/6 (−28q) | +87%  | 9.2× |
+| committed ≤2 MP | PSNR-luma | 38.8 … 58.3 dB (20 dB) | 1/6 | 3/6 (−27q) | +136% | 9.2× |
+| large 16 MP     | PSNR-RGB  | 43.9 … 65.9 dB (22 dB) | 2/3 | 0/3       | +27%  | 11.3× |
+
+A high-frequency photo clears SSIMULACRA2 = 88 at ~39 dB PSNR; clean line-art
+(`marker`) needs ~50 dB; a 16 MP photo ~66 dB. So any single PSNR threshold either
+**underpicks** (ships visibly under-compressed images — up to −28q) or **overpicks**
+(wastes >100% bytes), depending on content. The metric *is* genuinely ~9–11×
+cheaper than SSIMULACRA2 (the cost premise holds) — it just doesn't track the
+*perceptual* boundary, which is exactly the gap SSIMULACRA2 exists to close.
+
+**Conclusion:** PSNR-class narrowing is a non-starter with a global threshold. The
+only ways forward both have caveats: a cheaper *perceptual* metric (MS-SSIM,
+butteraugli) that tracks the boundary — **not in our stack** today — or per-image
+SSIMULACRA2 anchoring (2 anchors + cheap interpolation + 1 confirm), which saves
+~0 probes on the shipped narrow `[70,80]` bracket and only ~2–3 on a wide one.
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
@@ -234,3 +264,26 @@ So the earlier "ship `k≈2`" read was wrong — it was an artifact of testing o
 
 The benchmark now ships with `--proxy-files` so this can be re-run on any corpus of
 large images when the calibrated variant is prototyped.
+
+### 4. Cheap-metric narrowing (#6) doesn't work with PSNR — needs a cheaper *perceptual* metric
+
+Part D tested the other cost lever — keep the decision on full-res SSIMULACRA2 but
+use a cheap full-res metric to cut the number of SSIMULACRA2 probes. PSNR is ~9–11×
+cheaper but its value at the SSIMULACRA2 boundary varies 11–22 dB across content, so
+a global threshold under/over-picks badly (−28q to +136% bytes). PSNR-class
+narrowing is therefore not viable. The lever is only worth revisiting with a
+cheaper *perceptual* metric (MS-SSIM, butteraugli) — neither is in our stack today —
+or per-image SSIMULACRA2 anchoring, which saves ~0 probes on the shipped narrow
+`[70,80]` bracket. Net: no change; the cost story stays as Parts A/C describe it.
+
+## The bottom line across A–D
+
+The SSIMULACRA2 quality boundary is **genuinely content-dependent and not cheaply
+predictable** — neither by reducing resolution (Part C) nor by a cheap pixel metric
+(Part D). The metric cost (~83% of wall-clock, Part A) is therefore largely
+intrinsic. The robust, shippable lever is the **resolution cap** (#1); the
+search/objective defaults are sound (#2); and the two "make it cheaper" shortcuts
+(proxy seed, cheap-metric narrowing) both founder on the same rock — a cheap or
+low-res stand-in for SSIMULACRA2 doesn't track its boundary. A real speedup needs
+either a cheaper perceptual metric in-stack or a learned per-content quality
+predictor (the endgame), both larger efforts than this benchmark.
