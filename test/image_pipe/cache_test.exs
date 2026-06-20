@@ -389,6 +389,8 @@ defmodule ImagePipe.CacheTest do
              auto: [avif: false, webp: true],
              quality: :default,
              format_qualities: %{},
+             quality_search: :none,
+             max_bytes: nil,
              strip_metadata: true,
              color_profile: :strip,
              keep_copyright: true,
