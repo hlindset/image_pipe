@@ -49,27 +49,13 @@
 
 ## Phase 0 — Dependency & toolchain
 
-### Task 0 (upstream prerequisite): add `Ssimulacra2.Vix.compare(reference, image)`
+### Task 0 (upstream prerequisite): `Ssimulacra2.Vix.compare(reference, image)` — ✅ DONE
 
-**Repo:** `github.com/hlindset/ssimulacra2` (separate repo — the user owns it).
-
-The bridge as of `88bcf76` exposes `Ssimulacra2.Vix.reference/1` (build a `Reference` from a Vix image) and `Ssimulacra2.Vix.compare/2` *(image, image)* (rebuilds the reference every call), but **not** a way to compare a precomputed `Reference` against a Vix candidate — exactly what the search loop needs (precompute once, compare N candidates). Decision: add it upstream (keeps the Vix→binary coercion inside the library, makes ImagePipe's adapter trivial).
-
-- [ ] Add to `lib/ssimulacra2/vix.ex`:
-
-```elixir
-@doc "Compare a Vix candidate image against a precomputed reference."
-@spec compare(Ssimulacra2.Reference.t(), Image.t()) :: {:ok, float()} | {:error, term()}
-def compare(%Ssimulacra2.Reference{format: format} = reference, %Image{} = distorted) do
-  with {:ok, {bin, _w, _h}} <- coerce(distorted, format) do
-    Ssimulacra2.Reference.compare(reference, bin)
-  end
-end
-```
-
-  This reuses the existing private `coerce/2` and the `Reference.format` field (confirm the field name on the `Reference` struct; if the format isn't stored on the struct, add it in `Reference.new/4`). It composes with the existing `compare(%Image{}, %Image{})` via a guard on the first arg.
-- [ ] Add a binding-sanity test in the ssimulacra2 repo (identity ≈ 100; degraded < light). Run that repo's tests. Merge to `main`.
-- [ ] Record the merged `main` SHA — Task 1 pins it.
+Merged upstream as PR #6 (`Vix.compare/2 reuses a precomputed Reference`), SHA
+`c95683deefcafd7313e149d0d5e30a3328c14efd`. The bridge now has
+`Ssimulacra2.Vix.compare(%Reference{format: format}, %Image{})` (coerces the
+candidate to the reference's format, calls `Reference.compare/2`), and
+`%Reference{}` carries `format`. Nothing left to do here — Task 1 pins this SHA.
 
 ### Task 1: Add the `ssimulacra2` dependency and pin Rust
 
@@ -79,10 +65,10 @@ end
 
 - [ ] **Step 1: Add the dep**
 
-In `mix.exs` `deps/0`, add after the `{:image, ...}` line, pinning the **Task 0 merge SHA** (the placeholder below is current `main` *before* Task 0 lands — replace it):
+In `mix.exs` `deps/0`, add after the `{:image, ...}` line:
 
 ```elixir
-{:ssimulacra2, github: "hlindset/ssimulacra2", ref: "<TASK-0-MERGE-SHA>"},  # currently 88bcf76799fa376b8f873083415e94539a60de7d pre-Task-0
+{:ssimulacra2, github: "hlindset/ssimulacra2", ref: "c95683deefcafd7313e149d0d5e30a3328c14efd"},
 ```
 
 - [ ] **Step 2: Pin Rust in `mise.toml`**
@@ -100,7 +86,7 @@ Expected: the Rust NIF compiles (first build is slow). If it fails, confirm the 
 
 - [ ] **Step 4: Confirm the package API surface**
 
-The real API (verified at `88bcf76` + Task 0) — Task 12 wires `Ssim2Metric` to exactly these:
+The real API (verified at the pinned `c95683de`) — Task 12 wires `Ssim2Metric` to exactly these:
 - `Ssimulacra2.Vix.reference(%Vix.Vips.Image{}) :: {:ok, Ssimulacra2.Reference.t()} | {:error, term()}` — precompute the reference (sRGB, alpha flattened, bit depth preserved).
 - `Ssimulacra2.Vix.compare(%Ssimulacra2.Reference{}, %Vix.Vips.Image{}) :: {:ok, float()} | {:error, term()}` — **the Task 0 addition**; compare a Vix candidate against the precomputed reference.
 - (`Ssimulacra2.Vix.compare(%Image{}, %Image{})`, `Ssimulacra2.Reference.compare/2` on binaries, and `Ssimulacra2.compare/5` also exist; the search uses only the two above.)
@@ -1048,7 +1034,7 @@ Spec §11.
 
 ## Notes for the implementer
 
-- **ssimulacra2 API:** verified at `88bcf76` + Task 0 — `Ssimulacra2.Vix.reference/1` and `Ssimulacra2.Vix.compare/2` *(reference, image)*, both `{:ok,_}|{:error,_}`. `Image.t() == Vix.Vips.Image.t()` (no unwrapping). Wired only in `Ssim2Metric` (Task 12). **Task 0 (upstream `Vix.compare(reference, image)`) must merge first**, and Task 1 pins that merge SHA — the precompute-once search path depends on it.
+- **ssimulacra2 API:** verified at the pinned `c95683de` — `Ssimulacra2.Vix.reference/1` and `Ssimulacra2.Vix.compare/2` *(reference, image)*, both `{:ok,_}|{:error,_}`. `Image.t() == Vix.Vips.Image.t()` (no unwrapping). Wired only in `Ssim2Metric` (Task 12). Task 0 (the upstream bridge fn) is merged; Task 1 pins it.
 - **Colorspace:** the bridge's `reference/1`/`compare/2` already coerce to sRGB and flatten alpha internally, so `Ssim2Metric` needs no colorspace handling. The finalized image is 8-bit sRGB (→ `:rgb888` reference) and decoded candidates match.
 - **Memoize encodes:** never encode the same quality twice across the objective and cap phases, and never re-encode the winner — the search returns the winning buffer it already produced.
 - **Boundary check:** nothing in `request`/`source`/`response` names a concrete transform module; the loop lives entirely in `Output.*`. If a new Boundary export is needed for `EncodeSearch`/`ResolvedQualitySearch`, add a narrow one; don't export helpers. Re-run `mise exec -- mix compile` to catch Boundary violations.

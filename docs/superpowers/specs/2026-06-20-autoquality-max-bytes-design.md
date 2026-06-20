@@ -350,11 +350,8 @@ composition in §6.3), not 10.
 - Each candidate: decode the trial buffer back to a Vix image
   (`Image.from_binary/1`) and score it against the precomputed reference via
   `Ssimulacra2.Vix.compare/2` *(reference, image)* → `{:ok, float}`. In-memory
-  only, no temp files. **Upstream prerequisite:** that `compare(reference,
-  image)` arity does not exist on the bridge as of `88bcf76` (it only has
-  `compare(image, image)`, which rebuilds the reference each call); it is added
-  to the `ssimulacra2` repo first and the dep is pinned to that merge SHA (§9,
-  plan Task 0).
+  only, no temp files. That `compare(reference, image)` arity is the upstream
+  addition merged as PR #6 (`c95683de`, pinned in §9).
 - **No metric conformance check here** — we trust Imazen/`fast-ssim2`; the
   binding-sanity test lives in the `ssimulacra2` repo.
 - Score is SSIMULACRA2-native: 0–100, 100 = identical, ~90 ≈ visually lossless.
@@ -415,14 +412,13 @@ composition in §6.3), not 10.
 ## 9. Dependency & toolchain
 
 ```elixir
-# mix.exs — pin the Task 0 merge SHA (the `Vix.compare(reference, image)` addition)
-{:ssimulacra2, github: "hlindset/ssimulacra2", ref: "<TASK-0-MERGE-SHA>"}
-# current main pre-Task-0: 88bcf76799fa376b8f873083415e94539a60de7d
+# mix.exs
+{:ssimulacra2, github: "hlindset/ssimulacra2", ref: "c95683deefcafd7313e149d0d5e30a3328c14efd"}
 ```
 
-- **Upstream prerequisite (plan Task 0):** add `Ssimulacra2.Vix.compare(reference,
-  image)` to the `ssimulacra2` repo, merge, then pin that SHA here. Current main
-  (`88bcf76`, "Add remaining input formats") has only `compare(image, image)`.
+- **Upstream prerequisite — DONE:** `Ssimulacra2.Vix.compare(reference, image)`
+  (the precompute-once bridge fn the search loop needs) is merged as PR #6
+  (`c95683de`); the pin above is that SHA.
 - Compiles the Rust NIF locally during dev (no precompiled artifacts until a
   release is tagged). **Pin Rust in `mise.toml`** so contributors/CI get the
   toolchain.
