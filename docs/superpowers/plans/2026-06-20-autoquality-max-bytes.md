@@ -297,7 +297,7 @@ In `lib/image_pipe/output/resolved.ex`: add `quality_search: :none` and `max_byt
 
 **Files:**
 - Modify: `lib/image_pipe/parser/imgproxy/option_grammar.ex`
-- Modify: `lib/image_pipe/parser/imgproxy/parsed_request.ex` (add `max_bytes: nil` to defstruct + type)
+- Modify: `lib/image_pipe/parser/imgproxy/parsed_request.ex` — add `max_bytes: nil` to the **`@default_output` map** (lines 6-15) **and** the `output_request()` type (~lines 33-42). NOT a defstruct: the parsed output is a plain map, and `options.ex`'s `merge_request_map/2` **raises on unknown keys**, so the key must exist in `@default_output` before any `mb:` segment folds in.
 - Modify: `lib/image_pipe/parser/imgproxy/options.ex` (merge `max_bytes` into `output`)
 - Test: `test/image_pipe/parser/imgproxy/option_grammar_test.exs`
 
@@ -306,29 +306,29 @@ In `lib/image_pipe/output/resolved.ex`: add `quality_search: :none` and `max_byt
 ```elixir
 test "parses max_bytes and its mb alias into the output scope" do
   assert {:ok, {:output, [max_bytes: 51_200]}} =
-           ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("max_bytes:51200")
+           ImagePipe.Parser.Imgproxy.OptionGrammar.parse("max_bytes:51200")
 
   assert {:ok, {:output, [max_bytes: 51_200]}} =
-           ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:51200")
+           ImagePipe.Parser.Imgproxy.OptionGrammar.parse("mb:51200")
 end
 
 test "mb:0 disables the ceiling (no-op), matching imgproxy" do
   assert {:ok, {:output, [max_bytes: nil]}} =
-           ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:0")
+           ImagePipe.Parser.Imgproxy.OptionGrammar.parse("mb:0")
 end
 
 test "rejects negative or malformed max_bytes" do
-  assert {:error, _} = ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:-5")
-  assert {:error, _} = ImagePipe.Parser.Imgproxy.OptionGrammar.parse_segment("mb:abc")
+  assert {:error, _} = ImagePipe.Parser.Imgproxy.OptionGrammar.parse("mb:-5")
+  assert {:error, _} = ImagePipe.Parser.Imgproxy.OptionGrammar.parse("mb:abc")
 end
 ```
 
-> Confirm the actual public entry point name for parsing one segment in that module (it may be `parse_segment/1` or similar); adjust the calls to match. If only a higher-level entry exists, assert through it.
+> The grammar's public single-segment entry point is `OptionGrammar.parse/1` (`option_grammar.ex:106`) — the tests above use it.
 
 > **imgproxy parity (compat review):** imgproxy parses `max_bytes` with `parsePositiveInt` (guard `i < 0`), and `processing.go` gates on `maxBytes > 0`. So `0` is **valid and disables** the ceiling — not a 4xx. Map `0 -> nil`; reject only negatives / non-numeric.
 
 - [ ] **Step 2: Run, expect fail.**
-- [ ] **Step 3: Implement** — add aliases to the option map (near line 49-66): `"max_bytes" => {:max_bytes, [:max_bytes]}, "mb" => {:max_bytes, [:max_bytes]}`. Add a `parse_known_option(:max_bytes, [:max_bytes], [value], segment)` clause that parses a **non-negative** integer; map `0 -> [max_bytes: nil]` (disabled), `n > 0 -> [max_bytes: n]`; reject negatives/non-numeric with the canonical invalid-option tag. Add `:max_bytes` to the `scoped_assignments/2` `:output` group.
+- [ ] **Step 3: Implement** — add `"max_bytes" => {:max_bytes, [:max_bytes]}, "mb" => {:max_bytes, [:max_bytes]}` to the **`@option_specs`** alias map (lines 27-67), routing to a bespoke `parse_known_option(:max_bytes, [:max_bytes], [value], segment)` clause (NOT `@special_specs` — that map only runs `apply_type/2` and can't express the `0 -> nil` mapping). The clause parses a **non-negative** integer; map `0 -> [max_bytes: nil]` (disabled), `n > 0 -> [max_bytes: n]`; reject negatives/non-numeric with the canonical invalid-option tag. Add `:max_bytes` to the `scoped_assignments/2` `:output` group.
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
@@ -336,7 +336,7 @@ end
 
 **Files:**
 - Modify: `lib/image_pipe/parser/imgproxy/option_grammar.ex`
-- Modify: `lib/image_pipe/parser/imgproxy/parsed_request.ex` (add `quality_search: :none`)
+- Modify: `lib/image_pipe/parser/imgproxy/parsed_request.ex` — add `quality_search: :none` to the **`@default_output` map** + `output_request()` type (same reason as Task 5: `merge_request_map/2` raises on unknown keys).
 - Test: `test/image_pipe/parser/imgproxy/option_grammar_test.exs`
 
 Behavior to encode (spec §4.1–4.2). The parser emits a partial descriptor — **only the fields present in the URL** — as `{:output, [quality_search: {:autoquality, fields}]}`; missing fields are filled from config defaults in Task 8. Represent it as a tagged keyword (e.g. `{:autoquality, [objective: :ssim2, target: 90.0, ...]}`) or `:none` / `{:autoquality, :disabled}` for `autoquality:none`. Pick one shape and keep it consistent through Tasks 8–9.
@@ -347,12 +347,12 @@ Behavior to encode (spec §4.1–4.2). The parser emits a partial descriptor —
 alias ImagePipe.Parser.Imgproxy.OptionGrammar, as: G
 
 test "autoquality:none disables the search" do
-  assert {:ok, {:output, [quality_search: {:autoquality, :disabled}]}} = G.parse_segment("autoquality:none")
-  assert {:ok, {:output, [quality_search: {:autoquality, :disabled}]}} = G.parse_segment("aq:none")
+  assert {:ok, {:output, [quality_search: {:autoquality, :disabled}]}} = G.parse("autoquality:none")
+  assert {:ok, {:output, [quality_search: {:autoquality, :disabled}]}} = G.parse("aq:none")
 end
 
 test "autoquality:size with full args" do
-  assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} = G.parse_segment("autoquality:size:10240:10:80")
+  assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} = G.parse("autoquality:size:10240:10:80")
   assert fields[:objective] == :size
   assert fields[:target] == 10_240
   assert fields[:min_quality] == 10
@@ -361,36 +361,36 @@ test "autoquality:size with full args" do
 end
 
 test "autoquality:ssim2 with full args" do
-  assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} = G.parse_segment("autoquality:ssim2:90:70:80:1")
+  assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} = G.parse("autoquality:ssim2:90:70:80:1")
   assert fields[:objective] == :ssim2
   assert fields[:target] == 90.0
   assert fields[:allowed_error] == 1.0
 end
 
 test "trailing args are optional (config fills the rest)" do
-  assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} = G.parse_segment("autoquality:ssim2:90")
+  assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} = G.parse("autoquality:ssim2:90")
   assert fields[:objective] == :ssim2 and fields[:target] == 90.0
   refute Keyword.has_key?(fields, :min_quality)
 end
 
 test "bare dssim is accepted as an ssim2 alias with no inline args" do
-  assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} = G.parse_segment("autoquality:dssim")
+  assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} = G.parse("autoquality:dssim")
   assert fields[:objective] == :ssim2
   refute Keyword.has_key?(fields, :target)
 end
 
 test "dssim with inline args is rejected" do
-  assert {:error, _} = G.parse_segment("autoquality:dssim:0.02:70:80:0.001")
-  assert {:error, _} = G.parse_segment("autoquality:dssim:90")
+  assert {:error, _} = G.parse("autoquality:dssim:0.02:70:80:0.001")
+  assert {:error, _} = G.parse("autoquality:dssim:90")
 end
 
 test "ml and unknown methods are rejected" do
-  assert {:error, _} = G.parse_segment("autoquality:ml:0.02:70:80:0.001")
-  assert {:error, _} = G.parse_segment("autoquality:bogus")
+  assert {:error, _} = G.parse("autoquality:ml:0.02:70:80:0.001")
+  assert {:error, _} = G.parse("autoquality:bogus")
 end
 
 test "min greater than max is rejected" do
-  assert {:error, _} = G.parse_segment("autoquality:size:10240:80:10")
+  assert {:error, _} = G.parse("autoquality:size:10240:80:10")
 end
 ```
 
@@ -421,11 +421,13 @@ end
 ### Task 8: Config defaults + descriptor resolution
 
 **Files:**
-- Modify: `lib/image_pipe/parser/imgproxy.ex` (`request_defaults/1`, ~line 230)
+- Modify: `lib/image_pipe/parser/imgproxy.ex` — register the new host options in `@imgproxy_schema` (`NimbleOptions.new!`, line 27) **and** read them in `request_defaults/1` (~line 230).
 - Modify: `lib/image_pipe/parser/imgproxy/options.ex` (`apply_request_defaults/2` / a new `resolve_quality_search_defaults/2`, ~line 302)
-- Test: `test/image_pipe/parser/imgproxy/options_test.exs`
+- Test: `test/image_pipe/parser/imgproxy/options_test.exs` + a config-validation test in `imgproxy_test.exs`.
 
 Spec §4.3. Resolve the raw `{:autoquality, fields}` (or `:disabled`/absent) into a concrete `%Plan.Output.QualitySearch{}` or `:none`, merging config defaults for omitted fields.
+
+> **BLOCKER from review:** `@imgproxy_schema` is a strict `NimbleOptions.new!` schema and `validate_imgproxy_options!/1` (line 91) **raises on any unknown key**. The `autoquality_*` host options must be added to the schema, or a host setting `imgproxy: [autoquality_method: :ssim2]` crashes before `request_defaults/1` runs. Add a failing config-validation test first (`ImagePipe.Parser.Imgproxy` accepts `imgproxy: [autoquality_method: :ssim2, autoquality_target: 90.0, ...]`).
 
 - [ ] **Step 1: Failing tests**
 
@@ -478,7 +480,8 @@ end
 
 - [ ] **Step 2: Run, expect fail.**
 - [ ] **Step 3: Implement**
-  - In `imgproxy.ex` `request_defaults/1`, append the `autoquality_*` host opts with the spec §4.3 imgproxy-adapter defaults:
+  - In `imgproxy.ex`, register the options in `@imgproxy_schema` (match the existing entry style, e.g. `autoquality_method: [type: {:in, [:none, :size, :ssim2]}, default: :none]`, `autoquality_target: [type: {:or, [:float, :integer]}]`, `autoquality_min_quality: [type: :pos_integer, default: 70]`, `autoquality_max_quality: [type: :pos_integer, default: 80]`, `autoquality_allowed_error: [type: {:or, [:float, :integer]}, default: 1.0]`, `autoquality_format_min_quality: [type: {:map, :atom, :pos_integer}, default: %{avif: 60}]`, `autoquality_format_max_quality: [type: {:map, :atom, :pos_integer}, default: %{avif: 65}]`, `autoquality_max_resolution: [type: :non_neg_integer, default: 0]`, `autoquality_max_iterations: [type: :pos_integer, default: 6]`). Confirm the exact NimbleOptions type spellings against the existing schema entries.
+  - In `request_defaults/1`, append the `autoquality_*` host opts with the spec §4.3 imgproxy-adapter defaults:
 
     ```elixir
     autoquality_method: Keyword.get(imgproxy_opts, :autoquality_method, :none),
@@ -508,7 +511,7 @@ end
 
 - [ ] **Step 1: Failing test** — build a plan from a request whose resolved `output` carries a `%QualitySearch{}` + `max_bytes`, assert `plan.output.quality_search` / `plan.output.max_bytes` are populated.
 - [ ] **Step 2: Run, expect fail.**
-- [ ] **Step 3: Implement** — add `quality_search: request.quality_search` (or `request.output.quality_search`, matching how other output fields are threaded) and `max_bytes: request.max_bytes` to the `%Output{...}` map(s) in both builder branches (line ~117 and ~135).
+- [ ] **Step 3: Implement** — in both `%Output{...}` constructions (the `format: nil` branch ~line 114 and the `format: format` branch ~line 132; the `format: :best` clause at ~126 is an error path with no `%Output{}`), thread the fields from the parsed output map the same way `quality:`/`format_qualities:` already are — `quality_search: request.quality_search`, `max_bytes: request.max_bytes` (the builder reads the output map fields directly, e.g. `request.quality`, not `request.output.*`). Confirm the accessor against the existing `quality:` line.
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
@@ -604,7 +607,7 @@ Goal: expose a way to encode the **finalized** image to an in-memory buffer at a
 - [ ] **Step 1: Failing test** — using a small fixture image and a `Resolved{format: :jpeg}`, assert a new `Encoder.encode_to_buffer(finalized_image, resolved, quality)` returns `{:ok, binary}` whose byte size shrinks as quality drops (`q=20` bytes < `q=90` bytes). Build the finalized image via the existing finalize path (expose a thin `finalize/2` wrapper or test through `stream_output` for the no-search path to keep finalize covered).
 - [ ] **Step 2: Run, expect fail.**
 - [ ] **Step 3: Implement**
-  - Add `encode_to_buffer(image, %Resolved{} = resolved, quality)` that calls `Image.write_to_buffer(image, suffix, suffix: suffix, quality: quality)` (resolve `suffix` via the existing `output_format/1`). Return `{:ok, binary}` / `{:error, {:encode, ...}}`.
+  - Add `encode_to_buffer(image, %Resolved{} = resolved, quality)` that encodes in-memory via **`Image.write(image, :memory, suffix: suffix, quality: quality)`** → `{:ok, binary}` (resolve `suffix` via the existing `output_format/1`; this mirrors the lazy path's `output_options/2` = `[suffix: suffix, quality: value]`, just to `:memory` instead of `stream!`). **`Image.write_to_buffer/3` does not exist in the `image` lib** — `write_to_buffer` is a `Vix.Vips.Image` fn with raw libvips opts (`Q:`), not the `image`-lib `quality:`/`suffix:` shape. Return `{:ok, binary}` / `{:error, {:encode, ...}}`.
   - Refactor `stream_output/3`: compute `mime_type`/`suffix` and `finalized` once; if `resolved.quality_search == :none and resolved.max_bytes == nil`, keep the current `image_module.stream!/2` lazy path verbatim. (The search branch is wired in Task 13.)
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
@@ -625,7 +628,7 @@ defmodule ImagePipe.Output.Ssim2MetricTest do
   alias ImagePipe.Output.Ssim2Metric
 
   setup do
-    {:ok, img} = Image.open("test/support/.../some_fixture.jpg")   # use an existing committed fixture
+    {:ok, img} = Image.open("test/support/image_pipe/test/imgproxy_differential/sources/high_freq.jpg")  # committed, high-frequency → quality-sensitive
     {:ok, ref} = Image.thumbnail(img, "256")                       # small & fast
     %{ref: ref}
   end
@@ -638,8 +641,8 @@ defmodule ImagePipe.Output.Ssim2MetricTest do
 
   test "a heavily degraded re-encode scores lower than a light one", %{ref: ref} do
     {:ok, reference} = Ssim2Metric.reference(ref)
-    {:ok, low} = Image.write_to_buffer(ref, ".jpg", suffix: ".jpg", quality: 15)
-    {:ok, high} = Image.write_to_buffer(ref, ".jpg", suffix: ".jpg", quality: 92)
+    {:ok, low} = Image.write(ref, :memory, suffix: ".jpg", quality: 15)
+    {:ok, high} = Image.write(ref, :memory, suffix: ".jpg", quality: 92)
     {:ok, low_img} = Image.from_binary(low)
     {:ok, high_img} = Image.from_binary(high)
     {:ok, low_score} = Ssim2Metric.score(reference, low_img)
@@ -846,7 +849,7 @@ end
 - [ ] **Step 2: Run, expect fail.**
 - [ ] **Step 3: Implement** — in `stream_output/3`, after finalizing once, when `(resolved.quality_search != :none or resolved.max_bytes != nil) and Format.supports_quality?(format)`:
   - Build `encode_fun = fn q -> encode_to_buffer(finalized, resolved, q) end`.
-  - For `:ssim2`, build the reference once (`{:ok, reference} = Ssim2Metric.reference(finalized)`) and a buffer-based `score_fun = fn candidate_bytes -> {:ok, img} = Image.from_binary(candidate_bytes); {:ok, s} = Ssim2Metric.score(reference, img); s end` (returns a **bare float** to match `search/3`'s `:score_fun` contract; the search applies it to the memoized buffer so each quality is encoded and decoded at most once). Surface a `reference/1` error as `{:error, {:encode, ...}}` rather than letting the match crash.
+  - For `:ssim2`, build the reference once (`{:ok, reference} = Ssim2Metric.reference(finalized)`) and a buffer-based `score_fun = fn candidate_bytes -> {:ok, img} = Image.from_binary(candidate_bytes); {:ok, s} = Ssim2Metric.score(reference, img); s end` (returns a **bare float** to match `search/3`'s `:score_fun` contract; the search applies it to the memoized buffer so each quality is encoded and decoded at most once). Surface a `reference/1`, `Image.from_binary/1`, or `score/2` error as `{:error, {:encode, ...}}` (use `case`/`with`, not a bare `{:ok, _} =` match) rather than crashing the producer mid-loop — matching the encoder's existing error discipline. Low-risk (the buffer was just produced by libvips) but cheap to guard.
   - **Base quality:** derive it from `resolved.quality` exactly as the single-shot path already does — reuse the value `output_options/2` would pass (`{:quality, v} -> v`; `:default ->` the encoder's existing default, i.e. whatever `image`/libvips uses when no `:quality` is given). Factor that into a small `base_quality(resolved)` helper shared by both paths so there is **no** invented constant. This is only consulted for the `max_bytes`-alone upper bound.
   - Call `EncodeSearch.run(finalized, resolved, telemetry_opts: Telemetry.telemetry_opts(opts), max_iterations: <config or default 6>)`; wrap the winning buffer as a one-element stream `[binary]` so the producer's streaming contract is unchanged; return `{:ok, [binary], mime_type}`.
   - Honor `EncodeSearch.skip?/2` (single-shot at base quality, `outcome: :skipped`) before searching, using the finalized image's megapixels.
@@ -897,7 +900,11 @@ Spec §7 "Default Logger".
 
 - [ ] **Step 1: Failing test** — drive a request (or emit the events directly with a test prefix) and assert the Logger renders a line surfacing `outcome` + `chosen_quality`/`chosen_bytes`/`final_score`, and that `outcome: :best_effort` logs at `warn`.
 - [ ] **Step 2: Run, expect fail.**
-- [ ] **Step 3: Implement** — add the search span to `@group_span_events` and the probe to the appropriate one-shot list; add a specific `message/3` clause **before** the generic fallback that still surfaces `:result`/`outcome`; extend `level_for/3` so `outcome: :best_effort` escalates to `:warning`. Update `docs/telemetry.md` to list the new events and what the Logger renders.
+- [ ] **Step 3: Implement**
+  - **Subscription.** Add `[:encode, :search]` to the **`request`** list in `@group_span_events` (line 13 — that's where `[:encode]` already lives). The probe `[:encode, :search, :probe]` is a terminal one-shot; there is **no** `@request_oneshot` yet, so create `@request_oneshot [[:encode, :search, :probe]]` and wire it into the group-resolution `Enum.map(spans ++ ... , ...)` exactly like the existing `@cache_oneshot`/`@output_oneshot` (add `request_oneshots = if :request in groups, do: @request_oneshot, else: []` and append it). Don't reuse `@output_oneshot` — keep the event in the same group as its span.
+  - **Rendering.** Add a specific `message/3` clause **before** the generic fallback that still surfaces `:result`/`outcome` (show `outcome` + `chosen_quality`/`chosen_bytes`/`final_score`).
+  - **Levels.** Extend `level_for/3` so `outcome: :best_effort` escalates to `:warning`.
+  - **Docs.** Update `docs/telemetry.md` to list the new events and what the Logger renders.
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
@@ -908,12 +915,14 @@ Spec §7 "Default Logger".
 ### Task 17: Include `quality_search` + `max_bytes` in the cache key
 
 **Files:**
-- Modify: `lib/image_pipe/cache/key.ex` (`output_plan_data/2`, both `:automatic` and `{:explicit, _}` clauses, ~lines 99-124)
+- Modify: `lib/image_pipe/cache/key.ex` — **three** keyword bodies that carry output fields: `output_plan_data/2`'s `:automatic` and `{:explicit, _}` clauses (~lines 99-124, the ETag/plan-seed path) **and** `output_data/3`'s `:automatic` clause (~line 132, the live cache-key path that builds its keyword **inline** and does NOT delegate to `output_plan_data/2`).
 - Test: `test/image_pipe/cache/key_test.exs`
 
 Spec §8.
 
-- [ ] **Step 1: Failing tests**
+> **BLOCKER from review:** the automatic-mode live cache key is built inline in `output_data/3` (line 132), which does **not** call `output_plan_data/2`. Editing only `output_plan_data/2` would leave `quality_search`/`max_bytes` out of the key for automatic-mode requests (the common imgproxy case — no explicit `f:`), so two requests differing only by `mb:`/`autoquality` would **collide**. The test below must drive an **automatic-mode** request (no explicit format) to catch this; add the fields to all three keyword bodies.
+
+- [ ] **Step 1: Failing tests** (build `output(...)` in **automatic** mode — no explicit format — so the `output_data/3` inline path is exercised)
 
 ```elixir
 test "different max_bytes targets do not collide" do
@@ -948,7 +957,7 @@ end
 > `etag_for/1` resolves the request's ETag (via the same path `HttpCache.etag_material/2` → `Key.plan_material/2` uses). Locate the existing ETag test helper in the suite and reuse it.
 
 - [ ] **Step 2: Run, expect fail.**
-- [ ] **Step 3: Implement** — add `quality_search: quality_search_key(output.quality_search)` and `max_bytes: output.max_bytes` to both `output_plan_data/2` keyword bodies. Add a private `quality_search_key/1` that maps `:none -> :none` and a `%QualitySearch{}` to a stable keyword: `objective`, `target`, `min_quality`, `max_quality`, `allowed_error`, and the per-format maps as sorted lists. **Exclude `max_resolution`** — it is a runtime generation guard (like a safety limit), not stored identity, so it must not enter the key *or* the ETag (AGENTS.md: "Neither the key nor the ETag is a generation gate… keep safety limits out of both"). Keep canonical/ordered. Do **not** bump a key data version (greenfield). The fields flow into the ETag automatically via `plan_material/2`, which is correct — they change the stored bytes, so they are legitimate byte-identity validators (unlike the cachebuster/vary inputs the ETag deliberately excludes).
+- [ ] **Step 3: Implement** — add `quality_search: quality_search_key(output.quality_search)` and `max_bytes: output.max_bytes` to **all three** keyword bodies: both `output_plan_data/2` clauses **and** the `output_data/3` `:automatic` clause (line ~132). Add a private `quality_search_key/1` that maps `:none -> :none` and a `%QualitySearch{}` to a stable keyword: `objective`, `target`, `min_quality`, `max_quality`, `allowed_error`, and the per-format maps as sorted lists. **Exclude `max_resolution`** — it is a runtime generation guard (like a safety limit), not stored identity, so it must not enter the key *or* the ETag (AGENTS.md: "Neither the key nor the ETag is a generation gate… keep safety limits out of both"). Keep canonical/ordered. Do **not** bump a key data version (greenfield). The fields flow into the ETag automatically via `plan_material/2`, which is correct — they change the stored bytes, so they are legitimate byte-identity validators (unlike the cachebuster/vary inputs the ETag deliberately excludes).
 - [ ] **Step 4: Run, expect pass.**
 - [ ] **Step 5: Commit.**
 
