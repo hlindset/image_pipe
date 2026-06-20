@@ -16,21 +16,24 @@ mise exec -- mix autoquality.bench --part a   # cost curve only
 mise exec -- mix autoquality.bench --part b   # accuracy/behavior only
 mise exec -- mix autoquality.bench --part c   # downscaled-proxy-seed method + accuracy
 mise exec -- mix autoquality.bench --part d   # cheap full-res metric narrowing
-mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring
+mise exec -- mix autoquality.corpus           # fetch the Part E corpus (one-time)
+mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring, per source
 mise exec -- mix autoquality.bench --part all # A + B + C + D + E
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
 mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c,e}.csv
 ```
 
-> **Part E corpus.** Part E needs a content-diverse corpus the committed sources
-> can't provide (they're synthetic/uniform). Assemble one spanning smooth /
-> heterogeneous / dark / busy / text content — the harness reports per measured
-> heterogeneity, so coverage of the *smooth+detail* (banding-prone) case is what
-> matters, not labels. The reference run used ~16 license-clean photos from Lorem
-> Picsum (varied sizes) selected by measured texture profile, plus a synthetic
-> smooth gradient (`O.grey`) and a text block (`O.text`) for the banding and
-> sharp-edge cases. Point `--corpus` at the directory.
+> **Part E corpus.** Part E needs content-diverse, license-clean images the
+> committed sources can't provide (they're synthetic/uniform). `mix
+> autoquality.corpus` fetches pinned subsets of
+> [`imazen/codec-corpus`](https://github.com/imazen/codec-corpus) — CLIC 2025
+> (photographic, train/holdout), CID22 (diverse), GB82 (hard photographic), GB82-SC
+> (screen content), QOI web screenshots — plus a fixed set of ~15 MP photos for the
+> size-dependent regime, into a shared worktree-independent cache via the GitHub
+> raw API (no git/LFS). Each `--corpus` subdirectory is a per-source group; the
+> bench reports per source then macro-averages. Pinned codec-corpus SHA
+> `bb1da43`.
 
 [`mix autoquality.bench`](../test/support/mix/tasks/autoquality.bench.ex) is
 gated off the default `mix test` lane: it is a `test/support` Mix task (compiled
@@ -218,55 +221,60 @@ SSIMULACRA2 anchoring (2 anchors + cheap interpolation + 1 confirm), which saves
 
 Score SSIMULACRA2 on native-resolution tiles of the *actual full-res encode*, not
 the whole frame. Unlike Part C's proxy this keeps native resolution, so per-pixel
-artifact statistics match — the only error is *which regions* you look at. Run over
-a curated 19-subject corpus (16 Lorem Picsum photos selected by texture profile +
-a synthetic gradient + a text block + the zone-plate), 512 px tiles, K=16
-sub-sample, reported by measured heterogeneity (HET).
+artifact statistics match — the only error is *which regions* you look at. Run
+**per content source** over the [`imazen/codec-corpus`](https://github.com/imazen/codec-corpus)
+subsets fetched by `mix autoquality.corpus` (≤24/source, macro-averaged so no one
+content type dominates), 512 px tiles, K=16 sub-sample. The honest tracking metric
+is the *offset* `tile_p10 − full_frame_score` at the boundary — a calibrated global
+threshold rides on it (the raw aggregate spread would be inflated by `full_score`'s
+integer-quality quantization):
 
-**This is the first lever that tracks.** The honest tracking metric is the *offset*
-`tile_aggregate − full_frame_score` at the boundary (a calibrated global threshold
-rides on it; the raw aggregate spread is inflated by `full_score`'s integer-quality
-quantization):
+| source | imgs | hit | q̄ | save vs q90 | **p10 offset** (median; spread) | cost full→K16 |
+|--------|------|-----|----|----|-----|-----|
+| clic (2–4 MP photos) | 24 | 24/24 | 93 | −22% | 0.29; −1.2…2.7 | 129→266 ms (loss) |
+| clic_holdout | 24 | 23/24 | 92 | −19% | −0.03; −1.1…1.8 | 125→265 ms (loss) |
+| gb82_sc (screen content) | 10 | 9/10 | 91 | −4% | −0.52; −1.2…2.1 | 124→268 ms (loss) |
+| qoi_web (huge screenshots) | 14 | 4/14 | 93 | −16% | 0.39; −0.5…2.6 | 299→267 ms (1.1×) |
+| **large (15 MP photos)** | 6 | 5/6 | 84 | **+17%** | 1.46; −0.1…3.8 | **682→270 ms (2.5×)** |
+| cid22 (512²), gb82 (576²) | 48 | 48/48 | 91 | −3…−9% | ~0 (≈1 tile — B only) | loss |
+| **macro-average** | | | | **−8%** | **+0.22** | |
 
-| aggregate | median offset | offset spread (residual) |
-|-----------|---------------|--------------------------|
-| worst-tile | −0.12 | −2.21 … 1.03 (3.24) |
-| **p10-tile** | **0.12** | **−0.87 … 1.49 (2.36)** |
-| mean-tile | 1.83 | 0.22 … 4.64 (4.42) |
+**Tracking generalizes across content types.** p10 offset median stays within ±1.5
+on photographs (CLIC), **screen content** (gb82_sc −0.52), huge web screenshots
+(qoi 0.39) and large photos (1.46); macro +0.22, residual spreads ~3–4 pts (≈ ±2–4 q)
+— versus Part C's ±18 q and Part D's hopeless spread. The screen-content
+generalization risk that motivated the diverse corpus is resolved: it tracks. A
+single threshold `≈ target + macro-offset` reproduces the full-frame decision; a
+one-pass full-frame confirm covers the residual. (`cid22`/`gb82` are ≤576 px → one
+tile, so they only exercise the B-refresh below, not crop-tracking.)
 
-**p10 holds within ±~1.5 pts** (≈ ±2 q) across content — versus Part C's ±18 q and
-Part D's hopeless spread. A single threshold `≈ target + 0.1` reproduces the
-full-frame decision. Mean is too optimistic; worst-tile is noisier.
+**Cost win is large-image-only, confirmed.** K=16 is a fixed ~265 ms budget, so it
+only beats full-frame above a **~6 MP crossover**: `large` (15 MP) wins **2.5×**,
+while CLIC at 2–4 MP and everything smaller is a *loss*. The budget is constant
+while full-frame grows ~linearly, so the win scales with size (extrapolating, ~9×
+at 36 MP) — collapsing Part A's superlinear blow-up. Sub-sampling penalty is small
+(`large`: +0.62 worst), and the worst tile sat in a smooth region in only **3/113**
+subjects (banding-in-smooth is a low-quality phenomenon, below this regime).
 
-Sub-sampling and cost:
+**B-refresh (free byproduct — and a correction).** Because the run does a full-frame
+ssim2 search per image, it doubles as Part B on real content. The result corrects
+the earlier fixture-based savings: at **target 88**, real photos land at **q91–93**,
+*above* q90 → **negative savings** vs a q90 baseline on most sources (macro −8%),
+positive only on `large` (15 MP, +17%, where camera detail needs only q84). The
+40–58 % I reported on the synthetic fixtures was an artifact of that content.
+**Caveat:** this is the benchmark's wide `[40,95]` bracket + target 88; the shipped
+`[70,80]` caps at 80, so the *defaults recommendation is unchanged* — but "target 88
+≈ q93 on photos" is real, and only a diverse corpus surfaced it. Side finding:
+`qoi_web` hit target only 4/14 — JPEG can't reach SSIM 88 on text-heavy screenshots
+(prefer WebP/PNG there).
 
-- **K=16-tile sub-sampling penalty is small:** mean +0.17 / worst +0.86 on uniform
-  images, mean +0.28 / worst +1.58 on heterogeneous ones. A sparse sample mostly
-  catches the worst region — because at the autoquality target (q≈75–90) the worst
-  tiles are *textured*, not smooth (the worst tile sat in a smooth region in only
-  **2/19** subjects; banding-in-smooth is a low-quality phenomenon, below this regime).
-- **Cost is a fixed, size-independent budget** (K=16 ≈ 260 ms here). Full tile
-  *coverage* saves nothing (same pixels as the frame), but the fixed K-tile budget
-  beats full-frame above a **~4 MP crossover**:
-
-  | size | full-frame metric | K=16 tiles | result |
-  |------|-------------------|------------|--------|
-  | ≤ 2.7 MP | 33–106 ms | ~260 ms | **loss** (use full-frame) |
-  | 10.7 MP | ~415 ms | ~263 ms | ~1.6× |
-  | 16 MP | ~721 ms | ~318 ms | ~2.3× |
-  | 36 MP (extrapolated) | ~2.4 s | ~260 ms | ~9× |
-
-  Because the budget is constant while full-frame grows ~linearly, the win scales
-  with image size — collapsing Part A's superlinear blow-up to roughly constant
-  per-probe metric cost.
-
-**Conclusion:** crop-based scoring is the one shortcut that survives — it keeps the
-*real* metric at *native resolution* and only sub-samples *space*, so it tracks the
-full-frame boundary (p10, ±~1.5 pts) while making per-probe cost size-independent.
-It's a genuine speedup for large images (above ~4 MP), the exact regime where the
-full search is unaffordable. Caveats: validate the p10 threshold on a larger/owned
-corpus before fixing it; raise K or use saliency-guided tiles if targeting very low
-quality (where banding in smooth regions would need explicit sampling).
+**Conclusion:** crop-based scoring is the one shortcut that survives, now validated
+across photographic, screen, and large content. It keeps the *real* metric at
+*native resolution* and only sub-samples *space*, so it tracks the full-frame
+boundary (p10, ±~1.5 pts) while making per-probe cost size-independent — a genuine
+speedup for large images (above ~6 MP), the regime where the full search is
+unaffordable. Caveats: calibrate the p10 threshold on `clic_holdout` (kept aside);
+raise K or use saliency-guided tiles only if targeting very low quality.
 
 ## Findings & recommendations
 
@@ -300,6 +308,16 @@ nothing in the data argues for changing the shipped `target`/bracket/`max_iterat
 defaults. (`max_iterations 6` is already generous for the `[70,80]` default
 bracket, which needs only ~4 probes; lowering it would not help the dominant
 metric cost on the wide-bracket worst case but would cap pathological brackets.)
+
+Part E's real-content B-refresh adds one nuance, not a defaults change: **target 88
+is high.** On clean photographs the search lands at q91–93 (above q90), so with a
+wide bracket the *savings vs a q90 baseline are negative* on most sources (macro
+−8 %; only 15 MP photos save, +17 %). The 40–58 % savings from the synthetic
+fixtures were content-specific. This is correct behavior (88 simply *is* a high
+perceptual bar) and the shipped `[70,80]` caps quality at 80 regardless; the
+takeaway for hosts is that the **target choice**, not the engine, sets the
+quality/size trade-off — pick it per content class (and note JPEG can't reach 88 on
+text-heavy screen content at all: `qoi_web` hit 88 on only 4/14).
 
 ### 3. The downscaled-proxy-seed optimization is harder than it looks — do not ship the naïve form
 
@@ -343,20 +361,23 @@ or per-image SSIMULACRA2 anchoring, which saves ~0 probes on the shipped narrow
 
 ### 5. Crop-based scoring (#1) is the one real speedup — prototype it for large images
 
-Part E is the lever that works. Scoring the *real* SSIMULACRA2 on a *spatial
-subset* at *native resolution* tracks the full-frame boundary (p10 aggregate,
-±~1.5 pts ≈ ±2 q) — because it changes *what area* is measured, not *the metric* or
-*the resolution*, which is what sank Parts C and D. With a fixed K≈16-tile budget it
-makes per-probe cost size-independent: a loss below ~4 MP (where full-frame is cheap
-anyway) but ~1.6× at 10.7 MP, ~2.3× at 16 MP, scaling to ~9× at 36 MP — exactly the
-large-image regime where the full search is unaffordable.
+Part E is the lever that works, now **validated per-source across the codec-corpus**
+(photographic, screen content, huge screenshots, large photos). Scoring the *real*
+SSIMULACRA2 on a *spatial subset* at *native resolution* tracks the full-frame
+boundary (p10 offset median within ±1.5 pts on every content type; macro +0.22) —
+because it changes *what area* is measured, not *the metric* or *the resolution*,
+which is what sank Parts C and D. The screen-content generalization risk is
+resolved. With a fixed K≈16-tile budget it makes per-probe cost size-independent: a
+loss below the ~6 MP crossover (where full-frame is cheap anyway) but **2.5× at
+15 MP** (the `large` source), scaling with size (~9× at 36 MP) — exactly the regime
+where the full search is unaffordable.
 
 Recommendation: prototype crop-scoring behind the `max_resolution` threshold (#1) —
-i.e. below the cap use the full frame; above it, score K p10-tiles per probe with a
-calibrated threshold (and, for safety, one full-frame confirm on the winner). Before
-fixing the threshold and K, re-run `--part e --corpus` on a larger / production-
-representative corpus. This converts the cap from "disable autoquality on big
-images" into "run it affordably," recovering the savings on the images that matter.
+below the cap use the full frame; above it, score K p10-tiles per probe with a
+threshold calibrated as `target + macro-offset`, plus one full-frame confirm on the
+winner for safety. Calibration data already exists: calibrate on `clic` and check
+on the held-out `clic_holdout`. This converts the cap from "disable autoquality on
+big images" into "run it affordably," recovering savings on the images that matter.
 
 ## The bottom line across A–E
 
