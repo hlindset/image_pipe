@@ -15,6 +15,8 @@ defmodule ImagePipe.Plan.Output do
   imgproxy `bg`/`bga` option) is a separate transform-chain operation and does not
   set this field. No parser overrides it today — it is the declarative seam for a
   future dialect/host default.
+
+  `quality_search` and `max_bytes` are resolved defaults (`:none`/`nil` = off).
   """
 
   alias ImagePipe.Plan.Color
@@ -27,7 +29,9 @@ defmodule ImagePipe.Plan.Output do
             keep_copyright: true,
             color_profile: :strip,
             hdr: :tone_map,
-            flatten_background: Color.white()
+            flatten_background: Color.white(),
+            quality_search: :none,
+            max_bytes: nil
 
   @type format :: :avif | :webp | :jpeg | :png
   @type quality :: :default | {:quality, 1..100}
@@ -41,6 +45,8 @@ defmodule ImagePipe.Plan.Output do
           keep_copyright: boolean(),
           color_profile: color_profile(),
           hdr: hdr(),
-          flatten_background: Color.t()
+          flatten_background: Color.t(),
+          quality_search: :none | ImagePipe.Plan.Output.QualitySearch.t(),
+          max_bytes: nil | pos_integer()
         }
 end

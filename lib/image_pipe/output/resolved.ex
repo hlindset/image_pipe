@@ -11,7 +11,8 @@ defmodule ImagePipe.Output.Resolved do
     :keep_copyright,
     :color_profile
   ]
-  defstruct @enforce_keys ++ [flatten_background: Color.white()]
+  defstruct @enforce_keys ++
+              [flatten_background: Color.white(), quality_search: :none, max_bytes: nil]
 
   @type format :: ImagePipe.Format.output_format()
   @type quality :: :default | {:quality, 1..100}
@@ -22,6 +23,8 @@ defmodule ImagePipe.Output.Resolved do
           strip_metadata: boolean(),
           keep_copyright: boolean(),
           color_profile: ImagePipe.Plan.Output.color_profile(),
-          flatten_background: Color.t()
+          flatten_background: Color.t(),
+          quality_search: :none | ImagePipe.Output.ResolvedQualitySearch.t(),
+          max_bytes: nil | pos_integer()
         }
 end
