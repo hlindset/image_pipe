@@ -5,6 +5,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Entry
+  alias ImagePipe.Output.Ssim2Metric
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.SourceTest.CredentialProvider
   alias ImagePipe.SourceTest.FoobarTranslator
@@ -2606,6 +2607,117 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     # objw:face:3 differs from obj:all because detection set differs (face-only vs all)
     # The face (left-of-center, crop_x≈200) vs all-classes (crop_x≈614) produces different crops.
     refute objw_face.resp_body == obj_all.resp_body
+  end
+
+  # Task 19: autoquality + max_bytes wire-level acceptance.
+  #
+  # All sizes below were probed against the real beach.jpg origin through this
+  # harness at `rs:fit:400:400` (a 400×267 JPEG): floor q=1 ≈ 2.7 KB, the default
+  # (no-autoquality) encode ≈ 11.9 KB, max q=100 ≈ 102 KB. The chosen byte budgets
+  # sit between the floor and default encodes so each descent/hit is real, not
+  # vacuously satisfied. Grammar, the binary search, and the precise metric are
+  # unit-tested (encode_search*_test.exs, ssim2_metric_test.exs); these tests only
+  # assert the user-visible wire contract: status, content-type, byte budget, that
+  # the body decodes, and that rejected methods stop before any source fetch.
+  describe "autoquality + max_bytes (wire)" do
+    test "mb:N reduces a JPEG response below the byte budget" do
+      # mb:8000 sits below the ~11.9 KB default encode, so the search must descend.
+      conn =
+        call_imgproxy("/_/rs:fit:400:400/mb:8000/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert byte_size(conn.resp_body) <= 8000
+      assert {:ok, _} = Image.from_binary(conn.resp_body)
+    end
+
+    test "autoquality:size keeps the response within the target byte budget" do
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:size:15000:60:90/f:jpeg/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert byte_size(conn.resp_body) <= 15_000
+      assert {:ok, _} = Image.from_binary(conn.resp_body)
+    end
+
+    test "autoquality:ssim2 yields a decodable JPEG perceptually close to a high-quality baseline" do
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:ssim2:85:50:95/f:jpeg/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert {:ok, body_image} = Image.from_binary(conn.resp_body)
+
+      # Robust perceptual check: compare the search output against a high-quality
+      # (q:95) encode of the same pipeline. The exact target-vs-score relationship
+      # is unit-tested; here we only prove the path runs and yields a sane image
+      # (a comfortably high similarity to a near-lossless reference).
+      baseline =
+        call_imgproxy("/_/rs:fit:400:400/q:95/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+      {:ok, baseline_image} = Image.from_binary(baseline.resp_body)
+      {:ok, reference} = Ssim2Metric.reference(baseline_image)
+      {:ok, score} = Ssim2Metric.score(reference, body_image)
+
+      assert score > 50
+    end
+
+    test "best-effort: an mb: below the floor-quality encode still returns 200" do
+      # mb:1000 is below even the floor (q=1 ≈ 2.7 KB) encode, so the target can't
+      # be met. The search must return the floor result (best-effort), never error.
+      conn =
+        call_imgproxy("/_/rs:fit:400:400/mb:1000/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert byte_size(conn.resp_body) > 0
+      assert {:ok, _} = Image.from_binary(conn.resp_body)
+    end
+
+    test "autoquality:ml (unknown method) is rejected with 4xx before any source fetch" do
+      assert_rejected_before_fetch(
+        "/_/autoquality:ml:0.02:70:80/f:jpeg/plain/images/beach.jpg",
+        [:image_pipe_wire_autoquality_ml]
+      )
+    end
+
+    test "autoquality:dssim with inline args is rejected with 4xx before any source fetch" do
+      assert_rejected_before_fetch(
+        "/_/autoquality:dssim:0.02/f:jpeg/plain/images/beach.jpg",
+        [:image_pipe_wire_autoquality_dssim]
+      )
+    end
+  end
+
+  # Asserts a request fails with a 4xx parser rejection and never touches the
+  # origin: OriginShouldNotFetch raises if fetched, and the source-resolve span is
+  # refuted under a unique telemetry prefix as belt-and-suspenders.
+  defp assert_rejected_before_fetch(path, telemetry_prefix) do
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy(path, opts)
+
+    assert conn.status in 400..499
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received :origin_fetch
   end
 
   # Security: near-max-float objw weight must be rejected cleanly (4xx), not crash (500).
