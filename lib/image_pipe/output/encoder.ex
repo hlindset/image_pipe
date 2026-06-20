@@ -46,6 +46,30 @@ defmodule ImagePipe.Output.Encoder do
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
 
+  @doc """
+  Encode `image` to an in-memory binary at a specific `quality`, returning
+  `{:ok, binary}`. Used by the quality-search loop, which probes candidate
+  qualities against an already-finalized image; the caller owns finalization
+  and reuses the resolved suffix. Errors are tagged `{:encode, exception, stack}`
+  to match the module's existing encode-error shape.
+  """
+  @spec encode_to_buffer(VixImage.t(), Resolved.t(), 1..100) ::
+          {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
+  def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
+    with {:ok, _mime_type, suffix} <- output_format(resolved_output),
+         {:ok, binary} <- Image.write(image, :memory, suffix: suffix, quality: quality) do
+      {:ok, binary}
+    else
+      {:error, {:encode, _exception, _stack} = tagged} -> {:error, tagged}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
+  rescue
+    exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  defp encode_error(reason),
+    do: ArgumentError.exception("failed to encode to buffer: #{inspect(reason)}")
+
   # Color finalize (port of imgproxy `colorspaceToResult`) + metadata strip.
   # We realize ONCE via copy_memory here, in the producer's own call stack, so a
   # corrupt-source failure is a returnable {:error, ...} (mapped to a 415 decode
