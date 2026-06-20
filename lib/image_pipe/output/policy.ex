@@ -7,6 +7,7 @@ defmodule ImagePipe.Output.Policy do
   alias ImagePipe.Output.Capabilities
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Output.ResolvedQualitySearch
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output
 
@@ -20,7 +21,8 @@ defmodule ImagePipe.Output.Policy do
     :keep_copyright,
     :color_profile
   ]
-  defstruct @enforce_keys ++ [flatten_background: Color.white()]
+  defstruct @enforce_keys ++
+              [flatten_background: Color.white(), quality_search: :none, max_bytes: nil]
 
   @passthrough_source_formats [:jpeg, :png]
 
@@ -38,7 +40,9 @@ defmodule ImagePipe.Output.Policy do
           strip_metadata: boolean(),
           keep_copyright: boolean(),
           color_profile: Output.color_profile(),
-          flatten_background: Color.t()
+          flatten_background: Color.t(),
+          quality_search: :none | Output.QualitySearch.t(),
+          max_bytes: nil | pos_integer()
         }
 
   @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
@@ -52,7 +56,9 @@ defmodule ImagePipe.Output.Policy do
       strip_metadata: output.strip_metadata,
       keep_copyright: output.keep_copyright,
       color_profile: output.color_profile,
-      flatten_background: output.flatten_background
+      flatten_background: output.flatten_background,
+      quality_search: output.quality_search,
+      max_bytes: output.max_bytes
     }
   end
 
@@ -66,7 +72,9 @@ defmodule ImagePipe.Output.Policy do
       strip_metadata: output.strip_metadata,
       keep_copyright: output.keep_copyright,
       color_profile: output.color_profile,
-      flatten_background: output.flatten_background
+      flatten_background: output.flatten_background,
+      quality_search: output.quality_search,
+      max_bytes: output.max_bytes
     }
   end
 
@@ -158,7 +166,22 @@ defmodule ImagePipe.Output.Policy do
       strip_metadata: policy.strip_metadata,
       keep_copyright: policy.keep_copyright,
       color_profile: policy.color_profile,
-      flatten_background: policy.flatten_background
+      flatten_background: policy.flatten_background,
+      quality_search: resolve_search(policy, format),
+      max_bytes: policy.max_bytes
+    }
+  end
+
+  defp resolve_search(%__MODULE__{quality_search: :none}, _format), do: :none
+
+  defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch{} = search}, format) do
+    %ResolvedQualitySearch{
+      objective: search.objective,
+      target: search.target,
+      min_quality: Map.get(search.format_min, format, search.min_quality),
+      max_quality: Map.get(search.format_max, format, search.max_quality),
+      allowed_error: search.allowed_error,
+      max_resolution: search.max_resolution
     }
   end
 
