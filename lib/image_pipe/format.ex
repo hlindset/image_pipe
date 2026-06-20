@@ -60,6 +60,11 @@ defmodule ImagePipe.Format do
   @spec supports_hdr?(output_format()) :: boolean()
   def supports_hdr?(format), do: format in @hdr_formats
 
+  @doc "Returns whether the output format has a lossy encode-quality knob the search can tune (AVIF/WebP/JPEG true; PNG false)."
+  @spec supports_quality?(output_format()) :: boolean()
+  def supports_quality?(format) when format in [:jpeg, :webp, :avif], do: true
+  def supports_quality?(_format), do: false
+
   @spec suffix(String.t()) :: {:ok, String.t()} | {:error, term()}
   def suffix(mime_type) do
     with {:ok, _format} <- format_from_mime_type(mime_type),

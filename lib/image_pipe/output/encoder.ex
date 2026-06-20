@@ -3,6 +3,7 @@ defmodule ImagePipe.Output.Encoder do
 
   alias ImagePipe.Format
   alias ImagePipe.Output.ColorProfile
+  alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Color
   alias Vix.Vips.Image, as: VixImage
@@ -38,12 +39,48 @@ defmodule ImagePipe.Output.Encoder do
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, opts) do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, finalized} <- finalize(image, resolved_output) do
-      image_module = Keyword.get(opts, :image_module, Image)
-      stream = image_module.stream!(finalized, output_options(suffix, resolved_output))
-      {:ok, stream, mime_type}
+      if search?(resolved_output) and Format.supports_quality?(resolved_output.format) and
+           not skip_search?(finalized, resolved_output) do
+        search_output(finalized, resolved_output, mime_type, opts)
+      else
+        lazy_output(finalized, resolved_output, mime_type, suffix, opts)
+      end
     end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do
+    image_module = Keyword.get(opts, :image_module, Image)
+    stream = image_module.stream!(finalized, output_options(suffix, resolved_output))
+    {:ok, stream, mime_type}
+  end
+
+  # A quality search runs when a search objective or a hard byte budget is set.
+  defp search?(%Resolved{quality_search: quality_search, max_bytes: max_bytes}),
+    do: quality_search != :none or max_bytes != nil
+
+  # The search descriptor carries the megapixel skip threshold; a max_bytes-alone
+  # request has no descriptor, so it never skips (max_resolution 0).
+  defp skip_search?(finalized, %Resolved{quality_search: quality_search}) do
+    max_resolution =
+      case quality_search do
+        %{max_resolution: mr} -> mr
+        :none -> 0
+      end
+
+    megapixels = Image.width(finalized) * Image.height(finalized) / 1_000_000
+    EncodeSearch.skip?(%{max_resolution: max_resolution}, megapixels)
+  end
+
+  # The search owns building the encode/score closures, the iteration cap, and
+  # the objective/cap phases; we only hand it the finalized image and wrap the
+  # winning buffer as a one-element list so the streaming contract is unchanged.
+  defp search_output(finalized, resolved_output, mime_type, _opts) do
+    case EncodeSearch.run(finalized, resolved_output, []) do
+      {:ok, binary, _meta} -> {:ok, [binary], mime_type}
+      {:error, _reason} = err -> err
+    end
   end
 
   @doc """
