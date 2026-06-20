@@ -515,18 +515,18 @@ defmodule ImagePipe.Plan.Operation do
 
   def semantic?(%Gradient{} = op),
     do:
-      valid_effect_intensity?(op.opacity) and Color.valid?(op.color) and is_number(op.angle) and
-        is_number(op.start) and is_number(op.stop) and op.start >= 0 and op.start <= 1 and
-        op.stop >= 0 and op.stop <= 1
+      valid_effect_intensity?(op.opacity) and Color.valid?(op.color) and is_float(op.angle) and
+        is_float(op.start) and is_float(op.stop) and op.start >= 0.0 and op.start <= 1.0 and
+        op.stop >= 0.0 and op.stop <= 1.0
 
   def semantic?(%Brightness{} = operation),
     do: is_integer(operation.value) and operation.value in @brightness_range
 
   def semantic?(%Contrast{} = operation),
-    do: is_number(operation.value) and operation.value > 0
+    do: is_float(operation.value) and operation.value > 0.0
 
   def semantic?(%Saturation{} = operation),
-    do: is_number(operation.value) and operation.value > 0
+    do: is_float(operation.value) and operation.value > 0.0
 
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
   def semantic?(%Bitonal{}), do: true
