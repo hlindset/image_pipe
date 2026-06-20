@@ -605,15 +605,15 @@ SSIMULACRA2 scores (`0..100`), not imgproxy's DSSIM values — so imgproxy's
 `autoquality` option-table row). The search gates on the libvips quality
 capability (jpeg/webp/avif), not imgproxy's narrower documented 4-format list.
 
-- ⚠️ `IMGPROXY_AUTOQUALITY_METHOD` — `autoquality_method` (`:none` | `:size` | `:ssim2`, default `:none`). imgproxy's `dssim`/`ml` methods aren't config-selectable: `dssim` maps to `ssim2`, `ml` is unsupported.
-- ⚠️ `IMGPROXY_AUTOQUALITY_TARGET` — `autoquality_target` (SSIMULACRA2 score for `:ssim2`, byte count for `:size`; **not** a DSSIM value).
+- ⚠️ `IMGPROXY_AUTOQUALITY_METHOD` — `autoquality_method` (`:none` | `:size` | `:ssim2`, default `:none`). The config surface offers only `:ssim2` for the perceptual method; imgproxy's `dssim`/`ml` config values have no config equivalent here (`ml` unsupported, and the `dssim`→`ssim2` alias exists only at the **URL** token level — bare `autoquality:dssim` — not as a config method).
+- ⚠️ `IMGPROXY_AUTOQUALITY_TARGET` — `autoquality_target` (SSIMULACRA2 score for `:ssim2`, byte count for `:size`; **not** a DSSIM value). **No default** (imgproxy defaults to `0.02`, a DSSIM value that is meaningless on the SSIMULACRA2 scale, so it is deliberately not carried): a request fails with an invalid-option error if a method is active and neither the URL nor config supplies a target.
 - ✅ `IMGPROXY_AUTOQUALITY_MIN` — `autoquality_min_quality` (default `70`).
 - ✅ `IMGPROXY_AUTOQUALITY_MAX` — `autoquality_max_quality` (default `80`).
-- ⚠️ `IMGPROXY_AUTOQUALITY_ALLOWED_ERROR` — `autoquality_allowed_error` (default `1.0`; SSIMULACRA2-scale, **not** DSSIM).
+- ⚠️ `IMGPROXY_AUTOQUALITY_ALLOWED_ERROR` — `autoquality_allowed_error` (default `1.0`; SSIMULACRA2-scale, **not** DSSIM — imgproxy's own default `0.002` is a DSSIM value and is deliberately not carried over).
 - ✅ `IMGPROXY_AUTOQUALITY_FORMAT_MIN` — `autoquality_format_min_quality` (default `%{avif: 60}`).
 - ✅ `IMGPROXY_AUTOQUALITY_FORMAT_MAX` — `autoquality_format_max_quality` (default `%{avif: 65}`).
 - ✅ `IMGPROXY_AUTOQUALITY_MAX_RESOLUTION` — `autoquality_max_resolution` (megapixels, default `0` = off).
-- ✅ `IMGPROXY_AUTOQUALITY_MAX_ITERATIONS` — `autoquality_max_iterations` (default `6`).
+- ➕ `autoquality_max_iterations` (default `6`) — **ImagePipe-specific, no imgproxy counterpart.** imgproxy's `max_bytes` descent is uncapped and its autoquality is Pro/closed; ImagePipe does a bounded binary search, so this caps the distinct re-encodes per request.
 
 ### Metadata, color profile, HDR, and default autorotation policy
 

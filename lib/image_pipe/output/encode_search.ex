@@ -236,13 +236,19 @@ defmodule ImagePipe.Output.EncodeSearch do
       upper_bytes = byte_size(Map.fetch!(ctx.encode_memo, objective_q))
 
       if upper_bytes <= max_bytes do
-        # Objective pick already fits the hard budget.
-        {:ok, objective_q, objective_outcome, ctx}
+        # Objective pick already fits the hard budget. For a max_bytes-alone
+        # search (objective `:none`) the budget IS the predicate, so a fit is a
+        # `:hit`; for a real objective its own verdict stands (the budget didn't
+        # bind), so keep it.
+        {:ok, objective_q, fit_outcome(objective_outcome), ctx}
       else
         cap_descend(floor, objective_q, max_bytes, ctx)
       end
     end
   end
+
+  defp fit_outcome(:none), do: :hit
+  defp fit_outcome(outcome), do: outcome
 
   # Objective pick exceeds the byte budget — search [floor, objective_q] for the
   # highest q that fits, falling back to the floor when even it exceeds.

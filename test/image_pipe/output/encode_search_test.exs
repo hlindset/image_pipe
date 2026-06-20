@@ -110,8 +110,30 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   test "max_bytes alone searches [10, base] for the highest fit" do
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
 
-    assert {:ok, _bin, %{quality: 40}} =
+    assert {:ok, _bin, %{quality: 40, outcome: :hit}} =
              EncodeSearch.search(:none, 40_000,
+               encode_fun: enc,
+               base_quality: 90,
+               max_iterations: 8
+             )
+  end
+
+  test "max_bytes alone reports :hit when the base quality already fits" do
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
+    # base 90 -> 90_000 bytes, already <= 200_000: no descent, but a satisfied budget.
+    assert {:ok, _bin, %{quality: 90, outcome: :hit}} =
+             EncodeSearch.search(:none, 200_000,
+               encode_fun: enc,
+               base_quality: 90,
+               max_iterations: 8
+             )
+  end
+
+  test "max_bytes alone reports :best_effort when even the floor exceeds the budget" do
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
+    # floor 10 -> 10_000 bytes > 5_000: best-effort floor.
+    assert {:ok, _bin, %{quality: 10, outcome: :best_effort}} =
+             EncodeSearch.search(:none, 5_000,
                encode_fun: enc,
                base_quality: 90,
                max_iterations: 8
