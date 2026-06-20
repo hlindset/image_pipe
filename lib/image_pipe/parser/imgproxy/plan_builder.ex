@@ -116,6 +116,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
        mode: :automatic,
        quality: request.quality,
        format_qualities: request.format_qualities,
+       quality_search: request.quality_search,
+       max_bytes: request.max_bytes,
        strip_metadata: request.strip_metadata,
        keep_copyright: request.keep_copyright,
        color_profile: color_profile_policy(request.color_profile, request.strip_color_profile),
@@ -134,6 +136,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
            mode: {:explicit, format},
            quality: request.quality,
            format_qualities: request.format_qualities,
+           quality_search: request.quality_search,
+           max_bytes: request.max_bytes,
            strip_metadata: request.strip_metadata,
            keep_copyright: request.keep_copyright,
            color_profile:
