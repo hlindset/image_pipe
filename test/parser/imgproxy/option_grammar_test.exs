@@ -320,8 +320,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
 
   test "dropped options return unknown option errors" do
     for segment <- ~w(
-          raw max_bytes mb max_src_resolution msr max_src_file_size msfs
-          raw:false max_bytes:100 mb:100
+          raw max_src_resolution msr max_src_file_size msfs
+          raw:false
         ) do
       [name | _args] = String.split(segment, ":")
 
@@ -452,6 +452,81 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
 
     test "rejects a bad boolean (stricter than imgproxy, like enlarge)" do
       assert {:error, _} = OptionGrammar.parse("trim:10::x")
+    end
+  end
+
+  describe "max_bytes" do
+    test "parses max_bytes and its mb alias into the output scope" do
+      assert {:ok, {:output, [max_bytes: 51_200]}} = OptionGrammar.parse("max_bytes:51200")
+      assert {:ok, {:output, [max_bytes: 51_200]}} = OptionGrammar.parse("mb:51200")
+    end
+
+    test "mb:0 disables the ceiling (no-op), matching imgproxy" do
+      assert {:ok, {:output, [max_bytes: nil]}} = OptionGrammar.parse("mb:0")
+    end
+
+    test "rejects negative or malformed max_bytes" do
+      assert {:error, _} = OptionGrammar.parse("mb:-5")
+      assert {:error, _} = OptionGrammar.parse("mb:abc")
+    end
+  end
+
+  describe "autoquality" do
+    alias ImagePipe.Parser.Imgproxy.OptionGrammar, as: G
+
+    test "autoquality:none disables the search" do
+      assert {:ok, {:output, [quality_search: {:autoquality, :disabled}]}} =
+               G.parse("autoquality:none")
+
+      assert {:ok, {:output, [quality_search: {:autoquality, :disabled}]}} = G.parse("aq:none")
+    end
+
+    test "autoquality:size with full args" do
+      assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
+               G.parse("autoquality:size:10240:10:80")
+
+      assert fields[:objective] == :size and fields[:target] == 10_240 and
+               fields[:min_quality] == 10 and fields[:max_quality] == 80
+
+      refute Keyword.has_key?(fields, :allowed_error)
+    end
+
+    test "autoquality:ssim2 with full args" do
+      assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
+               G.parse("autoquality:ssim2:90:70:80:1")
+
+      assert fields[:objective] == :ssim2 and fields[:target] == 90.0 and
+               fields[:allowed_error] == 1.0
+    end
+
+    test "trailing args are optional (config fills the rest)" do
+      assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
+               G.parse("autoquality:ssim2:90")
+
+      assert fields[:objective] == :ssim2 and fields[:target] == 90.0
+      refute Keyword.has_key?(fields, :min_quality)
+    end
+
+    test "bare dssim is accepted as an ssim2 alias with no inline args" do
+      assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
+               G.parse("autoquality:dssim")
+
+      assert fields[:objective] == :ssim2
+      refute Keyword.has_key?(fields, :target)
+    end
+
+    test "dssim with inline args is rejected" do
+      assert {:error, _} = G.parse("autoquality:dssim:0.02:70:80:0.001")
+      assert {:error, _} = G.parse("autoquality:dssim:90")
+    end
+
+    test "ml and unknown methods are rejected" do
+      assert {:error, _} = G.parse("autoquality:ml:0.02:70:80:0.001")
+      assert {:error, _} = G.parse("autoquality:bogus")
+    end
+
+    test "min greater than max is rejected" do
+      assert {:error, _} = G.parse("autoquality:size:10240:80:10")
     end
   end
 

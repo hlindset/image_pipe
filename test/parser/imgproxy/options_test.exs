@@ -229,6 +229,26 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert request.response.disposition == :attachment
   end
 
+  test "max_bytes and autoquality accumulate onto the output map" do
+    assert {:ok, request} =
+             Options.parse(
+               ~w(mb:51200 autoquality:ssim2:90:70:80:1),
+               Presets.empty()
+             )
+
+    assert request.output.max_bytes == 51_200
+
+    assert request.output.quality_search ==
+             {:autoquality,
+              [
+                objective: :ssim2,
+                target: 90.0,
+                min_quality: 70,
+                max_quality: 80,
+                allowed_error: 1.0
+              ]}
+  end
+
   test "pipeline separators finalize the current pipeline and start the next one" do
     assert {:ok, request} = Options.parse(~w(w:500 - h:200), Presets.empty())
 
