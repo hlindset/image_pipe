@@ -146,7 +146,7 @@ save. ImagePipe realizes these at request and output boundaries:
 | Initial load + source-resolution gate (`MaxSrcResolution`) | decode + `max_input_pixels` (hard error) | ✅ | The image-bomb gate is a hard error, not a downscale — matches imgproxy. `max_body_bytes` caps the fetched body. |
 | Output format determination | `lib/image_pipe/output/negotiation.ex`, `lib/image_pipe/output/policy.ex` | ✅ | `Accept` negotiation for AVIF/WebP with `Vary: Accept`; explicit `@extension`/`.extension` bypasses it. JXL, `enforce_*`, `preferred_formats` missing. |
 | Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/output/clamp.ex` via the producer (`min(host max_result_*, encoder_limit)`) | ✅ | imgproxy downscales the result to fit `max_result_*`; ImagePipe matches for the common no-padding/no-extend request (#165), reusing the #150 `Output.Clamp` — byte-intent identical to `limitScale`'s linear `downScale = maxResultDim/max(outW,outH)` (`prepare.go:247`) when caps are equal and a dimension binds. **Diverges (superset):** ImagePipe honors independent `max_result_width`/`max_result_height` and a result `max_result_pixels` cap (sqrt), where imgproxy's `limitScale` has a single `MaxResultDimension` and no result-pixel cap. **Diverges (composition):** ImagePipe clamps the **composited** final image, whereas imgproxy folds the downscale into the resize scale and re-applies padding/extend at the reduced scale (`prepare.go:233-263`) — both land ≤ cap, but padded/extended requests differ in the **content-to-padding ratio of the final frame**. ImagePipe mirrors imgproxy's per-axis sub-1px floor (`prepare.go:252-258`) via `max(scale, 1/dim)`; in the extreme-aspect 1px regime the realized pixels can still differ for the same composited-vs-fold-back reason. **Stage/order (#164, approach A):** on the plain (non-oriented) path the clamp runs on the lazy composite *before* the delivery materialization, so libvips fuses resize→clamp (also crop→clamp and embed→clamp — verified across fit, cover, and canvas/padding by the #164 benchmark probes) and avoids forming the full oversized intermediate. Served output is unchanged (pixels, dims, content-type, status, cache key, ETag) and the `[:output, :clamp]` event's metadata is identical — an internal memory optimization. (One ordering nuance: the clamp event now fires *before* the delivery materialize, so it can precede a rare materialize-failure 415 where it previously would not — it never changes served output.) The oriented mid-chain flush still materializes pre-clamp (deferred). |
-| Save / encode | `lib/image_pipe/output/encoder.ex` | ✅ | Streams the encoded result. Advanced/codec-specific encoder knobs missing (see "Advanced encoder options"). |
+| Save / encode | `lib/image_pipe/output/encoder.ex` | ✅ | Streams the encoded result. The `autoquality`/`max_bytes` quality search (`lib/image_pipe/output/encode_search.ex`) is an output/encode-stage **re-encode loop** — a binary search over encoder quality — with no per-option knob for the loop mechanics themselves (analogous to the other config-less internal stages above); it gates on `Format.supports_quality?` (jpeg/webp/avif). Advanced/codec-specific encoder knobs missing (see "Advanced encoder options"). |
 
 ### Key takeaways
 
@@ -250,8 +250,8 @@ matrix: each constellation carries a verdict that maps to a stage row.
   specs. `resizing_type`/`rt` as a standalone option (separate `w:`/`h:`) is now covered by
   `resizing_type_direct_marker` (≡ `rs:fit:300:200`, a distinct parse path). `watermark` is
   the other unimplemented OSS pixel option but needs a configured watermark asset to bake;
-  the rest (`max_bytes`, `skip_processing`, `raw`, `enforce_thumbnail`, the security
-  *limits*) are metadata/encode/cache/gate concerns the PNG pixel-differential can't
+  `max_bytes` (implemented), `skip_processing`, `raw`, `enforce_thumbnail`, and the security
+  *limits* are metadata/encode/cache/gate concerns the PNG pixel-differential can't
   meaningfully compare.
 
 Regeneration and the libvips provenance model are documented in
@@ -584,9 +584,9 @@ Imgproxy-style global quality default or format-quality config.
 
 ### Advanced encoder options
 
-ImagePipe passes only an explicit quality value to the encoder today. It
-doesn't expose codec-specific knobs, byte-target search, `autoquality`, or JPEG
-XL output.
+ImagePipe passes only an explicit quality value to the encoder today, plus the
+`autoquality`/`max_bytes` quality search (its config has its own section below).
+It doesn't expose codec-specific knobs or JPEG XL output.
 
 - ⭕ `IMGPROXY_JPEG_PROGRESSIVE`
 - ⭕ `IMGPROXY_JPEG_*`
@@ -594,7 +594,26 @@ XL output.
 - ⭕ `IMGPROXY_WEBP_*`
 - ⭕ `IMGPROXY_AVIF_*`
 - ⭕ `IMGPROXY_JXL_*`
-- ⭕ `IMGPROXY_AUTOQUALITY_*`
+
+### Autoquality and byte-budget search
+
+Host-level defaults for the `autoquality`/`aq` quality search via
+`imgproxy: [autoquality_method: ..., ...]` (URL args override per request). These
+are **native-scale**: `autoquality_target` and `autoquality_allowed_error` are
+SSIMULACRA2 scores (`0..100`), not imgproxy's DSSIM values — so imgproxy's
+`IMGPROXY_AUTOQUALITY_TARGET=0.02` (a DSSIM value) is **not** portable (see the
+`autoquality` option-table row). The search gates on the libvips quality
+capability (jpeg/webp/avif), not imgproxy's narrower documented 4-format list.
+
+- ⚠️ `IMGPROXY_AUTOQUALITY_METHOD` — `autoquality_method` (`:none` | `:size` | `:ssim2`, default `:none`). imgproxy's `dssim`/`ml` methods aren't config-selectable: `dssim` maps to `ssim2`, `ml` is unsupported.
+- ⚠️ `IMGPROXY_AUTOQUALITY_TARGET` — `autoquality_target` (SSIMULACRA2 score for `:ssim2`, byte count for `:size`; **not** a DSSIM value).
+- ✅ `IMGPROXY_AUTOQUALITY_MIN` — `autoquality_min_quality` (default `70`).
+- ✅ `IMGPROXY_AUTOQUALITY_MAX` — `autoquality_max_quality` (default `80`).
+- ⚠️ `IMGPROXY_AUTOQUALITY_ALLOWED_ERROR` — `autoquality_allowed_error` (default `1.0`; SSIMULACRA2-scale, **not** DSSIM).
+- ✅ `IMGPROXY_AUTOQUALITY_FORMAT_MIN` — `autoquality_format_min_quality` (default `%{avif: 60}`).
+- ✅ `IMGPROXY_AUTOQUALITY_FORMAT_MAX` — `autoquality_format_max_quality` (default `%{avif: 65}`).
+- ✅ `IMGPROXY_AUTOQUALITY_MAX_RESOLUTION` — `autoquality_max_resolution` (megapixels, default `0` = off).
+- ✅ `IMGPROXY_AUTOQUALITY_MAX_ITERATIONS` — `autoquality_max_iterations` (default `6`).
 
 ### Metadata, color profile, HDR, and default autorotation policy
 
@@ -938,8 +957,8 @@ transforms or output encoding.
 | --- | --- | --- | --- |
 | `quality` | `q` | Supported | `0` (the imgproxy "unset" sentinel) selects the configured/format default; explicit values are `1..100`. There is no per-request way to request a literal quality of `0`. |
 | `format_quality` | `fq` | Partial | One `<format>:<quality>` pair per option segment. Repeated segments merge. More than one pair in one segment isn't supported. |
-| `autoquality` | `aq` | Missing | Pro multi-encode quality search. |
-| `max_bytes` | `mb` | Missing | No iterative encode degradation. |
+| `autoquality` | `aq` | Supported | Pro encode-quality search. Grammar: `autoquality:none` (disable), `autoquality:size:%target:%min:%max` (`target` = byte count), `autoquality:ssim2:%target:%min:%max:%allowed_error` (`target` = SSIMULACRA2 score `0..100`), and bare `autoquality:dssim` (alias for `ssim2`-from-config). All trailing args are optional and fall back to the host config defaults below. Resolves to `Plan.Output.QualitySearch`; the search runs at the output/encode boundary (see "Processing pipeline conformance" Save/encode), gated on the libvips quality **capability** (jpeg/webp/avif), not imgproxy's docs' narrower 4-format list. **Diverges (metric):** ImagePipe's perceptual method is **SSIMULACRA2** (score `0..100`, higher = better, ~90 visually lossless) — a *different metric, scale, and direction* from imgproxy's DSSIM (lower = better, e.g. `0.02`). The native form is `ssim2`: it picks the lowest quality whose score ≥ `target − allowed_error`. **`dssim` bare-only:** `autoquality:dssim` is accepted (all params from config), but imgproxy's numeric form `autoquality:dssim:0.02:…` is **rejected** before side effects — a DSSIM-scale number is meaningless as a SSIMULACRA2 score, so rather than silently misinterpret it ImagePipe rejects and points to `ssim2`. Approximate migration: imgproxy `dssim:0.02` ≈ ImagePipe `ssim2:85` (the metrics don't convert exactly). **`ml` method: Unsupported (deliberate divergence)** — no license-clean model, so it is rejected before side effects. **Minor grammar divergence:** `autoquality:size` accepts no 5th positional arg; imgproxy's uniform grammar tolerates (and ignores) a trailing `allowed_error` on `size`. |
+| `max_bytes` | `mb` | Supported | Caps the encoded result at a byte budget via a binary search over encoder quality (`Plan.Output.max_bytes`), at the output/encode boundary. `mb:0` disables the ceiling (matches imgproxy). **Best-effort:** returns the smallest result even when it can't fit the budget; never errors. **Note (behavioral, same observable contract):** the binary search selects the *highest* quality under budget, where imgproxy uses a faster heuristic descent — byte-identical parity is build-dependent regardless, so it is not asserted. **Note:** under `autoquality + max_bytes` composition ImagePipe's floor is the autoquality `min_quality`, whereas imgproxy's `max_bytes` always floors at quality 10. |
 | `jpeg_options` | `jpgo` | Missing | Pro advanced JPEG encoder controls. |
 | `png_options` | `pngo` | Missing | Pro advanced PNG encoder controls. |
 | `webp_options` | `webpo` | Missing | Pro advanced WebP encoder controls. |
