@@ -19,11 +19,9 @@ defmodule ImagePipe.Transform.Operation.Saturation do
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{value: value}, %State{} = state) do
-    case Image.saturation(state.image, multiplier(value)) do
+    case Image.saturation(state.image, value) do
       {:ok, image} -> {:ok, set_image(state, image)}
       {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
-
-  defp multiplier(value), do: (100 + value) / 100
 end

@@ -300,8 +300,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                  highlight: color!(255, 238, 204)
                ],
                brightness: 20,
-               contrast: -15,
-               saturation: 35
+               contrast: 1.5,
+               saturation: 2.0
              )
 
     assert [
@@ -331,9 +331,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert brightness.__struct__ == ImagePipe.Plan.Operation.Brightness
     assert brightness.value == 20
     assert contrast.__struct__ == ImagePipe.Plan.Operation.Contrast
-    assert contrast.value == -15
+    assert contrast.value == 1.5
     assert saturation.__struct__ == ImagePipe.Plan.Operation.Saturation
-    assert saturation.value == 35
+    assert saturation.value == 2.0
   end
 
   test "skips imgproxy effect no-op values" do
@@ -345,8 +345,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                monochrome: [intensity: ratio(0, 1)],
                duotone: [intensity: ratio(0, 1)],
                brightness: 0,
-               contrast: 0,
-               saturation: 0
+               contrast: 1.0,
+               saturation: 1.0
              )
 
     assert operations == []
@@ -355,6 +355,36 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              plan_pipeline(pixelate: 1)
 
     assert operations == []
+  end
+
+  test "colorize plans after saturation" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             plan_pipeline(
+               saturation: 1.5,
+               colorize: [opacity: ratio(1, 2), color: color!(0, 0, 0)]
+             )
+
+    assert [%Operation.Saturation{}, %Operation.Colorize{}] = ops
+  end
+
+  test "colorize opacity 0 is a no-op" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+             plan_pipeline(colorize: [opacity: ratio(0, 1)])
+  end
+
+  test "gradient plans after colorize" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             plan_pipeline(
+               colorize: [opacity: ratio(1, 2), color: color!(0, 0, 0)],
+               gradient: [opacity: ratio(1, 2), color: color!(0, 0, 0), angle: 0.0]
+             )
+
+    assert [%Operation.Colorize{}, %Operation.Gradient{}] = ops
+  end
+
+  test "gradient opacity 0 is a no-op" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+             plan_pipeline(gradient: [opacity: ratio(0, 1)])
   end
 
   test "explicit false extend prevents parsed extend tails from planning canvas operations" do
@@ -1479,7 +1509,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
         :duotone,
         :brightness,
         :contrast,
-        :saturation
+        :saturation,
+        :colorize,
+        :gradient
       ])
 
     if effect_attrs == [] do

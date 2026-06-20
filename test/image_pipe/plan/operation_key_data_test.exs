@@ -7,9 +7,11 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
+  alias ImagePipe.Plan.Operation.Colorize
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Gradient
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Rotate
@@ -242,15 +244,64 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
              ]
 
       assert KeyData.data(%Brightness{value: 20}) == [op: :brightness, value: 20]
-      assert KeyData.data(%Contrast{value: -15}) == [op: :contrast, value: -15]
-      assert KeyData.data(%Saturation{value: 35}) == [op: :saturation, value: 35]
+      assert KeyData.data(%Contrast{value: 1.5}) == [op: :contrast, value: 1.5]
+      assert KeyData.data(%Saturation{value: 1.5}) == [op: :saturation, value: 1.5]
     end
 
-    test "returns identical key data for equivalent adjustment values" do
-      assert {:ok, integer_brightness} = Operation.brightness(20)
-      assert {:ok, float_brightness} = Operation.brightness(20.0)
+    test "returns key data for colorize covering opacity, color, and keep_alpha" do
+      {:ok, black} = Operation.color(0, 0, 0)
+      {:ok, white} = Operation.color(255, 255, 255)
 
-      assert KeyData.data(integer_brightness) == KeyData.data(float_brightness)
+      base = %Colorize{opacity: {:ratio, 1, 2}, color: black, keep_alpha: false}
+
+      assert KeyData.data(base) == [
+               op: :colorize,
+               opacity: [unit: :ratio, numerator: 1, denominator: 2],
+               color: Color.key_data(black),
+               keep_alpha: false
+             ]
+
+      different_opacity = %Colorize{base | opacity: {:ratio, 1, 4}}
+      different_color = %Colorize{base | color: white}
+      different_keep_alpha = %Colorize{base | keep_alpha: true}
+
+      refute KeyData.data(base) == KeyData.data(different_opacity)
+      refute KeyData.data(base) == KeyData.data(different_color)
+      refute KeyData.data(base) == KeyData.data(different_keep_alpha)
+    end
+
+    test "returns key data for gradient covering opacity, color, angle, start, and stop" do
+      {:ok, black} = Operation.color(0, 0, 0)
+      {:ok, white} = Operation.color(255, 255, 255)
+
+      base = %Gradient{
+        opacity: {:ratio, 1, 2},
+        color: black,
+        angle: 90.0,
+        start: 0.0,
+        stop: 1.0
+      }
+
+      assert KeyData.data(base) == [
+               op: :gradient,
+               opacity: [unit: :ratio, numerator: 1, denominator: 2],
+               color: Color.key_data(black),
+               angle: 90.0,
+               start: 0.0,
+               stop: 1.0
+             ]
+
+      different_opacity = %Gradient{base | opacity: {:ratio, 1, 4}}
+      different_color = %Gradient{base | color: white}
+      different_angle = %Gradient{base | angle: 270.0}
+      different_start = %Gradient{base | start: 0.25}
+      different_stop = %Gradient{base | stop: 0.75}
+
+      refute KeyData.data(base) == KeyData.data(different_opacity)
+      refute KeyData.data(base) == KeyData.data(different_color)
+      refute KeyData.data(base) == KeyData.data(different_angle)
+      refute KeyData.data(base) == KeyData.data(different_start)
+      refute KeyData.data(base) == KeyData.data(different_stop)
     end
   end
 

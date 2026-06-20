@@ -34,6 +34,8 @@ defmodule ImagePipe.Transform do
       Operation.Brightness,
       Operation.Contrast,
       Operation.Saturation,
+      Operation.Colorize,
+      Operation.Gradient,
       Operation.Trim
     ]
 

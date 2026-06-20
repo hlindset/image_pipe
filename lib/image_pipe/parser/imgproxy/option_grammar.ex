@@ -79,12 +79,12 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "pixelate" => [{:pixelate, :non_neg_int}],
     "pix" => [{:pixelate, :non_neg_int}],
     "dpr" => [{:dpr, :positive_float}],
-    "brightness" => [{:brightness, :adjustment}],
-    "br" => [{:brightness, :adjustment}],
-    "contrast" => [{:contrast, :adjustment}],
-    "co" => [{:contrast, :adjustment}],
-    "saturation" => [{:saturation, :adjustment}],
-    "sa" => [{:saturation, :adjustment}]
+    "brightness" => [{:brightness, :brightness_value}],
+    "br" => [{:brightness, :brightness_value}],
+    "contrast" => [{:contrast, :scale_factor}],
+    "co" => [{:contrast, :scale_factor}],
+    "saturation" => [{:saturation, :scale_factor}],
+    "sa" => [{:saturation, :scale_factor}]
   }
 
   @gravity_anchors %{
@@ -460,7 +460,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp apply_type(:non_neg_float, value), do: parse_non_negative_float(value)
   defp apply_type(:positive_float, value), do: parse_positive_float(value)
   defp apply_type(:non_neg_int, value), do: parse_non_negative_integer(value)
-  defp apply_type(:adjustment, value), do: parse_adjustment_value(value)
+  defp apply_type(:scale_factor, value), do: parse_scale_factor(value)
+  defp apply_type(:brightness_value, value), do: parse_brightness_value(value)
 
   defp parse_special_option(name, args, segment) when name in ["zoom", "z"] do
     parse_zoom(args, segment)
@@ -530,11 +531,53 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_duotone(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["colorize", "col"] do
+    parse_colorize(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["gradient", "gr"] do
+    parse_gradient(args, segment)
+  end
+
   defp parse_special_option(name, args, segment) when name in ["trim", "t"] do
     parse_trim(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["adjust", "a"] do
+    parse_adjust(args, segment)
+  end
+
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
+
+  # adjust:%brightness:%contrast:%saturation — parser-only sugar that fans each
+  # present segment out to the existing brightness/contrast/saturation effects.
+  # Empty segments are skipped, leaving each field at its default no-op.
+  defp parse_adjust(args, _segment) when length(args) in 1..3 do
+    specs = [
+      {:brightness, &parse_brightness_value/1},
+      {:contrast, &parse_scale_factor/1},
+      {:saturation, &parse_scale_factor/1}
+    ]
+
+    args
+    |> Enum.zip(specs)
+    |> Enum.reduce_while({:ok, []}, fn
+      {"", _spec}, {:ok, acc} ->
+        {:cont, {:ok, acc}}
+
+      {value, {key, parser}}, {:ok, acc} ->
+        case parser.(value) do
+          {:ok, parsed} -> {:cont, {:ok, [{key, parsed} | acc]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_adjust(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   # trim:%threshold:%color:%equal_hor:%equal_ver — enabled iff threshold is set.
   defp parse_trim([], _segment), do: {:ok, []}
@@ -644,11 +687,105 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
-  defp parse_adjustment_value(value) do
+  defp parse_colorize([opacity], _segment) when opacity != "" do
+    with {:ok, opacity} <- parse_intensity(opacity), do: {:ok, [colorize: [opacity: opacity]]}
+  end
+
+  defp parse_colorize([opacity, color], segment) when opacity != "" do
+    parse_colorize([opacity, color, ""], segment)
+  end
+
+  defp parse_colorize([opacity, color, keep_alpha], _segment) when opacity != "" do
+    with {:ok, opacity} <- parse_intensity(opacity),
+         {:ok, color_assignments} <- parse_optional_colorize_color(color),
+         {:ok, keep_assignments} <- parse_optional_keep_alpha(keep_alpha) do
+      {:ok, [colorize: [opacity: opacity] ++ color_assignments ++ keep_assignments]}
+    else
+      {:error, {:invalid_color, _}} -> {:error, {:invalid_colorize, color}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_colorize(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_optional_colorize_color(""), do: {:ok, []}
+
+  defp parse_optional_colorize_color(value) do
+    with {:ok, color} <- Color.rgb_hex(value), do: {:ok, [color: color]}
+  end
+
+  defp parse_optional_keep_alpha(""), do: {:ok, []}
+
+  defp parse_optional_keep_alpha(value) do
+    with {:ok, bool} <- parse_boolean(value), do: {:ok, [keep_alpha: bool]}
+  end
+
+  @gradient_directions %{"down" => 0.0, "left" => 90.0, "up" => 180.0, "right" => 270.0}
+
+  defp parse_gradient([opacity | rest], _segment) when opacity != "" and length(rest) <= 4 do
+    with {:ok, opacity} <- parse_intensity(opacity),
+         {:ok, assignments} <- parse_gradient_tail(rest) do
+      {:ok, [gradient: [opacity: opacity] ++ assignments]}
+    end
+  end
+
+  defp parse_gradient(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  # rest = [color, direction, start, stop] (any trailing omitted; empty = default)
+  defp parse_gradient_tail(rest) do
+    [color, direction, start, stop] = rest ++ List.duplicate("", 4 - length(rest))
+
+    with {:ok, color_kw} <- parse_optional_colorize_color(color),
+         {:ok, dir_kw} <- parse_optional_gradient_direction(direction),
+         {:ok, start_kw} <- parse_optional_gradient_pos(:start, start),
+         {:ok, stop_kw} <- parse_optional_gradient_pos(:stop, stop) do
+      {:ok, color_kw ++ dir_kw ++ start_kw ++ stop_kw}
+    else
+      {:error, {:invalid_color, _}} -> {:error, {:invalid_gradient, color}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_optional_gradient_direction(""), do: {:ok, []}
+
+  defp parse_optional_gradient_direction(value) do
+    case Map.fetch(@gradient_directions, value) do
+      {:ok, angle} ->
+        {:ok, [angle: angle]}
+
+      :error ->
+        case parse_number(value) do
+          {:ok, number} -> {:ok, [angle: normalize_angle(number)]}
+          {:error, _} -> {:error, {:invalid_gradient, value}}
+        end
+    end
+  end
+
+  defp parse_optional_gradient_pos(_field, ""), do: {:ok, []}
+
+  defp parse_optional_gradient_pos(field, value) do
     case parse_number(value) do
-      {:ok, number} when number >= -100 and number <= 100 -> {:ok, number}
-      {:ok, _number} -> {:error, {:invalid_adjustment, value}}
-      {:error, _reason} -> {:error, {:invalid_adjustment, value}}
+      {:ok, number} when number >= 0 and number <= 1 -> {:ok, [{field, number * 1.0}]}
+      _other -> {:error, {:invalid_gradient, value}}
+    end
+  end
+
+  defp normalize_angle(number) do
+    angle = :math.fmod(number * 1.0, 360.0)
+    if angle < 0, do: angle + 360.0, else: angle
+  end
+
+  defp parse_scale_factor(value) do
+    case parse_number(value) do
+      {:ok, number} when number > 0 -> {:ok, number * 1.0}
+      _other -> {:error, {:invalid_scale_factor, value}}
+    end
+  end
+
+  defp parse_brightness_value(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer >= -255 and integer <= 255 -> {:ok, integer}
+      _other -> {:error, {:invalid_brightness, value}}
     end
   end
 

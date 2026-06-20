@@ -194,6 +194,48 @@ defmodule ImagePipe.Transform.DeferredOrientationFrameTest do
     assert_display_frame_parity([pix], "pixelate non-multiple grid")
   end
 
+  # ── 2c. Gradient (directional, display frame) ────────────────────────────────
+
+  test "gradient ramp runs along the display axes (matches baked twin)" do
+    # A full-strength down (0°) black gradient is directional: a pre-flush (storage-
+    # frame) run would ramp along the storage axes, so under a quarter turn the dark
+    # end lands on a rotated edge. Parity with the baked display twin pins it to the
+    # display frame.
+    {:ok, gradient} =
+      Operation.gradient(opacity_full(), black(), 0.0, 0.0, 1.0)
+
+    assert_display_frame_parity([gradient], "down gradient direction")
+  end
+
+  test "down gradient's dark end lands on the DISPLAY bottom under a quarter turn" do
+    # EXIF 6 is a quarter turn: a 40×80 storage displays as 80×40. A down (0°)
+    # gradient must darken toward the DISPLAY bottom. Without the flush-before-
+    # gradient clause the ramp runs in the storage frame and the dark end lands on a
+    # display SIDE, not the bottom — this assertion then fails.
+    {:ok, gradient} = Operation.gradient(opacity_full(), black(), 0.0, 0.0, 1.0)
+
+    out = run([gradient], marked_storage(40, 80, 6))
+
+    {w, h} = {Image.width(out), Image.height(out)}
+    mid_x = div(w, 2)
+    top_lum = display_lum(out, mid_x, 0)
+    bottom_lum = display_lum(out, mid_x, h - 1)
+
+    assert bottom_lum < top_lum - 80,
+           "expected display bottom darker than top, got top=#{top_lum} bottom=#{bottom_lum}"
+  end
+
+  defp display_lum(image, x, y) do
+    image |> Image.get_pixel!(x, y) |> List.flatten() |> hd()
+  end
+
+  defp black do
+    {:ok, color} = Operation.color(0, 0, 0)
+    color
+  end
+
+  defp opacity_full, do: {:ratio, 1, 1}
+
   # ── 3. Trim runs on the storage frame ────────────────────────────────────────
 
   # Smart-trim storage source: a white frame with a distinct BLACK top-left

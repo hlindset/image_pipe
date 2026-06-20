@@ -227,6 +227,44 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert OptionGrammar.parse("pix:0") == {:ok, {:pipeline, [pixelate: 0]}}
   end
 
+  test "brightness accepts imgproxy integer range -255..255" do
+    assert OptionGrammar.parse("br:255") == {:ok, {:pipeline, [brightness: 255]}}
+    assert OptionGrammar.parse("brightness:-255") == {:ok, {:pipeline, [brightness: -255]}}
+    assert OptionGrammar.parse("br:0") == {:ok, {:pipeline, [brightness: 0]}}
+    assert OptionGrammar.parse("br:256") == {:error, {:invalid_brightness, "256"}}
+    assert OptionGrammar.parse("br:1.5") == {:error, {:invalid_brightness, "1.5"}}
+  end
+
+  test "contrast accepts a positive float, 1 = unchanged" do
+    assert OptionGrammar.parse("co:1.5") == {:ok, {:pipeline, [contrast: 1.5]}}
+    assert OptionGrammar.parse("contrast:1") == {:ok, {:pipeline, [contrast: 1.0]}}
+    assert OptionGrammar.parse("co:0") == {:error, {:invalid_scale_factor, "0"}}
+    assert OptionGrammar.parse("co:-1") == {:error, {:invalid_scale_factor, "-1"}}
+  end
+
+  test "saturation accepts a positive float, 1 = unchanged" do
+    assert OptionGrammar.parse("sa:0.5") == {:ok, {:pipeline, [saturation: 0.5]}}
+    assert OptionGrammar.parse("saturation:2") == {:ok, {:pipeline, [saturation: 2.0]}}
+    assert OptionGrammar.parse("sa:0") == {:error, {:invalid_scale_factor, "0"}}
+  end
+
+  test "adjust fans out to brightness/contrast/saturation" do
+    assert OptionGrammar.parse("a:50") == {:ok, {:pipeline, [brightness: 50]}}
+    assert OptionGrammar.parse("a::1.5") == {:ok, {:pipeline, [contrast: 1.5]}}
+    assert OptionGrammar.parse("a:::0.8") == {:ok, {:pipeline, [saturation: 0.8]}}
+
+    assert OptionGrammar.parse("adjust:10:1.2:0.9") ==
+             {:ok, {:pipeline, [brightness: 10, contrast: 1.2, saturation: 0.9]}}
+
+    assert OptionGrammar.parse("a:300") == {:error, {:invalid_brightness, "300"}}
+    assert OptionGrammar.parse("a::0") == {:error, {:invalid_scale_factor, "0"}}
+  end
+
+  test "adjust expands to the same effect assignments as the long forms" do
+    assert OptionGrammar.parse("a:50:1.5:0.8") ==
+             {:ok, {:pipeline, [brightness: 50, contrast: 1.5, saturation: 0.8]}}
+  end
+
   test "dpr parses positive floats and rejects non-positive values" do
     # imgproxy `parsePositiveNonZeroFloat` (options/parser/parse.go): any float > 0
     # is accepted — including fractional sub-1 DPRs — and <= 0 is rejected. ImagePipe's
@@ -310,6 +348,47 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
 
     assert OptionGrammar.parse("dt:0.5:ffffff:zzzzzz") ==
              {:error, {:invalid_duotone, ["ffffff", "zzzzzz"]}}
+  end
+
+  test "colorize parses opacity, optional color, optional keep_alpha" do
+    assert OptionGrammar.parse("col:0.5") ==
+             {:ok, {:pipeline, [colorize: [opacity: {:ratio, 5, 10}]]}}
+
+    assert OptionGrammar.parse("colorize:1:ff0000:1") ==
+             {:ok,
+              {:pipeline,
+               [colorize: [opacity: {:ratio, 1, 1}, color: color!(255, 0, 0), keep_alpha: true]]}}
+
+    assert OptionGrammar.parse("col:0.5:zzz") == {:error, {:invalid_colorize, "zzz"}}
+  end
+
+  test "gradient parses opacity + optional color/direction/start/stop" do
+    assert OptionGrammar.parse("gr:0.5") ==
+             {:ok, {:pipeline, [gradient: [opacity: {:ratio, 5, 10}]]}}
+
+    assert OptionGrammar.parse("gradient:1:ff0000:left:0.25:0.75") ==
+             {:ok,
+              {:pipeline,
+               [
+                 gradient: [
+                   opacity: {:ratio, 1, 1},
+                   color: color!(255, 0, 0),
+                   angle: 90.0,
+                   start: 0.25,
+                   stop: 0.75
+                 ]
+               ]}}
+
+    assert OptionGrammar.parse("gr:1::45") ==
+             {:ok, {:pipeline, [gradient: [opacity: {:ratio, 1, 1}, angle: 45.0]]}}
+
+    assert OptionGrammar.parse("gr:0.5::sideways") == {:error, {:invalid_gradient, "sideways"}}
+
+    # Invalid color → a bare-string payload, mirroring colorize (not list-wrapped).
+    assert OptionGrammar.parse("gr:0.5:zzz") == {:error, {:invalid_gradient, "zzz"}}
+
+    # Out-of-range start/stop are rejected.
+    assert OptionGrammar.parse("gr:0.5::down:1.5") == {:error, {:invalid_gradient, "1.5"}}
   end
 
   test "invalid arity pipeline options return invalid option segment errors" do

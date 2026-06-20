@@ -10,11 +10,13 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Colorize
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Gradient
   alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
@@ -62,7 +64,7 @@ defmodule ImagePipe.Plan.Operation do
   @padding_keys [:pixel_ratio, :fill]
   @trim_keys [:threshold, :background, :equal_hor, :equal_ver]
   @effective_padding_modes [:resize, :canvas_preserving]
-  @adjustment_range -100..100
+  @brightness_range -255..255
   @type resize_operation :: Resize.t()
 
   @type crop_operation ::
@@ -88,6 +90,8 @@ defmodule ImagePipe.Plan.Operation do
           | Pixelate.t()
           | Monochrome.t()
           | Duotone.t()
+          | Colorize.t()
+          | Gradient.t()
           | Brightness.t()
           | Contrast.t()
           | Saturation.t()
@@ -182,14 +186,58 @@ defmodule ImagePipe.Plan.Operation do
   def duotone(intensity, shadow, highlight),
     do: invalid(:duotone, [intensity, shadow, highlight])
 
+  @spec colorize(term(), term(), term()) :: {:ok, Colorize.t()} | {:error, error()}
+  def colorize(opacity, %Color{} = color, keep_alpha) when is_boolean(keep_alpha) do
+    with {:ok, opacity} <- effect_intensity(opacity),
+         true <- Color.valid?(color) do
+      {:ok, %Colorize{opacity: opacity, color: color, keep_alpha: keep_alpha}}
+    else
+      _reason -> invalid(:colorize, [opacity, color, keep_alpha])
+    end
+  end
+
+  def colorize(opacity, color, keep_alpha), do: invalid(:colorize, [opacity, color, keep_alpha])
+
+  @spec gradient(term(), term(), term(), term(), term()) ::
+          {:ok, Gradient.t()} | {:error, error()}
+  def gradient(opacity, %Color{} = color, angle, start, stop)
+      when is_number(angle) and is_number(start) and is_number(stop) and
+             start >= 0 and start <= 1 and stop >= 0 and stop <= 1 do
+    with {:ok, opacity} <- effect_intensity(opacity),
+         true <- Color.valid?(color) do
+      {:ok,
+       %Gradient{
+         opacity: opacity,
+         color: color,
+         angle: angle * 1.0,
+         start: start * 1.0,
+         stop: stop * 1.0
+       }}
+    else
+      _reason -> invalid(:gradient, [opacity, color, angle, start, stop])
+    end
+  end
+
+  def gradient(opacity, color, angle, start, stop),
+    do: invalid(:gradient, [opacity, color, angle, start, stop])
+
   @spec brightness(term()) :: {:ok, Brightness.t()} | {:error, error()}
-  def brightness(value), do: adjustment(:brightness, Brightness, value)
+  def brightness(value) when is_integer(value) and value in @brightness_range,
+    do: {:ok, %Brightness{value: value}}
+
+  def brightness(value), do: invalid(:brightness, [value])
 
   @spec contrast(term()) :: {:ok, Contrast.t()} | {:error, error()}
-  def contrast(value), do: adjustment(:contrast, Contrast, value)
+  def contrast(value) when is_number(value) and value > 0,
+    do: {:ok, %Contrast{value: value * 1.0}}
+
+  def contrast(value), do: invalid(:contrast, [value])
 
   @spec saturation(term()) :: {:ok, Saturation.t()} | {:error, error()}
-  def saturation(value), do: adjustment(:saturation, Saturation, value)
+  def saturation(value) when is_number(value) and value > 0,
+    do: {:ok, %Saturation{value: value * 1.0}}
+
+  def saturation(value), do: invalid(:saturation, [value])
 
   @spec color(term(), term(), term()) :: {:ok, Color.t()} | {:error, term()}
   def color(red, green, blue), do: Color.rgb(red, green, blue)
@@ -459,9 +507,27 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Pixelate{} = operation), do: valid_pixelate_size?(operation.size)
   def semantic?(%Monochrome{} = operation), do: valid_monochrome?(operation)
   def semantic?(%Duotone{} = operation), do: valid_duotone?(operation)
-  def semantic?(%Brightness{} = operation), do: valid_adjustment_value?(operation.value)
-  def semantic?(%Contrast{} = operation), do: valid_adjustment_value?(operation.value)
-  def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
+
+  def semantic?(%Colorize{} = operation),
+    do:
+      valid_effect_intensity?(operation.opacity) and Color.valid?(operation.color) and
+        is_boolean(operation.keep_alpha)
+
+  def semantic?(%Gradient{} = op),
+    do:
+      valid_effect_intensity?(op.opacity) and Color.valid?(op.color) and is_float(op.angle) and
+        is_float(op.start) and is_float(op.stop) and op.start >= 0.0 and op.start <= 1.0 and
+        op.stop >= 0.0 and op.stop <= 1.0
+
+  def semantic?(%Brightness{} = operation),
+    do: is_integer(operation.value) and operation.value in @brightness_range
+
+  def semantic?(%Contrast{} = operation),
+    do: is_float(operation.value) and operation.value > 0.0
+
+  def semantic?(%Saturation{} = operation),
+    do: is_float(operation.value) and operation.value > 0.0
+
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
   def semantic?(%Bitonal{}), do: true
   def semantic?(%Gray{}), do: true
@@ -475,13 +541,6 @@ defmodule ImagePipe.Plan.Operation do
   defp valid_set_focus_point?(_point), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
-
-  defp adjustment(operation, module, value) do
-    case adjustment_value(value) do
-      {:ok, value} -> {:ok, struct!(module, value: value)}
-      {:error, _reason} -> invalid(operation, [value])
-    end
-  end
 
   defp valid_resize?(%Resize{} = operation) do
     with {:ok, mode} <- resize_mode(operation.mode),
@@ -600,14 +659,6 @@ defmodule ImagePipe.Plan.Operation do
 
   defp valid_effect_intensity?(value) do
     case effect_intensity(value) do
-      {:ok, ^value} -> true
-      {:ok, _value} -> false
-      {:error, _reason} -> false
-    end
-  end
-
-  defp valid_adjustment_value?(value) do
-    case adjustment_value(value) do
       {:ok, ^value} -> true
       {:ok, _value} -> false
       {:error, _reason} -> false
@@ -947,17 +998,6 @@ defmodule ImagePipe.Plan.Operation do
   defp number(value) when is_number(value), do: :ok
   defp number(_value), do: {:error, :number}
 
-  defp adjustment_value(value) when is_integer(value) and value in @adjustment_range,
-    do: {:ok, value}
-
-  defp adjustment_value(value) when is_float(value) and value >= -100.0 and value <= 100.0 do
-    value
-    |> Float.round(7)
-    |> canonical_adjustment_float()
-  end
-
-  defp adjustment_value(_value), do: {:error, :adjustment}
-
   defp effect_intensity({:ratio, numerator, denominator})
        when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
               denominator > 0 and numerator <= denominator do
@@ -966,17 +1006,6 @@ defmodule ImagePipe.Plan.Operation do
   end
 
   defp effect_intensity(_value), do: {:error, :intensity}
-
-  defp canonical_adjustment_float(value) when value == 0.0, do: {:ok, 0}
-
-  defp canonical_adjustment_float(value) do
-    integer = trunc(value)
-
-    case value == integer do
-      true -> {:ok, integer}
-      false -> {:ok, value}
-    end
-  end
 
   defp tagged_offset(value) when is_number(value), do: :ok
 

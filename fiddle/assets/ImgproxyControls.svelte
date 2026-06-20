@@ -161,6 +161,16 @@
       currentState.brightnessEnabled ? `br:${currentState.brightness}` : null,
       currentState.contrastEnabled ? `co:${currentState.contrast}` : null,
       currentState.saturationEnabled ? `sa:${currentState.saturation}` : null,
+      currentState.colorizeEnabled
+        ? `col:${currentState.colorizeOpacity}:${currentState.colorizeColor.replace(/^#/, "")}:${
+            currentState.colorizeKeepAlpha ? 1 : 0
+          }`
+        : null,
+      currentState.gradientEnabled
+        ? `gr:${currentState.gradientOpacity}:${currentState.gradientColor.replace(/^#/, "")}:${
+            currentState.gradientDirection
+          }:${currentState.gradientStart}:${currentState.gradientStop}`
+        : null,
     ].filter((segment): segment is string => segment !== null);
   }
 
@@ -907,7 +917,6 @@
           min={controlLimits.effects.brightness.min}
           max={controlLimits.effects.brightness.max}
           step={controlLimits.effects.brightness.step}
-          suffix="%"
         />
       {/if}
 
@@ -924,7 +933,7 @@
           min={controlLimits.effects.contrast.min}
           max={controlLimits.effects.contrast.max}
           step={controlLimits.effects.contrast.step}
-          suffix="%"
+          inputStep="any"
         />
       {/if}
 
@@ -941,7 +950,84 @@
           min={controlLimits.effects.saturation.min}
           max={controlLimits.effects.saturation.max}
           step={controlLimits.effects.saturation.step}
-          suffix="%"
+          inputStep="any"
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.colorizeEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Colorize</span>
+      </label>
+      {#if fiddleState.colorizeEnabled}
+        <div class="colorize-control-row">
+          <RangeNumber
+            label="Opacity"
+            bind:value={fiddleState.colorizeOpacity}
+            min={controlLimits.effects.intensity.min}
+            max={controlLimits.effects.intensity.max}
+            step={controlLimits.effects.intensity.step}
+            inputStep="any"
+          />
+          <label class="field colorize-color-field">
+            <span>Color</span>
+            <input class="color-input" type="color" bind:value={fiddleState.colorizeColor} />
+          </label>
+        </div>
+        <label class="switch-field">
+          <Switch.Root class="switch-root" bind:checked={fiddleState.colorizeKeepAlpha}>
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+          <span>Keep alpha</span>
+        </label>
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.gradientEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Gradient</span>
+      </label>
+      {#if fiddleState.gradientEnabled}
+        <div class="gradient-control-row">
+          <RangeNumber
+            label="Opacity"
+            bind:value={fiddleState.gradientOpacity}
+            min={controlLimits.effects.intensity.min}
+            max={controlLimits.effects.intensity.max}
+            step={controlLimits.effects.intensity.step}
+            inputStep="any"
+          />
+          <label class="field gradient-color-field">
+            <span>Color</span>
+            <input class="color-input" type="color" bind:value={fiddleState.gradientColor} />
+          </label>
+        </div>
+        <label class="field gradient-direction-field">
+          <span>Direction</span>
+          <input
+            class="text-input"
+            type="text"
+            bind:value={fiddleState.gradientDirection}
+            placeholder="down / up / left / right or angle"
+          />
+        </label>
+        <RangeNumber
+          label="Start"
+          bind:value={fiddleState.gradientStart}
+          min={controlLimits.effects.intensity.min}
+          max={controlLimits.effects.intensity.max}
+          step={controlLimits.effects.intensity.step}
+          inputStep="any"
+        />
+        <RangeNumber
+          label="Stop"
+          bind:value={fiddleState.gradientStop}
+          min={controlLimits.effects.intensity.min}
+          max={controlLimits.effects.intensity.max}
+          step={controlLimits.effects.intensity.step}
+          inputStep="any"
         />
       {/if}
     </Collapsible.Content>
@@ -1106,6 +1192,29 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .colorize-control-row,
+  .gradient-control-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+
+  .colorize-color-field,
+  .gradient-color-field {
+    width: 58px;
+  }
+
+  .text-input {
+    min-height: 38px;
+    width: 100%;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    padding: 0 12px;
   }
 
   /* Segmented control (Simple / Weighted sub-mode tabs) */

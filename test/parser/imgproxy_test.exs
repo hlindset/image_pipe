@@ -1408,38 +1408,38 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
   test "parses imgproxy brightness contrast and saturation effects" do
     assert [:brightness, :contrast, :saturation] =
-             "/_/br:20/co:-15/sa:35/plain/images/cat.jpg"
+             "/_/br:20/co:1.5/sa:2/plain/images/cat.jpg"
              |> operations_for()
              |> operation_names()
 
     assert [:brightness, :contrast, :saturation] =
-             "/_/brightness:20/contrast:-15/saturation:35/plain/images/cat.jpg"
+             "/_/brightness:20/contrast:1.5/saturation:2/plain/images/cat.jpg"
              |> operations_for()
              |> operation_names()
   end
 
   test "plans imgproxy effects in fixed canonical order" do
     operations =
-      "/_/sa:35/pix:8/co:-15/sh:0.7/br:20/bl:2.5/plain/images/cat.jpg"
+      "/_/sa:2/pix:8/co:1.5/sh:0.7/br:20/bl:2.5/plain/images/cat.jpg"
       |> operations_for()
       |> operation_names()
 
     assert operations == [:blur, :sharpen, :pixelate, :brightness, :contrast, :saturation]
   end
 
-  test "skips zero imgproxy brightness contrast and saturation values" do
-    assert operations_for("/_/br:0/co:0/sa:0/plain/images/cat.jpg") == []
+  test "skips no-op imgproxy brightness contrast and saturation values" do
+    assert operations_for("/_/br:0/co:1/sa:1/plain/images/cat.jpg") == []
   end
 
   test "rejects out-of-range imgproxy brightness contrast and saturation values" do
-    assert Imgproxy.parse(conn(:get, "/_/br:101/plain/images/cat.jpg"), []) ==
-             {:error, {:invalid_adjustment, "101"}}
+    assert Imgproxy.parse(conn(:get, "/_/br:256/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_brightness, "256"}}
 
-    assert Imgproxy.parse(conn(:get, "/_/co:-101/plain/images/cat.jpg"), []) ==
-             {:error, {:invalid_adjustment, "-101"}}
+    assert Imgproxy.parse(conn(:get, "/_/co:0/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_scale_factor, "0"}}
 
-    assert Imgproxy.parse(conn(:get, "/_/sa:101/plain/images/cat.jpg"), []) ==
-             {:error, {:invalid_adjustment, "101"}}
+    assert Imgproxy.parse(conn(:get, "/_/sa:0/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_scale_factor, "0"}}
   end
 
   test "parses processing options before validating output extension" do

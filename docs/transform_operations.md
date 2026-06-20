@@ -99,11 +99,12 @@ Parser/planner code should use these semantic operations:
 - `ImagePipe.Plan.Operation.Sharpen`: sharpening with a positive sigma.
 - `ImagePipe.Plan.Operation.Pixelate`: pixelation with a block size greater
   than one pixel.
-- `ImagePipe.Plan.Operation.Brightness`: brightness change from `-100` to
-  `100`.
-- `ImagePipe.Plan.Operation.Contrast`: contrast change from `-100` to `100`.
-- `ImagePipe.Plan.Operation.Saturation`: saturation change from `-100` to
-  `100`.
+- `ImagePipe.Plan.Operation.Brightness`: additive brightness offset, an integer
+  from `-255` to `255` (`0` unchanged).
+- `ImagePipe.Plan.Operation.Contrast`: contrast scale, a positive float
+  (`1` unchanged).
+- `ImagePipe.Plan.Operation.Saturation`: saturation scale, a positive float
+  (`1` unchanged).
 - `ImagePipe.Plan.Color`: canonical product-neutral sRGB color data with alpha.
 
 Plan pipelines should contain semantic Plan operation structs only. Transform
@@ -236,8 +237,8 @@ such as Imgproxy `bl`, `sh`, `pix`, `mc`, `dt`, `br`, `co`, and `sa` stay in
 parser code.
 
 Imgproxy effect order is blur, sharpen, pixelate, monochrome, duotone,
-brightness, contrast, then saturation. Effects run after result cropping and
-before canvas extension, padding, and background composition.
+brightness, contrast, saturation, colorize, then gradient. Effects run after result
+cropping and before canvas extension, padding, and background composition.
 
 Imgproxy treats these effect values as no-ops:
 
