@@ -117,50 +117,61 @@ the portable conclusions**. Re-run locally to calibrate a host's budget.
 
 ### Part C — downscaled-proxy-seed method + accuracy
 
-Per source × downscale factor, full-res search vs. proxy-seed. `Δq = q_proxy −
+Full-res search vs. proxy-seed, per subject × downscale factor. `Δq = q_proxy −
 q_full`; `delivered` is the true full-res SSIMULACRA2 score of the full-res encode
-at `q_proxy`; `bytesΔ` is delivered bytes vs. the full-res optimum.
+at `q_proxy`; `bytesΔ` is delivered bytes vs. the full-res optimum. Ground truth is
+the **full-res search**, not the absolute target (which the full search itself can
+miss at the bracket ceiling — see `aq_157`).
 
-| source        | MP   | k | q_full | q_proxy | Δq  | delivered | Δtarget | hit | bytesΔ | speedup |
-|---------------|------|---|--------|---------|-----|-----------|---------|-----|--------|---------|
-| high_freq.jpg | 1.92 | 2 | 40     | 41      | +1  | 90.03     | +2.03   | yes | +2%    | 3.1×    |
-| high_freq.jpg | 1.92 | 3 | 40     | 58      | +18 | 91.71     | +3.71   | yes | +19%   | 6.1×    |
-| high_freq.jpg | 1.92 | 4 | 40     | 75      | +35 | 93.64     | +5.64   | yes | +49%   | 9.8×    |
-| marker.png    | 1.92 | 2 | 74     | 83      | +9  | 90.26     | +2.26   | yes | +1%    | 3.5×    |
-| border.png    | 1.92 | 4 | 73     | 73      | 0   | 88.71     | +0.71   | yes | 0%     | 9.6×    |
-| placement.png | 1.92 | 2 | 90     | 90      | 0   | 88.85     | +0.85   | yes | 0%     | 3.3×    |
-| placement.png | 1.92 | 4 | 90     | 90      | 0   | 88.85     | +0.85   | yes | 0%     | 8.9×    |
-| zone-16MP     | 16.0 | 2 | 95     | 94      | −1  | 87.47     | −0.53   | **NO** | −7% | 3.6×    |
-| zone-16MP     | 16.0 | 3 | 95     | 91      | −4  | 82.85     | −5.15   | **NO** | −19% | 7.0×  |
-| zone-16MP     | 16.0 | 4 | 95     | 94      | −1  | 87.47     | −0.53   | **NO** | −7% | 9.6×    |
+**Committed sources (≤2 MP) + adversarial synthetic:**
 
-Aggregated per factor (5 real subjects + 1 adversarial synthetic):
+| source        | MP   | k | q_full | q_proxy | Δq  | delivered | hit | bytesΔ | speedup |
+|---------------|------|---|--------|---------|-----|-----------|-----|--------|---------|
+| high_freq.jpg | 1.92 | 2 | 40     | 41      | +1  | 90.03     | yes | +2%    | 3.1×    |
+| high_freq.jpg | 1.92 | 4 | 40     | 75      | +35 | 93.64     | yes | +49%   | 9.8×    |
+| marker.png    | 1.92 | 2 | 74     | 83      | +9  | 90.26     | yes | +1%    | 3.5×    |
+| placement.png | 1.92 | 4 | 90     | 90      | 0   | 88.85     | yes | 0%     | 8.9×    |
+| zone-16MP     | 16.0 | 3 | 95     | 91      | −4  | 82.85     | **NO** | −19% | 7.0× |
 
-| k | target hit @margin 0 | Δq mean / worst | margin that fixes | worst undershoot | worst byte overshoot | speedup |
-|---|----------------------|-----------------|-------------------|------------------|----------------------|---------|
-| 2 | 5/6                  | +3.2 / −1       | +1q               | −0.53            | +2%                  | ~3.4×   |
-| 3 | 5/6                  | +6.0 / −4       | +4q               | −5.15            | +19%                 | ~6.7×   |
-| 4 | 5/6                  | +9.3 / −1       | +1q               | −0.53            | +49%                 | ~9.7×   |
+**Large real photos (16–20 MP, Unsplash via Lorem Picsum, `--proxy-files`):**
 
-**The proxy method works, but its error is two-directional and content-dependent
-— it is not a clean win:**
+| source     | MP    | k | q_full | q_proxy | Δq  | full_score | delivered | vs target | bytesΔ | speedup |
+|------------|-------|---|--------|---------|-----|------------|-----------|-----------|--------|---------|
+| aq_146.jpg | 16.66 | 2 | 74     | 92      | +18 | 90.82      | 90.58     | hit       | **+56%** | 3.8×  |
+| aq_146.jpg | 16.66 | 4 | 74     | 93      | +19 | 90.82      | 90.87     | hit       | **+69%** | 14.8× |
+| aq_201.jpg | 16.66 | 2 | 93     | 95      | +2  | 88.02      | 88.32     | hit       | +14%   | 3.9×    |
+| aq_201.jpg | 16.66 | 4 | 93     | 92      | −1  | 88.02      | 87.64     | miss −0.36| −8%    | 12.7×   |
+| aq_157.jpg | 19.57 | 2 | 95     | 95      | 0   | 86.47      | 86.47     | full also misses | 0% | 4.9× |
 
-- **Real high-detail content over-picks quality** (Δq ≥ 0): the downscaled proxy
-  loses the hard-to-compress detail, so the search on it reads the content as
-  *harder* and picks a higher quality. The delivered full-res image clears the
-  target (every real source hit, all k) — but the encode is **larger than the
-  optimal full-res pick**, eroding the very savings autoquality exists to capture.
-  At `k=4`, `high_freq` delivered **+49% bytes** vs. the full-res optimum (q75 vs.
-  the correct q40).
-- **The adversarial chirp under-picks** (Δq < 0): the zone-plate downscales into a
-  lower-frequency zone-plate the metric scores more easily, so `q_proxy` lands
-  below `q_full` and the delivered full-res score **undershoots** (e.g. `k=3`:
-  82.85 vs. target 88). This is the quality-risk failure mode.
-- **A single additive margin can't satisfy both directions** — the margin that
-  rescues the undershoot makes the byte overshoot worse.
-- **`k=2` is the sweet spot:** ~3.4× speedup with Δq in `[−1, +9]`, worst
-  undershoot −0.53 (a +1q margin fixes it), and ≤+2% byte overshoot. Aggressive
-  downscale (`k≥3`) trades that balance for speed.
+Aggregated over the large-photo run (3 real + synthetic):
+
+| k | proxy-caused undershoots (of full-hit) | worst Δscore vs full | worst over-pick | speedup |
+|---|----------------------------------------|----------------------|-----------------|---------|
+| 2 | 1/3 | −1.13 | +18q / +56% bytes | ~3.9× |
+| 3 | 1/3 | −5.75 | +19q / +69% bytes | ~7.9× |
+| 4 | 2/3 | −1.13 | +19q / +69% bytes | ~12.0× |
+
+**The speedup is real (~3.9× at k=2 up to ~12× at k=4), but the large-scale test
+overturns the optimistic read from the ≤2 MP sources. The method is not a clean
+win:**
+
+- **SSIMULACRA2 is resolution-dependent — a given quality scores *lower* on a
+  downscaled image** — so the search on the proxy systematically **over-picks
+  quality** to clear the same score. Crucially, the over-pick **grows with image
+  size**: it was +1–2q on the ≤2 MP sources but **+18q on a 16 MP photo**, where
+  the proxy shipped **+56–69% more bytes** than the optimal full-res pick (`aq_146`:
+  q92 vs. the correct q74, for the same delivered ~90.6 score). This erodes — often
+  erases — the savings autoquality exists to capture, and it is the *expensive*
+  direction to undo (recovering it needs a downward full-res search).
+- **Undershoot still happens on real content** when the full score sits right on
+  the target band (`aq_201` k=4: delivered 87.64 vs. 88). The adversarial chirp
+  undershoots hard (k=3: 82.85). This direction is cheap to fix (bump q + one
+  confirm) — but the over-pick is not.
+- **A single additive margin can't help** — it only addresses undershoot, and
+  worsens the dominant over-pick.
+- **The ≤2 MP "k=2 sweet spot" does not generalize:** at 16 MP, even k=2 over-shot
+  bytes by +56%. The earlier caveat (no large real sources) was the right one to
+  flag — the cross-scale signal reverses the conclusion.
 
 ## Findings & recommendations
 
@@ -195,30 +206,31 @@ defaults. (`max_iterations 6` is already generous for the `[70,80]` default
 bracket, which needs only ~4 probes; lowering it would not help the dominant
 metric cost on the wide-bracket worst case but would cap pathological brackets.)
 
-### 3. The downscaled-proxy-seed optimization works, but needs the right shape
+### 3. The downscaled-proxy-seed optimization is harder than it looks — do not ship the naïve form
 
-The motivation holds: a resolution cap only *disables* autoquality above the
-threshold (the request falls back to fixed quality), forfeiting the 40–58% savings
-exactly on the large, high-detail images where they matter most. And the speedup
-is real — Part C measured ~3.4× at `k=2` up to ~9.7× at `k=4`, matching the `k²`
-expectation.
+The motivation still holds: a resolution cap only *disables* autoquality above the
+threshold, forfeiting savings exactly on the large images where they matter, and
+the proxy speedup is real (~3.9× at `k=2`, ~12× at `k=4`). **But the large-photo
+test (recommendation follow-up) shows the naïve *downscale → search → deliver* form
+fails on its own terms at production scale**, because SSIMULACRA2 is
+resolution-dependent: the search on the downscaled proxy systematically *over-picks*
+quality, and the over-pick grows with image size (+18q / +56–69% bytes on a 16 MP
+photo). That inflates the delivered file well beyond the optimal full-res pick —
+erasing the savings — and it is the *expensive* direction to correct (a cheap
+one-pass confirm-and-adjust only rescues the rarer undershoot, not the over-pick).
 
-But Part C also shows the naïve form — *downscale, search, deliver* — is **not** a
-clean win: the quality-transfer error is two-directional and content-dependent
-(real content over-picks → byte overshoot up to +49%; the adversarial chirp
-under-picks → quality undershoot), and a single additive margin can't fix both.
-Two shapes survive the data:
+So the earlier "ship `k≈2`" read was wrong — it was an artifact of testing only
+≤2 MP sources. Revised guidance:
 
-- **Modest downscale (`k≈2`)** — ~3.4× faster with Δq in `[−1, +9]`, ≤+2% byte
-  overshoot, and a +1q margin covering the only undershoot. Simple; most of the
-  win with little risk.
-- **Confirm-and-adjust for aggressive downscale** — search on the proxy, then do
-  the *one* full-res confirm metric (already part of the per-request budget — it's
-  a single pass, vs. the 4–6 the full search runs) and bump quality if it missed.
-  This makes the method robust at high `k` (the only way to keep both quality and
-  savings when the bias is large).
+- **Do not ship a fixed-margin / fixed-`k` naïve proxy.** It over-charges bytes on
+  real large images, defeating the point.
+- **A viable proxy needs its target calibrated across resolution** — i.e. search
+  the proxy against a *shifted* score that maps to the true full-res target for
+  that downscale factor. That calibration is the actual research problem; this
+  benchmark (`--part c --proxy-files …`) is the harness to derive and validate it.
+- **In the meantime, the resolution cap (recommendation #1) is the safe shipping
+  answer**, accepting that very large images fall back to fixed quality rather than
+  paying a 4–20 s search or shipping an over-inflated proxy result.
 
-Recommendation: prototype `k≈2` first (cheapest, lowest-risk), and gate anything
-more aggressive behind a full-res confirm. Do **not** ship a fixed-margin proxy.
-Note the accuracy caveat above — the large-scale real-content signal is inferred,
-so validate on genuinely large photos before committing to a default `k`.
+The benchmark now ships with `--proxy-files` so this can be re-run on any corpus of
+large images when the calibrated variant is prototyped.
