@@ -354,36 +354,33 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # --- result assembly ------------------------------------------------------
 
-  defp build_result(final_q, final_outcome, objective_q, objective_score, quality_search, ctx) do
+  defp build_result(final_q, final_outcome, _objective_q, _objective_score, quality_search, ctx) do
     binary = Map.fetch!(ctx.encode_memo, final_q)
-    score = result_score(final_q, objective_q, objective_score, quality_search, ctx)
+    ctx = ensure_winner_scored(final_q, binary, quality_search, ctx)
 
     meta = %{
       quality: final_q,
       bytes: byte_size(binary),
       iterations: ctx.iterations,
       outcome: final_outcome,
-      score: score
+      score: result_score(final_q, quality_search, ctx)
     }
 
     {:ok, binary, meta}
   end
 
-  # For ssim2 the winner's measured score comes from the score memo. When the cap
-  # phase moved the winner away from the objective pick, the new winner was
-  # scored during the cap descent only if a score_fun ran; otherwise fall back to
-  # the objective's score (cap phase has no score predicate). nil for non-ssim2.
-  defp result_score(_final_q, _objective_q, _objective_score, %RQS{objective: :size}, _ctx),
-    do: nil
-
-  defp result_score(_final_q, _objective_q, _objective_score, :none, _ctx), do: nil
-
-  defp result_score(final_q, _objective_q, objective_score, %RQS{objective: :ssim2}, ctx) do
-    # The winner is scored in the memo whenever the score predicate touched it.
-    # If the cap phase relocated the winner without re-scoring (cap has no score
-    # predicate), fall back to the objective pick's score.
-    Map.get(ctx.score_memo, final_q, objective_score)
+  # meta.score must reflect the DELIVERED quality, never a different one. For
+  # ssim2 the cap phase (byte-only predicate) can relocate the winner to a
+  # quality the objective search never scored; score it now from its already-
+  # memoized buffer (no re-encode) so the reported score is honest. nil otherwise.
+  defp ensure_winner_scored(final_q, binary, %RQS{objective: :ssim2}, ctx) do
+    if Map.has_key?(ctx.score_memo, final_q), do: ctx, else: maybe_score(final_q, binary, ctx)
   end
+
+  defp ensure_winner_scored(_final_q, _binary, _quality_search, ctx), do: ctx
+
+  defp result_score(final_q, %RQS{objective: :ssim2}, ctx), do: Map.get(ctx.score_memo, final_q)
+  defp result_score(_final_q, _quality_search, _ctx), do: nil
 
   # --- run/3 helpers --------------------------------------------------------
 

@@ -97,7 +97,9 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
     score = fn bin -> byte_size(bin) / 1000 end
 
-    assert {:ok, _bin, %{quality: 60}} =
+    # meta.score must reflect the DELIVERED q=60 (score == q == 60.0), not the
+    # objective pick's q=80 score.
+    assert {:ok, _bin, %{quality: 60, score: 60.0}} =
              EncodeSearch.search(rs, 60_000,
                encode_fun: enc,
                score_fun: score,
