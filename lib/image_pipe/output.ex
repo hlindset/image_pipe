@@ -3,7 +3,7 @@ defmodule ImagePipe.Output do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Format, ImagePipe.Plan],
+    deps: [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
       Capabilities,
       Clamp,
