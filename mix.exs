@@ -130,7 +130,8 @@ defmodule ImagePipe.MixProject do
       {:opentelemetry, "~> 1.7", only: :test},
       {:nimble_options, "~> 1.1"},
       {:image, "~> 0.67"},
-      {:ssimulacra2, github: "hlindset/ssimulacra2", ref: "c95683deefcafd7313e149d0d5e30a3328c14efd"},
+      {:ssimulacra2,
+       github: "hlindset/ssimulacra2", ref: "c95683deefcafd7313e149d0d5e30a3328c14efd"},
       # No precompiled NIF is published for ssimulacra2's git ref, so the Rust NIF
       # is built from source. RustlerPrecompiled's force-build path needs Rustler
       # available, and `force_build: true` makes it always build locally.
