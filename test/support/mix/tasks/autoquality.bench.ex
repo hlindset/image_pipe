@@ -17,7 +17,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part b        # accuracy/behavior only
       mise exec -- mix autoquality.bench --part c        # proxy-seed method + accuracy
       mise exec -- mix autoquality.bench --part d        # cheap full-res metric narrowing
-      mise exec -- mix autoquality.bench --part all      # A + B + C + D
+      mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring
+      mise exec -- mix autoquality.bench --part all      # A + B + C + D + E
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
       mise exec -- mix autoquality.bench --part c --proxy-files a.jpg,b.jpg # large real photos
@@ -89,6 +90,26 @@ defmodule Mix.Tasks.Autoquality.Bench do
   perceptual boundary. Narrowing would need a cheaper *perceptual* metric
   (MS-SSIM/butteraugli — not in our stack) or per-image SSIMULACRA2 anchoring (which
   saves ~0 probes on the shipped narrow [70,80] bracket).
+
+  ## Part E — crop-based scoring vs full-frame (#1)
+
+  Scores SSIMULACRA2 on native-resolution tiles of the *actual full-res encode*
+  instead of the whole frame. Unlike Part C's proxy this keeps native resolution,
+  so per-pixel artifact statistics match — the only error is *which regions* you
+  look at. Runs on a curated `--corpus DIR` (assemble one spanning smooth /
+  heterogeneous / dark / busy / text content; the committed sources are too
+  synthetic). Reports, binned by measured heterogeneity: (1) tracking — the offset
+  `tile_aggregate − full_frame_score` at the boundary (tight ⇒ a calibrated global
+  threshold reproduces the full-frame decision); (2) sub-sampling penalty — K tiles
+  vs full coverage; (3) cost — K tiles is a fixed pixel budget regardless of size.
+
+  Finding: crop scoring is the first lever that TRACKS. The p10-tile offset holds
+  within ±~1.5 pts (median ~0) across content — vs Part C's ±18q and Part D's
+  hopeless spread — because native resolution is preserved. K=16-tile sub-sampling
+  adds only ~+0.3 (worst +1.6) pts. Full tile coverage saves nothing, but the fixed
+  K-tile budget beats full-frame above a ~4 MP crossover: ~1.6× at 10.7 MP, ~2.3× at
+  16 MP, and (budget being size-independent) growing with size. So crop scoring is a
+  viable speedup for large images — use full-frame below the crossover.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
@@ -140,7 +161,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
           format: :string,
           proxy_factors: :string,
           proxy_mp: :integer,
-          proxy_files: :string
+          proxy_files: :string,
+          corpus: :string
         ]
       )
 
@@ -151,27 +173,43 @@ defmodule Mix.Tasks.Autoquality.Bench do
     factors = parse_factors(Keyword.get(opts, :proxy_factors))
     proxy_files = parse_files(Keyword.get(opts, :proxy_files))
     proxy_mp = Keyword.get(opts, :proxy_mp, 16)
+    corpus_files = corpus_files(Keyword.get(opts, :corpus), proxy_files)
 
     {:ok, _} = Application.ensure_all_started(:image_pipe)
     warmup(format)
 
-    a_rows = if part in ["a", "both", "all"], do: run_part_a(mps, format), else: nil
-    b_rows = if part in ["b", "both", "all"], do: run_part_b(format), else: nil
+    run_ctx = %{
+      part: part,
+      mps: mps,
+      factors: factors,
+      proxy_mp: proxy_mp,
+      proxy_files: proxy_files,
+      corpus_files: corpus_files,
+      format: format
+    }
 
-    c_rows =
-      if part in ["c", "all"],
-        do: run_part_c(factors, proxy_mp, proxy_files, format),
-        else: nil
+    {a_rows, b_rows, c_rows, e_rows} = run_selected_parts(run_ctx)
+    if csv?, do: write_csvs(a_rows, b_rows, c_rows, e_rows)
+    print_findings(a_rows, b_rows, c_rows, e_rows, format)
+  end
 
-    if part in ["d", "all"], do: run_part_d(proxy_files, proxy_mp, format)
+  defp run_selected_parts(%{part: part, format: format} = ctx) do
+    a = if part in ["a", "both", "all"], do: run_part_a(ctx.mps, format)
+    b = if part in ["b", "both", "all"], do: run_part_b(format)
 
-    if csv? do
-      if a_rows, do: write_part_a_csv(a_rows)
-      if b_rows, do: write_part_b_csv(b_rows)
-      if c_rows, do: write_part_c_csv(c_rows)
-    end
+    c =
+      if part in ["c", "all"], do: run_part_c(ctx.factors, ctx.proxy_mp, ctx.proxy_files, format)
 
-    print_findings(a_rows, b_rows, c_rows, format)
+    if part in ["d", "all"], do: run_part_d(ctx.proxy_files, ctx.proxy_mp, format)
+    e = if part in ["e", "all"], do: run_part_e(ctx.corpus_files, ctx.proxy_mp, format)
+    {a, b, c, e}
+  end
+
+  defp write_csvs(a_rows, b_rows, c_rows, e_rows) do
+    if a_rows, do: write_part_a_csv(a_rows)
+    if b_rows, do: write_part_b_csv(b_rows)
+    if c_rows, do: write_part_c_csv(c_rows)
+    if e_rows, do: write_part_e_csv(e_rows)
   end
 
   # Touch every NIF/libvips path once so first-call JIT + library init does not
@@ -806,6 +844,256 @@ defmodule Mix.Tasks.Autoquality.Bench do
     end
   end
 
+  # --- Part E: crop-based scoring vs full-frame (#1) -------------------------
+
+  # Score SSIMULACRA2 on native-resolution tiles of the actual full-res encode,
+  # instead of the whole frame. Unlike the proxy (Part C) this keeps native
+  # resolution, so per-pixel artifact statistics match — the only error is *which
+  # regions* you look at. Three questions:
+  #   1. Tracking — does a tile aggregate (worst / p10 / mean) at the full-frame
+  #      boundary sit at a STABLE value across content? (a global threshold on it
+  #      would then ≈ the full-frame target). Reported as the @boundary spread.
+  #   2. Sub-sampling — full tile coverage costs ~the same as the full frame, so
+  #      the speedup needs scoring only K tiles. Does K-tile sampling still catch
+  #      the worst region, or does it miss localized banding? (penalty vs all-tile)
+  #   3. Cost — K tiles is a fixed pixel budget regardless of image size.
+  # All binned by measured heterogeneity (HET), since heterogeneous images
+  # (smooth + detail) are where crop sampling is most at risk.
+  @tile 512
+  @subsample_k 16
+
+  defp run_part_e(corpus_files, synth_mp, format) do
+    IO.puts("\n== Part E — crop-based scoring vs full-frame (#1) ==")
+    IO.puts("oracle = full-frame full-res ssim2, target #{@target} [#{@min_q},#{@max_q}]  ")
+    IO.puts("tile #{@tile}px  subsample K=#{@subsample_k}  format #{format}\n")
+
+    resolved = ssim2_resolved(format)
+    subjects = load_subjects(corpus_files, synth_mp)
+
+    header =
+      pad(["source", 16]) <>
+        pad(["MP", 6]) <>
+        pad(["HET", 6]) <>
+        pad(["tiles", 6]) <>
+        pad(["fullSc", 8]) <>
+        pad(["worst", 7]) <>
+        pad(["p10", 7]) <>
+        pad(["mean", 7]) <>
+        pad(["subWorst", 9]) <>
+        pad(["wSmooth", 8])
+
+    IO.puts(header)
+    IO.puts(String.duplicate("-", String.length(header)))
+
+    subjects
+    |> Enum.map(fn {label, base} -> bench_crop_subject(label, base, resolved, format) end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp bench_crop_subject(label, base, resolved, format) do
+    {:ok, _bin, om} = EncodeSearch.run(base, resolved, telemetry_opts: [])
+    mp = Float.round(Image.width(base) * Image.height(base) / 1_000_000, 1)
+
+    if om.score < @target do
+      IO.puts(
+        pad([label, 16]) <>
+          pad([mp, 6]) <> "skipped (full-res misses target: #{fmt_score(om.score)})"
+      )
+
+      nil
+    else
+      crop_subject_row(label, base, mp, om, format)
+    end
+  end
+
+  defp crop_subject_row(label, base, mp, om, format) do
+    {:ok, cbin} = Encoder.encode_to_buffer(base, plain_resolved(format, om.quality), om.quality)
+    {:ok, cand} = Image.from_binary(cbin)
+
+    {:ok, fref} = Ssim2Metric.reference(base)
+    {full_us, {:ok, _}} = timed(fn -> Ssim2Metric.score(fref, cand) end)
+
+    coords = tile_coords(Image.width(base), Image.height(base), @tile)
+    tiles = Enum.map(coords, &tile_metrics(base, cand, &1))
+
+    scores = Enum.map(tiles, & &1.score)
+    texs = Enum.map(tiles, & &1.tex)
+    n = length(tiles)
+    sorted = Enum.sort(scores)
+    worst = hd(sorted)
+    p10 = percentile(sorted, 0.10)
+    mean = avg(scores)
+
+    lowtex = Enum.count(texs, &(&1 < 2.0)) / n
+    busy = Enum.count(texs, &(&1 > 6.0)) / n
+    het = Float.round(min(lowtex, busy), 2)
+
+    worst_tile = Enum.min_by(tiles, & &1.score)
+    worst_smooth? = worst_tile.tex < 2.0
+
+    sub = subsample(tiles, @subsample_k)
+    sub_sorted = sub |> Enum.map(& &1.score) |> Enum.sort()
+    sub_worst = hd(sub_sorted)
+    sub_p10 = percentile(sub_sorted, 0.10)
+
+    IO.puts(
+      pad([label, 16]) <>
+        pad([mp, 6]) <>
+        pad([het, 6]) <>
+        pad([n, 6]) <>
+        pad([fmt_score(om.score), 8]) <>
+        pad([fmt_score(worst), 7]) <>
+        pad([fmt_score(p10), 7]) <>
+        pad([fmt_score(mean), 7]) <>
+        pad([fmt_score(sub_worst), 9]) <>
+        pad([if(worst_smooth?, do: "yes", else: "no"), 8])
+    )
+
+    %{
+      label: label,
+      mp: mp,
+      het: het,
+      n_tiles: n,
+      full_score: om.score,
+      worst: worst,
+      p10: p10,
+      mean: mean,
+      sub_worst: sub_worst,
+      sub_p10: sub_p10,
+      worst_smooth?: worst_smooth?,
+      full_us: full_us,
+      per_tile_us: round(avg(Enum.map(tiles, & &1.ssim2_us)))
+    }
+  end
+
+  # Tile coordinates covering the frame with exactly tile-sized windows; the last
+  # row/col is clamped to the edge (slight overlap) so every tile is full size and
+  # safe for SSIMULACRA2's multiscale downsamples.
+  defp tile_coords(w, h, t) do
+    tw = min(t, w)
+    th = min(t, h)
+    for y <- axis_positions(h, th), x <- axis_positions(w, tw), do: {x, y, tw, th}
+  end
+
+  defp axis_positions(size, t) when size <= t, do: [0]
+
+  defp axis_positions(size, t) do
+    (Enum.take_while(Stream.iterate(0, &(&1 + t)), &(&1 + t <= size)) ++ [size - t])
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp tile_metrics(base, cand, {x, y, w, h}) do
+    {:ok, bt} = Operation.extract_area(base, x, y, w, h)
+    {:ok, ct} = Operation.extract_area(cand, x, y, w, h)
+
+    # Time only the SSIMULACRA2 work — a real crop-scoring path pays this, not the
+    # high-pass texture, which exists only for this benchmark's HET binning.
+    {ssim2_us, score} =
+      timed(fn ->
+        {:ok, ref} = Ssim2Metric.reference(bt)
+        {:ok, s} = Ssim2Metric.score(ref, ct)
+        s
+      end)
+
+    %{score: score, tex: tile_texture(bt), ssim2_us: ssim2_us}
+  end
+
+  # High-pass texture energy (gradients removed), so a smooth/gradient tile reads
+  # low even if it isn't dead flat — the banding-prone signal.
+  defp tile_texture(tile) do
+    {:ok, g} = Operation.colourspace(tile, :VIPS_INTERPRETATION_B_W)
+    {:ok, gf} = Operation.cast(g, :VIPS_FORMAT_FLOAT)
+    {:ok, blur} = Operation.gaussblur(gf, 3.0)
+    {:ok, hp} = Operation.subtract(gf, blur)
+    {:ok, sq} = Operation.multiply(hp, hp)
+    {:ok, ms} = Operation.avg(sq)
+    :math.sqrt(max(0.0, ms))
+  end
+
+  defp subsample(tiles, k) do
+    n = length(tiles)
+
+    if n <= k do
+      tiles
+    else
+      0..(k - 1)
+      |> Enum.map(&Enum.at(tiles, div(&1 * (n - 1), k - 1)))
+    end
+  end
+
+  defp percentile(sorted, p) do
+    n = length(sorted)
+    Enum.at(sorted, min(n - 1, max(0, trunc(p * (n - 1)))))
+  end
+
+  defp findings_part_e([]),
+    do: IO.puts("Part E — crop-based scoring: no subjects hit the target\n")
+
+  defp findings_part_e(rows) do
+    IO.puts("Part E — crop-based scoring vs full-frame:")
+    # 1. Tracking: the OFFSET (tile aggregate − full-frame score) at the boundary.
+    #    A tight offset spread ⇒ setting the tile threshold to `@target + median
+    #    offset` reproduces the full-frame boundary; the spread is the residual
+    #    error. (The raw aggregate spread would be inflated by full_score's own
+    #    integer-quality quantization, so we report the offset, not the raw value.)
+    IO.puts(
+      "  tracking — offset (tile aggregate − full-frame score) at the boundary; tight = tracks:"
+    )
+
+    Enum.each([{:worst, "worst-tile"}, {:p10, "p10-tile"}, {:mean, "mean-tile"}], fn {k, name} ->
+      offs = Enum.map(rows, &Float.round(Map.get(&1, k) - &1.full_score, 2))
+
+      IO.puts(
+        "    #{String.pad_trailing(name, 11)} median #{Float.round(median(offs), 2)}  spread #{spread_note(offs)}"
+      )
+    end)
+
+    # 2. Sub-sampling penalty: K tiles vs all tiles, by HET bin (heterogeneous
+    #    images are where a sparse sample misses the localized worst region).
+    IO.puts(
+      "\n  sub-sampling penalty (K=#{@subsample_k} tiles vs full coverage), by heterogeneity:"
+    )
+
+    Enum.each(
+      [{"uniform HET<0.1", &(&1.het < 0.1)}, {"hetero HET>=0.1", &(&1.het >= 0.1)}],
+      fn {name, pred} ->
+        grp = Enum.filter(rows, pred)
+
+        if grp != [] do
+          worst_gap =
+            grp |> Enum.map(&Float.round(&1.sub_worst - &1.worst, 2)) |> avg() |> Float.round(2)
+
+          worst_max = grp |> Enum.map(&Float.round(&1.sub_worst - &1.worst, 2)) |> Enum.max()
+
+          IO.puts(
+            "    #{String.pad_trailing(name, 16)} n=#{length(grp)}  sub_worst − true_worst: mean +#{worst_gap}, worst +#{worst_max}"
+          )
+        end
+      end
+    )
+
+    # 3. Banding localization + cost.
+    smooth_worst = Enum.count(rows, & &1.worst_smooth?)
+    avg_full = rows |> Enum.map(& &1.full_us) |> avg() |> ms()
+    avg_tile = rows |> Enum.map(& &1.per_tile_us) |> avg()
+    k_ms = Float.round(avg_tile * @subsample_k / 1000, 1)
+    avg_n = rows |> Enum.map(& &1.n_tiles) |> avg() |> Float.round(1)
+
+    IO.puts(
+      "\n  worst tile sits in a smooth/low-texture region: #{smooth_worst}/#{length(rows)} subjects"
+    )
+
+    IO.puts(
+      "  cost: full-frame ~#{avg_full}ms  |  full coverage ~#{avg_n} tiles (≈ no saving)  |  K=#{@subsample_k} tiles ~#{k_ms}ms (fixed, size-independent)"
+    )
+
+    IO.puts("  -> crops keep native resolution, so (unlike Part C's proxy) they TRACK")
+    IO.puts("     full-frame — p10 offset is the tightest. Full coverage saves nothing;")
+    IO.puts("     K-tile sub-sampling is a fixed budget that only wins above the tile-")
+    IO.puts("     count crossover (i.e. large images), at small sub-sampling error.\n")
+  end
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -912,12 +1200,13 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   # --- findings --------------------------------------------------------------
 
-  defp print_findings(a_rows, b_rows, c_rows, format) do
+  defp print_findings(a_rows, b_rows, c_rows, e_rows, format) do
     IO.puts("\n== Findings ==\n")
 
     if a_rows, do: findings_part_a(a_rows)
     if b_rows, do: findings_part_b(b_rows)
     if c_rows, do: findings_part_c(c_rows)
+    if e_rows, do: findings_part_e(e_rows)
 
     IO.puts("\n(format: #{format}; numbers vary with CPU + libvips build — re-run locally)")
   end
@@ -1053,6 +1342,24 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("wrote #{path}")
   end
 
+  defp write_part_e_csv(rows) do
+    path = "/tmp/autoquality_bench_part_e.csv"
+
+    head =
+      "source,mp,het,n_tiles,full_score,worst,p10,mean,sub_worst,sub_p10," <>
+        "worst_smooth,full_us,per_tile_us\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.label},#{r.mp},#{r.het},#{r.n_tiles},#{fmt_score(r.full_score)},#{fmt_score(r.worst)}," <>
+          "#{fmt_score(r.p10)},#{fmt_score(r.mean)},#{fmt_score(r.sub_worst)},#{fmt_score(r.sub_p10)}," <>
+          "#{r.worst_smooth?},#{r.full_us},#{r.per_tile_us}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
   defp write_part_c_csv(rows) do
     path = "/tmp/autoquality_bench_part_c.csv"
 
@@ -1109,6 +1416,19 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp parse_files(nil), do: []
   defp parse_files(str), do: str |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+
+  # A directory of images (Part E corpus) takes precedence over --proxy-files.
+  defp corpus_files(nil, proxy_files), do: proxy_files
+
+  defp corpus_files(dir, _proxy_files) do
+    dir
+    |> Path.join("*")
+    |> Path.wildcard()
+    |> Enum.filter(&(Path.extname(&1) |> String.downcase() |> image_ext?()))
+    |> Enum.sort()
+  end
+
+  defp image_ext?(ext), do: ext in [".jpg", ".jpeg", ".png", ".webp"]
 
   defp ms(us) when is_integer(us), do: Float.round(us / 1000, 1)
   defp ms(us), do: Float.round(us / 1000, 1)

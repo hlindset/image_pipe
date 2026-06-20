@@ -15,11 +15,22 @@ mise exec -- mix autoquality.bench            # parts A+B, default sizes, prints
 mise exec -- mix autoquality.bench --part a   # cost curve only
 mise exec -- mix autoquality.bench --part b   # accuracy/behavior only
 mise exec -- mix autoquality.bench --part c   # downscaled-proxy-seed method + accuracy
-mise exec -- mix autoquality.bench --part all # A + B + C
+mise exec -- mix autoquality.bench --part d   # cheap full-res metric narrowing
+mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring
+mise exec -- mix autoquality.bench --part all # A + B + C + D + E
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
-mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c}.csv
+mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c,e}.csv
 ```
+
+> **Part E corpus.** Part E needs a content-diverse corpus the committed sources
+> can't provide (they're synthetic/uniform). Assemble one spanning smooth /
+> heterogeneous / dark / busy / text content — the harness reports per measured
+> heterogeneity, so coverage of the *smooth+detail* (banding-prone) case is what
+> matters, not labels. The reference run used ~16 license-clean photos from Lorem
+> Picsum (varied sizes) selected by measured texture profile, plus a synthetic
+> smooth gradient (`O.grey`) and a text block (`O.text`) for the banding and
+> sharp-edge cases. Point `--corpus` at the directory.
 
 [`mix autoquality.bench`](../test/support/mix/tasks/autoquality.bench.ex) is
 gated off the default `mix test` lane: it is a `test/support` Mix task (compiled
@@ -203,6 +214,60 @@ butteraugli) that tracks the boundary — **not in our stack** today — or per-
 SSIMULACRA2 anchoring (2 anchors + cheap interpolation + 1 confirm), which saves
 ~0 probes on the shipped narrow `[70,80]` bracket and only ~2–3 on a wide one.
 
+### Part E — crop-based scoring vs full-frame (#1)
+
+Score SSIMULACRA2 on native-resolution tiles of the *actual full-res encode*, not
+the whole frame. Unlike Part C's proxy this keeps native resolution, so per-pixel
+artifact statistics match — the only error is *which regions* you look at. Run over
+a curated 19-subject corpus (16 Lorem Picsum photos selected by texture profile +
+a synthetic gradient + a text block + the zone-plate), 512 px tiles, K=16
+sub-sample, reported by measured heterogeneity (HET).
+
+**This is the first lever that tracks.** The honest tracking metric is the *offset*
+`tile_aggregate − full_frame_score` at the boundary (a calibrated global threshold
+rides on it; the raw aggregate spread is inflated by `full_score`'s integer-quality
+quantization):
+
+| aggregate | median offset | offset spread (residual) |
+|-----------|---------------|--------------------------|
+| worst-tile | −0.12 | −2.21 … 1.03 (3.24) |
+| **p10-tile** | **0.12** | **−0.87 … 1.49 (2.36)** |
+| mean-tile | 1.83 | 0.22 … 4.64 (4.42) |
+
+**p10 holds within ±~1.5 pts** (≈ ±2 q) across content — versus Part C's ±18 q and
+Part D's hopeless spread. A single threshold `≈ target + 0.1` reproduces the
+full-frame decision. Mean is too optimistic; worst-tile is noisier.
+
+Sub-sampling and cost:
+
+- **K=16-tile sub-sampling penalty is small:** mean +0.17 / worst +0.86 on uniform
+  images, mean +0.28 / worst +1.58 on heterogeneous ones. A sparse sample mostly
+  catches the worst region — because at the autoquality target (q≈75–90) the worst
+  tiles are *textured*, not smooth (the worst tile sat in a smooth region in only
+  **2/19** subjects; banding-in-smooth is a low-quality phenomenon, below this regime).
+- **Cost is a fixed, size-independent budget** (K=16 ≈ 260 ms here). Full tile
+  *coverage* saves nothing (same pixels as the frame), but the fixed K-tile budget
+  beats full-frame above a **~4 MP crossover**:
+
+  | size | full-frame metric | K=16 tiles | result |
+  |------|-------------------|------------|--------|
+  | ≤ 2.7 MP | 33–106 ms | ~260 ms | **loss** (use full-frame) |
+  | 10.7 MP | ~415 ms | ~263 ms | ~1.6× |
+  | 16 MP | ~721 ms | ~318 ms | ~2.3× |
+  | 36 MP (extrapolated) | ~2.4 s | ~260 ms | ~9× |
+
+  Because the budget is constant while full-frame grows ~linearly, the win scales
+  with image size — collapsing Part A's superlinear blow-up to roughly constant
+  per-probe metric cost.
+
+**Conclusion:** crop-based scoring is the one shortcut that survives — it keeps the
+*real* metric at *native resolution* and only sub-samples *space*, so it tracks the
+full-frame boundary (p10, ±~1.5 pts) while making per-probe cost size-independent.
+It's a genuine speedup for large images (above ~4 MP), the exact regime where the
+full search is unaffordable. Caveats: validate the p10 threshold on a larger/owned
+corpus before fixing it; raise K or use saliency-guided tiles if targeting very low
+quality (where banding in smooth regions would need explicit sampling).
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
@@ -276,14 +341,35 @@ cheaper *perceptual* metric (MS-SSIM, butteraugli) — neither is in our stack t
 or per-image SSIMULACRA2 anchoring, which saves ~0 probes on the shipped narrow
 `[70,80]` bracket. Net: no change; the cost story stays as Parts A/C describe it.
 
-## The bottom line across A–D
+### 5. Crop-based scoring (#1) is the one real speedup — prototype it for large images
+
+Part E is the lever that works. Scoring the *real* SSIMULACRA2 on a *spatial
+subset* at *native resolution* tracks the full-frame boundary (p10 aggregate,
+±~1.5 pts ≈ ±2 q) — because it changes *what area* is measured, not *the metric* or
+*the resolution*, which is what sank Parts C and D. With a fixed K≈16-tile budget it
+makes per-probe cost size-independent: a loss below ~4 MP (where full-frame is cheap
+anyway) but ~1.6× at 10.7 MP, ~2.3× at 16 MP, scaling to ~9× at 36 MP — exactly the
+large-image regime where the full search is unaffordable.
+
+Recommendation: prototype crop-scoring behind the `max_resolution` threshold (#1) —
+i.e. below the cap use the full frame; above it, score K p10-tiles per probe with a
+calibrated threshold (and, for safety, one full-frame confirm on the winner). Before
+fixing the threshold and K, re-run `--part e --corpus` on a larger / production-
+representative corpus. This converts the cap from "disable autoquality on big
+images" into "run it affordably," recovering the savings on the images that matter.
+
+## The bottom line across A–E
 
 The SSIMULACRA2 quality boundary is **genuinely content-dependent and not cheaply
-predictable** — neither by reducing resolution (Part C) nor by a cheap pixel metric
-(Part D). The metric cost (~83% of wall-clock, Part A) is therefore largely
-intrinsic. The robust, shippable lever is the **resolution cap** (#1); the
-search/objective defaults are sound (#2); and the two "make it cheaper" shortcuts
-(proxy seed, cheap-metric narrowing) both founder on the same rock — a cheap or
-low-res stand-in for SSIMULACRA2 doesn't track its boundary. A real speedup needs
-either a cheaper perceptual metric in-stack or a learned per-content quality
-predictor (the endgame), both larger efforts than this benchmark.
+predictable by a *stand-in* for the metric** — neither a reduced-resolution proxy
+(Part C) nor a cheap pixel metric (Part D) tracks it; both founder on the same rock.
+But the boundary **is** recoverable by computing the *real* metric on a *spatial
+subset at native resolution* (Part E) — that tracks within ±~1.5 pts and, as a fixed
+tile budget, makes per-probe cost size-independent. So:
+
+- **Ship now:** the resolution cap (#1), objective/bracket defaults unchanged (#2).
+- **Don't ship:** the naïve proxy (#3) or PSNR narrowing (#4).
+- **Prototype next:** crop-based scoring above the cap (#5) — the genuine speedup,
+  turning the cap into "autoquality stays on, affordably" for large images.
+- **Endgame, if needed:** a cheaper perceptual metric in-stack, or a learned
+  per-content quality predictor — both larger efforts than this benchmark.
