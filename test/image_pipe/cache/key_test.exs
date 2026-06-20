@@ -11,6 +11,7 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
 
@@ -221,6 +222,8 @@ defmodule ImagePipe.Cache.KeyTest do
                format: :webp,
                quality: :default,
                format_qualities: %{},
+               quality_search: :none,
+               max_bytes: nil,
                strip_metadata: true,
                color_profile: :strip,
                keep_copyright: true,
@@ -973,6 +976,8 @@ defmodule ImagePipe.Cache.KeyTest do
              auto: [avif: true, webp: true],
              quality: :default,
              format_qualities: %{},
+             quality_search: :none,
+             max_bytes: nil,
              strip_metadata: true,
              color_profile: :strip,
              keep_copyright: true,
@@ -1014,6 +1019,8 @@ defmodule ImagePipe.Cache.KeyTest do
                auto: [avif: true, webp: true],
                quality: :default,
                format_qualities: %{},
+               quality_search: :none,
+               max_bytes: nil,
                strip_metadata: true,
                color_profile: :strip,
                keep_copyright: true,
@@ -1071,6 +1078,8 @@ defmodule ImagePipe.Cache.KeyTest do
              auto: [avif: false, webp: true],
              quality: :default,
              format_qualities: %{},
+             quality_search: :none,
+             max_bytes: nil,
              strip_metadata: true,
              color_profile: :strip,
              keep_copyright: true,
@@ -1130,6 +1139,8 @@ defmodule ImagePipe.Cache.KeyTest do
              format: :webp,
              quality: :default,
              format_qualities: %{},
+             quality_search: :none,
+             max_bytes: nil,
              strip_metadata: true,
              color_profile: :strip,
              keep_copyright: true,
@@ -1325,6 +1336,68 @@ defmodule ImagePipe.Cache.KeyTest do
                Key.plan_material(imgproxy_plan!("/_/c:100:50:noea/plain/images/cat.jpg"), [])
 
       assert inspect(material) =~ "top_right"
+    end
+  end
+
+  describe "quality_search / max_bytes in the cache key (#344)" do
+    defp qs_output(overrides) do
+      struct!(%Output{mode: :automatic}, overrides)
+    end
+
+    defp qs_search(overrides) do
+      struct!(
+        %QualitySearch{objective: :ssim2, target: 90.0, min_quality: 70, max_quality: 80},
+        overrides
+      )
+    end
+
+    defp qs_key_for(output) do
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/webp")
+      |> build_key!(plan(output: output), source_identity())
+    end
+
+    defp qs_etag_for(output) do
+      {:ok, material} = Key.plan_material(plan(output: output), [])
+      material[:output]
+    end
+
+    test "different max_bytes targets do not collide" do
+      refute qs_key_for(qs_output(max_bytes: 50_000)).hash ==
+               qs_key_for(qs_output(max_bytes: 60_000)).hash
+    end
+
+    test "different ssim2 targets do not collide" do
+      refute qs_key_for(qs_output(quality_search: qs_search(target: 90.0))).hash ==
+               qs_key_for(qs_output(quality_search: qs_search(target: 85.0))).hash
+    end
+
+    test "semantically identical searches reuse the same key" do
+      assert qs_key_for(qs_output(quality_search: qs_search(target: 90.0))).hash ==
+               qs_key_for(qs_output(quality_search: qs_search(target: 90.0))).hash
+    end
+
+    test "canonically-equal per-format clamps reuse the same key" do
+      a = qs_search(format_min: %{webp: 60, jpeg: 50}, format_max: %{webp: 90})
+      b = qs_search(format_min: %{jpeg: 50, webp: 60}, format_max: %{webp: 90})
+
+      assert qs_key_for(qs_output(quality_search: a)).hash ==
+               qs_key_for(qs_output(quality_search: b)).hash
+    end
+
+    test "max_resolution does not enter the key (generation guard, not stored identity)" do
+      assert qs_key_for(qs_output(quality_search: qs_search(max_resolution: 0))).hash ==
+               qs_key_for(qs_output(quality_search: qs_search(max_resolution: 50))).hash
+    end
+
+    test "different max_bytes targets yield different ETag material" do
+      refute qs_etag_for(qs_output(max_bytes: 50_000)) ==
+               qs_etag_for(qs_output(max_bytes: 60_000))
+    end
+
+    test "max_resolution does not enter the ETag material" do
+      assert qs_etag_for(qs_output(quality_search: qs_search(max_resolution: 0))) ==
+               qs_etag_for(qs_output(quality_search: qs_search(max_resolution: 50)))
     end
   end
 end

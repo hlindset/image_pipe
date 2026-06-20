@@ -10,6 +10,7 @@ defmodule ImagePipe.Cache.Key do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
 
   @schema_version 2
@@ -106,6 +107,8 @@ defmodule ImagePipe.Cache.Key do
        ],
        quality: output.quality,
        format_qualities: output.format_qualities,
+       quality_search: quality_search_key(output.quality_search),
+       max_bytes: output.max_bytes,
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
@@ -121,6 +124,8 @@ defmodule ImagePipe.Cache.Key do
        format: format,
        quality: output.quality,
        format_qualities: output.format_qualities,
+       quality_search: quality_search_key(output.quality_search),
+       max_bytes: output.max_bytes,
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
@@ -142,6 +147,8 @@ defmodule ImagePipe.Cache.Key do
        ],
        quality: output.quality,
        format_qualities: output.format_qualities,
+       quality_search: quality_search_key(output.quality_search),
+       max_bytes: output.max_bytes,
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
@@ -153,6 +160,23 @@ defmodule ImagePipe.Cache.Key do
   defp output_data(_conn, nil, opts), do: output_plan_data(nil, opts)
 
   defp output_data(_conn, %Output{} = output, opts), do: output_plan_data(output, opts)
+
+  # `max_resolution` is a generation guard (it decides whether the search runs on
+  # an oversized result), not stored identity, so it is deliberately excluded from
+  # both the key and the ETag. Per-format clamps are sorted for canonical equality.
+  defp quality_search_key(:none), do: :none
+
+  defp quality_search_key(%QualitySearch{} = search) do
+    [
+      objective: search.objective,
+      target: search.target,
+      min_quality: search.min_quality,
+      max_quality: search.max_quality,
+      allowed_error: search.allowed_error,
+      format_min: Enum.sort(Map.to_list(search.format_min)),
+      format_max: Enum.sort(Map.to_list(search.format_max))
+    ]
+  end
 
   defp replace_keyword_value(keyword, key, value) do
     Enum.map(keyword, fn
