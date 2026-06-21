@@ -106,7 +106,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
   synthetic). Reports, binned by measured heterogeneity: (1) tracking — the offset
   `tile_aggregate − full_frame_score` at the boundary (tight ⇒ a calibrated global
   threshold reproduces the full-frame decision); (2) sub-sampling penalty — K tiles
-  vs full coverage; (3) cost — K tiles is a fixed pixel budget regardless of size.
+  vs full coverage; (3) cost — K tiles is a fixed pixel budget (16 × 512² ≈ 4.2 MP
+  scored, independent of source size).
 
   Finding: crop scoring is the first lever that TRACKS. The p10-tile offset holds
   within ±~1.5 pts (median ~0) across content — vs Part C's ±18q and Part D's
@@ -879,7 +880,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("oracle = full-frame full-res ssim2, target #{@target} [#{@min_q},#{@max_q}]  ")
 
     IO.puts(
-      "tile #{@tile}px  K=#{@subsample_k}  q#{@baseline_quality} savings baseline  ≤#{cap}/source  format #{format}\n"
+      "tile #{@tile}px  K=#{@subsample_k} (≈#{Float.round(@subsample_k * @tile * @tile / 1_000_000, 1)} MP scored)  " <>
+        "q#{@baseline_quality} savings baseline  ≤#{cap}/source  format #{format}\n"
     )
 
     resolved = ssim2_resolved(format)

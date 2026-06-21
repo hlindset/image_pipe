@@ -224,8 +224,10 @@ the whole frame. Unlike Part C's proxy this keeps native resolution, so per-pixe
 artifact statistics match — the only error is *which regions* you look at. Run
 **per content source** over the [`imazen/codec-corpus`](https://github.com/imazen/codec-corpus)
 subsets fetched by `mix autoquality.corpus` (≤24/source, macro-averaged so no one
-content type dominates), 512 px tiles, K=16 sub-sample. The honest tracking metric
-is the *offset* `tile_p10 − full_frame_score` at the boundary — a calibrated global
+content type dominates), 512 px tiles, K=16 sub-sample — **so the scored sample is a
+fixed 16 × 512² ≈ 4.2 MP regardless of source resolution** (full coverage would tile
+the whole frame; sub-sampling to K=16 tiles is the cost lever). The honest tracking
+metric is the *offset* `tile_p10 − full_frame_score` at the boundary — a calibrated global
 threshold rides on it (the raw aggregate spread would be inflated by `full_score`'s
 integer-quality quantization):
 
@@ -248,11 +250,13 @@ single threshold `≈ target + macro-offset` reproduces the full-frame decision;
 one-pass full-frame confirm covers the residual. (`cid22`/`gb82` are ≤576 px → one
 tile, so they only exercise the B-refresh below, not crop-tracking.)
 
-**Cost win is large-image-only, confirmed.** K=16 is a fixed ~265 ms budget, so it
-only beats full-frame above a **~6 MP crossover**: `large` (15 MP) wins **2.5×**,
-while CLIC at 2–4 MP and everything smaller is a *loss*. The budget is constant
-while full-frame grows ~linearly, so the win scales with size (extrapolating, ~9×
-at 36 MP) — collapsing Part A's superlinear blow-up. Sub-sampling penalty is small
+**Cost win is large-image-only, confirmed.** Because K=16 always scores the same
+~4.2 MP sample (16 × 512²) no matter the source size, it's a **flat ~265 ms budget**;
+full-frame scores the whole image and grows ~linearly. So crops only beat full-frame
+above a **~6 MP crossover** (≈ where the full frame's area passes the 4.2 MP sample
+plus per-tile overhead), and the win ≈ source-MP ÷ 4.2: `large` (15 MP) wins **2.5×**,
+CLIC at 2–4 MP and smaller is a *loss*, extrapolating to ~9× at 36 MP — collapsing
+Part A's superlinear blow-up. Sub-sampling penalty is small
 (`large`: +0.62 worst), and the worst tile sat in a smooth region in only **3/113**
 subjects (banding-in-smooth is a low-quality phenomenon, below this regime).
 
@@ -372,12 +376,22 @@ loss below the ~6 MP crossover (where full-frame is cheap anyway) but **2.5× at
 15 MP** (the `large` source), scaling with size (~9× at 36 MP) — exactly the regime
 where the full search is unaffordable.
 
-Recommendation: prototype crop-scoring behind the `max_resolution` threshold (#1) —
-below the cap use the full frame; above it, score K p10-tiles per probe with a
-threshold calibrated as `target + macro-offset`, plus one full-frame confirm on the
-winner for safety. Calibration data already exists: calibrate on `clic` and check
-on the held-out `clic_holdout`. This converts the cap from "disable autoquality on
-big images" into "run it affordably," recovering savings on the images that matter.
+Recommendation: switch the search to crop-scoring above an **internal ~6 MP
+crossover** (full frame below it, where it's cheaper) — K p10-tiles per probe
+against a threshold calibrated as `target + macro-offset`, plus one full-frame
+confirm on the winner. Calibrate on `clic`, check on the held-out `clic_holdout`.
+The crossover is **internal**, *not* the user-facing `max_resolution` cap (#1) —
+keep one knob.
+
+This also reshapes the cap's role. Crop-scoring flattens the **metric** (fixed
+~4.2 MP scored, any size) but **not** the per-probe full-res **encode** (O(pixels)×N,
+~4–5 s of encodes at 36 MP). That residual is bounded by a wall-clock **deadline**
+(#355), and decode/memory is already bounded by `max_input_pixels` at the decode
+step — so once crop-scoring + the deadline land, `max_resolution` is **redundant as a
+cost guard**. It should then *retire* to an optional **policy** knob ("don't attempt
+autoquality above X MP" → clean fixed-quality fallback), default high/off — it stays
+a must-do *interim* guard only until those land. That is what turns "autoquality off
+on big images" into "autoquality on, affordably."
 
 ## The bottom line across A–E
 
@@ -388,9 +402,12 @@ But the boundary **is** recoverable by computing the *real* metric on a *spatial
 subset at native resolution* (Part E) — that tracks within ±~1.5 pts and, as a fixed
 tile budget, makes per-probe cost size-independent. So:
 
-- **Ship now:** the resolution cap (#1), objective/bracket defaults unchanged (#2).
+- **Ship now:** the resolution cap (#1, *interim* — see below), objective/bracket
+  defaults unchanged (#2).
 - **Don't ship:** the naïve proxy (#3) or PSNR narrowing (#4).
-- **Prototype next:** crop-based scoring above the cap (#5) — the genuine speedup,
-  turning the cap into "autoquality stays on, affordably" for large images.
+- **Prototype next:** crop-based scoring above an internal ~6 MP crossover (#5) — the
+  genuine speedup, "autoquality stays on, affordably" for large images. It plus a
+  wall-clock deadline + the existing `max_input_pixels` then make the resolution cap
+  redundant as a *cost* guard, so the cap retires to an optional policy knob.
 - **Endgame, if needed:** a cheaper perceptual metric in-stack, or a learned
   per-content quality predictor — both larger efforts than this benchmark.
