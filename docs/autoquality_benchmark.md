@@ -397,7 +397,9 @@ on big images" into "autoquality on, affordably."
 
 Crop-scoring shipped in #354 (`ImagePipe.Output.Ssim2Metric.CropScore` +
 `EncodeSearch`/`Encoder`), constants-only at the Part-E operating point
-(`@tile 512`, `@subsample_k 16`, `@crossover_megapixels 6`). The p10→full-frame
+(`@tile 512`, `@subsample_k 16`, `@crossover_megapixels 6`). These are a
+**validated single operating point, not a swept optimum** — confirming K/tile sit
+at the accuracy↔cost knee is tracked in #359. The p10→full-frame
 correction `@crop_macro_offset` was calibrated on a fresh `mix autoquality.bench
 --part e` run over the pinned codec-corpus (Apple Silicon, libvips 8.18.2), which
 reproduced the Part-E numbers:
