@@ -742,6 +742,11 @@ A host implements `ImagePipe.Telemetry.Trace.Exporter`:
   (allowlist only — source URLs, request paths, signatures, and tokens are never
   copied in). Exporters that fan out to third parties remain responsible for
   their own egress policy.
+- Attributes carry **both the start metadata and the allowlisted stop
+  metadata** — the per-result verdict (e.g. the encode-search `chosen_quality` /
+  `final_score` / `scorer`, the HTTP `status`, the classified `error` tag, the
+  decoded shape). Stop keys win on collision. Exporters need not read the
+  telemetry events separately to recover the outcome.
 - The allowlist covers **attributes only**. A span's `status_message` and the
   `reason` on a folded `exception` event carry the raw exception reason
   (`inspect/1`, standard tracing behavior) and are **not** allowlist-filtered,

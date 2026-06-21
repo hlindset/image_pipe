@@ -79,7 +79,36 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :max_bytes,
     :quality,
     :bytes,
-    :score
+    :score,
+    # Stop-metadata verdicts (the per-result facts an observer reads off a
+    # finished span). All product-neutral; sourced from request inputs or
+    # runtime image inspection, never from secret-bearing strings.
+    :status,
+    :error,
+    :reason,
+    :output_format,
+    :content_type,
+    :stream_phase,
+    # encode-search outcome
+    :chosen_quality,
+    :chosen_bytes,
+    :final_score,
+    :scorer,
+    :outcome,
+    :iterations,
+    :tiles_scored,
+    :confirm_passes,
+    # fetch/decode shape
+    :load_option,
+    :loaded_dims,
+    :original_dims,
+    :achieved_shrink,
+    :detected_source_format,
+    :source_format_resolution,
+    # cache admission / warm-start
+    :victim_count,
+    :own_state_loaded,
+    :peer_state_files
   ]
 
   @spec attach(map()) :: :ok
@@ -188,7 +217,10 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
         :ok
 
       span ->
-        span |> finalize(measurements, status_from(meta)) |> export(exporter)
+        span
+        |> merge_attrs(meta)
+        |> finalize(measurements, status_from(meta))
+        |> export(exporter)
     end
   end
 
@@ -263,6 +295,15 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   end
 
   defp exception_message(meta), do: inspect(meta[:reason])
+
+  # Span attributes are seeded from start metadata (on_start) and then enriched
+  # with the stop metadata's allowlisted keys here — the per-result verdict
+  # (chosen quality/score, HTTP status, error tag, decoded shape, …) that the
+  # Logger and metrics handlers already see. Stop keys win on collision (the
+  # start value was a placeholder for the same fact).
+  defp merge_attrs(%Span{attributes: attrs} = span, meta) do
+    %{span | attributes: Map.merge(attrs, safe_attrs(meta))}
+  end
 
   defp safe_attrs(meta) do
     Map.take(meta, @safe_keys)
