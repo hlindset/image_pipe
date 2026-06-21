@@ -280,6 +280,125 @@ speedup for large images (above ~6 MP), the regime where the full search is
 unaffordable. Caveats: calibrate the p10 threshold on `clic_holdout` (kept aside);
 raise K or use saliency-guided tiles only if targeting very low quality.
 
+### Part F — saliency tile selection vs the full-frame confirm (#359)
+
+Part E flattens the *objective* search to a fixed ~4.2 MP budget but leaves the
+**full-frame confirm + bump** (1–3 `O(pixels)` full-frame scores on the winner) — the
+surviving size-dependent cost. Part F tests the high-value question: can a smarter
+tile *selection* make the crop estimate accurate enough to **retire that confirm**,
+making the whole search size-independent? Method (no production change): per image ×
+selector × K, run the real search core (`EncodeSearch.search/3`) with a
+selector-parameterized crop `score_fun` and **no `confirm_fun`** — that *is* the
+confirm-skipped path — then take one full-frame score at the winner as ground truth.
+Baseline = production-today (even + full-frame confirm @ K=16). The residual is
+decomposed into the two parts that decide whether selection can help at all:
+
+  * **sampling** = `selected_p10 − full_coverage_p10` — selection *can* shrink this.
+  * **systematic** = `(full_coverage_p10 − offset) − full_frame_score` — the
+    p10→full-frame mapping; selection *cannot* fix it (only per-content offset
+    recalibration would).
+
+Selectors: `even` (shipped), `source_detail` (source edge energy, candidate-independent),
+`mixed` (half coverage + half source-detail), `diff_aware` (adds candidate-dependent
+|source−candidate| + its high-pass energy — a per-probe upper bound, not
+production-plausible). K ∈ {8,12,16,24}. Corpus subset (`clic`, `clic_holdout`,
+`gb82_sc`, `qoi_web`, `large`; ≤10/source; 34 images where the confirm-backed baseline
+hit target). `deliv_err`/`|samp|`/`|sys|` are macro-medians; `worst` is the global
+undershoot tail; `regress` counts images that ship **below** target once the confirm
+is skipped.
+
+| K  | selector       | deliv_err | worst  | \|samp\| | \|sys\| | regress |
+|----|----------------|-----------|--------|----------|---------|---------|
+| 8  | even           | 0.47      | −1.86  | 0.26     | 0.50    | 9/34    |
+| 8  | source_detail  | 0.44      | −2.61  | 0.43     | 0.48    | 8/34    |
+| 8  | mixed          | 0.52      | −1.86  | 0.29     | 0.42    | 7/34    |
+| 8  | diff_aware     | 0.88      | −1.86  | 0.33     | 0.50    | 7/34    |
+| 16 | even           | 0.40      | −1.33  | **0.02** | 0.43    | 9/34    |
+| 16 | source_detail  | 0.43      | −1.86  | 0.11     | 0.43    | 9/34    |
+| 16 | mixed          | 0.39      | −1.86  | 0.06     | 0.40    | 10/34   |
+| 16 | diff_aware     | 0.40      | −1.86  | 0.05     | 0.50    | 9/34    |
+| 24 | even           | 0.40      | −1.34  | **0.00** | 0.50    | 9/34    |
+| 24 | source_detail  | 0.39      | −1.33  | 0.08     | 0.40    | 10/34   |
+
+(K=12 and the per-image rows are in `/tmp/autoquality_bench_part_f.csv`; the shape is
+identical across K.)
+
+**The residual is systematic-dominated, so no selector can retire the confirm.**
+Across every K and selector `|systematic|` (~0.4–0.5 SSIM) dominates `|sampling|`, and
+with even-spacing at K≥12 the sampling error is already ≈0 (K=24 even: 0.00). There is
+essentially nothing for a smarter selector to fix — the gap between the crop p10
+estimate and the full-frame score is the **p10→full-frame mapping** (the ±2–4 q
+per-image offset spread Part E flagged), not *which* tiles are sampled.
+
+**Saliency selection does not help, and sometimes hurts.** No selector reduces the
+worst-undershoot tail or the regression count vs even-spacing; `source_detail` at low
+K makes the worst case *worse* (−2.61 at K=8) by trading spatial coverage for
+busy-region concentration — *raising* sampling variance, the opposite of the goal.
+`diff_aware` adds ~133 ms/probe of candidate-dependent map work for no accuracy gain —
+strictly dominated.
+
+**Skipping the confirm is not free for any selector.** ~9/34 (26%) of the images the
+confirm-backed baseline hit target ship **below** target with the confirm skipped
+(worst −1.2…−2.6 SSIM), regardless of selector — exactly the cases the confirm's bump
+rescues, and because their error is *systematic* the crop estimate cannot anticipate
+them. On this corpus a single full-frame confirm is ~219 ms (baseline runs ~1.3 confirm
+passes); the prize grows with image size, but it is not worth a 26% sub-target rate.
+
+**Can a *cheaper aggregation* be the confirm instead?** If the gap is "p10-of-tiles vs
+whole-frame", maybe a coverage **mean** tracks the full-frame score tightly enough to
+stand in for the full-frame confirm at K-tile cost. Tested directly (residual =
+`aggregate(tiles) − full_frame_score` at the delivered quality, 46 images): **no.**
+Every aggregation shares the *same* ~4 SSIM worst-case tail after its own calibration —
+aggregation only moves the offset, not the spread:
+
+| aggregate | offset (median) | worst± (post-calibration) |
+|-----------|-----------------|---------------------------|
+| p10 K16   | 0.38            | 4.29                      |
+| p25 K16   | 0.83            | 4.22                      |
+| mean K16  | 1.80            | 4.01                      |
+| mean full | 1.80            | 4.00                      |
+
+`mean K16` (4.01) barely edges `p10` (4.29) — noise on a ~4-pt floor — and `mean K16` ≈
+`mean full` (4.00) confirms **sampling contributes nothing**; the ~4-pt tail is purely
+the content-dependent tile-aggregate↔full-frame mapping. A coverage-mean crop confirm
+would still misjudge the worst image by ~4 SSIM, far outside the ±~1.5 best-effort band.
+So a *crop-based confirm of any aggregation* is **not** viable; the only remaining lever
+is **per-content offset calibration** (a learned/source-feature offset — the
+"predict-then-verify" direction in the IQA/per-shot literature).
+
+**First probe of the calibration lever — the cheapest rung fails.** Before any
+source-feature model, the cheapest possible predictor is an OLS regression of the
+full-frame score on the *tile-distribution shape* we already compute every probe
+(`p10/p25/median/mean` of the K=16 tile scores, ± megapixels). Fit on the agg CSV (46
+images):
+
+| validation | worst± |
+|------------|--------|
+| in-sample (fit on all 46, optimistic) | **3.1** (vs ~4 single-aggregate) |
+| `clic_holdout` only (photos) | 0.9 — *but misleading* |
+| **leave-one-source-out (unseen class)** | **6.3–7.7** (driven by `large`) |
+
+The single-class (`clic_holdout` = photos) holdout gives a false green light at 0.9;
+**leave-one-source-out** — the honest "generalize to an unseen content class" test —
+blows up to 6.3–7.7 SSIM on 15 MP `large` images and ~3.8 on `qoi_web` screenshots (and
+adding `mp` makes `large` *worse* — extrapolation). Even *in-sample*, the residual won't
+drop below ~3, and it lives specifically in screenshots (3.10) and large photos (2.33);
+photographs and screen content already track ~1.3–1.5. So tile-distribution shape cannot
+linearly explain the full-frame score for the hard classes. Per-content calibration
+therefore needs **actual source/content features, per-class *and* per-size training
+coverage, and a confirm fallback for unseen content** — a real calibration/ML project,
+not a quick win — which is why it stays filed under "endgame, if needed."
+
+**Conclusion:** even-spacing + p10 is already a near-optimal *spatial* sampler; the
+full-frame confirm absorbs a *systematic, content-dependent* tile→full-frame residual
+(~4 SSIM worst-case) that **neither tile selection nor a cheaper aggregation can
+touch**. Saliency-guided selection does not earn a production change, and a crop-based
+confirm cannot replace the full-frame one. The only lever left for cheapening the
+confirm on large images is per-content offset calibration (or accepting a bounded
+best-effort sub-target rate above the crossover). *Caveat:* capped single-machine run —
+the portable conclusion is the **shape** (systematic ≫ sampling; selector- and
+aggregation-invariant worst-case tail), not the absolute SSIM values.
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
@@ -428,7 +547,7 @@ reproduced the Part-E numbers:
   1.1×; a loss below the ~6 MP crossover (where full-frame is cheap), confirming the
   crossover. Sub-sample penalty ≤0.62; worst tile in a smooth region 3/113.
 
-## The bottom line across A–E
+## The bottom line across A–F
 
 The SSIMULACRA2 quality boundary is **genuinely content-dependent and not cheaply
 predictable by a *stand-in* for the metric** — neither a reduced-resolution proxy
@@ -439,10 +558,16 @@ tile budget, makes per-probe cost size-independent. So:
 
 - **Ship now:** the resolution cap (#1, *interim* — see below), objective/bracket
   defaults unchanged (#2).
-- **Don't ship:** the naïve proxy (#3) or PSNR narrowing (#4).
+- **Don't ship:** the naïve proxy (#3), PSNR narrowing (#4), or saliency-guided tile
+  selection (Part F) — even-spacing is already a near-optimal spatial sampler, and the
+  full-frame confirm absorbs a *systematic* residual that tile choice cannot touch.
 - **Prototype next:** crop-based scoring above an internal ~6 MP crossover (#5) — the
   genuine speedup, "autoquality stays on, affordably" for large images. It plus a
   wall-clock deadline + the existing `max_input_pixels` then make the resolution cap
   redundant as a *cost* guard, so the cap retires to an optional policy knob.
-- **Endgame, if needed:** a cheaper perceptual metric in-stack, or a learned
-  per-content quality predictor — both larger efforts than this benchmark.
+- **Endgame, if needed:** a cheaper perceptual metric in-stack, a learned per-content
+  quality predictor, or — to cheapen the surviving full-frame confirm on large images —
+  per-content offset calibration. (Part F ruled out the cheaper alternatives: neither a
+  smarter tile *selection* nor a cheaper *aggregation* / crop-based confirm tracks the
+  full-frame score within tolerance; the residual is systematic and content-dependent.)
+  All larger efforts than this benchmark.
