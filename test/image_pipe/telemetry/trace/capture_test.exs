@@ -65,6 +65,61 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     refute child.root
   end
 
+  test "captures the encode-search span with its product-neutral start attributes" do
+    Telemetry.span(
+      [],
+      [:encode, :search],
+      %{objective: :ssim2, min_quality: 50, max_quality: 90, target: 90.0, max_bytes: 200_000},
+      fn -> {:ok, %{result: :ok}} end
+    )
+
+    assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
+    assert span.status == :ok
+    assert span.attributes[:objective] == :ssim2
+    assert span.attributes[:max_bytes] == 200_000
+    assert span.attributes[:target] == 90.0
+  end
+
+  test "folds the encode-search probe one-shot onto the current span with its numbers" do
+    Telemetry.span([], [:encode, :search], %{objective: :ssim2}, fn ->
+      Telemetry.execute(
+        [],
+        [:encode, :search, :probe],
+        %{},
+        %{quality: 62, bytes: 12_345, index: 1, score: 90.42}
+      )
+
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
+    probe = Enum.find(span.events, &(&1.name == "image_pipe.encode.search.probe"))
+    assert probe
+    assert probe.attributes[:quality] == 62
+    assert probe.attributes[:bytes] == 12_345
+    assert probe.attributes[:index] == 1
+    assert probe.attributes[:score] == 90.42
+  end
+
+  test "captures the render span with its renderer attribute" do
+    Telemetry.span([], [:render], %{renderer: ImagePipe.Telemetry.Trace.CaptureTest}, fn ->
+      {:ok, %{result: :ok, content_type: "application/json"}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.render"} = span}
+    assert span.status == :ok
+    assert span.attributes[:renderer] == ImagePipe.Telemetry.Trace.CaptureTest
+  end
+
+  test "captures the input color management span" do
+    Telemetry.span([], [:transform, :input_color_management], %{}, fn ->
+      {:ok, %{result: :ok, working_space: :VIPS_INTERPRETATION_sRGB}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.transform.input_color_management"} = span}
+    assert span.status == :ok
+  end
+
   test "an inbound-continued root keeps root: true despite a non-nil parent" do
     Inbound.put(%Context{
       trace_id: "0123456789abcdef0123456789abcdef",

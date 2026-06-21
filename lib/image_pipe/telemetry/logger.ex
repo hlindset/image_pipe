@@ -18,10 +18,12 @@ defmodule ImagePipe.Telemetry.Logger do
       [:transform, :input_color_management],
       [:transform, :operation],
       [:transform, :materialize],
-      [:transform, :detect]
+      [:transform, :detect],
+      [:transform, :detect, :model]
     ],
     cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]],
-    output: []
+    output: [[:output, :negotiate]],
+    http_cache: []
   }
 
   # cache one-shot events (already terminal; not spans)
@@ -46,6 +48,14 @@ defmodule ImagePipe.Telemetry.Logger do
   # request one-shot events (already terminal; not spans)
   @request_oneshot [
     [:encode, :search, :probe]
+  ]
+
+  # generated CDN HTTP-cache one-shot events (already terminal; not spans)
+  @http_cache_oneshot [
+    [:http_cache, :prepare],
+    [:http_cache, :conditional, :match],
+    [:http_cache, :fallback, :no_store],
+    [:http_cache, :cache_hit, :headers]
   ]
 
   @all_groups Map.keys(@group_span_events)
@@ -85,9 +95,12 @@ defmodule ImagePipe.Telemetry.Logger do
     transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
     output_oneshots = if :output in groups, do: @output_oneshot, else: []
     request_oneshots = if :request in groups, do: @request_oneshot, else: []
+    http_cache_oneshots = if :http_cache in groups, do: @http_cache_oneshot, else: []
 
     Enum.map(
-      spans ++ cache_oneshots ++ transform_oneshots ++ output_oneshots ++ request_oneshots,
+      spans ++
+        cache_oneshots ++
+        transform_oneshots ++ output_oneshots ++ request_oneshots ++ http_cache_oneshots,
       fn e -> prefix ++ e end
     )
   end
@@ -130,16 +143,17 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp level_for(suffix, metadata, base) do
-    cond do
-      List.last(suffix) == :exception -> :warning
-      metadata[:result] == :cache_error -> :warning
-      metadata[:result] == :materialize_error -> :warning
-      encode_failure?(suffix, metadata) -> :warning
-      color_management_failure?(suffix, metadata) -> :warning
-      detect_fallback_warning?(suffix, metadata) -> :warning
-      render_failure?(suffix, metadata) -> :warning
-      true -> base
-    end
+    if stage_warning?(suffix, metadata), do: :warning, else: base
+  end
+
+  defp stage_warning?(suffix, metadata) do
+    List.last(suffix) == :exception or
+      metadata[:result] in [:cache_error, :materialize_error] or
+      encode_failure?(suffix, metadata) or
+      color_management_failure?(suffix, metadata) or
+      detect_fallback_warning?(suffix, metadata) or
+      render_failure?(suffix, metadata) or
+      negotiate_failure?(suffix, metadata)
   end
 
   # A genuine server-side encode-compute failure (forced evaluation raised/errored
@@ -171,6 +185,11 @@ defmodule ImagePipe.Telemetry.Logger do
   # analogous to encode_failure?.
   defp render_failure?([:render | _], meta), do: meta[:result] == :render_error
   defp render_failure?(_suffix, _meta), do: false
+
+  # Output negotiation that could not resolve a deliverable format → escalate to
+  # :warning, analogous to render_failure?. The `:ok` outcome stays at base level.
+  defp negotiate_failure?([:output, :negotiate | _], meta), do: meta[:result] not in [:ok, nil]
+  defp negotiate_failure?(_suffix, _meta), do: false
 
   # --- message ---
   defp message([:transform, :operation | _], _m, meta) do
@@ -242,6 +261,33 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:render | _], _m, meta) do
     ct = if meta[:content_type], do: " (#{meta[:content_type]})", else: ""
     "image_pipe render: #{outcome(meta)}#{ct}"
+  end
+
+  defp message([:output, :negotiate | _], _m, meta) do
+    format = if meta[:output_format], do: " (#{meta[:output_format]})", else: ""
+    "image_pipe output negotiate: #{outcome(meta)}#{format}"
+  end
+
+  defp message([:transform, :detect, :model | _], _m, meta) do
+    "image_pipe transform detect model: #{meta[:regions]} regions (#{inspect(meta[:detector])})"
+  end
+
+  defp message([:http_cache, :prepare | _], _m, meta) do
+    "image_pipe http_cache prepare: #{meta[:effective_mode]} " <>
+      "(byte_identity #{meta[:byte_identity]}, etag #{meta[:etag]})"
+  end
+
+  defp message([:http_cache, :conditional, :match | _], _m, meta) do
+    "image_pipe http_cache conditional match: #{meta[:method]}"
+  end
+
+  defp message([:http_cache, :fallback, :no_store | _], _m, meta) do
+    "image_pipe http_cache fallback no_store: #{meta[:reason]} (#{meta[:source_kind]})"
+  end
+
+  defp message([:http_cache, :cache_hit, :headers | _], _m, meta) do
+    "image_pipe http_cache cache_hit headers: etag #{meta[:etag]} " <>
+      "(generated #{meta[:generated_cache_headers]}, representation #{meta[:representation_headers]})"
   end
 
   defp message([:source, :fetch_decode | _], _m, meta) do

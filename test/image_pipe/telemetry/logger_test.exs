@@ -456,6 +456,138 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "source fetch_decode: processing_error (detected svg)"
   end
 
+  test "renders the output negotiate span with its outcome and format" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :output, :negotiate, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :ok, output_mode: :automatic, output_format: :jpeg}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "output negotiate: ok (jpeg)"
+  end
+
+  test "escalates an output negotiate failure to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :output, :negotiate, :stop],
+          %{duration: 1000},
+          %{result: :output_error, output_mode: :explicit, error: :unsupported}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "output negotiate: output_error"
+  end
+
+  test "renders the per-model detect span with its region count" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :detect, :model, :stop],
+          %{duration: System.convert_time_unit(5, :millisecond, :native)},
+          %{
+            detector: ImagePipe.Transform.Detector.ImageVision.Face,
+            classes: ["face"],
+            regions: 2
+          }
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "transform detect model: 2 regions"
+  end
+
+  test "logs the http_cache prepare one-shot at base level with its mode" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :http_cache, :prepare],
+          %{},
+          %{effective_mode: :generate, byte_identity: :strong, etag: true}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "http_cache prepare: generate"
+    assert log =~ "byte_identity strong"
+  end
+
+  test "logs the http_cache conditional match one-shot with the method" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :http_cache, :conditional, :match],
+          %{},
+          %{method: :get}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "http_cache conditional match: get"
+  end
+
+  test "logs the http_cache no-store fallback one-shot with its reason" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :http_cache, :fallback, :no_store],
+          %{},
+          %{adapter: SomeAdapter, source_kind: :url, reason: :missing_byte_identity}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "http_cache fallback no_store: missing_byte_identity"
+  end
+
+  test "logs the http_cache cache-hit headers one-shot" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :http_cache, :cache_hit, :headers],
+          %{},
+          %{etag: true, generated_cache_headers: true, representation_headers: false}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "http_cache cache_hit headers: etag true"
+  end
+
+  test "http_cache events can be filtered as their own group" do
+    Telemetry.attach_default_logger(level: :info, events: [:cache])
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :http_cache, :prepare],
+          %{},
+          %{effective_mode: :generate, byte_identity: :strong, etag: true}
+        )
+      end)
+
+    refute log =~ "http_cache"
+  end
+
   test "rejects an invalid log level" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(level: :nope) end
   end

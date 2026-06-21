@@ -498,6 +498,12 @@ all configured detectors and was silently dropped (best-effort).
 > secrets — it appears in these per-model spans, which fan out to every attached
 > handler including third-party exporters.
 
+The opt-in default Logger renders the per-model span at the base level, e.g.:
+
+```text
+image_pipe transform detect model: 2 regions (ImagePipe.Transform.Detector.ImageVision.Face)
+```
+
 When **no** detector is configured, no detection runs, so there is no span.
 Instead ImagePipe emits a one-shot (non-span) marker:
 
@@ -578,6 +584,17 @@ Generated CDN HTTP cache handling emits non-span events:
 
 These events don't include request paths, source identities, cache keys, or ETag
 values.
+
+The opt-in default Logger renders all four at the base level under its own
+`:http_cache` event group (so a host can include or exclude them via the
+`:events` option independently of the storage `:cache` group), e.g.:
+
+```text
+image_pipe http_cache prepare: generate (byte_identity strong, etag true)
+image_pipe http_cache conditional match: get
+image_pipe http_cache fallback no_store: missing_byte_identity (url)
+image_pipe http_cache cache_hit headers: etag true (generated true, representation false)
+```
 
 ## Output dimension clamp (`[:output, :clamp]`)
 
