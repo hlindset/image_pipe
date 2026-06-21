@@ -10,7 +10,15 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # group => span event suffixes (each gets :stop + :exception)
   @group_span_events %{
-    request: [[:request], [:send], [:encode], [:encode, :search], [:deliver], [:render]],
+    request: [
+      [:request],
+      [:send],
+      [:encode],
+      [:encode, :search],
+      [:encode, :search, :probe],
+      [:deliver],
+      [:render]
+    ],
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
     transform: [
@@ -43,11 +51,6 @@ defmodule ImagePipe.Telemetry.Logger do
   # output one-shot events (already terminal; not spans)
   @output_oneshot [
     [:output, :clamp]
-  ]
-
-  # request one-shot events (already terminal; not spans)
-  @request_oneshot [
-    [:encode, :search, :probe]
   ]
 
   # generated CDN HTTP-cache one-shot events (already terminal; not spans)
@@ -94,13 +97,12 @@ defmodule ImagePipe.Telemetry.Logger do
     cache_oneshots = if :cache in groups, do: @cache_oneshot, else: []
     transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
     output_oneshots = if :output in groups, do: @output_oneshot, else: []
-    request_oneshots = if :request in groups, do: @request_oneshot, else: []
     http_cache_oneshots = if :http_cache in groups, do: @http_cache_oneshot, else: []
 
     Enum.map(
       spans ++
         cache_oneshots ++
-        transform_oneshots ++ output_oneshots ++ request_oneshots ++ http_cache_oneshots,
+        transform_oneshots ++ output_oneshots ++ http_cache_oneshots,
       fn e -> prefix ++ e end
     )
   end
@@ -243,6 +245,15 @@ defmodule ImagePipe.Telemetry.Logger do
 
     "image_pipe output clamp: #{sw}x#{sh} -> #{w}x#{h} for #{meta[:format]} " <>
       "(caps w:#{cap(mw)} h:#{cap(mh)} px:#{cap(mp)})"
+  end
+
+  # Specific clause BEFORE the search clause below: a probe stop would otherwise
+  # match [:encode, :search | _] and render with the search verdict's keys (nil).
+  defp message([:encode, :search, :probe | _], _m, meta) do
+    score = if meta[:score], do: " score #{round2(meta[:score])}", else: ""
+
+    "image_pipe encode search probe: #{outcome(meta)} " <>
+      "(#{meta[:phase]} q#{meta[:quality]} #{meta[:bytes]}b#{score})"
   end
 
   defp message([:encode, :search | _], _m, meta) do

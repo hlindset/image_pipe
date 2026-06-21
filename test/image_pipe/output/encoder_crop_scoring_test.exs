@@ -95,6 +95,70 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     assert crop.score >= resolved.quality_search.target - resolved.quality_search.allowed_error
   end
 
+  test "run/3 emits the probe spans and their encode/decode/metric cost legs (crop mode)" do
+    prefix = [:"ip_crop_legs_#{System.unique_integer([:positive])}"]
+    test_pid = self()
+    handler_id = "crop-legs-#{System.unique_integer([:positive])}"
+
+    events =
+      for stage <- [
+            [:encode, :search, :probe],
+            [:encode, :search, :probe, :encode],
+            [:encode, :search, :probe, :ssim2, :decode],
+            [:encode, :search, :probe, :ssim2, :metric]
+          ],
+          do: prefix ++ stage ++ [:stop]
+
+    :telemetry.attach_many(
+      handler_id,
+      events,
+      fn event, _measurements, metadata, _config ->
+        stage = event |> Enum.drop(length(prefix)) |> Enum.drop(-1)
+        send(test_pid, {:leg, stage, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    {:ok, _bin, _meta} =
+      EncodeSearch.run(zone_plate(7), ssim2_resolved(),
+        scorer: :crop,
+        telemetry_opts: ImagePipe.Telemetry.telemetry_opts(telemetry_prefix: prefix)
+      )
+
+    legs = drain_legs()
+    by_stage = Enum.group_by(legs, &elem(&1, 0), &elem(&1, 1))
+
+    # probe spans tag their phase; crop mode runs the objective then confirm/bump.
+    probe_phases = by_stage |> Map.fetch!([:encode, :search, :probe]) |> Enum.map(& &1.phase)
+    assert :objective in probe_phases
+    assert :confirm in probe_phases
+
+    # every objective/cap probe encodes -> an encode leg with the produced byte size.
+    encode_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :encode])
+    assert encode_legs != []
+    assert Enum.all?(encode_legs, &(&1.result == :ok and is_integer(&1.bytes)))
+
+    # ssim2 scoring legs: a decode and an aggregate metric per probe.
+    assert Map.fetch!(by_stage, [:encode, :search, :probe, :ssim2, :decode]) != []
+    metric_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :ssim2, :metric])
+    assert metric_legs != []
+    assert Enum.all?(metric_legs, &is_float(&1.score))
+    # objective probes crop-score K tiles (tiles_scored: 16); confirm probes run
+    # the whole-frame measure, so their metric leg carries no tile count.
+    assert Enum.any?(metric_legs, &(Map.get(&1, :tiles_scored) == 16))
+    assert Enum.all?(metric_legs, &(Map.get(&1, :tiles_scored) in [nil, 16]))
+  end
+
+  defp drain_legs(acc \\ []) do
+    receive do
+      {:leg, _stage, _meta} = msg -> drain_legs([msg | acc])
+    after
+      0 -> Enum.reverse(acc) |> Enum.map(fn {:leg, stage, meta} -> {stage, meta} end)
+    end
+  end
+
   test "max_bytes binds the crop-path delivered q (cap runs after confirm/bump)" do
     image = zone_plate(7)
     resolved = ssim2_resolved()
