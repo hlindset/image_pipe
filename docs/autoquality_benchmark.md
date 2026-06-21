@@ -224,8 +224,10 @@ the whole frame. Unlike Part C's proxy this keeps native resolution, so per-pixe
 artifact statistics match — the only error is *which regions* you look at. Run
 **per content source** over the [`imazen/codec-corpus`](https://github.com/imazen/codec-corpus)
 subsets fetched by `mix autoquality.corpus` (≤24/source, macro-averaged so no one
-content type dominates), 512 px tiles, K=16 sub-sample. The honest tracking metric
-is the *offset* `tile_p10 − full_frame_score` at the boundary — a calibrated global
+content type dominates), 512 px tiles, K=16 sub-sample — **so the scored sample is a
+fixed 16 × 512² ≈ 4.2 MP regardless of source resolution** (full coverage would tile
+the whole frame; sub-sampling to K=16 tiles is the cost lever). The honest tracking
+metric is the *offset* `tile_p10 − full_frame_score` at the boundary — a calibrated global
 threshold rides on it (the raw aggregate spread would be inflated by `full_score`'s
 integer-quality quantization):
 
@@ -248,11 +250,13 @@ single threshold `≈ target + macro-offset` reproduces the full-frame decision;
 one-pass full-frame confirm covers the residual. (`cid22`/`gb82` are ≤576 px → one
 tile, so they only exercise the B-refresh below, not crop-tracking.)
 
-**Cost win is large-image-only, confirmed.** K=16 is a fixed ~265 ms budget, so it
-only beats full-frame above a **~6 MP crossover**: `large` (15 MP) wins **2.5×**,
-while CLIC at 2–4 MP and everything smaller is a *loss*. The budget is constant
-while full-frame grows ~linearly, so the win scales with size (extrapolating, ~9×
-at 36 MP) — collapsing Part A's superlinear blow-up. Sub-sampling penalty is small
+**Cost win is large-image-only, confirmed.** Because K=16 always scores the same
+~4.2 MP sample (16 × 512²) no matter the source size, it's a **flat ~265 ms budget**;
+full-frame scores the whole image and grows ~linearly. So crops only beat full-frame
+above a **~6 MP crossover** (≈ where the full frame's area passes the 4.2 MP sample
+plus per-tile overhead), and the win ≈ source-MP ÷ 4.2: `large` (15 MP) wins **2.5×**,
+CLIC at 2–4 MP and smaller is a *loss*, extrapolating to ~9× at 36 MP — collapsing
+Part A's superlinear blow-up. Sub-sampling penalty is small
 (`large`: +0.62 worst), and the worst tile sat in a smooth region in only **3/113**
 subjects (banding-in-smooth is a low-quality phenomenon, below this regime).
 
