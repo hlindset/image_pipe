@@ -1097,7 +1097,7 @@
   {#if fiddleState.autoqualityMethod === "size"}
     <RangeNumber
       label="Target (bytes)"
-      bind:value={fiddleState.autoqualityTarget}
+      bind:value={fiddleState.autoqualitySizeTarget}
       min={controlLimits.autoquality.sizeTarget.min}
       max={controlLimits.autoquality.sizeTarget.max}
       step={controlLimits.autoquality.sizeTarget.step}
@@ -1121,7 +1121,7 @@
   {#if fiddleState.autoqualityMethod === "ssim2"}
     <RangeNumber
       label="Target (SSIMULACRA2)"
-      bind:value={fiddleState.autoqualityTarget}
+      bind:value={fiddleState.autoqualitySsim2Target}
       min={controlLimits.autoquality.ssim2Target.min}
       max={controlLimits.autoquality.ssim2Target.max}
       step={controlLimits.autoquality.ssim2Target.step}

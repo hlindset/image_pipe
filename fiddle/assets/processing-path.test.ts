@@ -1142,11 +1142,26 @@ describe("processing path generation", () => {
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:85"]);
   });
 
+  it("defaults each autoquality target within its own valid range", () => {
+    expect(defaultFiddleState.autoqualitySizeTarget).toBeGreaterThanOrEqual(
+      controlLimits.autoquality.sizeTarget.min,
+    );
+    expect(defaultFiddleState.autoqualitySizeTarget).toBeLessThanOrEqual(
+      controlLimits.autoquality.sizeTarget.max,
+    );
+    expect(defaultFiddleState.autoqualitySsim2Target).toBeGreaterThanOrEqual(
+      controlLimits.autoquality.ssim2Target.min,
+    );
+    expect(defaultFiddleState.autoqualitySsim2Target).toBeLessThanOrEqual(
+      controlLimits.autoquality.ssim2Target.max,
+    );
+  });
+
   it("serializes size autoquality as target:min:max", () => {
     const state = {
       ...activeFiddleState,
       autoqualityMethod: "size" as const,
-      autoqualityTarget: 40000,
+      autoqualitySizeTarget: 40000,
       autoqualityMinQuality: 60,
       autoqualityMaxQuality: 90,
     };
@@ -1163,7 +1178,7 @@ describe("processing path generation", () => {
     const state = {
       ...activeFiddleState,
       autoqualityMethod: "ssim2" as const,
-      autoqualityTarget: 80,
+      autoqualitySsim2Target: 80,
       autoqualityMinQuality: 50,
       autoqualityMaxQuality: 95,
       autoqualityAllowedError: 1.5,
@@ -1388,7 +1403,7 @@ describe("fiddle URL state", () => {
 
     expect(parsed).toMatchObject({
       autoqualityMethod: "size",
-      autoqualityTarget: 40000,
+      autoqualitySizeTarget: 40000,
       autoqualityMinQuality: 60,
       autoqualityMaxQuality: 90,
     });
@@ -1403,7 +1418,7 @@ describe("fiddle URL state", () => {
 
     expect(parsed).toMatchObject({
       autoqualityMethod: "ssim2",
-      autoqualityTarget: 80,
+      autoqualitySsim2Target: 80,
       autoqualityMinQuality: 50,
       autoqualityMaxQuality: 95,
       autoqualityAllowedError: 1.5,
@@ -1419,7 +1434,7 @@ describe("fiddle URL state", () => {
 
     expect(parsed).toMatchObject({
       autoqualityMethod: "size",
-      autoqualityTarget: 40000,
+      autoqualitySizeTarget: 40000,
     });
   });
 

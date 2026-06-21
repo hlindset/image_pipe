@@ -206,7 +206,8 @@ export type FiddleState = {
   qualityEnabled: boolean;
   quality: number;
   autoqualityMethod: AutoqualityMethod;
-  autoqualityTarget: number;
+  autoqualitySizeTarget: number;
+  autoqualitySsim2Target: number;
   autoqualityMinQuality: number;
   autoqualityMaxQuality: number;
   autoqualityAllowedError: number;
@@ -433,7 +434,8 @@ export const defaultFiddleState: FiddleState = {
   qualityEnabled: false,
   quality: 85,
   autoqualityMethod: "none",
-  autoqualityTarget: 50000,
+  autoqualitySizeTarget: 50000,
+  autoqualitySsim2Target: 90,
   autoqualityMinQuality: 70,
   autoqualityMaxQuality: 90,
   autoqualityAllowedError: 1,
@@ -648,7 +650,7 @@ export function autoqualityOptionSegment(currentState: FiddleState): string | nu
     return [
       "autoquality",
       "size",
-      currentState.autoqualityTarget,
+      currentState.autoqualitySizeTarget,
       currentState.autoqualityMinQuality,
       currentState.autoqualityMaxQuality,
     ].join(":");
@@ -658,7 +660,7 @@ export function autoqualityOptionSegment(currentState: FiddleState): string | nu
     return [
       "autoquality",
       "ssim2",
-      currentState.autoqualityTarget,
+      currentState.autoqualitySsim2Target,
       currentState.autoqualityMinQuality,
       currentState.autoqualityMaxQuality,
       currentState.autoqualityAllowedError,

@@ -1134,7 +1134,7 @@ function parseAutoquality(currentState: FiddleState, args: string[]): FiddleStat
     return {
       ...currentState,
       autoqualityMethod: "size",
-      autoqualityTarget: parsePositiveInteger(target) ?? currentState.autoqualityTarget,
+      autoqualitySizeTarget: parsePositiveInteger(target) ?? currentState.autoqualitySizeTarget,
       autoqualityMinQuality: parseQualityValue(min) ?? currentState.autoqualityMinQuality,
       autoqualityMaxQuality: parseQualityValue(max) ?? currentState.autoqualityMaxQuality,
     };
@@ -1146,7 +1146,7 @@ function parseAutoquality(currentState: FiddleState, args: string[]): FiddleStat
     return {
       ...currentState,
       autoqualityMethod: "ssim2",
-      autoqualityTarget: parsedTarget ?? currentState.autoqualityTarget,
+      autoqualitySsim2Target: parsedTarget ?? currentState.autoqualitySsim2Target,
       autoqualityMinQuality: parseQualityValue(min) ?? currentState.autoqualityMinQuality,
       autoqualityMaxQuality: parseQualityValue(max) ?? currentState.autoqualityMaxQuality,
       autoqualityAllowedError:
