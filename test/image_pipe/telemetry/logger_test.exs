@@ -87,10 +87,90 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode search: ok (hit q62 12345b score 90.42)"
   end
 
-  test "escalates a best-effort encode-search to warning" do
+  test "renders the crop scorer in the encode-search stop line" do
     Telemetry.attach_default_logger(level: :info)
 
     log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :stop],
+          %{duration: System.convert_time_unit(4, :millisecond, :native)},
+          %{
+            result: :ok,
+            objective: :ssim2,
+            chosen_quality: 72,
+            chosen_bytes: 12_345,
+            iterations: 4,
+            outcome: :hit,
+            final_score: 90.42,
+            scorer: :crop,
+            tiles_scored: 16,
+            confirm_passes: 1
+          }
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "encode search: ok (crop hit q72 12345b score 90.42)"
+  end
+
+  test "renders the full scorer in the encode-search stop line when scorer: :full is present" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :stop],
+          %{duration: System.convert_time_unit(4, :millisecond, :native)},
+          %{
+            result: :ok,
+            objective: :ssim2,
+            chosen_quality: 62,
+            chosen_bytes: 12_345,
+            iterations: 4,
+            outcome: :hit,
+            final_score: 90.42,
+            scorer: :full,
+            confirm_passes: 0
+          }
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "encode search: ok (full hit q62 12345b score 90.42)"
+  end
+
+  test "escalates a best-effort crop-scored search to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :stop],
+          %{duration: 1000},
+          %{
+            result: :ok,
+            objective: :ssim2,
+            chosen_quality: 62,
+            chosen_bytes: 99_999,
+            iterations: 6,
+            outcome: :best_effort,
+            final_score: 87.5,
+            scorer: :crop,
+            tiles_scored: 16,
+            confirm_passes: 3
+          }
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "encode search: ok (crop best_effort q62 99999b score 87.5)"
+  end
+
+  test "escalates a best-effort encode-search to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+
       capture_log(fn ->
         :telemetry.execute(
           [:image_pipe, :encode, :search, :stop],

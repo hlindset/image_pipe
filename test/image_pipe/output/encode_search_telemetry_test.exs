@@ -60,6 +60,11 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     assert stop_meta.outcome == outcome
     assert stop_meta.final_score == score_value
     assert is_integer(stop_meta.iterations)
+    assert stop_meta.scorer == :full
+    assert stop_meta.confirm_passes == 0
+    # nil metadata is stripped by the telemetry layer, so the full-frame path
+    # emits no tiles_scored key (it's a crop-only measurement).
+    refute Map.has_key?(stop_meta, :tiles_scored)
 
     probes = collect_probes()
     assert probes != []
@@ -77,6 +82,44 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
 
     # the distinct-encode index is the running ordinal
     assert Enum.sort(Enum.map(probes, & &1.index)) == Enum.to_list(1..length(probes))
+  end
+
+  test "crop mode emits scorer: :crop, tiles_scored, and confirm_passes >= 1 in the stop meta" do
+    rs = %RQS{
+      objective: :ssim2,
+      target: 90.0,
+      min_quality: 10,
+      max_quality: 80,
+      allowed_error: 0.0
+    }
+
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+    estimate = fn bin -> byte_size(bin) / 100 + 25.0 end
+    confirm = fn bin -> byte_size(bin) / 100 + 25.0 end
+
+    telemetry_opts = Telemetry.telemetry_opts(telemetry_prefix: @prefix)
+
+    assert {:ok, _bin, %{scorer: :crop, confirm_passes: cp, tiles_scored: 8}} =
+             EncodeSearch.search(rs, nil,
+               encode_fun: enc,
+               score_fun: estimate,
+               confirm_fun: confirm,
+               confirm_band: 90.0,
+               confirm_max_quality: 80,
+               scorer: :crop,
+               scorer_tiles: 8,
+               max_bump_passes: 2,
+               max_iterations: 12,
+               telemetry_opts: telemetry_opts
+             )
+
+    assert_receive {:telemetry, @stop, _measurements, stop_meta}
+
+    assert stop_meta.result == :ok
+    assert stop_meta.scorer == :crop
+    assert stop_meta.tiles_scored == 8
+    assert stop_meta.confirm_passes == cp
+    assert cp >= 1
   end
 
   defp collect_probes(acc \\ []) do
