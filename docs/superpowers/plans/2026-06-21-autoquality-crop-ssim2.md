@@ -21,7 +21,7 @@
 - **Modify** `test/image_pipe/output/encode_search_telemetry_test.exs` — `scorer`/`confirm_passes` meta assertions.
 - **Modify** `lib/image_pipe/output/encoder.ex` — `:skip | :crop | :full` precedence ladder; pass `scorer` to `run/3`.
 - **Create** `test/image_pipe/output/encoder_crop_scoring_test.exs` — wire-level (`stream_output`) zone-plate tests.
-- **Modify** `lib/image_pipe/telemetry/logger.ex` + `test/image_pipe/telemetry/logger_test.exs` + `docs/telemetry.md` — render `scorer`.
+- **Modify** `lib/image_pipe/telemetry/logger.ex` + `test/image_pipe/telemetry/logger_test.exs` + `docs/telemetry.md` — render `scorer`; document `scorer`/`tiles_scored`/`confirm_passes` stop-meta.
 - **Modify** `test/image_pipe/architecture_boundary_test.exs` — assert `CropScore` names no `Ssimulacra2.`.
 - **Modify** `docs/autoquality_benchmark.md` (calibration record) + `docs/imgproxy_support_matrix.md` (Save/encode stage note).
 
@@ -101,6 +101,15 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScoreTest do
   test "crossover_megapixels/0 is the documented 6 MP operating point" do
     assert CropScore.crossover_megapixels() == 6
   end
+
+  describe "tile_count/2" do
+    test "is the number of sub-sampled tiles actually scored (<= k)" do
+      # 7 MP square (~2646px) tiles into a 6x6 grid = 36 tiles, sub-sampled to 16.
+      assert CropScore.tile_count(2646, 2646) == 16
+      # A small frame just over one tile on one axis: full count below k.
+      assert CropScore.tile_count(1100, 600) == 6
+    end
+  end
 end
 ```
 
@@ -139,6 +148,14 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   @doc "Megapixel crossover above which the search uses crop scoring."
   @spec crossover_megapixels() :: pos_integer()
   def crossover_megapixels, do: @crossover_megapixels
+
+  @doc """
+  How many tiles `p10/2` will actually score for a `w`×`h` frame — the sub-sampled
+  tile count (`<= @subsample_k`). Deterministic from dimensions; used for the
+  `tiles_scored` telemetry field without doing any scoring.
+  """
+  @spec tile_count(pos_integer(), pos_integer()) :: pos_integer()
+  def tile_count(w, h), do: length(subsample(tile_coords(w, h)))
 
   @doc """
   Tile windows covering a `w`×`h` frame with full-size `t`×`t` windows. The last
@@ -363,9 +380,10 @@ Append to `encode_search_test.exs`. These use injected `confirm_fun`/`confirm_ba
     test "confirm clears at the objective winner -> :hit, 1 confirm pass, authoritative score" do
       rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
       enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
-      # estimate over-reports by +5 so the objective picks q65; confirm (true) clears at 65.
+      # estimate accurate at the boundary: objective picks q65 (65+25=90) and the
+      # confirm clears there immediately (no bump). score = q + 25.
       estimate = fn bin -> byte_size(bin) / 100 + 25.0 end
-      confirm = fn bin -> byte_size(bin) / 100 + 20.0 end
+      confirm = fn bin -> byte_size(bin) / 100 + 25.0 end
 
       assert {:ok, _bin, meta} =
                EncodeSearch.search(rs, nil,
@@ -429,6 +447,29 @@ Append to `encode_search_test.exs`. These use injected `confirm_fun`/`confirm_ba
       assert meta.outcome == :best_effort
       assert meta.confirm_passes == 3
     end
+
+    test "max_bytes binds the final q AFTER the confirm/bump (cap runs last)" do
+      rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+      enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+      # objective (estimate q+26) picks q64; confirm (q+25) undershoots at 64, bumps to 65.
+      estimate = fn bin -> byte_size(bin) / 100 + 26.0 end
+      confirm = fn bin -> byte_size(bin) / 100 + 25.0 end
+
+      # budget 6300 bytes => q <= 63. The bump lands on 65 (6500b > budget), so the
+      # cap_phase (which runs AFTER confirm/bump) must descend to 63.
+      assert {:ok, bin, meta} =
+               EncodeSearch.search(rs, 6300,
+                 encode_fun: enc,
+                 score_fun: estimate,
+                 confirm_fun: confirm,
+                 confirm_band: 90.0,
+                 confirm_max_quality: 80,
+                 max_bump_passes: 2
+               )
+
+      assert meta.quality == 63
+      assert byte_size(bin) <= 6300
+    end
   end
 ```
 
@@ -441,7 +482,9 @@ Expected: FAIL — `confirm_passes` missing from meta / new opts ignored (the pa
 
 In `encode_search.ex`:
 
-(a) Add the bump-cap default and extend `Ctx`:
+(a) Add the bump-cap default and extend `Ctx`. Also add `scorer`/`scorer_tiles`
+(threaded from `run/3` in Task 5; default to the full-frame path here so this task
+compiles and the meta shape is stable):
 
 ```elixir
   @default_max_iterations 6
@@ -460,6 +503,8 @@ In `encode_search.ex`:
               confirm_band: nil,
               confirm_max_quality: nil,
               max_bump_passes: 2,
+              scorer: :full,
+              scorer_tiles: nil,
               encode_memo: %{},
               score_memo: %{},
               confirm_memo: %{},
@@ -468,6 +513,22 @@ In `encode_search.ex`:
               max_iterations: 0,
               telemetry_opts: []
   end
+```
+
+Also extend the `@type meta` (just above `Ctx`) so the typespec matches the new
+meta shape:
+
+```elixir
+  @type meta :: %{
+          quality: 1..100,
+          bytes: non_neg_integer(),
+          iterations: non_neg_integer(),
+          outcome: outcome(),
+          score: float() | nil,
+          confirm_passes: non_neg_integer(),
+          scorer: :full | :crop,
+          tiles_scored: pos_integer() | nil
+        }
 ```
 
 (b) Populate the new `Ctx` fields in `search/3`:
@@ -480,12 +541,16 @@ In `encode_search.ex`:
       confirm_band: Keyword.get(opts, :confirm_band),
       confirm_max_quality: Keyword.get(opts, :confirm_max_quality),
       max_bump_passes: Keyword.get(opts, :max_bump_passes, @default_max_bump_passes),
+      scorer: Keyword.get(opts, :scorer, :full),
+      scorer_tiles: Keyword.get(opts, :scorer_tiles),
       max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
       telemetry_opts: telemetry_opts
     }
 ```
 
-(c) Insert the confirm phase into `do_search`:
+(c) Insert the confirm phase into `do_search`. **Replace the existing arity-4
+`do_search/4` body** — note `build_result` drops to arity 3 (it no longer needs
+`quality_search`; scoring keys off `Ctx` closures in step (e)):
 
 ```elixir
   defp do_search(quality_search, max_bytes, ctx, opts) do
@@ -495,7 +560,7 @@ In `encode_search.ex`:
            confirm_phase(objective_q, objective_outcome, ctx),
          {:ok, final_q, final_outcome, ctx} <-
            cap_phase(quality_search, max_bytes, confirmed_q, confirmed_outcome, ctx) do
-      build_result(final_q, final_outcome, quality_search, ctx)
+      build_result(final_q, final_outcome, ctx)
     end
   end
 ```
@@ -566,29 +631,36 @@ In `encode_search.ex`:
   end
 ```
 
-(e) Make the result honest and carry `confirm_passes`. Replace `build_result/6` and the score helpers:
+(e) Make the result honest and **objective-neutral**. Replace the old
+`build_result/6` head (and the old `result_score`/`ensure_winner_scored` clauses
+that pattern-matched `%RQS{objective: :ssim2}`) with these — they key off the
+injected closures (`confirm_fun`/`score_fun`), so there is **no `:ssim2`/crop
+literal in the core**. For `:size`/`:none` both closures are nil and the memos are
+empty, so `result_score` returns nil naturally:
 
 ```elixir
-  defp build_result(final_q, final_outcome, quality_search, ctx) do
+  defp build_result(final_q, final_outcome, ctx) do
     binary = Map.fetch!(ctx.encode_memo, final_q)
-    ctx = ensure_winner_scored(final_q, binary, quality_search, ctx)
+    ctx = ensure_winner_scored(final_q, binary, ctx)
 
     meta = %{
       quality: final_q,
       bytes: byte_size(binary),
       iterations: ctx.iterations,
       outcome: final_outcome,
-      score: result_score(final_q, quality_search, ctx),
-      confirm_passes: ctx.confirm_passes
+      score: result_score(final_q, ctx),
+      confirm_passes: ctx.confirm_passes,
+      scorer: ctx.scorer,
+      tiles_scored: ctx.scorer_tiles
     }
 
     {:ok, binary, meta}
   end
 
-  # In crop mode the authoritative score lives in confirm_memo; a cap-relocated
-  # winner (max_bytes) may not be there yet — confirm-score it so meta.score is the
-  # true full-frame score, never the crop estimate in score_memo.
-  defp ensure_winner_scored(final_q, _binary, %RQS{objective: :ssim2}, %Ctx{confirm_fun: fun} = ctx)
+  # Crop mode (confirm_fun present): the authoritative score lives in confirm_memo;
+  # a cap-relocated winner (max_bytes) may not be there yet — confirm-score it so
+  # meta.score is the true full-frame score, never the crop estimate in score_memo.
+  defp ensure_winner_scored(final_q, _binary, %Ctx{confirm_fun: fun} = ctx)
        when not is_nil(fun) do
     case confirm_score(final_q, ctx) do
       {:ok, ctx} -> ctx
@@ -596,19 +668,25 @@ In `encode_search.ex`:
     end
   end
 
-  defp ensure_winner_scored(final_q, binary, %RQS{objective: :ssim2}, ctx) do
+  # Full-frame scoring mode (score_fun present, no confirm): score a cap-relocated
+  # winner from its already-memoized buffer so the reported score is the delivered q.
+  defp ensure_winner_scored(final_q, binary, %Ctx{score_fun: fun} = ctx)
+       when not is_nil(fun) do
     if Map.has_key?(ctx.score_memo, final_q), do: ctx, else: maybe_score(final_q, binary, ctx)
   end
 
-  defp ensure_winner_scored(_final_q, _binary, _quality_search, ctx), do: ctx
+  # No scoring objective (:size / :none).
+  defp ensure_winner_scored(_final_q, _binary, ctx), do: ctx
 
-  defp result_score(final_q, %RQS{objective: :ssim2}, ctx),
+  # Prefer the authoritative confirm score (crop mode); fall back to score_memo
+  # (full-frame mode); nil when neither memo holds the q (:size / :none).
+  defp result_score(final_q, ctx),
     do: Map.get(ctx.confirm_memo, final_q) || Map.get(ctx.score_memo, final_q)
-
-  defp result_score(_final_q, _quality_search, _ctx), do: nil
 ```
 
-(f) Add `confirm_passes` to the stop meta map in `search_stop_meta/2` (success clause):
+(f) Carry the new fields in `search_stop_meta/2` (success clause). `scorer`,
+`confirm_passes`, and `tiles_scored` come straight from `meta` (set in `build_result`
+above) — no helper needed:
 
 ```elixir
   defp search_stop_meta(quality_search, {:ok, _binary, meta}) do
@@ -620,20 +698,12 @@ In `encode_search.ex`:
       iterations: meta.iterations,
       outcome: meta.outcome,
       final_score: meta.score,
-      scorer: scorer_of(meta),
+      scorer: meta.scorer,
+      tiles_scored: meta.tiles_scored,
       confirm_passes: meta.confirm_passes
     }
   end
 ```
-
-And add the helper (the `scorer` is derivable from whether confirm ran; the real `:full | :crop` tag is threaded in Task 5 via meta — for now default to `:full` when no confirm passes were needed *and* no confirm_fun; Task 5 finalizes it):
-
-```elixir
-  # Placeholder until Task 5 threads the scorer mode through meta. Overwritten there.
-  defp scorer_of(_meta), do: :full
-```
-
-> Task 5 replaces `scorer_of/1` with a real `meta.scorer` value. Keeping a single source of truth: see Task 5 Step 3.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -657,11 +727,17 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Modify: `lib/image_pipe/output/encode_search.ex`
 - Test: `test/image_pipe/output/encode_search_test.exs`
 
-`run/3` gains a `scorer: :full | :crop` opt (default `:full`). For `:crop` + `:ssim2` it builds the crop `score_fun` (`CropScore.p10 - macro_offset`) and the full-frame `confirm_fun`/`confirm_band`/`confirm_max_quality`, and stamps `meta.scorer`.
+`run/3` gains a `scorer: :full | :crop` opt (default `:full`). For `:crop` + `:ssim2` it builds the crop `score_fun` (`CropScore.p10 - macro_offset`), the full-frame `confirm_fun`/`confirm_band`/`confirm_max_quality`, and the `scorer_tiles` count for telemetry.
 
-- [ ] **Step 1: Add the macro_offset constant (placeholder, calibrated in Task 9)**
+> **macro_offset location (departs from spec §1 table).** The spec's §1 constants table lists `@macro_offset` under `CropScore`. It lives in `EncodeSearch` instead, as `@crop_macro_offset`, because the offset is applied in the crop `score_fun` that `EncodeSearch` builds — `CropScore.p10` returns the raw p10 (single responsibility). Intentional relocation, recorded here.
 
-At the top of `encode_search.ex` add:
+- [ ] **Step 1: Add the macro_offset constant + alias (placeholder, calibrated in Task 9)**
+
+In `encode_search.ex` add the alias in **alphabetical order** with the existing
+`alias ImagePipe.Output.*` block — `Ssim2Metric.CropScore` sorts after `Ssim2Metric`
+(Credo `AliasOrder` is `--strict`), so place it immediately after the existing
+`alias ImagePipe.Output.Ssim2Metric`. Add the constant near the other module
+attributes:
 
 ```elixir
   alias ImagePipe.Output.Ssim2Metric.CropScore
@@ -683,13 +759,12 @@ The crop `score_fun` is built inside `run/3` from a real image, so the *unit* as
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
     score = fn bin -> byte_size(bin) / 100 + 20.0 end
 
-    # full mode: no confirm_fun
-    assert {:ok, _b, %{quality: 70}} =
+    # full mode: default scorer
+    assert {:ok, _b, %{quality: 70, scorer: :full, tiles_scored: nil}} =
              EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
 
-    # crop mode: confirm_fun present -> scorer :crop (asserted via run/3 in the wire test;
-    # here we assert search/3 accepts and uses the scorer opt without crashing)
-    assert {:ok, _b, %{quality: q}} =
+    # crop mode: scorer/tiles flow through meta from the opts.
+    assert {:ok, _b, %{quality: q, scorer: :crop, tiles_scored: 16}} =
              EncodeSearch.search(rs, nil,
                encode_fun: enc,
                score_fun: score,
@@ -697,6 +772,7 @@ The crop `score_fun` is built inside `run/3` from a real image, so the *unit* as
                confirm_band: 90.0,
                confirm_max_quality: 80,
                scorer: :crop,
+               scorer_tiles: 16,
                max_iterations: 8
              )
 
@@ -706,35 +782,11 @@ The crop `score_fun` is built inside `run/3` from a real image, so the *unit* as
 
 - [ ] **Step 3: Implement scorer threading**
 
-(a) `search/3` reads the scorer opt and stores it for the stop meta. Add to the `Ctx` (`scorer: :full`) and set it:
+(a) No `search/3`/`Ctx`/meta changes are needed here — Task 4 already added the
+`scorer`/`scorer_tiles` `Ctx` fields, the `opts` population, and the `meta`/stop-meta
+keys. This task only adds the `run/3` opt-passing and the crop closures below.
 
-```elixir
-      scorer: Keyword.get(opts, :scorer, :full),
-```
-
-Replace the placeholder `scorer_of/1` from Task 4 with a real read — change `search_stop_meta` to take the ctx-derived scorer. Simplest: thread scorer into the result meta in `build_result`:
-
-```elixir
-    meta = %{
-      quality: final_q,
-      bytes: byte_size(binary),
-      iterations: ctx.iterations,
-      outcome: final_outcome,
-      score: result_score(final_q, quality_search, ctx),
-      confirm_passes: ctx.confirm_passes,
-      scorer: ctx.scorer
-    }
-```
-
-and in `search_stop_meta`:
-
-```elixir
-      scorer: meta.scorer,
-```
-
-Delete the placeholder `scorer_of/1`.
-
-(b) `run/3` builds the closures by scorer mode:
+(b) `run/3` builds the closures by scorer mode and passes `scorer_tiles` for crop:
 
 ```elixir
   def run(finalized_image, %Resolved{} = resolved, opts) do
@@ -766,7 +818,10 @@ Delete the placeholder `scorer_of/1`.
   defp score_opts(_image, %Resolved{quality_search: :none}, _scorer), do: {:ok, []}
   defp score_opts(_image, %Resolved{quality_search: %RQS{objective: :size}}, _scorer), do: {:ok, []}
 
-  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :full) do
+  # Full-frame mode: one whole-frame reference; candidate scored whole. (No `= rqs`
+  # binding — the bracket/target is consumed by the search, not here — so there is
+  # no unused-variable warning under --warnings-as-errors.)
+  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2}}, :full) do
     with {:ok, ref} <- Ssim2Metric.reference(image) do
       {:ok, [score_fun: fn bytes -> full_frame_score(ref, bytes) end]}
     else
@@ -774,6 +829,8 @@ Delete the placeholder `scorer_of/1`.
     end
   end
 
+  # Crop mode: crop score_fun (estimate) + full-frame confirm closure + the
+  # deterministic tile count for telemetry.
   defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop) do
     with {:ok, ref} <- Ssim2Metric.reference(image) do
       confirm = fn bytes -> full_frame_score(ref, bytes) end
@@ -784,7 +841,8 @@ Delete the placeholder `scorer_of/1`.
          score_fun: crop,
          confirm_fun: confirm,
          confirm_band: rqs.target - rqs.allowed_error,
-         confirm_max_quality: rqs.max_quality
+         confirm_max_quality: rqs.max_quality,
+         scorer_tiles: CropScore.tile_count(Image.width(image), Image.height(image))
        ]}
     else
       {:error, reason} -> {:error, {:encode, reason}}
@@ -930,43 +988,57 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing telemetry-meta test**
 
-In `encode_search_telemetry_test.exs`, extend the existing assertions (in the one test) to cover the new keys for a crop-driven search:
+In `encode_search_telemetry_test.exs`, extend the existing test's assertions to cover
+the new stop-meta keys (the existing test runs full-frame mode, so `:full`/`0`/`nil`):
 
 ```elixir
     assert stop_meta.scorer == :full
     assert stop_meta.confirm_passes == 0
+    assert stop_meta.tiles_scored == nil
 ```
 
-(Place these next to the other `stop_meta.*` assertions — the existing test runs full-frame mode, so `:full`/`0`.)
+(Place these next to the other `stop_meta.*` assertions in
+`"emits a search stop span and one probe per distinct quality"`.)
 
 - [ ] **Step 2: Write the failing Logger test**
 
-In `logger_test.exs`, find the encode-search rendering assertion and add a crop-scorer case. Mirror the existing search-stop test, emitting a stop event with `scorer: :crop` and asserting the rendered line names the scorer. Example addition:
+In `logger_test.exs`, add a crop-scorer case mirroring the existing
+`"renders the encode-search stop ..."` test (line ~66) exactly — inline
+`:telemetry.execute` on the default `[:image_pipe, :encode, :search, :stop]` name
+(synchronous `capture_log`, so no cross-test mailbox leak — consistent with the file):
 
 ```elixir
-  test "encode search stop names the crop scorer and surfaces outcome" do
+  test "renders the crop scorer in the encode-search stop line" do
+    Telemetry.attach_default_logger(level: :info)
+
     log =
       capture_log(fn ->
-        emit_stop(%{
-          result: :ok,
-          objective: :ssim2,
-          chosen_quality: 72,
-          chosen_bytes: 12_345,
-          iterations: 4,
-          outcome: :hit,
-          final_score: 90.4,
-          scorer: :crop,
-          confirm_passes: 1
-        })
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :stop],
+          %{duration: System.convert_time_unit(4, :millisecond, :native)},
+          %{
+            result: :ok,
+            objective: :ssim2,
+            chosen_quality: 72,
+            chosen_bytes: 12_345,
+            iterations: 4,
+            outcome: :hit,
+            final_score: 90.42,
+            scorer: :crop,
+            tiles_scored: 16,
+            confirm_passes: 1
+          }
+        )
       end)
 
-    assert log =~ "encode search"
-    assert log =~ "crop"
-    assert log =~ "q72"
+    refute log =~ "[warning]"
+    assert log =~ "encode search: ok (crop hit q72 12345b score 90.42)"
   end
 ```
 
-> Use the file's existing emit/capture helper (e.g. `emit_stop/1` or an inline `:telemetry.execute`); match its established pattern rather than inventing one.
+> The existing line-66 test omits `scorer` from its meta, so its expected string
+> (`"ok (hit q62 ..."`, no scorer word) still holds — the Logger renders the scorer
+> only when the key is present (Step 4).
 
 - [ ] **Step 3: Run both to verify they fail**
 
@@ -1001,6 +1073,8 @@ Find the `[:encode, :search]` stop-event metadata documentation and add the two 
 ```markdown
 - `scorer` — `:full` (whole-frame SSIMULACRA2) or `:crop` (K p10-tiles above the
   internal ~6 MP crossover, #354).
+- `tiles_scored` — tiles actually scored on the crop path (sub-sampled, `<= 16`);
+  `nil` on the full-frame path.
 - `confirm_passes` — full-frame confirm/bump passes on the crop path (1 = confirm
   only; up to 3 with the bump cap). `0` on the full-frame path.
 ```
@@ -1021,7 +1095,17 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Files:**
 - Create: `test/image_pipe/output/encoder_crop_scoring_test.exs`
 
-These exercise the real path end-to-end through `Encoder.stream_output`, self-referentially (compute the full-frame baseline in-test; no golden q). Inputs are the deterministic synthetic zone-plate at a **capped near-crossover ~7 MP** size — never 15–36 MP (keeps the test in low-single-digit seconds; no committed fixture / `SourceInventory` burden).
+Two kinds of assertion:
+- **Scorer-mode routing** is asserted through the real `Encoder.stream_output` using a
+  unique `telemetry_prefix` (the ladder is the new thing; assert it fires `:crop` for
+  >6 MP and `:full` for <6 MP — not a tautological `run(scorer: :full)` round-trip).
+- **±q tracking** is asserted by running `EncodeSearch.run/3` with `:full` and `:crop`
+  on the **same** image (self-referential; no golden q). No `force_finalize` shim — both
+  sides take the identical raw zone-plate, so any finalize delta cancels.
+
+Inputs are the deterministic synthetic zone-plate at a **capped near-crossover ~7 MP**
+size — never 15–36 MP (keeps the test in low-single-digit seconds; no committed fixture
+/ `SourceInventory` burden).
 
 - [ ] **Step 1: Write the tests**
 
@@ -1030,9 +1114,29 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Output.Encoder
+  alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias Vix.Vips.Operation
+
+  # Unique prefix so the global :telemetry handler can't leak another module's
+  # default-prefixed emissions into this async test's mailbox.
+  @prefix [:ip_crop_wire_test]
+  @stop @prefix ++ [:encode, :search, :stop]
+
+  defp attach_stop do
+    handler_id = "crop-wire-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      @stop,
+      fn _event, _measurements, metadata, _config -> send(test_pid, {:stop, metadata}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
 
   # Deterministic high-frequency zone-plate -> full-range 8-bit sRGB, square at `mp`.
   defp zone_plate(mp) do
@@ -1065,82 +1169,66 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     }
   end
 
-  defp delivered_quality(%Resolved{} = resolved, image) do
-    {:ok, [binary], _mime} = Encoder.stream_output(image, resolved, [])
-    # decode the delivered JPEG; assert a property via re-encoding probes is overkill —
-    # instead compare bytes to the full-frame search's delivered bytes below.
-    binary
-  end
+  test "stream_output crop-scores a >6 MP output (ladder picks :crop)" do
+    attach_stop()
+    {:ok, [_bin], _mime} = Encoder.stream_output(zone_plate(7), ssim2_resolved(), telemetry_prefix: @prefix)
 
-  test "crop-scored large output is within ~2 q / tolerance of the full-frame search" do
-    image = zone_plate(7)
-    resolved = ssim2_resolved()
-
-    # The image is >6 MP, so stream_output picks :crop automatically.
-    {:ok, [crop_bin], _} = Encoder.stream_output(image, resolved, [])
-
-    # Build the full-frame baseline on the SAME image by forcing :full via a small input.
-    # Run EncodeSearch.run directly with scorer: :full for a same-image baseline.
-    {:ok, finalized} = force_finalize(image, resolved)
-    {:ok, _full_bin, full_meta} =
-      ImagePipe.Output.EncodeSearch.run(finalized, resolved, scorer: :full)
-    {:ok, _crop_bin2, crop_meta} =
-      ImagePipe.Output.EncodeSearch.run(finalized, resolved, scorer: :crop)
-
-    assert abs(crop_meta.quality - full_meta.quality) <= 2
-    assert crop_meta.scorer == :crop
-    assert crop_meta.score >= resolved.quality_search.target - resolved.quality_search.allowed_error
-    assert is_binary(crop_bin)
-  end
-
-  test "small (<6 MP) output uses the full-frame scorer" do
-    image = zone_plate(2)
-    resolved = ssim2_resolved()
-    {:ok, finalized} = force_finalize(image, resolved)
-
-    {:ok, _bin, meta} = ImagePipe.Output.EncodeSearch.run(finalized, resolved, scorer: :full)
-    assert meta.scorer == :full
-    # And stream_output's ladder must NOT crop a 2 MP image: assert via telemetry in
-    # the wire-conformance suite, or trust scorer_mode (covered by the crossover test).
-  end
-
-  test "crossover-boundary input (~6.x MP) engages crop and runs the confirm" do
-    image = zone_plate(7)
-    resolved = ssim2_resolved()
-    {:ok, finalized} = force_finalize(image, resolved)
-
-    {:ok, _bin, meta} = ImagePipe.Output.EncodeSearch.run(finalized, resolved, scorer: :crop)
+    assert_receive {:stop, meta}
     assert meta.scorer == :crop
-    assert meta.confirm_passes >= 1
+    assert meta.tiles_scored == 16
   end
 
-  test "max_bytes still binds the final delivered q on the crop path" do
+  test "stream_output full-frame-scores a <6 MP output (ladder picks :full)" do
+    attach_stop()
+    {:ok, [_bin], _mime} = Encoder.stream_output(zone_plate(2), ssim2_resolved(), telemetry_prefix: @prefix)
+
+    assert_receive {:stop, meta}
+    assert meta.scorer == :full
+    assert meta.tiles_scored == nil
+  end
+
+  test "crop pick tracks the full-frame search within tolerance on the same input" do
     image = zone_plate(7)
-    base = ssim2_resolved()
-    # A tight byte budget below the ssim2 pick forces cap_phase to descend.
-    resolved = %Resolved{base | max_bytes: 50_000}
-    {:ok, finalized} = force_finalize(image, resolved)
+    resolved = ssim2_resolved()
 
-    {:ok, binary, meta} = ImagePipe.Output.EncodeSearch.run(finalized, resolved, scorer: :crop)
-    assert byte_size(binary) <= 50_000
-    assert meta.quality <= base.quality_search.max_quality
+    {:ok, _full_bin, full} = EncodeSearch.run(image, resolved, scorer: :full)
+    {:ok, _crop_bin, crop} = EncodeSearch.run(image, resolved, scorer: :crop)
+
+    assert crop.scorer == :crop
+    assert crop.confirm_passes >= 1
+    # Part E residual is ±2-4 q; 3 is the robust bound. Re-confirm after Task 9 sets
+    # the calibrated @crop_macro_offset; tighten to <= 2 only if calibration supports it.
+    assert abs(crop.quality - full.quality) <= 3
+    assert crop.score >= resolved.quality_search.target - resolved.quality_search.allowed_error
   end
 
-  # finalize/2 is private to Encoder; reproduce its observable effect (copy_memory +
-  # color/flatten) by round-tripping through stream_output is not possible, so call the
-  # public encode path's finalize via a thin helper if exposed; otherwise encode the
-  # raw image (the search re-encodes per probe regardless of finalize identity for a
-  # plain sRGB zone-plate with strip_metadata + preserve_source).
-  defp force_finalize(image, _resolved), do: {:ok, image}
+  test "max_bytes binds the crop-path delivered q (cap runs after confirm/bump)" do
+    image = zone_plate(7)
+    resolved = ssim2_resolved()
+
+    {:ok, no_cap_bin, no_cap} = EncodeSearch.run(image, resolved, scorer: :crop)
+    budget = round(byte_size(no_cap_bin) * 0.5)
+    capped_resolved = %Resolved{resolved | max_bytes: budget}
+
+    {:ok, capped_bin, capped} = EncodeSearch.run(image, capped_resolved, scorer: :crop)
+
+    # A budget below the crop pick forces cap_phase (which runs AFTER confirm/bump) to
+    # descend: lower-or-equal quality and never more bytes than the uncapped pick.
+    assert capped.quality <= no_cap.quality
+    assert byte_size(capped_bin) <= byte_size(no_cap_bin)
+  end
 end
 ```
 
-> Implementation note for the executor: `Encoder.finalize/2` is private. For a plain sRGB, opaque, metadata-light zone-plate, `finalize` is effectively `copy_memory` (no flatten, no profile convert), so passing the raw `image` to `EncodeSearch.run/3` is pixel-equivalent for the baseline-vs-crop *comparison* (both sides use the same input). The `stream_output` calls in the first test exercise the real `finalize`. If a future reviewer wants the exact finalized frame, expose a test-only `finalize` via `@doc false` rather than duplicating color logic. Keep `force_finalize/2` as the documented shim.
+> The 7 MP `:full` baseline scores the whole frame — the expensive path the feature
+> avoids — so this file runs a couple of full 7 MP searches. That is acceptable for a
+> low-single-digit-second test at ~7 MP; do **not** scale the input up.
 
 - [ ] **Step 2: Run the tests**
 
 Run: `mise exec -- mix test test/image_pipe/output/encoder_crop_scoring_test.exs`
-Expected: PASS. If the 7 MP search is slow, confirm it stays in low-single-digit seconds; if flaky on `<= 2` q, widen to `<= 3` only with a comment citing Part E's ±2–4 q residual (do not loosen silently).
+Expected: PASS. Confirm it stays in low-single-digit seconds. The `<= 3` q bound is
+deliberately the Part-E residual; do not loosen further without a comment.
 
 - [ ] **Step 3: Commit**
 
@@ -1209,10 +1297,11 @@ The row currently calls the search "a binary search over encoder quality." Appen
 ```markdown
 Above an internal ~6 MP crossover the `:ssim2` objective scores K=16
 native-resolution p10-tiles of the full-res encode per probe (size-independent
-metric cost, #354) plus one full-frame confirm + bounded bump on the winner;
-below the crossover the full-frame search is unchanged. The crossover is internal
-(it only selects the scorer); `autoquality_max_resolution` is unchanged and still
-*disables* the search above the host cap.
+metric cost, #354) — a **calibrated approximation** of the full-frame pick (within a
+bounded residual, ~±2 q), tightened by one full-frame confirm + bounded bump on the
+winner; below the crossover the full-frame search is unchanged. The crossover is
+internal (it only selects the scorer); `autoquality_max_resolution` is unchanged and
+still *disables* the search above the host cap.
 ```
 
 - [ ] **Step 2: Confirm no option-table / config-row edit is needed**
@@ -1259,7 +1348,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Self-review notes (for the executor)
 
-- **Spec coverage:** §1→T1–T3, §2→T5, §3→T4, §4→T6, §5→T7, §6→T9, §7→T1/T4/T8, §8→T10.
-- **The `@crop_macro_offset` placeholder (0.22)** is intentionally provisional until T9; T8's ±2 q assertion is robust to the exact value within the calibrated range, but re-run T8 after T9 sets the final constant.
-- **Type/name consistency:** `CropScore.p10/2`, `CropScore.crossover_megapixels/0`, `scorer: :full | :crop`, meta keys `scorer`/`confirm_passes`, Ctx fields `confirm_fun`/`confirm_band`/`confirm_max_quality`/`max_bump_passes`/`confirm_memo`/`confirm_passes`/`scorer` are used identically across T4–T7.
-- **No forbidden tests:** no hand-built internal structs, no `function_exported?`/existence pins (T6 explicitly avoids one for the removed `skip_search?`), no private-error-string assertions, no sequential-materialization-gate test (out of gate, per spec).
+- **Spec coverage:** §1→T1–T3, §2→T5/T6, §3→T4, §4→T5, §5(telemetry `scorer`/`tiles_scored`/`confirm_passes`)→T1/T5/T7, §6→T9, §7→T1/T4/T8, §8→T10.
+- **Objective-neutrality (spec §3):** the confirm phase and the result-assembly helpers (`build_result/3`, `ensure_winner_scored/3`, `result_score/2`) key off the injected closures (`confirm_fun`/`score_fun`), **not** on any `%RQS{objective: :ssim2}` literal — the pure core stays objective-neutral. The single-touchpoint invariant is locked by T3.
+- **`scorer`/`scorer_tiles` are threaded once in T4** (Ctx fields + opts population + meta keys); T5 only supplies the opt values from `run/3`. There is **no** placeholder helper to delete (the earlier draft's `scorer_of/1` was removed).
+- **The `@crop_macro_offset` placeholder (0.22)** is provisional until T9; T8's `<= 3` q bound (Part-E residual) is robust to the exact value within the calibrated range — re-run T8 after T9 sets the final constant, tightening to `<= 2` only if calibration supports it.
+- **Type/name consistency:** `CropScore.p10/2`, `CropScore.crossover_megapixels/0`, `CropScore.tile_count/2`, `scorer: :full | :crop`, meta keys `score`/`confirm_passes`/`scorer`/`tiles_scored`, Ctx fields `confirm_fun`/`confirm_band`/`confirm_max_quality`/`max_bump_passes`/`scorer`/`scorer_tiles`/`confirm_memo`/`confirm_passes` are used identically across T4–T8, and `@type meta` is updated in T4.
+- **Warnings/credo:** the `:full` `score_opts` clause does not bind `= rqs` (no unused-var); the `CropScore` alias is placed after `Ssim2Metric` for `AliasOrder --strict` (T5); `@type meta` updated (T4).
+- **No forbidden tests:** no hand-built internal structs (`%RQS{}` is a real producer-constructed struct used as the existing tests use it), no `function_exported?`/existence pins (T6 explicitly avoids one for the removed `skip_search?`), no private-error-string assertions, no sequential-materialization-gate test (out of gate, per spec).
