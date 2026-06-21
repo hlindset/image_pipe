@@ -99,9 +99,8 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   defp tile_score(base, candidate, {x, y, w, h}) do
     with {:ok, bt} <- Operation.extract_area(base, x, y, w, h),
          {:ok, ct} <- Operation.extract_area(candidate, x, y, w, h),
-         {:ok, ref} <- Ssim2Metric.reference(bt),
-         {:ok, score} <- Ssim2Metric.score(ref, ct) do
-      {:ok, score}
+         {:ok, ref} <- Ssim2Metric.reference(bt) do
+      Ssim2Metric.score(ref, ct)
     end
   end
 end

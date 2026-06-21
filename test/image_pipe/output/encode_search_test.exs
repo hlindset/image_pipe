@@ -151,7 +151,14 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     # The objective score_fun is an ESTIMATE (e.g. crop p10 - offset); the
     # confirm_fun is the AUTHORITATIVE measure. confirm_band is target-allowed_error.
     test "no confirm_fun is a pure passthrough (today's behavior)" do
-      rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+      rs = %RQS{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 10,
+        max_quality: 80,
+        allowed_error: 0.0
+      }
+
       enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
       score = fn bin -> byte_size(bin) / 100 + 20.0 end
 
@@ -162,7 +169,14 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "confirm clears at the objective winner -> :hit, 1 confirm pass, authoritative score" do
-      rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+      rs = %RQS{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 10,
+        max_quality: 80,
+        allowed_error: 0.0
+      }
+
       enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
       # estimate accurate at the boundary: objective picks q65 (65+25=90) and the
       # confirm clears there immediately (no bump). score = q + 25.
@@ -186,7 +200,14 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "undershoot bumps up to clear (2 confirm passes)" do
-      rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+      rs = %RQS{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 10,
+        max_quality: 80,
+        allowed_error: 0.0
+      }
+
       enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
       # estimate over-reports by +6: objective picks q64 (est 90), true at 64 is 89 (undershoot),
       # true at 65 is 90 (clears) -> bump +1.
@@ -210,7 +231,14 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "bump-cap exhaustion ships best-effort at the highest q tried" do
-      rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+      rs = %RQS{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 10,
+        max_quality: 80,
+        allowed_error: 0.0
+      }
+
       enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
       # estimate clears at q60 (60+30=90) but the TRUE score never reaches 90 in [60,62]:
       # true = bytes/100 + 25 -> q60..62 give 85..87, all undershoot; cap 2 -> best-effort at 62.
@@ -233,7 +261,14 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "max_bytes binds the final q AFTER the confirm/bump (cap runs last)" do
-      rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+      rs = %RQS{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 10,
+        max_quality: 80,
+        allowed_error: 0.0
+      }
+
       enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
       # objective (estimate q+26) picks q64; confirm (q+25) undershoots at 64, bumps to 65.
       estimate = fn bin -> byte_size(bin) / 100 + 26.0 end
@@ -259,7 +294,14 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "scorer/tiles flow through meta from the opts" do
-      rs = %RQS{objective: :ssim2, target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}
+      rs = %RQS{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 10,
+        max_quality: 80,
+        allowed_error: 0.0
+      }
+
       enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
       score = fn bin -> byte_size(bin) / 100 + 20.0 end
 

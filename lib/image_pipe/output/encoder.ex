@@ -40,17 +40,24 @@ defmodule ImagePipe.Output.Encoder do
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, opts) do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, finalized} <- finalize(image, resolved_output) do
-      if search?(resolved_output) and Format.supports_quality?(resolved_output.format) do
-        case scorer_mode(finalized, resolved_output) do
-          :skip -> lazy_output(finalized, resolved_output, mime_type, suffix, opts)
-          scorer -> search_output(finalized, resolved_output, mime_type, scorer, opts)
-        end
-      else
-        lazy_output(finalized, resolved_output, mime_type, suffix, opts)
-      end
+      deliver(finalized, resolved_output, mime_type, suffix, opts)
     end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  # Pick the delivery path: a quality search (crop- or full-scored above/below the
+  # internal crossover) when one is configured and supported and the host cap does
+  # not skip it; otherwise stream the finalized image once.
+  defp deliver(finalized, resolved_output, mime_type, suffix, opts) do
+    if search?(resolved_output) and Format.supports_quality?(resolved_output.format) do
+      case scorer_mode(finalized, resolved_output) do
+        :skip -> lazy_output(finalized, resolved_output, mime_type, suffix, opts)
+        scorer -> search_output(finalized, resolved_output, mime_type, scorer, opts)
+      end
+    else
+      lazy_output(finalized, resolved_output, mime_type, suffix, opts)
+    end
   end
 
   defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do

@@ -594,15 +594,16 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Build the objective score_fun (+ confirm closures for crop mode) for the
   # resolved objective and the chosen scorer. Returns extra search/3 opts.
   defp score_opts(_image, %Resolved{quality_search: :none}, _scorer), do: {:ok, []}
-  defp score_opts(_image, %Resolved{quality_search: %RQS{objective: :size}}, _scorer), do: {:ok, []}
+
+  defp score_opts(_image, %Resolved{quality_search: %RQS{objective: :size}}, _scorer),
+    do: {:ok, []}
 
   # Full-frame mode: one whole-frame reference; candidate scored whole. (No `= rqs`
   # binding — the bracket/target is consumed by the search, not here — so there is
   # no unused-variable warning under --warnings-as-errors.)
   defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2}}, :full) do
-    with {:ok, ref} <- Ssim2Metric.reference(image) do
-      {:ok, [score_fun: fn bytes -> full_frame_score(ref, bytes) end]}
-    else
+    case Ssim2Metric.reference(image) do
+      {:ok, ref} -> {:ok, [score_fun: fn bytes -> full_frame_score(ref, bytes) end]}
       {:error, reason} -> {:error, {:encode, reason}}
     end
   end
@@ -610,20 +611,22 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Crop mode: crop score_fun (estimate) + full-frame confirm closure + the
   # deterministic tile count for telemetry.
   defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop) do
-    with {:ok, ref} <- Ssim2Metric.reference(image) do
-      confirm = fn bytes -> full_frame_score(ref, bytes) end
-      crop = fn bytes -> crop_estimate(image, bytes) end
+    case Ssim2Metric.reference(image) do
+      {:ok, ref} ->
+        confirm = fn bytes -> full_frame_score(ref, bytes) end
+        crop = fn bytes -> crop_estimate(image, bytes) end
 
-      {:ok,
-       [
-         score_fun: crop,
-         confirm_fun: confirm,
-         confirm_band: rqs.target - rqs.allowed_error,
-         confirm_max_quality: rqs.max_quality,
-         scorer_tiles: CropScore.tile_count(Image.width(image), Image.height(image))
-       ]}
-    else
-      {:error, reason} -> {:error, {:encode, reason}}
+        {:ok,
+         [
+           score_fun: crop,
+           confirm_fun: confirm,
+           confirm_band: rqs.target - rqs.allowed_error,
+           confirm_max_quality: rqs.max_quality,
+           scorer_tiles: CropScore.tile_count(Image.width(image), Image.height(image))
+         ]}
+
+      {:error, reason} ->
+        {:error, {:encode, reason}}
     end
   end
 
