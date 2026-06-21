@@ -287,12 +287,20 @@ result `meta`):
   bracket floor/ceiling because the target was unreachable), or `:skipped`.
 - `:final_score` — the SSIMULACRA2 score of the delivered quality for an `:ssim2`
   search, otherwise absent.
+- `:scorer` — `:full` (whole-frame SSIMULACRA2) or `:crop` (K p10-tiles above the
+  internal ~6 MP crossover, #354).
+- `:tiles_scored` — tiles actually scored on the crop path (sub-sampled, `<= 16`);
+  absent on the full-frame path.
+- `:confirm_passes` — full-frame confirm/bump passes on the crop path (1 = confirm
+  only; up to 3 with the bump cap). `0` on the full-frame path.
 
 The default Logger escalates an `outcome: :best_effort` stop (and an exception) to
-`:warning`; other outcomes log at the base level. It renders the stop as:
+`:warning`; other outcomes log at the base level. It renders the stop with the
+scorer token (`full`/`crop`):
 
 ```text
-image_pipe encode search: ok (hit q62 12345b score 90.42)
+image_pipe encode search: ok (full hit q62 12345b score 90.42)
+image_pipe encode search: ok (crop hit q72 12345b score 90.42)
 ```
 
 ### Encode-quality search probe (`[:encode, :search, :probe]`)

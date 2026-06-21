@@ -5,6 +5,7 @@ defmodule ImagePipe.Output.Encoder do
   alias ImagePipe.Output.ColorProfile
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Plan.Color
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage, as: VixMutableImage
@@ -39,15 +40,24 @@ defmodule ImagePipe.Output.Encoder do
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, opts) do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, finalized} <- finalize(image, resolved_output) do
-      if search?(resolved_output) and Format.supports_quality?(resolved_output.format) and
-           not skip_search?(finalized, resolved_output) do
-        search_output(finalized, resolved_output, mime_type, opts)
-      else
-        lazy_output(finalized, resolved_output, mime_type, suffix, opts)
-      end
+      deliver(finalized, resolved_output, mime_type, suffix, opts)
     end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  # Pick the delivery path: a quality search (crop- or full-scored above/below the
+  # internal crossover) when one is configured and supported and the host cap does
+  # not skip it; otherwise stream the finalized image once.
+  defp deliver(finalized, resolved_output, mime_type, suffix, opts) do
+    if search?(resolved_output) and Format.supports_quality?(resolved_output.format) do
+      case scorer_mode(finalized, resolved_output) do
+        :skip -> lazy_output(finalized, resolved_output, mime_type, suffix, opts)
+        scorer -> search_output(finalized, resolved_output, mime_type, scorer, opts)
+      end
+    else
+      lazy_output(finalized, resolved_output, mime_type, suffix, opts)
+    end
   end
 
   defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do
@@ -60,24 +70,36 @@ defmodule ImagePipe.Output.Encoder do
   defp search?(%Resolved{quality_search: quality_search, max_bytes: max_bytes}),
     do: quality_search != :none or max_bytes != nil
 
-  # The search descriptor carries the megapixel skip threshold; a max_bytes-alone
-  # request has no descriptor, so it never skips (max_resolution 0).
-  defp skip_search?(finalized, %Resolved{quality_search: quality_search}) do
-    max_resolution =
-      case quality_search do
-        %{max_resolution: mr} -> mr
-        :none -> 0
-      end
-
+  # One megapixel computation, one precedence ladder: the host max_resolution skip
+  # wins (it disables the search above the host cap, unchanged); otherwise crop-score
+  # above the internal crossover, else full-frame. A max_bytes-alone request has no
+  # descriptor, so max_resolution is 0 and it never skips.
+  defp scorer_mode(finalized, %Resolved{quality_search: quality_search}) do
     megapixels = Image.width(finalized) * Image.height(finalized) / 1_000_000
-    EncodeSearch.skip?(%{max_resolution: max_resolution}, megapixels)
+    max_resolution = max_resolution_of(quality_search)
+
+    cond do
+      EncodeSearch.skip?(%{max_resolution: max_resolution}, megapixels) -> :skip
+      crop?(quality_search, megapixels) -> :crop
+      true -> :full
+    end
   end
 
+  defp max_resolution_of(%{max_resolution: mr}), do: mr
+  defp max_resolution_of(:none), do: 0
+
+  # Crop scoring only applies to the perceptual :ssim2 objective (it tiles the
+  # SSIMULACRA2 metric). A :size or max_bytes-alone search above the crossover does
+  # no metric scoring, so it stays :full and is not mislabeled :crop in telemetry.
+  defp crop?(%{objective: :ssim2}, megapixels), do: megapixels > CropScore.crossover_megapixels()
+  defp crop?(_quality_search, _megapixels), do: false
+
   # The search owns building the encode/score closures, the iteration cap, and
-  # the objective/cap phases; we only hand it the finalized image and wrap the
-  # winning buffer as a one-element list so the streaming contract is unchanged.
-  defp search_output(finalized, resolved_output, mime_type, opts) do
-    search_opts = [telemetry_opts: ImagePipe.Telemetry.telemetry_opts(opts)]
+  # the objective/cap/confirm phases; we only hand it the finalized image and the
+  # chosen scorer, wrapping the winning buffer as a one-element list so the
+  # streaming contract is unchanged.
+  defp search_output(finalized, resolved_output, mime_type, scorer, opts) do
+    search_opts = [scorer: scorer, telemetry_opts: ImagePipe.Telemetry.telemetry_opts(opts)]
 
     case EncodeSearch.run(finalized, resolved_output, search_opts) do
       {:ok, binary, _meta} -> {:ok, [binary], mime_type}

@@ -60,6 +60,11 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     assert stop_meta.outcome == outcome
     assert stop_meta.final_score == score_value
     assert is_integer(stop_meta.iterations)
+    assert stop_meta.scorer == :full
+    assert stop_meta.confirm_passes == 0
+    # nil metadata is stripped by the telemetry layer, so the full-frame path
+    # emits no tiles_scored key (it's a crop-only measurement).
+    refute Map.has_key?(stop_meta, :tiles_scored)
 
     probes = collect_probes()
     assert probes != []

@@ -393,6 +393,41 @@ autoquality above X MP" → clean fixed-quality fallback), default high/off — 
 a must-do *interim* guard only until those land. That is what turns "autoquality off
 on big images" into "autoquality on, affordably."
 
+#### Shipped calibration (#354)
+
+Crop-scoring shipped in #354 (`ImagePipe.Output.Ssim2Metric.CropScore` +
+`EncodeSearch`/`Encoder`), constants-only at the Part-E operating point
+(`@tile 512`, `@subsample_k 16`, `@crossover_megapixels 6`). These are a
+**validated single operating point, not a swept optimum** — confirming K/tile sit
+at the accuracy↔cost knee is tracked in #359. The p10→full-frame
+correction `@crop_macro_offset` was calibrated on a fresh `mix autoquality.bench
+--part e` run over the pinned codec-corpus (Apple Silicon, libvips 8.18.2), which
+reproduced the Part-E numbers:
+
+| split / role | p10 offset (median) | spread |
+|---|---|---|
+| `clic` (calibration) | **+0.29** | −1.22…2.73 |
+| `clic_holdout` (held-out validation) | **−0.03** | −1.12…1.8 |
+| macro-average (all 7 sources) | **+0.22** | per-source −0.52…+1.46 |
+
+- **Chosen `@crop_macro_offset = 0.22`** (the content-diverse macro-average,
+  subtracted from the tile p10). The `clic` (+0.29) and held-out `clic_holdout`
+  (−0.03) medians *disagree by ~0.3 SSIM*, which shows a photo-only constant would be
+  mildly overfit; the macro is the robust global choice across photographic, screen,
+  huge-screenshot and large-photo content. The 0.13/0.22/0.29 range is <0.5 q in
+  effect, absorbed by the confirm/bump.
+- **Confirm + bump cap = 2 (best-effort fallback), no escalation.** The per-image
+  offset spread (~±2–4 q) means a small minority of images — chiefly in the `large`
+  (+3.8 tail) and screen/screenshot sources — undershoot by more than the 2-step bump
+  can recover and ship **best-effort slightly below target**. That is acceptable for a
+  best-effort search (the full-frame oracle itself misses `large` 5/6 and `qoi_web`
+  4/14 — JPEG cannot reach SSIM 88 on text-heavy screenshots), and the `allowed_error`
+  band gives slack. The optional bounded-`[q+1, max]` full-frame escalation on
+  cap-exhaustion remains available for hosts wanting stricter target-hitting.
+- **Cost:** `large` (15 MP) **2.4× win** (655→268 ms metric per probe), `qoi_web`
+  1.1×; a loss below the ~6 MP crossover (where full-frame is cheap), confirming the
+  crossover. Sub-sample penalty ≤0.62; worst tile in a smooth region 3/113.
+
 ## The bottom line across A–E
 
 The SSIMULACRA2 quality boundary is **genuinely content-dependent and not cheaply

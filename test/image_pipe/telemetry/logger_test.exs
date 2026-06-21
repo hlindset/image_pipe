@@ -78,13 +78,41 @@ defmodule ImagePipe.Telemetry.LoggerTest do
             chosen_bytes: 12_345,
             iterations: 4,
             outcome: :hit,
-            final_score: 90.42
+            final_score: 90.42,
+            scorer: :full
           }
         )
       end)
 
     refute log =~ "[warning]"
-    assert log =~ "encode search: ok (hit q62 12345b score 90.42)"
+    assert log =~ "encode search: ok (full hit q62 12345b score 90.42)"
+  end
+
+  test "renders the crop scorer in the encode-search stop line" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :stop],
+          %{duration: System.convert_time_unit(4, :millisecond, :native)},
+          %{
+            result: :ok,
+            objective: :ssim2,
+            chosen_quality: 72,
+            chosen_bytes: 12_345,
+            iterations: 4,
+            outcome: :hit,
+            final_score: 90.42,
+            scorer: :crop,
+            tiles_scored: 16,
+            confirm_passes: 1
+          }
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "encode search: ok (crop hit q72 12345b score 90.42)"
   end
 
   test "escalates a best-effort encode-search to warning" do

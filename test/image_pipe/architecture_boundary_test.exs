@@ -347,6 +347,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute source =~ "ImagePipe.Request."
   end
 
+  test "CropScore delegates all SSIMULACRA2 access through Ssim2Metric" do
+    source = File.read!("lib/image_pipe/output/ssim2_metric/crop_score.ex")
+    refute source =~ "Ssimulacra2", "CropScore must not reference Ssimulacra2.* directly"
+  end
+
   test "error boundary remains a dependency-free helper" do
     error = boundary_declaration(ImagePipe.Error)
 

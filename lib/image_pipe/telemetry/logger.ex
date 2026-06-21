@@ -228,8 +228,9 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp message([:encode, :search | _], _m, meta) do
     score = if meta[:final_score], do: " score #{round2(meta[:final_score])}", else: ""
+    scorer = if meta[:scorer], do: "#{meta[:scorer]} ", else: ""
 
-    "image_pipe encode search: #{outcome(meta)} (#{meta[:outcome]} " <>
+    "image_pipe encode search: #{outcome(meta)} (#{scorer}#{meta[:outcome]} " <>
       "q#{meta[:chosen_quality]} #{meta[:chosen_bytes]}b#{score})"
   end
 
