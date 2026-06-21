@@ -36,6 +36,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   alias ImagePipe.Telemetry
 
   @default_max_iterations 6
+  @default_max_bump_passes 2
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 
@@ -46,7 +47,10 @@ defmodule ImagePipe.Output.EncodeSearch do
           bytes: non_neg_integer(),
           iterations: non_neg_integer(),
           outcome: outcome(),
-          score: float() | nil
+          score: float() | nil,
+          confirm_passes: non_neg_integer(),
+          scorer: :full | :crop,
+          tiles_scored: pos_integer() | nil
         }
 
   # Mutable-ish search context threaded through the loop as an immutable struct.
@@ -55,8 +59,16 @@ defmodule ImagePipe.Output.EncodeSearch do
     @enforce_keys [:encode_fun]
     defstruct encode_fun: nil,
               score_fun: nil,
+              confirm_fun: nil,
+              confirm_band: nil,
+              confirm_max_quality: nil,
+              max_bump_passes: 2,
+              scorer: :full,
+              scorer_tiles: nil,
               encode_memo: %{},
               score_memo: %{},
+              confirm_memo: %{},
+              confirm_passes: 0,
               iterations: 0,
               max_iterations: 0,
               telemetry_opts: []
@@ -74,6 +86,12 @@ defmodule ImagePipe.Output.EncodeSearch do
     ctx = %Ctx{
       encode_fun: Keyword.fetch!(opts, :encode_fun),
       score_fun: Keyword.get(opts, :score_fun),
+      confirm_fun: Keyword.get(opts, :confirm_fun),
+      confirm_band: Keyword.get(opts, :confirm_band),
+      confirm_max_quality: Keyword.get(opts, :confirm_max_quality),
+      max_bump_passes: Keyword.get(opts, :max_bump_passes, @default_max_bump_passes),
+      scorer: Keyword.get(opts, :scorer, :full),
+      scorer_tiles: Keyword.get(opts, :scorer_tiles),
       max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
       telemetry_opts: telemetry_opts
     }
@@ -90,11 +108,13 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   defp do_search(quality_search, max_bytes, ctx, opts) do
-    with {:ok, objective_q, objective_outcome, objective_score, ctx} <-
+    with {:ok, objective_q, objective_outcome, _objective_score, ctx} <-
            objective_phase(quality_search, ctx, opts),
+         {:ok, confirmed_q, confirmed_outcome, ctx} <-
+           confirm_phase(objective_q, objective_outcome, ctx),
          {:ok, final_q, final_outcome, ctx} <-
-           cap_phase(quality_search, max_bytes, objective_q, objective_outcome, ctx) do
-      build_result(final_q, final_outcome, objective_q, objective_score, quality_search, ctx)
+           cap_phase(quality_search, max_bytes, confirmed_q, confirmed_outcome, ctx) do
+      build_result(final_q, final_outcome, ctx)
     end
   end
 
@@ -133,7 +153,10 @@ defmodule ImagePipe.Output.EncodeSearch do
       chosen_bytes: meta.bytes,
       iterations: meta.iterations,
       outcome: meta.outcome,
-      final_score: meta.score
+      final_score: meta.score,
+      scorer: meta.scorer,
+      tiles_scored: meta.tiles_scored,
+      confirm_passes: meta.confirm_passes
     }
   end
 
@@ -270,6 +293,68 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp cap_floor(:none), do: @max_bytes_alone_floor
   defp cap_floor(%RQS{min_quality: min_quality}), do: min_quality
+
+  # --- confirm phase (objective-neutral re-validation) ----------------------
+
+  # No confirm closure: the objective's verdict stands (full-frame ssim2, :size,
+  # :none paths are byte-identical to before this feature).
+  defp confirm_phase(objective_q, objective_outcome, %Ctx{confirm_fun: nil} = ctx),
+    do: {:ok, objective_q, objective_outcome, ctx}
+
+  # The objective ran on an ESTIMATE; re-validate the winner against the
+  # authoritative measure and linear-bump on undershoot (cap @max_bump_passes).
+  defp confirm_phase(objective_q, _objective_outcome, ctx) do
+    with {:ok, ctx} <- confirm_score(objective_q, ctx) do
+      if Map.fetch!(ctx.confirm_memo, objective_q) >= ctx.confirm_band do
+        {:ok, objective_q, :hit, ctx}
+      else
+        bump(objective_q, ctx)
+      end
+    end
+  end
+
+  # Linear scan q+1..q+cap (bounded by confirm_max_quality), first clearing q wins;
+  # else best-effort at the highest q tried. Linear (not binary) is deliberate:
+  # encoder score-vs-quality is only approximately monotone, and a linear scan
+  # catches a local non-monotone dip a binary step could skip.
+  defp bump(objective_q, %Ctx{max_bump_passes: cap, confirm_max_quality: max_q} = ctx) do
+    last_q = min(objective_q + cap, max_q)
+    do_bump(objective_q + 1, last_q, objective_q, ctx)
+  end
+
+  defp do_bump(try_q, last_q, best_q, ctx) when try_q > last_q,
+    do: {:ok, best_q, :best_effort, ctx}
+
+  defp do_bump(try_q, last_q, _best_q, ctx) do
+    case confirm_score(try_q, ctx) do
+      {:error, _} = err ->
+        err
+
+      {:ok, ctx} ->
+        if Map.fetch!(ctx.confirm_memo, try_q) >= ctx.confirm_band,
+          do: {:ok, try_q, :hit, ctx},
+          else: do_bump(try_q + 1, last_q, try_q, ctx)
+    end
+  end
+
+  # Ensure q is encoded, then authoritatively score it once (memoized), counting
+  # the pass. Encode is forced even past the iteration cap: the confirm MUST run.
+  defp confirm_score(q, ctx) do
+    with {:ok, ctx} <- ensure_probed(q, ctx) do
+      if Map.has_key?(ctx.confirm_memo, q) do
+        {:ok, ctx}
+      else
+        score = ctx.confirm_fun.(Map.fetch!(ctx.encode_memo, q))
+
+        {:ok,
+         %{
+           ctx
+           | confirm_memo: Map.put(ctx.confirm_memo, q, score),
+             confirm_passes: ctx.confirm_passes + 1
+         }}
+      end
+    end
+  end
 
   # --- binary search primitives ---------------------------------------------
 
@@ -443,33 +528,54 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # --- result assembly ------------------------------------------------------
 
-  defp build_result(final_q, final_outcome, _objective_q, _objective_score, quality_search, ctx) do
+  defp build_result(final_q, final_outcome, ctx) do
     binary = Map.fetch!(ctx.encode_memo, final_q)
-    ctx = ensure_winner_scored(final_q, binary, quality_search, ctx)
+    ctx = ensure_winner_scored(final_q, binary, ctx)
 
     meta = %{
       quality: final_q,
       bytes: byte_size(binary),
       iterations: ctx.iterations,
       outcome: final_outcome,
-      score: result_score(final_q, quality_search, ctx)
+      score: result_score(final_q, ctx),
+      confirm_passes: ctx.confirm_passes,
+      scorer: ctx.scorer,
+      tiles_scored: ctx.scorer_tiles
     }
 
     {:ok, binary, meta}
   end
 
-  # meta.score must reflect the DELIVERED quality, never a different one. For
-  # ssim2 the cap phase (byte-only predicate) can relocate the winner to a
-  # quality the objective search never scored; score it now from its already-
-  # memoized buffer (no re-encode) so the reported score is honest. nil otherwise.
-  defp ensure_winner_scored(final_q, binary, %RQS{objective: :ssim2}, ctx) do
+  # meta.score must reflect the DELIVERED quality, never a different one. The cap
+  # phase (byte-only predicate) can relocate the winner to a quality the objective
+  # search never scored; score it now from its already-memoized buffer. This keys
+  # off the injected closures (not the objective), so the core stays objective-neutral.
+
+  # Crop mode (confirm_fun present): the authoritative score lives in confirm_memo;
+  # a cap-relocated winner may not be there yet — confirm-score it so meta.score is
+  # the true full-frame score, never the crop estimate in score_memo.
+  defp ensure_winner_scored(final_q, _binary, %Ctx{confirm_fun: fun} = ctx)
+       when not is_nil(fun) do
+    case confirm_score(final_q, ctx) do
+      {:ok, ctx} -> ctx
+      {:error, _} -> ctx
+    end
+  end
+
+  # Full-frame scoring mode (score_fun present, no confirm): score a cap-relocated
+  # winner from its already-memoized buffer so the reported score is the delivered q.
+  defp ensure_winner_scored(final_q, binary, %Ctx{score_fun: fun} = ctx)
+       when not is_nil(fun) do
     if Map.has_key?(ctx.score_memo, final_q), do: ctx, else: maybe_score(final_q, binary, ctx)
   end
 
-  defp ensure_winner_scored(_final_q, _binary, _quality_search, ctx), do: ctx
+  # No scoring objective (:size / :none).
+  defp ensure_winner_scored(_final_q, _binary, ctx), do: ctx
 
-  defp result_score(final_q, %RQS{objective: :ssim2}, ctx), do: Map.get(ctx.score_memo, final_q)
-  defp result_score(_final_q, _quality_search, _ctx), do: nil
+  # Prefer the authoritative confirm score (crop mode); fall back to score_memo
+  # (full-frame mode); nil when neither memo holds the q (:size / :none).
+  defp result_score(final_q, ctx),
+    do: Map.get(ctx.confirm_memo, final_q) || Map.get(ctx.score_memo, final_q)
 
   # --- run/3 helpers --------------------------------------------------------
 
