@@ -19,7 +19,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part d        # cheap full-res metric narrowing
       mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring, per source
       mise exec -- mix autoquality.bench --part e --corpus DIR --corpus-cap 24  # cap/source
-      mise exec -- mix autoquality.bench --part all      # A + B + C + D + E
+      mise exec -- mix autoquality.bench --part f --corpus DIR  # saliency selection vs confirm
+      mise exec -- mix autoquality.bench --part all      # A + B + C + D + E + F
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
       mise exec -- mix autoquality.bench --part c --proxy-files a.jpg,b.jpg # large real photos
@@ -116,6 +117,54 @@ defmodule Mix.Tasks.Autoquality.Bench do
   K-tile budget beats full-frame above a ~4 MP crossover: ~1.6× at 10.7 MP, ~2.3× at
   16 MP, and (budget being size-independent) growing with size. So crop scoring is a
   viable speedup for large images — use full-frame below the crossover.
+
+  ## Part F — saliency tile selection vs the full-frame confirm (#359)
+
+  Crop scoring (Part E) flattens the OBJECTIVE search to a fixed ~4.2 MP budget, but
+  in crop mode `EncodeSearch.run` still runs a FULL-FRAME confirm (+ up to 2 bump
+  passes) on the winner — an O(pixels) cost that grows with image size and is exactly
+  what crop scoring was built to avoid. Part F asks the high-value question: can a
+  smarter tile *selection* make the crop estimate accurate enough to RETIRE that
+  confirm, so the whole search becomes size-independent?
+
+  Method (no production change): per image, per selector × K, run the real pure
+  search core (`EncodeSearch.search/3`) with a selector-parameterized crop
+  `score_fun` and NO `confirm_fun` — that IS the confirm-skipped path — then take ONE
+  full-frame score at the winner as ground truth. Baseline is the production-today
+  crop path (even selection + full-frame confirm at K=#{16}). Selectors
+  (`ImagePipe.Test.Autoquality.TileSelection`): `even` (shipped baseline),
+  `source_detail` (edge energy of the source — candidate-independent),
+  `mixed` (half coverage + half source-detail), and `diff_aware` (adds candidate-
+  dependent |source−candidate| + its high-pass energy — an upper bound, not
+  production-plausible since it is per-probe O(pixels) work). K ∈ #{inspect([8, 12, 16, 24])}.
+
+  Each variant reports the delivered target error if the confirm is skipped (median +
+  the global worst-undershoot tail, the safety number), the count of regressions
+  (baseline+confirm hit but skip-confirm ships below target), and the residual
+  decomposed into the two parts that decide whether selection can help at all:
+
+    * sampling error   = selected_p10 − full_coverage_p10  (a selector CAN shrink)
+    * systematic error = (full_coverage_p10 − offset) − full_frame_score
+                         (the p10→full mapping; selection CANNOT fix it — only
+                          per-content offset recalibration would)
+
+  If |systematic| dominates |sampling|, no selector can retire the confirm and the
+  lever is offset recalibration, not tile choice. Cost context prints the full-frame
+  confirm time being saved (the prize) and the candidate-dependent diff-map overhead
+  per probe (the price `diff_aware` pays).
+
+  A second analysis asks whether a cheaper *aggregation* could stand in for the
+  full-frame confirm: per image at the delivered quality it reports how tightly each
+  aggregate (`p10`/`p25`/`median`/`mean`, over the K=16 sample and full coverage)
+  predicts the full-frame score — `offset` (a global calibration constant) and `worst±`
+  (the irreducible post-calibration tail a confirm must absorb). A crop confirm is
+  viable only if some aggregate's `worst±` fits the best-effort band; if every aggregate
+  shares the same large tail, the residual is systematic and per-content calibration —
+  not aggregation — is the lever.
+
+  Needs the corpus (`mix autoquality.corpus`, plus large photos for the size-dependent
+  regime where the confirm cost is largest); the committed fallback sources are ≤ K
+  tiles, so selection is a no-op on them.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
@@ -125,6 +174,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric
+  alias ImagePipe.Test.Autoquality.TileSelection
   alias ImagePipe.Test.ImgproxyDifferential.SourceInventory
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
@@ -195,9 +245,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
       format: format
     }
 
-    {a_rows, b_rows, c_rows, e_rows} = run_selected_parts(run_ctx)
-    if csv?, do: write_csvs(a_rows, b_rows, c_rows, e_rows)
-    print_findings(a_rows, b_rows, c_rows, e_rows, format)
+    {a_rows, b_rows, c_rows, e_rows, f_rows} = run_selected_parts(run_ctx)
+    if csv?, do: write_csvs(a_rows, b_rows, c_rows, e_rows, f_rows)
+    print_findings(a_rows, b_rows, c_rows, e_rows, f_rows, format)
   end
 
   defp run_selected_parts(%{part: part, format: format} = ctx) do
@@ -213,14 +263,23 @@ defmodule Mix.Tasks.Autoquality.Bench do
       if part in ["e", "all"],
         do: run_part_e(ctx.corpus_dir, ctx.proxy_files, ctx.corpus_cap, ctx.proxy_mp, format)
 
-    {a, b, c, e}
+    f =
+      if part in ["f", "all"],
+        do: run_part_f(ctx.corpus_dir, ctx.proxy_files, ctx.corpus_cap, ctx.proxy_mp, format)
+
+    {a, b, c, e, f}
   end
 
-  defp write_csvs(a_rows, b_rows, c_rows, e_rows) do
+  defp write_csvs(a_rows, b_rows, c_rows, e_rows, f_rows) do
     if a_rows, do: write_part_a_csv(a_rows)
     if b_rows, do: write_part_b_csv(b_rows)
     if c_rows, do: write_part_c_csv(c_rows)
     if e_rows, do: write_part_e_csv(e_rows)
+
+    if f_rows do
+      write_part_f_csv(f_rows.variants)
+      write_part_f_agg_csv(f_rows.agg)
+    end
   end
 
   # Touch every NIF/libvips path once so first-call JIT + library init does not
@@ -1172,6 +1231,461 @@ defmodule Mix.Tasks.Autoquality.Bench do
     |> avg()
   end
 
+  # --- Part F: saliency tile selection vs the full-frame confirm (#359) -------
+
+  # The prize crop-scoring leaves on the table: in crop mode the search still runs
+  # a FULL-FRAME confirm (+ up to 2 bump passes) on the winner — an O(pixels) cost
+  # crop-scoring was built to avoid. Part F asks whether a smarter tile *selection*
+  # makes the crop estimate accurate enough to RETIRE that confirm, making the whole
+  # search size-independent.
+  #
+  # Method (no production change): per image, per selector × K, run the real pure
+  # search core (`EncodeSearch.search/3`) with a selector-parameterized crop
+  # `score_fun` and NO `confirm_fun` — that IS the confirm-skipped path — then take
+  # ONE full-frame score at the winner as ground truth. The baseline is the
+  # production-today crop path (even selection + full-frame confirm at K=16). All
+  # encodes / decodes / full-coverage tile scores are memoized per (image, q) so the
+  # 16 selector×K runs reuse one another's work.
+  #
+  # Residual decomposition at the chosen q tells us whether selection can even help:
+  #   * sampling error   = selected_p10 − full_coverage_p10  (selector CAN reduce)
+  #   * systematic error = (full_coverage_p10 − offset) − full_frame_score
+  #                        (the p10→full mapping; a selector CANNOT fix this — only
+  #                         per-content offset recalibration would)
+  @partf_ks [8, 12, 16, 24]
+  @partf_strategies [:even, :source_detail, :mixed, :diff_aware]
+  @crop_macro_offset 0.22
+
+  # Aggregation tracking: {display label, agg_row key}. K16 = the 16-tile even sample
+  # (a cheap crop confirm); full = full tile coverage (isolates aggregation from
+  # sampling). The question: does a mean track the full-frame score tighter than p10?
+  @partf_aggs [
+    {"p10  K16", :p10_k16},
+    {"p25  K16", :p25_k16},
+    {"med  K16", :med_k16},
+    {"mean K16", :mean_k16},
+    {"p10  full", :p10_full},
+    {"p25  full", :p25_full},
+    {"med  full", :med_full},
+    {"mean full", :mean_full}
+  ]
+
+  defp run_part_f(corpus_dir, fallback_files, cap, synth_mp, format) do
+    IO.puts("\n== Part F — saliency tile selection vs the full-frame confirm (#359) ==")
+    IO.puts("baseline = even + full-frame confirm @ K=#{@subsample_k} (production today)  ")
+
+    IO.puts(
+      "variants = {#{Enum.map_join(@partf_strategies, ",", &to_string/1)}} × K∈#{inspect(@partf_ks)}, confirm SKIPPED  " <>
+        "target #{@target} [#{@min_q},#{@max_q}]  format #{format}\n"
+    )
+
+    resolved = ssim2_resolved(format)
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    collected =
+      Enum.map(sources, fn {sname, subjects} ->
+        pairs = Enum.map(subjects, &bench_partf_subject(sname, &1, resolved, format))
+        IO.puts("  #{String.pad_trailing(sname, 14)} #{length(subjects)} imgs done")
+        {Enum.flat_map(pairs, &elem(&1, 0)), Enum.map(pairs, &elem(&1, 1))}
+      end)
+
+    %{
+      variants: Enum.flat_map(collected, &elem(&1, 0)),
+      agg: Enum.flat_map(collected, &elem(&1, 1))
+    }
+  end
+
+  defp bench_partf_subject(source, {label, base}, resolved, format) do
+    {:ok, full_ref} = Ssim2Metric.reference(base)
+    {:ok, cache} = Agent.start_link(fn -> %{enc: %{}, rev: %{}, data: %{}} end)
+    mp = Float.round(Image.width(base) * Image.height(base) / 1_000_000, 1)
+
+    encode_fun = partf_encode_fun(cache, base, format)
+    qdata = partf_qdata_fun(cache, base, full_ref)
+
+    d_at = fn q ->
+      {:ok, bytes} = encode_fun.(q)
+      qdata.(bytes)
+    end
+
+    crop_fun = fn strat, k -> partf_crop_score_fun(qdata, strat, k) end
+
+    # Baseline: production-today crop path (even + full-frame confirm at K=16).
+    {:ok, _b, bmeta} =
+      EncodeSearch.search(resolved.quality_search, nil,
+        encode_fun: encode_fun,
+        score_fun: crop_fun.(:even, @subsample_k),
+        confirm_fun: fn bytes -> qdata.(bytes).full_score end,
+        confirm_band: @target,
+        confirm_max_quality: @max_q,
+        max_bump_passes: 2,
+        scorer: :crop,
+        scorer_tiles: @subsample_k,
+        max_iterations: @max_iter + 3,
+        telemetry_opts: []
+      )
+
+    d0 = d_at.(bmeta.quality)
+    base_deliv = d0.full_score
+
+    base_ctx = %{
+      source: source,
+      label: label,
+      mp: mp,
+      base_q: bmeta.quality,
+      base_deliv: base_deliv,
+      base_hit?: base_deliv >= @target,
+      base_confirm_passes: bmeta.confirm_passes
+    }
+
+    rows =
+      for strat <- @partf_strategies, k <- @partf_ks do
+        partf_variant_row(base_ctx, resolved, encode_fun, d_at, crop_fun, strat, k)
+      end
+
+    agg_row = partf_agg_row(source, label, mp, d0)
+    Agent.stop(cache)
+    {rows, agg_row}
+  end
+
+  # Aggregation tracking at the delivered quality: how closely each crop aggregate
+  # (p10/p25/median/mean, over the K=16 sample and over full coverage) predicts the
+  # full-frame score. residual = aggregate − full_frame_score. Tests whether a CHEAP
+  # crop aggregate could stand in for the full-frame confirm — the systematic gap
+  # Part F's decomposition exposed is largely "p10-of-tiles vs whole-frame", so a
+  # mean may track tighter than the (deliberately pessimistic) p10.
+  defp partf_agg_row(source, label, mp, d) do
+    full = d.full_score
+    all = Enum.sort(Enum.map(d.tiles, & &1.score))
+
+    k16 =
+      d.tiles |> TileSelection.select(@subsample_k, :even) |> Enum.map(& &1.score) |> Enum.sort()
+
+    %{
+      source: source,
+      label: label,
+      mp: mp,
+      full_score: full,
+      p10_k16: percentile(k16, 0.10) - full,
+      p25_k16: percentile(k16, 0.25) - full,
+      med_k16: percentile(k16, 0.50) - full,
+      mean_k16: avg(k16) - full,
+      p10_full: percentile(all, 0.10) - full,
+      p25_full: percentile(all, 0.25) - full,
+      med_full: percentile(all, 0.50) - full,
+      mean_full: avg(all) - full
+    }
+  end
+
+  # One confirm-skipped variant: search with the selector's crop score_fun and no
+  # confirm, then score the winner full-frame for ground truth + decompose residual.
+  defp partf_variant_row(base_ctx, resolved, encode_fun, d_at, crop_fun, strat, k) do
+    {:ok, _v, vmeta} =
+      EncodeSearch.search(resolved.quality_search, nil,
+        encode_fun: encode_fun,
+        score_fun: crop_fun.(strat, k),
+        max_iterations: @max_iter,
+        telemetry_opts: []
+      )
+
+    d = d_at.(vmeta.quality)
+    sel = TileSelection.select(d.tiles, k, strat)
+    sel_p10 = percentile(Enum.sort(Enum.map(sel, & &1.score)), 0.10)
+    full_p10 = percentile(Enum.sort(Enum.map(d.tiles, & &1.score)), 0.10)
+    n = length(d.tiles)
+
+    Map.merge(base_ctx, %{
+      strategy: strat,
+      k: k,
+      q_sel: vmeta.quality,
+      deliv: d.full_score,
+      deliv_err: d.full_score - @target,
+      regress?: base_ctx.base_hit? and d.full_score < @target,
+      sampling_err: sel_p10 - full_p10,
+      systematic_err: full_p10 - @crop_macro_offset - d.full_score,
+      n_tiles: n,
+      ktile_us: round(d.per_tile_us * min(k, n)),
+      full_us: d.full_us,
+      diff_map_us: d.diff_map_us
+    })
+  end
+
+  # Encode closure: memoizes bytes per quality and the reverse bytes→q map (so the
+  # bytes-keyed score_fun can recover q to hit the per-quality data cache). The
+  # encode runs OUTSIDE the agent critical section — access is strictly sequential
+  # per image, so a check-then-store can't race, and the agent never blocks past the
+  # default GenServer-call timeout on a slow large-image encode.
+  defp partf_encode_fun(cache, base, format) do
+    fn q ->
+      case Agent.get(cache, &Map.get(&1.enc, q)) do
+        nil ->
+          {:ok, bytes} = Encoder.encode_to_buffer(base, plain_resolved(format, q), q)
+          Agent.update(cache, &store_encode(&1, q, bytes))
+          {:ok, bytes}
+
+        bytes ->
+          {:ok, bytes}
+      end
+    end
+  end
+
+  defp store_encode(st, q, bytes),
+    do: %{st | enc: Map.put(st.enc, q, bytes), rev: Map.put(st.rev, bytes, q)}
+
+  # Per-quality data: decode once, full-frame score once, full tile coverage scored
+  # + cheap signals once. Memoized by q; like the encode, the heavy compute runs
+  # OUTSIDE the agent so the (sequential) call never trips the call timeout.
+  defp partf_qdata_fun(cache, base, full_ref) do
+    fn bytes -> fetch_qdata(cache, base, full_ref, bytes) end
+  end
+
+  defp fetch_qdata(cache, base, full_ref, bytes) do
+    q = Agent.get(cache, &Map.fetch!(&1.rev, bytes))
+
+    case Agent.get(cache, &Map.get(&1.data, q)) do
+      nil -> store_qdata(cache, q, compute_partf_qdata(base, full_ref, bytes))
+      d -> d
+    end
+  end
+
+  defp store_qdata(cache, q, d) do
+    Agent.update(cache, fn st -> %{st | data: Map.put(st.data, q, d)} end)
+    d
+  end
+
+  defp partf_crop_score_fun(qdata, strat, k) do
+    fn bytes ->
+      d = qdata.(bytes)
+      sel = TileSelection.select(d.tiles, k, strat)
+      percentile(Enum.sort(Enum.map(sel, & &1.score)), 0.10) - @crop_macro_offset
+    end
+  end
+
+  defp compute_partf_qdata(base, full_ref, bytes) do
+    {:ok, cand} = Image.from_binary(bytes)
+    {full_us, {:ok, full_score}} = timed(fn -> Ssim2Metric.score(full_ref, cand) end)
+    coords = tile_coords(Image.width(base), Image.height(base), @tile)
+
+    {tiles, ssim_us, source_us, diff_us} =
+      Enum.reduce(coords, {[], 0, 0, 0}, fn {x, y, w, h}, {acc, su, so_us, di_us} ->
+        {:ok, bt} = Operation.extract_area(base, x, y, w, h)
+        {:ok, ct} = Operation.extract_area(cand, x, y, w, h)
+
+        {so, source_detail} = timed(fn -> tile_texture(bt) end)
+        {di, {diff, diff_detail}} = timed(fn -> diff_signals(bt, ct) end)
+
+        {ss, score} =
+          timed(fn ->
+            {:ok, ref} = Ssim2Metric.reference(bt)
+            {:ok, s} = Ssim2Metric.score(ref, ct)
+            s
+          end)
+
+        tile = %{
+          x: x,
+          y: y,
+          w: w,
+          h: h,
+          score: score,
+          source_detail: source_detail,
+          diff: diff,
+          diff_detail: diff_detail
+        }
+
+        {[tile | acc], su + ss, so_us + so, di_us + di}
+      end)
+
+    n = length(coords)
+
+    %{
+      full_score: full_score,
+      full_us: full_us,
+      tiles: Enum.reverse(tiles),
+      per_tile_us: if(n > 0, do: div(ssim_us, n), else: 0),
+      source_map_us: source_us,
+      diff_map_us: diff_us
+    }
+  end
+
+  # Candidate-dependent signals for a tile pair: mean |source − candidate| and the
+  # high-pass energy of that difference (structured artifacts: ringing, blocking).
+  defp diff_signals(bt, ct) do
+    {:ok, bf} = Operation.cast(bt, :VIPS_FORMAT_FLOAT)
+    {:ok, cf} = Operation.cast(ct, :VIPS_FORMAT_FLOAT)
+    {:ok, dimg} = Operation.subtract(bf, cf)
+    {:ok, dabs} = Operation.abs(dimg)
+    {:ok, diff} = Operation.avg(dabs)
+
+    {:ok, blur} = Operation.gaussblur(dabs, 3.0)
+    {:ok, hp} = Operation.subtract(dabs, blur)
+    {:ok, sq} = Operation.multiply(hp, hp)
+    {:ok, ms} = Operation.avg(sq)
+
+    {diff, :math.sqrt(max(0.0, ms))}
+  end
+
+  defp findings_part_f([]),
+    do: IO.puts("Part F — saliency tile selection: no subjects processed\n")
+
+  defp findings_part_f(rows) do
+    hits = Enum.filter(rows, & &1.base_hit?)
+
+    IO.puts("Part F — saliency tile selection vs the full-frame confirm:")
+
+    IO.puts(
+      "  (over #{length(Enum.uniq_by(hits, &{&1.source, &1.label}))} images the baseline+confirm path hit target; " <>
+        "deliv_err/|samp|/|sys| are macro-medians, worst_under is the global tail)\n"
+    )
+
+    Enum.each(@partf_ks, fn k -> report_partf_k(hits, k) end)
+
+    base_full = hits |> Enum.map(& &1.full_us) |> avg() |> ms()
+    base_passes = hits |> Enum.map(& &1.base_confirm_passes) |> avg() |> Float.round(1)
+    diff_overhead = hits |> Enum.map(& &1.diff_map_us) |> avg() |> ms()
+
+    IO.puts(
+      "  cost context: 1 full-frame confirm ≈ #{base_full} ms (baseline runs ~#{base_passes} confirm passes);"
+    )
+
+    IO.puts(
+      "    skipping it is the prize. candidate-dependent diff-map overhead ≈ #{diff_overhead} ms/probe " <>
+        "(diff_aware only; source-only selectors add ~0 per-probe).\n"
+    )
+
+    IO.puts(
+      "  read: a selector retires the confirm only if its worst_under stays inside the best-effort"
+    )
+
+    IO.puts(
+      "  band AND |sys| (which selection can't fix) is small; if |sys| dominates |samp|, no selector helps.\n"
+    )
+  end
+
+  defp report_partf_k(hits, k) do
+    IO.puts("  K=#{k}")
+
+    header =
+      "    " <>
+        pad(["strategy", 16]) <>
+        pad(["deliv_err", 11]) <>
+        pad(["worst_under", 13]) <>
+        pad(["|samp|", 8]) <>
+        pad(["|sys|", 8]) <>
+        pad(["regress", 9]) <>
+        pad(["Ktile_ms", 9])
+
+    IO.puts(header)
+
+    Enum.each(@partf_strategies, fn strat ->
+      rs = Enum.filter(hits, &(&1.strategy == strat and &1.k == k))
+      print_partf_strategy_row(strat, rs)
+    end)
+  end
+
+  defp print_partf_strategy_row(strat, []), do: IO.puts("    #{pad([strat, 16])}(no data)")
+
+  defp print_partf_strategy_row(strat, rs) do
+    by_source = Enum.group_by(rs, & &1.source)
+    deliv_med = macro_median(by_source, & &1.deliv_err)
+    samp_med = macro_median(by_source, &abs(&1.sampling_err))
+    sys_med = macro_median(by_source, &abs(&1.systematic_err))
+    worst_under = rs |> Enum.map(& &1.deliv_err) |> Enum.min()
+    regress = Enum.count(rs, & &1.regress?)
+    ktile_ms = rs |> Enum.map(& &1.ktile_us) |> avg() |> ms()
+
+    IO.puts(
+      "    " <>
+        pad([strat, 16]) <>
+        pad([Float.round(deliv_med, 2), 11]) <>
+        pad([Float.round(worst_under, 2), 13]) <>
+        pad([Float.round(samp_med, 2), 8]) <>
+        pad([Float.round(sys_med, 2), 8]) <>
+        pad(["#{regress}/#{length(rs)}", 9]) <>
+        pad([ktile_ms, 9])
+    )
+  end
+
+  # Macro-median: median within each source, then the mean of those — so no single
+  # content type dominates (matches Part E's macro convention).
+  defp macro_median(by_source, fun) do
+    by_source
+    |> Enum.map(fn {_src, rs} -> median(Enum.map(rs, fun)) end)
+    |> avg()
+  end
+
+  defp findings_part_f_agg([]), do: :ok
+
+  defp findings_part_f_agg(rows) do
+    IO.puts(
+      "\n  Aggregation tracking — can a CROP aggregate stand in for the full-frame confirm?"
+    )
+
+    IO.puts(
+      "  residual = aggregate(tiles) − full_frame_score, over #{length(rows)} images @ delivered q."
+    )
+
+    IO.puts(
+      "  offset = median residual (a global calibration constant); worst± = max |residual − offset|"
+    )
+
+    IO.puts(
+      "  (the irreducible per-image error a confirm/bump must absorb — smaller ⇒ better stand-in).\n"
+    )
+
+    IO.puts(
+      "    " <>
+        pad(["aggregate", 11]) <> pad(["offset", 9]) <> pad(["worst±", 9]) <> pad(["spread", 18])
+    )
+
+    Enum.each(@partf_aggs, fn {label, key} -> print_partf_agg_row(label, key, rows) end)
+
+    {best_label, best_key} =
+      Enum.min_by(@partf_aggs, fn {_label, key} -> partf_agg_worst(rows, key) end)
+
+    best_worst = partf_agg_worst(rows, best_key)
+
+    IO.puts(
+      "\n  -> best aggregate: #{String.trim(best_label)} (worst±#{Float.round(best_worst, 2)}). " <>
+        partf_agg_verdict(best_worst)
+    )
+  end
+
+  # A crop aggregate can stand in for the full-frame confirm only if even its
+  # worst-case post-calibration error fits the boundary tolerance the confirm
+  # exists to defend (Part E's ±~1.5-pt tracking claim).
+  @partf_confirm_band 1.5
+
+  defp print_partf_agg_row(label, key, rows) do
+    rs = Enum.map(rows, &Map.fetch!(&1, key))
+    off = median(rs)
+    worst = rs |> Enum.map(&abs(&1 - off)) |> Enum.max()
+
+    IO.puts(
+      "    " <>
+        pad([label, 11]) <>
+        pad([Float.round(off, 2), 9]) <>
+        pad([Float.round(worst, 2), 9]) <>
+        pad([spread_note(rs), 18])
+    )
+  end
+
+  defp partf_agg_worst(rows, key) do
+    rs = Enum.map(rows, &Map.fetch!(&1, key))
+    off = median(rs)
+    rs |> Enum.map(&abs(&1 - off)) |> Enum.max()
+  end
+
+  defp partf_agg_verdict(best_worst) when best_worst <= @partf_confirm_band,
+    do:
+      "fits the ±#{@partf_confirm_band} best-effort band — a crop confirm on this aggregate " <>
+        "is worth prototyping."
+
+  defp partf_agg_verdict(best_worst),
+    do:
+      "still ≫ the ±#{@partf_confirm_band} best-effort band (off by ~#{Float.round(best_worst, 1)} " <>
+        "on the worst image) — every aggregate shares the same content-dependent systematic tail, " <>
+        "so aggregation is NOT the lever; per-content offset calibration is."
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -1278,13 +1792,18 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   # --- findings --------------------------------------------------------------
 
-  defp print_findings(a_rows, b_rows, c_rows, e_rows, format) do
+  defp print_findings(a_rows, b_rows, c_rows, e_rows, f_rows, format) do
     IO.puts("\n== Findings ==\n")
 
     if a_rows, do: findings_part_a(a_rows)
     if b_rows, do: findings_part_b(b_rows)
     if c_rows, do: findings_part_c(c_rows)
     if e_rows, do: findings_part_e(e_rows)
+
+    if f_rows do
+      findings_part_f(f_rows.variants)
+      findings_part_f_agg(f_rows.agg)
+    end
 
     IO.puts("\n(format: #{format}; numbers vary with CPU + libvips build — re-run locally)")
   end
@@ -1461,6 +1980,46 @@ defmodule Mix.Tasks.Autoquality.Bench do
         "#{r.source},#{r.mp},#{r.k},#{r.proxy_mp},#{r.q_full},#{r.q_proxy},#{r.dq}," <>
           "#{fmt_score(r.full_score)},#{fmt_score(r.delivered_score)},#{Float.round(r.delta_target, 2)}," <>
           "#{r.hit?},#{r.bytes_full},#{r.bytes_proxy},#{r.full_us},#{r.proxy_total_us},#{r.speedup}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
+  defp write_part_f_csv(rows) do
+    path = "/tmp/autoquality_bench_part_f.csv"
+
+    head =
+      "source,label,mp,strategy,k,base_q,base_deliv,base_hit,base_confirm_passes," <>
+        "q_sel,deliv,deliv_err,regress,sampling_err,systematic_err,n_tiles,ktile_us,full_us,diff_map_us\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.mp},#{r.strategy},#{r.k},#{r.base_q}," <>
+          "#{fmt_score(r.base_deliv)},#{r.base_hit?},#{r.base_confirm_passes}," <>
+          "#{r.q_sel},#{fmt_score(r.deliv)},#{Float.round(r.deliv_err, 3)},#{r.regress?}," <>
+          "#{Float.round(r.sampling_err, 3)},#{Float.round(r.systematic_err, 3)}," <>
+          "#{r.n_tiles},#{r.ktile_us},#{r.full_us},#{r.diff_map_us}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
+  defp write_part_f_agg_csv(rows) do
+    path = "/tmp/autoquality_bench_part_f_agg.csv"
+
+    head =
+      "source,label,mp,full_score,p10_k16,p25_k16,med_k16,mean_k16," <>
+        "p10_full,p25_full,med_full,mean_full\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.mp},#{fmt_score(r.full_score)}," <>
+          "#{Float.round(r.p10_k16, 3)},#{Float.round(r.p25_k16, 3)}," <>
+          "#{Float.round(r.med_k16, 3)},#{Float.round(r.mean_k16, 3)}," <>
+          "#{Float.round(r.p10_full, 3)},#{Float.round(r.p25_full, 3)}," <>
+          "#{Float.round(r.med_full, 3)},#{Float.round(r.mean_full, 3)}\n"
       end)
 
     File.write!(path, head <> body)
