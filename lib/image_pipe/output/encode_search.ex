@@ -182,8 +182,14 @@ defmodule ImagePipe.Output.EncodeSearch do
           {:ok, binary(), meta()} | {:error, term()}
   def run(finalized_image, %Resolved{} = resolved, opts) do
     encode_fun = fn quality -> Encoder.encode_to_buffer(finalized_image, resolved, quality) end
-    max_iterations = Keyword.get(opts, :max_iterations, @default_max_iterations)
     scorer = Keyword.get(opts, :scorer, :full)
+
+    # The confirm/bump phase does up to @default_max_bump_passes + 1 MANDATORY
+    # encodes (1 confirm + the bump steps). Give crop mode that much headroom over
+    # the objective-search cap so confirm/bump never starve the objective search or
+    # the max_bytes cap-descent of their probe budget.
+    max_iterations =
+      Keyword.get(opts, :max_iterations, @default_max_iterations) + bump_headroom(scorer)
 
     with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer) do
       base_quality = base_quality(resolved)
@@ -585,11 +591,19 @@ defmodule ImagePipe.Output.EncodeSearch do
   defp ensure_winner_scored(_final_q, _binary, ctx), do: ctx
 
   # Prefer the authoritative confirm score (crop mode); fall back to score_memo
-  # (full-frame mode); nil when neither memo holds the q (:size / :none).
-  defp result_score(final_q, ctx),
-    do: Map.get(ctx.confirm_memo, final_q) || Map.get(ctx.score_memo, final_q)
+  # (full-frame mode); nil when neither memo holds the q (:size / :none). A `case`
+  # (not `||`) so a genuine score of 0.0 in confirm_memo is not treated as falsy.
+  defp result_score(final_q, ctx) do
+    case ctx.confirm_memo do
+      %{^final_q => score} -> score
+      _ -> Map.get(ctx.score_memo, final_q)
+    end
+  end
 
   # --- run/3 helpers --------------------------------------------------------
+
+  defp bump_headroom(:crop), do: @default_max_bump_passes + 1
+  defp bump_headroom(:full), do: 0
 
   # Build the objective score_fun (+ confirm closures for crop mode) for the
   # resolved objective and the chosen scorer. Returns extra search/3 opts.

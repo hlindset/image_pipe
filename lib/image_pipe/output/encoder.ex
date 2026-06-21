@@ -80,13 +80,19 @@ defmodule ImagePipe.Output.Encoder do
 
     cond do
       EncodeSearch.skip?(%{max_resolution: max_resolution}, megapixels) -> :skip
-      megapixels > CropScore.crossover_megapixels() -> :crop
+      crop?(quality_search, megapixels) -> :crop
       true -> :full
     end
   end
 
   defp max_resolution_of(%{max_resolution: mr}), do: mr
   defp max_resolution_of(:none), do: 0
+
+  # Crop scoring only applies to the perceptual :ssim2 objective (it tiles the
+  # SSIMULACRA2 metric). A :size or max_bytes-alone search above the crossover does
+  # no metric scoring, so it stays :full and is not mislabeled :crop in telemetry.
+  defp crop?(%{objective: :ssim2}, megapixels), do: megapixels > CropScore.crossover_megapixels()
+  defp crop?(_quality_search, _megapixels), do: false
 
   # The search owns building the encode/score closures, the iteration cap, and
   # the objective/cap/confirm phases; we only hand it the finalized image and the
