@@ -576,13 +576,16 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # Crop mode (confirm_fun present): the authoritative score lives in confirm_memo;
   # a cap-relocated winner may not be there yet — confirm-score it so meta.score is
-  # the true full-frame score, never the crop estimate in score_memo.
+  # the true full-frame score, never the crop estimate in score_memo. `final_q` is
+  # always already in encode_memo (build_result Map.fetch!es it first), so
+  # confirm_score's ensure_probed never re-encodes/errors here, and a score-computation
+  # failure throws {:image_pipe_score_error, _} (caught by run/3) rather than returning
+  # an error tuple. Assert success rather than swallow an impossible error into a silent
+  # estimate fallback.
   defp ensure_winner_scored(final_q, _binary, %Ctx{confirm_fun: fun} = ctx)
        when not is_nil(fun) do
-    case confirm_score(final_q, ctx) do
-      {:ok, ctx} -> ctx
-      {:error, _} -> ctx
-    end
+    {:ok, ctx} = confirm_score(final_q, ctx)
+    ctx
   end
 
   # Full-frame scoring mode (score_fun present, no confirm): score a cap-relocated

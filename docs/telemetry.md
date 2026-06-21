@@ -295,11 +295,11 @@ result `meta`):
   only; up to 3 with the bump cap). `0` on the full-frame path.
 
 The default Logger escalates an `outcome: :best_effort` stop (and an exception) to
-`:warning`; other outcomes log at the base level. It renders the stop as (the
-scorer prefix appears when present):
+`:warning`; other outcomes log at the base level. It renders the stop with the
+scorer token (`full`/`crop`):
 
 ```text
-image_pipe encode search: ok (hit q62 12345b score 90.42)
+image_pipe encode search: ok (full hit q62 12345b score 90.42)
 image_pipe encode search: ok (crop hit q72 12345b score 90.42)
 ```
 

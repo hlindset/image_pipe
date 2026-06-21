@@ -78,13 +78,14 @@ defmodule ImagePipe.Telemetry.LoggerTest do
             chosen_bytes: 12_345,
             iterations: 4,
             outcome: :hit,
-            final_score: 90.42
+            final_score: 90.42,
+            scorer: :full
           }
         )
       end)
 
     refute log =~ "[warning]"
-    assert log =~ "encode search: ok (hit q62 12345b score 90.42)"
+    assert log =~ "encode search: ok (full hit q62 12345b score 90.42)"
   end
 
   test "renders the crop scorer in the encode-search stop line" do

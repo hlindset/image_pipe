@@ -54,15 +54,19 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
     |> Enum.sort()
   end
 
-  @doc "Return `k` evenly-spaced items spanning both endpoints; all of them when `length <= k`."
-  @spec subsample([a], pos_integer()) :: [a] when a: term()
+  @doc """
+  Return `k` evenly-spaced items spanning both endpoints; all of them when
+  `length <= k`, or the leading `k` when `k <= 1` (a single sample can't span both
+  ends, and `k = 1` would divide by `k - 1`).
+  """
+  @spec subsample([a], non_neg_integer()) :: [a] when a: term()
   def subsample(items, k \\ @subsample_k) do
     n = length(items)
 
-    if n <= k do
-      items
-    else
-      Enum.map(0..(k - 1), &Enum.at(items, div(&1 * (n - 1), k - 1)))
+    cond do
+      n <= k -> items
+      k <= 1 -> Enum.take(items, k)
+      true -> Enum.map(0..(k - 1), &Enum.at(items, div(&1 * (n - 1), k - 1)))
     end
   end
 
