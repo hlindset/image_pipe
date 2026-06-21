@@ -41,10 +41,15 @@ defmodule ImagePipe.Output.EncodeSearch do
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 
-  # Crop-scoring p10→full-frame correction (benchmark Part E). Subtracted from the
-  # tile p10 so the unchanged objective predicate (score >= target-allowed_error)
-  # reproduces the full-frame decision. CALIBRATED in #354 on `clic`, validated on
-  # `clic_holdout`; Part E median was +0.22.
+  # Crop-scoring p10→full-frame correction (offset = tile_p10 − full_frame_score).
+  # Subtracted from the tile p10 so the unchanged objective predicate
+  # (score >= target-allowed_error) reproduces the full-frame decision. Calibrated
+  # for #354 on the codec-corpus (`mix autoquality.bench --part e`): the `clic` split
+  # gives +0.29 and the held-out `clic_holdout` split −0.03 — their disagreement
+  # shows a photo-only constant would overfit, so we use the content-diverse
+  # macro-average (+0.22) across photographic/screen/large/web content. The
+  # confirm/bump phase absorbs the per-image residual (spread ~±2–4 q). See
+  # `docs/autoquality_benchmark.md` (Part E).
   @crop_macro_offset 0.22
 
   @type outcome :: :hit | :best_effort | :skipped
