@@ -109,6 +109,57 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span, %Span{name: "image_pipe.render"} = span}
     assert span.status == :ok
     assert span.attributes[:renderer] == ImagePipe.Telemetry.Trace.CaptureTest
+    assert span.attributes[:content_type] == "application/json"
+  end
+
+  test "merges allowlisted stop-metadata attributes onto the span, preserving start attrs" do
+    Telemetry.span(
+      [],
+      [:encode, :search],
+      %{objective: :ssim2, max_bytes: 200_000},
+      fn ->
+        {:ok,
+         %{
+           result: :ok,
+           chosen_quality: 62,
+           chosen_bytes: 12_345,
+           final_score: 90.42,
+           scorer: :crop,
+           outcome: :hit
+         }}
+      end
+    )
+
+    assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
+    # start attributes preserved
+    assert span.attributes[:objective] == :ssim2
+    assert span.attributes[:max_bytes] == 200_000
+    # stop attributes (the per-result verdict) now captured
+    assert span.attributes[:chosen_quality] == 62
+    assert span.attributes[:chosen_bytes] == 12_345
+    assert span.attributes[:final_score] == 90.42
+    assert span.attributes[:scorer] == :crop
+    assert span.attributes[:outcome] == :hit
+  end
+
+  test "captures HTTP status and the classified error tag from stop metadata" do
+    Telemetry.span([], [:request], %{}, fn ->
+      {:ok, %{result: :source_error, status: 422, error: :body_too_large}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.request"} = span}
+    assert span.status == :error
+    assert span.attributes[:status] == 422
+    assert span.attributes[:error] == :body_too_large
+  end
+
+  test "drops non-allowlisted stop-metadata keys" do
+    Telemetry.span([], [:request], %{}, fn ->
+      {:ok, %{result: :ok, source_url: "https://secret.example/signed?sig=abc"}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.request"} = span}
+    refute Map.has_key?(span.attributes, :source_url)
   end
 
   test "captures the input color management span" do
