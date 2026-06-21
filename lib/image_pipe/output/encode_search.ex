@@ -33,12 +33,19 @@ defmodule ImagePipe.Output.EncodeSearch do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric
+  alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Telemetry
 
   @default_max_iterations 6
   @default_max_bump_passes 2
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
+
+  # Crop-scoring p10→full-frame correction (benchmark Part E). Subtracted from the
+  # tile p10 so the unchanged objective predicate (score >= target-allowed_error)
+  # reproduces the full-frame decision. CALIBRATED in #354 on `clic`, validated on
+  # `clic_holdout`; Part E median was +0.22.
+  @crop_macro_offset 0.22
 
   @type outcome :: :hit | :best_effort | :skipped
 
@@ -176,17 +183,22 @@ defmodule ImagePipe.Output.EncodeSearch do
   def run(finalized_image, %Resolved{} = resolved, opts) do
     encode_fun = fn quality -> Encoder.encode_to_buffer(finalized_image, resolved, quality) end
     max_iterations = Keyword.get(opts, :max_iterations, @default_max_iterations)
+    scorer = Keyword.get(opts, :scorer, :full)
 
-    with {:ok, score_fun} <- build_score_fun(finalized_image, resolved.quality_search) do
+    with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer) do
       base_quality = base_quality(resolved)
 
       try do
-        search(resolved.quality_search, resolved.max_bytes,
-          encode_fun: encode_fun,
-          score_fun: score_fun,
-          base_quality: base_quality,
-          max_iterations: max_iterations,
-          telemetry_opts: Keyword.get(opts, :telemetry_opts, [])
+        search(
+          resolved.quality_search,
+          resolved.max_bytes,
+          [
+            encode_fun: encode_fun,
+            base_quality: base_quality,
+            max_iterations: max_iterations,
+            scorer: scorer,
+            telemetry_opts: Keyword.get(opts, :telemetry_opts, [])
+          ] ++ search_opts
         )
       catch
         {:image_pipe_score_error, reason} -> {:error, {:encode, reason}}
@@ -579,13 +591,38 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # --- run/3 helpers --------------------------------------------------------
 
-  defp build_score_fun(_image, :none), do: {:ok, nil}
+  # Build the objective score_fun (+ confirm closures for crop mode) for the
+  # resolved objective and the chosen scorer. Returns extra search/3 opts.
+  defp score_opts(_image, %Resolved{quality_search: :none}, _scorer), do: {:ok, []}
+  defp score_opts(_image, %Resolved{quality_search: %RQS{objective: :size}}, _scorer), do: {:ok, []}
 
-  defp build_score_fun(_image, %RQS{objective: :size}), do: {:ok, nil}
+  # Full-frame mode: one whole-frame reference; candidate scored whole. (No `= rqs`
+  # binding — the bracket/target is consumed by the search, not here — so there is
+  # no unused-variable warning under --warnings-as-errors.)
+  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2}}, :full) do
+    with {:ok, ref} <- Ssim2Metric.reference(image) do
+      {:ok, [score_fun: fn bytes -> full_frame_score(ref, bytes) end]}
+    else
+      {:error, reason} -> {:error, {:encode, reason}}
+    end
+  end
 
-  defp build_score_fun(image, %RQS{objective: :ssim2}) do
-    case Ssim2Metric.reference(image) do
-      {:ok, ref} -> {:ok, fn bytes -> ssim2_score(ref, bytes) end}
+  # Crop mode: crop score_fun (estimate) + full-frame confirm closure + the
+  # deterministic tile count for telemetry.
+  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop) do
+    with {:ok, ref} <- Ssim2Metric.reference(image) do
+      confirm = fn bytes -> full_frame_score(ref, bytes) end
+      crop = fn bytes -> crop_estimate(image, bytes) end
+
+      {:ok,
+       [
+         score_fun: crop,
+         confirm_fun: confirm,
+         confirm_band: rqs.target - rqs.allowed_error,
+         confirm_max_quality: rqs.max_quality,
+         scorer_tiles: CropScore.tile_count(Image.width(image), Image.height(image))
+       ]}
+    else
       {:error, reason} -> {:error, {:encode, reason}}
     end
   end
@@ -594,10 +631,23 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Ssim2Metric.score can fail. We surface such failures by throwing a tagged
   # tuple that run/3 catches around the search/3 call, mapping it to
   # {:error, {:encode, reason}}.
-  defp ssim2_score(ref, bytes) do
+
+  # Decode the candidate once and score the whole frame against the reference.
+  defp full_frame_score(ref, bytes) do
     with {:ok, candidate} <- Image.from_binary(bytes),
          {:ok, score} <- Ssim2Metric.score(ref, candidate) do
       score
+    else
+      {:error, reason} -> throw({:image_pipe_score_error, reason})
+    end
+  end
+
+  # Decode the candidate once; crop-score its tiles vs the base; subtract the macro
+  # offset so the unchanged objective predicate reproduces the full-frame decision.
+  defp crop_estimate(base, bytes) do
+    with {:ok, candidate} <- Image.from_binary(bytes),
+         {:ok, p10} <- CropScore.p10(base, candidate) do
+      p10 - @crop_macro_offset
     else
       {:error, reason} -> throw({:image_pipe_score_error, reason})
     end
