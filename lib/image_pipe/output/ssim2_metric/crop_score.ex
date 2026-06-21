@@ -8,7 +8,7 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
 
   This module does tiling + `extract_area` only; **all** SSIMULACRA2 access is
   delegated to the parent `ImagePipe.Output.Ssim2Metric`, which stays the only
-  module touching `Ssimulacra2.*`.
+  module touching the SSIMULACRA2 NIF.
   """
 
   alias ImagePipe.Output.Ssim2Metric
