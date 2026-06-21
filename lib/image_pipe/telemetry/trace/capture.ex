@@ -11,6 +11,13 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:send],
     [:encode],
     [:encode, :search],
+    [:encode, :search, :probe],
+    # Per-probe cost legs (eager NIF/op calls → honest durations). The encode leg
+    # is method-neutral (fires for every objective); the scoring legs carry the
+    # metric-method segment (:ssim2) so a future metric gets distinct span names.
+    [:encode, :search, :probe, :encode],
+    [:encode, :search, :probe, :ssim2, :decode],
+    [:encode, :search, :probe, :ssim2, :metric],
     [:render],
     [:deliver],
     [:source, :resolve],
@@ -31,7 +38,6 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
   # One-shot (terminal) events — folded as annotations onto the current span.
   @oneshot_stages [
-    [:encode, :search, :probe],
     [:cache, :stage],
     [:cache, :eviction, :stop],
     [:cache, :flush, :stop],
@@ -98,6 +104,13 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :iterations,
     :tiles_scored,
     :confirm_passes,
+    # per-probe span attributes: phase, the search-level limiting factor, and the
+    # crop→full confirm residual (all product-neutral numbers/atoms)
+    :phase,
+    :limiting_factor,
+    :crop_estimate,
+    :full_frame_score,
+    :passed?,
     # fetch/decode shape
     :load_option,
     :loaded_dims,

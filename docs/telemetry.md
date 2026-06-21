@@ -293,6 +293,11 @@ result `meta`):
   absent on the full-frame path.
 - `:confirm_passes` — full-frame confirm/bump passes on the crop path (1 = confirm
   only; up to 3 with the bump cap). `0` on the full-frame path.
+- `:limiting_factor` — why a `:best_effort` result fell short, absent on a `:hit`:
+  `:ceiling`/`:floor` (the objective never cleared its band/target and pinned to
+  the bracket ceiling/floor), `:max_bytes` (the hard budget could not be met even
+  at the floor), or `:bump_exhausted` (the crop confirm undershot through every
+  bump pass).
 
 The default Logger escalates an `outcome: :best_effort` stop (and an exception) to
 `:warning`; other outcomes log at the base level. It renders the stop with the
@@ -305,20 +310,71 @@ image_pipe encode search: ok (crop hit q72 12345b score 90.42)
 
 ### Encode-quality search probe (`[:encode, :search, :probe]`)
 
-Each distinct encode the search performs emits a one-shot (non-span)
-`[:image_pipe, :encode, :search, :probe]` event with empty measurements. Re-using
-an already-memoized quality does **not** emit a probe.
+Each unit of probe work the search performs is a `[:image_pipe, :encode, :search,
+:probe]` **span**, nested under `[:encode, :search]`. A probe span is created for
+every NEW distinct encode (objective/cap search and the floor/ceiling fallbacks)
+and every NEW authoritative confirm score (the crop path's confirm/bump). Re-using
+an already-memoized quality (or confirm score) emits **nothing**. The span
+duration is the total probe time; its child legs (below) give the cost split.
 
-Metadata:
+Start metadata:
 
 - `:quality` — the probed quality.
-- `:bytes` — the encoded byte size at that quality.
-- `:index` — the distinct-encode ordinal (1-based).
-- `:score` — the SSIMULACRA2 score at that quality for an `:ssim2` search,
-  otherwise absent.
+- `:phase` — `:objective` (the objective binary search), `:cap` (the `max_bytes`
+  cap descent), `:confirm` (the first crop→full re-validation), or `:bump` (a
+  linear bump pass after a confirm undershoot).
 
-All values are product-neutral numbers (no URLs, secrets, or PII). The default
-Logger renders the probe at the base level via the generic fallback.
+Stop metadata:
+
+- `:bytes` — the encoded byte size at that quality.
+- `:index` — the distinct-encode ordinal (1-based). A confirm probe whose encode
+  was a memo hit carries the same `:index` as the objective probe that produced
+  the buffer, tying the estimate and confirm legs of one buffer together.
+- `:score` — the score this phase computed: the (offset-corrected) crop estimate
+  on an objective probe in crop mode, the authoritative full-frame score on a
+  confirm/bump probe, the whole-frame score on a full-frame objective probe;
+  absent for a `:size`/`:none` search.
+- `:scorer` — `:full` or `:crop` (the configured scorer).
+- `:tiles_scored` — tiles scored on the crop path; absent on the full-frame path.
+
+Confirm/bump probes additionally carry the crop→full residual — the real-world
+accuracy of the internal crop-correction offset, a shadow signal for any future
+per-content offset calibration:
+
+- `:crop_estimate` — the offset-corrected crop estimate for the same buffer.
+- `:full_frame_score` — the authoritative whole-frame score (equals `:score`).
+- `:passed?` — whether `:full_frame_score` cleared the confirm band.
+
+#### Per-probe cost legs
+
+Each probe span nests child spans splitting the probe's cost. These are eager
+NIF/op calls, so their durations are honest compute timing (unlike the
+libvips-lazy per-operation transform spans):
+
+- `[:encode, :search, :probe, :encode]` — the codec encode
+  (`ImagePipe.Output.Encoder.encode_to_buffer`). Method-neutral: it fires for
+  every objective (`:size`/`:ssim2`/`:none`), so it carries no metric-method
+  segment. Stop metadata: `:bytes`. Absent on a confirm probe whose encode was a
+  memo hit.
+- `[:encode, :search, :probe, :ssim2, :decode]` — the candidate decode
+  (`Image.from_binary`). Stop metadata: `:bytes` (the input buffer size).
+- `[:encode, :search, :probe, :ssim2, :metric]` — one aggregate SSIMULACRA2 score
+  (whole-frame, or K crop tiles). Stop metadata: `:score`, and `:tiles_scored` on
+  the crop-estimate path (absent on the whole-frame confirm). No per-tile span is
+  emitted — that detail lives in `mix autoquality.bench`.
+
+The scoring legs carry the metric-method segment (`:ssim2`) so a future metric
+(e.g. `dssim`) gets distinct span names a backend can group by.
+
+All values are product-neutral numbers/atoms (no URLs, secrets, or PII).
+
+**Logger vs. OTel asymmetry.** The default Logger renders the **probe span**
+(`image_pipe encode search probe: …`, base level; an exception escalates to
+`:warning`) but deliberately does **not** subscribe to the cost legs — ~15–27 leg
+lines per request would drown the human log. The legs are traced by the OTel
+exporter only (`ImagePipe.Telemetry.Trace.Capture`), where per-probe cost detail
+belongs. This is the one intentional place the Logger and the tracer cover
+different event sets.
 
 ### Delivery streaming span (`[:deliver]`)
 
@@ -654,6 +710,7 @@ defmodule MyApp.ImagePipeTelemetry do
     [:transform, :materialize],
     [:encode],
     [:encode, :search],
+    [:encode, :search, :probe],
     [:render],
     [:cache, :stage],
     [:cache, :write],

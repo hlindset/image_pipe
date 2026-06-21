@@ -54,6 +54,13 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   @type outcome :: :hit | :best_effort | :skipped
 
+  # Why a `:best_effort` result fell short of the objective/budget. `nil` on a
+  # `:hit`. `:ceiling`/`:floor` — the objective never cleared its band/target and
+  # pinned to the bracket ceiling/floor; `:max_bytes` — the hard budget could not
+  # be met even at the floor; `:bump_exhausted` — the crop confirm undershot
+  # through every bump pass.
+  @type limiting_factor :: :ceiling | :floor | :max_bytes | :bump_exhausted
+
   @type meta :: %{
           quality: 1..100,
           bytes: non_neg_integer(),
@@ -62,7 +69,8 @@ defmodule ImagePipe.Output.EncodeSearch do
           score: float() | nil,
           confirm_passes: non_neg_integer(),
           scorer: :full | :crop,
-          tiles_scored: pos_integer() | nil
+          tiles_scored: pos_integer() | nil,
+          limiting_factor: limiting_factor() | nil
         }
 
   # Mutable-ish search context threaded through the loop as an immutable struct.
@@ -83,6 +91,8 @@ defmodule ImagePipe.Output.EncodeSearch do
               confirm_passes: 0,
               iterations: 0,
               max_iterations: 0,
+              phase: nil,
+              limiting_factor: nil,
               telemetry_opts: []
   end
 
@@ -121,7 +131,7 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp do_search(quality_search, max_bytes, ctx, opts) do
     with {:ok, objective_q, objective_outcome, _objective_score, ctx} <-
-           objective_phase(quality_search, ctx, opts),
+           objective_phase(quality_search, %{ctx | phase: :objective}, opts),
          {:ok, confirmed_q, confirmed_outcome, ctx} <-
            confirm_phase(objective_q, objective_outcome, ctx),
          {:ok, final_q, final_outcome, ctx} <-
@@ -168,7 +178,8 @@ defmodule ImagePipe.Output.EncodeSearch do
       final_score: meta.score,
       scorer: meta.scorer,
       tiles_scored: meta.tiles_scored,
-      confirm_passes: meta.confirm_passes
+      confirm_passes: meta.confirm_passes,
+      limiting_factor: meta.limiting_factor
     }
   end
 
@@ -186,7 +197,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   @spec run(Vix.Vips.Image.t(), Resolved.t(), keyword()) ::
           {:ok, binary(), meta()} | {:error, term()}
   def run(finalized_image, %Resolved{} = resolved, opts) do
-    encode_fun = fn quality -> Encoder.encode_to_buffer(finalized_image, resolved, quality) end
+    telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
+    encode_fun = fn quality -> encode_leg(finalized_image, resolved, quality, telemetry_opts) end
     scorer = Keyword.get(opts, :scorer, :full)
 
     # The confirm/bump phase does up to @default_max_bump_passes + 1 MANDATORY
@@ -196,7 +208,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     max_iterations =
       Keyword.get(opts, :max_iterations, @default_max_iterations) + bump_headroom(scorer)
 
-    with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer) do
+    with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer, telemetry_opts) do
       base_quality = base_quality(resolved)
 
       try do
@@ -208,7 +220,7 @@ defmodule ImagePipe.Output.EncodeSearch do
             base_quality: base_quality,
             max_iterations: max_iterations,
             scorer: scorer,
-            telemetry_opts: Keyword.get(opts, :telemetry_opts, [])
+            telemetry_opts: telemetry_opts
           ] ++ search_opts
         )
       catch
@@ -246,6 +258,7 @@ defmodule ImagePipe.Output.EncodeSearch do
       {best, outcome, ctx} ->
         # None fit → floor (min_quality), best-effort.
         chosen = best || rqs.min_quality
+        ctx = set_factor(ctx, if(best, do: nil, else: :floor))
         with {:ok, ctx} <- ensure_probed(chosen, ctx), do: {:ok, chosen, outcome, nil, ctx}
     end
   end
@@ -262,6 +275,7 @@ defmodule ImagePipe.Output.EncodeSearch do
       {best, outcome, ctx} ->
         # None clear → ceiling (max_quality), best-effort.
         chosen = best || rqs.max_quality
+        ctx = set_factor(ctx, if(best, do: nil, else: :ceiling))
 
         with {:ok, ctx} <- ensure_probed(chosen, ctx) do
           {:ok, chosen, outcome, Map.get(ctx.score_memo, chosen), ctx}
@@ -277,6 +291,7 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp cap_phase(quality_search, max_bytes, objective_q, objective_outcome, ctx) do
     floor = cap_floor(quality_search)
+    ctx = %{ctx | phase: :cap}
 
     with {:ok, ctx} <- ensure_probed(objective_q, ctx) do
       upper_bytes = byte_size(Map.fetch!(ctx.encode_memo, objective_q))
@@ -306,11 +321,13 @@ defmodule ImagePipe.Output.EncodeSearch do
         err
 
       {nil, _outcome, ctx} ->
+        ctx = set_factor(ctx, :max_bytes)
+
         with {:ok, ctx} <- ensure_probed(floor, ctx),
              do: {:ok, floor, :best_effort, ctx}
 
       {best, outcome, ctx} ->
-        {:ok, best, outcome, ctx}
+        {:ok, best, outcome, set_factor(ctx, nil)}
     end
   end
 
@@ -327,9 +344,9 @@ defmodule ImagePipe.Output.EncodeSearch do
   # The objective ran on an ESTIMATE; re-validate the winner against the
   # authoritative measure and linear-bump on undershoot (cap @max_bump_passes).
   defp confirm_phase(objective_q, _objective_outcome, ctx) do
-    with {:ok, ctx} <- confirm_score(objective_q, ctx) do
+    with {:ok, ctx} <- confirm_score(objective_q, :confirm, ctx) do
       if Map.fetch!(ctx.confirm_memo, objective_q) >= ctx.confirm_band do
-        {:ok, objective_q, :hit, ctx}
+        {:ok, objective_q, :hit, set_factor(ctx, nil)}
       else
         bump(objective_q, ctx)
       end
@@ -346,37 +363,56 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   defp do_bump(try_q, last_q, best_q, ctx) when try_q > last_q,
-    do: {:ok, best_q, :best_effort, ctx}
+    do: {:ok, best_q, :best_effort, set_factor(ctx, :bump_exhausted)}
 
   defp do_bump(try_q, last_q, _best_q, ctx) do
-    case confirm_score(try_q, ctx) do
+    case confirm_score(try_q, :bump, ctx) do
       {:error, _} = err ->
         err
 
       {:ok, ctx} ->
         if Map.fetch!(ctx.confirm_memo, try_q) >= ctx.confirm_band,
-          do: {:ok, try_q, :hit, ctx},
+          do: {:ok, try_q, :hit, set_factor(ctx, nil)},
           else: do_bump(try_q + 1, last_q, try_q, ctx)
     end
   end
 
-  # Ensure q is encoded, then authoritatively score it once (memoized), counting
-  # the pass. Encode is forced even past the iteration cap: the confirm MUST run.
-  defp confirm_score(q, ctx) do
-    with {:ok, ctx} <- ensure_probed(q, ctx) do
-      if Map.has_key?(ctx.confirm_memo, q) do
-        {:ok, ctx}
-      else
-        score = ctx.confirm_fun.(Map.fetch!(ctx.encode_memo, q))
-
-        {:ok,
-         %{
-           ctx
-           | confirm_memo: Map.put(ctx.confirm_memo, q, score),
-             confirm_passes: ctx.confirm_passes + 1
-         }}
-      end
+  # Authoritatively score q once (memoized), counting the pass, under a confirm
+  # probe span tagged with `phase` (:confirm | :bump). A confirm_memo hit emits
+  # nothing. The probe span owns the encode/score legs: the encode is forced even
+  # past the iteration cap (the confirm MUST run) and emits its `:encode` leg only
+  # when q was not already encoded.
+  defp confirm_score(q, phase, ctx) do
+    if Map.has_key?(ctx.confirm_memo, q) do
+      {:ok, ctx}
+    else
+      confirm_probe(q, phase, ctx)
     end
+  end
+
+  defp confirm_probe(q, phase, ctx) do
+    Telemetry.span(
+      ctx.telemetry_opts,
+      [:encode, :search, :probe],
+      %{quality: q, phase: phase},
+      fn ->
+        case ensure_encoded_raw(q, ctx) do
+          {:ok, ctx} ->
+            score = ctx.confirm_fun.(Map.fetch!(ctx.encode_memo, q))
+
+            ctx = %{
+              ctx
+              | confirm_memo: Map.put(ctx.confirm_memo, q, score),
+                confirm_passes: ctx.confirm_passes + 1
+            }
+
+            {{:ok, ctx}, confirm_probe_meta(q, ctx)}
+
+          {:error, reason} = err ->
+            {err, %{result: :processing_error, error: reason}}
+        end
+      end
+    )
   end
 
   # --- binary search primitives ---------------------------------------------
@@ -461,7 +497,9 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   # Ensure q is encoded (and scored when a score_fun is present), memoized.
-  # Returns {:ok, byte_size, score | nil, ctx} | :capped | {:error, _}.
+  # Returns {:ok, byte_size, score | nil, ctx} | :capped | {:error, _}. A NEW
+  # distinct encode runs under an objective/cap probe span (memo hits and the cap
+  # never reach it).
   defp materialize(q, ctx) do
     cond do
       Map.has_key?(ctx.encode_memo, q) ->
@@ -472,17 +510,9 @@ defmodule ImagePipe.Output.EncodeSearch do
         :capped
 
       true ->
-        case ctx.encode_fun.(q) do
-          {:ok, binary} ->
-            ctx = %{
-              ctx
-              | encode_memo: Map.put(ctx.encode_memo, q, binary),
-                iterations: ctx.iterations + 1
-            }
-
-            ctx = maybe_score(q, binary, ctx)
-            emit_probe(q, binary, ctx)
-            {:ok, byte_size(binary), Map.get(ctx.score_memo, q), ctx}
+        case encode_probe(q, ctx) do
+          {:ok, ctx} ->
+            {:ok, byte_size(Map.fetch!(ctx.encode_memo, q)), Map.get(ctx.score_memo, q), ctx}
 
           {:error, _} = err ->
             err
@@ -490,22 +520,56 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  # One probe event per NEW distinct encode (memo hits never reach here).
-  # `:index` is the distinct-encode ordinal (`iterations` after the increment);
-  # `:score` is the scored value when an ssim2 score_fun ran, else nil. All
-  # product-neutral numbers.
-  defp emit_probe(q, binary, %Ctx{telemetry_opts: telemetry_opts} = ctx) do
-    Telemetry.execute(
-      telemetry_opts,
+  # Encode a specific quality (e.g. the chosen boundary) without requiring the
+  # predicate, so its buffer/score is in the memo for the final result. Respects
+  # the cap only when a NEW encode is needed; if capped and already absent, we
+  # force the encode anyway because the result MUST carry a real buffer. A NEW
+  # encode runs under an objective/cap probe span (a memo hit emits nothing).
+  defp ensure_probed(q, ctx) do
+    if Map.has_key?(ctx.encode_memo, q), do: {:ok, ctx}, else: encode_probe(q, ctx)
+  end
+
+  # Encode (+ estimate-score) a NEW distinct q under a `[:encode, :search, :probe]`
+  # span tagged with the current phase (:objective | :cap). `:index` is the
+  # distinct-encode ordinal (`iterations` after the increment); `:score` is the
+  # estimate when a score_fun ran, else nil. All product-neutral numbers. The
+  # encode/decode/metric cost legs are emitted by the injected closures and nest
+  # under this span.
+  defp encode_probe(q, ctx) do
+    Telemetry.span(
+      ctx.telemetry_opts,
       [:encode, :search, :probe],
-      %{},
-      %{
-        quality: q,
-        bytes: byte_size(binary),
-        index: ctx.iterations,
-        score: Map.get(ctx.score_memo, q)
-      }
+      %{quality: q, phase: ctx.phase},
+      fn ->
+        case do_encode(q, ctx) do
+          {:ok, ctx} -> {{:ok, ctx}, objective_probe_meta(q, ctx)}
+          {:error, reason} = err -> {err, %{result: :processing_error, error: reason}}
+        end
+      end
     )
+  end
+
+  # Raw encode + memoize + estimate-score, WITHOUT a probe span: the caller owns
+  # the span (encode_probe for objective/cap, confirm_probe for confirm/bump), so
+  # a bump that encodes a never-seen q emits a single probe, not two.
+  defp do_encode(q, ctx) do
+    case ctx.encode_fun.(q) do
+      {:ok, binary} ->
+        ctx = %{
+          ctx
+          | encode_memo: Map.put(ctx.encode_memo, q, binary),
+            iterations: ctx.iterations + 1
+        }
+
+        {:ok, maybe_score(q, binary, ctx)}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp ensure_encoded_raw(q, ctx) do
+    if Map.has_key?(ctx.encode_memo, q), do: {:ok, ctx}, else: do_encode(q, ctx)
   end
 
   defp maybe_score(_q, _binary, %Ctx{score_fun: nil} = ctx), do: ctx
@@ -514,30 +578,39 @@ defmodule ImagePipe.Output.EncodeSearch do
     %{ctx | score_memo: Map.put(ctx.score_memo, q, score_fun.(binary))}
   end
 
-  # Encode a specific quality (e.g. the chosen boundary) without requiring the
-  # predicate, so its buffer/score is in the memo for the final result. Respects
-  # the cap only when a NEW encode is needed; if capped and already absent, we
-  # force the encode anyway because the result MUST carry a real buffer.
-  defp ensure_probed(q, ctx) do
-    case Map.has_key?(ctx.encode_memo, q) do
-      true ->
-        {:ok, ctx}
+  defp set_factor(ctx, factor), do: %{ctx | limiting_factor: factor}
 
-      false ->
-        case ctx.encode_fun.(q) do
-          {:ok, binary} ->
-            ctx = %{
-              ctx
-              | encode_memo: Map.put(ctx.encode_memo, q, binary),
-                iterations: ctx.iterations + 1
-            }
+  # Stop metadata for an objective/cap probe: the encode + (estimate) score it just
+  # produced. `:tiles_scored`/nil `:score` are stripped by the telemetry layer, so
+  # the full-frame and :size/:none paths carry only the fields they populate.
+  defp objective_probe_meta(q, ctx) do
+    %{
+      bytes: byte_size(Map.fetch!(ctx.encode_memo, q)),
+      index: ctx.iterations,
+      score: Map.get(ctx.score_memo, q),
+      scorer: ctx.scorer,
+      tiles_scored: ctx.scorer_tiles
+    }
+  end
 
-            {:ok, maybe_score(q, binary, ctx)}
+  # Stop metadata for a confirm/bump probe. `:score` is the authoritative
+  # full-frame score; `:crop_estimate` (the offset-corrected estimate) and
+  # `:full_frame_score` + `:passed?` expose the @crop_macro_offset residual — the
+  # real-world accuracy of the crop→full correction (shadow signal for a future
+  # per-content offset calibration).
+  defp confirm_probe_meta(q, ctx) do
+    full = Map.fetch!(ctx.confirm_memo, q)
 
-          {:error, _} = err ->
-            err
-        end
-    end
+    %{
+      bytes: byte_size(Map.fetch!(ctx.encode_memo, q)),
+      index: ctx.iterations,
+      score: full,
+      scorer: ctx.scorer,
+      tiles_scored: ctx.scorer_tiles,
+      crop_estimate: Map.get(ctx.score_memo, q),
+      full_frame_score: full,
+      passed?: full >= ctx.confirm_band
+    }
   end
 
   defp outcome_for(nil), do: :best_effort
@@ -563,11 +636,17 @@ defmodule ImagePipe.Output.EncodeSearch do
       score: result_score(final_q, ctx),
       confirm_passes: ctx.confirm_passes,
       scorer: ctx.scorer,
-      tiles_scored: ctx.scorer_tiles
+      tiles_scored: ctx.scorer_tiles,
+      limiting_factor: limiting_factor_for(final_outcome, ctx)
     }
 
     {:ok, binary, meta}
   end
+
+  # The limiting factor is meaningful only for a degraded result; a `:hit` (or
+  # `:skipped`) carries none, regardless of any factor a superseded phase staged.
+  defp limiting_factor_for(:best_effort, ctx), do: ctx.limiting_factor
+  defp limiting_factor_for(_outcome, _ctx), do: nil
 
   # meta.score must reflect the DELIVERED quality, never a different one. The cap
   # phase (byte-only predicate) can relocate the winner to a quality the objective
@@ -584,7 +663,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   # estimate fallback.
   defp ensure_winner_scored(final_q, _binary, %Ctx{confirm_fun: fun} = ctx)
        when not is_nil(fun) do
-    {:ok, ctx} = confirm_score(final_q, ctx)
+    {:ok, ctx} = confirm_score(final_q, :confirm, ctx)
     ctx
   end
 
@@ -614,29 +693,33 @@ defmodule ImagePipe.Output.EncodeSearch do
   defp bump_headroom(:full), do: 0
 
   # Build the objective score_fun (+ confirm closures for crop mode) for the
-  # resolved objective and the chosen scorer. Returns extra search/3 opts.
-  defp score_opts(_image, %Resolved{quality_search: :none}, _scorer), do: {:ok, []}
+  # resolved objective and the chosen scorer. Returns extra search/3 opts. The
+  # score closures emit the `:decode`/`:metric` cost legs; the core only sees an
+  # opaque float-returning closure, never the decode/metric structure.
+  defp score_opts(_image, %Resolved{quality_search: :none}, _scorer, _telemetry_opts),
+    do: {:ok, []}
 
-  defp score_opts(_image, %Resolved{quality_search: %RQS{objective: :size}}, _scorer),
+  defp score_opts(_image, %Resolved{quality_search: %RQS{objective: :size}}, _scorer, _t),
     do: {:ok, []}
 
   # Full-frame mode: one whole-frame reference; candidate scored whole. (No `= rqs`
   # binding — the bracket/target is consumed by the search, not here — so there is
   # no unused-variable warning under --warnings-as-errors.)
-  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2}}, :full) do
+  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2}}, :full, t) do
     case Ssim2Metric.reference(image) do
-      {:ok, ref} -> {:ok, [score_fun: fn bytes -> full_frame_score(ref, bytes) end]}
+      {:ok, ref} -> {:ok, [score_fun: fn bytes -> full_frame_score(ref, bytes, nil, t) end]}
       {:error, reason} -> {:error, {:encode, reason}}
     end
   end
 
   # Crop mode: crop score_fun (estimate) + full-frame confirm closure + the
   # deterministic tile count for telemetry.
-  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop) do
+  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop, t) do
     case Ssim2Metric.reference(image) do
       {:ok, ref} ->
-        confirm = fn bytes -> full_frame_score(ref, bytes) end
-        crop = fn bytes -> crop_estimate(image, bytes) end
+        tiles = CropScore.tile_count(Image.width(image), Image.height(image))
+        confirm = fn bytes -> full_frame_score(ref, bytes, nil, t) end
+        crop = fn bytes -> crop_estimate(image, bytes, tiles, t) end
 
         {:ok,
          [
@@ -644,7 +727,7 @@ defmodule ImagePipe.Output.EncodeSearch do
            confirm_fun: confirm,
            confirm_band: rqs.target - rqs.allowed_error,
            confirm_max_quality: rqs.max_quality,
-           scorer_tiles: CropScore.tile_count(Image.width(image), Image.height(image))
+           scorer_tiles: tiles
          ]}
 
       {:error, reason} ->
@@ -655,27 +738,85 @@ defmodule ImagePipe.Output.EncodeSearch do
   # The score_fun contract is float-returning, but Image.from_binary and
   # Ssim2Metric.score can fail. We surface such failures by throwing a tagged
   # tuple that run/3 catches around the search/3 call, mapping it to
-  # {:error, {:encode, reason}}.
+  # {:error, {:encode, reason}}. A throw propagates through the leg span (→
+  # `:exception`) and the enclosing probe span before reaching the catch.
 
-  # Decode the candidate once and score the whole frame against the reference.
-  defp full_frame_score(ref, bytes) do
-    with {:ok, candidate} <- Image.from_binary(bytes),
-         {:ok, score} <- Ssim2Metric.score(ref, candidate) do
-      score
-    else
-      {:error, reason} -> throw({:image_pipe_score_error, reason})
-    end
+  # Decode the candidate once and score the whole frame against the reference,
+  # each as a cost leg nested under the active probe span.
+  defp full_frame_score(ref, bytes, tiles, telemetry_opts) do
+    candidate = decode_leg(bytes, telemetry_opts)
+
+    metric_leg(telemetry_opts, tiles, fn ->
+      case Ssim2Metric.score(ref, candidate) do
+        {:ok, score} -> score
+        {:error, reason} -> throw({:image_pipe_score_error, reason})
+      end
+    end)
   end
 
   # Decode the candidate once; crop-score its tiles vs the base; subtract the macro
   # offset so the unchanged objective predicate reproduces the full-frame decision.
-  defp crop_estimate(base, bytes) do
-    with {:ok, candidate} <- Image.from_binary(bytes),
-         {:ok, p10} <- CropScore.p10(base, candidate) do
-      p10 - @crop_macro_offset
-    else
-      {:error, reason} -> throw({:image_pipe_score_error, reason})
-    end
+  defp crop_estimate(base, bytes, tiles, telemetry_opts) do
+    candidate = decode_leg(bytes, telemetry_opts)
+
+    metric_leg(telemetry_opts, tiles, fn ->
+      case CropScore.p10(base, candidate) do
+        {:ok, p10} -> p10 - @crop_macro_offset
+        {:error, reason} -> throw({:image_pipe_score_error, reason})
+      end
+    end)
+  end
+
+  # --- cost legs (emitted from run/3's closures; the pure core never sees them) -
+
+  # The codec encode, as a leg nested under the active probe span. Method-neutral:
+  # it fires for every objective (:size/:ssim2/:none), so unlike the scoring legs
+  # it carries no metric-method name segment.
+  defp encode_leg(image, resolved, quality, telemetry_opts) do
+    Telemetry.span(
+      telemetry_opts,
+      [:encode, :search, :probe, :encode],
+      %{quality: quality},
+      fn ->
+        case Encoder.encode_to_buffer(image, resolved, quality) do
+          {:ok, binary} = ok -> {ok, %{result: :ok, bytes: byte_size(binary)}}
+          {:error, reason} = err -> {err, %{result: :processing_error, error: reason}}
+        end
+      end
+    )
+  end
+
+  # Candidate decode, as an ssim2-namespaced leg. The metric method qualifies the
+  # scoring legs (`:ssim2`) so a future metric (e.g. dssim) gets distinct span
+  # names a backend can group by; a decode failure throws and surfaces as the
+  # leg's `:exception`.
+  defp decode_leg(bytes, telemetry_opts) do
+    Telemetry.span(
+      telemetry_opts,
+      [:encode, :search, :probe, :ssim2, :decode],
+      %{bytes: byte_size(bytes)},
+      fn ->
+        case Image.from_binary(bytes) do
+          {:ok, candidate} -> {candidate, %{result: :ok}}
+          {:error, reason} -> throw({:image_pipe_score_error, reason})
+        end
+      end
+    )
+  end
+
+  # One aggregate SSIMULACRA2 metric leg per probe (the crop path scores K tiles
+  # internally; `:tiles_scored` records how many, but no per-tile span is emitted —
+  # that detail lives in `mix autoquality.bench`).
+  defp metric_leg(telemetry_opts, tiles, fun) do
+    Telemetry.span(
+      telemetry_opts,
+      [:encode, :search, :probe, :ssim2, :metric],
+      %{tiles_scored: tiles},
+      fn ->
+        score = fun.()
+        {score, %{result: :ok, score: score}}
+      end
+    )
   end
 
   defp base_quality(%Resolved{quality: {:quality, v}}), do: v

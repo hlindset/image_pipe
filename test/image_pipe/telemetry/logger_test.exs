@@ -138,6 +138,38 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode search: ok (best_effort q10 99999b)"
   end
 
+  test "renders an encode-search probe span stop with its phase, quality, bytes, score" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :probe, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :ok, phase: :confirm, quality: 65, bytes: 6500, score: 90.42}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "encode search probe: ok (confirm q65 6500b score 90.42)"
+  end
+
+  test "escalates an encode-search probe exception to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :probe, :exception],
+          %{duration: 1000},
+          %{kind: :error, reason: :badimage, phase: :objective, quality: 50}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "encode search probe: exception"
+  end
+
   test "renders the deliver span and does not escalate a client disconnect" do
     Telemetry.attach_default_logger(level: :info)
 
