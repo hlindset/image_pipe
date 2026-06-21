@@ -10,12 +10,15 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:parse],
     [:send],
     [:encode],
+    [:encode, :search],
+    [:render],
     [:deliver],
     [:source, :resolve],
     [:source, :fetch],
     [:source, :fetch_decode],
     [:output, :negotiate],
     [:transform, :execute],
+    [:transform, :input_color_management],
     [:transform, :operation],
     [:transform, :materialize],
     [:transform, :detect],
@@ -28,6 +31,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
   # One-shot (terminal) events — folded as annotations onto the current span.
   @oneshot_stages [
+    [:encode, :search, :probe],
     [:cache, :stage],
     [:cache, :eviction, :stop],
     [:cache, :flush, :stop],
@@ -66,7 +70,16 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :width,
     :height,
     :format,
-    :params
+    :params,
+    :renderer,
+    :objective,
+    :min_quality,
+    :max_quality,
+    :target,
+    :max_bytes,
+    :quality,
+    :bytes,
+    :score
   ]
 
   @spec attach(map()) :: :ok
