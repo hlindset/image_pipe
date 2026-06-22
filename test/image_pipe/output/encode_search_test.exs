@@ -19,7 +19,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              EncodeSearch.search(rs, nil, encode_fun: enc, max_iterations: 8)
   end
 
-  test "ssim2 picks the lowest quality clearing the tolerance band" do
+  test "ssim2 lands on the quality matching the target (zero-width band)" do
     rs = %RQS{
       objective: :ssim2,
       target: 90.0,
@@ -31,6 +31,8 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
     score = fn bin -> byte_size(bin) / 100 + 20.0 end
 
+    # score = q + 20, so the target (90) is reached exactly at q70; the zero-width
+    # band [90, 90] converges there.
     assert {:ok, _bin, %{quality: 70, outcome: :hit, score: s}} =
              EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
 
@@ -53,23 +55,67 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 6)
   end
 
-  test "ssim2 allowed_error loosens the band downward" do
+  test "ssim2 walk-to-target converges toward the target, not the band floor" do
+    # target 80, allowed_error 5 → symmetric band [75, 85]. score = q + 20, so the
+    # target (80) is reached at q60 and the band floor (75) at q55. The old
+    # lowest-satisfying search shipped q55 (the floor); walk-to-target ships an
+    # in-band quality at the target (q60, score 80) instead.
     rs = %RQS{
       objective: :ssim2,
-      target: 90.0,
+      target: 80.0,
       min_quality: 10,
-      max_quality: 80,
+      max_quality: 90,
       allowed_error: 5.0
     }
 
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
     score = fn bin -> byte_size(bin) / 100 + 20.0 end
 
-    assert {:ok, _bin, %{quality: 65}} =
+    assert {:ok, _bin, %{quality: 60, outcome: :hit, score: 80.0}} =
              EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
   end
 
-  test "ssim2 best-effort returns max_quality when target unreachable" do
+  test "ssim2 empty band ships the nearest overshoot (the just-above quality)" do
+    # Integer-quality granularity straddles a narrow band: score = 2q + 19 jumps by
+    # 2 per quality, and band [79.5, 80.5] (target 80, allowed_error 0.5) is empty —
+    # q30 → 79 (undershoot), q31 → 81 (overshoot), nothing lands inside. Walk-to-target
+    # ships the lowest overshoot (q31, score 81 ≥ target), a :hit, never the undershoot.
+    rs = %RQS{
+      objective: :ssim2,
+      target: 80.0,
+      min_quality: 10,
+      max_quality: 40,
+      allowed_error: 0.5
+    }
+
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+    score = fn bin -> byte_size(bin) / 100 * 2 + 19.0 end
+
+    assert {:ok, _bin, %{quality: 31, outcome: :hit, score: 81.0}} =
+             EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
+  end
+
+  test "ssim2 ships the floor when even min_quality overshoots the band (easy image)" do
+    # Easy content: even min_quality (q10) scores above target + allowed_error, so the
+    # band is unreachable from below. score = q + 60, band [48, 52] (target 50,
+    # allowed_error 2): every quality overshoots. Walk-to-target descends to the floor
+    # and ships min_quality (smallest file, quality still ≥ target), a :hit.
+    rs = %RQS{
+      objective: :ssim2,
+      target: 50.0,
+      min_quality: 10,
+      max_quality: 80,
+      allowed_error: 2.0
+    }
+
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+    score = fn bin -> byte_size(bin) / 100 + 60.0 end
+
+    assert {:ok, _bin, %{quality: 10, outcome: :hit, score: 70.0}} =
+             EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
+  end
+
+  test "ssim2 best-effort pins the ceiling when the target is unreachable (all undershoot)" do
     rs = %RQS{
       objective: :ssim2,
       target: 99.0,
@@ -81,7 +127,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
     score = fn bin -> byte_size(bin) / 100 / 2.0 end
 
-    assert {:ok, _bin, %{quality: 80, outcome: :best_effort}} =
+    assert {:ok, _bin, %{quality: 80, outcome: :best_effort, limiting_factor: :ceiling}} =
              EncodeSearch.search(rs, nil, encode_fun: enc, score_fun: score, max_iterations: 8)
   end
 
@@ -291,6 +337,41 @@ defmodule ImagePipe.Output.EncodeSearchTest do
 
       assert meta.quality == 63
       assert byte_size(bin) <= 6300
+    end
+
+    test "crop mode: the objective converges toward the target, the confirm floor still guards" do
+      # target 90, allowed_error 5 → estimate band [85, 95]; the confirm floor is
+      # target - allowed_error = 85 (kept one-sided, bump walks up). estimate = q + 25
+      # (accurate). Walk-to-target lands the objective at q63 (estimate 88, in band) —
+      # NOT the old floor pick q60 (estimate 85). The confirm re-validates against the
+      # floor (85) and clears immediately, so the objective and confirm stay coherent.
+      rs = %RQS{
+        objective: :ssim2,
+        target: 90.0,
+        min_quality: 10,
+        max_quality: 80,
+        allowed_error: 5.0
+      }
+
+      enc = fn q -> {:ok, :binary.copy(<<0>>, q * 100)} end
+      estimate = fn bin -> byte_size(bin) / 100 + 25.0 end
+      confirm = fn bin -> byte_size(bin) / 100 + 25.0 end
+
+      assert {:ok, _bin, meta} =
+               EncodeSearch.search(rs, nil,
+                 encode_fun: enc,
+                 score_fun: estimate,
+                 confirm_fun: confirm,
+                 confirm_band: 85.0,
+                 confirm_max_quality: 80,
+                 max_bump_passes: 2,
+                 scorer: :crop,
+                 scorer_tiles: 16
+               )
+
+      assert meta.quality == 63
+      assert meta.outcome == :hit
+      assert meta.confirm_passes == 1
     end
 
     test "scorer/tiles flow through meta from the opts" do

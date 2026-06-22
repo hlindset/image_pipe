@@ -2697,6 +2697,36 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert score > 50
     end
 
+    test "autoquality:ssim2 walk-to-target delivers near the target, not the band floor" do
+      # A lossless PNG of the same finalized pipeline is the EXACT reference the search
+      # scores against (PNG decode is pixel-identical to the pre-encode frame), so the
+      # SSIMULACRA2 measured here is the search's own metric — not the q:95-baseline
+      # proxy used by the perceptual sanity test above.
+      png = call_imgproxy("/_/rs:fit:400:400/f:png/plain/images/beach.jpg", @default_opts)
+      {:ok, png_image} = Image.from_binary(png.resp_body)
+      {:ok, reference} = Ssim2Metric.reference(png_image)
+
+      # target 80, allowed_error 3 → symmetric band [77, 83]. The old lowest-satisfying
+      # search walked DOWN to the floor (lowest quality scoring ≥ 77, i.e. ~77.x);
+      # walk-to-target converges toward the target and stops in-band, delivering at or
+      # above the target (≈ 82.7 on the pinned stack) — well above the floor.
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:ssim2:80:50:95:3/f:jpeg/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      {:ok, body_image} = Image.from_binary(conn.resp_body)
+      {:ok, score} = Ssim2Metric.score(reference, body_image)
+
+      # Tracks the target (80), clearly above the band floor (77). Floor-walking would
+      # ship ~77; a margin to 79 separates the two semantics without pinning an exact
+      # encoder-dependent value.
+      assert score >= 79.0
+    end
+
     test "autoquality:ssim2 with no target (URL or config) succeeds via the ssim2 default" do
       # No inline target and no config target: the :ssim2 objective falls back to
       # its shipped default rather than failing with a missing-target 4xx.

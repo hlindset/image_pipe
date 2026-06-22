@@ -59,10 +59,16 @@ defmodule ImagePipe.Parser.Imgproxy do
                      autoquality_target: [type: {:or, [:integer, :float]}],
                      autoquality_min_quality: [type: :pos_integer, default: 70],
                      autoquality_max_quality: [type: :pos_integer, default: 80],
-                     # SSIMULACRA2-scale band (points on 0–100), NOT imgproxy's DSSIM
-                     # `allowed_error` (0–1, 1.0 = accept anything); here 1.0 is a strict
-                     # one-point band. Applies only to `:ssim2`. See QualitySearch.
-                     autoquality_allowed_error: [type: {:or, [:integer, :float]}, default: 1.0],
+                     # Symmetric SSIMULACRA2-scale tolerance band (points on 0–100),
+                     # NOT imgproxy's DSSIM `allowed_error` (0–1, 1.0 = accept anything);
+                     # here 1.0 is a strict ±1-point band around the target. Applies only
+                     # to `:ssim2`. See QualitySearch. Must be non-negative: a negative
+                     # value would invert the band (`band_lo > band_hi`) in EncodeSearch.
+                     # The URL form is already guarded by the grammar's non-negative parse.
+                     autoquality_allowed_error: [
+                       type: {:custom, __MODULE__, :validate_non_negative_number, []},
+                       default: 1.0
+                     ],
                      autoquality_format_min_quality: [
                        type: {:map, :atom, :pos_integer},
                        default: %{avif: 60}
@@ -176,6 +182,14 @@ defmodule ImagePipe.Parser.Imgproxy do
 
   def validate_source_schemes(_schemes),
     do: {:error, "expected a map from binary scheme names to {module, keyword_options}"}
+
+  @doc false
+  def validate_non_negative_number(value)
+      when (is_integer(value) or is_float(value)) and value >= 0,
+      do: {:ok, value}
+
+  def validate_non_negative_number(_value),
+    do: {:error, "expected a non-negative number"}
 
   @impl ImagePipe.Parser
   def parse(%Plug.Conn{} = conn, opts) do

@@ -42,8 +42,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   @max_bytes_alone_base 90
 
   # Crop-scoring p10→full-frame correction (offset = tile_p10 − full_frame_score).
-  # Subtracted from the tile p10 so the unchanged objective predicate
-  # (score >= target-allowed_error) reproduces the full-frame decision. Calibrated
+  # Subtracted from the tile p10 so the objective's walk-to-target band comparison
+  # reproduces the full-frame decision. Calibrated
   # for #354 on the codec-corpus (`mix autoquality.bench --part e`): the `clic` split
   # gives +0.29 and the held-out `clic_holdout` split −0.03 — their disagreement
   # shows a photo-only constant would overfit, so we use the content-diverse
@@ -264,18 +264,15 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   defp objective_phase(%RQS{objective: :ssim2} = rqs, ctx, _opts) do
-    band = rqs.target - rqs.allowed_error
-    # Lowest q in [min, max] with score >= band.
-    predicate = fn _bytes, score -> score >= band end
+    band_lo = rqs.target - rqs.allowed_error
+    band_hi = rqs.target + rqs.allowed_error
 
-    case search_lowest_satisfying(rqs.min_quality, rqs.max_quality, predicate, ctx) do
+    case search_to_target(rqs.min_quality, rqs.max_quality, band_lo, band_hi, ctx) do
       {:error, _} = err ->
         err
 
-      {best, outcome, ctx} ->
-        # None clear → ceiling (max_quality), best-effort.
-        chosen = best || rqs.max_quality
-        ctx = set_factor(ctx, if(best, do: nil, else: :ceiling))
+      {chosen, outcome, factor, ctx} ->
+        ctx = set_factor(ctx, factor)
 
         with {:ok, ctx} <- ensure_probed(chosen, ctx) do
           {:ok, chosen, outcome, Map.get(ctx.score_memo, chosen), ctx}
@@ -449,36 +446,49 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  # Find the LOWEST q in [lo, hi] satisfying `predicate`. Monotone-increasing
-  # predicate (holds at q ⇒ holds at every higher q). `best_q` is the lowest
-  # such q.
-  defp search_lowest_satisfying(lo, hi, predicate, ctx) do
-    do_lowest(lo, hi, predicate, ctx, nil)
+  # Walk-to-target: converge toward the symmetric band `[band_lo, band_hi]`. Probe
+  # the midpoint; in-band → accept and stop; overshoot (score > band_hi) → remember
+  # it as the nearest-overshoot fallback and search lower; undershoot → search
+  # higher. Returns {chosen_q, :hit | :best_effort, limiting_factor | nil, ctx}.
+  #
+  # On an empty band (integer-quality granularity straddles it) the lowest overshoot
+  # seen — the just-above-band q — wins, a `:hit` (quality target met). If no q ever
+  # reached or overshot the band (every probe undershot up to max_quality), pin to
+  # the ceiling as a `:best_effort`/`:ceiling` result. `ceiling` (the original `hi`)
+  # is threaded so the fallback can name max_quality after `hi` has narrowed.
+  defp search_to_target(lo, hi, band_lo, band_hi, ctx) do
+    do_target(lo, hi, band_lo, band_hi, hi, nil, ctx)
   end
 
-  defp do_lowest(lo, hi, _predicate, ctx, best) when lo > hi do
-    {best, outcome_for(best), ctx}
+  defp do_target(lo, hi, _band_lo, _band_hi, ceiling, overshoot, ctx) when lo > hi do
+    resolve_target(overshoot, ceiling, ctx)
   end
 
-  defp do_lowest(lo, hi, predicate, ctx, best) do
+  defp do_target(lo, hi, band_lo, band_hi, ceiling, overshoot, ctx) do
     mid = div(lo + hi, 2)
 
-    case probe(mid, predicate, ctx) do
+    case probe_score(mid, ctx) do
       {:error, _} = err ->
         err
 
       {:capped, ctx} ->
-        {best, outcome_for(best), ctx}
+        resolve_target(overshoot, ceiling, ctx)
 
-      {:satisfied, ctx} ->
-        # mid clears; try to go lower.
-        do_lowest(lo, mid - 1, predicate, ctx, min_q(best, mid))
-
-      {:unsatisfied, ctx} ->
-        # mid too low; go higher.
-        do_lowest(mid + 1, hi, predicate, ctx, best)
+      {:ok, score, ctx} ->
+        cond do
+          score >= band_lo and score <= band_hi -> {mid, :hit, nil, ctx}
+          # Overshoot: a satisfying-or-better q. Record it (each is lower than the
+          # last) and search lower for an in-band q closer to the target.
+          score > band_hi -> do_target(lo, mid - 1, band_lo, band_hi, ceiling, mid, ctx)
+          true -> do_target(mid + 1, hi, band_lo, band_hi, ceiling, overshoot, ctx)
+        end
     end
   end
+
+  # No overshoot ever seen → undershot to the ceiling (best-effort); else ship the
+  # nearest overshoot (quality target met, just above the band).
+  defp resolve_target(nil, ceiling, ctx), do: {ceiling, :best_effort, :ceiling, ctx}
+  defp resolve_target(overshoot, _ceiling, ctx), do: {overshoot, :hit, nil, ctx}
 
   # Encode (and, for ssim2, score) `q`, memoizing both, then evaluate the
   # predicate. Returns :satisfied/:unsatisfied, or :capped when the encode cap
@@ -493,6 +503,17 @@ defmodule ImagePipe.Output.EncodeSearch do
 
       {:ok, bytes, score, ctx} ->
         if predicate.(bytes, score), do: {:satisfied, ctx}, else: {:unsatisfied, ctx}
+    end
+  end
+
+  # Like `probe`, but surfaces the raw ssim2 score for the walk-to-target band
+  # comparison instead of collapsing it through a predicate. `:capped` when a NEW
+  # distinct encode would exceed the iteration cap.
+  defp probe_score(q, ctx) do
+    case materialize(q, ctx) do
+      {:error, _} = err -> err
+      :capped -> {:capped, ctx}
+      {:ok, _bytes, score, ctx} -> {:ok, score, ctx}
     end
   end
 
@@ -618,9 +639,6 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp max_q(nil, q), do: q
   defp max_q(best, q), do: max(best, q)
-
-  defp min_q(nil, q), do: q
-  defp min_q(best, q), do: min(best, q)
 
   # --- result assembly ------------------------------------------------------
 
@@ -755,7 +773,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   # Decode the candidate once; crop-score its tiles vs the base; subtract the macro
-  # offset so the unchanged objective predicate reproduces the full-frame decision.
+  # offset so the objective's walk-to-target band comparison reproduces the
+  # full-frame decision.
   defp crop_estimate(base, bytes, tiles, telemetry_opts) do
     candidate = decode_leg(bytes, telemetry_opts)
 
