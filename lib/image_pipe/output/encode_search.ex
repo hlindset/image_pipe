@@ -41,16 +41,25 @@ defmodule ImagePipe.Output.EncodeSearch do
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 
-  # Crop-scoring p10→full-frame correction (offset = tile_p10 − full_frame_score).
-  # Subtracted from the tile p10 so the objective's walk-to-target band comparison
-  # reproduces the full-frame decision. Calibrated
-  # for #354 on the codec-corpus (`mix autoquality.bench --part e`): the `clic` split
-  # gives +0.29 and the held-out `clic_holdout` split −0.03 — their disagreement
-  # shows a photo-only constant would overfit, so we use the content-diverse
-  # macro-average (+0.22) across photographic/screen/large/web content. The
-  # confirm/bump phase absorbs the per-image residual (spread ~±2–4 q). See
-  # `docs/autoquality_benchmark.md` (Part E).
-  @crop_macro_offset 0.22
+  # Crop-scoring p10→full-frame correction (offset = tile_p10 − full_frame_score),
+  # subtracted from the tile p10 so the objective's walk-to-target band comparison
+  # reproduces the full-frame decision.
+  #
+  # Above the crossover the search ships the crop objective winner with NO
+  # full-frame confirm (#369), so this offset is the only correction lever left and
+  # must be conservative: set near the p90 of the systematic residual rather than
+  # the median, so it covers the over-prediction tail (concentrated in screen
+  # content) instead of leaving the tail to a confirm that no longer runs.
+  #
+  # 2.4 ≈ the p90 of the (even-K16 p10 − full-frame) residual measured on
+  # `mix autoquality.bench --part k` over a 46-case >6 MP cohort (median 0.12,
+  # p90 2.42, worst 5.84 in `qoi_web` screen content). Dropping the confirm cost
+  # 0 target-hit regressions vs the crop+confirm baseline at every swept offset
+  # 0→3; the residual median is ~0, so biasing to the p90 barely moves bytes —
+  # raising the offset 0→3 nudges on-target only ~35→39 % at ~0 % median byte cost,
+  # because the remaining misses are bracket-ceiling-bound, not offset-bound. See
+  # `docs/autoquality_benchmark.md` (Part K).
+  @crop_confirm_skipped_offset 2.4
 
   @type outcome :: :hit | :best_effort | :skipped
 
@@ -200,13 +209,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
     encode_fun = fn quality -> encode_leg(finalized_image, resolved, quality, telemetry_opts) end
     scorer = Keyword.get(opts, :scorer, :full)
-
-    # The confirm/bump phase does up to @default_max_bump_passes + 1 MANDATORY
-    # encodes (1 confirm + the bump steps). Give crop mode that much headroom over
-    # the objective-search cap so confirm/bump never starve the objective search or
-    # the max_bytes cap-descent of their probe budget.
-    max_iterations =
-      Keyword.get(opts, :max_iterations, @default_max_iterations) + bump_headroom(scorer)
+    max_iterations = Keyword.get(opts, :max_iterations, @default_max_iterations)
 
     with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer, telemetry_opts) do
       base_quality = base_quality(resolved)
@@ -333,13 +336,15 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # --- confirm phase (objective-neutral re-validation) ----------------------
 
-  # No confirm closure: the objective's verdict stands (full-frame ssim2, :size,
-  # :none paths are byte-identical to before this feature).
+  # No confirm closure: the objective's verdict stands. Every production path takes
+  # this clause — full-frame ssim2, :size, :none, and (since #369) crop scoring,
+  # which ships its objective winner directly using the conservative offset.
   defp confirm_phase(objective_q, objective_outcome, %Ctx{confirm_fun: nil} = ctx),
     do: {:ok, objective_q, objective_outcome, ctx}
 
-  # The objective ran on an ESTIMATE; re-validate the winner against the
-  # authoritative measure and linear-bump on undershoot (cap @max_bump_passes).
+  # A `confirm_fun` was supplied (the `mix autoquality.bench` crop+confirm
+  # baseline): the objective ran on an ESTIMATE, so re-validate the winner against
+  # the authoritative measure and linear-bump on undershoot (cap @max_bump_passes).
   defp confirm_phase(objective_q, _objective_outcome, ctx) do
     with {:ok, ctx} <- confirm_score(objective_q, :confirm, ctx) do
       if Map.fetch!(ctx.confirm_memo, objective_q) >= ctx.confirm_band do
@@ -614,11 +619,12 @@ defmodule ImagePipe.Output.EncodeSearch do
     }
   end
 
-  # Stop metadata for a confirm/bump probe. `:score` is the authoritative
-  # full-frame score; `:crop_estimate` (the offset-corrected estimate) and
-  # `:full_frame_score` + `:passed?` expose the @crop_macro_offset residual — the
-  # real-world accuracy of the crop→full correction (shadow signal for a future
-  # per-content offset calibration).
+  # Stop metadata for a confirm/bump probe. Production crop scoring no longer wires
+  # a confirm (#369); this remains for `search/3` callers that pass a `confirm_fun`
+  # (the `mix autoquality.bench` crop+confirm baseline). `:score` is the
+  # authoritative full-frame score; `:crop_estimate` (the offset-corrected estimate)
+  # and `:full_frame_score` + `:passed?` expose the crop→full residual — the
+  # real-world accuracy of the correction.
   defp confirm_probe_meta(q, ctx) do
     full = Map.fetch!(ctx.confirm_memo, q)
 
@@ -707,13 +713,10 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # --- run/3 helpers --------------------------------------------------------
 
-  defp bump_headroom(:crop), do: @default_max_bump_passes + 1
-  defp bump_headroom(:full), do: 0
-
-  # Build the objective score_fun (+ confirm closures for crop mode) for the
-  # resolved objective and the chosen scorer. Returns extra search/3 opts. The
-  # score closures emit the `:decode`/`:metric` cost legs; the core only sees an
-  # opaque float-returning closure, never the decode/metric structure.
+  # Build the objective score_fun (crop estimate or full-frame) for the resolved
+  # objective and the chosen scorer. Returns extra search/3 opts. The score
+  # closures emit the `:decode`/`:metric` cost legs; the core only sees an opaque
+  # float-returning closure, never the decode/metric structure.
   defp score_opts(_image, %Resolved{quality_search: :none}, _scorer, _telemetry_opts),
     do: {:ok, []}
 
@@ -730,27 +733,18 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  # Crop mode: crop score_fun (estimate) + full-frame confirm closure + the
-  # deterministic tile count for telemetry.
-  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop, t) do
-    case Ssim2Metric.reference(image) do
-      {:ok, ref} ->
-        tiles = CropScore.tile_count(Image.width(image), Image.height(image))
-        confirm = fn bytes -> full_frame_score(ref, bytes, nil, t) end
-        crop = fn bytes -> crop_estimate(image, bytes, tiles, t) end
-
-        {:ok,
-         [
-           score_fun: crop,
-           confirm_fun: confirm,
-           confirm_band: rqs.target - rqs.allowed_error,
-           confirm_max_quality: rqs.max_quality,
-           scorer_tiles: tiles
-         ]}
-
-      {:error, reason} ->
-        {:error, {:encode, reason}}
-    end
+  # Crop mode (above the crossover): crop score_fun (estimate) only — no full-frame
+  # confirm/bump (#369). The conservative `@crop_confirm_skipped_offset` baked into
+  # the estimate replaces the confirm as the crop→full correction; the objective
+  # walk's verdict ships as-is, bounding the large-image search to a flat ~4.2 MP
+  # metric sample. No whole-frame reference is built — `crop_estimate` references
+  # per-tile via `CropScore.p10/2`, so the O(pixels) full-frame reference (the very
+  # cost this path avoids) never runs; a per-tile reference failure surfaces through
+  # the score closure's throw.
+  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2}}, :crop, t) do
+    tiles = CropScore.tile_count(Image.width(image), Image.height(image))
+    crop = fn bytes -> crop_estimate(image, bytes, tiles, t) end
+    {:ok, [score_fun: crop, scorer_tiles: tiles]}
   end
 
   # The score_fun contract is float-returning, but Image.from_binary and
@@ -772,15 +766,15 @@ defmodule ImagePipe.Output.EncodeSearch do
     end)
   end
 
-  # Decode the candidate once; crop-score its tiles vs the base; subtract the macro
-  # offset so the objective's walk-to-target band comparison reproduces the
-  # full-frame decision.
+  # Decode the candidate once; crop-score its tiles vs the base; subtract the
+  # conservative confirm-skipped offset so the objective's walk-to-target band
+  # comparison reproduces the full-frame decision without a full-frame confirm.
   defp crop_estimate(base, bytes, tiles, telemetry_opts) do
     candidate = decode_leg(bytes, telemetry_opts)
 
     metric_leg(telemetry_opts, tiles, fn ->
       case CropScore.p10(base, candidate) do
-        {:ok, p10} -> p10 - @crop_macro_offset
+        {:ok, p10} -> p10 - @crop_confirm_skipped_offset
         {:error, reason} -> throw({:image_pipe_score_error, reason})
       end
     end)

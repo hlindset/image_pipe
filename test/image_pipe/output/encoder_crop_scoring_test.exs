@@ -57,7 +57,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     }
   end
 
-  test "stream_output crop-scores a >6 MP output (ladder picks :crop)" do
+  test "stream_output crop-scores a >6 MP output with no full-frame confirm (ladder picks :crop)" do
     attach_stop()
 
     {:ok, [_bin], _mime} =
@@ -66,6 +66,9 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     assert_receive {:stop, meta}
     assert meta.scorer == :crop
     assert meta.tiles_scored == 16
+    # Above the crossover the search ships the crop objective winner with no
+    # full-frame confirm/bump — the O(pixels) cost the crop path exists to avoid.
+    assert meta.confirm_passes == 0
   end
 
   test "stream_output full-frame-scores a <6 MP output (ladder picks :full)" do
@@ -88,10 +91,13 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     {:ok, _crop_bin, crop} = EncodeSearch.run(image, resolved, scorer: :crop)
 
     assert crop.scorer == :crop
-    assert crop.confirm_passes >= 1
-    # Part E residual is ±2-4 q; 3 is the robust bound. Re-confirm after the bench
-    # sets the calibrated @crop_macro_offset; tighten to <= 2 only if it supports it.
-    assert abs(crop.quality - full.quality) <= 3
+    # No full-frame confirm above the crossover: the crop objective winner ships as-is.
+    assert crop.confirm_passes == 0
+    # The conservative offset biases the estimate down, so the crop walk can land a
+    # step or two higher than the full-frame pick; 4 is the robust bound.
+    assert abs(crop.quality - full.quality) <= 4
+    # meta.score is the offset-corrected crop estimate the walk converged to; by
+    # construction it sits at/above the band floor.
     assert crop.score >= resolved.quality_search.target - resolved.quality_search.allowed_error
   end
 
@@ -130,10 +136,12 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     legs = drain_legs()
     by_stage = Enum.group_by(legs, &elem(&1, 0), &elem(&1, 1))
 
-    # probe spans tag their phase; crop mode runs the objective then confirm/bump.
+    # probe spans tag their phase; above the crossover crop mode runs the objective
+    # walk only — no confirm/bump phase fires.
     probe_phases = by_stage |> Map.fetch!([:encode, :search, :probe]) |> Enum.map(& &1.phase)
     assert :objective in probe_phases
-    assert :confirm in probe_phases
+    refute :confirm in probe_phases
+    refute :bump in probe_phases
 
     # every objective/cap probe encodes -> an encode leg with the produced byte size.
     encode_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :encode])
@@ -145,10 +153,9 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     metric_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :ssim2, :metric])
     assert metric_legs != []
     assert Enum.all?(metric_legs, &is_float(&1.score))
-    # objective probes crop-score K tiles (tiles_scored: 16); confirm probes run
-    # the whole-frame measure, so their metric leg carries no tile count.
-    assert Enum.any?(metric_legs, &(Map.get(&1, :tiles_scored) == 16))
-    assert Enum.all?(metric_legs, &(Map.get(&1, :tiles_scored) in [nil, 16]))
+    # Every probe crop-scores K tiles (tiles_scored: 16); there is no whole-frame
+    # confirm leg above the crossover.
+    assert Enum.all?(metric_legs, &(Map.get(&1, :tiles_scored) == 16))
   end
 
   defp drain_legs(acc \\ []) do
@@ -159,7 +166,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     end
   end
 
-  test "max_bytes binds the crop-path delivered q (cap runs after confirm/bump)" do
+  test "max_bytes binds the crop-path delivered q (cap descends from the crop pick)" do
     image = zone_plate(7)
     resolved = ssim2_resolved()
 
@@ -169,8 +176,8 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
 
     {:ok, capped_bin, capped} = EncodeSearch.run(image, capped_resolved, scorer: :crop)
 
-    # A budget below the crop pick forces cap_phase (which runs AFTER confirm/bump) to
-    # descend: lower-or-equal quality and never more bytes than the uncapped pick.
+    # A budget below the crop pick forces cap_phase to descend: lower-or-equal
+    # quality and never more bytes than the uncapped pick.
     assert capped.quality <= no_cap.quality
     assert byte_size(capped_bin) <= byte_size(no_cap_bin)
   end
