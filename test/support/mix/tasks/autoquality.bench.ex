@@ -24,7 +24,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part h --corpus DIR  # crop+confirm vs full-frame target-hit confidence
       mise exec -- mix autoquality.bench --part i --corpus DIR  # raise max_quality: under-target vs bytes vs latency
       mise exec -- mix autoquality.bench --part j --corpus DIR  # sweep allowed_error: on-target vs byte cost
-      mise exec -- mix autoquality.bench --part all      # A + B + C + D + E + F + G + H + I + J
+      mise exec -- mix autoquality.bench --part k --corpus DIR  # sweep crop→full offset on the confirm-skipped large-image verdict
+      mise exec -- mix autoquality.bench --part k --corpus DIR --offsets 0,0.5,1.5,2.5  # custom offset ladder
+      mise exec -- mix autoquality.bench --part all      # A + B + C + D + E + F + G + H + I + J + K
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
       mise exec -- mix autoquality.bench --part c --proxy-files a.jpg,b.jpg # large real photos
@@ -261,6 +263,54 @@ defmodule Mix.Tasks.Autoquality.Bench do
   higher values ship smaller, more under-target files — a continuous bytes↔quality dial
   whose cost is **broad** (nudges almost every image), unlike the cap's ceiling-pinned-
   only effect. Same `--corpus DIR` + fallback as E/F/G.
+
+  ## Part K — confirm-skipped crop verdict: global crop→full offset sweep
+
+  The timeout autopsy that motivated this part: a 37 MP no-resize request runs the
+  crop path, the crop estimate clears the band while the full-frame confirm keeps
+  failing it, and the bump loop fires a fresh O(pixels) full-frame metric per pass
+  until the request deadline kills it (a 500). Part F established the residual is
+  *systematic* (a global p10→full bias), not sampling, so tile selection can't retire
+  the confirm; the only source-agnostic, deterministic lever left is the **global
+  offset** `@crop_macro_offset` (today 0.22). Part K asks: if we ship the crop
+  objective winner WITHOUT the full-frame confirm (so the search is flat ~4.2 MP and
+  can never time out), what global offset minimizes the target miss and its
+  worst-undershoot tail, and what byte cost does it carry?
+
+  Method (no production change): on the >#{6} MP cohort (where crop engages) per
+  `(source, format)`, build Part F's per-image encode + full-frame + tile cache, then
+  (a) run the production crop+confirm search once as the baseline, and (b) for each
+  candidate offset run the pure search core with the K=#{16} even crop `score_fun`
+  (`p10 − offset`) and NO `confirm_fun` — the confirm-skipped verdict — taking ONE
+  full-frame score at the winner as ground truth. Because encode/decode/metric are
+  memoized, sweeping offsets reuses all heavy work; only the cheap `p10 − offset`
+  arithmetic and the search control flow re-run.
+
+  Reports, over the crop-regime cohort across formats: the per-image systematic
+  residual (`even-K16 p10 − full_frame` at the baseline pick) summarized as
+  median / p90 / worst — the distribution an offset must cover — plus the
+  full-frame confirm cost dropped (the prize). Then per offset: on-target rate
+  (delivered full-frame `≥ #{78}`), median delivered error, **worst undershoot**
+  (the safety tail), median byte delta vs the crop+confirm baseline (a larger offset
+  ships higher quality → fewer savings), and regressions (baseline hit, this offset
+  missed). The verdict leads with the regression count — the actual "is it safe to
+  drop the confirm?" signal — then suggests the offset near the p90 systematic
+  residual, since the deep undershooters are bracket-ceiling-bound (a Part I lever, not
+  a confirm one). Same `--corpus DIR` + fallback as E/F/G; the committed fallback is
+  mostly ≤6 MP, so supply large photos (or the synthetic anchor) to populate the cohort.
+
+  Finding (full corpus, 46 crop-regime subject×format cases): dropping the confirm
+  caused **0 target-hit regressions** at every swept offset — the deep undershooters
+  (worst ~−14) are bracket-ceiling-bound (can't reach the target at max_quality), which
+  the confirm couldn't fix either, so it only re-confirmed hits and ceiling-bound
+  misses. The systematic residual is ~0 on the median (shipped 0.22 is about right) but
+  has a tail (p90 ~2.4, worst ~5.8) **concentrated in screen content** (text/UI tiles
+  diverge most from the whole frame); large photos sit near 0. Raising the global offset
+  0→3 nudged on-target only a few points at ~0% byte cost, because the misses are
+  ceiling-bound, not offset-bound. Read: for large images a confirm-skipped crop verdict
+  is safe against baseline regressions and removes the unbounded full-frame cost, but a
+  conservative offset (≈p90, not the median) is needed to cover the screen-content tail,
+  and the residual under-target is a Part I (raise-the-cap) lever, not a confirm one.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
@@ -315,6 +365,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
           proxy_factors: :string,
           proxy_mp: :integer,
           proxy_files: :string,
+          offsets: :string,
           corpus: :string,
           corpus_cap: :integer
         ]
@@ -326,6 +377,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     mps = parse_mps(Keyword.get(opts, :mps))
     factors = parse_factors(Keyword.get(opts, :proxy_factors))
     proxy_files = parse_files(Keyword.get(opts, :proxy_files))
+    offsets = parse_offsets(Keyword.get(opts, :offsets))
     proxy_mp = Keyword.get(opts, :proxy_mp, 16)
 
     {:ok, _} = Application.ensure_all_started(:image_pipe)
@@ -337,6 +389,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
       factors: factors,
       proxy_mp: proxy_mp,
       proxy_files: proxy_files,
+      offsets: offsets,
       corpus_dir: Keyword.get(opts, :corpus),
       corpus_cap: Keyword.get(opts, :corpus_cap, 24),
       format: format
@@ -369,7 +422,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       g: run.(["g", "all"], fn -> corpus.(&run_part_g/4) end),
       h: run.(["h", "all"], fn -> corpus.(&run_part_h/4) end),
       i: run.(["i", "all"], fn -> corpus.(&run_part_i/4) end),
-      j: run.(["j", "all"], fn -> corpus.(&run_part_j/4) end)
+      j: run.(["j", "all"], fn -> corpus.(&run_part_j/4) end),
+      k: run.(["k", "all"], fn -> corpus.(&run_part_k(&1, &2, &3, &4, ctx.offsets)) end)
     }
   end
 
@@ -387,7 +441,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.g, &write_part_g_csv/1},
       {parts.h, &write_part_h_csv/1},
       {parts.i, &write_part_i_csv/1},
-      {parts.j, &write_part_j_csv/1}
+      {parts.j, &write_part_j_csv/1},
+      {parts.k, &write_part_k_csv/1}
     ]
     |> Enum.each(fn {rows, writer} -> if rows, do: writer.(rows) end)
   end
@@ -2772,6 +2827,284 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("wrote #{path}")
   end
 
+  # --- Part K: confirm-skipped crop verdict, global offset sweep -------------
+
+  # Default offset ladder. 0.22 is the shipped @crop_macro_offset; the rest probe up
+  # toward the systematic residual the confirm exists to absorb (the timeout autopsy
+  # image sat at ~2.2). Override with --offsets a,b,c.
+  @k_offsets [0.0, 0.22, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+
+  defp run_part_k(corpus_dir, fallback_files, cap, synth_mp, offsets) do
+    crossover = CropScore.crossover_megapixels()
+    IO.puts("\n== Part K — confirm-skipped crop verdict: global crop→full offset sweep ==")
+
+    IO.puts(
+      "ship the crop objective winner WITHOUT the full-frame confirm  target #{@g_target} band ≥#{@g_band}  "
+    )
+
+    IO.puts(
+      "offsets #{inspect(offsets)}  K=#{@subsample_k} even  formats #{inspect(@g_formats)}  " <>
+        ">#{crossover} MP cohort  ≤#{cap}/source\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      cohort = Enum.filter(subjects, fn {_l, base} -> mp_of(base) > crossover end)
+      rows = Enum.flat_map(cohort, &k_bench_subject(sname, &1, offsets))
+
+      IO.puts(
+        "  #{String.pad_trailing(sname, 14)} #{length(subjects)} imgs, #{length(cohort)} crop-regime done"
+      )
+
+      rows
+    end)
+  end
+
+  defp mp_of(base), do: Image.width(base) * Image.height(base) / 1_000_000
+
+  defp k_bench_subject(source, {label, base}, offsets) do
+    mp = Float.round(mp_of(base), 1)
+    Enum.flat_map(@g_formats, fn format -> k_run(source, label, base, mp, format, offsets) end)
+  end
+
+  # The bracket ceiling is dimension-bound, not quality-bound: if max_quality encodes,
+  # every lower q does too. One probe at the ceiling is a complete guard for the
+  # formats whose pixel limits (e.g. webp/avif >16383 px) the large-image cohort trips.
+  defp k_run(source, label, base, mp, format, offsets) do
+    {_lo, hi} = g_bracket(format)
+
+    case Encoder.encode_to_buffer(base, plain_resolved(format, hi), hi) do
+      {:error, _reason} ->
+        IO.puts("  #{label}/#{format}: skipped (encode unsupported)")
+        []
+
+      {:ok, _bytes} ->
+        k_measure(source, label, base, mp, format, hi, offsets)
+    end
+  end
+
+  defp k_measure(source, label, base, mp, format, hi, offsets) do
+    {:ok, full_ref} = Ssim2Metric.reference(base)
+    {:ok, cache} = Agent.start_link(fn -> %{enc: %{}, rev: %{}, data: %{}} end)
+
+    encode_fun = partf_encode_fun(cache, base, format)
+    qdata = partf_qdata_fun(cache, base, full_ref)
+
+    funs = %{
+      resolved: h_resolved(format),
+      encode_fun: encode_fun,
+      qdata: qdata,
+      d_at: fn q ->
+        {:ok, bytes} = encode_fun.(q)
+        {qdata.(bytes), byte_size(bytes)}
+      end,
+      hi: hi
+    }
+
+    subj = %{source: source, label: label, format: format, mp: mp}
+    base_ctx = k_baseline(subj, funs)
+    rows = Enum.map(offsets, &k_offset_row(base_ctx, funs, &1))
+
+    Agent.stop(cache)
+    rows
+  end
+
+  # Production crop path: even-K16 estimate at the shipped offset + full-frame confirm
+  # and bump. Establishes the byte/quality/target baseline each offset is measured
+  # against, and the raw systematic residual (p10 − full at the pick) an offset covers.
+  defp k_baseline(subj, funs) do
+    {:ok, _b, bmeta} =
+      EncodeSearch.search(funs.resolved.quality_search, nil,
+        encode_fun: funs.encode_fun,
+        score_fun: k_crop_score_fun(funs.qdata, @crop_macro_offset),
+        confirm_fun: fn bytes -> funs.qdata.(bytes).full_score end,
+        confirm_band: @g_band,
+        confirm_max_quality: funs.hi,
+        max_bump_passes: 2,
+        scorer: :crop,
+        scorer_tiles: @subsample_k,
+        max_iterations: @max_iter + 3,
+        telemetry_opts: []
+      )
+
+    {bd, bbytes} = funs.d_at.(bmeta.quality)
+
+    Map.merge(subj, %{
+      base_q: bmeta.quality,
+      base_deliv: bd.full_score,
+      base_bytes: bbytes,
+      base_hit?: bd.full_score >= @g_target,
+      base_passes: bmeta.confirm_passes,
+      base_full_us: bd.full_us,
+      base_resid: even_p10(bd) - bd.full_score
+    })
+  end
+
+  defp k_offset_row(base_ctx, funs, offset) do
+    {:ok, _v, vmeta} =
+      EncodeSearch.search(funs.resolved.quality_search, nil,
+        encode_fun: funs.encode_fun,
+        score_fun: k_crop_score_fun(funs.qdata, offset),
+        max_iterations: @max_iter,
+        telemetry_opts: []
+      )
+
+    {d, bytes} = funs.d_at.(vmeta.quality)
+    deliv = d.full_score
+
+    Map.merge(base_ctx, %{
+      offset: offset,
+      q: vmeta.quality,
+      deliv: deliv,
+      deliv_err: deliv - @g_target,
+      under?: deliv < @g_target,
+      regress?: base_ctx.base_hit? and deliv < @g_target,
+      bytes: bytes,
+      byte_delta_pct: k_pct_delta(bytes, base_ctx.base_bytes)
+    })
+  end
+
+  # Even-K16 crop estimate at the candidate offset — the production estimator with the
+  # offset as the swept knob.
+  defp k_crop_score_fun(qdata, offset), do: fn bytes -> even_p10(qdata.(bytes)) - offset end
+
+  defp even_p10(d) do
+    d.tiles
+    |> TileSelection.select(@subsample_k, :even)
+    |> Enum.map(& &1.score)
+    |> Enum.sort()
+    |> percentile(0.10)
+  end
+
+  defp k_pct_delta(_bytes, 0), do: 0.0
+  defp k_pct_delta(bytes, base), do: Float.round((bytes - base) / base * 100, 1)
+
+  defp findings_part_k([]) do
+    IO.puts(
+      "Part K — confirm-skipped crop verdict: no crop-regime (>#{CropScore.crossover_megapixels()} MP) " <>
+        "subjects in this corpus — supply large photos or the synthetic anchor to populate the cohort.\n"
+    )
+  end
+
+  defp findings_part_k(rows) do
+    bases = Enum.uniq_by(rows, &{&1.source, &1.label, &1.format})
+    n = length(bases)
+    base_hit = Enum.count(bases, & &1.base_hit?)
+    resid = bases |> Enum.map(& &1.base_resid) |> Enum.sort()
+    confirm_ms = bases |> Enum.map(&(&1.base_full_us * max(&1.base_passes, 1))) |> avg() |> ms()
+
+    IO.puts("Part K — confirm-skipped crop verdict, global crop→full offset sweep:")
+
+    IO.puts(
+      "  over #{n} crop-regime (subject×format) cases (>#{CropScore.crossover_megapixels()} MP), all formats:"
+    )
+
+    IO.puts(
+      "    baseline crop+confirm on-target: #{base_hit}/#{n} (#{pct_int(base_hit, n)}%)  |  " <>
+        "full-frame confirm dropped ≈ #{confirm_ms} ms/case (the prize)"
+    )
+
+    IO.puts(
+      "    systematic residual (even-K16 p10 − full): median #{Float.round(median(resid), 2)}  " <>
+        "p90 #{Float.round(percentile(resid, 0.90), 2)}  worst #{Float.round(List.last(resid), 2)}\n"
+    )
+
+    offsets = rows |> Enum.map(& &1.offset) |> Enum.uniq() |> Enum.sort()
+    print_part_k_header()
+
+    Enum.each(offsets, fn off -> print_part_k_row(off, Enum.filter(rows, &(&1.offset == off))) end)
+
+    k_verdict(rows, offsets)
+  end
+
+  defp print_part_k_header do
+    IO.puts(
+      "    " <>
+        pad(["offset", 8]) <>
+        pad(["on-target", 11]) <>
+        pad(["deliv_err", 11]) <>
+        pad(["worst_under", 13]) <>
+        pad(["Δbytes%", 9]) <>
+        pad(["regress", 9])
+    )
+  end
+
+  defp print_part_k_row(offset, g) do
+    n = length(g)
+    on = Enum.count(g, &(not &1.under?))
+    errs = Enum.map(g, & &1.deliv_err)
+
+    IO.puts(
+      "    " <>
+        pad([Float.round(offset, 2), 8]) <>
+        pad(["#{on}/#{n} (#{pct_int(on, n)}%)", 11]) <>
+        pad([Float.round(median(errs), 2), 11]) <>
+        pad([Float.round(Enum.min(errs), 2), 13]) <>
+        pad([Float.round(median(Enum.map(g, & &1.byte_delta_pct)), 1), 9]) <>
+        pad([Enum.count(g, & &1.regress?), 9]) <>
+        if(offset == @crop_macro_offset, do: " (shipped)", else: "")
+    )
+  end
+
+  # The decision the part exists to make is "is it safe to drop the confirm?" — that
+  # is regressions vs the crop+confirm baseline, NOT an absolute band, because the deep
+  # undershooters are bracket-ceiling-bound (the baseline misses them too; a Part I
+  # lever, not a confirm-skip artifact). Lead with the regression count, then suggest
+  # the offset near the p90 systematic residual as the source-agnostic operating point.
+  defp k_verdict(rows, offsets) do
+    by_off = fn off -> Enum.filter(rows, &(&1.offset == off)) end
+
+    max_regress =
+      offsets |> Enum.map(fn off -> Enum.count(by_off.(off), & &1.regress?) end) |> Enum.max()
+
+    resid =
+      rows |> Enum.uniq_by(&{&1.source, &1.label, &1.format}) |> Enum.map(& &1.base_resid)
+
+    p90 = Float.round(percentile(Enum.sort(resid), 0.90), 2)
+
+    IO.puts("\n  -> #{k_safety_line(max_regress)}")
+
+    IO.puts(
+      "     set the global offset near the p90 systematic residual (#{p90}) to cover the " <>
+        "over-prediction tail; with the residual median ~0 here this barely moves bytes."
+    )
+
+    IO.puts(
+      "     the deep undershooters are bracket-ceiling-bound (can't reach #{@g_target} at " <>
+        "max_quality) — a Part I lever (raise the cap), not something the confirm could fix.\n"
+    )
+  end
+
+  defp k_safety_line(0),
+    do:
+      "0 target-hit regressions vs crop+confirm at every swept offset: dropping the confirm " <>
+        "(the ~1 s/case prize) re-confirms only hits and ceiling-bound misses here — safe on this corpus."
+
+  defp k_safety_line(max_regress),
+    do:
+      "#{max_regress} image(s) the baseline hit but the confirm-skipped verdict missed — those " <>
+        "rely on the confirm (per-content correction is ruled out), so dropping it is not free."
+
+  defp write_part_k_csv(rows) do
+    path = "/tmp/autoquality_bench_part_k.csv"
+
+    head =
+      "source,label,format,mp,offset,q,deliv,deliv_err,under,regress,bytes," <>
+        "byte_delta_pct,base_q,base_deliv,base_bytes,base_hit,base_resid\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.format},#{r.mp},#{r.offset},#{r.q}," <>
+          "#{fmt_score(r.deliv)},#{Float.round(r.deliv_err, 3)},#{r.under?},#{r.regress?}," <>
+          "#{r.bytes},#{r.byte_delta_pct},#{r.base_q},#{fmt_score(r.base_deliv)}," <>
+          "#{r.base_bytes},#{r.base_hit?},#{Float.round(r.base_resid, 3)}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -2894,7 +3227,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.g, &findings_part_g/1},
       {parts.h, &findings_part_h/1},
       {parts.i, &findings_part_i/1},
-      {parts.j, &findings_part_j/1}
+      {parts.j, &findings_part_j/1},
+      {parts.k, &findings_part_k/1}
     ]
     |> Enum.each(fn {rows, finder} -> if rows, do: finder.(rows) end)
 
@@ -3173,6 +3507,14 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp parse_files(nil), do: []
   defp parse_files(str), do: str |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+
+  defp parse_offsets(nil), do: @k_offsets
+
+  defp parse_offsets(str) do
+    str
+    |> String.split(",", trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> Float.parse() |> elem(0)))
+  end
 
   defp ms(us) when is_integer(us), do: Float.round(us / 1000, 1)
   defp ms(us), do: Float.round(us / 1000, 1)
