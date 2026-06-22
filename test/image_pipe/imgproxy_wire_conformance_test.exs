@@ -2697,6 +2697,20 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert score > 50
     end
 
+    test "autoquality:ssim2 with no target (URL or config) succeeds via the ssim2 default" do
+      # No inline target and no config target: the :ssim2 objective falls back to
+      # its shipped default rather than failing with a missing-target 4xx.
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:ssim2/f:jpeg/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert {:ok, _} = Image.from_binary(conn.resp_body)
+    end
+
     test "best-effort: an mb: below the floor-quality encode still returns 200" do
       # mb:1000 is below even the floor (q=1 ≈ 2.7 KB) encode, so the target can't
       # be met. The search must return the floor result (best-effort), never error.

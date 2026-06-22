@@ -304,6 +304,27 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
                  autoquality_method: :none
                )
     end
+
+    test "ssim2 method without a target (URL or config) defaults to the ssim2 target" do
+      out =
+        resolve_output(
+          %{quality_search: {:autoquality, [objective: :ssim2]}},
+          autoquality_method: :none
+        )
+
+      assert out.quality_search.objective == :ssim2
+      assert out.quality_search.target == 78
+    end
+
+    test "config autoquality_target overrides the ssim2 default" do
+      out =
+        resolve_output(
+          %{quality_search: {:autoquality, [objective: :ssim2]}},
+          autoquality_target: 85.0
+        )
+
+      assert out.quality_search.target == 85.0
+    end
   end
 
   test "pipeline separators finalize the current pipeline and start the next one" do

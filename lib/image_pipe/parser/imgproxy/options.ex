@@ -9,6 +9,15 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output.QualitySearch
 
+  # Default SSIMULACRA2 target when an `:ssim2` search is active but neither the
+  # URL nor host config supplies one. Sized to the "very high quality" tier
+  # (≈ imgproxy's DSSIM-0.02 intent) and chosen below the tightest default cap
+  # ceiling so the search lands in-bracket rather than pinning best-effort —
+  # see `docs/imgproxy_support_matrix.md` (Autoquality and byte-budget search).
+  # Objective-specific on purpose: `:size`'s target is a byte count, which has
+  # no sane default, so it stays required.
+  @default_ssim2_target 78
+
   @effect_fields [
     :blur,
     :sharpen,
@@ -397,12 +406,15 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
     end
   end
 
-  defp resolve_quality_search_target(_objective, fields, defaults) do
+  defp resolve_quality_search_target(objective, fields, defaults) do
     case Keyword.get(fields, :target, Keyword.get(defaults, :autoquality_target)) do
-      nil -> {:error, {:invalid_option, :autoquality, :missing_target}}
+      nil -> default_target(objective)
       target -> {:ok, target}
     end
   end
+
+  defp default_target(:ssim2), do: {:ok, @default_ssim2_target}
+  defp default_target(_objective), do: {:error, {:invalid_option, :autoquality, :missing_target}}
 
   defp resolve_metadata_defaults(output, defaults) do
     strip = resolve_bool(output.strip_metadata, Keyword.get(defaults, :strip_metadata, true))
