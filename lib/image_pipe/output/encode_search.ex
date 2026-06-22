@@ -59,6 +59,11 @@ defmodule ImagePipe.Output.EncodeSearch do
   # raising the offset 0→3 nudges on-target only ~35→39 % at ~0 % median byte cost,
   # because the remaining misses are bracket-ceiling-bound, not offset-bound. See
   # `docs/autoquality_benchmark.md` (Part K).
+  #
+  # The calibration is tied to `CropScore`'s `@subsample_k` (16 even tiles) and p10
+  # aggregation: changing the tile count or aggregator silently invalidates this
+  # offset — re-derive it with `mix autoquality.bench --part k` before shipping such
+  # a change.
   @crop_confirm_skipped_offset 2.4
 
   @type outcome :: :hit | :best_effort | :skipped

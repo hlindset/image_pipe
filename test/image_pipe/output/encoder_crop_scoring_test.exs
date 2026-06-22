@@ -94,7 +94,8 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     # No full-frame confirm above the crossover: the crop objective winner ships as-is.
     assert crop.confirm_passes == 0
     # The conservative offset biases the estimate down, so the crop walk can land a
-    # step or two higher than the full-frame pick; 4 is the robust bound.
+    # step or two higher than the full-frame pick; 4 is the robust bound. This bound
+    # tracks @crop_confirm_skipped_offset — retune it together with the offset.
     assert abs(crop.quality - full.quality) <= 4
     # meta.score is the offset-corrected crop estimate the walk converged to; by
     # construction it sits at/above the band floor.
