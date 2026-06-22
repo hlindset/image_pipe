@@ -18,6 +18,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   alias ImgproxyWireConformanceTest.OriginImage
   alias ImgproxyWireConformanceTest.OriginShouldNotFetch
   alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   @source_url_encryption_key "000102030405060708090a0b0c0d0e0f"
   @source_url_encryption_iv <<16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31>>
@@ -56,6 +57,31 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
         |> Image.set_orientation!(6)
         |> Image.write!(:memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  # A >6 MP source so the autoquality `:ssim2` search crosses the crop crossover
+  # (`CropScore.crossover_megapixels/0`) and runs in crop-scoring mode. A
+  # high-frequency zone plate gives the search real detail to score (a flat image
+  # would clear the band at the floor in one probe). 2800² ≈ 7.84 MP. Served as
+  # JPEG so the body stays under the default 10 MB source `max_body_bytes` (an
+  # incompressible zone-plate PNG exceeds it); the decoded source is still 7.84 MP.
+  defmodule LargeSsim2OriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      side = 2800
+      {:ok, z} = Operation.zone(side, side)
+      {:ok, scaled} = Operation.linear(z, [127.5], [127.5])
+      {:ok, uchar} = Operation.cast(scaled, :VIPS_FORMAT_UCHAR)
+      {:ok, gray} = Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
+      {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
+      {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+      body = Image.write!(srgb, :memory, suffix: ".jpg")
 
       conn
       |> Plug.Conn.put_resp_content_type("image/jpeg")
@@ -648,6 +674,49 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: Hdr16OriginImage]}
     ]
   ]
+
+  test "autoquality :ssim2 on a >6 MP source ships the crop verdict with no full-frame confirm (#369)" do
+    # Above the crop crossover the search must ship the crop objective winner with
+    # NO full-frame confirm/bump — the O(pixels) cost that risked the request
+    # deadline. Capture the encode-search verdict through a real Plug request.
+    telemetry_prefix = [:"ip_aq_crop_wire_#{System.unique_integer([:positive])}"]
+    search_stop = telemetry_prefix ++ [:encode, :search, :stop]
+    test_pid = self()
+    handler_id = "aq-crop-wire-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      search_stop,
+      fn _event, _measurements, meta, _config -> send(test_pid, {:search_stop, meta}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
+      ],
+      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      telemetry_prefix: telemetry_prefix
+    ]
+
+    # No resize: the full >6 MP frame is finalized, so the ladder selects crop mode.
+    conn = call_imgproxy("/_/f:jpeg/plain/images/large.jpg", opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+    # A valid, decodable result — the search did not time out or error mid-confirm.
+    assert {2800, 2800} = dimensions(conn)
+
+    assert_receive {:search_stop, meta}
+    assert meta.scorer == :crop
+    assert meta.confirm_passes == 0
+    assert meta.result == :ok
+  end
 
   test "equivalent imgproxy option order shares filesystem cache through real Plug requests" do
     {opts, cache_root} = cached_opts()

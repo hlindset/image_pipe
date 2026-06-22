@@ -397,7 +397,8 @@ full-frame confirm absorbs a *systematic, content-dependent* tile→full-frame r
 touch**. Saliency-guided selection does not earn a production change, and a crop-based
 confirm cannot replace the full-frame one. The only lever left for cheapening the
 confirm on large images is per-content offset calibration (or accepting a bounded
-best-effort sub-target rate above the crossover). *Caveat:* capped single-machine run —
+best-effort sub-target rate above the crossover — the route #369 took; see Part K).
+*Caveat:* capped single-machine run —
 the portable conclusion is the **shape** (systematic ≫ sampling; selector- and
 aggregation-invariant worst-case tail), not the absolute SSIM values.
 
@@ -481,9 +482,11 @@ Reading:
 
 ### Part H — crop+confirm vs full-frame target-hit confidence
 
-Crop scoring (#354) runs above the 6 MP crossover: it estimates the full-frame score
-from K tiles, then **confirms on the full frame** (+ up to 2 bump passes). Part H asks
-how reliably that shipped path hits the target vs the full-frame search, by running
+Crop scoring (#354) ran above the 6 MP crossover by estimating the full-frame score
+from K tiles, then **confirming on the full frame** (+ up to 2 bump passes) — the path
+measured here. (#369/Part K later removed that confirm above the crossover; this part
+characterizes the crop+confirm path it replaced.) Part H asks how reliably that path
+hits the target vs the full-frame search, by running
 **both real production searches** (`EncodeSearch.run`, scorer `:full` / `:crop`) on the
 same images at the production per-format brackets + target 78. The meaningful cohort is
 the >6 MP images where crop actually engages — only `large` (~15 MP photos) and
@@ -612,6 +615,63 @@ The surprise — **tightening `allowed_error` is a far cheaper on-target lever t
 (#354) — on >6 MP content it could raise bump-exhaustion (best-effort just under target)
 slightly. And this is the hard-content corpus; the on-target lift is conservative.
 
+### Part K — dropping the full-frame confirm above the crossover (#369)
+
+Part F proved no *cheaper estimator* (tile selection, aggregation, a learned offset)
+can reproduce the full-frame confirm's verdict within the band. Part K asks the
+complementary, decisive question: **above the crossover, is the confirm worth
+running at all?** Its cost is the surviving size-dependent term — a 6–8 s full-frame
+SSIMULACRA2 on a 37 MP image, re-fired once per bump pass, the trace that motivated
+#369 (a 37.7 MP no-resize→AVIF request spent ~14 s of its 30 s budget in confirm
+metrics and 500'd). The alternative: ship the crop objective winner directly and
+absorb the crop→full residual with a single **conservative global offset** instead of
+a per-image confirm. Method (no production change in the bench): per >6 MP subject ×
+format, run the production crop+confirm path as the baseline, then sweep the
+confirm-skipped path (`EncodeSearch.search/3` with the crop `score_fun` and **no
+`confirm_fun`**) across an offset ladder, scoring each delivered pick with the
+full-frame oracle. `regress` counts images the crop+confirm baseline hit on target
+but the confirm-skipped verdict ships **below** target — the one number that decides
+whether dropping the confirm is safe.
+
+Run over the screen-content cohort (`qoi_web` + `gb82_sc` + `large`, `--corpus-cap 30`,
+Apple Silicon, libvips 8.18.2), **46 crop-regime (subject×format) cases, all three
+formats**, target 78 / band ≥77:
+
+| offset | on-target | median deliv_err | worst_under | Δbytes% | regress |
+|--------|-----------|------------------|-------------|---------|---------|
+| 0.0    | 16/46 (35%) | −1.62 | −14.13 | 0.0 | **0** |
+| 0.5    | 17/46 (37%) | −1.62 | −14.13 | 0.0 | **0** |
+| 1.0    | 17/46 (37%) | −1.62 | −14.13 | 0.0 | **0** |
+| 1.5    | 17/46 (37%) | −1.61 | −14.13 | 0.0 | **0** |
+| 2.0    | 17/46 (37%) | −1.48 | −14.13 | 0.0 | **0** |
+| **2.4 ≈ p90** | 18/46 (39%) | −1.48 | −14.13 | 0.0 | **0** |
+| 3.0    | 18/46 (39%) | −1.48 | −14.13 | 0.0 | **0** |
+
+- **Dropping the confirm regresses nothing.** 0 target-hit regressions at *every*
+  swept offset. The confirm, above the crossover, only re-confirmed images that were
+  already hits or were bracket-ceiling-bound misses it could not rescue anyway — so
+  removing it costs no accuracy on this cohort while removing **≈ 756 ms/case** of
+  full-frame metric (6–8 s on the 37 MP autopsy image), and the search becomes a flat
+  ~4.2 MP objective walk that is **bounded by construction** — it can no longer time
+  out mid-confirm.
+- **The systematic residual is the only thing the offset must cover.** even-K16 p10 −
+  full-frame: **median 0.12, p90 2.42, worst 5.84**, the tail concentrated in
+  `qoi_web` screen content (the offset-0 `worst_under −14.13` is a *different*,
+  bracket-ceiling-bound population — content that cannot reach 78 at `max_quality`
+  even with the confirm; a Part I cap lever, not a confirm-skip artifact).
+- **Operating point: `@crop_confirm_skipped_offset = 2.4` ≈ the residual p90 (2.42).**
+  It covers the over-prediction tail at **~0 % median byte cost** (the residual median
+  is ~0, so the offset only bites the minority of over-predicting screen-content
+  images). Raising it 0→3 nudges on-target only 35→39 %: the remaining misses are
+  bracket-ceiling-bound, not offset-bound, so a larger offset buys almost nothing and
+  a smaller one leaves the tail exposed. p90 is the source-agnostic choice — high
+  enough to cover the tail, low enough to stay byte-free.
+
+*Caveat:* single-machine, screen-content-weighted cohort; the portable conclusion is
+the **shape** (0 regressions; residual median ~0 with a screen-content p90 tail; misses
+ceiling-bound not offset-bound), not the absolute SSIM values — re-run `--part k` to
+re-confirm the offset on other hardware/corpora.
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
@@ -726,6 +786,15 @@ a must-do *interim* guard only until those land. That is what turns "autoquality
 on big images" into "autoquality on, affordably."
 
 #### Shipped calibration (#354)
+
+> **Superseded above the crossover by #369 (Part K).** This section describes the
+> crop **+ full-frame confirm/bump** path #354 shipped. #369 *removed* the confirm
+> above the crossover: production now ships the crop objective winner directly with a
+> conservative offset (`@crop_confirm_skipped_offset = 2.4`, the Part-K residual p90)
+> and **no confirm**. The `@crop_macro_offset = 0.22` calibration below and the
+> confirm/bump bullets are retained as the historical record and now live only in the
+> `mix autoquality.bench` crop+confirm baseline; the live correction lever is Part K's
+> offset.
 
 Crop-scoring shipped in #354 (`ImagePipe.Output.Ssim2Metric.CropScore` +
 `EncodeSearch`/`Encoder`), constants-only at the Part-E operating point

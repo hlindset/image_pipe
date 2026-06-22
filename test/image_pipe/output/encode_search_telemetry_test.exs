@@ -128,7 +128,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
       assert probe.scorer == :crop
       assert probe.tiles_scored == 12
       # estimate (q+26) and authoritative full-frame (q+25) differ by exactly 1.0:
-      # the @crop_macro_offset residual, surfaced for shadow calibration.
+      # the crop→full residual, surfaced for shadow calibration.
       assert_in_delta probe.full_frame_score - probe.crop_estimate, -1.0, 0.001
       assert probe.score == probe.full_frame_score
       assert is_boolean(probe.passed?)
