@@ -773,12 +773,19 @@ stopping early forfeits ~nothing — and cost +0.7–2% bytes on JPEG/AVIF. Sinc
 metric cost is paid **once per cache miss** while the bytes save on **every cache hit**,
 the amortization argues for the full search on any cacheable traffic.
 
-Net: **no change to `EncodeSearch` or the bracket/iteration defaults for the narrow
-caps.** This is the opposite regime from #1/#5 — there the bracket is wide *and* the
-image is large, so the per-probe metric cost dominates and crop-scoring earns its keep;
-here the bracket is already tiny, so there is little metric time to win and a real byte
-cost to lose by stopping early. The lone provably-free micro-stop (drop the final
-confirming probe, ≤0.2% bytes) saves ≤35 ms and isn't worth the added policy surface.
+Net: **keep the full binary search — don't skip probes — on the narrow caps.** This is
+the opposite regime from #1/#5 — there the bracket is wide *and* the image is large, so
+the per-probe metric cost dominates and crop-scoring earns its keep; here the bracket is
+already tiny, so there is little metric time to win and a real byte cost to lose by
+stopping early. The lone provably-free micro-stop (drop the final confirming probe, ≤0.2%
+bytes) saves ≤35 ms and isn't worth the added policy surface.
+
+This finding rejected the **two-sided** variant *on a byte basis only* (it sits among the
+"early-stops" above). [#366](https://github.com/hlindset/image_pipe/issues/366) later
+**adopted** two-sided as the production acceptance rule — not to save probes (it runs the
+same full search) but to deliver the configured quality honestly (#9), accepting the
++0.3–0.8 % byte cost Part G measured. So #6's surviving conclusion is narrow: *don't skip
+probes*. It is **not** an endorsement of floor-walking, which #366 replaced.
 
 ### 7. Crop scoring is trustworthy — safe to lean on harder
 
@@ -798,37 +805,49 @@ Part I swept `max_quality` per format. Raising it lifts target-hit only **modest
 with hard diminishing returns** (jpeg +6.6 pts by q90, webp +9.3 by q95, avif +2.7 by
 q70; most images still miss target at the top of the sweep), because the cap only
 rescues the genuinely *ceiling-pinned* minority. The larger "under target" population
-ships *in-band below the ceiling* by design (`allowed_error = 1` accepts ≥ 77 and takes
-the lowest such q), so the cap can't touch it — only `target` / `allowed_error` can, and
-those were deliberately set to ship smaller files (#2). Net: the cap is not a hidden
-quality win. If a host wants more on-target for a content class, the cheap top-ups are
+ships *in-band below the ceiling* — under the old lowest-satisfying search by design (it
+took the lowest q clearing `target − allowed_error`); #366's walk-to-target now ships that
+population nearer the target instead (see #9), so the cap was never the lever for it. Net:
+the cap is not a hidden quality win. If a host wants more on-target for a content class, the cheap top-ups are
 **webp → 90, jpeg → 90, avif → 70** (beyond is pure byte/latency cost), and the real
 quality/size dial remains `target`/`allowed_error` — a deliberate per-host choice, not a
 defaults change. (Conservative read: this corpus is hard content; easier content
 converts more cheaply.)
 
-### 9. `allowed_error` is the cheap on-target lever — far better ROI than the cap
+### 9. Walk-to-target is the shipped fix for the under-delivery Part J measured
 
-Part J swept `allowed_error` at fixed target 78 and overturned the assumption (from #8)
-that it's a *broad-cost* dial. On this corpus, tightening it from the default `1.0` to
-`0` buys **+15–21 points of on-target rate for ~0–2.5 kB average** (jpeg 20→39%, webp
-11→25%, avif 41→63%; the median avif image crosses the target). It's near-free because
-`allowed_error = 1` deliberately ships boundary images scoring 77.x — tightening to 0
-nudges *just those* over 78, usually one quality step each, so the median image is
-untouched (median Δbytes 0%) and only the ~15–20% sitting in `[77, 78)` move. Compare the
-cap (#8): +6–9 pts for +70 kB / +12.8%.
+**Superseded by [#366](https://github.com/hlindset/image_pipe/issues/366): the search now
+walks to target.** Parts G and J both diagnosed the same defect in the *old*
+lowest-satisfying search: it walked **down** to the floor (the lowest quality scoring
+`≥ target − allowed_error`), so with `allowed_error = 1` it deliberately shipped boundary
+images at ~77.x — systematically *under*-delivering the configured target. Part J showed
+that tightening `allowed_error` 1→0 bought **+15–21 points of on-target rate for ~0–2.5 kB**
+(jpeg 20→39%, webp 11→25%, avif 41→63%), and Part G's **two-sided** variant got the same
+on-target lift structurally — converging toward the target instead of the floor — for
+**+0.3–0.8 % bytes** (below the worth-optimizing threshold). #366 shipped the two-sided
+variant as the production semantics:
 
-So the lever hierarchy for **on-target rate**, cheapest first:
+- `allowed_error` is now a **symmetric** stopping tolerance: the search accepts the first
+  quality in `[target − allowed_error, target + allowed_error]` and stops, rather than
+  minimizing quality below the floor. The on-target lift Part J extracted by forcing
+  `allowed_error → 0` is now delivered by default, at any band width.
+- The big autoquality byte savings survive: easy images still ship at the lowest quality
+  that *reaches* target (both semantics ship those identically); walk-to-floor only ever
+  squeezed the thin `[target − ae, target)` sliver, which is exactly the under-delivery
+  #366 removed.
+- The default `allowed_error = 1` is retained — under symmetric semantics it is an
+  intuitive ±1-point tolerance around the target, not a downward sacrifice.
 
-1. **Lower `allowed_error` toward 0** — biggest, cheapest on-target lift (flips
-   boundary-sitters). The real dial.
-2. **Raise `max_quality`** (#8) — a smaller top-up for ceiling-pinned content, with real
-   byte cost; complements (1), doesn't replace it.
+So the lever hierarchy for **on-target rate**, cheapest first, under the shipped semantics:
 
-Both are **host policy choices, not defaults changes** — the shipped `allowed_error = 1`
-is the correct *bytes-favoring* default (it's what lets the search ship smaller files),
-and the doc's job is to show hosts the exact trade so they can pick. *Caveat:*
-`allowed_error = 0` removes the slack the crop confirm/bump uses on >6 MP content (#354,
+1. **Lower `allowed_error`** — tightens the band around the target. With walk-to-target the
+   default `1.0` already delivers near-target, so this is a fine-tuning knob, not the broad
+   lift it was against the old floor-walking search.
+2. **Raise `max_quality`** (#8) — a top-up for genuinely ceiling-pinned content, with real
+   byte cost.
+
+Both are **host policy choices, not defaults changes**. *Caveat:* a very tight
+`allowed_error` shrinks the band the crop confirm/bump leans on for >6 MP content (#354,
 #7), so pair an aggressive setting with a check on bump-exhaustion there.
 
 ## The bottom line across A–J
@@ -841,12 +860,13 @@ subset at native resolution* (Part E) — that tracks within ±~1.5 pts and, as 
 tile budget, makes per-probe cost size-independent. So:
 
 - **Ship now:** the resolution cap (#1, *interim* — see below), objective/bracket
-  defaults unchanged (#2), the full lowest-satisfying search on the narrow format caps
-  unchanged (#6 — the small search space still has a real byte payoff, amortized away by
-  caching), and the per-format `max_quality` caps unchanged (#8). Defaults stand; the two
-  quality/size dials hosts should reach for, in order, are **`allowed_error` (cheap
-  on-target lift, #9)** then **`max_quality` (ceiling-pinned top-up, #8)** — both host
-  policy, not defaults changes.
+  defaults unchanged (#2), the **walk-to-target** search ([#366](https://github.com/hlindset/image_pipe/issues/366),
+  Part G's two-sided variant — converges to the target instead of the band floor, #9) on
+  the narrow format caps (the small search space still has a real byte payoff, amortized
+  away by caching), and the per-format `max_quality` caps unchanged (#8). Defaults stand;
+  the two quality/size dials hosts should reach for, in order, are **`allowed_error` (band
+  width around the target, #9)** then **`max_quality` (ceiling-pinned top-up, #8)** — both
+  host policy, not defaults changes.
 - **Don't ship:** the naïve proxy (#3), PSNR narrowing (#4), or saliency-guided tile
   selection (Part F) — even-spacing is already a near-optimal spatial sampler, and the
   full-frame confirm absorbs a *systematic* residual that tile choice cannot touch.
