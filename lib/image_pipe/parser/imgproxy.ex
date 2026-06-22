@@ -52,9 +52,16 @@ defmodule ImagePipe.Parser.Imgproxy do
                      preserve_hdr: [type: :boolean, default: false],
                      smart_crop_face_detection: [type: :boolean, default: false],
                      autoquality_method: [type: {:in, [:none, :size, :ssim2]}, default: :none],
+                     # No schema default: the target's scale is objective-dependent
+                     # (SSIMULACRA2 score for `:ssim2`, byte count for `:size`), so the
+                     # `:ssim2` default is applied objective-aware in `Options`; `:size`
+                     # stays required. A host-set value overrides for either objective.
                      autoquality_target: [type: {:or, [:integer, :float]}],
                      autoquality_min_quality: [type: :pos_integer, default: 70],
                      autoquality_max_quality: [type: :pos_integer, default: 80],
+                     # SSIMULACRA2-scale band (points on 0–100), NOT imgproxy's DSSIM
+                     # `allowed_error` (0–1, 1.0 = accept anything); here 1.0 is a strict
+                     # one-point band. Applies only to `:ssim2`. See QualitySearch.
                      autoquality_allowed_error: [type: {:or, [:integer, :float]}, default: 1.0],
                      autoquality_format_min_quality: [
                        type: {:map, :atom, :pos_integer},

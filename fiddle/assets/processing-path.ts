@@ -435,7 +435,7 @@ export const defaultFiddleState: FiddleState = {
   quality: 85,
   autoqualityMethod: "none",
   autoqualitySizeTarget: 50000,
-  autoqualitySsim2Target: 90,
+  autoqualitySsim2Target: 78,
   autoqualityMinQuality: 70,
   autoqualityMaxQuality: 90,
   autoqualityAllowedError: 1,
