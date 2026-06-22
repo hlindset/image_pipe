@@ -18,10 +18,12 @@ mise exec -- mix autoquality.bench --part c   # downscaled-proxy-seed method + a
 mise exec -- mix autoquality.bench --part d   # cheap full-res metric narrowing
 mise exec -- mix autoquality.corpus           # fetch the Part E corpus (one-time)
 mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring, per source
-mise exec -- mix autoquality.bench --part all # A + B + C + D + E
+mise exec -- mix autoquality.bench --part f --corpus DIR  # saliency tile selection vs confirm
+mise exec -- mix autoquality.bench --part g --corpus DIR  # early-stop vs full search, per format cap
+mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
-mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c,e}.csv
+mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c,e,f,g}.csv
 ```
 
 > **Part E corpus.** Part E needs content-diverse, license-clean images the
@@ -399,6 +401,217 @@ best-effort sub-target rate above the crossover). *Caveat:* capped single-machin
 the portable conclusion is the **shape** (systematic ≫ sampling; selector- and
 aggregation-invariant worst-case tail), not the absolute SSIM values.
 
+### Part G — early-stop vs lowest-satisfying on the narrow format caps
+
+Parts A–F attack the *per-probe* metric cost on **large** images. Part G asks the
+opposite question on the **narrow per-format caps**, where the bracket is tiny — AVIF
+`[60,65]` (6 qualities, ≤3 probes), WebP / JPEG `[70,80]` (11 qualities, ~4 probes) —
+so the search space is small and the ROI of running to the *lowest-satisfying* quality
+is in doubt: is the extra metric time worth the bytes it saves vs stopping early (or
+not searching at all)? Measurement only — `EncodeSearch` is untouched; each stop policy
+is replicated in the bench over a shared per-`(subject, format, q)` encode+decode+score
+cache (so each variant's probes / metric ms / delivered bytes are its own), with
+brackets resolved through the **real** production per-format caps, target 78,
+`allowed_error 1` (band ≥77), full-frame scorer. Run over the pinned codec-corpus
+(`--corpus-cap 12`, Apple Silicon, libvips 8.18.2). Δms / ΔkB are per-image vs the
+*same image's* full search, macro-averaged over the 7 sources. A negative Δms is time
+the full search spends that the variant saves; a positive ΔkB is bytes the full search
+saves that the variant ships.
+
+Macro-average per format (baseline = **full**, lowest-satisfying):
+
+| format (bracket) | variant | Δms | ΔkB | Δ% | under-target | verdict |
+|---|---|---|---|---|---|---|
+| **jpeg** `[70,80]` (full: 1308 ms, 74% under) | wguard≤1–5 | 0 | 0 | 0% | 74% | ≡ baseline (never trips) |
+| | wguard≤10 | −1528 | +20.98 | +5.9% | 56% | keep full search |
+| | itercap=2 | −395 | +2.85 | +0.7% | 71% | keep full search |
+| | itercap=3 | −16 | +0.27 | +0.2% | 74% | early-stop ≈ free |
+| | first-accept | −569 | +6.60 | +1.7% | 65% | keep full search |
+| | two-sided | −44 | +0.54 | +0.6% | 66% | marginal |
+| | floor-first | −387 | 0.00 | 0% | 74% | win (floor clears) |
+| **webp** `[70,80]` (full: 1045 ms, 89% under) | wguard≤10 | −1961 | +2.85 | +2.9% | 75% | keep full search |
+| | itercap=2 | −554 | +0.32 | +0.5% | 85% | **early-stop wins** |
+| | itercap=3 | −35 | +0.12 | +0.1% | 89% | **early-stop wins** |
+| | first-accept | −136 | +0.50 | +0.6% | 85% | **early-stop wins** |
+| | two-sided | −88 | +0.22 | +0.3% | 87% | **early-stop wins** |
+| | floor-first | +432 | 0.00 | 0% | 89% | slower, no win |
+| **avif** `[60,65]` (full: 706 ms, 56% under) | wguard≤5 (trips) | −1785 | +16.59 | +5.8% | 34% | keep full search |
+| | itercap=2 | −239 | +0.56 | +0.3% | 52% | marginal |
+| | itercap=3 | 0 | 0 | 0% | 56% | ≡ baseline (≤3 probes) |
+| | first-accept | −904 | +4.96 | +2.0% | 44% | keep full search |
+| | two-sided | −549 | +1.73 | +0.8% | 44% | marginal |
+| | floor-first | −339 | −0.11 | −0.1% | 56% | win (floor clears) |
+
+Reading:
+
+- **The width guard is the wrong lever wherever it actually trips.** Skipping the
+  search and encoding at `max_quality` *looks* free on a tiny bracket, but on real
+  photographic / screen content even the narrow AVIF `[60,65]` bracket holds real byte
+  spread: the full search recovers **+16.6 kB / +5.8%** on AVIF, **+21 kB / +5.9%** on
+  JPEG (`[70,80]`, wguard≤10), **+2.9%** on WebP — and shipping `max_quality` *raises*
+  the under-target rate's denominator (more bytes, scores above where needed). The
+  width guard only ever "wins" by being a **no-op** — it never trips below the bracket
+  width (AVIF at N=5, WebP/JPEG at N=10), and the moment it does trip it ships
+  meaningfully bigger files. **A small search space does not imply a small byte
+  payoff.**
+- **The gentle early-stops (itercap / first-accept / two-sided) are format-dependent.**
+  On **WebP** they are genuine wins (save 35–554 ms of metric, ship ≤0.5 kB / ≤0.6%
+  more) — because WebP photos are best-effort-*under*-target by design (89% under), so
+  the search mostly pins to the bracket edge and stopping early forfeits almost no
+  bytes. On **JPEG/AVIF** the same stops recover less cleanly (+0.7–2.0% bytes for the
+  aggressive ones), because those brackets more often contain a genuinely-lower
+  satisfying quality worth finding. The only universally-free stop is dropping the last
+  *confirming* probe (`itercap=3`, ≤0.2% bytes, ≈0 on AVIF), but its time saving is tiny
+  (≤35 ms).
+- **floor-first** is free when the floor clears the band (AVIF photos: q60 often clears
+  → −339 ms, ΔkB ≈ 0) but a wasted probe when it doesn't (WebP/JPEG screenshots where
+  q70 never clears → +432 ms, no win).
+- **Amortization decides the marginal cases.** Every Δms is paid **once per cache
+  miss**; every ΔkB is paid on **every cache hit**. So for cacheable traffic even the
+  +0.3–2% ΔkB of the aggressive early-stops argues for keeping the full search (the
+  bytes save forever, the probe cost is paid once); the early-stop only clearly wins
+  when ΔkB ≈ 0 (WebP, `itercap=3`) or the content is low-hit / unique.
+- A real-world aside surfaced by the run: large screenshots (`phoboslab.org.png`,
+  >16383 px) **can't encode to WebP/AVIF at all** (codec dimension limit) and were
+  skipped — for such sources the narrow-cap question is moot.
+
+*Caveat:* single-machine, `--corpus-cap 12` run — the portable conclusions are the
+**signs and rough magnitudes** (width-guard ships real bytes; WebP early-stops are
+~free; JPEG/AVIF early-stops cost real bytes), not the exact ms/kB.
+
+### Part H — crop+confirm vs full-frame target-hit confidence
+
+Crop scoring (#354) runs above the 6 MP crossover: it estimates the full-frame score
+from K tiles, then **confirms on the full frame** (+ up to 2 bump passes). Part H asks
+how reliably that shipped path hits the target vs the full-frame search, by running
+**both real production searches** (`EncodeSearch.run`, scorer `:full` / `:crop`) on the
+same images at the production per-format brackets + target 78. The meaningful cohort is
+the >6 MP images where crop actually engages — only `large` (~15 MP photos) and
+`qoi_web` (big screenshots) qualify, **46 image×format cases** (`--corpus-cap 14`).
+
+| | crop-regime cohort (46 cases, all formats) |
+|---|---|
+| full-frame hit target | 14/46 (**30%**) |
+| crop+confirm hit target | 15/46 (**33%**) |
+| **crop regressions** (full hit, crop missed) | **0/46 (0%)** |
+| crop improvements (crop hit, full missed) | 1 |
+| delivered Δscore (crop − full) | median **0.0**, worst undershoot **−0.24**, worst over +1.12 |
+| bump fired / bump exhausted | 4/46 / 25/46 |
+
+Reading:
+
+- **Crop+confirm reproduces the full-frame target-hit decision essentially exactly** —
+  zero regressions, worst delivered undershoot a quarter of a point, and for most images
+  crop and full land on the *same* quality (Δscore median 0.0). The full-frame confirm
+  fully absorbs the crop estimate's systematic residual, as designed. This is the
+  evidence that crop scoring is safe to lean on harder (e.g. a lower crossover).
+- **The low absolute hit rate (30%) is the bracket ceiling on hard content, not crop
+  error.** These are large photos and text screenshots that can't reach SSIM 78 within
+  `[70,80]`/`[60,65]`, so they ship best-effort under target *regardless of scorer* —
+  full-frame also only hits 30%. The crop-vs-full *delta* is the confidence signal, and
+  it's ~0.
+- **"bump exhausted 25/46" is not crop failing 54% of the time.** Those are images where
+  the confirm undershot and the 2-step bump couldn't reach target — but full-frame misses
+  the *same* images (regressions = 0). It's the content/bracket ceiling; when crop
+  *could* matter, the bump caught it (fired and recovered on 4).
+
+*Caveat:* N = 46 because the corpus is light on >6 MP content, and it's exactly the hard
+classes the #354 calibration flagged for the residual tail — so a fair stress test, and
+crop still showed **zero target-hit regressions**. Portable conclusion is the shape (no
+regressions; confirm absorbs the residual), not the 30/33%.
+
+### Part I — raising `max_quality`: under-target drop vs byte cost vs latency
+
+Parts G/H surfaced that most images ship *under* target because the bracket ceiling is
+too low to reach 78, not because the search is wrong. Part I quantifies that lever: per
+format, sweep `max_quality` (jpeg/webp `[80,85,90,95]`, avif `[65,70,75,80]`; first =
+shipped default), keep `min_quality`, run the real lowest-satisfying search at each over
+a shared per-`(image, q)` cache, and compare each candidate to the shipped-default
+bracket on the *same* image. Full-frame scorer (Part H showed crop reproduces it),
+codec-corpus, `--corpus-cap 12`.
+
+| format (default) | cap | hit% | Δhit | avg ΔkB | Δmetric ms |
+|---|---|---|---|---|---|
+| **jpeg** (80) | 80 | 20% | — | — | — |
+| | 85 | 20% | +0.0 | +26 | +84 |
+| | 90 | 26% | **+6.6** | +71 | +108 |
+| | 95 | 26% | +6.6 | +84 | +140 |
+| **webp** (80) | 80 | 11% | — | — | — |
+| | 85 | 13% | +2.7 | +43 (median +11.2%) | +105 |
+| | 90 | 19% | **+8.0** | +68 (+12.8%) | +108 |
+| | 95 | 20% | +9.3 | +80 (+12.8%) | +161 |
+| **avif** (65) | 65 | 41% | — | — | — |
+| | 70 | 44% | **+2.7** | +10 | +167 |
+| | 75 | 44% | +2.7 | +12 | +295 |
+| | 80 | 44% | +2.7 | +13 | +334 |
+
+Reading — the cap is a **smaller lever than "30–89% under target" suggested**:
+
+- **Modest, hard-diminishing lift.** jpeg maxes out by q90 (+6.6 pts), avif by q70
+  (+2.7), only webp keeps creeping to q95 (+9.3). Even at the top of the sweep most
+  images still miss target (jpeg 26%, webp 20%, avif 44%).
+- **The cap only rescues the genuinely ceiling-pinned minority.** `allowed_error = 1`
+  lets the search accept any quality scoring ≥ 77 and ship the *lowest* one — so a large
+  share of "under target" images ship in-band at e.g. 77.4 *below the ceiling*, and
+  raising the ceiling does nothing for them (that's why jpeg/avif median Δbytes is 0
+  while the mean ΔkB is driven by the few ceiling-pinned images). webp is the most
+  ceiling-starved, so it gains most **and** pays a broad +12.8% median.
+- **The real dial for the large in-band-but-under-78 population is `target` /
+  `allowed_error`, not the cap** — and `allowed_error = 1` was chosen precisely to ship
+  smaller files. That's the doc's existing "target 78 is a high bar" finding (#2),
+  re-confirmed from the other direction.
+
+Sweet spots if more on-target is wanted: **webp → 90, jpeg → 90, avif → 70**; beyond
+those is pure byte/latency cost. *Caveat:* this corpus is deliberately hard content
+(photos/screenshots), so it's a conservative read — easier content (product shots,
+graphics) converts more, more cheaply.
+
+### Part J — sweeping `allowed_error`: on-target rate vs byte cost
+
+Part I's other half. The cap only rescues *ceiling-pinned* images; the larger "under
+target" population ships *in-band below the ceiling* because `allowed_error` accepts the
+lowest quality scoring `≥ target − allowed_error`. The lever for that population is the
+acceptance band. Part J sweeps `allowed_error` `[0, 0.5, 1.0, 1.5, 2.0]` at fixed target
+78 (default 1.0), shipped brackets, over a shared per-`(image, q)` cache (the score is
+band-independent), comparing each candidate to the default on the same image.
+
+| format (bracket) | allowed_error | hit% | Δhit | median delivered score | avg ΔkB | Δmetric ms |
+|---|---|---|---|---|---|---|
+| **jpeg** `[70,80]` | 0 | 39% | **+19.7** | 77.05 | +1.8 | −1.4 |
+| | 0.5 | 25% | +5.3 | 77.05 | +1.1 | −5.1 |
+| | 1.0 (default) | 20% | — | 77.03 | — | — |
+| | 2.0 | 16% | −3.9 | 76.20 | −4.0 | −21.0 |
+| **webp** `[70,80]` | 0 | 25% | **+14.7** | 74.82 | +1.2 | −1.4 |
+| | 1.0 (default) | 11% | — | 74.82 | — | — |
+| | 2.0 | 8% | −2.7 | 74.82 | −1.3 | −14.2 |
+| **avif** `[60,65]` | 0 | 63% | **+21.3** | 78.26 | +2.5 | +20.3 |
+| | 0.5 | 52% | +10.7 | 78.04 | +1.1 | +2.0 |
+| | 1.0 (default) | 41% | — | 77.50 | — | — |
+| | 2.0 | 40% | −1.3 | 77.22 | −2.3 | −40.8 |
+
+The surprise — **tightening `allowed_error` is a far cheaper on-target lever than the cap**:
+
+- **Going `allowed_error` 1 → 0 buys +15–21 points of on-target rate for ~0–2.5 kB** (jpeg
+  20→39%, webp 11→25%, avif 41→63%). Compare Part I: the cap bought +6–9 pts for +70 kB
+  (jpeg) / +12.8% (webp). For avif the median delivered score crosses the target (77.5 →
+  78.26) — the median avif image becomes on-target.
+- **Why it's nearly free in bytes:** at `allowed_error = 1` the search deliberately ships
+  images scoring 77.x (just under target). Tightening to 0 nudges exactly those
+  boundary-sitters over the line — usually a single quality step, a few % each. The
+  *median* image is untouched (it either clears both 77 and 78 at the same integer
+  quality, or is ceiling-pinned and ships the ceiling regardless), so median Δbytes is 0%
+  and the corpus-average cost is small; the lift comes from the ~15–20% of images sitting
+  in `[77, 78)`. Latency is flat-to-lower (no extra probes).
+- **It composes with the cap, doesn't replace it.** `allowed_error` flips
+  *boundary-sitters* (reach 77, not 78); the cap (Part I) rescues *ceiling-pinned* images
+  (can't reach 77). webp's median stays at 74.82 across the sweep because most webp images
+  are ceiling-pinned below 77 — there `allowed_error` only flips the minority that *can*
+  reach the boundary, and the cap is the lever for the rest.
+
+*Caveat:* `allowed_error = 0` removes the band slack the crop confirm/bump leans on
+(#354) — on >6 MP content it could raise bump-exhaustion (best-effort just under target)
+slightly. And this is the hard-content corpus; the on-target lift is conservative.
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
@@ -547,7 +760,78 @@ reproduced the Part-E numbers:
   1.1×; a loss below the ~6 MP crossover (where full-frame is cheap), confirming the
   crossover. Sub-sample penalty ≤0.62; worst tile in a smooth region 3/113.
 
-## The bottom line across A–F
+### 6. The narrow format caps don't justify an early-stop — keep the full search
+
+Part G tested whether the tiny per-format brackets (AVIF `[60,65]`, WebP/JPEG
+`[70,80]`) make running to the lowest-satisfying quality not worth the metric probes.
+**They don't justify a change.** The search space is small but the byte payoff is not:
+on real content the full search recovers real bytes even inside AVIF's 6-quality
+bracket (+5.8%), and a width guard that skips to `max_quality` ships those bytes back
+the moment it trips. The gentler early-stops (first-accept / two-sided / itercap) only
+clear their byte cost on WebP — where photos are best-effort-under-target by design, so
+stopping early forfeits ~nothing — and cost +0.7–2% bytes on JPEG/AVIF. Since the
+metric cost is paid **once per cache miss** while the bytes save on **every cache hit**,
+the amortization argues for the full search on any cacheable traffic.
+
+Net: **no change to `EncodeSearch` or the bracket/iteration defaults for the narrow
+caps.** This is the opposite regime from #1/#5 — there the bracket is wide *and* the
+image is large, so the per-probe metric cost dominates and crop-scoring earns its keep;
+here the bracket is already tiny, so there is little metric time to win and a real byte
+cost to lose by stopping early. The lone provably-free micro-stop (drop the final
+confirming probe, ≤0.2% bytes) saves ≤35 ms and isn't worth the added policy surface.
+
+### 7. Crop scoring is trustworthy — safe to lean on harder
+
+Part H validated the shipped crop path (#354) head-to-head against full-frame on the
+same images: on the >6 MP cohort it produced **zero target-hit regressions** and a
+worst delivered undershoot of −0.24 pts — the full-frame confirm fully absorbs the crop
+estimate's systematic residual. Crop is not a quality risk. That de-risks two follow-ups
+already on the table: **lowering the 6 MP crossover** (to capture the size-independent
+per-probe metric cost on the 2–6 MP band that's still on full-frame — most real delivery
+sizes) and **retiring `max_resolution` toward a policy knob** (#5), both of which lean on
+"crop is safe." Validate a lower crossover on more >6 MP content first — Part H's N is
+only 46 because the corpus is light on big images. No change to crop itself.
+
+### 8. The bracket cap is a small per-format top-up, not the quality lever
+
+Part I swept `max_quality` per format. Raising it lifts target-hit only **modestly and
+with hard diminishing returns** (jpeg +6.6 pts by q90, webp +9.3 by q95, avif +2.7 by
+q70; most images still miss target at the top of the sweep), because the cap only
+rescues the genuinely *ceiling-pinned* minority. The larger "under target" population
+ships *in-band below the ceiling* by design (`allowed_error = 1` accepts ≥ 77 and takes
+the lowest such q), so the cap can't touch it — only `target` / `allowed_error` can, and
+those were deliberately set to ship smaller files (#2). Net: the cap is not a hidden
+quality win. If a host wants more on-target for a content class, the cheap top-ups are
+**webp → 90, jpeg → 90, avif → 70** (beyond is pure byte/latency cost), and the real
+quality/size dial remains `target`/`allowed_error` — a deliberate per-host choice, not a
+defaults change. (Conservative read: this corpus is hard content; easier content
+converts more cheaply.)
+
+### 9. `allowed_error` is the cheap on-target lever — far better ROI than the cap
+
+Part J swept `allowed_error` at fixed target 78 and overturned the assumption (from #8)
+that it's a *broad-cost* dial. On this corpus, tightening it from the default `1.0` to
+`0` buys **+15–21 points of on-target rate for ~0–2.5 kB average** (jpeg 20→39%, webp
+11→25%, avif 41→63%; the median avif image crosses the target). It's near-free because
+`allowed_error = 1` deliberately ships boundary images scoring 77.x — tightening to 0
+nudges *just those* over 78, usually one quality step each, so the median image is
+untouched (median Δbytes 0%) and only the ~15–20% sitting in `[77, 78)` move. Compare the
+cap (#8): +6–9 pts for +70 kB / +12.8%.
+
+So the lever hierarchy for **on-target rate**, cheapest first:
+
+1. **Lower `allowed_error` toward 0** — biggest, cheapest on-target lift (flips
+   boundary-sitters). The real dial.
+2. **Raise `max_quality`** (#8) — a smaller top-up for ceiling-pinned content, with real
+   byte cost; complements (1), doesn't replace it.
+
+Both are **host policy choices, not defaults changes** — the shipped `allowed_error = 1`
+is the correct *bytes-favoring* default (it's what lets the search ship smaller files),
+and the doc's job is to show hosts the exact trade so they can pick. *Caveat:*
+`allowed_error = 0` removes the slack the crop confirm/bump uses on >6 MP content (#354,
+#7), so pair an aggressive setting with a check on bump-exhaustion there.
+
+## The bottom line across A–J
 
 The SSIMULACRA2 quality boundary is **genuinely content-dependent and not cheaply
 predictable by a *stand-in* for the metric** — neither a reduced-resolution proxy
@@ -557,14 +841,21 @@ subset at native resolution* (Part E) — that tracks within ±~1.5 pts and, as 
 tile budget, makes per-probe cost size-independent. So:
 
 - **Ship now:** the resolution cap (#1, *interim* — see below), objective/bracket
-  defaults unchanged (#2).
+  defaults unchanged (#2), the full lowest-satisfying search on the narrow format caps
+  unchanged (#6 — the small search space still has a real byte payoff, amortized away by
+  caching), and the per-format `max_quality` caps unchanged (#8). Defaults stand; the two
+  quality/size dials hosts should reach for, in order, are **`allowed_error` (cheap
+  on-target lift, #9)** then **`max_quality` (ceiling-pinned top-up, #8)** — both host
+  policy, not defaults changes.
 - **Don't ship:** the naïve proxy (#3), PSNR narrowing (#4), or saliency-guided tile
   selection (Part F) — even-spacing is already a near-optimal spatial sampler, and the
   full-frame confirm absorbs a *systematic* residual that tile choice cannot touch.
-- **Prototype next:** crop-based scoring above an internal ~6 MP crossover (#5) — the
-  genuine speedup, "autoquality stays on, affordably" for large images. It plus a
-  wall-clock deadline + the existing `max_input_pixels` then make the resolution cap
-  redundant as a *cost* guard, so the cap retires to an optional policy knob.
+- **Prototype next:** crop-based scoring shipped (#5); the next step it unlocks is
+  **lowering the 6 MP crossover** to capture the size-independent per-probe cost on the
+  2–6 MP band — de-risked by #7 (crop produced zero target-hit regressions vs full-frame),
+  pending validation on more >6 MP content. That plus a wall-clock deadline + the
+  existing `max_input_pixels` make the resolution cap redundant as a *cost* guard, so it
+  retires to an optional policy knob.
 - **Endgame, if needed:** a cheaper perceptual metric in-stack, a learned per-content
   quality predictor, or — to cheapen the surviving full-frame confirm on large images —
   per-content offset calibration. (Part F ruled out the cheaper alternatives: neither a

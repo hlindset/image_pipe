@@ -20,7 +20,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
       mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring, per source
       mise exec -- mix autoquality.bench --part e --corpus DIR --corpus-cap 24  # cap/source
       mise exec -- mix autoquality.bench --part f --corpus DIR  # saliency selection vs confirm
-      mise exec -- mix autoquality.bench --part all      # A + B + C + D + E + F
+      mise exec -- mix autoquality.bench --part g --corpus DIR  # early-stop vs full search, per format cap
+      mise exec -- mix autoquality.bench --part h --corpus DIR  # crop+confirm vs full-frame target-hit confidence
+      mise exec -- mix autoquality.bench --part i --corpus DIR  # raise max_quality: under-target vs bytes vs latency
+      mise exec -- mix autoquality.bench --part j --corpus DIR  # sweep allowed_error: on-target vs byte cost
+      mise exec -- mix autoquality.bench --part all      # A + B + C + D + E + F + G + H + I + J
       mise exec -- mix autoquality.bench --mps 1,4,9     # custom Part A megapixels
       mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
       mise exec -- mix autoquality.bench --part c --proxy-files a.jpg,b.jpg # large real photos
@@ -165,6 +169,98 @@ defmodule Mix.Tasks.Autoquality.Bench do
   Needs the corpus (`mix autoquality.corpus`, plus large photos for the size-dependent
   regime where the confirm cost is largest); the committed fallback sources are ≤ K
   tiles, so selection is a no-op on them.
+
+  ## Part G — early-stop vs lowest-satisfying on the narrow format caps
+
+  The shipped `:ssim2` search runs to the **lowest-satisfying** quality (lowest q in
+  the bracket scoring `≥ target − allowed_error`). On the narrow per-format caps —
+  AVIF `[60,65]`, WebP / JPEG `[70,80]` — the bracket holds only a handful of integer
+  qualities, so the question is whether the extra metric probes the full search spends
+  narrowing down to the *lowest* satisfying q buy enough bytes to be worth their cost,
+  or whether an early stop (or no search at all) ships essentially the same bytes far
+  cheaper. The metric dominates the search cost (Part A), and the cost is paid once per
+  **cache miss** while the bytes save on **every hit**, so a small ΔkB can still justify
+  the search for cacheable traffic — the early stop only clearly wins when ΔkB ≈ 0 or
+  the content is low-hit / unique.
+
+  Measurement only — `EncodeSearch` is untouched; each stop policy is replicated in the
+  bench over a shared per-`(subject, format, q)` encode+decode+score cache (Part F's
+  memoization), so every variant's probe count / metric ms / delivered bytes is its own
+  even though work is reused. Brackets resolve through the **real** production per-format
+  caps (`autoquality_format_min/max_quality`, base `[#{70},#{80}]`, `avif [#{60},#{65}]`),
+  target #{78}, allowed_error #{1} (band `≥ #{77}`), scorer = full-frame ssim2 (the
+  default for normal-size images), per format (jpeg, webp, avif) over the corpus.
+
+  Variants vs the full-search baseline (1):
+
+    1. **full** — lowest-satisfying binary search (production today). Baseline.
+    2. **wguard≤N** — if `max−min ≤ N`, skip the search entirely and encode at
+       `max_quality` (1 encode, no metric, no reference). N ∈ #{inspect([1, 2, 3, 5, 10])}
+       (AVIF's width-5 bracket trips at N=5, WebP/JPEG's width-10 at N=10).
+    3. **itercap=M** — full search capped at M distinct encodes, ship best-so-far.
+       M ∈ #{inspect([2, 3])}.
+    4. **first-accept** — binary search, ship the first probed q clearing the band
+       instead of narrowing down to the lowest satisfying.
+    5. **two-sided** — binary search, ship the first probe inside `[target−ae, target+ae]`
+       (`[#{77},#{79}]`); overshoot → go lower, undershoot → go higher.
+    6. **floor-first** — probe `min_quality` first; ship it if it clears the band,
+       else fall back to the full search.
+
+  Per `(source, format)` and macro-averaged per format, each variant reports probes,
+  metric ms (and total ms), delivered bytes (kB), Δms and ΔkB (absolute + %) vs the
+  full-search baseline (the extra time the full search spends / the extra bytes it
+  saves by continuing), and how often it ships under target. Verdict per format: where
+  ΔkB is negligible relative to Δms the early-stop / width-guard wins; where continuing
+  saves real kB keep the full search (caching amortizes its once-per-miss cost).
+
+  Needs `--corpus DIR` (assemble one spanning smooth / busy / text / photographic
+  content); falls back to the committed high-detail sources + a synthetic anchor when
+  absent.
+
+  ## Part H — crop+confirm vs full-frame target-hit confidence
+
+  Crop scoring (#354) only runs above the 6 MP crossover, where it estimates the
+  full-frame score from K tiles and then **confirms on the full frame** (+ bump). Part H
+  asks how reliably that shipped path hits the target vs the full-frame search, on the
+  same images, by running BOTH real production searches (`EncodeSearch.run` with scorer
+  `:full` / `:crop`) per image at the production per-format brackets + target #{78}. The
+  meaningful cohort is the >6 MP images (where crop actually engages); below the
+  crossover production uses full-frame and the comparison is moot. Reports, over the
+  crop-regime cohort: full-frame vs crop+confirm target-hit rate, **regressions** (full
+  hit, crop missed), the delivered `crop − full` score delta (median + worst), and how
+  often the bump fired / exhausted. A low absolute hit rate is the bracket ceiling on
+  hard content (large photos / screenshots can't reach #{78} in the bracket), not crop
+  error — the crop-vs-full *delta* is the confidence signal.
+
+  ## Part I — raising `max_quality`: under-target drop vs byte cost vs latency
+
+  Parts G/H surfaced that most images ship *under* target because the bracket ceiling
+  (`max_quality`) is too low to reach #{78}, not because the search is wrong. Part I
+  quantifies the lever: per format, sweep candidate `max_quality` values (jpeg/webp
+  `[80,85,90,95]`, avif `[65,70,75,80]`; the first is the
+  shipped default) keeping `min_quality`, and run the real lowest-satisfying search at
+  each over a shared per-`(image, q)` cache. For each candidate, vs the shipped-default
+  bracket on the *same* image, it reports: target-hit rate and its lift, the byte cost
+  (median Δ% + kB), and the added search latency (probes + metric ms from the wider
+  bracket). Turns "raise the cap" into the bytes/quality/latency price of each step.
+  Uses full-frame scoring as the where-does-it-land ground truth (Part H showed crop
+  reproduces it). Same `--corpus DIR` + fallback as E/F/G.
+
+  ## Part J — sweeping `allowed_error`: on-target rate vs byte cost
+
+  Part I's other half. The cap only rescues ceiling-pinned images; the larger "under
+  target" population ships *in-band below the ceiling* because `allowed_error` accepts
+  the lowest quality scoring `≥ target − allowed_error` and takes it. The lever for THAT
+  population is the acceptance band. Part J sweeps `allowed_error`
+  `#{inspect([0, 0.5, 1.0, 1.5, 2.0])}` at fixed target #{78} (default `1.0`), per
+  format, keeping the shipped brackets, over a shared per-`(image, q)` cache (the score
+  is band-independent, so one cache serves every candidate). For each `allowed_error`, vs
+  the default on the same image, it reports the on-target rate (delivered full-frame
+  score `≥ #{78}`), the median delivered score (quality), and the byte / latency cost.
+  `allowed_error = 0` forces every non-ceiling-pinned image on-target at max byte cost;
+  higher values ship smaller, more under-target files — a continuous bytes↔quality dial
+  whose cost is **broad** (nudges almost every image), unlike the cap's ceiling-pinned-
+  only effect. Same `--corpus DIR` + fallback as E/F/G.
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
@@ -174,6 +270,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric
+  alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Test.Autoquality.TileSelection
   alias ImagePipe.Test.ImgproxyDifferential.SourceInventory
   alias Vix.Vips.Image, as: VixImage
@@ -245,41 +342,54 @@ defmodule Mix.Tasks.Autoquality.Bench do
       format: format
     }
 
-    {a_rows, b_rows, c_rows, e_rows, f_rows} = run_selected_parts(run_ctx)
-    if csv?, do: write_csvs(a_rows, b_rows, c_rows, e_rows, f_rows)
-    print_findings(a_rows, b_rows, c_rows, e_rows, f_rows, format)
+    parts = run_selected_parts(run_ctx)
+    if csv?, do: write_csvs(parts)
+    print_findings(parts, format)
   end
 
   defp run_selected_parts(%{part: part, format: format} = ctx) do
-    a = if part in ["a", "both", "all"], do: run_part_a(ctx.mps, format)
-    b = if part in ["b", "both", "all"], do: run_part_b(format)
+    run = fn names, fun -> if part in names, do: fun.() end
 
-    c =
-      if part in ["c", "all"], do: run_part_c(ctx.factors, ctx.proxy_mp, ctx.proxy_files, format)
+    # Part D prints inline and returns nil — run it for its side effect, drop the result.
+    run.(["d", "all"], fn -> run_part_d(ctx.proxy_files, ctx.proxy_mp, format) end)
 
-    if part in ["d", "all"], do: run_part_d(ctx.proxy_files, ctx.proxy_mp, format)
+    corpus = fn fun ->
+      fun.(ctx.corpus_dir, ctx.proxy_files, ctx.corpus_cap, ctx.proxy_mp)
+    end
 
-    e =
-      if part in ["e", "all"],
-        do: run_part_e(ctx.corpus_dir, ctx.proxy_files, ctx.corpus_cap, ctx.proxy_mp, format)
-
-    f =
-      if part in ["f", "all"],
-        do: run_part_f(ctx.corpus_dir, ctx.proxy_files, ctx.corpus_cap, ctx.proxy_mp, format)
-
-    {a, b, c, e, f}
+    %{
+      a: run.(["a", "both", "all"], fn -> run_part_a(ctx.mps, format) end),
+      b: run.(["b", "both", "all"], fn -> run_part_b(format) end),
+      c:
+        run.(["c", "all"], fn ->
+          run_part_c(ctx.factors, ctx.proxy_mp, ctx.proxy_files, format)
+        end),
+      e: run.(["e", "all"], fn -> corpus.(&run_part_e(&1, &2, &3, &4, format)) end),
+      f: run.(["f", "all"], fn -> corpus.(&run_part_f(&1, &2, &3, &4, format)) end),
+      g: run.(["g", "all"], fn -> corpus.(&run_part_g/4) end),
+      h: run.(["h", "all"], fn -> corpus.(&run_part_h/4) end),
+      i: run.(["i", "all"], fn -> corpus.(&run_part_i/4) end),
+      j: run.(["j", "all"], fn -> corpus.(&run_part_j/4) end)
+    }
   end
 
-  defp write_csvs(a_rows, b_rows, c_rows, e_rows, f_rows) do
-    if a_rows, do: write_part_a_csv(a_rows)
-    if b_rows, do: write_part_b_csv(b_rows)
-    if c_rows, do: write_part_c_csv(c_rows)
-    if e_rows, do: write_part_e_csv(e_rows)
-
-    if f_rows do
-      write_part_f_csv(f_rows.variants)
-      write_part_f_agg_csv(f_rows.agg)
-    end
+  defp write_csvs(parts) do
+    [
+      {parts.a, &write_part_a_csv/1},
+      {parts.b, &write_part_b_csv/1},
+      {parts.c, &write_part_c_csv/1},
+      {parts.e, &write_part_e_csv/1},
+      {parts.f,
+       fn f ->
+         write_part_f_csv(f.variants)
+         write_part_f_agg_csv(f.agg)
+       end},
+      {parts.g, &write_part_g_csv/1},
+      {parts.h, &write_part_h_csv/1},
+      {parts.i, &write_part_i_csv/1},
+      {parts.j, &write_part_j_csv/1}
+    ]
+    |> Enum.each(fn {rows, writer} -> if rows, do: writer.(rows) end)
   end
 
   # Touch every NIF/libvips path once so first-call JIT + library init does not
@@ -1686,6 +1796,982 @@ defmodule Mix.Tasks.Autoquality.Bench do
         "on the worst image) — every aggregate shares the same content-dependent systematic tail, " <>
         "so aggregation is NOT the lever; per-content offset calibration is."
 
+  # --- Part G: early-stop vs lowest-satisfying on the narrow format caps ------
+
+  # Production autoquality defaults (the imgproxy parser), distinct from Parts A/B's
+  # adversarial wide bracket: target 78, base [70,80], avif [60,65], allowed_error 1.
+  # Brackets resolve per format exactly as Output.Policy.resolve_search/2 does
+  # (format_min/max with per-side fallback to the base bracket).
+  @g_target 78
+  @g_min_q 70
+  @g_max_q 80
+  @g_allowed_error 1
+  @g_format_min %{avif: 60}
+  @g_format_max %{avif: 65}
+  @g_band @g_target - @g_allowed_error
+  @g_band_hi @g_target + @g_allowed_error
+  @g_formats [:jpeg, :webp, :avif]
+  @g_width_guard_ns [1, 2, 3, 5, 10]
+  @g_iter_caps [2, 3]
+
+  defp run_part_g(corpus_dir, fallback_files, cap, synth_mp) do
+    IO.puts("\n== Part G — early-stop vs lowest-satisfying on the narrow format caps ==")
+    IO.puts("baseline = full search (lowest-satisfying)  target #{@g_target} band ≥#{@g_band}  ")
+
+    IO.puts(
+      "brackets: jpeg #{inspect(g_bracket(:jpeg))} webp #{inspect(g_bracket(:webp))} " <>
+        "avif #{inspect(g_bracket(:avif))}  scorer full-frame  ≤#{cap}/source\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      rows = Enum.flat_map(subjects, &g_bench_subject(sname, &1))
+      Enum.each(@g_formats, fn fmt -> print_g_source_table(sname, fmt, rows) end)
+      rows
+    end)
+  end
+
+  # Per-format bracket via the real per-side fallback: format_min[fmt] else base min,
+  # format_max[fmt] else base max (Output.Policy.resolve_search/2).
+  defp g_bracket(format),
+    do: {Map.get(@g_format_min, format, @g_min_q), Map.get(@g_format_max, format, @g_max_q)}
+
+  defp g_bench_subject(source, {label, base}) do
+    {ref_us, {:ok, ref}} = timed(fn -> Ssim2Metric.reference(base) end)
+
+    Enum.flat_map(@g_formats, fn fmt ->
+      g_bench_subject_format(source, label, base, ref, ref_us, fmt)
+    end)
+  end
+
+  # All variants for one (subject, format), reusing one memoized encode+decode+score
+  # cache. A format the local libvips can't encode is skipped with a note (the throw
+  # from g_compute is caught here, not left to abort the whole run).
+  defp g_bench_subject_format(source, label, base, ref, ref_us, format) do
+    {lo, hi} = g_bracket(format)
+    {:ok, cache} = Agent.start_link(fn -> %{} end)
+    id = %{source: source, label: label, format: format}
+
+    try do
+      score_of = fn q -> g_probe(cache, base, ref, format, q).score end
+
+      Enum.map(g_variants(), fn {variant, vfun} ->
+        {chosen, probed, mode} = vfun.(lo, hi, score_of)
+        # Ensure the delivered q is in the cache so its bytes/score are measurable
+        # even for the skip path (which scores nothing toward its cost).
+        _ = g_probe(cache, base, ref, format, chosen)
+        g_row(id, variant, chosen, probed, mode, Agent.get(cache, & &1), ref_us)
+      end)
+    catch
+      {:g_unsupported, ^format, _reason} ->
+        IO.puts("  #{label}/#{format}: skipped (encode unsupported)")
+        []
+    after
+      Agent.stop(cache)
+    end
+  end
+
+  # {label, fun/3}. fun.(lo, hi, score_of) → {chosen_q, scored_probes, :search | :skip}.
+  # :search scores every distinct encoded q (incl. chosen, like the real ssim2 path);
+  # :skip (width-guard trip) encodes once and scores nothing.
+  defp g_variants do
+    [{"full", &g_full/3}] ++
+      Enum.map(@g_width_guard_ns, fn n -> {"wguard<=#{n}", g_width_guard(n)} end) ++
+      Enum.map(@g_iter_caps, fn m -> {"itercap=#{m}", g_iter_cap(m)} end) ++
+      [
+        {"first-accept", &g_first_acceptable/3},
+        {"two-sided", &g_two_sided/3},
+        {"floor-first", &g_floor_first/3}
+      ]
+  end
+
+  # Lowest q in [lo, hi] with score ≥ band; ceiling (max_q) when none clear.
+  defp g_full(lo, hi, score_of) do
+    {chosen, probed} = g_full_core(lo, hi, score_of)
+    {chosen, Enum.uniq([chosen | probed]), :search}
+  end
+
+  defp g_full_core(lo, hi, score_of), do: do_g_lowest(lo, hi, score_of, hi, nil, [])
+
+  defp do_g_lowest(lo, hi, _score_of, ceiling, best, probed) when lo > hi,
+    do: {best || ceiling, probed}
+
+  defp do_g_lowest(lo, hi, score_of, ceiling, best, probed) do
+    mid = div(lo + hi, 2)
+    probed = [mid | probed]
+
+    if score_of.(mid) >= @g_band,
+      do: do_g_lowest(lo, mid - 1, score_of, ceiling, mid, probed),
+      else: do_g_lowest(mid + 1, hi, score_of, ceiling, best, probed)
+  end
+
+  # Skip the search and encode at max_q when the bracket is narrow enough; else full.
+  defp g_width_guard(n) do
+    fn lo, hi, score_of ->
+      if hi - lo <= n, do: {hi, [], :skip}, else: g_full(lo, hi, score_of)
+    end
+  end
+
+  # Full search capped at m distinct encodes; ship best-so-far (else ceiling).
+  defp g_iter_cap(m) do
+    fn lo, hi, score_of ->
+      {chosen, probed} = do_g_capped(lo, hi, score_of, hi, nil, [], m)
+      {chosen, Enum.uniq([chosen | probed]), :search}
+    end
+  end
+
+  defp do_g_capped(lo, hi, _score_of, ceiling, best, probed, _m) when lo > hi,
+    do: {best || ceiling, probed}
+
+  defp do_g_capped(_lo, _hi, _score_of, ceiling, best, probed, m) when length(probed) >= m,
+    do: {best || ceiling, probed}
+
+  defp do_g_capped(lo, hi, score_of, ceiling, best, probed, m) do
+    mid = div(lo + hi, 2)
+    probed = [mid | probed]
+
+    if score_of.(mid) >= @g_band,
+      do: do_g_capped(lo, mid - 1, score_of, ceiling, mid, probed, m),
+      else: do_g_capped(mid + 1, hi, score_of, ceiling, best, probed, m)
+  end
+
+  # Ship the first probed q clearing the band; never narrow below it. Ceiling if none.
+  defp g_first_acceptable(lo, hi, score_of) do
+    {chosen, probed} = do_g_first(lo, hi, score_of, hi, [])
+    {chosen, Enum.uniq([chosen | probed]), :search}
+  end
+
+  defp do_g_first(lo, hi, _score_of, ceiling, probed) when lo > hi, do: {ceiling, probed}
+
+  defp do_g_first(lo, hi, score_of, ceiling, probed) do
+    mid = div(lo + hi, 2)
+    probed = [mid | probed]
+
+    if score_of.(mid) >= @g_band,
+      do: {mid, probed},
+      else: do_g_first(mid + 1, hi, score_of, ceiling, probed)
+  end
+
+  # Ship the first probe inside [target-ae, target+ae]; overshoot → lower, under → higher.
+  defp g_two_sided(lo, hi, score_of) do
+    {chosen, probed} = do_g_two(lo, hi, score_of, hi, nil, [])
+    {chosen, Enum.uniq([chosen | probed]), :search}
+  end
+
+  defp do_g_two(lo, hi, _score_of, ceiling, best, probed) when lo > hi,
+    do: {best || ceiling, probed}
+
+  defp do_g_two(lo, hi, score_of, ceiling, best, probed) do
+    mid = div(lo + hi, 2)
+    probed = [mid | probed]
+    score = score_of.(mid)
+
+    cond do
+      score >= @g_band and score <= @g_band_hi -> {mid, probed}
+      score > @g_band_hi -> do_g_two(lo, mid - 1, score_of, ceiling, mid, probed)
+      true -> do_g_two(mid + 1, hi, score_of, ceiling, best, probed)
+    end
+  end
+
+  # Probe the floor first; ship it if it clears the band, else fall back to full.
+  defp g_floor_first(lo, hi, score_of) do
+    if score_of.(lo) >= @g_band do
+      {lo, [lo], :search}
+    else
+      {chosen, probed} = g_full_core(lo, hi, score_of)
+      {chosen, Enum.uniq([lo | [chosen | probed]]), :search}
+    end
+  end
+
+  # Memoized per (subject, format) encode + decode + score for one quality. The heavy
+  # work runs outside the agent critical section (access is sequential per subject).
+  defp g_probe(cache, base, ref, format, q) do
+    case Agent.get(cache, &Map.get(&1, q)) do
+      nil ->
+        data = g_compute(base, ref, format, q)
+        Agent.update(cache, &Map.put(&1, q, data))
+        data
+
+      data ->
+        data
+    end
+  end
+
+  defp g_compute(base, ref, format, q) do
+    {enc_us, enc} = timed(fn -> Encoder.encode_to_buffer(base, plain_resolved(format, q), q) end)
+    bin = g_unwrap_encode(enc, format)
+    {dec_us, {:ok, cand}} = timed(fn -> Image.from_binary(bin) end)
+    {met_us, {:ok, score}} = timed(fn -> Ssim2Metric.score(ref, cand) end)
+
+    %{
+      bytes: byte_size(bin),
+      encode_us: enc_us,
+      decode_us: dec_us,
+      metric_us: met_us,
+      score: score
+    }
+  end
+
+  defp g_unwrap_encode({:ok, bin}, _format), do: bin
+  defp g_unwrap_encode({:error, reason}, format), do: throw({:g_unsupported, format, reason})
+
+  # One variant's outcome priced from the cache. enc = distinct encodes (incl. chosen);
+  # a :search variant scores all of them + pays the reference once, a :skip variant
+  # pays only the single delivery encode (no metric, no reference).
+  defp g_row(id, variant, chosen, probed, mode, cache, ref_us) do
+    enc = Enum.uniq([chosen | probed])
+    score_qs = if mode == :skip, do: [], else: enc
+    encode_us = g_sum(cache, enc, :encode_us)
+    decode_us = g_sum(cache, score_qs, :decode_us)
+    metric_us = g_sum(cache, score_qs, :metric_us)
+    ref = if score_qs == [], do: 0, else: ref_us
+    delivered = Map.fetch!(cache, chosen)
+
+    %{
+      source: id.source,
+      label: id.label,
+      format: id.format,
+      variant: variant,
+      probes: length(enc),
+      metric_us: metric_us,
+      total_us: encode_us + decode_us + metric_us + ref,
+      bytes: delivered.bytes,
+      score: delivered.score,
+      under_target?: delivered.score < @g_target,
+      chosen: chosen
+    }
+  end
+
+  defp g_sum(_cache, [], _field), do: 0
+
+  defp g_sum(cache, qs, field),
+    do: qs |> Enum.map(&Map.fetch!(Map.fetch!(cache, &1), field)) |> Enum.sum()
+
+  # --- Part G reporting ------------------------------------------------------
+
+  defp print_g_source_table(source, format, all_rows) do
+    rows = Enum.filter(all_rows, &(&1.source == source and &1.format == format))
+    if rows != [], do: do_print_g_source_table(source, format, rows)
+  end
+
+  defp do_print_g_source_table(source, format, rows) do
+    n = rows |> Enum.map(& &1.label) |> Enum.uniq() |> length()
+    IO.puts("  #{source} / #{format}  (#{n} imgs)")
+
+    header =
+      "    " <>
+        pad(["variant", 14]) <>
+        pad(["probes", 7]) <>
+        pad(["metric_ms", 11]) <>
+        pad(["total_ms", 10]) <>
+        pad(["kB", 8]) <>
+        pad(["Δms", 9]) <>
+        pad(["ΔkB", 9]) <>
+        pad(["Δ%", 7]) <>
+        pad(["under", 7])
+
+    IO.puts(header)
+    Enum.each(g_aggregate(rows), &print_g_agg_row/1)
+  end
+
+  defp print_g_agg_row(a) do
+    IO.puts(
+      "    " <>
+        pad([a.variant, 14]) <>
+        pad([Float.round(a.probes, 1), 7]) <>
+        pad([Float.round(a.metric_ms, 1), 11]) <>
+        pad([Float.round(a.total_ms, 1), 10]) <>
+        pad([Float.round(a.kb, 1), 8]) <>
+        pad([Float.round(a.dms, 1), 9]) <>
+        pad([Float.round(a.dkb, 2), 9]) <>
+        pad(["#{Float.round(a.dpct, 1)}%", 7]) <>
+        pad(["#{a.under}/#{a.n}", 7])
+    )
+  end
+
+  # Aggregate a set of (label, variant) rows for one format into one line per variant:
+  # each metric averaged over labels, and Δ computed per-label against THAT label's own
+  # full-search baseline before averaging (so Δ pairs like with like).
+  defp g_aggregate(rows) do
+    base_by_label =
+      rows |> Enum.filter(&(&1.variant == "full")) |> Map.new(&{&1.label, &1})
+
+    order = g_variants() |> Enum.map(&elem(&1, 0)) |> Enum.with_index() |> Map.new()
+
+    rows
+    |> Enum.group_by(& &1.variant)
+    |> Enum.map(fn {variant, vrows} -> g_variant_summary(variant, vrows, base_by_label) end)
+    |> Enum.sort_by(&Map.get(order, &1.variant, 99))
+  end
+
+  defp g_variant_summary(variant, vrows, base_by_label) do
+    per = Enum.map(vrows, &g_variant_deltas(&1, base_by_label[&1.label]))
+
+    %{
+      variant: variant,
+      n: length(per),
+      probes: avg(Enum.map(per, & &1.probes)),
+      metric_ms: avg(Enum.map(per, & &1.metric_ms)),
+      total_ms: avg(Enum.map(per, & &1.total_ms)),
+      kb: avg(Enum.map(per, & &1.kb)),
+      dms: avg(Enum.map(per, & &1.dms)),
+      dkb: avg(Enum.map(per, & &1.dkb)),
+      dpct: avg(Enum.map(per, & &1.dpct)),
+      under: Enum.count(per, & &1.under)
+    }
+  end
+
+  defp g_variant_deltas(r, base) do
+    %{
+      probes: r.probes,
+      metric_ms: r.metric_us / 1000,
+      total_ms: r.total_us / 1000,
+      kb: r.bytes / 1024,
+      dms: (r.total_us - base.total_us) / 1000,
+      dkb: (r.bytes - base.bytes) / 1024,
+      dpct: if(base.bytes > 0, do: (r.bytes - base.bytes) / base.bytes * 100, else: 0.0),
+      under: r.under_target?
+    }
+  end
+
+  defp findings_part_g([]),
+    do: IO.puts("Part G — early-stop vs full search: no subjects processed\n")
+
+  defp findings_part_g(rows) do
+    IO.puts("Part G — early-stop vs lowest-satisfying (macro-average per format):")
+
+    IO.puts(
+      "  Δms/ΔkB are per-image vs the same image's full search, macro-averaged over " <>
+        "sources; cost is paid once per cache miss, bytes save on every hit.\n"
+    )
+
+    Enum.each(@g_formats, fn format -> findings_part_g_format(format, rows) end)
+  end
+
+  defp findings_part_g_format(format, rows) do
+    fmt_rows = Enum.filter(rows, &(&1.format == format))
+
+    if fmt_rows == [] do
+      IO.puts("  #{format}: no data\n")
+    else
+      IO.puts("  #{format} (bracket #{inspect(g_bracket(format))}):")
+      by_source = Enum.group_by(fmt_rows, & &1.source)
+      summaries = g_macro_over_sources(by_source)
+      Enum.each(summaries, fn s -> IO.puts("    #{g_format_verdict_line(s)}") end)
+      IO.puts("")
+    end
+  end
+
+  # Macro-average each variant's per-image deltas within a source, then across sources.
+  defp g_macro_over_sources(by_source) do
+    order = g_variants() |> Enum.map(&elem(&1, 0)) |> Enum.with_index() |> Map.new()
+
+    by_source
+    |> Enum.map(fn {_src, rs} -> g_aggregate(rs) end)
+    |> List.flatten()
+    |> Enum.group_by(& &1.variant)
+    |> Enum.map(fn {variant, aggs} ->
+      %{
+        variant: variant,
+        metric_ms: avg(Enum.map(aggs, & &1.metric_ms)),
+        dms: avg(Enum.map(aggs, & &1.dms)),
+        dkb: avg(Enum.map(aggs, & &1.dkb)),
+        dpct: avg(Enum.map(aggs, & &1.dpct)),
+        under_rate: avg(Enum.map(aggs, &(&1.under / max(&1.n, 1))))
+      }
+    end)
+    |> Enum.sort_by(&Map.get(order, &1.variant, 99))
+  end
+
+  defp g_format_verdict_line(%{variant: "full"} = s) do
+    "#{String.pad_trailing(s.variant, 14)} metric #{Float.round(s.metric_ms, 1)}ms  " <>
+      "(baseline)  under-target #{pct_str(s.under_rate)}"
+  end
+
+  defp g_format_verdict_line(s) do
+    "#{String.pad_trailing(s.variant, 14)} Δms #{Float.round(s.dms, 1)}  " <>
+      "ΔkB #{Float.round(s.dkb, 2)} (#{Float.round(s.dpct, 1)}%)  " <>
+      "under #{pct_str(s.under_rate)}  → #{g_verdict(s.dms, s.dkb)}"
+  end
+
+  # Early stop wins when it saves time (Δms < 0) without shipping meaningfully more
+  # bytes (|ΔkB| negligible); keep the full search when it recovers real bytes.
+  defp g_verdict(dms, dkb) when abs(dms) <= 0.5 and abs(dkb) < 0.5, do: "≡ baseline (no-op)"
+  defp g_verdict(dms, _dkb) when dms > 0.5, do: "slower, no win"
+  defp g_verdict(_dms, dkb) when abs(dkb) < 0.5, do: "EARLY-STOP WINS (ΔkB≈0)"
+  defp g_verdict(_dms, dkb) when dkb < 2.0, do: "marginal (small ΔkB)"
+  defp g_verdict(_dms, _dkb), do: "keep full search (real ΔkB)"
+
+  defp pct_str(rate), do: "#{round(rate * 100)}%"
+
+  # --- Part H: crop+confirm vs full-frame target-hit confidence ---------------
+
+  # How reliably does the shipped crop path (crop estimate + full-frame confirm +
+  # bump) hit the target vs the full-frame search, on the SAME images? Runs both real
+  # production searches (`EncodeSearch.run` with scorer :full / :crop) per image, using
+  # the production per-format brackets + target 78 (Part G's @g_* config). Crop only
+  # runs above the 6 MP crossover in production, so the meaningful cohort is the >6 MP
+  # images — below it production uses full-frame and the comparison is moot.
+  defp run_part_h(corpus_dir, fallback_files, cap, synth_mp) do
+    IO.puts("\n== Part H — crop+confirm vs full-frame target-hit confidence ==")
+    IO.puts("both real searches (scorer :full / :crop)  target #{@g_target} band ≥#{@g_band}  ")
+
+    IO.puts(
+      "crop crossover #{CropScore.crossover_megapixels()} MP (crop active above it)  " <>
+        "≤#{cap}/source  formats #{inspect(@g_formats)}\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      rows = Enum.flat_map(subjects, &h_bench_subject(sname, &1))
+      print_h_source_row(sname, rows)
+      rows
+    end)
+  end
+
+  defp h_bench_subject(source, {label, base}) do
+    mp = Float.round(Image.width(base) * Image.height(base) / 1_000_000, 1)
+    Enum.flat_map(@g_formats, fn format -> h_run(source, label, base, mp, format) end)
+  end
+
+  # Run the production search both ways. A format the local libvips can't encode (e.g.
+  # a >16383 px screenshot to webp/avif) returns {:error, _} from run/3 and is skipped.
+  defp h_run(source, label, base, mp, format) do
+    resolved = h_resolved(format)
+
+    with {:ok, _fb, full} <- EncodeSearch.run(base, resolved, scorer: :full, telemetry_opts: []),
+         {:ok, _cb, crop} <- EncodeSearch.run(base, resolved, scorer: :crop, telemetry_opts: []) do
+      [h_row(source, label, format, mp, full, crop)]
+    else
+      {:error, _reason} ->
+        IO.puts("  #{label}/#{format}: skipped (search/encode unsupported)")
+        []
+    end
+  end
+
+  defp h_row(source, label, format, mp, full, crop) do
+    %{
+      source: source,
+      label: label,
+      format: format,
+      mp: mp,
+      crop_regime?: mp > CropScore.crossover_megapixels(),
+      full_hit?: full.score >= @g_target,
+      crop_hit?: crop.score >= @g_target,
+      full_q: full.quality,
+      crop_q: crop.quality,
+      full_score: full.score,
+      crop_score: crop.score,
+      score_delta: crop.score - full.score,
+      byte_delta: crop.bytes - full.bytes,
+      confirm_passes: crop.confirm_passes,
+      bump_exhausted?: crop.limiting_factor == :bump_exhausted
+    }
+  end
+
+  # Production RQS for one format: target 78, the real per-format bracket, allowed_error
+  # 1, no resolution skip (we WANT crop to run on big images here).
+  defp h_resolved(format) do
+    {lo, hi} = g_bracket(format)
+
+    %Resolved{
+      base_resolved(format)
+      | quality: :default,
+        quality_search: %RQS{
+          objective: :ssim2,
+          target: @g_target,
+          min_quality: lo,
+          max_quality: hi,
+          allowed_error: @g_allowed_error,
+          max_resolution: 0
+        }
+    }
+  end
+
+  defp print_h_source_row(source, rows) do
+    crop = Enum.filter(rows, & &1.crop_regime?)
+    n = length(rows)
+
+    if crop == [] do
+      IO.puts("  #{String.pad_trailing(source, 14)} #{n} imgs, 0 in crop regime (>6 MP)")
+    else
+      regress = Enum.count(crop, &(&1.full_hit? and not &1.crop_hit?))
+      deltas = Enum.map(crop, & &1.score_delta)
+
+      IO.puts(
+        "  #{String.pad_trailing(source, 14)} #{n} imgs, #{length(crop)} crop-regime: " <>
+          "full hit #{Enum.count(crop, & &1.full_hit?)}/#{length(crop)}, " <>
+          "crop hit #{Enum.count(crop, & &1.crop_hit?)}/#{length(crop)}, " <>
+          "regress #{regress}, Δscore med #{Float.round(median(deltas), 2)} worst #{Float.round(Enum.min(deltas), 2)}"
+      )
+    end
+  end
+
+  defp findings_part_h([]),
+    do: IO.puts("Part H — crop+confirm vs full-frame: no subjects processed\n")
+
+  defp findings_part_h(rows) do
+    crop = Enum.filter(rows, & &1.crop_regime?)
+    IO.puts("Part H — crop+confirm vs full-frame target-hit confidence:")
+    findings_part_h_cohort(crop)
+  end
+
+  defp findings_part_h_cohort([]) do
+    IO.puts(
+      "  no images above the #{CropScore.crossover_megapixels()} MP crossover in this corpus — " <>
+        "crop never engages, so there is nothing to compare (below it production uses full-frame).\n"
+    )
+  end
+
+  defp findings_part_h_cohort(crop) do
+    n = length(crop)
+    full_hits = Enum.count(crop, & &1.full_hit?)
+    crop_hits = Enum.count(crop, & &1.crop_hit?)
+    regress = Enum.filter(crop, &(&1.full_hit? and not &1.crop_hit?))
+    improve = Enum.count(crop, &(&1.crop_hit? and not &1.full_hit?))
+    deltas = Enum.map(crop, & &1.score_delta)
+    bumped = Enum.count(crop, &(&1.confirm_passes > 1))
+    exhausted = Enum.count(crop, & &1.bump_exhausted?)
+
+    IO.puts(
+      "  over #{n} crop-regime images (>#{CropScore.crossover_megapixels()} MP), all formats:"
+    )
+
+    IO.puts("    full-frame hit target:   #{full_hits}/#{n} (#{pct_int(full_hits, n)}%)")
+    IO.puts("    crop+confirm hit target: #{crop_hits}/#{n} (#{pct_int(crop_hits, n)}%)")
+
+    IO.puts(
+      "    crop regressions (full hit, crop missed): #{length(regress)}/#{n} " <>
+        "(#{pct_int(length(regress), n)}%)  |  crop improvements: #{improve}"
+    )
+
+    IO.puts(
+      "    delivered Δscore (crop − full): median #{Float.round(median(deltas), 2)}, " <>
+        "worst undershoot #{Float.round(Enum.min(deltas), 2)}, worst over #{Float.round(Enum.max(deltas), 2)}"
+    )
+
+    IO.puts(
+      "    bump fired (>1 confirm pass): #{bumped}/#{n}  |  bump exhausted (best-effort under): #{exhausted}/#{n}"
+    )
+
+    h_verdict(regress, deltas)
+  end
+
+  defp h_verdict(regress, deltas) do
+    worst = Enum.min(deltas)
+
+    cond do
+      regress == [] and worst >= -1.0 ->
+        IO.puts(
+          "  -> crop+confirm reproduces the full-frame target-hit decision; the confirm " <>
+            "absorbs the crop residual (worst undershoot within ~1 pt).\n"
+        )
+
+      regress == [] ->
+        IO.puts(
+          "  -> no target-hit regressions; crop ships a few images further below where full " <>
+            "would, but never crosses the target the full search cleared.\n"
+        )
+
+      true ->
+        IO.puts(
+          "  -> #{length(regress)} image(s) the full search hit but crop+confirm shipped " <>
+            "best-effort under target — the bounded tail the docs describe (large/screen content).\n"
+        )
+    end
+  end
+
+  defp pct_int(_part, 0), do: 0
+  defp pct_int(part, whole), do: round(part / whole * 100)
+
+  defp write_part_h_csv(rows) do
+    path = "/tmp/autoquality_bench_part_h.csv"
+
+    head =
+      "source,label,format,mp,crop_regime,full_hit,crop_hit,full_q,crop_q," <>
+        "full_score,crop_score,score_delta,byte_delta,confirm_passes,bump_exhausted\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.format},#{r.mp},#{r.crop_regime?},#{r.full_hit?}," <>
+          "#{r.crop_hit?},#{r.full_q},#{r.crop_q},#{fmt_score(r.full_score)}," <>
+          "#{fmt_score(r.crop_score)},#{Float.round(r.score_delta, 3)},#{r.byte_delta}," <>
+          "#{r.confirm_passes},#{r.bump_exhausted?}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
+  # --- Part I: raising max_quality — under-target drop vs byte cost vs latency -
+
+  # Candidate max_quality per format (first = shipped default). min_quality stays put.
+  defp i_maxes(:avif), do: [65, 70, 75, 80]
+  defp i_maxes(_format), do: [80, 85, 90, 95]
+  defp i_default_max(:avif), do: 65
+  defp i_default_max(_format), do: 80
+
+  defp run_part_i(corpus_dir, fallback_files, cap, synth_mp) do
+    IO.puts("\n== Part I — raising max_quality: under-target drop vs byte cost vs latency ==")
+
+    IO.puts(
+      "real lowest-satisfying search, full-frame scorer  target #{@g_target} band ≥#{@g_band}  "
+    )
+
+    IO.puts(
+      "sweep jpeg/webp #{i_fmt_list(i_maxes(:jpeg))} avif #{i_fmt_list(i_maxes(:avif))} " <>
+        "(first = shipped default)  ≤#{cap}/source\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      Enum.flat_map(subjects, &i_bench_subject(sname, &1))
+    end)
+  end
+
+  defp i_bench_subject(source, {label, base}) do
+    {ref_us, {:ok, ref}} = timed(fn -> Ssim2Metric.reference(base) end)
+
+    Enum.flat_map(@g_formats, fn format ->
+      i_bench_format(source, label, base, ref, ref_us, format)
+    end)
+  end
+
+  # Sweep every candidate max over one shared per-(image, q) cache, so the overlapping
+  # brackets reuse encodes (the whole sweep costs ≈ one widest-bracket search).
+  defp i_bench_format(source, label, base, ref, ref_us, format) do
+    {min_q, _} = g_bracket(format)
+    {:ok, cache} = Agent.start_link(fn -> %{} end)
+    id = %{source: source, label: label, format: format}
+
+    try do
+      score_of = fn q -> g_probe(cache, base, ref, format, q).score end
+
+      Enum.map(i_maxes(format), fn max_q ->
+        {chosen, probed} = g_full_core(min_q, max_q, score_of)
+        _ = g_probe(cache, base, ref, format, chosen)
+        i_row(id, max_q, chosen, probed, Agent.get(cache, & &1), ref_us)
+      end)
+    catch
+      {:g_unsupported, ^format, _reason} ->
+        IO.puts("  #{label}/#{format}: skipped (encode unsupported)")
+        []
+    after
+      Agent.stop(cache)
+    end
+  end
+
+  defp i_row(id, max_q, chosen, probed, cache, ref_us) do
+    enc = Enum.uniq([chosen | probed])
+    delivered = Map.fetch!(cache, chosen)
+
+    %{
+      source: id.source,
+      label: id.label,
+      format: id.format,
+      max_q: max_q,
+      chosen: chosen,
+      score: delivered.score,
+      hit?: delivered.score >= @g_target,
+      bytes: delivered.bytes,
+      probes: length(enc),
+      metric_us: g_sum(cache, enc, :metric_us),
+      total_us:
+        g_sum(cache, enc, :encode_us) + g_sum(cache, enc, :decode_us) +
+          g_sum(cache, enc, :metric_us) + ref_us
+    }
+  end
+
+  defp findings_part_i([]), do: IO.puts("Part I — raising max_quality: no subjects processed\n")
+
+  defp findings_part_i(rows) do
+    IO.puts("Part I — raising max_quality (macro-average per format, vs shipped default cap):")
+
+    IO.puts(
+      "  Δ vs each image's own default-cap result; byte/latency cost is the price of the " <>
+        "extra quality. hit = delivered full-frame score ≥ #{@g_target}.\n"
+    )
+
+    Enum.each(@g_formats, fn format -> findings_part_i_format(format, rows) end)
+  end
+
+  defp findings_part_i_format(format, rows) do
+    fmt_rows = Enum.filter(rows, &(&1.format == format))
+
+    if fmt_rows == [] do
+      IO.puts("  #{format}: no data\n")
+    else
+      default = i_default_max(format)
+
+      baseline =
+        Map.new(Enum.filter(fmt_rows, &(&1.max_q == default)), &{{&1.source, &1.label}, &1})
+
+      n = baseline |> map_size()
+      {lo, _} = g_bracket(format)
+
+      IO.puts("  #{format} (min #{lo}, default max #{default}, n=#{n} imgs):")
+
+      header =
+        "    " <>
+          pad(["max_q", 7]) <>
+          pad(["hit%", 7]) <>
+          pad(["Δhit", 7]) <>
+          pad(["Δbytes%", 9]) <>
+          pad(["ΔkB", 8]) <>
+          pad(["Δprobes", 9]) <>
+          pad(["Δmetric_ms", 11])
+
+      IO.puts(header)
+
+      fmt_rows
+      |> Enum.group_by(& &1.max_q)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.each(fn {max_q, mrows} ->
+        print_part_i_row(format, max_q, mrows, baseline, default)
+      end)
+
+      IO.puts("")
+    end
+  end
+
+  defp print_part_i_row(_format, max_q, mrows, baseline, default) do
+    n = length(mrows)
+    hit_rate = Enum.count(mrows, & &1.hit?) / max(n, 1) * 100
+
+    base_hit_rate =
+      baseline
+      |> Map.values()
+      |> Enum.count(& &1.hit?)
+      |> Kernel./(max(map_size(baseline), 1))
+      |> Kernel.*(100)
+
+    deltas = Enum.map(mrows, &i_delta(&1, baseline[{&1.source, &1.label}]))
+
+    IO.puts(
+      "    " <>
+        pad([max_q, 7]) <>
+        pad([Float.round(hit_rate, 0), 7]) <>
+        pad([i_signed(hit_rate - base_hit_rate), 7]) <>
+        pad([i_signed(median(Enum.map(deltas, & &1.bytes_pct))), 9]) <>
+        pad([i_signed(avg(Enum.map(deltas, & &1.kb))), 8]) <>
+        pad([i_signed(avg(Enum.map(deltas, & &1.probes))), 9]) <>
+        pad([i_signed(avg(Enum.map(deltas, & &1.metric_ms))), 11]) <>
+        if(max_q == default, do: " (default)", else: "")
+    )
+  end
+
+  defp i_delta(row, base) do
+    %{
+      bytes_pct: if(base.bytes > 0, do: (row.bytes - base.bytes) / base.bytes * 100, else: 0.0),
+      kb: (row.bytes - base.bytes) / 1024,
+      probes: row.probes - base.probes,
+      metric_ms: (row.metric_us - base.metric_us) / 1000
+    }
+  end
+
+  defp i_signed(value) when value >= 0, do: "+#{Float.round(value / 1, 1)}"
+  defp i_signed(value), do: "#{Float.round(value / 1, 1)}"
+
+  # `[80, 85, 90, 95]` is a printable charlist, so plain inspect renders ~c"PUZ_".
+  defp i_fmt_list(list), do: "[" <> Enum.join(list, ",") <> "]"
+
+  defp write_part_i_csv(rows) do
+    path = "/tmp/autoquality_bench_part_i.csv"
+    head = "source,label,format,max_q,chosen,score,hit,bytes,probes,metric_us,total_us\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.format},#{r.max_q},#{r.chosen},#{fmt_score(r.score)}," <>
+          "#{r.hit?},#{r.bytes},#{r.probes},#{r.metric_us},#{r.total_us}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
+  # --- Part J: sweeping allowed_error — on-target rate vs byte cost ------------
+
+  @j_allowed_errors [0, 0.5, 1.0, 1.5, 2.0]
+  @j_default_ae 1.0
+
+  defp run_part_j(corpus_dir, fallback_files, cap, synth_mp) do
+    IO.puts("\n== Part J — sweeping allowed_error: on-target rate vs byte cost ==")
+    IO.puts("real lowest-satisfying search, full-frame scorer  fixed target #{@g_target}  ")
+
+    IO.puts(
+      "sweep allowed_error #{i_fmt_list(@j_allowed_errors)} (default #{@j_default_ae})  " <>
+        "shipped brackets  ≤#{cap}/source\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      Enum.flat_map(subjects, &j_bench_subject(sname, &1))
+    end)
+  end
+
+  defp j_bench_subject(source, {label, base}) do
+    {ref_us, {:ok, ref}} = timed(fn -> Ssim2Metric.reference(base) end)
+
+    Enum.flat_map(@g_formats, fn format ->
+      j_bench_format(source, label, base, ref, ref_us, format)
+    end)
+  end
+
+  # Sweep every allowed_error over one shared per-(image, q) cache — the score is
+  # band-independent, so the cache serves every candidate (only the accept band moves).
+  defp j_bench_format(source, label, base, ref, ref_us, format) do
+    {lo, hi} = g_bracket(format)
+    {:ok, cache} = Agent.start_link(fn -> %{} end)
+    id = %{source: source, label: label, format: format}
+
+    try do
+      score_of = fn q -> g_probe(cache, base, ref, format, q).score end
+
+      Enum.map(@j_allowed_errors, fn ae ->
+        {chosen, probed} = j_search(lo, hi, score_of, @g_target - ae)
+        _ = g_probe(cache, base, ref, format, chosen)
+        j_row(id, ae, chosen, probed, Agent.get(cache, & &1), ref_us)
+      end)
+    catch
+      {:g_unsupported, ^format, _reason} ->
+        IO.puts("  #{label}/#{format}: skipped (encode unsupported)")
+        []
+    after
+      Agent.stop(cache)
+    end
+  end
+
+  # Lowest q in [lo, hi] scoring ≥ band; ceiling when none clear (band-parameterized).
+  defp j_search(lo, hi, score_of, band), do: do_j_lowest(lo, hi, score_of, hi, nil, [], band)
+
+  defp do_j_lowest(lo, hi, _score_of, ceiling, best, probed, _band) when lo > hi,
+    do: {best || ceiling, probed}
+
+  defp do_j_lowest(lo, hi, score_of, ceiling, best, probed, band) do
+    mid = div(lo + hi, 2)
+    probed = [mid | probed]
+
+    if score_of.(mid) >= band,
+      do: do_j_lowest(lo, mid - 1, score_of, ceiling, mid, probed, band),
+      else: do_j_lowest(mid + 1, hi, score_of, ceiling, best, probed, band)
+  end
+
+  defp j_row(id, ae, chosen, probed, cache, ref_us) do
+    enc = Enum.uniq([chosen | probed])
+    delivered = Map.fetch!(cache, chosen)
+
+    %{
+      source: id.source,
+      label: id.label,
+      format: id.format,
+      allowed_error: ae,
+      chosen: chosen,
+      score: delivered.score,
+      hit?: delivered.score >= @g_target,
+      bytes: delivered.bytes,
+      probes: length(enc),
+      metric_us: g_sum(cache, enc, :metric_us),
+      total_us:
+        g_sum(cache, enc, :encode_us) + g_sum(cache, enc, :decode_us) +
+          g_sum(cache, enc, :metric_us) + ref_us
+    }
+  end
+
+  defp findings_part_j([]),
+    do: IO.puts("Part J — sweeping allowed_error: no subjects processed\n")
+
+  defp findings_part_j(rows) do
+    IO.puts("Part J — sweeping allowed_error (macro-average per format, vs default ae=1):")
+
+    IO.puts(
+      "  fixed target #{@g_target}; tightening ae raises the band toward the target → more " <>
+        "on-target, more bytes (a broad cost). hit = delivered score ≥ #{@g_target}.\n"
+    )
+
+    Enum.each(@g_formats, fn format -> findings_part_j_format(format, rows) end)
+  end
+
+  defp findings_part_j_format(format, rows) do
+    fmt_rows = Enum.filter(rows, &(&1.format == format))
+
+    if fmt_rows == [] do
+      IO.puts("  #{format}: no data\n")
+    else
+      baseline =
+        fmt_rows
+        |> Enum.filter(&(&1.allowed_error == @j_default_ae))
+        |> Map.new(&{{&1.source, &1.label}, &1})
+
+      IO.puts(
+        "  #{format} (bracket #{inspect(g_bracket(format))}, n=#{map_size(baseline)} imgs):"
+      )
+
+      header =
+        "    " <>
+          pad(["allowed_err", 12]) <>
+          pad(["hit%", 7]) <>
+          pad(["Δhit", 7]) <>
+          pad(["med_score", 11]) <>
+          pad(["Δbytes%", 9]) <>
+          pad(["ΔkB", 8]) <>
+          pad(["Δmetric_ms", 11])
+
+      IO.puts(header)
+
+      fmt_rows
+      |> Enum.group_by(& &1.allowed_error)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.each(fn {ae, arows} -> print_part_j_row(ae, arows, baseline) end)
+
+      IO.puts("")
+    end
+  end
+
+  defp print_part_j_row(ae, arows, baseline) do
+    n = length(arows)
+    hit_rate = Enum.count(arows, & &1.hit?) / max(n, 1) * 100
+
+    base_hit =
+      baseline
+      |> Map.values()
+      |> Enum.count(& &1.hit?)
+      |> Kernel./(max(map_size(baseline), 1))
+      |> Kernel.*(100)
+
+    med_score = arows |> Enum.map(& &1.score) |> median()
+    deltas = Enum.map(arows, &i_delta(&1, baseline[{&1.source, &1.label}]))
+
+    IO.puts(
+      "    " <>
+        pad([ae, 12]) <>
+        pad([Float.round(hit_rate, 0), 7]) <>
+        pad([i_signed(hit_rate - base_hit), 7]) <>
+        pad([Float.round(med_score, 2), 11]) <>
+        pad([i_signed(median(Enum.map(deltas, & &1.bytes_pct))), 9]) <>
+        pad([i_signed(avg(Enum.map(deltas, & &1.kb))), 8]) <>
+        pad([i_signed(avg(Enum.map(deltas, & &1.metric_ms))), 11]) <>
+        if(ae == @j_default_ae, do: " (default)", else: "")
+    )
+  end
+
+  defp write_part_j_csv(rows) do
+    path = "/tmp/autoquality_bench_part_j.csv"
+    head = "source,label,format,allowed_error,chosen,score,hit,bytes,probes,metric_us,total_us\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.format},#{r.allowed_error},#{r.chosen}," <>
+          "#{fmt_score(r.score)},#{r.hit?},#{r.bytes},#{r.probes},#{r.metric_us},#{r.total_us}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -1792,18 +2878,25 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   # --- findings --------------------------------------------------------------
 
-  defp print_findings(a_rows, b_rows, c_rows, e_rows, f_rows, format) do
+  defp print_findings(parts, format) do
     IO.puts("\n== Findings ==\n")
 
-    if a_rows, do: findings_part_a(a_rows)
-    if b_rows, do: findings_part_b(b_rows)
-    if c_rows, do: findings_part_c(c_rows)
-    if e_rows, do: findings_part_e(e_rows)
-
-    if f_rows do
-      findings_part_f(f_rows.variants)
-      findings_part_f_agg(f_rows.agg)
-    end
+    [
+      {parts.a, &findings_part_a/1},
+      {parts.b, &findings_part_b/1},
+      {parts.c, &findings_part_c/1},
+      {parts.e, &findings_part_e/1},
+      {parts.f,
+       fn f ->
+         findings_part_f(f.variants)
+         findings_part_f_agg(f.agg)
+       end},
+      {parts.g, &findings_part_g/1},
+      {parts.h, &findings_part_h/1},
+      {parts.i, &findings_part_i/1},
+      {parts.j, &findings_part_j/1}
+    ]
+    |> Enum.each(fn {rows, finder} -> if rows, do: finder.(rows) end)
 
     IO.puts("\n(format: #{format}; numbers vary with CPU + libvips build — re-run locally)")
   end
@@ -2020,6 +3113,22 @@ defmodule Mix.Tasks.Autoquality.Bench do
           "#{Float.round(r.med_k16, 3)},#{Float.round(r.mean_k16, 3)}," <>
           "#{Float.round(r.p10_full, 3)},#{Float.round(r.p25_full, 3)}," <>
           "#{Float.round(r.med_full, 3)},#{Float.round(r.mean_full, 3)}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
+  defp write_part_g_csv(rows) do
+    path = "/tmp/autoquality_bench_part_g.csv"
+
+    head =
+      "source,label,format,variant,probes,metric_us,total_us,bytes,score,under_target,chosen\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.format},#{r.variant},#{r.probes},#{r.metric_us}," <>
+          "#{r.total_us},#{r.bytes},#{fmt_score(r.score)},#{r.under_target?},#{r.chosen}\n"
       end)
 
     File.write!(path, head <> body)
