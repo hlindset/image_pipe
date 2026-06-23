@@ -113,9 +113,14 @@ The finalized image is already materialized in RAM before encode
 
 ### 5. Telemetry
 
-- New span `[:encode, :search, :classify]` emitted from the `:crop` setup in `run/3`,
-  stop metadata: `content_class`, `applied_offset`, `palette_ent`, `nat_var` — all
-  product-neutral, non-sensitive (per the telemetry guidelines, fine to emit).
+- New span `[:encode, :classify]` emitted from the `:crop` setup in `run/3`, stop
+  metadata: `content_class`, `applied_offset`, `palette_ent`, `nat_var` — all
+  product-neutral, non-sensitive (per the telemetry guidelines, fine to emit). Named
+  `[:encode, :classify]` (not `…:search:classify`) because `score_opts` runs **before**
+  `search/3` opens the `[:encode, :search]` span — classification is a sibling of the
+  search under the `[:encode]` span, so the name reflects its true trace position.
+  Start/stop only in practice (the classifier is total — it never raises — so the span's
+  `:exception` leg is structurally unreachable).
 - Wire **both** subscription surfaces in the same change:
   - Logger: add to `@group_span_events`, add a `message/3` clause that surfaces the class
     + offset (and still surfaces `:result`), add a `logger_test.exs` assertion.
@@ -132,7 +137,7 @@ request → transform → materialize_for_delivery (image in RAM)
       → score_opts(:crop):
           {class, features} = ContentClassifier.classify(finalized)
           offset = quality_search_offsets[class]  # default 2.4, avif×graphic → 6.0
-          emit [:encode, :search, :classify]
+          emit [:encode, :classify]               # sibling of [:encode, :search] under [:encode]
           crop_fun = fn bytes -> crop_estimate(finalized, bytes, tiles, offset, t) end
       → search/3 (pure core, offset already baked into the closure)
 ```
@@ -154,21 +159,40 @@ must.
 
 ## Testing
 
-- **`ContentClassifier` unit test:** a graphic fixture → `:graphic`, a photo fixture →
-  `:photo`, a degenerate/tiny input → `:graphic` fallback (no raise). Uses committed
-  sources where possible.
-- **Request-boundary test (primary acceptance):** a large AVIF dense-text render above
-  the crossover hits the target band (no silent under-quality) and is **not**
-  misclassified as photo; decode the response body and assert the achieved score / band.
-  An `avif × :photo` (and a `jpeg`) case shows **no byte inflation** vs today.
-- **Resolution test:** `Output.Policy` collapses the `Plan.Output.quality_search_offsets`
-  table to the per-class `ResolvedQualitySearch.quality_search_offsets` for the negotiated
-  format.
-- **Telemetry test:** with a private `telemetry_prefix`, assert the
-  `[:encode, :search, :classify]` span fires with `content_class` + `applied_offset`.
-- **Encode-search behavior:** the existing crop-scoring tests update for the
-  offset-as-parameter signature; the pure `search/3` confirm-baseline tests are
-  unaffected.
+The acceptance work splits along what each layer can honestly prove:
+
+- The **bench (Part M)** owns the empirical claim that `6.0` is the right magnitude for
+  `avif × graphic` on *real dense-text* content. The default test lane has no network and
+  no committed dense-text source, so a lane test cannot reproduce that magnitude.
+- The **lane tests** prove the user-visible *contract*: the `{format, class}` offset is
+  plumbed end-to-end, classification works on real-ish content, and a larger offset
+  materially raises the chosen quality (the correcting direction). They must **not**
+  assert "hits target" off the offset-corrected estimate — the objective walk lands that
+  estimate in-band *by construction* at any offset, so such an assertion is vacuous.
+
+Tests:
+
+- **`ContentClassifier` unit test:** a continuous-tone fixture → `:photo`, a hard-edged
+  two-tone fixture → `:graphic`, a degenerate 1×1 input → `:graphic` fallback (no raise).
+  Fixtures built so the verdict is robust to the exact pinned thresholds.
+- **Offset-bites differential (focused, deterministic — the core proof):** drive
+  `EncodeSearch.run/3` on one large `:graphic` finalized image with
+  `quality_search_offsets` `%{graphic: 2.4}` vs `%{graphic: 6.0}`; assert the chosen
+  quality at 6.0 is `>=` (and, on content with real overshoot, `>`) the quality at 2.4.
+  This proves the offset bites in the under-quality-correcting direction without
+  depending on reproducing the real-world overshoot magnitude.
+- **Request-boundary contract test:** a large hard-edged AVIF render above the crossover,
+  through `ImagePipe.call/2`, returns `200`/`image/avif`, and telemetry shows
+  `content_class: :graphic`, `applied_offset: 6.0`, `scorer: :crop`. Classification is
+  self-checking (if the synthetic classified `:photo`, the test fails loudly). A
+  continuous-tone (`:photo`) AVIF / JPEG companion asserts `applied_offset: 2.4` — the
+  lean offset is retained for the covered cells (no byte inflation vs today).
+- **Resolution test:** `Output.Policy` collapses `Plan.Output.quality_search_offsets` to
+  the per-class `ResolvedQualitySearch.quality_search_offsets` for the negotiated format.
+- **Telemetry test:** with a private `telemetry_prefix`, assert the `[:encode, :classify]`
+  span fires with `content_class` + `applied_offset` + features, at the base log level.
+- **Encode-search behavior:** the existing crop-scoring test keeps its photo (2.4) case
+  and `<=4` full-vs-crop bound; the pure `search/3` confirm-baseline tests are unaffected.
 
 ## Out of scope (YAGNI)
 

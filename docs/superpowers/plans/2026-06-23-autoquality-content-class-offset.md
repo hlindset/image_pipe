@@ -4,7 +4,7 @@
 
 **Goal:** Replace the single global confirm-skipped offset (`@crop_confirm_skipped_offset = 2.4`) with a `{format, content-class} → offset` policy keyed on a cheap libvips content classifier, so large AVIF dense-graphic renders stop shipping silently under-quality above the 6 MP crop crossover.
 
-**Architecture:** A new `ImagePipe.Output.ContentClassifier` classifies the finalized image (`:photo` / `:graphic`) lazily, only inside the `:ssim2`+>6 MP crop-scoring path where the offset is consumed. The declarative `{format, class} → offset` table lives on `Plan.Output` (defaulted, a future parser seam like `flatten_background`), is resolved per negotiated format into `ResolvedQualitySearch`, and is applied as a per-class offset in `EncodeSearch.crop_estimate`. A `[:encode, :search, :classify]` telemetry span surfaces the class + applied offset.
+**Architecture:** A new `ImagePipe.Output.ContentClassifier` classifies the finalized image (`:photo` / `:graphic`) lazily, only inside the `:ssim2`+>6 MP crop-scoring path where the offset is consumed. The declarative `{format, class} → offset` table lives on `Plan.Output` (defaulted, a future parser seam like `flatten_background`), is resolved per negotiated format into `ResolvedQualitySearch`, and is applied as a per-class offset in `EncodeSearch.crop_estimate`. A `[:encode, :classify]` telemetry span surfaces the class + applied offset.
 
 **Tech Stack:** Elixir, libvips via `Vix.Vips.Operation` / `Image`, `:telemetry`, ExUnit, the `mix autoquality.bench` test-support task.
 
@@ -28,7 +28,9 @@
 - **Modify** `test/image_pipe/output/encoder_crop_scoring_test.exs` — adapt to the offset-as-parameter shape.
 - **Modify** `test/image_pipe/imgproxy_wire_conformance_test.exs` — the request-boundary acceptance test + a `:graphic` large-AVIF origin.
 
-**Note on `lib/image_pipe/cache/key.ex`:** `output_plan_data/2` enumerates cache-key fields explicitly. **Do NOT add `quality_search_offsets` to it** — the policy is a constant default (never request-varying), so it stays out of the key and ETag (spec §2). No change to `key.ex` is required.
+**Note on `lib/image_pipe/cache/key.ex`:** `output_plan_data/2` enumerates cache-key fields explicitly (no whole-struct serialization, no `KeyData` protocol impl for `%Output{}`). **Do NOT add `quality_search_offsets` to it** — the policy is a constant default (never request-varying), so it stays out of the key and ETag (spec §2; the ETag path `http_cache.ex` → `Key.plan_material/2` shares `output_plan_data/2`). No change to `key.ex` is required, and a cache-key test would be a no-op pin.
+
+**Note on the `Output` boundary:** **no `output.ex` `exports:`/`deps:` change is needed.** `ContentClassifier` is an unexported sibling consumed only by `EncodeSearch` (also intra-`Output`, unexported — like `Ssim2Metric`/`CropScore`); Boundary requires `exports:` only for cross-boundary refs. `Vix`/`Image` are external libraries, not boundaries, so the existing `deps: [Format, Plan, Telemetry]` already covers the classifier. Task 8 Step 2 asserts this.
 
 ---
 
@@ -72,7 +74,9 @@ mise exec -- mix autoquality.bench --part m --downsample 512 --corpus "$(mise ex
 ```
 Expected (≈18 min): the `(a) class separation` table prints `θ` for `palette_ent` and `nat_var`; the new `PRODUCTION rule (palette_ent ∧ nat_var)` line prints `screen→photo 0`; the `(b)` residual section prints `screen avif … p90_hit ≈ 6`. 
 
-**Record** in this task's commit message: `θ_palette = <value>`, `θ_nat = <value>` (the printed Youden θ for each), `avif_graphic_offset = <round(p90_hit)>` (≈ 6.0). Confirm the production-rule line shows **0** screen→photo. If it shows 1, raise whichever θ is closer to its overlap until it reads 0, and record the raised value.
+**Record** in this task's commit message: `θ_palette = <value>`, `θ_nat = <value>` (the printed Youden θ for each), `avif_graphic_offset = <round(p90_hit)>` (≈ 6.0). Confirm the production-rule line shows **0** screen→photo.
+
+If it shows 1, raise whichever θ is closer to its overlap and **re-run the bench** so the `PRODUCTION rule` line is re-printed for the *adjusted* pair — the frozen constants are the hand-adjusted ones, so the 0-screen→photo evidence must be for those exact values, not the original Youden pair. Repeat until the re-printed line reads 0, and paste that final line into the commit body. The thresholds hardcoded in Task 2 must be exactly the values whose `PRODUCTION rule` line you pasted.
 
 - [ ] **Step 4: Commit (bench change only)**
 
@@ -105,8 +109,9 @@ defmodule ImagePipe.Output.ContentClassifierTest do
   alias ImagePipe.Output.ContentClassifier
   alias Vix.Vips.Operation
 
-  # A smooth continuous-tone gradient: high palette entropy + high mid-band
-  # variation → :photo.
+  # A smooth high-frequency continuous-tone field (zone plate): many luminance
+  # values (high palette entropy) + abundant mid-band gradient (high nat_var) →
+  # :photo. (Used elsewhere in the suite as the continuous-tone surrogate.)
   defp photo_image do
     {:ok, ramp} = Operation.zone(512, 512)
     {:ok, scaled} = Operation.linear(ramp, [127.5], [127.5])
@@ -117,31 +122,29 @@ defmodule ImagePipe.Output.ContentClassifierTest do
     srgb
   end
 
-  # A hard-edged two-tone grid (text/line-art surrogate): two luminance values
-  # (low palette entropy) + hard edges, near-zero mid-band (low nat_var) → :graphic.
+  # A hard-edged two-tone field (line-art surrogate): a white canvas overlaid with
+  # a fine black line grid → two luminance values (low palette entropy) + all-hard
+  # edges (near-zero mid-band) → :graphic. Built with Image.Draw, not Operation.grid.
   defp graphic_image do
-    {:ok, board} = Operation.grid(black_white_tile(), 64, 8, 8)
-    {:ok, srgb} = Operation.copy(board, interpretation: :VIPS_INTERPRETATION_sRGB)
-    srgb
+    side = 512
+    base = Image.new!(side, side, color: :white)
+
+    drawn =
+      Enum.reduce(0..(side - 1)//8, base, fn x, acc ->
+        acc
+        |> Image.Draw.rect!(x, 0, 1, side, color: :black)
+        |> Image.Draw.rect!(0, x, side, 1, color: :black)
+      end)
+
+    Image.to_colorspace!(drawn, :srgb)
   end
 
-  defp black_white_tile do
-    {:ok, white} = Operation.black(8, 8)
-    {:ok, white} = Operation.linear(white, [1.0], [255.0])
-    {:ok, black} = Operation.black(8, 8)
-    {:ok, row} = Operation.join(white, black, :VIPS_DIRECTION_HORIZONTAL)
-    {:ok, row2} = Operation.join(black, white, :VIPS_DIRECTION_HORIZONTAL)
-    {:ok, tile} = Operation.join(row, row2, :VIPS_DIRECTION_VERTICAL)
-    {:ok, rgb} = Operation.bandjoin([tile, tile, tile])
-    rgb
-  end
-
-  test "classifies a continuous-tone gradient as :photo" do
+  test "classifies a continuous-tone field as :photo" do
     assert {:photo, %{palette_ent: pe, nat_var: nv}} = ContentClassifier.classify(photo_image())
     assert is_float(pe) and is_float(nv)
   end
 
-  test "classifies a hard-edged two-tone grid as :graphic" do
+  test "classifies a hard-edged two-tone field as :graphic" do
     assert {:graphic, _features} = ContentClassifier.classify(graphic_image())
   end
 
@@ -459,7 +462,7 @@ In `lib/image_pipe/output/resolved_quality_search.ex`, extend the struct + type:
         }
 ```
 
-Update the `@moduledoc` to note `quality_search_offsets` is the per-class confirm-skipped crop offset for the negotiated format, consumed by `EncodeSearch`.
+Update the `@moduledoc` to note `quality_search_offsets` is the per-class confirm-skipped crop offset for the negotiated format, consumed by `EncodeSearch`. Note the default `%{}` is the resolved shape only for `:size`/`:none` (which never crop-score); the `:ssim2` resolver always populates both `:photo` and `:graphic` keys, so the `:crop` path's `Map.fetch!` trusts a fully-populated map.
 
 - [ ] **Step 4: Carry the field through the policy struct**
 
@@ -536,14 +539,24 @@ git commit -m "feat(autoquality): resolve quality_search_offsets per negotiated 
 
 The pure `search/3` core is unchanged — the offset is baked into the crop closure by `run/3`, exactly like the reference build. The classify telemetry span is added here in Task 6; this task does the offset plumbing first and keeps tests green.
 
-- [ ] **Step 1: Update the production crop-scoring test for the per-class offset**
+- [ ] **Step 1: Preserve the existing crop test by neutralizing the offset**
 
-Read `test/image_pipe/output/encoder_crop_scoring_test.exs` first. It currently asserts behavior tied to the global `2.4`. Adapt the assertion(s) that depend on the offset to go through the resolved `quality_search_offsets`: build the `%Resolved{}` with `quality_search_offsets: %{photo: 2.4, graphic: 6.0}` and assert the chosen `meta.score` reflects the **classified** offset (a `:graphic` finalized image subtracts 6.0, a `:photo` subtracts 2.4). If the existing test used a content-neutral synthetic, split it into a `:graphic` case (two-tone grid, expects the 6.0 subtraction) and keep a `:photo` case (gradient, 2.4). Preserve the existing decode/score structure; only the offset source changes.
+Read `test/image_pipe/output/encoder_crop_scoring_test.exs` first. Its full-vs-crop test asserts `abs(crop.quality - full.quality) <= 4` (~line 99) and the by-construction `crop.score >= band` (~line 102) under the *old* fixed 2.4. This task is a pure refactor (global constant → per-class map lookup) that must keep that test green; the *new* per-class behavior is proven in Task 6 via telemetry. Preserve the existing test's intent by adding a content-neutral offset map to its `%RQS{}` literal (~line 49), so classification cannot change its result:
 
-- [ ] **Step 2: Run to verify it fails**
+```elixir
+        quality_search: %RQS{
+          objective: :ssim2,
+          # ... existing fields (target/min/max/allowed_error/max_resolution) ...
+          quality_search_offsets: %{photo: 2.4, graphic: 2.4}
+        }
+```
+
+Both classes subtract 2.4 (the prior global value), so the `<=4` bound and the by-construction assertion hold regardless of how the test image classifies. Do **not** widen the bound; do **not** use this test to prove the new offset.
+
+- [ ] **Step 2: Run to verify the refactor target is reachable**
 
 Run: `mise exec -- mix test test/image_pipe/output/encoder_crop_scoring_test.exs`
-Expected: FAIL — `crop_estimate/5` arity / offset wiring not present yet.
+Expected: with Task 4 done, the `%RQS{quality_search_offsets: …}` literal compiles; the test currently **passes** (the live `:crop` path still subtracts the hardcoded 2.4, matching the neutral map). This step has no fail-first — it is a behavior-preserving refactor; the new behavior's fail-first lives in Task 6. Proceed to wire the offset so the constant is gone.
 
 - [ ] **Step 3: Remove the constant; thread the per-class offset**
 
@@ -557,6 +570,11 @@ Replace the `:crop` clause of `score_opts/4`:
   defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop, t) do
     tiles = CropScore.tile_count(Image.width(image), Image.height(image))
     {class, _features} = ContentClassifier.classify(image)
+    # `Output.Policy.resolve_search/2` always stamps both :photo and :graphic keys
+    # for an :ssim2 search (the only objective that reaches the :crop path), so
+    # `fetch!` trusts the in-repo producer — a missing key is a resolver bug, not a
+    # runtime input. (The `RQS` default `%{}` only occurs for :size/:none, which
+    # never crop-score.)
     offset = Map.fetch!(rqs.quality_search_offsets, class)
     crop = fn bytes -> crop_estimate(image, bytes, tiles, offset, t) end
     {:ok, [score_fun: crop, scorer_tiles: tiles]}
@@ -607,41 +625,99 @@ git commit -m "feat(autoquality): apply per-class crop offset, drop global const
 - Modify: `docs/telemetry.md`
 - Test: `test/image_pipe/output/encode_search_telemetry_test.exs`
 
-- [ ] **Step 1: Write the failing telemetry test**
+- [ ] **Step 1: Write the failing per-class telemetry test**
 
-Add to `test/image_pipe/output/encode_search_telemetry_test.exs` a test that runs `EncodeSearch.run/3` on a >6 MP finalized image with an `:ssim2` resolved search (mirror the file's existing crop-path telemetry setup) and a **unique `telemetry_prefix`**, attaches to `prefix ++ [:encode, :search, :classify, :stop]`, and asserts the metadata:
+This is the **fail-first proof of the new behavior**: the right offset is selected per content class. It's deterministic (depends only on classification, which is robust to the exact thresholds) and fails before Step 3 (no span emitted, offset still hardcoded). Add to `test/image_pipe/output/encode_search_telemetry_test.exs` (mirror the file's existing crop-path `%Resolved{}`/`telemetry_prefix` setup; the helper builds a >6 MP image and an `:ssim2` resolved search):
 
 ```elixir
-  test "emits a classify span with the content class and applied offset" do
-    prefix = [:ip_classify_test]
+  # >6 MP hard-edged two-tone field (dense-graphic surrogate): a white canvas with
+  # a fine grid of black lines → two luminance values (low palette entropy) +
+  # all-hard edges (low mid-band) → classifies :graphic. Built with Image.Draw (no
+  # Operation.grid). >6 MP so the crop scorer fires.
+  defp large_graphic_image do
+    side = 2800
+    base = Image.new!(side, side, color: :white)
+
+    drawn =
+      Enum.reduce(0..(side - 1)//16, base, fn x, acc ->
+        acc
+        |> Image.Draw.rect!(x, 0, 1, side, color: :black)
+        |> Image.Draw.rect!(0, x, side, 1, color: :black)
+      end)
+
+    Image.to_colorspace!(drawn, :srgb)
+  end
+
+  # A smooth continuous-tone field → high palette entropy + mid-band variation →
+  # classifies :photo. A zone plate (used elsewhere in the suite) works.
+  defp large_photo_image do
+    side = 2800
+    {:ok, z} = Vix.Vips.Operation.zone(side, side)
+    {:ok, scaled} = Vix.Vips.Operation.linear(z, [127.5], [127.5])
+    {:ok, uchar} = Vix.Vips.Operation.cast(scaled, :VIPS_FORMAT_UCHAR)
+    {:ok, gray} = Vix.Vips.Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
+    {:ok, rgb} = Vix.Vips.Operation.bandjoin([gray, gray, gray])
+    {:ok, srgb} = Vix.Vips.Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+    srgb
+  end
+
+  defp resolved_ssim2_avif do
+    %ImagePipe.Output.Resolved{
+      format: :avif,
+      quality: :default,
+      response_headers: [],
+      strip_metadata: true,
+      keep_copyright: true,
+      color_profile: :strip,
+      quality_search: %ImagePipe.Output.ResolvedQualitySearch{
+        objective: :ssim2,
+        target: 88,
+        min_quality: 40,
+        max_quality: 95,
+        allowed_error: 1.0,
+        max_resolution: 0,
+        quality_search_offsets: %{photo: 2.4, graphic: 6.0}
+      }
+    }
+  end
+
+  defp attach_classify(prefix) do
     handler = {__MODULE__, make_ref()}
-
-    :telemetry.attach(
-      handler,
-      prefix ++ [:encode, :search, :classify, :stop],
-      fn _event, _measure, meta, pid -> send(pid, {:classify, meta}) end,
-      self()
-    )
-
+    :telemetry.attach(handler, prefix ++ [:encode, :classify, :stop],
+      fn _e, _m, meta, pid -> send(pid, {:classify, meta}) end, self())
     on_exit(fn -> :telemetry.detach(handler) end)
+  end
 
-    # ... build a >6 MP :graphic finalized image + %Resolved{quality_search:
-    # %RQS{objective: :ssim2, quality_search_offsets: %{photo: 2.4, graphic: 6.0}, ...}}
-    # following this file's existing crop-path helpers, then:
-    EncodeSearch.run(finalized, resolved, telemetry_opts: [prefix: prefix])
+  test "classify span selects the avif×graphic offset (6.0) for graphic content" do
+    prefix = [:ip_classify_graphic_test]
+    attach_classify(prefix)
+
+    EncodeSearch.run(large_graphic_image(), resolved_ssim2_avif(), telemetry_opts: [prefix: prefix])
 
     assert_receive {:classify, meta}
-    assert meta.content_class in [:photo, :graphic]
-    assert is_number(meta.applied_offset)
-    assert is_float(meta.palette_ent)
-    assert is_float(meta.nat_var)
+    assert meta.content_class == :graphic
+    assert meta.applied_offset == 6.0
+    assert is_float(meta.palette_ent) and is_float(meta.nat_var)
+  end
+
+  test "classify span keeps the lean offset (2.4) for photo content" do
+    prefix = [:ip_classify_photo_test]
+    attach_classify(prefix)
+
+    EncodeSearch.run(large_photo_image(), resolved_ssim2_avif(), telemetry_opts: [prefix: prefix])
+
+    assert_receive {:classify, meta}
+    assert meta.content_class == :photo
+    assert meta.applied_offset == 2.4
   end
 ```
+
+> Confirm the two fixtures classify as intended during implementation (the tests assert it). If `large_graphic_image/0` reads `:photo` or vice-versa, adjust the fixture (line density/contrast) — the synthetic must be unambiguous. Confirm `Image.Draw.rect!`/`Image.to_colorspace!` against the installed `image` lib API.
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `mise exec -- mix test test/image_pipe/output/encode_search_telemetry_test.exs`
-Expected: FAIL — no `[:encode, :search, :classify]` event emitted.
+Expected: FAIL — no `[:encode, :classify]` event emitted yet (the `assert_receive` times out).
 
 - [ ] **Step 3: Emit the span from `score_opts(:crop)`**
 
@@ -652,7 +728,7 @@ In `lib/image_pipe/output/encode_search.ex`, wrap the classification in a span:
     tiles = CropScore.tile_count(Image.width(image), Image.height(image))
 
     {class, offset} =
-      Telemetry.span(t, [:encode, :search, :classify], %{}, fn ->
+      Telemetry.span(t, [:encode, :classify], %{}, fn ->
         {class, features} = ContentClassifier.classify(image)
         offset = Map.fetch!(rqs.quality_search_offsets, class)
 
@@ -675,22 +751,24 @@ In `lib/image_pipe/output/encode_search.ex`, wrap the classification in a span:
 
 - [ ] **Step 4: Subscribe + render in the Logger**
 
-In `lib/image_pipe/telemetry/logger.ex`, add `[:encode, :search, :classify]` to the `request` list in `@group_span_events` (after `[:encode, :search, :probe]`):
+In `lib/image_pipe/telemetry/logger.ex`, add `[:encode, :classify]` to the `request` list in `@group_span_events` (after `[:encode, :search, :probe]`):
 
 ```elixir
       [:encode, :search, :probe],
-      [:encode, :search, :classify],
+      [:encode, :classify],
 ```
 
 Add a `message/3` clause (before the generic fallback) that surfaces class + offset and still carries the outcome:
 
 ```elixir
-  defp message([:encode, :search, :classify, :stop], _measurements, meta) do
-    "encode.search.classify #{meta.content_class} offset=#{meta.applied_offset} #{outcome(meta)}"
+  defp message([:encode, :classify, :stop], _measurements, meta) do
+    "encode.classify #{meta.content_class} offset=#{meta.applied_offset} #{outcome(meta)}"
   end
 ```
 
 (Match the exact `message/3` signature/`outcome/1` helper used by the file's other clauses.)
+
+**Level note:** the classify stop meta carries `result: :ok` and **no `:outcome` key**, so it logs at the base level (`:info`). Do not add an `:outcome` key — `level_for([:encode, :search | _])` escalates on `outcome: :best_effort`, but `[:encode, :classify]` does not match that clause anyway (it is `[:encode, :classify | _]`), so the classify span stays at base level regardless. Keep it that way.
 
 - [ ] **Step 5: Trace + allowlist in Capture**
 
@@ -698,7 +776,7 @@ In `lib/image_pipe/telemetry/trace/capture.ex`, add the stage to `@span_stages` 
 
 ```elixir
     [:encode, :search],
-    [:encode, :search, :classify],
+    [:encode, :classify],
 ```
 
 Add the new metadata keys to `@safe_keys` (next to `:scorer`, `:tiles_scored`):
@@ -712,11 +790,11 @@ Add the new metadata keys to `@safe_keys` (next to `:scorer`, `:tiles_scored`):
 
 - [ ] **Step 6: Add a Logger coverage assertion**
 
-In `test/image_pipe/telemetry/logger_test.exs`, add an assertion that the classify line renders the class + offset (follow the file's existing capture-log pattern).
+In `test/image_pipe/telemetry/logger_test.exs`, add an assertion that the classify line renders the class + offset (follow the file's existing capture-log pattern), and that it logs at `:info` (not `:warning`) — pinning the base-level behavior from Step 4's level note.
 
 - [ ] **Step 7: Update `docs/telemetry.md`**
 
-Document `[:encode, :search, :classify]` (start/stop/exception) on both the Logger and OTel surfaces, listing the metadata keys `content_class`, `applied_offset`, `palette_ent`, `nat_var`, and noting all are product-neutral/non-sensitive.
+Document `[:encode, :classify]` (start/stop; the `:exception` leg is structurally unreachable — the classifier is total and never raises) on both the Logger and OTel surfaces, listing the metadata keys `content_class`, `applied_offset`, `palette_ent`, `nat_var`, and noting all are product-neutral/non-sensitive.
 
 - [ ] **Step 8: Run the telemetry + logger + capture tests**
 
@@ -732,37 +810,39 @@ git commit -m "feat(autoquality): classify telemetry span on Logger + OTel surfa
 
 ---
 
-## Task 7: Request-boundary acceptance test
+## Task 7: Request-boundary contract test
 
 **Files:**
-- Modify: `test/image_pipe/imgproxy_wire_conformance_test.exs` (add a `:graphic` large-AVIF origin near `LargeSsim2OriginImage` ~line 73; add the acceptance test near the #369 crop-verdict test ~line 678)
+- Modify: `test/image_pipe/imgproxy_wire_conformance_test.exs` (add a `:graphic` large origin near `LargeSsim2OriginImage` ~line 73; add the tests near the #369 crop-verdict test ~line 678)
 
-This is the primary acceptance criterion: a large AVIF dense-graphic render above the crossover hits the target band (no silent under-quality) and isn't misclassified as photo.
+**What this proves (and what it deliberately does NOT).** This test proves the user-visible *contract*: a large graphic AVIF goes through `ImagePipe.call/2` end-to-end, classifies `:graphic`, and the `{avif, :graphic}` offset (6.0) is selected and applied on the crop path — while a continuous-tone AVIF keeps the lean 2.4. It does **NOT** assert "achieves target band": on the crop path `final_score` is the *offset-corrected estimate*, which the objective walk lands in-band **by construction at any offset** (see `encoder_crop_scoring_test.exs:100-102`), so such an assertion is vacuous — it passes identically at 2.4 and 6.0. The empirical claim that 6.0 is the *right magnitude* for real dense text is owned by `mix autoquality.bench --part m` (Task 1), not reproducible on the network-free default lane. The wire test's job (per the repo's "representative public contracts, not exhaustive" test guideline) is the plumbing + per-class selection, end-to-end.
 
 - [ ] **Step 1: Add a deterministic large `:graphic` origin**
 
-After `LargeSsim2OriginImage`, add an origin that serves a >6 MP hard-edged two-tone grid (a text/line-art surrogate the classifier reads as `:graphic`), as JPEG to stay under `max_body_bytes`:
+After `LargeSsim2OriginImage`, add an origin serving a >6 MP white field overlaid with a fine grid of black lines (a dense line-art surrogate the classifier reads as `:graphic`), as JPEG to stay under `max_body_bytes`. Built with `Image.Draw` (the file already uses `Image.Draw.rect!`), **not** `Operation.grid` (which tiles a tall input into a grid layout — it does not replicate a small tile):
 
 ```elixir
-  # A >6 MP hard-edged two-tone grid: a dense-text / line-art surrogate the
-  # content classifier reads as :graphic (low palette entropy, near-zero mid-band
-  # gradient). Above the crop crossover this is the cell whose crop estimate
-  # overshoots full-frame, so the {avif, :graphic} offset must rescue it. 2800² ≈
-  # 7.84 MP. Served JPEG to stay under the default 10 MB source max_body_bytes.
+  # A >6 MP white field overlaid with a fine black line grid: a dense line-art /
+  # text surrogate the classifier reads as :graphic (two luminance values → low
+  # palette entropy; all-hard edges → low mid-band gradient). Above the crossover
+  # this is the cell whose crop estimate overshoots full-frame, so {avif,:graphic}
+  # draws the big offset. 2800² ≈ 7.84 MP. Served JPEG to stay under the default
+  # 10 MB source max_body_bytes.
   defmodule LargeGraphicOriginImage do
     @moduledoc false
 
     def call(conn, _opts) do
       side = 2800
-      {:ok, tile} = Operation.black(8, 8)
-      {:ok, white} = Operation.linear(tile, [1.0], [255.0])
-      {:ok, grid} = Operation.grid(white, 8, side, side)
-      # Lay a fine black grid of lines over the field to maximise hard edges.
-      {:ok, lined} = Operation.cast(grid, :VIPS_FORMAT_UCHAR)
-      {:ok, gray} = Operation.copy(lined, interpretation: :VIPS_INTERPRETATION_B_W)
-      {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
-      {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
-      body = Image.write!(srgb, :memory, suffix: ".jpg")
+      base = Image.new!(side, side, color: :white)
+
+      drawn =
+        Enum.reduce(0..(side - 1)//16, base, fn x, acc ->
+          acc
+          |> Image.Draw.rect!(x, 0, 1, side, color: :black)
+          |> Image.Draw.rect!(0, x, side, 1, color: :black)
+        end)
+
+      body = drawn |> Image.to_colorspace!(:srgb) |> Image.write!(:memory, suffix: ".jpg")
 
       conn
       |> Plug.Conn.put_resp_content_type("image/jpeg")
@@ -771,46 +851,53 @@ After `LargeSsim2OriginImage`, add an origin that serves a >6 MP hard-edged two-
   end
 ```
 
-> Adjust the generator if needed so the served content (a) decodes ≥ 6 MP and (b) classifies `:graphic` — verify with a quick `ContentClassifier.classify/1` in IEx on the generated image during implementation. The exact drawing ops matter less than the property (two-tone, hard-edged, low mid-band).
+> The served content must (a) decode ≥ 6 MP and (b) classify `:graphic`. The Step 2 test asserts (b) directly (telemetry `content_class: :graphic`), so a miss fails loudly — but verify with `ContentClassifier.classify/1` in IEx during implementation and raise the line density/contrast if it reads `:photo`. Confirm `Image.Draw.rect!`/`Image.to_colorspace!` against the installed `image` lib API.
 
-- [ ] **Step 2: Write the acceptance test**
+- [ ] **Step 2: Write the contract test (graphic → 6.0)**
 
-Mirror the existing #369 test (request an explicit AVIF autoquality `:ssim2` render with **no resize** so the full >6 MP frame is finalized and the crop scorer fires), but against `LargeGraphicOriginImage`, and assert the achieved score reaches the target band. Capture the search `:stop` telemetry (with a unique `telemetry_prefix`) and assert `scorer: :crop`, `content_class: :graphic` on the classify span, and `applied_offset` equals the avif×graphic offset (6.0). Assert the delivered AVIF decodes and the search `final_score` is `>= target - allowed_error` (i.e. it did **not** stop ~3.7 below target as it would with the lean 2.4 offset).
+Mirror the existing #369 crop-verdict test for request construction (explicit AVIF, autoquality `:ssim2`, **no resize** so the full >6 MP frame is finalized and the crop scorer fires), against `LargeGraphicOriginImage`. Use a unique `telemetry_prefix`; attach to `prefix ++ [:encode, :classify, :stop]` and `prefix ++ [:encode, :search, :stop]`. Read `target`/`allowed_error` from the request the test itself built (they are **not** in the search `:stop` meta — that meta carries `chosen_quality`, `scorer`, `final_score`, etc., per `search_stop_meta/2`).
 
 ```elixir
-  test "large AVIF :graphic render above the crossover hits the target band (#380)" do
-    prefix = [:ip_aq_offset_test]
-    # attach to prefix ++ [:encode, :search, :stop] and
-    # prefix ++ [:encode, :search, :classify, :stop]; forward meta to self()
-    # ... build the imgproxy AVIF autoquality request (ssim2 target/bracket),
-    # no resize, against LargeGraphicOriginImage; make the request via ImagePipe.call/2.
+  test "large graphic AVIF above the crossover selects the {avif, graphic} offset (#380)" do
+    prefix = [:ip_aq_graphic_offset]
+    attach_meta(prefix ++ [:encode, :classify, :stop], :classify)
+    attach_meta(prefix ++ [:encode, :search, :stop], :search)
+
+    conn = call_imgproxy(LargeGraphicOriginImage, "<avif autoquality ssim2 path, no resize>",
+                          telemetry_prefix: prefix)
 
     assert conn.status == 200
     assert get_resp_header(conn, "content-type") == ["image/avif"]
 
-    assert_receive {:classify_stop, %{content_class: :graphic, applied_offset: 6.0}}
-    assert_receive {:search_stop, %{scorer: :crop, final_score: score, target: target, allowed_error: ae}}
-    assert score >= target - ae
+    # Classification + per-class offset selection, end-to-end:
+    assert_receive {:classify, %{content_class: :graphic, applied_offset: 6.0}}
+    # Crop path was taken (the regime the offset governs):
+    assert_receive {:search, %{scorer: :crop}}
   end
 ```
 
-- [ ] **Step 3: Run the acceptance test**
+(`attach_meta/2` and `call_imgproxy/3` stand for the file's existing telemetry-attach and request helpers — reuse them, do not invent new ones; read the file first.)
 
-Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs -k "graphic render above"`
-Expected: PASS. If `content_class` comes back `:photo`, fix the generator (Step 1) until the served content is unambiguously graphic.
+- [ ] **Step 3: Add the no-inflation companion (photo → 2.4)**
 
-- [ ] **Step 4: Add the no-inflation guard (avif×photo / jpeg)**
+Either extend the existing #369 zone-plate test (continuous-tone → `:photo`) or add a sibling against `LargeSsim2OriginImage`, asserting the lean offset is retained for the covered cells:
 
-Add a companion test (or extend the existing #369 zone-plate test, which is continuous-tone → `:photo`) asserting the AVIF `:photo` / JPEG path still subtracts the lean `2.4` (telemetry `applied_offset == 2.4`) — i.e. no byte inflation vs today for the covered cells.
+```elixir
+    assert_receive {:classify, %{content_class: :photo, applied_offset: 2.4}}
+```
+
+This is the "no byte inflation vs today" guard: avif×photo (and jpeg/webp) keep the prior 2.4.
+
+- [ ] **Step 4: Run the wire tests**
 
 Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
-Expected: PASS.
+Expected: PASS. If `content_class` comes back `:photo` for the graphic origin (or vice-versa), fix the origin generator (Step 1) until classification is unambiguous.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add test/image_pipe/imgproxy_wire_conformance_test.exs
-git commit -m "test(autoquality): request-boundary acceptance for {format,class} offset (#380)"
+git commit -m "test(autoquality): request-boundary contract for {format,class} offset (#380)"
 ```
 
 ---
@@ -829,17 +916,21 @@ Expected: `mix format --check-formatted`, `mix compile --warnings-as-errors`, `m
 Run: `mise exec -- mix test test/image_pipe/architecture_boundary_test.exs`
 Expected: PASS — `ContentClassifier` sits inside `Output.*`; no request/source/response code names it. (No boundary edits expected.)
 
-- [ ] **Step 3: Re-confirm the cohort safety property (optional, environmental)**
+- [ ] **Step 3: Re-confirm the frozen-constant safety property (environmental)**
 
-If the thresholds were adjusted in Task 1 Step 3, re-run `mise exec -- mix autoquality.bench --part m --downsample 512 --corpus "$(mise exec -- mix autoquality.corpus --path)"` and confirm the `PRODUCTION rule` line still reads `screen→photo 0`.
+Confirm the thresholds hardcoded in `ContentClassifier` (Task 2) are exactly the pair whose `PRODUCTION rule` line read `screen→photo 0` in Task 1's commit body (re-validated there after any hand-adjustment). If they differ, re-run `mise exec -- mix autoquality.bench --part m --downsample 512 --corpus "$(mise exec -- mix autoquality.corpus --path)"` for the hardcoded pair and confirm `screen→photo 0` before shipping.
 
 - [ ] **Step 4: Final review prep**
 
 Confirm the spec's acceptance criteria are all covered:
-- Large AVIF dense-graphic hits target band → Task 7.
-- avif×photo / jpeg / webp no byte inflation → Task 7 Step 4 (lean 2.4 retained).
-- Request-boundary test decodes output, confirms no misclassification → Task 7.
-- Telemetry surfaces class + offset → Task 6.
+- No silent under-quality for large AVIF graphic → proven across layers: the per-class
+  6.0 offset is selected/applied end-to-end (T6 telemetry + T7 wire contract), the offset
+  bites in the correcting direction (search monotonicity, documented), and 6.0 is the
+  right magnitude on real dense text (bench, T1). The lane does **not** assert "hits
+  target" off the by-construction estimate (would be vacuous).
+- avif×photo / jpeg / webp no byte inflation → T7 Step 3 (`applied_offset: 2.4` retained).
+- Request-boundary test through `ImagePipe.call/2`, classification confirmed → T7.
+- Telemetry surfaces class + offset on both surfaces → T6.
 
 ---
 
@@ -847,5 +938,5 @@ Confirm the spec's acceptance criteria are all covered:
 
 - **Spec coverage:** ContentClassifier (T2 ↔ spec §1), Plan.Output table (T3 ↔ §2), resolution (T4 ↔ §3), EncodeSearch consumption + constant removal (T5 ↔ §4), telemetry both surfaces (T6 ↔ §5), tests incl. acceptance (T2/T4/T6/T7 ↔ §"Testing"), empirical constants (T1 ↔ §"Empirical constants"). WebP cap (#381) correctly excluded.
 - **Cache key:** explicitly NOT touched (constant policy, out of key/ETag) — documented in File Structure.
-- **Naming consistency:** `quality_search_offsets` (field, all three layers), `offset_for/3`, `default_quality_search_offsets/0`, `:photo`/`:graphic`, `crop_estimate/5`, span `[:encode, :search, :classify]`, meta keys `content_class`/`applied_offset`/`palette_ent`/`nat_var` — used identically across tasks.
+- **Naming consistency:** `quality_search_offsets` (field, all three layers), `offset_for/3`, `default_quality_search_offsets/0`, `:photo`/`:graphic`, `crop_estimate/5`, span `[:encode, :classify]`, meta keys `content_class`/`applied_offset`/`palette_ent`/`nat_var` — used identically across tasks.
 - **Empirical placeholders:** the three constants (`@palette_photo_threshold`, `@nat_var_photo_threshold`, avif×graphic offset) are bench-derived in T1; example values (`0.62`/`0.22`/`6.0`) are flagged as substitutable, not invented design gaps.
