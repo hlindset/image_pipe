@@ -89,6 +89,61 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  # A >6 MP white field overlaid with a fine black line grid: a dense line-art /
+  # text surrogate the content classifier reads as :graphic (two luminance values →
+  # low palette entropy; all-hard edges → low mid-band gradient). Above the crop
+  # crossover this is the cell whose crop estimate overshoots full-frame, so
+  # {avif, :graphic} draws the big offset (#380). 2480² ≈ 6.15 MP, just over the
+  # crossover (keeps AVIF encode cost down). Served JPEG to stay under the default
+  # 10 MB source max_body_bytes.
+  defmodule LargeGraphicOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      side = 2480
+      base = Image.new!(side, side, color: :white)
+
+      drawn =
+        Enum.reduce(0..(side - 1)//16, base, fn x, acc ->
+          acc
+          |> Image.Draw.rect!(x, 0, 1, side, color: :black)
+          |> Image.Draw.rect!(0, x, side, 1, color: :black)
+        end)
+
+      body = drawn |> Image.to_colorspace!(:srgb) |> Image.write!(:memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  # A >6 MP continuous-tone field: a full-range luminance ramp (high palette
+  # entropy) plus softly-blurred noise (high mid-band gradient) → :photo. The
+  # no-inflation control: avif × :photo must keep the lean 2.4 offset (#380).
+  defmodule LargePhotoOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      side = 2480
+      {:ok, xyz} = Operation.xyz(side, side)
+      {:ok, x} = Operation.extract_band(xyz, 0)
+      {:ok, ramp} = Operation.linear(x, [255.0 / (side - 1)], [0.0])
+      {:ok, noise} = Operation.gaussnoise(side, side, sigma: 35, mean: 0)
+      {:ok, blurred} = Operation.gaussblur(noise, 1.2)
+      {:ok, sum} = Operation.add(ramp, blurred)
+      {:ok, uchar} = Operation.cast(sum, :VIPS_FORMAT_UCHAR)
+      {:ok, gray} = Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
+      {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
+      {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+      body = Image.write!(srgb, :memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   # Deferred-orientation gate (#146) origins. Both serve the SAME displayed
   # pixels: `OrientedFrameOrigin` tags a stored image with an EXIF orientation
   # (so the pipeline must autorotate it), while `Orientation1TwinOrigin` decodes
@@ -716,6 +771,85 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert meta.scorer == :crop
     assert meta.confirm_passes == 0
     assert meta.result == :ok
+  end
+
+  test "large graphic AVIF above the crossover selects the {avif, graphic} offset (#380)" do
+    # End-to-end contract: a large graphic AVIF render classifies :graphic and
+    # draws the big {avif, :graphic} offset on the crop path. NOT an "achieves
+    # target" assertion — on the crop path the search lands its offset-corrected
+    # estimate in-band by construction at any offset (that would be vacuous); the
+    # 6.0 magnitude's correctness is owned by `mix autoquality.bench --part m`.
+    telemetry_prefix = [:"ip_aq_graphic_#{System.unique_integer([:positive])}"]
+    test_pid = self()
+    handler_id = "aq-graphic-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach_many(
+      handler_id,
+      [
+        telemetry_prefix ++ [:encode, :classify, :stop],
+        telemetry_prefix ++ [:encode, :search, :stop]
+      ],
+      fn event, _measurements, meta, _config -> send(test_pid, {:stop, event, meta}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: LargeGraphicOriginImage]}
+      ],
+      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      telemetry_prefix: telemetry_prefix
+    ]
+
+    # Explicit AVIF, no resize: the full >6 MP frame is finalized → crop scorer fires.
+    conn = call_imgproxy("/_/f:avif/plain/images/large.jpg", opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/avif"]
+
+    classify_stop = telemetry_prefix ++ [:encode, :classify, :stop]
+    search_stop = telemetry_prefix ++ [:encode, :search, :stop]
+
+    assert_receive {:stop, ^classify_stop, %{content_class: :graphic, applied_offset: 6.0}}
+    assert_receive {:stop, ^search_stop, %{scorer: :crop}}
+  end
+
+  test "large photo AVIF above the crossover keeps the lean 2.4 offset (#380 no-inflation)" do
+    telemetry_prefix = [:"ip_aq_photo_#{System.unique_integer([:positive])}"]
+    test_pid = self()
+    handler_id = "aq-photo-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      telemetry_prefix ++ [:encode, :classify, :stop],
+      fn _event, _measurements, meta, _config -> send(test_pid, {:classify, meta}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
+      ],
+      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      telemetry_prefix: telemetry_prefix
+    ]
+
+    conn = call_imgproxy("/_/f:avif/plain/images/large.jpg", opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/avif"]
+    # avif × :photo keeps the prior global 2.4 → no byte inflation vs today.
+    assert_receive {:classify, %{content_class: :photo, applied_offset: 2.4}}
   end
 
   test "equivalent imgproxy option order shares filesystem cache through real Plug requests" do
