@@ -35,12 +35,19 @@ defmodule ImagePipe.Output.ContentClassifier do
   @k0 [[1.0, 0.0, -1.0], [2.0, 0.0, -2.0], [1.0, 0.0, -1.0]]
   @k90 [[1.0, 2.0, 1.0], [0.0, 0.0, 0.0], [-1.0, -2.0, -1.0]]
 
-  # Photo-side Youden thresholds, pinned by `mix autoquality.bench --part m`.
-  # Photos read HIGH on both features (cohort medians palette_ent 0.909/0.393,
-  # nat_var 0.411/0.110); :photo requires BOTH to clear their threshold, else the
-  # safe :graphic fallback.
-  @palette_photo_threshold 0.62
-  @nat_var_photo_threshold 0.22
+  # Photo-side thresholds pinned by `mix autoquality.bench --part m` (downsample 512,
+  # 133 photo / 56 screen cohort). Photos read HIGH on both features (cohort medians
+  # palette_ent 0.91/0.44, nat_var 0.40/0.17); :photo requires BOTH to clear their
+  # threshold, else the safe :graphic fallback.
+  #
+  # Set ABOVE the per-feature Youden split (palette 0.70 / nat 0.27): the Youden pair
+  # leaks 1 screen→photo on this cohort (a photo-embedding `qoi_web` web screenshot).
+  # 0.82 / 0.27 makes screen→photo = 0 with a 0.048 margin to the nearest screen and
+  # 71 % photo recall — the asymmetric cost (a misread screenshot ships visible text
+  # damage; a misread photo only inflates its file slightly) buys safety with recall.
+  # Re-derive with `mix autoquality.bench --part m` (the PRODUCTION rule line).
+  @palette_photo_threshold 0.82
+  @nat_var_photo_threshold 0.27
 
   @doc """
   Classify a finalized image. Never raises; any libvips failure → `:graphic`.

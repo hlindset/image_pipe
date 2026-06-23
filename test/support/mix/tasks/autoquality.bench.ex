@@ -3811,6 +3811,39 @@ defmodule Mix.Tasks.Autoquality.Bench do
         names = Enum.map_join(strong, ",", & &1.name)
         m_rule_report("strong-features AND-rule (sep≥#{@m_strong_sep}: #{names})", rows, strong)
     end
+
+    # The exact rule production ships (#380): :photo iff palette_ent ≥ θ AND nat_var ≥ θ
+    # at the FROZEN `ImagePipe.Output.ContentClassifier` thresholds (not the Youden θ
+    # above — those leak 1 screen→photo on this cohort). screen→photo must be 0.
+    m_production_rule_report(rows)
+  end
+
+  # ContentClassifier's frozen thresholds (#380). Kept in sync with that module by
+  # hand; this report's screen→photo count is the safety evidence for the pair.
+  @prod_palette_threshold 0.82
+  @prod_nat_threshold 0.27
+
+  defp m_production_rule_report(rows) do
+    photo_pred = fn r ->
+      r.palette_entropy >= @prod_palette_threshold and r.natural_variation >= @prod_nat_threshold
+    end
+
+    photos = Enum.filter(rows, &(&1.class == :photo))
+    screens = Enum.filter(rows, &(&1.class == :screen_or_other))
+    recall = Enum.count(photos, photo_pred)
+    leak = Enum.count(screens, photo_pred)
+
+    IO.puts(
+      "\n  PRODUCTION rule (palette_ent ≥ #{@prod_palette_threshold} ∧ " <>
+        "nat_var ≥ #{@prod_nat_threshold}) — the frozen ContentClassifier thresholds"
+    )
+
+    IO.puts("    photo→photo #{recall}/#{length(photos)}   photo→screen #{length(photos) - recall}")
+
+    IO.puts(
+      "    screen→screen #{length(screens) - leak}/#{length(screens)}   " <>
+        "screen→photo #{leak} (TEXT DAMAGE)" <> if(leak == 0, do: "  ✓ safe", else: "  ✗")
+    )
   end
 
   defp m_feature_stat({key, name, _hyp}, photos, screens) do

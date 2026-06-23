@@ -157,6 +157,18 @@ cohort at the chosen thresholds; the avif×graphic offset covers the `web_sc` de
 worst case (~7) without over-covering charts more than the 2-class split inherently
 must.
 
+**Pinned (bench run 2026-06-23, downsample 512, 133 photo / 56 screen):**
+
+- `palette_ent ≥ 0.82` ∧ `nat_var ≥ 0.27` → `:photo`, else `:graphic`. Set **above** the
+  per-feature Youden split (0.70 / 0.27), which leaked **1** screen→photo (a
+  photo-embedding `qoi_web` web screenshot). The frozen pair gives **0** screen→photo
+  with a 0.048 margin to the nearest screen and **71 %** photo recall (94/133) — better
+  than the 4-feature rule's 62 % at 0 errors.
+- `{:avif, :graphic}` offset **6.0** — the avif×screen residual p90 is 5.44 overall and
+  **6.07** for `web_sc` (the binding dense-text worst case); `grafana_sc` charts 0.46,
+  `qoi_web` 1.82. The bench `PRODUCTION rule` line (evaluated at the frozen thresholds,
+  not Youden) is the reproducible safety evidence.
+
 ## Testing
 
 The acceptance work splits along what each layer can honestly prove:
