@@ -22,11 +22,14 @@ mise exec -- mix autoquality.bench --part f --corpus DIR  # saliency tile select
 mise exec -- mix autoquality.bench --part g --corpus DIR  # early-stop vs full search, per format cap
 mise exec -- mix autoquality.bench --part k --corpus DIR  # confirm-skipped offset sweep (#369)
 mise exec -- mix autoquality.bench --part l --corpus DIR  # crop K × tile operating-point sweep (#359)
-mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + L
+mise exec -- mix autoquality.corpus.capture              # grow the >6 MP screen-content half (Part M/L)
+mise exec -- mix autoquality.bench --part m --corpus DIR  # content-classifier feasibility (#359)
+mise exec -- mix autoquality.bench --part m --corpus DIR --downsample 512  # smaller classifier downsample
+mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + M
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
 mise exec -- mix autoquality.bench --part l --k 8,16,32 --tile 384,512,768  # Part L grid (defaults shown)
-mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c,e,f,g,k,l}.csv
+mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c,e,f,g,k,l,m_*}.csv
 ```
 
 > **Part E corpus.** Part E needs content-diverse, license-clean images the
@@ -807,6 +810,194 @@ an error (the confirm that would have caught it is the thing #369 removed for co
 direction is consistent across all 9 combos, but confirm the ~6 magnitude on a larger
 AVIF-text sample before it drives a production constant. `mix autoquality.corpus.capture`
 materializes the cohort; re-run `--part l` per format to reproduce.
+
+### Part M — content-classifier feasibility (#359)
+
+The Part L follow-up left a concrete proposal: replace the single global
+confirm-skipped offset with a `{format, content-class} → offset` policy so only AVIF ×
+screen-content pays the big (~6) offset while AVIF photos and jpeg/webp stay lean. That
+needs a classifier — and a classifier is only worth building if a *cheap* signal
+separates the two classes. Part M is the **feasibility probe**: it computes five cheap
+libvips features on a 1024 px long-edge downsample and asks (a) do they separate
+`:photo` from `:screen_or_other`, and (b) does the class actually predict the residual
+the offset corrects. It builds no classifier and no policy table — those wait on these
+numbers. Misclassification is asymmetric: a photo read as screen only inflates a file
+slightly, but a screenshot read as photo gets the lean offset and ships visible
+text/edge damage — so the classifier must fall back to `:screen_or_other` and the
+**screen→photo** error is the one that must stay at zero.
+
+Features (each on the downsample, grayscale): `flat_frac` (gradient-magnitude below a
+low threshold — solid fills), `hard_edge` (above a high threshold), `palette_ent`
+(luminance-histogram entropy ÷ 8 — colour simplicity), `nat_var` (fraction in the *mid*
+gradient band — soft continuous variation), `axis_align` (axis vs diagonal Sobel
+energy). Each feature's photo-condition is auto-oriented from the observed class
+medians, so the AND-rule degrades only on genuine overlap, never on a mis-guessed
+direction. Cost (`feat_us`, the classifier's marginal work over an already-decoded
+request — downsample + convolutions, excludes decode) is **10–59 ms/image**, 1–2 orders
+below the multi-second >6 MP encode search it would gate.
+
+**(a) Separation — the primary verdict, over the full labeled cohort (133 photo / 56
+screen; Apple Silicon, libvips 8.18.2).** `sep` = max(AUC, 1−AUC), a threshold-free
+1-D separation score; `scr→photo@θ` = screenshots misread as photo at the feature's
+Youden split (the dangerous direction):
+
+| feature      | photo med | screen med | sep (AUC) | cohen-d | scr→photo@θ |
+|--------------|-----------|------------|-----------|---------|-------------|
+| `palette_ent`  | 0.909 | 0.393 | **0.959** | −2.96 | 3/56 |
+| `nat_var`      | 0.411 | 0.110 | **0.940** | −2.16 | 1/56 |
+| `axis_align`   | 0.922 | 0.829 | 0.904 | −1.90 | 6/56 |
+| `flat_frac`    | 0.304 | 0.723 | 0.903 | +1.80 | 5/56 |
+| `hard_edge`    | 0.229 | 0.156 | 0.637 | −0.56 | 10/56 |
+
+- **Two features separate cleanly.** `palette_ent` (AUC 0.959, d −2.96) and `nat_var`
+  (AUC 0.940, d −2.16): screens are low-entropy and bimodal (flat fills + hard edges,
+  little mid-band), photos are high-entropy with continuous variation. `palette_ent`
+  alone, at a single threshold, misreads only 3/56 screens as photo.
+- **`axis_align` is real but *reversed* from the hypothesis.** The premise was that
+  text/tables/charts are more axis-aligned; the data says the opposite — photos read
+  *higher* (0.922 vs 0.829), because Sobel H/V dominates natural images too and
+  anti-aliased diagonal text *lowers* a screenshot's axis ratio. The auto-orientation
+  absorbs the flip (it still separates, sep 0.904), but the named intuition does not
+  hold.
+- **`hard_edge` is too weak to use (sep 0.637).** Photos carry plenty of hard edges;
+  a single magnitude threshold doesn't divide the classes. Drop it.
+
+**Combined AND-rule (predict `:photo` iff *every* feature votes photo; else the safe
+fallback). Both variants make zero screen→photo errors — the safety-critical
+direction is clean on this cohort:**
+
+| rule | photo→photo | photo→screen | screen→photo |
+|------|-------------|--------------|--------------|
+| all 5 features | 51/133 (38%) | 82 | **0** ✓ |
+| strong only (`flat`,`palette`,`nat`,`axis`, sep≥0.75) | 83/133 (62%) | 50 | **0** ✓ |
+
+Dropping the weak `hard_edge` lifts photo recall 38%→62% with the dangerous-error count
+still zero. The remaining photo→screen cases are the conservative cost of the
+fallback (a 38% slice of photos paying a slightly larger AVIF file); a production
+threshold would tune that trade-off, but the **clean separation exists and the
+zero-text-damage constraint is met cheaply — the classifier is feasible.**
+
+**(b) Residual confirmation — secondary, >6 MP only.** Mean/p90 of the
+confirm-skipped residual (`even-K16/512 p10 − full-frame`) over *baseline-hit* cases
+(the population an offset protects, matching Part L's `p90hit`); `n` = all >6 MP cases,
+`hit` = baseline on-target:
+
+| class | format | n | hit | mean_hit | p90_hit |
+|-------|--------|---|-----|----------|---------|
+| photo | jpeg | 6 | 6 | 0.05 | 1.07 |
+| photo | webp | 6 | 0 | — | — |
+| photo | avif | 6 | 4 | 0.14 | 0.39 |
+| screen | jpeg | 36 | 0 | — | — |
+| screen | webp | 35 | 4 | 0.62 | 0.20 |
+| **screen** | **avif** | **35** | **26** | **3.05** | **6.07** |
+
+Per-source AVIF (>6 MP, baseline-hit — the per-content offset need):
+
+| source | class | n | hit | mean_hit | p90_hit |
+|--------|-------|---|-----|----------|---------|
+| `grafana_sc` | screen | 5 | 5 | −0.35 | 0.46 |
+| `large` | photo | 6 | 4 | 0.14 | 0.39 |
+| `qoi_web` | screen | 9 | 5 | 0.60 | 1.82 |
+| **`web_sc`** | **screen** | **21** | **16** | **4.88** | **7.20** |
+
+- **The ~6 magnitude is confirmed on a larger sample** — AVIF × screen p90 **6.07**
+  over 26 baseline-hit cases (vs the follow-up's ~13–18), and AVIF × photo is **~0**
+  (p90 0.39). The `{format, class}` shape holds: only AVIF × screen carries a residual
+  worth an offset.
+- **jpeg/webp screen content is mostly ceiling-bound at >6 MP** (jpeg 0/36 hit, webp
+  4/35) — it can't reach target at `max_quality`, so it has no offset-relevant residual.
+  The policy bites **only** AVIF × screen, exactly as hypothesized — every other
+  `{format, class}` cell stays lean for free.
+- **Dense text is the binding worst case, charts are not.** Within the screen class the
+  residual is itself spread: `web_sc` (dense text) p90 **7.20**, but `grafana_sc`
+  (charts) −0.35 and `qoi_web` 0.60. A single `{avif, :screen_or_other}` offset must
+  cover `web_sc`'s ~7, which over-inflates charts — so the 2-class split is *coarse* for
+  the residual, but it is the conservative, robust choice a cheap classifier can make
+  reliably.
+- **A finer-than-2-class policy has only moderate cheap signal.** Within the screen
+  class, `palette_ent` is the strongest feature↔residual correlation (Spearman ρ
+  **−0.47**: lower entropy ⇒ bigger overshoot, i.e. text vs charts), `nat_var` −0.30,
+  the rest near zero. Enough to suggest a 3-class refinement is *possible*, not enough
+  to justify it over the clean 2-class split now. (Pooled photo+screen Spearman is
+  degenerate at ρ≈1 — the residual is bimodal by class, so any class-separating feature
+  trivially saturates; the within-screen number is the informative one.)
+
+**Consequences for autoquality (production shape, not built here).** The class is
+*input conditioning* — derived entirely from runtime image inspection (the decoded
+pixels, which no operation struct can see), like EXIF auto-orient, input
+color-management, and shrink-on-load. So it is **self-managing state, not a
+`Plan.Operation`**; its materialization need rides the same sequential-safety gate. The
+declarative knob a parser controls — the `{format, content-class} → offset` table —
+belongs on `Plan.Output`, next to the existing output policy. The classifier runs on a
+downsample at single-digit-millisecond cost, defaults its verdict to `:screen_or_other`,
+and lets only AVIF × screen draw the big offset.
+
+*Caveat:* one machine/libvips build. Separation (a) rests on the full 189-image cohort
+and is robust; the residual magnitudes (b) carry the Part K/L thin-cohort caveat —
+the photo side above the crossover is `large` only (6 images) and the AVIF `web_sc`
+baseline-hit sample is 16. Re-run `--part m --corpus DIR` (after
+`mix autoquality.corpus` + `mix autoquality.corpus.capture`) to reproduce; the feature
+and residual rows land in `/tmp/autoquality_bench_part_m_{features,residual}.csv`.
+
+### Part M follow-up — can the offset be a sliding scale, and how small can the downsample go?
+
+Two questions the binary `{format, class} → offset` proposal raised.
+
+**Could the offset be *continuous* in some cheap metric instead of a binary class
+choice?** A sliding offset only works if a cheap signal predicts the *residual
+magnitude* — a far stronger requirement than separating the classes. Two candidate
+signals, both measured here, **both too weak**:
+
+- **The features themselves.** The single best predictor, `palette_ent`, explains only
+  **r²≈0.17** of the AVIF residual across all >6 MP content (0.10 within screen). The
+  per-source means show why: `grafana_sc` (charts) and `web_sc` (dense text) have
+  near-identical cheap-feature signatures (palette_ent 0.48 vs 0.34, nat_var 0.17 vs
+  0.11, flat 0.68 vs 0.73) but residuals of **−0.35 vs 5.02**. The features measure
+  *screen-ness*; the residual is driven by something narrower — AVIF's spatially-uneven
+  quality on dense *text* — that screen-ness only loosely tracks. A sliding `g(feature)`
+  would have to map two almost-equal inputs to outputs 5 apart.
+- **The crop scorer's own per-tile dispersion** (the tile-dispersion probe — a *free*
+  signal, no new pixels). Pearson r of each dispersion stat against the AVIF residual:
+
+  | stat | r (all >6 MP, n=41) | r² | r (screen, n=35) | r² |
+  |------|---------------------|-----|------------------|-----|
+  | `tile_std`   | −0.07 | 0.005 | −0.23 | 0.052 |
+  | `mean−p10`   | −0.08 | 0.006 | −0.27 | 0.072 |
+  | `med−p10`    | −0.05 | 0.002 | −0.20 | 0.041 |
+  | `p10−min`    | +0.06 | 0.004 |  0.00 | 0.000 |
+  | `iqr`        | +0.07 | 0.004 | −0.04 | 0.002 |
+
+  The best stat explains **7 % of the within-screen residual variance, ~0 % overall.**
+  The overshoot is a *scale × codec* effect — the gap between scoring 512 px tiles and
+  the whole frame — not within-frame tile-to-tile spread, so the tiles can all agree
+  and still collectively overshoot. **There is no near-free sliding signal.**
+
+So the binary class is the **ceiling these cheap signals support**, and it is the safe
+one: it deliberately over-covers low-residual screen content (charts/web shots get the
+big offset they don't need → marginally larger files) in exchange for never
+under-covering text. A continuous offset would trade that safety away for byte savings
+the data can't reliably target. (A genuine sliding scale would need either a
+text-specific feature or the full-frame confirm #369 removed for cost.)
+
+**How small can the classifier downsample go?** The separation verdict is **nearly
+invariant** from 256→1024 px, and safe at every size — `palette_ent` is a histogram
+measure, so resolution barely touches it. The residual is downsample-independent, so a
+size sweep only moves the (a) numbers (`--downsample N`):
+
+| downsample | AUC `palette_ent` | AUC `nat_var` | feat µs | screen→photo | photo-recall |
+|------------|-------------------|---------------|---------|--------------|--------------|
+| 256  | 0.969 | 0.886 | 8 ms  | **0/56** | 101/133 (76%) |
+| 384  | 0.969 | 0.922 | 10 ms | **0/56** | 106/133 (80%) |
+| **512** | **0.969** | **0.933** | **12 ms** | **0/56** | **109/133 (82%)** |
+| 768  | 0.970 | 0.942 | 15 ms | **0/56** | 112/133 (84%) |
+| 1024 | 0.970 | 0.952 | 20 ms | **0/56** | 113/133 (85%) |
+
+The dangerous direction (screen→photo) stays **0/56 at every size, down to 256 px**.
+Only `nat_var`/`flat_frac` soften as fine texture washes out, costing a few points of
+photo-recall (85%→76%) — the benign direction (a few more photos conservatively get the
+screen offset). **512 px is the production sweet spot**: ~all the accuracy of 1024 at
+~60 % the cost; drop to 384 if cost dominates. (The Part M tables above use the 1024
+default.)
 
 ## Findings & recommendations
 
