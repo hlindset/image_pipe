@@ -60,42 +60,12 @@ run = [
   "pnpm -C fiddle/assets run build",
 ]
 
+# Thin alias so the task shows up in `mise tasks`; the implementation (and its
+# symlink-safety logic) lives in the `mix worktrees.clean` task, which selects
+# MIX_ENV=test itself via mix.exs `preferred_envs`.
 [tasks."worktrees:clean"]
-description = "Remove regenerable dirs (deps, _build, fiddle deps/_build/node_modules, .dexter, .expert) from every worktree under .worktrees and .claude/worktrees"
-run = """
-set -eu
-root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-[ -n "$root" ] && [ -d "$root" ] || { echo "could not resolve git root" >&2; exit 1; }
-root=$(CDPATH= cd -- "$root" && pwd -P)
-
-# Canonical absolute path of an existing file/dir (resolves symlinks).
-resolve() {
-  d=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P) || return 1
-  case "$d" in */) printf '%s%s\\n' "$d" "$(basename -- "$1")" ;;
-                *) printf '%s/%s\\n' "$d" "$(basename -- "$1")" ;; esac
-}
-
-removed=0
-for base in "$root/.worktrees" "$root/.claude/worktrees"; do
-  [ -d "$base" ] || continue
-  for wt in "$base"/*/; do
-    [ -d "$wt" ] || continue
-    for target in deps _build fiddle/deps fiddle/_build fiddle/node_modules fiddle/assets/node_modules .dexter .expert; do
-      path="$wt$target"
-      [ -e "$path" ] || continue
-      real=$(resolve "$path") || { echo "skip (unresolvable): $path" >&2; continue; }
-      case "$real" in
-        "$root"/*) ;;
-        *) echo "skip (outside git root): $real" >&2; continue ;;
-      esac
-      echo "rm -rf ${real#"$root/"}"
-      rm -rf "$real"
-      removed=$((removed + 1))
-    done
-  done
-done
-echo "Cleaned $removed director(ies)."
-"""
+description = "Remove regenerable dirs (deps, _build, fiddle deps/_build/node_modules, .dexter, .expert) from every worktree (→ mix worktrees.clean)"
+run = "mix worktrees.clean"
 
 [tasks.server]
 description = "Run the ImagePipe Fiddle dev server (Phoenix + Vite)"
