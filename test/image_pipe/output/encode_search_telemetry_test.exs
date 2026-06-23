@@ -2,8 +2,10 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Output.EncodeSearch
+  alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Telemetry
+  alias Vix.Vips.Operation
 
   # Unique prefix so the global :telemetry handler can't catch another module's
   # default-prefixed emissions and leak them into this async test's mailbox.
@@ -268,21 +270,21 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
   # plus softly-blurred noise (high mid-band gradient) → :photo.
   defp large_photo_image do
     side = 2480
-    {:ok, xyz} = Vix.Vips.Operation.xyz(side, side)
-    {:ok, x} = Vix.Vips.Operation.extract_band(xyz, 0)
-    {:ok, ramp} = Vix.Vips.Operation.linear(x, [255.0 / (side - 1)], [0.0])
-    {:ok, noise} = Vix.Vips.Operation.gaussnoise(side, side, sigma: 35, mean: 0)
-    {:ok, blurred} = Vix.Vips.Operation.gaussblur(noise, 1.2)
-    {:ok, sum} = Vix.Vips.Operation.add(ramp, blurred)
-    {:ok, uchar} = Vix.Vips.Operation.cast(sum, :VIPS_FORMAT_UCHAR)
-    {:ok, gray} = Vix.Vips.Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
-    {:ok, rgb} = Vix.Vips.Operation.bandjoin([gray, gray, gray])
-    {:ok, srgb} = Vix.Vips.Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+    {:ok, xyz} = Operation.xyz(side, side)
+    {:ok, x} = Operation.extract_band(xyz, 0)
+    {:ok, ramp} = Operation.linear(x, [255.0 / (side - 1)], [0.0])
+    {:ok, noise} = Operation.gaussnoise(side, side, sigma: 35, mean: 0)
+    {:ok, blurred} = Operation.gaussblur(noise, 1.2)
+    {:ok, sum} = Operation.add(ramp, blurred)
+    {:ok, uchar} = Operation.cast(sum, :VIPS_FORMAT_UCHAR)
+    {:ok, gray} = Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
+    {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
+    {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
     srgb
   end
 
   defp crop_resolved do
-    %ImagePipe.Output.Resolved{
+    %Resolved{
       format: :jpeg,
       quality: :default,
       response_headers: [],
