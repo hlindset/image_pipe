@@ -2,8 +2,10 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Output.EncodeSearch
+  alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Telemetry
+  alias Vix.Vips.Operation
 
   # Unique prefix so the global :telemetry handler can't catch another module's
   # default-prefixed emissions and leak them into this async test's mailbox.
@@ -224,5 +226,111 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     after
       0 -> {Enum.reverse(probes), Enum.reverse(durations)}
     end
+  end
+
+  # --- classify span (#380): the per-content-class offset is selected on the crop
+  # path. Uses run/3 on a real >6 MP image (so the crop scorer fires) but encodes
+  # JPEG (cheap) — the classify span's offset lookup is format-agnostic, so the
+  # resolved offset map can carry the avif×graphic 6.0 regardless of encode format.
+
+  @classify @prefix ++ [:encode, :classify, :stop]
+
+  defp attach_classify do
+    handler_id = "encode-classify-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      @classify,
+      fn _e, _m, meta, _config -> send(test_pid, {:classify, meta}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  # >6 MP hard-edged two-tone field (dense line-art surrogate): a white canvas with
+  # a fine black line grid → two luminance values (low palette entropy) + all-hard
+  # edges (low mid-band) → :graphic. Built with Image.Draw, not Operation.grid.
+  defp large_graphic_image do
+    side = 2480
+    base = Image.new!(side, side, color: :white)
+
+    drawn =
+      Enum.reduce(0..(side - 1)//16, base, fn x, acc ->
+        acc
+        |> Image.Draw.rect!(x, 0, 1, side, color: :black)
+        |> Image.Draw.rect!(0, x, side, 1, color: :black)
+      end)
+
+    Image.to_colorspace!(drawn, :srgb)
+  end
+
+  # >6 MP continuous-tone field: a full-range luminance ramp (high palette entropy)
+  # plus softly-blurred noise (high mid-band gradient) → :photo.
+  defp large_photo_image do
+    side = 2480
+    {:ok, xyz} = Operation.xyz(side, side)
+    {:ok, x} = Operation.extract_band(xyz, 0)
+    {:ok, ramp} = Operation.linear(x, [255.0 / (side - 1)], [0.0])
+    {:ok, noise} = Operation.gaussnoise(side, side, sigma: 35, mean: 0, seed: 1)
+    {:ok, blurred} = Operation.gaussblur(noise, 1.2)
+    {:ok, sum} = Operation.add(ramp, blurred)
+    {:ok, uchar} = Operation.cast(sum, :VIPS_FORMAT_UCHAR)
+    {:ok, gray} = Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
+    {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
+    {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+    srgb
+  end
+
+  defp crop_resolved do
+    %Resolved{
+      format: :jpeg,
+      quality: :default,
+      response_headers: [],
+      strip_metadata: true,
+      keep_copyright: false,
+      color_profile: :preserve_source,
+      quality_search: %RQS{
+        objective: :ssim2,
+        target: 80.0,
+        min_quality: 40,
+        max_quality: 95,
+        allowed_error: 1.0,
+        max_resolution: 0,
+        quality_search_offsets: %{photo: 2.4, graphic: 6.0}
+      }
+    }
+  end
+
+  test "classify span selects the graphic offset (6.0) for graphic content" do
+    attach_classify()
+    opts = Telemetry.telemetry_opts(telemetry_prefix: @prefix)
+
+    assert {:ok, _bin, _meta} =
+             EncodeSearch.run(large_graphic_image(), crop_resolved(),
+               scorer: :crop,
+               telemetry_opts: opts
+             )
+
+    assert_receive {:classify, meta}
+    assert meta.content_class == :graphic
+    assert meta.applied_offset == 6.0
+    assert is_float(meta.palette_ent) and is_float(meta.nat_var)
+  end
+
+  test "classify span keeps the lean offset (2.4) for photo content" do
+    attach_classify()
+    opts = Telemetry.telemetry_opts(telemetry_prefix: @prefix)
+
+    assert {:ok, _bin, _meta} =
+             EncodeSearch.run(large_photo_image(), crop_resolved(),
+               scorer: :crop,
+               telemetry_opts: opts
+             )
+
+    assert_receive {:classify, meta}
+    assert meta.content_class == :photo
+    assert meta.applied_offset == 2.4
   end
 end

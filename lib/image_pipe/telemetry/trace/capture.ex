@@ -11,6 +11,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:send],
     [:encode],
     [:encode, :search],
+    # Content classification for the per-class crop offset (#380). Emitted before
+    # the search span opens, so it is a sibling of [:encode, :search] under [:encode].
+    [:encode, :classify],
     [:encode, :search, :probe],
     # Per-probe cost legs (eager NIF/op calls → honest durations). The encode leg
     # is method-neutral (fires for every objective); the scoring legs carry the
@@ -108,6 +111,12 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :iterations,
     :tiles_scored,
     :confirm_passes,
+    # content classification for the per-class crop offset (#380): all product-neutral
+    # (a class atom, a constant offset, two image statistics)
+    :content_class,
+    :applied_offset,
+    :palette_ent,
+    :nat_var,
     # per-probe span attributes: phase, the search-level limiting factor, and the
     # crop→full confirm residual (all product-neutral numbers/atoms)
     :phase,

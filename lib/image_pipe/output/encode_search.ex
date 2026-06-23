@@ -29,6 +29,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   replacing the search.
   """
 
+  alias ImagePipe.Output.ContentClassifier
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
@@ -40,31 +41,6 @@ defmodule ImagePipe.Output.EncodeSearch do
   @default_max_bump_passes 2
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
-
-  # Crop-scoring p10→full-frame correction (offset = tile_p10 − full_frame_score),
-  # subtracted from the tile p10 so the objective's walk-to-target band comparison
-  # reproduces the full-frame decision.
-  #
-  # Above the crossover the search ships the crop objective winner with NO
-  # full-frame confirm (#369), so this offset is the only correction lever left and
-  # must be conservative: set near the p90 of the systematic residual rather than
-  # the median, so it covers the over-prediction tail (concentrated in screen
-  # content) instead of leaving the tail to a confirm that no longer runs.
-  #
-  # 2.4 ≈ the p90 of the (even-K16 p10 − full-frame) residual measured on
-  # `mix autoquality.bench --part k` over a 46-case >6 MP cohort (median 0.12,
-  # p90 2.42, worst 5.84 in `qoi_web` screen content). Dropping the confirm cost
-  # 0 target-hit regressions vs the crop+confirm baseline at every swept offset
-  # 0→3; the residual median is ~0, so biasing to the p90 barely moves bytes —
-  # raising the offset 0→3 nudges on-target only ~35→39 % at ~0 % median byte cost,
-  # because the remaining misses are bracket-ceiling-bound, not offset-bound. See
-  # `docs/autoquality_benchmark.md` (Part K).
-  #
-  # The calibration is tied to `CropScore`'s `@subsample_k` (16 even tiles) and p10
-  # aggregation: changing the tile count or aggregator silently invalidates this
-  # offset — re-derive it with `mix autoquality.bench --part k` before shipping such
-  # a change.
-  @crop_confirm_skipped_offset 2.4
 
   @type outcome :: :hit | :best_effort | :skipped
 
@@ -776,17 +752,42 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   # Crop mode (above the crossover): crop score_fun (estimate) only — no full-frame
-  # confirm/bump (#369). The conservative `@crop_confirm_skipped_offset` baked into
-  # the estimate replaces the confirm as the crop→full correction; the objective
-  # walk's verdict ships as-is, bounding the large-image search to a flat ~4.2 MP
-  # metric sample. No whole-frame reference is built — `crop_estimate` references
-  # per-tile via `CropScore.p10/2`, so the O(pixels) full-frame reference (the very
-  # cost this path avoids) never runs; a per-tile reference failure surfaces through
-  # the score closure's throw.
-  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2}}, :crop, t) do
+  # confirm/bump (#369). The per-`{format, content-class}` offset (resolved into
+  # `rqs.quality_search_offsets`, #380) baked into the estimate replaces the confirm
+  # as the crop→full correction; the content class is classified here once, lazily,
+  # from the finalized pixels. The objective walk's verdict ships as-is, bounding the
+  # large-image search to a flat ~4.2 MP metric sample. No whole-frame reference is
+  # built — `crop_estimate` references per-tile via `CropScore.p10/2`, so the
+  # O(pixels) full-frame reference (the very cost this path avoids) never runs; a
+  # per-tile reference failure surfaces through the score closure's throw.
+  defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop, t) do
     tiles = CropScore.tile_count(Image.width(image), Image.height(image))
-    crop = fn bytes -> crop_estimate(image, bytes, tiles, t) end
+    offset = classify_offset(image, rqs.quality_search_offsets, t)
+    crop = fn bytes -> crop_estimate(image, bytes, tiles, offset, t) end
     {:ok, [score_fun: crop, scorer_tiles: tiles]}
+  end
+
+  # Classify the finalized image once and select its per-class offset, as a span
+  # (#380). Emitted from `run/3`'s setup, before `search/3` opens `[:encode,
+  # :search]`, so it is a sibling of the search under `[:encode]` — hence
+  # `[:encode, :classify]`, not `…:search:classify`. `fetch!` trusts the resolver,
+  # which always stamps both :photo and :graphic for an :ssim2 search (the only
+  # objective reaching this path). The classifier is total — never raises — so the
+  # span emits start/stop only.
+  defp classify_offset(image, offsets, telemetry_opts) do
+    Telemetry.span(telemetry_opts, [:encode, :classify], %{}, fn ->
+      {class, features} = ContentClassifier.classify(image)
+      offset = Map.fetch!(offsets, class)
+
+      {offset,
+       %{
+         result: :ok,
+         content_class: class,
+         applied_offset: offset,
+         palette_ent: features.palette_ent,
+         nat_var: features.nat_var
+       }}
+    end)
   end
 
   # The score_fun contract is float-returning, but Image.from_binary and
@@ -811,12 +812,12 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Decode the candidate once; crop-score its tiles vs the base; subtract the
   # conservative confirm-skipped offset so the objective's walk-to-target band
   # comparison reproduces the full-frame decision without a full-frame confirm.
-  defp crop_estimate(base, bytes, tiles, telemetry_opts) do
+  defp crop_estimate(base, bytes, tiles, offset, telemetry_opts) do
     candidate = decode_leg(bytes, telemetry_opts)
 
     metric_leg(telemetry_opts, tiles, fn ->
       case CropScore.p10(base, candidate) do
-        {:ok, p10} -> p10 - @crop_confirm_skipped_offset
+        {:ok, p10} -> p10 - offset
         {:error, reason} -> throw({:image_pipe_score_error, reason})
       end
     end)

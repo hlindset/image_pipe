@@ -22,7 +22,12 @@ defmodule ImagePipe.Output.Policy do
     :color_profile
   ]
   defstruct @enforce_keys ++
-              [flatten_background: Color.white(), quality_search: :none, max_bytes: nil]
+              [
+                flatten_background: Color.white(),
+                quality_search: :none,
+                max_bytes: nil,
+                quality_search_offsets: Output.default_quality_search_offsets()
+              ]
 
   @passthrough_source_formats [:jpeg, :png]
 
@@ -42,7 +47,8 @@ defmodule ImagePipe.Output.Policy do
           color_profile: Output.color_profile(),
           flatten_background: Color.t(),
           quality_search: :none | Output.QualitySearch.t(),
-          max_bytes: nil | pos_integer()
+          max_bytes: nil | pos_integer(),
+          quality_search_offsets: Output.quality_search_offsets()
         }
 
   @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
@@ -58,7 +64,8 @@ defmodule ImagePipe.Output.Policy do
       color_profile: output.color_profile,
       flatten_background: output.flatten_background,
       quality_search: output.quality_search,
-      max_bytes: output.max_bytes
+      max_bytes: output.max_bytes,
+      quality_search_offsets: output.quality_search_offsets
     }
   end
 
@@ -74,7 +81,8 @@ defmodule ImagePipe.Output.Policy do
       color_profile: output.color_profile,
       flatten_background: output.flatten_background,
       quality_search: output.quality_search,
-      max_bytes: output.max_bytes
+      max_bytes: output.max_bytes,
+      quality_search_offsets: output.quality_search_offsets
     }
   end
 
@@ -174,14 +182,21 @@ defmodule ImagePipe.Output.Policy do
 
   defp resolve_search(%__MODULE__{quality_search: :none}, _format), do: :none
 
-  defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch{} = search}, format) do
+  defp resolve_search(
+         %__MODULE__{quality_search: %Output.QualitySearch{} = search} = policy,
+         format
+       ) do
     %ResolvedQualitySearch{
       objective: search.objective,
       target: search.target,
       min_quality: Map.get(search.format_min, format, search.min_quality),
       max_quality: Map.get(search.format_max, format, search.max_quality),
       allowed_error: search.allowed_error,
-      max_resolution: search.max_resolution
+      max_resolution: search.max_resolution,
+      quality_search_offsets: %{
+        photo: Output.offset_for(policy.quality_search_offsets, format, :photo),
+        graphic: Output.offset_for(policy.quality_search_offsets, format, :graphic)
+      }
     }
   end
 
