@@ -60,6 +60,13 @@ run = [
   "pnpm -C fiddle/assets run build",
 ]
 
+# Thin alias so the task shows up in `mise tasks`; the implementation (and its
+# symlink-safety logic) lives in the `mix worktrees.clean` task, which selects
+# MIX_ENV=test itself via mix.exs `preferred_envs`.
+[tasks."worktrees:clean"]
+description = "Remove regenerable dirs (deps, _build, fiddle deps/_build/node_modules, .dexter, .expert) from every worktree (→ mix worktrees.clean)"
+run = "mix worktrees.clean"
+
 [tasks.server]
 description = "Run the ImagePipe Fiddle dev server (Phoenix + Vite)"
 dir = "fiddle"
