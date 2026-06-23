@@ -3838,7 +3838,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
         "nat_var ≥ #{@prod_nat_threshold}) — the frozen ContentClassifier thresholds"
     )
 
-    IO.puts("    photo→photo #{recall}/#{length(photos)}   photo→screen #{length(photos) - recall}")
+    IO.puts(
+      "    photo→photo #{recall}/#{length(photos)}   photo→screen #{length(photos) - recall}"
+    )
 
     IO.puts(
       "    screen→screen #{length(screens) - leak}/#{length(screens)}   " <>
