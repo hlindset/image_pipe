@@ -75,7 +75,8 @@ defmodule ImagePipe.MixProject do
         "twicpics.gen_fixtures": :test,
         "twicpics.diagnose": :test,
         "twicpics.gen_report": :test,
-        "twicpics.reauthor": :test
+        "twicpics.reauthor": :test,
+        "worktrees.clean": :test
       ]
     ]
   end
