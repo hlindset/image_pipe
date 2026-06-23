@@ -52,7 +52,12 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
         min_quality: 40,
         max_quality: 95,
         allowed_error: 1.0,
-        max_resolution: 0
+        max_resolution: 0,
+        # Content-neutral: both classes subtract the prior global 2.4, so the
+        # full-vs-crop tolerance below is independent of how the zone plate
+        # classifies. The per-class offset behavior is proven in the telemetry/wire
+        # tests, not here.
+        quality_search_offsets: %{photo: 2.4, graphic: 2.4}
       }
     }
   end
