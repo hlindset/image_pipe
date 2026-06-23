@@ -3823,8 +3823,10 @@ defmodule Mix.Tasks.Autoquality.Bench do
   # Evaluate the shipped rule at `ContentClassifier`'s own frozen thresholds (no
   # hand-synced duplicate) over the labeled cohort; the screen→photo count is the
   # safety evidence for the pair. The thresholds are calibrated for the 512 px
-  # downsample, so this line only certifies production when run `--downsample 512`.
-  defp m_production_rule_report(rows, downsample) do
+  # downsample, so the safety verdict is only printed (and only valid) at 512 — a
+  # ≠512 run shows the rule but withholds the ✓/✗ so it can't be misread as
+  # certifying the wrong regime.
+  defp m_production_rule_report(rows, 512) do
     {palette_t, nat_t} = ContentClassifier.photo_thresholds()
     photo_pred = fn r -> r.palette_entropy >= palette_t and r.natural_variation >= nat_t end
 
@@ -3833,12 +3835,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
     recall = Enum.count(photos, photo_pred)
     leak = Enum.count(screens, photo_pred)
 
-    caveat =
-      if downsample == 512, do: "", else: "  ⚠ calibrated for 512 — rerun --downsample 512"
-
     IO.puts(
       "\n  PRODUCTION rule (palette_ent ≥ #{palette_t} ∧ nat_var ≥ #{nat_t}) — " <>
-        "frozen ContentClassifier thresholds @ downsample #{downsample}#{caveat}"
+        "frozen ContentClassifier thresholds @ downsample 512 (certifying)"
     )
 
     IO.puts(
@@ -3848,6 +3847,16 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts(
       "    screen→screen #{length(screens) - leak}/#{length(screens)}   " <>
         "screen→photo #{leak} (TEXT DAMAGE)" <> if(leak == 0, do: "  ✓ safe", else: "  ✗")
+    )
+  end
+
+  defp m_production_rule_report(_rows, downsample) do
+    {palette_t, nat_t} = ContentClassifier.photo_thresholds()
+
+    IO.puts(
+      "\n  PRODUCTION rule (palette_ent ≥ #{palette_t} ∧ nat_var ≥ #{nat_t}) @ downsample " <>
+        "#{downsample} — NOT certifying; the safety verdict only holds at 512, " <>
+        "rerun `--downsample 512`."
     )
   end
 

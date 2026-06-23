@@ -324,6 +324,8 @@ emits start/stop only (the classifier is total — it never raises — so no
 Stop metadata (all product-neutral — a class atom, a constant offset, two image
 statistics; nothing sensitive):
 
+- `:result` — `:ok` (the classifier is total, so this is always `:ok`; it gives the
+  Logger/exporters the standard outcome key).
 - `:content_class` — `:photo` or `:graphic` (the safe fallback).
 - `:applied_offset` — the offset subtracted from the crop estimate for this
   `{format, content-class}` cell.

@@ -307,7 +307,11 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     attach_classify()
     opts = Telemetry.telemetry_opts(telemetry_prefix: @prefix)
 
-    EncodeSearch.run(large_graphic_image(), crop_resolved(), scorer: :crop, telemetry_opts: opts)
+    assert {:ok, _bin, _meta} =
+             EncodeSearch.run(large_graphic_image(), crop_resolved(),
+               scorer: :crop,
+               telemetry_opts: opts
+             )
 
     assert_receive {:classify, meta}
     assert meta.content_class == :graphic
@@ -319,7 +323,11 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     attach_classify()
     opts = Telemetry.telemetry_opts(telemetry_prefix: @prefix)
 
-    EncodeSearch.run(large_photo_image(), crop_resolved(), scorer: :crop, telemetry_opts: opts)
+    assert {:ok, _bin, _meta} =
+             EncodeSearch.run(large_photo_image(), crop_resolved(),
+               scorer: :crop,
+               telemetry_opts: opts
+             )
 
     assert_receive {:classify, meta}
     assert meta.content_class == :photo

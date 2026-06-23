@@ -37,25 +37,32 @@
 ## Task 1: Pin the empirical constants via the bench
 
 **Files:**
-- Modify: `test/support/mix/tasks/autoquality.bench.ex` (around the Part M separation report, `m_report_separation/1` near line 3800)
+- Modify: `test/support/mix/tasks/autoquality.bench.ex` (the Part M separation report, `m_report_separation/2`)
 
 This task produces three frozen numbers consumed by Tasks 2 and 3:
-1. `θ_palette` — `palette_ent` photo-side Youden threshold
-2. `θ_nat` — `nat_var` photo-side Youden threshold
+1. `θ_palette` — `palette_ent` photo-side threshold
+2. `θ_nat` — `nat_var` photo-side threshold
 3. the `{:avif, :graphic}` offset (round the avif×screen residual p90 ≈ 6.07)
 
-The bench already reports per-feature θ (the `θ` column) and the 4-/5-feature AND-rules, but **not** the exact shipped 2-feature rule. Add that report so the run confirms `palette_ent ∧ nat_var` makes **0 screen→photo** errors at those θ.
+> **As-built note.** During implementation this evolved past the first sketch below.
+> The bench's per-feature Youden θ leaked **1** screen→photo for the 2-feature
+> `palette_ent ∧ nat_var` rule (a photo-embedding `qoi_web` screenshot), so the
+> shipped thresholds are pinned **above** the Youden split (0.82 / 0.27) by
+> analysing the feature CSV for the 0-error / max-margin pair. The bench's
+> `m_production_rule_report/2` therefore evaluates the rule at
+> `ContentClassifier.photo_thresholds/0` (the single source of truth, no duplicate)
+> rather than the per-feature Youden θ, and only prints the ✓/✗ verdict at
+> `--downsample 512` (the calibration regime). Steps 1–4 below describe the original
+> sketch; follow the as-built note where they differ.
 
 - [ ] **Step 1: Add the production-rule report**
 
-In `m_report_separation/1`, immediately after the existing `strong-features AND-rule` block (the `case strong do … end`), add:
-
-```elixir
-    production = Enum.filter(stats, &(&1.name in ["palette_ent", "nat_var"]))
-    m_rule_report("PRODUCTION rule (palette_ent ∧ nat_var)", rows, production)
-```
-
-This reuses `m_rule_report/3` (prints photo→photo recall, photo→screen, and the safety-critical screen→photo count) over just the two shipped features, each at its own Youden θ from the printed stats table.
+In `m_report_separation/2`, after the existing `strong-features AND-rule` block, call a
+`m_production_rule_report(rows, downsample)` that evaluates the shipped 2-feature rule
+at `ContentClassifier.photo_thresholds/0` and prints the photo recall + the
+safety-critical **screen→photo** count (must be 0 at downsample 512). Thread `downsample`
+from `run_part_m` into `m_report_separation/2` so the report can gate its certifying
+verdict on `== 512`.
 
 - [ ] **Step 2: Set up the corpus (network; one-time)**
 
