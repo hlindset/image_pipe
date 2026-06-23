@@ -5,9 +5,9 @@ defmodule ImagePipe.Output.Negotiation do
   alias ImagePipe.Output.Capabilities
   alias Plug.Conn.Utils
 
-  @modern_formats [avif: "image/avif", webp: "image/webp"]
+  @modern_formats [jpeg_xl: "image/jxl", avif: "image/avif", webp: "image/webp"]
 
-  @spec modern_candidates(String.t() | nil, keyword()) :: [:avif | :webp]
+  @spec modern_candidates(String.t() | nil, keyword()) :: [:jpeg_xl | :avif | :webp]
   def modern_candidates(accept_header, opts \\ []) do
     case parse_accept(accept_header) do
       [] ->
@@ -33,6 +33,7 @@ defmodule ImagePipe.Output.Negotiation do
     config_enabled?(format, opts) and Capabilities.supports?(format, opts)
   end
 
+  defp config_enabled?(:jpeg_xl, opts), do: Keyword.get(opts, :auto_jpeg_xl, true)
   defp config_enabled?(:avif, opts), do: Keyword.get(opts, :auto_avif, true)
   defp config_enabled?(:webp, opts), do: Keyword.get(opts, :auto_webp, true)
 

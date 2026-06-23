@@ -144,9 +144,9 @@ save. ImagePipe realizes these at request and output boundaries:
 | imgproxy stage | Realized in ImagePipe | Status | Notes |
 | --- | --- | --- | --- |
 | Initial load + source-resolution gate (`MaxSrcResolution`) | decode + `max_input_pixels` (hard error) | ✅ | The image-bomb gate is a hard error, not a downscale — matches imgproxy. `max_body_bytes` caps the fetched body. |
-| Output format determination | `lib/image_pipe/output/negotiation.ex`, `lib/image_pipe/output/policy.ex` | ✅ | `Accept` negotiation for AVIF/WebP with `Vary: Accept`; explicit `@extension`/`.extension` bypasses it. JXL, `enforce_*`, `preferred_formats` missing. |
+| Output format determination | `lib/image_pipe/output/negotiation.ex`, `lib/image_pipe/output/policy.ex` | ✅ | `Accept` negotiation for JPEG XL/AVIF/WebP with `Vary: Accept` (server preference **JXL > AVIF > WebP**, each gated by `auto_jpeg_xl`/`auto_avif`/`auto_webp`, default on); explicit `@extension`/`.extension` (incl. `jxl`) bypasses it. `enforce_*`, `preferred_formats` missing. |
 | Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/output/clamp.ex` via the producer (`min(host max_result_*, encoder_limit)`) | ✅ | imgproxy downscales the result to fit `max_result_*`; ImagePipe matches for the common no-padding/no-extend request (#165), reusing the #150 `Output.Clamp` — byte-intent identical to `limitScale`'s linear `downScale = maxResultDim/max(outW,outH)` (`prepare.go:247`) when caps are equal and a dimension binds. **Diverges (superset):** ImagePipe honors independent `max_result_width`/`max_result_height` and a result `max_result_pixels` cap (sqrt), where imgproxy's `limitScale` has a single `MaxResultDimension` and no result-pixel cap. **Diverges (composition):** ImagePipe clamps the **composited** final image, whereas imgproxy folds the downscale into the resize scale and re-applies padding/extend at the reduced scale (`prepare.go:233-263`) — both land ≤ cap, but padded/extended requests differ in the **content-to-padding ratio of the final frame**. ImagePipe mirrors imgproxy's per-axis sub-1px floor (`prepare.go:252-258`) via `max(scale, 1/dim)`; in the extreme-aspect 1px regime the realized pixels can still differ for the same composited-vs-fold-back reason. **Stage/order (#164, approach A):** on the plain (non-oriented) path the clamp runs on the lazy composite *before* the delivery materialization, so libvips fuses resize→clamp (also crop→clamp and embed→clamp — verified across fit, cover, and canvas/padding by the #164 benchmark probes) and avoids forming the full oversized intermediate. Served output is unchanged (pixels, dims, content-type, status, cache key, ETag) and the `[:output, :clamp]` event's metadata is identical — an internal memory optimization. (One ordering nuance: the clamp event now fires *before* the delivery materialize, so it can precede a rare materialize-failure 415 where it previously would not — it never changes served output.) The oriented mid-chain flush still materializes pre-clamp (deferred). |
-| Save / encode | `lib/image_pipe/output/encoder.ex` | ✅ | Streams the encoded result. The `autoquality`/`max_bytes` quality search (`lib/image_pipe/output/encode_search.ex`) is an output/encode-stage **re-encode loop** — a binary search over encoder quality — with no per-option knob for the loop mechanics themselves (analogous to the other config-less internal stages above); it gates on `Format.supports_quality?` (jpeg/webp/avif). **Crop-scored `:ssim2` above a ~6 MP crossover (stage/order, #354):** above an internal ~6 MP crossover the `:ssim2` objective scores K=16 native-resolution p10-tiles of the full-res encode per probe (a flat ~4.2 MP metric sample regardless of source size) — a **calibrated approximation** of the full-frame pick within a bounded residual (~±2 q), tightened by one full-frame confirm + bounded bump on the winner; below the crossover the full-frame search is unchanged. The crossover is **internal** (it only selects the scorer, not a user knob); `autoquality_max_resolution` is unchanged and still *disables* the search above the host cap (it is strictly above the crossover in precedence). No imgproxy wire oracle exists (autoquality is Pro/closed and ImagePipe uses SSIMULACRA2, not DSSIM), so the chosen-quality behavior is validated against ImagePipe's own full-frame search via the benchmark (`docs/autoquality_benchmark.md`), not against imgproxy. Advanced/codec-specific encoder knobs missing (see "Advanced encoder options"). |
+| Save / encode | `lib/image_pipe/output/encoder.ex` | ✅ | Streams the encoded result. **JPEG XL** is the exception: it is encoded through Vix directly to a seekable memory **buffer** (the `image` wrapper rejects the `.jxl` suffix and `jxlsave` cannot write a non-seekable delivery pipe) and delivered buffered, not streamed; its quality maps to libjxl's `Q` (a butteraugli `distance` mapping is deferred). **Diverges:** with no explicit quality ImagePipe leaves libjxl's own default quality/effort, where imgproxy applies its configured JXL quality/effort defaults — the same default-quality divergence already present for AVIF/WebP, plus `effort` (no ImagePipe knob). The `autoquality`/`max_bytes` quality search (`lib/image_pipe/output/encode_search.ex`) is an output/encode-stage **re-encode loop** — a binary search over encoder quality — with no per-option knob for the loop mechanics themselves (analogous to the other config-less internal stages above); it gates on `Format.supports_quality?` (jpeg/webp/avif/jpeg-xl). **Crop-scored `:ssim2` above a ~6 MP crossover (stage/order, #354):** above an internal ~6 MP crossover the `:ssim2` objective scores K=16 native-resolution p10-tiles of the full-res encode per probe (a flat ~4.2 MP metric sample regardless of source size) — a **calibrated approximation** of the full-frame pick within a bounded residual (~±2 q), tightened by one full-frame confirm + bounded bump on the winner; below the crossover the full-frame search is unchanged. The crossover is **internal** (it only selects the scorer, not a user knob); `autoquality_max_resolution` is unchanged and still *disables* the search above the host cap (it is strictly above the crossover in precedence). No imgproxy wire oracle exists (autoquality is Pro/closed and ImagePipe uses SSIMULACRA2, not DSSIM), so the chosen-quality behavior is validated against ImagePipe's own full-frame search via the benchmark (`docs/autoquality_benchmark.md`), not against imgproxy. Advanced/codec-specific encoder knobs missing (see "Advanced encoder options"). |
 
 ### Key takeaways
 
@@ -263,6 +263,7 @@ For a 16-bit source:
 
 | Output | `ph:1` effect |
 | --- | --- |
+| JPEG XL | preserved (16-bit working space → high-bit-depth encode) |
 | AVIF | preserved (16-bit working space → high-bit-depth encode) |
 | PNG  | preserved (16-bit PNG) |
 | WebP | tone-mapped to 8-bit (`Format.supports_hdr?` false) |
@@ -534,15 +535,18 @@ ImagePipe has no environment/file loader or presets-only mode.
 
 ### Output format detection
 
-Automatic output negotiation supports AVIF and WebP with `auto_avif` and
-`auto_webp` options and emits `Vary: Accept`. It doesn't support JPEG XL,
-enforced replacement of explicit formats, or Imgproxy's preferred-format
-fallback list.
+Automatic output negotiation supports JPEG XL, AVIF, and WebP with `auto_jpeg_xl`,
+`auto_avif`, and `auto_webp` options (all default on) and emits `Vary: Accept`.
+When a client accepts more than one, server preference picks **JXL > AVIF > WebP**.
+It doesn't support enforced replacement of explicit formats or Imgproxy's
+preferred-format fallback list.
 
-ImagePipe probes libvips AVIF/WebP write support at boot. Automatic negotiation
-filters out formats the build cannot write; a modern source format the client did
-not accept transcodes to raster (PNG/JPEG by alpha). An explicit `format` the
-build cannot write is rejected with `501` before source fetch.
+ImagePipe probes libvips JPEG XL/AVIF/WebP write support at boot (the JPEG XL
+probe exercises the Vix-direct buffer path the encoder uses, since the `image`
+wrapper rejects `.jxl`). Automatic negotiation filters out formats the build
+cannot write; a modern source format the client did not accept transcodes to
+raster (PNG/JPEG by alpha). An explicit `format` the build cannot write is
+rejected with `501` before source fetch.
 
 **Diverges (`extend`/`padding` + auto format, [#235](https://github.com/hlindset/image_pipe/issues/235)):**
 when that raster container is picked by alpha (a modern source the client did not
@@ -561,7 +565,7 @@ short-circuit). Pinned by a wire test (`imgproxy_wire_conformance_test.exs`).
 - ✅ `IMGPROXY_ENABLE_WEBP_DETECTION`
 - ✅ `IMGPROXY_AUTO_AVIF`
 - ✅ `IMGPROXY_ENABLE_AVIF_DETECTION`
-- ⭕ `IMGPROXY_AUTO_JXL`
+- ✅ `IMGPROXY_AUTO_JXL`
 - ⭕ `IMGPROXY_ENFORCE_WEBP`
 - ⭕ `IMGPROXY_ENFORCE_AVIF`
 - ⭕ `IMGPROXY_ENFORCE_JXL`

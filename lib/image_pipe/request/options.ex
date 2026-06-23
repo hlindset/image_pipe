@@ -24,7 +24,8 @@ defmodule ImagePipe.Request.Options do
     :max_result_height,
     :max_result_pixels,
     :auto_avif,
-    :auto_webp
+    :auto_webp,
+    :auto_jpeg_xl
   ]
   @stale_origin_option_keys [
     :root_url,
@@ -43,7 +44,7 @@ defmodule ImagePipe.Request.Options do
   # Real top-level options read directly by downstream consumers (negotiation,
   # cache key, capabilities) with their own defaults rather than this schema.
   # Listed so a near-miss typo of them is caught too.
-  @passthrough_option_keys [:auto_avif, :auto_webp, :output_capabilities]
+  @passthrough_option_keys [:auto_avif, :auto_webp, :auto_jpeg_xl, :output_capabilities]
 
   # Names a typo is matched against. Not a closed allowlist: the option surface
   # is deliberately open (parser config namespaces, DI/runtime seams, detector
@@ -108,6 +109,10 @@ defmodule ImagePipe.Request.Options do
                       default: true
                     ],
                     auto_webp: [
+                      type: :boolean,
+                      default: true
+                    ],
+                    auto_jpeg_xl: [
                       type: :boolean,
                       default: true
                     ]

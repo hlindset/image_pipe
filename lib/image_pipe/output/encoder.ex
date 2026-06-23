@@ -28,6 +28,7 @@ defmodule ImagePipe.Output.Encoder do
           max_dimension: pos_integer() | :infinity,
           max_pixels: pos_integer() | :infinity
         }
+  def encoder_limit(:jpeg_xl), do: %{max_dimension: :infinity, max_pixels: :infinity}
   def encoder_limit(:webp), do: %{max_dimension: 16_383, max_pixels: :infinity}
   def encoder_limit(:avif), do: %{max_dimension: 16_384, max_pixels: :infinity}
   def encoder_limit(:jpeg), do: %{max_dimension: 65_535, max_pixels: :infinity}
@@ -57,6 +58,21 @@ defmodule ImagePipe.Output.Encoder do
       end
     else
       lazy_output(finalized, resolved_output, mime_type, suffix, opts)
+    end
+  end
+
+  # JPEG XL cannot stream (see `encode_jxl_buffer/2`): encode to a buffer and
+  # deliver it through the same one-element-list contract the search path uses.
+  defp lazy_output(
+         finalized,
+         %Resolved{format: :jpeg_xl, quality: quality},
+         mime_type,
+         _suffix,
+         _opts
+       ) do
+    case encode_jxl_buffer(finalized, quality) do
+      {:ok, binary} -> {:ok, [binary], mime_type}
+      {:error, _reason} = err -> err
     end
   end
 
@@ -116,6 +132,9 @@ defmodule ImagePipe.Output.Encoder do
   """
   @spec encode_to_buffer(VixImage.t(), Resolved.t(), 1..100) ::
           {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
+  def encode_to_buffer(%VixImage{} = image, %Resolved{format: :jpeg_xl}, quality),
+    do: encode_jxl_buffer(image, quality)
+
   def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
     with {:ok, _mime_type, suffix} <- output_format(resolved_output),
          {:ok, binary} <- Image.write(image, :memory, suffix: suffix, quality: quality) do
@@ -127,6 +146,23 @@ defmodule ImagePipe.Output.Encoder do
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
+
+  # JPEG XL is written through Vix directly to a seekable memory buffer: the
+  # `image` package rejects the `.jxl` suffix, and `jxlsave` cannot write a
+  # non-seekable delivery pipe (`Image.stream!`). Quality drives libjxl's `Q`
+  # knob; `:default` leaves libjxl's own default butteraugli distance.
+  defp encode_jxl_buffer(%VixImage{} = image, quality) do
+    case VixImage.write_to_buffer(image, jxl_vix_suffix(quality)) do
+      {:ok, binary} -> {:ok, binary}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
+  rescue
+    exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  defp jxl_vix_suffix(:default), do: ".jxl"
+  defp jxl_vix_suffix({:quality, value}), do: ".jxl[Q=#{value}]"
+  defp jxl_vix_suffix(value) when is_integer(value), do: ".jxl[Q=#{value}]"
 
   defp encode_error(reason),
     do: ArgumentError.exception("failed to encode to buffer: #{inspect(reason)}")
@@ -258,10 +294,11 @@ defmodule ImagePipe.Output.Encoder do
   # (B_W/sGrey, 1-band) is first promoted to sRGB so the 3-band target transform is
   # valid (N2). Input is declared as the known working space ("sRGB") rather than
   # embedded: true, because an untagged source has no embedded profile to read (N1).
-  # The working-space image reaching here is 8-bit sRGB-family today: the HDR
-  # working-space path is inactive (`supports_hdr?` is `false`), and `colourspace`
-  # to sRGB collapses to 8-bit UCHAR, so the libvips default depth (8) is correct.
-  # 16-bit/HDR working-space handling for a target convert is deferred to #121.
+  # The working-space image reaching here is 8-bit sRGB-family under the default
+  # tone-map policy, and `colourspace` to sRGB collapses to 8-bit UCHAR, so the
+  # libvips default depth (8) is correct. 16-bit/HDR working-space handling for a
+  # target convert (under `hdr: :preserve` on an HDR-capable format) is deferred
+  # to #121.
   defp convert_to_target(image, target, format) do
     if Format.supports_color_profile?(format) do
       with {:ok, srgb} <- Operation.colourspace(image, :VIPS_INTERPRETATION_sRGB),

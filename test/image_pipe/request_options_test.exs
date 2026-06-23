@@ -150,18 +150,22 @@ defmodule ImagePipe.RequestOptionsTest do
 
     assert Keyword.fetch!(opts, :auto_avif) == true
     assert Keyword.fetch!(opts, :auto_webp) == true
+    assert Keyword.fetch!(opts, :auto_jpeg_xl) == true
   end
 
   test "auto format options accept explicit booleans" do
     opts =
-      Options.validate!(Keyword.merge(@base_opts, auto_avif: false, auto_webp: false))
+      Options.validate!(
+        Keyword.merge(@base_opts, auto_avif: false, auto_webp: false, auto_jpeg_xl: false)
+      )
 
     assert Keyword.fetch!(opts, :auto_avif) == false
     assert Keyword.fetch!(opts, :auto_webp) == false
+    assert Keyword.fetch!(opts, :auto_jpeg_xl) == false
   end
 
   test "auto format options reject non-boolean values" do
-    for key <- [:auto_avif, :auto_webp] do
+    for key <- [:auto_avif, :auto_webp, :auto_jpeg_xl] do
       assert_raise ArgumentError, ~r/invalid ImagePipe options/, fn ->
         Options.validate!(Keyword.put(@base_opts, key, "yes"))
       end

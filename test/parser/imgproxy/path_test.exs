@@ -203,7 +203,8 @@ defmodule ImagePipe.Parser.Imgproxy.PathTest do
 
     test "rejects unknown output extension suffixes" do
       assert Path.parse_plain_source(["images", "cat.jpg@gif"]) ==
-               {:error, {:invalid_format, "gif", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+               {:error,
+                {:invalid_format, "gif", ["jxl", "webp", "avif", "jpeg", "jpg", "png", "best"]}}
     end
 
     test "rejects empty source identifiers" do
@@ -316,7 +317,8 @@ defmodule ImagePipe.Parser.Imgproxy.PathTest do
       encoded = encoded_source("images/cat.jpg")
 
       assert Path.parse_source(:encoded, [encoded <> ".gif"]) ==
-               {:error, {:invalid_format, "gif", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+               {:error,
+                {:invalid_format, "gif", ["jxl", "webp", "avif", "jpeg", "jpg", "png", "best"]}}
     end
 
     test "discards SEO filename before joining chunks and parsing output suffix" do

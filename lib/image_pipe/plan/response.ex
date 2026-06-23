@@ -6,7 +6,7 @@ defmodule ImagePipe.Plan.Response do
   `Content-Disposition` and delivery filename selection.
   """
 
-  @delivery_content_types ["image/jpeg", "image/png", "image/webp", "image/avif"]
+  @delivery_content_types ["image/jxl", "image/jpeg", "image/png", "image/webp", "image/avif"]
 
   defstruct disposition: :default, filename: nil
 

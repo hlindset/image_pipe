@@ -10,7 +10,10 @@ defmodule ImagePipe.Output.NegotiationTest do
                :webp
              ]
 
-      assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1", []) == [:webp]
+      assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1",
+               output_capabilities: %{jpeg_xl: true}
+             ) == [:jpeg_xl, :webp]
+
       assert Negotiation.modern_candidates("image/jpeg", []) == []
       assert Negotiation.modern_candidates(nil, []) == []
     end
@@ -44,18 +47,62 @@ defmodule ImagePipe.Output.NegotiationTest do
     end
 
     test "matches image wildcard and explicit modern formats when global wildcard is also present" do
-      assert Negotiation.modern_candidates("image/*", []) == [:avif, :webp]
+      assert Negotiation.modern_candidates("image/*", output_capabilities: %{jpeg_xl: true}) ==
+               [:jpeg_xl, :avif, :webp]
+
       assert Negotiation.modern_candidates("image/webp,*/*", []) == [:webp]
     end
 
     test "exact q zero excludes a modern format even when wildcard matches" do
-      assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1", []) == [:webp]
+      assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1",
+               output_capabilities: %{jpeg_xl: true}
+             ) == [:jpeg_xl, :webp]
 
       assert Negotiation.modern_candidates("image/avif;q=0,image/avif;q=1,*/*;q=1", []) == []
     end
 
     test "image wildcard exclusion leaves global wildcard ignored" do
       assert Negotiation.modern_candidates("image/*;q=0,*/*;q=1", []) == []
+    end
+  end
+
+  describe "modern_candidates/2 JPEG XL" do
+    test "an explicit image/jxl Accept yields jpeg_xl" do
+      assert Negotiation.modern_candidates("image/jxl", output_capabilities: %{jpeg_xl: true}) ==
+               [:jpeg_xl]
+    end
+
+    test "jpeg_xl outranks avif and webp when several are accepted" do
+      opts = [output_capabilities: %{jpeg_xl: true, avif: true, webp: true}]
+
+      assert Negotiation.modern_candidates("image/webp,image/avif,image/jxl", opts) ==
+               [:jpeg_xl, :avif, :webp]
+    end
+
+    test "server preference puts jpeg_xl first even against higher client q-values" do
+      opts = [output_capabilities: %{jpeg_xl: true, avif: true, webp: true}]
+
+      assert Negotiation.modern_candidates("image/jxl;q=0.1,image/avif;q=1", opts) ==
+               [:jpeg_xl, :avif]
+    end
+
+    test "auto_jpeg_xl is enabled by default" do
+      assert Negotiation.modern_candidates("image/jxl", output_capabilities: %{jpeg_xl: true}) ==
+               [:jpeg_xl]
+    end
+
+    test "auto_jpeg_xl: false drops jpeg_xl while leaving avif and webp" do
+      opts = [auto_jpeg_xl: false, output_capabilities: %{jpeg_xl: true}]
+
+      assert Negotiation.modern_candidates("image/jxl,image/avif", opts) == [:avif]
+      assert Negotiation.modern_candidates("image/jxl", opts) == []
+    end
+
+    test "a build that cannot write jpeg_xl drops it from the candidates" do
+      opts = [output_capabilities: %{jpeg_xl: false}]
+
+      assert Negotiation.modern_candidates("image/jxl,image/avif", opts) == [:avif]
+      assert Negotiation.modern_candidates("image/jxl", opts) == []
     end
   end
 

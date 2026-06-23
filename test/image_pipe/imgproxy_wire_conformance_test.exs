@@ -890,7 +890,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     cases = [
       {"image/avif,image/webp", "image/avif"},
       {"image/webp", "image/webp"},
-      {"image/avif;q=0,image/*;q=1", "image/webp"}
+      # `image/*` matches JPEG XL too, and it outranks the others (server pref).
+      {"image/avif;q=0,image/*;q=1", "image/jxl"}
     ]
 
     for {accept, expected_content_type} <- cases do
@@ -902,6 +903,41 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert content_type(conn) == [expected_content_type]
       assert get_resp_header(conn, "vary") == ["Accept"]
       assert byte_size(conn.resp_body) > 0
+    end
+  end
+
+  test "automatic output negotiates JPEG XL from Accept and prefers it over AVIF/WebP" do
+    accepts = [
+      "image/jxl",
+      "image/jxl,image/avif,image/webp",
+      "image/avif,image/webp,image/jxl"
+    ]
+
+    for accept <- accepts do
+      conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(@default_opts, accept)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jxl"]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+    end
+  end
+
+  test "explicit JPEG XL output bypasses Accept and does not set Vary" do
+    cases = [
+      "/_/f:jxl/plain/images/beach.jpg",
+      "/_/plain/images/beach.jpg@jxl"
+    ]
+
+    for path <- cases do
+      conn = call_imgproxy(path, @default_opts, "image/avif,image/webp")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jxl"]
+      assert get_resp_header(conn, "vary") == []
+      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
     end
   end
 

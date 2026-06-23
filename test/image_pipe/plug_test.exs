@@ -1174,7 +1174,7 @@ defmodule ImagePipe.PlugTest do
     assert key_a.data[:output] == [
              mode: :automatic,
              modern_candidates: [:avif, :webp],
-             auto: [avif: true, webp: true],
+             auto: [jpeg_xl: true, avif: true, webp: true],
              quality: :default,
              format_qualities: %{},
              quality_search: :none,
@@ -1464,7 +1464,9 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 200
-    assert get_resp_header(conn, "content-type") == ["image/webp"]
+    # avif is excluded by its exact q=0; the image/* wildcard still allows the
+    # other modern formats, and JPEG XL wins on server preference.
+    assert get_resp_header(conn, "content-type") == ["image/jxl"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
@@ -1498,7 +1500,7 @@ defmodule ImagePipe.PlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [:avif, :webp],
-      auto: [avif: true, webp: true],
+      auto: [jpeg_xl: true, avif: true, webp: true],
       quality: :default,
       format_qualities: %{},
       quality_search: :none,
@@ -1539,7 +1541,7 @@ defmodule ImagePipe.PlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: true, webp: true],
+          auto: [jpeg_xl: true, avif: true, webp: true],
           quality: :default,
           format_qualities: %{},
           quality_search: :none,
@@ -1578,7 +1580,7 @@ defmodule ImagePipe.PlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: true, webp: true],
+      auto: [jpeg_xl: true, avif: true, webp: true],
       quality: :default,
       format_qualities: %{},
       quality_search: :none,
@@ -1619,7 +1621,7 @@ defmodule ImagePipe.PlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: false, webp: false],
+          auto: [jpeg_xl: false, avif: false, webp: false],
           quality: :default,
           format_qualities: %{},
           quality_search: :none,
@@ -1649,6 +1651,7 @@ defmodule ImagePipe.PlugTest do
         parser: ImagePipe.Parser.Imgproxy,
         auto_avif: false,
         auto_webp: false,
+        auto_jpeg_xl: false,
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1660,7 +1663,7 @@ defmodule ImagePipe.PlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: false, webp: false],
+      auto: [jpeg_xl: false, avif: false, webp: false],
       quality: :default,
       format_qualities: %{},
       quality_search: :none,
@@ -1701,7 +1704,7 @@ defmodule ImagePipe.PlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: false, webp: false],
+          auto: [jpeg_xl: false, avif: false, webp: false],
           quality: :default,
           format_qualities: %{},
           quality_search: :none,
@@ -1731,6 +1734,7 @@ defmodule ImagePipe.PlugTest do
         parser: ImagePipe.Parser.Imgproxy,
         auto_avif: false,
         auto_webp: false,
+        auto_jpeg_xl: false,
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1742,7 +1746,7 @@ defmodule ImagePipe.PlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: false, webp: false],
+      auto: [jpeg_xl: false, avif: false, webp: false],
       quality: :default,
       format_qualities: %{},
       quality_search: :none,
