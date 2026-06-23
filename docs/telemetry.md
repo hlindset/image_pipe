@@ -64,6 +64,7 @@ streaming spans.
 [:image_pipe, :transform, :materialize, ...]
 [:image_pipe, :encode, ...]
 [:image_pipe, :encode, :search, ...]
+[:image_pipe, :encode, :classify, ...]
 [:image_pipe, :cache, :write, ...]
 [:image_pipe, :render, ...]
 [:image_pipe, :send, ...]
@@ -307,6 +308,36 @@ scorer token (`full`/`crop`):
 image_pipe encode search: ok (full hit q62 12345b score 90.42)
 image_pipe encode search: ok (crop hit q72 12345b score 90.42)
 ```
+
+### Content-class classify span (`[:encode, :classify]`)
+
+On the crop-scoring path (an `:ssim2` search above the internal ~6 MP crossover),
+ImagePipe classifies the finalized image as `:photo` (continuous-tone) or
+`:graphic` (discrete-tone: screenshots, text, charts, line art) to select the
+per-`{format, content-class}` confirm-skipped crop offset (#380). The
+classification is wrapped in a `[:image_pipe, :encode, :classify]` span. It is
+emitted from the search setup, **before** the `[:encode, :search]` span opens, so
+it is a sibling of the search under `[:encode]` — not nested under it. The span
+emits start/stop only (the classifier is total — it never raises — so no
+`:exception` leg fires).
+
+Stop metadata (all product-neutral — a class atom, a constant offset, two image
+statistics; nothing sensitive):
+
+- `:content_class` — `:photo` or `:graphic` (the safe fallback).
+- `:applied_offset` — the offset subtracted from the crop estimate for this
+  `{format, content-class}` cell.
+- `:palette_ent` — the luminance-histogram entropy feature (÷ 8).
+- `:nat_var` — the mid-band gradient-fraction feature.
+
+The default Logger renders the stop at the base level (it never escalates):
+
+```text
+image_pipe encode classify: ok (graphic offset 6.0)
+```
+
+The OTel exporter captures it as `image_pipe.encode.classify` with the four
+attributes above on the span.
 
 ### Encode-quality search probe (`[:encode, :search, :probe]`)
 

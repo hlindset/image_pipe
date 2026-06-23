@@ -115,6 +115,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode search: ok (crop hit q72 12345b score 90.42)"
   end
 
+  test "renders the content-class classify span at base level" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :classify, :stop],
+          %{duration: System.convert_time_unit(12, :millisecond, :native)},
+          %{
+            result: :ok,
+            content_class: :graphic,
+            applied_offset: 6.0,
+            palette_ent: 0.34,
+            nat_var: 0.11
+          }
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "encode classify: ok (graphic offset 6.0)"
+  end
+
   test "escalates a best-effort encode-search to warning" do
     Telemetry.attach_default_logger(level: :info)
 

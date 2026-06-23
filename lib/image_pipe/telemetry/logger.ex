@@ -16,6 +16,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:encode],
       [:encode, :search],
       [:encode, :search, :probe],
+      [:encode, :classify],
       [:deliver],
       [:render]
     ],
@@ -279,6 +280,11 @@ defmodule ImagePipe.Telemetry.Logger do
 
     "image_pipe encode search: #{outcome(meta)} (#{scorer}#{meta[:outcome]} " <>
       "q#{meta[:chosen_quality]} #{meta[:chosen_bytes]}b#{score})"
+  end
+
+  defp message([:encode, :classify | _], _m, meta) do
+    "image_pipe encode classify: #{outcome(meta)} " <>
+      "(#{meta[:content_class]} offset #{meta[:applied_offset]})"
   end
 
   defp message([:encode | _], _m, meta) do

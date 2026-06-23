@@ -762,15 +762,32 @@ defmodule ImagePipe.Output.EncodeSearch do
   # per-tile reference failure surfaces through the score closure's throw.
   defp score_opts(image, %Resolved{quality_search: %RQS{objective: :ssim2} = rqs}, :crop, t) do
     tiles = CropScore.tile_count(Image.width(image), Image.height(image))
-    {class, _features} = ContentClassifier.classify(image)
-    # `Output.Policy.resolve_search/2` always stamps both :photo and :graphic keys
-    # for an :ssim2 search (the only objective that reaches the :crop path), so
-    # `fetch!` trusts the in-repo producer — a missing key is a resolver bug, not a
-    # runtime input. (The `RQS` default `%{}` only occurs for :size/:none, which
-    # never crop-score.)
-    offset = Map.fetch!(rqs.quality_search_offsets, class)
+    offset = classify_offset(image, rqs.quality_search_offsets, t)
     crop = fn bytes -> crop_estimate(image, bytes, tiles, offset, t) end
     {:ok, [score_fun: crop, scorer_tiles: tiles]}
+  end
+
+  # Classify the finalized image once and select its per-class offset, as a span
+  # (#380). Emitted from `run/3`'s setup, before `search/3` opens `[:encode,
+  # :search]`, so it is a sibling of the search under `[:encode]` — hence
+  # `[:encode, :classify]`, not `…:search:classify`. `fetch!` trusts the resolver,
+  # which always stamps both :photo and :graphic for an :ssim2 search (the only
+  # objective reaching this path). The classifier is total — never raises — so the
+  # span emits start/stop only.
+  defp classify_offset(image, offsets, telemetry_opts) do
+    Telemetry.span(telemetry_opts, [:encode, :classify], %{}, fn ->
+      {class, features} = ContentClassifier.classify(image)
+      offset = Map.fetch!(offsets, class)
+
+      {offset,
+       %{
+         result: :ok,
+         content_class: class,
+         applied_offset: offset,
+         palette_ent: features.palette_ent,
+         nat_var: features.nat_var
+       }}
+    end)
   end
 
   # The score_fun contract is float-returning, but Image.from_binary and
