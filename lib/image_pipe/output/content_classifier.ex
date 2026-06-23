@@ -50,7 +50,8 @@ defmodule ImagePipe.Output.ContentClassifier do
   @nat_var_photo_threshold 0.27
 
   @doc """
-  Classify a finalized image. Never raises; any libvips failure → `:graphic`.
+  Classify a finalized image. Never raises; any libvips failure — a raised
+  exception OR an `{:error, _}` return from any op — falls back to `:graphic`.
   """
   @spec classify(VixImage.t()) :: {class(), features()}
   def classify(%VixImage{} = image) do
@@ -63,10 +64,19 @@ defmodule ImagePipe.Output.ContentClassifier do
 
         {class, feats}
 
-      :error ->
+      # `:error` (a caught raise) or any `{:error, _}` an op returned through the
+      # else-less `with` — both fall back to the safe class. Keep this total: the
+      # safety design depends on classify/1 never raising.
+      _ ->
         {:graphic, %{palette_ent: 0.0, nat_var: 0.0}}
     end
   end
+
+  @doc false
+  # The frozen photo-side thresholds, exposed so `mix autoquality.bench --part m`
+  # certifies the exact pair that ships (no hand-synced duplicate).
+  @spec photo_thresholds() :: {float(), float()}
+  def photo_thresholds, do: {@palette_photo_threshold, @nat_var_photo_threshold}
 
   defp features(image) do
     extract(image)

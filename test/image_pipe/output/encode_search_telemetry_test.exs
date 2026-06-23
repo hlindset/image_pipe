@@ -273,7 +273,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     {:ok, xyz} = Operation.xyz(side, side)
     {:ok, x} = Operation.extract_band(xyz, 0)
     {:ok, ramp} = Operation.linear(x, [255.0 / (side - 1)], [0.0])
-    {:ok, noise} = Operation.gaussnoise(side, side, sigma: 35, mean: 0)
+    {:ok, noise} = Operation.gaussnoise(side, side, sigma: 35, mean: 0, seed: 1)
     {:ok, blurred} = Operation.gaussblur(noise, 1.2)
     {:ok, sum} = Operation.add(ramp, blurred)
     {:ok, uchar} = Operation.cast(sum, :VIPS_FORMAT_UCHAR)

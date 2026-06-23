@@ -315,6 +315,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
+  alias ImagePipe.Output.ContentClassifier
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Resolved
@@ -3670,7 +3671,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     feat_rows = Enum.flat_map(sources, &m_source_rows(&1, downsample))
     resid_rows = m_residual_rows(sources)
 
-    m_report_separation(feat_rows)
+    m_report_separation(feat_rows, downsample)
     m_report_residual(feat_rows, resid_rows)
 
     %{feat: feat_rows, resid: resid_rows}
@@ -3775,9 +3776,10 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   # --- Part M (a): separation reporting --------------------------------------
 
-  defp m_report_separation([]), do: IO.puts("\nPart M (a): no labeled images in cohort.")
+  defp m_report_separation([], _downsample),
+    do: IO.puts("\nPart M (a): no labeled images in cohort.")
 
-  defp m_report_separation(rows) do
+  defp m_report_separation(rows, downsample) do
     photos = Enum.filter(rows, &(&1.class == :photo))
     screens = Enum.filter(rows, &(&1.class == :screen_or_other))
 
@@ -3813,29 +3815,30 @@ defmodule Mix.Tasks.Autoquality.Bench do
     end
 
     # The exact rule production ships (#380): :photo iff palette_ent ≥ θ AND nat_var ≥ θ
-    # at the FROZEN `ImagePipe.Output.ContentClassifier` thresholds (not the Youden θ
-    # above — those leak 1 screen→photo on this cohort). screen→photo must be 0.
-    m_production_rule_report(rows)
+    # at the FROZEN `ContentClassifier` thresholds (not the Youden θ above — those leak
+    # 1 screen→photo on this cohort). screen→photo must be 0.
+    m_production_rule_report(rows, downsample)
   end
 
-  # ContentClassifier's frozen thresholds (#380). Kept in sync with that module by
-  # hand; this report's screen→photo count is the safety evidence for the pair.
-  @prod_palette_threshold 0.82
-  @prod_nat_threshold 0.27
-
-  defp m_production_rule_report(rows) do
-    photo_pred = fn r ->
-      r.palette_entropy >= @prod_palette_threshold and r.natural_variation >= @prod_nat_threshold
-    end
+  # Evaluate the shipped rule at `ContentClassifier`'s own frozen thresholds (no
+  # hand-synced duplicate) over the labeled cohort; the screen→photo count is the
+  # safety evidence for the pair. The thresholds are calibrated for the 512 px
+  # downsample, so this line only certifies production when run `--downsample 512`.
+  defp m_production_rule_report(rows, downsample) do
+    {palette_t, nat_t} = ContentClassifier.photo_thresholds()
+    photo_pred = fn r -> r.palette_entropy >= palette_t and r.natural_variation >= nat_t end
 
     photos = Enum.filter(rows, &(&1.class == :photo))
     screens = Enum.filter(rows, &(&1.class == :screen_or_other))
     recall = Enum.count(photos, photo_pred)
     leak = Enum.count(screens, photo_pred)
 
+    caveat =
+      if downsample == 512, do: "", else: "  ⚠ calibrated for 512 — rerun --downsample 512"
+
     IO.puts(
-      "\n  PRODUCTION rule (palette_ent ≥ #{@prod_palette_threshold} ∧ " <>
-        "nat_var ≥ #{@prod_nat_threshold}) — the frozen ContentClassifier thresholds"
+      "\n  PRODUCTION rule (palette_ent ≥ #{palette_t} ∧ nat_var ≥ #{nat_t}) — " <>
+        "frozen ContentClassifier thresholds @ downsample #{downsample}#{caveat}"
     )
 
     IO.puts(
