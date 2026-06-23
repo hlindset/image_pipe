@@ -336,6 +336,9 @@ defmodule Mix.Tasks.Autoquality.Bench do
   @max_q 95
   @max_iter 6
 
+  # Part M classifier downsample default (long-edge px); overridable with --downsample.
+  @m_downsample 1024
+
   @default_mps [1, 4, 9, 16, 25, 36]
   @baseline_quality 90
 
@@ -369,7 +372,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
           k: :string,
           tile: :string,
           corpus: :string,
-          corpus_cap: :integer
+          corpus_cap: :integer,
+          downsample: :integer
         ]
       )
 
@@ -398,6 +402,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
       tiles: tiles,
       corpus_dir: Keyword.get(opts, :corpus),
       corpus_cap: Keyword.get(opts, :corpus_cap, 24),
+      downsample: Keyword.get(opts, :downsample, @m_downsample),
       format: format
     }
 
@@ -431,7 +436,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
       j: run.(["j", "all"], fn -> corpus.(&run_part_j/4) end),
       k: run.(["k", "all"], fn -> corpus.(&run_part_k(&1, &2, &3, &4, ctx.offsets)) end),
       l: run.(["l", "all"], fn -> corpus.(&run_part_l(&1, &2, &3, &4, ctx.ks, ctx.tiles)) end),
-      m: run.(["m", "all"], fn -> corpus.(&run_part_m/4) end)
+      m: run.(["m", "all"], fn -> corpus.(&run_part_m(&1, &2, &3, &4, ctx.downsample)) end)
     }
   end
 
@@ -3604,14 +3609,21 @@ defmodule Mix.Tasks.Autoquality.Bench do
   #       Re-confirms the ~6 AVIF×screen vs ~1 AVIF×photo magnitude on the enriched
   #       cohort and Spearman-correlates each feature with the AVIF residual. Reuses
   #       Part L's shipped-combo baseline; the photo side above the crossover is thin
-  #       (only `large`), so this is confirmatory, not the gate.
+  #       (only `large`), so this is confirmatory, not the gate. It also runs the
+  #       tile-dispersion probe — whether the crop scorer's OWN per-tile score spread
+  #       predicts the overshoot, which would be a near-free *sliding* offset with no
+  #       classifier at all (the alternative to the binary {format,class} policy).
+  #
+  # `--downsample N` overrides the feature downsample (default 1024 px); the
+  # separation verdict is near-invariant from 256–1024 px (`palette_ent` is a histogram
+  # measure), so a smaller downsample is cheaper at no safety cost — the residual is
+  # downsample-independent, so a size sweep only moves the (a) numbers.
   #
   # Run: `--part m --corpus $(mix autoquality.corpus --path)` (materialize the screen
   # half first with `mix autoquality.corpus` + `mix autoquality.corpus.capture`).
 
   @m_photo_sources ~w(large clic clic_holdout cid22 gb82)
   @m_screen_sources ~w(web_sc grafana_sc gb82_sc qoi_web)
-  @m_downsample 1024
   @m_flat_thresh 8.0
   @m_hard_thresh 64.0
   @m_strong_sep 0.75
@@ -3632,11 +3644,21 @@ defmodule Mix.Tasks.Autoquality.Bench do
     {:axis_aligned, "axis_align", :high}
   ]
 
-  defp run_part_m(corpus_dir, fallback_files, cap, synth_mp) do
+  # Dispersion stats over the residual's own even-K tile scores — candidate near-free
+  # sliding-offset signals (does the crop scorer's per-tile spread predict the overshoot?).
+  @m_dispersion_stats [
+    {:tile_std, "tile_std"},
+    {:tile_med_p10, "med−p10"},
+    {:tile_mean_p10, "mean−p10"},
+    {:tile_p10_min, "p10−min"},
+    {:tile_iqr, "iqr"}
+  ]
+
+  defp run_part_m(corpus_dir, fallback_files, cap, synth_mp, downsample) do
     IO.puts("\n== Part M — content-classifier feasibility (#359) ==")
 
     IO.puts(
-      "downsample #{@m_downsample}px long-edge  classes :photo / :screen_or_other  ≤#{cap}/source"
+      "downsample #{downsample}px long-edge  classes :photo / :screen_or_other  ≤#{cap}/source"
     )
 
     IO.puts(
@@ -3645,7 +3667,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     )
 
     sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
-    feat_rows = Enum.flat_map(sources, &m_source_rows/1)
+    feat_rows = Enum.flat_map(sources, &m_source_rows(&1, downsample))
     resid_rows = m_residual_rows(sources)
 
     m_report_separation(feat_rows)
@@ -3654,7 +3676,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     %{feat: feat_rows, resid: resid_rows}
   end
 
-  defp m_source_rows({sname, subjects}) do
+  defp m_source_rows({sname, subjects}, downsample) do
     case m_class_of(sname) do
       nil ->
         IO.puts(
@@ -3664,7 +3686,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
         []
 
       class ->
-        rows = Enum.map(subjects, &m_feature_row(sname, class, &1))
+        rows = Enum.map(subjects, &m_feature_row(sname, class, &1, downsample))
         med_us = rows |> Enum.map(& &1.feat_us) |> median() |> round()
 
         IO.puts(
@@ -3687,8 +3709,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
   # `base` is already a decoded, in-memory sRGB image (base_image_at), so the timed
   # region — downsample + grayscale + the feature convolutions — is the classifier's
   # MARGINAL cost over an already-decoded request, not the source decode.
-  defp m_feature_row(source, class, {label, base}) do
-    {us, feats} = timed(fn -> m_features(base) end)
+  defp m_feature_row(source, class, {label, base}, downsample) do
+    {us, feats} = timed(fn -> m_features(base, downsample) end)
 
     Map.merge(
       %{source: source, label: label, class: class, mp: Float.round(mp_of(base), 1), feat_us: us},
@@ -3696,8 +3718,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
     )
   end
 
-  defp m_features(base) do
-    scale = min(1.0, @m_downsample / max(Image.width(base), Image.height(base)))
+  defp m_features(base, downsample) do
+    scale = min(1.0, downsample / max(Image.width(base), Image.height(base)))
     {:ok, small} = Operation.resize(base, scale)
     {:ok, g8lazy} = Operation.colourspace(small, :VIPS_INTERPRETATION_B_W)
     # Pull the downsample + grayscale once into RAM so the convolutions and the
@@ -3925,19 +3947,28 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     base_ctx = l_baseline(funs)
     {:ok, base_bytes} = funs.encode_fun.(base_ctx.base_q)
-    even = l_even_p10(funs.cov_at.(@l_ship_tile, base_bytes), @l_ship_k)
-    Agent.stop(cache)
 
-    %{
+    # The same even-K tiles the residual's p10 comes from — captured here so their
+    # dispersion can be tested as a near-free sliding-offset signal (the crop scorer
+    # already computes these scores every search; no extra pixels).
+    sel =
+      funs.cov_at.(@l_ship_tile, base_bytes)
+      |> TileSelection.select(@l_ship_k, :even)
+      |> Enum.map(& &1.score)
+
+    Agent.stop(cache)
+    tile = m_tile_stats(sel)
+
+    Map.merge(tile, %{
       source: source,
       class: class,
       label: label,
       mp: Float.round(mp_of(base), 1),
       format: format,
-      residual: even - base_ctx.base_full,
+      residual: tile.p10 - base_ctx.base_full,
       base_full: base_ctx.base_full,
       base_hit?: base_ctx.base_hit?
-    }
+    })
   end
 
   defp m_report_residual(_feat, []),
@@ -3967,7 +3998,41 @@ defmodule Mix.Tasks.Autoquality.Bench do
     end
 
     m_report_avif_by_source(resid_rows)
+    m_report_dispersion(resid_rows)
     m_report_spearman(feat_rows, resid_rows)
+  end
+
+  # Tile-dispersion probe: does the crop scorer's OWN per-tile score spread predict the
+  # p10→full-frame overshoot? If a dispersion stat correlated tightly, it would be a
+  # near-free continuous (sliding) offset — no classifier, no extra pixels, just a
+  # statistic over the K tile scores the search already computes.
+  defp m_report_dispersion(resid_rows) do
+    avif = Enum.filter(resid_rows, &(&1.format == :avif))
+    screen = Enum.filter(avif, &(&1.class == :screen_or_other))
+
+    if avif != [] do
+      IO.puts("\n  tile-dispersion → AVIF residual (near-free sliding-offset signal?)")
+
+      IO.puts(
+        "  Pearson r (stat over the residual's own even-K tiles, residual); r² = variance explained:"
+      )
+
+      for {tag, group} <- [
+            {"ALL >6MP (#{length(avif)})", avif},
+            {"screen (#{length(screen)})", screen}
+          ] do
+        IO.puts("    #{tag}:")
+        Enum.each(@m_dispersion_stats, &m_dispersion_row(&1, group))
+      end
+    end
+  end
+
+  defp m_dispersion_row({key, label}, group) do
+    r = m_pearson(Enum.map(group, &Map.fetch!(&1, key)), Enum.map(group, & &1.residual))
+
+    IO.puts(
+      "      #{pad([label, 10])} r=#{pad([Float.round(r, 3), 8])}r²=#{Float.round(r * r, 3)}"
+    )
   end
 
   # Per-source AVIF breakdown: the single {avif, :screen_or_other} offset must cover
@@ -4110,33 +4175,54 @@ defmodule Mix.Tasks.Autoquality.Bench do
     Enum.reduce(list, 0.0, fn x, acc -> acc + (x - mean) * (x - mean) end) / (length(list) - 1)
   end
 
-  # Spearman = Pearson on ranks (average ranks for ties).
-  defp m_spearman(xs, _ys) when length(xs) < 2, do: 0.0
+  defp m_std(list) when length(list) < 2, do: 0.0
+  defp m_std(list), do: :math.sqrt(m_var(list))
 
-  defp m_spearman(xs, ys) do
-    rx = m_ranks(xs)
-    ry = m_ranks(ys)
-    mx = m_mean(rx)
-    my = m_mean(ry)
+  # Dispersion of the selected even-K tile scores the residual's p10 comes from. Each
+  # stat is a candidate cheap proxy for the p10→full-frame overshoot (the residual),
+  # available for free from the crop scorer's existing per-tile scores.
+  defp m_tile_stats(scores) do
+    sorted = Enum.sort(scores)
+    p10 = percentile(sorted, 0.10)
 
-    cov = Enum.zip(rx, ry) |> Enum.reduce(0.0, fn {a, b}, acc -> acc + (a - mx) * (b - my) end)
-    dx = Enum.reduce(rx, 0.0, fn a, acc -> acc + (a - mx) * (a - mx) end)
-    dy = Enum.reduce(ry, 0.0, fn b, acc -> acc + (b - my) * (b - my) end)
+    %{
+      p10: p10,
+      tile_std: m_std(scores),
+      tile_med_p10: percentile(sorted, 0.50) - p10,
+      tile_mean_p10: m_mean(scores) - p10,
+      tile_p10_min: p10 - List.first(sorted),
+      tile_iqr: percentile(sorted, 0.75) - percentile(sorted, 0.25)
+    }
+  end
 
+  defp m_pearson(xs, _ys) when length(xs) < 2, do: 0.0
+
+  defp m_pearson(xs, ys) do
+    mx = m_mean(xs)
+    my = m_mean(ys)
+    cov = Enum.zip(xs, ys) |> Enum.reduce(0.0, fn {a, b}, acc -> acc + (a - mx) * (b - my) end)
+    dx = Enum.reduce(xs, 0.0, fn a, acc -> acc + (a - mx) * (a - mx) end)
+    dy = Enum.reduce(ys, 0.0, fn b, acc -> acc + (b - my) * (b - my) end)
     denom = :math.sqrt(dx * dy)
     if denom == 0.0, do: 0.0, else: cov / denom
   end
 
+  # Spearman = Pearson on ranks (average ranks for ties).
+  defp m_spearman(xs, _ys) when length(xs) < 2, do: 0.0
+
+  defp m_spearman(xs, ys), do: m_pearson(m_ranks(xs), m_ranks(ys))
+
+  # Average ranks (ties shared), returned in the ORIGINAL element order so the pairing
+  # with the other series survives. `Enum.with_index` yields {value, index}; rank by
+  # value, then restore index order.
   defp m_ranks(values) do
-    indexed = Enum.with_index(values)
-    sorted = Enum.sort_by(indexed, &elem(&1, 0))
-
-    ranks =
-      sorted
-      |> Enum.chunk_by(&elem(&1, 0))
-      |> rank_chunks(1)
-
-    ranks |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))
+    values
+    |> Enum.with_index()
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.chunk_by(&elem(&1, 0))
+    |> rank_chunks(1)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
   end
 
   defp rank_chunks([], _pos), do: []
@@ -4144,7 +4230,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
   defp rank_chunks([chunk | rest], pos) do
     n = length(chunk)
     avg = (pos + (pos + n - 1)) / 2.0
-    Enum.map(chunk, fn {idx, _v} -> {idx, avg} end) ++ rank_chunks(rest, pos + n)
+    Enum.map(chunk, fn {_value, index} -> {index, avg} end) ++ rank_chunks(rest, pos + n)
   end
 
   defp write_part_m_csv(%{feat: feat_rows, resid: resid_rows}) do
@@ -4166,12 +4252,18 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("wrote #{feat_path}")
 
     resid_path = "/tmp/autoquality_bench_part_m_residual.csv"
-    resid_head = "source,label,class,mp,format,residual,base_full,base_hit\n"
+
+    resid_head =
+      "source,label,class,mp,format,residual,base_full,base_hit," <>
+        "tile_std,tile_med_p10,tile_mean_p10,tile_p10_min,tile_iqr\n"
 
     resid_body =
       Enum.map_join(resid_rows, fn r ->
         "#{r.source},#{r.label},#{r.class},#{r.mp},#{r.format}," <>
-          "#{Float.round(r.residual, 3)},#{fmt_score(r.base_full)},#{r.base_hit?}\n"
+          "#{Float.round(r.residual, 3)},#{fmt_score(r.base_full)},#{r.base_hit?}," <>
+          "#{Float.round(r.tile_std, 3)},#{Float.round(r.tile_med_p10, 3)}," <>
+          "#{Float.round(r.tile_mean_p10, 3)},#{Float.round(r.tile_p10_min, 3)}," <>
+          "#{Float.round(r.tile_iqr, 3)}\n"
       end)
 
     File.write!(resid_path, resid_head <> resid_body)

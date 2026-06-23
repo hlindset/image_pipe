@@ -24,6 +24,7 @@ mise exec -- mix autoquality.bench --part k --corpus DIR  # confirm-skipped offs
 mise exec -- mix autoquality.bench --part l --corpus DIR  # crop K × tile operating-point sweep (#359)
 mise exec -- mix autoquality.corpus.capture              # grow the >6 MP screen-content half (Part M/L)
 mise exec -- mix autoquality.bench --part m --corpus DIR  # content-classifier feasibility (#359)
+mise exec -- mix autoquality.bench --part m --corpus DIR --downsample 512  # smaller classifier downsample
 mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + M
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
@@ -937,6 +938,66 @@ the photo side above the crossover is `large` only (6 images) and the AVIF `web_
 baseline-hit sample is 16. Re-run `--part m --corpus DIR` (after
 `mix autoquality.corpus` + `mix autoquality.corpus.capture`) to reproduce; the feature
 and residual rows land in `/tmp/autoquality_bench_part_m_{features,residual}.csv`.
+
+### Part M follow-up — can the offset be a sliding scale, and how small can the downsample go?
+
+Two questions the binary `{format, class} → offset` proposal raised.
+
+**Could the offset be *continuous* in some cheap metric instead of a binary class
+choice?** A sliding offset only works if a cheap signal predicts the *residual
+magnitude* — a far stronger requirement than separating the classes. Two candidate
+signals, both measured here, **both too weak**:
+
+- **The features themselves.** The single best predictor, `palette_ent`, explains only
+  **r²≈0.17** of the AVIF residual across all >6 MP content (0.10 within screen). The
+  per-source means show why: `grafana_sc` (charts) and `web_sc` (dense text) have
+  near-identical cheap-feature signatures (palette_ent 0.48 vs 0.34, nat_var 0.17 vs
+  0.11, flat 0.68 vs 0.73) but residuals of **−0.35 vs 5.02**. The features measure
+  *screen-ness*; the residual is driven by something narrower — AVIF's spatially-uneven
+  quality on dense *text* — that screen-ness only loosely tracks. A sliding `g(feature)`
+  would have to map two almost-equal inputs to outputs 5 apart.
+- **The crop scorer's own per-tile dispersion** (the tile-dispersion probe — a *free*
+  signal, no new pixels). Pearson r of each dispersion stat against the AVIF residual:
+
+  | stat | r (all >6 MP, n=41) | r² | r (screen, n=35) | r² |
+  |------|---------------------|-----|------------------|-----|
+  | `tile_std`   | −0.07 | 0.005 | −0.23 | 0.052 |
+  | `mean−p10`   | −0.08 | 0.006 | −0.27 | 0.072 |
+  | `med−p10`    | −0.05 | 0.002 | −0.20 | 0.041 |
+  | `p10−min`    | +0.06 | 0.004 |  0.00 | 0.000 |
+  | `iqr`        | +0.07 | 0.004 | −0.04 | 0.002 |
+
+  The best stat explains **7 % of the within-screen residual variance, ~0 % overall.**
+  The overshoot is a *scale × codec* effect — the gap between scoring 512 px tiles and
+  the whole frame — not within-frame tile-to-tile spread, so the tiles can all agree
+  and still collectively overshoot. **There is no near-free sliding signal.**
+
+So the binary class is the **ceiling these cheap signals support**, and it is the safe
+one: it deliberately over-covers low-residual screen content (charts/web shots get the
+big offset they don't need → marginally larger files) in exchange for never
+under-covering text. A continuous offset would trade that safety away for byte savings
+the data can't reliably target. (A genuine sliding scale would need either a
+text-specific feature or the full-frame confirm #369 removed for cost.)
+
+**How small can the classifier downsample go?** The separation verdict is **nearly
+invariant** from 256→1024 px, and safe at every size — `palette_ent` is a histogram
+measure, so resolution barely touches it. The residual is downsample-independent, so a
+size sweep only moves the (a) numbers (`--downsample N`):
+
+| downsample | AUC `palette_ent` | AUC `nat_var` | feat µs | screen→photo | photo-recall |
+|------------|-------------------|---------------|---------|--------------|--------------|
+| 256  | 0.969 | 0.886 | 8 ms  | **0/56** | 101/133 (76%) |
+| 384  | 0.969 | 0.922 | 10 ms | **0/56** | 106/133 (80%) |
+| **512** | **0.969** | **0.933** | **12 ms** | **0/56** | **109/133 (82%)** |
+| 768  | 0.970 | 0.942 | 15 ms | **0/56** | 112/133 (84%) |
+| 1024 | 0.970 | 0.952 | 20 ms | **0/56** | 113/133 (85%) |
+
+The dangerous direction (screen→photo) stays **0/56 at every size, down to 256 px**.
+Only `nat_var`/`flat_frac` soften as fine texture washes out, costing a few points of
+photo-recall (85%→76%) — the benign direction (a few more photos conservatively get the
+screen offset). **512 px is the production sweet spot**: ~all the accuracy of 1024 at
+~60 % the cost; drop to 384 if cost dominates. (The Part M tables above use the 1024
+default.)
 
 ## Findings & recommendations
 
