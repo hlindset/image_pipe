@@ -744,6 +744,70 @@ floor), K is a pure cost lever above it, and the protectable residual stays well
 2.4 at tile ≥ 512 — not the absolute knee. Re-run `--part l` (and `--part k --k <K>`) to
 re-confirm on other hardware/corpora.
 
+### Part L follow-up — enriched screen-content cohort, and the AVIF residual (#359)
+
+The thin-cohort caveat above turned out to matter. The original Part L cohort had only
+**16** crop-regime images (6 photos + 10 screenshots), so "K=8/512 is a safe cost knee"
+and "16/512 is adequately offset" rested on a screen-content sample of ten. To test that,
+`mix autoquality.corpus.capture` was added to grow the >6 MP **screen-content** half:
+`web_sc` (21 text/docs/UI/table pages, full-page captured then top-cropped to ≤30 MP and
+≤16383 px so they stay WebP/AVIF-encodable) and `grafana_sc` (5 chart composites — Grafana
+dashboards are fixed-viewport SPAs, so captured at 2× density and stitched ×3 to ~22 MP).
+No off-the-shelf dataset fit: UI-screenshot datasets are overwhelmingly viewport-sized
+(WebUI-COCO-868 measured at a uniform 1920×1080 ≈ 2 MP, below the crossover).
+
+Re-running Part L over the enriched cohort (Apple Silicon, libvips 8.18.2) revealed the
+decisive thing the thin cohort hid: **the confirm-skipped residual is format-dependent,
+and AVIF on dense text is a binding worst case.** Run per format group (`p90hit*` =
+worst-source p90 over baseline-hit cases = the offset that combo needs):
+
+**jpeg + webp (77 cases, baseline on-target 10/77):**
+
+| K/tile | resid med | p90hit\* | regress | binds |
+|--------|-----------|----------|---------|-------|
+| 8/512  | −0.42 | 0.40 | 0/77 | large |
+| **16/512** | **0.63** | **1.07** | **0/77** | **large (shipped)** |
+| 16/768 | 0.08 | 2.09 | 0/77 | web_sc |
+
+**AVIF (38 cases, baseline on-target 29/38):**
+
+| K/tile | resid med | p90hit\* | regress | binds |
+|--------|-----------|----------|---------|-------|
+| 8/512  | 1.64 | 4.97 | 1/38 | web_sc |
+| **16/512** | **2.28** | **6.07** | **0/38** | **web_sc (shipped)** |
+| 16/768 | 1.10 | 5.53 | 1/38 | web_sc |
+
+- **jpeg+webp confirms the prior conclusion** — `web_sc` (large text) tracks fine; the
+  shipped 16/512 p90hit is 1.07 (binds on `large`), within the 2.4 offset, and K=8/512 is
+  still a clean cost knee. The alarming `web_sc` p90hit ≈ 6 seen in an earlier jpeg-only
+  pass was an **artifact** of capping by *scaling* (which left 1:19 aspect ratios) — it
+  collapsed once the cap was switched to *top-crop* (realistic aspect, native resolution).
+- **AVIF overturns it.** On dense text (`web_sc`), the crop estimate overshoots the
+  full-frame score by **~6** (p90hit 6.07 at the shipped 16/512), and **no swept combo
+  covers its worst source within the 2.4 offset.** AVIF binds on `web_sc` for every combo.
+  This is the opposite of the *target-setting* axis (where WebP binds): for the
+  *confirm-skip residual*, **AVIF + dense text is the worst case.**
+
+**Consequences for autoquality (production, post-#369):** above the crossover the search
+ships the crop verdict with offset `@crop_confirm_skipped_offset` ≈ 2.4 and no full-frame
+confirm. For **large AVIF renders of screen/text content**, the crop estimate overshoots
+by ~6, so the search stops ~3.7 ssim2 **below** target (p90) — silent under-quality, not
+an error (the confirm that would have caught it is the thing #369 removed for cost). So:
+
+- The **K=8/512 cost-knee retune is off the table** — it widens the AVIF-text gap, not a
+  free win.
+- The **single global offset (2.4) is under-calibrated for AVIF dense-text** — it was
+  calibrated on a photo-heavy cohort. A flat raise to ~6 would over-inflate every large
+  AVIF photo (which needs ~1) to fix a content slice, so the better shape is a
+  **`{format, content-class}` → offset** policy (AVIF×screen gets the big offset; AVIF×photo
+  and webp/jpeg stay lean), driven by a cheap content classifier — feasibility to be
+  probed on this cohort (Part M).
+
+*Caveat:* one machine/libvips build; the AVIF `web_sc` sample is ~13–18 images. The
+direction is consistent across all 9 combos, but confirm the ~6 magnitude on a larger
+AVIF-text sample before it drives a production constant. `mix autoquality.corpus.capture`
+materializes the cohort; re-run `--part l` per format to reproduce.
+
 ## Findings & recommendations
 
 ### 1. Ship a non-zero `autoquality_max_resolution` default
