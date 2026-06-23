@@ -154,6 +154,22 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode search probe: ok (confirm q65 6500b score 90.42)"
   end
 
+  test "renders the delivered-probe chosen marker with quality, bytes, phase, score" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :probe, :chosen],
+          %{},
+          %{quality: 64, bytes: 12_345, phase: :objective, index: 3, score: 90.42}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "encode search chosen: q64 12345b (objective score 90.42)"
+  end
+
   test "escalates an encode-search probe exception to warning" do
     Telemetry.attach_default_logger(level: :info)
 
