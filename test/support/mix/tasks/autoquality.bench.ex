@@ -430,7 +430,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       i: run.(["i", "all"], fn -> corpus.(&run_part_i/4) end),
       j: run.(["j", "all"], fn -> corpus.(&run_part_j/4) end),
       k: run.(["k", "all"], fn -> corpus.(&run_part_k(&1, &2, &3, &4, ctx.offsets)) end),
-      l: run.(["l", "all"], fn -> corpus.(&run_part_l(&1, &2, &3, &4, ctx.ks, ctx.tiles)) end)
+      l: run.(["l", "all"], fn -> corpus.(&run_part_l(&1, &2, &3, &4, ctx.ks, ctx.tiles)) end),
+      m: run.(["m", "all"], fn -> corpus.(&run_part_m/4) end)
     }
   end
 
@@ -450,7 +451,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.i, &write_part_i_csv/1},
       {parts.j, &write_part_j_csv/1},
       {parts.k, &write_part_k_csv/1},
-      {parts.l, &write_part_l_csv/1}
+      {parts.l, &write_part_l_csv/1},
+      {parts.m, &write_part_m_csv/1}
     ]
     |> Enum.each(fn {rows, writer} -> if rows, do: writer.(rows) end)
   end
@@ -3576,6 +3578,604 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
     File.write!(path, head <> body)
     IO.puts("wrote #{path}")
+  end
+
+  # --- Part M: content-classifier feasibility (#359 Part L follow-up) --------
+  #
+  # The Part L follow-up found the confirm-skipped residual is FORMAT × CONTENT
+  # dependent: above the crossover, AVIF on dense text overshoots full-frame by ~6
+  # (so the search ships ~3.7 ssim2 under target), while AVIF photos need ~1. A flat
+  # offset raise over-inflates every AVIF photo to rescue a content slice; the better
+  # shape is a {format, content-class} → offset policy driven by a cheap classifier.
+  #
+  # Part M is FEASIBILITY, not pipeline: it asks only whether ≤5 cheap libvips
+  # features separate :photo from :screen_or_other cleanly enough to key that policy.
+  # It builds no classifier module and no Plan.Output table — that waits on these
+  # numbers. Two verdicts:
+  #
+  #   (a) separation — PRIMARY, over the full labeled cohort (features computed on a
+  #       fixed-size downsample, so they are MP-independent; sub-crossover photos count
+  #       too). Per feature: photo/screen medians, a threshold-free AUC and Cohen's d,
+  #       and the user's AND-rule (photo iff ALL photo-conditions hold; else the safe
+  #       fallback :screen_or_other) as a combined classifier. Each feature's
+  #       photo-condition is auto-oriented from the observed class medians, so the rule
+  #       degrades only on genuine overlap, not on a mis-guessed direction.
+  #   (b) residual confirmation — SECONDARY, >6 MP only (where the residual exists).
+  #       Re-confirms the ~6 AVIF×screen vs ~1 AVIF×photo magnitude on the enriched
+  #       cohort and Spearman-correlates each feature with the AVIF residual. Reuses
+  #       Part L's shipped-combo baseline; the photo side above the crossover is thin
+  #       (only `large`), so this is confirmatory, not the gate.
+  #
+  # Run: `--part m --corpus $(mix autoquality.corpus --path)` (materialize the screen
+  # half first with `mix autoquality.corpus` + `mix autoquality.corpus.capture`).
+
+  @m_photo_sources ~w(large clic clic_holdout cid22 gb82)
+  @m_screen_sources ~w(web_sc grafana_sc gb82_sc qoi_web)
+  @m_downsample 1024
+  @m_flat_thresh 8.0
+  @m_hard_thresh 64.0
+  @m_strong_sep 0.75
+
+  # 3×3 Sobel directional kernels: axis (0°/90°) vs diagonal (45°/135°).
+  @m_k0 [[1.0, 0.0, -1.0], [2.0, 0.0, -2.0], [1.0, 0.0, -1.0]]
+  @m_k90 [[1.0, 2.0, 1.0], [0.0, 0.0, 0.0], [-1.0, -2.0, -1.0]]
+  @m_k45 [[0.0, -1.0, -2.0], [1.0, 0.0, -1.0], [2.0, 1.0, 0.0]]
+  @m_k135 [[-2.0, -1.0, 0.0], [-1.0, 0.0, 1.0], [0.0, 1.0, 2.0]]
+
+  # Features in report order, with the hypothesised screen direction (for reference
+  # against the data-observed direction — see the axis_aligned finding in the doc).
+  @m_features [
+    {:flat_frac, "flat_frac", :high},
+    {:hard_edge_frac, "hard_edge", :high},
+    {:palette_entropy, "palette_ent", :low},
+    {:natural_variation, "nat_var", :low},
+    {:axis_aligned, "axis_align", :high}
+  ]
+
+  defp run_part_m(corpus_dir, fallback_files, cap, synth_mp) do
+    IO.puts("\n== Part M — content-classifier feasibility (#359) ==")
+
+    IO.puts(
+      "downsample #{@m_downsample}px long-edge  classes :photo / :screen_or_other  ≤#{cap}/source"
+    )
+
+    IO.puts(
+      "features: flat_frac, hard_edge, palette_ent, nat_var, axis_align  " <>
+        "(feat_us = classifier marginal cost, excludes decode)\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+    feat_rows = Enum.flat_map(sources, &m_source_rows/1)
+    resid_rows = m_residual_rows(sources)
+
+    m_report_separation(feat_rows)
+    m_report_residual(feat_rows, resid_rows)
+
+    %{feat: feat_rows, resid: resid_rows}
+  end
+
+  defp m_source_rows({sname, subjects}) do
+    case m_class_of(sname) do
+      nil ->
+        IO.puts(
+          "  #{String.pad_trailing(sname, 14)} #{length(subjects)} imgs (unlabeled — skipped)"
+        )
+
+        []
+
+      class ->
+        rows = Enum.map(subjects, &m_feature_row(sname, class, &1))
+        med_us = rows |> Enum.map(& &1.feat_us) |> median() |> round()
+
+        IO.puts(
+          "  #{String.pad_trailing(sname, 14)} #{length(rows)} imgs  " <>
+            "#{String.pad_trailing(to_string(class), 16)} #{med_us}µs/img"
+        )
+
+        rows
+    end
+  end
+
+  defp m_class_of(source) do
+    cond do
+      source in @m_photo_sources -> :photo
+      source in @m_screen_sources -> :screen_or_other
+      true -> nil
+    end
+  end
+
+  # `base` is already a decoded, in-memory sRGB image (base_image_at), so the timed
+  # region — downsample + grayscale + the feature convolutions — is the classifier's
+  # MARGINAL cost over an already-decoded request, not the source decode.
+  defp m_feature_row(source, class, {label, base}) do
+    {us, feats} = timed(fn -> m_features(base) end)
+
+    Map.merge(
+      %{source: source, label: label, class: class, mp: Float.round(mp_of(base), 1), feat_us: us},
+      feats
+    )
+  end
+
+  defp m_features(base) do
+    scale = min(1.0, @m_downsample / max(Image.width(base), Image.height(base)))
+    {:ok, small} = Operation.resize(base, scale)
+    {:ok, g8lazy} = Operation.colourspace(small, :VIPS_INTERPRETATION_B_W)
+    # Pull the downsample + grayscale once into RAM so the convolutions and the
+    # histogram all read the ~1 MP buffer rather than re-evaluating the resize over
+    # the full-res input per terminal consumer.
+    {:ok, g8} = VixImage.copy_memory(g8lazy)
+    {:ok, gf} = Operation.cast(g8, :VIPS_FORMAT_FLOAT)
+
+    c0 = m_conv(gf, @m_k0)
+    c90 = m_conv(gf, @m_k90)
+    c45 = m_conv(gf, @m_k45)
+    c135 = m_conv(gf, @m_k135)
+
+    {:ok, sq0} = Operation.multiply(c0, c0)
+    {:ok, sq90} = Operation.multiply(c90, c90)
+    {:ok, sumsq} = Operation.add(sq0, sq90)
+    {:ok, mag} = Operation.math2_const(sumsq, :VIPS_OPERATION_MATH2_POW, [0.5])
+
+    flat = m_frac(mag, :VIPS_OPERATION_RELATIONAL_LESS, @m_flat_thresh)
+    hard = m_frac(mag, :VIPS_OPERATION_RELATIONAL_MORE, @m_hard_thresh)
+
+    {:ok, hist} = Operation.hist_find(g8)
+    {:ok, ent} = Operation.hist_entropy(hist)
+
+    %{
+      flat_frac: flat,
+      hard_edge_frac: hard,
+      natural_variation: max(0.0, 1.0 - flat - hard),
+      palette_entropy: ent / 8.0,
+      axis_aligned: (m_abs_mean(c0) + m_abs_mean(c90)) / (m_abs_mean(c45) + m_abs_mean(c135))
+    }
+  end
+
+  defp m_conv(gf, kernel) do
+    {:ok, mask} = VixImage.new_from_list(kernel)
+    {:ok, c} = Operation.conv(gf, mask)
+    c
+  end
+
+  # Fraction of pixels passing a relational test on the gradient magnitude. The
+  # boolean image is 255 where true, so its mean / 255 is the fraction.
+  defp m_frac(mag, op, t) do
+    {:ok, b} = Operation.relational_const(mag, op, [t])
+    {:ok, a} = Operation.avg(b)
+    a / 255.0
+  end
+
+  defp m_abs_mean(img) do
+    {:ok, a} = Operation.abs(img)
+    {:ok, m} = Operation.avg(a)
+    m
+  end
+
+  # --- Part M (a): separation reporting --------------------------------------
+
+  defp m_report_separation([]), do: IO.puts("\nPart M (a): no labeled images in cohort.")
+
+  defp m_report_separation(rows) do
+    photos = Enum.filter(rows, &(&1.class == :photo))
+    screens = Enum.filter(rows, &(&1.class == :screen_or_other))
+
+    IO.puts(
+      "\n  (a) class separation — #{length(photos)} photo / #{length(screens)} screen images"
+    )
+
+    IO.puts(
+      "  " <>
+        pad(["feature", 13]) <>
+        pad(["photo med", 11]) <>
+        pad(["screen med", 12]) <>
+        pad(["AUC↑scr", 9]) <>
+        pad(["cohen-d", 9]) <>
+        pad(["θ", 8]) <> pad(["sep", 7]) <> "errs@θ (scr→photo)"
+    )
+
+    stats = Enum.map(@m_features, &m_feature_stat(&1, photos, screens))
+
+    m_rule_report("user AND-rule (all 5 features)", rows, stats)
+
+    strong = Enum.filter(stats, &(&1.sep >= @m_strong_sep))
+
+    case strong do
+      [] ->
+        IO.puts(
+          "\n  no feature reaches sep ≥ #{@m_strong_sep} — classifier infeasible on this cohort."
+        )
+
+      _ ->
+        names = Enum.map_join(strong, ",", & &1.name)
+        m_rule_report("strong-features AND-rule (sep≥#{@m_strong_sep}: #{names})", rows, strong)
+    end
+  end
+
+  defp m_feature_stat({key, name, _hyp}, photos, screens) do
+    pv = Enum.map(photos, &Map.fetch!(&1, key))
+    sv = Enum.map(screens, &Map.fetch!(&1, key))
+    auc = m_auc(sv, pv)
+    {theta, photo_low?} = m_youden(pv, sv)
+    stat = %{key: key, name: name, theta: theta, photo_low?: photo_low?, sep: max(auc, 1.0 - auc)}
+    errs = Enum.count(screens, &m_predict_photo(Map.fetch!(&1, key), stat))
+
+    IO.puts(
+      "  " <>
+        pad([name, 13]) <>
+        pad([Float.round(median(pv), 3), 11]) <>
+        pad([Float.round(median(sv), 3), 12]) <>
+        pad([Float.round(auc, 3), 9]) <>
+        pad([Float.round(m_cohen_d(sv, pv), 2), 9]) <>
+        pad([Float.round(theta, 3), 8]) <>
+        pad([Float.round(stat.sep, 3), 7]) <> "#{errs}/#{length(screens)}"
+    )
+
+    stat
+  end
+
+  # Predict :photo for this feature iff the value is on the photo side of θ. Direction
+  # comes from the observed class medians (photo_low?), so a feature whose real
+  # direction is opposite the hypothesis is still oriented correctly.
+  defp m_predict_photo(value, %{theta: t, photo_low?: true}), do: value <= t
+  defp m_predict_photo(value, %{theta: t, photo_low?: false}), do: value >= t
+
+  # Youden-J optimal split: orientation from medians, θ from the candidate midpoints
+  # maximizing TPR_screen + TNR_screen − 1 (balance-robust under class imbalance).
+  defp m_youden(pv, sv) do
+    photo_low? = median(sv) >= median(pv)
+    np = length(pv)
+    ns = length(sv)
+
+    {theta, _j} =
+      (pv ++ sv)
+      |> Enum.sort()
+      |> m_midpoints()
+      |> Enum.map(fn t ->
+        stat = %{theta: t, photo_low?: photo_low?}
+        tnr = Enum.count(sv, &(not m_predict_photo(&1, stat))) / ns
+        tpr = Enum.count(pv, &m_predict_photo(&1, stat)) / np
+        {t, tpr + tnr - 1.0}
+      end)
+      |> Enum.max_by(&elem(&1, 1))
+
+    {theta, photo_low?}
+  end
+
+  defp m_midpoints(sorted) do
+    sorted
+    |> Enum.uniq()
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn [a, b] -> (a + b) / 2.0 end)
+    |> case do
+      [] -> [hd(sorted)]
+      mids -> mids
+    end
+  end
+
+  # Combined AND-rule: predict :photo iff EVERY feature in the rule predicts photo;
+  # else the safe fallback :screen_or_other. Reports both error directions, but the
+  # one that matters is scr→photo (a screenshot classified photo → the lean offset →
+  # visible text damage); photo→scr only costs a slightly bigger file.
+  defp m_rule_report(title, rows, feat_stats) do
+    photo_pred = fn r -> Enum.all?(feat_stats, &m_predict_photo(Map.fetch!(r, &1.key), &1)) end
+    photos = Enum.filter(rows, &(&1.class == :photo))
+    screens = Enum.filter(rows, &(&1.class == :screen_or_other))
+
+    tp = Enum.count(photos, photo_pred)
+    fp = Enum.count(screens, photo_pred)
+    tn = length(screens) - fp
+    fn_ = length(photos) - tp
+
+    IO.puts("\n  #{title}")
+    IO.puts("    photo→photo #{tp}/#{length(photos)}   photo→screen #{fn_} (bigger file)")
+
+    IO.puts(
+      "    screen→screen #{tn}/#{length(screens)}   screen→photo #{fp} (TEXT DAMAGE)" <>
+        if(fp == 0, do: "  ✓ safe", else: "  ✗")
+    )
+  end
+
+  # --- Part M (b): >6 MP residual confirmation -------------------------------
+
+  defp m_residual_rows(sources) do
+    crossover = CropScore.crossover_megapixels()
+
+    IO.puts(
+      "\n  computing >#{crossover} MP residual confirmation " <>
+        "(shipped #{@l_ship_k}/#{@l_ship_tile}, reuses Part L baseline)…"
+    )
+
+    Enum.flat_map(sources, &m_source_residuals(&1, crossover))
+  end
+
+  defp m_source_residuals({sname, subjects}, crossover) do
+    case m_class_of(sname) do
+      nil ->
+        []
+
+      class ->
+        subjects
+        |> Enum.filter(fn {_l, base} -> mp_of(base) > crossover end)
+        |> Enum.flat_map(fn {label, base} -> m_residual_for(sname, class, label, base) end)
+    end
+  end
+
+  defp m_residual_for(source, class, label, base) do
+    Enum.flat_map(@g_formats, fn format ->
+      {_lo, hi} = g_bracket(format)
+
+      case Encoder.encode_to_buffer(base, plain_resolved(format, hi), hi) do
+        {:error, _} -> []
+        {:ok, _} -> [m_residual_case(source, class, label, base, format, hi)]
+      end
+    end)
+  end
+
+  defp m_residual_case(source, class, label, base, format, hi) do
+    {:ok, full_ref} = Ssim2Metric.reference(base)
+    {:ok, cache} = Agent.start_link(fn -> %{enc: %{}, rev: %{}, full: %{}, cov: %{}} end)
+
+    funs = %{
+      resolved: h_resolved(format),
+      encode_fun: partf_encode_fun(cache, base, format),
+      full_at: l_full_fun(cache, full_ref),
+      cov_at: l_cov_fun(cache, base),
+      hi: hi
+    }
+
+    base_ctx = l_baseline(funs)
+    {:ok, base_bytes} = funs.encode_fun.(base_ctx.base_q)
+    even = l_even_p10(funs.cov_at.(@l_ship_tile, base_bytes), @l_ship_k)
+    Agent.stop(cache)
+
+    %{
+      source: source,
+      class: class,
+      label: label,
+      mp: Float.round(mp_of(base), 1),
+      format: format,
+      residual: even - base_ctx.base_full,
+      base_full: base_ctx.base_full,
+      base_hit?: base_ctx.base_hit?
+    }
+  end
+
+  defp m_report_residual(_feat, []),
+    do: IO.puts("\n  (b) no >6 MP images in cohort — residual confirmation skipped.")
+
+  defp m_report_residual(feat_rows, resid_rows) do
+    IO.puts(
+      "\n  (b) residual = even-K#{@l_ship_k}/#{@l_ship_tile} p10 − full-frame  " <>
+        "(positive = crop overshoots → ships under target)"
+    )
+
+    IO.puts(
+      "  mean/p90 over BASELINE-HIT cases (the population an offset protects, matching " <>
+        "Part L's p90hit); n = all >6 MP cases, hit = baseline on-target"
+    )
+
+    IO.puts(
+      "  " <>
+        pad(["class", 18]) <>
+        pad(["format", 8]) <>
+        pad(["n", 4]) <> pad(["hit", 5]) <> pad(["mean_hit", 10]) <> "p90_hit"
+    )
+
+    for class <- [:photo, :screen_or_other], format <- @g_formats do
+      rs = Enum.filter(resid_rows, &(&1.class == class and &1.format == format))
+      if rs != [], do: m_residual_row(class, format, rs)
+    end
+
+    m_report_avif_by_source(resid_rows)
+    m_report_spearman(feat_rows, resid_rows)
+  end
+
+  # Per-source AVIF breakdown: the single {avif, :screen_or_other} offset must cover
+  # the WORST sub-type in the class, so this shows which content drives the tail
+  # (the doc's finding: dense text — web_sc — overshoots ~6, the binding worst case).
+  defp m_report_avif_by_source(resid_rows) do
+    by_source =
+      resid_rows
+      |> Enum.filter(&(&1.format == :avif))
+      |> Enum.group_by(& &1.source)
+      |> Enum.sort_by(fn {src, _} -> src end)
+
+    if by_source != [] do
+      IO.puts(
+        "\n  AVIF residual by source (>6 MP, baseline-hit only — the per-content offset need):"
+      )
+
+      IO.puts(
+        "  " <>
+          pad(["source", 14]) <>
+          pad(["class", 18]) <>
+          pad(["n", 4]) <> pad(["hit", 5]) <> pad(["mean_hit", 10]) <> "p90_hit"
+      )
+
+      Enum.each(by_source, fn {src, rs} ->
+        {n, hit, mean_s, p90_s} = m_resid_stats(rs)
+
+        IO.puts(
+          "  " <>
+            pad([src, 14]) <>
+            pad([hd(rs).class, 18]) <>
+            pad([n, 4]) <> pad([hit, 5]) <> pad([mean_s, 10]) <> "#{p90_s}"
+        )
+      end)
+    end
+  end
+
+  defp m_residual_row(class, format, rs) do
+    {n, hit, mean_s, p90_s} = m_resid_stats(rs)
+
+    IO.puts(
+      "  " <>
+        pad([class, 18]) <>
+        pad([format, 8]) <>
+        pad([n, 4]) <> pad([hit, 5]) <> pad([mean_s, 10]) <> "#{p90_s}"
+    )
+  end
+
+  # n = all >6 MP cases, hit = baseline on-target; mean/p90 over the baseline-hit
+  # cases only (the population an offset protects, matching Part L's p90hit).
+  defp m_resid_stats(rs) do
+    hit = Enum.filter(rs, & &1.base_hit?)
+    vals = Enum.map(hit, & &1.residual)
+
+    {mean_s, p90_s} =
+      case vals do
+        [] -> {"-", "-"}
+        _ -> {Float.round(m_mean(vals), 2), Float.round(percentile(Enum.sort(vals), 0.90), 2)}
+      end
+
+    {length(rs), length(hit), mean_s, p90_s}
+  end
+
+  # Correlate features with the AVIF residual WITHIN the screen class only. Pooling
+  # photo+screen is degenerate here — the residual is bimodal by class and every
+  # class-separating feature trivially scores ρ≈1, re-stating (a) rather than testing
+  # anything new. The informative question is whether the features predict the residual
+  # SPREAD inside screen content (web_sc dense-text ~6 vs grafana charts ~0) — i.e.
+  # whether a finer-than-2-class offset policy has any cheap signal to key on.
+  defp m_report_spearman(feat_rows, resid_rows) do
+    feat_by = Map.new(feat_rows, &{{&1.source, &1.label}, &1})
+
+    paired =
+      resid_rows
+      |> Enum.filter(&(&1.format == :avif and &1.class == :screen_or_other))
+      |> Enum.flat_map(fn r ->
+        case Map.get(feat_by, {r.source, r.label}) do
+          nil -> []
+          f -> [{f, r.residual}]
+        end
+      end)
+
+    IO.puts(
+      "\n  Spearman ρ(feature, AVIF residual) WITHIN screen class, #{length(paired)} >6 MP imgs " <>
+        "(finer-policy signal; pooled photo+screen is degenerate at ρ≈1):"
+    )
+
+    resids = Enum.map(paired, &elem(&1, 1))
+
+    Enum.each(@m_features, fn {key, name, _} ->
+      rho = m_spearman(Enum.map(paired, fn {f, _} -> Map.fetch!(f, key) end), resids)
+      IO.puts("    #{pad([name, 13])} ρ=#{Float.round(rho, 3)}")
+    end)
+  end
+
+  # --- Part M: statistics helpers --------------------------------------------
+
+  # AUC = P(value from `hi` group > value from `lo` group), ties half-credited. As a
+  # threshold-free 1-D separation score oriented "high ⇒ screen": >0.5 means the
+  # feature reads higher on screens, <0.5 higher on photos, 0.5 no separation.
+  defp m_auc([], _lo), do: 0.5
+  defp m_auc(_hi, []), do: 0.5
+
+  defp m_auc(hi, lo) do
+    wins = Enum.reduce(hi, 0.0, fn h, acc -> acc + m_auc_wins(h, lo) end)
+    wins / (length(hi) * length(lo))
+  end
+
+  defp m_auc_wins(h, lo) do
+    Enum.reduce(lo, 0.0, fn l, a ->
+      cond do
+        h > l -> a + 1.0
+        h == l -> a + 0.5
+        true -> a
+      end
+    end)
+  end
+
+  defp m_cohen_d(a, b) do
+    sd = m_pooled_sd(a, b)
+    if sd == 0.0, do: 0.0, else: (m_mean(a) - m_mean(b)) / sd
+  end
+
+  defp m_pooled_sd(a, b) do
+    na = length(a)
+    nb = length(b)
+
+    if na < 2 or nb < 2 do
+      0.0
+    else
+      :math.sqrt(((na - 1) * m_var(a) + (nb - 1) * m_var(b)) / (na + nb - 2))
+    end
+  end
+
+  defp m_mean([]), do: 0.0
+  defp m_mean(list), do: Enum.sum(list) / length(list)
+
+  defp m_var(list) do
+    mean = m_mean(list)
+    Enum.reduce(list, 0.0, fn x, acc -> acc + (x - mean) * (x - mean) end) / (length(list) - 1)
+  end
+
+  # Spearman = Pearson on ranks (average ranks for ties).
+  defp m_spearman(xs, _ys) when length(xs) < 2, do: 0.0
+
+  defp m_spearman(xs, ys) do
+    rx = m_ranks(xs)
+    ry = m_ranks(ys)
+    mx = m_mean(rx)
+    my = m_mean(ry)
+
+    cov = Enum.zip(rx, ry) |> Enum.reduce(0.0, fn {a, b}, acc -> acc + (a - mx) * (b - my) end)
+    dx = Enum.reduce(rx, 0.0, fn a, acc -> acc + (a - mx) * (a - mx) end)
+    dy = Enum.reduce(ry, 0.0, fn b, acc -> acc + (b - my) * (b - my) end)
+
+    denom = :math.sqrt(dx * dy)
+    if denom == 0.0, do: 0.0, else: cov / denom
+  end
+
+  defp m_ranks(values) do
+    indexed = Enum.with_index(values)
+    sorted = Enum.sort_by(indexed, &elem(&1, 0))
+
+    ranks =
+      sorted
+      |> Enum.chunk_by(&elem(&1, 0))
+      |> rank_chunks(1)
+
+    ranks |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))
+  end
+
+  defp rank_chunks([], _pos), do: []
+
+  defp rank_chunks([chunk | rest], pos) do
+    n = length(chunk)
+    avg = (pos + (pos + n - 1)) / 2.0
+    Enum.map(chunk, fn {idx, _v} -> {idx, avg} end) ++ rank_chunks(rest, pos + n)
+  end
+
+  defp write_part_m_csv(%{feat: feat_rows, resid: resid_rows}) do
+    feat_path = "/tmp/autoquality_bench_part_m_features.csv"
+
+    feat_head =
+      "source,label,class,mp,feat_us,flat_frac,hard_edge_frac," <>
+        "palette_entropy,natural_variation,axis_aligned\n"
+
+    feat_body =
+      Enum.map_join(feat_rows, fn r ->
+        "#{r.source},#{r.label},#{r.class},#{r.mp},#{r.feat_us}," <>
+          "#{Float.round(r.flat_frac, 4)},#{Float.round(r.hard_edge_frac, 4)}," <>
+          "#{Float.round(r.palette_entropy, 4)},#{Float.round(r.natural_variation, 4)}," <>
+          "#{Float.round(r.axis_aligned, 4)}\n"
+      end)
+
+    File.write!(feat_path, feat_head <> feat_body)
+    IO.puts("wrote #{feat_path}")
+
+    resid_path = "/tmp/autoquality_bench_part_m_residual.csv"
+    resid_head = "source,label,class,mp,format,residual,base_full,base_hit\n"
+
+    resid_body =
+      Enum.map_join(resid_rows, fn r ->
+        "#{r.source},#{r.label},#{r.class},#{r.mp},#{r.format}," <>
+          "#{Float.round(r.residual, 3)},#{fmt_score(r.base_full)},#{r.base_hit?}\n"
+      end)
+
+    File.write!(resid_path, resid_head <> resid_body)
+    IO.puts("wrote #{resid_path}")
   end
 
   # --- resolved descriptors --------------------------------------------------
