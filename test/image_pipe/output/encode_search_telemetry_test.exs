@@ -10,6 +10,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
   @prefix [:ip_es_test]
   @stop @prefix ++ [:encode, :search, :stop]
   @probe @prefix ++ [:encode, :search, :probe, :stop]
+  @chosen @prefix ++ [:encode, :search, :probe, :chosen]
 
   setup do
     handler_id = "encode-search-telemetry-#{System.unique_integer([:positive])}"
@@ -17,7 +18,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
 
     :telemetry.attach_many(
       handler_id,
-      [@stop, @probe],
+      [@stop, @probe, @chosen],
       fn event, measurements, metadata, _config ->
         send(test_pid, {:telemetry, event, measurements, metadata})
       end,
@@ -87,6 +88,19 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
 
     # the distinct-encode index is the running ordinal
     assert Enum.sort(Enum.map(probes, & &1.index)) == Enum.to_list(1..length(probes))
+
+    # exactly one chosen marker fires, naming the delivered probe: same quality as
+    # the search verdict, the objective phase that encoded it, and the shipped bytes.
+    assert_receive {:telemetry, @chosen, _m, chosen}
+    assert chosen.quality == chosen_q
+    assert chosen.bytes == chosen_q * 100
+    assert chosen.phase == :objective
+    assert chosen.score == score_value
+    assert chosen.scorer == :full
+    assert is_integer(chosen.index)
+    # full-frame mode: nil tiles_scored is stripped by the telemetry layer.
+    refute Map.has_key?(chosen, :tiles_scored)
+    refute_received {:telemetry, @chosen, _m2, _meta2}
   end
 
   test "confirm/bump probes carry the phase + the crop→full residual fields" do
@@ -138,6 +152,16 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     [confirm64, bump65] = confirm_probes
     assert confirm64.quality == 64 and confirm64.passed? == false
     assert bump65.quality == 65 and bump65.passed? == true
+
+    # the delivered q65 was first encoded during the objective walk (probed as an
+    # overshoot); the bump only re-scored those already-memoized bytes. So the
+    # chosen marker names :objective — the phase that produced the shipped bytes,
+    # not the phase that re-validated them.
+    assert_receive {:telemetry, @chosen, _m, chosen}
+    assert chosen.quality == 65
+    assert chosen.phase == :objective
+    assert chosen.scorer == :crop
+    assert chosen.tiles_scored == 12
   end
 
   test "search stop names the limiting factor on a ceiling best-effort" do
@@ -184,6 +208,13 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
 
     assert_receive {:telemetry, @stop, _m, stop_meta}
     assert stop_meta.limiting_factor == :max_bytes
+
+    # the floor (q10) was encoded under the cap phase, so the chosen marker names
+    # :cap. :none objective carries no score → nil is stripped from the marker.
+    assert_receive {:telemetry, @chosen, _m, chosen}
+    assert chosen.quality == 10
+    assert chosen.phase == :cap
+    refute Map.has_key?(chosen, :score)
   end
 
   defp collect_probes(probes \\ [], durations \\ []) do

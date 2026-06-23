@@ -166,11 +166,15 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   end
 
   # Honest forced-encode span. `Encoder.stream_output/3` builds the lazy encoder
-  # pipeline; `first_chunk/1` pulls the first chunk, forcing libvips to actually
-  # encode — the heaviest stage of most requests. Both run here, in the producer
-  # process, so the span measures real compute (unlike per-op transform spans,
-  # which time construction). Parents to the request root (sibling of the
-  # delivery-backstop materialize) via the adopted remote-parent frame.
+  # pipeline; on the lazy (non-search) path `first_chunk/1` pulls the first chunk,
+  # forcing libvips to actually encode — the heaviest stage of most requests. On
+  # the `:ssim2` quality-search path the encode already happened eagerly inside the
+  # search (the delivered bytes are the winning probe's encode), so here
+  # `first_chunk/1` only pulls a pre-encoded buffer and this span's duration is
+  # dominated by that earlier search, not by work done under it. Both run here, in
+  # the producer process, so the span measures real compute (unlike per-op
+  # transform spans, which time construction). Parents to the request root (sibling
+  # of the delivery-backstop materialize) via the adopted remote-parent frame.
   defp encode_first_chunk(image, %Resolved{} = resolved_output, opts) do
     Telemetry.span(
       Telemetry.telemetry_opts(opts),

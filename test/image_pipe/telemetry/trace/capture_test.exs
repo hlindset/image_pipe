@@ -111,6 +111,33 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert probe.attributes[:passed?] == true
   end
 
+  test "folds the delivered-probe chosen marker onto the enclosing search span" do
+    Telemetry.span([], [:encode, :search], %{objective: :ssim2}, fn ->
+      Telemetry.execute(
+        [],
+        [:encode, :search, :probe, :chosen],
+        %{},
+        %{quality: 64, bytes: 12_345, phase: :objective, index: 3, score: 90.42, scorer: :full}
+      )
+
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.encode.search"} = search}
+
+    # the marker is a one-shot annotation on the search span, not a child span.
+    refute_received {:span, %Span{name: "image_pipe.encode.search.probe.chosen"}}
+
+    chosen = Enum.find(search.events, &(&1.name == "image_pipe.encode.search.probe.chosen"))
+    assert chosen
+    assert chosen.attributes[:quality] == 64
+    assert chosen.attributes[:bytes] == 12_345
+    assert chosen.attributes[:phase] == :objective
+    assert chosen.attributes[:index] == 3
+    assert chosen.attributes[:score] == 90.42
+    assert chosen.attributes[:scorer] == :full
+  end
+
   test "nests the probe cost legs (encode/decode/metric) under the probe span" do
     Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
       Telemetry.span([], [:encode, :search, :probe, :encode], %{quality: 62}, fn ->

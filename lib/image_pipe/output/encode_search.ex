@@ -102,6 +102,7 @@ defmodule ImagePipe.Output.EncodeSearch do
               encode_memo: %{},
               score_memo: %{},
               confirm_memo: %{},
+              probe_log: %{},
               confirm_passes: 0,
               iterations: 0,
               max_iterations: 0,
@@ -403,7 +404,7 @@ defmodule ImagePipe.Output.EncodeSearch do
       [:encode, :search, :probe],
       %{quality: q, phase: phase},
       fn ->
-        case ensure_encoded_raw(q, ctx) do
+        case ensure_encoded_raw(q, phase, ctx) do
           {:ok, ctx} ->
             score = ctx.confirm_fun.(Map.fetch!(ctx.encode_memo, q))
 
@@ -572,7 +573,7 @@ defmodule ImagePipe.Output.EncodeSearch do
       [:encode, :search, :probe],
       %{quality: q, phase: ctx.phase},
       fn ->
-        case do_encode(q, ctx) do
+        case do_encode(q, ctx.phase, ctx) do
           {:ok, ctx} -> {{:ok, ctx}, objective_probe_meta(q, ctx)}
           {:error, reason} = err -> {err, %{result: :processing_error, error: reason}}
         end
@@ -582,14 +583,19 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # Raw encode + memoize + estimate-score, WITHOUT a probe span: the caller owns
   # the span (encode_probe for objective/cap, confirm_probe for confirm/bump), so
-  # a bump that encodes a never-seen q emits a single probe, not two.
-  defp do_encode(q, ctx) do
+  # a bump that encodes a never-seen q emits a single probe, not two. `phase` is
+  # the enclosing probe span's phase, logged per distinct encode so the delivered
+  # quality can later name the phase that actually produced its bytes.
+  defp do_encode(q, phase, ctx) do
     case ctx.encode_fun.(q) do
       {:ok, binary} ->
+        iterations = ctx.iterations + 1
+
         ctx = %{
           ctx
           | encode_memo: Map.put(ctx.encode_memo, q, binary),
-            iterations: ctx.iterations + 1
+            iterations: iterations,
+            probe_log: Map.put(ctx.probe_log, q, %{phase: phase, index: iterations})
         }
 
         {:ok, maybe_score(q, binary, ctx)}
@@ -599,8 +605,8 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  defp ensure_encoded_raw(q, ctx) do
-    if Map.has_key?(ctx.encode_memo, q), do: {:ok, ctx}, else: do_encode(q, ctx)
+  defp ensure_encoded_raw(q, phase, ctx) do
+    if Map.has_key?(ctx.encode_memo, q), do: {:ok, ctx}, else: do_encode(q, phase, ctx)
   end
 
   defp maybe_score(_q, _binary, %Ctx{score_fun: nil} = ctx), do: ctx
@@ -657,6 +663,8 @@ defmodule ImagePipe.Output.EncodeSearch do
     binary = Map.fetch!(ctx.encode_memo, final_q)
     ctx = ensure_winner_scored(final_q, binary, ctx)
 
+    emit_chosen(final_q, binary, ctx)
+
     meta = %{
       quality: final_q,
       bytes: byte_size(binary),
@@ -670,6 +678,35 @@ defmodule ImagePipe.Output.EncodeSearch do
     }
 
     {:ok, binary, meta}
+  end
+
+  # One-shot marker naming the delivered probe. The winning quality's encode IS the
+  # bytes we ship — produced during the search and reused via memoization, with no
+  # post-search re-encode — so there is no span of its own to tag as the winner.
+  # Probe spans also close before the winner is known, so this is emitted once at
+  # resolution rather than as an attribute on the (already-closed) probe span; it
+  # folds onto the enclosing `[:encode, :search]` span. `:phase` names the phase
+  # that actually encoded the delivered bytes (objective/cap, or bump when the
+  # winner was first encoded during the confirm bump). All product-neutral; nils
+  # (`:score`/`:tiles_scored` on the :size/:none/full-frame paths) are stripped by
+  # the telemetry layer, matching the probe-span metadata.
+  defp emit_chosen(final_q, binary, ctx) do
+    probe = Map.get(ctx.probe_log, final_q, %{})
+
+    Telemetry.execute(
+      ctx.telemetry_opts,
+      [:encode, :search, :probe, :chosen],
+      %{},
+      %{
+        quality: final_q,
+        bytes: byte_size(binary),
+        phase: probe[:phase],
+        index: probe[:index],
+        score: result_score(final_q, ctx),
+        scorer: ctx.scorer,
+        tiles_scored: ctx.scorer_tiles
+      }
+    )
   end
 
   # The limiting factor is meaningful only for a degraded result; a `:hit` (or

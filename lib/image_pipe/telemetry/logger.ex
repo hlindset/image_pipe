@@ -34,6 +34,11 @@ defmodule ImagePipe.Telemetry.Logger do
     http_cache: []
   }
 
+  # request one-shot events (already terminal; not spans)
+  @request_oneshot [
+    [:encode, :search, :probe, :chosen]
+  ]
+
   # cache one-shot events (already terminal; not spans)
   @cache_oneshot [
     [:cache, :eviction, :stop],
@@ -94,6 +99,7 @@ defmodule ImagePipe.Telemetry.Logger do
       |> Enum.flat_map(&Map.get(@group_span_events, &1, []))
       |> Enum.flat_map(fn e -> [e ++ [:stop], e ++ [:exception]] end)
 
+    request_oneshots = if :request in groups, do: @request_oneshot, else: []
     cache_oneshots = if :cache in groups, do: @cache_oneshot, else: []
     transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
     output_oneshots = if :output in groups, do: @output_oneshot, else: []
@@ -101,6 +107,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
     Enum.map(
       spans ++
+        request_oneshots ++
         cache_oneshots ++
         transform_oneshots ++ output_oneshots ++ http_cache_oneshots,
       fn e -> prefix ++ e end
@@ -245,6 +252,16 @@ defmodule ImagePipe.Telemetry.Logger do
 
     "image_pipe output clamp: #{sw}x#{sh} -> #{w}x#{h} for #{meta[:format]} " <>
       "(caps w:#{cap(mw)} h:#{cap(mh)} px:#{cap(mp)})"
+  end
+
+  # The delivered-probe marker. BEFORE the probe-span clause below: its event name
+  # nests under [:encode, :search, :probe], so the span clause would otherwise
+  # match and render it as a probe stop (missing the phase/winner framing).
+  defp message([:encode, :search, :probe, :chosen | _], _m, meta) do
+    score = if meta[:score], do: " score #{round2(meta[:score])}", else: ""
+
+    "image_pipe encode search chosen: q#{meta[:quality]} #{meta[:bytes]}b " <>
+      "(#{meta[:phase]}#{score})"
   end
 
   # Specific clause BEFORE the search clause below: a probe stop would otherwise

@@ -376,6 +376,32 @@ exporter only (`ImagePipe.Telemetry.Trace.Capture`), where per-probe cost detail
 belongs. This is the one intentional place the Logger and the tracer cover
 different event sets.
 
+#### Delivered-probe marker (`[:encode, :search, :probe, :chosen]`)
+
+The delivered bytes are the **winning probe's** encode — produced during the
+search and reused via memoization, with no separate post-search re-encode. Because
+probe spans close before the search resolves its final quality, the winner cannot
+be tagged on its own (already-closed) span. Instead a single **one-shot** event,
+`[:image_pipe, :encode, :search, :probe, :chosen]`, is emitted once when the search
+resolves, naming the delivered probe so it is directly filterable. In a trace it
+folds as an annotation onto the enclosing `[:encode, :search]` span.
+
+Metadata (a subset of the winning probe's, plus the encode phase):
+
+- `:quality` — the delivered quality (equals the search's `:chosen_quality`).
+- `:bytes` — the delivered byte size (equals `:chosen_bytes`).
+- `:phase` — the phase that actually **encoded** the delivered bytes: `:objective`
+  or `:cap`, or `:bump` when the winner was first encoded during a confirm bump.
+  (A confirm only re-scores already-encoded bytes, so it never names the winner.)
+- `:index` — the distinct-encode ordinal of that encode.
+- `:score` — the delivered quality's score; absent for a `:size`/`:none` search.
+- `:scorer` — `:full` or `:crop`.
+- `:tiles_scored` — tiles scored on the crop path; absent on the full-frame path.
+
+Both surfaces subscribe to it: the default Logger renders one line
+(`image_pipe encode search chosen: q64 12345b (objective score 90.42)`, base
+level), and the OTel exporter folds it onto the search span.
+
 ### Delivery streaming span (`[:deliver]`)
 
 The `[:image_pipe, :deliver]` span wraps streaming the already-produced encoded
