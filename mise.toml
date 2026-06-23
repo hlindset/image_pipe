@@ -3,6 +3,14 @@ erlang = "29"
 elixir = "1.20.0-otp-29"
 node = "latest"
 rust = "1.91"
+python = "3.14.6"
+uv = "0.11.23"
+"pipx:shot-scraper" = "1.9.1"
+
+[settings]
+# python-build-standalone defaults to a freethreaded build for 3.14, whose layout
+# trips mise ("missing a `lib` directory"); the standard build installs cleanly.
+python.precompiled_flavor = "install_only"
 
 [tasks.setup]
 description = "Install library and fiddle dependencies"

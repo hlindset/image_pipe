@@ -68,6 +68,7 @@ defmodule ImagePipe.MixProject do
         "coveralls.html": :test,
         "autoquality.bench": :test,
         "autoquality.corpus": :test,
+        "autoquality.corpus.capture": :test,
         "imgproxy.diagnose": :test,
         "imgproxy.gen_report": :test,
         "imgproxy.reauthor": :test,
