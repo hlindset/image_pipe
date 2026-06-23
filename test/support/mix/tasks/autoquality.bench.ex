@@ -366,6 +366,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
           proxy_mp: :integer,
           proxy_files: :string,
           offsets: :string,
+          k: :string,
+          tile: :string,
           corpus: :string,
           corpus_cap: :integer
         ]
@@ -378,6 +380,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
     factors = parse_factors(Keyword.get(opts, :proxy_factors))
     proxy_files = parse_files(Keyword.get(opts, :proxy_files))
     offsets = parse_offsets(Keyword.get(opts, :offsets))
+    ks = parse_ks(Keyword.get(opts, :k))
+    tiles = parse_tiles(Keyword.get(opts, :tile))
     proxy_mp = Keyword.get(opts, :proxy_mp, 16)
 
     {:ok, _} = Application.ensure_all_started(:image_pipe)
@@ -390,6 +394,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       proxy_mp: proxy_mp,
       proxy_files: proxy_files,
       offsets: offsets,
+      ks: ks,
+      tiles: tiles,
       corpus_dir: Keyword.get(opts, :corpus),
       corpus_cap: Keyword.get(opts, :corpus_cap, 24),
       format: format
@@ -423,7 +429,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       h: run.(["h", "all"], fn -> corpus.(&run_part_h/4) end),
       i: run.(["i", "all"], fn -> corpus.(&run_part_i/4) end),
       j: run.(["j", "all"], fn -> corpus.(&run_part_j/4) end),
-      k: run.(["k", "all"], fn -> corpus.(&run_part_k(&1, &2, &3, &4, ctx.offsets)) end)
+      k: run.(["k", "all"], fn -> corpus.(&run_part_k(&1, &2, &3, &4, ctx.offsets)) end),
+      l: run.(["l", "all"], fn -> corpus.(&run_part_l(&1, &2, &3, &4, ctx.ks, ctx.tiles)) end)
     }
   end
 
@@ -442,7 +449,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.h, &write_part_h_csv/1},
       {parts.i, &write_part_i_csv/1},
       {parts.j, &write_part_j_csv/1},
-      {parts.k, &write_part_k_csv/1}
+      {parts.k, &write_part_k_csv/1},
+      {parts.l, &write_part_l_csv/1}
     ]
     |> Enum.each(fn {rows, writer} -> if rows, do: writer.(rows) end)
   end
@@ -3105,6 +3113,471 @@ defmodule Mix.Tasks.Autoquality.Bench do
     IO.puts("wrote #{path}")
   end
 
+  # --- Part L: crop operating-point sweep (K × tile grid) --------------------
+
+  # #359 (post-#369): K and tile size shipped as fixed constants (K=16 / 512px,
+  # Part E) at a single never-swept operating point. Since #369 dropped the
+  # full-frame confirm above the crossover, K/tile + the confirm-skipped offset
+  # are the ONLY accuracy levers there, so this sweep is a correctness lever, not
+  # just efficiency. Part L sweeps a K × tile grid and, per combo, reports the
+  # three decision axes the issue asks for:
+  #
+  #   accuracy — systematic residual (even-K p10 @ tile − full-frame score) at the
+  #              production-delivered pick: median/p90/worst. The p90 IS the offset
+  #              the combo would need (mirrors the Part K recalibration rule), so
+  #              the sweep and the offset recalibration are reported as one unit.
+  #   cost     — MP-scored = K·tile² (flat per-combo pixel budget, size-independent)
+  #              and the implied crossover (where a full frame costs that budget).
+  #   miss     — the decisive post-#369 metric: target-hit REGRESSIONS vs the
+  #              crop+confirm baseline when the confirm is skipped. Probed at
+  #              offset 0 (the most aggressive estimate — Part K showed regressions
+  #              are bracket-ceiling-bound, hence ≈offset-independent), so a 0 here
+  #              means the combo is safe at any offset ≥ 0.
+  #
+  # The baseline (production crop+confirm at the shipped K=16/512 operating point)
+  # is computed once per case and shared across combos; tile coverage is memoized
+  # per (tile, q) so the K axis is free (re-select from full coverage) and only the
+  # tile axis re-scores. Crop-regime cohort only (>crossover MP), all g_formats.
+  @l_ks [8, 16, 32]
+  @l_tiles [384, 512, 768]
+
+  # The shipped operating point (Part E) and the production confirm-skipped offset
+  # (mirrors `ImagePipe.Output.EncodeSearch`'s `@crop_confirm_skipped_offset`). The
+  # verdict measures every swept combo against these.
+  @l_ship_k 16
+  @l_ship_tile 512
+  @l_ship_offset 2.4
+
+  # Tile-size floor for the knee pick. SSIMULACRA2's multiscale pyramid downsamples
+  # ~5 octaves, so a 512px tile is already ~16px at the coarsest scale; below that the
+  # metric loses its low-frequency band and the estimate gets unreliable. The grid
+  # confirms it — every tile<512 combo that over-predicts regresses (a tile<512 combo
+  # that *escapes* does so only by an accidentally-conservative residual, not safety),
+  # so the cost knee is constrained to tile >= 512.
+  @l_tile_floor 512
+
+  defp run_part_l(corpus_dir, fallback_files, cap, synth_mp, ks, tiles) do
+    crossover = CropScore.crossover_megapixels()
+    combos = for t <- tiles, k <- ks, do: {t, k}
+
+    IO.puts("\n== Part L — crop operating-point sweep: K × tile grid (#359) ==")
+
+    IO.puts(
+      "confirm-skipped (offset 0 safety probe) vs crop+confirm baseline @ K=#{@l_ship_k}/#{@l_ship_tile}  " <>
+        "target #{@g_target} band ≥#{@g_band}  "
+    )
+
+    IO.puts(
+      "K∈#{inspect(ks)} × tile∈#{inspect(tiles)} (#{length(combos)} combos)  " <>
+        "formats #{inspect(@g_formats)}  >#{crossover} MP cohort  ≤#{cap}/source\n"
+    )
+
+    sources = discover_sources(corpus_dir, fallback_files, cap, synth_mp)
+
+    Enum.flat_map(sources, fn {sname, subjects} ->
+      cohort = Enum.filter(subjects, fn {_l, base} -> mp_of(base) > crossover end)
+      rows = Enum.flat_map(cohort, &l_case_rows(sname, &1, combos))
+
+      IO.puts(
+        "  #{String.pad_trailing(sname, 14)} #{length(subjects)} imgs, #{length(cohort)} crop-regime done"
+      )
+
+      rows
+    end)
+  end
+
+  defp l_case_rows(source, {label, base}, combos) do
+    mp = Float.round(mp_of(base), 1)
+
+    Enum.flat_map(@g_formats, fn format ->
+      l_case_format(source, label, base, mp, format, combos)
+    end)
+  end
+
+  defp l_case_format(source, label, base, mp, format, combos) do
+    {_lo, hi} = g_bracket(format)
+
+    case Encoder.encode_to_buffer(base, plain_resolved(format, hi), hi) do
+      {:error, _reason} ->
+        IO.puts("  #{label}/#{format}: skipped (encode unsupported)")
+        []
+
+      {:ok, _bytes} ->
+        l_measure(source, label, base, mp, format, hi, combos)
+    end
+  end
+
+  defp l_measure(source, label, base, mp, format, hi, combos) do
+    {:ok, full_ref} = Ssim2Metric.reference(base)
+    {:ok, cache} = Agent.start_link(fn -> %{enc: %{}, rev: %{}, full: %{}, cov: %{}} end)
+
+    funs = %{
+      resolved: h_resolved(format),
+      encode_fun: partf_encode_fun(cache, base, format),
+      full_at: l_full_fun(cache, full_ref),
+      cov_at: l_cov_fun(cache, base),
+      hi: hi
+    }
+
+    subj = %{source: source, label: label, format: format, mp: mp}
+    base_ctx = l_baseline(funs)
+
+    rows =
+      Enum.map(combos, fn {t, k} ->
+        Map.merge(Map.merge(subj, base_ctx), l_combo(funs, base_ctx, t, k))
+      end)
+
+    Agent.stop(cache)
+    rows
+  end
+
+  # Full-frame ssim2 score (+ wall-clock) of a candidate, memoized by quality. Like
+  # the partf qdata, the heavy compute runs OUTSIDE the agent so the call never trips
+  # the call timeout.
+  defp l_full_fun(cache, full_ref) do
+    fn bytes -> l_fetch_full(cache, full_ref, bytes) end
+  end
+
+  defp l_fetch_full(cache, full_ref, bytes) do
+    q = Agent.get(cache, &Map.fetch!(&1.rev, bytes))
+
+    case Agent.get(cache, &Map.get(&1.full, q)) do
+      nil ->
+        {:ok, cand} = Image.from_binary(bytes)
+        {us, {:ok, s}} = timed(fn -> Ssim2Metric.score(full_ref, cand) end)
+        v = %{score: s, us: us}
+        Agent.update(cache, fn st -> %{st | full: Map.put(st.full, q, v)} end)
+        v
+
+      v ->
+        v
+    end
+  end
+
+  # Full tile-coverage scores (one ssim2 per tile) at tile size `t`, memoized by
+  # {t, q}. The K axis re-selects from this list, so only the tile axis re-scores.
+  defp l_cov_fun(cache, base) do
+    fn t, bytes -> l_fetch_cov(cache, base, t, bytes) end
+  end
+
+  defp l_fetch_cov(cache, base, t, bytes) do
+    q = Agent.get(cache, &Map.fetch!(&1.rev, bytes))
+    key = {t, q}
+
+    case Agent.get(cache, &Map.get(&1.cov, key)) do
+      nil ->
+        scores = l_coverage(base, bytes, t)
+        Agent.update(cache, fn st -> %{st | cov: Map.put(st.cov, key, scores)} end)
+        scores
+
+      scores ->
+        scores
+    end
+  end
+
+  defp l_coverage(base, bytes, t) do
+    {:ok, cand} = Image.from_binary(bytes)
+
+    Image.width(base)
+    |> tile_coords(Image.height(base), t)
+    |> Enum.map(fn {x, y, w, h} ->
+      {:ok, bt} = Operation.extract_area(base, x, y, w, h)
+      {:ok, ct} = Operation.extract_area(cand, x, y, w, h)
+      {:ok, ref} = Ssim2Metric.reference(bt)
+      {:ok, s} = Ssim2Metric.score(ref, ct)
+      %{score: s}
+    end)
+  end
+
+  # even-K p10 of a coverage-score list (the shipped Part E estimator at arbitrary K).
+  defp l_even_p10(scores, k) do
+    scores
+    |> TileSelection.select(k, :even)
+    |> Enum.map(& &1.score)
+    |> Enum.sort()
+    |> percentile(0.10)
+  end
+
+  # full-coverage p10 — the estimate with no sub-sampling; sub_pen measures it against.
+  defp l_cov_p10(scores), do: scores |> Enum.map(& &1.score) |> Enum.sort() |> percentile(0.10)
+
+  # Production crop path at the shipped operating point: even-K16/512 + offset +
+  # full-frame confirm/bump. The fixed reference each combo's confirm-skipped
+  # verdict is measured against. Shared across combos for the case.
+  defp l_baseline(funs) do
+    {:ok, _b, m} =
+      EncodeSearch.search(funs.resolved.quality_search, nil,
+        encode_fun: funs.encode_fun,
+        score_fun: fn bytes ->
+          l_even_p10(funs.cov_at.(@l_ship_tile, bytes), @l_ship_k) - @crop_macro_offset
+        end,
+        confirm_fun: fn bytes -> funs.full_at.(bytes).score end,
+        confirm_band: @g_band,
+        confirm_max_quality: funs.hi,
+        max_bump_passes: 2,
+        scorer: :crop,
+        scorer_tiles: @l_ship_k,
+        max_iterations: @max_iter + 3,
+        telemetry_opts: []
+      )
+
+    {:ok, bytes} = funs.encode_fun.(m.quality)
+    full = funs.full_at.(bytes)
+
+    %{
+      base_q: m.quality,
+      base_full: full.score,
+      base_hit?: full.score >= @g_target,
+      base_bytes: byte_size(bytes),
+      base_full_us: full.us,
+      base_passes: m.confirm_passes
+    }
+  end
+
+  defp l_combo(funs, base_ctx, t, k) do
+    {:ok, base_bytes} = funs.encode_fun.(base_ctx.base_q)
+    cov = funs.cov_at.(t, base_bytes)
+    even = l_even_p10(cov, k)
+
+    {:ok, _v, vm} =
+      EncodeSearch.search(funs.resolved.quality_search, nil,
+        encode_fun: funs.encode_fun,
+        score_fun: fn bytes -> l_even_p10(funs.cov_at.(t, bytes), k) end,
+        max_iterations: @max_iter,
+        telemetry_opts: []
+      )
+
+    {:ok, vbytes} = funs.encode_fun.(vm.quality)
+    deliv = funs.full_at.(vbytes).score
+
+    %{
+      tile: t,
+      k: k,
+      mp_scored: Float.round(k * t * t / 1_000_000, 2),
+      residual: even - base_ctx.base_full,
+      sub_pen: even - l_cov_p10(cov),
+      q: vm.quality,
+      deliv: deliv,
+      regress?: base_ctx.base_hit? and deliv < @g_target,
+      bytes: byte_size(vbytes),
+      byte_delta_pct: k_pct_delta(byte_size(vbytes), base_ctx.base_bytes)
+    }
+  end
+
+  defp findings_part_l([]) do
+    IO.puts(
+      "Part L — crop operating-point sweep: no crop-regime (>#{CropScore.crossover_megapixels()} MP) " <>
+        "subjects in this corpus — supply large photos or the synthetic anchor to populate the cohort.\n"
+    )
+  end
+
+  defp findings_part_l(rows) do
+    cases = Enum.uniq_by(rows, &{&1.source, &1.label, &1.format})
+    n = length(cases)
+    base_hit = Enum.count(cases, & &1.base_hit?)
+    confirm_ms = cases |> Enum.map(&(&1.base_full_us * max(&1.base_passes, 1))) |> avg() |> ms()
+
+    IO.puts(
+      "Part L — crop operating-point sweep (K × tile), confirm-skipped vs crop+confirm baseline:"
+    )
+
+    IO.puts(
+      "  over #{n} crop-regime (subject×format) cases (>#{CropScore.crossover_megapixels()} MP), all formats:"
+    )
+
+    IO.puts(
+      "    baseline crop+confirm on-target: #{base_hit}/#{n} (#{pct_int(base_hit, n)}%)  |  " <>
+        "full-frame confirm dropped ≈ #{confirm_ms} ms/case (the prize)\n"
+    )
+
+    combos =
+      rows
+      |> Enum.group_by(&{&1.tile, &1.k})
+      |> Enum.map(fn {{t, k}, g} -> l_combo_agg(t, k, g) end)
+      |> Enum.sort_by(& &1.mp_scored)
+
+    print_part_l_header()
+    Enum.each(combos, &print_part_l_row/1)
+    l_verdict(combos)
+  end
+
+  defp l_combo_agg(t, k, g) do
+    resid = g |> Enum.map(& &1.residual) |> Enum.sort()
+
+    # The offset must cover the residual of the population it can actually protect:
+    # baseline-HIT cases (an over-predicting estimate ships them below target). The
+    # ALL-cases p90 is dominated by ceiling-bound screen-content misses the offset
+    # can't rescue anyway (a Part I cap lever, not a confirm-skip concern) — pooling
+    # those in would over-state the needed offset. Both are reported (p90all vs
+    # p90hit) so that inflation is visible; rec.off is the worst-source p90hit.
+    hits = Enum.filter(g, & &1.base_hit?)
+    {_ws_all, p90_all} = l_worst_source_p90(g)
+    {worst_src, rec_off} = l_worst_source_p90(hits)
+
+    %{
+      tile: t,
+      k: k,
+      mp_scored: hd(g).mp_scored,
+      resid_med: median(resid),
+      p90_all: p90_all,
+      rec_off: rec_off,
+      worst_src: worst_src,
+      sub_pen: g |> Enum.map(& &1.sub_pen) |> avg(),
+      regress: Enum.count(g, & &1.regress?),
+      n: length(g)
+    }
+  end
+
+  # Per-source residual p90, then the WORST source — a global production offset must
+  # cover the hardest content, and pooling lets the easy/abundant sources mask a hard
+  # one (screen content tracks far looser than photos).
+  defp l_worst_source_p90([]), do: {"none", 0.0}
+
+  defp l_worst_source_p90(rows) do
+    rows
+    |> Enum.group_by(& &1.source)
+    |> Enum.map(fn {s, rs} -> {s, percentile(Enum.sort(Enum.map(rs, & &1.residual)), 0.90)} end)
+    |> Enum.max_by(&elem(&1, 1))
+  end
+
+  defp print_part_l_header do
+    IO.puts(
+      "    " <>
+        pad(["K/tile", 10]) <>
+        pad(["MPscore", 9]) <>
+        pad(["xover", 7]) <>
+        pad(["resid med", 11]) <>
+        pad(["p90all*", 9]) <>
+        pad(["p90hit*", 9]) <>
+        pad(["subPen", 8]) <>
+        pad(["regress", 9]) <>
+        pad(["binds", 9])
+    )
+  end
+
+  defp print_part_l_row(c) do
+    shipped? = c.tile == @l_ship_tile and c.k == @l_ship_k
+
+    IO.puts(
+      "    " <>
+        pad(["#{c.k}/#{c.tile}", 10]) <>
+        pad([c.mp_scored, 9]) <>
+        pad([l_crossover(c.mp_scored), 7]) <>
+        pad([Float.round(c.resid_med, 2), 11]) <>
+        pad([Float.round(c.p90_all, 2), 9]) <>
+        pad([Float.round(c.rec_off, 2), 9]) <>
+        pad([Float.round(c.sub_pen, 2), 8]) <>
+        pad(["#{c.regress}/#{c.n}", 9]) <>
+        pad([c.worst_src, 9]) <>
+        if(shipped?, do: " (shipped)", else: "")
+    )
+  end
+
+  # The MP at which a full-frame score costs the combo's flat budget — i.e. where
+  # crop scoring starts to win. Scales with MPscore; the shipped K16/512 (4.2 MP)
+  # sits at the current ~6 MP crossover.
+  defp l_crossover(mp_scored), do: Float.round(mp_scored / 4.2 * 6, 1)
+
+  # The decision: the Pareto knee is the cheapest combo (lowest MPscore) that is both
+  # SAFE (0 confirm-skipped regressions) and whose worst-source baseline-hit p90
+  # residual (rec.off = p90hit) fits under the shipped confirm-skipped offset — i.e.
+  # needs no offset bump to cover the hardest *protectable* content.
+  defp l_verdict(combos) do
+    safe =
+      Enum.filter(
+        combos,
+        &(&1.regress == 0 and &1.rec_off <= @l_ship_offset and &1.tile >= @l_tile_floor)
+      )
+
+    knee = if safe == [], do: nil, else: Enum.min_by(safe, & &1.mp_scored)
+    shipped = Enum.find(combos, &(&1.tile == @l_ship_tile and &1.k == @l_ship_k))
+    max_regress = combos |> Enum.map(& &1.regress) |> Enum.max()
+
+    IO.puts("\n  -> #{l_safety_line(max_regress)}")
+    IO.puts("     #{l_shipped_line(shipped)}")
+
+    cond do
+      knee == nil ->
+        IO.puts(
+          "     no swept combo is both regression-free and covers its worst source within the shipped " <>
+            "offset (#{@l_ship_offset}) — keep K=#{@l_ship_k}/#{@l_ship_tile} and raise the offset via --part k."
+        )
+
+      knee.tile == @l_ship_tile and knee.k == @l_ship_k ->
+        IO.puts(
+          "     the shipped K=#{@l_ship_k}/#{@l_ship_tile} (#{shipped.mp_scored} MP scored) IS the knee: " <>
+            "no cheaper combo stays regression-free within the #{@l_ship_offset} offset — confirmed, not retuned."
+        )
+
+      true ->
+        IO.puts(
+          "     cost knee = K=#{knee.k}/#{knee.tile} (#{knee.mp_scored} MP scored, p90hit #{Float.round(knee.rec_off, 2)} " <>
+            "on #{knee.worst_src}) — #{l_knee_delta(knee, shipped)} vs shipped K=#{@l_ship_k}/#{@l_ship_tile}, " <>
+            "0 regressions, within the #{@l_ship_offset} offset. Retune + re-derive the offset via --part k --k #{knee.k}."
+        )
+    end
+
+    IO.puts(
+      "     p90all* = worst-source p90 over ALL cases; p90hit* (=rec.off) restricts to baseline-hit cases " <>
+        "(what the offset protects) — the gap is the ceiling-bound tail. tile<512 is the multiscale floor.\n"
+    )
+  end
+
+  # Whether the shipped operating point's current offset still covers its worst
+  # protectable (baseline-hit) source.
+  defp l_shipped_line(nil), do: "shipped K=#{@l_ship_k}/#{@l_ship_tile} not in this grid."
+
+  defp l_shipped_line(s) when s.rec_off > @l_ship_offset,
+    do:
+      "shipped K=#{@l_ship_k}/#{@l_ship_tile}: worst-source baseline-hit p90 residual #{Float.round(s.rec_off, 2)} " <>
+        "(#{s.worst_src}) EXCEEDS the #{@l_ship_offset} offset — raise the offset or grow the tile."
+
+  defp l_shipped_line(s),
+    do:
+      "shipped K=#{@l_ship_k}/#{@l_ship_tile}: worst-source baseline-hit p90 residual #{Float.round(s.rec_off, 2)} " <>
+        "(#{s.worst_src}) is within the #{@l_ship_offset} offset — adequately offset."
+
+  defp l_knee_delta(knee, nil), do: "#{Float.round(knee.mp_scored, 1)} MP scored"
+
+  defp l_knee_delta(knee, shipped) do
+    pct = round((1 - knee.mp_scored / shipped.mp_scored) * 100)
+
+    cond do
+      pct > 0 -> "#{pct}% cheaper metric"
+      pct < 0 -> "#{-pct}% more metric"
+      true -> "same metric cost"
+    end
+  end
+
+  defp l_safety_line(0),
+    do:
+      "0 target-hit regressions at any swept K/tile (offset 0, the aggressive probe): the grid is " <>
+        "safe — the operating point is a pure cost choice, accuracy is not at risk above the crossover."
+
+  defp l_safety_line(max_regress),
+    do:
+      "#{max_regress} image(s) the baseline hit but a confirm-skipped combo missed — some K/tile " <>
+        "combos are NOT safe above the crossover; the safe set bounds how cheap the operating point can go."
+
+  defp write_part_l_csv(rows) do
+    path = "/tmp/autoquality_bench_part_l.csv"
+
+    head =
+      "source,label,format,mp,tile,k,mp_scored,residual,sub_pen,q,deliv,regress," <>
+        "bytes,byte_delta_pct,base_q,base_full,base_bytes,base_hit\n"
+
+    body =
+      Enum.map_join(rows, fn r ->
+        "#{r.source},#{r.label},#{r.format},#{r.mp},#{r.tile},#{r.k},#{r.mp_scored}," <>
+          "#{Float.round(r.residual, 3)},#{Float.round(r.sub_pen, 3)},#{r.q}," <>
+          "#{fmt_score(r.deliv)},#{r.regress?},#{r.bytes},#{r.byte_delta_pct}," <>
+          "#{r.base_q},#{fmt_score(r.base_full)},#{r.base_bytes},#{r.base_hit?}\n"
+      end)
+
+    File.write!(path, head <> body)
+    IO.puts("wrote #{path}")
+  end
+
   # --- resolved descriptors --------------------------------------------------
 
   defp ssim2_resolved(format) do
@@ -3228,7 +3701,8 @@ defmodule Mix.Tasks.Autoquality.Bench do
       {parts.h, &findings_part_h/1},
       {parts.i, &findings_part_i/1},
       {parts.j, &findings_part_j/1},
-      {parts.k, &findings_part_k/1}
+      {parts.k, &findings_part_k/1},
+      {parts.l, &findings_part_l/1}
     ]
     |> Enum.each(fn {rows, finder} -> if rows, do: finder.(rows) end)
 
@@ -3514,6 +3988,18 @@ defmodule Mix.Tasks.Autoquality.Bench do
     str
     |> String.split(",", trim: true)
     |> Enum.map(&(&1 |> String.trim() |> Float.parse() |> elem(0)))
+  end
+
+  defp parse_ks(nil), do: @l_ks
+  defp parse_ks(str), do: parse_int_list(str)
+
+  defp parse_tiles(nil), do: @l_tiles
+  defp parse_tiles(str), do: parse_int_list(str)
+
+  defp parse_int_list(str) do
+    str
+    |> String.split(",", trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> String.to_integer()))
   end
 
   defp ms(us) when is_integer(us), do: Float.round(us / 1000, 1)

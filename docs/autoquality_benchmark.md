@@ -20,10 +20,13 @@ mise exec -- mix autoquality.corpus           # fetch the Part E corpus (one-tim
 mise exec -- mix autoquality.bench --part e --corpus DIR  # crop-based scoring, per source
 mise exec -- mix autoquality.bench --part f --corpus DIR  # saliency tile selection vs confirm
 mise exec -- mix autoquality.bench --part g --corpus DIR  # early-stop vs full search, per format cap
-mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G
+mise exec -- mix autoquality.bench --part k --corpus DIR  # confirm-skipped offset sweep (#369)
+mise exec -- mix autoquality.bench --part l --corpus DIR  # crop K × tile operating-point sweep (#359)
+mise exec -- mix autoquality.bench --part all # A + B + C + D + E + F + G + … + L
 mise exec -- mix autoquality.bench --mps 1,4  # custom Part A megapixels
 mise exec -- mix autoquality.bench --proxy-factors 2,4 --proxy-mp 25  # Part C knobs
-mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c,e,f,g}.csv
+mise exec -- mix autoquality.bench --part l --k 8,16,32 --tile 384,512,768  # Part L grid (defaults shown)
+mise exec -- mix autoquality.bench --csv      # also write /tmp/autoquality_bench_part_{a,b,c,e,f,g,k,l}.csv
 ```
 
 > **Part E corpus.** Part E needs content-diverse, license-clean images the
@@ -671,6 +674,75 @@ formats**, target 78 / band ≥77:
 the **shape** (0 regressions; residual median ~0 with a screen-content p90 tail; misses
 ceiling-bound not offset-bound), not the absolute SSIM values — re-run `--part k` to
 re-confirm the offset on other hardware/corpora.
+
+### Part L — crop operating-point sweep: K × tile grid (#359)
+
+Part K confirmed *dropping* the confirm above the crossover is safe at the shipped
+K=16 / 512px point; Part L asks whether that point is the right one. K and tile size
+shipped (Part E, #354) as fixed constants measured at a single operating point — a
+*sufficiency* result, not an *optimality* one. Post-#369 they are the **only** accuracy
+levers above the crossover (no confirm to backstop them), so this is a correctness
+sweep, not just efficiency. Part L sweeps `--k 8,16,32 × --tile 384,512,768` over the
+>6 MP crop-regime cohort × {jpeg,webp,avif} and, per combo, reports the three decision
+axes as one unit:
+
+- **accuracy** — the systematic residual (even-K p10 @ tile − full-frame score) at the
+  production-delivered pick. `p90hit` (worst-source p90 over **baseline-hit** cases) is
+  the offset that combo actually needs — the population an offset can protect from
+  regressing. `p90all` (worst-source p90 over **all** cases) is shown alongside; the gap
+  is the ceiling-bound screen-content tail Part K flagged, which no offset can rescue.
+- **cost** — `MPscore = K·tile²`, the flat per-combo pixel budget, and its implied
+  crossover (the MP at which a full frame costs that budget; 4.2 MP ≙ the shipped 6 MP).
+- **miss** — the decisive post-#369 metric: target-hit **regressions** vs the
+  crop+confirm baseline when the confirm is skipped, probed at offset 0 (most
+  aggressive → a 0 is safe at any offset ≥ 0).
+
+Run over the full corpus (`bb1da43`, Apple Silicon, libvips 8.18.2); the crop-regime
+cohort is **46 (subject×format) cases** — 6 `large` 15 MP photos + 10 `qoi_web` screen
+shots, all three formats (CLIC/CID22/GB82 are sub-crossover). Baseline crop+confirm hit
+target on 16/46 (the rest are bracket-ceiling-bound — a Part I lever). Grid sorted by
+metric cost; `*` = worst-source:
+
+| K/tile | MPscore | xover MP | resid med | p90all\* | **p90hit\*** | subPen | regress | binds | |
+|--------|---------|----------|-----------|----------|--------------|--------|---------|-------|-|
+| 8/384  | 1.18    | 1.7      | −0.85     | 2.93     | 0.72         | −1.28  | 0/46    | large   | floor |
+| 8/512  | 2.10    | 3.0      | −1.21     | 3.12     | **0.47**     | −0.78  | **0/46** | large  | **knee** |
+| 16/384 | 2.36    | 3.4      | −0.06     | 2.48     | 1.46         | −0.34  | 1/46    | qoi_web | floor |
+| **16/512** | **4.19** | **6.0** | **0.12** | **3.02** | **1.82** | **0.56** | **0/46** | qoi_web | **shipped** |
+| 32/384 | 4.72    | 6.7      | 0.97      | 2.70     | 2.57         | 0.21   | 3/46    | qoi_web | floor |
+| 8/768  | 4.72    | 6.7      | −1.21     | 1.64     | 0.60         | −0.48  | 0/46    | large   | |
+| 32/512 | 8.39    | 12.0     | 0.08      | 2.52     | 1.12         | 0.50   | 1/46    | large   | |
+| 16/768 | 9.44    | 13.5     | −0.55     | 1.39     | 0.36         | −0.07  | 0/46    | large   | |
+| 32/768 | 18.87   | 27.0     | −0.53     | 1.45     | 0.49         | 0.10   | 0/46    | large   | |
+
+- **tile = 512 is the multiscale floor, confirmed by data.** All 5 regressions sit at
+  tile ≤ 512, **4 of them at tile = 384** (and the worst protectable residual, 32/384's
+  p90hit 2.57, is the only one near the 2.4 offset). The a-priori reason holds:
+  SSIMULACRA2 downsamples ~5 octaves, so 512px ≈ 16px at the coarsest scale and 384px
+  loses the low-frequency band. The one regression-free tile<512 combo (8/384) escapes
+  only by an **accidentally-conservative** residual (med −0.85, it under-predicts), not
+  by tracking — its siblings at the same tile regress, so the floor excludes the whole
+  row from the knee.
+- **K is a cost lever, not an accuracy lever, at tile ≥ 512.** K=8/512 is **0 regressions
+  with the tightest protectable residual on the grid (p90hit 0.47)** at **half** the
+  metric budget of the shipped K=16/512 (2.10 vs 4.19 MP scored). More tiles do not buy
+  accuracy here; they only raise the cost and slide the crossover out.
+- **The shipped K=16/512 is confirmed safe and adequately offset.** 0 regressions;
+  worst-source baseline-hit residual 1.82 < the shipped 2.4 offset. Its loose `p90all`
+  3.02 is the ceiling-bound screen-content tail (Part K), not a population the offset
+  protects — so 16/512 needs no offset change. Part E's single-point choice is sound.
+- **Cost knee = K=8/512** — 50 % cheaper metric, equally safe, even tighter on
+  protectable content. A real optimization candidate, but K is now a correctness lever
+  and this cohort is thin (16 baseline-hit cases, 6 of them screen content); **K=8 halves
+  that sample**. Treat it as validated-pending, not shipped: before retuning, re-derive
+  the confirm-skipped offset on K=8 (`--part k --k 8`) over a larger >6 MP corpus —
+  ideally more screen content and ≥10 MP photos.
+
+*Caveat:* same single-machine, thin-cohort limits as Part K, doubly so when K halves the
+sample. The portable conclusions are the **shape** — tile<512 regresses (multiscale
+floor), K is a pure cost lever above it, and the protectable residual stays well under
+2.4 at tile ≥ 512 — not the absolute knee. Re-run `--part l` (and `--part k --k <K>`) to
+re-confirm on other hardware/corpora.
 
 ## Findings & recommendations
 
