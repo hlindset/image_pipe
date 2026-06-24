@@ -890,8 +890,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     cases = [
       {"image/avif,image/webp", "image/avif"},
       {"image/webp", "image/webp"},
-      # `image/*` matches JPEG XL too, and it outranks the others (server pref).
-      {"image/avif;q=0,image/*;q=1", "image/jxl"}
+      # A real Chrome/Firefox `<img>` Accept: AVIF wins from its explicit mime;
+      # the trailing `image/*` does not promote JPEG XL (which browsers can't decode).
+      {"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", "image/avif"}
     ]
 
     for {accept, expected_content_type} <- cases do
@@ -901,6 +902,29 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
       assert conn.status == 200
       assert content_type(conn) == [expected_content_type]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert byte_size(conn.resp_body) > 0
+    end
+  end
+
+  # Both fall back to source here. Bare `image/*` is **parity** (imgproxy has no
+  # explicit jxl/avif/webp substring either, so it too falls back). The `q=0` case
+  # **diverges** (documented in docs/imgproxy_support_matrix.md): imgproxy ignores
+  # `q` and would serve AVIF on its `image/avif` substring, while ImagePipe honors
+  # the in-range `q=0` exclusion. Neither target ever serves JPEG XL on `image/*`.
+  test "image/* wildcard and an exact q=0 fall back to source, not a modern format" do
+    cases = [
+      "image/avif;q=0,image/*;q=1",
+      "image/*"
+    ]
+
+    for accept <- cases do
+      conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(@default_opts, accept)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
       assert get_resp_header(conn, "vary") == ["Accept"]
       assert byte_size(conn.resp_body) > 0
     end

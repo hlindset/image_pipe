@@ -61,7 +61,7 @@ defmodule ImagePipe.Output.Negotiation do
   end
 
   defp qualities_for_best_specificity(qualities_by_specificity) do
-    Enum.find_value([:exact, :image], [], fn specificity ->
+    Enum.find_value([:exact], [], fn specificity ->
       quality_values(qualities_by_specificity, specificity)
     end)
   end
@@ -75,12 +75,12 @@ defmodule ImagePipe.Output.Negotiation do
     if qualities == [], do: nil, else: qualities
   end
 
+  # Only an explicit `image/avif` / `image/webp` / `image/jxl` accepts a modern
+  # format. The `image/*` wildcard does not: real Chrome/Firefox `<img>` requests
+  # send `image/*` while being unable to decode JPEG XL, so honoring it would
+  # serve undecodable bytes (imgproxy likewise keys off the explicit mime only).
   defp match_specificity(accepted, mime_type) do
-    cond do
-      accepted == mime_type -> :exact
-      image_wildcard?(accepted, mime_type) -> :image
-      true -> :none
-    end
+    if accepted == mime_type, do: :exact, else: :none
   end
 
   # q=0 at the selected specificity is an explicit exclusion and wins over
@@ -120,7 +120,4 @@ defmodule ImagePipe.Output.Negotiation do
       _ -> 1.0
     end
   end
-
-  defp image_wildcard?("image/*", "image/" <> _subtype), do: true
-  defp image_wildcard?(_accepted, _mime_type), do: false
 end

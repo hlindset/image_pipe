@@ -81,7 +81,7 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
   end
 
   defp qualities_for_best_specificity(qualities_by_specificity) do
-    Enum.find_value([:exact, :image], [], fn specificity ->
+    Enum.find_value([:exact], [], fn specificity ->
       quality_values(qualities_by_specificity, specificity)
     end)
   end
@@ -96,11 +96,7 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
   end
 
   defp match_specificity(accepted, mime_type) do
-    cond do
-      canonical_mime_type(accepted) == mime_type -> :exact
-      accepted == "image/*" -> :image
-      true -> :none
-    end
+    if canonical_mime_type(accepted) == mime_type, do: :exact, else: :none
   end
 
   defp parse_accept(""), do: []

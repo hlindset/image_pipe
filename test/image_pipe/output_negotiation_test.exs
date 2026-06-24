@@ -10,12 +10,20 @@ defmodule ImagePipe.Output.NegotiationTest do
                :webp
              ]
 
-      assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1",
+      assert Negotiation.modern_candidates("image/jxl,image/avif",
                output_capabilities: %{jpeg_xl: true}
-             ) == [:jpeg_xl, :webp]
+             ) == [:jpeg_xl, :avif]
 
       assert Negotiation.modern_candidates("image/jpeg", []) == []
       assert Negotiation.modern_candidates(nil, []) == []
+    end
+
+    test "a real Chrome/Firefox Accept negotiates AVIF from the explicit mime, never JXL" do
+      browser_accept = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+
+      assert Negotiation.modern_candidates(browser_accept,
+               output_capabilities: %{jpeg_xl: true}
+             ) == [:avif, :webp]
     end
 
     test "treats missing, empty, and global wildcard-only Accept as no modern format signal" do
@@ -46,23 +54,25 @@ defmodule ImagePipe.Output.NegotiationTest do
              ]
     end
 
-    test "matches image wildcard and explicit modern formats when global wildcard is also present" do
-      assert Negotiation.modern_candidates("image/*", output_capabilities: %{jpeg_xl: true}) ==
-               [:jpeg_xl, :avif, :webp]
+    test "the image/* wildcard never matches modern formats; explicit ones still do" do
+      assert Negotiation.modern_candidates("image/*", output_capabilities: %{jpeg_xl: true}) == []
 
       assert Negotiation.modern_candidates("image/webp,*/*", []) == [:webp]
     end
 
-    test "exact q zero excludes a modern format even when wildcard matches" do
+    test "image/* does not rescue a format excluded by an exact q=0" do
       assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1",
                output_capabilities: %{jpeg_xl: true}
-             ) == [:jpeg_xl, :webp]
+             ) == []
 
       assert Negotiation.modern_candidates("image/avif;q=0,image/avif;q=1,*/*;q=1", []) == []
     end
 
-    test "image wildcard exclusion leaves global wildcard ignored" do
+    test "bare wildcards never produce modern candidates" do
+      assert Negotiation.modern_candidates("image/*", []) == []
+      assert Negotiation.modern_candidates("image/*;q=1", []) == []
       assert Negotiation.modern_candidates("image/*;q=0,*/*;q=1", []) == []
+      assert Negotiation.modern_candidates("*/*", []) == []
     end
   end
 
