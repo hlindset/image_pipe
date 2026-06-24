@@ -239,8 +239,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
 
     assert request.output.max_bytes == 51_200
 
-    assert %ImagePipe.Plan.Output.QualitySearch{
-             objective: :ssim2,
+    assert %ImagePipe.Plan.Output.QualitySearch.Ssimulacra2{
              target: 90.0,
              min_quality: 70,
              max_quality: 80,
@@ -260,10 +259,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
         autoquality_max_resolution: 0
       ]
 
-      out = resolve_output(%{quality_search: {:autoquality, [objective: :ssim2]}}, defaults)
+      out = resolve_output(%{quality_search: {:autoquality, [metric: :ssimulacra2]}}, defaults)
 
-      assert %ImagePipe.Plan.Output.QualitySearch{} = out.quality_search
-      assert out.quality_search.objective == :ssim2
+      assert %ImagePipe.Plan.Output.QualitySearch.Ssimulacra2{} = out.quality_search
       assert out.quality_search.target == 90.0
       assert out.quality_search.min_quality == 70 and out.quality_search.max_quality == 80
       assert out.quality_search.allowed_error == 1.0
@@ -274,7 +272,10 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
 
     test "autoquality:none resolves to :none regardless of config method" do
       out =
-        resolve_output(%{quality_search: {:autoquality, :disabled}}, autoquality_method: :ssim2)
+        resolve_output(
+          %{quality_search: {:autoquality, :disabled}},
+          autoquality_method: :ssimulacra2
+        )
 
       assert out.quality_search == :none
     end
@@ -284,9 +285,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
       assert out.quality_search == :none
     end
 
-    test "config method ssim2 with no URL autoquality enables the search from config" do
+    test "config method ssimulacra2 with no URL autoquality enables the search from config" do
       defaults = [
-        autoquality_method: :ssim2,
+        autoquality_method: :ssimulacra2,
         autoquality_target: 88.0,
         autoquality_min_quality: 70,
         autoquality_max_quality: 80,
@@ -294,36 +295,47 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
       ]
 
       out = resolve_output(%{quality_search: :none}, defaults)
-      assert out.quality_search.objective == :ssim2 and out.quality_search.target == 88.0
+
+      assert %ImagePipe.Plan.Output.QualitySearch.Ssimulacra2{target: 88.0} =
+               out.quality_search
     end
 
     test "size method without a target (URL or config) is an invalid option" do
       assert {:error, _} =
                resolve_output_result(
-                 %{quality_search: {:autoquality, [objective: :size]}},
+                 %{quality_search: {:autoquality, [metric: :size]}},
                  autoquality_method: :none
                )
     end
 
-    test "ssim2 method without a target (URL or config) defaults to the ssim2 target" do
+    test "ssimulacra2 method without a target (URL or config) defaults to the ssim2 target" do
       out =
         resolve_output(
-          %{quality_search: {:autoquality, [objective: :ssim2]}},
+          %{quality_search: {:autoquality, [metric: :ssimulacra2]}},
           autoquality_method: :none
         )
 
-      assert out.quality_search.objective == :ssim2
-      assert out.quality_search.target == 78
+      assert %ImagePipe.Plan.Output.QualitySearch.Ssimulacra2{target: 78} = out.quality_search
     end
 
     test "config autoquality_target overrides the ssim2 default" do
       out =
         resolve_output(
-          %{quality_search: {:autoquality, [objective: :ssim2]}},
+          %{quality_search: {:autoquality, [metric: :ssimulacra2]}},
           autoquality_target: 85.0
         )
 
       assert out.quality_search.target == 85.0
+    end
+
+    test "butteraugli method without a target defaults to the butteraugli target" do
+      out =
+        resolve_output(
+          %{quality_search: {:autoquality, [metric: :butteraugli]}},
+          autoquality_method: :none
+        )
+
+      assert %ImagePipe.Plan.Output.QualitySearch.Butteraugli{target: 1.0} = out.quality_search
     end
   end
 

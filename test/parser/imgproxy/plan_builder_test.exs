@@ -1195,8 +1195,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   end
 
   test "threads quality_search and max_bytes onto the automatic output plan" do
-    search = %QualitySearch{
-      objective: :ssim2,
+    search = %QualitySearch.Ssimulacra2{
       target: 90.0,
       min_quality: 70,
       max_quality: 80
@@ -1221,8 +1220,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   end
 
   test "threads quality_search and max_bytes onto the explicit-format output plan" do
-    search = %QualitySearch{
-      objective: :ssim2,
+    search = %QualitySearch.Ssimulacra2{
       target: 90.0,
       min_quality: 70,
       max_quality: 80
