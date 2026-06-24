@@ -777,8 +777,8 @@ defmodule ImagePipe.Output.EncodeSearch do
     do: {:ok, []}
 
   # Ssimulacra2 full-frame mode: one whole-frame reference; candidate scored whole.
-  defp score_opts(image, %Resolved{quality_search: %RQS.Ssimulacra2{}}, :full, t) do
-    full_frame_opts(Metric.Ssimulacra2, image, t)
+  defp score_opts(image, %Resolved{quality_search: %RQS.Ssimulacra2{} = rqs}, :full, t) do
+    full_frame_opts(Metric.runtime(rqs), image, t)
   end
 
   # Crop mode (above the crossover): crop score_fun (estimate) only — no full-frame
@@ -799,8 +799,8 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # Butteraugli: external-measure, full-frame only this cycle (the scorer is forced
   # to :full by Encoder.crop?/2, which only lets the Ssimulacra2 strategy crop).
-  defp score_opts(image, %Resolved{quality_search: %RQS.Butteraugli{}}, _scorer, t) do
-    full_frame_opts(Metric.Butteraugli, image, t)
+  defp score_opts(image, %Resolved{quality_search: %RQS.Butteraugli{} = rqs}, _scorer, t) do
+    full_frame_opts(Metric.runtime(rqs), image, t)
   end
 
   defp full_frame_opts(metric, image, t) do

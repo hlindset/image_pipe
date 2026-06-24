@@ -1520,6 +1520,15 @@ The native path emits the existing `[:encode, :search]` span — already subscri
 - `lib/image_pipe/telemetry/trace/capture.ex`: confirm `[:encode, :search]` is in `@span_stages` (it is) and that `outcome`/`metric` keys are in `@safe_keys`; add `:metric` if introduced. Add a Capture test.
 - `docs/telemetry.md`: note the native `outcome: :native`.
 
+- [ ] **Step 2b: De-`:ssim2` the probe cost-leg span names (Chunk 1 review carry-over)**
+
+`encode_search.ex`'s `decode_leg/2` + `metric_leg/3` hardcode the metric segment `:ssim2` in their span names (`[:encode, :search, :probe, :ssim2, :decode]` / `[…, :ssim2, :metric]`), and their doc comment promises the segment "qualifies the scoring legs so a future metric gets distinct span names a backend can group by." Butteraugli currently reuses `:ssim2` → its cost legs are **mislabeled**. Now that the metric module is threaded through `full_frame_score/5`, derive the leg segment from the metric instead of hardcoding `:ssim2`. Per `AGENTS.md`'s telemetry sync rule, any new stage name introduced here must be registered on **both** surfaces or butteraugli's legs go untraced/unlogged:
+- Thread a metric-derived leg-name segment (e.g. `:ssimulacra2`/`:butteraugli`, or a `leg_name/0` on the `Output.Metric` behaviour) into `decode_leg`/`metric_leg`; update the comment to describe the actual behavior.
+- `lib/image_pipe/telemetry/trace/capture.ex`: add the new `[:encode, :search, :probe, <metric>, :decode]` and `[…, <metric>, :metric]` stages to `@span_stages` (the current list only has the `:ssim2` variants). Add a Capture test asserting the butteraugli legs are captured.
+- `lib/image_pipe/telemetry/logger.ex`: subscribe the new leg stage names (one-shot/span lists) so they aren't silently dropped; add a `logger_test.exs` assertion.
+- `docs/telemetry.md`: update the probe cost-leg names to reflect per-metric segments.
+- If, after this, the crop-path `metric_leg`'s "aggregate SSIMULACRA2 metric leg" comment is inaccurate for butteraugli's full-frame leg, fix the comment too.
+
 - [ ] **Step 3: Conformance matrix (stage/order + behavioral)**
 
 In `docs/imgproxy_support_matrix.md`: in the Save/encode pipeline section, document the native-JXL butteraugli single-encode path (`iterations: 0`, distance-driven, self-capping for max_bytes); update the existing line claiming "a butteraugli distance mapping is deferred" — it's now implemented. Add the lower-is-better/full-frame behavioral note.
