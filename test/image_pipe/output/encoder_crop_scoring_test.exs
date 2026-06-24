@@ -46,8 +46,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
       strip_metadata: true,
       keep_copyright: false,
       color_profile: :preserve_source,
-      quality_search: %RQS{
-        objective: :ssim2,
+      quality_search: %RQS.Ssimulacra2{
         target: 80.0,
         min_quality: 40,
         max_quality: 95,

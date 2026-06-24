@@ -73,7 +73,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
           %{duration: System.convert_time_unit(4, :millisecond, :native)},
           %{
             result: :ok,
-            objective: :ssim2,
+            objective: :ssimulacra2,
             chosen_quality: 62,
             chosen_bytes: 12_345,
             iterations: 4,
@@ -98,7 +98,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
           %{duration: System.convert_time_unit(4, :millisecond, :native)},
           %{
             result: :ok,
-            objective: :ssim2,
+            objective: :ssimulacra2,
             chosen_quality: 72,
             chosen_bytes: 12_345,
             iterations: 4,

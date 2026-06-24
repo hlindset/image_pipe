@@ -2350,8 +2350,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     %Resolved{
       base_resolved(format)
       | quality: :default,
-        quality_search: %RQS{
-          objective: :ssim2,
+        quality_search: %RQS.Ssimulacra2{
           target: @g_target,
           min_quality: lo,
           max_quality: hi,
@@ -4323,8 +4322,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     %Resolved{
       base_resolved(format)
       | quality: :default,
-        quality_search: %RQS{
-          objective: :ssim2,
+        quality_search: %RQS.Ssimulacra2{
           target: @target,
           min_quality: @min_q,
           max_quality: @max_q,
@@ -4338,12 +4336,10 @@ defmodule Mix.Tasks.Autoquality.Bench do
     %Resolved{
       base_resolved(format)
       | quality: :default,
-        quality_search: %RQS{
-          objective: :size,
+        quality_search: %RQS.Size{
           target: budget,
           min_quality: @min_q,
           max_quality: @max_q,
-          allowed_error: 0,
           max_resolution: 0
         }
     }

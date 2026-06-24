@@ -34,7 +34,7 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
               size_curve <- curve(lo, hi, 1, 4000),
               max_iterations <- integer(1..12),
               max_runs: 80 do
-      rqs = %RQS{objective: :size, target: target, min_quality: lo, max_quality: hi}
+      rqs = %RQS.Size{target: target, min_quality: lo, max_quality: hi}
       encode_fun = size_encode_fun(size_curve)
 
       assert {:ok, bin, meta} =
@@ -77,8 +77,7 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
               score_curve <- curve(lo, hi, 0, 100),
               max_iterations <- integer(1..12),
               max_runs: 80 do
-      rqs = %RQS{
-        objective: :ssim2,
+      rqs = %RQS.Ssimulacra2{
         target: target,
         min_quality: lo,
         max_quality: hi,
@@ -108,7 +107,8 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
     check all {lo, hi} <- bracket(),
               format_min <- quality_map(),
               format_max <- quality_map(),
-              objective <- member_of([:size, :ssim2]),
+              struct_mod <-
+                member_of([Output.QualitySearch.Size, Output.QualitySearch.Ssimulacra2]),
               negotiated_format <- member_of(@output_formats),
               max_runs: 100 do
       # A sane host configures per-format brackets that stay ordered under every
@@ -119,20 +119,18 @@ defmodule ImagePipe.Output.EncodeSearchPropertyTest do
       # than that resolve repairs contradictory config.
       {format_min, format_max} = order_per_format(format_min, format_max, lo, hi)
 
-      search = %Output.QualitySearch{
-        objective: objective,
-        target: 50,
-        min_quality: lo,
-        max_quality: hi,
-        format_min: format_min,
-        format_max: format_max
-      }
+      search =
+        struct(struct_mod, %{
+          target: 50,
+          min_quality: lo,
+          max_quality: hi,
+          format_min: format_min,
+          format_max: format_max
+        })
 
       policy = policy_for(search, negotiated_format)
 
-      assert {:ok, %Resolved{quality_search: %RQS{} = resolved}} =
-               Policy.resolve(policy, nil)
-
+      assert {:ok, %Resolved{quality_search: resolved}} = Policy.resolve(policy, nil)
       assert resolved.min_quality <= resolved.max_quality
     end
   end

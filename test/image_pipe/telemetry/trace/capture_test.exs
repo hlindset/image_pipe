@@ -69,13 +69,13 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     Telemetry.span(
       [],
       [:encode, :search],
-      %{objective: :ssim2, min_quality: 50, max_quality: 90, target: 90.0, max_bytes: 200_000},
+      %{objective: :ssimulacra2, min_quality: 50, max_quality: 90, target: 90.0, max_bytes: 200_000},
       fn -> {:ok, %{result: :ok}} end
     )
 
     assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
     assert span.status == :ok
-    assert span.attributes[:objective] == :ssim2
+    assert span.attributes[:objective] == :ssimulacra2
     assert span.attributes[:max_bytes] == 200_000
     assert span.attributes[:target] == 90.0
   end
@@ -106,7 +106,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "captures the encode-search probe as a span nested under the search, with its phase/numbers" do
-    Telemetry.span([], [:encode, :search], %{objective: :ssim2}, fn ->
+    Telemetry.span([], [:encode, :search], %{objective: :ssimulacra2}, fn ->
       Telemetry.span(
         [],
         [:encode, :search, :probe],
@@ -137,7 +137,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "folds the delivered-probe chosen marker onto the enclosing search span" do
-    Telemetry.span([], [:encode, :search], %{objective: :ssim2}, fn ->
+    Telemetry.span([], [:encode, :search], %{objective: :ssimulacra2}, fn ->
       Telemetry.execute(
         [],
         [:encode, :search, :probe, :chosen],
@@ -208,7 +208,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     Telemetry.span(
       [],
       [:encode, :search],
-      %{objective: :ssim2, max_bytes: 200_000},
+      %{objective: :ssimulacra2, max_bytes: 200_000},
       fn ->
         {:ok,
          %{
@@ -224,7 +224,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
     # start attributes preserved
-    assert span.attributes[:objective] == :ssim2
+    assert span.attributes[:objective] == :ssimulacra2
     assert span.attributes[:max_bytes] == 200_000
     # stop attributes (the per-result verdict) now captured
     assert span.attributes[:chosen_quality] == 62

@@ -4,7 +4,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
 
   test "size picks the highest quality under the byte target" do
-    rs = %RQS{objective: :size, target: 50_000, min_quality: 10, max_quality: 80}
+    rs = %RQS.Size{target: 50_000, min_quality: 10, max_quality: 80}
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
 
     assert {:ok, _bin, %{quality: 50, outcome: :hit}} =
@@ -12,7 +12,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   end
 
   test "size best-effort returns min_quality when even the floor exceeds the budget" do
-    rs = %RQS{objective: :size, target: 5_000, min_quality: 10, max_quality: 80}
+    rs = %RQS.Size{target: 5_000, min_quality: 10, max_quality: 80}
     enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
 
     assert {:ok, _bin, %{quality: 10, outcome: :best_effort}} =
@@ -20,8 +20,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   end
 
   test "ssim2 lands on the quality matching the target (zero-width band)" do
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 90.0,
       min_quality: 10,
       max_quality: 80,
@@ -40,8 +39,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   end
 
   test "ssim2 reports :hit at the default iteration cap on a realistic bracket" do
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 90.0,
       min_quality: 70,
       max_quality: 80,
@@ -60,8 +58,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     # target (80) is reached at q60 and the band floor (75) at q55. The old
     # lowest-satisfying search shipped q55 (the floor); walk-to-target ships an
     # in-band quality at the target (q60, score 80) instead.
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 80.0,
       min_quality: 10,
       max_quality: 90,
@@ -80,8 +77,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     # 2 per quality, and band [79.5, 80.5] (target 80, allowed_error 0.5) is empty —
     # q30 → 79 (undershoot), q31 → 81 (overshoot), nothing lands inside. Walk-to-target
     # ships the lowest overshoot (q31, score 81 ≥ target), a :hit, never the undershoot.
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 80.0,
       min_quality: 10,
       max_quality: 40,
@@ -100,8 +96,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     # band is unreachable from below. score = q + 60, band [48, 52] (target 50,
     # allowed_error 2): every quality overshoots. Walk-to-target descends to the floor
     # and ships min_quality (smallest file, quality still ≥ target), a :hit.
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 50.0,
       min_quality: 10,
       max_quality: 80,
@@ -116,8 +111,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   end
 
   test "ssim2 best-effort pins the ceiling when the target is unreachable (all undershoot)" do
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 99.0,
       min_quality: 10,
       max_quality: 80,
@@ -132,8 +126,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   end
 
   test "max_bytes lowers the ssim2 pick when it exceeds the budget" do
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 80.0,
       min_quality: 10,
       max_quality: 90,
@@ -197,8 +190,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     # The objective score_fun is an ESTIMATE (e.g. crop p10 - offset); the
     # confirm_fun is the AUTHORITATIVE measure. confirm_band is target-allowed_error.
     test "no confirm_fun is a pure passthrough (today's behavior)" do
-      rs = %RQS{
-        objective: :ssim2,
+      rs = %RQS.Ssimulacra2{
         target: 90.0,
         min_quality: 10,
         max_quality: 80,
@@ -215,8 +207,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "confirm clears at the objective winner -> :hit, 1 confirm pass, authoritative score" do
-      rs = %RQS{
-        objective: :ssim2,
+      rs = %RQS.Ssimulacra2{
         target: 90.0,
         min_quality: 10,
         max_quality: 80,
@@ -246,8 +237,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "undershoot bumps up to clear (2 confirm passes)" do
-      rs = %RQS{
-        objective: :ssim2,
+      rs = %RQS.Ssimulacra2{
         target: 90.0,
         min_quality: 10,
         max_quality: 80,
@@ -277,8 +267,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "bump-cap exhaustion ships best-effort at the highest q tried" do
-      rs = %RQS{
-        objective: :ssim2,
+      rs = %RQS.Ssimulacra2{
         target: 90.0,
         min_quality: 10,
         max_quality: 80,
@@ -307,8 +296,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "max_bytes binds the final q AFTER the confirm/bump (cap runs last)" do
-      rs = %RQS{
-        objective: :ssim2,
+      rs = %RQS.Ssimulacra2{
         target: 90.0,
         min_quality: 10,
         max_quality: 80,
@@ -345,8 +333,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
       # (accurate). Walk-to-target lands the objective at q63 (estimate 88, in band) —
       # NOT the old floor pick q60 (estimate 85). The confirm re-validates against the
       # floor (85) and clears immediately, so the objective and confirm stay coherent.
-      rs = %RQS{
-        objective: :ssim2,
+      rs = %RQS.Ssimulacra2{
         target: 90.0,
         min_quality: 10,
         max_quality: 80,
@@ -375,8 +362,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
 
     test "scorer/tiles flow through meta from the opts" do
-      rs = %RQS{
-        objective: :ssim2,
+      rs = %RQS.Ssimulacra2{
         target: 90.0,
         min_quality: 10,
         max_quality: 80,
@@ -404,6 +390,67 @@ defmodule ImagePipe.Output.EncodeSearchTest do
                )
 
       assert is_integer(q)
+    end
+  end
+
+  describe "lower_better (butteraugli distance) band search" do
+    # bytes == q, so a score_fun keyed on byte_size recovers q. distance score
+    # decreases as quality rises: score(q) = 3.0 - q/50.
+    defp const_encode, do: fn q -> {:ok, :binary.copy(<<0>>, q)} end
+    defp distance_score, do: fn bytes -> 3.0 - byte_size(bytes) / 50 end
+
+    test "lower_better band search converges to in-band quality" do
+      # target 1.0 ± 0.1 → band [0.9, 1.1]; within 70..95 only q95 (score 1.1) is
+      # in-band, so the inverted walk drives upward and lands there.
+      search = %RQS.Butteraugli{target: 1.0, min_quality: 70, max_quality: 95, allowed_error: 0.1}
+
+      assert {:ok, _bin, meta} =
+               EncodeSearch.search(search, nil,
+                 encode_fun: const_encode(),
+                 score_fun: distance_score(),
+                 max_iterations: 12
+               )
+
+      assert meta.outcome in [:hit, :best_effort]
+      assert meta.quality in 70..95
+      assert meta.score <= 1.1
+    end
+
+    test "lower_better: distance above the band never clears → pins to the ceiling" do
+      # target 0.5 ± 0.05 → band [0.45, 0.55]; score(95) = 1.1 > band_hi, so even
+      # max quality is too lossy. No acceptable overshoot ever recorded → ceiling pin.
+      search =
+        %RQS.Butteraugli{target: 0.5, min_quality: 70, max_quality: 95, allowed_error: 0.05}
+
+      assert {:ok, _bin, meta} =
+               EncodeSearch.search(search, nil,
+                 encode_fun: const_encode(),
+                 score_fun: distance_score(),
+                 max_iterations: 12
+               )
+
+      assert meta.quality == 95
+      assert meta.outcome == :best_effort
+      assert meta.limiting_factor in [:ceiling, :floor]
+    end
+
+    test "lower_better straddle: empty band ships the lower-distance (higher-q) side as :hit" do
+      # target 1.51 ± 0.001 → band [1.509, 1.511]. score = 3 - q/50, so the band
+      # crosses between q74 (1.52, above band) and q75 (1.50, below band); no integer
+      # q lands in-band. The acceptable (lower-distance / higher-quality) side wins.
+      search =
+        %RQS.Butteraugli{target: 1.51, min_quality: 70, max_quality: 95, allowed_error: 0.001}
+
+      assert {:ok, _bin, meta} =
+               EncodeSearch.search(search, nil,
+                 encode_fun: const_encode(),
+                 score_fun: distance_score(),
+                 max_iterations: 12
+               )
+
+      assert meta.quality == 75
+      assert meta.outcome == :hit
+      assert meta.score < 1.509
     end
   end
 end

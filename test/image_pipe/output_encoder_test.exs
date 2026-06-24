@@ -182,8 +182,7 @@ defmodule ImagePipe.Output.EncoderTest do
     test "runs an ssim2 search and produces a decodable body" do
       {:ok, img} = Image.open(@fixture)
 
-      rs = %ImagePipe.Output.ResolvedQualitySearch{
-        objective: :ssim2,
+      rs = %ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2{
         target: 85.0,
         min_quality: 50,
         max_quality: 90,

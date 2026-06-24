@@ -5,6 +5,7 @@ defmodule ImagePipe.Output.Encoder do
   alias ImagePipe.Output.ColorProfile
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Plan.Color
   alias Vix.Vips.Image, as: VixImage
@@ -104,10 +105,10 @@ defmodule ImagePipe.Output.Encoder do
   defp max_resolution_of(%{max_resolution: mr}), do: mr
   defp max_resolution_of(:none), do: 0
 
-  # Crop scoring only applies to the perceptual :ssim2 objective (it tiles the
-  # SSIMULACRA2 metric). A :size or max_bytes-alone search above the crossover does
-  # no metric scoring, so it stays :full and is not mislabeled :crop in telemetry.
-  defp crop?(%{objective: :ssim2}, megapixels), do: megapixels > CropScore.crossover_megapixels()
+  # Crop scoring only applies to the Ssimulacra2 strategy (it tiles the SSIMULACRA2
+  # metric). A :size, butteraugli, or max_bytes-alone search above the crossover
+  # does no crop scoring, so it stays :full and is not mislabeled :crop in telemetry.
+  defp crop?(%RQS.Ssimulacra2{}, megapixels), do: megapixels > CropScore.crossover_megapixels()
   defp crop?(_quality_search, _megapixels), do: false
 
   # The search owns building the encode/score closures, the iteration cap, and
