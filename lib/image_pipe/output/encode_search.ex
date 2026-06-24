@@ -34,6 +34,7 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   alias ImagePipe.Output.ContentClassifier
   alias ImagePipe.Output.Encoder
+  alias ImagePipe.Output.JxlDistance
   alias ImagePipe.Output.Metric
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
@@ -45,7 +46,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 
-  @type outcome :: :hit | :best_effort | :skipped
+  @type outcome :: :hit | :best_effort | :skipped | :native
 
   # Why a `:best_effort` result fell short of the objective/budget. `nil` on a
   # `:hit`. `:ceiling`/`:floor` — the objective never cleared its band/target and
@@ -55,7 +56,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   @type limiting_factor :: :ceiling | :floor | :max_bytes | :bump_exhausted
 
   @type meta :: %{
-          quality: 1..100,
+          # 0 = native distance encode, no Q chosen
+          quality: 0..100,
           bytes: non_neg_integer(),
           iterations: non_neg_integer(),
           outcome: outcome(),
@@ -197,6 +199,15 @@ defmodule ImagePipe.Output.EncodeSearch do
   """
   @spec run(Vix.Vips.Image.t(), Resolved.t(), keyword()) ::
           {:ok, binary(), meta()} | {:error, term()}
+  def run(
+        finalized_image,
+        %Resolved{quality_search: %RQS.NativeJxlButteraugli{} = nqs} = resolved,
+        opts
+      ) do
+    telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
+    native_jxl_butteraugli(finalized_image, nqs, resolved.max_bytes, telemetry_opts)
+  end
+
   def run(finalized_image, %Resolved{} = resolved, opts) do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
     encode_fun = fn quality -> encode_leg(finalized_image, resolved, quality, telemetry_opts) end
@@ -222,6 +233,102 @@ defmodule ImagePipe.Output.EncodeSearch do
         {:image_pipe_score_error, reason} -> {:error, {:encode, reason}}
       end
     end
+  end
+
+  # --- native JXL butteraugli strategy --------------------------------------
+
+  @native_distance_max 25.0
+
+  # libvips drives JXL `distance` directly: there is no external measure and no
+  # band loop. We clamp the target into the Q-bracket's distance range, then
+  # either encode once (no max_bytes) or degrade distance until the bytes fit.
+  defp native_jxl_butteraugli(image, nqs, max_bytes, telemetry_opts) do
+    # Q-bracket → distance bracket; clamp the target. `dist` is decreasing in Q,
+    # so max_quality is the distance floor (lowest distance / highest quality
+    # allowed) and min_quality is the distance ceiling.
+    dist_floor = JxlDistance.from_quality(nqs.max_quality)
+    dist_ceil = JxlDistance.from_quality(nqs.min_quality)
+    effective = nqs.target |> max(dist_floor) |> min(dist_ceil)
+
+    Telemetry.span(telemetry_opts, [:encode, :search], native_start_meta(nqs, max_bytes), fn ->
+      result = native_encode(image, effective, max_bytes)
+      {result, native_stop_meta(result)}
+    end)
+  end
+
+  defp native_encode(image, distance, nil) do
+    with {:ok, bin} <- Encoder.encode_jxl_distance(image, distance) do
+      {:ok, bin, native_meta(bin, :native, nil)}
+    end
+  end
+
+  defp native_encode(image, distance, max_bytes) do
+    native_descend(image, distance, max_bytes)
+  end
+
+  # Raise distance (degrade) from the clamped target until bytes fit or we hit the
+  # distance ceiling. Coarse geometric steps; max_bytes is the hard cap.
+  # `effective` is always <= dist_ceil = from_quality(min_quality) <= ~14.5
+  # (min_quality >= 1), and `min/2` caps each step at exactly 25.0, so the
+  # recursion saturates at @native_distance_max in finite steps.
+  defp native_descend(image, distance, max_bytes) do
+    with {:ok, bin} <- Encoder.encode_jxl_distance(image, distance) do
+      cond do
+        byte_size(bin) <= max_bytes ->
+          {:ok, bin, native_meta(bin, :native, nil)}
+
+        distance >= @native_distance_max ->
+          {:ok, bin, native_meta(bin, :best_effort, :max_bytes)}
+
+        true ->
+          native_descend(image, min(@native_distance_max, distance * 1.5 + 0.5), max_bytes)
+      end
+    end
+  end
+
+  defp native_meta(bin, outcome, factor) do
+    %{
+      # 0 = native distance encode, no Q chosen
+      quality: 0,
+      bytes: byte_size(bin),
+      iterations: 0,
+      outcome: outcome,
+      score: nil,
+      confirm_passes: 0,
+      scorer: :full,
+      tiles_scored: nil,
+      limiting_factor: factor
+    }
+  end
+
+  defp native_start_meta(nqs, max_bytes) do
+    %{
+      objective: :butteraugli,
+      min_quality: nqs.min_quality,
+      max_quality: nqs.max_quality,
+      target: nqs.target,
+      max_bytes: max_bytes
+    }
+  end
+
+  defp native_stop_meta({:ok, _binary, meta}) do
+    %{
+      result: :ok,
+      objective: :butteraugli,
+      chosen_quality: meta.quality,
+      chosen_bytes: meta.bytes,
+      iterations: meta.iterations,
+      outcome: meta.outcome,
+      final_score: meta.score,
+      scorer: meta.scorer,
+      tiles_scored: meta.tiles_scored,
+      confirm_passes: meta.confirm_passes,
+      limiting_factor: meta.limiting_factor
+    }
+  end
+
+  defp native_stop_meta({:error, reason}) do
+    %{result: :processing_error, objective: :butteraugli, error: reason}
   end
 
   @doc """
