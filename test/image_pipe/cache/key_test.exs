@@ -1407,8 +1407,8 @@ defmodule ImagePipe.Cache.KeyTest do
                qs_key_for(qs_output(quality_search: b)).hash
     end
 
-    test "max_resolution does not enter the key (generation guard, not stored identity)" do
-      assert qs_key_for(qs_output(quality_search: qs_search(max_resolution: 0))).hash ==
+    test "max_resolution enters the key (it selects which bytes are stored)" do
+      refute qs_key_for(qs_output(quality_search: qs_search(max_resolution: 0))).hash ==
                qs_key_for(qs_output(quality_search: qs_search(max_resolution: 50))).hash
     end
 
@@ -1417,8 +1417,8 @@ defmodule ImagePipe.Cache.KeyTest do
                qs_etag_for(qs_output(max_bytes: 60_000))
     end
 
-    test "max_resolution does not enter the ETag material" do
-      assert qs_etag_for(qs_output(quality_search: qs_search(max_resolution: 0))) ==
+    test "max_resolution enters the ETag material (it selects which bytes are stored)" do
+      refute qs_etag_for(qs_output(quality_search: qs_search(max_resolution: 0))) ==
                qs_etag_for(qs_output(quality_search: qs_search(max_resolution: 50)))
     end
 

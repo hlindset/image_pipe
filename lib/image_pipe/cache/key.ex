@@ -163,9 +163,12 @@ defmodule ImagePipe.Cache.Key do
 
   defp output_data(_conn, %Output{} = output, opts), do: output_plan_data(output, opts)
 
-  # `max_resolution` is a generation guard (it decides whether the search runs on
-  # an oversized result), not stored identity, so it is deliberately excluded from
-  # both the key and the ETag. Per-format clamps are sorted for canonical equality.
+  # `max_resolution` selects which bytes get stored, not whether they get generated:
+  # above it the autoquality search is skipped and base-quality bytes ship, below it
+  # searched-quality bytes ship. Both are successful 200s with different bytes, so —
+  # like the per-format clamps — it is stored identity and enters both the key and the
+  # ETag; omitting it would let a config change serve a stale 304. Per-format clamps
+  # are sorted for canonical equality.
   defp quality_search_key(:none), do: :none
 
   defp quality_search_key(%QualitySearch.Size{} = s) do
@@ -174,6 +177,7 @@ defmodule ImagePipe.Cache.Key do
       target: s.target,
       min_quality: s.min_quality,
       max_quality: s.max_quality,
+      max_resolution: s.max_resolution,
       format_min: Enum.sort(Map.to_list(s.format_min)),
       format_max: Enum.sort(Map.to_list(s.format_max))
     ]
@@ -192,6 +196,7 @@ defmodule ImagePipe.Cache.Key do
       min_quality: s.min_quality,
       max_quality: s.max_quality,
       allowed_error: s.allowed_error,
+      max_resolution: s.max_resolution,
       format_min: Enum.sort(Map.to_list(s.format_min)),
       format_max: Enum.sort(Map.to_list(s.format_max))
     ]
