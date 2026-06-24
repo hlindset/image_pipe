@@ -214,6 +214,19 @@ defmodule ImagePipe.Output.Policy do
 
   defp resolve_search(
          %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{} = s},
+         :jpeg_xl
+       ) do
+    %RQS.NativeJxlButteraugli{
+      target: s.target,
+      min_quality: Map.get(s.format_min, :jpeg_xl, s.min_quality),
+      max_quality: Map.get(s.format_max, :jpeg_xl, s.max_quality),
+      allowed_error: s.allowed_error,
+      max_resolution: s.max_resolution
+    }
+  end
+
+  defp resolve_search(
+         %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{} = s},
          format
        ) do
     %RQS.Butteraugli{

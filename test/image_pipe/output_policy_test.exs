@@ -454,6 +454,33 @@ defmodule ImagePipe.Output.PolicyTest do
       assert rs.allowed_error == 0.1
     end
 
+    test "butteraugli + JXL resolves to the native strategy" do
+      search = %QualitySearch.Butteraugli{
+        target: 1.0,
+        min_quality: 1,
+        max_quality: 100,
+        allowed_error: 0.1
+      }
+
+      assert {:ok,
+              %Resolved{
+                quality_search: %ResolvedQualitySearch.NativeJxlButteraugli{target: 1.0}
+              }} =
+               Policy.resolve(policy_with(search, format: :jpeg_xl), nil)
+    end
+
+    test "butteraugli + webp stays external" do
+      search = %QualitySearch.Butteraugli{
+        target: 1.0,
+        min_quality: 1,
+        max_quality: 100,
+        allowed_error: 0.1
+      }
+
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Butteraugli{}}} =
+               Policy.resolve(policy_with(search, format: :webp), nil)
+    end
+
     test "none stays none" do
       assert {:ok, %Resolved{quality_search: :none}} = Policy.resolve(policy_with(:none), nil)
     end
