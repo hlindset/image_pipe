@@ -202,8 +202,12 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Native JPEG XL drives `distance` directly with no band loop — a self-contained
   # strategy. Route it to its own module; the unified run/3 entry and meta contract
   # are preserved.
-  def run(finalized_image, %Resolved{quality_search: %RQS.NativeJxlButteraugli{}} = resolved, opts),
-    do: NativeJxlSearch.run(finalized_image, resolved, opts)
+  def run(
+        finalized_image,
+        %Resolved{quality_search: %RQS.NativeJxlButteraugli{}} = resolved,
+        opts
+      ),
+      do: NativeJxlSearch.run(finalized_image, resolved, opts)
 
   def run(finalized_image, %Resolved{} = resolved, opts) do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
