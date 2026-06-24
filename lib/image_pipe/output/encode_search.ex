@@ -365,11 +365,13 @@ defmodule ImagePipe.Output.EncodeSearch do
     end
   end
 
-  defp objective_phase(%RQS.Ssimulacra2{} = rqs, ctx, _opts),
-    do: quality_objective_phase(rqs, :higher_better, ctx)
-
-  defp objective_phase(%RQS.Butteraugli{} = rqs, ctx, _opts),
-    do: quality_objective_phase(rqs, :lower_better, ctx)
+  # Both quality-metric strategies share the band walk and differ only in the
+  # metric's polarity. That polarity is the metric module's to declare
+  # (`Output.Metric.direction/0`); read it through the runtime rather than
+  # restating `:higher_better`/`:lower_better` here, so there is one source of truth.
+  defp objective_phase(%mod{} = rqs, ctx, _opts)
+       when mod in [RQS.Ssimulacra2, RQS.Butteraugli],
+       do: quality_objective_phase(rqs, Metric.runtime(rqs).direction(), ctx)
 
   defp quality_objective_phase(rqs, direction, ctx) do
     band_lo = rqs.target - rqs.allowed_error
