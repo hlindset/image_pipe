@@ -32,4 +32,5 @@ image_pipe_fiddle-*.tar
 # Vite build output (generated from assets/)
 /priv/static/assets/
 /priv/static/.vite/
+/priv/static/preview-sw.js
 

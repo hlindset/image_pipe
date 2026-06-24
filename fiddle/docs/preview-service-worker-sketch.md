@@ -234,6 +234,10 @@ the result from Phoenix at `:4000`:
 Recommendation: **plain JS** to start — the worker is small and DOM-less, and avoiding a second build
 toolchain keeps the dev-only app simple. Promote to TS+esbuild only if the worker grows.
 
+> Implementation note: the worker ships as TS built one-shot by `vite.sw.config.ts` (`pnpm build:sw`) into
+> `priv/static/preview-sw.js`. It is **not** hot-reloaded — after editing `preview-sw.ts`, re-run
+> `build:sw` and reload the browser (hard-reload to pick up the new worker bytes).
+
 Note the Vite dev server doesn't write assets to disk, so the worker must NOT be expected to appear in
 `priv/static` *via Vite* — it's an independently served file either way.
 
