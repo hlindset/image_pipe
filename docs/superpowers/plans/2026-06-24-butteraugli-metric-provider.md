@@ -597,7 +597,7 @@ git commit -m "feat(output): Metric behaviour + Ssimulacra2/Butteraugli runtimes
 
 **Files:**
 - Modify: `lib/image_pipe/output/policy.ex` (`resolve_search/2`, ~183-201)
-- Test: `test/image_pipe/output/output_policy_test.exs`
+- Test: `test/image_pipe/output_policy_test.exs`
 
 **DESIGN CORRECTION (from plan review):** `resolve_search/2` is reached through the **infallible** `resolved/1` (`policy.ex:178`), which fans into `resolve/2`, `resolve_final_image_alpha/2` (+ `producer.ex:269`), and `supports_hdr?/2`. Making it return `{:error,_}` is a 5-site blast radius. And the existing **ssim2 path already range-validates at the parser** (`:target_float` enforces 0–100 in `option_grammar.ex`). So range validation belongs at the **parser** (Task 8), matching that precedent — and `resolve_search/2` stays **infallible** (returns the resolved value directly, like today). `Output.Metric.target_range/0` remains the source-of-truth constant the parser mirrors and the native clamp uses. Migrate the existing `%QualitySearch{objective:}`/`%ResolvedQualitySearch{}` cases in `output_policy_test.exs` (see migration checklist) in this task.
 
@@ -1259,7 +1259,7 @@ git commit -m "feat(output): libjxl Q->distance formula with encode-equivalence 
 **Files:**
 - Create: `lib/image_pipe/output/resolved_quality_search/native_jxl_butteraugli.ex`
 - Modify: `lib/image_pipe/output/policy.ex` (butteraugli clause branches on format)
-- Test: `test/image_pipe/output/policy_test.exs`
+- Test: `test/image_pipe/output_policy_test.exs`
 
 - [ ] **Step 1: Write the failing resolve test**
 

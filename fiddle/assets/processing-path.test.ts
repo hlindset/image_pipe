@@ -1465,6 +1465,15 @@ describe("fiddle URL state", () => {
     );
   });
 
+  it("rejects a butteraugli target outside the 0..25 distance range (falls back to default)", () => {
+    const parsed = parseFiddlePath("/autoquality:butteraugli:30/plain/local:///images/dog.jpg");
+
+    // The method still applies, but the out-of-range distance is rejected by
+    // parseDistanceValue and the target falls back to the default (1), never 30.
+    expect(parsed.autoqualityMethod).toBe("butteraugli");
+    expect(parsed.autoqualityButteraugliTarget).toBe(1);
+  });
+
   it("parses the aq short alias for autoquality", () => {
     const parsed = parseFiddlePath("/aq:size:40000/plain/local:///images/dog.jpg");
 

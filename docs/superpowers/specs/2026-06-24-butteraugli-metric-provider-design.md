@@ -306,7 +306,8 @@ URL  aq:butteraugli:1.0:70:80:0.1
   │  Parser.Imgproxy.OptionGrammar  (hand-wired clause, owns token order)
   ▼
 %Plan…QualitySearch.Butteraugli{target: 1.0, min_quality: 70, max_quality: 80, allowed_error: 0.1}
-  │  Output.Policy.resolve_search(search, format)   (validate target ∈ {0.0, 25.0}; pick strategy)
+  │  Output.Policy.resolve_search(search, format)   (infallible: pick strategy only — the target
+  │     range 0.0..25.0 was already validated parser-side, keeping resolve total — see §Validation)
   │     format == :jpeg_xl  → %Resolved…NativeJxlButteraugli{target: 1.0, …}
   │     else                → %Resolved…Butteraugli{target: 1.0, …}
   ▼
