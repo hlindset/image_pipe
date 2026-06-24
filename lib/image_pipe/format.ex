@@ -53,15 +53,15 @@ defmodule ImagePipe.Format do
   @spec supports_color_profile?(output_format()) :: boolean()
   def supports_color_profile?(format), do: format in @color_profile_formats
 
-  @doc "Returns whether the output format can carry an alpha channel. Mirrors imgproxy's `SupportsAlpha()` for the four output formats (AVIF/WebP/PNG true; JPEG false)."
+  @doc "Returns whether the output format can carry an alpha channel. Mirrors imgproxy's `SupportsAlpha()` (JPEG XL/AVIF/WebP/PNG true; JPEG false)."
   @spec supports_alpha?(output_format()) :: boolean()
   def supports_alpha?(format), do: format in @alpha_formats
 
-  @doc "Returns whether the output format can carry HDR (16-bit). Mirrors imgproxy's `SupportsHDR()` for the four output formats (AVIF/PNG true; WebP/JPEG false)."
+  @doc "Returns whether the output format can carry HDR (16-bit). Mirrors imgproxy's `SupportsHDR()` (JPEG XL/AVIF/PNG true; WebP/JPEG false)."
   @spec supports_hdr?(output_format()) :: boolean()
   def supports_hdr?(format), do: format in @hdr_formats
 
-  @doc "Returns whether the output format has a lossy encode-quality knob the search can tune (AVIF/WebP/JPEG true; PNG false)."
+  @doc "Returns whether the output format has a lossy encode-quality knob the search can tune (JPEG XL/AVIF/WebP/JPEG true; PNG false)."
   @spec supports_quality?(output_format()) :: boolean()
   def supports_quality?(format) when format in [:jpeg, :webp, :avif, :jpeg_xl], do: true
   def supports_quality?(_format), do: false
