@@ -786,11 +786,6 @@ defmodule ImagePipe.Output.EncodeSearch do
   defp score_opts(_image, %Resolved{quality_search: %RQS.Size{}}, _scorer, _t),
     do: {:ok, []}
 
-  # Ssimulacra2 full-frame mode: one whole-frame reference; candidate scored whole.
-  defp score_opts(image, %Resolved{quality_search: %RQS.Ssimulacra2{} = rqs}, :full, t) do
-    full_frame_opts(Metric.runtime(rqs), image, t)
-  end
-
   # Crop mode (above the crossover): crop score_fun (estimate) only — no full-frame
   # confirm/bump (#369). The per-`{format, content-class}` offset (resolved into
   # `rqs.quality_search_offsets`, #380) baked into the estimate replaces the confirm
@@ -807,10 +802,12 @@ defmodule ImagePipe.Output.EncodeSearch do
     {:ok, [score_fun: crop, scorer_tiles: tiles]}
   end
 
-  # Butteraugli: external-measure, full-frame only this cycle (the scorer is forced
-  # to :full by Encoder.crop?/2, which only lets the Ssimulacra2 strategy crop).
-  defp score_opts(image, %Resolved{quality_search: %RQS.Butteraugli{} = rqs}, _scorer, t) do
-    full_frame_opts(Metric.runtime(rqs), image, t)
+  # Every quality metric measures the full frame the same way — through its runtime
+  # (`Output.Metric.runtime/1`). This covers Ssimulacra2 below the crop crossover and
+  # butteraugli always (full-frame only this cycle). `:none`/`:size` are matched above
+  # and never reach here, and the native-JXL strategy never calls `score_opts`.
+  defp score_opts(image, %Resolved{quality_search: qs}, _scorer, t) do
+    full_frame_opts(Metric.runtime(qs), image, t)
   end
 
   defp full_frame_opts(metric, image, t) do
