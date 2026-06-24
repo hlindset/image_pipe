@@ -8,7 +8,6 @@ defmodule ImagePipe.Transform.OrientationFlush do
 
   alias ImagePipe.Transform.{Focus, PendingOrientation, State}
   alias Vix.Vips.Image, as: VipsImage
-  alias Vix.Vips.Operation
 
   @spec flush(State.t()) :: {:ok, State.t()} | {:error, term()}
   def flush(%State{pending_orientation: nil} = state), do: materialize(state)
@@ -93,22 +92,14 @@ defmodule ImagePipe.Transform.OrientationFlush do
   defp maybe_autorotate(image, %PendingOrientation{auto_rotate?: false}), do: {:ok, image}
 
   # The user rotate is always a right angle (PendingOrientation folds only
-  # right-angle %Rotate{} into user_angle), so it must use libvips' exact
-  # right-angle rotate `vips_rot` — the same primitive Image.autorotate runs for
-  # EXIF, and the one imgproxy uses for orientation (vips.go `Rotate` →
-  # `vips_rot_go`), so this is also the parity-correct choice.
-  #
-  # We call `Vix.Vips.Operation.rot/2` directly because the `image` library has
-  # no public exact-rotate facade: `Image.rotate/2` is the *arbitrary-angle*
-  # affine rotate (`vips_rotate`), and at a 90° multiple its affine maps the
-  # content ~1px off the output canvas, leaving a 1px uncovered strip filled with
-  # its `:background` colour (black by default) — the #211 seam. (libvips splits
-  # `vips_rot` and `vips_rotate` deliberately; the seam is `vips_rotate` working
-  # as designed, not a resample blend — a white background makes the strip white.)
+  # right-angle %Rotate{} into user_angle), so Image.rotate/3 takes its discrete
+  # `vips_rot` fast path — the same primitive Image.autorotate runs for EXIF, and
+  # the one imgproxy uses for orientation (vips.go `Rotate` → `vips_rot_go`), so
+  # this is also the parity-correct choice. vips_rot is lossless and avoids the
+  # #211 seam that the arbitrary-angle affine `vips_rotate` leaves at a 90° multiple
+  # (it maps the content ~1px off the canvas, exposing a 1px background strip).
   defp maybe_rotate(image, 0), do: {:ok, image}
-  defp maybe_rotate(image, 90), do: Operation.rot(image, :VIPS_ANGLE_D90)
-  defp maybe_rotate(image, 180), do: Operation.rot(image, :VIPS_ANGLE_D180)
-  defp maybe_rotate(image, 270), do: Operation.rot(image, :VIPS_ANGLE_D270)
+  defp maybe_rotate(image, angle) when angle in [90, 180, 270], do: Image.rotate(image, angle)
 
   defp maybe_flip(image, _axis, false), do: {:ok, image}
   defp maybe_flip(image, axis, true), do: Image.flip(image, axis)

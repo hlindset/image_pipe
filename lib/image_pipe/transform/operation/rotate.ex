@@ -21,7 +21,6 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   import ImagePipe.Transform.State, only: [set_image: 2]
 
   alias ImagePipe.Transform.State
-  alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
   @enforce_keys [:angle]
@@ -54,31 +53,24 @@ defmodule ImagePipe.Transform.Operation.Rotate do
 
   # Angles arrive pre-normalized to integers for whole numbers (folded by the
   # Plan.Operation.rotate/2 constructor and the IIIF grammar), so exact right-angle
-  # multiples match these integer clauses and take the lossless vips_rot path; only
-  # genuinely fractional angles reach the affine clause below.
-  #
-  # Exact right angles: the lossless vips_rot primitive (same one OrientationFlush
-  # and imgproxy use). Direct Vix call — the `image` facade has no exact-rotate.
+  # multiples match this clause and take Image.rotate/3's discrete vips_rot fast
+  # path — lossless, no resample, no #211 background seam, the same primitive
+  # OrientationFlush and imgproxy use. Only genuinely fractional angles reach the
+  # affine clause below.
   defp rotate(image, 0), do: {:ok, image}
-  defp rotate(image, 90), do: Operation.rot(image, :VIPS_ANGLE_D90)
-  defp rotate(image, 180), do: Operation.rot(image, :VIPS_ANGLE_D180)
-  defp rotate(image, 270), do: Operation.rot(image, :VIPS_ANGLE_D270)
+  defp rotate(image, angle) when angle in [90, 180, 270], do: Image.rotate(image, angle)
 
-  # Arbitrary angle: affine resample with transparent corners. Ensure an alpha
-  # band, then premultiply -> rotate -> unpremultiply (vips_rotate does NOT
-  # premultiply; rotating un-premultiplied RGBA dark-fringes the resampled edges,
-  # the same reason blur/sharpen premultiply). Call Vix directly: the `image`
-  # facade's Image.rotate/3 rejects a 4-element RGBA background.
-  # Unlike blur.ex (which premultiplies only when alpha already exists), arbitrary
-  # rotation always ensures alpha so that exposed corners can be fully transparent.
+  # Arbitrary angle: affine resample with transparent corners. Always ensure an
+  # alpha band (even for opaque input) so the exposed corners can be fully
+  # transparent, then rotate over a transparent background. vips_rotate premultiplies
+  # the alpha itself — it is built on vips_affine, which premultiplies before
+  # resampling and unpremultiplies after — so we must NOT premultiply here: doing it
+  # on top of vips_rotate double-premultiplies and inflates the colour of any
+  # semi-transparent pixels. Call Vix directly: the `image` facade's Image.rotate/3
+  # rejects a 4-element RGBA background.
   defp rotate(image, angle) do
-    with {:ok, rgba} <- ensure_alpha(image),
-         band_format = VipsImage.format(rgba),
-         {:ok, premultiplied} <- Operation.premultiply(rgba),
-         {:ok, cast} <- Operation.cast(premultiplied, band_format),
-         {:ok, rotated} <- Operation.rotate(cast, angle * 1.0, background: @transparent),
-         {:ok, unpremultiplied} <- Operation.unpremultiply(rotated) do
-      Operation.cast(unpremultiplied, band_format)
+    with {:ok, rgba} <- ensure_alpha(image) do
+      Operation.rotate(rgba, angle * 1.0, background: @transparent)
     end
   end
 
