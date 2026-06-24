@@ -29,6 +29,11 @@
     type SourceImage,
   } from "./processing-path";
   import {
+    PreviewMetadataTracker,
+    registerPreviewWorker,
+    type PreviewWorker,
+  } from "./preview-bridge";
+  import {
     applyThemeMode,
     persistThemeMode,
     readStoredThemeMode,
@@ -59,23 +64,29 @@
   let toolsSidebar: HTMLElement | null = $state(null);
   let menuButton: HTMLButtonElement | null = $state(null);
   let drawerCloseButton: HTMLButtonElement | null = $state(null);
-  // Internal, non-reactive bookkeeping: request-id guards, timers and the
-  // abort/object-url handles. Nothing reactive reads these, so they stay plain locals.
+  // Internal, non-reactive bookkeeping: request-id guards, timers, and the
+  // preview-metadata tracker + service-worker handle. Nothing reactive reads these.
   let previewPath = "";
-  let metadataRequestId = 0;
   let pathRequestId = 0;
   let copyLabelResetTimeout: number | null = null;
-  let activePreviewObjectUrl: string | null = null;
-  let previewAbortController: AbortController | null = null;
+  const previewMetadata = new PreviewMetadataTracker();
+  let previewWorker: PreviewWorker | null = null;
+  let previewWorkerDisposed = false; // guards the register-promise-vs-unmount race
+  let currentRequestId = 0;
+  let lastPreviewAbsolute: string | null = null; // dedupe on resolved URL, not raw path
   const updatePreviewPath = debounce((nextPath: string) => {
-    if (nextPath !== previewPath) {
-      processedMetadata = null;
-      previewError = null;
-      metadataRequestId += 1;
-      previewLoading = true;
-    }
-
-    void loadPreview(nextPath);
+    const absolute = new URL(nextPath, window.location.origin).href;
+    // Dedupe on the RESOLVED url (not the raw path): a no-op must never flip
+    // previewLoading=true without a following <img> load event, or the spinner
+    // would strand. This same absolute is the SW-message correlation key.
+    if (absolute === lastPreviewAbsolute) return;
+    lastPreviewAbsolute = absolute;
+    previewPath = nextPath;
+    currentRequestId = previewMetadata.begin(absolute);
+    previewLoading = true;
+    previewError = null;
+    processedMetadata = null;
+    previewImageUrl = nextPath; // same-origin → <img> triggers the real, SW-intercepted request
   }, 150);
   const updateFiddleLocation = debounce((nextPath: string) => {
     if (
@@ -87,7 +98,6 @@
 
     window.history.replaceState(null, "", nextPath);
   }, 150);
-  const previewAcceptHeader = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 
   onMount(() => {
     const mediaQuery = window.matchMedia("(max-width: 720px)");
@@ -100,11 +110,31 @@
     window.addEventListener("popstate", restoreStateFromLocation);
     restoreStateFromLocation();
 
+    void registerPreviewWorker((message) => {
+      previewMetadata.applyMessage(message, currentRequestId);
+      // Reflect late-arriving bytes/contentType (and SW-reported errors) into the UI.
+      if (previewMetadata.metadata !== null) processedMetadata = previewMetadata.metadata;
+      if (previewMetadata.error !== null) {
+        previewError = previewMetadata.error;
+        processedMetadata = null;
+        previewLoading = false; // an SW error may arrive before the <img> error event
+      }
+    }).then((worker) => {
+      // If the component already unmounted while register/ready was awaiting, the
+      // cleanup ran with previewWorker still null and could not unsubscribe — do it
+      // here so the global navigator.serviceWorker listener can't leak across HMR.
+      if (previewWorkerDisposed) {
+        worker.unsubscribe();
+        return;
+      }
+      previewWorker = worker;
+    });
+
     return () => {
       mediaQuery.removeEventListener("change", syncMobileTools);
       window.removeEventListener("popstate", restoreStateFromLocation);
-      previewAbortController?.abort();
-      revokePreviewObjectUrl();
+      previewWorkerDisposed = true;
+      previewWorker?.unsubscribe();
     };
   });
 
@@ -236,113 +266,21 @@
       });
   }
 
-  async function loadPreview(nextPath: string): Promise<void> {
-    const requestId = ++metadataRequestId;
-    previewAbortController?.abort();
-    const abortController = new AbortController();
-    let objectUrl: string | null = null;
+  function onPreviewLoaded(image: HTMLImageElement): void {
+    previewMetadata.applyDimensions(
+      { width: image.naturalWidth, height: image.naturalHeight },
+      currentRequestId,
+    );
+    processedMetadata = previewMetadata.metadata;
+    previewError = previewMetadata.error;
+    previewLoading = false;
+  }
 
-    previewAbortController = abortController;
-    previewPath = nextPath;
-    previewLoading = true;
-    previewError = null;
+  function onPreviewError(): void {
+    // <img> gives no detail; if the SW already reported an error for this request, show it.
+    previewError = previewMetadata.error ?? "Preview request failed";
     processedMetadata = null;
-
-    try {
-      const response = await fetch(nextPath, {
-        cache: "no-cache",
-        headers: { accept: previewAcceptHeader },
-        signal: abortController.signal,
-      });
-      const contentType = response.headers.get("content-type");
-
-      if (!response.ok) {
-        const message = await previewErrorFromResponse(response);
-
-        if (requestId === metadataRequestId) {
-          previewLoading = false;
-          previewError = message;
-          processedMetadata = null;
-        }
-
-        return;
-      }
-
-      const blob = await response.blob();
-      objectUrl = URL.createObjectURL(blob);
-      const dimensions = await imageDimensions(objectUrl);
-
-      if (requestId === metadataRequestId) {
-        revokePreviewObjectUrl();
-        activePreviewObjectUrl = objectUrl;
-        previewImageUrl = objectUrl;
-        previewLoading = false;
-        processedMetadata = {
-          ...dimensions,
-          bytes: blob.size,
-          contentType: contentType ?? blob.type ?? null,
-        };
-        objectUrl = null;
-      } else {
-        URL.revokeObjectURL(objectUrl);
-        objectUrl = null;
-      }
-    } catch (error) {
-      if (objectUrl !== null) {
-        URL.revokeObjectURL(objectUrl);
-      }
-
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return;
-      }
-
-      if (requestId === metadataRequestId) {
-        previewLoading = false;
-        previewError = previewErrorMessage(error);
-        processedMetadata = null;
-      }
-    } finally {
-      if (previewAbortController === abortController) {
-        previewAbortController = null;
-      }
-    }
-  }
-
-  async function previewErrorFromResponse(response: Response): Promise<string> {
-    const status = `${response.status} ${response.statusText || "Preview request failed"}`;
-
-    try {
-      const body = (await response.text()).trim();
-
-      if (body !== "") {
-        return `${status}: ${body.slice(0, 180)}`;
-      }
-    } catch {
-      return status;
-    }
-
-    return status;
-  }
-
-  function previewErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : "Preview request failed";
-  }
-
-  function imageDimensions(objectUrl: string): Promise<{ width: number; height: number }> {
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-
-      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
-      image.onerror = () => reject(new Error("Preview image could not be decoded"));
-      image.src = objectUrl;
-    });
-  }
-
-  function revokePreviewObjectUrl(): void {
-    if (activePreviewObjectUrl !== null) {
-      URL.revokeObjectURL(activePreviewObjectUrl);
-      activePreviewObjectUrl = null;
-    }
+    previewLoading = false;
   }
 
   async function copyGeneratedUrl(): Promise<void> {
@@ -657,6 +595,8 @@
               class:is-loading={previewLoading}
               src={previewImageUrl}
               alt="Processed sample source"
+              onload={(event) => onPreviewLoaded(event.currentTarget as HTMLImageElement)}
+              onerror={onPreviewError}
             />
           {/if}
         </figure>
