@@ -131,9 +131,9 @@ end
 ```
 
 The `:target_distance` field spec is **new** and butteraugli-specific. It must *not* reuse the
-existing `:target_float` spec, which hard-clamps to `0.0..100.0` (the ssim2 range) — butteraugli
-distance is a non-negative float in a different range. The parser does only structural parsing
-(non-negative float); the `{0.0, 25.0}` range check is the resolve-time Output concern below.
+existing `:target_float` spec, which hard-clamps to `0.0..100.0` (the ssim2 range). `:target_distance`
+enforces `0.0..25.0` — the **parser is where target-range validation lives** (revised during plan
+review; see below).
 
 The existing `aq:ssim2:…`, `aq:size:…`, `aq:dssim`, `aq:none` clauses keep their behavior;
 they now build `QualitySearch.Ssimulacra2` / `QualitySearch.Size` respectively.
@@ -149,8 +149,15 @@ fields resolve today. **Butteraugli's default `min/max_quality` bracket is full-
 *not* ssim2's `70`/`80`: because `dist(80) = 1.9 > 1.0`, a default ceiling of `80` would clamp
 essentially every `target 1.0` request down to Q80 on the native path. Full-range defaults keep the
 bracket inert unless the user explicitly narrows it (the guardrail bites only when asked for).
-Target-*range* validation is **not** done here (the parser does not know metric ranges); it is a
-resolve-time Output concern.
+
+**Target-range validation is parser-side** (revised during plan review). The existing ssim2 path
+*already* range-validates at the parser — `:target_float` rejects outside `0.0..100.0`.
+`:target_distance` mirrors that (rejects outside `0.0..25.0`), and `resolve_quality_search_target`
+validates the config-resolved target too, so a host-config default out of range is caught, not just
+URL tokens. This keeps `Output.Policy`'s resolve **infallible** (it is reached through the
+infallible `resolved/1`, whose error-threading blast radius spans `producer.ex` and the HDR path).
+`Output.Metric.target_range/0` stays the source-of-truth constant the parser mirrors (a literal, no
+parser→Output dependency — same as `:target_float`'s inline `0–100`) and the native-JXL clamp uses.
 
 > Note: `aq:butteraugli` is an ImagePipe extension — imgproxy has no butteraugli autoquality
 > method (its set is `none|size|dssim|ml`), so there is no upstream behavior to match or diverge
@@ -226,9 +233,9 @@ are unused this cycle.
 
   The `(metric, format)` → strategy mapping *is* the generic native seam; a future format/metric
   with a native knob adds one resolver clause + one strategy. Plan stays format-agnostic — the
-  native-ness appears only here, in the Output resolve layer. `resolve_search` also validates
-  `target ∈ runtime.target_range()` for quality metrics (a metric-semantic check correctly owned by
-  Output, not the parser); out-of-range is a resolve-time request error.
+  native-ness appears only here, in the Output resolve layer. `resolve_search` is **infallible** —
+  target-range validation is parser-side (above), so resolve never returns an error and the
+  infallible `resolved/1` chain is undisturbed.
 - **`EncodeSearch` dispatches on the resolved struct** to a strategy. `Size`, `Ssimulacra2`, and
   (non-JXL) `Butteraugli` run the **external-measure** band search below; `NativeJxlButteraugli`
   runs the **native** strategy further below. Struct identity carries the strategy intact into the
@@ -317,8 +324,9 @@ Output.EncodeSearch.run/3  — dispatch on resolved struct:
 
 ## Error handling
 
-- **Out-of-range target** — resolve-time error from `Output.Policy.resolve_search`
-  (`target ∉ target_range()`), consistent with how other resolve-time output errors surface.
+- **Out-of-range target** — parser-side validation error (the `:target_distance` field spec and
+  `resolve_quality_search_target`), surfaced before plan construction, consistent with how the
+  existing `:target_float` ssim2 range rejection works.
 - **Score failure (external-measure strategy)** — `runtime.score/2` returning `{:error, reason}`
   is caught the same way the existing ssim2 score-error path is
   (`throw({:image_pipe_score_error, reason})` → `{:error, {:encode, reason}}`). The butteraugli
@@ -356,9 +364,9 @@ Output.EncodeSearch.run/3  — dispatch on resolved struct:
   installed libjxl; this fails loudly if libjxl ever changes its Q→distance conversion.
 - **Full-frame-only** — a butteraugli resolved search above 6 MP yields `scorer: :full` and never
   consults `quality_search_offsets`; the rewritten crop guards match the Ssimulacra2 struct type.
-- **Resolve** — out-of-range butteraugli target rejected, in-range accepted; the rejection covers a
-  **host-config-default** out-of-range target, not only a URL-supplied one (both converge on the
-  same struct before resolve).
+- **Parser range rejection** — out-of-range butteraugli target rejected, in-range accepted; the
+  rejection covers a **host-config-default** out-of-range target (via `resolve_quality_search_target`),
+  not only a URL-supplied one.
 - **Cache key** — semantically distinct autoquality requests (ssim2 vs butteraugli at the same
   numeric target) produce distinct keys; equivalent requests reuse a key.
 - **Wire-level** — a representative `aq:butteraugli` request through `ImagePipe.call/2` decoding the
