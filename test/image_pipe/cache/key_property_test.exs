@@ -278,8 +278,8 @@ defmodule ImagePipe.Cache.KeyPropertyTest do
                   {"image/avif", "image/webp"},
                   {"image/avif", "image/jpeg"},
                   {"image/webp", "image/jpeg"},
-                  {"image/*", "*/*"},
-                  {"image/avif;q=0,image/*", "image/*"}
+                  {"image/avif,image/*", "image/*"},
+                  {"image/avif", "image/avif;q=0,image/*"}
                 ]),
               max_runs: 100 do
       plan = plan(output: %Output{mode: :automatic})

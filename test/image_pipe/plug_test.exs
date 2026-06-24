@@ -1450,7 +1450,7 @@ defmodule ImagePipe.PlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
-  test "exact Accept exclusion overrides wildcard allowance" do
+  test "image/* wildcard does not rescue a format excluded by an exact q=0" do
     conn =
       :get
       |> conn("/_/plain/images/beach.jpg")
@@ -1464,9 +1464,9 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 200
-    # avif is excluded by its exact q=0; the image/* wildcard still allows the
-    # other modern formats, and JPEG XL wins on server preference.
-    assert get_resp_header(conn, "content-type") == ["image/jxl"]
+    # avif is excluded by its exact q=0, and image/* is not a modern-format signal,
+    # so negotiation falls back to the source format.
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
