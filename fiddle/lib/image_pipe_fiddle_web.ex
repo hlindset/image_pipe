@@ -17,7 +17,7 @@ defmodule ImagePipeFiddleWeb do
   those modules here.
   """
 
-  def static_paths, do: ~w(assets images)
+  def static_paths, do: ~w(assets images preview-sw.js)
 
   def router do
     quote do

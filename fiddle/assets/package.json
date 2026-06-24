@@ -2,9 +2,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && pnpm run build:sw",
+    "build:sw": "vite build --config vite.sw.config.ts",
     "dev": "vite",
-    "check": "tsgo --project tsconfig.json --noEmit && svelte-check --tsconfig tsconfig.json",
+    "check": "tsgo --project tsconfig.json --noEmit && tsgo --project tsconfig.sw.json --noEmit && svelte-check --tsconfig tsconfig.json",
     "format": "oxfmt --write . vite.config.ts",
     "format:check": "oxfmt --check . vite.config.ts",
     "lint": "oxlint . vite.config.ts --ignore-pattern '**/node_modules/**'",
