@@ -60,14 +60,15 @@ jobs:
             [tools]
             erlang = "${{ matrix.erlang }}"
             elixir = "${{ matrix.elixir }}"
-      - name: Install libvips build dependencies
+      - name: Install libvips build and runtime dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential meson ninja-build pkg-config \
             libglib2.0-dev libexpat1-dev libjpeg-turbo8-dev libpng-dev \
             libwebp-dev libtiff-dev libgif-dev libheif-dev librsvg2-dev \
-            liborc-0.4-dev liblcms2-dev libjxl-dev libcgif-dev
+            liborc-0.4-dev liblcms2-dev libjxl-dev libcgif-dev \
+            libheif-plugin-aomenc libheif-plugin-aomdec
       - name: Cache libvips build
         id: cache-vips
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
