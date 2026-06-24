@@ -5,7 +5,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Entry
-  alias ImagePipe.Output.Ssim2Metric
+  alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.SourceTest.CredentialProvider
   alias ImagePipe.SourceTest.FoobarTranslator
@@ -755,7 +755,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
       telemetry_prefix: telemetry_prefix
     ]
 
@@ -802,7 +802,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargeGraphicOriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
       telemetry_prefix: telemetry_prefix
     ]
 
@@ -840,7 +840,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
       telemetry_prefix: telemetry_prefix
     ]
 
