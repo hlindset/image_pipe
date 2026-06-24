@@ -1368,7 +1368,7 @@ defmodule ImagePipe.Cache.KeyTest do
 
     defp qs_search(overrides) do
       struct!(
-        %QualitySearch{objective: :ssim2, target: 90.0, min_quality: 70, max_quality: 80},
+        %QualitySearch.Ssimulacra2{target: 90.0, min_quality: 70, max_quality: 80},
         overrides
       )
     end
@@ -1420,6 +1420,25 @@ defmodule ImagePipe.Cache.KeyTest do
     test "max_resolution does not enter the ETag material" do
       assert qs_etag_for(qs_output(quality_search: qs_search(max_resolution: 0))) ==
                qs_etag_for(qs_output(quality_search: qs_search(max_resolution: 50)))
+    end
+
+    test "ssim2 and butteraugli searches at the same numeric target produce distinct keys" do
+      ssim2 = %QualitySearch.Ssimulacra2{
+        target: 1.0,
+        min_quality: 70,
+        max_quality: 80,
+        allowed_error: 0.1
+      }
+
+      butter = %QualitySearch.Butteraugli{
+        target: 1.0,
+        min_quality: 70,
+        max_quality: 80,
+        allowed_error: 0.1
+      }
+
+      refute qs_key_for(qs_output(quality_search: ssim2)).hash ==
+               qs_key_for(qs_output(quality_search: butter)).hash
     end
   end
 end
