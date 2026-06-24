@@ -39,6 +39,12 @@ jobs:
           - elixir: 1.20.0-otp-28
             erlang: 28
 
+    # JPEG XL output is a first-class format, but the precompiled libvips vix
+    # downloads by default (sharp-libvips) ships without libjxl save. Compile vix
+    # against a system libvips that does, so the JXL tests run for real.
+    env:
+      VIX_COMPILATION_MODE: PLATFORM_PROVIDED_LIBVIPS
+
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
@@ -47,6 +53,16 @@ jobs:
             [tools]
             erlang = "${{ matrix.erlang }}"
             elixir = "${{ matrix.elixir }}"
+      - name: Install system libvips
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvips-dev libvips-tools
+          echo "=== libvips version ==="
+          vips --version
+          echo "=== JPEG XL in vips-config ==="
+          vips --vips-config | tr ',' '\n' | grep -i jxl || echo "NO JXL in vips-config"
+          echo "=== jxl operations ==="
+          vips -l | grep -i jxl || echo "NO jxl operations"
       - name: Print versions
         run: mise exec -- elixir --version
       - name: Install Hex
