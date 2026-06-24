@@ -161,8 +161,24 @@ defmodule ImagePipe.Output.Encoder do
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
 
+  @doc """
+  Encode `image` to a JPEG XL buffer at a target butteraugli `distance`
+  (0.0–25.0). Used by the native-JXL autoquality strategy. Failures surface as
+  `{:error, {:encode, _, _}}`, consistent with `encode_jxl_buffer/2`.
+  """
+  @spec encode_jxl_distance(VixImage.t(), number()) :: {:ok, binary()} | {:error, term()}
+  def encode_jxl_distance(%VixImage{} = image, distance) do
+    case VixImage.write_to_buffer(image, jxl_vix_suffix({:distance, distance})) do
+      {:ok, binary} -> {:ok, binary}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
+  rescue
+    exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
   defp jxl_vix_suffix(:default), do: ".jxl"
   defp jxl_vix_suffix({:quality, value}), do: ".jxl[Q=#{value}]"
+  defp jxl_vix_suffix({:distance, value}), do: ".jxl[distance=#{value}]"
   defp jxl_vix_suffix(value) when is_integer(value), do: ".jxl[Q=#{value}]"
 
   defp encode_error(reason),

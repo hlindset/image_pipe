@@ -168,6 +168,16 @@ defmodule ImagePipe.Output.EncoderTest do
     end
   end
 
+  describe "encode_jxl_distance/2" do
+    @tag :jxl
+    test "jxl distance suffix encodes a valid JXL" do
+      {:ok, img} = Image.new(64, 64, color: [100, 110, 120])
+      assert {:ok, bin} = Encoder.encode_jxl_distance(img, 1.5)
+      assert {:ok, decoded} = Image.from_binary(bin)
+      assert Image.width(decoded) == 64
+    end
+  end
+
   describe "stream_output/3 (search path)" do
     test "honors a max_bytes ceiling (best-effort)" do
       {:ok, img} = Image.open(@fixture)
