@@ -48,9 +48,14 @@ jobs:
     env:
       VIX_COMPILATION_MODE: PLATFORM_PROVIDED_LIBVIPS
       VIPS_VERSION: "8.18.2"
-      VIPS_PREFIX: /opt/vips
-      PKG_CONFIG_PATH: /opt/vips/lib/pkgconfig
-      LD_LIBRARY_PATH: /opt/vips/lib
+      # Upstream SHA256 of vips-${VIPS_VERSION}.tar.xz (release .sha256sum asset).
+      VIPS_SHA256: "a30d4aede16f1c2899c1a2241870f8a7409feafa38484bcdcdac113d6d6f8ff5"
+      # Runner-writable prefix: install runs as the runner user (no sudo), so the
+      # cached tree isn't root-owned and restores cleanly. LD_LIBRARY_PATH below
+      # makes the loader find libvips without ldconfig.
+      VIPS_PREFIX: ${{ github.workspace }}/.vips
+      PKG_CONFIG_PATH: ${{ github.workspace }}/.vips/lib/pkgconfig
+      LD_LIBRARY_PATH: ${{ github.workspace }}/.vips/lib
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -74,18 +79,20 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.VIPS_PREFIX }}
-          key: vips-${{ runner.os }}-${{ env.VIPS_VERSION }}-jxl-exif-v2
+          key: vips-${{ runner.os }}-${{ env.VIPS_VERSION }}-jxl-exif-v3
       - name: Build libvips with JPEG XL
         if: steps.cache-vips.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL "https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/vips-${VIPS_VERSION}.tar.xz" | tar xJ
+          tarball="vips-${VIPS_VERSION}.tar.xz"
+          curl -fsSL -o "${tarball}" "https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/${tarball}"
+          echo "${VIPS_SHA256}  ${tarball}" | sha256sum --check --strict
+          tar xJf "${tarball}"
           cd "vips-${VIPS_VERSION}"
           meson setup build --prefix="${VIPS_PREFIX}" --libdir=lib --buildtype=release
           meson compile -C build
-          sudo meson install -C build
+          meson install -C build
       - name: Verify libvips can write JPEG XL
         run: |
-          sudo ldconfig "${VIPS_PREFIX}/lib"
           "${VIPS_PREFIX}/bin/vips" --version
           "${VIPS_PREFIX}/bin/vips" -l | grep -iq jxlsave || { echo "JXL save missing from build"; exit 1; }
       - name: Print versions
