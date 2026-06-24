@@ -61,7 +61,11 @@ defmodule ImagePipe.Plan.Output do
           color_profile: color_profile(),
           hdr: hdr(),
           flatten_background: Color.t(),
-          quality_search: :none | ImagePipe.Plan.Output.QualitySearch.t(),
+          quality_search:
+            :none
+            | ImagePipe.Plan.Output.QualitySearch.Size.t()
+            | ImagePipe.Plan.Output.QualitySearch.Ssimulacra2.t()
+            | ImagePipe.Plan.Output.QualitySearch.Butteraugli.t(),
           max_bytes: nil | pos_integer(),
           quality_search_offsets: quality_search_offsets()
         }

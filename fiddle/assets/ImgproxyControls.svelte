@@ -1092,6 +1092,7 @@
       <option value="none">none</option>
       <option value="size">size</option>
       <option value="ssim2">ssim2</option>
+      <option value="butteraugli">butteraugli</option>
     </select>
   </label>
 
@@ -1126,6 +1127,37 @@
       min={controlLimits.autoquality.ssim2Target.min}
       max={controlLimits.autoquality.ssim2Target.max}
       step={controlLimits.autoquality.ssim2Target.step}
+    />
+    <RangeNumber
+      label="Min quality"
+      bind:value={fiddleState.autoqualityMinQuality}
+      min={controlLimits.autoquality.quality.min}
+      max={controlLimits.autoquality.quality.max}
+      step={controlLimits.autoquality.quality.step}
+    />
+    <RangeNumber
+      label="Max quality"
+      bind:value={fiddleState.autoqualityMaxQuality}
+      min={controlLimits.autoquality.quality.min}
+      max={controlLimits.autoquality.quality.max}
+      step={controlLimits.autoquality.quality.step}
+    />
+    <RangeNumber
+      label="Allowed error"
+      bind:value={fiddleState.autoqualityAllowedError}
+      min={controlLimits.autoquality.allowedError.min}
+      max={controlLimits.autoquality.allowedError.max}
+      step={controlLimits.autoquality.allowedError.step}
+    />
+  {/if}
+
+  {#if fiddleState.autoqualityMethod === "butteraugli"}
+    <RangeNumber
+      label="Target (butteraugli distance, lower=better)"
+      bind:value={fiddleState.autoqualityButteraugliTarget}
+      min={controlLimits.autoquality.butteraugliTarget.min}
+      max={controlLimits.autoquality.butteraugliTarget.max}
+      step={controlLimits.autoquality.butteraugliTarget.step}
     />
     <RangeNumber
       label="Min quality"

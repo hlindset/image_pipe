@@ -1,6 +1,6 @@
 defmodule ImagePipe.Output.Ssim2MetricTest do
   use ExUnit.Case, async: true
-  alias ImagePipe.Output.Ssim2Metric
+  alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
 
   setup do
     {:ok, img} =

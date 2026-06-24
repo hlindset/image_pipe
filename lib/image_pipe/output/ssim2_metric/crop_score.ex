@@ -7,11 +7,11 @@ defmodule ImagePipe.Output.Ssim2Metric.CropScore do
   source size (issue #354, benchmark Part E).
 
   This module does tiling + `extract_area` only; **all** SSIMULACRA2 access is
-  delegated to the parent `ImagePipe.Output.Ssim2Metric`, which stays the only
+  delegated to `ImagePipe.Output.Metric.Ssimulacra2`, which stays the only
   module touching the SSIMULACRA2 NIF.
   """
 
-  alias ImagePipe.Output.Ssim2Metric
+  alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
   alias Vix.Vips.Operation
 
   # Part E operating point. Internal constants, not host config (issue #354

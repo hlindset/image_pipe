@@ -293,7 +293,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_autoquality(["size" | rest], segment) when length(rest) <= 3 do
     with {:ok, fields} <-
            parse_autoquality_args(rest, [:target_bytes, :min_quality, :max_quality]) do
-      autoquality_result([objective: :size] ++ fields, segment)
+      autoquality_result([metric: :size] ++ fields, segment)
     end
   end
 
@@ -305,12 +305,24 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
              :max_quality,
              :allowed_error
            ]) do
-      autoquality_result([objective: :ssim2] ++ fields, segment)
+      autoquality_result([metric: :ssimulacra2] ++ fields, segment)
+    end
+  end
+
+  defp parse_autoquality(["butteraugli" | rest], segment) when length(rest) <= 4 do
+    with {:ok, fields} <-
+           parse_autoquality_args(rest, [
+             :target_distance,
+             :min_quality,
+             :max_quality,
+             :allowed_error
+           ]) do
+      autoquality_result([metric: :butteraugli] ++ fields, segment)
     end
   end
 
   defp parse_autoquality(["dssim"], _segment),
-    do: {:ok, [quality_search: {:autoquality, [objective: :ssim2]}]}
+    do: {:ok, [quality_search: {:autoquality, [metric: :ssimulacra2]}]}
 
   defp parse_autoquality(_args, segment),
     do: {:error, {:invalid_option, :autoquality, segment}}
@@ -348,6 +360,14 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_autoquality_field(:target_float, value) do
     case parse_float(value) do
       {:ok, float} when float >= 0.0 and float <= 100.0 -> {:ok, {:target, float}}
+      {:ok, _float} -> {:error, {:invalid_float, value}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_autoquality_field(:target_distance, value) do
+    case parse_non_negative_float(value) do
+      {:ok, float} when float <= 25.0 -> {:ok, {:target, float}}
       {:ok, _float} -> {:error, {:invalid_float, value}}
       {:error, _reason} = error -> error
     end

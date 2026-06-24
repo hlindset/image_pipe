@@ -69,13 +69,19 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     Telemetry.span(
       [],
       [:encode, :search],
-      %{objective: :ssim2, min_quality: 50, max_quality: 90, target: 90.0, max_bytes: 200_000},
+      %{
+        objective: :ssimulacra2,
+        min_quality: 50,
+        max_quality: 90,
+        target: 90.0,
+        max_bytes: 200_000
+      },
       fn -> {:ok, %{result: :ok}} end
     )
 
     assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
     assert span.status == :ok
-    assert span.attributes[:objective] == :ssim2
+    assert span.attributes[:objective] == :ssimulacra2
     assert span.attributes[:max_bytes] == 200_000
     assert span.attributes[:target] == 90.0
   end
@@ -106,7 +112,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "captures the encode-search probe as a span nested under the search, with its phase/numbers" do
-    Telemetry.span([], [:encode, :search], %{objective: :ssim2}, fn ->
+    Telemetry.span([], [:encode, :search], %{objective: :ssimulacra2}, fn ->
       Telemetry.span(
         [],
         [:encode, :search, :probe],
@@ -137,7 +143,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "folds the delivered-probe chosen marker onto the enclosing search span" do
-    Telemetry.span([], [:encode, :search], %{objective: :ssim2}, fn ->
+    Telemetry.span([], [:encode, :search], %{objective: :ssimulacra2}, fn ->
       Telemetry.execute(
         [],
         [:encode, :search, :probe, :chosen],
@@ -163,26 +169,36 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert chosen.attributes[:scorer] == :full
   end
 
-  test "nests the probe cost legs (encode/decode/metric) under the probe span" do
+  test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do
     Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
       Telemetry.span([], [:encode, :search, :probe, :encode], %{quality: 62}, fn ->
         {:ok, %{result: :ok, bytes: 12_345}}
       end)
 
-      Telemetry.span([], [:encode, :search, :probe, :ssim2, :decode], %{bytes: 12_345}, fn ->
-        {:ok, %{result: :ok}}
-      end)
+      Telemetry.span(
+        [],
+        [:encode, :search, :probe, :ssimulacra2, :decode],
+        %{bytes: 12_345},
+        fn ->
+          {:ok, %{result: :ok}}
+        end
+      )
 
-      Telemetry.span([], [:encode, :search, :probe, :ssim2, :metric], %{tiles_scored: 12}, fn ->
-        {90.42, %{result: :ok, score: 90.42}}
-      end)
+      Telemetry.span(
+        [],
+        [:encode, :search, :probe, :ssimulacra2, :metric],
+        %{tiles_scored: 12},
+        fn ->
+          {90.42, %{result: :ok, score: 90.42}}
+        end
+      )
 
       {:ok, %{bytes: 12_345}}
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.encode"} = enc}
-    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.ssim2.decode"} = dec}
-    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.ssim2.metric"} = met}
+    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.ssimulacra2.decode"} = dec}
+    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.ssimulacra2.metric"} = met}
     assert_receive {:span, %Span{name: "image_pipe.encode.search.probe"} = probe}
 
     for leg <- [enc, dec, met] do
@@ -191,6 +207,36 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end
 
     assert met.attributes[:tiles_scored] == 12
+  end
+
+  test "captures the butteraugli probe cost legs (per-metric segment)" do
+    Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
+      Telemetry.span([], [:encode, :search, :probe, :butteraugli, :decode], %{bytes: 9_001}, fn ->
+        {:ok, %{result: :ok}}
+      end)
+
+      Telemetry.span(
+        [],
+        [:encode, :search, :probe, :butteraugli, :metric],
+        %{tiles_scored: nil},
+        fn ->
+          {1.2, %{result: :ok, score: 1.2}}
+        end
+      )
+
+      {:ok, %{bytes: 9_001}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.butteraugli.decode"} = dec}
+    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.butteraugli.metric"} = met}
+    assert_receive {:span, %Span{name: "image_pipe.encode.search.probe"} = probe}
+
+    for leg <- [dec, met] do
+      assert leg.parent_span_id == probe.span_id
+      assert leg.trace_id == probe.trace_id
+    end
+
+    assert met.attributes[:score] == 1.2
   end
 
   test "captures the render span with its renderer attribute" do
@@ -208,7 +254,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     Telemetry.span(
       [],
       [:encode, :search],
-      %{objective: :ssim2, max_bytes: 200_000},
+      %{objective: :ssimulacra2, max_bytes: 200_000},
       fn ->
         {:ok,
          %{
@@ -224,7 +270,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     assert_receive {:span, %Span{name: "image_pipe.encode.search"} = span}
     # start attributes preserved
-    assert span.attributes[:objective] == :ssim2
+    assert span.attributes[:objective] == :ssimulacra2
     assert span.attributes[:max_bytes] == 200_000
     # stop attributes (the per-result verdict) now captured
     assert span.attributes[:chosen_quality] == 62

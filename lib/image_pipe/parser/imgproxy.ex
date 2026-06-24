@@ -51,19 +51,24 @@ defmodule ImagePipe.Parser.Imgproxy do
                      strip_color_profile: [type: :boolean, default: true],
                      preserve_hdr: [type: :boolean, default: false],
                      smart_crop_face_detection: [type: :boolean, default: false],
-                     autoquality_method: [type: {:in, [:none, :size, :ssim2]}, default: :none],
-                     # No schema default: the target's scale is objective-dependent
-                     # (SSIMULACRA2 score for `:ssim2`, byte count for `:size`), so the
-                     # `:ssim2` default is applied objective-aware in `Options`; `:size`
-                     # stays required. A host-set value overrides for either objective.
+                     autoquality_method: [
+                       type: {:in, [:none, :size, :ssimulacra2, :butteraugli]},
+                       default: :none
+                     ],
+                     # No schema default: the target's scale is metric-dependent
+                     # (SSIMULACRA2 score for `:ssimulacra2`, byte count for `:size`,
+                     # butteraugli distance for `:butteraugli`), so the perceptual
+                     # defaults are applied metric-aware in `Options`; `:size` stays
+                     # required. A host-set value overrides for any metric.
                      autoquality_target: [type: {:or, [:integer, :float]}],
                      autoquality_min_quality: [type: :pos_integer, default: 70],
                      autoquality_max_quality: [type: :pos_integer, default: 80],
-                     # Symmetric SSIMULACRA2-scale tolerance band (points on 0–100),
+                     # Symmetric tolerance band on the metric's own scale (SSIMULACRA2
+                     # points on 0–100 for `:ssimulacra2`, distance for `:butteraugli`),
                      # NOT imgproxy's DSSIM `allowed_error` (0–1, 1.0 = accept anything);
-                     # here 1.0 is a strict ±1-point band around the target. Applies only
-                     # to `:ssim2`. See QualitySearch. Must be non-negative: a negative
-                     # value would invert the band (`band_lo > band_hi`) in EncodeSearch.
+                     # for ssimulacra2 a 1.0 is a strict ±1-point band around the target.
+                     # See `QualitySearch.*`. Must be non-negative: a negative value would
+                     # invert the band (`band_lo > band_hi`) in EncodeSearch.
                      # The URL form is already guarded by the grammar's non-negative parse.
                      autoquality_allowed_error: [
                        type: {:custom, __MODULE__, :validate_non_negative_number, []},

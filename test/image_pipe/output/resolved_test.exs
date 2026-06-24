@@ -18,8 +18,7 @@ defmodule ImagePipe.Output.ResolvedTest do
   end
 
   test "ResolvedQualitySearch holds a format-clamped bracket" do
-    s = %ResolvedQualitySearch{
-      objective: :ssim2,
+    s = %ResolvedQualitySearch.Ssimulacra2{
       target: 90.0,
       min_quality: 60,
       max_quality: 65,

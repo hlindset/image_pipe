@@ -1122,6 +1122,7 @@ function parsePreserveHdr(currentState: FiddleState, args: string[]): FiddleStat
 
 // autoquality:none | autoquality:size:%target[:%min[:%max]]
 // | autoquality:ssim2:%target[:%min[:%max[:%allowed_error]]]
+// | autoquality:butteraugli:%target[:%min[:%max[:%allowed_error]]]  (ImagePipe extension; distance 0–25)
 function parseAutoquality(currentState: FiddleState, args: string[]): FiddleState | null {
   const [method, ...rest] = args as [string?, ...string[]];
 
@@ -1147,6 +1148,20 @@ function parseAutoquality(currentState: FiddleState, args: string[]): FiddleStat
       ...currentState,
       autoqualityMethod: "ssim2",
       autoqualitySsim2Target: parsedTarget ?? currentState.autoqualitySsim2Target,
+      autoqualityMinQuality: parseQualityValue(min) ?? currentState.autoqualityMinQuality,
+      autoqualityMaxQuality: parseQualityValue(max) ?? currentState.autoqualityMaxQuality,
+      autoqualityAllowedError:
+        parseNonNegativeNumber(allowedError) ?? currentState.autoqualityAllowedError,
+    };
+  }
+
+  if (method === "butteraugli" && rest.length <= 4) {
+    const [target, min, max, allowedError] = rest;
+    const parsedTarget = parseDistanceValue(target);
+    return {
+      ...currentState,
+      autoqualityMethod: "butteraugli",
+      autoqualityButteraugliTarget: parsedTarget ?? currentState.autoqualityButteraugliTarget,
       autoqualityMinQuality: parseQualityValue(min) ?? currentState.autoqualityMinQuality,
       autoqualityMaxQuality: parseQualityValue(max) ?? currentState.autoqualityMaxQuality,
       autoqualityAllowedError:
@@ -1209,6 +1224,17 @@ function parseNonNegativeNumber(value: string | undefined): number | null {
   const number = parseNumber(value);
 
   if (number === null || number < 0) {
+    return null;
+  }
+
+  return number;
+}
+
+// Butteraugli distance target: 0–25 (libvips `jxlsave` `distance` bound).
+function parseDistanceValue(value: string | undefined): number | null {
+  const number = parseNumber(value);
+
+  if (number === null || number < 0 || number > 25) {
     return null;
   }
 

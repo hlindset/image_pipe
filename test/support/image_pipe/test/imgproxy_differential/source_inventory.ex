@@ -145,9 +145,9 @@ defmodule ImagePipe.Test.ImgproxyDifferential.SourceInventory do
                produced_by: :gen_sources,
                content:
                  "Deterministic radial chirp (zone plate) — broadband high-frequency content.",
-               consumers: [:ssim2],
+               consumers: [:ssim2, :butteraugli],
                invariant:
-                 "Heavy-downscale resample-skew source; its diffuse skew calibrates the zone-plate tols. Also the quality-sensitive fixture for the SSIMULACRA2 metric + encode-search unit tests."
+                 "Heavy-downscale resample-skew source; its diffuse skew calibrates the zone-plate tols. Also the quality-sensitive fixture for the SSIMULACRA2 metric + encode-search unit tests (incl. the native-JXL butteraugli max_bytes self-cap test)."
              },
              %{
                file: "high_freq.webp",

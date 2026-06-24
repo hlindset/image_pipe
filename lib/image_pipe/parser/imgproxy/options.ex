@@ -14,9 +14,13 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   # (≈ imgproxy's DSSIM-0.02 intent) and chosen below the tightest default cap
   # ceiling so the search lands in-bracket rather than pinning best-effort —
   # see `docs/imgproxy_support_matrix.md` (Autoquality and byte-budget search).
-  # Objective-specific on purpose: `:size`'s target is a byte count, which has
+  # Metric-specific on purpose: `:size`'s target is a byte count, which has
   # no sane default, so it stays required.
   @default_ssim2_target 78
+
+  # Default butteraugli distance target (≈ visually lossless) when a butteraugli
+  # search is active but neither URL nor host config supplies one.
+  @default_butteraugli_target 1.0
 
   @effect_fields [
     :blur,
@@ -347,9 +351,9 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       :none ->
         {:ok, %{output | quality_search: :none}}
 
-      objective ->
+      metric ->
         build_quality_search(
-          objective,
+          metric,
           url_quality_search_fields(output.quality_search),
           defaults
         )
@@ -363,7 +367,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   defp effective_quality_search_method({:autoquality, :disabled}, _defaults), do: :none
 
   defp effective_quality_search_method({:autoquality, fields}, defaults) when is_list(fields),
-    do: Keyword.get(fields, :objective, Keyword.get(defaults, :autoquality_method, :none))
+    do: Keyword.get(fields, :metric, Keyword.get(defaults, :autoquality_method, :none))
 
   defp effective_quality_search_method(:none, defaults),
     do: Keyword.get(defaults, :autoquality_method, :none)
@@ -371,50 +375,101 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   defp url_quality_search_fields({:autoquality, fields}) when is_list(fields), do: fields
   defp url_quality_search_fields(_quality_search), do: []
 
-  defp build_quality_search(objective, fields, defaults) do
-    case resolve_quality_search_target(objective, fields, defaults) do
-      {:ok, target} ->
-        {:ok,
-         %QualitySearch{
-           objective: objective,
-           target: target,
-           min_quality:
-             Keyword.get(
-               fields,
-               :min_quality,
-               Keyword.get(defaults, :autoquality_min_quality, 70)
-             ),
-           max_quality:
-             Keyword.get(
-               fields,
-               :max_quality,
-               Keyword.get(defaults, :autoquality_max_quality, 80)
-             ),
-           allowed_error:
-             Keyword.get(
-               fields,
-               :allowed_error,
-               Keyword.get(defaults, :autoquality_allowed_error, 1.0)
-             ),
-           format_min: Keyword.get(defaults, :autoquality_format_min_quality, %{}),
-           format_max: Keyword.get(defaults, :autoquality_format_max_quality, %{}),
-           max_resolution: Keyword.get(defaults, :autoquality_max_resolution, 0)
-         }}
-
-      {:error, _reason} = error ->
-        error
+  defp build_quality_search(:size, fields, defaults) do
+    with {:ok, target} <- resolve_quality_search_target(:size, fields, defaults) do
+      {:ok,
+       %QualitySearch.Size{
+         target: target,
+         min_quality:
+           Keyword.get(fields, :min_quality, Keyword.get(defaults, :autoquality_min_quality, 70)),
+         max_quality:
+           Keyword.get(fields, :max_quality, Keyword.get(defaults, :autoquality_max_quality, 80)),
+         format_min: Keyword.get(defaults, :autoquality_format_min_quality, %{}),
+         format_max: Keyword.get(defaults, :autoquality_format_max_quality, %{}),
+         max_resolution: Keyword.get(defaults, :autoquality_max_resolution, 0)
+       }}
     end
   end
 
-  defp resolve_quality_search_target(objective, fields, defaults) do
+  defp build_quality_search(:ssimulacra2, fields, defaults),
+    do:
+      build_quality_metric(QualitySearch.Ssimulacra2, :ssimulacra2, fields, defaults, 70, 80, 1.0)
+
+  defp build_quality_search(:butteraugli, fields, defaults),
+    do:
+      build_quality_metric(QualitySearch.Butteraugli, :butteraugli, fields, defaults, 1, 100, 0.1)
+
+  defp build_quality_metric(
+         struct_mod,
+         metric,
+         fields,
+         defaults,
+         default_min,
+         default_max,
+         default_error
+       ) do
+    with {:ok, target} <- resolve_quality_search_target(metric, fields, defaults) do
+      {:ok,
+       struct(struct_mod, %{
+         target: target,
+         min_quality:
+           Keyword.get(
+             fields,
+             :min_quality,
+             Keyword.get(defaults, :autoquality_min_quality, default_min)
+           ),
+         max_quality:
+           Keyword.get(
+             fields,
+             :max_quality,
+             Keyword.get(defaults, :autoquality_max_quality, default_max)
+           ),
+         allowed_error:
+           Keyword.get(
+             fields,
+             :allowed_error,
+             Keyword.get(defaults, :autoquality_allowed_error, default_error)
+           ),
+         format_min: Keyword.get(defaults, :autoquality_format_min_quality, %{}),
+         format_max: Keyword.get(defaults, :autoquality_format_max_quality, %{}),
+         max_resolution: Keyword.get(defaults, :autoquality_max_resolution, 0)
+       })}
+    end
+  end
+
+  defp resolve_quality_search_target(metric, fields, defaults) do
     case Keyword.get(fields, :target, Keyword.get(defaults, :autoquality_target)) do
-      nil -> default_target(objective)
-      target -> {:ok, target}
+      nil -> default_target(metric)
+      target -> validate_target_range(metric, target)
     end
   end
 
-  defp default_target(:ssim2), do: {:ok, @default_ssim2_target}
-  defp default_target(_objective), do: {:error, {:invalid_option, :autoquality, :missing_target}}
+  # :size target is a byte count. The URL `:target_bytes` field already enforces a
+  # positive integer, but a host-config `autoquality_target` is only schema-checked
+  # as a number ({:integer | :float}), so re-assert positive-integer bytes here to
+  # reject a misconfigured `0`, negative, or fractional byte budget.
+  defp validate_target_range(:size, target) when is_integer(target) and target > 0,
+    do: {:ok, target}
+
+  defp validate_target_range(:size, target),
+    do: {:error, {:invalid_option, :autoquality, {:target_out_of_range, target}}}
+
+  defp validate_target_range(metric, target) do
+    {lo, hi} = metric_target_range(metric)
+
+    if is_number(target) and target >= lo and target <= hi,
+      do: {:ok, target},
+      else: {:error, {:invalid_option, :autoquality, {:target_out_of_range, target}}}
+  end
+
+  # Mirrors Output.Metric.*.target_range/0 (parser may not depend on Output; same
+  # precedent as :target_float's inline 0–100 clamp).
+  defp metric_target_range(:ssimulacra2), do: {0.0, 100.0}
+  defp metric_target_range(:butteraugli), do: {0.0, 25.0}
+
+  defp default_target(:ssimulacra2), do: {:ok, @default_ssim2_target}
+  defp default_target(:butteraugli), do: {:ok, @default_butteraugli_target}
+  defp default_target(_metric), do: {:error, {:invalid_option, :autoquality, :missing_target}}
 
   defp resolve_metadata_defaults(output, defaults) do
     strip = resolve_bool(output.strip_metadata, Keyword.get(defaults, :strip_metadata, true))

@@ -7,10 +7,11 @@
 # General application configuration
 import Config
 
-# No precompiled NIF is published for the pinned ssimulacra2 git ref (pulled in
-# transitively via the image_pipe path dependency), so build the Rust NIF from
-# source via RustlerPrecompiled's force-build path.
+# No precompiled NIF is published for the pinned ssimulacra2/butteraugli git refs
+# (pulled in transitively via the image_pipe path dependency), so build the Rust
+# NIFs from source via RustlerPrecompiled's force-build path.
 config :ssimulacra2, :force_build, true
+config :butteraugli, :force_build, true
 
 config :image_pipe_fiddle,
   generators: [timestamp_type: :utc_datetime]

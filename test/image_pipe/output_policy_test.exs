@@ -362,8 +362,7 @@ defmodule ImagePipe.Output.PolicyTest do
     end
 
     test "per-format clamp overrides the global bracket for the negotiated format" do
-      search = %QualitySearch{
-        objective: :ssim2,
+      search = %QualitySearch.Ssimulacra2{
         target: 90.0,
         min_quality: 70,
         max_quality: 80,
@@ -372,15 +371,14 @@ defmodule ImagePipe.Output.PolicyTest do
         format_max: %{avif: 65}
       }
 
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch{} = rs}} =
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search, format: :avif), nil)
 
       assert rs.min_quality == 60 and rs.max_quality == 65
     end
 
     test "unlisted format falls back to the global bracket" do
-      search = %QualitySearch{
-        objective: :ssim2,
+      search = %QualitySearch.Ssimulacra2{
         target: 90.0,
         min_quality: 70,
         max_quality: 80,
@@ -389,15 +387,14 @@ defmodule ImagePipe.Output.PolicyTest do
         format_max: %{avif: 65}
       }
 
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch{} = rs}} =
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search, format: :jpeg), nil)
 
       assert rs.min_quality == 70 and rs.max_quality == 80
     end
 
-    test "carries objective, target, allowed_error, and max_resolution through" do
-      search = %QualitySearch{
-        objective: :ssim2,
+    test "carries target, allowed_error, and max_resolution through" do
+      search = %QualitySearch.Ssimulacra2{
         target: 90.0,
         min_quality: 70,
         max_quality: 80,
@@ -405,25 +402,23 @@ defmodule ImagePipe.Output.PolicyTest do
         max_resolution: 16
       }
 
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch{} = rs}} =
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search), nil)
 
-      assert rs.objective == :ssim2
       assert rs.target == 90.0
       assert rs.allowed_error == 1.0
       assert rs.max_resolution == 16
     end
 
     test "resolves quality_search_offsets to the per-class map for an avif negotiation" do
-      search = %QualitySearch{
-        objective: :ssim2,
+      search = %QualitySearch.Ssimulacra2{
         target: 78.0,
         min_quality: 70,
         max_quality: 80,
         allowed_error: 1.0
       }
 
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch{} = rs}} =
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search, format: :avif), nil)
 
       # avif × graphic draws the big offset; photo keeps the lean default.
@@ -431,18 +426,59 @@ defmodule ImagePipe.Output.PolicyTest do
     end
 
     test "a non-avif format keeps the lean default for both classes" do
-      search = %QualitySearch{
-        objective: :ssim2,
+      search = %QualitySearch.Ssimulacra2{
         target: 78.0,
         min_quality: 70,
         max_quality: 80,
         allowed_error: 1.0
       }
 
-      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch{} = rs}} =
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Ssimulacra2{} = rs}} =
                Policy.resolve(policy_with(search, format: :jpeg), nil)
 
       assert rs.quality_search_offsets == %{photo: 2.4, graphic: 2.4}
+    end
+
+    test "butteraugli plan resolves to external Butteraugli resolved struct (non-JXL)" do
+      search = %QualitySearch.Butteraugli{
+        target: 1.0,
+        min_quality: 1,
+        max_quality: 100,
+        allowed_error: 0.1
+      }
+
+      assert {:ok,
+              %Resolved{quality_search: %ResolvedQualitySearch.Butteraugli{target: 1.0} = rs}} =
+               Policy.resolve(policy_with(search, format: :webp), nil)
+
+      assert rs.allowed_error == 0.1
+    end
+
+    test "butteraugli + JXL resolves to the native strategy" do
+      search = %QualitySearch.Butteraugli{
+        target: 1.0,
+        min_quality: 1,
+        max_quality: 100,
+        allowed_error: 0.1
+      }
+
+      assert {:ok,
+              %Resolved{
+                quality_search: %ResolvedQualitySearch.NativeJxlButteraugli{target: 1.0}
+              }} =
+               Policy.resolve(policy_with(search, format: :jpeg_xl), nil)
+    end
+
+    test "butteraugli + webp stays external" do
+      search = %QualitySearch.Butteraugli{
+        target: 1.0,
+        min_quality: 1,
+        max_quality: 100,
+        allowed_error: 0.1
+      }
+
+      assert {:ok, %Resolved{quality_search: %ResolvedQualitySearch.Butteraugli{}}} =
+               Policy.resolve(policy_with(search, format: :webp), nil)
     end
 
     test "none stays none" do

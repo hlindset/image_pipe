@@ -24,7 +24,12 @@ defmodule ImagePipe.Output.Resolved do
           keep_copyright: boolean(),
           color_profile: ImagePipe.Plan.Output.color_profile(),
           flatten_background: Color.t(),
-          quality_search: :none | ImagePipe.Output.ResolvedQualitySearch.t(),
+          quality_search:
+            :none
+            | ImagePipe.Output.ResolvedQualitySearch.Size.t()
+            | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t()
+            | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t()
+            | ImagePipe.Output.ResolvedQualitySearch.NativeJxlButteraugli.t(),
           max_bytes: nil | pos_integer()
         }
 end

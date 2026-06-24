@@ -5,7 +5,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Entry
-  alias ImagePipe.Output.Ssim2Metric
+  alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.SourceTest.CredentialProvider
   alias ImagePipe.SourceTest.FoobarTranslator
@@ -755,7 +755,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
       telemetry_prefix: telemetry_prefix
     ]
 
@@ -802,7 +802,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargeGraphicOriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
       telemetry_prefix: telemetry_prefix
     ]
 
@@ -840,7 +840,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssim2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
       telemetry_prefix: telemetry_prefix
     ]
 
@@ -2978,6 +2978,70 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert conn.status == 200
       assert content_type(conn) == ["image/jpeg"]
       assert {:ok, _} = Image.from_binary(conn.resp_body)
+    end
+
+    test "aq:butteraugli produces a smaller-but-valid WebP vs max quality" do
+      # Phase-1 end-to-end exercise of the butteraugli external-measure path on a
+      # non-JXL format. A max-quality (q:100) WebP baseline is larger than the
+      # autoquality encode, which walks the quality knob to a butteraugli distance
+      # of ~1.0 (visually lossless). Decoded dimensions must match — only the byte
+      # budget differs.
+      baseline =
+        call_imgproxy("/_/rs:fit:400:400/q:100/f:webp/plain/images/beach.jpg", @default_opts)
+
+      auto =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:butteraugli:1.0:1:100:0.1/f:webp/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert auto.status == 200
+      assert content_type(auto) == ["image/webp"]
+      assert byte_size(auto.resp_body) < byte_size(baseline.resp_body)
+
+      assert {:ok, auto_image} = Image.from_binary(auto.resp_body)
+      assert {:ok, baseline_image} = Image.from_binary(baseline.resp_body)
+
+      assert {Image.width(auto_image), Image.height(auto_image)} ==
+               {Image.width(baseline_image), Image.height(baseline_image)}
+    end
+
+    @tag :jxl
+    test "aq:butteraugli on JXL takes the native single-encode path" do
+      # Phase-2 contract: butteraugli + JPEG XL resolves to NativeJxlButteraugli,
+      # which drives libvips' `distance` directly — a single encode, no band loop
+      # and no external NIF. Observe the verdict through the prefixed encode-search
+      # span: outcome :native, iterations 0.
+      telemetry_prefix = [:"ip_aq_native_jxl_#{System.unique_integer([:positive])}"]
+      search_stop = telemetry_prefix ++ [:encode, :search, :stop]
+      test_pid = self()
+      handler_id = "aq-native-jxl-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        search_stop,
+        fn _event, _measurements, meta, _config -> send(test_pid, {:search_stop, meta}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      opts = Keyword.put(@default_opts, :telemetry_prefix, telemetry_prefix)
+
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:butteraugli:1.0:1:100:0.1/f:jxl/plain/images/beach.jpg",
+          opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jxl"]
+      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+
+      assert_receive {:search_stop, meta}
+      assert meta.result == :ok
+      assert meta.outcome == :native
+      assert meta.iterations == 0
     end
 
     test "best-effort: an mb: below the floor-quality encode still returns 200" do

@@ -73,7 +73,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
           %{duration: System.convert_time_unit(4, :millisecond, :native)},
           %{
             result: :ok,
-            objective: :ssim2,
+            objective: :ssimulacra2,
             chosen_quality: 62,
             chosen_bytes: 12_345,
             iterations: 4,
@@ -98,7 +98,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
           %{duration: System.convert_time_unit(4, :millisecond, :native)},
           %{
             result: :ok,
-            objective: :ssim2,
+            objective: :ssimulacra2,
             chosen_quality: 72,
             chosen_bytes: 12_345,
             iterations: 4,
@@ -113,6 +113,31 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     refute log =~ "[warning]"
     assert log =~ "encode search: ok (crop hit q72 12345b score 90.42)"
+  end
+
+  test "renders the native JXL butteraugli encode-search stop at base level" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :search, :stop],
+          %{duration: System.convert_time_unit(4, :millisecond, :native)},
+          %{
+            result: :ok,
+            objective: :butteraugli,
+            chosen_quality: 0,
+            chosen_bytes: 8_192,
+            iterations: 0,
+            outcome: :native,
+            final_score: nil,
+            scorer: :full
+          }
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "encode search: ok (full native q0 8192b)"
   end
 
   test "renders the content-class classify span at base level" do

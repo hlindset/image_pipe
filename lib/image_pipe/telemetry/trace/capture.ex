@@ -17,10 +17,13 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:encode, :search, :probe],
     # Per-probe cost legs (eager NIF/op calls → honest durations). The encode leg
     # is method-neutral (fires for every objective); the scoring legs carry the
-    # metric-method segment (:ssim2) so a future metric gets distinct span names.
+    # per-metric segment (`:ssimulacra2`/`:butteraugli`, from the metric's
+    # `leg_name/0`) so each metric gets distinct span names a backend can group by.
     [:encode, :search, :probe, :encode],
-    [:encode, :search, :probe, :ssim2, :decode],
-    [:encode, :search, :probe, :ssim2, :metric],
+    [:encode, :search, :probe, :ssimulacra2, :decode],
+    [:encode, :search, :probe, :ssimulacra2, :metric],
+    [:encode, :search, :probe, :butteraugli, :decode],
+    [:encode, :search, :probe, :butteraugli, :metric],
     [:render],
     [:deliver],
     [:source, :resolve],

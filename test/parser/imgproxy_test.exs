@@ -99,14 +99,14 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     opts =
       Imgproxy.validate_options!(
         imgproxy: [
-          autoquality_method: :ssim2,
+          autoquality_method: :ssimulacra2,
           autoquality_target: 90.0,
           autoquality_min_quality: 70,
           autoquality_max_quality: 80
         ]
       )
 
-    assert opts[:imgproxy][:autoquality_method] == :ssim2
+    assert opts[:imgproxy][:autoquality_method] == :ssimulacra2
     assert opts[:imgproxy][:autoquality_target] == 90.0
   end
 

@@ -564,7 +564,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
       assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
                G.parse("autoquality:size:10240:10:80")
 
-      assert fields[:objective] == :size and fields[:target] == 10_240 and
+      assert fields[:metric] == :size and fields[:target] == 10_240 and
                fields[:min_quality] == 10 and fields[:max_quality] == 80
 
       refute Keyword.has_key?(fields, :allowed_error)
@@ -574,23 +574,45 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
       assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
                G.parse("autoquality:ssim2:90:70:80:1")
 
-      assert fields[:objective] == :ssim2 and fields[:target] == 90.0 and
+      assert fields[:metric] == :ssimulacra2 and fields[:target] == 90.0 and
                fields[:allowed_error] == 1.0
+    end
+
+    test "aq:butteraugli parses to a butteraugli quality search" do
+      assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
+               G.parse("aq:butteraugli:1.0:75:95:0.1")
+
+      assert fields[:metric] == :butteraugli
+      assert fields[:target] == 1.0
+      assert fields[:min_quality] == 75
+      assert fields[:max_quality] == 95
+      assert fields[:allowed_error] == 0.1
+    end
+
+    test "aq:butteraugli target is not 0-100 clamped (distance up to 25 allowed)" do
+      assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
+               G.parse("aq:butteraugli:12.5")
+
+      assert fields[:target] == 12.5
+    end
+
+    test "aq:butteraugli target above 25 is rejected" do
+      assert {:error, _} = G.parse("aq:butteraugli:26")
     end
 
     test "trailing args are optional (config fills the rest)" do
       assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
                G.parse("autoquality:ssim2:90")
 
-      assert fields[:objective] == :ssim2 and fields[:target] == 90.0
+      assert fields[:metric] == :ssimulacra2 and fields[:target] == 90.0
       refute Keyword.has_key?(fields, :min_quality)
     end
 
-    test "bare dssim is accepted as an ssim2 alias with no inline args" do
+    test "bare dssim is accepted as an ssimulacra2 alias with no inline args" do
       assert {:ok, {:output, [quality_search: {:autoquality, fields}]}} =
                G.parse("autoquality:dssim")
 
-      assert fields[:objective] == :ssim2
+      assert fields[:metric] == :ssimulacra2
       refute Keyword.has_key?(fields, :target)
     end
 

@@ -32,8 +32,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
   end
 
   test "emits a search stop span and one objective probe span per distinct quality" do
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 90.0,
       min_quality: 10,
       max_quality: 80,
@@ -57,7 +56,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
     assert is_integer(stop_measurements.duration)
 
     assert stop_meta.result == :ok
-    assert stop_meta.objective == :ssim2
+    assert stop_meta.objective == :ssimulacra2
     assert stop_meta.chosen_quality == chosen_q
     assert stop_meta.chosen_bytes == chosen_q * 100
     assert stop_meta.outcome == outcome
@@ -106,8 +105,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
   end
 
   test "confirm/bump probes carry the phase + the crop→full residual fields" do
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 90.0,
       min_quality: 10,
       max_quality: 80,
@@ -167,8 +165,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
   end
 
   test "search stop names the limiting factor on a ceiling best-effort" do
-    rs = %RQS{
-      objective: :ssim2,
+    rs = %RQS.Ssimulacra2{
       target: 90.0,
       min_quality: 10,
       max_quality: 80,
@@ -291,8 +288,7 @@ defmodule ImagePipe.Output.EncodeSearchTelemetryTest do
       strip_metadata: true,
       keep_copyright: false,
       color_profile: :preserve_source,
-      quality_search: %RQS{
-        objective: :ssim2,
+      quality_search: %RQS.Ssimulacra2{
         target: 80.0,
         min_quality: 40,
         max_quality: 95,
