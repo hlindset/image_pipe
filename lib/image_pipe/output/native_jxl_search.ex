@@ -13,8 +13,8 @@ defmodule ImagePipe.Output.NativeJxlSearch do
   `[:encode, :search]` span as the external search so observers read one stage.
   """
 
-  alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Encoder
+  alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.JxlDistance
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS

@@ -328,6 +328,26 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
       assert out.quality_search.target == 85.0
     end
 
+    test "config size autoquality_target must be a positive integer byte count" do
+      for bad <- [0, -1, 1.5] do
+        assert {:error, _} =
+                 resolve_output_result(
+                   %{quality_search: {:autoquality, [metric: :size]}},
+                   autoquality_target: bad
+                 )
+      end
+    end
+
+    test "config size autoquality_target accepts a positive integer" do
+      out =
+        resolve_output(
+          %{quality_search: {:autoquality, [metric: :size]}},
+          autoquality_target: 40_000
+        )
+
+      assert %ImagePipe.Plan.Output.QualitySearch.Size{target: 40_000} = out.quality_search
+    end
+
     test "butteraugli method without a target defaults to the butteraugli target" do
       out =
         resolve_output(

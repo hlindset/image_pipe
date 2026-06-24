@@ -28,7 +28,8 @@ defmodule ImagePipe.Output.Resolved do
             :none
             | ImagePipe.Output.ResolvedQualitySearch.Size.t()
             | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t()
-            | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t(),
+            | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t()
+            | ImagePipe.Output.ResolvedQualitySearch.NativeJxlButteraugli.t(),
           max_bytes: nil | pos_integer()
         }
 end

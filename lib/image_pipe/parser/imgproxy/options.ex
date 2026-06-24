@@ -444,8 +444,15 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
     end
   end
 
-  # :size target is a byte count already validated by :target_bytes — no float range.
-  defp validate_target_range(:size, target), do: {:ok, target}
+  # :size target is a byte count. The URL `:target_bytes` field already enforces a
+  # positive integer, but a host-config `autoquality_target` is only schema-checked
+  # as a number ({:integer | :float}), so re-assert positive-integer bytes here to
+  # reject a misconfigured `0`, negative, or fractional byte budget.
+  defp validate_target_range(:size, target) when is_integer(target) and target > 0,
+    do: {:ok, target}
+
+  defp validate_target_range(:size, target),
+    do: {:error, {:invalid_option, :autoquality, {:target_out_of_range, target}}}
 
   defp validate_target_range(metric, target) do
     {lo, hi} = metric_target_range(metric)
