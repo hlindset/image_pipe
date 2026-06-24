@@ -28,6 +28,7 @@ defmodule ImagePipe.Cache do
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
   @plan_key_option_keys [
+    :auto_jpeg_xl,
     :auto_avif,
     :auto_webp,
     :output_capabilities,

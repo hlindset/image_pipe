@@ -102,6 +102,7 @@ defmodule ImagePipe.Cache.Key do
      [
        mode: :automatic,
        auto: [
+         jpeg_xl: Keyword.get(opts, :auto_jpeg_xl, true),
          avif: Keyword.get(opts, :auto_avif, true),
          webp: Keyword.get(opts, :auto_webp, true)
        ],
@@ -142,6 +143,7 @@ defmodule ImagePipe.Cache.Key do
        mode: :automatic,
        modern_candidates: Negotiation.modern_candidates(accept_header, opts),
        auto: [
+         jpeg_xl: Keyword.get(opts, :auto_jpeg_xl, true),
          avif: Keyword.get(opts, :auto_avif, true),
          webp: Keyword.get(opts, :auto_webp, true)
        ],

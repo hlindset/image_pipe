@@ -973,7 +973,7 @@ defmodule ImagePipe.Cache.KeyTest do
     assert key_one.data[:output] == [
              mode: :automatic,
              modern_candidates: [:avif, :webp],
-             auto: [avif: true, webp: true],
+             auto: [jpeg_xl: true, avif: true, webp: true],
              quality: :default,
              format_qualities: %{},
              quality_search: :none,
@@ -1016,7 +1016,7 @@ defmodule ImagePipe.Cache.KeyTest do
       assert key.data[:output] == [
                mode: :automatic,
                modern_candidates: [],
-               auto: [avif: true, webp: true],
+               auto: [jpeg_xl: true, avif: true, webp: true],
                quality: :default,
                format_qualities: %{},
                quality_search: :none,
@@ -1075,7 +1075,7 @@ defmodule ImagePipe.Cache.KeyTest do
     assert webp_only_key.data[:output] == [
              mode: :automatic,
              modern_candidates: [:webp],
-             auto: [avif: false, webp: true],
+             auto: [jpeg_xl: true, avif: false, webp: true],
              quality: :default,
              format_qualities: %{},
              quality_search: :none,
@@ -1092,6 +1092,28 @@ defmodule ImagePipe.Cache.KeyTest do
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
              ]
            ]
+  end
+
+  test "disabling auto_jpeg_xl changes the cache key and drops jpeg_xl from candidates" do
+    automatic_plan = plan(output: %Output{mode: :automatic})
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/jxl,image/avif")
+
+    caps = [output_capabilities: %{jpeg_xl: true, avif: true}]
+
+    default_key = build_key!(conn, automatic_plan, source_identity(), caps)
+
+    no_jxl_key =
+      build_key!(conn, automatic_plan, source_identity(), [auto_jpeg_xl: false] ++ caps)
+
+    refute default_key.hash == no_jxl_key.hash
+
+    assert default_key.data[:output][:modern_candidates] == [:jpeg_xl, :avif]
+    assert no_jxl_key.data[:output][:modern_candidates] == [:avif]
+    assert no_jxl_key.data[:output][:auto][:jpeg_xl] == false
   end
 
   test "different output metadata flags change cache key" do

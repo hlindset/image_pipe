@@ -1,9 +1,10 @@
 defmodule ImagePipe.Parser.Imgproxy.Format do
   @moduledoc false
 
-  @source_format_names ~w(webp avif jpeg jpg png best)
+  @source_format_names ~w(jxl webp avif jpeg jpg png best)
 
   @source_formats %{
+    "jxl" => :jpeg_xl,
     "webp" => :webp,
     "avif" => :avif,
     "jpeg" => :jpeg,

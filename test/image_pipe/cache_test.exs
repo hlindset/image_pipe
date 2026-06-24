@@ -386,7 +386,7 @@ defmodule ImagePipe.CacheTest do
     assert key.data[:output] == [
              mode: :automatic,
              modern_candidates: [:webp],
-             auto: [avif: false, webp: true],
+             auto: [jpeg_xl: true, avif: false, webp: true],
              quality: :default,
              format_qualities: %{},
              quality_search: :none,
@@ -422,7 +422,7 @@ defmodule ImagePipe.CacheTest do
                cache: {CaptureAdapter, auto_avif: false, auto_webp: false}
              )
 
-    assert key.data[:output][:auto] == [avif: true, webp: true]
+    assert key.data[:output][:auto] == [jpeg_xl: true, avif: true, webp: true]
 
     assert_received {:cache_get, ^key, adapter_opts}
     assert Keyword.fetch!(adapter_opts, :auto_avif) == false

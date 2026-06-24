@@ -1460,7 +1460,8 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
   test "rejects format auto because it is not imgproxy grammar" do
     assert Imgproxy.parse(conn(:get, "/_/format:auto/plain/images/cat.jpg"), []) ==
-             {:error, {:invalid_format, "auto", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+             {:error,
+              {:invalid_format, "auto", ["jxl", "webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
   test "parses imgproxy brightness contrast and saturation effects" do
@@ -1911,7 +1912,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   test "rejects unknown output extensions as parser errors" do
     assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@unknown"), []) ==
              {:error,
-              {:invalid_format, "unknown", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+              {:invalid_format, "unknown", ["jxl", "webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
   test "rejects best output extension as an unsupported output semantic" do

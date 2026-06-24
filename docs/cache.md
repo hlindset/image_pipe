@@ -123,7 +123,7 @@ Cache keys include:
 - the cache key's transform key data version
 - configured `:key_headers` and `:key_cookies`
 - normalized automatic-output inputs when output is automatic: detected modern
-  output candidates plus `:auto_avif` and `:auto_webp` flags
+  output candidates plus `:auto_jpeg_xl`, `:auto_avif`, and `:auto_webp` flags
 
 ImagePipe reserves `Accept` for automatic output normalization and rejects it in
 `:key_headers` so raw `Accept` values don't enter cache key material.
