@@ -7,7 +7,7 @@ defmodule ImagePipe.Output.Policy do
   alias ImagePipe.Output.Capabilities
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Output.ResolvedQualitySearch
+  alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output
 
@@ -46,7 +46,11 @@ defmodule ImagePipe.Output.Policy do
           keep_copyright: boolean(),
           color_profile: Output.color_profile(),
           flatten_background: Color.t(),
-          quality_search: :none | Output.QualitySearch.t(),
+          quality_search:
+            :none
+            | Output.QualitySearch.Size.t()
+            | Output.QualitySearch.Ssimulacra2.t()
+            | Output.QualitySearch.Butteraugli.t(),
           max_bytes: nil | pos_integer(),
           quality_search_offsets: Output.quality_search_offsets()
         }
@@ -182,21 +186,42 @@ defmodule ImagePipe.Output.Policy do
 
   defp resolve_search(%__MODULE__{quality_search: :none}, _format), do: :none
 
+  defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch.Size{} = s}, format) do
+    %RQS.Size{
+      target: s.target,
+      min_quality: Map.get(s.format_min, format, s.min_quality),
+      max_quality: Map.get(s.format_max, format, s.max_quality),
+      max_resolution: s.max_resolution
+    }
+  end
+
   defp resolve_search(
-         %__MODULE__{quality_search: %Output.QualitySearch{} = search} = policy,
+         %__MODULE__{quality_search: %Output.QualitySearch.Ssimulacra2{} = s} = policy,
          format
        ) do
-    %ResolvedQualitySearch{
-      objective: search.objective,
-      target: search.target,
-      min_quality: Map.get(search.format_min, format, search.min_quality),
-      max_quality: Map.get(search.format_max, format, search.max_quality),
-      allowed_error: search.allowed_error,
-      max_resolution: search.max_resolution,
+    %RQS.Ssimulacra2{
+      target: s.target,
+      min_quality: Map.get(s.format_min, format, s.min_quality),
+      max_quality: Map.get(s.format_max, format, s.max_quality),
+      allowed_error: s.allowed_error,
+      max_resolution: s.max_resolution,
       quality_search_offsets: %{
         photo: Output.offset_for(policy.quality_search_offsets, format, :photo),
         graphic: Output.offset_for(policy.quality_search_offsets, format, :graphic)
       }
+    }
+  end
+
+  defp resolve_search(
+         %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{} = s},
+         format
+       ) do
+    %RQS.Butteraugli{
+      target: s.target,
+      min_quality: Map.get(s.format_min, format, s.min_quality),
+      max_quality: Map.get(s.format_max, format, s.max_quality),
+      allowed_error: s.allowed_error,
+      max_resolution: s.max_resolution
     }
   end
 
