@@ -805,8 +805,11 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   defp full_frame_opts(metric, image, t) do
     case metric.reference(image) do
-      {:ok, ref} -> {:ok, [score_fun: fn bytes -> full_frame_score(metric, ref, bytes, nil, t) end]}
-      {:error, reason} -> {:error, {:encode, reason}}
+      {:ok, ref} ->
+        {:ok, [score_fun: fn bytes -> full_frame_score(metric, ref, bytes, nil, t) end]}
+
+      {:error, reason} ->
+        {:error, {:encode, reason}}
     end
   end
 

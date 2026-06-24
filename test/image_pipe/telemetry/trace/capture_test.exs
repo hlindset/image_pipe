@@ -69,7 +69,13 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     Telemetry.span(
       [],
       [:encode, :search],
-      %{objective: :ssimulacra2, min_quality: 50, max_quality: 90, target: 90.0, max_bytes: 200_000},
+      %{
+        objective: :ssimulacra2,
+        min_quality: 50,
+        max_quality: 90,
+        target: 90.0,
+        max_bytes: 200_000
+      },
       fn -> {:ok, %{result: :ok}} end
     )
 

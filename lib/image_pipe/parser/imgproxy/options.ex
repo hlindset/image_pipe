@@ -392,12 +392,22 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   end
 
   defp build_quality_search(:ssimulacra2, fields, defaults),
-    do: build_quality_metric(QualitySearch.Ssimulacra2, :ssimulacra2, fields, defaults, 70, 80, 1.0)
+    do:
+      build_quality_metric(QualitySearch.Ssimulacra2, :ssimulacra2, fields, defaults, 70, 80, 1.0)
 
   defp build_quality_search(:butteraugli, fields, defaults),
-    do: build_quality_metric(QualitySearch.Butteraugli, :butteraugli, fields, defaults, 1, 100, 0.1)
+    do:
+      build_quality_metric(QualitySearch.Butteraugli, :butteraugli, fields, defaults, 1, 100, 0.1)
 
-  defp build_quality_metric(struct_mod, metric, fields, defaults, default_min, default_max, default_error) do
+  defp build_quality_metric(
+         struct_mod,
+         metric,
+         fields,
+         defaults,
+         default_min,
+         default_max,
+         default_error
+       ) do
     with {:ok, target} <- resolve_quality_search_target(metric, fields, defaults) do
       {:ok,
        struct(struct_mod, %{

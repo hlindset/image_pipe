@@ -1192,6 +1192,24 @@ describe("processing path generation", () => {
     ]);
   });
 
+  it("serializes butteraugli autoquality with the allowed_error field", () => {
+    const state = {
+      ...activeFiddleState,
+      autoqualityMethod: "butteraugli" as const,
+      autoqualityButteraugliTarget: 1,
+      autoqualityMinQuality: 50,
+      autoqualityMaxQuality: 95,
+      autoqualityAllowedError: 0.1,
+    };
+
+    expect(optionSegments(state)).toEqual([
+      "rs:fill:640:360:0",
+      "g:ce",
+      "q:85",
+      "autoquality:butteraugli:1:50:95:0.1",
+    ]);
+  });
+
   it("omits max bytes when disabled or zero", () => {
     const disabled = { ...activeFiddleState, maxBytesEnabled: false, maxBytes: 50000 };
     const zero = { ...activeFiddleState, maxBytesEnabled: true, maxBytes: 0 };
@@ -1426,6 +1444,24 @@ describe("fiddle URL state", () => {
 
     expect(fiddlePathForState(parsed)).toBe(
       "/autoquality:ssim2:80:50:95:1.5/plain/local:///images/dog.jpg",
+    );
+  });
+
+  it("round-trips butteraugli autoquality including allowed_error", () => {
+    const parsed = parseFiddlePath(
+      "/autoquality:butteraugli:1:50:95:0.1/plain/local:///images/dog.jpg",
+    );
+
+    expect(parsed).toMatchObject({
+      autoqualityMethod: "butteraugli",
+      autoqualityButteraugliTarget: 1,
+      autoqualityMinQuality: 50,
+      autoqualityMaxQuality: 95,
+      autoqualityAllowedError: 0.1,
+    });
+
+    expect(fiddlePathForState(parsed)).toBe(
+      "/autoquality:butteraugli:1:50:95:0.1/plain/local:///images/dog.jpg",
     );
   });
 

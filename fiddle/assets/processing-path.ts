@@ -11,7 +11,7 @@ export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "jxl" | "webp" | "avif" | "jpeg" | "png";
 export type ColorProfile = "none" | "srgb" | "display-p3" | "adobe-rgb";
-export type AutoqualityMethod = "none" | "size" | "ssim2";
+export type AutoqualityMethod = "none" | "size" | "ssim2" | "butteraugli";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
 export type SignatureMode = "unsigned" | "signed";
@@ -208,6 +208,7 @@ export type FiddleState = {
   autoqualityMethod: AutoqualityMethod;
   autoqualitySizeTarget: number;
   autoqualitySsim2Target: number;
+  autoqualityButteraugliTarget: number;
   autoqualityMinQuality: number;
   autoqualityMaxQuality: number;
   autoqualityAllowedError: number;
@@ -276,6 +277,7 @@ export const controlLimits = {
   autoquality: {
     sizeTarget: { min: 1, max: 5_000_000, step: 1 },
     ssim2Target: { min: 0, max: 100, step: 0.1 },
+    butteraugliTarget: { min: 0, max: 25, step: 0.1 },
     quality: { min: 1, max: 100, step: 1 },
     allowedError: { min: 0, max: 100, step: 0.1 },
   },
@@ -294,7 +296,7 @@ export const controlLimits = {
   gravityOffset: NumericControlLimit;
   quality: NumericControlLimit;
   autoquality: Record<
-    "sizeTarget" | "ssim2Target" | "quality" | "allowedError",
+    "sizeTarget" | "ssim2Target" | "butteraugliTarget" | "quality" | "allowedError",
     NumericControlLimit
   >;
   maxBytes: NumericControlLimit;
@@ -436,6 +438,7 @@ export const defaultFiddleState: FiddleState = {
   autoqualityMethod: "none",
   autoqualitySizeTarget: 50000,
   autoqualitySsim2Target: 78,
+  autoqualityButteraugliTarget: 1,
   autoqualityMinQuality: 70,
   autoqualityMaxQuality: 90,
   autoqualityAllowedError: 1,
@@ -643,7 +646,9 @@ export function optionSegments(currentState: FiddleState): string[] {
   return segments;
 }
 
-// autoquality:size:%target:%min:%max | autoquality:ssim2:%target:%min:%max:%allowed_error
+// autoquality:size:%target:%min:%max
+// autoquality:ssim2:%target:%min:%max:%allowed_error
+// autoquality:butteraugli:%target:%min:%max:%allowed_error  (ImagePipe extension; distance, lower-is-better)
 // "none" disables the search and emits nothing.
 export function autoqualityOptionSegment(currentState: FiddleState): string | null {
   if (currentState.autoqualityMethod === "size") {
@@ -661,6 +666,17 @@ export function autoqualityOptionSegment(currentState: FiddleState): string | nu
       "autoquality",
       "ssim2",
       currentState.autoqualitySsim2Target,
+      currentState.autoqualityMinQuality,
+      currentState.autoqualityMaxQuality,
+      currentState.autoqualityAllowedError,
+    ].join(":");
+  }
+
+  if (currentState.autoqualityMethod === "butteraugli") {
+    return [
+      "autoquality",
+      "butteraugli",
+      currentState.autoqualityButteraugliTarget,
       currentState.autoqualityMinQuality,
       currentState.autoqualityMaxQuality,
       currentState.autoqualityAllowedError,

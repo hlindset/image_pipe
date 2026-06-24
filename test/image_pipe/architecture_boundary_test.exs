@@ -350,7 +350,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "CropScore delegates all SSIMULACRA2 access through the metric runtime" do
     source = File.read!("lib/image_pipe/output/ssim2_metric/crop_score.ex")
     refute source =~ "Ssimulacra2.Vix", "CropScore must not reference the raw Ssimulacra2 NIF"
-    refute source =~ "Ssimulacra2.Reference", "CropScore must not reference the raw Ssimulacra2 NIF"
+
+    refute source =~ "Ssimulacra2.Reference",
+           "CropScore must not reference the raw Ssimulacra2 NIF"
   end
 
   test "error boundary remains a dependency-free helper" do
