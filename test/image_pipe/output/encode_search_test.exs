@@ -3,6 +3,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
+  alias Vix.Vips.Image, as: VixImage
 
   test "size picks the highest quality under the byte target" do
     rs = %RQS.Size{target: 50_000, min_quality: 10, max_quality: 80}
@@ -489,8 +490,8 @@ defmodule ImagePipe.Output.EncodeSearchTest do
       {:ok, capped_bin, _} = EncodeSearch.run(img, clamped, [])
       {:ok, free_bin, _} = EncodeSearch.run(img, uncapped, [])
 
-      {:ok, q80} = Vix.Vips.Image.write_to_buffer(img, ".jxl[Q=80]")
-      {:ok, q90} = Vix.Vips.Image.write_to_buffer(img, ".jxl[Q=90]")
+      {:ok, q80} = VixImage.write_to_buffer(img, ".jxl[Q=80]")
+      {:ok, q90} = VixImage.write_to_buffer(img, ".jxl[Q=90]")
 
       # Capped honors max_quality 80: byte-identical to the explicit Q80 encode,
       # and distinct from the uncapped Q90 encode.
@@ -509,7 +510,12 @@ defmodule ImagePipe.Output.EncodeSearchTest do
       {:ok, big, _} =
         EncodeSearch.run(
           img,
-          native_resolved(nil, target: 0.3, min_quality: 1, max_quality: 100, allowed_error: 0.05),
+          native_resolved(nil,
+            target: 0.3,
+            min_quality: 1,
+            max_quality: 100,
+            allowed_error: 0.05
+          ),
           []
         )
 

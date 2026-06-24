@@ -16,6 +16,9 @@ defmodule ImagePipe.Output.Metric.Butteraugli do
   def target_range, do: {0.0, 25.0}
 
   @impl true
+  def leg_name, do: :butteraugli
+
+  @impl true
   @spec reference(Vix.Vips.Image.t()) :: {:ok, term()} | {:error, term()}
   def reference(%Vix.Vips.Image{} = image), do: Butteraugli.Vix.reference(image)
 

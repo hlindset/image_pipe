@@ -115,8 +115,8 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
       for stage <- [
             [:encode, :search, :probe],
             [:encode, :search, :probe, :encode],
-            [:encode, :search, :probe, :ssim2, :decode],
-            [:encode, :search, :probe, :ssim2, :metric]
+            [:encode, :search, :probe, :ssimulacra2, :decode],
+            [:encode, :search, :probe, :ssimulacra2, :metric]
           ],
           do: prefix ++ stage ++ [:stop]
 
@@ -154,8 +154,8 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     assert Enum.all?(encode_legs, &(&1.result == :ok and is_integer(&1.bytes)))
 
     # ssim2 scoring legs: a decode and an aggregate metric per probe.
-    assert Map.fetch!(by_stage, [:encode, :search, :probe, :ssim2, :decode]) != []
-    metric_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :ssim2, :metric])
+    assert Map.fetch!(by_stage, [:encode, :search, :probe, :ssimulacra2, :decode]) != []
+    metric_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :ssimulacra2, :metric])
     assert metric_legs != []
     assert Enum.all?(metric_legs, &is_float(&1.score))
     # Every probe crop-scores K tiles (tiles_scored: 16); there is no whole-frame

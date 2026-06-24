@@ -952,9 +952,10 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Decode the candidate once and score the whole frame against the reference via
   # the metric runtime, each as a cost leg nested under the active probe span.
   defp full_frame_score(metric, ref, bytes, tiles, telemetry_opts) do
-    candidate = decode_leg(bytes, telemetry_opts)
+    leg = metric.leg_name()
+    candidate = decode_leg(leg, bytes, telemetry_opts)
 
-    metric_leg(telemetry_opts, tiles, fn ->
+    metric_leg(leg, telemetry_opts, tiles, fn ->
       case metric.score(ref, candidate) do
         {:ok, score} -> score
         {:error, reason} -> throw({:image_pipe_score_error, reason})
@@ -966,9 +967,12 @@ defmodule ImagePipe.Output.EncodeSearch do
   # conservative confirm-skipped offset so the objective's walk-to-target band
   # comparison reproduces the full-frame decision without a full-frame confirm.
   defp crop_estimate(base, bytes, tiles, offset, telemetry_opts) do
-    candidate = decode_leg(bytes, telemetry_opts)
+    # Crop scoring is SSIMULACRA2-only (Encoder.crop?/2 lets only the Ssimulacra2
+    # strategy crop), so the legs carry the `:ssimulacra2` segment.
+    leg = Metric.Ssimulacra2.leg_name()
+    candidate = decode_leg(leg, bytes, telemetry_opts)
 
-    metric_leg(telemetry_opts, tiles, fn ->
+    metric_leg(leg, telemetry_opts, tiles, fn ->
       case CropScore.p10(base, candidate) do
         {:ok, p10} -> p10 - offset
         {:error, reason} -> throw({:image_pipe_score_error, reason})
@@ -995,14 +999,14 @@ defmodule ImagePipe.Output.EncodeSearch do
     )
   end
 
-  # Candidate decode, as an ssim2-namespaced leg. The metric method qualifies the
-  # scoring legs (`:ssim2`) so a future metric (e.g. dssim) gets distinct span
-  # names a backend can group by; a decode failure throws and surfaces as the
-  # leg's `:exception`.
-  defp decode_leg(bytes, telemetry_opts) do
+  # Candidate decode, as a metric-namespaced leg. The `leg` segment
+  # (`:ssimulacra2`/`:butteraugli`, from the metric's `leg_name/0`) qualifies the
+  # scoring legs so each metric gets distinct span names a backend can group by; a
+  # decode failure throws and surfaces as the leg's `:exception`.
+  defp decode_leg(leg, bytes, telemetry_opts) do
     Telemetry.span(
       telemetry_opts,
-      [:encode, :search, :probe, :ssim2, :decode],
+      [:encode, :search, :probe, leg, :decode],
       %{bytes: byte_size(bytes)},
       fn ->
         case Image.from_binary(bytes) do
@@ -1013,13 +1017,13 @@ defmodule ImagePipe.Output.EncodeSearch do
     )
   end
 
-  # One aggregate SSIMULACRA2 metric leg per probe (the crop path scores K tiles
-  # internally; `:tiles_scored` records how many, but no per-tile span is emitted —
-  # that detail lives in `mix autoquality.bench`).
-  defp metric_leg(telemetry_opts, tiles, fun) do
+  # One aggregate metric leg per probe, segmented by `leg` (the crop path scores K
+  # tiles internally; `:tiles_scored` records how many, but no per-tile span is
+  # emitted — that detail lives in `mix autoquality.bench`).
+  defp metric_leg(leg, telemetry_opts, tiles, fun) do
     Telemetry.span(
       telemetry_opts,
-      [:encode, :search, :probe, :ssim2, :metric],
+      [:encode, :search, :probe, leg, :metric],
       %{tiles_scored: tiles},
       fn ->
         score = fun.()

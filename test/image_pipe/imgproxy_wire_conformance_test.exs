@@ -3006,6 +3006,44 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
                {Image.width(baseline_image), Image.height(baseline_image)}
     end
 
+    @tag :jxl
+    test "aq:butteraugli on JXL takes the native single-encode path" do
+      # Phase-2 contract: butteraugli + JPEG XL resolves to NativeJxlButteraugli,
+      # which drives libvips' `distance` directly — a single encode, no band loop
+      # and no external NIF. Observe the verdict through the prefixed encode-search
+      # span: outcome :native, iterations 0.
+      telemetry_prefix = [:"ip_aq_native_jxl_#{System.unique_integer([:positive])}"]
+      search_stop = telemetry_prefix ++ [:encode, :search, :stop]
+      test_pid = self()
+      handler_id = "aq-native-jxl-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        search_stop,
+        fn _event, _measurements, meta, _config -> send(test_pid, {:search_stop, meta}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      opts = Keyword.put(@default_opts, :telemetry_prefix, telemetry_prefix)
+
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:butteraugli:1.0:1:100:0.1/f:jxl/plain/images/beach.jpg",
+          opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jxl"]
+      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+
+      assert_receive {:search_stop, meta}
+      assert meta.result == :ok
+      assert meta.outcome == :native
+      assert meta.iterations == 0
+    end
+
     test "best-effort: an mb: below the floor-quality encode still returns 200" do
       # mb:1000 is below even the floor (q=1 ≈ 2.7 KB) encode, so the target can't
       # be met. The search must return the floor result (best-effort), never error.

@@ -268,11 +268,13 @@ winning buffer.
 
 Start metadata (product-neutral search descriptor):
 
-- `:objective` — `:size`, `:ssim2`, or `:none` (a `max_bytes`-alone search).
+- `:objective` — `:size`, `:ssimulacra2`, `:butteraugli`, or `:none` (a
+  `max_bytes`-alone search).
 - `:min_quality` / `:max_quality` — the per-format-clamped quality bracket
   (absent for a `:none` search).
 - `:target` — the objective target (byte target for `:size`, score band centre for
-  `:ssim2`; absent for `:none`).
+  `:ssimulacra2`, butteraugli distance band centre for `:butteraugli`; absent for
+  `:none`).
 - `:max_bytes` — the hard byte budget when set.
 
 Stop metadata (the search verdict; keys deliberately differ from the internal
@@ -285,9 +287,12 @@ result `meta`):
 - `:chosen_bytes` — the encoded byte size of the delivered buffer.
 - `:iterations` — the number of distinct encodes performed.
 - `:outcome` — `:hit` (objective/budget met), `:best_effort` (fell back to the
-  bracket floor/ceiling because the target was unreachable), or `:skipped`.
-- `:final_score` — the SSIMULACRA2 score of the delivered quality for an `:ssim2`
-  search, otherwise absent.
+  bracket floor/ceiling because the target was unreachable), `:skipped`, or
+  `:native` (the butteraugli + JPEG XL single-encode path drove libvips' `distance`
+  knob directly — `:iterations` is `0`, `:chosen_quality` is `0` since no Q was
+  chosen, and no external metric ran).
+- `:final_score` — the SSIMULACRA2 score of the delivered quality for an
+  `:ssimulacra2` search, otherwise absent (`nil` on the native path).
 - `:scorer` — `:full` (whole-frame SSIMULACRA2) or `:crop` (K p10-tiles above the
   internal ~6 MP crossover, #354).
 - `:tiles_scored` — tiles actually scored on the crop path (sub-sampled, `<= 16`);
@@ -386,18 +391,21 @@ libvips-lazy per-operation transform spans):
 
 - `[:encode, :search, :probe, :encode]` — the codec encode
   (`ImagePipe.Output.Encoder.encode_to_buffer`). Method-neutral: it fires for
-  every objective (`:size`/`:ssim2`/`:none`), so it carries no metric-method
-  segment. Stop metadata: `:bytes`. Absent on a confirm probe whose encode was a
-  memo hit.
-- `[:encode, :search, :probe, :ssim2, :decode]` — the candidate decode
+  every objective (`:size`/`:ssimulacra2`/`:butteraugli`/`:none`), so it carries no
+  metric segment. Stop metadata: `:bytes`. Absent on a confirm probe whose encode
+  was a memo hit.
+- `[:encode, :search, :probe, <metric>, :decode]` — the candidate decode
   (`Image.from_binary`). Stop metadata: `:bytes` (the input buffer size).
-- `[:encode, :search, :probe, :ssim2, :metric]` — one aggregate SSIMULACRA2 score
-  (whole-frame, or K crop tiles). Stop metadata: `:score`, and `:tiles_scored` on
-  the crop-estimate path (absent on the whole-frame confirm). No per-tile span is
-  emitted — that detail lives in `mix autoquality.bench`.
+- `[:encode, :search, :probe, <metric>, :metric]` — one aggregate perceptual score
+  (whole-frame, or K crop tiles for SSIMULACRA2). Stop metadata: `:score`, and
+  `:tiles_scored` on the crop-estimate path (absent on the whole-frame confirm /
+  butteraugli full-frame). No per-tile span is emitted — that detail lives in `mix
+  autoquality.bench`.
 
-The scoring legs carry the metric-method segment (`:ssim2`) so a future metric
-(e.g. `dssim`) gets distinct span names a backend can group by.
+The scoring legs carry a **per-metric** segment derived from the metric's
+`leg_name/0` — `:ssimulacra2` or `:butteraugli` — so each metric gets distinct span
+names a backend can group by. (The native-JXL butteraugli path emits no cost legs:
+it is a single `distance`-driven encode with no decode/score loop.)
 
 All values are product-neutral numbers/atoms (no URLs, secrets, or PII).
 

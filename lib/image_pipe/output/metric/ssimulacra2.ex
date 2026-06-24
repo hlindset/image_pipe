@@ -17,6 +17,9 @@ defmodule ImagePipe.Output.Metric.Ssimulacra2 do
   def target_range, do: {0, 100}
 
   @impl true
+  def leg_name, do: :ssimulacra2
+
+  @impl true
   @spec reference(Vix.Vips.Image.t()) :: {:ok, ref()} | {:error, term()}
   def reference(%Vix.Vips.Image{} = image), do: Ssimulacra2.Vix.reference(image)
 
