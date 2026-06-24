@@ -18,7 +18,7 @@ run = [
   "mix deps.get",
   "cd fiddle && mix deps.get",
   "pnpm -C fiddle install --frozen-lockfile",
-  "pnpm -C fiddle/assets run build:sw",
+  "pnpm -C fiddle/assets run build",
 ]
 
 # Full imgproxy differential bake (requires Docker). Wraps the whole dance so no

@@ -67,6 +67,36 @@ describe("PreviewMetadataTracker", () => {
     expect(t.metadata?.bytes).toBeNull(); // different query → ignored
   });
 
+  it("merges an ok message that carries null bytes/contentType", () => {
+    const t = new PreviewMetadataTracker();
+    const id = t.begin("http://localhost:4000/img/x");
+    t.applyDimensions({ width: 3, height: 4 }, id);
+    t.applyMessage(
+      meta({ url: "http://localhost:4000/img/x", bytes: null, contentType: null }),
+      id,
+    );
+    expect(t.metadata).toEqual({ width: 3, height: 4, bytes: null, contentType: null });
+  });
+
+  it("keeps error terminal: dimensions arriving after a non-ok message do not revive metadata", () => {
+    const t = new PreviewMetadataTracker();
+    const id = t.begin("http://localhost:4000/img/x");
+    t.applyMessage(
+      meta({
+        url: "http://localhost:4000/img/x",
+        ok: false,
+        status: 415,
+        statusText: "Unsupported Media Type",
+        bytes: null,
+        error: null,
+      }),
+      id,
+    );
+    t.applyDimensions({ width: 9, height: 9 }, id); // would normally produce metadata
+    expect(t.metadata).toBeNull();
+    expect(t.error).toBe("415 Unsupported Media Type");
+  });
+
   it("records an error from a non-ok SW message", () => {
     const t = new PreviewMetadataTracker();
     const id = t.begin("http://localhost:4000/img/x");

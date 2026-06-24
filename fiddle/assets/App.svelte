@@ -281,6 +281,7 @@
     previewError = previewMetadata.error ?? "Preview request failed";
     processedMetadata = null;
     previewLoading = false;
+    lastPreviewAbsolute = null; // allow reverting to a failed URL to retry it
   }
 
   async function copyGeneratedUrl(): Promise<void> {

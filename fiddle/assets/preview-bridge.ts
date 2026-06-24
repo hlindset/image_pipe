@@ -46,7 +46,9 @@ export class PreviewMetadataTracker {
   }
 
   #recompute(): void {
-    if (this.#dimensions === null) {
+    // error is terminal for a request: metadata and error are never both present,
+    // regardless of whether dimensions arrive after a non-ok message.
+    if (this.error !== null || this.#dimensions === null) {
       this.metadata = null;
       return;
     }

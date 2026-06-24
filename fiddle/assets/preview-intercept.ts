@@ -38,10 +38,10 @@ export function parsePreviewMeta(data: unknown): PreviewMetaMessage | null {
     url: m.url,
     accept: typeof m.accept === "string" ? m.accept : null,
     ok: m.ok === true,
-    status: typeof m.status === "number" ? m.status : 0,
+    status: typeof m.status === "number" && Number.isFinite(m.status) ? m.status : 0,
     statusText: typeof m.statusText === "string" ? m.statusText : "",
     contentType: typeof m.contentType === "string" ? m.contentType : null,
-    bytes: typeof m.bytes === "number" ? m.bytes : null,
+    bytes: typeof m.bytes === "number" && Number.isFinite(m.bytes) ? m.bytes : null,
     error: typeof m.error === "string" ? m.error : null,
   };
 }
