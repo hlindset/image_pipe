@@ -2980,6 +2980,32 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert {:ok, _} = Image.from_binary(conn.resp_body)
     end
 
+    test "aq:butteraugli produces a smaller-but-valid WebP vs max quality" do
+      # Phase-1 end-to-end exercise of the butteraugli external-measure path on a
+      # non-JXL format. A max-quality (q:100) WebP baseline is larger than the
+      # autoquality encode, which walks the quality knob to a butteraugli distance
+      # of ~1.0 (visually lossless). Decoded dimensions must match — only the byte
+      # budget differs.
+      baseline =
+        call_imgproxy("/_/rs:fit:400:400/q:100/f:webp/plain/images/beach.jpg", @default_opts)
+
+      auto =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:butteraugli:1.0:1:100:0.1/f:webp/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert auto.status == 200
+      assert content_type(auto) == ["image/webp"]
+      assert byte_size(auto.resp_body) < byte_size(baseline.resp_body)
+
+      assert {:ok, auto_image} = Image.from_binary(auto.resp_body)
+      assert {:ok, baseline_image} = Image.from_binary(baseline.resp_body)
+
+      assert {Image.width(auto_image), Image.height(auto_image)} ==
+               {Image.width(baseline_image), Image.height(baseline_image)}
+    end
+
     test "best-effort: an mb: below the floor-quality encode still returns 200" do
       # mb:1000 is below even the floor (q=1 ≈ 2.7 KB) encode, so the target can't
       # be met. The search must return the floor result (best-effort), never error.
