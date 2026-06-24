@@ -63,6 +63,38 @@ defmodule ImagePipe.Transform.Operation.RotateTest do
     assert a > 100 and a < 160, "interior alpha not preserved: #{inspect(interior)}"
   end
 
+  test "arbitrary angle does not double-premultiply: constant colour survives an alpha step" do
+    # A spatially-constant colour with a hard alpha step (opaque left, faint right).
+    # For a premultiply-CORRECT resample, a constant colour is preserved at every
+    # covered pixel — premultiply → resample → unpremultiply cancels for a constant
+    # colour whatever the alpha. vips_rotate premultiplies internally (via affine),
+    # so a manual premultiply on top of it double-premultiplies and inflates the
+    # colour wherever the alpha varies — i.e. along the rotated seam.
+    {:ok, opaque} = Image.new(20, 40, color: [100, 150, 200, 255], bands: 4)
+    {:ok, faint} = Image.new(20, 40, color: [100, 150, 200, 96], bands: 4)
+    {:ok, source} = Operation.join(opaque, faint, :VIPS_DIRECTION_HORIZONTAL)
+
+    result = run(%Rotate{angle: 25}, source)
+    w = Image.width(result)
+    h = Image.height(result)
+
+    max_dev =
+      for x <- 0..(w - 1), y <- 0..(h - 1), reduce: 0 do
+        acc ->
+          [r, g, b, a] = Image.get_pixel!(result, x, y)
+          # Skip the transparent exposed corners; unpremultiply noise blows up at
+          # very low alpha, so only inspect pixels with meaningful coverage.
+          if a >= 128 do
+            max(acc, Enum.max([abs(r - 100), abs(g - 150), abs(b - 200)]))
+          else
+            acc
+          end
+      end
+
+    assert max_dev <= 10,
+           "constant colour distorted across the alpha seam (double-premultiply?): max channel dev #{max_dev}"
+  end
+
   test "mirror flips horizontally before rotating" do
     {:ok, left} = Image.new(20, 20, color: [255, 0, 0])
     {:ok, right} = Image.new(20, 20, color: [0, 0, 255])

@@ -133,7 +133,7 @@ defmodule ImagePipe.MixProject do
       {:opentelemetry_api, "~> 1.5", optional: true},
       {:opentelemetry, "~> 1.7", only: :test},
       {:nimble_options, "~> 1.1"},
-      {:image, "~> 0.67"},
+      {:image, "~> 0.69"},
       {:ssimulacra2,
        github: "hlindset/ssimulacra2", ref: "c95683deefcafd7313e149d0d5e30a3328c14efd"},
       {:butteraugli,
