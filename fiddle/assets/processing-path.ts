@@ -226,6 +226,7 @@ export type ProcessedImageMetadata = {
   height: number;
   bytes: number | null;
   contentType: string | null;
+  debugHeaders: Record<string, string> | null;
 };
 
 export type NumericControlLimit = {

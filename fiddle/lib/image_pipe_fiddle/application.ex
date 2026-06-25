@@ -59,7 +59,10 @@ defmodule ImagePipeFiddle.Application do
       imgproxy: imgproxy,
       # Graceful fallback: detection failures degrade to attention crop (200) rather
       # than erroring; the default Logger surfaces any detection fallback.
-      detector_required: false
+      detector_required: false,
+      # Demo deployment: emit the opt-in X-ImagePipe-* / Server-Timing debug headers.
+      # The fiddle adds `_debug=1` to its preview requests so the panel always populates.
+      allow_debug_headers: true
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
     |> ImagePipe.Plug.init()
@@ -77,7 +80,8 @@ defmodule ImagePipeFiddle.Application do
       ],
       sources: [
         path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
-      ]
+      ],
+      allow_debug_headers: true
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
     |> ImagePipe.Plug.init()
@@ -112,7 +116,8 @@ defmodule ImagePipeFiddle.Application do
       parser: ImagePipe.Parser.TwicPics,
       sources: [
         path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
-      ]
+      ],
+      allow_debug_headers: true
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
     |> ImagePipe.Plug.init()

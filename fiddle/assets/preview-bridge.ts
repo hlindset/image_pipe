@@ -10,7 +10,11 @@ export class PreviewMetadataTracker {
   #requestId = 0;
   #url: string | null = null;
   #dimensions: Dimensions | null = null;
-  #pending: { bytes: number | null; contentType: string | null } | null = null;
+  #pending: {
+    bytes: number | null;
+    contentType: string | null;
+    debugHeaders: Record<string, string> | null;
+  } | null = null;
 
   // Start tracking a new preview. Returns the request id callers thread back into
   // applyDimensions/applyMessage so stale async arrivals are dropped.
@@ -41,7 +45,11 @@ export class PreviewMetadataTracker {
       return;
     }
 
-    this.#pending = { bytes: message.bytes, contentType: message.contentType };
+    this.#pending = {
+      bytes: message.bytes,
+      contentType: message.contentType,
+      debugHeaders: message.debugHeaders,
+    };
     this.#recompute();
   }
 
@@ -57,6 +65,7 @@ export class PreviewMetadataTracker {
       height: this.#dimensions.height,
       bytes: this.#pending?.bytes ?? null,
       contentType: this.#pending?.contentType ?? null,
+      debugHeaders: this.#pending?.debugHeaders ?? null,
     };
   }
 }

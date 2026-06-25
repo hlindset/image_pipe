@@ -131,3 +131,13 @@ families without encoder support fall back after transforms: PNG when the final
 image has an alpha channel, JPEG otherwise. Automatic output responses use
 `Vary: Accept`. Explicit formats bypass content negotiation and don't set
 `Vary: Accept`.
+
+## Debug response headers
+
+ImagePipe can attach opt-in `X-ImagePipe-*` and `Server-Timing` debug headers,
+gated by the `allow_debug_headers` mount option and a per-request `_debug=1`
+query parameter. They are off by default. Note that `_debug=1` is a query
+parameter and is **not** covered by imgproxy's path signature — only enable
+`allow_debug_headers: true` in production behind whole-URL (query-covering)
+signing. See [Debug response headers](debug_headers.md) for the full catalogue
+and the security/disclosure details.
