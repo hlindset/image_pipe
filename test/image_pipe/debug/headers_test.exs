@@ -120,4 +120,24 @@ defmodule ImagePipe.Debug.HeadersTest do
     assert header(headers, "x-imagepipe-output-distance") ==
              {"x-imagepipe-output-distance", "1.0"}
   end
+
+  test "renders the cache key when provided and omits it otherwise" do
+    info = %Info{output_format: :avif}
+
+    with_key = Headers.render(info, accept: "", cache: :hit, cache_key: "a1b2c3")
+    assert header(with_key, "x-imagepipe-cache-key") == {"x-imagepipe-cache-key", "a1b2c3"}
+    assert header(with_key, "x-imagepipe-cache") == {"x-imagepipe-cache", "hit"}
+
+    without_key = Headers.render(info, accept: "", cache: :miss)
+    refute header(without_key, "x-imagepipe-cache-key")
+  end
+
+  test "appends a live cache;dur entry to Server-Timing on a hit" do
+    info = %Info{timings: %{decode: 8_000, total: 181_000}}
+    headers = Headers.render(info, accept: "", cache: :hit, cache_serve_us: 1_500)
+
+    {"server-timing", server_timing} = header(headers, "server-timing")
+    assert server_timing =~ "cache;dur=1.5"
+    assert server_timing =~ "total;dur=181.0"
+  end
 end

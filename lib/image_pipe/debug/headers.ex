@@ -16,20 +16,23 @@ defmodule ImagePipe.Debug.Headers do
     * `:accept` — the request `Accept` header value (string), rendered as
       `x-imagepipe-output-accept`. Omitted when empty/nil.
     * `:cache` — `:hit` or `:miss`, rendered as `x-imagepipe-cache`.
+    * `:cache_key` — the stringified cache key, rendered as
+      `x-imagepipe-cache-key`. Omitted when absent (e.g. caching disabled).
     * `:cache_serve_us` — when serving from cache, the live cache-read duration
-      in microseconds, appended to `Server-Timing` as `cache;dur=…` (Plan 2).
+      in microseconds, appended to `Server-Timing` as `cache;dur=…`.
   """
   @spec render(Info.t(), keyword()) :: [{String.t(), String.t()}]
   def render(%Info{} = info, opts) do
     accept = Keyword.get(opts, :accept)
     cache = Keyword.get(opts, :cache, :miss)
+    cache_key = Keyword.get(opts, :cache_key)
     cache_serve_us = Keyword.get(opts, :cache_serve_us)
 
     (source_headers(info) ++
        output_headers(info, accept) ++
        aq_headers(info.aq) ++
        pipeline_headers(info) ++
-       cache_headers(cache) ++
+       cache_headers(cache, cache_key) ++
        server_timing(info.timings, cache_serve_us))
     |> Enum.reject(&is_nil/1)
   end
@@ -85,7 +88,12 @@ defmodule ImagePipe.Debug.Headers do
   defp pipeline_headers(%Info{pipeline: ops}),
     do: [kv("x-imagepipe-pipeline", Enum.join(ops, ","))]
 
-  defp cache_headers(cache), do: [kv("x-imagepipe-cache", cache)]
+  defp cache_headers(cache, cache_key) do
+    [
+      kv("x-imagepipe-cache", cache),
+      kv("x-imagepipe-cache-key", cache_key)
+    ]
+  end
 
   defp server_timing(timings, cache_serve_us) do
     entries =
