@@ -81,14 +81,18 @@ defmodule ImagePipe.Debug.Headers do
   end
 
   defp pipeline_headers(%Info{pipeline: []}), do: []
-  defp pipeline_headers(%Info{pipeline: ops}), do: [kv("x-imagepipe-pipeline", Enum.join(ops, ","))]
+
+  defp pipeline_headers(%Info{pipeline: ops}),
+    do: [kv("x-imagepipe-pipeline", Enum.join(ops, ","))]
 
   defp cache_headers(cache), do: [kv("x-imagepipe-cache", cache)]
 
   defp server_timing(timings, cache_serve_us) do
     entries =
       @stage_order
-      |> Enum.map(fn stage -> timing_entry(stage, timing_value(stage, timings, cache_serve_us)) end)
+      |> Enum.map(fn stage ->
+        timing_entry(stage, timing_value(stage, timings, cache_serve_us))
+      end)
       |> Enum.reject(&is_nil/1)
 
     case entries do

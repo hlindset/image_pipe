@@ -46,6 +46,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
+    ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
@@ -153,14 +154,15 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     request = boundary_declaration(ImagePipe.Request)
 
     assert_boundary_deps(request, [
+      ImagePipe.Cache,
+      ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
-      ImagePipe.Plan,
-      ImagePipe.Cache,
-      ImagePipe.Renderer,
-      ImagePipe.Source,
       ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Renderer,
       ImagePipe.Response,
+      ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ])
@@ -217,6 +219,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(response, [
       ImagePipe.Cache,
+      ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -360,6 +363,18 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(error, [])
     assert_boundary_exports(error, [])
+  end
+
+  test "debug boundary depends only on plan and exports debug header modules" do
+    debug = boundary_declaration(ImagePipe.Debug)
+
+    assert_boundary_deps(debug, [ImagePipe.Plan])
+
+    assert_boundary_exports(debug, [
+      ImagePipe.Debug.Headers,
+      ImagePipe.Debug.Info,
+      ImagePipe.Debug.Timing
+    ])
   end
 
   test "format boundary remains dependency-free" do

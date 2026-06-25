@@ -33,12 +33,14 @@ defmodule ImagePipe.Debug.HeadersTest do
     assert header(headers, "x-imagepipe-source-format") == {"x-imagepipe-source-format", "jpeg"}
     assert header(headers, "x-imagepipe-source-width") == {"x-imagepipe-source-width", "4000"}
     assert header(headers, "x-imagepipe-source-icc") == {"x-imagepipe-source-icc", "true"}
+
     assert header(headers, "x-imagepipe-source-orientation") ==
              {"x-imagepipe-source-orientation", "6"}
 
     assert header(headers, "x-imagepipe-shrink") == {"x-imagepipe-shrink", "w=2.0;h=2.0"}
 
     assert header(headers, "x-imagepipe-output-format") == {"x-imagepipe-output-format", "avif"}
+
     assert header(headers, "x-imagepipe-output-negotiated") ==
              {"x-imagepipe-output-negotiated", "true"}
 
@@ -94,6 +96,7 @@ defmodule ImagePipe.Debug.HeadersTest do
     assert header(headers, "x-imagepipe-aq-quality-max") == {"x-imagepipe-aq-quality-max", "65"}
     assert header(headers, "x-imagepipe-aq-iterations") == {"x-imagepipe-aq-iterations", "5"}
     assert header(headers, "x-imagepipe-aq-outcome") == {"x-imagepipe-aq-outcome", "hit"}
+
     assert header(headers, "x-imagepipe-aq-limiting-factor") ==
              {"x-imagepipe-aq-limiting-factor", "ceiling"}
 
@@ -104,6 +107,8 @@ defmodule ImagePipe.Debug.HeadersTest do
   test "renders JXL output distance" do
     info = %Info{output_format: :jpeg_xl, output_distance: 1.0}
     headers = Headers.render(info, accept: "", cache: :miss)
-    assert header(headers, "x-imagepipe-output-distance") == {"x-imagepipe-output-distance", "1.0"}
+
+    assert header(headers, "x-imagepipe-output-distance") ==
+             {"x-imagepipe-output-distance", "1.0"}
   end
 end
