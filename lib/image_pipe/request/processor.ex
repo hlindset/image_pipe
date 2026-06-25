@@ -409,7 +409,6 @@ defmodule ImagePipe.Request.Processor do
   defp source_interpretation(image) do
     case VipsImage.interpretation(image) do
       interp when is_atom(interp) -> interp
-      _ -> nil
     end
   end
 

@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.Key do
 
   import Plug.Conn, only: [fetch_cookies: 1, get_req_header: 2]
 
+  alias ImagePipe.MaterialDigest
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Color
@@ -16,14 +17,13 @@ defmodule ImagePipe.Cache.Key do
   @schema_version 2
   @transform_key_data_version 1
   @representation_version 1
-  @enforce_keys [:hash, :data, :serialized_data]
+  @enforce_keys [:hash, :data]
 
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           hash: String.t(),
-          data: keyword(),
-          serialized_data: binary()
+          data: keyword()
         }
 
   @spec build(Plug.Conn.t(), Plan.t(), term(), keyword()) :: {:ok, t()}
@@ -42,21 +42,7 @@ defmodule ImagePipe.Cache.Key do
           selected_cookies: selected_cookies(conn, opts)
         ]
 
-    serialized_data = serialize_key_data(data)
-
-    {:ok,
-     %__MODULE__{
-       hash: hash(serialized_data),
-       data: data,
-       serialized_data: serialized_data
-     }}
-  end
-
-  @spec serialize_key_data(term()) :: binary()
-  def serialize_key_data(key_data) do
-    key_data
-    |> canonicalize()
-    |> :erlang.term_to_binary([:deterministic])
+    {:ok, %__MODULE__{hash: hash(data), data: data}}
   end
 
   @doc false
@@ -235,32 +221,9 @@ defmodule ImagePipe.Cache.Key do
     end)
   end
 
-  defp canonicalize(value) when is_list(value) do
-    if Keyword.keyword?(value) do
-      value
-      |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
-      |> Enum.sort_by(fn {key, _item} -> key end)
-    else
-      Enum.map(value, &canonicalize/1)
-    end
-  end
-
-  defp canonicalize(value) when is_map(value) do
-    value
-    |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
-    |> Enum.sort()
-  end
-
-  defp canonicalize(value) when is_tuple(value) do
-    value
-    |> Tuple.to_list()
-    |> Enum.map(&canonicalize/1)
-    |> List.to_tuple()
-  end
-
-  defp canonicalize(value), do: value
-
-  defp hash(serialized_data) do
-    Base.encode16(:crypto.hash(:sha256, serialized_data), case: :lower)
+  defp hash(data) do
+    data
+    |> MaterialDigest.of()
+    |> Base.encode16(case: :lower)
   end
 end

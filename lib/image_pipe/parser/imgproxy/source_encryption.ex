@@ -38,10 +38,6 @@ defmodule ImagePipe.Parser.Imgproxy.SourceEncryption do
         |> Base.url_encode64(padding: false)
 
       {:ok, payload}
-    else
-      {:error, :invalid_key} -> {:error, :invalid_key}
-      {:error, :invalid_iv} -> {:error, :invalid_iv}
-      {:error, :invalid_options} -> {:error, :invalid_options}
     end
   end
 

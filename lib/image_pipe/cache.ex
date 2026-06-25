@@ -9,6 +9,7 @@ defmodule ImagePipe.Cache do
       ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
+      ImagePipe.MaterialDigest,
       ImagePipe.Plan,
       ImagePipe.Output,
       ImagePipe.Telemetry

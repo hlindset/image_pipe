@@ -1,6 +1,7 @@
 defmodule ImagePipe.Parser.Imgproxy.Source do
   @moduledoc false
 
+  alias ImagePipe.Parser.Imgproxy.PercentEncoding
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.URL
@@ -101,7 +102,7 @@ defmodule ImagePipe.Parser.Imgproxy.Source do
     key = String.replace_prefix(key, "/", "")
     revision = source_query || uri.query
 
-    with {:ok, key} <- decode_percent_encoded(key),
+    with {:ok, key} <- PercentEncoding.decode(key),
          {:ok, revision} <- decode_optional(revision) do
       if key == "" do
         {:error, :invalid_source_object}
@@ -129,7 +130,7 @@ defmodule ImagePipe.Parser.Imgproxy.Source do
   end
 
   defp translate_source(scheme, source, translator, translator_opts) do
-    with {:ok, decoded_source} <- decode_percent_encoded(source) do
+    with {:ok, decoded_source} <- PercentEncoding.decode(source) do
       case translator.translate(decoded_source, translator_opts) do
         {:ok, %_{} = plan_source} -> {:ok, plan_source}
         {:error, _reason} -> {:error, {:source_scheme_error, scheme}}
@@ -200,48 +201,21 @@ defmodule ImagePipe.Parser.Imgproxy.Source do
     if Enum.any?(segments, &(&1 == "")) do
       {:error, :invalid_source_path}
     else
-      decode_segments(segments)
-    end
-  end
-
-  defp decode_segments(segments) do
-    Enum.reduce_while(segments, {:ok, []}, fn segment, {:ok, decoded_segments} ->
-      case decode_percent_encoded(segment) do
-        {:ok, decoded_segment} -> {:cont, {:ok, [decoded_segment | decoded_segments]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, decoded_segments} -> {:ok, Enum.reverse(decoded_segments)}
-      {:error, _reason} = error -> error
+      PercentEncoding.decode_segments(segments)
     end
   end
 
   defp decode_optional(nil), do: {:ok, nil}
-  defp decode_optional(value), do: decode_percent_encoded(value)
+  defp decode_optional(value), do: PercentEncoding.decode(value)
 
   defp validate_optional_percent_encoding(nil), do: {:ok, nil}
 
   defp validate_optional_percent_encoding(value) do
-    if malformed_percent_encoding?(value) do
+    if PercentEncoding.malformed?(value) do
       {:error, {:invalid_percent_encoding, value}}
     else
       {:ok, value}
     end
-  end
-
-  defp decode_percent_encoded(value) do
-    if malformed_percent_encoding?(value) do
-      {:error, {:invalid_percent_encoding, value}}
-    else
-      {:ok, URI.decode(value)}
-    end
-  rescue
-    ArgumentError -> {:error, {:invalid_percent_encoding, value}}
-  end
-
-  defp malformed_percent_encoding?(value) do
-    String.match?(value, ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/)
   end
 
   defp source_port(%URI{} = uri, source) do

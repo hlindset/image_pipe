@@ -53,6 +53,8 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
     end
   end
 
+  # Dialyzer can't see through Vix's generated Operation typings (embed).
+  @dialyzer {:no_fail_call, mirror_embed: 5}
   defp mirror_embed(image, width, height, width, height), do: {:ok, image}
 
   defp mirror_embed(image, _width, _height, target_width, target_height) do

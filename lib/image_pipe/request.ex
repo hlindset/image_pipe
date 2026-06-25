@@ -7,6 +7,7 @@ defmodule ImagePipe.Request do
       ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
+      ImagePipe.MaterialDigest,
       ImagePipe.Plan,
       ImagePipe.Cache,
       ImagePipe.Source,

@@ -1,6 +1,12 @@
 defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   @moduledoc false
 
+  # Dialyzer over-narrows `extend_aspect_ratio_requested?/1` to always-true and
+  # flags the `false ->` else clause of `extend_aspect_ratio_operation/1`'s `with`
+  # as unmatchable. It reports the warning unattributed (line 1), so suppression
+  # must be module-scoped.
+  @dialyzer :no_match
+
   alias ImagePipe.Format
   alias ImagePipe.Parser.Imgproxy.CropRequest
   alias ImagePipe.Parser.Imgproxy.Effects

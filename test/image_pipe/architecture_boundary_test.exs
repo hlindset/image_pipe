@@ -158,6 +158,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
+      ImagePipe.MaterialDigest,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Renderer,
@@ -478,6 +479,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
+      ImagePipe.MaterialDigest,
       ImagePipe.Plan,
       ImagePipe.Output,
       ImagePipe.Telemetry

@@ -64,6 +64,9 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
     end
   end
 
+  # Image.Detection.detect/2 lives in the optional image_vision+ortex stack
+  # (the IMAGE_VISION=1 test lane); absent it, Dialyzer sees an unknown function.
+  @dialyzer {:nowarn_function, detect_objects: 2}
   defp detect_objects(image, classes) do
     regions =
       image

@@ -33,7 +33,7 @@ defmodule ImagePipe.Transform.Detector.Composite do
   # and the explicit helper (takes a %Composite{} struct). The struct clause is
   # listed first so it matches before the catch-all opts clause.
 
-  @spec supported_classes(t()) :: [String.t()]
+  @spec supported_classes(t() | keyword()) :: [String.t()]
   def supported_classes(%__MODULE__{children: children}) do
     children |> Enum.flat_map(& &1.supported_classes([])) |> Enum.uniq()
   end

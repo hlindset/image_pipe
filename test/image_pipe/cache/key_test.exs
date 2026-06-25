@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.KeyTest do
 
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.KeyTest.ForwardingProbe
+  alias ImagePipe.MaterialDigest
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Color
@@ -176,7 +177,6 @@ defmodule ImagePipe.Cache.KeyTest do
 
     assert key.hash == same.hash
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
-    assert is_binary(key.serialized_data)
 
     assert key.data == [
              schema_version: 2,
@@ -243,7 +243,6 @@ defmodule ImagePipe.Cache.KeyTest do
              selected_cookies: []
            ]
 
-    assert key.serialized_data == Key.serialize_key_data(key.data)
     refute Keyword.has_key?(key.data, :origin_identity)
     refute inspect(key.data) =~ "sig-one"
     refute inspect(key.data) =~ "ignored=true"
@@ -607,7 +606,7 @@ defmodule ImagePipe.Cache.KeyTest do
              rule: :auto_orientation_match_v1
            ]
 
-    serialized = Key.serialize_key_data(key_a.data)
+    serialized = inspect(key_a.data, limit: :infinity)
     refute Keyword.has_key?(key_data, :selected_branch)
     refute serialized =~ "source_width"
     refute serialized =~ "source_height"
@@ -651,7 +650,7 @@ defmodule ImagePipe.Cache.KeyTest do
     key_before = build_key!(conn, plan_with_resize_auto(), source_identity(revision: "v1"))
 
     key_after_resolve = build_key!(conn, plan_with_resize_auto(), source_identity(revision: "v1"))
-    serialized = Key.serialize_key_data(key_before.data)
+    serialized = inspect(key_before.data, limit: :infinity)
 
     assert key_before == key_after_resolve
     assert [[key_data]] = key_before.data[:pipelines]
@@ -841,13 +840,9 @@ defmodule ImagePipe.Cache.KeyTest do
     conn = conn(:get, "/_/plain/images/cat.jpg")
     key = build_key!(conn, plan(), source_identity())
     changed_data = Keyword.put(key.data, :transform, key_data_version: 2)
-    changed_serialized_data = Key.serialize_key_data(changed_data)
-
     assert key.data[:transform] == [key_data_version: 1]
-    refute key.serialized_data == changed_serialized_data
 
-    refute key.hash ==
-             Base.encode16(:crypto.hash(:sha256, changed_serialized_data), case: :lower)
+    refute key.hash == Base.encode16(MaterialDigest.of(changed_data), case: :lower)
   end
 
   test "cache key construction does not reference source-aware resolution" do

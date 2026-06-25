@@ -213,8 +213,7 @@ defmodule ImagePipe.CacheTest do
   defp cache_key do
     %Key{
       hash: String.duplicate("a", 64),
-      data: [schema_version: 2],
-      serialized_data: :erlang.term_to_binary([schema_version: 2], [:deterministic])
+      data: [schema_version: 2]
     }
   end
 

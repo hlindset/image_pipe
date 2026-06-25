@@ -3,6 +3,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   alias ImagePipe.Parser.Imgproxy.CropRequest
   alias ImagePipe.Parser.Imgproxy.Format
+  alias ImagePipe.Parser.Imgproxy.PercentEncoding
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Response
 
@@ -404,7 +405,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp parse_filename(value, false) do
-    with {:ok, decoded} <- decode_percent_encoded(value),
+    with {:ok, decoded} <- PercentEncoding.decode(value),
          true <- Response.valid_filename?(decoded) do
       {:ok, [filename: decoded]}
     else
@@ -431,20 +432,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     else
       :ok
     end
-  end
-
-  defp decode_percent_encoded(value) do
-    if malformed_percent_encoding?(value) do
-      {:error, {:invalid_percent_encoding, value}}
-    else
-      {:ok, URI.decode(value)}
-    end
-  rescue
-    ArgumentError -> {:error, {:invalid_percent_encoding, value}}
-  end
-
-  defp malformed_percent_encoding?(value) do
-    String.match?(value, ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/)
   end
 
   defp parse_exact_fields(fields, args, _segment) when length(args) == length(fields) do

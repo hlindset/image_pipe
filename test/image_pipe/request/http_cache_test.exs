@@ -591,8 +591,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     headers
     |> Enum.filter(fn {name, _value} -> name == "vary" end)
     |> Enum.flat_map(fn {_name, value} -> String.split(value, ",") end)
-    |> Enum.map(&String.trim/1)
-    |> Enum.map(&String.downcase/1)
+    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do

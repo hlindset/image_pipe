@@ -484,7 +484,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     conn
     |> get_resp_header("vary")
     |> Enum.flat_map(&String.split(&1, ","))
-    |> Enum.map(&String.trim/1)
-    |> Enum.map(&String.downcase/1)
+    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
   end
 end

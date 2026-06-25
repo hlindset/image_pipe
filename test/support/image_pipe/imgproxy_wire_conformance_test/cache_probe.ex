@@ -13,10 +13,7 @@ defmodule ImgproxyWireConformanceTest.CacheProbe do
     send(target, {:source_order, :cache_lookup})
     send(target, {:cache_lookup, key})
 
-    case Keyword.get(opts, :result, :miss) do
-      :miss -> :miss
-      {:hit, entry} -> {:hit, entry}
-    end
+    Keyword.get(opts, :result, :miss)
   end
 
   @impl true

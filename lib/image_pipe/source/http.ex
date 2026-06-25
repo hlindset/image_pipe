@@ -8,6 +8,7 @@ defmodule ImagePipe.Source.HTTP do
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.HTTP.AddressPolicy
   alias ImagePipe.Source.HTTP.TargetGuard
+  alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -26,7 +27,6 @@ defmodule ImagePipe.Source.HTTP do
     :address_resolver
   ]
   @host_header_names ["host"]
-  @cacheable_byte_header_names ["range", "accept", "accept-encoding"]
   @default_ports %{http: 80, https: 443}
 
   @options_schema NimbleOptions.new!(
@@ -142,7 +142,11 @@ defmodule ImagePipe.Source.HTTP do
     req_options =
       opts
       |> Keyword.fetch!(:req_options)
-      |> sanitize_req_options(fetch[:strip_byte_headers])
+      |> ReqSanitizer.sanitize_req_options(
+        @internal_option_keys,
+        @host_header_names,
+        fetch[:strip_byte_headers]
+      )
       |> Keyword.merge(url: fetch[:url], method: :get)
 
     stream_options =
@@ -161,23 +165,6 @@ defmodule ImagePipe.Source.HTTP do
 
     fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
   end
-
-  defp sanitize_req_options(req_options, strip_byte_headers?) do
-    req_options
-    |> Keyword.drop(@internal_option_keys)
-    |> Keyword.update(:headers, [], &sanitize_headers(&1, strip_byte_headers?))
-  end
-
-  defp sanitize_headers(headers, strip_byte_headers?) do
-    denied = denied_header_names(strip_byte_headers?)
-
-    Enum.reject(headers, fn {name, _value} ->
-      String.downcase(to_string(name)) in denied
-    end)
-  end
-
-  defp denied_header_names(true), do: @host_header_names ++ @cacheable_byte_header_names
-  defp denied_header_names(false), do: @host_header_names
 
   defp internal_cache_mode(opts, stable?) do
     case Keyword.fetch!(opts, :internal_cache) do
