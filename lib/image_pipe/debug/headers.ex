@@ -121,9 +121,5 @@ defmodule ImagePipe.Debug.Headers do
   defp quality_value(value), do: value
 
   defp kv(_name, nil), do: nil
-  defp kv(name, value), do: {name, to_header_value(value)}
-
-  defp to_header_value(value) when is_binary(value), do: value
-  defp to_header_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp to_header_value(value), do: to_string(value)
+  defp kv(name, value), do: {name, to_string(value)}
 end
