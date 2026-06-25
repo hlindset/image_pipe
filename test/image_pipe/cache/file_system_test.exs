@@ -68,7 +68,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
         body_byte_size: byte_size(body),
         body_sha256: body_sha256(body),
         body_filename: body_filename(cache_key, body),
-        cost_us: 0
+        cost_us: 0,
+        debug: nil
       },
       Map.new(overrides)
     )
@@ -181,6 +182,30 @@ defmodule ImagePipe.Cache.FileSystemTest do
            )
 
     assert File.exists?(Path.join([root, "processed", "ab", "cd", cache_key.hash <> ".meta"]))
+  end
+
+  test "round-trips a Debug.Info through metadata serialize/deserialize", %{root: root} do
+    cache_key = key("abcdef" <> String.duplicate("2", 58))
+
+    info = %ImagePipe.Debug.Info{
+      source_format: :jpeg,
+      source_width: 4000,
+      source_height: 3000,
+      output_format: :avif,
+      output_quality: 72,
+      aq: %{metric: :ssimulacra2, score: 78.4, min: 60, max: 65},
+      pipeline: ["scale", "crop"],
+      timings: %{decode: 8, transform: 21, encode: 140, total: 181}
+    }
+
+    metadata = entry_metadata(content_type: "image/avif", output_format: :avif, debug: info)
+
+    assert {:ok, state} = FileSystem.open_sink(cache_key, metadata, root: root)
+    assert {:ok, state} = FileSystem.write_chunk(state, "BODYBYTES", root: root)
+    assert :ok = FileSystem.commit_sink(state, root: root)
+
+    assert {:hit, %Entry{debug: read_back}} = FileSystem.get(cache_key, root: root)
+    assert read_back == info
   end
 
   test "sink writes chunks to temp files and makes the entry visible only at commit", %{

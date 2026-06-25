@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.FileSystem do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Debug.Info
 
   @metadata_version 1
   @cache_key_hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
@@ -522,7 +523,8 @@ defmodule ImagePipe.Cache.FileSystem do
          body: body,
          content_type: metadata.content_type,
          headers: metadata.headers,
-         created_at: created_at
+         created_at: created_at,
+         debug: metadata.debug
        }, metadata}
     end
   end
@@ -553,7 +555,8 @@ defmodule ImagePipe.Cache.FileSystem do
       body_byte_size: state.size,
       body_sha256: body_sha256,
       body_filename: body_filename,
-      cost_us: state.metadata.cost_us
+      cost_us: state.metadata.cost_us,
+      debug: state.metadata.debug
     }
 
     :erlang.term_to_binary(metadata, [:deterministic])
@@ -578,12 +581,14 @@ defmodule ImagePipe.Cache.FileSystem do
          body_byte_size: body_byte_size,
          body_sha256: body_sha256,
          body_filename: body_filename,
-         cost_us: cost_us
+         cost_us: cost_us,
+         debug: debug
        })
        when is_binary(content_type) and is_list(headers) and is_binary(created_at) and
               is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) and
               is_binary(body_filename) and is_integer(cost_us) and cost_us >= 0 do
-    with :ok <- validate_metadata_content_type(content_type),
+    with :ok <- validate_metadata_debug(debug),
+         :ok <- validate_metadata_content_type(content_type),
          :ok <- validate_metadata_headers(headers) do
       {:ok,
        %{
@@ -593,13 +598,17 @@ defmodule ImagePipe.Cache.FileSystem do
          body_byte_size: body_byte_size,
          body_sha256: body_sha256,
          body_filename: body_filename,
-         cost_us: cost_us
+         cost_us: cost_us,
+         debug: debug
        }}
     end
   end
 
   defp validate_metadata(%{metadata_version: _version}), do: {:error, :version_mismatch}
   defp validate_metadata(_metadata), do: {:error, :invalid_shape}
+
+  defp validate_metadata_debug(debug) when is_struct(debug, Info) or is_nil(debug), do: :ok
+  defp validate_metadata_debug(_debug), do: {:error, :invalid_debug}
 
   defp handle_invalid_metadata(reason), do: {:error, {:invalid_metadata, reason}}
 

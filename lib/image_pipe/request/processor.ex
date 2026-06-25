@@ -94,12 +94,7 @@ defmodule ImagePipe.Request.Processor do
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)
            |> wrap_decode_error() do
-      debug_facts =
-        if Keyword.get(opts, :allow_debug_headers, false) do
-          source_debug_facts(input, header_image)
-        else
-          %{}
-        end
+      debug_facts = source_debug_facts(input, header_image, opts)
 
       {:ok,
        Map.merge(
@@ -376,11 +371,12 @@ defmodule ImagePipe.Request.Processor do
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
-  # Best-effort debug facts captured from the source input and header image.
-  # Only called when allow_debug_headers is true. Any individual failure returns nil;
-  # these must never break decoding.
-
-  defp source_debug_facts(input, header_image) do
+  # Best-effort, non-sensitive source facts for the debug headers. Collected on
+  # every generation (rendering is gated elsewhere). A genuinely-absent value
+  # returns nil/false through the helper's own `case`; only a real raise is an
+  # anomaly — surfaced as one `[:debug, :collect, :error]` event, then the whole
+  # fact set degrades to %{} so collection never breaks decoding.
+  defp source_debug_facts(input, header_image, opts) do
     %{
       source_bytes: source_byte_size(input),
       source_color_space: source_interpretation(header_image),
@@ -389,6 +385,16 @@ defmodule ImagePipe.Request.Processor do
       source_alpha?: source_alpha?(header_image),
       source_orientation: source_orientation(header_image)
     }
+  rescue
+    exception ->
+      Telemetry.execute(
+        Telemetry.telemetry_opts(opts),
+        [:debug, :collect, :error],
+        %{},
+        %{error: Error.tag(exception)}
+      )
+
+      %{}
   end
 
   defp source_byte_size({:buffer, binary}), do: byte_size(binary)
@@ -405,8 +411,6 @@ defmodule ImagePipe.Request.Processor do
       interp when is_atom(interp) -> interp
       _ -> nil
     end
-  rescue
-    _ -> nil
   end
 
   defp source_has_icc?(image) do
@@ -414,8 +418,6 @@ defmodule ImagePipe.Request.Processor do
       {:ok, blob} when is_binary(blob) and byte_size(blob) > 0 -> true
       _ -> false
     end
-  rescue
-    _ -> nil
   end
 
   # Bit depth in bits per sample derived from the image interpretation, mirroring
@@ -427,8 +429,6 @@ defmodule ImagePipe.Request.Processor do
       :VIPS_INTERPRETATION_scRGB -> 16
       _ -> 8
     end
-  rescue
-    _ -> nil
   end
 
   defp source_orientation(image) do
@@ -436,15 +436,9 @@ defmodule ImagePipe.Request.Processor do
       {:ok, value} when is_integer(value) and value in 1..8 -> value
       _ -> nil
     end
-  rescue
-    _ -> nil
   end
 
-  defp source_alpha?(image) do
-    Image.has_alpha?(image)
-  rescue
-    _ -> nil
-  end
+  defp source_alpha?(image), do: Image.has_alpha?(image)
 
   defp fetch_decode_stop_metadata(
          {:ok, %{image: image, decode_options: decode_options} = decoded}

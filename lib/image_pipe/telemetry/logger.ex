@@ -32,7 +32,8 @@ defmodule ImagePipe.Telemetry.Logger do
     ],
     cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]],
     output: [[:output, :negotiate]],
-    http_cache: []
+    http_cache: [],
+    debug: []
   }
 
   # request one-shot events (already terminal; not spans)
@@ -65,6 +66,11 @@ defmodule ImagePipe.Telemetry.Logger do
     [:http_cache, :conditional, :match],
     [:http_cache, :fallback, :no_store],
     [:http_cache, :cache_hit, :headers]
+  ]
+
+  # debug one-shot events (best-effort debug-fact collection)
+  @debug_oneshot [
+    [:debug, :collect, :error]
   ]
 
   @all_groups Map.keys(@group_span_events)
@@ -105,12 +111,13 @@ defmodule ImagePipe.Telemetry.Logger do
     transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
     output_oneshots = if :output in groups, do: @output_oneshot, else: []
     http_cache_oneshots = if :http_cache in groups, do: @http_cache_oneshot, else: []
+    debug_oneshots = if :debug in groups, do: @debug_oneshot, else: []
 
     Enum.map(
       spans ++
         request_oneshots ++
         cache_oneshots ++
-        transform_oneshots ++ output_oneshots ++ http_cache_oneshots,
+        transform_oneshots ++ output_oneshots ++ http_cache_oneshots ++ debug_oneshots,
       fn e -> prefix ++ e end
     )
   end
@@ -151,6 +158,8 @@ defmodule ImagePipe.Telemetry.Logger do
       true -> base
     end
   end
+
+  defp level_for([:debug, :collect, :error | _], _metadata, _base), do: :warning
 
   defp level_for(suffix, metadata, base) do
     if stage_warning?(suffix, metadata), do: :warning, else: base
@@ -333,6 +342,9 @@ defmodule ImagePipe.Telemetry.Logger do
         "image_pipe source fetch_decode: #{outcome(meta)} (detected #{detected}#{resolution_note(meta)})"
     end
   end
+
+  defp message([:debug, :collect, :error | _], _m, meta),
+    do: "image_pipe debug collect: error (#{meta[:error]})"
 
   defp message(suffix, _m, meta) do
     "image_pipe #{label(suffix)}: #{outcome(meta)}"

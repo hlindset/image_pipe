@@ -86,6 +86,24 @@ defmodule ImagePipe.DebugHeadersWireTest do
     end
   end
 
+  # Serves beach.jpg and signals the test pid on each fetch, so a cache hit
+  # (no re-fetch) is provable. Mirrors CountingOriginImage from the conformance suite.
+  defmodule CountingDebugOrigin do
+    @moduledoc false
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      test_pid = Keyword.fetch!(opts, :test_pid)
+      send(test_pid, :origin_fetch)
+      body = File.read!("priv/static/images/beach.jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Harness helpers
   # ---------------------------------------------------------------------------
@@ -138,6 +156,40 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # Mirrors the "autoquality:ssim2 yields a decodable JPEG" test from the
   # conformance suite. No resize so the full >6 MP frame goes to the encoder.
   defp autoquality_path, do: "/_/f:jpeg/autoquality:ssim2:85:50:95/plain/images/large.jpg"
+
+  # Mount options with a filesystem cache + a counting origin, so a second
+  # request hits the stored entry. Returns {opts, cache_root} for cleanup.
+  defp cached_opts(overrides) do
+    cache_root =
+      Path.join(
+        System.tmp_dir!(),
+        "image_pipe_debug_hit_cache_#{System.unique_integer([:positive])}"
+      )
+
+    File.rm_rf!(cache_root)
+    File.mkdir_p!(cache_root)
+
+    opts =
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {CountingDebugOrigin, test_pid: self()}]}
+        ],
+        cache:
+          {ImagePipe.Cache.FileSystem,
+           root: cache_root,
+           path_prefix: "processed",
+           max_body_bytes: 10_000_000,
+           key_headers: [],
+           key_cookies: []}
+      ]
+      |> Keyword.merge(overrides)
+
+    {opts, cache_root}
+  end
 
   defp call(path, opts) do
     conn(:get, path)
@@ -257,5 +309,93 @@ defmodule ImagePipe.DebugHeadersWireTest do
     assert outcome in ["hit", "best_effort", "skipped", "native"]
     assert header(conn, "x-imagepipe-aq-quality-min") =~ ~r/^\d+$/
     assert header(conn, "x-imagepipe-aq-quality-max") =~ ~r/^\d+$/
+  end
+
+  # ---------------------------------------------------------------------------
+  # Plan 2 — cache hybrid (hit-path replay)
+  # ---------------------------------------------------------------------------
+
+  describe "cache hybrid (hit-path replay)" do
+    test "a hit replays stored facts, tags hit, and merges a live cache;dur" do
+      {opts, cache_root} = cached_opts(allow_debug_headers: true)
+
+      try do
+        miss = call(request_path() <> "?_debug=1", opts)
+        assert miss.status == 200
+        assert header(miss, "x-imagepipe-cache") == "miss"
+        assert_received :origin_fetch
+        miss_source_format = header(miss, "x-imagepipe-source-format")
+        miss_output_width = header(miss, "x-imagepipe-output-width")
+        assert is_binary(miss_source_format)
+
+        hit = call(request_path() <> "?_debug=1", opts)
+        assert hit.status == 200
+        assert hit.resp_body == miss.resp_body
+        refute_received :origin_fetch
+
+        # status flips to hit; the stored facts replay identically
+        assert header(hit, "x-imagepipe-cache") == "hit"
+        assert header(hit, "x-imagepipe-source-format") == miss_source_format
+        assert header(hit, "x-imagepipe-output-width") == miss_output_width
+        assert header(hit, "x-imagepipe-cache-key") =~ ~r/^[0-9a-f]{64}$/
+
+        # origin per-stage timings replay; a live cache entry is appended
+        server_timing = header(hit, "server-timing")
+        assert server_timing =~ "total;dur="
+        assert server_timing =~ "cache;dur="
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+
+    test "flipping allow_debug_headers on renders debug headers for an already-cached entry" do
+      {base, cache_root} = cached_opts([])
+
+      try do
+        # Generated while debug output was OFF — no debug headers, but facts are
+        # collected and stored unconditionally.
+        off = call(request_path() <> "?_debug=1", Keyword.put(base, :allow_debug_headers, false))
+        assert off.status == 200
+        assert header(off, "x-imagepipe-cache") == nil
+        assert header(off, "x-imagepipe-source-format") == nil
+        assert_received :origin_fetch
+
+        # Same path, now with the mount flag ON. Reuses the cached entry (flag is
+        # not in the key) and replays the stored facts — no origin re-fetch.
+        on = call(request_path() <> "?_debug=1", Keyword.put(base, :allow_debug_headers, true))
+        assert on.status == 200
+        assert on.resp_body == off.resp_body
+        refute_received :origin_fetch
+
+        assert header(on, "x-imagepipe-cache") == "hit"
+        assert header(on, "x-imagepipe-source-format") != nil
+        assert header(on, "x-imagepipe-output-width") =~ ~r/^\d+$/
+        assert header(on, "server-timing") =~ "cache;dur="
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+
+    test "_debug and a plain request share one cache entry; a plain hit emits no debug headers" do
+      {opts, cache_root} = cached_opts(allow_debug_headers: true)
+
+      try do
+        first = call(request_path() <> "?_debug=1", opts)
+        assert first.status == 200
+        assert_received :origin_fetch
+
+        # Plain request (no _debug): hits the same entry, identical bytes, and
+        # renders NO debug headers despite the stored facts. (A different cache
+        # key would miss and re-fetch — so this also proves key invariance.)
+        plain = call(request_path(), opts)
+        assert plain.status == 200
+        assert plain.resp_body == first.resp_body
+        refute_received :origin_fetch
+        assert header(plain, "x-imagepipe-cache") == nil
+        assert header(plain, "x-imagepipe-source-format") == nil
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
   end
 end

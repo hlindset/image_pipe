@@ -5,7 +5,7 @@ defmodule ImagePipe.Response.PreparedStream do
   alias ImagePipe.Output.Resolved
 
   @enforce_keys [:first_chunk, :content_type, :headers, :next, :cancel, :resolved_output]
-  defstruct @enforce_keys ++ [debug: nil]
+  defstruct @enforce_keys ++ [debug: nil, cache_key: nil]
 
   @type next_result() :: {:chunk, binary()} | :done | {:error, term()}
   @type cancel_result() :: :ok | {:error, term()}
@@ -17,6 +17,7 @@ defmodule ImagePipe.Response.PreparedStream do
           next: (-> next_result()),
           cancel: (-> cancel_result()),
           resolved_output: Resolved.t(),
-          debug: Info.t() | nil
+          debug: Info.t() | nil,
+          cache_key: String.t() | nil
         }
 end

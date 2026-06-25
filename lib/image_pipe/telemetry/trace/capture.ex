@@ -58,7 +58,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:http_cache, :prepare],
     [:http_cache, :conditional, :match],
     [:http_cache, :fallback, :no_store],
-    [:http_cache, :cache_hit, :headers]
+    [:http_cache, :cache_hit, :headers],
+    [:debug, :collect, :error]
   ]
 
   # Keys safe to copy into span attributes (allowlist; everything else dropped).

@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.Entry do
   Adapter-independent cached response entry.
   """
 
+  alias ImagePipe.Debug.Info
   alias ImagePipe.Format
 
   @allowed_headers ~w(vary cache-control)
@@ -10,14 +11,15 @@ defmodule ImagePipe.Cache.Entry do
   @header_name_pattern ~r/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
   @header_value_pattern ~r/^[^\x00-\x1F\x7F]*$/
 
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [debug: nil]
 
   @type header :: {String.t(), String.t()}
   @type t :: %__MODULE__{
           body: binary(),
           content_type: String.t(),
           headers: [header()],
-          created_at: DateTime.t()
+          created_at: DateTime.t(),
+          debug: Info.t() | nil
         }
 
   @spec validate(t()) :: :ok | {:error, term()}
