@@ -705,7 +705,7 @@ defmodule ImagePipe.Request.RunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
              run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
@@ -733,7 +733,7 @@ defmodule ImagePipe.Request.RunnerTest do
       |> conn("/_/plain/images/source.tiff")
       |> Plug.Conn.put_req_header("accept", "image/jpeg;q=0")
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
              run(
                png_conn,
                plan(output: %Output{mode: :automatic}),
@@ -744,7 +744,7 @@ defmodule ImagePipe.Request.RunnerTest do
 
     assert_received {:cache_lookup, png_key}
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
              run(
                jpeg_q0_conn,
                plan(output: %Output{mode: :automatic}),
@@ -766,7 +766,7 @@ defmodule ImagePipe.Request.RunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, {:cache_entry, ^entry, %Response{}, %CacheHeaders{}}} =
+    assert {:ok, {:cache_entry, ^entry, %Response{}, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
              run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(),
@@ -789,7 +789,7 @@ defmodule ImagePipe.Request.RunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, {:cache_entry, ^entry, %Response{}, ^prepared_http_cache}} =
+    assert {:ok, {:cache_entry, ^entry, %Response{}, ^prepared_http_cache, %{cache_key: _, cache_serve_us: _}}} =
              run(
                conn(:get, "/image"),
                plan(),
@@ -812,7 +812,7 @@ defmodule ImagePipe.Request.RunnerTest do
       |> conn("/_/plain/images/beach.jpg")
       |> Plug.Conn.put_req_header("accept", "image/jpeg")
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
              run(
                conn,
                plan(output: %Output{mode: :automatic}),
@@ -835,7 +835,7 @@ defmodule ImagePipe.Request.RunnerTest do
                enlargement: :deny
              )
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
              run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
@@ -1253,7 +1253,7 @@ defmodule ImagePipe.Request.RunnerTest do
 
     plan = plan(pipelines: [%Pipeline{operations: operations}])
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
              run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan,
@@ -1313,7 +1313,7 @@ defmodule ImagePipe.Request.RunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, {:cache_entry, ^entry, ^response, %CacheHeaders{}}} =
+    assert {:ok, {:cache_entry, ^entry, ^response, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
              run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
@@ -1343,7 +1343,7 @@ defmodule ImagePipe.Request.RunnerTest do
           plan
         )
 
-      assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+      assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}, %{cache_key: _, cache_serve_us: _}}} =
                run(
                  conn(:get, "/_/g:sm/w:200/h:100/f:jpeg/plain/images/beach.jpg"),
                  plan,

@@ -15,6 +15,7 @@ defmodule ImagePipe.Response.Sender do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Debug
+  alias ImagePipe.Debug.Info
   alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
@@ -25,8 +26,10 @@ defmodule ImagePipe.Response.Sender do
 
   @not_modified_header_allowlist ~w(cache-control date etag expires vary)
 
+  @type hit_debug() :: %{cache_key: String.t(), cache_serve_us: non_neg_integer()}
+
   @type delivery() ::
-          {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t()}
+          {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t(), hit_debug()}
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
           | {:rendered, String.t(), iodata(), [{String.t(), [String.t()]}], CacheHeaders.t()}
 
@@ -54,10 +57,11 @@ defmodule ImagePipe.Response.Sender do
   def send_result(
         %Plug.Conn{} = conn,
         {:ok,
-         {:cache_entry, %Entry{} = entry, %Response{} = response, %CacheHeaders{} = prepared}},
+         {:cache_entry, %Entry{} = entry, %Response{} = response, %CacheHeaders{} = prepared,
+          hit_debug}},
         opts
       ) do
-    send_cache_entry(conn, entry, response, prepared, opts)
+    send_cache_entry(conn, entry, response, prepared, hit_debug, opts)
   end
 
   def send_result(
@@ -271,16 +275,17 @@ defmodule ImagePipe.Response.Sender do
          %Entry{} = entry,
          %Response{} = response,
          %CacheHeaders{} = prepared,
+         hit_debug,
          opts
        ) do
     with {:ok, entry_headers} <- Entry.cacheable_headers(entry.headers),
          {:ok, content_disposition} <- Response.content_disposition(response, entry.content_type) do
-      merged =
-        merge_delivery_headers(
-          conn,
-          entry_headers ++ [{"content-disposition", content_disposition}],
-          prepared
-        )
+      delivery_headers =
+        entry_headers ++
+          [{"content-disposition", content_disposition}] ++
+          hit_debug_headers(entry, conn, hit_debug, opts)
+
+      merged = merge_delivery_headers(conn, delivery_headers, prepared)
 
       Telemetry.execute(
         Telemetry.telemetry_opts(opts),
@@ -296,6 +301,21 @@ defmodule ImagePipe.Response.Sender do
       send_normalized_cache_entry(conn, entry, merged)
     else
       {:error, error} -> send_cache_error(conn, error)
+    end
+  end
+
+  defp hit_debug_headers(%Entry{debug: nil}, _conn, _hit_debug, _opts), do: []
+
+  defp hit_debug_headers(%Entry{debug: %Info{} = info}, conn, hit_debug, opts) do
+    if Keyword.get(opts, :debug?, false) do
+      Debug.Headers.render(info,
+        accept: accept_header(conn),
+        cache: :hit,
+        cache_serve_us: hit_debug.cache_serve_us,
+        cache_key: hit_debug.cache_key
+      )
+    else
+      []
     end
   end
 
@@ -468,7 +488,13 @@ defmodule ImagePipe.Response.Sender do
 
   defp maybe_add_debug_headers(%PreparedStream{debug: info} = prepared_stream, conn, opts) do
     if Keyword.get(opts, :debug?, false) do
-      debug_headers = Debug.Headers.render(info, accept: accept_header(conn), cache: :miss)
+      debug_headers =
+        Debug.Headers.render(info,
+          accept: accept_header(conn),
+          cache: :miss,
+          cache_key: prepared_stream.cache_key
+        )
+
       %{prepared_stream | headers: prepared_stream.headers ++ debug_headers}
     else
       prepared_stream

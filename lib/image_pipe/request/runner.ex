@@ -4,6 +4,7 @@ defmodule ImagePipe.Request.Runner do
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Debug.Timing
   alias ImagePipe.Error
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan
@@ -20,8 +21,10 @@ defmodule ImagePipe.Request.Runner do
   alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Transform
 
+  @type hit_debug() :: %{cache_key: String.t(), cache_serve_us: non_neg_integer()}
+
   @type delivery() ::
-          {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t()}
+          {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t(), hit_debug()}
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
           | {:rendered, String.t(), iodata(), [{String.t(), [String.t()]}], CacheHeaders.t()}
 
@@ -81,31 +84,34 @@ defmodule ImagePipe.Request.Runner do
        ) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
 
-    result =
-      Telemetry.span(telemetry_opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
-        result =
-          case Keyword.get(opts, :cache) do
-            nil ->
-              :disabled
+    {result, cache_serve_us} =
+      Timing.measure(fn ->
+        Telemetry.span(telemetry_opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
+          result =
+            case Keyword.get(opts, :cache) do
+              nil ->
+                :disabled
 
-            _cache ->
-              Cache.lookup(
-                conn,
-                plan,
-                resolved_source.identity,
-                opts
-              )
-          end
+              _cache ->
+                Cache.lookup(
+                  conn,
+                  plan,
+                  resolved_source.identity,
+                  opts
+                )
+            end
 
-        {result, cache_lookup_stop_metadata(result)}
+          {result, cache_lookup_stop_metadata(result)}
+        end)
       end)
 
     case result do
       :disabled ->
         process_prepared_stream(conn, plan, resolved_source, nil, prepared_http_cache, opts)
 
-      {:hit, %Key{}, %Entry{} = entry} ->
-        {:ok, {:cache_entry, entry, plan.response, prepared_http_cache}}
+      {:hit, %Key{} = key, %Entry{} = entry} ->
+        hit_debug = %{cache_key: key.hash, cache_serve_us: cache_serve_us}
+        {:ok, {:cache_entry, entry, plan.response, prepared_http_cache, hit_debug}}
 
       {:miss, %Key{} = key} ->
         process_cacheable_miss(conn, plan, resolved_source, key, prepared_http_cache, opts)
@@ -154,7 +160,8 @@ defmodule ImagePipe.Request.Runner do
               supervisor,
               plan.response,
               policy,
-              prepared_http_cache
+              prepared_http_cache,
+              cache_key
             )
 
           {:error, reason} ->
@@ -171,11 +178,12 @@ defmodule ImagePipe.Request.Runner do
          supervisor,
          %Response{} = response,
          %Policy{} = policy,
-         %CacheHeaders{} = prepared_http_cache
+         %CacheHeaders{} = prepared_http_cache,
+         cache_key
        ) do
     case SourceSession.prepare(session) do
       {:ok, %SessionPrepared{} = prepared} ->
-        case prepared_stream(session, supervisor, prepared, response) do
+        case prepared_stream(session, supervisor, prepared, response, cache_key) do
           {:ok, %PreparedStream{} = prepared_stream} ->
             {:ok, {:prepared_stream, prepared_stream, response, prepared_http_cache}}
 
@@ -190,7 +198,13 @@ defmodule ImagePipe.Request.Runner do
     end
   end
 
-  defp prepared_stream(session, supervisor, %SessionPrepared{} = prepared, %Response{} = response) do
+  defp prepared_stream(
+         session,
+         supervisor,
+         %SessionPrepared{} = prepared,
+         %Response{} = response,
+         cache_key
+       ) do
     with :ok <- check_first_chunk(prepared.first_chunk),
          {:ok, content_disposition} <-
            Response.content_disposition(response, prepared.content_type) do
@@ -202,7 +216,8 @@ defmodule ImagePipe.Request.Runner do
          next: fn -> SourceSession.next(session) end,
          cancel: fn -> cancel_supervised_session(supervisor, session) end,
          resolved_output: prepared.resolved_output,
-         debug: prepared.debug
+         debug: prepared.debug,
+         cache_key: key_hash(cache_key)
        }}
     else
       {:error, reason} ->
@@ -217,6 +232,9 @@ defmodule ImagePipe.Request.Runner do
 
     result
   end
+
+  defp key_hash(%Key{hash: hash}), do: hash
+  defp key_hash(nil), do: nil
 
   defp check_first_chunk(chunk) when is_binary(chunk) and byte_size(chunk) > 0, do: :ok
 
