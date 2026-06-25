@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { isPreviewUrl, parsePreviewMeta, PREVIEW_PREFIXES } from "./preview-intercept";
+import {
+  extractDebugHeaders,
+  isPreviewUrl,
+  parsePreviewMeta,
+  PREVIEW_PREFIXES,
+} from "./preview-intercept";
 
 describe("isPreviewUrl", () => {
   it("matches all three processing prefixes regardless of query", () => {
@@ -61,6 +66,7 @@ describe("parsePreviewMeta", () => {
       contentType: null,
       bytes: null,
       error: null,
+      debugHeaders: null,
     });
   });
 
@@ -69,5 +75,50 @@ describe("parsePreviewMeta", () => {
     expect(parsePreviewMeta("hi")).toBeNull();
     expect(parsePreviewMeta({ type: "other", url: "http://x/img/y" })).toBeNull();
     expect(parsePreviewMeta({ type: "preview-meta" })).toBeNull(); // no url
+  });
+});
+
+describe("extractDebugHeaders", () => {
+  it("collects X-ImagePipe-* headers and Server-Timing, lowercased, ignoring others", () => {
+    const headers = new Headers({
+      "content-type": "image/avif",
+      "x-imagepipe-source-format": "jpeg",
+      "X-ImagePipe-Output-Format": "avif",
+      "server-timing": "decode;dur=8.1, total;dur=181.0",
+      "cache-control": "public",
+    });
+
+    expect(extractDebugHeaders(headers)).toEqual({
+      "x-imagepipe-source-format": "jpeg",
+      "x-imagepipe-output-format": "avif",
+      "server-timing": "decode;dur=8.1, total;dur=181.0",
+    });
+  });
+
+  it("returns null when no debug headers are present", () => {
+    expect(extractDebugHeaders(new Headers({ "content-type": "image/png" }))).toBeNull();
+  });
+});
+
+describe("parsePreviewMeta debugHeaders", () => {
+  it("accepts a string→string record and drops non-string values", () => {
+    const message = parsePreviewMeta({
+      type: "preview-meta",
+      url: "http://x/img/y",
+      debugHeaders: { "x-imagepipe-cache": "hit", "x-imagepipe-source-width": 4000, bad: null },
+    });
+    expect(message?.debugHeaders).toEqual({ "x-imagepipe-cache": "hit" });
+  });
+
+  it("coerces a missing or non-object debugHeaders to null", () => {
+    expect(parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y" })?.debugHeaders).toBeNull();
+    expect(
+      parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y", debugHeaders: "nope" })
+        ?.debugHeaders,
+    ).toBeNull();
+    expect(
+      parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y", debugHeaders: {} })
+        ?.debugHeaders,
+    ).toBeNull();
   });
 });

@@ -14,6 +14,17 @@ export function isPreviewUrl(url: string): boolean {
   return PREVIEW_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
+// Collect the opt-in debug headers (X-ImagePipe-* + standard Server-Timing) off a
+// response. Returns null when none are present so the message stays compact.
+// `Headers` iteration yields lowercased names per the Fetch spec.
+export function extractDebugHeaders(headers: Headers): Record<string, string> | null {
+  const out: Record<string, string> = {};
+  for (const [name, value] of headers) {
+    if (name.startsWith("x-imagepipe-") || name === "server-timing") out[name] = value;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 // The metadata the worker reports back to the page for the request the browser made.
 export type PreviewMetaMessage = {
   type: "preview-meta";
@@ -25,6 +36,7 @@ export type PreviewMetaMessage = {
   contentType: string | null;
   bytes: number | null;
   error: string | null;
+  debugHeaders: Record<string, string> | null;
 };
 
 // Boundary parser: postMessage data is untrusted (any page script can post). Validate
@@ -43,5 +55,16 @@ export function parsePreviewMeta(data: unknown): PreviewMetaMessage | null {
     contentType: typeof m.contentType === "string" ? m.contentType : null,
     bytes: typeof m.bytes === "number" && Number.isFinite(m.bytes) ? m.bytes : null,
     error: typeof m.error === "string" ? m.error : null,
+    debugHeaders: parseDebugHeaderRecord(m.debugHeaders),
   };
+}
+
+// Untrusted postMessage record: keep only string→string entries; null if empty.
+function parseDebugHeaderRecord(value: unknown): Record<string, string> | null {
+  if (typeof value !== "object" || value === null) return null;
+  const out: Record<string, string> = {};
+  for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw === "string") out[name] = raw;
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
