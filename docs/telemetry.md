@@ -754,6 +754,29 @@ matching imgproxy's `slog.Warn` for the same condition, e.g.:
 image_pipe output clamp: 18000x9000 -> 8192x4096 for webp (caps w:8192 h:8192 px:40000000)
 ```
 
+## Debug fact collection (`[:debug, :collect, :error]`)
+
+Debug-fact collection (the source/output facts behind the opt-in `X-ImagePipe-*`
+debug headers) is best-effort and runs unconditionally on every generation. If
+reading the decoded image's headers raises, ImagePipe degrades that fact set to
+empty rather than failing the decode, and emits a one-shot (non-span) marker so the
+loss is observable.
+
+```text
+[:image_pipe, :debug, :collect, :error]
+```
+
+Measurements: none.
+
+Metadata:
+
+- `:error` — the classified exception category atom (`ImagePipe.Error.tag/1`).
+  Product-neutral and non-sensitive.
+
+Both surfaces see it: the opt-in default Logger renders one `:warning` line
+(`image_pipe debug collect: error (<tag>)`), and the OTel exporter folds it as an
+annotation onto the enclosing span (typically `[:source, :fetch_decode]`).
+
 ## Attaching handlers
 
 A host application can attach to all ImagePipe span events with
