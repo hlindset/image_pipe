@@ -4,6 +4,7 @@ defmodule ImagePipe.Request do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Plan,

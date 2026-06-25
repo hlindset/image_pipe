@@ -5,6 +5,7 @@ defmodule ImagePipe.Plug do
 
   use Boundary,
     deps: [
+      ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Parser,
       ImagePipe.Plan,
