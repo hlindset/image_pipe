@@ -255,12 +255,15 @@ defmodule ImagePipe.Request.SourceSession do
        ) do
     with_owner_check(state, fn state ->
       cost_us = System.monotonic_time(:microsecond) - state.fetch_started_at
+      debug = put_total_timing(debug, cost_us)
 
       cache_sink =
         Cache.open_sink(
           request.cache_key,
           resolved_output,
-          Keyword.put(request.opts, :cost_us, cost_us)
+          request.opts
+          |> Keyword.put(:cost_us, cost_us)
+          |> Keyword.put(:debug_info, debug)
         )
 
       cache_sink = Cache.write_chunk(cache_sink, first_chunk, request.opts)
@@ -270,7 +273,7 @@ defmodule ImagePipe.Request.SourceSession do
         content_type: content_type,
         headers: headers,
         resolved_output: resolved_output,
-        debug: put_total_timing(debug, cost_us)
+        debug: debug
       }
 
       GenServer.reply(from, {:ok, prepared})
