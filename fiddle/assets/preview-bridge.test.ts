@@ -31,20 +31,38 @@ describe("PreviewMetadataTracker", () => {
     expect(t.error).toBeNull();
 
     t.applyDimensions({ width: 10, height: 10 }, id);
-    expect(t.metadata).toEqual({ width: 10, height: 10, bytes: 4321, contentType: "image/webp" });
+    expect(t.metadata).toEqual({
+      width: 10,
+      height: 10,
+      bytes: 4321,
+      contentType: "image/webp",
+      debugHeaders: null,
+    });
   });
 
   it("merges when the SW message arrives AFTER onload", () => {
     const t = new PreviewMetadataTracker();
     const id = t.begin("http://localhost:4000/img/x");
     t.applyDimensions({ width: 5, height: 7 }, id);
-    expect(t.metadata).toEqual({ width: 5, height: 7, bytes: null, contentType: null });
+    expect(t.metadata).toEqual({
+      width: 5,
+      height: 7,
+      bytes: null,
+      contentType: null,
+      debugHeaders: null,
+    });
 
     t.applyMessage(
       meta({ url: "http://localhost:4000/img/x", bytes: 99, contentType: "image/avif" }),
       id,
     );
-    expect(t.metadata).toEqual({ width: 5, height: 7, bytes: 99, contentType: "image/avif" });
+    expect(t.metadata).toEqual({
+      width: 5,
+      height: 7,
+      bytes: 99,
+      contentType: "image/avif",
+      debugHeaders: null,
+    });
   });
 
   it("drops stale messages from a superseded request id", () => {
@@ -54,7 +72,13 @@ describe("PreviewMetadataTracker", () => {
 
     t.applyMessage(meta({ url: "http://localhost:4000/img/old", bytes: 1 }), stale);
     t.applyDimensions({ width: 1, height: 1 }, fresh);
-    expect(t.metadata).toEqual({ width: 1, height: 1, bytes: null, contentType: null });
+    expect(t.metadata).toEqual({
+      width: 1,
+      height: 1,
+      bytes: null,
+      contentType: null,
+      debugHeaders: null,
+    });
   });
 
   it("drops a message whose url does not match the in-flight preview (query-sensitive)", () => {
@@ -76,7 +100,30 @@ describe("PreviewMetadataTracker", () => {
       meta({ url: "http://localhost:4000/img/x", bytes: null, contentType: null }),
       id,
     );
-    expect(t.metadata).toEqual({ width: 3, height: 4, bytes: null, contentType: null });
+    expect(t.metadata).toEqual({
+      width: 3,
+      height: 4,
+      bytes: null,
+      contentType: null,
+      debugHeaders: null,
+    });
+  });
+
+  it("threads debugHeaders from the SW message onto the metadata", () => {
+    const t = new PreviewMetadataTracker();
+    const id = t.begin("http://localhost:4000/img/x");
+    t.applyDimensions({ width: 5, height: 7 }, id);
+    t.applyMessage(
+      meta({ url: "http://localhost:4000/img/x", debugHeaders: { "x-imagepipe-cache": "miss" } }),
+      id,
+    );
+    expect(t.metadata).toEqual({
+      width: 5,
+      height: 7,
+      bytes: 4321,
+      contentType: "image/webp",
+      debugHeaders: { "x-imagepipe-cache": "miss" },
+    });
   });
 
   it("keeps error terminal: dimensions arriving after a non-ok message do not revive metadata", () => {

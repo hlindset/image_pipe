@@ -1291,6 +1291,7 @@ describe("processing path generation", () => {
         height: 480,
         bytes: 10_000,
         contentType: "image/avif",
+        debugHeaders: null,
       }),
     ).toBe("auto -> avif");
     expect(resolvedOutputLabel({ ...defaultFiddleState, formatEnabled: true, format: "png" })).toBe(
@@ -1305,11 +1306,18 @@ describe("processing path generation", () => {
         height: 480,
         bytes: 552_960,
         contentType: "image/jpeg",
+        debugHeaders: null,
       }),
     ).toBe("640 × 480 (540 kB)");
-    expect(processedSizeLabel({ width: 300, height: 200, bytes: null, contentType: null })).toBe(
-      "300 × 200",
-    );
+    expect(
+      processedSizeLabel({
+        width: 300,
+        height: 200,
+        bytes: null,
+        contentType: null,
+        debugHeaders: null,
+      }),
+    ).toBe("300 × 200");
   });
 });
 
