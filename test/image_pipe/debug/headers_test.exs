@@ -68,6 +68,15 @@ defmodule ImagePipe.Debug.HeadersTest do
     refute header(headers, "x-imagepipe-source-width")
     refute header(headers, "x-imagepipe-output-format")
     refute header(headers, "x-imagepipe-output-accept")
+    refute header(headers, "x-imagepipe-output-quality")
+  end
+
+  test "renders :default output quality as the \"default\" sentinel" do
+    info = %Info{output_format: :jpeg, output_quality: :default}
+    headers = Headers.render(info, accept: "", cache: :miss)
+
+    assert header(headers, "x-imagepipe-output-quality") ==
+             {"x-imagepipe-output-quality", "default"}
   end
 
   test "renders autoquality block including per-format quality bounds" do

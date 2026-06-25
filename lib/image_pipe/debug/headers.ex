@@ -53,10 +53,10 @@ defmodule ImagePipe.Debug.Headers do
     [
       kv("x-imagepipe-output-format", info.output_format),
       kv("x-imagepipe-output-negotiated", info.output_negotiated?),
-      accept_header(accept),
+      kv("x-imagepipe-output-accept", accept),
       kv("x-imagepipe-output-width", info.output_width),
       kv("x-imagepipe-output-height", info.output_height),
-      kv("x-imagepipe-output-quality", quality_value(info.output_quality)),
+      kv("x-imagepipe-output-quality", info.output_quality),
       kv("x-imagepipe-output-stripped", info.output_stripped?),
       kv("x-imagepipe-output-color-profile", info.output_color_profile),
       kv("x-imagepipe-output-distance", info.output_distance)
@@ -112,18 +112,11 @@ defmodule ImagePipe.Debug.Headers do
   defp shrink_header(nil), do: nil
   defp shrink_header(%{w: w, h: h}), do: {"x-imagepipe-shrink", "w=#{w};h=#{h}"}
 
-  defp accept_header(accept) when is_binary(accept) and accept != "",
-    do: {"x-imagepipe-output-accept", accept}
-
-  defp accept_header(_accept), do: nil
-
-  defp quality_value(:default), do: nil
-  defp quality_value(value), do: value
-
+  # An absent value (nil) or an empty string omits the header. Only the echoed
+  # request Accept can be "" (every other fact is an atom/boolean/number). An
+  # `:default` output quality stringifies to "default" — the sentinel meaning
+  # ImagePipe set no quality and the encoder's own default applied.
   defp kv(_name, nil), do: nil
-  defp kv(name, value), do: {name, to_header_value(value)}
-
-  defp to_header_value(value) when is_binary(value), do: value
-  defp to_header_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp to_header_value(value), do: to_string(value)
+  defp kv(_name, ""), do: nil
+  defp kv(name, value), do: {name, to_string(value)}
 end
