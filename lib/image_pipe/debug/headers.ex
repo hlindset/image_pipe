@@ -105,7 +105,9 @@ defmodule ImagePipe.Debug.Headers do
   defp timing_value(stage, timings, _cache_serve_us), do: Map.get(timings, stage)
 
   defp timing_entry(_stage, nil), do: nil
-  defp timing_entry(stage, us), do: "#{stage};dur=#{us}"
+  defp timing_entry(stage, us), do: "#{stage};dur=#{ms(us)}"
+
+  defp ms(us), do: Float.round(us / 1000, 3)
 
   defp shrink_header(nil), do: nil
   defp shrink_header(%{w: w, h: h}), do: {"x-imagepipe-shrink", "w=#{w};h=#{h}"}

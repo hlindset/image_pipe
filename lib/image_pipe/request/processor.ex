@@ -386,7 +386,7 @@ defmodule ImagePipe.Request.Processor do
       source_color_space: source_interpretation(header_image),
       source_icc?: source_has_icc?(header_image),
       source_bit_depth: source_bit_depth(header_image),
-      source_alpha?: Image.has_alpha?(header_image),
+      source_alpha?: source_alpha?(header_image),
       source_orientation: source_orientation(header_image)
     }
   end
@@ -436,6 +436,12 @@ defmodule ImagePipe.Request.Processor do
       {:ok, value} when is_integer(value) and value in 1..8 -> value
       _ -> nil
     end
+  rescue
+    _ -> nil
+  end
+
+  defp source_alpha?(image) do
+    Image.has_alpha?(image)
   rescue
     _ -> nil
   end

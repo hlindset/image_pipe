@@ -25,7 +25,7 @@ defmodule ImagePipe.Debug.HeadersTest do
       output_stripped?: true,
       output_color_profile: :srgb,
       pipeline: ["scale", "crop"],
-      timings: %{decode: 8, transform: 21, encode: 140, total: 181}
+      timings: %{decode: 8_000, transform: 21_000, encode: 140_000, total: 181_000}
     }
 
     headers = Headers.render(info, accept: "image/avif,image/*", cache: :miss)
@@ -54,10 +54,10 @@ defmodule ImagePipe.Debug.HeadersTest do
     assert header(headers, "x-imagepipe-cache") == {"x-imagepipe-cache", "miss"}
 
     {"server-timing", server_timing} = header(headers, "server-timing")
-    assert server_timing =~ "decode;dur=8"
-    assert server_timing =~ "transform;dur=21"
-    assert server_timing =~ "encode;dur=140"
-    assert server_timing =~ "total;dur=181"
+    assert server_timing =~ "decode;dur=8.0"
+    assert server_timing =~ "transform;dur=21.0"
+    assert server_timing =~ "encode;dur=140.0"
+    assert server_timing =~ "total;dur=181.0"
   end
 
   test "omits nil fields" do
