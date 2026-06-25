@@ -336,7 +336,7 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
     producer = start_producer(producer_request())
     ref = Process.monitor(producer)
 
-    assert {:ok, {:first_chunk, first_chunk, "image/jpeg", [], _resolved_output}} =
+    assert {:ok, {:first_chunk, first_chunk, "image/jpeg", [], _resolved_output, _debug}} =
              ProducerClient.next(producer)
 
     assert is_binary(first_chunk)
