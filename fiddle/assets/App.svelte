@@ -33,6 +33,8 @@
     registerPreviewWorker,
     type PreviewWorker,
   } from "./preview-bridge";
+  import DebugInfoPanel from "./DebugInfoPanel.svelte";
+  import { parseDebugHeaders } from "./debug-headers";
   import {
     applyThemeMode,
     persistThemeMode,
@@ -184,6 +186,10 @@
         : appState.twicpics.output,
   );
   const sizeLabel = $derived(previewError ?? processedSizeLabel(processedMetadata));
+  const debugGroups = $derived.by(() => {
+    const meta = processedMetadata;
+    return parseDebugHeaders(meta?.debugHeaders ?? null, meta?.bytes ?? null);
+  });
   const requestSummary = $derived(
     appState.provider === "imgproxy"
       ? `${appState.imgproxy.source.replace(/^images\//, "")} / ${requestSignatureLabel(appState.imgproxy, signingError)}`
@@ -609,6 +615,7 @@
           {/if}
         </figure>
       </div>
+      <DebugInfoPanel groups={debugGroups} />
       {#if previewError !== null}
         <div class="preview-error" role="status">{previewError}</div>
       {/if}

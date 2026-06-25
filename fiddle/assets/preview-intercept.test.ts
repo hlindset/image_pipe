@@ -111,7 +111,9 @@ describe("parsePreviewMeta debugHeaders", () => {
   });
 
   it("coerces a missing or non-object debugHeaders to null", () => {
-    expect(parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y" })?.debugHeaders).toBeNull();
+    expect(
+      parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y" })?.debugHeaders,
+    ).toBeNull();
     expect(
       parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y", debugHeaders: "nope" })
         ?.debugHeaders,

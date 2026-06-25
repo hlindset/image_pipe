@@ -94,7 +94,10 @@ describe("parseDebugHeaders", () => {
 
   it("parses Server-Timing into per-stage millisecond rows", () => {
     const groups = parseDebugHeaders(
-      { "server-timing": "decode;dur=8.1, transform;dur=21, encode;dur=140, cache;dur=1.5, total;dur=181" },
+      {
+        "server-timing":
+          "decode;dur=8.1, transform;dur=21, encode;dur=140, cache;dur=1.5, total;dur=181",
+      },
       null,
     );
     const timing = group(groups, "Timing");
