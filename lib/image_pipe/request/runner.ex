@@ -201,7 +201,8 @@ defmodule ImagePipe.Request.Runner do
          headers: prepared.headers ++ [{"content-disposition", content_disposition}],
          next: fn -> SourceSession.next(session) end,
          cancel: fn -> cancel_supervised_session(supervisor, session) end,
-         resolved_output: prepared.resolved_output
+         resolved_output: prepared.resolved_output,
+         debug: prepared.debug
        }}
     else
       {:error, reason} ->
