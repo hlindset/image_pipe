@@ -177,10 +177,10 @@ defmodule ImagePipe.DebugHeadersWireTest do
     # Cache status
     assert header(conn, "x-imagepipe-cache") == "miss"
 
-    # Source facts
-    assert header(conn, "x-imagepipe-source-format") != nil
-    assert header(conn, "x-imagepipe-source-width") =~ ~r/^\d+$/
-    assert header(conn, "x-imagepipe-source-height") =~ ~r/^\d+$/
+    # Source facts — beach.jpg is a 4000×2667 JPEG
+    assert header(conn, "x-imagepipe-source-format") == "jpeg"
+    assert header(conn, "x-imagepipe-source-width") == "4000"
+    assert header(conn, "x-imagepipe-source-height") == "2667"
     assert header(conn, "x-imagepipe-source-size") =~ ~r/^\d+$/
 
     # Output facts
@@ -253,7 +253,8 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
     assert header(conn, "x-imagepipe-aq-metric") == "ssimulacra2"
     assert header(conn, "x-imagepipe-aq-iterations") =~ ~r/^\d+$/
-    assert header(conn, "x-imagepipe-aq-outcome") != nil
+    outcome = header(conn, "x-imagepipe-aq-outcome")
+    assert outcome in ["hit", "best_effort", "skipped", "native"]
     assert header(conn, "x-imagepipe-aq-quality-min") =~ ~r/^\d+$/
     assert header(conn, "x-imagepipe-aq-quality-max") =~ ~r/^\d+$/
   end
