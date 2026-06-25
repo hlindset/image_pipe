@@ -172,6 +172,46 @@ defmodule ImagePipe.RequestOptionsTest do
     end
   end
 
+  test "format_order is absent by default (negotiation supplies the default order)" do
+    refute Keyword.has_key?(Options.validate!(@base_opts), :format_order)
+  end
+
+  test "format_order accepts a list of distinct modern formats" do
+    opts = Options.validate!(Keyword.put(@base_opts, :format_order, [:jpeg_xl, :avif, :webp]))
+
+    assert Keyword.fetch!(opts, :format_order) == [:jpeg_xl, :avif, :webp]
+  end
+
+  test "format_order accepts a partial list" do
+    opts = Options.validate!(Keyword.put(@base_opts, :format_order, [:jpeg_xl]))
+
+    assert Keyword.fetch!(opts, :format_order) == [:jpeg_xl]
+  end
+
+  test "format_order rejects unknown formats" do
+    assert_raise ArgumentError, ~r/invalid ImagePipe options/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :format_order, [:avif, :jpeg]))
+    end
+  end
+
+  test "format_order rejects duplicates" do
+    assert_raise ArgumentError, ~r/invalid ImagePipe options/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :format_order, [:avif, :avif]))
+    end
+  end
+
+  test "format_order rejects an empty list" do
+    assert_raise ArgumentError, ~r/invalid ImagePipe options/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :format_order, []))
+    end
+  end
+
+  test "validate! rejects a near-miss typo of format_order" do
+    assert_raise ArgumentError, ~r/did you mean :format_order/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :format_orderr, [:avif]))
+    end
+  end
+
   test "request options accept sources without root_url" do
     assert opts =
              Options.validate!(

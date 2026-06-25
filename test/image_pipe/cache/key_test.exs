@@ -1111,7 +1111,7 @@ defmodule ImagePipe.Cache.KeyTest do
 
     refute default_key.hash == no_jxl_key.hash
 
-    assert default_key.data[:output][:modern_candidates] == [:jpeg_xl, :avif]
+    assert default_key.data[:output][:modern_candidates] == [:avif, :jpeg_xl]
     assert no_jxl_key.data[:output][:modern_candidates] == [:avif]
     assert no_jxl_key.data[:output][:auto][:jpeg_xl] == false
   end

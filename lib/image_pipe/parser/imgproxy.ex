@@ -74,13 +74,20 @@ defmodule ImagePipe.Parser.Imgproxy do
                        type: {:custom, __MODULE__, :validate_non_negative_number, []},
                        default: 1.0
                      ],
+                     # Per-format quality brackets the autoquality search operates
+                     # within. AVIF uses a tight 60–65 band; JPEG XL gets a wide
+                     # 45–80 band so the search can actually reach the ssim2 target
+                     # per image (JXL needs ~Q70 on photos but only ~Q55 on screen
+                     # content, and the base 70 floor would otherwise pin it high and
+                     # overshoot). A format absent here falls back to the base
+                     # autoquality_min_quality/max_quality.
                      autoquality_format_min_quality: [
                        type: {:map, :atom, :pos_integer},
-                       default: %{avif: 60}
+                       default: %{avif: 60, jpeg_xl: 45}
                      ],
                      autoquality_format_max_quality: [
                        type: {:map, :atom, :pos_integer},
-                       default: %{avif: 65}
+                       default: %{avif: 65, jpeg_xl: 80}
                      ],
                      autoquality_max_resolution: [type: :non_neg_integer, default: 0],
                      autoquality_max_iterations: [type: :pos_integer, default: 6]
@@ -322,9 +329,9 @@ defmodule ImagePipe.Parser.Imgproxy do
       autoquality_max_quality: Keyword.get(imgproxy_opts, :autoquality_max_quality, 80),
       autoquality_allowed_error: Keyword.get(imgproxy_opts, :autoquality_allowed_error, 1.0),
       autoquality_format_min_quality:
-        Keyword.get(imgproxy_opts, :autoquality_format_min_quality, %{avif: 60}),
+        Keyword.get(imgproxy_opts, :autoquality_format_min_quality, %{avif: 60, jpeg_xl: 45}),
       autoquality_format_max_quality:
-        Keyword.get(imgproxy_opts, :autoquality_format_max_quality, %{avif: 65}),
+        Keyword.get(imgproxy_opts, :autoquality_format_max_quality, %{avif: 65, jpeg_xl: 80}),
       autoquality_max_resolution: Keyword.get(imgproxy_opts, :autoquality_max_resolution, 0),
       autoquality_max_iterations: Keyword.get(imgproxy_opts, :autoquality_max_iterations, 6)
     ]

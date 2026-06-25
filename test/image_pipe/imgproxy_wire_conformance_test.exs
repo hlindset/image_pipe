@@ -930,9 +930,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
-  test "automatic output negotiates JPEG XL from Accept and prefers it over AVIF/WebP" do
+  test "automatic output prefers AVIF over JPEG XL by default when both are accepted" do
     accepts = [
-      "image/jxl",
       "image/jxl,image/avif,image/webp",
       "image/avif,image/webp,image/jxl"
     ]
@@ -943,10 +942,35 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         |> call_imgproxy(@default_opts, accept)
 
       assert conn.status == 200
-      assert content_type(conn) == ["image/jxl"]
+      assert content_type(conn) == ["image/avif"]
       assert get_resp_header(conn, "vary") == ["Accept"]
       assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
     end
+  end
+
+  test "automatic output serves JPEG XL when it is the only accepted modern format" do
+    conn =
+      "/_/plain/images/beach.jpg"
+      |> call_imgproxy(@default_opts, "image/jxl")
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jxl"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+  end
+
+  test "format_order: [:jpeg_xl] makes automatic output prefer JPEG XL over AVIF" do
+    conn =
+      "/_/plain/images/beach.jpg"
+      |> call_imgproxy(
+        [format_order: [:jpeg_xl]] ++ @default_opts,
+        "image/avif,image/webp,image/jxl"
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jxl"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
   end
 
   test "explicit JPEG XL output bypasses Accept and does not set Vary" do

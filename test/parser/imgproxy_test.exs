@@ -152,6 +152,13 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert opts[:imgproxy][:autoquality_format_min_quality] == %{avif: 60}
   end
 
+  test "default autoquality brackets give JPEG XL a wide 45-80 band alongside AVIF's 60-65" do
+    opts = Imgproxy.validate_options!(imgproxy: [autoquality_method: :ssimulacra2])
+
+    assert opts[:imgproxy][:autoquality_format_min_quality] == %{avif: 60, jpeg_xl: 45}
+    assert opts[:imgproxy][:autoquality_format_max_quality] == %{avif: 65, jpeg_xl: 80}
+  end
+
   test "validates imgproxy auto_rotate config" do
     assert Imgproxy.validate_options!(imgproxy: [auto_rotate: true])[:imgproxy][:auto_rotate] ==
              true
