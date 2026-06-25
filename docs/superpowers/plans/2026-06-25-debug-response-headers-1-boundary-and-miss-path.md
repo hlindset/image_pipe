@@ -1062,13 +1062,11 @@ The producer's `prepare_first_chunk/1` is where `decoded`, `final_state`, `resol
 At the top of `producer.ex`, add aliases:
 
 ```elixir
-  alias ImagePipe.Debug
   alias ImagePipe.Debug.Info
   alias ImagePipe.Debug.Timing
-  alias ImagePipe.Transform
 ```
 
-(Keep the existing aliases.)
+(Keep the existing aliases. Do not add `alias ImagePipe.Debug` or `alias ImagePipe.Transform` — they are not used by the debug collection code.)
 
 - [ ] **Step 2: Wrap stages with timing and assemble `Info`**
 
@@ -1179,10 +1177,10 @@ Add to `producer.ex`:
       source_bytes: Map.get(decoded, :source_bytes),
       source_width: dim(decoded, 0),
       source_height: dim(decoded, 1),
-      source_color_space: image_interpretation(decoded),
-      source_icc?: image_has_icc?(decoded),
-      source_bit_depth: image_bit_depth(decoded),
-      source_alpha?: image_has_alpha?(decoded),
+      source_color_space: Map.get(decoded, :source_color_space),
+      source_icc?: Map.get(decoded, :source_icc?),
+      source_bit_depth: Map.get(decoded, :source_bit_depth),
+      source_alpha?: Map.get(decoded, :source_alpha?),
       source_orientation: Map.get(decoded, :source_orientation),
       shrink: Map.get(decoded, :achieved_shrink),
       output_format: resolved_output.format,
@@ -1214,22 +1212,34 @@ Add to `producer.ex`:
   defp output_quality(%Resolved{quality: {:quality, q}}, _meta), do: q
   defp output_quality(%Resolved{quality: :default}, _meta), do: :default
 
+  # Pipeline operation names, in order, derived neutrally from the plan's semantic
+  # operations (ImagePipe.Plan.Operation.*). We reflect on the struct module's
+  # short name rather than naming any concrete module literal (boundary rule) and
+  # do NOT use Transform.transform_name/1 (that operates on translated *transform*
+  # operations, not the plan's semantic structs).
   defp pipeline_names(plan) do
-    plan
-    |> Transform.plan_operations()
-    |> Enum.map(&Transform.transform_name/1)
+    plan.pipelines
+    |> Enum.flat_map(fn %{operations: ops} -> ops end)
+    |> Enum.map(&operation_name/1)
   end
+
+  defp operation_name(%module{}),
+    do: module |> Module.split() |> List.last() |> Macro.underscore()
 ```
 
-IMPORTANT — verify the following producer-side accessors before finalizing the code above; replace with the project's real helpers if the names differ:
-
-  - `decoded.source_bytes` — added in Task F1 (until then it is `nil`, which `Headers` omits).
-  - `image_interpretation/1`, `image_has_icc?/1`, `image_bit_depth/1`, `image_has_alpha?/1` — implement these in the producer using the project's image accessor module. The decoded header image is available as `decoded.image` (see `Processor` `decoded()` type). Use the same module the codebase already uses to read `Image.width/1`, `Image.has_alpha?/1`, interpretation, ICC presence, and bit depth (search for `Image.has_alpha?` / `Vix.Vips.Image` usage). Concretely:
-    - color space: the image's `interpretation` (e.g. `:srgb`, `:cmyk`, `:b_w`).
-    - ICC present: whether the image header carries an `icc-profile-data` field.
-    - bit depth: bits-per-sample from the image header.
-    - alpha: `Image.has_alpha?/1` on the decoded image.
-  - `Transform.plan_operations/1` — the generic accessor for the plan's ordered operations. If the public name differs, use the existing generic Transform facade function the request layer already uses to enumerate operations (do NOT reference concrete operation modules — boundary rule). If no such facade exists, add a thin `plan_operations/1` to the `Transform` boundary that returns the ordered operation structs, and `transform_name/1` to name each.
+Notes on data sources used above:
+  - `decoded.source_bytes`, `decoded.source_color_space`, `decoded.source_icc?`,
+    `decoded.source_bit_depth`, `decoded.source_alpha?` — all captured in the
+    processor at decode time (Task F1, below). Until F1 lands they are absent and
+    `Headers` omits them.
+  - `decoded.source_orientation` and `decoded.achieved_shrink` already exist on the
+    decoded map (see `Processor` `decoded()` type).
+  - Output dimensions use `Image.width/1` / `Image.height/1` on the delivered
+    image. The producer already calls `Image.has_alpha?/1` (see `do_resolve_output/3`),
+    so the `Image` module is in scope — no new alias needed for this.
+  - `pipeline_names/1` needs no `ImagePipe.Transform` alias (it does not call
+    Transform); drop `alias ImagePipe.Transform` from the Step 1 alias list if the
+    compiler flags it as unused.
 
 - [ ] **Step 4: Update `next_result/1` to carry `debug` in the reply**
 
@@ -1469,27 +1479,46 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-## Phase F — Source byte size
+## Phase F — Source facts at decode
 
-### Task F1: capture source byte size into `decoded`
+### Task F1: capture source byte size + image facts into `decoded`
 
-`decoded()` (in `Processor`) does not currently carry the source byte count. Add `:source_bytes` populated where the source body/stream length is known.
+`decoded()` (in `Processor`) carries `source_format`, `original_dims`, `source_orientation`, and `achieved_shrink`, but not the source byte count or the source image's color/ICC/bit-depth/alpha facts. Add them so the producer can read them from `decoded` (no image reflection in the producer).
 
 **Files:**
 - Modify: `lib/image_pipe/request/processor.ex`
-- Test: covered by Phase G (assert `x-imagepipe-source-size` present and numeric)
+- Test: covered by Phase G (assert `x-imagepipe-source-size` etc. present and well-formed)
 
 - [ ] **Step 1: Read the decode path**
 
-Open `lib/image_pipe/request/processor.ex` and read `fetch_decode_validate_source_with_source_format/3` and the `decoded()` construction (the map with `source_format`, `original_dims`, etc.). Identify where the source bytes (the fetched body, or the seekable buffer/file size) are available. The source is buffer/file-seekable (never incremental-stream), so a total byte size is obtainable from the resolved source / fetched body.
+Open `lib/image_pipe/request/processor.ex` and read `fetch_decode_validate_source_with_source_format/3` and the `decoded()` construction (the map with `source_format`, `original_dims`, `source_orientation`, etc.). Identify:
+  - where the source byte size is available (the source is buffer/file-seekable, never incremental-stream, so a total byte size is obtainable from the resolved source / fetched body — `byte_size(body)` for a binary, or the file size known to the source layer);
+  - which image is the authoritative source header image (the one `original_dims` is read from). Read the project's existing helpers for image header fields — search the codebase for how it reads `Image.has_alpha?/1`, the image `interpretation`, ICC-profile presence, and bits-per-sample (likely `Image.*` from the `image` hex package and/or `Vix.Vips.Image.header_value/2`). Use the same helpers; do not invent new ones.
 
-- [ ] **Step 2: Add `:source_bytes` to the decoded map and its `@type`**
+- [ ] **Step 2: Add the source facts to the decoded map and its `@type`**
 
-Add `optional(:source_bytes) => non_neg_integer()` to the `decoded()` type, and populate it in the decoded map from the known source byte size at the point identified in Step 1. If the byte size is only available from the source body binary, compute `byte_size(body)`; if from a file, use the file size already known to the source layer.
+Add these optional keys to the `decoded()` `@type` and populate them in the decoded map, all read from the source header image identified in Step 1 (and the source bytes from the body/file):
 
-- [ ] **Step 3: Confirm the producer reads it**
+```
+optional(:source_bytes) => non_neg_integer(),
+optional(:source_color_space) => atom(),
+optional(:source_icc?) => boolean(),
+optional(:source_bit_depth) => pos_integer(),
+optional(:source_alpha?) => boolean()
+```
 
-`build_debug/2` (Task D2) already reads `Map.get(decoded, :source_bytes)`. No producer change needed once the field exists.
+Concretely:
+  - `:source_bytes` — `byte_size(body)` (binary) or the known file size.
+  - `:source_color_space` — the source image interpretation as an atom (e.g. `:srgb`, `:cmyk`, `:b_w`).
+  - `:source_icc?` — whether the source image header carries an `icc-profile-data` field.
+  - `:source_bit_depth` — bits-per-sample from the source image header.
+  - `:source_alpha?` — `Image.has_alpha?/1` on the source image.
+
+If any single fact is genuinely unavailable from the header for some format, set it to `nil` (the renderer omits nil) rather than failing the decode — these are best-effort debug facts and must never break decoding.
+
+- [ ] **Step 3: Confirm the producer reads them**
+
+`build_debug/2` (Task D2) reads each of these via `Map.get(decoded, :source_*)`. No producer change needed once the fields exist.
 
 - [ ] **Step 4: Compile + targeted test**
 
@@ -1502,7 +1531,7 @@ Expected: PASS.
 
 ```bash
 git add lib/image_pipe/request/processor.ex
-git commit -m "feat(debug): capture source byte size during decode
+git commit -m "feat(debug): capture source byte size and image facts during decode
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
