@@ -353,6 +353,22 @@ defmodule ImagePipe.Telemetry.LoggerTest do
              "output clamp: 18000x9000 -> 8192x4096 for webp (caps w:8192 h:8192 px:40000000)"
   end
 
+  test "logs the debug collect error one-shot at warning with the error tag" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :debug, :collect, :error],
+          %{},
+          %{error: :decode_failed}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "debug collect: error (decode_failed)"
+  end
+
   test "logs a normal no-face detect fallback at the base level, not warning" do
     Telemetry.attach_default_logger(level: :info)
 
