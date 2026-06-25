@@ -1268,6 +1268,21 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
             }} = PlanBuilder.to_plan(request, clock: fn -> ~U[2026-05-05 12:00:00Z] end)
   end
 
+  test "carries the response debug? flag onto the plan, defaulting off" do
+    base = %ParsedRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: "images/cat.jpg",
+      pipelines: [%PipelineRequest{}],
+      output: output_request()
+    }
+
+    assert {:ok, %Plan{response: %Response{debug?: false}}} = PlanBuilder.to_plan(base, [])
+
+    debug = %{base | response: response_request(debug?: true)}
+    assert {:ok, %Plan{response: %Response{debug?: true}}} = PlanBuilder.to_plan(debug, [])
+  end
+
   test "derives response filename stem from source basename when omitted" do
     assert {:ok,
             %Plan{

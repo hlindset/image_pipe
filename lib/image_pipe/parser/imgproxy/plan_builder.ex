@@ -189,19 +189,19 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     do: {:ok, cachebuster}
 
   defp response_plan(
-         %{filename: nil, disposition: disposition},
+         %{filename: nil, disposition: disposition, debug?: debug?},
          source
        ) do
-    {:ok, %Response{filename: source_filename(source), disposition: disposition}}
+    {:ok, %Response{filename: source_filename(source), disposition: disposition, debug?: debug?}}
   end
 
   defp response_plan(
-         %{filename: filename, disposition: disposition},
+         %{filename: filename, disposition: disposition, debug?: debug?},
          _source
        )
        when is_binary(filename) do
     if Response.valid_filename?(filename) do
-      {:ok, %Response{filename: filename, disposition: disposition}}
+      {:ok, %Response{filename: filename, disposition: disposition, debug?: debug?}}
     else
       {:error, {:invalid_filename, filename}}
     end

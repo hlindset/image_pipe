@@ -59,7 +59,6 @@ defmodule ImagePipe.Plug do
 
   defp do_call(%Plug.Conn{} = conn, opts) do
     parser = Keyword.fetch!(opts, :parser)
-    opts = put_debug_flag(conn, opts)
 
     case parse(conn, parser, opts) do
       {:redirect, status, location} ->
@@ -82,6 +81,7 @@ defmodule ImagePipe.Plug do
          {:ok, %Source.Resolved{} = resolved_source} <-
            Source.resolve(plan.source, opts, Options.source_runtime_opts(opts)) do
       opts = Runner.with_detector_identity(opts, plan)
+      opts = put_debug_flag(plan, opts)
       prepared_http_cache = HTTPCache.prepare(conn, plan, resolved_source, opts)
       send_conditional_response(conn, plan, resolved_source, prepared_http_cache, opts)
     else
@@ -249,24 +249,17 @@ defmodule ImagePipe.Plug do
     |> Parser.validate_options!(opts)
   end
 
-  # `_debug=1` is the per-request trigger, honored only when the mount opted in
-  # via `allow_debug_headers`. It is a reserved query param: it does not affect
-  # the parsed plan, cache key, or ETag (those derive from the plan + Accept), so
-  # it needs no stripping — only gating.
-  defp put_debug_flag(%Plug.Conn{} = conn, opts) do
-    Keyword.put(opts, :debug?, debug_requested?(conn, opts))
+  # Debug headers are gated by two independent controls: the mount-level
+  # `allow_debug_headers` opt-in and the per-request `debug?` flag the parser
+  # surfaces on `Plan.Response`. For imgproxy that flag is the `debug:1`
+  # processing option, which rides in the signed path (HMAC-covered). The flag
+  # never affects the cache key or ETag (both exclude `Plan.Response`), so a
+  # debug and a plain request resolve to the same cached entry.
+  defp put_debug_flag(%Plan{} = plan, opts) do
+    Keyword.put(opts, :debug?, debug_requested?(plan, opts))
   end
 
-  defp debug_requested?(%Plug.Conn{} = conn, opts) do
-    Keyword.get(opts, :allow_debug_headers, false) and debug_param_truthy?(conn)
-  end
-
-  defp debug_param_truthy?(%Plug.Conn{} = conn) do
-    conn = Plug.Conn.fetch_query_params(conn)
-
-    case conn.query_params do
-      %{"_debug" => value} -> value in ["1", "true", ""]
-      _ -> false
-    end
+  defp debug_requested?(%Plan{response: response}, opts) do
+    Keyword.get(opts, :allow_debug_headers, false) and response.debug?
   end
 end

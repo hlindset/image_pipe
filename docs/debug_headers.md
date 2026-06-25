@@ -19,26 +19,32 @@ Two independent controls must both be satisfied for any header to be emitted:
      allow_debug_headers: true
    ```
 
-2. **Per-request `_debug=1` query parameter** — the trigger. Dialect-neutral
-   (works for imgproxy / IIIF / TwicPics / native), parsed at the request entry
-   boundary. Honored only when `allow_debug_headers: true`; otherwise ignored.
+2. **Per-request trigger** — opts a single request into debug headers. Honored
+   only when `allow_debug_headers: true`; otherwise ignored. The trigger is
+   **dialect-specific**:
+   - **imgproxy**: the `debug:1` processing option, e.g.
+     `/{signature}/rs:fit:400:300/debug:1/plain/images/cat.jpg`. It rides in the
+     signed processing-options path, so imgproxy's path signature covers it.
+   - Other dialects (IIIF / TwicPics) do not currently expose a URL trigger; a
+     caller constructing a plan directly sets `Plan.Response.debug?`.
 
-`_debug=1` does **not** change the produced image bytes: it is excluded from the
-cache key and the ETag, so a `_debug` request and a normal request resolve to the
-same cache entry. (Facts are collected and stored on every generation regardless
-of the flag, so enabling `allow_debug_headers: true` immediately surfaces headers
-for already-cached items, with no cache invalidation.)
+The `debug:1` option does **not** change the produced image bytes: it lives on
+`Plan.Response`, which is excluded from both the cache key and the ETag, so a
+debug request and a plain request resolve to the same cache entry. (Facts are
+collected and stored on every generation regardless of the flag, so enabling
+`allow_debug_headers: true` immediately surfaces headers for already-cached
+items, with no cache invalidation.)
 
 ## Security and disclosure
 
-> **Signed-URL caveat — read before enabling in production.**
-> `_debug=1` is a **query parameter**. imgproxy's built-in signature signs the
-> request **path only**, so it does **not** cover `_debug`. Enabling
-> `allow_debug_headers: true` is safe in production **only** if your URL signing
-> covers the full URL **including the query string** (e.g. CDN/edge signed URLs).
-> If you rely solely on imgproxy path signatures, an attacker can append
-> `?_debug=1` to any otherwise-valid URL and read the debug headers — so leave
-> `allow_debug_headers: false`, or front the deployment with whole-URL signing.
+> **Signing.** For imgproxy, `debug:1` is part of the signed processing-options
+> path, so a configured path signature (HMAC) protects it: an attacker cannot
+> append `debug:1` to an otherwise-valid signed URL without invalidating the
+> signature. (This closes the gap from the earlier `_debug=1` **query**-param
+> trigger, which imgproxy's path-only signature did not cover.) On `unsafe`/
+> unsigned mounts there is no such protection — anyone can add `debug:1` — so
+> enable `allow_debug_headers: true` there only if the disclosed facts below are
+> acceptable to expose.
 
 When triggered, a response discloses: internal source dimensions and
 format/color/ICC/bit-depth/alpha facts; the negotiated output and its
@@ -129,7 +135,8 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 ## Demo (fiddle)
 
 The bundled demo (`fiddle/`) configures its three mounts with
-`allow_debug_headers: true` and adds `_debug=1` to its preview requests. Its
+`allow_debug_headers: true` and adds the `debug:1` processing option to its
+preview requests. Its
 service worker reads these headers off the fetched response and surfaces them in
 a **Debug headers** panel under the preview, including the derived output size and
 compression ratio.

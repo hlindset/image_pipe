@@ -200,11 +200,31 @@ defmodule ImagePipe.DebugHeadersWireTest do
     conn |> get_resp_header(name) |> List.first()
   end
 
+  # Injects the `debug:1` processing option into an imgproxy path. The option
+  # rides in the signed processing-options segment (before `/plain/`), so it is
+  # covered by the path HMAC — unlike the old `?_debug=1` query param.
+  defp with_debug(path), do: String.replace(path, "/plain/", "/debug:1/plain/")
+
+  # Hex-encoded "test-key" / "test-salt", matching the signed mount config below.
+  @sig_keys ["746573742d6b6579"]
+  @sig_salts ["746573742d73616c74"]
+
+  defp signed_request_path(signed_path) do
+    key = Base.decode16!(hd(@sig_keys), case: :lower)
+    salt = Base.decode16!(hd(@sig_salts), case: :lower)
+
+    signature =
+      :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
+      |> Base.url_encode64(padding: false)
+
+    "/" <> signature <> signed_path
+  end
+
   # ---------------------------------------------------------------------------
   # G1 — wire-level miss-path gate tests
   # ---------------------------------------------------------------------------
 
-  test "no debug headers without _debug param, even when allow_debug_headers: true" do
+  test "no debug headers without the debug option, even when allow_debug_headers: true" do
     conn = call(request_path(), base_opts(allow_debug_headers: true))
 
     assert conn.status == 200
@@ -213,16 +233,25 @@ defmodule ImagePipe.DebugHeadersWireTest do
     assert header(conn, "server-timing") == nil
   end
 
-  test "no debug headers with _debug=1 when allow_debug_headers: false (default)" do
-    conn = call(request_path() <> "?_debug=1", base_opts(allow_debug_headers: false))
+  test "the _debug=1 query param is no longer a trigger (replaced by debug:1)" do
+    conn = call(request_path() <> "?_debug=1", base_opts(allow_debug_headers: true))
+
+    assert conn.status == 200
+    assert header(conn, "x-imagepipe-output-format") == nil
+    assert header(conn, "x-imagepipe-cache") == nil
+    assert header(conn, "server-timing") == nil
+  end
+
+  test "no debug headers with debug:1 when allow_debug_headers: false (default)" do
+    conn = call(with_debug(request_path()), base_opts(allow_debug_headers: false))
 
     assert conn.status == 200
     assert header(conn, "x-imagepipe-output-format") == nil
     assert header(conn, "x-imagepipe-cache") == nil
   end
 
-  test "debug headers present with _debug=1 when allow_debug_headers: true (cache miss)" do
-    conn = call(request_path() <> "?_debug=1", base_opts(allow_debug_headers: true))
+  test "debug headers present with debug:1 when allow_debug_headers: true (cache miss)" do
+    conn = call(with_debug(request_path()), base_opts(allow_debug_headers: true))
 
     assert conn.status == 200
 
@@ -256,11 +285,11 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # ---------------------------------------------------------------------------
 
   describe "cache identity invariance" do
-    test "_debug=1 does not change the generated ETag" do
+    test "debug:1 does not change the generated ETag" do
       opts = stable_opts(allow_debug_headers: true)
 
       plain = call(stable_request_path(), opts)
-      debug = call(stable_request_path() <> "?_debug=1", opts)
+      debug = call(with_debug(stable_request_path()), opts)
 
       plain_etag = header(plain, "etag")
       debug_etag = header(debug, "etag")
@@ -268,10 +297,10 @@ defmodule ImagePipe.DebugHeadersWireTest do
       assert is_binary(plain_etag), "expected plain request to carry an ETag"
 
       assert plain_etag == debug_etag,
-             "expected _debug=1 not to change ETag; got plain=#{inspect(plain_etag)} debug=#{inspect(debug_etag)}"
+             "expected debug:1 not to change ETag; got plain=#{inspect(plain_etag)} debug=#{inspect(debug_etag)}"
     end
 
-    test "conditional GET with _debug=1 still 304s against the plain ETag" do
+    test "conditional GET with debug:1 still 304s against the plain ETag" do
       opts = stable_opts(allow_debug_headers: true)
       plain = call(stable_request_path(), opts)
       etag = header(plain, "etag")
@@ -279,12 +308,44 @@ defmodule ImagePipe.DebugHeadersWireTest do
       assert is_binary(etag), "expected initial request to carry an ETag"
 
       conn =
-        conn(:get, stable_request_path() <> "?_debug=1")
+        conn(:get, with_debug(stable_request_path()))
         |> put_req_header("if-none-match", etag)
         |> ImagePipe.Plug.call(ImagePipe.Plug.init(opts))
 
       assert conn.status == 304,
-             "expected conditional GET with _debug=1 to 304; got #{conn.status}"
+             "expected conditional GET with debug:1 to 304; got #{conn.status}"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Signature coverage (issue #398) — debug:1 rides in the signed path, so
+  # imgproxy's path HMAC protects it. An attacker cannot append it to an
+  # otherwise-valid signed URL.
+  # ---------------------------------------------------------------------------
+
+  describe "signature coverage" do
+    defp signed_opts(overrides) do
+      base_opts(overrides)
+      |> Keyword.put(:imgproxy, signature: [keys: @sig_keys, salts: @sig_salts])
+    end
+
+    test "a correctly signed URL carrying debug:1 renders debug headers" do
+      signed_path = "/rs:fit:400:300/f:jpeg/debug:1/plain/images/beach.jpg"
+      conn = call(signed_request_path(signed_path), signed_opts(allow_debug_headers: true))
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-cache") == "miss"
+      assert header(conn, "x-imagepipe-source-format") == "jpeg"
+    end
+
+    test "injecting debug:1 into an otherwise-valid signed URL invalidates the signature" do
+      # Sign a path WITHOUT debug:1, then inject it — the HMAC no longer matches.
+      signed_path = "/rs:fit:400:300/f:jpeg/plain/images/beach.jpg"
+      tampered = with_debug(signed_request_path(signed_path))
+
+      conn = call(tampered, signed_opts(allow_debug_headers: true))
+
+      assert conn.status == 403
     end
   end
 
@@ -292,14 +353,14 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # G3 — autoquality AQ-* header coverage
   # ---------------------------------------------------------------------------
 
-  test "autoquality ssim2 request emits AQ-* headers with _debug=1" do
+  test "autoquality ssim2 request emits AQ-* headers with debug:1" do
     opts =
       large_ssim2_opts(
         allow_debug_headers: true,
         imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 85]
       )
 
-    conn = call(autoquality_path() <> "?_debug=1", opts)
+    conn = call(with_debug(autoquality_path()), opts)
 
     assert conn.status == 200
 
@@ -320,7 +381,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
       {opts, cache_root} = cached_opts(allow_debug_headers: true)
 
       try do
-        miss = call(request_path() <> "?_debug=1", opts)
+        miss = call(with_debug(request_path()), opts)
         assert miss.status == 200
         assert header(miss, "x-imagepipe-cache") == "miss"
         assert_received :origin_fetch
@@ -328,7 +389,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
         miss_output_width = header(miss, "x-imagepipe-output-width")
         assert is_binary(miss_source_format)
 
-        hit = call(request_path() <> "?_debug=1", opts)
+        hit = call(with_debug(request_path()), opts)
         assert hit.status == 200
         assert hit.resp_body == miss.resp_body
         refute_received :origin_fetch
@@ -354,7 +415,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
       try do
         # Generated while debug output was OFF — no debug headers, but facts are
         # collected and stored unconditionally.
-        off = call(request_path() <> "?_debug=1", Keyword.put(base, :allow_debug_headers, false))
+        off = call(with_debug(request_path()), Keyword.put(base, :allow_debug_headers, false))
         assert off.status == 200
         assert header(off, "x-imagepipe-cache") == nil
         assert header(off, "x-imagepipe-source-format") == nil
@@ -362,7 +423,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
         # Same path, now with the mount flag ON. Reuses the cached entry (flag is
         # not in the key) and replays the stored facts — no origin re-fetch.
-        on = call(request_path() <> "?_debug=1", Keyword.put(base, :allow_debug_headers, true))
+        on = call(with_debug(request_path()), Keyword.put(base, :allow_debug_headers, true))
         assert on.status == 200
         assert on.resp_body == off.resp_body
         refute_received :origin_fetch
@@ -376,15 +437,15 @@ defmodule ImagePipe.DebugHeadersWireTest do
       end
     end
 
-    test "_debug and a plain request share one cache entry; a plain hit emits no debug headers" do
+    test "debug:1 and a plain request share one cache entry; a plain hit emits no debug headers" do
       {opts, cache_root} = cached_opts(allow_debug_headers: true)
 
       try do
-        first = call(request_path() <> "?_debug=1", opts)
+        first = call(with_debug(request_path()), opts)
         assert first.status == 200
         assert_received :origin_fetch
 
-        # Plain request (no _debug): hits the same entry, identical bytes, and
+        # Plain request (no debug:1): hits the same entry, identical bytes, and
         # renders NO debug headers despite the stored facts. (A different cache
         # key would miss and re-fetch — so this also proves key invariance.)
         plain = call(request_path(), opts)

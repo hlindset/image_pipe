@@ -3,16 +3,22 @@ defmodule ImagePipe.Plan.Response do
   Delivery metadata attached to an `ImagePipe.Plan`.
 
   Parsers use this struct for response-specific request options such as
-  `Content-Disposition` and delivery filename selection.
+  `Content-Disposition`, delivery filename selection, and the per-request
+  `debug?` opt-in for `X-ImagePipe-*` debug headers.
+
+  `debug?` is delivery-only: it never affects the produced image bytes, the
+  cache key, or the ETag (none of which read `Plan.Response`), so a debug and a
+  plain request resolve to the same cached entry.
   """
 
   @delivery_content_types ["image/jxl", "image/jpeg", "image/png", "image/webp", "image/avif"]
 
-  defstruct disposition: :default, filename: nil
+  defstruct disposition: :default, filename: nil, debug?: false
 
   @type t :: %__MODULE__{
           disposition: :default | :inline | :attachment,
-          filename: String.t() | nil
+          filename: String.t() | nil,
+          debug?: boolean()
         }
 
   @doc """

@@ -1012,6 +1012,7 @@ transforms or output encoding.
 | `expires` | `exp` | Supported | Rejects expired requests before source/cache side effects. |
 | `filename` | `fn` | Supported | Percent-decoded or URL-safe Base64 filename stem. |
 | `return_attachment` | `att` | Supported | Controls `Content-Disposition` disposition. |
+| ➕ `debug` | | Supported (ImagePipe extension) | **No imgproxy counterpart.** `debug:1` (also `debug:true`/`debug:0`/`debug:false`) opts a single request into `X-ImagePipe-*` debug response headers, honored only under the `allow_debug_headers: true` mount flag. Because it rides in the **signed** processing-options path, a configured path signature (HMAC) covers it — an attacker cannot append it to an otherwise-valid signed URL. This replaces the earlier `_debug=1` **query**-param trigger, which imgproxy's path-only signature did not protect (issue #398). Delivery-only: it sets `Plan.Response.debug?` and never affects produced bytes, the cache key, or the ETag (all three exclude `Plan.Response`), so a debug and a plain request share one cache entry. See [debug_headers.md](debug_headers.md). |
 | `preset` | `pr` | Supported | Normal processing URLs support configured named presets, more than one name in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. |
 | `hashsum` | `hs` | Missing | Pro source integrity check. |
 

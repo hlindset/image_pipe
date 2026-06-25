@@ -67,7 +67,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "keep_copyright" => {:keep_copyright, [:keep_copyright]},
     "kcr" => {:keep_copyright, [:keep_copyright]},
     "preserve_hdr" => {:preserve_hdr, [:preserve_hdr]},
-    "ph" => {:preserve_hdr, [:preserve_hdr]}
+    "ph" => {:preserve_hdr, [:preserve_hdr]},
+    "debug" => {:debug, [:debug]}
   }
 
   # Declarative specs for regular fixed-arity pipeline options. Each entry maps
@@ -172,7 +173,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp scoped_assignments(:expires, assignments), do: {:policy, assignments}
 
-  defp scoped_assignments(kind, assignments) when kind in [:filename, :return_attachment],
+  defp scoped_assignments(kind, assignments) when kind in [:filename, :return_attachment, :debug],
     do: {:response, assignments}
 
   defp scoped_assignments(_kind, assignments), do: {:pipeline, assignments}
@@ -228,6 +229,17 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     case parse_boolean(value) do
       {:ok, true} -> {:ok, [disposition: :attachment]}
       {:ok, false} -> {:ok, [disposition: :inline]}
+      {:error, {:invalid_boolean, _value}} -> {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
+  # `debug:1` opts the response into `X-ImagePipe-*` debug headers. It lives in
+  # the signed processing-options path (not a query param), so imgproxy's path
+  # HMAC covers it; it does not affect produced bytes, the cache key, or the ETag
+  # (it rides on `Plan.Response`, which all three exclude).
+  defp parse_known_option(:debug, [:debug], [value], segment) when value != "" do
+    case parse_boolean(value) do
+      {:ok, debug?} -> {:ok, [debug?: debug?]}
       {:error, {:invalid_boolean, _value}} -> {:error, {:invalid_option_segment, segment}}
     end
   end

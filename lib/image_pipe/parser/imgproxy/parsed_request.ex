@@ -17,7 +17,7 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
   }
   @default_policy %{expires: 0}
   @default_cache %{cachebuster: nil}
-  @default_response %{filename: nil, disposition: :default}
+  @default_response %{filename: nil, disposition: :default, debug?: false}
 
   @enforce_keys [:signature, :source_kind, :source_path, :pipelines]
   defstruct @enforce_keys ++
@@ -48,7 +48,8 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
   @type cache_request() :: %{required(:cachebuster) => String.t() | nil}
   @type response_request() :: %{
           required(:filename) => String.t() | nil,
-          required(:disposition) => :default | :inline | :attachment
+          required(:disposition) => :default | :inline | :attachment,
+          required(:debug?) => boolean()
         }
 
   @type t() :: %__MODULE__{
