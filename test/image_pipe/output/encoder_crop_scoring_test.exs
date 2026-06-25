@@ -64,7 +64,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
   test "stream_output crop-scores a >6 MP output with no full-frame confirm (ladder picks :crop)" do
     attach_stop()
 
-    {:ok, [_bin], _mime} =
+    {:ok, [_bin], _mime, _meta} =
       Encoder.stream_output(zone_plate(7), ssim2_resolved(), telemetry_prefix: @prefix)
 
     assert_receive {:stop, meta}
@@ -78,7 +78,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
   test "stream_output full-frame-scores a <6 MP output (ladder picks :full)" do
     attach_stop()
 
-    {:ok, [_bin], _mime} =
+    {:ok, [_bin], _mime, _meta} =
       Encoder.stream_output(zone_plate(2), ssim2_resolved(), telemetry_prefix: @prefix)
 
     assert_receive {:stop, meta}

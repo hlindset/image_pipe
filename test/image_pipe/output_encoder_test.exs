@@ -31,7 +31,7 @@ defmodule ImagePipe.Output.EncoderTest do
       color_profile: :preserve_source
     }
 
-    assert {:ok, stream, "image/webp"} =
+    assert {:ok, stream, "image/webp", _meta} =
              Encoder.stream_output(image, resolved_output, image_module: CaptureImage)
 
     assert Enum.to_list(stream) == ["encoded"]
@@ -72,7 +72,7 @@ defmodule ImagePipe.Output.EncoderTest do
       flatten_background: red
     }
 
-    assert {:ok, stream, "image/jpeg"} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, stream, "image/jpeg", _meta} = Encoder.stream_output(image, resolved, [])
 
     decoded =
       stream
@@ -100,7 +100,7 @@ defmodule ImagePipe.Output.EncoderTest do
       # flatten_background omitted -> defaults to opaque white
     }
 
-    assert {:ok, stream, "image/jpeg"} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, stream, "image/jpeg", _meta} = Encoder.stream_output(image, resolved, [])
 
     decoded =
       stream
@@ -129,7 +129,7 @@ defmodule ImagePipe.Output.EncoderTest do
       # default white flatten_background must be ignored for an alpha-capable format
     }
 
-    assert {:ok, stream, "image/png"} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, stream, "image/png", _meta} = Encoder.stream_output(image, resolved, [])
 
     decoded =
       stream
@@ -183,7 +183,7 @@ defmodule ImagePipe.Output.EncoderTest do
       {:ok, img} = Image.open(@fixture)
       resolved = %{search_resolved() | max_bytes: 200_000}
 
-      {:ok, stream, mime} = Encoder.stream_output(img, resolved, [])
+      {:ok, stream, mime, _meta} = Encoder.stream_output(img, resolved, [])
       body = stream |> Enum.to_list() |> IO.iodata_to_binary()
       assert mime == "image/jpeg"
       assert byte_size(body) <= 200_000
@@ -201,7 +201,7 @@ defmodule ImagePipe.Output.EncoderTest do
 
       resolved = %{search_resolved() | quality_search: rs}
 
-      {:ok, stream, _mime} = Encoder.stream_output(img, resolved, [])
+      {:ok, stream, _mime, _meta} = Encoder.stream_output(img, resolved, [])
       body = stream |> Enum.to_list() |> IO.iodata_to_binary()
       assert {:ok, _decoded} = Image.from_binary(body)
     end

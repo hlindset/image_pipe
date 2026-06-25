@@ -149,7 +149,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                %State{final_state | image: clamped},
                request.opts
              ),
-           {:ok, chunk, content_type, stream_state} <-
+           {:ok, chunk, content_type, stream_state, _search_meta} <-
              encode_first_chunk(image, resolved_output, request.opts) do
         {:ok, chunk,
          %{
@@ -182,9 +182,10 @@ defmodule ImagePipe.Request.SourceSession.Producer do
       %{output_format: resolved_output.format},
       fn ->
         result =
-          with {:ok, stream, content_type} <- Encoder.stream_output(image, resolved_output, opts),
+          with {:ok, stream, content_type, search_meta} <-
+                 Encoder.stream_output(image, resolved_output, opts),
                {:ok, chunk, stream_state} <- first_chunk(stream) do
-            {:ok, chunk, content_type, stream_state}
+            {:ok, chunk, content_type, stream_state, search_meta}
           end
 
         {result, encode_stop_metadata(result, resolved_output.format)}
@@ -192,7 +193,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     )
   end
 
-  defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state}, format),
+  defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state, _search_meta}, format),
     do: %{result: :ok, output_format: format}
 
   defp encode_stop_metadata(:empty, format),
