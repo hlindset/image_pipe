@@ -631,6 +631,24 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     end
   end
 
+  describe "debug" do
+    test "debug:1 / debug:true parse a truthy response-scoped flag" do
+      assert OptionGrammar.parse("debug:1") == {:ok, {:response, [debug?: true]}}
+      assert OptionGrammar.parse("debug:true") == {:ok, {:response, [debug?: true]}}
+    end
+
+    test "debug:0 / debug:false parse an explicitly disabled flag" do
+      assert OptionGrammar.parse("debug:0") == {:ok, {:response, [debug?: false]}}
+      assert OptionGrammar.parse("debug:false") == {:ok, {:response, [debug?: false]}}
+    end
+
+    test "debug with a missing or malformed value is rejected" do
+      assert {:error, {:invalid_option_segment, "debug:"}} = OptionGrammar.parse("debug:")
+      assert {:error, {:invalid_option_segment, "debug:x"}} = OptionGrammar.parse("debug:x")
+      assert {:error, {:invalid_option_segment, "debug:1:2"}} = OptionGrammar.parse("debug:1:2")
+    end
+  end
+
   defp color!(red, green, blue) do
     assert {:ok, color} = Color.rgb(red, green, blue)
     color

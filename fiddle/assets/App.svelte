@@ -76,15 +76,15 @@
   let previewWorkerDisposed = false; // guards the register-promise-vs-unmount race
   let currentRequestId = 0;
   let lastPreviewAbsolute: string | null = null; // dedupe on resolved URL, not raw path
-  const updatePreviewPath = debounce((nextPath: string) => {
-    // Request the preview with `_debug=1` so the debug-enabled mounts emit the
-    // X-ImagePipe-* + Server-Timing headers the SW reads. `_debug` is a reserved
-    // query param (ignored by every dialect parser, excluded from the cache key /
-    // ETag), so it changes nothing about the produced image. It rides ONLY the
-    // preview <img> request — the copyable / "Open" URL (`path`) stays clean.
-    const debugUrl = new URL(nextPath, window.location.origin);
-    debugUrl.searchParams.set("_debug", "1");
-    const absolute = debugUrl.href;
+  const updatePreviewPath = debounce((nextPath: string, provider: string) => {
+    // Request the preview with the imgproxy `debug:1` processing option so the
+    // debug-enabled mount emits the X-ImagePipe-* + Server-Timing headers the SW
+    // reads. `debug:1` rides in the signed processing-options path (HMAC-covered),
+    // is excluded from the cache key / ETag, and changes nothing about the
+    // produced image. It rides ONLY the preview <img> request — the copyable /
+    // "Open" URL (`path`) stays clean. Only imgproxy exposes a debug trigger;
+    // the IIIF / TwicPics previews carry no debug option.
+    const absolute = previewRequestUrl(nextPath, provider);
     // Dedupe on the RESOLVED url (not the raw path): a no-op must never flip
     // previewLoading=true without a following <img> load event, or the spinner
     // would strand. This same absolute is the SW-message correlation key.
@@ -95,8 +95,18 @@
     previewLoading = true;
     previewError = null;
     processedMetadata = null;
-    previewImageUrl = absolute; // same-origin → <img> triggers the real, SW-intercepted request (with _debug=1)
+    previewImageUrl = absolute; // same-origin → <img> triggers the real, SW-intercepted request (with debug:1 for imgproxy)
   }, 150);
+  // Builds the absolute preview-request URL. For imgproxy it injects the
+  // `debug:1` processing option ahead of the `/plain/` source marker; other
+  // dialects are returned unchanged (no debug trigger).
+  function previewRequestUrl(nextPath: string, provider: string): string {
+    const url = new URL(nextPath, window.location.origin);
+    if (provider === "imgproxy") {
+      url.pathname = url.pathname.replace("/plain/", "/debug:1/plain/");
+    }
+    return url.href;
+  }
   const updateFiddleLocation = debounce((nextPath: string) => {
     if (
       typeof window === "undefined" ||
@@ -159,7 +169,7 @@
     }
   });
   $effect(() => {
-    updatePreviewPath(path);
+    updatePreviewPath(path, appState.provider);
   });
   $effect(() => {
     updateFiddleLocation(appPathForState(appState));

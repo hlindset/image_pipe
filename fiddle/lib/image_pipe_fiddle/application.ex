@@ -61,7 +61,8 @@ defmodule ImagePipeFiddle.Application do
       # than erroring; the default Logger surfaces any detection fallback.
       detector_required: false,
       # Demo deployment: emit the opt-in X-ImagePipe-* / Server-Timing debug headers.
-      # The fiddle adds `_debug=1` to its preview requests so the panel always populates.
+      # The fiddle adds the `debug:1` processing option to its imgproxy preview
+      # requests so the panel populates (only imgproxy exposes a debug trigger).
       allow_debug_headers: true
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))

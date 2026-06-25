@@ -230,6 +230,14 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert request.response.disposition == :attachment
   end
 
+  test "debug option accumulates onto the response map and defaults off" do
+    assert {:ok, request} = Options.parse([], Presets.empty())
+    assert request.response.debug? == false
+
+    assert {:ok, request} = Options.parse(~w(debug:1), Presets.empty())
+    assert request.response.debug? == true
+  end
+
   test "max_bytes and autoquality accumulate onto the output map" do
     assert {:ok, request} =
              Options.parse(
