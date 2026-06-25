@@ -40,12 +40,14 @@ behavior from browser devtools.
 
 ## Gate and trigger model
 
-Two independent controls, both required for any header to be emitted:
+Two independent controls, both required for any header to be **emitted**:
 
 1. **Mount option `allow_debug_headers: false`** (default). The deployment-level
-   gate. When `false`, the feature is fully off: no debug collection, no cache
-   storage of debug data, no headers — zero overhead. When `true`, the deployment
-   permits debug headers and the request collector runs.
+   **output** gate. When `false`, no debug headers are ever rendered. When `true`,
+   the deployment permits debug headers to be emitted (subject to the per-request
+   trigger). It does **not** gate collection — see *Collection vs. rendering*: facts
+   are collected/stored unconditionally so the flag can be flipped on retroactively
+   for already-cached items.
 2. **Per-request query parameter `_debug=1`.** The trigger. Dialect-neutral
    (works for imgproxy / TwicPics / IIIF / native), parsed and stripped at the
    request entry boundary *before* dialect parsing. Honored only when
@@ -54,31 +56,58 @@ Two independent controls, both required for any header to be emitted:
 
 Rationale: with `allow_debug_headers: true` in production, the actual trigger lives
 in the URL, so under signed URLs an attacker cannot append `_debug=1` without
-invalidating the signature. The mount gate is the on/off switch; the query
+invalidating the signature. The mount gate is the emit on/off switch; the query
 parameter is the per-request trigger.
 
 ### Interaction with cache key and ETag
 
-`_debug=1` **must not** participate in the cache key or the ETag. It does not
-change the produced image bytes; a `_debug=1` request and a normal request resolve
-to the **same** cache entry. The flag only controls whether debug headers are
-*rendered* on the response. The `_debug` parameter is stripped before key/ETag
-derivation, the same way it is stripped before dialect parsing.
+Neither `_debug=1` **nor** the `allow_debug_headers` mount flag participates in the
+cache key or the ETag. Neither changes the produced image *bytes*: a `_debug=1`
+request, a normal request, and the same request under either flag setting all
+resolve to the **same** cache entry, because the key/ETag rule is byte-identity of
+the stored output (debug info is metadata served *alongside* identical bytes, never
+a different stored variant). Putting either in the key would fork storage into
+byte-identical "debug-on" / "debug-off" copies — pure waste. The `_debug` parameter
+is stripped before key/ETag derivation, the same way it is stripped before dialect
+parsing.
 
-### Collection vs. rendering
+This exclusion is *why* collection must be unconditional (next section): since the
+flag is not in the key, an entry cached while debug was off is reused when debug is
+turned on.
 
-When `allow_debug_headers: true`:
+### Collection vs. rendering (decoupled)
 
-- Debug facts are **always collected and stored** on a cache miss (generation),
-  regardless of whether `_debug=1` was present. This is what makes the hybrid
-  cache behavior work: a later `_debug=1` request that is a cache *hit* can still
-  show the full stored facts.
-- Headers are **rendered only when `_debug=1` is present** on the request (hit or
-  miss). A normal request never carries debug headers even though the facts were
-  collected/stored.
+The two concerns are independent and gated differently:
 
-Storage cost is ~1–2 KB per cache entry, incurred only on deployments that opted
-into `allow_debug_headers`.
+- **Collection + storage is unconditional.** Debug facts are collected on every
+  generation and stored in the cache entry whenever a cacheable entry is written —
+  **independent of `allow_debug_headers`**. This is what lets an operator flip
+  `allow_debug_headers: true` and immediately get debug headers for items *already*
+  in the cache, with **no cache invalidation and no key fork** (the flag isn't in
+  the key, so existing entries are reused — and because they already carry the
+  stored facts, the hit path can render them). Collection is best-effort and must
+  never break decoding.
+- **Rendering is gated** on `allow_debug_headers: true` **AND** `_debug=1`. A
+  response carries `X-ImagePipe-*` headers only when both hold; otherwise the
+  collected/stored facts are simply not emitted.
+
+So `allow_debug_headers` is a pure *output* switch, not a collection switch.
+
+Costs of unconditional collection/storage (deemed acceptable):
+
+- **CPU:** negligible — a few `System.monotonic_time` calls, in-memory struct
+  construction, and reads of already-loaded image headers (microseconds against a
+  request that spends milliseconds–hundreds of ms decoding/transforming/encoding).
+- **I/O:** zero extra for HTTP/buffer sources (`byte_size/1` is O(1)); one
+  `File.stat` per generation for *local-file* sources (the `source_bytes` fact).
+- **Storage:** ~1–2 KB of serialized facts per cache entry, on every entry. This is
+  small relative to the encoded image body the entry already stores (tens to
+  hundreds of KB), i.e. low single-digit percent growth, and the data is bounded
+  and non-sensitive.
+
+(In **Plan 1** there is no cache storage yet, so collection there only feeds the
+immediate miss-path render; the unconditional-storage design applies from **Plan 2**
+onward, where the cache entry gains the debug field.)
 
 ## Security and disclosure
 
@@ -194,9 +223,10 @@ orchestration assembles `Info` from the values they already return.)
 ### Collection and plumbing
 
 1. **Request entry:** parse and strip `_debug` from the query before dialect
-   parsing and before cache-key/ETag derivation. If `allow_debug_headers` and the
-   feature is active for this mount, initialize a `Debug.Timing` accumulator and a
-   debug-requested flag in the request context.
+   parsing and before cache-key/ETag derivation. Compute a *render* flag
+   (`allow_debug_headers AND _debug`) in the request context — this gates emission
+   only. Collection/timing on the generation path runs unconditionally (see
+   *Collection vs. rendering*), not behind this flag.
 2. **Source fetch / decode (`request/processor.ex`):** capture source byte size
    (new), and read source format, original dims, color space, ICC presence, bit
    depth, alpha, EXIF orientation, and achieved shrink into `Info`. Record the
@@ -211,14 +241,19 @@ orchestration assembles `Info` from the values they already return.)
 5. **Assemble `Info`** in the producer and carry it on
    `Request.SourceSession.Prepared` (new field), thence onto
    `Response.PreparedStream` (new field).
-6. **Render (`response/sender.ex`):** when the request asked for debug headers,
-   call `Debug.Headers` to merge the `Info` into the response header list. Set
-   `X-ImagePipe-Cache: miss` on the freshly produced path.
+6. **Render (`response/sender.ex`):** only when the render flag is set
+   (`allow_debug_headers AND _debug`), call `Debug.Headers` to merge the `Info`
+   into the response header list. Set `X-ImagePipe-Cache: miss` on the freshly
+   produced path.
 
 ### Cache storage (hybrid behavior)
 
 - Add a `debug` field to `ImagePipe.Cache.Entry.Metadata` holding the `Debug.Info`
-  (generation-only facts). Populated in `cache/sink.ex` from the same `Info`.
+  (generation-only facts). Populated in `cache/sink.ex` from the same `Info`,
+  **unconditionally** — every written entry carries the debug blob regardless of
+  `allow_debug_headers`, so toggling the flag on later renders debug headers for
+  already-cached items without invalidating the cache (the flag is not in the key,
+  so existing entries are reused and already carry the facts).
 - Reshape the `Entry.Metadata` serialize/deserialize and `validate_metadata`
   paths in `cache/file_system.ex` **in place** to carry/validate the `debug`
   field. No `@metadata_version` bump — this is greenfield with nothing in
@@ -263,8 +298,10 @@ orchestration assembles `Info` from the values they already return.)
 - **Streamed output size unknown:** by design, no output-size header on any path.
 - **Large `Output-Accept`:** always emitted as-is for now; revisit a length cap if
   it bites (header budget is ~1.5–2 KB total, well under the ~8 KB proxy ceiling).
-- **`allow_debug_headers: false`:** `_debug=1` is stripped and ignored; no
-  collection, storage, or headers.
+- **`allow_debug_headers: false`:** `_debug=1` is ignored and no debug headers are
+  rendered. Facts are still collected and stored in the cache entry (unconditional,
+  so the flag can be flipped on retroactively) — `false` gates *output*, not
+  collection/storage.
 
 ## Fiddle consumption
 
