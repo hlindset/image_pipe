@@ -75,7 +75,14 @@
   let currentRequestId = 0;
   let lastPreviewAbsolute: string | null = null; // dedupe on resolved URL, not raw path
   const updatePreviewPath = debounce((nextPath: string) => {
-    const absolute = new URL(nextPath, window.location.origin).href;
+    // Request the preview with `_debug=1` so the debug-enabled mounts emit the
+    // X-ImagePipe-* + Server-Timing headers the SW reads. `_debug` is a reserved
+    // query param (ignored by every dialect parser, excluded from the cache key /
+    // ETag), so it changes nothing about the produced image. It rides ONLY the
+    // preview <img> request — the copyable / "Open" URL (`path`) stays clean.
+    const debugUrl = new URL(nextPath, window.location.origin);
+    debugUrl.searchParams.set("_debug", "1");
+    const absolute = debugUrl.href;
     // Dedupe on the RESOLVED url (not the raw path): a no-op must never flip
     // previewLoading=true without a following <img> load event, or the spinner
     // would strand. This same absolute is the SW-message correlation key.
@@ -86,7 +93,7 @@
     previewLoading = true;
     previewError = null;
     processedMetadata = null;
-    previewImageUrl = nextPath; // same-origin → <img> triggers the real, SW-intercepted request
+    previewImageUrl = absolute; // same-origin → <img> triggers the real, SW-intercepted request (with _debug=1)
   }, 150);
   const updateFiddleLocation = debounce((nextPath: string) => {
     if (
