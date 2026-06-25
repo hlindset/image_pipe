@@ -178,6 +178,21 @@ defmodule ImagePipe.Output.EncoderTest do
     end
   end
 
+  test "stream_output returns nil meta on the non-search (lazy) path" do
+    {:ok, image} = Image.new(64, 64, color: [100, 150, 200])
+
+    resolved = %Resolved{
+      format: :png,
+      quality: :default,
+      response_headers: [],
+      strip_metadata: true,
+      keep_copyright: false,
+      color_profile: :srgb
+    }
+
+    assert {:ok, _stream, "image/png", nil} = Encoder.stream_output(image, resolved, [])
+  end
+
   describe "stream_output/3 (search path)" do
     test "honors a max_bytes ceiling (best-effort)" do
       {:ok, img} = Image.open(@fixture)
