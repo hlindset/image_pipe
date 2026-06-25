@@ -586,9 +586,9 @@ defmodule ImagePipe.Cache.FileSystem do
        })
        when is_binary(content_type) and is_list(headers) and is_binary(created_at) and
               is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) and
-              is_binary(body_filename) and is_integer(cost_us) and cost_us >= 0 and
-              (is_struct(debug, Info) or is_nil(debug)) do
-    with :ok <- validate_metadata_content_type(content_type),
+              is_binary(body_filename) and is_integer(cost_us) and cost_us >= 0 do
+    with :ok <- validate_metadata_debug(debug),
+         :ok <- validate_metadata_content_type(content_type),
          :ok <- validate_metadata_headers(headers) do
       {:ok,
        %{
@@ -606,6 +606,9 @@ defmodule ImagePipe.Cache.FileSystem do
 
   defp validate_metadata(%{metadata_version: _version}), do: {:error, :version_mismatch}
   defp validate_metadata(_metadata), do: {:error, :invalid_shape}
+
+  defp validate_metadata_debug(debug) when is_struct(debug, Info) or is_nil(debug), do: :ok
+  defp validate_metadata_debug(_debug), do: {:error, :invalid_debug}
 
   defp handle_invalid_metadata(reason), do: {:error, {:invalid_metadata, reason}}
 

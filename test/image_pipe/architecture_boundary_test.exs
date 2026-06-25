@@ -475,6 +475,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     cache = boundary_declaration(ImagePipe.Cache)
 
     assert_boundary_deps(cache, [
+      ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Plan,

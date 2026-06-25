@@ -129,7 +129,9 @@ defmodule ImagePipe.Response.SenderTest do
     conn =
       Sender.send_result(
         conn(:get, "/image"),
-        {:ok, {:cache_entry, entry, response, empty_cache_headers()}},
+        {:ok,
+         {:cache_entry, entry, response, empty_cache_headers(),
+          %{cache_key: "ip-cache-key", cache_serve_us: 0}}},
         []
       )
 
@@ -159,7 +161,9 @@ defmodule ImagePipe.Response.SenderTest do
     conn =
       Sender.send_result(
         conn(:get, "/image"),
-        {:ok, {:cache_entry, entry, %Response{}, prepared}},
+        {:ok,
+         {:cache_entry, entry, %Response{}, prepared,
+          %{cache_key: "ip-cache-key", cache_serve_us: 0}}},
         []
       )
 
@@ -190,7 +194,12 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Plug.Conn.put_resp_header("cache-control", "private, max-age=30")
-      |> Sender.send_result({:ok, {:cache_entry, entry, %Response{}, prepared}}, [])
+      |> Sender.send_result(
+        {:ok,
+         {:cache_entry, entry, %Response{}, prepared,
+          %{cache_key: "ip-cache-key", cache_serve_us: 0}}},
+        []
+      )
 
     assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=30"]
   end
@@ -236,7 +245,9 @@ defmodule ImagePipe.Response.SenderTest do
     _conn =
       Sender.send_result(
         conn(:get, "/image"),
-        {:ok, {:cache_entry, entry, %Response{}, prepared}},
+        {:ok,
+         {:cache_entry, entry, %Response{}, prepared,
+          %{cache_key: "ip-cache-key", cache_serve_us: 0}}},
         []
       )
 

@@ -82,28 +82,8 @@ defmodule ImagePipe.Request.Runner do
          prepared_http_cache,
          opts
        ) do
-    telemetry_opts = Telemetry.telemetry_opts(opts)
-
     {result, cache_serve_us} =
-      Timing.measure(fn ->
-        Telemetry.span(telemetry_opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
-          result =
-            case Keyword.get(opts, :cache) do
-              nil ->
-                :disabled
-
-              _cache ->
-                Cache.lookup(
-                  conn,
-                  plan,
-                  resolved_source.identity,
-                  opts
-                )
-            end
-
-          {result, cache_lookup_stop_metadata(result)}
-        end)
-      end)
+      Timing.measure(fn -> lookup_cache(conn, plan, resolved_source, opts) end)
 
     case result do
       :disabled ->
@@ -119,6 +99,23 @@ defmodule ImagePipe.Request.Runner do
       {:miss, %Key{} = key, {:cache_read, _error}} ->
         process_cacheable_miss(conn, plan, resolved_source, key, prepared_http_cache, opts)
     end
+  end
+
+  defp lookup_cache(conn, plan, resolved_source, opts) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:cache, :lookup],
+      cache_lookup_metadata(opts),
+      fn ->
+        result =
+          case Keyword.get(opts, :cache) do
+            nil -> :disabled
+            _cache -> Cache.lookup(conn, plan, resolved_source.identity, opts)
+          end
+
+        {result, cache_lookup_stop_metadata(result)}
+      end
+    )
   end
 
   defp process_cacheable_miss(
