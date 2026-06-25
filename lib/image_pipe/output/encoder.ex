@@ -36,7 +36,7 @@ defmodule ImagePipe.Output.Encoder do
   def encoder_limit(:png), do: %{max_dimension: :infinity, max_pixels: :infinity}
 
   @spec stream_output(VixImage.t(), Resolved.t(), keyword()) ::
-          {:ok, Enumerable.t(), String.t()}
+          {:ok, Enumerable.t(), String.t(), map() | nil}
           | {:error, {:encode, Exception.t(), list()}}
           | {:error, {:decode, term()}}
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, opts) do
@@ -72,7 +72,7 @@ defmodule ImagePipe.Output.Encoder do
          _opts
        ) do
     case encode_jxl_buffer(finalized, quality) do
-      {:ok, binary} -> {:ok, [binary], mime_type}
+      {:ok, binary} -> {:ok, [binary], mime_type, nil}
       {:error, _reason} = err -> err
     end
   end
@@ -80,7 +80,7 @@ defmodule ImagePipe.Output.Encoder do
   defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do
     image_module = Keyword.get(opts, :image_module, Image)
     stream = image_module.stream!(finalized, output_options(suffix, resolved_output))
-    {:ok, stream, mime_type}
+    {:ok, stream, mime_type, nil}
   end
 
   # A quality search runs when a search objective or a hard byte budget is set.
@@ -119,7 +119,7 @@ defmodule ImagePipe.Output.Encoder do
     search_opts = [scorer: scorer, telemetry_opts: ImagePipe.Telemetry.telemetry_opts(opts)]
 
     case EncodeSearch.run(finalized, resolved_output, search_opts) do
-      {:ok, binary, _meta} -> {:ok, [binary], mime_type}
+      {:ok, binary, meta} -> {:ok, [binary], mime_type, meta}
       {:error, _reason} = err -> err
     end
   end

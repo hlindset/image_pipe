@@ -1,6 +1,8 @@
 defmodule ImagePipe.Request.SourceSession.Producer do
   @moduledoc false
 
+  alias ImagePipe.Debug.Info
+  alias ImagePipe.Debug.Timing
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
@@ -83,11 +85,11 @@ defmodule ImagePipe.Request.SourceSession.Producer do
 
   defp next_result(%__MODULE__{prepared?: false} = state) do
     case prepare_first_chunk(state) do
-      {:ok, chunk, state} ->
+      {:ok, chunk, state, debug} ->
         reply =
           {:ok,
            {:first_chunk, chunk, state.content_type, state.resolved_output.response_headers,
-            state.resolved_output}}
+            state.resolved_output, debug}}
 
         {:reply, reply, %{state | prepared?: true}}
 
@@ -112,27 +114,13 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   end
 
   defp prepare_first_chunk(%__MODULE__{request: %Request{} = request} = state) do
+    collect? = Keyword.get(request.opts, :allow_debug_headers, false)
+
     with_stream_translation(&prepare_fallback/2, fn ->
-      with {:ok, decoded} <-
-             Processor.fetch_decode_validate_source_with_source_format(
-               request.plan,
-               request.resolved_source,
-               request.opts
-             ),
-           {:ok, %State{} = final_state} <-
-             Processor.process_decoded_source(
-               decoded,
-               request.plan,
-               Keyword.put(
-                 request.opts,
-                 :supports_hdr?,
-                 Policy.supports_hdr?(
-                   request.output_policy,
-                   request.plan.output,
-                   decoded.source_format
-                 )
-               )
-             ),
+      with {{:ok, decoded}, decode_us} <-
+             measure_decode(collect?, request.plan, request.resolved_source, request.opts),
+           {{:ok, %State{} = final_state}, transform_us} <-
+             measure_transform(collect?, decoded, request),
            {:ok, %Resolved{} = resolved_output} <-
              resolve_output(
                request.output_policy,
@@ -149,17 +137,29 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                %State{final_state | image: clamped},
                request.opts
              ),
-           {:ok, chunk, content_type, stream_state} <-
-             encode_first_chunk(image, resolved_output, request.opts) do
+           {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
+             measure_encode(collect?, image, resolved_output, request.opts) do
+        debug =
+          build_debug(collect?, %{
+            request: request,
+            decoded: decoded,
+            resolved_output: resolved_output,
+            image: image,
+            search_meta: search_meta,
+            timings: %{decode: decode_us, transform: transform_us, encode: encode_us}
+          })
+
         {:ok, chunk,
          %{
            state
            | stream_state: stream_state,
              resolved_output: resolved_output,
              content_type: content_type
-         }}
+         }, debug}
       else
+        {:empty, _us} -> :empty
         :empty -> :empty
+        {{:error, reason}, _us} -> {:error, reason}
         {:error, reason} -> {:error, reason}
       end
     end)
@@ -182,9 +182,10 @@ defmodule ImagePipe.Request.SourceSession.Producer do
       %{output_format: resolved_output.format},
       fn ->
         result =
-          with {:ok, stream, content_type} <- Encoder.stream_output(image, resolved_output, opts),
+          with {:ok, stream, content_type, search_meta} <-
+                 Encoder.stream_output(image, resolved_output, opts),
                {:ok, chunk, stream_state} <- first_chunk(stream) do
-            {:ok, chunk, content_type, stream_state}
+            {:ok, chunk, content_type, stream_state, search_meta}
           end
 
         {result, encode_stop_metadata(result, resolved_output.format)}
@@ -192,7 +193,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     )
   end
 
-  defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state}, format),
+  defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state, _search_meta}, format),
     do: %{result: :ok, output_format: format}
 
   defp encode_stop_metadata(:empty, format),
@@ -247,6 +248,148 @@ defmodule ImagePipe.Request.SourceSession.Producer do
 
     :ok
   end
+
+  defp measure_decode(collect?, plan, resolved_source, opts),
+    do:
+      measure(collect?, fn ->
+        Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source, opts)
+      end)
+
+  defp measure_transform(collect?, decoded, request),
+    do:
+      measure(collect?, fn ->
+        Processor.process_decoded_source(
+          decoded,
+          request.plan,
+          Keyword.put(
+            request.opts,
+            :supports_hdr?,
+            Policy.supports_hdr?(
+              request.output_policy,
+              request.plan.output,
+              decoded.source_format
+            )
+          )
+        )
+      end)
+
+  defp measure_encode(collect?, image, resolved_output, opts),
+    do: measure(collect?, fn -> encode_first_chunk(image, resolved_output, opts) end)
+
+  # When collecting, return `{result, microseconds}`; otherwise run the stage and
+  # return `{result, nil}` so the `with` shape is uniform without timing cost.
+  defp measure(false, fun), do: {fun.(), nil}
+  defp measure(true, fun), do: Timing.measure(fun)
+
+  defp build_debug(false, _ctx), do: nil
+
+  defp build_debug(true, ctx) do
+    %{
+      request: request,
+      decoded: decoded,
+      resolved_output: resolved_output,
+      image: image,
+      search_meta: search_meta,
+      timings: timings
+    } = ctx
+
+    %Info{
+      source_format: decoded.source_format,
+      source_bytes: Map.get(decoded, :source_bytes),
+      source_width: dim(decoded, 0),
+      source_height: dim(decoded, 1),
+      source_color_space: Map.get(decoded, :source_color_space),
+      source_icc?: Map.get(decoded, :source_icc?),
+      source_bit_depth: Map.get(decoded, :source_bit_depth),
+      source_alpha?: Map.get(decoded, :source_alpha?),
+      source_orientation: Map.get(decoded, :source_orientation),
+      shrink: Map.get(decoded, :achieved_shrink),
+      output_format: resolved_output.format,
+      output_negotiated?: negotiated?(request.output_policy),
+      output_width: Image.width(image),
+      output_height: Image.height(image),
+      output_quality: output_quality(resolved_output, search_meta),
+      output_stripped?: resolved_output.strip_metadata,
+      output_color_profile: resolved_output.color_profile,
+      output_distance: output_distance(resolved_output, search_meta),
+      aq: aq_from_meta(resolved_output, search_meta),
+      pipeline: pipeline_names(request.plan),
+      timings: timings
+    }
+  end
+
+  defp dim(decoded, index) do
+    case Map.get(decoded, :original_dims) do
+      {w, _h} when index == 0 -> w
+      {_w, h} when index == 1 -> h
+      _ -> nil
+    end
+  end
+
+  defp negotiated?(%Policy{mode: {:explicit, _format}}), do: false
+  defp negotiated?(%Policy{mode: :source}), do: true
+
+  defp output_quality(%Resolved{}, %{quality: q}) when is_integer(q) and q > 0, do: q
+  defp output_quality(%Resolved{quality: {:quality, q}}, _meta), do: q
+  defp output_quality(%Resolved{quality: :default}, _meta), do: :default
+
+  defp output_distance(%Resolved{quality_search: quality_search}, _meta) do
+    case quality_search do
+      :none ->
+        nil
+
+      %module{target: target} when is_number(target) ->
+        if native_jxl_search?(module), do: target, else: nil
+
+      _ ->
+        nil
+    end
+  end
+
+  defp aq_from_meta(_resolved_output, nil), do: nil
+  defp aq_from_meta(%Resolved{quality_search: :none}, _meta), do: nil
+
+  defp aq_from_meta(%Resolved{quality_search: %module{} = rqs}, %{} = meta) do
+    %{
+      metric: quality_search_metric(module),
+      score: if(native_jxl_search?(module), do: nil, else: Map.get(meta, :score)),
+      target: Map.get(rqs, :target),
+      min: Map.get(rqs, :min_quality),
+      max: Map.get(rqs, :max_quality),
+      iterations: Map.get(meta, :iterations),
+      outcome: Map.get(meta, :outcome),
+      limiting_factor: Map.get(meta, :limiting_factor),
+      scorer: Map.get(meta, :scorer),
+      tiles: Map.get(meta, :tiles_scored)
+    }
+  end
+
+  defp quality_search_metric(module) do
+    case module |> Module.split() |> List.last() do
+      "Ssimulacra2" -> :ssimulacra2
+      "Butteraugli" -> :butteraugli
+      "NativeJxlButteraugli" -> :butteraugli
+      "Size" -> :size
+      _ -> nil
+    end
+  end
+
+  defp native_jxl_search?(module),
+    do: module |> Module.split() |> List.last() == "NativeJxlButteraugli"
+
+  # Pipeline operation names, in order, derived neutrally from the plan's semantic
+  # operations (ImagePipe.Plan.Operation.*). We reflect on the struct module's
+  # short name rather than naming any concrete module literal (boundary rule) and
+  # do NOT use Transform.transform_name/1 (that operates on translated *transform*
+  # operations, not the plan's semantic structs).
+  defp pipeline_names(plan) do
+    plan.pipelines
+    |> Enum.flat_map(fn %{operations: ops} -> ops end)
+    |> Enum.map(&operation_name/1)
+  end
+
+  defp operation_name(%module{}),
+    do: module |> Module.split() |> List.last() |> Macro.underscore()
 
   defp resolve_output(%Policy{} = policy, source_format, image, opts) do
     Telemetry.span(

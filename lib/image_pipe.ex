@@ -6,6 +6,7 @@ defmodule ImagePipe do
   use Boundary,
     deps: [
       ImagePipe.Cache,
+      ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Parser,
       ImagePipe.Plan,

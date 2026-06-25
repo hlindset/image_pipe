@@ -14,6 +14,7 @@ defmodule ImagePipe.Response.Sender do
   require Logger
 
   alias ImagePipe.Cache.Entry
+  alias ImagePipe.Debug
   alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
@@ -317,6 +318,7 @@ defmodule ImagePipe.Response.Sender do
          opts
        ) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
+    prepared_stream = maybe_add_debug_headers(prepared_stream, conn, opts)
 
     Telemetry.span(
       telemetry_opts,
@@ -459,6 +461,18 @@ defmodule ImagePipe.Response.Sender do
   defp mark_prepared_stream_error(%Plug.Conn{} = conn, reason) do
     Logger.error("prepared_stream_error: #{inspect(reason)}")
     mark_send_processing_error(conn)
+  end
+
+  defp maybe_add_debug_headers(%PreparedStream{debug: nil} = prepared_stream, _conn, _opts),
+    do: prepared_stream
+
+  defp maybe_add_debug_headers(%PreparedStream{debug: info} = prepared_stream, conn, opts) do
+    if Keyword.get(opts, :debug?, false) do
+      debug_headers = Debug.Headers.render(info, accept: accept_header(conn), cache: :miss)
+      %{prepared_stream | headers: prepared_stream.headers ++ debug_headers}
+    else
+      prepared_stream
+    end
   end
 
   defp merge_prepared_stream_headers(

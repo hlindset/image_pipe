@@ -5,6 +5,7 @@ defmodule ImagePipe.Plug do
 
   use Boundary,
     deps: [
+      ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Parser,
       ImagePipe.Plan,
@@ -58,6 +59,7 @@ defmodule ImagePipe.Plug do
 
   defp do_call(%Plug.Conn{} = conn, opts) do
     parser = Keyword.fetch!(opts, :parser)
+    opts = put_debug_flag(conn, opts)
 
     case parse(conn, parser, opts) do
       {:redirect, status, location} ->
@@ -245,5 +247,26 @@ defmodule ImagePipe.Plug do
     opts
     |> Keyword.fetch!(:parser)
     |> Parser.validate_options!(opts)
+  end
+
+  # `_debug=1` is the per-request trigger, honored only when the mount opted in
+  # via `allow_debug_headers`. It is a reserved query param: it does not affect
+  # the parsed plan, cache key, or ETag (those derive from the plan + Accept), so
+  # it needs no stripping — only gating.
+  defp put_debug_flag(%Plug.Conn{} = conn, opts) do
+    Keyword.put(opts, :debug?, debug_requested?(conn, opts))
+  end
+
+  defp debug_requested?(%Plug.Conn{} = conn, opts) do
+    Keyword.get(opts, :allow_debug_headers, false) and debug_param_truthy?(conn)
+  end
+
+  defp debug_param_truthy?(%Plug.Conn{} = conn) do
+    conn = Plug.Conn.fetch_query_params(conn)
+
+    case conn.query_params do
+      %{"_debug" => value} -> value in ["1", "true", ""]
+      _ -> false
+    end
   end
 end

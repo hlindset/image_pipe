@@ -5,6 +5,7 @@ defmodule ImagePipe.Response do
     top_level?: true,
     deps: [
       ImagePipe.Cache,
+      ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,

@@ -27,7 +27,8 @@ defmodule ImagePipe.Request.Options do
     :auto_avif,
     :auto_webp,
     :auto_jpeg_xl,
-    :format_order
+    :format_order,
+    :allow_debug_headers
   ]
   @stale_origin_option_keys [
     :root_url,
@@ -126,6 +127,10 @@ defmodule ImagePipe.Request.Options do
                     ],
                     format_order: [
                       type: {:custom, __MODULE__, :validate_format_order, []}
+                    ],
+                    allow_debug_headers: [
+                      type: :boolean,
+                      default: false
                     ]
                   )
 

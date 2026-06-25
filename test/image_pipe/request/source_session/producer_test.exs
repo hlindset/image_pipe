@@ -104,7 +104,7 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
     producer = start_producer(request(opts: opts(image_module: MultiChunkImage)))
     ref = Process.monitor(producer)
 
-    assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], resolved_output}} =
+    assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], resolved_output, _debug}} =
              ProducerClient.next(producer)
 
     assert resolved_output.format == :jpeg
@@ -117,7 +117,7 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
     producer = start_producer(request(opts: opts(image_module: CleanupStreamImage)))
     ref = Process.monitor(producer)
 
-    assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output}} =
+    assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output, _debug}} =
              ProducerClient.next(producer)
 
     assert :ok = ProducerClient.halt(producer)
@@ -130,7 +130,7 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
 
     ref = Process.monitor(producer)
 
-    assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output}} =
+    assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output, _debug}} =
              ProducerClient.next(producer)
 
     assert {:error, {:encode, %RuntimeError{message: "boom after first chunk"}, stacktrace}} =
@@ -144,7 +144,7 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
     producer = start_producer(request(opts: opts(image_module: BlockingImage)))
     ref = Process.monitor(producer)
 
-    assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output}} =
+    assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output, _debug}} =
              ProducerClient.next(producer)
 
     parent = self()

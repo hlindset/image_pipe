@@ -25,7 +25,13 @@ defmodule ImagePipe.Request.Processor do
           optional(:original_dims) => {pos_integer(), pos_integer()},
           optional(:achieved_shrink) => %{w: float(), h: float()} | nil,
           optional(:detected_source_format) => Detector.detected(),
-          optional(:source_format_resolution) => :detected | :libvips_codec | :libvips_fallback
+          optional(:source_format_resolution) => :detected | :libvips_codec | :libvips_fallback,
+          optional(:source_bytes) => non_neg_integer() | nil,
+          optional(:source_color_space) => atom() | nil,
+          optional(:source_icc?) => boolean() | nil,
+          optional(:source_bit_depth) => pos_integer() | nil,
+          optional(:source_alpha?) => boolean() | nil,
+          optional(:source_orientation) => 1..8 | nil
         }
 
   @peek_bytes 32 * 1024
@@ -88,17 +94,27 @@ defmodule ImagePipe.Request.Processor do
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)
            |> wrap_decode_error() do
+      debug_facts =
+        if Keyword.get(opts, :allow_debug_headers, false) do
+          source_debug_facts(input, header_image)
+        else
+          %{}
+        end
+
       {:ok,
-       %{
-         decode_options: decode_options,
-         image: image,
-         source_format: source_format,
-         detected_source_format: detected,
-         source_format_resolution: resolution,
-         source_dimensions: shrink_source_dimensions(decode_options, original_dims),
-         original_dims: original_dims,
-         achieved_shrink: compute_achieved_shrink(original_dims, image)
-       }}
+       Map.merge(
+         %{
+           decode_options: decode_options,
+           image: image,
+           source_format: source_format,
+           detected_source_format: detected,
+           source_format_resolution: resolution,
+           source_dimensions: shrink_source_dimensions(decode_options, original_dims),
+           original_dims: original_dims,
+           achieved_shrink: compute_achieved_shrink(original_dims, image)
+         },
+         debug_facts
+       )}
     end
   end
 
@@ -359,6 +375,76 @@ defmodule ImagePipe.Request.Processor do
 
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
+
+  # Best-effort debug facts captured from the source input and header image.
+  # Only called when allow_debug_headers is true. Any individual failure returns nil;
+  # these must never break decoding.
+
+  defp source_debug_facts(input, header_image) do
+    %{
+      source_bytes: source_byte_size(input),
+      source_color_space: source_interpretation(header_image),
+      source_icc?: source_has_icc?(header_image),
+      source_bit_depth: source_bit_depth(header_image),
+      source_alpha?: source_alpha?(header_image),
+      source_orientation: source_orientation(header_image)
+    }
+  end
+
+  defp source_byte_size({:buffer, binary}), do: byte_size(binary)
+
+  defp source_byte_size({:path, path}) do
+    case File.stat(path, time: :posix) do
+      {:ok, %File.Stat{size: size}} -> size
+      _ -> nil
+    end
+  end
+
+  defp source_interpretation(image) do
+    case VipsImage.interpretation(image) do
+      interp when is_atom(interp) -> interp
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp source_has_icc?(image) do
+    case VipsImage.header_value(image, "icc-profile-data") do
+      {:ok, blob} when is_binary(blob) and byte_size(blob) > 0 -> true
+      _ -> false
+    end
+  rescue
+    _ -> nil
+  end
+
+  # Bit depth in bits per sample derived from the image interpretation, mirroring
+  # the encoder's `icc_depth/1` logic: 16-bit interpretations yield 16, all others 8.
+  defp source_bit_depth(image) do
+    case VipsImage.interpretation(image) do
+      :VIPS_INTERPRETATION_GREY16 -> 16
+      :VIPS_INTERPRETATION_RGB16 -> 16
+      :VIPS_INTERPRETATION_scRGB -> 16
+      _ -> 8
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp source_orientation(image) do
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, value} when is_integer(value) and value in 1..8 -> value
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp source_alpha?(image) do
+    Image.has_alpha?(image)
+  rescue
+    _ -> nil
+  end
 
   defp fetch_decode_stop_metadata(
          {:ok, %{image: image, decode_options: decode_options} = decoded}
