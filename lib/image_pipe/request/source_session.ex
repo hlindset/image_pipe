@@ -250,7 +250,7 @@ defmodule ImagePipe.Request.SourceSession do
   end
 
   defp handle_producer_result(
-         {:ok, {:first_chunk, first_chunk, content_type, headers, resolved_output}},
+         {:ok, {:first_chunk, first_chunk, content_type, headers, resolved_output, debug}},
          %{pending: {:prepare, from}, request: request} = state
        ) do
     with_owner_check(state, fn state ->
@@ -269,7 +269,8 @@ defmodule ImagePipe.Request.SourceSession do
         first_chunk: first_chunk,
         content_type: content_type,
         headers: headers,
-        resolved_output: resolved_output
+        resolved_output: resolved_output,
+        debug: put_total_timing(debug, cost_us)
       }
 
       GenServer.reply(from, {:ok, prepared})
@@ -417,4 +418,10 @@ defmodule ImagePipe.Request.SourceSession do
   defp cache_shutdown_reason(_reason), do: :cancelled
 
   defp mark_failed(state), do: %{state | phase: :failed}
+
+  defp put_total_timing(nil, _cost_us), do: nil
+
+  defp put_total_timing(%ImagePipe.Debug.Info{} = info, cost_us) do
+    %{info | timings: Map.put(info.timings, :total, cost_us)}
+  end
 end
