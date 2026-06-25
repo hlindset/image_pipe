@@ -316,6 +316,9 @@ defmodule ImagePipe.Output.Encoder do
   # libvips default depth (8) is correct. 16-bit/HDR working-space handling for a
   # target convert (under `hdr: :preserve` on an HDR-capable format) is deferred
   # to #121.
+  # Dialyzer can't see through Vix's generated Operation typings, so it reports
+  # the icc_transform call as failing; it succeeds at runtime.
+  @dialyzer {:no_fail_call, convert_to_target: 3}
   defp convert_to_target(image, target, format) do
     if Format.supports_color_profile?(format) do
       with {:ok, srgb} <- Operation.colourspace(image, :VIPS_INTERPRETATION_sRGB),

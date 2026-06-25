@@ -323,9 +323,12 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
 
     pipelines =
       pipelines
-      |> Enum.map(&consume_auto_rotate_request/1)
-      |> Enum.map(&consume_strip_color_profile_request/1)
-      |> Enum.map(&consume_color_profile_request/1)
+      |> Enum.map(fn pipeline ->
+        pipeline
+        |> consume_auto_rotate_request()
+        |> consume_strip_color_profile_request()
+        |> consume_color_profile_request()
+      end)
       |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
       |> reject_empty_pipelines()
 

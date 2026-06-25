@@ -15,8 +15,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   defp key(hash \\ String.duplicate("a", 64)) do
     %Key{
       hash: hash,
-      data: [schema_version: 1],
-      serialized_data: :erlang.term_to_binary([schema_version: 1], [:deterministic])
+      data: [schema_version: 1]
     }
   end
 

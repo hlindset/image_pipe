@@ -5,6 +5,7 @@ defmodule ImagePipe.Request.HTTPCache do
     only: [get_req_header: 2, get_resp_header: 2]
 
   alias ImagePipe.Cache.Key
+  alias ImagePipe.MaterialDigest
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Output
@@ -195,8 +196,7 @@ defmodule ImagePipe.Request.HTTPCache do
     {:ok, material} = etag_material(conn, plan, seed, opts)
 
     material
-    |> serialize_material()
-    |> then(&:crypto.hash(:sha256, &1))
+    |> MaterialDigest.of()
     |> Base.url_encode64(padding: false)
     |> then(&{:etag, ~s("ip#{@etag_schema}-#{&1}")})
   end
@@ -229,7 +229,7 @@ defmodule ImagePipe.Request.HTTPCache do
     values =
       existing
       |> Kernel.++([added_name])
-      |> dedupe_tokens()
+      |> Enum.uniq_by(&String.downcase/1)
 
     if Enum.any?(existing, &(String.downcase(&1) == "*")),
       do: [{"vary", "*"}],
@@ -241,14 +241,6 @@ defmodule ImagePipe.Request.HTTPCache do
     |> String.split(",")
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
-  end
-
-  defp dedupe_tokens(tokens) do
-    Enum.reduce(tokens, [], fn token, acc ->
-      if Enum.any?(acc, &(String.downcase(&1) == String.downcase(token))),
-        do: acc,
-        else: acc ++ [token]
-    end)
   end
 
   defp vary_star?(%Plug.Conn{} = conn) do
@@ -337,35 +329,4 @@ defmodule ImagePipe.Request.HTTPCache do
 
   defp strip_weak("W/" <> rest), do: rest
   defp strip_weak(value), do: value
-
-  defp serialize_material(material) do
-    material
-    |> canonicalize()
-    |> :erlang.term_to_binary([:deterministic])
-  end
-
-  defp canonicalize(value) when is_list(value) do
-    if Keyword.keyword?(value) do
-      value
-      |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
-      |> Enum.sort_by(fn {key, _item} -> key end)
-    else
-      Enum.map(value, &canonicalize/1)
-    end
-  end
-
-  defp canonicalize(value) when is_map(value) do
-    value
-    |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
-    |> Enum.sort()
-  end
-
-  defp canonicalize(value) when is_tuple(value) do
-    value
-    |> Tuple.to_list()
-    |> Enum.map(&canonicalize/1)
-    |> List.to_tuple()
-  end
-
-  defp canonicalize(value), do: value
 end

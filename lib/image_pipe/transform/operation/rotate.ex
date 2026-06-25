@@ -57,6 +57,8 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   # path — lossless, no resample, no #211 background seam, the same primitive
   # OrientationFlush and imgproxy use. Only genuinely fractional angles reach the
   # affine clause below.
+  # Dialyzer can't see through Vix's generated Operation typings (rotate).
+  @dialyzer {:no_fail_call, rotate: 2}
   defp rotate(image, 0), do: {:ok, image}
   defp rotate(image, angle) when angle in [90, 180, 270], do: Image.rotate(image, angle)
 

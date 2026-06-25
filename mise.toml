@@ -47,11 +47,12 @@ env = { MIX_ENV = "test" }
 run = ["mix twicpics.gen_fixtures"]
 
 [tasks.precommit]
-description = "Elixir library checks: format, compile (warnings as errors), credo, test"
+description = "Elixir library checks: format, compile (warnings as errors), credo, duplication, test"
 run = [
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
   "mix credo --strict",
+  "mix ex_dna",
   "mix test",
 ]
 

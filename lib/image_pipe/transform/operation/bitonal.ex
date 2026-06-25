@@ -33,6 +33,8 @@ defmodule ImagePipe.Transform.Operation.Bitonal do
 
   # Strip any alpha, threshold the luminance band, then rejoin the original alpha
   # (`without_alpha_band` is a no-op wrapper when there is no alpha band).
+  # Dialyzer can't see through Vix's generated Operation typings (relational_const).
+  @dialyzer {:no_fail_call, to_bitonal: 1}
   defp to_bitonal(image) do
     Image.without_alpha_band(image, fn colour ->
       with {:ok, gray} <- Image.to_colorspace(colour, :bw) do

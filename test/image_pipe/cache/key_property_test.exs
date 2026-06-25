@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.KeyPropertyTest do
 
   alias ImagePipe.Cache.Key
   alias ImagePipe.Format
+  alias ImagePipe.MaterialDigest
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
@@ -21,7 +22,7 @@ defmodule ImagePipe.Cache.KeyPropertyTest do
   property "cache key serialization is deterministic for canonical key data" do
     check all key_data <- key_data(),
               max_runs: 100 do
-      assert Key.serialize_key_data(key_data) == Key.serialize_key_data(key_data)
+      assert MaterialDigest.of(key_data) == MaterialDigest.of(key_data)
     end
   end
 
@@ -97,7 +98,7 @@ defmodule ImagePipe.Cache.KeyPropertyTest do
         schema_version: 2
       ]
 
-      assert Key.serialize_key_data(data_one) == Key.serialize_key_data(data_two)
+      assert MaterialDigest.of(data_one) == MaterialDigest.of(data_two)
     end
   end
 

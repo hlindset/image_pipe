@@ -874,15 +874,9 @@ defmodule ImagePipe.Request.SourceSessionTest do
   end
 
   defp cache_key do
-    serialized_data =
-      Key.serialize_key_data(
-        source_identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]]
-      )
-
     %Key{
       hash: "test-cache-key",
-      data: [source_identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]]],
-      serialized_data: serialized_data
+      data: [source_identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]]]
     }
   end
 

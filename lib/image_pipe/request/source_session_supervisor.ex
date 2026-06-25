@@ -6,7 +6,7 @@ defmodule ImagePipe.Request.SourceSessionSupervisor do
   alias ImagePipe.Request.SourceSession
   alias ImagePipe.Request.SourceSession.Request
 
-  @type supervisor() :: DynamicSupervisor.supervisor()
+  @type supervisor() :: Supervisor.supervisor()
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do

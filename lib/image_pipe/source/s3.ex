@@ -6,6 +6,7 @@ defmodule ImagePipe.Source.S3 do
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -25,7 +26,6 @@ defmodule ImagePipe.Source.S3 do
     :aws_sigv4
   ]
   @signed_header_names ["authorization", "host", "x-amz-content-sha256", "x-amz-security-token"]
-  @cacheable_byte_header_names ["range", "accept", "accept-encoding"]
   @timeout_keys [:receive_timeout, :connect_timeout, :pool_timeout]
   @config_schema NimbleOptions.new!(
                    region: [
@@ -123,7 +123,11 @@ defmodule ImagePipe.Source.S3 do
       req_options =
         fetch
         |> Keyword.fetch!(:req_options)
-        |> sanitize_req_options(fetch[:strip_byte_headers])
+        |> ReqSanitizer.sanitize_req_options(
+          @internal_option_keys,
+          @signed_header_names,
+          fetch[:strip_byte_headers]
+        )
         |> Keyword.merge(
           url: build_url(fetch),
           method: :get,
@@ -293,23 +297,6 @@ defmodule ImagePipe.Source.S3 do
         end
     end
   end
-
-  defp sanitize_req_options(req_options, strip_byte_headers?) do
-    req_options
-    |> Keyword.drop(@internal_option_keys)
-    |> Keyword.update(:headers, [], &sanitize_headers(&1, strip_byte_headers?))
-  end
-
-  defp sanitize_headers(headers, strip_byte_headers?) do
-    denied = denied_header_names(strip_byte_headers?)
-
-    Enum.reject(headers, fn {name, _value} ->
-      String.downcase(to_string(name)) in denied
-    end)
-  end
-
-  defp denied_header_names(true), do: @signed_header_names ++ @cacheable_byte_header_names
-  defp denied_header_names(false), do: @signed_header_names
 
   defp s3_stable?(config, revision) do
     Keyword.fetch!(config, :stable) == :trusted or

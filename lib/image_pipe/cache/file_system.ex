@@ -3,6 +3,13 @@ defmodule ImagePipe.Cache.FileSystem do
   Filesystem-backed cache adapter for processed image responses.
   """
 
+  # Dialyzer over-narrows `validate_metadata_headers/1`'s `Enum.all?(.., &valid_metadata_header?/1)`
+  # to always-true and flags the `{:error, :invalid_headers}` branch as dead — but
+  # that branch validates headers decoded from external cache storage (a boundary
+  # Dialyzer can't see needs the check). It reports the warning unattributed
+  # (line 1), so suppression must be module-scoped.
+  @dialyzer :no_match
+
   @behaviour ImagePipe.Cache
 
   alias ImagePipe.Cache.Entry

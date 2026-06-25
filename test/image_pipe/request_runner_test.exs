@@ -877,7 +877,7 @@ defmodule ImagePipe.Request.RunnerTest do
     assert [[operation_data]] = key.data[:pipelines]
     assert operation_data[:op] == :resize
     assert operation_data[:mode] == :auto
-    serialized_data = Key.serialize_key_data(key.data)
+    serialized_data = inspect(key.data, limit: :infinity)
     refute serialized_data =~ "selected_branch"
     refute serialized_data =~ "source_width"
     refute serialized_data =~ "source_height"

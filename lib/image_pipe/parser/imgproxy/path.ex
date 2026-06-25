@@ -2,6 +2,7 @@ defmodule ImagePipe.Parser.Imgproxy.Path do
   @moduledoc false
 
   alias ImagePipe.Parser.Imgproxy.Format
+  alias ImagePipe.Parser.Imgproxy.PercentEncoding
   alias ImagePipe.Parser.Imgproxy.SourceEncryption
 
   def split_endpoint(%Plug.Conn{} = conn) do
@@ -168,7 +169,7 @@ defmodule ImagePipe.Parser.Imgproxy.Path do
   defp encoded_source_value(source_path, opts) do
     source_path
     |> maybe_drop_seo_filename(opts)
-    |> Enum.join("")
+    |> Enum.join()
   end
 
   defp maybe_drop_seo_filename(source_path, opts) do
@@ -277,29 +278,10 @@ defmodule ImagePipe.Parser.Imgproxy.Path do
   defp validate_percent_encoded_segments(source) do
     source
     |> String.split("/", trim: false)
-    |> Enum.reduce_while({:ok, []}, fn segment, {:ok, decoded_segments} ->
-      case decode_percent_encoded(segment) do
-        {:ok, decoded_segment} -> {:cont, {:ok, [decoded_segment | decoded_segments]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
+    |> PercentEncoding.decode_segments()
     |> case do
       {:ok, _decoded_segments} -> :ok
       {:error, _reason} = error -> error
     end
-  end
-
-  defp decode_percent_encoded(value) do
-    if malformed_percent_encoding?(value) do
-      {:error, {:invalid_percent_encoding, value}}
-    else
-      {:ok, URI.decode(value)}
-    end
-  rescue
-    ArgumentError -> {:error, {:invalid_percent_encoding, value}}
-  end
-
-  defp malformed_percent_encoding?(value) do
-    String.match?(value, ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/)
   end
 end

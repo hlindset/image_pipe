@@ -98,6 +98,8 @@ defmodule ImagePipe.Transform.OrientationFlush do
   # this is also the parity-correct choice. vips_rot is lossless and avoids the
   # #211 seam that the arbitrary-angle affine `vips_rotate` leaves at a 90° multiple
   # (it maps the content ~1px off the canvas, exposing a 1px background strip).
+  # Dialyzer can't see through Vix's generated Operation typings (rotate).
+  @dialyzer {:no_fail_call, maybe_rotate: 2}
   defp maybe_rotate(image, 0), do: {:ok, image}
   defp maybe_rotate(image, angle) when angle in [90, 180, 270], do: Image.rotate(image, angle)
 

@@ -31,6 +31,9 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
 
   @impl true
   @spec export(Span.t()) :: :ok
+  # `@otel_api_loaded` is a compile-time `Code.ensure_loaded?/1` boolean, so when
+  # the optional OTel API is absent Dialyzer sees the `if` branch as dead.
+  @dialyzer {:no_match, export: 1}
   def export(%Span{} = span) do
     if @otel_api_loaded do
       OtelReplay.add(span)

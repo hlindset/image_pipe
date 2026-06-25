@@ -111,6 +111,9 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   def name(%__MODULE__{}), do: :extend_canvas
 
   @impl ImagePipe.Transform
+  # Dialyzer narrows `embed_image`'s return (via the Vix `embed` typing below) and
+  # then reports the `{:ok, _}` clause of this `with` as unmatchable.
+  @dialyzer {:no_match, execute: 2}
   def execute(%__MODULE__{} = operation, %State{} = state) do
     with {:ok, {width, height}} <- canvas_dimensions(state, operation.rule),
          false <- inert_extend?(state, width, height),
@@ -158,6 +161,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
 
   defp canvas_dimensions(_state, rule), do: {:error, {:invalid_canvas_rule, rule}}
 
+  # Dialyzer can't see through Vix's generated Operation typings (embed).
+  @dialyzer {:no_fail_call, embed_image: 4}
   defp embed_image(%State{} = state, %__MODULE__{} = operation, width, height) do
     x = offset(:x, operation.gravity, operation.x_offset, image_width(state), width)
     y = offset(:y, operation.gravity, operation.y_offset, image_height(state), height)
