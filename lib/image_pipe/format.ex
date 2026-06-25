@@ -7,6 +7,10 @@ defmodule ImagePipe.Format do
     exports: [Detector]
 
   @output_formats [:jpeg_xl, :avif, :webp, :jpeg, :png]
+  # The output formats eligible for `Accept`-based negotiation (the modern codecs
+  # browsers conditionally support). The negotiation *order* among them is a policy
+  # decision owned by Output.Negotiation; this is only the membership set.
+  @modern_formats [:jpeg_xl, :avif, :webp]
   @color_profile_formats [:jpeg_xl, :avif, :webp, :jpeg, :png]
   @alpha_formats [:jpeg_xl, :avif, :webp, :png]
   @hdr_formats [:jpeg_xl, :avif, :png]
@@ -27,6 +31,10 @@ defmodule ImagePipe.Format do
 
   @spec output_formats() :: [output_format()]
   def output_formats, do: @output_formats
+
+  @doc "The output formats eligible for `Accept`-based negotiation (jpeg_xl/avif/webp)."
+  @spec modern_formats() :: [output_format()]
+  def modern_formats, do: @modern_formats
 
   @spec source_formats() :: [source_format()]
   def source_formats, do: @source_formats

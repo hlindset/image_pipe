@@ -2,6 +2,7 @@ defmodule ImagePipe.Request.Options do
   @moduledoc false
 
   alias ImagePipe.Cache
+  alias ImagePipe.Format
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
 
@@ -25,7 +26,8 @@ defmodule ImagePipe.Request.Options do
     :max_result_pixels,
     :auto_avif,
     :auto_webp,
-    :auto_jpeg_xl
+    :auto_jpeg_xl,
+    :format_order
   ]
   @stale_origin_option_keys [
     :root_url,
@@ -44,7 +46,13 @@ defmodule ImagePipe.Request.Options do
   # Real top-level options read directly by downstream consumers (negotiation,
   # cache key, capabilities) with their own defaults rather than this schema.
   # Listed so a near-miss typo of them is caught too.
-  @passthrough_option_keys [:auto_avif, :auto_webp, :auto_jpeg_xl, :output_capabilities]
+  @passthrough_option_keys [
+    :auto_avif,
+    :auto_webp,
+    :auto_jpeg_xl,
+    :format_order,
+    :output_capabilities
+  ]
 
   # Names a typo is matched against. Not a closed allowlist: the option surface
   # is deliberately open (parser config namespaces, DI/runtime seams, detector
@@ -115,6 +123,9 @@ defmodule ImagePipe.Request.Options do
                     auto_jpeg_xl: [
                       type: :boolean,
                       default: true
+                    ],
+                    format_order: [
+                      type: {:custom, __MODULE__, :validate_format_order, []}
                     ]
                   )
 
@@ -148,6 +159,28 @@ defmodule ImagePipe.Request.Options do
 
   def validate_telemetry_prefix(_telemetry_prefix),
     do: {:error, "expected a non-empty list of atoms"}
+
+  @doc false
+  def validate_format_order(order) when is_list(order) do
+    modern_formats = Format.modern_formats()
+
+    cond do
+      order == [] ->
+        {:error, "expected a non-empty list of modern formats"}
+
+      Enum.any?(order, &(&1 not in modern_formats)) ->
+        {:error, "expected formats from #{inspect(modern_formats)}, got: #{inspect(order)}"}
+
+      length(Enum.uniq(order)) != length(order) ->
+        {:error, "expected distinct formats, got: #{inspect(order)}"}
+
+      true ->
+        {:ok, order}
+    end
+  end
+
+  def validate_format_order(_order),
+    do: {:error, "expected a list of modern format atoms"}
 
   defp validate_known_opts!(opts) do
     known_opts = Keyword.take(opts, @validated_option_keys)

@@ -38,13 +38,13 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
 
       assert candidates in [
                [],
-               [:jpeg_xl],
                [:avif],
+               [:jpeg_xl],
                [:webp],
-               [:jpeg_xl, :avif],
-               [:jpeg_xl, :webp],
+               [:avif, :jpeg_xl],
                [:avif, :webp],
-               [:jpeg_xl, :avif, :webp]
+               [:jpeg_xl, :webp],
+               [:avif, :jpeg_xl, :webp]
              ]
     end
   end
@@ -53,8 +53,8 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
     entries = parse_accept(accept_header)
 
     []
-    |> maybe_append_modern(Keyword.get(opts, :auto_jpeg_xl, true), :jpeg_xl, "image/jxl", entries)
     |> maybe_append_modern(Keyword.get(opts, :auto_avif, true), :avif, "image/avif", entries)
+    |> maybe_append_modern(Keyword.get(opts, :auto_jpeg_xl, true), :jpeg_xl, "image/jxl", entries)
     |> maybe_append_modern(Keyword.get(opts, :auto_webp, true), :webp, "image/webp", entries)
   end
 
