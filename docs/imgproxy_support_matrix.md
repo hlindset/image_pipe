@@ -720,9 +720,12 @@ has no built-in cloud cache adapters.
 ### Response headers, cache headers, and default attachment disposition
 
 ImagePipe supports URL `return_attachment`/`att` per request. It doesn't expose
-Imgproxy's global response-header, ETag/Last-Modified, TTL, canonical-link,
-debug-header, or default attachment settings. Host Plugs can add fixed response
-headers outside ImagePipe.
+Imgproxy's global response-header, ETag/Last-Modified, TTL, canonical-link, or
+default attachment configuration knobs. ImagePipe provides its own opt-in
+`x-imagepipe-*` debug headers (`allow_debug_headers` mount option + `_debug=1`
+query param); it does not implement Imgproxy's `IMGPROXY_ENABLE_DEBUG_HEADERS`
+contract (`X-Origin-*`/`X-Result-*`). Host Plugs can add fixed response headers
+outside ImagePipe.
 
 - ⭕ `IMGPROXY_TTL`
 - ⭕ `IMGPROXY_CACHE_CONTROL_PASSTHROUGH`

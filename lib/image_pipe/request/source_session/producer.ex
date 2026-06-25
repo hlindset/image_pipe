@@ -338,7 +338,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
       :none ->
         nil
 
-      %module{target: target} when is_float(target) ->
+      %module{target: target} when is_number(target) ->
         if native_jxl_search?(module), do: target, else: nil
 
       _ ->
