@@ -149,7 +149,7 @@ Flat `X-ImagePipe-*` headers, one fact per header. Timings use `Server-Timing`.
 | `X-ImagePipe-Output-Accept` | `image/avif,...` | request `Accept` echoed (always on; revisit length cap later) |
 | `X-ImagePipe-Output-Width` | `1200` | `Image.width` on finalized image (pre-encode) |
 | `X-ImagePipe-Output-Height` | `900` | `Image.height` |
-| `X-ImagePipe-Output-Quality` | `72` | effective quality: `EncodeSearch.meta.quality` if search ran, else `resolved_output.quality` |
+| `X-ImagePipe-Output-Quality` | `72` | effective quality: `EncodeSearch.meta.quality` if search ran, else `resolved_output.quality`; renders the `default` sentinel when ImagePipe set no quality and the encoder's own default applied (resolves to a number once #389 lands) |
 | `X-ImagePipe-Output-Stripped` | `true` | `resolved_output.strip_metadata` |
 | `X-ImagePipe-Output-Color-Profile` | `srgb` | `resolved_output.color_profile` |
 | `X-ImagePipe-Output-Distance` | `1.0` | JXL native distance selected (JXL output only) |
