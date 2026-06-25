@@ -169,6 +169,21 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert chosen.attributes[:scorer] == :full
   end
 
+  test "folds the debug collect error marker onto the enclosing span" do
+    Telemetry.span([], [:cache, :lookup], %{}, fn ->
+      Telemetry.execute([], [:debug, :collect, :error], %{}, %{error: :decode_failed})
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.cache.lookup"} = span}
+
+    refute_received {:span, %Span{name: "image_pipe.debug.collect.error"}}
+
+    event = Enum.find(span.events, &(&1.name == "image_pipe.debug.collect.error"))
+    assert event
+    assert event.attributes[:error] == :decode_failed
+  end
+
   test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do
     Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
       Telemetry.span([], [:encode, :search, :probe, :encode], %{quality: 62}, fn ->
