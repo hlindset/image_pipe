@@ -219,10 +219,12 @@ orchestration assembles `Info` from the values they already return.)
 
 - Add a `debug` field to `ImagePipe.Cache.Entry.Metadata` holding the `Debug.Info`
   (generation-only facts). Populated in `cache/sink.ex` from the same `Info`.
-- Bump `@metadata_version` in `cache/file_system.ex` (greenfield: old entries
-  become a version mismatch → treated as a miss → regenerate; no dual-version
-  support). Extend the serialize/deserialize and `validate_metadata` paths to
-  carry/validate the `debug` field.
+- Reshape the `Entry.Metadata` serialize/deserialize and `validate_metadata`
+  paths in `cache/file_system.ex` **in place** to carry/validate the `debug`
+  field. No `@metadata_version` bump — this is greenfield with nothing in
+  production, so we reshape the canonical metadata shape and update tests rather
+  than versioning for backward compatibility. (Any stale dev-disk entry lacking
+  the field simply fails validation and is treated as a miss → regenerate.)
 - The existing `cost_us` is generalized into / replaced by the per-stage timings
   in `Info`.
 - On a cache **hit** (`response/sender.ex` `send_cache_entry`), when debug headers
@@ -289,7 +291,7 @@ the headers (against a debug-enabled mount).
 - **Cache-key/ETag invariance:** `_debug=1` does not change the cache key or ETag
   (conditional GET still `304`s).
 - **Metadata round-trip:** `Entry.Metadata` with a `debug` blob serializes and
-  deserializes; the version bump invalidates old entries.
+  deserializes correctly.
 
 ## Docs updates
 
