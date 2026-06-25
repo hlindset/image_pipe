@@ -118,29 +118,9 @@ defmodule ImagePipe.Request.SourceSession.Producer do
 
     with_stream_translation(&prepare_fallback/2, fn ->
       with {{:ok, decoded}, decode_us} <-
-             measure(collect?, fn ->
-               Processor.fetch_decode_validate_source_with_source_format(
-                 request.plan,
-                 request.resolved_source,
-                 request.opts
-               )
-             end),
+             measure_decode(collect?, request.plan, request.resolved_source, request.opts),
            {{:ok, %State{} = final_state}, transform_us} <-
-             measure(collect?, fn ->
-               Processor.process_decoded_source(
-                 decoded,
-                 request.plan,
-                 Keyword.put(
-                   request.opts,
-                   :supports_hdr?,
-                   Policy.supports_hdr?(
-                     request.output_policy,
-                     request.plan.output,
-                     decoded.source_format
-                   )
-                 )
-               )
-             end),
+             measure_transform(collect?, decoded, request),
            {:ok, %Resolved{} = resolved_output} <-
              resolve_output(
                request.output_policy,
@@ -158,9 +138,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                request.opts
              ),
            {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
-             measure(collect?, fn ->
-               encode_first_chunk(image, resolved_output, request.opts)
-             end) do
+             measure_encode(collect?, image, resolved_output, request.opts) do
         debug =
           build_debug(collect?, %{
             request: request,
@@ -271,6 +249,33 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     :ok
   end
 
+  defp measure_decode(collect?, plan, resolved_source, opts),
+    do:
+      measure(collect?, fn ->
+        Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source, opts)
+      end)
+
+  defp measure_transform(collect?, decoded, request),
+    do:
+      measure(collect?, fn ->
+        Processor.process_decoded_source(
+          decoded,
+          request.plan,
+          Keyword.put(
+            request.opts,
+            :supports_hdr?,
+            Policy.supports_hdr?(
+              request.output_policy,
+              request.plan.output,
+              decoded.source_format
+            )
+          )
+        )
+      end)
+
+  defp measure_encode(collect?, image, resolved_output, opts),
+    do: measure(collect?, fn -> encode_first_chunk(image, resolved_output, opts) end)
+
   # When collecting, return `{result, microseconds}`; otherwise run the stage and
   # return `{result, nil}` so the `with` shape is uniform without timing cost.
   defp measure(false, fun), do: {fun.(), nil}
@@ -330,11 +335,14 @@ defmodule ImagePipe.Request.SourceSession.Producer do
 
   defp output_distance(%Resolved{quality_search: quality_search}, _meta) do
     case quality_search do
-      :none -> nil
+      :none ->
+        nil
+
       %module{target: target} when is_float(target) ->
         if native_jxl_search?(module), do: target, else: nil
 
-      _ -> nil
+      _ ->
+        nil
     end
   end
 

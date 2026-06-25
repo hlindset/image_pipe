@@ -18,7 +18,9 @@ defmodule ImagePipe.Test.SourceSession.ProducerClient do
   @halt_timeout 2_000
 
   @spec next(pid(), timeout()) ::
-          {:ok, {:first_chunk, binary(), String.t(), [{String.t(), String.t()}], Resolved.t()}}
+          {:ok,
+           {:first_chunk, binary(), String.t(), [{String.t(), String.t()}], Resolved.t(),
+            ImagePipe.Debug.Info.t() | nil}}
           | {:ok, {:chunk, binary()}}
           | {:ok, :done}
           | {:error, term()}
