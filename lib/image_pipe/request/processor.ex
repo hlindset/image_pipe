@@ -94,23 +94,27 @@ defmodule ImagePipe.Request.Processor do
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)
            |> wrap_decode_error() do
+      debug_facts =
+        if Keyword.get(opts, :allow_debug_headers, false) do
+          source_debug_facts(input, header_image)
+        else
+          %{}
+        end
+
       {:ok,
-       %{
-         decode_options: decode_options,
-         image: image,
-         source_format: source_format,
-         detected_source_format: detected,
-         source_format_resolution: resolution,
-         source_dimensions: shrink_source_dimensions(decode_options, original_dims),
-         original_dims: original_dims,
-         achieved_shrink: compute_achieved_shrink(original_dims, image),
-         source_bytes: source_byte_size(input),
-         source_color_space: source_interpretation(header_image),
-         source_icc?: source_has_icc?(header_image),
-         source_bit_depth: source_bit_depth(header_image),
-         source_alpha?: Image.has_alpha?(header_image),
-         source_orientation: source_orientation(header_image)
-       }}
+       Map.merge(
+         %{
+           decode_options: decode_options,
+           image: image,
+           source_format: source_format,
+           detected_source_format: detected,
+           source_format_resolution: resolution,
+           source_dimensions: shrink_source_dimensions(decode_options, original_dims),
+           original_dims: original_dims,
+           achieved_shrink: compute_achieved_shrink(original_dims, image)
+         },
+         debug_facts
+       )}
     end
   end
 
@@ -373,7 +377,19 @@ defmodule ImagePipe.Request.Processor do
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
   # Best-effort debug facts captured from the source input and header image.
-  # Any failure returns nil; these must never break decoding.
+  # Only called when allow_debug_headers is true. Any individual failure returns nil;
+  # these must never break decoding.
+
+  defp source_debug_facts(input, header_image) do
+    %{
+      source_bytes: source_byte_size(input),
+      source_color_space: source_interpretation(header_image),
+      source_icc?: source_has_icc?(header_image),
+      source_bit_depth: source_bit_depth(header_image),
+      source_alpha?: Image.has_alpha?(header_image),
+      source_orientation: source_orientation(header_image)
+    }
+  end
 
   defp source_byte_size({:buffer, binary}), do: byte_size(binary)
 
