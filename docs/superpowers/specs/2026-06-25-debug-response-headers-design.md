@@ -132,6 +132,8 @@ Flat `X-ImagePipe-*` headers, one fact per header. Timings use `Server-Timing`.
 | `X-ImagePipe-AQ-Metric` | `ssimulacra2` | `quality_search` type — `ssimulacra2`/`butteraugli`/`size` |
 | `X-ImagePipe-AQ-Score` | `78.4` | `meta.score` (achieved, in the metric's units) |
 | `X-ImagePipe-AQ-Target` | `78.0` | search target/threshold (metric's units) |
+| `X-ImagePipe-AQ-Quality-Min` | `60` | `resolved.quality_search.min_quality` — per-format-clamped search floor for the selected format |
+| `X-ImagePipe-AQ-Quality-Max` | `65` | `resolved.quality_search.max_quality` — per-format-clamped search roof for the selected format |
 | `X-ImagePipe-AQ-Iterations` | `5` | `meta.iterations` |
 | `X-ImagePipe-AQ-Outcome` | `hit` | `meta.outcome` — `hit`/`best_effort`/`skipped`/`native` |
 | `X-ImagePipe-AQ-Limiting-Factor` | `ceiling` | `meta.limiting_factor` |
@@ -140,7 +142,12 @@ Flat `X-ImagePipe-*` headers, one fact per header. Timings use `Server-Timing`.
 
 The metric name carries the interpretation (ssimulacra2 → higher-better 0–100;
 butteraugli → lower-better distance). `Outcome` + `Limiting-Factor` explain why the
-search stopped. No per-metric input knobs are echoed.
+search stopped. `Quality-Min`/`Quality-Max` are the effective quality bounds the
+search was allowed to pick within for the *selected* format, after the global
+per-format clamp (`autoquality_format_min_quality`/`_max_quality`, falling back to
+the base bracket) is applied in `output/policy.ex resolve_search/2` — i.e. the
+quality floor/roof, and what `Limiting-Factor: floor`/`ceiling` refers to hitting.
+No per-metric input knobs are echoed.
 
 ### Cache / pipeline
 
@@ -229,8 +236,9 @@ orchestration assembles `Info` from the values they already return.)
   already present as `Metadata.output_format`), `Output-Negotiated`,
   `Output-Accept`, `Pipeline`, `Cache-Key`, `Cache` status.
 - **Stored in `Metadata.debug` (generation-only):** all `Source-*`, `Shrink`,
-  `Output-Width`/`Height`/`Quality`/`Stripped`/`Color-Profile`, all `AQ-*`,
-  `Output-Distance`, and the origin per-stage `Server-Timing` durations.
+  `Output-Width`/`Height`/`Quality`/`Stripped`/`Color-Profile`, all `AQ-*`
+  (including `Quality-Min`/`Quality-Max`), `Output-Distance`, and the origin
+  per-stage `Server-Timing` durations.
 
 ### Data availability by path
 
