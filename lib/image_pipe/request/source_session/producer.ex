@@ -114,13 +114,11 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   end
 
   defp prepare_first_chunk(%__MODULE__{request: %Request{} = request} = state) do
-    collect? = Keyword.get(request.opts, :allow_debug_headers, false)
-
     with_stream_translation(&prepare_fallback/2, fn ->
       with {{:ok, decoded}, decode_us} <-
-             measure_decode(collect?, request.plan, request.resolved_source, request.opts),
+             measure_decode(request.plan, request.resolved_source, request.opts),
            {{:ok, %State{} = final_state}, transform_us} <-
-             measure_transform(collect?, decoded, request),
+             measure_transform(decoded, request),
            {:ok, %Resolved{} = resolved_output} <-
              resolve_output(
                request.output_policy,
@@ -138,9 +136,9 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                request.opts
              ),
            {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
-             measure_encode(collect?, image, resolved_output, request.opts) do
+             measure_encode(image, resolved_output, request.opts) do
         debug =
-          build_debug(collect?, %{
+          build_debug(%{
             request: request,
             decoded: decoded,
             resolved_output: resolved_output,
@@ -249,15 +247,15 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     :ok
   end
 
-  defp measure_decode(collect?, plan, resolved_source, opts),
+  defp measure_decode(plan, resolved_source, opts),
     do:
-      measure(collect?, fn ->
+      Timing.measure(fn ->
         Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source, opts)
       end)
 
-  defp measure_transform(collect?, decoded, request),
+  defp measure_transform(decoded, request),
     do:
-      measure(collect?, fn ->
+      Timing.measure(fn ->
         Processor.process_decoded_source(
           decoded,
           request.plan,
@@ -273,17 +271,10 @@ defmodule ImagePipe.Request.SourceSession.Producer do
         )
       end)
 
-  defp measure_encode(collect?, image, resolved_output, opts),
-    do: measure(collect?, fn -> encode_first_chunk(image, resolved_output, opts) end)
+  defp measure_encode(image, resolved_output, opts),
+    do: Timing.measure(fn -> encode_first_chunk(image, resolved_output, opts) end)
 
-  # When collecting, return `{result, microseconds}`; otherwise run the stage and
-  # return `{result, nil}` so the `with` shape is uniform without timing cost.
-  defp measure(false, fun), do: {fun.(), nil}
-  defp measure(true, fun), do: Timing.measure(fun)
-
-  defp build_debug(false, _ctx), do: nil
-
-  defp build_debug(true, ctx) do
+  defp build_debug(ctx) do
     %{
       request: request,
       decoded: decoded,
