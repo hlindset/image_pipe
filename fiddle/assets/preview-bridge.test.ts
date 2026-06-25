@@ -16,6 +16,7 @@ const meta = (over: Partial<Parameters<PreviewMetadataTracker["applyMessage"]>[0
   contentType: "image/webp",
   bytes: 4321,
   error: null,
+  debugHeaders: null,
   ...over,
 });
 

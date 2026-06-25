@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { isPreviewUrl, type PreviewMetaMessage } from "./preview-intercept";
+import { extractDebugHeaders, isPreviewUrl, type PreviewMetaMessage } from "./preview-intercept";
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -34,6 +34,7 @@ async function reportMetadata(
   response: Response,
 ): Promise<void> {
   try {
+    const debugHeaders = extractDebugHeaders(response.headers);
     const body = await response.arrayBuffer(); // demo payloads are small; buffering to count bytes is fine
     const message: PreviewMetaMessage = {
       type: "preview-meta",
@@ -45,6 +46,7 @@ async function reportMetadata(
       contentType: response.headers.get("content-type"),
       bytes: body.byteLength,
       error: response.ok ? null : errorSnippet(response, body),
+      debugHeaders,
     };
     await postToClient(clientId, message);
   } catch {
