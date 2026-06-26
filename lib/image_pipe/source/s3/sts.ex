@@ -62,7 +62,9 @@ defmodule ImagePipe.Source.S3.Sts do
     req_opts =
       [
         method: :post,
-        url: endpoint(region),
+        # `:endpoint_override` is an integration-test seam (point at a local
+        # LocalStack) — never set in production; the regional endpoint is used.
+        url: Keyword.get(opts, :endpoint_override) || endpoint(region),
         body: URI.encode_query(params),
         headers: [{"content-type", "application/x-www-form-urlencoded"}],
         retry: false,
