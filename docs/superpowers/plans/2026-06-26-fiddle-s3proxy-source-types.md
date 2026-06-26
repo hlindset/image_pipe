@@ -212,20 +212,29 @@ In `fiddle/lib/image_pipe_fiddle/application.ex`, change `build_imgproxy_opts/0`
          default: [
            region: Keyword.fetch!(s3, :region),
            endpoint: Keyword.fetch!(s3, :endpoint),
-           credentials: [
-             access_key_id: Keyword.fetch!(s3, :access_key_id),
-             secret_access_key: Keyword.fetch!(s3, :secret_access_key)
-           ]
+           credentials:
+             {:static,
+              [
+                access_key_id: Keyword.fetch!(s3, :access_key_id),
+                secret_access_key: Keyword.fetch!(s3, :secret_access_key)
+              ]}
          ],
          buckets: %{"sources" => []}},
       # DEV-ONLY SSRF relaxation: the http source type fetches the fiddle's own
-      # Plug.Static over loopback, so localhost must be explicitly allowed. This
-      # lives only in the fiddle demo — never in ImagePipe library defaults.
+      # Plug.Static over loopback, so localhost must be explicitly allowed and the
+      # address policy must permit loopback IPs. This lives only in the fiddle demo
+      # — never in ImagePipe library defaults.
       url:
-        {ImagePipe.Source.HTTP, allowed_hosts: ["localhost", "127.0.0.1"], allow_loopback: true}
+        {ImagePipe.Source.HTTP,
+         allowed_hosts: ["localhost", "127.0.0.1"], address_policy: [allow_loopback: true]}
     ]
   end
 ```
+
+> Note on shapes (verified against the adapters): `Source.S3` credentials must be the
+> tagged `{:static, [access_key_id: …, secret_access_key: …]}` form (a bare keyword list
+> is rejected as `:invalid_credentials`). `Source.HTTP` has no top-level `allow_loopback`;
+> loopback is permitted via `address_policy: [allow_loopback: true]`.
 
 The `static_root` local previously declared at the top of `build_imgproxy_opts/0` is now only used inside `imgproxy_source_mounts/0`; remove the now-unused binding from `build_imgproxy_opts/0` so it doesn't warn.
 

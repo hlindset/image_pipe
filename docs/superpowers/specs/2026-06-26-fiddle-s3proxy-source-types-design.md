@@ -88,7 +88,8 @@ currently only has `path:`):
 sources: [
   path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted},
   s3:   {ImagePipe.Source.S3, s3_source_opts},
-  url:  {ImagePipe.Source.HTTP, allowed_hosts: ["localhost", "127.0.0.1"], allow_loopback: true}
+  url:  {ImagePipe.Source.HTTP,
+         allowed_hosts: ["localhost", "127.0.0.1"], address_policy: [allow_loopback: true]}
 ]
 ```
 
@@ -99,14 +100,19 @@ s3_source_opts = [
   default: [
     region: s3_cfg[:region],
     endpoint: s3_cfg[:endpoint],
-    credentials: [
+    credentials: {:static, [
       access_key_id: s3_cfg[:access_key_id],
       secret_access_key: s3_cfg[:secret_access_key]
-    ]
+    ]}
   ],
   buckets: %{"sources" => []}
 ]
 ```
+
+> Shapes verified against the adapters: `Source.S3` credentials use the tagged
+> `{:static, [...]}` form (a bare keyword list is rejected as `:invalid_credentials`);
+> `Source.HTTP` permits loopback via `address_policy: [allow_loopback: true]`, not a
+> top-level `allow_loopback`.
 
 Scoped to the **imgproxy** provider only. `build_iiif_opts/0` and `build_twicpics_opts/0`
 keep `path:` only.
