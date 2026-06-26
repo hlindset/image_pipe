@@ -48,4 +48,34 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
     assert {:error, {:source, :credentials_unavailable}} =
              Credentials.fetch("bucket-c-#{System.unique_integer()}", provider, [])
   end
+
+  test "AssumeRole provider routes through the cache and normalizes" do
+    xml =
+      ~s(<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASIAX</AccessKeyId><SecretAccessKey>sx</SecretAccessKey><SessionToken>tx</SessionToken><Expiration>2026-06-26T13:34:41Z</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>)
+
+    test = self()
+
+    plug = fn conn ->
+      send(test, :sts_called)
+      Plug.Conn.send_resp(conn, 200, xml)
+    end
+
+    provider =
+      {:provider, ImagePipe.Source.S3.AssumeRole,
+       base: {:static, [access_key_id: "AKIABASE", secret_access_key: "SK"]},
+       role_arn: "arn:aws:iam::1:role/x",
+       region: "us-east-1",
+       plug: plug}
+
+    scope = "assume-#{System.unique_integer([:positive])}"
+
+    assert {:ok, creds} = Credentials.fetch(scope, provider, [])
+    assert creds[:access_key_id] == "ASIAX"
+    assert creds[:token] == "tx"
+    assert_received :sts_called
+
+    # cached: no second STS call for the same scope
+    assert {:ok, _} = Credentials.fetch(scope, provider, [])
+    refute_received :sts_called
+  end
 end
