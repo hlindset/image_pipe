@@ -11,7 +11,8 @@ defmodule ImagePipe.Source do
       StreamError,
       HTTP,
       File,
-      S3
+      S3,
+      S3.RefreshCache
     ]
 
   alias ImagePipe.Error

@@ -138,4 +138,30 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     assert {:ok, {:creds, 1}} = Entry.get(pid)
     assert_received {:call, 1}
   end
+
+  describe "facade" do
+    alias ImagePipe.Source.S3.RefreshCache
+
+    test "fetch/3 lazily starts one entry per key and caches across calls" do
+      test = self()
+      key = {:unit, make_ref()}
+
+      fun = fn ->
+        send(test, :fetched)
+        {:ok, :v, :never}
+      end
+
+      assert {:ok, :v} = RefreshCache.fetch(key, fun)
+      assert_received :fetched
+      assert {:ok, :v} = RefreshCache.fetch(key, fun)
+      refute_received :fetched
+    end
+
+    test "distinct keys get distinct entries" do
+      k1 = {:unit, make_ref()}
+      k2 = {:unit, make_ref()}
+      assert {:ok, 1} = RefreshCache.fetch(k1, fn -> {:ok, 1, :never} end)
+      assert {:ok, 2} = RefreshCache.fetch(k2, fn -> {:ok, 2, :never} end)
+    end
+  end
 end
