@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { defaultFiddleState } from "./processing-path";
 import { defaultIiifState } from "./iiif-path";
 import { defaultTwicPicsState } from "./twicpics-path";
-import { appPathForState, parseAppPath, type AppState } from "./fiddle-url-state";
+import {
+  appPathForState,
+  fiddlePathForState,
+  parseAppPath,
+  parseFiddlePath,
+  type AppState,
+} from "./fiddle-url-state";
 
 function baseAppState(): AppState {
   return {
@@ -99,4 +105,16 @@ describe("twicpics provider dispatch", () => {
     expect(parsed.provider).toBe("twicpics");
     expect(parsed.twicpics).toEqual(defaultTwicPicsState);
   });
+});
+
+describe("source type round-trip", () => {
+  for (const sourceType of ["local", "s3", "http"] as const) {
+    it(`preserves sourceType=${sourceType} through path build + parse`, () => {
+      const state = { ...defaultFiddleState, source: "images/dog.jpg" as const, sourceType };
+      const path = fiddlePathForState(state);
+      const parsed = parseFiddlePath(path);
+      expect(parsed.source).toBe("images/dog.jpg");
+      expect(parsed.sourceType).toBe(sourceType);
+    });
+  }
 });

@@ -1,10 +1,15 @@
-# Local Jaeger (all-in-one v2) for the fiddle's OpenTelemetry traces.
+# Local sidecar services for the fiddle demo (opt-in; not needed for `mise run fiddle`).
 #
-#   docker compose -f fiddle/docker-compose.yml up   # or: mise run jaeger
-#   FIDDLE_OTEL=1 mise run server                     # emit traces
+#   mise run fiddle:sidecars            # both services (docker compose ... up)
+#   mise run fiddle:sidecars s3proxy    # just one, by service name
 #
-# Then open the Jaeger UI at http://localhost:16686 and look for the
-# `image_pipe.request` trace after issuing an /img request.
+# Jaeger (all-in-one v2) — OpenTelemetry traces:
+#   mise run fiddle otel                # emit traces; UI at http://localhost:16686
+# Then look for the `image_pipe.request` trace after issuing an /img request.
+#
+# s3proxy — fake S3 over the local filesystem, mirrors priv/static/images so the
+# fiddle's "S3" source type can fetch the sample images as s3://sources/<file>.
+# Endpoint http://localhost:8081, bucket "sources" == ./priv/static/images (read-only).
 services:
   jaeger:
     image: cr.jaegertracing.io/jaegertracing/jaeger:2.19.0
@@ -15,3 +20,18 @@ services:
       - "4318:4318" # OTLP HTTP (the fiddle exports here)
       - "5778:5778" # sampling/config
       - "9411:9411" # Zipkin
+
+  s3proxy:
+    image: andrewgaul/s3proxy:sha-7894241
+    container_name: fiddle-s3proxy
+    ports:
+      - "8081:80" # s3proxy listens on container port 80
+    environment:
+      S3PROXY_AUTHORIZATION: aws-v2-or-v4
+      S3PROXY_IDENTITY: fiddle
+      S3PROXY_CREDENTIAL: fiddlesecret
+      JCLOUDS_PROVIDER: filesystem
+      JCLOUDS_FILESYSTEM_BASEDIR: /data
+    volumes:
+      # Mounted read-only: the demo only reads. Bucket name == the subdir under basedir.
+      - ./priv/static/images:/data/sources:ro

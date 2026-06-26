@@ -24,6 +24,15 @@ config :image_pipe_fiddle, :imgproxy,
   ],
   smart_crop_face_detection: true
 
+# Connection coordinates for the fiddle's S3 source type, served by the opt-in
+# s3proxy compose service (see fiddle/docker-compose.yml). These mirror the
+# s3proxy env: bucket "sources" == priv/static/images. Dev-only fake credentials.
+config :image_pipe_fiddle, :s3_source,
+  region: "us-east-1",
+  endpoint: "http://localhost:8081",
+  access_key_id: "fiddle",
+  secret_access_key: "fiddlesecret"
+
 # Configure the endpoint
 config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
   url: [host: "localhost"],
@@ -46,7 +55,7 @@ config :phoenix, :json_library, Jason
 # OpenTelemetry → local Jaeger (see docker-compose.yml). Traces are only emitted
 # when the tracer is attached at startup (FIDDLE_OTEL=1; see
 # ImagePipeFiddle.Application) — with no spans the SDK never contacts the collector,
-# so this is inert for a plain `mise run server` with no Jaeger running.
+# so this is inert for a plain `mise run fiddle` with no Jaeger running.
 config :opentelemetry,
   span_processor: :batch,
   traces_exporter: :otlp,

@@ -23,6 +23,8 @@ import {
   resolvedOutputLabel,
   signProcessingPath,
   signedPathForState,
+  sourceIdentifierForRequest,
+  parseSourceIdentifier,
   trimOptionSegment,
 } from "./processing-path";
 import {
@@ -2020,5 +2022,38 @@ describe("object-gravity + focal-point segment building", () => {
       objWeights: { dog: 2, person: 1 },
     };
     expect(objGravitySegmentFromState(state)).toBe("g:objw:dog:2:person:1");
+  });
+});
+
+describe("sourceIdentifierForRequest", () => {
+  it("builds a local:/// identifier", () => {
+    expect(sourceIdentifierForRequest("images/dog.jpg", "local")).toBe("local:///images/dog.jpg");
+  });
+
+  it("builds an s3://sources/<file> identifier from the basename", () => {
+    expect(sourceIdentifierForRequest("images/dog.jpg", "s3")).toBe("s3://sources/dog.jpg");
+  });
+
+  it("builds an http://localhost:4000 identifier", () => {
+    expect(sourceIdentifierForRequest("images/dog.jpg", "http")).toBe(
+      "http://localhost:4000/images/dog.jpg",
+    );
+  });
+});
+
+describe("parseSourceIdentifier", () => {
+  it("round-trips each source type", () => {
+    for (const sourceType of ["local", "s3", "http"] as const) {
+      const id = sourceIdentifierForRequest("images/dog.jpg", sourceType);
+      expect(parseSourceIdentifier(id)).toEqual({ source: "images/dog.jpg", sourceType });
+    }
+  });
+
+  it("returns null for an unknown scheme", () => {
+    expect(parseSourceIdentifier("ftp://nope/dog.jpg")).toBeNull();
+  });
+
+  it("returns null when the identifier does not map to a known sample image", () => {
+    expect(parseSourceIdentifier("s3://sources/not-a-real-image.jpg")).toBeNull();
   });
 });
