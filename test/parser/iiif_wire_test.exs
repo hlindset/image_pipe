@@ -625,4 +625,49 @@ defmodule ImagePipe.Parser.IIIFWireTest do
       refute Map.has_key?(body, "maxArea")
     end
   end
+
+  defp header(conn, name) do
+    case get_resp_header(conn, name) do
+      [value | _] -> value
+      [] -> nil
+    end
+  end
+
+  defp iiif_debug_opts(origin_plug) do
+    Keyword.put(iiif_opts(origin_plug), :allow_debug_headers, true)
+  end
+
+  describe "debug headers trigger (?debug=1 query param)" do
+    test "?debug=1 emits x-imagepipe-* headers when allow_debug_headers: true" do
+      conn = call_iiif("/img/full/max/0/default.png?debug=1", iiif_debug_opts(OriginImage))
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-format") != nil
+      assert header(conn, "x-imagepipe-cache") == "miss"
+      assert header(conn, "x-imagepipe-source-format") != nil
+    end
+
+    test "no debug headers without ?debug=1, even when allow_debug_headers: true" do
+      conn = call_iiif("/img/full/max/0/default.png", iiif_debug_opts(OriginImage))
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-format") == nil
+      assert header(conn, "x-imagepipe-cache") == nil
+    end
+
+    test "no debug headers with ?debug=1 when allow_debug_headers: false (default)" do
+      conn = call_iiif("/img/full/max/0/default.png?debug=1", iiif_opts(OriginImage))
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-format") == nil
+      assert header(conn, "x-imagepipe-cache") == nil
+    end
+
+    test "a garbage debug value is ignored (200, no headers) — not a 400" do
+      conn = call_iiif("/img/full/max/0/default.png?debug=maybe", iiif_debug_opts(OriginImage))
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-format") == nil
+    end
+  end
 end

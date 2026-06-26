@@ -25,10 +25,19 @@ Two independent controls must both be satisfied for any header to be emitted:
    - **imgproxy**: the `debug:1` processing option, e.g.
      `/{signature}/rs:fit:400:300/debug:1/plain/images/cat.jpg`. It rides in the
      signed processing-options path, so imgproxy's path signature covers it.
-   - Other dialects (IIIF / TwicPics) do not currently expose a URL trigger; a
-     caller constructing a plan directly sets `Plan.Response.debug?`.
+   - **TwicPics**: a `debug=1` segment in the `twic` manipulation chain, e.g.
+     `/images/cat.jpg?twic=v1/resize=400/debug=1`. Order-independent; emits no
+     transform.
+   - **IIIF**: a `?debug=1` query param, e.g.
+     `/iiif/cat/full/400,/0/default.jpg?debug=1`. The IIIF path grammar has no
+     free slot, so the trigger is an out-of-band query param (read leniently — a
+     malformed value is ignored, never a 400).
 
-The `debug:1` option does **not** change the produced image bytes: it lives on
+   All triggers accept the boolean spellings `1`/`true`. imgproxy and TwicPics
+   also accept `0`/`false` to explicitly opt out. The TwicPics and IIIF triggers
+   are **not signature-protected** — see below.
+
+A debug trigger does **not** change the produced image bytes: it lives on
 `Plan.Response`, which is excluded from both the cache key and the ETag, so a
 debug request and a plain request resolve to the same cache entry. (Facts are
 collected and stored on every generation regardless of the flag, so enabling
@@ -45,6 +54,12 @@ items, with no cache invalidation.)
 > unsigned mounts there is no such protection — anyone can add `debug:1` — so
 > enable `allow_debug_headers: true` there only if the disclosed facts below are
 > acceptable to expose.
+>
+> **TwicPics / IIIF** have no request signing at all, so their `debug=1` /
+> `?debug=1` triggers are **always unprotected** — anyone who can reach the mount
+> can add them. Enable `allow_debug_headers: true` on those mounts only if the
+> disclosed facts below are acceptable to expose. (If those dialects gain signing
+> later, the trigger should ride the signed material.)
 
 When triggered, a response discloses: internal source dimensions and
 format/color/ICC/bit-depth/alpha facts; the negotiated output and its
@@ -135,8 +150,8 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 ## Demo (fiddle)
 
 The bundled demo (`fiddle/`) configures its three mounts with
-`allow_debug_headers: true` and adds the `debug:1` processing option to its
-preview requests. Its
+`allow_debug_headers: true` and injects each dialect's debug trigger into its
+preview requests (imgproxy `debug:1`, TwicPics `debug=1`, IIIF `?debug=1`). Its
 service worker reads these headers off the fetched response and surfaces them in
 a **Debug headers** panel under the preview, including the derived output size and
 compression ratio.

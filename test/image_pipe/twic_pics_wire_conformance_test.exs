@@ -452,4 +452,73 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     assert second.resp_body == first.resp_body
     refute_received :origin_fetch
   end
+
+  defp header(%Plug.Conn{} = conn, name) do
+    case Plug.Conn.get_resp_header(conn, name) do
+      [value | _] -> value
+      [] -> nil
+    end
+  end
+
+  defp debug_opts(extra), do: Keyword.merge(@opts, extra)
+
+  describe "debug headers trigger (debug chain segment)" do
+    test "the debug=1 segment emits x-imagepipe-* headers when allow_debug_headers: true" do
+      conn =
+        call(
+          "/images/beach.jpg?twic=v1/resize=200/debug=1/output=jpeg",
+          debug_opts(allow_debug_headers: true)
+        )
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-format") != nil
+      assert header(conn, "x-imagepipe-cache") == "miss"
+      assert header(conn, "x-imagepipe-source-format") != nil
+    end
+
+    test "no debug headers without the debug segment, even when allow_debug_headers: true" do
+      conn =
+        call(
+          "/images/beach.jpg?twic=v1/resize=200/output=jpeg",
+          debug_opts(allow_debug_headers: true)
+        )
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-format") == nil
+      assert header(conn, "x-imagepipe-cache") == nil
+    end
+
+    test "no debug headers with debug=1 when allow_debug_headers: false (default)" do
+      conn =
+        call(
+          "/images/beach.jpg?twic=v1/resize=200/debug=1/output=jpeg",
+          debug_opts(allow_debug_headers: false)
+        )
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-format") == nil
+      assert header(conn, "x-imagepipe-cache") == nil
+    end
+
+    test "debug=0 is an explicit opt-out (no headers even under allow_debug_headers: true)" do
+      conn =
+        call(
+          "/images/beach.jpg?twic=v1/resize=200/debug=0/output=jpeg",
+          debug_opts(allow_debug_headers: true)
+        )
+
+      assert conn.status == 200
+      assert header(conn, "x-imagepipe-output-format") == nil
+    end
+
+    test "an invalid debug value is a 400 (consistent with other bad chain segments)" do
+      conn =
+        call(
+          "/images/beach.jpg?twic=v1/resize=200/debug=maybe/output=jpeg",
+          debug_opts(allow_debug_headers: true)
+        )
+
+      assert conn.status == 400
+    end
+  end
 end

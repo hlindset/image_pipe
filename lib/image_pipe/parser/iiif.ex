@@ -71,7 +71,11 @@ defmodule ImagePipe.Parser.IIIF do
       {:image, id, tokens} ->
         with {:ok, source} <- resolve(id, iiif),
              {:ok, parsed} <- parse_tokens(tokens) do
-          PlanBuilder.image_plan(source, parsed, iiif)
+          PlanBuilder.image_plan(
+            source,
+            parsed,
+            Keyword.put(iiif, :debug?, debug_requested?(conn))
+          )
         end
 
       :not_found ->
@@ -85,6 +89,19 @@ defmodule ImagePipe.Parser.IIIF do
   def handle_error(%Plug.Conn{} = conn, {:error, reason}) do
     {status, body} = status_for(reason)
     send_resp(conn, status, body)
+  end
+
+  # `?debug=1` (also `?debug=true`) opts the response into `X-ImagePipe-*` debug
+  # headers, honored only under the `allow_debug_headers: true` mount flag. The
+  # IIIF Image API path grammar has no free slot, so the trigger is an
+  # out-of-band query param — an ImagePipe extension, not part of the IIIF spec.
+  # It is read leniently: any non-true value (absent, `0`, `false`, garbage)
+  # disables it, so a malformed flag never fails an otherwise-valid image
+  # request. IIIF has no request signing, so the trigger is unprotected; see
+  # docs/iiif_3_support_matrix.md.
+  defp debug_requested?(%Plug.Conn{} = conn) do
+    conn = Plug.Conn.fetch_query_params(conn)
+    Map.get(conn.query_params, "debug") in ["1", "true"]
   end
 
   defp resolve(id, iiif) do

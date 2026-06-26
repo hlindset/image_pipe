@@ -77,13 +77,11 @@
   let currentRequestId = 0;
   let lastPreviewAbsolute: string | null = null; // dedupe on resolved URL, not raw path
   const updatePreviewPath = debounce((nextPath: string, provider: string) => {
-    // Request the preview with the imgproxy `debug:1` processing option so the
-    // debug-enabled mount emits the X-ImagePipe-* + Server-Timing headers the SW
-    // reads. `debug:1` rides in the signed processing-options path (HMAC-covered),
-    // is excluded from the cache key / ETag, and changes nothing about the
+    // Request the preview with each dialect's debug trigger so the debug-enabled
+    // mount emits the X-ImagePipe-* + Server-Timing headers the SW reads. The
+    // trigger is excluded from the cache key / ETag and changes nothing about the
     // produced image. It rides ONLY the preview <img> request — the copyable /
-    // "Open" URL (`path`) stays clean. Only imgproxy exposes a debug trigger;
-    // the IIIF / TwicPics previews carry no debug option.
+    // "Open" URL (`path`) stays clean.
     const absolute = previewRequestUrl(nextPath, provider);
     // Dedupe on the RESOLVED url (not the raw path): a no-op must never flip
     // previewLoading=true without a following <img> load event, or the spinner
@@ -95,15 +93,21 @@
     previewLoading = true;
     previewError = null;
     processedMetadata = null;
-    previewImageUrl = absolute; // same-origin → <img> triggers the real, SW-intercepted request (with debug:1 for imgproxy)
+    previewImageUrl = absolute; // same-origin → <img> triggers the real, SW-intercepted request (with the debug trigger)
   }, 150);
-  // Builds the absolute preview-request URL. For imgproxy it injects the
-  // `debug:1` processing option ahead of the `/plain/` source marker; other
-  // dialects are returned unchanged (no debug trigger).
+  // Builds the absolute preview-request URL, injecting each dialect's debug
+  // trigger: imgproxy's `debug:1` processing option ahead of the `/plain/`
+  // source marker, TwicPics' `debug=1` chain segment appended to the `twic`
+  // manipulation, and IIIF's `?debug=1` query param.
   function previewRequestUrl(nextPath: string, provider: string): string {
     const url = new URL(nextPath, window.location.origin);
     if (provider === "imgproxy") {
       url.pathname = url.pathname.replace("/plain/", "/debug:1/plain/");
+    } else if (provider === "iiif") {
+      url.searchParams.set("debug", "1");
+    } else if (provider === "twicpics") {
+      const twic = url.searchParams.get("twic");
+      if (twic) url.searchParams.set("twic", `${twic}/debug=1`);
     }
     return url.href;
   }

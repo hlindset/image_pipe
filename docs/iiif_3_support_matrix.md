@@ -14,7 +14,7 @@ Each row tracks one of three axes (same discipline as `docs/imgproxy_support_mat
 | **Stage / order** | Do we run compatible processing stages in IIIF order? | "Processing order" + the shared native pipeline (`docs/imgproxy_support_matrix.md`) |
 | **Behavioral / pixel** | Does a matching request produce conformant output? | the wire tests (`test/parser/iiif_wire_test.exs`) + the official `image-validator` gate + the "Diverges" notes |
 
-Status legend: ✅ supported · ➖ deliberately deferred (an optional `extraFeature`) · ⚠️ supported with a documented divergence.
+Status legend: ✅ supported · ➖ deliberately deferred (an optional `extraFeature`) · ⚠️ supported with a documented divergence · ➕ ImagePipe extension (no IIIF counterpart).
 
 ## Compliance level
 
@@ -108,6 +108,7 @@ Emitted from the **display** dimensions (`SourceInfo.display_dimensions/1`, so E
 | `cors` | ✅ | `Access-Control-Allow-Origin: *` on every IIIF response (image, info.json, redirect, errors) + `OPTIONS` preflight → 200, applied by the mount-level `ImagePipe.Parser.IIIF.CORS` plug (the parser's `parse/2` returns a tuple, not a conn, so CORS *must* be mount-level). |
 | Percent-encoded path segments | ✅ | Every token (`{identifier}`/`{region}`/`{size}`/`{rotation}`/`{quality}`/`{format}`) is percent-decoded per RFC 3986, so e.g. `^` sent as `%5E` or `:` as `%3A` is treated identically to its literal form (`ImagePipe.Parser.IIIF.Path.classify/1`). |
 | `jsonldMediaType` | ✅ | See info.json negotiation. |
+| `?debug=1` query param | ➕ | **No IIIF counterpart.** Opts a single image request into `X-ImagePipe-*` debug response headers, honored only under the `allow_debug_headers: true` mount flag. The IIIF path grammar has no free slot, so the trigger is an out-of-band query param, read **leniently** — only `1`/`true` enable it; any other value (absent, `0`, `false`, garbage) is ignored, never a 400. Sets `Plan.Response.debug?` (excluded from the cache key and ETag), so it never affects produced bytes or cache identity. Applies to image requests only (not `info.json`). Deliberately **not** advertised as an `extraFeature` in `info.json` (§4.9 says extensions *should* be listed, but advertising an unsigned disclosure trigger publicly is undesirable). **Unprotected:** IIIF has no request signing, so anyone reaching the mount can add it — see [debug_headers.md](debug_headers.md). |
 | Canonical `Link` header (`rel="canonical"`) | ➖ | Optional (`may` per spec); not implemented. Computing the canonical-spelling URL and threading a per-request response header is deferred; the validator does not require it. |
 
 - **Tiled region extraction** — tiled `{x,y,w,h}/{w,h}` requests reuse the existing region-crop + resize path (`regionByPx` + `sizeByWh` → `:stretch`); there is no IIIF-specific tiling stage. Shrink-on-load **engages** for the crop+downscale tile shape (verified: a deep-scale-factor tile decodes the source at reduced resolution — `DecodePlanner` returns `shrink: 4` for a 4096-region→512 tile from a 6000×4000 source; see `test/image_pipe/transform/iiif_tile_decode_test.exs`). End-to-end memory high-water + info/derivative caching are tracked as a follow-up.
