@@ -452,16 +452,17 @@ local/path source queries.
 **always** built path-style (`endpoint/bucket/key`); there is no virtual-host
 mode and no on/off toggle, so imgproxy's path-style flag has no configurable
 equivalent (ImagePipe behaves as if it is permanently on). It doesn't provide
-Imgproxy's enable flag, denied-bucket list, assume-role environment variables, or
-decryption client.
+Imgproxy's enable flag, denied-bucket list, or decryption client. Assume-role is
+provided as host config (see "S3 credentials" in `operational_notes.md`) rather
+than env vars.
 
 - ⚠️ `IMGPROXY_USE_S3`
 - ✅ `IMGPROXY_S3_REGION`
 - ✅ `IMGPROXY_S3_ENDPOINT`
 - ⚠️ `IMGPROXY_S3_ENDPOINT_USE_PATH_STYLE` — path-style is the fixed behavior, not a configurable toggle.
 - ⭕ `IMGPROXY_S3_USE_DECRYPTION_CLIENT`
-- ⭕ `IMGPROXY_S3_ASSUME_ROLE_ARN`
-- ⭕ `IMGPROXY_S3_ASSUME_ROLE_EXTERNAL_ID`
+- ✅ `IMGPROXY_S3_ASSUME_ROLE_ARN` — via `{:provider, ImagePipe.Source.S3.AssumeRole, role_arn: …}` (host config; see `operational_notes.md`).
+- ✅ `IMGPROXY_S3_ASSUME_ROLE_EXTERNAL_ID` — via the `:external_id` option of `ImagePipe.Source.S3.AssumeRole`.
 - ✅ `IMGPROXY_S3_ALLOWED_BUCKETS`
 - ⭕ `IMGPROXY_S3_DENIED_BUCKETS`
 
