@@ -11,6 +11,10 @@
 # jobs, not unit coverage, so they are opt-in via `--include imgproxy_report` /
 # `--include twicpics_report` (or `mix imgproxy.gen_report` / `mix
 # twicpics.gen_report`). Their rendering logic is unit-tested separately.
+# `:aws_integration` runs the opt-in LocalStack STS round-trip
+# (`--include aws_integration`); it is a protocol-fidelity smoke test, NOT a
+# correctness gate (LocalStack does not strictly verify SigV4 — signing is
+# already proven by the live S3 GET path).
 # Disable libvips' global operation cache for the test run. The cache keys
 # operations (notably `vips_autorot`) by their input image's pixel/argument
 # hash and is BLIND to mutable EXIF `orientation` metadata. Tests synthesize
@@ -35,7 +39,8 @@ ExUnit.start(
     :imgproxy_triage,
     :imgproxy_report,
     :twicpics_triage,
-    :twicpics_report
+    :twicpics_report,
+    :aws_integration
   ]
 )
 

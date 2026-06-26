@@ -1,0 +1,128 @@
+defmodule ImagePipe.Source.S3.Sts do
+  @moduledoc false
+  # Shared AWS STS Query-protocol client for the AssumeRole (#8) and
+  # AssumeRoleWithWebIdentity (#7) credential providers.
+  #
+  # STS always responds with XML. Rather than pull in :xmerl/sweet_xml (atom
+  # explosion + XXE on untrusted XML, plus sweet_xml is only a transitive dep),
+  # we extract the four credential fields from the fixed-schema <Credentials>
+  # block with a scoped regex. STS values are base64/ISO-8601 — they never
+  # contain `<`, `>`, or `&` — so the extraction is robust, and a recorded-sample
+  # test pins it to real wire output.
+
+  alias ImagePipe.Source.S3.MetadataRequest
+
+  @credentials_block ~r{<Credentials>(?<inner>.*?)</Credentials>}s
+
+  @version "2011-06-15"
+  @default_session_name "image-pipe"
+  # STS is a public-internet, possibly cross-region call, so it gets more
+  # headroom than the link-local metadata endpoints' 2s default.
+  @default_timeout_ms 5_000
+
+  @spec assume_role(keyword()) :: {:ok, keyword(), DateTime.t()} | {:error, term()}
+  def assume_role(opts) do
+    region = Keyword.fetch!(opts, :region)
+
+    params =
+      [
+        {"Action", "AssumeRole"},
+        {"Version", @version},
+        {"RoleArn", Keyword.fetch!(opts, :role_arn)},
+        {"RoleSessionName", session_name(opts)}
+      ]
+      |> maybe_put("ExternalId", Keyword.get(opts, :external_id))
+
+    sigv4 =
+      opts
+      |> Keyword.fetch!(:base_credentials)
+      |> Keyword.take([:access_key_id, :secret_access_key, :token])
+      |> Keyword.merge(service: :sts, region: region)
+
+    post(region, params, [aws_sigv4: sigv4], opts)
+  end
+
+  @spec assume_role_with_web_identity(keyword()) ::
+          {:ok, keyword(), DateTime.t()} | {:error, term()}
+  def assume_role_with_web_identity(opts) do
+    region = Keyword.fetch!(opts, :region)
+
+    params = [
+      {"Action", "AssumeRoleWithWebIdentity"},
+      {"Version", @version},
+      {"RoleArn", Keyword.fetch!(opts, :role_arn)},
+      {"RoleSessionName", session_name(opts)},
+      {"WebIdentityToken", Keyword.fetch!(opts, :web_identity_token)}
+    ]
+
+    # Unsigned: the OIDC token is the authentication.
+    post(region, params, [], opts)
+  end
+
+  # do not inspect/log `opts`, `params`, or `body` here — the signed body carries
+  # the base secret key (via the SigV4 signature) and, for web-identity, the OIDC
+  # token. Errors stay opaque; the response body is never put in an error term.
+  defp post(region, params, sign_opts, opts) do
+    req_opts =
+      [
+        method: :post,
+        # `:endpoint_override` is an integration-test seam (point at a local
+        # LocalStack) — never set in production; the regional endpoint is used.
+        url: Keyword.get(opts, :endpoint_override) || endpoint(region),
+        body: URI.encode_query(params),
+        headers: [{"content-type", "application/x-www-form-urlencoded"}]
+      ] ++ sign_opts
+
+    # Reuse the shared bounded non-bang Req helper (retry/redirect off, optional
+    # test plug). It defaults timeouts to 2s for the metadata endpoints, so STS's
+    # larger default is injected explicitly.
+    request_opts =
+      opts
+      |> Keyword.put_new(:receive_timeout, @default_timeout_ms)
+      |> Keyword.put_new(:connect_timeout, @default_timeout_ms)
+
+    case MetadataRequest.request(request_opts, req_opts) do
+      {:ok, %{status: 200, body: body}} -> parse_credentials(to_string(body))
+      {:ok, %{status: _other}} -> {:error, :sts_request_failed}
+      {:error, _reason} -> {:error, :sts_unreachable}
+    end
+  end
+
+  defp endpoint(region), do: "https://sts." <> region <> ".amazonaws.com/"
+
+  defp session_name(opts), do: Keyword.get(opts, :role_session_name, @default_session_name)
+
+  defp maybe_put(params, _key, nil), do: params
+  defp maybe_put(params, key, value), do: params ++ [{key, value}]
+
+  @spec parse_credentials(binary()) ::
+          {:ok, keyword(), DateTime.t()} | {:error, :sts_invalid_response}
+  def parse_credentials(xml) when is_binary(xml) do
+    with %{"inner" => inner} <- Regex.named_captures(@credentials_block, xml),
+         {:ok, access_key_id} <- field(inner, "AccessKeyId"),
+         {:ok, secret_access_key} <- field(inner, "SecretAccessKey"),
+         {:ok, token} <- field(inner, "SessionToken"),
+         {:ok, expiration} <- field(inner, "Expiration"),
+         {:ok, expiry, _offset} <- DateTime.from_iso8601(expiration) do
+      {:ok, [access_key_id: access_key_id, secret_access_key: secret_access_key, token: token],
+       expiry}
+    else
+      _other -> {:error, :sts_invalid_response}
+    end
+  end
+
+  def parse_credentials(_other), do: {:error, :sts_invalid_response}
+
+  defp field(inner, tag) do
+    case Regex.run(~r{<#{tag}>([^<]*)</#{tag}>}, inner) do
+      [_, value] ->
+        case String.trim(value) do
+          "" -> :error
+          trimmed -> {:ok, trimmed}
+        end
+
+      _none ->
+        :error
+    end
+  end
+end

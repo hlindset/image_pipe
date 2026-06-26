@@ -1,9 +1,11 @@
 defmodule ImagePipe.Source.S3.MetadataRequest do
   @moduledoc false
-  # Shared bounded HTTP for the link-local AWS metadata endpoints used by the
-  # InstanceRole (IMDS) and ContainerCredentials (ECS/EKS) providers. Uses the
-  # non-bang `Req.request/1` flow with no redirects/retries and bounded timeouts;
-  # any transport error becomes `{:error, :unreachable}`.
+  # Shared bounded HTTP for the AWS credential endpoints: the link-local metadata
+  # endpoints used by the InstanceRole (IMDS) and ContainerCredentials (ECS/EKS)
+  # providers, and the STS Query endpoint used by the AssumeRole/WebIdentity
+  # providers (via `Sts`). Uses the non-bang `Req.request/1` flow with no
+  # redirects/retries and bounded timeouts; any transport error becomes
+  # `{:error, :unreachable}`.
 
   @default_timeout_ms 2_000
 
