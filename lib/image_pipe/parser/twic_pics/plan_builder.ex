@@ -6,9 +6,10 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
 
-  @initial %{ops: [], guide: :carried, format: :auto, quality: :default}
+  @initial %{ops: [], guide: :carried, format: :auto, quality: :default, debug?: false}
 
   @spec to_plan(Source.t(), [{String.t(), String.t()}]) :: {:ok, Plan.t()} | {:error, term()}
   def to_plan(source, chain) when is_list(chain) do
@@ -19,7 +20,8 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
          source: source,
          pipelines: [%Pipeline{operations: Enum.reverse(acc.ops)}],
          output: output,
-         auto_rotate: true
+         auto_rotate: true,
+         response: %Response{debug?: acc.debug?}
        }}
     end
   end
@@ -41,7 +43,21 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   defp apply_segment("focus", args, acc), do: focus(args, acc)
   defp apply_segment("output", args, acc), do: output(args, acc)
   defp apply_segment("quality", args, acc), do: quality(args, acc)
+  defp apply_segment("debug", args, acc), do: debug(args, acc)
   defp apply_segment(name, _args, _acc), do: {:error, {:unsupported_transform, name}}
+
+  # `debug=1` opts the response into `X-ImagePipe-*` debug headers (honored only
+  # under the `allow_debug_headers: true` mount flag). It is an ImagePipe
+  # extension with no TwicPics counterpart, sets `Plan.Response.debug?`, and
+  # emits no operation — so it is order-independent and never affects produced
+  # bytes, the cache key, or the ETag. TwicPics has no request signing, so the
+  # trigger is unprotected; see docs/twicpics_support_matrix.md.
+  defp debug(args, acc) do
+    case ImagePipe.Parser.parse_boolean(args) do
+      {:ok, debug?} -> {:ok, %{acc | debug?: debug?}}
+      {:error, _} -> {:error, {:invalid_debug, args}}
+    end
+  end
 
   defp resize(args, acc) do
     if String.contains?(args, ":") do

@@ -722,8 +722,8 @@ has no built-in cloud cache adapters.
 ImagePipe supports URL `return_attachment`/`att` per request. It doesn't expose
 Imgproxy's global response-header, ETag/Last-Modified, TTL, canonical-link, or
 default attachment configuration knobs. ImagePipe provides its own opt-in
-`x-imagepipe-*` debug headers (`allow_debug_headers` mount option + `_debug=1`
-query param); it does not implement Imgproxy's `IMGPROXY_ENABLE_DEBUG_HEADERS`
+`x-imagepipe-*` debug headers (`allow_debug_headers` mount option + the signed
+`debug:1` processing option); it does not implement Imgproxy's `IMGPROXY_ENABLE_DEBUG_HEADERS`
 contract (`X-Origin-*`/`X-Result-*`). Host Plugs can add fixed response headers
 outside ImagePipe.
 

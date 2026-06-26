@@ -53,13 +53,16 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   `source` is an `ImagePipe.Plan.Source.*` struct already resolved by the caller.
   `tokens` is a map with keys `:region`, `:size`, `:rotation`, `:quality`, `:format`
   carrying the typed grammar values produced by `ImagePipe.Parser.IIIF.Grammar`.
-  `opts` accepts `auto_rotate: boolean()` (default `false`) and the size-ceiling
-  bounds `max_width`/`max_height`/`max_area`.
+  `opts` accepts `auto_rotate: boolean()` (default `false`), the size-ceiling
+  bounds `max_width`/`max_height`/`max_area`, and `debug?: boolean()` (default
+  `false`) which opts the response into `X-ImagePipe-*` debug headers via
+  `Plan.Response.debug?`.
   """
   @spec image_plan(ImagePipe.Plan.Source.t(), map(), keyword()) ::
           {:ok, Plan.t()} | {:error, term()}
   def image_plan(source, tokens, opts \\ []) do
     auto_rotate = Keyword.get(opts, :auto_rotate, false)
+    debug? = Keyword.get(opts, :debug?, false)
     max_width = Keyword.get(opts, :max_width)
 
     # IIIF Image API 3.0 §5.1: when maxHeight is unset, clients infer
@@ -83,7 +86,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
          auto_rotate: auto_rotate,
          pipelines: [%Pipeline{operations: operations}],
          output: output,
-         response: %Response{}
+         response: %Response{debug?: debug?}
        }}
     end
   end

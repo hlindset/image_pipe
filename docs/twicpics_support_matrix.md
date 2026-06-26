@@ -44,6 +44,7 @@ Source index: <https://www.twicpics.com/llms.txt>
 | Status | Meaning |
 | --- | --- |
 | ✅ Supported | The parser translates this into `ImagePipe.Plan` or another request facet. |
+| ➕ Extension | An ImagePipe feature with no TwicPics counterpart, exposed through the dialect grammar. |
 | 📋 Planned (v1) | Scoped for the first iteration, not yet implemented. Flip to ✅ when it lands. |
 | ⚠️ Partial | Some TwicPics syntax or semantics supported, but not the whole option. |
 | 🔗 URL-only | Supported as a request option, but not a TwicPics dashboard / config default. |
@@ -137,6 +138,12 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 | `output=h264\|h265\|vp9` | 🛑 Out of scope | Video output codecs. |
 | `quality=1..100` | ✅ Supported | `Plan.Output` quality. |
 | `quality-max` / `quality-min` | 🚫 Rejected | Conditional variants deferred. |
+
+## Debug headers (ImagePipe extension)
+
+| Chain segment | Status | Notes |
+| --- | --- | --- |
+| `debug=1` (also `true`/`0`/`false`) | ➕ Extension | **No TwicPics counterpart.** Opts a single request into `X-ImagePipe-*` debug response headers, honored only under the `allow_debug_headers: true` mount flag. Sets `Plan.Response.debug?` and emits no operation, so it is **order-independent** and never affects produced bytes, the cache key, or the ETag (all three exclude `Plan.Response`). An invalid value is rejected (`{:invalid_debug, value}`) before side effects, like any bad chain segment. **Unprotected:** TwicPics has no request signing, so anyone reaching the mount can add it — see [debug_headers.md](debug_headers.md). |
 
 ## Metadata and orientation
 

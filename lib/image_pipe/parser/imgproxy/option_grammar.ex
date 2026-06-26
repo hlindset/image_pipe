@@ -550,9 +550,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
-  defp parse_boolean(value) when value in ["1", "t", "true"], do: {:ok, true}
-  defp parse_boolean(value) when value in ["0", "f", "false"], do: {:ok, false}
-  defp parse_boolean(value), do: {:error, {:invalid_boolean, value}}
+  defp parse_boolean(value), do: ImagePipe.Parser.parse_boolean(value)
 
   # Generic interpreter for @special_specs entries: each spec is a fixed list of
   # required, non-empty args. Arity/empty-arg failures yield the uniform
