@@ -90,7 +90,7 @@ run = "mix phx.server"
 
 [tasks.sidecars]
 description = "Run the fiddle's local sidecars (Jaeger + s3proxy). Defaults to both; pass a service to run just one, e.g. `mise run sidecars s3proxy`."
-run = "docker compose -f fiddle/docker-compose.yml up {{arg(name='service', default='')}}"
+run = "docker compose -f fiddle/docker-compose.yml up {{arg(name='service', var=true, required=false)}}"
 
 # IIIF image-validator gate (requires Docker).
 # Builds the iiif-validator Docker image, starts a local IIIF server on port

@@ -87,13 +87,15 @@ services:
 The existing `[tasks.jaeger]` already runs `docker compose -f fiddle/docker-compose.yml up`
 (no service filter), which once a second service exists starts **both**. Lean into that:
 replace `[tasks.jaeger]` with one `sidecars` task that defaults to bringing up both
-services, but accepts an optional service name to scope to one. mise renders the empty-default
-arg as no trailing service → `docker compose … up` (all services):
+services, but accepts an optional service name to scope to one. The arg is an **optional
+vararg** (`var=true, required=false`): when omitted it renders to nothing, so the command
+is `docker compose … up` (all services). (A `default=''` arg instead renders a literal
+`''`, which `docker compose` rejects as an empty service name.)
 
 ```toml
 [tasks.sidecars]
 description = "Run the fiddle's local sidecars (Jaeger + s3proxy). Defaults to both; pass a service to run just one, e.g. `mise run sidecars s3proxy`."
-run = "docker compose -f fiddle/docker-compose.yml up {{arg(name='service', default='')}}"
+run = "docker compose -f fiddle/docker-compose.yml up {{arg(name='service', var=true, required=false)}}"
 ```
 
 Then update the `[tasks."server:otel"]` description, which currently reads "start

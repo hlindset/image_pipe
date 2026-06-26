@@ -74,7 +74,8 @@ accepts an optional service name to scope to one:
 
 - `mise run sidecars` → `... up` (both Jaeger + s3proxy)
 - `mise run sidecars s3proxy` → `... up s3proxy` (just one), via an optional positional
-  arg (`{{arg(name='service', default='')}}`).
+  optional vararg (`{{arg(name='service', var=true, required=false)}}` — a `default=''`
+  arg instead renders a literal `''` that `docker compose` rejects).
 
 Update the `server:otel` task description to reference `mise run sidecars` instead of the
 removed `mise run jaeger`.
