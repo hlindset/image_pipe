@@ -47,15 +47,46 @@ defmodule ImagePipeFiddle.Application do
     end
   end
 
+  @doc false
+  # Source adapters mounted for the imgproxy provider. The local File source is
+  # always available; s3 (via the opt-in s3proxy compose service) and http (the
+  # fiddle's own Plug.Static over loopback) let the demo compare source adapters
+  # on byte-identical sample images. Scoped to imgproxy — iiif/twicpics keep File.
+  def imgproxy_source_mounts do
+    static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
+    s3 = Application.fetch_env!(:image_pipe_fiddle, :s3_source)
+
+    [
+      path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted},
+      s3:
+        {ImagePipe.Source.S3,
+         default: [
+           region: Keyword.fetch!(s3, :region),
+           endpoint: Keyword.fetch!(s3, :endpoint),
+           credentials:
+             {:static,
+              [
+                access_key_id: Keyword.fetch!(s3, :access_key_id),
+                secret_access_key: Keyword.fetch!(s3, :secret_access_key)
+              ]}
+         ],
+         buckets: %{"sources" => []}},
+      # DEV-ONLY SSRF relaxation: the http source type fetches the fiddle's own
+      # Plug.Static over loopback, so localhost must be explicitly allowed and the
+      # address policy must permit loopback IPs. This lives only in the fiddle demo
+      # — never in ImagePipe library defaults.
+      url:
+        {ImagePipe.Source.HTTP,
+         allowed_hosts: ["localhost", "127.0.0.1"], address_policy: [allow_loopback: true]}
+    ]
+  end
+
   defp build_imgproxy_opts do
     imgproxy = Application.fetch_env!(:image_pipe_fiddle, :imgproxy)
-    static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
 
     [
       parser: ImagePipe.Parser.Imgproxy,
-      sources: [
-        path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
-      ],
+      sources: imgproxy_source_mounts(),
       imgproxy: imgproxy,
       # Graceful fallback: detection failures degrade to attention crop (200) rather
       # than erroring; the default Logger surfaces any detection fallback.
