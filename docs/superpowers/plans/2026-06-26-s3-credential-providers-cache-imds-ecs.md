@@ -1609,3 +1609,17 @@ Three disjoint reviewers (AWS protocol fidelity, OTP/concurrency, architecture/t
 - **Architecture/security:** provider opts are now validated at config time via an optional `validate_options/1` callback (NimbleOptions); cache/provider crash errors are opaque atoms and the cached value is redacted from crash reports (`format_status/1`), so credential material can't leak to logs; `normalize/1` stays private; `imgproxy_wire_conformance_test.exs` added to provider-path reconciliation.
 - **AWS fidelity:** explicit `"Code" => "Success"` match; refresh margin raised to 300s (SDK parity); `full_uri` restricted to loopback/https; fractional-second expiry covered.
 - **Refuted (with rationale, kept as a code comment):** the SDK's "re-fetch IMDS token on 401" retry — unnecessary here because a fresh token is fetched per call, so it cannot expire mid-call.
+
+---
+
+## Follow-up plans
+
+**Plan 2 — STS `AssumeRole` (#8) + EKS/IRSA web-identity (#7).** Cross-account assume-role (a composing wrapper provider that signs an STS `AssumeRole` call with a base provider's credentials, reusing the existing Req `aws_sigv4` step) and EKS/IRSA (`AssumeRoleWithWebIdentity` from a projected OIDC token file). Both return the same `Credentials` shape and cache through this plan's `RefreshCache`. STS is the AWS Query protocol (XML-only response); parse the fixed four-field shape. Built on this plan's cache + provider contract.
+
+**Plan 3 (optional, low priority) — integration smoke lane.** A single opt-in, Docker-tagged test lane that exercises the real metadata/STS round-trip end-to-end against independent server implementations. **Deferred and skippable** — correctness is already covered hermetically by the `Req` `:plug` stub tests in Plans 1–2; this lane only adds confidence that a real AWS-compatible server accepts our request shapes. It is **not** a correctness gate (notably, LocalStack does not strictly verify SigV4, so it cannot prove signing — that is already proven by the live S3 GET path).
+
+Do this once, **after Plan 2 lands**, so it can cover all providers together:
+- A `@tag :aws_integration` lane, **excluded from the default `mix test`** (alongside the existing excluded tags such as `:imgproxy_triage`), opt-in only.
+- Reuse the existing `testcontainers` dep (already used for the imgproxy bake). Local gotcha: set `TESTCONTAINERS_RYUK_DISABLED=true` (and run `MIX_ENV=test mix deps.get` first), same as the bake.
+- Coverage: [`amazon-ec2-metadata-mock`](https://github.com/aws/amazon-ec2-metadata-mock) → IMDS (Plan 1); LocalStack STS → `AssumeRole` + `AssumeRoleWithWebIdentity` (Plan 2). **Skip ECS** — it is a trivial JSON endpoint, so a plug already *is* the mock and a container adds nothing.
+- Frame it in-test as a protocol-fidelity smoke test, not a correctness gate.
