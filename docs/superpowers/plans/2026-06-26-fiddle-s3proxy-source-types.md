@@ -17,7 +17,7 @@
 ## File Structure
 
 - `fiddle/docker-compose.yml` — add `s3proxy` service alongside `jaeger`; update header comment.
-- `mise.toml` — scope `[tasks.jaeger]` to `up jaeger`; add `[tasks.s3proxy]`.
+- `mise.toml` — replace `[tasks.jaeger]` with a single `[tasks.sidecars]` (defaults to both services, optional service arg); fix the `server:otel` description.
 - `fiddle/config/config.exs` — add `:s3_source` config block (endpoint/region/credentials).
 - `fiddle/lib/image_pipe_fiddle/application.ex` — add `s3:`/`url:` mounts to the imgproxy `sources:` (imgproxy only); read s3 config.
 - `fiddle/test/image_pipe_fiddle/imgproxy_source_mounts_test.exs` — Elixir test that the mounts validate via `ImagePipe.Plug.init/1`.
@@ -33,7 +33,7 @@
 
 **Files:**
 - Modify: `fiddle/docker-compose.yml`
-- Modify: `mise.toml` (`[tasks.jaeger]` ~line 91, add `[tasks.s3proxy]`)
+- Modify: `mise.toml` (`[tasks.jaeger]` ~line 91 → `[tasks.sidecars]`; `server:otel` description)
 
 This task is infra config (no unit test); verification is `docker compose config` parsing the file.
 
@@ -44,13 +44,14 @@ Replace the existing header comment + `services:` block so the file reads:
 ```yaml
 # Local sidecar services for the fiddle demo (opt-in; not needed for `mise run server`).
 #
+#   mise run sidecars               # both services (docker compose ... up)
+#   mise run sidecars s3proxy       # just one, by service name
+#
 # Jaeger — OpenTelemetry traces:
-#   mise run jaeger                 # docker compose ... up jaeger
 #   FIDDLE_OTEL=1 mise run server   # emit traces; UI at http://localhost:16686
 #
 # s3proxy — fake S3 over the local filesystem, mirrors priv/static/images so the
-# fiddle's "S3" source type can fetch the sample images as s3://sources/<file>:
-#   mise run s3proxy                # docker compose ... up s3proxy
+# fiddle's "S3" source type can fetch the sample images as s3://sources/<file>.
 # Endpoint http://localhost:8081, bucket "sources" == ./priv/static/images (read-only).
 services:
   jaeger:
@@ -81,19 +82,22 @@ services:
 
 > Note: the `andrewgaul/s3proxy` image tag above pins a known-good digest-style tag. If it does not resolve at implementation time, substitute the current `andrewgaul/s3proxy:latest` digest and record it here.
 
-- [ ] **Step 2: Scope the jaeger mise task and add the s3proxy task in `mise.toml`**
+- [ ] **Step 2: Replace `[tasks.jaeger]` with a single `sidecars` task in `mise.toml`**
 
-Replace the existing `[tasks.jaeger]` block (currently `run = "docker compose -f fiddle/docker-compose.yml up"`) with:
+The existing `[tasks.jaeger]` already runs `docker compose -f fiddle/docker-compose.yml up`
+(no service filter), which once a second service exists starts **both**. Lean into that:
+replace `[tasks.jaeger]` with one `sidecars` task that defaults to bringing up both
+services, but accepts an optional service name to scope to one. mise renders the empty-default
+arg as no trailing service → `docker compose … up` (all services):
 
 ```toml
-[tasks.jaeger]
-description = "Run a local Jaeger (OTLP + UI) for the fiddle's OpenTelemetry traces"
-run = "docker compose -f fiddle/docker-compose.yml up jaeger"
-
-[tasks.s3proxy]
-description = "Run a local s3proxy (fake S3 over priv/static/images) for the fiddle's S3 source type"
-run = "docker compose -f fiddle/docker-compose.yml up s3proxy"
+[tasks.sidecars]
+description = "Run the fiddle's local sidecars (Jaeger + s3proxy). Defaults to both; pass a service to run just one, e.g. `mise run sidecars s3proxy`."
+run = "docker compose -f fiddle/docker-compose.yml up {{arg(name='service', default='')}}"
 ```
+
+Then update the `[tasks."server:otel"]` description, which currently reads "start
+`mise run jaeger` first", to "start `mise run sidecars jaeger` first".
 
 - [ ] **Step 3: Verify Compose file parses**
 
@@ -537,7 +541,7 @@ git commit -m "feat(fiddle): add Source type selector to imgproxy request toolbo
 ## Task 7: Docs
 
 **Files:**
-- Modify: `fiddle/README.md` (or the doc where `mise run jaeger` is described — locate with `rg -l "mise run jaeger"`)
+- Modify: `fiddle/README.md` (or the doc where the Jaeger/sidecar workflow is described — locate with `rg -l "jaeger" fiddle docs`)
 
 - [ ] **Step 1: Document the s3proxy workflow**
 
@@ -549,10 +553,11 @@ Add a short subsection next to the existing Jaeger instructions:
 The imgproxy provider can fetch the sample images through three source adapters,
 chosen with the **Source type** control: local filesystem, a fake S3, or HTTP.
 
-For the **S3** source type, start the opt-in s3proxy sidecar (a fake S3 over the
-local filesystem that mirrors `priv/static/images`):
+For the **S3** source type, start the opt-in sidecars (`mise run sidecars` brings up
+both Jaeger and s3proxy; `mise run sidecars s3proxy` starts just the fake S3, a fake S3
+over the local filesystem that mirrors `priv/static/images`):
 
-    mise run s3proxy
+    mise run sidecars s3proxy
 
 It serves at `http://localhost:8081` with bucket `sources` (== `priv/static/images`,
 read-only). The **HTTP** source type needs no sidecar — it fetches the fiddle's own
@@ -578,7 +583,7 @@ Expected: Elixir gate (format/compile/credo/test) + fiddle JS verify (test/check
 
 - [ ] **Step 2: Manual verification (records the result; not a blocker for the gate)**
 
-1. `mise run s3proxy` in one terminal.
+1. `mise run sidecars s3proxy` in one terminal.
 2. `mise run server` in another.
 3. Open the fiddle, imgproxy provider. Toggle **Source type** between Local / S3 / HTTP on the same sample image.
 4. Confirm: all three render identically; the URL updates with `local:///…` / `s3://sources/…` / `http://localhost:4000/images/…`; reloading the page preserves the chosen source type.

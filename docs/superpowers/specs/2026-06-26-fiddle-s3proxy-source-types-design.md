@@ -67,13 +67,17 @@ Because `andrewgaul/s3proxy` listens on container port 80 by default, map `8081:
 
 ### 2. mise tasks — `mise.toml`
 
-The existing `[tasks.jaeger]` runs `docker compose -f fiddle/docker-compose.yml up`,
-which (once a second service exists) would start **both** services. Scope each task to
-its own service so they start independently:
+The existing `[tasks.jaeger]` runs `docker compose -f fiddle/docker-compose.yml up`
+(no service filter), which once a second service exists already starts **both**. Replace
+it with a single `[tasks.sidecars]` that **defaults to bringing up both** services and
+accepts an optional service name to scope to one:
 
-- `[tasks.jaeger]` → `... up jaeger`
-- `[tasks.s3proxy]` (new) → `... up s3proxy`, described as starting the local fake-S3
-  used by the fiddle's S3 source type.
+- `mise run sidecars` → `... up` (both Jaeger + s3proxy)
+- `mise run sidecars s3proxy` → `... up s3proxy` (just one), via an optional positional
+  arg (`{{arg(name='service', default='')}}`).
+
+Update the `server:otel` task description to reference `mise run sidecars` instead of the
+removed `mise run jaeger`.
 
 ### 3. Fiddle backend — `fiddle/lib/image_pipe_fiddle/application.ex`
 
