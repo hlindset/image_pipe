@@ -26,6 +26,21 @@ BRANCH="worktree-${NAME}"
 TTY=/dev/tty
 log() { echo "$*" > "$TTY" 2>/dev/null || true; }
 
+# Copy a directory, preferring a copy-on-write clone where the OS/filesystem
+# supports it (instant, no extra disk until the copies diverge):
+#   - macOS:   cp -c → clonefile(2), used on APFS; errors cross-volume, so fall
+#              back to a plain recursive copy.
+#   - Linux:   cp --reflink=auto → CoW on btrfs/XFS, silent full copy elsewhere.
+#   - other:   plain recursive copy.
+clone_dir() {
+  local src=$1 dst=$2
+  case "$(uname -s)" in
+    Darwin) cp -Rc "$src" "$dst" 2>/dev/null || cp -R "$src" "$dst" ;;
+    Linux)  cp -R --reflink=auto "$src" "$dst" ;;
+    *)      cp -R "$src" "$dst" ;;
+  esac
+}
+
 log "Creating worktree (branch: $BRANCH)..."
 
 # --- Create the git worktree ---
@@ -37,15 +52,14 @@ else
   git worktree add -b "$BRANCH" "$WORKTREE_PATH" HEAD >/dev/null 2>&1
 fi
 
-# --- APFS copy-on-write clone of build artifacts ---
-# `cp -c` forces clonefile(2): instant, no extra disk until the copies diverge.
-# Same-volume only, which holds since worktrees live under the repo.
+# --- Copy-on-write clone of build artifacts ---
+# Skips the full recompile/refetch on a fresh worktree. clone_dir() picks the
+# CoW mechanism for the OS (see above) and falls back to a plain copy.
 log "  Cloning deps/ and _build/ (copy-on-write)..."
 COW_DIRS=("deps" "_build" "fiddle/deps" "fiddle/_build")
 for d in "${COW_DIRS[@]}"; do
   if [ -d "${REPO_PATH}/$d" ] && [ ! -e "${WORKTREE_PATH}/$d" ]; then
-    cp -Rc "${REPO_PATH}/$d" "${WORKTREE_PATH}/$d" 2>/dev/null \
-      || cp -R "${REPO_PATH}/$d" "${WORKTREE_PATH}/$d"
+    clone_dir "${REPO_PATH}/$d" "${WORKTREE_PATH}/$d"
   fi
 done
 
