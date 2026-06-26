@@ -35,6 +35,10 @@ config/*.test.exs
 
 # Local git worktrees
 .worktrees/
+.claude/worktrees/
+
+# Setup log written by the WorktreeCreate hook (scripts/worktree-create.sh)
+.worktree-setup.log
 
 # Various local deploy files
 local
