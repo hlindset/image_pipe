@@ -54,9 +54,10 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
       ~s(<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASIAX</AccessKeyId><SecretAccessKey>sx</SecretAccessKey><SessionToken>tx</SessionToken><Expiration>2026-06-26T13:34:41Z</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>)
 
     test = self()
+    scope = "assume-#{System.unique_integer([:positive])}"
 
     plug = fn conn ->
-      send(test, :sts_called)
+      send(test, {:sts_called, scope})
       Plug.Conn.send_resp(conn, 200, xml)
     end
 
@@ -67,15 +68,13 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
        region: "us-east-1",
        plug: plug}
 
-    scope = "assume-#{System.unique_integer([:positive])}"
-
     assert {:ok, creds} = Credentials.fetch(scope, provider, [])
     assert creds[:access_key_id] == "ASIAX"
     assert creds[:token] == "tx"
-    assert_received :sts_called
+    assert_received {:sts_called, ^scope}
 
     # cached: no second STS call for the same scope
     assert {:ok, _} = Credentials.fetch(scope, provider, [])
-    refute_received :sts_called
+    refute_received {:sts_called, ^scope}
   end
 end
