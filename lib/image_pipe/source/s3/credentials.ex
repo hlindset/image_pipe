@@ -1,6 +1,8 @@
 defmodule ImagePipe.Source.S3.Credentials do
   @moduledoc false
 
+  alias ImagePipe.Source.S3.RefreshCache
+
   @type source_error :: {:error, {:source, atom()}}
 
   @spec validate(term()) :: {:ok, term()} | {:error, {:invalid_source_config, term()}}
@@ -13,10 +15,19 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def validate({:provider, provider, opts})
       when is_atom(provider) and is_list(opts) do
-    if Code.ensure_loaded?(provider) and function_exported?(provider, :fetch_credentials, 3) do
-      {:ok, {:provider, provider, opts}}
-    else
-      {:error, {:invalid_source_config, :invalid_credential_provider}}
+    cond do
+      not (Code.ensure_loaded?(provider) and
+               function_exported?(provider, :fetch_credentials, 3)) ->
+        {:error, {:invalid_source_config, :invalid_credential_provider}}
+
+      function_exported?(provider, :validate_options, 1) ->
+        case provider.validate_options(opts) do
+          :ok -> {:ok, {:provider, provider, opts}}
+          {:error, reason} -> {:error, {:invalid_source_config, reason}}
+        end
+
+      true ->
+        {:ok, {:provider, provider, opts}}
     end
   end
 
@@ -28,27 +39,33 @@ defmodule ImagePipe.Source.S3.Credentials do
     {:ok, credentials}
   end
 
-  def fetch(scope, {:provider, provider, opts}, runtime_opts) do
-    case provider.fetch_credentials(scope, opts, runtime_opts) do
-      {:ok, credentials} ->
-        case normalize(credentials) do
-          {:ok, credentials} -> {:ok, credentials}
-          {:error, _reason} -> {:error, {:source, :credentials_unavailable}}
-        end
+  def fetch(scope, {:provider, provider, opts}, _runtime_opts) do
+    key = {:s3_credentials, provider, opts, scope}
+    fetch_fun = fn -> resolve_provider(provider, scope, opts) end
 
-      {:error, {:source, :credentials_unavailable}} ->
-        {:error, {:source, :credentials_unavailable}}
-
-      {:error, _reason} ->
-        {:error, {:source, :credentials_unavailable}}
-
-      _other ->
-        {:error, {:source, :credentials_unavailable}}
+    case RefreshCache.fetch(key, fetch_fun) do
+      {:ok, credentials} -> {:ok, credentials}
+      {:error, _reason} -> {:error, {:source, :credentials_unavailable}}
     end
   end
 
   def fetch(_scope, _credentials, _runtime_opts),
     do: {:error, {:source, :credentials_unavailable}}
+
+  defp resolve_provider(provider, scope, opts) do
+    case provider.fetch_credentials(scope, opts, []) do
+      {:ok, credentials, expiry} -> normalize_with_expiry(credentials, expiry)
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :invalid_credential_provider_result}
+    end
+  end
+
+  defp normalize_with_expiry(credentials, expiry) do
+    case normalize(credentials) do
+      {:ok, normalized} -> {:ok, normalized, expiry}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp normalize(opts) when is_list(opts) do
     with {:ok, access_key_id} <- fetch_binary(opts, :access_key_id),

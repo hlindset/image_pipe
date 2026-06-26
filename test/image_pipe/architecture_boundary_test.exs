@@ -184,6 +184,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(application, [
       ImagePipe.Output,
       ImagePipe.Request,
+      ImagePipe.Source,
       ImagePipe.Telemetry
     ])
 
@@ -211,7 +212,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Source.StreamError,
       ImagePipe.Source.HTTP,
       ImagePipe.Source.File,
-      ImagePipe.Source.S3
+      ImagePipe.Source.S3,
+      ImagePipe.Source.S3.RefreshCache,
+      ImagePipe.Source.S3.CredentialProvider,
+      ImagePipe.Source.S3.CredentialWarmup
     ])
   end
 

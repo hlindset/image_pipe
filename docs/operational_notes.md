@@ -83,6 +83,74 @@ S3 `buckets` is a map. When present, it's an allowlist. `default` supplies
 shared defaults. Each bucket entry can override region, endpoint, credentials,
 request options, and cache policy.
 
+## S3 credentials
+
+The `credentials` source option resolves the AWS credentials used to sign S3
+requests. It takes one of two shapes.
+
+**Static keys** — long-lived access key + secret (plus an optional session
+token):
+
+```elixir
+credentials:
+  {:static, [access_key_id: "AKIA…", secret_access_key: "…", token: nil]}
+```
+
+Reading the standard AWS environment variables is a host concern — map them to
+static keys yourself:
+
+```elixir
+credentials:
+  {:static,
+   [
+     access_key_id: System.fetch_env!("AWS_ACCESS_KEY_ID"),
+     secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY"),
+     token: System.get_env("AWS_SESSION_TOKEN")
+   ]}
+```
+
+**Provider** — a pluggable module that resolves temporary credentials at
+runtime, selected as `{:provider, Module, opts}`. ImagePipe ships two:
+
+- **EC2 instance role (incl. Elastic Beanstalk), via IMDSv2:**
+
+  ```elixir
+  credentials: {:provider, ImagePipe.Source.S3.InstanceRole, []}
+  ```
+
+- **ECS / Fargate / EKS container credentials:**
+
+  ```elixir
+  credentials:
+    {:provider, ImagePipe.Source.S3.ContainerCredentials,
+     relative_uri: System.get_env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"),
+     auth_token: System.get_env("AWS_CONTAINER_AUTHORIZATION_TOKEN")}
+  ```
+
+  `full_uri` is accepted only for a loopback host or over `https` (mirroring
+  AWS), so a misconfigured URI cannot leak the auth token off-box. If your
+  platform injects `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` instead of an inline
+  token, read the file in the host and pass its contents as `:auth_token`.
+
+Hosts can implement their own provider with the
+`ImagePipe.Source.S3.CredentialProvider` behaviour.
+
+Provider results are cached per `{provider, opts, bucket}` and refreshed shortly
+before expiry, so the provider is consulted once per credential lifetime rather
+than per request. **Expired credentials are never sent to S3** — when refresh is
+failing and the cached credentials have expired, the request fails closed
+(`{:source, :credentials_unavailable}`). To eliminate the latency of the first
+request after boot, add the optional warm-up worker to the host's supervision
+tree:
+
+```elixir
+{ImagePipe.Source.S3.CredentialWarmup,
+ provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "my-bucket"}
+```
+
+STS `AssumeRole` (cross-account) and EKS/IRSA web-identity credentials are not
+yet supported.
+
 ## Decode planning
 
 For transform chains proven safe for one-pass reads, ImagePipe may open the

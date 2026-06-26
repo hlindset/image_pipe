@@ -1,0 +1,51 @@
+defmodule ImagePipe.Source.S3.CredentialsCacheTest do
+  use ExUnit.Case, async: true
+
+  alias ImagePipe.Source.S3.Credentials
+
+  defmodule CountingProvider do
+    @behaviour ImagePipe.Source.S3.CredentialProvider
+
+    @impl true
+    def fetch_credentials(scope, opts, _runtime_opts) do
+      send(Keyword.fetch!(opts, :test), {:fetched, scope})
+
+      {:ok, [access_key_id: "AKIA", secret_access_key: "SECRET", token: "TOK"], :never}
+    end
+  end
+
+  test "provider results are cached per scope and normalized" do
+    opts = [test: self()]
+    provider = {:provider, CountingProvider, opts}
+    # the RefreshCache is application-global and this suite is async: true, so
+    # scopes MUST be unique per test or assert/refute_received pass tautologically.
+    bucket_a = "bucket-a-#{System.unique_integer([:positive])}"
+    bucket_b = "bucket-b-#{System.unique_integer([:positive])}"
+
+    assert {:ok, creds} = Credentials.fetch(bucket_a, provider, [])
+    assert creds[:access_key_id] == "AKIA"
+    assert creds[:token] == "TOK"
+    assert_received {:fetched, ^bucket_a}
+
+    # cached: no second fetch for the same scope
+    assert {:ok, _} = Credentials.fetch(bucket_a, provider, [])
+    refute_received {:fetched, ^bucket_a}
+
+    # different scope → separate entry → fetched
+    assert {:ok, _} = Credentials.fetch(bucket_b, provider, [])
+    assert_received {:fetched, ^bucket_b}
+  end
+
+  test "fails closed as :credentials_unavailable when the provider errors" do
+    defmodule FailingProvider do
+      @behaviour ImagePipe.Source.S3.CredentialProvider
+      @impl true
+      def fetch_credentials(_scope, _opts, _runtime), do: {:error, :nope}
+    end
+
+    provider = {:provider, FailingProvider, []}
+
+    assert {:error, {:source, :credentials_unavailable}} =
+             Credentials.fetch("bucket-c-#{System.unique_integer()}", provider, [])
+  end
+end

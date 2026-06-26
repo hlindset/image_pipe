@@ -6,6 +6,7 @@ defmodule ImagePipe.Application do
     deps: [
       ImagePipe.Output,
       ImagePipe.Request,
+      ImagePipe.Source,
       ImagePipe.Telemetry
     ]
 
@@ -21,6 +22,7 @@ defmodule ImagePipe.Application do
 
     children = [
       ImagePipe.Telemetry.Trace.OtelReplay,
+      ImagePipe.Source.S3.RefreshCache,
       ImagePipe.Request.SourceSessionSupervisor
     ]
 
