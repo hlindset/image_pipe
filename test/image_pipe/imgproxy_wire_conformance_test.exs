@@ -2136,6 +2136,12 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       Plug.Conn.send_resp(conn, 200, File.read!("priv/static/images/beach.jpg"))
     end
 
+    # unique bucket names: the credential RefreshCache is application-global and
+    # this suite is async, so a shared scope could let another test warm the
+    # entry and make these assert/refute_received calls pass tautologically.
+    tenant_a = "tenant-a-#{System.unique_integer([:positive])}"
+    tenant_b = "tenant-b-#{System.unique_integer([:positive])}"
+
     opts =
       ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
@@ -2145,15 +2151,15 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
              default: [
                endpoint: "https://minio.test",
                region: "eu-west-1",
-               credentials: {:provider, CredentialProvider, role: "default"},
+               credentials: {:provider, CredentialProvider, role: "default", report_to: self()},
                req_options: [plug: plug]
              ],
              buckets: %{
-               "tenant-a" => [
-                 credentials: {:provider, CredentialProvider, role: "tenant-a"}
+               tenant_a => [
+                 credentials: {:provider, CredentialProvider, role: "tenant-a", report_to: self()}
                ],
-               "tenant-b" => [
-                 credentials: {:provider, CredentialProvider, role: "tenant-b"}
+               tenant_b => [
+                 credentials: {:provider, CredentialProvider, role: "tenant-b", report_to: self()}
                ]
              }}
         ],
@@ -2161,13 +2167,13 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       )
 
     conn =
-      conn(:get, "/_/plain/s3://tenant-a/images/cat.jpg%3Fabc")
+      conn(:get, "/_/plain/s3://#{tenant_a}/images/cat.jpg%3Fabc")
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
-    assert_received {:fetch_credentials, "tenant-a", [role: "tenant-a"], _runtime_opts}
-    refute_received {:fetch_credentials, "tenant-a", [role: "default"], _runtime_opts}
-    refute_received {:fetch_credentials, "tenant-b", [role: "tenant-b"], _runtime_opts}
+    assert_received {:fetch_credentials, ^tenant_a, [role: "tenant-a"], []}
+    refute_received {:fetch_credentials, ^tenant_a, [role: "default"], _runtime_opts}
+    refute_received {:fetch_credentials, ^tenant_b, [role: "tenant-b"], _runtime_opts}
   end
 
   describe "sm/kcr metadata stripping" do

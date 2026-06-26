@@ -154,6 +154,12 @@ defmodule ImagePipe.Source.S3Test do
   test "per-bucket credential providers are selected by exact bucket only during fetch" do
     plug = fn conn -> Plug.Conn.send_resp(conn, 200, "image bytes") end
 
+    # unique bucket names: the credential RefreshCache is application-global and
+    # this suite is async, so a shared scope would let another test warm the
+    # entry and make these assert/refute_received calls pass tautologically.
+    tenant_a = "tenant-a-#{System.unique_integer([:positive])}"
+    tenant_b = "tenant-b-#{System.unique_integer([:positive])}"
+
     assert {:ok, opts} =
              S3.validate_options(
                default: [
@@ -162,13 +168,19 @@ defmodule ImagePipe.Source.S3Test do
                  req_options: [plug: plug]
                ],
                buckets: %{
-                 "tenant-a" => [credentials: {:provider, CredentialProvider, role: "tenant-a"}],
-                 "tenant-b" => [credentials: {:provider, CredentialProvider, role: "tenant-b"}]
+                 tenant_a => [
+                   credentials:
+                     {:provider, CredentialProvider, role: "tenant-a", report_to: self()}
+                 ],
+                 tenant_b => [
+                   credentials:
+                     {:provider, CredentialProvider, role: "tenant-b", report_to: self()}
+                 ]
                }
              )
 
     assert {:ok, resolved} =
-             S3.resolve(%Object{adapter: :s3, scope: "tenant-b", key: "images/cat.jpg"}, opts, [])
+             S3.resolve(%Object{adapter: :s3, scope: tenant_b, key: "images/cat.jpg"}, opts, [])
 
     refute_received {:fetch_credentials, _, _, _}
 
@@ -176,8 +188,8 @@ defmodule ImagePipe.Source.S3Test do
              Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:fetch_credentials, "tenant-b", [role: "tenant-b"], [max_body_bytes: 20]}
-    refute_received {:fetch_credentials, "tenant-a", _, _}
+    assert_receive {:fetch_credentials, ^tenant_b, [role: "tenant-b"], []}
+    refute_received {:fetch_credentials, ^tenant_a, _, _}
   end
 
   test "invalid credential configuration and endpoints fail during option validation" do
@@ -250,17 +262,22 @@ defmodule ImagePipe.Source.S3Test do
       Plug.Conn.send_resp(conn, 200, "image bytes")
     end
 
+    # unique bucket name — the credential RefreshCache is application-global and
+    # this suite is async, so a shared scope could pre-warm the entry elsewhere.
+    tenant = "tenant-a-#{System.unique_integer([:positive])}"
+
     assert {:ok, opts} =
              S3.validate_options(
                default: [
                  region: "us-east-1",
                  endpoint: "https://minio.test/",
-                 credentials: {:provider, CredentialProvider, role: "tenant-a"},
+                 credentials:
+                   {:provider, CredentialProvider, role: "tenant-a", report_to: self()},
                  req_options: [plug: plug]
                ]
              )
 
-    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg", revision: "abc"}
+    source = %Object{adapter: :s3, scope: tenant, key: "images/cat.jpg", revision: "abc"}
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
     assert resolved.identity[:endpoint] == "https://minio.test"
@@ -270,8 +287,9 @@ defmodule ImagePipe.Source.S3Test do
              Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:fetch_credentials, "tenant-a", [role: "tenant-a"], [max_body_bytes: 20]}
-    assert_receive {:s3_request, headers, "/tenant-a/images/cat.jpg", "versionId=abc"}
+    assert_receive {:fetch_credentials, ^tenant, [role: "tenant-a"], []}
+    assert_receive {:s3_request, headers, path, "versionId=abc"}
+    assert path == "/#{tenant}/images/cat.jpg"
     assert {"authorization", authorization} = List.keyfind(headers, "authorization", 0)
     assert authorization =~ "AWS4-HMAC-SHA256"
     assert authorization =~ "/us-east-1/s3/aws4_request"

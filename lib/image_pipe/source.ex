@@ -12,7 +12,8 @@ defmodule ImagePipe.Source do
       HTTP,
       File,
       S3,
-      S3.RefreshCache
+      S3.RefreshCache,
+      S3.CredentialProvider
     ]
 
   alias ImagePipe.Error
