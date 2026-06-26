@@ -108,8 +108,12 @@ export function iiifBrowserPath(state: IiifState): string {
   return `/iiif/${iiifPathTail(state)}`;
 }
 
-export function iiifFetchPath(state: IiifState): string {
-  return `/iiif-image/${iiifPathTail(state)}`;
+// The `debug` trigger is built into the path (as imgproxy's `debug:1` is built
+// into the signed path) rather than injected into the finalized URL, so that
+// when IIIF request signing is introduced it signs the debug-inclusive request.
+export function iiifFetchPath(state: IiifState, options: { debug?: boolean } = {}): string {
+  const tail = iiifPathTail(state);
+  return options.debug ? `/iiif-image/${tail}?debug=1` : `/iiif-image/${tail}`;
 }
 
 // --- parsing (mirror lib/image_pipe/parser/iiif/grammar.ex) ---

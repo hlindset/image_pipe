@@ -219,8 +219,12 @@ export function twicParam(state: TwicPicsState): string {
   return `v1/${segments.join("/")}`;
 }
 
-export function twicFetchPath(state: TwicPicsState): string {
-  return `/twic/${state.source}?twic=${twicParam(state)}`;
+// The `debug` trigger is appended to the twic manipulation chain (the signed
+// payload, once TwicPics request signing is introduced) rather than injected
+// into the finalized URL, so signing will cover the debug-inclusive request.
+export function twicFetchPath(state: TwicPicsState, options: { debug?: boolean } = {}): string {
+  const param = options.debug ? `${twicParam(state)}/debug=1` : twicParam(state);
+  return `/twic/${state.source}?twic=${param}`;
 }
 
 export function twicBrowserPath(state: TwicPicsState): string {

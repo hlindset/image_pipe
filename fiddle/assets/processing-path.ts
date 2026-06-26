@@ -1019,6 +1019,28 @@ export function buildProcessingPath(currentState: FiddleState, signature?: strin
   return processingPathFromSignedPath(signatureSegment(), signedPath);
 }
 
+// imgproxy's debug-header trigger (`debug:1`) is a processing option that lives
+// inside the signed path region. It must be inserted ahead of the `/plain/`
+// source marker and signed along with the rest of the path — never appended
+// after signing, which would invalidate the HMAC.
+export function debugTriggerPath(signedPath: string): string {
+  return signedPath.replace("/plain/", "/debug:1/plain/");
+}
+
+// Full imgproxy preview-request path carrying the `debug:1` trigger. Mirrors
+// buildProcessingPath but over the debug-augmented signed path, so the trigger
+// is covered by the signature when one is supplied (and rides the unsafe
+// segment otherwise).
+export function buildDebugPreviewPath(currentState: FiddleState, signature?: string): string {
+  const debugPath = debugTriggerPath(signedPathForState(currentState));
+
+  if (signature !== undefined) {
+    return processingPathFromSignedPath(signature, debugPath);
+  }
+
+  return processingPathFromSignedPath(signatureSegment(), debugPath);
+}
+
 export async function signProcessingPath(
   signedPath: string,
   keyHex: string,

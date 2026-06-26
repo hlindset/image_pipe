@@ -252,6 +252,18 @@ describe("twicpics fetch and browser paths", () => {
       "/twicpics/images/dog.jpg?twic=v1/resize=340/output=auto/quality=80",
     );
   });
+
+  it("appends the debug trigger inside the twic chain so future signing covers it", () => {
+    const state: TwicPicsState = {
+      ...defaultTwicPicsState,
+      chain: [
+        { type: "resize", id: "1", w: { unit: "px", value: 340 }, h: { unit: "auto", value: 0 } },
+      ],
+    };
+    expect(twicFetchPath(state, { debug: true })).toBe(
+      "/twic/images/dog.jpg?twic=v1/resize=340/output=auto/quality=80/debug=1",
+    );
+  });
 });
 
 describe("defaultStep factory", () => {

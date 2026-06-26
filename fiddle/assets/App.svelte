@@ -15,8 +15,10 @@
   import { defaultIiifState, iiifFetchPath } from "./iiif-path";
   import { defaultTwicPicsState, twicFetchPath } from "./twicpics-path";
   import {
+    buildDebugPreviewPath,
     buildProcessingPath,
     debounce,
+    debugTriggerPath,
     processedSizeLabel,
     processingPathFromSignedPath,
     resetCropPixelsToSource,
@@ -57,6 +59,16 @@
         ? iiifFetchPath(initial.iiif)
         : twicFetchPath(initial.twicpics),
   );
+  // The preview <img> request carries each dialect's debug trigger, built into
+  // the path/query by the same builder that produces `path` (and signed, for
+  // imgproxy, over the debug-augmented path) — never injected after signing.
+  let previewBasePath = $state(
+    initial.provider === "imgproxy"
+      ? buildDebugPreviewPath(initial.imgproxy)
+      : initial.provider === "iiif"
+        ? iiifFetchPath(initial.iiif, { debug: true })
+        : twicFetchPath(initial.twicpics, { debug: true }),
+  );
   let previewImageUrl: string | null = $state(null);
   let previewLoading = $state(true);
   let previewError: string | null = $state(null);
@@ -76,41 +88,25 @@
   let previewWorkerDisposed = false; // guards the register-promise-vs-unmount race
   let currentRequestId = 0;
   let lastPreviewAbsolute: string | null = null; // dedupe on resolved URL, not raw path
-  const updatePreviewPath = debounce((nextPath: string, provider: string) => {
-    // Request the preview with each dialect's debug trigger so the debug-enabled
-    // mount emits the X-ImagePipe-* + Server-Timing headers the SW reads. The
-    // trigger is excluded from the cache key / ETag and changes nothing about the
-    // produced image. It rides ONLY the preview <img> request — the copyable /
-    // "Open" URL (`path`) stays clean.
-    const absolute = previewRequestUrl(nextPath, provider);
+  const updatePreviewPath = debounce((previewRequestPath: string) => {
+    // `previewRequestPath` already carries each dialect's debug trigger, built in
+    // by the provider's path builder (and signed, for imgproxy, over the
+    // debug-augmented path). The trigger is excluded from the cache key / ETag
+    // and changes nothing about the produced image — it rides ONLY the preview
+    // <img> request, while the copyable / "Open" URL (`path`) stays clean.
+    const absolute = new URL(previewRequestPath, window.location.origin).href;
     // Dedupe on the RESOLVED url (not the raw path): a no-op must never flip
     // previewLoading=true without a following <img> load event, or the spinner
     // would strand. This same absolute is the SW-message correlation key.
     if (absolute === lastPreviewAbsolute) return;
     lastPreviewAbsolute = absolute;
-    previewPath = nextPath;
+    previewPath = previewRequestPath;
     currentRequestId = previewMetadata.begin(absolute);
     previewLoading = true;
     previewError = null;
     processedMetadata = null;
     previewImageUrl = absolute; // same-origin → <img> triggers the real, SW-intercepted request (with the debug trigger)
   }, 150);
-  // Builds the absolute preview-request URL, injecting each dialect's debug
-  // trigger: imgproxy's `debug:1` processing option ahead of the `/plain/`
-  // source marker, TwicPics' `debug=1` chain segment appended to the `twic`
-  // manipulation, and IIIF's `?debug=1` query param.
-  function previewRequestUrl(nextPath: string, provider: string): string {
-    const url = new URL(nextPath, window.location.origin);
-    if (provider === "imgproxy") {
-      url.pathname = url.pathname.replace("/plain/", "/debug:1/plain/");
-    } else if (provider === "iiif") {
-      url.searchParams.set("debug", "1");
-    } else if (provider === "twicpics") {
-      const twic = url.searchParams.get("twic");
-      if (twic) url.searchParams.set("twic", `${twic}/debug=1`);
-    }
-    return url.href;
-  }
   const updateFiddleLocation = debounce((nextPath: string) => {
     if (
       typeof window === "undefined" ||
@@ -167,13 +163,15 @@
     } else if (appState.provider === "iiif") {
       pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
       path = iiifFetchPath(appState.iiif);
+      previewBasePath = iiifFetchPath(appState.iiif, { debug: true });
     } else {
       pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
       path = twicFetchPath(appState.twicpics);
+      previewBasePath = twicFetchPath(appState.twicpics, { debug: true });
     }
   });
   $effect(() => {
-    updatePreviewPath(path, appState.provider);
+    updatePreviewPath(previewBasePath);
   });
   $effect(() => {
     updateFiddleLocation(appPathForState(appState));
@@ -271,24 +269,34 @@
   function updateProcessingPath(currentState: FiddleState): void {
     const requestId = ++pathRequestId;
     const signedPath = signedPathForState(currentState);
+    const debugPath = debugTriggerPath(signedPath);
 
     if (currentState.signatureMode !== "signed") {
       signingError = null;
       path = buildProcessingPath(currentState);
+      previewBasePath = buildDebugPreviewPath(currentState);
       return;
     }
 
-    signProcessingPath(signedPath, currentState.signatureKey, currentState.signatureSalt)
-      .then((signature) => {
+    // Sign the clean and debug-augmented paths independently: `debug:1` lives
+    // inside the signed region, so the preview <img> needs its own signature
+    // over the debug-inclusive path — the clean signature would not validate it.
+    Promise.all([
+      signProcessingPath(signedPath, currentState.signatureKey, currentState.signatureSalt),
+      signProcessingPath(debugPath, currentState.signatureKey, currentState.signatureSalt),
+    ])
+      .then(([signature, debugSignature]) => {
         if (requestId === pathRequestId) {
           signingError = null;
           path = processingPathFromSignedPath(signature, signedPath);
+          previewBasePath = buildDebugPreviewPath(currentState, debugSignature);
         }
       })
       .catch((error: unknown) => {
         if (requestId === pathRequestId) {
           signingError = error instanceof Error ? error.message : "Unable to sign request";
           path = processingPathFromSignedPath("invalid-signature", signedPath);
+          previewBasePath = buildDebugPreviewPath(currentState, "invalid-signature");
         }
       });
   }
