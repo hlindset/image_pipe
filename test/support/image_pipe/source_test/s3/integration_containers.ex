@@ -26,7 +26,7 @@ if Code.ensure_loaded?(Testcontainers) do
     # first inline run (a wrong tag fails the pull immediately and visibly).
     @localstack_image "localstack/localstack:3"
     @localstack_port 4566
-    @metadata_mock_image "public.ecr.aws/aws-ec2-metadata-mock/amazon-ec2-metadata-mock:v1.11.2"
+    @metadata_mock_image "public.ecr.aws/aws-ec2/amazon-ec2-metadata-mock:v1.13.0"
     @metadata_mock_port 1338
 
     @doc """
