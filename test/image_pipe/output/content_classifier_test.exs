@@ -42,7 +42,15 @@ defmodule ImagePipe.Output.ContentClassifierTest do
 
   test "classifies a continuous-tone field as :photo" do
     assert {:photo, %{palette_ent: pe, nat_var: nv}} = ContentClassifier.classify(photo_image())
-    assert is_float(pe) and is_float(nv)
+
+    # The fixture is built to land well clear of the pinned photo-side thresholds,
+    # so the verdict is robust to the exact constants (and to libvips drift). A bare
+    # :photo verdict only proves the features cleared the thresholds; pin the margin
+    # the fixture's design promises instead of re-checking float types the compiler
+    # already knows.
+    {palette_threshold, nat_var_threshold} = ContentClassifier.photo_thresholds()
+    assert pe >= palette_threshold + 0.1
+    assert nv >= nat_var_threshold + 0.1
   end
 
   test "classifies a hard-edged two-tone field as :graphic" do
