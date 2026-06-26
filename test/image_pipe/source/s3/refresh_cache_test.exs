@@ -139,6 +139,19 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     assert_received {:call, 1}
   end
 
+  test "get returns a tagged error instead of exiting the caller on call timeout" do
+    # fetch_fun blocks past the call timeout; get must fail closed, not :exit.
+    fetch_fun = fn ->
+      receive do
+      after
+        200 -> {:ok, :late, :never}
+      end
+    end
+
+    pid = start_entry(fetch_fun: fetch_fun)
+    assert {:error, :timeout} = Entry.get(pid, 20)
+  end
+
   describe "facade" do
     alias ImagePipe.Source.S3.RefreshCache
 

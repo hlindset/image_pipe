@@ -43,6 +43,11 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   @spec get(GenServer.server(), timeout()) :: {:ok, term()} | {:error, term()}
   def get(server, timeout \\ @default_call_timeout) do
     GenServer.call(server, :get, timeout)
+  catch
+    # A slow/blocked fetch (or a dead entry) must fail closed with a tagged
+    # error, never exit the caller — keeping the cache's {:ok,_} | {:error,_}
+    # contract honest (e.g. so credential fetches stay fail-closed).
+    :exit, _reason -> {:error, :timeout}
   end
 
   @impl true
