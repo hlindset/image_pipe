@@ -17,6 +17,15 @@ export type Rotate = 0 | 90 | 180 | 270;
 export type SignatureMode = "unsigned" | "signed";
 export type SourceImage = (typeof sampleImages)[number]["path"];
 
+// How a sample image is delivered to the imgproxy provider. All three resolve to
+// byte-identical bytes from priv/static/images: local filesystem, the opt-in
+// s3proxy fake S3, and HTTP against the fiddle's own Plug.Static.
+export type SourceType = "local" | "s3" | "http";
+
+const localSourceScheme = "local:///";
+const s3SourceBucketPrefix = "s3://sources/";
+const httpSourcePrefix = "http://localhost:4000/";
+
 // COCO-80 object classes in underscore spelling, matching the hardcoded list in
 // ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes).
 export const cocoClasses = [
@@ -111,6 +120,7 @@ export type FiddleState = {
   signatureKey: string;
   signatureSalt: string;
   source: SourceImage;
+  sourceType: SourceType;
   autoRotateEnabled: boolean;
   flip: Flip;
   rotate: Rotate;
@@ -347,6 +357,7 @@ export const defaultFiddleState: FiddleState = {
   signatureKey: "736563726574",
   signatureSalt: "68656c6c6f",
   source: "images/dog.jpg",
+  sourceType: "local",
   autoRotateEnabled: false,
   flip: "none",
   rotate: 0,
@@ -939,15 +950,57 @@ export function imageRequestBytesFromPerformance(
   return null;
 }
 
-export function sourceIdentifierForRequest(source: SourceImage): string {
-  return `local:///${source}`;
+export function sourceIdentifierForRequest(source: SourceImage, sourceType: SourceType): string {
+  switch (sourceType) {
+    case "local":
+      return `${localSourceScheme}${source}`;
+    case "s3":
+      // Bucket "sources" is rooted at priv/static/images, so the key is the basename.
+      return `${s3SourceBucketPrefix}${source.slice(source.lastIndexOf("/") + 1)}`;
+    case "http":
+      // The fiddle's own Plug.Static serves priv/static/images at /images/<file>.
+      return `${httpSourcePrefix}${source}`;
+  }
+}
+
+// Inverse of sourceIdentifierForRequest: recovers (source, sourceType) from a
+// processing-path source identifier, or null if it is not a known sample image.
+export function parseSourceIdentifier(
+  identifier: string,
+): { source: SourceImage; sourceType: SourceType } | null {
+  const candidate = sourceTypeAndPath(identifier);
+
+  if (candidate === null) {
+    return null;
+  }
+
+  const { source, sourceType } = candidate;
+  const known = sampleImages.some((image) => image.path === source);
+  return known ? { source: source as SourceImage, sourceType } : null;
+}
+
+function sourceTypeAndPath(identifier: string): { source: string; sourceType: SourceType } | null {
+  if (identifier.startsWith(localSourceScheme)) {
+    return { source: identifier.slice(localSourceScheme.length), sourceType: "local" };
+  }
+
+  if (identifier.startsWith(httpSourcePrefix)) {
+    return { source: identifier.slice(httpSourcePrefix.length), sourceType: "http" };
+  }
+
+  if (identifier.startsWith(s3SourceBucketPrefix)) {
+    // Reconstruct the images/<file> source from the basename key.
+    return { source: `images/${identifier.slice(s3SourceBucketPrefix.length)}`, sourceType: "s3" };
+  }
+
+  return null;
 }
 
 export function signedPathForState(currentState: FiddleState): string {
   const options = optionSegments(currentState).join("/");
   const optionsPath = options === "" ? "" : `/${options}`;
 
-  return `${optionsPath}/plain/${sourceIdentifierForRequest(currentState.source)}`;
+  return `${optionsPath}/plain/${sourceIdentifierForRequest(currentState.source, currentState.sourceType)}`;
 }
 
 const processingPrefix = "/img";
