@@ -68,7 +68,7 @@ defmodule ImagePipe.Source.S3.InstanceRole do
          ) do
       {:ok, %{status: 200, body: body}} ->
         case body |> to_string() |> String.split("\n", trim: true) do
-          [role | _] -> {:ok, role}
+          [role | _] -> {:ok, String.trim(role)}
           [] -> {:error, :imds_no_role}
         end
 

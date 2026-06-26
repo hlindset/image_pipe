@@ -35,6 +35,14 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
              ContainerCredentials.fetch_credentials("b", [], [])
   end
 
+  test "returns an error on malformed credentials JSON" do
+    plug = fn conn -> Plug.Conn.send_resp(conn, 200, "not json") end
+    opts = [full_uri: "http://169.254.170.2/creds", plug: plug]
+
+    assert {:error, :container_invalid_credentials} =
+             ContainerCredentials.fetch_credentials("b", opts, [])
+  end
+
   test "validate_options enforces the full_uri loopback/https guard" do
     assert {:error, _message} =
              ContainerCredentials.validate_options(full_uri: "http://evil.example/creds")

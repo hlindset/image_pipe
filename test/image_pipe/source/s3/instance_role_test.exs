@@ -50,6 +50,21 @@ defmodule ImagePipe.Source.S3.InstanceRoleTest do
              InstanceRole.fetch_credentials("b", [plug: plug], [])
   end
 
+  test "returns an error when no role is attached to the instance" do
+    plug = fn conn ->
+      case {conn.method, conn.request_path} do
+        {"PUT", "/latest/api/token"} ->
+          Plug.Conn.send_resp(conn, 200, "tok")
+
+        {"GET", "/latest/meta-data/iam/security-credentials/"} ->
+          Plug.Conn.send_resp(conn, 404, "")
+      end
+    end
+
+    assert {:error, :imds_no_role} =
+             InstanceRole.fetch_credentials("b", [plug: plug], [])
+  end
+
   test "returns an error on malformed credentials JSON" do
     plug = fn conn ->
       case {conn.method, conn.request_path} do
