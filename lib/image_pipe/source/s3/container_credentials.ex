@@ -16,8 +16,9 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
   """
   @behaviour ImagePipe.Source.S3.CredentialProvider
 
+  alias ImagePipe.Source.S3.MetadataRequest
+
   @base_url "http://169.254.170.2"
-  @default_timeout_ms 2_000
 
   @opts_schema NimbleOptions.new!(
                  base_url: [type: :string],
@@ -31,9 +32,9 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
 
   @impl true
   def validate_options(opts) do
-    with {:ok, validated} <- schema_validate(opts),
-         :ok <- validate_full_uri(validated) do
-      :ok
+    case schema_validate(opts) do
+      {:ok, validated} -> validate_full_uri(validated)
+      {:error, _message} = error -> error
     end
   end
 
@@ -83,25 +84,9 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
   end
 
   defp get(opts, url) do
-    req_opts =
-      [
-        method: :get,
-        url: url,
-        retry: false,
-        redirect: false,
-        headers: auth_headers(opts),
-        receive_timeout: timeout(opts, :receive_timeout),
-        connect_options: [timeout: timeout(opts, :connect_timeout)]
-      ]
-      |> maybe_plug(opts)
-
-    try do
-      case Req.request!(req_opts) do
-        %{status: 200, body: body} -> {:ok, body}
-        _other -> {:error, :container_credentials_unavailable}
-      end
-    rescue
-      _exception -> {:error, :container_unreachable}
+    case MetadataRequest.request(opts, method: :get, url: url, headers: auth_headers(opts)) do
+      {:ok, %{status: 200, body: body}} -> {:ok, body}
+      _other -> {:error, :container_credentials_unavailable}
     end
   end
 
@@ -139,13 +124,5 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
     end
   end
 
-  defp maybe_plug(req_opts, opts) do
-    case Keyword.get(opts, :plug) do
-      nil -> req_opts
-      plug -> Keyword.put(req_opts, :plug, plug)
-    end
-  end
-
   defp base_url(opts), do: Keyword.get(opts, :base_url, @base_url)
-  defp timeout(opts, key), do: Keyword.get(opts, key, @default_timeout_ms)
 end

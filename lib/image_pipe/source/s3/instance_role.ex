@@ -14,9 +14,10 @@ defmodule ImagePipe.Source.S3.InstanceRole do
   """
   @behaviour ImagePipe.Source.S3.CredentialProvider
 
+  alias ImagePipe.Source.S3.MetadataRequest
+
   @base_url "http://169.254.169.254"
   @ttl_seconds 21_600
-  @default_timeout_ms 2_000
 
   @opts_schema NimbleOptions.new!(
                  base_url: [type: :string],
@@ -49,7 +50,7 @@ defmodule ImagePipe.Source.S3.InstanceRole do
   end
 
   defp imds_token(opts) do
-    case request(opts,
+    case MetadataRequest.request(opts,
            method: :put,
            url: base_url(opts) <> "/latest/api/token",
            headers: [{"x-aws-ec2-metadata-token-ttl-seconds", Integer.to_string(ttl(opts))}]
@@ -60,7 +61,7 @@ defmodule ImagePipe.Source.S3.InstanceRole do
   end
 
   defp role_name(opts, token) do
-    case request(opts,
+    case MetadataRequest.request(opts,
            method: :get,
            url: base_url(opts) <> "/latest/meta-data/iam/security-credentials/",
            headers: token_header(token)
@@ -77,7 +78,7 @@ defmodule ImagePipe.Source.S3.InstanceRole do
   end
 
   defp role_credentials(opts, token, role) do
-    case request(opts,
+    case MetadataRequest.request(opts,
            method: :get,
            url:
              base_url(opts) <>
@@ -122,32 +123,6 @@ defmodule ImagePipe.Source.S3.InstanceRole do
 
   defp token_header(token), do: [{"x-aws-ec2-metadata-token", token}]
 
-  defp request(opts, req_opts) do
-    base =
-      [
-        retry: false,
-        redirect: false,
-        receive_timeout: timeout(opts, :receive_timeout),
-        connect_options: [timeout: timeout(opts, :connect_timeout)]
-      ]
-      |> maybe_plug(opts)
-
-    try do
-      {:ok, Req.request!(Keyword.merge(base, req_opts))}
-    rescue
-      _exception -> {:error, :imds_unreachable}
-    end
-  end
-
-  defp maybe_plug(req_opts, opts) do
-    case Keyword.get(opts, :plug) do
-      nil -> req_opts
-      plug -> Keyword.put(req_opts, :plug, plug)
-    end
-  end
-
   defp base_url(opts), do: Keyword.get(opts, :base_url, @base_url)
   defp ttl(opts), do: Keyword.get(opts, :ttl_seconds, @ttl_seconds)
-
-  defp timeout(opts, key), do: Keyword.get(opts, key, @default_timeout_ms)
 end

@@ -41,22 +41,7 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def fetch(scope, {:provider, provider, opts}, _runtime_opts) do
     key = {:s3_credentials, provider, opts, scope}
-
-    fetch_fun = fn ->
-      case provider.fetch_credentials(scope, opts, []) do
-        {:ok, credentials, expiry} ->
-          case normalize(credentials) do
-            {:ok, normalized} -> {:ok, normalized, expiry}
-            {:error, reason} -> {:error, reason}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
-
-        _other ->
-          {:error, :invalid_credential_provider_result}
-      end
-    end
+    fetch_fun = fn -> resolve_provider(provider, scope, opts) end
 
     case RefreshCache.fetch(key, fetch_fun) do
       {:ok, credentials} -> {:ok, credentials}
@@ -66,6 +51,21 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def fetch(_scope, _credentials, _runtime_opts),
     do: {:error, {:source, :credentials_unavailable}}
+
+  defp resolve_provider(provider, scope, opts) do
+    case provider.fetch_credentials(scope, opts, []) do
+      {:ok, credentials, expiry} -> normalize_with_expiry(credentials, expiry)
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :invalid_credential_provider_result}
+    end
+  end
+
+  defp normalize_with_expiry(credentials, expiry) do
+    case normalize(credentials) do
+      {:ok, normalized} -> {:ok, normalized, expiry}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp normalize(opts) when is_list(opts) do
     with {:ok, access_key_id} <- fetch_binary(opts, :access_key_id),
