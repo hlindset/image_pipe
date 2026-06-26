@@ -488,6 +488,15 @@
 
             {#if appState.provider === "imgproxy"}
               <label class="field">
+                <span>Source type</span>
+                <select bind:value={appState.imgproxy.sourceType}>
+                  <option value="local">Local (filesystem)</option>
+                  <option value="s3">S3 (s3proxy)</option>
+                  <option value="http">HTTP (Plug.Static)</option>
+                </select>
+              </label>
+
+              <label class="field">
                 <span>Signature</span>
                 <select bind:value={appState.imgproxy.signatureMode}>
                   <option value="unsigned">unsigned</option>
