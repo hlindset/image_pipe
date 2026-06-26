@@ -77,19 +77,18 @@ run = [
 description = "Remove regenerable dirs (deps, _build, fiddle deps/_build/node_modules, .dexter, .expert) from every worktree (→ mix worktrees.clean)"
 run = "mix worktrees.clean"
 
-[tasks.server]
-description = "Run the ImagePipe Fiddle dev server (Phoenix + Vite)"
+[tasks.fiddle]
+description = "Run the ImagePipe Fiddle dev server (Phoenix + Vite). Pass `otel` to enable OpenTelemetry tracing (start `mise run fiddle:sidecars jaeger` first)."
 dir = "fiddle"
-run = "mix phx.server"
+run = """
+if [ "{{arg(name='mode', var=true, required=false)}}" = "otel" ]; then
+  export FIDDLE_OTEL=1
+fi
+exec mix phx.server
+"""
 
-[tasks."server:otel"]
-description = "Run the fiddle dev server with OpenTelemetry tracing on (start `mise run sidecars jaeger` first)"
-dir = "fiddle"
-env = { FIDDLE_OTEL = "1" }
-run = "mix phx.server"
-
-[tasks.sidecars]
-description = "Run the fiddle's local sidecars (Jaeger + s3proxy). Defaults to both; pass a service to run just one, e.g. `mise run sidecars s3proxy`."
+[tasks."fiddle:sidecars"]
+description = "Run the fiddle's local sidecars (Jaeger + s3proxy). Defaults to both; pass a service to run just one, e.g. `mise run fiddle:sidecars s3proxy`."
 run = "docker compose -f fiddle/docker-compose.yml up {{arg(name='service', var=true, required=false)}}"
 
 # IIIF image-validator gate (requires Docker).

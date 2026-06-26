@@ -158,7 +158,7 @@ The interactive demo (ImagePipe Fiddle) is a standalone Phoenix app in `fiddle/`
 
 ```sh
 mise run setup       # installs library + fiddle deps
-mise run server      # boots Phoenix (:4000) + Vite (:5173)
+mise run fiddle      # boots Phoenix (:4000) + Vite (:5173)
 ```
 
 Open http://localhost:4000. The imgproxy-compatible processing endpoint is
@@ -173,13 +173,13 @@ the library's OpenTelemetry exporter end to end (see
 [the cookbook](docs/cookbook/opentelemetry-jaeger.md)):
 
 ```sh
-mise run sidecars jaeger   # start Jaeger (OTLP + UI) via fiddle/docker-compose.yml
-mise run server:otel       # boots the dev server with tracing on (FIDDLE_OTEL=1)
+mise run fiddle:sidecars jaeger   # start Jaeger (OTLP + UI) via fiddle/docker-compose.yml
+mise run fiddle otel              # boots the dev server with tracing on (FIDDLE_OTEL=1)
 ```
 
 Issue an `/img` request, then open the Jaeger UI at http://localhost:16686 and
 look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
-Plain `mise run server` leaves tracing off (no `FIDDLE_OTEL`), so it needs no
+Plain `mise run fiddle` leaves tracing off (no `FIDDLE_OTEL`), so it needs no
 Jaeger.
 
 ### Source types (local / S3 / HTTP)
@@ -190,11 +190,11 @@ or HTTP. All three resolve to byte-identical bytes from `priv/static/images`, so
 switching source types is a clean adapter comparison.
 
 The **S3** source type needs the opt-in s3proxy sidecar — a fake S3 over the local
-filesystem that mirrors `priv/static/images` (`mise run sidecars` brings up both
-Jaeger and s3proxy; `mise run sidecars s3proxy` starts just the fake S3):
+filesystem that mirrors `priv/static/images` (`mise run fiddle:sidecars` brings up
+both Jaeger and s3proxy; `mise run fiddle:sidecars s3proxy` starts just the fake S3):
 
 ```sh
-mise run sidecars s3proxy   # fake S3 at http://localhost:8081, bucket "sources"
+mise run fiddle:sidecars s3proxy   # fake S3 at http://localhost:8081, bucket "sources"
 ```
 
 The **HTTP** source type needs no sidecar — it fetches the fiddle's own

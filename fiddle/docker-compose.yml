@@ -1,10 +1,10 @@
-# Local sidecar services for the fiddle demo (opt-in; not needed for `mise run server`).
+# Local sidecar services for the fiddle demo (opt-in; not needed for `mise run fiddle`).
 #
-#   mise run sidecars               # both services (docker compose ... up)
-#   mise run sidecars s3proxy       # just one, by service name
+#   mise run fiddle:sidecars            # both services (docker compose ... up)
+#   mise run fiddle:sidecars s3proxy    # just one, by service name
 #
 # Jaeger (all-in-one v2) — OpenTelemetry traces:
-#   FIDDLE_OTEL=1 mise run server   # emit traces; UI at http://localhost:16686
+#   mise run fiddle otel                # emit traces; UI at http://localhost:16686
 # Then look for the `image_pipe.request` trace after issuing an /img request.
 #
 # s3proxy — fake S3 over the local filesystem, mirrors priv/static/images so the

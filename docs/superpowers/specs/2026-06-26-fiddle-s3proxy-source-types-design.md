@@ -67,18 +67,17 @@ Because `andrewgaul/s3proxy` listens on container port 80 by default, map `8081:
 
 ### 2. mise tasks — `mise.toml`
 
-The existing `[tasks.jaeger]` runs `docker compose -f fiddle/docker-compose.yml up`
-(no service filter), which once a second service exists already starts **both**. Replace
-it with a single `[tasks.sidecars]` that **defaults to bringing up both** services and
-accepts an optional service name to scope to one:
+Consolidate the fiddle dev tasks under a `fiddle` namespace (replacing the standalone
+`server`, `server:otel`, and `jaeger` tasks):
 
-- `mise run sidecars` → `... up` (both Jaeger + s3proxy)
-- `mise run sidecars s3proxy` → `... up s3proxy` (just one), via an optional positional
-  optional vararg (`{{arg(name='service', var=true, required=false)}}` — a `default=''`
-  arg instead renders a literal `''` that `docker compose` rejects).
-
-Update the `server:otel` task description to reference `mise run sidecars` instead of the
-removed `mise run jaeger`.
+- `mise run fiddle` → boots Phoenix + Vite (`mix phx.server`).
+- `mise run fiddle otel` → same, with OpenTelemetry tracing on. The `otel` token is an
+  optional vararg the run script checks to `export FIDDLE_OTEL=1` (mise's static `env`
+  table can't be set conditionally from an arg, so the toggle lives in the shell script).
+- `mise run fiddle:sidecars` → `docker compose … up` (both Jaeger + s3proxy).
+- `mise run fiddle:sidecars s3proxy` → `… up s3proxy` (just one), via an optional vararg
+  (`{{arg(name='service', var=true, required=false)}}` — a `default=''` arg instead
+  renders a literal `''` that `docker compose` rejects as an empty service name).
 
 ### 3. Fiddle backend — `fiddle/lib/image_pipe_fiddle/application.ex`
 

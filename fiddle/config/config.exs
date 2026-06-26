@@ -55,7 +55,7 @@ config :phoenix, :json_library, Jason
 # OpenTelemetry → local Jaeger (see docker-compose.yml). Traces are only emitted
 # when the tracer is attached at startup (FIDDLE_OTEL=1; see
 # ImagePipeFiddle.Application) — with no spans the SDK never contacts the collector,
-# so this is inert for a plain `mise run server` with no Jaeger running.
+# so this is inert for a plain `mise run fiddle` with no Jaeger running.
 config :opentelemetry,
   span_processor: :batch,
   traces_exporter: :otlp,
