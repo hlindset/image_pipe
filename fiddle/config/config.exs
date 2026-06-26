@@ -24,6 +24,15 @@ config :image_pipe_fiddle, :imgproxy,
   ],
   smart_crop_face_detection: true
 
+# Connection coordinates for the fiddle's S3 source type, served by the opt-in
+# s3proxy compose service (see fiddle/docker-compose.yml). These mirror the
+# s3proxy env: bucket "sources" == priv/static/images. Dev-only fake credentials.
+config :image_pipe_fiddle, :s3_source,
+  region: "us-east-1",
+  endpoint: "http://localhost:8081",
+  access_key_id: "fiddle",
+  secret_access_key: "fiddlesecret"
+
 # Configure the endpoint
 config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
   url: [host: "localhost"],
