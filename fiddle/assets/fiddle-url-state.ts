@@ -1,7 +1,7 @@
 import {
   defaultFiddleState,
+  parseSourceIdentifier,
   resetCropPixelsToSource,
-  sampleImages,
   signedPathForState,
   type ColorProfile,
   type CropDimensionUnit,
@@ -14,6 +14,7 @@ import {
   type ResizeMode,
   type Rotate,
   type SourceImage,
+  type SourceType,
   type ObjSubMode,
   type TrimBackgroundMode,
 } from "./processing-path";
@@ -44,8 +45,6 @@ type ParsedDimension<Unit> = {
 };
 
 const plainSourceMarker = "/plain/";
-const localSourcePrefix = "local:///";
-const sourceImages = new Set<string>(sampleImages.map((image) => image.path));
 const resizeModes = new Set<string>(["fit", "fill", "fill-down", "force", "auto"]);
 const gravityValues = new Set<string>([
   "ce",
@@ -82,6 +81,7 @@ export function parseFiddlePath(pathname: string): FiddleState {
   let state = resetCropPixelsToSource({
     ...defaultFiddleState,
     source: parsed.source,
+    sourceType: parsed.sourceType,
   });
 
   for (const segment of parsed.optionSegments) {
@@ -133,7 +133,7 @@ export function expandedToolboxesForState(currentState: FiddleState): ExpandedTo
 
 function parseFiddlePathParts(
   pathname: string,
-): { optionSegments: string[]; source: SourceImage } | null {
+): { optionSegments: string[]; source: SourceImage; sourceType: SourceType } | null {
   const path = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname;
 
   const plainIndex = path.indexOf(plainSourceMarker);
@@ -143,25 +143,17 @@ function parseFiddlePathParts(
   }
 
   const optionSegments = path.slice(0, plainIndex).split("/").filter(Boolean);
-  const source = sourceFromIdentifier(path.slice(plainIndex + plainSourceMarker.length));
+  const parsedSource = parseSourceIdentifier(path.slice(plainIndex + plainSourceMarker.length));
 
-  if (source === null) {
+  if (parsedSource === null) {
     return null;
   }
 
   return {
     optionSegments,
-    source,
+    source: parsedSource.source,
+    sourceType: parsedSource.sourceType,
   };
-}
-
-function sourceFromIdentifier(identifier: string): SourceImage | null {
-  if (!identifier.startsWith(localSourcePrefix)) {
-    return null;
-  }
-
-  const source = identifier.slice(localSourcePrefix.length);
-  return sourceImages.has(source) ? (source as SourceImage) : null;
 }
 
 function applyOptionSegment(currentState: FiddleState, segment: string): FiddleState | null {
