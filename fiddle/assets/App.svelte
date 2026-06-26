@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Collapsible, RadioGroup } from "bits-ui";
+  import { Collapsible, Popover, RadioGroup } from "bits-ui";
   import ImgproxyControls from "./ImgproxyControls.svelte";
   import IiifControls from "./IiifControls.svelte";
   import TwicPicsControls from "./TwicPicsControls.svelte";
@@ -583,7 +583,23 @@
       >
         ☰
       </button>
-      <code class="parameter-preview">{previewParameters}</code>
+      <div class="url-preview">
+        <code class="parameter-preview">{previewParameters}</code>
+        <Popover.Root>
+          <Popover.Trigger class="debug-trigger" aria-label="Debug headers" title="Debug headers">
+            <svg class="debug-trigger-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M12 8h.01"></path>
+              <path d="M11 12h1v4h1"></path>
+            </svg>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content class="debug-popover" align="start" sideOffset={8}>
+              <DebugInfoPanel groups={debugGroups} />
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      </div>
       <div class="preview-actions">
         <RadioGroup.Root
           class="theme-toggle"
@@ -646,7 +662,6 @@
           {/if}
         </figure>
       </div>
-      <DebugInfoPanel groups={debugGroups} />
       {#if previewError !== null}
         <div class="preview-error" role="status">{previewError}</div>
       {/if}
@@ -734,15 +749,69 @@
     background: var(--surface-bar);
   }
 
-  .parameter-preview {
+  .url-preview {
     min-width: 0;
     flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .parameter-preview {
+    min-width: 0;
+    flex: 0 1 auto;
     overflow: hidden;
     color: var(--text-muted);
     font-size: 13px;
     line-height: 18px;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  :global(.debug-trigger) {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-button-quiet);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  :global(.debug-trigger:hover),
+  :global(.debug-trigger[data-state="open"]) {
+    color: var(--text-heading);
+  }
+
+  :global(.debug-trigger:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  .debug-trigger-icon {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  :global(.debug-popover) {
+    max-width: min(420px, calc(100vw - 24px));
+    max-height: var(--bits-popover-content-available-height);
+    overflow-y: auto;
+    padding: 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--surface-sidebar);
+    box-shadow: var(--image-shadow);
+    z-index: 50;
   }
 
   .desktop-actions,
