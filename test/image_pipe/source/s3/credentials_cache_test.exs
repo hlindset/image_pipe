@@ -50,8 +50,14 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
   end
 
   test "AssumeRole provider routes through the cache and normalizes" do
+    # Expiry must be in the future relative to *now*: this goes through the
+    # RefreshCache, whose freshness check would otherwise treat a past expiry as
+    # stale and re-fetch, defeating the cache-hit assertion below.
+    expiration =
+      DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_iso8601()
+
     xml =
-      ~s(<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASIAX</AccessKeyId><SecretAccessKey>sx</SecretAccessKey><SessionToken>tx</SessionToken><Expiration>2026-06-26T13:34:41Z</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>)
+      "<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASIAX</AccessKeyId><SecretAccessKey>sx</SecretAccessKey><SessionToken>tx</SessionToken><Expiration>#{expiration}</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>"
 
     test = self()
     scope = "assume-#{System.unique_integer([:positive])}"

@@ -2,6 +2,7 @@ defmodule ImagePipe.Source.S3.AssumeRoleTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Source.S3.AssumeRole
+  alias ImagePipe.Source.S3.Credentials
 
   # A static base so the test does not depend on IMDS/ECS. The provider resolves
   # the base through Credentials.fetch/3 regardless of base shape.
@@ -68,11 +69,25 @@ defmodule ImagePipe.Source.S3.AssumeRoleTest do
     assert {:error, _} = AssumeRole.validate_options(base: @base, region: "us-east-1")
     assert {:error, _} = AssumeRole.validate_options(base: @base, role_arn: "arn:x")
 
-    assert {:error, _} =
+    # an invalid base surfaces the base's reason UNWRAPPED — not re-tagged as
+    # {:invalid_source_config, {:invalid_source_config, _}} once the outer
+    # Credentials.validate/1 wraps this provider's error.
+    assert {:error, reason} =
              AssumeRole.validate_options(
                base: {:static, []},
                role_arn: "arn:x",
                region: "us-east-1"
              )
+
+    refute match?({:invalid_source_config, _}, reason)
+  end
+
+  test "validate_options surfaces a single-wrapped error through Credentials.validate" do
+    config =
+      {:provider, AssumeRole, [base: {:static, []}, role_arn: "arn:x", region: "us-east-1"]}
+
+    assert {:error, {:invalid_source_config, reason}} = Credentials.validate(config)
+
+    refute match?({:invalid_source_config, _}, reason)
   end
 end

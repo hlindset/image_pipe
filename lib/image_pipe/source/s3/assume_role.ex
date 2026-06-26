@@ -51,8 +51,18 @@ defmodule ImagePipe.Source.S3.AssumeRole do
          {:ok, _base} <- Credentials.validate(Keyword.fetch!(validated, :base)) do
       :ok
     else
-      {:error, %NimbleOptions.ValidationError{} = error} -> {:error, Exception.message(error)}
-      {:error, reason} -> {:error, reason}
+      {:error, %NimbleOptions.ValidationError{} = error} ->
+        {:error, Exception.message(error)}
+
+      # Credentials.validate/1 already tags a bad base as
+      # {:invalid_source_config, reason}; unwrap it so the outer
+      # Credentials.validate/1 (which re-wraps a provider's {:error, reason})
+      # doesn't double-nest the tag.
+      {:error, {:invalid_source_config, reason}} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
