@@ -31,15 +31,28 @@ if Code.ensure_loaded?(Testcontainers) do
 
     @doc """
     Idempotently start the testcontainers manager (its app deps + GenServer,
-    which the app does not auto-start). Safe to call from every `setup_all`.
+    which the app does not auto-start). Call from each integration `setup_all`.
+
+    Started **lazily** here, not in `test_helper`, so a flagged-but-not-opted-in
+    run (`AWS_INTEGRATION=1 mix test` without `--include aws_integration`) never
+    boots the manager — ExUnit skips `setup_all` for a fully tag-excluded module,
+    so this is never reached, and the s3 unit tests don't drag in Docker/Ryuk.
+
+    The freshly-started manager is **unlinked** from the calling `setup_all`
+    process: that process exits once setup_all returns, and a linked manager
+    would die with it — before the suite-teardown `on_exit` container cleanup
+    runs (which calls back into the manager). Unlinking lets the singleton
+    manager live for the rest of the test run; the OS process exit reaps it.
     """
     def ensure_started do
       {:ok, _} = Application.ensure_all_started(:testcontainers)
 
       case Testcontainers.start_link() do
-        {:ok, _pid} -> :ok
+        {:ok, pid} -> Process.unlink(pid)
         {:error, {:already_started, _pid}} -> :ok
       end
+
+      :ok
     end
 
     @doc """

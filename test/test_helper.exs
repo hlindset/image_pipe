@@ -45,19 +45,3 @@ ExUnit.start(
 )
 
 {:ok, _} = Application.ensure_all_started(:req)
-
-# The opt-in `:aws_integration` lane provisions Docker via `testcontainers`. Own
-# the testcontainers manager from this long-lived test-runner process (only when
-# the dep is present, i.e. `AWS_INTEGRATION`/`IMGPROXY_DIFF`) so it outlives the
-# transient `setup_all` process and is still alive for suite-teardown `on_exit`
-# container cleanup. Starting it from `setup_all` instead links the manager to a
-# process that exits before `on_exit` runs, killing it mid-cleanup. No effect on
-# the default lane: the dep is absent there, so this block is skipped.
-if Code.ensure_loaded?(Testcontainers) do
-  {:ok, _} = Application.ensure_all_started(:testcontainers)
-
-  case Testcontainers.start_link() do
-    {:ok, _pid} -> :ok
-    {:error, {:already_started, _pid}} -> :ok
-  end
-end
