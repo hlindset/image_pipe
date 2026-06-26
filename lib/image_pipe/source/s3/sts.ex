@@ -10,10 +10,14 @@ defmodule ImagePipe.Source.S3.Sts do
   # contain `<`, `>`, or `&` — so the extraction is robust, and a recorded-sample
   # test pins it to real wire output.
 
+  alias ImagePipe.Source.S3.MetadataRequest
+
   @credentials_block ~r{<Credentials>(?<inner>.*?)</Credentials>}s
 
   @version "2011-06-15"
   @default_session_name "image-pipe"
+  # STS is a public-internet, possibly cross-region call, so it gets more
+  # headroom than the link-local metadata endpoints' 2s default.
   @default_timeout_ms 5_000
 
   @spec assume_role(keyword()) :: {:ok, keyword(), DateTime.t()} | {:error, term()}
@@ -66,26 +70,21 @@ defmodule ImagePipe.Source.S3.Sts do
         # LocalStack) — never set in production; the regional endpoint is used.
         url: Keyword.get(opts, :endpoint_override) || endpoint(region),
         body: URI.encode_query(params),
-        headers: [{"content-type", "application/x-www-form-urlencoded"}],
-        retry: false,
-        redirect: false,
-        receive_timeout: timeout(opts, :receive_timeout),
-        connect_options: [timeout: timeout(opts, :connect_timeout)]
-      ]
-      |> Keyword.merge(sign_opts)
-      |> maybe_plug(opts)
+        headers: [{"content-type", "application/x-www-form-urlencoded"}]
+      ] ++ sign_opts
 
-    case safe_request(req_opts) do
+    # Reuse the shared bounded non-bang Req helper (retry/redirect off, optional
+    # test plug). It defaults timeouts to 2s for the metadata endpoints, so STS's
+    # larger default is injected explicitly.
+    request_opts =
+      opts
+      |> Keyword.put_new(:receive_timeout, @default_timeout_ms)
+      |> Keyword.put_new(:connect_timeout, @default_timeout_ms)
+
+    case MetadataRequest.request(request_opts, req_opts) do
       {:ok, %{status: 200, body: body}} -> parse_credentials(to_string(body))
       {:ok, %{status: _other}} -> {:error, :sts_request_failed}
       {:error, _reason} -> {:error, :sts_unreachable}
-    end
-  end
-
-  defp safe_request(req_opts) do
-    case Req.request(req_opts) do
-      {:ok, %Req.Response{} = response} -> {:ok, response}
-      {:error, _exception} -> {:error, :unreachable}
     end
   end
 
@@ -96,15 +95,6 @@ defmodule ImagePipe.Source.S3.Sts do
   defp maybe_put(params, _key, nil), do: params
   defp maybe_put(params, key, value), do: params ++ [{key, value}]
 
-  defp maybe_plug(req_opts, opts) do
-    case Keyword.get(opts, :plug) do
-      nil -> req_opts
-      plug -> Keyword.put(req_opts, :plug, plug)
-    end
-  end
-
-  defp timeout(opts, key), do: Keyword.get(opts, key, @default_timeout_ms)
-
   @spec parse_credentials(binary()) ::
           {:ok, keyword(), DateTime.t()} | {:error, :sts_invalid_response}
   def parse_credentials(xml) when is_binary(xml) do
@@ -114,8 +104,8 @@ defmodule ImagePipe.Source.S3.Sts do
          {:ok, token} <- field(inner, "SessionToken"),
          {:ok, expiration} <- field(inner, "Expiration"),
          {:ok, expiry, _offset} <- DateTime.from_iso8601(expiration) do
-      {:ok,
-       [access_key_id: access_key_id, secret_access_key: secret_access_key, token: token], expiry}
+      {:ok, [access_key_id: access_key_id, secret_access_key: secret_access_key, token: token],
+       expiry}
     else
       _other -> {:error, :sts_invalid_response}
     end

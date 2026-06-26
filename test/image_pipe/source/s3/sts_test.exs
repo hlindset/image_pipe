@@ -53,7 +53,12 @@ defmodule ImagePipe.Source.S3.StsTest do
 
     fn conn ->
       {:ok, req_body, conn} = Plug.Conn.read_body(conn)
-      send(capture_pid, {:sts_request, conn.method, conn.request_path, conn.req_headers, req_body})
+
+      send(
+        capture_pid,
+        {:sts_request, conn.method, conn.request_path, conn.req_headers, req_body}
+      )
+
       Plug.Conn.send_resp(conn, 200, response)
     end
   end
