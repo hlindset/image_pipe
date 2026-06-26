@@ -85,6 +85,12 @@ describe("iiif segment building", () => {
     expect(iiifBrowserPath(defaultIiifState)).toBe("/iiif/dog/full/max/0/default.jpg");
     expect(iiifFetchPath(defaultIiifState)).toBe("/iiif-image/dog/full/max/0/default.jpg");
   });
+
+  it("appends the debug trigger inside the built path so future signing covers it", () => {
+    expect(iiifFetchPath(defaultIiifState, { debug: true })).toBe(
+      "/iiif-image/dog/full/max/0/default.jpg?debug=1",
+    );
+  });
 });
 
 describe("iiif tail parsing round-trips", () => {

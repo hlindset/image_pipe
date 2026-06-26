@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildDebugPreviewPath,
   buildProcessingPath,
   cocoClasses,
   controlLimits,
   cropDimensionSegment,
   cropOptionSegment,
   cropPixelLimit,
+  debugTriggerPath,
   type FiddleState,
   defaultFiddleState,
   debounce,
@@ -118,6 +120,40 @@ describe("processing path generation", () => {
     expect(processingPathFromSignedPath("local-signature", signedPathForState(state))).toBe(
       "/img/local-signature/rs:fill:640:360:0/plain/local:///images/dog.jpg",
     );
+  });
+
+  it("inserts the debug:1 trigger ahead of the plain source marker in the signed path", () => {
+    expect(debugTriggerPath("/rs:fill:640:360:0/plain/local:///images/dog.jpg")).toBe(
+      "/rs:fill:640:360:0/debug:1/plain/local:///images/dog.jpg",
+    );
+  });
+
+  it("builds the unsigned debug preview path with the unsafe signature segment", () => {
+    const state = { ...defaultFiddleState, resizeEnabled: true };
+
+    expect(buildDebugPreviewPath(state)).toBe(
+      "/img/_/rs:fill:640:360:0/debug:1/plain/local:///images/dog.jpg",
+    );
+  });
+
+  it("signs the debug-augmented path so the trigger is covered by the signature", async () => {
+    const state = { ...defaultFiddleState, signatureMode: "signed" as const, resizeEnabled: true };
+    const debugPath = debugTriggerPath(signedPathForState(state));
+    const signature = await signProcessingPath(debugPath, state.signatureKey, state.signatureSalt);
+
+    // The debug preview path carries debug:1 inside the signed region.
+    expect(buildDebugPreviewPath(state, signature)).toBe(
+      processingPathFromSignedPath(signature, debugPath),
+    );
+
+    // The clean path's signature must differ: signing without debug:1 would not
+    // validate the debug-augmented request the preview <img> actually sends.
+    const cleanSignature = await signProcessingPath(
+      signedPathForState(state),
+      state.signatureKey,
+      state.signatureSalt,
+    );
+    expect(cleanSignature).not.toBe(signature);
   });
 
   it("generates imgproxy-compatible HMAC signatures", async () => {
