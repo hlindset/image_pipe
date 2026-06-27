@@ -195,6 +195,18 @@ defmodule ImagePipe.Parser.ImgproxyTest do
       end
     end
 
+    test "rejects an autoquality bracket value above 100 (ordered, but over the ceiling)" do
+      assert_raise ArgumentError, ~r/autoquality_max_quality/, fn ->
+        Imgproxy.validate_options!(imgproxy: [autoquality_max_quality: 150])
+      end
+    end
+
+    test "rejects a per-format autoquality bracket value above 100" do
+      assert_raise ArgumentError, ~r/autoquality_format_max_quality/, fn ->
+        Imgproxy.validate_options!(imgproxy: [autoquality_format_max_quality: %{avif: 150}])
+      end
+    end
+
     test "a single-format override merges with the other formats' built-in defaults" do
       assert {:ok, plan} =
                Imgproxy.parse(

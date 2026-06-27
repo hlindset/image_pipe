@@ -211,23 +211,24 @@ defmodule ImagePipe.Parser.Imgproxy do
     end)
   end
 
-  # Range-check the host-config default quality knobs. NimbleOptions enforces
-  # pos_integer / map shape but not the 1..100 ceiling, so assert it here at the
-  # config boundary before the value can reach the encoder.
+  # Range-check the host-config quality knobs. NimbleOptions enforces pos_integer /
+  # map shape but not the 1..100 encoder-quality ceiling (and `validate_autoquality_
+  # brackets!` only checks ordering), so assert it here at the config boundary for
+  # every quality-valued knob before it can reach the encoder.
+  @quality_value_keys [:quality, :autoquality_min_quality, :autoquality_max_quality]
+  @quality_map_keys [
+    :format_quality,
+    :autoquality_format_min_quality,
+    :autoquality_format_max_quality
+  ]
+
   defp validate_quality_config!(validated) do
-    quality = Keyword.fetch!(validated, :quality)
+    Enum.each(@quality_value_keys, fn key ->
+      validate_quality_value!(key, Keyword.fetch!(validated, key))
+    end)
 
-    unless quality in 1..100 do
-      raise ArgumentError,
-            "invalid imgproxy config: quality (#{quality}) must be between 1 and 100"
-    end
-
-    Enum.each(Keyword.fetch!(validated, :format_quality), fn {format, q} ->
-      unless q in 1..100 do
-        raise ArgumentError,
-              "invalid imgproxy config: format_quality #{inspect(format)} (#{q}) " <>
-                "must be between 1 and 100"
-      end
+    Enum.each(@quality_map_keys, fn key ->
+      validate_quality_map!(key, Keyword.fetch!(validated, key))
     end)
 
     validate_autoquality_target_config!(Keyword.fetch!(validated, :autoquality_target))
@@ -237,6 +238,23 @@ defmodule ImagePipe.Parser.Imgproxy do
     )
 
     :ok
+  end
+
+  defp validate_quality_value!(key, value) do
+    unless value in 1..100 do
+      raise ArgumentError,
+            "invalid imgproxy config: #{key} (#{value}) must be between 1 and 100"
+    end
+  end
+
+  defp validate_quality_map!(key, map) do
+    Enum.each(map, fn {format, q} ->
+      unless q in 1..100 do
+        raise ArgumentError,
+              "invalid imgproxy config: #{key} #{inspect(format)} (#{q}) " <>
+                "must be between 1 and 100"
+      end
+    end)
   end
 
   @autoquality_metrics [:size, :ssimulacra2, :butteraugli]

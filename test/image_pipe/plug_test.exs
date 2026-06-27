@@ -9,6 +9,10 @@ defmodule ImagePipe.PlugTest do
 
   @slow_origin_ci_load_timeout 10_000
 
+  # The configured per-format default quality folded into the cache-key output
+  # facet for a default-config automatic request (imgproxy parity values).
+  @default_format_qualities %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}}
+
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Parser.Imgproxy.Signature
   alias ImagePipe.Plan
@@ -1176,11 +1180,7 @@ defmodule ImagePipe.PlugTest do
              modern_candidates: [:avif, :webp],
              auto: [jpeg_xl: true, avif: true, webp: true],
              quality: :default,
-             format_qualities: %{
-               avif: {:quality, 63},
-               jpeg_xl: {:quality, 77},
-               webp: {:quality, 79}
-             },
+             format_qualities: @default_format_qualities,
              quality_search: :none,
              max_bytes: nil,
              strip_metadata: true,
@@ -1506,7 +1506,7 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [:avif, :webp],
       auto: [jpeg_xl: true, avif: true, webp: true],
       quality: :default,
-      format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
+      format_qualities: @default_format_qualities,
       quality_search: :none,
       max_bytes: nil,
       strip_metadata: true,
@@ -1547,7 +1547,7 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [jpeg_xl: true, avif: true, webp: true],
           quality: :default,
-          format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
+          format_qualities: @default_format_qualities,
           quality_search: :none,
           max_bytes: nil,
           strip_metadata: true,
@@ -1586,7 +1586,7 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [jpeg_xl: true, avif: true, webp: true],
       quality: :default,
-      format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
+      format_qualities: @default_format_qualities,
       quality_search: :none,
       max_bytes: nil,
       strip_metadata: true,
@@ -1627,7 +1627,7 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [jpeg_xl: false, avif: false, webp: false],
           quality: :default,
-          format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
+          format_qualities: @default_format_qualities,
           quality_search: :none,
           max_bytes: nil,
           strip_metadata: true,
@@ -1669,7 +1669,7 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [jpeg_xl: false, avif: false, webp: false],
       quality: :default,
-      format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
+      format_qualities: @default_format_qualities,
       quality_search: :none,
       max_bytes: nil,
       strip_metadata: true,
@@ -1710,7 +1710,7 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [jpeg_xl: false, avif: false, webp: false],
           quality: :default,
-          format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
+          format_qualities: @default_format_qualities,
           quality_search: :none,
           max_bytes: nil,
           strip_metadata: true,
@@ -1752,7 +1752,7 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [jpeg_xl: false, avif: false, webp: false],
       quality: :default,
-      format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
+      format_qualities: @default_format_qualities,
       quality_search: :none,
       max_bytes: nil,
       strip_metadata: true,
