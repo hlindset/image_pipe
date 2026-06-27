@@ -361,7 +361,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
     opts =
       large_ssim2_opts(
         allow_debug_headers: true,
-        imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 85]
+        imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 85}]
       )
 
     conn = call(with_debug(autoquality_path()), opts)

@@ -566,4 +566,107 @@ defmodule ImagePipe.Output.PolicyTest do
       assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) == :ok
     end
   end
+
+  describe "effective_quality default resolution" do
+    defp policy_for(format, opts) do
+      output = struct(%Output{mode: {:explicit, format}}, opts)
+      Policy.from_output_plan(%Plug.Conn{}, output, [])
+    end
+
+    test "format in format_qualities wins" do
+      policy =
+        policy_for(:avif,
+          format_qualities: %{avif: {:quality, 63}},
+          default_quality: {:quality, 80}
+        )
+
+      assert {:ok, %{quality: {:quality, 63}}} = Policy.resolve(policy, nil)
+    end
+
+    test "format absent from map falls to the global default" do
+      policy =
+        policy_for(:jpeg,
+          format_qualities: %{avif: {:quality, 63}},
+          default_quality: {:quality, 80}
+        )
+
+      assert {:ok, %{quality: {:quality, 80}}} = Policy.resolve(policy, nil)
+    end
+
+    test "png is gated off the global default (stays lossless)" do
+      policy = policy_for(:png, default_quality: {:quality, 80})
+      assert {:ok, %{quality: :default}} = Policy.resolve(policy, nil)
+    end
+
+    test "explicit URL q wins for all formats incl png" do
+      policy = policy_for(:png, quality: {:quality, 50}, default_quality: {:quality, 80})
+      assert {:ok, %{quality: {:quality, 50}}} = Policy.resolve(policy, nil)
+    end
+  end
+
+  describe "autoquality bracket precedence (resolve_search)" do
+    alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
+
+    defp resolve_search_for(format, search) do
+      output = %Output{mode: {:explicit, format}, quality_search: search}
+      policy = Policy.from_output_plan(%Plug.Conn{}, output, [])
+      {:ok, resolved} = Policy.resolve(policy, nil)
+      resolved.quality_search
+    end
+
+    test "URL min/max beat per-format config" do
+      search = %QualitySearch.Ssimulacra2{
+        target: 78,
+        min_quality: 70,
+        max_quality: 80,
+        url_min_quality: 75,
+        url_max_quality: 85,
+        format_min: %{avif: 60},
+        format_max: %{avif: 65}
+      }
+
+      assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 85} =
+               resolve_search_for(:avif, search)
+    end
+
+    test "per-format config beats base when URL omits" do
+      search = %QualitySearch.Ssimulacra2{
+        target: 78,
+        min_quality: 70,
+        max_quality: 80,
+        format_min: %{avif: 60},
+        format_max: %{avif: 65}
+      }
+
+      assert %RQS.Ssimulacra2{min_quality: 60, max_quality: 65} =
+               resolve_search_for(:avif, search)
+    end
+
+    test "asymmetric: URL min only, max falls to config base" do
+      search = %QualitySearch.Ssimulacra2{
+        target: 78,
+        min_quality: 70,
+        max_quality: 80,
+        url_min_quality: 75
+      }
+
+      assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 80} =
+               resolve_search_for(:jpeg, search)
+    end
+
+    test "jpeg_xl butteraugli native path honors URL override" do
+      search = %QualitySearch.Butteraugli{
+        target: 1.0,
+        min_quality: 70,
+        max_quality: 80,
+        url_min_quality: 50,
+        url_max_quality: 90,
+        format_min: %{jpeg_xl: 45},
+        format_max: %{jpeg_xl: 80}
+      }
+
+      assert %RQS.NativeJxlButteraugli{min_quality: 50, max_quality: 90} =
+               resolve_search_for(:jpeg_xl, search)
+    end
+  end
 end

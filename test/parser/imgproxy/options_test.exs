@@ -255,13 +255,45 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
            } = request.output.quality_search
   end
 
+  describe "default quality resolution" do
+    @q_defaults [quality: 80, format_quality: %{webp: 79, avif: 63, jpeg_xl: 77}]
+
+    test "config format_quality folds into format_qualities; default_quality from global" do
+      assert {:ok, request} = Options.parse([], Presets.empty(), @q_defaults)
+      assert request.output.default_quality == {:quality, 80}
+
+      assert request.output.format_qualities == %{
+               webp: {:quality, 79},
+               avif: {:quality, 63},
+               jpeg_xl: {:quality, 77}
+             }
+    end
+
+    test "URL fq overrides config format_quality for that format" do
+      assert {:ok, request} = Options.parse(~w(fq:avif:70), Presets.empty(), @q_defaults)
+      assert request.output.format_qualities[:avif] == {:quality, 70}
+      assert request.output.format_qualities[:webp] == {:quality, 79}
+    end
+
+    test "URL fq:fmt:0 (unset) does not erase the config per-format value" do
+      assert {:ok, request} = Options.parse(~w(fq:avif:0), Presets.empty(), @q_defaults)
+      assert request.output.format_qualities[:avif] == {:quality, 63}
+    end
+
+    test "no config defaults: default_quality stays :default, no synthetic format_qualities" do
+      assert {:ok, request} = Options.parse([], Presets.empty(), [])
+      assert request.output.default_quality == :default
+      assert request.output.format_qualities == %{}
+    end
+  end
+
   describe "autoquality resolution" do
     test "bare ssim2 fills target/bracket/allowed_error/per-format from config defaults" do
       defaults = [
-        autoquality_target: 90.0,
+        autoquality_target: %{ssimulacra2: 90.0},
         autoquality_min_quality: 70,
         autoquality_max_quality: 80,
-        autoquality_allowed_error: 1.0,
+        autoquality_allowed_error: %{ssimulacra2: 1.0},
         autoquality_format_min_quality: %{avif: 60},
         autoquality_format_max_quality: %{avif: 65},
         autoquality_max_resolution: 0
@@ -296,10 +328,10 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     test "config method ssimulacra2 with no URL autoquality enables the search from config" do
       defaults = [
         autoquality_method: :ssimulacra2,
-        autoquality_target: 88.0,
+        autoquality_target: %{ssimulacra2: 88.0},
         autoquality_min_quality: 70,
         autoquality_max_quality: 80,
-        autoquality_allowed_error: 1.0
+        autoquality_allowed_error: %{ssimulacra2: 1.0}
       ]
 
       out = resolve_output(%{quality_search: :none}, defaults)
@@ -330,7 +362,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
       out =
         resolve_output(
           %{quality_search: {:autoquality, [metric: :ssimulacra2]}},
-          autoquality_target: 85.0
+          autoquality_target: %{ssimulacra2: 85.0}
         )
 
       assert out.quality_search.target == 85.0
@@ -341,7 +373,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
         assert {:error, _} =
                  resolve_output_result(
                    %{quality_search: {:autoquality, [metric: :size]}},
-                   autoquality_target: bad
+                   autoquality_target: %{size: bad}
                  )
       end
     end
@@ -350,7 +382,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
       out =
         resolve_output(
           %{quality_search: {:autoquality, [metric: :size]}},
-          autoquality_target: 40_000
+          autoquality_target: %{size: 40_000}
         )
 
       assert %ImagePipe.Plan.Output.QualitySearch.Size{target: 40_000} = out.quality_search
@@ -364,6 +396,73 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
         )
 
       assert %ImagePipe.Plan.Output.QualitySearch.Butteraugli{target: 1.0} = out.quality_search
+    end
+  end
+
+  describe "per-metric autoquality resolution" do
+    # Pass the new map-shaped autoquality_allowed_error (%{}) so the OLD code reads
+    # the map back as the literal allowed_error (red) until Task 9 lands.
+    test "butteraugli without config gets base 70/80 guardrail and 0.1 allowed_error (no 1/100)" do
+      out =
+        resolve_output(
+          %{quality_search: {:autoquality, [metric: :butteraugli]}},
+          autoquality_min_quality: 70,
+          autoquality_max_quality: 80,
+          autoquality_allowed_error: %{}
+        )
+
+      assert %ImagePipe.Plan.Output.QualitySearch.Butteraugli{
+               min_quality: 70,
+               max_quality: 80,
+               allowed_error: 0.1,
+               url_min_quality: nil
+             } = out.quality_search
+    end
+
+    test "ssim2 without config gets 1.0 allowed_error" do
+      out =
+        resolve_output(
+          %{quality_search: {:autoquality, [metric: :ssimulacra2]}},
+          autoquality_min_quality: 70,
+          autoquality_max_quality: 80,
+          autoquality_allowed_error: %{}
+        )
+
+      assert out.quality_search.allowed_error == 1.0
+    end
+
+    test "config target/allowed_error are read per metric and do not bleed across metrics" do
+      defaults = [
+        autoquality_target: %{ssimulacra2: 85},
+        autoquality_allowed_error: %{ssimulacra2: 0.5},
+        autoquality_min_quality: 70,
+        autoquality_max_quality: 80
+      ]
+
+      ssim = resolve_output(%{quality_search: {:autoquality, [metric: :ssimulacra2]}}, defaults)
+      assert ssim.quality_search.target == 85
+      assert ssim.quality_search.allowed_error == 0.5
+
+      butt = resolve_output(%{quality_search: {:autoquality, [metric: :butteraugli]}}, defaults)
+      assert butt.quality_search.target == 1.0
+      assert butt.quality_search.allowed_error == 0.1
+    end
+
+    test "URL min/max land on url_min_quality/url_max_quality, base stays config global" do
+      out =
+        resolve_output(
+          %{
+            quality_search:
+              {:autoquality, [metric: :ssimulacra2, min_quality: 75, max_quality: 85]}
+          },
+          autoquality_min_quality: 70,
+          autoquality_max_quality: 80
+        )
+
+      assert out.quality_search.min_quality == 70
+      assert out.quality_search.max_quality == 80
+      assert out.quality_search.url_min_quality == 75
+      assert out.quality_search.url_max_quality == 85
     end
   end
 

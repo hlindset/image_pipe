@@ -34,6 +34,7 @@ defmodule ImagePipe.Plan.Output do
   defstruct mode: :automatic,
             quality: :default,
             format_qualities: %{},
+            default_quality: :default,
             strip_metadata: true,
             keep_copyright: true,
             color_profile: :strip,
@@ -43,7 +44,7 @@ defmodule ImagePipe.Plan.Output do
             max_bytes: nil,
             quality_search_offsets: @default_quality_search_offsets
 
-  @type format :: :avif | :webp | :jpeg | :png
+  @type format :: :avif | :webp | :jpeg | :png | :jpeg_xl
   @type quality :: :default | {:quality, 1..100}
   @type color_profile :: :preserve_source | :strip | {:convert, term()}
   @type hdr :: :tone_map | :preserve
@@ -56,6 +57,7 @@ defmodule ImagePipe.Plan.Output do
           mode: :automatic | {:explicit, format()},
           quality: quality(),
           format_qualities: %{optional(format()) => quality()},
+          default_quality: quality(),
           strip_metadata: boolean(),
           keep_copyright: boolean(),
           color_profile: color_profile(),

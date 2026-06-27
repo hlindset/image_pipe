@@ -755,7 +755,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 70}],
       telemetry_prefix: telemetry_prefix
     ]
 
@@ -802,7 +802,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargeGraphicOriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 70}],
       telemetry_prefix: telemetry_prefix
     ]
 
@@ -840,7 +840,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
       ],
-      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: 70],
+      imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 70}],
       telemetry_prefix: telemetry_prefix
     ]
 
@@ -873,6 +873,72 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     after
       File.rm_rf!(cache_root)
     end
+  end
+
+  test "configured default format quality is applied to output (byte-identical to explicit q)" do
+    # Proves the new host-config default quality is actually applied, not merely
+    # that *some* quality is used: a default request with format_quality webp:50
+    # must produce byte-identical output to an explicit q:50 (both resolve the
+    # webp encode to Q50). If the config default were ignored, the default
+    # request would fall to libvips' own webp default and the bytes would differ.
+    source = [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
+    ]
+
+    default_opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: source,
+      imgproxy: [format_quality: %{webp: 50}]
+    ]
+
+    q50_opts = [parser: ImagePipe.Parser.Imgproxy, sources: source]
+
+    default_conn =
+      call_imgproxy("/_/rs:fit:300:300/plain/images/photo.jpg", default_opts, "image/webp")
+
+    q50_conn =
+      call_imgproxy("/_/q:50/rs:fit:300:300/plain/images/photo.jpg", q50_opts, "image/webp")
+
+    assert content_type(default_conn) == ["image/webp"]
+    assert content_type(q50_conn) == ["image/webp"]
+    assert default_conn.resp_body == q50_conn.resp_body
+  end
+
+  test "URL autoquality min/max override the per-format config bracket (avif)" do
+    # Config bounds the avif autoquality search to Q60..65; a URL autoquality with
+    # min:max 80:90 must win, forcing a higher Q floor and therefore a larger file.
+    source = [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
+    ]
+
+    opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: source,
+      imgproxy: [
+        autoquality_method: :ssimulacra2,
+        autoquality_target: %{ssimulacra2: 90},
+        autoquality_format_min_quality: %{avif: 60},
+        autoquality_format_max_quality: %{avif: 65}
+      ]
+    ]
+
+    config_conn =
+      call_imgproxy("/_/rs:fit:300:300/plain/images/photo.jpg", opts, "image/avif")
+
+    url_conn =
+      call_imgproxy(
+        "/_/autoquality:ssim2:90:80:90/rs:fit:300:300/plain/images/photo.jpg",
+        opts,
+        "image/avif"
+      )
+
+    assert content_type(config_conn) == ["image/avif"]
+    assert content_type(url_conn) == ["image/avif"]
+    assert byte_size(url_conn.resp_body) > byte_size(config_conn.resp_body)
   end
 
   test "encoded path source succeeds through a real Plug request" do

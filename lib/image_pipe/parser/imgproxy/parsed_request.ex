@@ -7,6 +7,7 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
     format: nil,
     quality: :default,
     format_qualities: %{},
+    default_quality: :default,
     max_bytes: nil,
     quality_search: :none,
     strip_metadata: nil,
@@ -31,11 +32,12 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
               ]
 
   @type output_format() :: ImagePipe.Format.output_format() | :best
-  @type quality() :: :default | {:quality, 1..100}
+  @type quality() :: ImagePipe.Plan.Output.quality()
   @type output_request() :: %{
           required(:format) => output_format() | nil,
           required(:quality) => quality(),
           required(:format_qualities) => %{optional(output_format()) => quality()},
+          required(:default_quality) => quality(),
           required(:max_bytes) => pos_integer() | nil,
           required(:quality_search) => :none | {:autoquality, :disabled | keyword()},
           required(:strip_metadata) => boolean() | nil,

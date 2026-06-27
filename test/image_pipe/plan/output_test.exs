@@ -21,4 +21,11 @@ defmodule ImagePipe.Plan.OutputTest do
     assert Output.offset_for(offsets, :jpeg, :graphic) == 2.4
     assert Output.offset_for(offsets, :webp, :photo) == 2.4
   end
+
+  test "default_quality defaults to :default and is settable" do
+    assert %ImagePipe.Plan.Output{mode: :automatic}.default_quality == :default
+
+    out = %ImagePipe.Plan.Output{mode: :automatic, default_quality: {:quality, 80}}
+    assert out.default_quality == {:quality, 80}
+  end
 end

@@ -7,13 +7,22 @@ defmodule ImagePipe.Plan.Output.QualitySearch.Size do
   0 = off) skips the search on oversized results. No perceptual metric, no band.
   """
   @enforce_keys [:target, :min_quality, :max_quality]
-  defstruct @enforce_keys ++ [format_min: %{}, format_max: %{}, max_resolution: 0]
+  defstruct @enforce_keys ++
+              [
+                url_min_quality: nil,
+                url_max_quality: nil,
+                format_min: %{},
+                format_max: %{},
+                max_resolution: 0
+              ]
 
   @type format :: ImagePipe.Format.output_format()
   @type t :: %__MODULE__{
           target: pos_integer(),
           min_quality: 1..100,
           max_quality: 1..100,
+          url_min_quality: nil | 1..100,
+          url_max_quality: nil | 1..100,
           format_min: %{optional(format()) => 1..100},
           format_max: %{optional(format()) => 1..100},
           max_resolution: non_neg_integer()

@@ -337,6 +337,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
            |> resolve_metadata_defaults(defaults)
            |> Map.put(:strip_color_profile, strip_color_profile?)
            |> Map.put(:color_profile, color_profile)
+           |> resolve_quality_defaults(defaults)
            |> resolve_quality_search_defaults(defaults) do
       options =
         options
@@ -345,6 +346,36 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
 
       {:ok, options}
     end
+  end
+
+  # Fold host-config default quality into the product-neutral output. Config
+  # `format_quality` (bare ints) is normalized to the `quality()` shape and used
+  # as the base under the already-merged URL `fq` (`output.format_qualities`).
+  # A URL `:default` entry (`fq:fmt:0`) means "unset" — imgproxy treats `0` as
+  # unset — so it must not erase the config per-format value; reject those before
+  # merging. `default_quality` carries the configured global default.
+  defp resolve_quality_defaults(output, defaults) do
+    config_fq =
+      defaults
+      |> Keyword.get(:format_quality, %{})
+      |> Map.new(fn {format, q} -> {format, {:quality, q}} end)
+
+    url_fq =
+      output.format_qualities
+      |> Enum.reject(fn {_format, quality} -> quality == :default end)
+      |> Map.new()
+
+    default_quality =
+      case Keyword.get(defaults, :quality) do
+        nil -> :default
+        value -> {:quality, value}
+      end
+
+    %{
+      output
+      | format_qualities: Map.merge(config_fq, url_fq),
+        default_quality: default_quality
+    }
   end
 
   @doc false
@@ -383,10 +414,10 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       {:ok,
        %QualitySearch.Size{
          target: target,
-         min_quality:
-           Keyword.get(fields, :min_quality, Keyword.get(defaults, :autoquality_min_quality, 70)),
-         max_quality:
-           Keyword.get(fields, :max_quality, Keyword.get(defaults, :autoquality_max_quality, 80)),
+         min_quality: Keyword.get(defaults, :autoquality_min_quality, 70),
+         max_quality: Keyword.get(defaults, :autoquality_max_quality, 80),
+         url_min_quality: Keyword.get(fields, :min_quality),
+         url_max_quality: Keyword.get(fields, :max_quality),
          format_min: Keyword.get(defaults, :autoquality_format_min_quality, %{}),
          format_max: Keyword.get(defaults, :autoquality_format_max_quality, %{}),
          max_resolution: Keyword.get(defaults, :autoquality_max_resolution, 0)
@@ -395,44 +426,21 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   end
 
   defp build_quality_search(:ssimulacra2, fields, defaults),
-    do:
-      build_quality_metric(QualitySearch.Ssimulacra2, :ssimulacra2, fields, defaults, 70, 80, 1.0)
+    do: build_quality_metric(QualitySearch.Ssimulacra2, :ssimulacra2, fields, defaults)
 
   defp build_quality_search(:butteraugli, fields, defaults),
-    do:
-      build_quality_metric(QualitySearch.Butteraugli, :butteraugli, fields, defaults, 1, 100, 0.1)
+    do: build_quality_metric(QualitySearch.Butteraugli, :butteraugli, fields, defaults)
 
-  defp build_quality_metric(
-         struct_mod,
-         metric,
-         fields,
-         defaults,
-         default_min,
-         default_max,
-         default_error
-       ) do
+  defp build_quality_metric(struct_mod, metric, fields, defaults) do
     with {:ok, target} <- resolve_quality_search_target(metric, fields, defaults) do
       {:ok,
        struct(struct_mod, %{
          target: target,
-         min_quality:
-           Keyword.get(
-             fields,
-             :min_quality,
-             Keyword.get(defaults, :autoquality_min_quality, default_min)
-           ),
-         max_quality:
-           Keyword.get(
-             fields,
-             :max_quality,
-             Keyword.get(defaults, :autoquality_max_quality, default_max)
-           ),
-         allowed_error:
-           Keyword.get(
-             fields,
-             :allowed_error,
-             Keyword.get(defaults, :autoquality_allowed_error, default_error)
-           ),
+         min_quality: Keyword.get(defaults, :autoquality_min_quality, 70),
+         max_quality: Keyword.get(defaults, :autoquality_max_quality, 80),
+         url_min_quality: Keyword.get(fields, :min_quality),
+         url_max_quality: Keyword.get(fields, :max_quality),
+         allowed_error: resolve_allowed_error(metric, fields, defaults),
          format_min: Keyword.get(defaults, :autoquality_format_min_quality, %{}),
          format_max: Keyword.get(defaults, :autoquality_format_max_quality, %{}),
          max_resolution: Keyword.get(defaults, :autoquality_max_resolution, 0)
@@ -440,8 +448,21 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
     end
   end
 
+  # URL arg → per-metric config map → built-in per-metric default. All candidates
+  # are nil | non-negative number, and 0.0 is truthy, so `||` chaining is safe.
+  defp resolve_allowed_error(metric, fields, defaults) do
+    Keyword.get(fields, :allowed_error) ||
+      Map.get(Keyword.get(defaults, :autoquality_allowed_error, %{}), metric) ||
+      default_allowed_error(metric)
+  end
+
+  defp default_allowed_error(:ssimulacra2), do: 1.0
+  defp default_allowed_error(:butteraugli), do: 0.1
+
   defp resolve_quality_search_target(metric, fields, defaults) do
-    case Keyword.get(fields, :target, Keyword.get(defaults, :autoquality_target)) do
+    config_target = Map.get(Keyword.get(defaults, :autoquality_target, %{}), metric)
+
+    case Keyword.get(fields, :target, config_target) do
       nil -> default_target(metric)
       target -> validate_target_range(metric, target)
     end

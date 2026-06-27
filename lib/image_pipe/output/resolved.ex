@@ -15,7 +15,7 @@ defmodule ImagePipe.Output.Resolved do
               [flatten_background: Color.white(), quality_search: :none, max_bytes: nil]
 
   @type format :: ImagePipe.Format.output_format()
-  @type quality :: :default | {:quality, 1..100}
+  @type quality :: ImagePipe.Plan.Output.quality()
   @type t :: %__MODULE__{
           format: format(),
           quality: quality(),
