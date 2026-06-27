@@ -1141,6 +1141,39 @@ defmodule ImagePipe.Cache.KeyTest do
     assert no_jxl_key.data[:output][:auto][:jpeg_xl] == false
   end
 
+  test "every Plan.Output field is accounted for in the cache key (drift guard)" do
+    # Fields whose key contribution is carried elsewhere or deliberately excluded,
+    # each with a rationale. Adding a Plan.Output field forces a decision here so a
+    # byte-affecting field can never silently miss the key (and the ETag).
+    excluded = %{
+      # `mode` selects the :automatic/:explicit key-data clause, not a field value.
+      mode: "drives key-data clause selection",
+      # offsets only bias the search ESTIMATE; the resolved searched quality is what
+      # changes bytes and is already keyed via quality_search.
+      quality_search_offsets: "subsumed by the resolved quality_search",
+      # the global default only seeds quality resolution; its byte effect is carried
+      # into the key by the resolved quality / format_qualities, never independently.
+      default_quality: "subsumed by resolved quality/format_qualities"
+    }
+
+    conn = conn(:get, "/_/f:webp/plain/images/cat.jpg")
+
+    keyed =
+      conn
+      |> build_key!(plan(output: %Output{mode: {:explicit, :webp}}), source_identity())
+      |> Map.fetch!(:data)
+      |> Keyword.fetch!(:output)
+      |> Keyword.keys()
+      |> MapSet.new()
+
+    for {field, _} <- Map.from_struct(%Output{mode: :automatic}) do
+      assert MapSet.member?(keyed, field) or Map.has_key?(excluded, field),
+             "Plan.Output field #{inspect(field)} is neither in the cache key nor in the " <>
+               "excluded-with-rationale list. Add it to output_plan_data/2 or document why it " <>
+               "does not affect stored bytes."
+    end
+  end
+
   test "different jxl_effort changes the cache key" do
     conn = conn(:get, "/_/f:jxl/plain/images/cat.jpg")
 
