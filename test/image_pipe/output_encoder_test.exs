@@ -168,13 +168,39 @@ defmodule ImagePipe.Output.EncoderTest do
     end
   end
 
-  describe "encode_jxl_distance/2" do
+  describe "encode_jxl_distance/3" do
     @tag :jxl
     test "jxl distance suffix encodes a valid JXL" do
       {:ok, img} = Image.new(64, 64, color: [100, 110, 120])
-      assert {:ok, bin} = Encoder.encode_jxl_distance(img, 1.5)
+      assert {:ok, bin} = Encoder.encode_jxl_distance(img, 1.5, nil)
       assert {:ok, decoded} = Image.from_binary(bin)
       assert Image.width(decoded) == 64
+    end
+  end
+
+  describe "jxl_effort threading" do
+    @tag :jxl
+    test "jxl_effort changes encoded bytes; effort 7 matches the no-effort baseline" do
+      {:ok, image} = Image.new(64, 64, color: [100, 110, 120])
+
+      resolved = fn effort ->
+        %Resolved{
+          format: :jpeg_xl,
+          quality: {:quality, 80},
+          response_headers: [],
+          strip_metadata: true,
+          keep_copyright: true,
+          color_profile: :strip,
+          jxl_effort: effort
+        }
+      end
+
+      {:ok, effort7} = Encoder.encode_to_buffer(image, resolved.(7), 80)
+      {:ok, no_effort} = Encoder.encode_to_buffer(image, resolved.(nil), 80)
+      {:ok, effort4} = Encoder.encode_to_buffer(image, resolved.(4), 80)
+
+      assert effort7 == no_effort
+      refute effort7 == effort4
     end
   end
 

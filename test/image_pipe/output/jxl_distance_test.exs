@@ -22,7 +22,7 @@ defmodule ImagePipe.Output.JxlDistanceTest do
 
     for q <- [50, 70, 80, 90] do
       {:ok, by_q} = VixImage.write_to_buffer(img, ".jxl[Q=#{q}]")
-      {:ok, by_d} = Encoder.encode_jxl_distance(img, JxlDistance.from_quality(q))
+      {:ok, by_d} = Encoder.encode_jxl_distance(img, JxlDistance.from_quality(q), nil)
 
       assert by_q == by_d,
              "Q=#{q} diverged from distance=#{JxlDistance.from_quality(q)} — libjxl formula drift"

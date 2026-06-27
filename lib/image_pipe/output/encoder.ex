@@ -66,12 +66,12 @@ defmodule ImagePipe.Output.Encoder do
   # deliver it through the same one-element-list contract the search path uses.
   defp lazy_output(
          finalized,
-         %Resolved{format: :jpeg_xl, quality: quality},
+         %Resolved{format: :jpeg_xl, quality: quality, jxl_effort: effort},
          mime_type,
          _suffix,
          _opts
        ) do
-    case encode_jxl_buffer(finalized, quality) do
+    case encode_jxl_buffer(finalized, quality, effort) do
       {:ok, binary} -> {:ok, [binary], mime_type, nil}
       {:error, _reason} = err -> err
     end
@@ -133,8 +133,8 @@ defmodule ImagePipe.Output.Encoder do
   """
   @spec encode_to_buffer(VixImage.t(), Resolved.t(), 1..100) ::
           {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
-  def encode_to_buffer(%VixImage{} = image, %Resolved{format: :jpeg_xl}, quality),
-    do: encode_jxl_buffer(image, quality)
+  def encode_to_buffer(%VixImage{} = image, %Resolved{format: :jpeg_xl} = resolved, quality),
+    do: encode_jxl_buffer(image, quality, resolved.jxl_effort)
 
   def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
     with {:ok, _mime_type, suffix} <- output_format(resolved_output),
@@ -151,9 +151,10 @@ defmodule ImagePipe.Output.Encoder do
   # JPEG XL is written through Vix directly to a seekable memory buffer: the
   # `image` package rejects the `.jxl` suffix, and `jxlsave` cannot write a
   # non-seekable delivery pipe (`Image.stream!`). Quality drives libjxl's `Q`
-  # knob; `:default` leaves libjxl's own default butteraugli distance.
-  defp encode_jxl_buffer(%VixImage{} = image, quality) do
-    case VixImage.write_to_buffer(image, jxl_vix_suffix(quality)) do
+  # knob; `:default` leaves libjxl's own default butteraugli distance. `effort`
+  # (1..9 or `nil`) sets the encode effort.
+  defp encode_jxl_buffer(%VixImage{} = image, quality, effort) do
+    case VixImage.write_to_buffer(image, jxl_vix_suffix(quality, effort)) do
       {:ok, binary} -> {:ok, binary}
       {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
     end
@@ -163,12 +164,14 @@ defmodule ImagePipe.Output.Encoder do
 
   @doc """
   Encode `image` to a JPEG XL buffer at a target butteraugli `distance`
-  (0.0–25.0). Used by the native-JXL autoquality strategy. Failures surface as
-  `{:error, {:encode, _, _}}`, consistent with `encode_jxl_buffer/2`.
+  (0.0–25.0) and encode `effort` (1..9 or `nil`). Used by the native-JXL
+  autoquality strategy. Failures surface as `{:error, {:encode, _, _}}`,
+  consistent with `encode_jxl_buffer/3`.
   """
-  @spec encode_jxl_distance(VixImage.t(), number()) :: {:ok, binary()} | {:error, term()}
-  def encode_jxl_distance(%VixImage{} = image, distance) do
-    case VixImage.write_to_buffer(image, jxl_vix_suffix({:distance, distance})) do
+  @spec encode_jxl_distance(VixImage.t(), number(), nil | 1..9) ::
+          {:ok, binary()} | {:error, term()}
+  def encode_jxl_distance(%VixImage{} = image, distance, effort) do
+    case VixImage.write_to_buffer(image, jxl_vix_suffix({:distance, distance}, effort)) do
       {:ok, binary} -> {:ok, binary}
       {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
     end
@@ -176,10 +179,23 @@ defmodule ImagePipe.Output.Encoder do
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
 
-  defp jxl_vix_suffix(:default), do: ".jxl"
-  defp jxl_vix_suffix({:quality, value}), do: ".jxl[Q=#{value}]"
-  defp jxl_vix_suffix({:distance, value}), do: ".jxl[distance=#{value}]"
-  defp jxl_vix_suffix(value) when is_integer(value), do: ".jxl[Q=#{value}]"
+  # `effort` (1..9) is the JPEG XL encode effort; `nil` omits the token, leaving
+  # libvips `jxlsave`'s own default (7) — so a `nil` effort is byte-identical to an
+  # explicit `effort=7`.
+  defp jxl_vix_suffix(quality, effort) do
+    case Enum.reject([quality_token(quality), effort_token(effort)], &is_nil/1) do
+      [] -> ".jxl"
+      tokens -> ".jxl[" <> Enum.join(tokens, ",") <> "]"
+    end
+  end
+
+  defp quality_token(:default), do: nil
+  defp quality_token({:quality, value}), do: "Q=#{value}"
+  defp quality_token({:distance, value}), do: "distance=#{value}"
+  defp quality_token(value) when is_integer(value), do: "Q=#{value}"
+
+  defp effort_token(nil), do: nil
+  defp effort_token(effort) when is_integer(effort), do: "effort=#{effort}"
 
   defp encode_error(reason),
     do: ArgumentError.exception("failed to encode to buffer: #{inspect(reason)}")
