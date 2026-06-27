@@ -875,6 +875,37 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  test "configured default format quality is applied to output (byte-identical to explicit q)" do
+    # Proves the new host-config default quality is actually applied, not merely
+    # that *some* quality is used: a default request with format_quality webp:50
+    # must produce byte-identical output to an explicit q:50 (both resolve the
+    # webp encode to Q50). If the config default were ignored, the default
+    # request would fall to libvips' own webp default and the bytes would differ.
+    source = [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
+    ]
+
+    default_opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: source,
+      imgproxy: [format_quality: %{webp: 50}]
+    ]
+
+    q50_opts = [parser: ImagePipe.Parser.Imgproxy, sources: source]
+
+    default_conn =
+      call_imgproxy("/_/rs:fit:300:300/plain/images/photo.jpg", default_opts, "image/webp")
+
+    q50_conn =
+      call_imgproxy("/_/q:50/rs:fit:300:300/plain/images/photo.jpg", q50_opts, "image/webp")
+
+    assert content_type(default_conn) == ["image/webp"]
+    assert content_type(q50_conn) == ["image/webp"]
+    assert default_conn.resp_body == q50_conn.resp_body
+  end
+
   test "encoded path source succeeds through a real Plug request" do
     encoded = encoded_source("images/beach.jpg")
 
