@@ -1176,7 +1176,11 @@ defmodule ImagePipe.PlugTest do
              modern_candidates: [:avif, :webp],
              auto: [jpeg_xl: true, avif: true, webp: true],
              quality: :default,
-             format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
+             format_qualities: %{
+               avif: {:quality, 63},
+               jpeg_xl: {:quality, 77},
+               webp: {:quality, 79}
+             },
              quality_search: :none,
              max_bytes: nil,
              strip_metadata: true,

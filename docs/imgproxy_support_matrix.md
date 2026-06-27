@@ -606,9 +606,11 @@ narrowly-scoped divergence, follow-up only.)
 
 - ✅ `IMGPROXY_QUALITY` — `quality` (global default, `1..100`, default `80`).
 - ✅ `IMGPROXY_FORMAT_QUALITY` — `format_quality` (per-format default map, default
-  `%{webp: 79, avif: 63, jpeg_xl: 77}`, matching imgproxy's values). A URL `fq:fmt:0`
-  is treated as *unset* (imgproxy `q > 0` semantics) and falls back to the config
-  per-format default rather than erasing it.
+  `%{webp: 79, avif: 63, jpeg_xl: 77}`, matching imgproxy's values). A host override
+  **merges** onto the built-in defaults (imgproxy `maps.Copy`), so configuring one
+  format leaves the others at their defaults rather than dropping them to the global
+  `quality`. A URL `fq:fmt:0` is treated as *unset* (imgproxy `q > 0` semantics) and
+  falls back to the config per-format default rather than erasing it.
 
 ### Advanced encoder options
 
@@ -649,8 +651,8 @@ quality capability (jpeg/webp/avif/jpeg-xl), not imgproxy's narrower documented 
 - ✅ `IMGPROXY_AUTOQUALITY_MIN` — `autoquality_min_quality` (single global, default `70`). Metric-*independent* file-size guardrail — it applies uniformly across `:size`/`:ssimulacra2`/`:butteraugli`; with the per-format `format_min` brackets it is the universal bracket every metric searches within.
 - ✅ `IMGPROXY_AUTOQUALITY_MAX` — `autoquality_max_quality` (single global, default `80`; the metric-independent ceiling of the same guardrail).
 - ⚠️ `IMGPROXY_AUTOQUALITY_ALLOWED_ERROR` — `autoquality_allowed_error` (**per-metric map**; a **symmetric** tolerance band **on each metric's own scale**). Resolution per metric: URL arg → config map entry → built-in default. **Built-in defaults:** `:ssimulacra2` → `1.0` (a ±1-point band on the SSIMULACRA2 scale — the objective walks toward `target` and accepts the first quality within `[target − allowed_error, target + allowed_error]`); `:butteraugli` → `0.1` (a band on the **distance** scale, **lower-is-better**, walked from the opposite direction; `1.0` would be enormous on that scale). `:size` is a bare `bytes ≤ target` predicate with no band and is rejected as a key. **Scale collision, documented:** this is **not** imgproxy's DSSIM `allowed_error` (0–1, where `1.0` means "accept anything"); on the SSIMULACRA2 scale the same `1.0` is a strict ±1-point band, and imgproxy's own default `0.002` would be a near-exact-match band. The per-metric map is what makes these built-in defaults reachable — a single cross-metric global silently pinned butteraugli to the ssim2 `1.0` band before (#390).
-- ⚠️ `IMGPROXY_AUTOQUALITY_FORMAT_MIN` — `autoquality_format_min_quality` (default `%{avif: 60, jpeg_xl: 45}`). **Diverges (surface):** imgproxy ships an **AVIF-only** per-format default (`avif=60`); the `jpeg_xl: 45` floor is ImagePipe-added (imgproxy would let JPEG XL inherit the base `70`). See the JXL-bracket rationale below.
-- ⚠️ `IMGPROXY_AUTOQUALITY_FORMAT_MAX` — `autoquality_format_max_quality` (default `%{avif: 65, jpeg_xl: 80}`). **Diverges (surface):** imgproxy ships `avif=65` only; the `jpeg_xl: 80` ceiling is ImagePipe-added.
+- ⚠️ `IMGPROXY_AUTOQUALITY_FORMAT_MIN` — `autoquality_format_min_quality` (default `%{avif: 60, jpeg_xl: 45}`). A host override **merges** onto these built-in defaults (like `format_quality`), so configuring one format keeps the others'. **Diverges (surface):** imgproxy ships an **AVIF-only** per-format default (`avif=60`); the `jpeg_xl: 45` floor is ImagePipe-added (imgproxy would let JPEG XL inherit the base `70`). See the JXL-bracket rationale below.
+- ⚠️ `IMGPROXY_AUTOQUALITY_FORMAT_MAX` — `autoquality_format_max_quality` (default `%{avif: 65, jpeg_xl: 80}`; same merge semantics). **Diverges (surface):** imgproxy ships `avif=65` only; the `jpeg_xl: 80` ceiling is ImagePipe-added.
 - ✅ `IMGPROXY_AUTOQUALITY_MAX_RESOLUTION` — `autoquality_max_resolution` (megapixels, default `0` = off).
 - ➕ `autoquality_max_iterations` (default `6`) — **ImagePipe-specific, no imgproxy counterpart.** imgproxy's `max_bytes` descent is uncapped and its autoquality is Pro/closed; ImagePipe does a bounded binary search, so this caps the distinct re-encodes per request.
 

@@ -24,11 +24,41 @@ defmodule ImagePipe.Parser.Imgproxy do
   alias ImagePipe.Parser.Imgproxy.Signature
   alias ImagePipe.Parser.Imgproxy.SourceEncryption
 
-  # imgproxy's per-format default quality (`IMGPROXY_FORMAT_QUALITY`). A host
-  # override **merges** onto these (imgproxy `maps.Copy(c.FormatQuality, fq)`),
-  # so configuring one format leaves the others at their defaults rather than
-  # dropping them to the global `quality`.
+  # Single source of truth for the request-relevant imgproxy config defaults.
+  # Each value is referenced by both the `@imgproxy_schema` `default:` (applied at
+  # `validate_options!`) and `request_defaults/1` (applied on the direct-parse
+  # path), so the default lives in exactly one place.
+  @default_auto_rotate true
+  @default_strip_metadata true
+  @default_keep_copyright true
+  @default_strip_color_profile true
+  @default_preserve_hdr false
+  @default_quality 80
+  @default_autoquality_method :none
+  @default_autoquality_min_quality 70
+  @default_autoquality_max_quality 80
+  @default_autoquality_max_resolution 0
+  @default_autoquality_max_iterations 6
+  # Per-metric maps (keyed by metric); empty = "use the built-in per-metric default".
+  @default_autoquality_target %{}
+  @default_autoquality_allowed_error %{}
+
+  # Per-format default maps. A host override **merges** onto these (imgproxy
+  # `maps.Copy`), so configuring one format leaves the others at their defaults
+  # rather than dropping them (`format_quality` → global `quality`; the autoquality
+  # brackets → the base min/max). The merge is applied in `merge_map_defaults/1` at
+  # the config boundary (so `validate_autoquality_brackets!` checks the same
+  # effective brackets resolution uses) and again in `request_defaults/1` for the
+  # direct-parse path; both are idempotent.
   @default_format_quality %{webp: 79, avif: 63, jpeg_xl: 77}
+  @default_autoquality_format_min %{avif: 60, jpeg_xl: 45}
+  @default_autoquality_format_max %{avif: 65, jpeg_xl: 80}
+
+  @merged_map_defaults [
+    format_quality: @default_format_quality,
+    autoquality_format_min_quality: @default_autoquality_format_min,
+    autoquality_format_max_quality: @default_autoquality_format_max
+  ]
 
   @imgproxy_schema NimbleOptions.new!(
                      signature: [type: :keyword_list, required: false],
@@ -50,21 +80,21 @@ defmodule ImagePipe.Parser.Imgproxy do
                      ],
                      auto_rotate: [
                        type: :boolean,
-                       default: true
+                       default: @default_auto_rotate
                      ],
-                     strip_metadata: [type: :boolean, default: true],
-                     keep_copyright: [type: :boolean, default: true],
-                     quality: [type: :pos_integer, default: 80],
+                     strip_metadata: [type: :boolean, default: @default_strip_metadata],
+                     keep_copyright: [type: :boolean, default: @default_keep_copyright],
+                     quality: [type: :pos_integer, default: @default_quality],
                      format_quality: [
                        type: {:map, :atom, :pos_integer},
                        default: @default_format_quality
                      ],
-                     strip_color_profile: [type: :boolean, default: true],
-                     preserve_hdr: [type: :boolean, default: false],
+                     strip_color_profile: [type: :boolean, default: @default_strip_color_profile],
+                     preserve_hdr: [type: :boolean, default: @default_preserve_hdr],
                      smart_crop_face_detection: [type: :boolean, default: false],
                      autoquality_method: [
                        type: {:in, [:none, :size, :ssimulacra2, :butteraugli]},
-                       default: :none
+                       default: @default_autoquality_method
                      ],
                      # Per-metric search target on each metric's own scale (SSIMULACRA2
                      # score 0–100, butteraugli distance 0–25, size byte count). A
@@ -74,10 +104,16 @@ defmodule ImagePipe.Parser.Imgproxy do
                      # `validate_quality_config!`.
                      autoquality_target: [
                        type: {:map, :atom, {:or, [:integer, :float]}},
-                       default: %{}
+                       default: @default_autoquality_target
                      ],
-                     autoquality_min_quality: [type: :pos_integer, default: 70],
-                     autoquality_max_quality: [type: :pos_integer, default: 80],
+                     autoquality_min_quality: [
+                       type: :pos_integer,
+                       default: @default_autoquality_min_quality
+                     ],
+                     autoquality_max_quality: [
+                       type: :pos_integer,
+                       default: @default_autoquality_max_quality
+                     ],
                      # Per-metric symmetric tolerance band on the metric's own scale
                      # (SSIMULACRA2 points on 0–100, butteraugli distance), NOT imgproxy's
                      # DSSIM `allowed_error`. Per-metric for the same scale reason as
@@ -86,25 +122,31 @@ defmodule ImagePipe.Parser.Imgproxy do
                      # `validate_quality_config!`; the URL form is guarded by the grammar.
                      autoquality_allowed_error: [
                        type: {:map, :atom, {:or, [:integer, :float]}},
-                       default: %{}
+                       default: @default_autoquality_allowed_error
                      ],
                      # Per-format quality brackets the autoquality search operates
                      # within. AVIF uses a tight 60–65 band; JPEG XL gets a wide
                      # 45–80 band so the search can actually reach the ssim2 target
                      # per image (JXL needs ~Q70 on photos but only ~Q55 on screen
                      # content, and the base 70 floor would otherwise pin it high and
-                     # overshoot). A format absent here falls back to the base
-                     # autoquality_min_quality/max_quality.
+                     # overshoot). A host override merges onto these defaults; a format
+                     # still absent after the merge falls back to the base min/max.
                      autoquality_format_min_quality: [
                        type: {:map, :atom, :pos_integer},
-                       default: %{avif: 60, jpeg_xl: 45}
+                       default: @default_autoquality_format_min
                      ],
                      autoquality_format_max_quality: [
                        type: {:map, :atom, :pos_integer},
-                       default: %{avif: 65, jpeg_xl: 80}
+                       default: @default_autoquality_format_max
                      ],
-                     autoquality_max_resolution: [type: :non_neg_integer, default: 0],
-                     autoquality_max_iterations: [type: :pos_integer, default: 6]
+                     autoquality_max_resolution: [
+                       type: :non_neg_integer,
+                       default: @default_autoquality_max_resolution
+                     ],
+                     autoquality_max_iterations: [
+                       type: :pos_integer,
+                       default: @default_autoquality_max_iterations
+                     ]
                    )
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
@@ -144,6 +186,7 @@ defmodule ImagePipe.Parser.Imgproxy do
   defp validate_imgproxy_options!(imgproxy_opts) when is_list(imgproxy_opts) do
     case NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
       {:ok, validated} ->
+        validated = merge_map_defaults(validated)
         validate_quality_config!(validated)
         validate_autoquality_brackets!(validated)
 
@@ -158,6 +201,15 @@ defmodule ImagePipe.Parser.Imgproxy do
 
   defp validate_imgproxy_options!(_imgproxy_opts),
     do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
+
+  # Merge the built-in per-format default maps under each host override so a partial
+  # override keeps the other formats' defaults (imgproxy `maps.Copy`). Runs before
+  # the bracket/quality config checks so they validate the effective merged maps.
+  defp merge_map_defaults(validated) do
+    Enum.reduce(@merged_map_defaults, validated, fn {key, defaults}, acc ->
+      Keyword.update(acc, key, defaults, &Map.merge(defaults, &1))
+    end)
+  end
 
   # Range-check the host-config default quality knobs. NimbleOptions enforces
   # pos_integer / map shape but not the 1..100 ceiling, so assert it here at the
@@ -394,26 +446,56 @@ defmodule ImagePipe.Parser.Imgproxy do
 
   defp request_defaults(imgproxy_opts) do
     [
-      auto_rotate: Keyword.get(imgproxy_opts, :auto_rotate, true),
-      strip_metadata: Keyword.get(imgproxy_opts, :strip_metadata, true),
-      keep_copyright: Keyword.get(imgproxy_opts, :keep_copyright, true),
-      strip_color_profile: Keyword.get(imgproxy_opts, :strip_color_profile, true),
-      preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, false),
-      quality: Keyword.get(imgproxy_opts, :quality, 80),
-      format_quality:
-        Map.merge(@default_format_quality, Keyword.get(imgproxy_opts, :format_quality, %{})),
-      autoquality_method: Keyword.get(imgproxy_opts, :autoquality_method, :none),
-      autoquality_target: Keyword.get(imgproxy_opts, :autoquality_target, %{}),
-      autoquality_min_quality: Keyword.get(imgproxy_opts, :autoquality_min_quality, 70),
-      autoquality_max_quality: Keyword.get(imgproxy_opts, :autoquality_max_quality, 80),
-      autoquality_allowed_error: Keyword.get(imgproxy_opts, :autoquality_allowed_error, %{}),
+      auto_rotate: Keyword.get(imgproxy_opts, :auto_rotate, @default_auto_rotate),
+      strip_metadata: Keyword.get(imgproxy_opts, :strip_metadata, @default_strip_metadata),
+      keep_copyright: Keyword.get(imgproxy_opts, :keep_copyright, @default_keep_copyright),
+      strip_color_profile:
+        Keyword.get(imgproxy_opts, :strip_color_profile, @default_strip_color_profile),
+      preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, @default_preserve_hdr),
+      quality: Keyword.get(imgproxy_opts, :quality, @default_quality),
+      format_quality: merge_map_default(imgproxy_opts, :format_quality, @default_format_quality),
+      autoquality_method:
+        Keyword.get(imgproxy_opts, :autoquality_method, @default_autoquality_method),
+      autoquality_target:
+        Keyword.get(imgproxy_opts, :autoquality_target, @default_autoquality_target),
+      autoquality_min_quality:
+        Keyword.get(imgproxy_opts, :autoquality_min_quality, @default_autoquality_min_quality),
+      autoquality_max_quality:
+        Keyword.get(imgproxy_opts, :autoquality_max_quality, @default_autoquality_max_quality),
+      autoquality_allowed_error:
+        Keyword.get(imgproxy_opts, :autoquality_allowed_error, @default_autoquality_allowed_error),
       autoquality_format_min_quality:
-        Keyword.get(imgproxy_opts, :autoquality_format_min_quality, %{avif: 60, jpeg_xl: 45}),
+        merge_map_default(
+          imgproxy_opts,
+          :autoquality_format_min_quality,
+          @default_autoquality_format_min
+        ),
       autoquality_format_max_quality:
-        Keyword.get(imgproxy_opts, :autoquality_format_max_quality, %{avif: 65, jpeg_xl: 80}),
-      autoquality_max_resolution: Keyword.get(imgproxy_opts, :autoquality_max_resolution, 0),
-      autoquality_max_iterations: Keyword.get(imgproxy_opts, :autoquality_max_iterations, 6)
+        merge_map_default(
+          imgproxy_opts,
+          :autoquality_format_max_quality,
+          @default_autoquality_format_max
+        ),
+      autoquality_max_resolution:
+        Keyword.get(
+          imgproxy_opts,
+          :autoquality_max_resolution,
+          @default_autoquality_max_resolution
+        ),
+      autoquality_max_iterations:
+        Keyword.get(
+          imgproxy_opts,
+          :autoquality_max_iterations,
+          @default_autoquality_max_iterations
+        )
     ]
+  end
+
+  # Merge a host per-format map override under the built-in defaults (idempotent
+  # with `merge_map_defaults/1`; covers the direct-parse path where the opts were
+  # not run through `validate_options!`).
+  defp merge_map_default(imgproxy_opts, key, defaults) do
+    Map.merge(defaults, Keyword.get(imgproxy_opts, key, %{}))
   end
 
   defp source_parsing_config(opts) do

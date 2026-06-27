@@ -138,7 +138,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     end
   end
 
-  test "accepts a per-format bracket that is ordered after fallback" do
+  test "a per-format bracket override merges with the built-in defaults" do
     opts =
       Imgproxy.validate_options!(
         imgproxy: [
@@ -149,7 +149,24 @@ defmodule ImagePipe.Parser.ImgproxyTest do
         ]
       )
 
-    assert opts[:imgproxy][:autoquality_format_min_quality] == %{avif: 60}
+    # avif is overridden; jpeg_xl keeps its built-in 45/80 rather than being dropped.
+    assert opts[:imgproxy][:autoquality_format_min_quality] == %{avif: 60, jpeg_xl: 45}
+    assert opts[:imgproxy][:autoquality_format_max_quality] == %{avif: 65, jpeg_xl: 80}
+  end
+
+  test "a partial bracket override that only inverts against base built-ins is accepted (merge)" do
+    # format_max jpeg_xl=65 with the built-in format_min jpeg_xl=45 is ordered (45<=65).
+    # Without the merge, jpeg_xl min would fall to base 70 and be wrongly rejected (70>65).
+    opts =
+      Imgproxy.validate_options!(
+        imgproxy: [
+          autoquality_format_min_quality: %{avif: 60},
+          autoquality_format_max_quality: %{jpeg_xl: 65}
+        ]
+      )
+
+    assert opts[:imgproxy][:autoquality_format_min_quality] == %{avif: 60, jpeg_xl: 45}
+    assert opts[:imgproxy][:autoquality_format_max_quality] == %{avif: 65, jpeg_xl: 65}
   end
 
   test "default autoquality brackets give JPEG XL a wide 45-80 band alongside AVIF's 60-65" do
