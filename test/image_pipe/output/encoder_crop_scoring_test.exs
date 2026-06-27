@@ -1,6 +1,11 @@
 defmodule ImagePipe.Output.EncoderCropScoringTest do
   use ExUnit.Case, async: true
 
+  # Every test here runs a real SSIMULACRA2 autoquality search over native-res
+  # crop tiles. On oversubscribed CI cores that dirty-scheduler work can run many
+  # seconds wall-clock, so lift the per-test timeout well above the default 60s.
+  @moduletag timeout: 180_000
+
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.EncodeSearch
   alias ImagePipe.Output.Resolved

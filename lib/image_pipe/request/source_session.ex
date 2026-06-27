@@ -14,9 +14,10 @@ defmodule ImagePipe.Request.SourceSession do
   # bounded by origin_receive_timeout and the decoded-pixel limit). `prepare`/`next`
   # block on the producer, which for non-streamable codecs (AVIF, WebP) means a full
   # synchronous encode. Under oversubscribed CI cores, libvips/NIF encode work on
-  # dirty schedulers can take many seconds wall-clock, so keep this comfortably above
-  # a realistic worst-case encode to avoid spurious :timeout failures.
-  @call_timeout 30_000
+  # dirty schedulers can take many seconds wall-clock — an autoquality SSIMULACRA2
+  # search over a large image is the realistic worst case — so keep this comfortably
+  # above it to avoid spurious :timeout failures.
+  @call_timeout 60_000
   @cancel_timeout 2_000
   @shutdown_timeout 2_000
 
