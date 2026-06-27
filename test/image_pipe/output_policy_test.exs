@@ -566,4 +566,35 @@ defmodule ImagePipe.Output.PolicyTest do
       assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) == :ok
     end
   end
+
+  describe "effective_quality default resolution" do
+    defp policy_for(format, opts) do
+      output = struct(%Output{mode: {:explicit, format}}, opts)
+      Policy.from_output_plan(%Plug.Conn{}, output, [])
+    end
+
+    test "format in format_qualities wins" do
+      policy =
+        policy_for(:avif, format_qualities: %{avif: {:quality, 63}}, default_quality: {:quality, 80})
+
+      assert {:ok, %{quality: {:quality, 63}}} = Policy.resolve(policy, nil)
+    end
+
+    test "format absent from map falls to the global default" do
+      policy =
+        policy_for(:jpeg, format_qualities: %{avif: {:quality, 63}}, default_quality: {:quality, 80})
+
+      assert {:ok, %{quality: {:quality, 80}}} = Policy.resolve(policy, nil)
+    end
+
+    test "png is gated off the global default (stays lossless)" do
+      policy = policy_for(:png, default_quality: {:quality, 80})
+      assert {:ok, %{quality: :default}} = Policy.resolve(policy, nil)
+    end
+
+    test "explicit URL q wins for all formats incl png" do
+      policy = policy_for(:png, quality: {:quality, 50}, default_quality: {:quality, 80})
+      assert {:ok, %{quality: {:quality, 50}}} = Policy.resolve(policy, nil)
+    end
+  end
 end

@@ -24,12 +24,18 @@ defmodule ImagePipe.Output.Policy do
   defstruct @enforce_keys ++
               [
                 flatten_background: Color.white(),
+                default_quality: :default,
                 quality_search: :none,
                 max_bytes: nil,
                 quality_search_offsets: Output.default_quality_search_offsets()
               ]
 
   @passthrough_source_formats [:jpeg, :png]
+
+  # Lossless output formats do not take the configured numeric default quality
+  # (a numeric Q would trigger PNG quantization). An explicit URL q/fq still
+  # applies; only the implicit global default is gated.
+  @lossless_default_formats [:png]
 
   @type format() :: Format.output_format()
   @type source_format() :: Format.source_format()
@@ -42,6 +48,7 @@ defmodule ImagePipe.Output.Policy do
           headers: [{String.t(), String.t()}],
           quality: quality(),
           format_qualities: %{optional(format()) => quality()},
+          default_quality: quality(),
           strip_metadata: boolean(),
           keep_copyright: boolean(),
           color_profile: Output.color_profile(),
@@ -63,6 +70,7 @@ defmodule ImagePipe.Output.Policy do
       headers: automatic_headers(),
       quality: output.quality,
       format_qualities: output.format_qualities,
+      default_quality: output.default_quality,
       strip_metadata: output.strip_metadata,
       keep_copyright: output.keep_copyright,
       color_profile: output.color_profile,
@@ -80,6 +88,7 @@ defmodule ImagePipe.Output.Policy do
       headers: [],
       quality: output.quality,
       format_qualities: output.format_qualities,
+      default_quality: output.default_quality,
       strip_metadata: output.strip_metadata,
       keep_copyright: output.keep_copyright,
       color_profile: output.color_profile,
@@ -242,10 +251,17 @@ defmodule ImagePipe.Output.Policy do
     do: quality
 
   defp effective_quality(
-         %__MODULE__{quality: :default, format_qualities: format_qualities},
+         %__MODULE__{quality: :default, format_qualities: format_qualities} = policy,
          format
-       ),
-       do: Map.get(format_qualities, format, :default)
+       ) do
+    case Map.get(format_qualities, format) do
+      {:quality, _value} = quality -> quality
+      _other -> default_for(policy, format)
+    end
+  end
+
+  defp default_for(%__MODULE__{}, format) when format in @lossless_default_formats, do: :default
+  defp default_for(%__MODULE__{default_quality: default_quality}, _format), do: default_quality
 
   defp accept_header(conn), do: conn |> get_req_header("accept") |> Enum.join(",")
 end
