@@ -100,14 +100,14 @@ defmodule ImagePipe.Parser.ImgproxyTest do
       Imgproxy.validate_options!(
         imgproxy: [
           autoquality_method: :ssimulacra2,
-          autoquality_target: 90.0,
+          autoquality_target: %{ssimulacra2: 90.0},
           autoquality_min_quality: 70,
           autoquality_max_quality: 80
         ]
       )
 
     assert opts[:imgproxy][:autoquality_method] == :ssimulacra2
-    assert opts[:imgproxy][:autoquality_target] == 90.0
+    assert opts[:imgproxy][:autoquality_target] == %{ssimulacra2: 90.0}
   end
 
   test "rejects an inverted global autoquality bracket" do
@@ -122,7 +122,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     # A negative band would invert to band_lo > band_hi in EncodeSearch. The URL form
     # is already guarded by the grammar; this closes the host-config boundary.
     assert_raise ArgumentError, ~r/invalid imgproxy config.*non-negative/, fn ->
-      Imgproxy.validate_options!(imgproxy: [autoquality_allowed_error: -1.0])
+      Imgproxy.validate_options!(imgproxy: [autoquality_allowed_error: %{ssimulacra2: -1.0}])
     end
   end
 
@@ -175,6 +175,49 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     test "rejects a format_quality value above 100" do
       assert_raise ArgumentError, ~r/format_quality/, fn ->
         Imgproxy.validate_options!(imgproxy: [format_quality: %{webp: 101}])
+      end
+    end
+  end
+
+  describe "per-metric autoquality config" do
+    test "defaults: target/allowed_error are empty maps" do
+      opts = Imgproxy.validate_options!(imgproxy: [])[:imgproxy]
+      assert opts[:autoquality_target] == %{}
+      assert opts[:autoquality_allowed_error] == %{}
+    end
+
+    test "accepts per-metric maps" do
+      opts =
+        Imgproxy.validate_options!(
+          imgproxy: [
+            autoquality_target: %{ssimulacra2: 85, butteraugli: 1.0, size: 40_000},
+            autoquality_allowed_error: %{ssimulacra2: 0.5, butteraugli: 0.1}
+          ]
+        )[:imgproxy]
+
+      assert opts[:autoquality_target][:ssimulacra2] == 85
+      assert opts[:autoquality_allowed_error][:butteraugli] == 0.1
+    end
+
+    test "rejects target out of the metric's range" do
+      assert_raise ArgumentError, ~r/target/, fn ->
+        Imgproxy.validate_options!(imgproxy: [autoquality_target: %{butteraugli: 78}])
+      end
+    end
+
+    test "rejects negative allowed_error and the :size key for allowed_error" do
+      assert_raise ArgumentError, ~r/allowed_error/, fn ->
+        Imgproxy.validate_options!(imgproxy: [autoquality_allowed_error: %{ssimulacra2: -1}])
+      end
+
+      assert_raise ArgumentError, ~r/allowed_error/, fn ->
+        Imgproxy.validate_options!(imgproxy: [autoquality_allowed_error: %{size: 1.0}])
+      end
+    end
+
+    test "rejects an unknown metric key" do
+      assert_raise ArgumentError, ~r/autoquality_target/, fn ->
+        Imgproxy.validate_options!(imgproxy: [autoquality_target: %{bogus: 50}])
       end
     end
   end
@@ -1226,14 +1269,20 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} = Imgproxy.parse(conn(:get, "/_/q:80/fq:webp:70/plain/images/cat.jpg"), [])
   end
 
-  test "quality zero and format-quality zero normalize to default" do
+  test "quality zero and format-quality zero are unset, falling back to config defaults" do
+    # q:0 → global quality unset (:default); fq:webp:0 → webp unset, which falls
+    # back to the configured per-format default (imgproxy parity: 0 = unset, not
+    # erase), so webp resolves to the configured 79 rather than staying :default.
     assert {:ok,
             %Plan{
               output: %ImagePipe.Plan.Output{
                 quality: :default,
-                format_qualities: %{webp: :default}
+                default_quality: {:quality, 80},
+                format_qualities: format_qualities
               }
             }} = Imgproxy.parse(conn(:get, "/_/q:0/fq:webp:0/plain/images/cat.jpg"), [])
+
+    assert format_qualities[:webp] == {:quality, 79}
   end
 
   test "repeated format quality assignments replace by normalized format" do

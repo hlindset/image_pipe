@@ -60,24 +60,27 @@ defmodule ImagePipe.Parser.Imgproxy do
                        type: {:in, [:none, :size, :ssimulacra2, :butteraugli]},
                        default: :none
                      ],
-                     # No schema default: the target's scale is metric-dependent
-                     # (SSIMULACRA2 score for `:ssimulacra2`, byte count for `:size`,
-                     # butteraugli distance for `:butteraugli`), so the perceptual
-                     # defaults are applied metric-aware in `Options`; `:size` stays
-                     # required. A host-set value overrides for any metric.
-                     autoquality_target: [type: {:or, [:integer, :float]}],
+                     # Per-metric search target on each metric's own scale (SSIMULACRA2
+                     # score 0–100, butteraugli distance 0–25, size byte count). A
+                     # single cross-metric scalar is incoherent, so this is keyed by
+                     # metric; built-in per-metric defaults apply where absent (`:size`
+                     # has no default — it stays required). Range-checked per metric in
+                     # `validate_quality_config!`.
+                     autoquality_target: [
+                       type: {:map, :atom, {:or, [:integer, :float]}},
+                       default: %{}
+                     ],
                      autoquality_min_quality: [type: :pos_integer, default: 70],
                      autoquality_max_quality: [type: :pos_integer, default: 80],
-                     # Symmetric tolerance band on the metric's own scale (SSIMULACRA2
-                     # points on 0–100 for `:ssimulacra2`, distance for `:butteraugli`),
-                     # NOT imgproxy's DSSIM `allowed_error` (0–1, 1.0 = accept anything);
-                     # for ssimulacra2 a 1.0 is a strict ±1-point band around the target.
-                     # See `QualitySearch.*`. Must be non-negative: a negative value would
-                     # invert the band (`band_lo > band_hi`) in EncodeSearch.
-                     # The URL form is already guarded by the grammar's non-negative parse.
+                     # Per-metric symmetric tolerance band on the metric's own scale
+                     # (SSIMULACRA2 points on 0–100, butteraugli distance), NOT imgproxy's
+                     # DSSIM `allowed_error`. Per-metric for the same scale reason as
+                     # target; built-in defaults apply where absent (ssimulacra2 1.0,
+                     # butteraugli 0.1). `:size` has no band. Non-negative is enforced in
+                     # `validate_quality_config!`; the URL form is guarded by the grammar.
                      autoquality_allowed_error: [
-                       type: {:custom, __MODULE__, :validate_non_negative_number, []},
-                       default: 1.0
+                       type: {:map, :atom, {:or, [:integer, :float]}},
+                       default: %{}
                      ],
                      # Per-format quality brackets the autoquality search operates
                      # within. AVIF uses a tight 60–65 band; JPEG XL gets a wide
@@ -169,7 +172,49 @@ defmodule ImagePipe.Parser.Imgproxy do
       end
     end)
 
+    validate_autoquality_target_config!(Keyword.fetch!(validated, :autoquality_target))
+    validate_autoquality_allowed_error_config!(Keyword.fetch!(validated, :autoquality_allowed_error))
     :ok
+  end
+
+  @autoquality_metrics [:size, :ssimulacra2, :butteraugli]
+
+  defp validate_autoquality_target_config!(target_map) do
+    Enum.each(target_map, fn {metric, value} ->
+      unless metric in @autoquality_metrics do
+        raise ArgumentError,
+              "invalid imgproxy config: autoquality_target has unknown metric #{inspect(metric)}"
+      end
+
+      valid? =
+        case metric do
+          :size -> is_integer(value) and value > 0
+          :ssimulacra2 -> is_number(value) and value >= 0 and value <= 100
+          :butteraugli -> is_number(value) and value >= 0 and value <= 25
+        end
+
+      unless valid? do
+        raise ArgumentError,
+              "invalid imgproxy config: autoquality_target #{inspect(metric)} (#{inspect(value)}) " <>
+                "is out of range for that metric"
+      end
+    end)
+  end
+
+  defp validate_autoquality_allowed_error_config!(error_map) do
+    Enum.each(error_map, fn {metric, value} ->
+      unless metric in [:ssimulacra2, :butteraugli] do
+        raise ArgumentError,
+              "invalid imgproxy config: autoquality_allowed_error has unsupported metric " <>
+                "#{inspect(metric)} (only :ssimulacra2/:butteraugli)"
+      end
+
+      unless is_number(value) and value >= 0 do
+        raise ArgumentError,
+              "invalid imgproxy config: autoquality_allowed_error #{inspect(metric)} " <>
+                "(#{inspect(value)}) must be a non-negative number"
+      end
+    end)
   end
 
   # NimbleOptions validates each autoquality quality is 1..100 but cannot express
@@ -222,14 +267,6 @@ defmodule ImagePipe.Parser.Imgproxy do
 
   def validate_source_schemes(_schemes),
     do: {:error, "expected a map from binary scheme names to {module, keyword_options}"}
-
-  @doc false
-  def validate_non_negative_number(value)
-      when (is_integer(value) or is_float(value)) and value >= 0,
-      do: {:ok, value}
-
-  def validate_non_negative_number(_value),
-    do: {:error, "expected a non-negative number"}
 
   @impl ImagePipe.Parser
   def parse(%Plug.Conn{} = conn, opts) do
@@ -355,10 +392,10 @@ defmodule ImagePipe.Parser.Imgproxy do
       format_quality:
         Keyword.get(imgproxy_opts, :format_quality, %{webp: 79, avif: 63, jpeg_xl: 77}),
       autoquality_method: Keyword.get(imgproxy_opts, :autoquality_method, :none),
-      autoquality_target: Keyword.get(imgproxy_opts, :autoquality_target),
+      autoquality_target: Keyword.get(imgproxy_opts, :autoquality_target, %{}),
       autoquality_min_quality: Keyword.get(imgproxy_opts, :autoquality_min_quality, 70),
       autoquality_max_quality: Keyword.get(imgproxy_opts, :autoquality_max_quality, 80),
-      autoquality_allowed_error: Keyword.get(imgproxy_opts, :autoquality_allowed_error, 1.0),
+      autoquality_allowed_error: Keyword.get(imgproxy_opts, :autoquality_allowed_error, %{}),
       autoquality_format_min_quality:
         Keyword.get(imgproxy_opts, :autoquality_format_min_quality, %{avif: 60, jpeg_xl: 45}),
       autoquality_format_max_quality:
