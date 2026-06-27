@@ -254,7 +254,11 @@ defmodule ImagePipe.Cache.KeyTest do
     base = %QualitySearch.Ssimulacra2{target: 78, min_quality: 70, max_quality: 80}
 
     k_plain =
-      build_key!(conn, plan(output: %Output{mode: {:explicit, :webp}, quality_search: base}), source_identity())
+      build_key!(
+        conn,
+        plan(output: %Output{mode: {:explicit, :webp}, quality_search: base}),
+        source_identity()
+      )
 
     k_url =
       build_key!(

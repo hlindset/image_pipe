@@ -99,12 +99,12 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule StreamingOnlyImage do
-    def stream!(_image, suffix: ".jpg") do
+    def stream!(_image, [{:suffix, ".jpg"} | _]) do
       send(message_target(), :stream_encoder_called)
       ["streamed jpeg"]
     end
 
-    def write!(_image, :memory, suffix: ".jpg") do
+    def write!(_image, :memory, [{:suffix, ".jpg"} | _]) do
       send(message_target(), :memory_encoder_called)
       raise "cache-enabled memory encoder should not be called"
     end
@@ -118,12 +118,12 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule BoundedCacheStreamingImage do
-    def stream!(_image, suffix: ".jpg") do
+    def stream!(_image, [{:suffix, ".jpg"} | _]) do
       send(message_target(), :stream_encoder_called)
       ["streamed jpeg over cache limit"]
     end
 
-    def write(_image, :memory, suffix: ".jpg") do
+    def write(_image, :memory, [{:suffix, ".jpg"} | _]) do
       send(message_target(), :memory_encoder_called)
       raise "cache skip path should not encode the full body in memory"
     end
@@ -137,7 +137,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule MultiChunkStreamingImage do
-    def stream!(_image, suffix: ".jpg") do
+    def stream!(_image, [{:suffix, ".jpg"} | _]) do
       send(message_target(), :stream_encoder_called)
       ["first chunk", "second chunk"]
     end
@@ -151,7 +151,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule EmptyStreamingImage do
-    def stream!(_image, suffix: ".jpg") do
+    def stream!(_image, [{:suffix, ".jpg"} | _]) do
       send(message_target(), :stream_encoder_called)
       []
     end
@@ -165,7 +165,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule FailingStreamBeforeHeaderImage do
-    def stream!(_image, suffix: ".jpg") do
+    def stream!(_image, [{:suffix, ".jpg"} | _]) do
       send(message_target(), :stream_encoder_called)
       raise "forced stream encode failure"
     end
@@ -405,7 +405,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule RaisingAfterFirstChunkImage do
-    def stream!(_image, suffix: ".jpg") do
+    def stream!(_image, [{:suffix, ".jpg"} | _]) do
       Stream.resource(
         fn -> :first end,
         fn
@@ -1176,7 +1176,7 @@ defmodule ImagePipe.PlugTest do
              modern_candidates: [:avif, :webp],
              auto: [jpeg_xl: true, avif: true, webp: true],
              quality: :default,
-             format_qualities: %{},
+             format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
              quality_search: :none,
              max_bytes: nil,
              strip_metadata: true,
@@ -1502,7 +1502,7 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [:avif, :webp],
       auto: [jpeg_xl: true, avif: true, webp: true],
       quality: :default,
-      format_qualities: %{},
+      format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
       quality_search: :none,
       max_bytes: nil,
       strip_metadata: true,
@@ -1543,7 +1543,7 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [jpeg_xl: true, avif: true, webp: true],
           quality: :default,
-          format_qualities: %{},
+          format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
           quality_search: :none,
           max_bytes: nil,
           strip_metadata: true,
@@ -1582,7 +1582,7 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [jpeg_xl: true, avif: true, webp: true],
       quality: :default,
-      format_qualities: %{},
+      format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
       quality_search: :none,
       max_bytes: nil,
       strip_metadata: true,
@@ -1623,7 +1623,7 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [jpeg_xl: false, avif: false, webp: false],
           quality: :default,
-          format_qualities: %{},
+          format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
           quality_search: :none,
           max_bytes: nil,
           strip_metadata: true,
@@ -1665,7 +1665,7 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [jpeg_xl: false, avif: false, webp: false],
       quality: :default,
-      format_qualities: %{},
+      format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
       quality_search: :none,
       max_bytes: nil,
       strip_metadata: true,
@@ -1706,7 +1706,7 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [jpeg_xl: false, avif: false, webp: false],
           quality: :default,
-          format_qualities: %{},
+          format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
           quality_search: :none,
           max_bytes: nil,
           strip_metadata: true,
@@ -1748,7 +1748,7 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [jpeg_xl: false, avif: false, webp: false],
       quality: :default,
-      format_qualities: %{},
+      format_qualities: %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}},
       quality_search: :none,
       max_bytes: nil,
       strip_metadata: true,

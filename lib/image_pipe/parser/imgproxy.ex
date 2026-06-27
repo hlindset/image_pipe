@@ -173,7 +173,11 @@ defmodule ImagePipe.Parser.Imgproxy do
     end)
 
     validate_autoquality_target_config!(Keyword.fetch!(validated, :autoquality_target))
-    validate_autoquality_allowed_error_config!(Keyword.fetch!(validated, :autoquality_allowed_error))
+
+    validate_autoquality_allowed_error_config!(
+      Keyword.fetch!(validated, :autoquality_allowed_error)
+    )
+
     :ok
   end
 
@@ -186,20 +190,21 @@ defmodule ImagePipe.Parser.Imgproxy do
               "invalid imgproxy config: autoquality_target has unknown metric #{inspect(metric)}"
       end
 
-      valid? =
-        case metric do
-          :size -> is_integer(value) and value > 0
-          :ssimulacra2 -> is_number(value) and value >= 0 and value <= 100
-          :butteraugli -> is_number(value) and value >= 0 and value <= 25
-        end
-
-      unless valid? do
+      unless valid_target_value?(metric, value) do
         raise ArgumentError,
               "invalid imgproxy config: autoquality_target #{inspect(metric)} (#{inspect(value)}) " <>
                 "is out of range for that metric"
       end
     end)
   end
+
+  defp valid_target_value?(:size, value), do: is_integer(value) and value > 0
+
+  defp valid_target_value?(:ssimulacra2, value),
+    do: is_number(value) and value >= 0 and value <= 100
+
+  defp valid_target_value?(:butteraugli, value),
+    do: is_number(value) and value >= 0 and value <= 25
 
   defp validate_autoquality_allowed_error_config!(error_map) do
     Enum.each(error_map, fn {metric, value} ->

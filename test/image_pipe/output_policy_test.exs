@@ -575,14 +575,20 @@ defmodule ImagePipe.Output.PolicyTest do
 
     test "format in format_qualities wins" do
       policy =
-        policy_for(:avif, format_qualities: %{avif: {:quality, 63}}, default_quality: {:quality, 80})
+        policy_for(:avif,
+          format_qualities: %{avif: {:quality, 63}},
+          default_quality: {:quality, 80}
+        )
 
       assert {:ok, %{quality: {:quality, 63}}} = Policy.resolve(policy, nil)
     end
 
     test "format absent from map falls to the global default" do
       policy =
-        policy_for(:jpeg, format_qualities: %{avif: {:quality, 63}}, default_quality: {:quality, 80})
+        policy_for(:jpeg,
+          format_qualities: %{avif: {:quality, 63}},
+          default_quality: {:quality, 80}
+        )
 
       assert {:ok, %{quality: {:quality, 80}}} = Policy.resolve(policy, nil)
     end
@@ -619,7 +625,8 @@ defmodule ImagePipe.Output.PolicyTest do
         format_max: %{avif: 65}
       }
 
-      assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 85} = resolve_search_for(:avif, search)
+      assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 85} =
+               resolve_search_for(:avif, search)
     end
 
     test "per-format config beats base when URL omits" do
@@ -631,7 +638,8 @@ defmodule ImagePipe.Output.PolicyTest do
         format_max: %{avif: 65}
       }
 
-      assert %RQS.Ssimulacra2{min_quality: 60, max_quality: 65} = resolve_search_for(:avif, search)
+      assert %RQS.Ssimulacra2{min_quality: 60, max_quality: 65} =
+               resolve_search_for(:avif, search)
     end
 
     test "asymmetric: URL min only, max falls to config base" do
@@ -642,7 +650,8 @@ defmodule ImagePipe.Output.PolicyTest do
         url_min_quality: 75
       }
 
-      assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 80} = resolve_search_for(:jpeg, search)
+      assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 80} =
+               resolve_search_for(:jpeg, search)
     end
 
     test "jpeg_xl butteraugli native path honors URL override" do
