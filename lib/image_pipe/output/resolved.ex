@@ -12,7 +12,12 @@ defmodule ImagePipe.Output.Resolved do
     :color_profile
   ]
   defstruct @enforce_keys ++
-              [flatten_background: Color.white(), quality_search: :none, max_bytes: nil]
+              [
+                flatten_background: Color.white(),
+                quality_search: :none,
+                max_bytes: nil,
+                jxl_effort: nil
+              ]
 
   @type format :: ImagePipe.Format.output_format()
   @type quality :: ImagePipe.Plan.Output.quality()
@@ -30,6 +35,7 @@ defmodule ImagePipe.Output.Resolved do
             | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t()
             | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t()
             | ImagePipe.Output.ResolvedQualitySearch.NativeJxlButteraugli.t(),
-          max_bytes: nil | pos_integer()
+          max_bytes: nil | pos_integer(),
+          jxl_effort: nil | 1..9
         }
 end

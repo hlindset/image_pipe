@@ -10,6 +10,24 @@ defmodule ImagePipe.Output.PolicyTest do
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Output.QualitySearch
 
+  describe "jxl_effort resolution" do
+    test "resolved jxl_effort falls back to the Config default when unset" do
+      conn = conn(:get, "/")
+      plan = %Output{mode: {:explicit, :jpeg_xl}, jxl_effort: nil}
+      policy = Policy.from_output_plan(conn, plan, [])
+      {:ok, resolved} = Policy.resolve(policy, :jpeg_xl)
+      assert resolved.jxl_effort == ImagePipe.Config.default(:jxl_effort)
+    end
+
+    test "an explicit Plan jxl_effort overrides the default" do
+      conn = conn(:get, "/")
+      plan = %Output{mode: {:explicit, :jpeg_xl}, jxl_effort: 4}
+      policy = Policy.from_output_plan(conn, plan, [])
+      {:ok, resolved} = Policy.resolve(policy, :jpeg_xl)
+      assert resolved.jxl_effort == 4
+    end
+  end
+
   describe "from_output_plan/3" do
     test "automatic output policy exposes Vary Accept and selected candidates from Accept" do
       conn =
@@ -38,7 +56,8 @@ defmodule ImagePipe.Output.PolicyTest do
                  format_qualities: %{},
                  strip_metadata: true,
                  keep_copyright: true,
-                 color_profile: :strip
+                 color_profile: :strip,
+                 jxl_effort: ImagePipe.Config.default(:jxl_effort)
                }
     end
 
@@ -57,7 +76,8 @@ defmodule ImagePipe.Output.PolicyTest do
                  format_qualities: %{},
                  strip_metadata: true,
                  keep_copyright: true,
-                 color_profile: :strip
+                 color_profile: :strip,
+                 jxl_effort: ImagePipe.Config.default(:jxl_effort)
                }
     end
 
@@ -319,7 +339,8 @@ defmodule ImagePipe.Output.PolicyTest do
                   response_headers: [],
                   strip_metadata: true,
                   keep_copyright: true,
-                  color_profile: :strip
+                  color_profile: :strip,
+                  jxl_effort: ImagePipe.Config.default(:jxl_effort)
                 }}
     end
 
@@ -340,7 +361,8 @@ defmodule ImagePipe.Output.PolicyTest do
                   response_headers: [],
                   strip_metadata: true,
                   keep_copyright: true,
-                  color_profile: :strip
+                  color_profile: :strip,
+                  jxl_effort: ImagePipe.Config.default(:jxl_effort)
                 }}
     end
   end

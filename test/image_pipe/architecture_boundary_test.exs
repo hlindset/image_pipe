@@ -111,6 +111,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan,
       ImagePipe.Renderer
     ])
+
     # The Parser behaviour boundary must not export any concrete adapter: the core
     # never names a specific parser, so an adapter (imgproxy/…) can be ripped out
     # without editing the behaviour boundary.
@@ -417,7 +418,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "output boundary depends only on format and plan data" do
     output = boundary_declaration(ImagePipe.Output)
 
-    assert_boundary_deps(output, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Telemetry])
+    assert_boundary_deps(output, [
+      ImagePipe.Config,
+      ImagePipe.Format,
+      ImagePipe.Plan,
+      ImagePipe.Telemetry
+    ])
 
     refute_boundary_deps(output, [
       ImagePipe.Source,

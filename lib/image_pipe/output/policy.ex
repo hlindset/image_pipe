@@ -27,7 +27,8 @@ defmodule ImagePipe.Output.Policy do
                 default_quality: :default,
                 quality_search: :none,
                 max_bytes: nil,
-                quality_search_offsets: Output.default_quality_search_offsets()
+                quality_search_offsets: Output.default_quality_search_offsets(),
+                jxl_effort: nil
               ]
 
   @passthrough_source_formats [:jpeg, :png]
@@ -59,7 +60,8 @@ defmodule ImagePipe.Output.Policy do
             | Output.QualitySearch.Ssimulacra2.t()
             | Output.QualitySearch.Butteraugli.t(),
           max_bytes: nil | pos_integer(),
-          quality_search_offsets: Output.quality_search_offsets()
+          quality_search_offsets: Output.quality_search_offsets(),
+          jxl_effort: nil | 1..9
         }
 
   @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
@@ -77,7 +79,8 @@ defmodule ImagePipe.Output.Policy do
       flatten_background: output.flatten_background,
       quality_search: output.quality_search,
       max_bytes: output.max_bytes,
-      quality_search_offsets: output.quality_search_offsets
+      quality_search_offsets: output.quality_search_offsets,
+      jxl_effort: output.jxl_effort || ImagePipe.Config.default(:jxl_effort)
     }
   end
 
@@ -95,7 +98,8 @@ defmodule ImagePipe.Output.Policy do
       flatten_background: output.flatten_background,
       quality_search: output.quality_search,
       max_bytes: output.max_bytes,
-      quality_search_offsets: output.quality_search_offsets
+      quality_search_offsets: output.quality_search_offsets,
+      jxl_effort: output.jxl_effort || ImagePipe.Config.default(:jxl_effort)
     }
   end
 
@@ -189,7 +193,8 @@ defmodule ImagePipe.Output.Policy do
       color_profile: policy.color_profile,
       flatten_background: policy.flatten_background,
       quality_search: resolve_search(policy, format),
-      max_bytes: policy.max_bytes
+      max_bytes: policy.max_bytes,
+      jxl_effort: policy.jxl_effort
     }
   end
 
