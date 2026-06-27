@@ -8,13 +8,15 @@ defmodule ImagePipe.Output.Metric.Ssimulacra2 do
   """
   @behaviour ImagePipe.Output.Metric
 
+  alias ImagePipe.Plan.Output.QualitySearch.Metric
+
   @type ref :: Ssimulacra2.Reference.t()
 
   @impl true
-  def direction, do: :higher_better
+  def direction, do: Metric.direction(:ssimulacra2)
 
   @impl true
-  def target_range, do: {0, 100}
+  def target_range, do: Metric.target_range(:ssimulacra2)
 
   @impl true
   def leg_name, do: :ssimulacra2

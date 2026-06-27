@@ -571,6 +571,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(plan, [
       ImagePipe.Plan.Pipeline,
       ImagePipe.Plan.Output,
+      ImagePipe.Plan.Output.QualitySearch.Metric,
       ImagePipe.Plan.Output.QualitySearch.Size,
       ImagePipe.Plan.Output.QualitySearch.Ssimulacra2,
       ImagePipe.Plan.Output.QualitySearch.Butteraugli,
