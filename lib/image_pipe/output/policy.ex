@@ -39,7 +39,7 @@ defmodule ImagePipe.Output.Policy do
 
   @type format() :: Format.output_format()
   @type source_format() :: Format.source_format()
-  @type quality() :: :default | {:quality, 1..100}
+  @type quality() :: Output.quality()
   @type mode() :: :source | {:explicit, format()}
 
   @type t() :: %__MODULE__{

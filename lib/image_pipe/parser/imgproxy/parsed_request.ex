@@ -32,7 +32,7 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
               ]
 
   @type output_format() :: ImagePipe.Format.output_format() | :best
-  @type quality() :: :default | {:quality, 1..100}
+  @type quality() :: ImagePipe.Plan.Output.quality()
   @type output_request() :: %{
           required(:format) => output_format() | nil,
           required(:quality) => quality(),
