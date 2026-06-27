@@ -163,6 +163,8 @@ defmodule ImagePipe.Cache.Key do
       target: s.target,
       min_quality: s.min_quality,
       max_quality: s.max_quality,
+      url_min_quality: s.url_min_quality,
+      url_max_quality: s.url_max_quality,
       max_resolution: s.max_resolution,
       format_min: Enum.sort(Map.to_list(s.format_min)),
       format_max: Enum.sort(Map.to_list(s.format_max))
@@ -181,6 +183,8 @@ defmodule ImagePipe.Cache.Key do
       target: s.target,
       min_quality: s.min_quality,
       max_quality: s.max_quality,
+      url_min_quality: s.url_min_quality,
+      url_max_quality: s.url_max_quality,
       allowed_error: s.allowed_error,
       max_resolution: s.max_resolution,
       format_min: Enum.sort(Map.to_list(s.format_min)),

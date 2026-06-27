@@ -198,8 +198,8 @@ defmodule ImagePipe.Output.Policy do
   defp resolve_search(%__MODULE__{quality_search: %Output.QualitySearch.Size{} = s}, format) do
     %RQS.Size{
       target: s.target,
-      min_quality: Map.get(s.format_min, format, s.min_quality),
-      max_quality: Map.get(s.format_max, format, s.max_quality),
+      min_quality: s.url_min_quality || Map.get(s.format_min, format, s.min_quality),
+      max_quality: s.url_max_quality || Map.get(s.format_max, format, s.max_quality),
       max_resolution: s.max_resolution
     }
   end
@@ -210,8 +210,8 @@ defmodule ImagePipe.Output.Policy do
        ) do
     %RQS.Ssimulacra2{
       target: s.target,
-      min_quality: Map.get(s.format_min, format, s.min_quality),
-      max_quality: Map.get(s.format_max, format, s.max_quality),
+      min_quality: s.url_min_quality || Map.get(s.format_min, format, s.min_quality),
+      max_quality: s.url_max_quality || Map.get(s.format_max, format, s.max_quality),
       allowed_error: s.allowed_error,
       max_resolution: s.max_resolution,
       quality_search_offsets: %{
@@ -227,8 +227,8 @@ defmodule ImagePipe.Output.Policy do
        ) do
     %RQS.NativeJxlButteraugli{
       target: s.target,
-      min_quality: Map.get(s.format_min, :jpeg_xl, s.min_quality),
-      max_quality: Map.get(s.format_max, :jpeg_xl, s.max_quality),
+      min_quality: s.url_min_quality || Map.get(s.format_min, :jpeg_xl, s.min_quality),
+      max_quality: s.url_max_quality || Map.get(s.format_max, :jpeg_xl, s.max_quality),
       allowed_error: s.allowed_error,
       max_resolution: s.max_resolution
     }
@@ -240,8 +240,8 @@ defmodule ImagePipe.Output.Policy do
        ) do
     %RQS.Butteraugli{
       target: s.target,
-      min_quality: Map.get(s.format_min, format, s.min_quality),
-      max_quality: Map.get(s.format_max, format, s.max_quality),
+      min_quality: s.url_min_quality || Map.get(s.format_min, format, s.min_quality),
+      max_quality: s.url_max_quality || Map.get(s.format_max, format, s.max_quality),
       allowed_error: s.allowed_error,
       max_resolution: s.max_resolution
     }

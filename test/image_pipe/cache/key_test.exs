@@ -249,6 +249,28 @@ defmodule ImagePipe.Cache.KeyTest do
     refute key.hash == different_source.hash
   end
 
+  test "url_min_quality/url_max_quality are part of the quality_search cache key" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    base = %QualitySearch.Ssimulacra2{target: 78, min_quality: 70, max_quality: 80}
+
+    k_plain =
+      build_key!(conn, plan(output: %Output{mode: {:explicit, :webp}, quality_search: base}), source_identity())
+
+    k_url =
+      build_key!(
+        conn,
+        plan(
+          output: %Output{
+            mode: {:explicit, :webp},
+            quality_search: %{base | url_min_quality: 80, url_max_quality: 90}
+          }
+        ),
+        source_identity()
+      )
+
+    refute k_plain.hash == k_url.hash
+  end
+
   test "cache key contains representation version" do
     plan = plan(output: %Output{mode: {:explicit, :webp}})
     conn = conn(:get, "/image")
