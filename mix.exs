@@ -174,14 +174,19 @@ defmodule ImagePipe.MixProject do
         []
       end
 
-    imgproxy_diff_deps =
-      if System.get_env("IMGPROXY_DIFF") in ["1", "true"] do
+    # `testcontainers` provisions Docker for two opt-in lanes: the imgproxy
+    # differential bake (`IMGPROXY_DIFF`) and the AWS credential integration
+    # smoke lane (`AWS_INTEGRATION`). Add it once when either is set so a
+    # both-set run does not double-list the dep.
+    testcontainers_deps =
+      if System.get_env("IMGPROXY_DIFF") in ["1", "true"] or
+           System.get_env("AWS_INTEGRATION") in ["1", "true"] do
         [{:testcontainers, "~> 1.14", only: :test}]
       else
         []
       end
 
-    base ++ ml_test_deps ++ imgproxy_diff_deps
+    base ++ ml_test_deps ++ testcontainers_deps
   end
 
   defp aliases do
