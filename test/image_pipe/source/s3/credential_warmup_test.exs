@@ -1,5 +1,11 @@
 defmodule ImagePipe.Source.S3.CredentialWarmupTest do
-  use ExUnit.Case, async: true
+  # async: false on purpose: the supervised worker warms once in handle_continue
+  # then stops :normal, so the only sync point is its own scheduling. Under a
+  # loaded async suite the worker can be starved past the assert_receive window
+  # (issue #414). There is nothing to :sys.get_state on — the process is already
+  # gone by the time the continue returns — so removing suite contention is the
+  # fix, not a longer timeout.
+  use ExUnit.Case, async: false
 
   alias ImagePipe.Source.S3.Credentials
   alias ImagePipe.Source.S3.CredentialWarmup
