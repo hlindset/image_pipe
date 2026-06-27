@@ -181,7 +181,9 @@ defmodule ImagePipe.Output.EncoderTest do
   describe "jxl_effort threading" do
     @tag :jxl
     test "jxl_effort changes encoded bytes; effort 7 matches the no-effort baseline" do
-      {:ok, image} = Image.new(64, 64, color: [100, 110, 120])
+      # High-frequency content so effort genuinely affects the bytes — a flat image
+      # can encode identically across efforts, making the difference check flaky.
+      {:ok, image} = Image.open(@fixture)
 
       resolved = fn effort ->
         %Resolved{

@@ -90,7 +90,7 @@ The neutral values flow into the Plan at parse time. `Config` sits below `Parser
 
 ```elixir
 defmodule ImagePipe.Config do
-  use Boundary, deps: [ImagePipe.Format, ImagePipe.Plan], exports: []
+  use Boundary, top_level?: true, deps: [ImagePipe.Plan], exports: []
   alias ImagePipe.Plan.Output.QualitySearch.Metric
   # ...
 end
@@ -128,7 +128,8 @@ end
 - `resolve!/2 :: (keyword(), keyword()) -> keyword()` — validate + apply the three-layer chain +
   range checks; returns concrete neutral values. Raises `ArgumentError` on invalid input.
 
-`deps: [Format, Plan]` is downward-only (Plan deps only Format → no cycle). Exports nothing —
+`deps: [Plan]` is downward-only (Plan deps only Format → no cycle; Config uses only
+`Plan.Output.QualitySearch.Metric`). Exports nothing —
 adapters call public functions; no struct crosses the boundary.
 
 ### Component 2 — Resolution / merge model
@@ -279,7 +280,7 @@ enumeration addition + the drift guard.
 
 ### Component 6 — Boundary wiring + architecture tests
 
-- New `ImagePipe.Config` boundary, `deps: [Format, Plan]`, `exports: []`.
+- New `ImagePipe.Config` boundary, `deps: [Plan]`, `exports: []`.
 - Add `Config` to the `deps:` of the **top-level `ImagePipe.Parser`** boundary, `Output`, and
   `Request`.
   - **The genuine Config caller is `ImagePipe.Parser.Imgproxy`** (the adapter), a child
