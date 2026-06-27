@@ -143,4 +143,14 @@ defmodule ImagePipe.ImgproxyResizeAutoTest do
   test "7. resize:auto portrait source 100x200 into square 50x50 fits to 25x50" do
     assert_auto_resize_dimensions({100, 200}, {50, 50}, {25, 50})
   end
+
+  test "host jxl_effort lands on Plan.Output.jxl_effort; unset stays nil" do
+    conn = conn(:get, "/_/f:jxl/plain/images/cat.jpg")
+
+    assert {:ok, plan} = Imgproxy.parse(conn, imgproxy: [jxl_effort: 4])
+    assert plan.output.jxl_effort == 4
+
+    assert {:ok, plan_default} = Imgproxy.parse(conn(:get, "/_/f:jxl/plain/images/cat.jpg"), [])
+    assert plan_default.output.jxl_effort == nil
+  end
 end
