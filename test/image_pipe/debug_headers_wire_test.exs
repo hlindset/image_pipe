@@ -353,6 +353,10 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # G3 — autoquality AQ-* header coverage
   # ---------------------------------------------------------------------------
 
+  # Real ssim2 autoquality over a large origin image through the full request
+  # path; on oversubscribed CI cores it can approach the source-session backstop,
+  # so give ExUnit headroom above the default 60s.
+  @tag timeout: 180_000
   test "autoquality ssim2 request emits AQ-* headers with debug:1" do
     opts =
       large_ssim2_opts(
