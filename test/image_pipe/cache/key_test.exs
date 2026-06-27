@@ -234,7 +234,8 @@ defmodule ImagePipe.Cache.KeyTest do
                  green: 255,
                  blue: 255,
                  alpha: [unit: :ratio, numerator: 1, denominator: 1]
-               ]
+               ],
+               jxl_effort: nil
              ],
              auto_rotate: false,
              representation: [version: 1],
@@ -1009,7 +1010,8 @@ defmodule ImagePipe.Cache.KeyTest do
                green: 255,
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
-             ]
+             ],
+             jxl_effort: nil
            ]
 
     refute inspect(key_one.data) =~ "image/webp"
@@ -1052,7 +1054,8 @@ defmodule ImagePipe.Cache.KeyTest do
                  green: 255,
                  blue: 255,
                  alpha: [unit: :ratio, numerator: 1, denominator: 1]
-               ]
+               ],
+               jxl_effort: nil
              ]
 
       refute inspect(key.data) =~ "*/*"
@@ -1111,7 +1114,8 @@ defmodule ImagePipe.Cache.KeyTest do
                green: 255,
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
-             ]
+             ],
+             jxl_effort: nil
            ]
   end
 
@@ -1135,6 +1139,26 @@ defmodule ImagePipe.Cache.KeyTest do
     assert default_key.data[:output][:modern_candidates] == [:avif, :jpeg_xl]
     assert no_jxl_key.data[:output][:modern_candidates] == [:avif]
     assert no_jxl_key.data[:output][:auto][:jpeg_xl] == false
+  end
+
+  test "different jxl_effort changes the cache key" do
+    conn = conn(:get, "/_/f:jxl/plain/images/cat.jpg")
+
+    key_a =
+      build_key!(
+        conn,
+        plan(output: %Output{mode: {:explicit, :jpeg_xl}, jxl_effort: 7}),
+        source_identity()
+      )
+
+    key_b =
+      build_key!(
+        conn,
+        plan(output: %Output{mode: {:explicit, :jpeg_xl}, jxl_effort: 4}),
+        source_identity()
+      )
+
+    refute key_a.hash == key_b.hash, "expected differing jxl_effort to change the cache key"
   end
 
   test "different output metadata flags change cache key" do
@@ -1194,7 +1218,8 @@ defmodule ImagePipe.Cache.KeyTest do
                green: 255,
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
-             ]
+             ],
+             jxl_effort: nil
            ]
 
     refute inspect(key.data) =~ "image/jpeg"
