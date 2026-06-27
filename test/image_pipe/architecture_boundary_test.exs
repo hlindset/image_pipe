@@ -405,7 +405,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "config boundary depends only on format and plan, exports nothing" do
     config = boundary_declaration(ImagePipe.Config)
 
-    assert_boundary_deps(config, [ImagePipe.Format, ImagePipe.Plan])
+    assert_boundary_deps(config, [ImagePipe.Plan])
     assert_boundary_exports(config, [])
 
     refute_boundary_deps(config, [

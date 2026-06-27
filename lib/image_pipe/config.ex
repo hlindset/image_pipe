@@ -12,7 +12,7 @@ defmodule ImagePipe.Config do
   (`jxl_effort`, whose default `Output` applies via `default/1`).
   """
 
-  use Boundary, top_level?: true, deps: [ImagePipe.Format, ImagePipe.Plan], exports: []
+  use Boundary, top_level?: true, deps: [ImagePipe.Plan], exports: []
 
   alias ImagePipe.Plan.Output.QualitySearch.Metric
 
