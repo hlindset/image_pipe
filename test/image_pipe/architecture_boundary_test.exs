@@ -46,6 +46,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
+    ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
@@ -387,6 +388,20 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(format, [])
     assert_boundary_exports(format, [ImagePipe.Format.Detector])
+  end
+
+  test "config boundary depends only on format and plan, exports nothing" do
+    config = boundary_declaration(ImagePipe.Config)
+
+    assert_boundary_deps(config, [ImagePipe.Format, ImagePipe.Plan])
+    assert_boundary_exports(config, [])
+
+    refute_boundary_deps(config, [
+      ImagePipe.Parser,
+      ImagePipe.Output,
+      ImagePipe.Request,
+      ImagePipe.Cache
+    ])
   end
 
   test "output boundary depends only on format and plan data" do
