@@ -81,9 +81,11 @@ default_quality: :default,   # :default | {:quality, 1..100}
 
 `@type default_quality :: quality()`. Default `:default` keeps the product-neutral struct's "no host configured a default" meaning (a non-imgproxy parser that never sets it preserves today's libvips-default behavior).
 
+Minor type alignment (same change): `Plan.Output.@type format` ([output.ex:46](../../../lib/image_pipe/plan/output.ex#L46)) lists `:avif | :webp | :jpeg | :png` but omits `:jpeg_xl`, while the runtime `Format.output_format()` includes it and the new `format_quality` defaults are `:jpeg_xl`-keyed. Add `:jpeg_xl` to the `@type` (pre-existing gap, cosmetic, but this change introduces new `:jpeg_xl`-keyed config so fix it here).
+
 **Parser resolution** (in `Options.apply_request_defaults/2` / `resolve_metadata_defaults` area, where config defaults are already folded into `output`):
 
-- `output.format_qualities = Map.merge(normalize(config_format_quality), url_fq)` — config ints normalized to `{:quality, n}`, URL `fq` (already `{:quality, n}`) merged **over** config so URL wins within the per-format slot. (This matches imgproxy: URL `fq` beats config `FormatQuality`, and per-format beats global.)
+- `output.format_qualities = Map.merge(normalize(config_format_quality), output.format_qualities)` — **note the exact operands**: by the time `apply_request_defaults` runs, `update_output/2` ([options.ex:264](../../../lib/image_pipe/parser/imgproxy/options.ex#L264)) has *already merged URL `fq`* into `output.format_qualities`. So the base is the normalized config map (config ints → `{:quality, n}`) and the already-populated `output.format_qualities` (URL `fq`) is merged **over** it — URL wins within the per-format slot. Do not re-extract URL `fq` from anywhere else. (This matches imgproxy: URL `fq` beats config `FormatQuality`, and per-format beats global.)
 - `output.default_quality = {:quality, config_quality}`.
 - `output.quality` (URL `q`) unchanged.
 
@@ -91,10 +93,10 @@ default_quality: :default,   # :default | {:quality, 1..100}
 
 1. `quality == {:quality, n}` → that (all formats — URL `q` wins, unchanged; explicit `q` on PNG still applies).
 2. `quality == :default`:
-   - `Map.get(format_qualities, format)` → `{:quality, n}` if present.
-   - else `default_for(format)`: `:default` for `:png` (PNG stays lossless — the `80` global default must not trigger PNG quantization, a regression vs today's omit), `default_quality` otherwise.
+   - `Map.get(format_qualities, format)` → `{:quality, n}` if present. **This lookup precedes the lossless gate below**, so a host that explicitly configures `format_quality: %{png: N}` *does* apply it to PNG (explicit host intent honored); only the implicit *global* default is gated off PNG.
+   - else `default_for(format)`: returns the `default_quality` for formats that consume a numeric quality, and `:default` for **lossless formats** (`:png`) — a generic "lossless formats don't take the global numeric default" rule, not an imgproxy-PNG special case (keeps `Output.Policy` product-neutral). This prevents the `80` global default from triggering PNG quantization (a regression vs today's omit).
 
-Net resolution order: **URL `q` → (URL `fq` ∪ config `format_quality`) → config global → (`:default` for PNG / libvips)** — equivalent to imgproxy's `Quality(format)`.
+Net resolution order: **URL `q` → (URL `fq` ∪ config `format_quality`) → config global → (`:default` for lossless / libvips)** — equivalent to imgproxy's `Quality(format)`.
 
 **Encoder unchanged:** `output_options/2` ([encoder.ex:467](../../../lib/image_pipe/output/encoder.ex#L467)) already maps `{:quality, n}` → `[suffix:, quality: n]` and `:default` → `[suffix:]`.
 
@@ -104,8 +106,8 @@ Net resolution order: **URL `q` → (URL `fq` ∪ config `format_quality`) → c
 
 Separate the three bracket sources on the `Plan.Output.QualitySearch.{Size,Ssimulacra2,Butteraugli}` structs so per-format resolution (which runs in `resolve_search/2`, after format negotiation) can apply correct precedence:
 
-- `min_quality` / `max_quality` — config **base** (global guardrail, `70`/`80`).
-- `url_min_quality` / `url_max_quality` — URL args, **`nil` when the URL omits them** (the signal is already available: `fields[:min_quality]` is absent unless the URL provided it).
+- `min_quality` / `max_quality` — config **base** (global guardrail, `70`/`80`). Stay in `@enforce_keys`.
+- `url_min_quality` / `url_max_quality` — URL args, **`nil` when the URL omits them** (the signal is already available: `fields[:min_quality]` is absent unless the URL provided it). **Add as non-enforced defaulted fields (`nil`)** — do *not* extend `@enforce_keys`, or `struct(struct_mod, …)` in `build_quality_metric` ([options.ex:416](../../../lib/image_pipe/parser/imgproxy/options.ex#L416)) raises. Type is strictly `nil | 1..100`, so the `||` resolution below is safe (Elixir treats only `nil`/`false` as falsy; a value of `1..100` is never skipped).
 - `format_min` / `format_max` — config per-format maps (guardrail).
 
 `build_quality_metric` sets `min_quality`/`max_quality` from the config global only (`Keyword.get(defaults, :autoquality_min_quality, 70)`), and `url_min_quality`/`url_max_quality` from `Keyword.get(fields, :min_quality)` (nil-able).
@@ -117,7 +119,11 @@ min = s.url_min_quality || Map.get(s.format_min, format, s.min_quality)
 max = s.url_max_quality || Map.get(s.format_max, format, s.max_quality)
 ```
 
-→ **URL > config-per-format > config-base**. Applied to all three metrics (Size, Ssimulacra2, Butteraugli, and the `:jpeg_xl` Butteraugli native path) for consistency. The Resolved (`Output.ResolvedQualitySearch.*`) structs keep their existing shape — they carry the *final* resolved `min_quality`/`max_quality`.
+→ **URL > config-per-format > config-base**. This is **all four** `resolve_search/2` clauses ([policy.ex:189](../../../lib/image_pipe/output/policy.ex#L189)): `Size`, `Ssimulacra2`, `Butteraugli`, **and** the `:jpeg_xl`-Butteraugli native clause ([policy.ex:215](../../../lib/image_pipe/output/policy.ex#L215)). The Resolved (`Output.ResolvedQualitySearch.*`) structs keep their existing shape — they carry the *final* resolved `min_quality`/`max_quality`; no separate NativeJxl *source* struct exists (it is derived from `Butteraugli`).
+
+**Newly-reachable bracket inversion (validation note).** Separating URL from config makes a URL-vs-config per-format inversion reachable that `validate_autoquality_brackets!` does *not* catch (it validates config-vs-config only): e.g. URL `min: 90` with config base `max: 80`, or an inverted URL pair `min: 85, max: 75`. Two-part resolution:
+- **Reject an inverted URL *pair* at parse** (in `build_quality_metric`, when both `url_min_quality` and `url_max_quality` are present and `url_min > url_max`) → `{:error, {:invalid_option, :autoquality, …}}`. Today this case silently degrades; rejecting malformed input is the greenfield-correct behavior.
+- **Accept the asymmetric residual** (URL supplies only one side, and the per-format config bound on the other side inverts it). The format isn't known at parse, so this can't be validated there; it is **safe by construction** — `EncodeSearch`'s `do_highest`/`do_target` handle `lo > hi` by returning immediately / pinning to the ceiling (best-effort edge result, no crash). Documented as accepted, not a bug.
 
 **Format-bluntness is the accepted escape-hatch property.** imgproxy's `autoquality:%method:%target:%min:%max:%error` is a single global pair — there is no per-format URL autoquality arg — so a URL override applies to whatever format is negotiated, losing per-format normalization. This is inherent to imgproxy's grammar and is the intended behavior of a deliberate per-request override; per-format URL control would be a non-imgproxy extension (out of scope).
 
@@ -150,20 +156,21 @@ This makes the per-metric defaults reachable (fixing the silent butteraugli shad
 - `validate_autoquality_brackets!` ([imgproxy.ex:154](../../../lib/image_pipe/parser/imgproxy.ex#L154)) — min/max base+per-format ordering check, **unchanged** (still single global).
 - **New, at the config boundary** (`validate_imgproxy_options!`):
   - `quality` ∈ 1..100; each `format_quality` value ∈ 1..100.
-  - Each `autoquality_target` map entry validated against its metric's range (size → positive-integer bytes; ssimulacra2 → 0–100; butteraugli → 0–25) — fail-fast instead of deferring to per-request resolution.
+  - Each `autoquality_target` map entry validated against its metric's range (size → positive-integer bytes; ssimulacra2 → 0–100; butteraugli → 0–25) — fail-fast instead of deferring to per-request resolution. This config-boundary check is **additive**: `validate_target_range/2` ([options.ex:443](../../../lib/image_pipe/parser/imgproxy/options.ex#L443)) still runs at per-request resolution, because URL-supplied `target` enters there and is not covered by config validation.
   - Each `autoquality_allowed_error` map entry non-negative.
   - Unknown metric keys in either map rejected (only `:size`/`:ssimulacra2`/`:butteraugli` valid; `:size` has no `allowed_error`).
+  - Inverted URL `min/max` pair (both present, `min > max`) rejected in `build_quality_metric` (see §B).
 
 ### E. Tests
 
 - **Parser/planner** (`options`, `imgproxy` tests):
   - Quality resolution order: URL `q` > URL `fq` > config `format_quality` > config `quality`; PNG gated off the global default.
-  - Autoquality precedence: URL `min/max` beat per-format config; config per-format beats config base; config base when both omitted.
+  - Autoquality precedence: URL `min/max` beat per-format config; config per-format beats config base; config base when both omitted. Include the **asymmetric** case (URL supplies only `min`, `max` falls to config-per-format/base) and an inverted URL pair (rejected at parse).
   - Per-metric `target`/`allowed_error`: URL > config-metric-map > built-in; **cross-metric isolation** (config `%{ssimulacra2: …}` does not leak when metric is butteraugli); butteraugli no longer pinned to ssim2's `1.0` tolerance or `70/80`-only bracket.
   - Config-boundary validation: out-of-range per-metric target, negative allowed_error, unknown metric key, invalid `quality`/`format_quality`.
 - **Policy:** `effective_quality/2` (incl. PNG gate, config global covering jpeg); `resolve_search/2` precedence across formats.
 - **Wire-level** (`imgproxy_wire_conformance` style): decode-pixel checks where the new default quality observably changes output (e.g. avif default Q63 vs prior libvips default); explicit-format/explicit-`q` bypass; representative autoquality min/max override.
-- Delete any now-obsolete tests pinning the old single-global `autoquality_target`/`autoquality_allowed_error` scalar shape or the unreachable `1/100` butteraugli default.
+- Delete now-obsolete tests: the old single-global `autoquality_target`/`autoquality_allowed_error` scalar shape; the unreachable `1/100` butteraugli default; **any test calling `build_quality_metric` with the old 7-arity (`default_min`/`default_max`/`default_error` literals) or asserting butteraugli's old `1/100` bracket** — the helper's signature changes when those params are removed.
 
 ### F. Docs & fiddle
 
