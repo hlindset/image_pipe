@@ -24,6 +24,12 @@ defmodule ImagePipe.Parser.Imgproxy do
   alias ImagePipe.Parser.Imgproxy.Signature
   alias ImagePipe.Parser.Imgproxy.SourceEncryption
 
+  # imgproxy's per-format default quality (`IMGPROXY_FORMAT_QUALITY`). A host
+  # override **merges** onto these (imgproxy `maps.Copy(c.FormatQuality, fq)`),
+  # so configuring one format leaves the others at their defaults rather than
+  # dropping them to the global `quality`.
+  @default_format_quality %{webp: 79, avif: 63, jpeg_xl: 77}
+
   @imgproxy_schema NimbleOptions.new!(
                      signature: [type: :keyword_list, required: false],
                      source_url_encryption_key: [
@@ -51,7 +57,7 @@ defmodule ImagePipe.Parser.Imgproxy do
                      quality: [type: :pos_integer, default: 80],
                      format_quality: [
                        type: {:map, :atom, :pos_integer},
-                       default: %{webp: 79, avif: 63, jpeg_xl: 77}
+                       default: @default_format_quality
                      ],
                      strip_color_profile: [type: :boolean, default: true],
                      preserve_hdr: [type: :boolean, default: false],
@@ -395,7 +401,7 @@ defmodule ImagePipe.Parser.Imgproxy do
       preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, false),
       quality: Keyword.get(imgproxy_opts, :quality, 80),
       format_quality:
-        Keyword.get(imgproxy_opts, :format_quality, %{webp: 79, avif: 63, jpeg_xl: 77}),
+        Map.merge(@default_format_quality, Keyword.get(imgproxy_opts, :format_quality, %{})),
       autoquality_method: Keyword.get(imgproxy_opts, :autoquality_method, :none),
       autoquality_target: Keyword.get(imgproxy_opts, :autoquality_target, %{}),
       autoquality_min_quality: Keyword.get(imgproxy_opts, :autoquality_min_quality, 70),

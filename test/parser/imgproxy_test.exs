@@ -177,6 +177,19 @@ defmodule ImagePipe.Parser.ImgproxyTest do
         Imgproxy.validate_options!(imgproxy: [format_quality: %{webp: 101}])
       end
     end
+
+    test "a single-format override merges with the other formats' built-in defaults" do
+      assert {:ok, plan} =
+               Imgproxy.parse(
+                 conn(:get, "/_/plain/images/cat.jpg"),
+                 imgproxy: [format_quality: %{avif: 50}]
+               )
+
+      fq = plan.output.format_qualities
+      assert fq[:avif] == {:quality, 50}
+      assert fq[:webp] == {:quality, 79}
+      assert fq[:jpeg_xl] == {:quality, 77}
+    end
   end
 
   describe "per-metric autoquality config" do
