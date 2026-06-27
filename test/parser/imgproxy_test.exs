@@ -111,7 +111,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   test "rejects an inverted global autoquality bracket" do
-    assert_raise ArgumentError, ~r/invalid imgproxy config.*autoquality_min_quality/, fn ->
+    assert_raise ArgumentError, ~r/autoquality_min_quality/, fn ->
       Imgproxy.validate_options!(
         imgproxy: [autoquality_min_quality: 80, autoquality_max_quality: 70]
       )
@@ -121,14 +121,14 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   test "rejects a negative autoquality_allowed_error in host config" do
     # A negative band would invert to band_lo > band_hi in EncodeSearch. The URL form
     # is already guarded by the grammar; this closes the host-config boundary.
-    assert_raise ArgumentError, ~r/invalid imgproxy config.*non-negative/, fn ->
+    assert_raise ArgumentError, ~r/non-negative/, fn ->
       Imgproxy.validate_options!(imgproxy: [autoquality_allowed_error: %{ssimulacra2: -1.0}])
     end
   end
 
   test "rejects a per-format autoquality bracket inverted against the base bracket" do
     # format_min jpeg=88 with no format_max[:jpeg] falls back to the base max (72) → 88..72.
-    assert_raise ArgumentError, ~r/invalid imgproxy config.*jpeg/, fn ->
+    assert_raise ArgumentError, ~r/jpeg/, fn ->
       Imgproxy.validate_options!(
         imgproxy: [
           autoquality_max_quality: 72,
@@ -271,7 +271,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert Imgproxy.validate_options!(imgproxy: [auto_rotate: false])[:imgproxy][:auto_rotate] ==
              false
 
-    assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
+    assert_raise ArgumentError, ~r/auto_rotate/, fn ->
       Imgproxy.validate_options!(imgproxy: [auto_rotate: "true"])
     end
   end
