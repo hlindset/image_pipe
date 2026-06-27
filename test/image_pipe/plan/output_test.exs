@@ -8,6 +8,11 @@ defmodule ImagePipe.Plan.OutputTest do
     assert o.max_bytes == nil
   end
 
+  test "carries an optional jxl_effort (nil = use neutral default)" do
+    assert %Output{mode: :automatic}.jxl_effort == nil
+    assert %Output{mode: :automatic, jxl_effort: 4}.jxl_effort == 4
+  end
+
   test "default quality_search_offsets carries the 2.4 default and the avif×graphic override" do
     %Output{quality_search_offsets: offsets} = %Output{mode: :automatic}
     assert offsets.default == 2.4
