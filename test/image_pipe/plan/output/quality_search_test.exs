@@ -41,4 +41,19 @@ defmodule ImagePipe.Plan.Output.QualitySearchTest do
     assert_raise ArgumentError, fn -> struct!(QualitySearch.Ssimulacra2, target: 1.0) end
     assert_raise ArgumentError, fn -> struct!(QualitySearch.Butteraugli, target: 1.0) end
   end
+
+  test "url_min_quality/url_max_quality default to nil and are non-enforced" do
+    for mod <- [
+          QualitySearch.Size,
+          QualitySearch.Ssimulacra2,
+          QualitySearch.Butteraugli
+        ] do
+      s = struct(mod, target: 1, min_quality: 70, max_quality: 80)
+      assert s.url_min_quality == nil
+      assert s.url_max_quality == nil
+
+      s2 = struct(mod, target: 1, min_quality: 70, max_quality: 80, url_min_quality: 75)
+      assert s2.url_min_quality == 75
+    end
+  end
 end
