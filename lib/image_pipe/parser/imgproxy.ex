@@ -48,6 +48,11 @@ defmodule ImagePipe.Parser.Imgproxy do
                      ],
                      strip_metadata: [type: :boolean, default: true],
                      keep_copyright: [type: :boolean, default: true],
+                     quality: [type: :pos_integer, default: 80],
+                     format_quality: [
+                       type: {:map, :atom, :pos_integer},
+                       default: %{webp: 79, avif: 63, jpeg_xl: 77}
+                     ],
                      strip_color_profile: [type: :boolean, default: true],
                      preserve_hdr: [type: :boolean, default: false],
                      smart_crop_face_detection: [type: :boolean, default: false],
@@ -130,6 +135,7 @@ defmodule ImagePipe.Parser.Imgproxy do
   defp validate_imgproxy_options!(imgproxy_opts) when is_list(imgproxy_opts) do
     case NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
       {:ok, validated} ->
+        validate_quality_config!(validated)
         validate_autoquality_brackets!(validated)
 
         validated
@@ -143,6 +149,28 @@ defmodule ImagePipe.Parser.Imgproxy do
 
   defp validate_imgproxy_options!(_imgproxy_opts),
     do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
+
+  # Range-check the host-config default quality knobs. NimbleOptions enforces
+  # pos_integer / map shape but not the 1..100 ceiling, so assert it here at the
+  # config boundary before the value can reach the encoder.
+  defp validate_quality_config!(validated) do
+    quality = Keyword.fetch!(validated, :quality)
+
+    unless quality in 1..100 do
+      raise ArgumentError,
+            "invalid imgproxy config: quality (#{quality}) must be between 1 and 100"
+    end
+
+    Enum.each(Keyword.fetch!(validated, :format_quality), fn {format, q} ->
+      unless q in 1..100 do
+        raise ArgumentError,
+              "invalid imgproxy config: format_quality #{inspect(format)} (#{q}) " <>
+                "must be between 1 and 100"
+      end
+    end)
+
+    :ok
+  end
 
   # NimbleOptions validates each autoquality quality is 1..100 but cannot express
   # the cross-field constraint that the effective per-format bracket is ordered.
@@ -323,6 +351,9 @@ defmodule ImagePipe.Parser.Imgproxy do
       keep_copyright: Keyword.get(imgproxy_opts, :keep_copyright, true),
       strip_color_profile: Keyword.get(imgproxy_opts, :strip_color_profile, true),
       preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, false),
+      quality: Keyword.get(imgproxy_opts, :quality, 80),
+      format_quality:
+        Keyword.get(imgproxy_opts, :format_quality, %{webp: 79, avif: 63, jpeg_xl: 77}),
       autoquality_method: Keyword.get(imgproxy_opts, :autoquality_method, :none),
       autoquality_target: Keyword.get(imgproxy_opts, :autoquality_target),
       autoquality_min_quality: Keyword.get(imgproxy_opts, :autoquality_min_quality, 70),

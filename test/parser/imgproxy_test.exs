@@ -159,6 +159,26 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert opts[:imgproxy][:autoquality_format_max_quality] == %{avif: 65, jpeg_xl: 80}
   end
 
+  describe "quality config" do
+    test "defaults: quality 80, format_quality webp/avif/jxl" do
+      opts = Imgproxy.validate_options!(imgproxy: [])[:imgproxy]
+      assert opts[:quality] == 80
+      assert opts[:format_quality] == %{webp: 79, avif: 63, jpeg_xl: 77}
+    end
+
+    test "rejects quality above 100 (passes pos_integer, caught by range check)" do
+      assert_raise ArgumentError, ~r/quality/, fn ->
+        Imgproxy.validate_options!(imgproxy: [quality: 101])
+      end
+    end
+
+    test "rejects a format_quality value above 100" do
+      assert_raise ArgumentError, ~r/format_quality/, fn ->
+        Imgproxy.validate_options!(imgproxy: [format_quality: %{webp: 101}])
+      end
+    end
+  end
+
   test "validates imgproxy auto_rotate config" do
     assert Imgproxy.validate_options!(imgproxy: [auto_rotate: true])[:imgproxy][:auto_rotate] ==
              true
