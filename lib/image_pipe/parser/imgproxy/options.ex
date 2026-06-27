@@ -8,6 +8,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output.QualitySearch
+  alias ImagePipe.Plan.Output.QualitySearch.Metric
 
   # Default SSIMULACRA2 target when an `:ssim2` search is active but neither the
   # URL nor host config supplies one. Sized to the "very high quality" tier
@@ -479,17 +480,12 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
     do: {:error, {:invalid_option, :autoquality, {:target_out_of_range, target}}}
 
   defp validate_target_range(metric, target) do
-    {lo, hi} = metric_target_range(metric)
+    {lo, hi} = Metric.target_range(metric)
 
     if is_number(target) and target >= lo and target <= hi,
       do: {:ok, target},
       else: {:error, {:invalid_option, :autoquality, {:target_out_of_range, target}}}
   end
-
-  # Mirrors Output.Metric.*.target_range/0 (parser may not depend on Output; same
-  # precedent as :target_float's inline 0–100 clamp).
-  defp metric_target_range(:ssimulacra2), do: {0.0, 100.0}
-  defp metric_target_range(:butteraugli), do: {0.0, 25.0}
 
   defp default_target(:ssimulacra2), do: {:ok, @default_ssim2_target}
   defp default_target(:butteraugli), do: {:ok, @default_butteraugli_target}

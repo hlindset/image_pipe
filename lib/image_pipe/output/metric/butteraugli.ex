@@ -9,11 +9,13 @@ defmodule ImagePipe.Output.Metric.Butteraugli do
   """
   @behaviour ImagePipe.Output.Metric
 
-  @impl true
-  def direction, do: :lower_better
+  alias ImagePipe.Plan.Output.QualitySearch.Metric
 
   @impl true
-  def target_range, do: {0.0, 25.0}
+  def direction, do: Metric.direction(:butteraugli)
+
+  @impl true
+  def target_range, do: Metric.target_range(:butteraugli)
 
   @impl true
   def leg_name, do: :butteraugli
