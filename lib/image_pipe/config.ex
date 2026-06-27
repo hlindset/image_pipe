@@ -182,7 +182,8 @@ defmodule ImagePipe.Config do
   end
 
   defp validate_target_metric!(metric, _value) do
-    raise ArgumentError, "invalid config: autoquality_target has unknown metric #{inspect(metric)}"
+    raise ArgumentError,
+          "invalid config: autoquality_target has unknown metric #{inspect(metric)}"
   end
 
   defp validate_allowed_error!(error_map) do
