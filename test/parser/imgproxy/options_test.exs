@@ -255,6 +255,38 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
            } = request.output.quality_search
   end
 
+  describe "default quality resolution" do
+    @q_defaults [quality: 80, format_quality: %{webp: 79, avif: 63, jpeg_xl: 77}]
+
+    test "config format_quality folds into format_qualities; default_quality from global" do
+      assert {:ok, request} = Options.parse([], Presets.empty(), @q_defaults)
+      assert request.output.default_quality == {:quality, 80}
+
+      assert request.output.format_qualities == %{
+               webp: {:quality, 79},
+               avif: {:quality, 63},
+               jpeg_xl: {:quality, 77}
+             }
+    end
+
+    test "URL fq overrides config format_quality for that format" do
+      assert {:ok, request} = Options.parse(~w(fq:avif:70), Presets.empty(), @q_defaults)
+      assert request.output.format_qualities[:avif] == {:quality, 70}
+      assert request.output.format_qualities[:webp] == {:quality, 79}
+    end
+
+    test "URL fq:fmt:0 (unset) does not erase the config per-format value" do
+      assert {:ok, request} = Options.parse(~w(fq:avif:0), Presets.empty(), @q_defaults)
+      assert request.output.format_qualities[:avif] == {:quality, 63}
+    end
+
+    test "no config defaults: default_quality stays :default, no synthetic format_qualities" do
+      assert {:ok, request} = Options.parse([], Presets.empty(), [])
+      assert request.output.default_quality == :default
+      assert request.output.format_qualities == %{}
+    end
+  end
+
   describe "autoquality resolution" do
     test "bare ssim2 fills target/bracket/allowed_error/per-format from config defaults" do
       defaults = [

@@ -337,6 +337,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
            |> resolve_metadata_defaults(defaults)
            |> Map.put(:strip_color_profile, strip_color_profile?)
            |> Map.put(:color_profile, color_profile)
+           |> resolve_quality_defaults(defaults)
            |> resolve_quality_search_defaults(defaults) do
       options =
         options
@@ -345,6 +346,36 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
 
       {:ok, options}
     end
+  end
+
+  # Fold host-config default quality into the product-neutral output. Config
+  # `format_quality` (bare ints) is normalized to the `quality()` shape and used
+  # as the base under the already-merged URL `fq` (`output.format_qualities`).
+  # A URL `:default` entry (`fq:fmt:0`) means "unset" — imgproxy treats `0` as
+  # unset — so it must not erase the config per-format value; reject those before
+  # merging. `default_quality` carries the configured global default.
+  defp resolve_quality_defaults(output, defaults) do
+    config_fq =
+      defaults
+      |> Keyword.get(:format_quality, %{})
+      |> Map.new(fn {format, q} -> {format, {:quality, q}} end)
+
+    url_fq =
+      output.format_qualities
+      |> Enum.reject(fn {_format, quality} -> quality == :default end)
+      |> Map.new()
+
+    default_quality =
+      case Keyword.get(defaults, :quality) do
+        nil -> :default
+        value -> {:quality, value}
+      end
+
+    %{
+      output
+      | format_qualities: Map.merge(config_fq, url_fq),
+        default_quality: default_quality
+    }
   end
 
   @doc false
