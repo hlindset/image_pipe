@@ -20,8 +20,11 @@
 
 **Modify:**
 - `lib/image_pipe/plan/output.ex` — add `default_quality` field + `:jpeg_xl` to `@type format`.
+- `lib/image_pipe/parser/imgproxy/parsed_request.ex` — add `default_quality` to `@default_output` map + the `output_request()` typespec (the parser's mutable output is this **plain map**, not `%Output{}`).
+- `lib/image_pipe/parser/imgproxy/plan_builder.ex` — copy `default_quality` into both `output_plan/1` `%Output{}` constructions (without this, the resolved value never reaches production).
 - `lib/image_pipe/plan/output/quality_search/{size,ssimulacra2,butteraugli}.ex` — add `url_min_quality`/`url_max_quality`.
-- `lib/image_pipe/output/policy.ex` — `default_quality` on the Policy struct + both `from_output_plan/3` clauses; `effective_quality/2` lossless gate; URL-wins in all four `resolve_search/2` clauses.
+- `lib/image_pipe/output/policy.ex` — `default_quality` on the Policy struct (**non-enforced, default `:default`**) + both `from_output_plan/3` clauses; `effective_quality/2` lossless gate; URL-wins in all four `resolve_search/2` clauses.
+- `lib/image_pipe/cache/key.ex` — fold `url_min_quality`/`url_max_quality` into `quality_search_key/1` (Size clause + `quality_metric_key/2`); the URL bracket now changes output bytes, so it must be in the storage-identity key.
 - `lib/image_pipe/parser/imgproxy.ex` — schema (`quality`, `format_quality`, `autoquality_target`→map, `autoquality_allowed_error`→map), `request_defaults/1`, config-boundary validation.
 - `lib/image_pipe/parser/imgproxy/options.ex` — `resolve_quality_defaults/2` (new); `build_quality_search`/`build_quality_metric`/`resolve_quality_search_target`; new `default_allowed_error/1`.
 - `docs/imgproxy_support_matrix.md` — surface + behavioral axes.
@@ -35,11 +38,13 @@
 
 # Part 1 — Default output quality (#389-a)
 
-### Task 1: `Plan.Output.default_quality` field
+### Task 1: Thread `default_quality` end-to-end (struct + ParsedRequest map + PlanBuilder)
 
 **Files:**
-- Modify: `lib/image_pipe/plan/output.ex`
+- Modify: `lib/image_pipe/plan/output.ex`, `lib/image_pipe/parser/imgproxy/parsed_request.ex`, `lib/image_pipe/parser/imgproxy/plan_builder.ex`
 - Test: `test/image_pipe/plan/output_test.exs`
+
+**Why three files:** the imgproxy parser's mutable output is the **plain `@default_output` map** in `parsed_request.ex` (not a `%Output{}` struct), and `PlanBuilder.output_plan/1` converts that map into the production `%Output{}`. Adding the field only to `Plan.Output` would make `%{output | default_quality: …}` (Task 3) raise `KeyError` and would drop the value before it reaches production. All three must carry it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -84,16 +89,41 @@ Add `default_quality` to the `@type t` map, right after the `format_qualities:` 
           default_quality: quality(),
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Add the key to the ParsedRequest map + typespec**
+
+In `lib/image_pipe/parser/imgproxy/parsed_request.ex`, add `default_quality: :default` to the `@default_output` map (after `format_qualities: %{},`):
+
+```elixir
+  @default_output %{
+    format: nil,
+    quality: :default,
+    format_qualities: %{},
+    default_quality: :default,
+    max_bytes: nil,
+```
+
+And add the field to the `output_request()` typespec (after the `format_qualities` line):
+
+```elixir
+          required(:format_qualities) => %{optional(output_format()) => quality()},
+          required(:default_quality) => quality(),
+```
+
+- [ ] **Step 5: Copy it through PlanBuilder**
+
+In `lib/image_pipe/parser/imgproxy/plan_builder.ex`, add `default_quality: request.default_quality,` to **both** `output_plan/1` `%Output{}` constructions (the `%{format: nil}` clause ~line 121 and the `%{format: format}` clause ~line 141), right after the `format_qualities: request.format_qualities,` line in each.
+
+- [ ] **Step 6: Run test to verify it passes; compile**
 
 Run: `mise exec -- mix test test/image_pipe/plan/output_test.exs`
-Expected: PASS.
+Run: `mise exec -- mix compile --warnings-as-errors`
+Expected: PASS / clean compile.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add lib/image_pipe/plan/output.ex test/image_pipe/plan/output_test.exs
-git commit -m "feat(output): add Plan.Output.default_quality field"
+git add lib/image_pipe/plan/output.ex lib/image_pipe/parser/imgproxy/parsed_request.ex lib/image_pipe/parser/imgproxy/plan_builder.ex test/image_pipe/plan/output_test.exs
+git commit -m "feat(output): thread Plan.Output.default_quality through parser"
 ```
 
 ---
@@ -326,7 +356,7 @@ git commit -m "feat(imgproxy): resolve config quality defaults into Plan.Output"
 - Modify: `lib/image_pipe/output/policy.ex`
 - Test: `test/image_pipe/output_policy_test.exs`
 
-**Context:** the Policy struct's `@enforce_keys` includes `:quality`/`:format_qualities`; existing tests assert full `%Policy{}` literals and full `%Resolved{}` literals, so adding a field requires updating those literals.
+**Context:** existing tests assert full `%Policy{}` literals. To avoid a compile break across ~13 construction sites (and equality-assertion churn), add `default_quality` as a **non-enforced** Policy field defaulting to `:default` — *not* in `@enforce_keys`. Existing literals then keep compiling and still match (both sides default to `:default`); only the new tests below set it.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -366,24 +396,21 @@ Add the alias if missing at the top of the test module: `alias ImagePipe.Plan.Ou
 - [ ] **Step 2: Run to verify failure**
 
 Run: `mise exec -- mix test test/image_pipe/output_policy_test.exs`
-Expected: FAIL — `Policy.from_output_plan` does not copy `default_quality` (KeyError on `output.default_quality` is avoided because the field exists from Task 1, but the Policy struct has no such key) → the new field isn't carried and the png-gate clause doesn't exist.
+Expected: FAIL — the old 2-clause `effective_quality/2` ignores `default_quality` (returns `Map.get(format_qualities, format, :default)`), so the global-default test expects `{:quality, 80}` but gets `:default`, and the png-gate test likewise. A **value mismatch**, not a KeyError.
 
-- [ ] **Step 3: Add `default_quality` to the Policy struct**
+- [ ] **Step 3: Add `default_quality` to the Policy struct (non-enforced)**
 
-In `lib/image_pipe/output/policy.ex`, add `:default_quality` to `@enforce_keys` (right after `:format_qualities`):
+In `lib/image_pipe/output/policy.ex`, add `default_quality: :default` to the `defstruct` defaults keyword list (the part after `@enforce_keys ++`) — **do not** add it to `@enforce_keys`, so existing `%Policy{}` literals keep compiling:
 
 ```elixir
-  @enforce_keys [
-    :mode,
-    :modern_candidates,
-    :headers,
-    :quality,
-    :format_qualities,
-    :default_quality,
-    :strip_metadata,
-    :keep_copyright,
-    :color_profile
-  ]
+  defstruct @enforce_keys ++
+              [
+                flatten_background: Color.white(),
+                default_quality: :default,
+                quality_search: :none,
+                max_bytes: nil,
+                quality_search_offsets: Output.default_quality_search_offsets()
+              ]
 ```
 
 Add it to `@type t` after the `format_qualities:` line:
@@ -433,12 +460,9 @@ Replace the two `effective_quality/2` clauses (currently [policy.ex:241-248](../
   defp default_for(%__MODULE__{default_quality: default_quality}, _format), do: default_quality
 ```
 
-- [ ] **Step 6: Update the pre-existing Policy/Resolved literal assertions**
+- [ ] **Step 6: Confirm existing literal assertions still pass**
 
-The full-struct equality assertions in this file now need the new field. For each `%Policy{...}` literal (the `from_output_plan/3` describe block, ~lines 32-100) add `default_quality: :default` alongside `format_qualities: %{}`. The `%Resolved{}` literals are unaffected (`Resolved` has no `default_quality`). Run the file to find every literal that fails and add the field:
-
-Run: `mise exec -- mix test test/image_pipe/output_policy_test.exs`
-Fix each `(MatchError)`/equality failure by adding `default_quality: :default` to that `%Policy{}` literal.
+Because `default_quality` is non-enforced and defaults to `:default`, existing full-`%Policy{}` equality assertions need **no edits**: their literal omits the field (→ `:default`), and `from_output_plan` on a `%Output{}` whose `default_quality` is `:default` yields `:default` too — they match. Just run the file; if any pre-existing assertion does fail, it means that test builds an `%Output{}` with a non-`:default` `default_quality` (unlikely) — add the field to that one literal.
 
 - [ ] **Step 7: Run to verify pass**
 
@@ -558,11 +582,13 @@ git commit -m "feat(output): carry URL min/max bracket override on QualitySearch
 
 ---
 
-### Task 7: `resolve_search/2` — URL-wins precedence (all four clauses)
+### Task 7: `resolve_search/2` URL-wins precedence + cache-key fix (all four clauses)
 
 **Files:**
-- Modify: `lib/image_pipe/output/policy.ex`
-- Test: `test/image_pipe/output_policy_test.exs`
+- Modify: `lib/image_pipe/output/policy.ex`, `lib/image_pipe/cache/key.ex`
+- Test: `test/image_pipe/output_policy_test.exs`, `test/image_pipe/cache/key_test.exs`
+
+**Why the cache key too:** before this change a URL `min/max` landed on the base `min_quality`/`max_quality`, which the cache key already composes. After the flip it lands on `url_min_quality`/`url_max_quality` and overrides the resolved bracket → it changes output bytes. If the key doesn't include the URL fields, two requests differing only in URL bracket collapse to one key and serve the wrong variant. So the key must fold them in (same step).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -650,11 +676,51 @@ In `lib/image_pipe/output/policy.ex`, change each per-format min/max resolution 
 Run: `mise exec -- mix test test/image_pipe/output_policy_test.exs`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Write the failing cache-key test**
+
+Add to `test/image_pipe/cache/key_test.exs` (mirror the file's existing key-building helper; this asserts two requests differing only in the URL bracket get distinct keys):
+
+```elixir
+test "url_min_quality/url_max_quality are part of the quality_search cache key" do
+  base = %ImagePipe.Plan.Output.QualitySearch.Ssimulacra2{
+    target: 78, min_quality: 70, max_quality: 80
+  }
+
+  k_plain = Key.quality_search_key(base)
+  k_url = Key.quality_search_key(%{base | url_min_quality: 80, url_max_quality: 90})
+
+  refute k_plain == k_url
+end
+```
+
+If `quality_search_key/1` is private, assert through the public key-building entry point the file already uses (build two `%Output{}`/request structs differing only in the URL bracket and assert distinct full keys). Match the file's established pattern.
+
+- [ ] **Step 6: Run to verify failure**
+
+Run: `mise exec -- mix test test/image_pipe/cache/key_test.exs`
+Expected: FAIL — keys are equal (URL fields not composed).
+
+- [ ] **Step 7: Fold the URL fields into the key**
+
+In `lib/image_pipe/cache/key.ex`, add `url_min_quality`/`url_max_quality` to both quality key builders. In `quality_search_key(%QualitySearch.Size{} = s)` (~line 160) and `quality_metric_key(metric, s)` (~line 178), add after the `max_quality:` line:
+
+```elixir
+      min_quality: s.min_quality,
+      max_quality: s.max_quality,
+      url_min_quality: s.url_min_quality,
+      url_max_quality: s.url_max_quality,
+```
+
+- [ ] **Step 8: Run to verify pass**
+
+Run: `mise exec -- mix test test/image_pipe/cache/key_test.exs test/image_pipe/output_policy_test.exs`
+Expected: PASS.
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add lib/image_pipe/output/policy.ex test/image_pipe/output_policy_test.exs
-git commit -m "feat(output): URL autoquality min/max override per-format config"
+git add lib/image_pipe/output/policy.ex lib/image_pipe/cache/key.ex test/image_pipe/output_policy_test.exs test/image_pipe/cache/key_test.exs
+git commit -m "feat(output): URL autoquality min/max override per-format config + cache key"
 ```
 
 ---
@@ -838,15 +904,17 @@ Add to `test/parser/imgproxy/options_test.exs` (the `@map_defaults` use the new 
 
 ```elixir
 describe "per-metric autoquality resolution" do
+  # Pass the new map-shaped autoquality_allowed_error (%{}) so the OLD code reads
+  # the map back as the literal allowed_error (red) until Task 9 lands.
   test "butteraugli without config gets base 70/80 guardrail and 0.1 allowed_error (no 1/100)" do
     out =
       resolve_output(
         %{quality_search: {:autoquality, [metric: :butteraugli]}},
-        autoquality_min_quality: 70, autoquality_max_quality: 80
+        autoquality_min_quality: 70, autoquality_max_quality: 80, autoquality_allowed_error: %{}
       )
 
     assert %ImagePipe.Plan.Output.QualitySearch.Butteraugli{
-             min_quality: 70, max_quality: 80, allowed_error: 0.1
+             min_quality: 70, max_quality: 80, allowed_error: 0.1, url_min_quality: nil
            } = out.quality_search
   end
 
@@ -854,7 +922,7 @@ describe "per-metric autoquality resolution" do
     out =
       resolve_output(
         %{quality_search: {:autoquality, [metric: :ssimulacra2]}},
-        autoquality_min_quality: 70, autoquality_max_quality: 80
+        autoquality_min_quality: 70, autoquality_max_quality: 80, autoquality_allowed_error: %{}
       )
 
     assert out.quality_search.allowed_error == 1.0
@@ -896,7 +964,7 @@ end
 - [ ] **Step 2: Run to verify failure**
 
 Run: `mise exec -- mix test test/parser/imgproxy/options_test.exs`
-Expected: FAIL — butteraugli resolves to `1/100` (old shadowed default) / `1.0` allowed_error; `url_min_quality` is unset; per-metric config `Map.get` errors on the old scalar-but-now-map mismatch.
+Expected: FAIL, each for its own reason: the two `allowed_error` tests get the map `%{}` back (old code reads `Keyword.get(defaults, :autoquality_allowed_error, default_error)` → `%{}`, not `0.1`/`1.0`); the cross-metric test errors (old `resolve_quality_search_target` passes the whole `%{ssimulacra2: 85}` map to `validate_target_range`, which rejects a non-number); the URL-fields test gets `url_min_quality == nil` (old `build_quality_metric` never sets it).
 
 - [ ] **Step 3: Simplify `build_quality_search` dispatch + rewrite `build_quality_metric`**
 
@@ -1019,9 +1087,9 @@ The test at ~line 241 (`autoquality:ssim2:90:70:80:1`) asserts `min_quality: 70,
 
 `allowed_error` now resolves to the ssim2 built-in `1.0` when config omits it. With `autoquality_allowed_error` no longer a scalar default, the assertion `allowed_error == 1.0` still holds (built-in), so keep it — but the defaults list must drop the scalar `autoquality_allowed_error: 1.0` (or convert to `%{ssimulacra2: 1.0}`). Keep `autoquality_target: %{ssimulacra2: 90.0}`.
 
-- [ ] **Step 4: Delete obsolete tests**
+- [ ] **Step 4: Scope check — what to delete vs migrate (do NOT over-delete)**
 
-Remove any test asserting butteraugli's old `1/100` bracket (search the file for `min_quality: 1` / `max_quality: 100`). Remove any test that called `build_quality_metric` directly with the old 7-arity (search `build_quality_metric` across `test/`). In `test/parser/imgproxy_test.exs`, convert any scalar `autoquality_target:`/`autoquality_allowed_error:` config tests to the map shape (or delete if now covered by Task 8's `describe`).
+Confirmed by review: this file has **no** test asserting butteraugli's old `1/100` bracket, and **no** test calls the private `build_quality_metric` directly — so there is nothing to delete on those grounds. Critically, do **not** grep `min_quality: 1`/`max_quality: 100` across `test/` and delete matches: those literals appear in `test/image_pipe/output/encode_search_test.exs`, `test/image_pipe/output_policy_test.exs`, and `test/image_pipe/plan/output/quality_search_test.exs` as **arbitrary bracket values** exercising the encode-search loop and Policy resolution — they are unique, still-valid coverage; leave them. The obsolete butteraugli-default tests in *this* file (e.g. the `target:`/`allowed_error:`-based ones ~lines 359-367) are **migrated** (scalar→map) in Steps 1-3, not deleted. In `test/parser/imgproxy_test.exs`, convert any scalar `autoquality_target:`/`autoquality_allowed_error:` config tests to the map shape (or drop only if Task 8's `describe` already covers the exact case). Net: Task 10 is migration-only — no behavioral coverage is removed.
 
 - [ ] **Step 5: Run both files to verify pass**
 
@@ -1129,7 +1197,7 @@ git commit -m "docs(imgproxy): quality-model rework — surface + behavioral mat
 
 **Spec coverage:**
 - #389-a default quality (config + values + resolution order + PNG gate) → Tasks 1–5. ✓
-- #389-b URL-wins precedence → Tasks 6, 7. ✓
+- #389-b URL-wins precedence → Tasks 6, 7 (incl. cache-key fold-in so the URL bracket selects the right stored variant). ✓
 - #390 cleanup (delete dead min/max defaults; 70/80 universal) → Task 9 (`build_quality_metric` 4-arity drops `default_min`/`default_max`). ✓
 - Per-metric `target`/`allowed_error` (both scale-dependent knobs) → Tasks 8, 9. ✓
 - Validation at config boundary → Tasks 2, 8. ✓ (URL-pair inversion already handled in the grammar — confirmed, no task needed.)
