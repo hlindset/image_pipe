@@ -653,7 +653,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
 
     test "jpgo translates imgproxy names to libvips fields" do
-      assert {:ok, {:output, [encoder_options: %{jpeg: %JpegOptions{interlace: true, subsample_mode: :off}}]}} =
+      assert {:ok,
+              {:output,
+               [encoder_options: %{jpeg: %JpegOptions{interlace: true, subsample_mode: :off}}]}} =
                OptionGrammar.parse("jpgo:1:1")
     end
 
@@ -673,7 +675,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     end
 
     test "pngo quantization_colors buckets to bitdepth and sets filter/palette" do
-      assert {:ok, {:output, [encoder_options: %{png: %PngOptions{palette: true, bitdepth: 8, filter: :none}}]}} =
+      assert {:ok,
+              {:output,
+               [encoder_options: %{png: %PngOptions{palette: true, bitdepth: 8, filter: :none}}]}} =
                OptionGrammar.parse("pngo::1:128")
     end
 
@@ -683,7 +687,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     end
 
     test "webpo compression near_lossless -> near_lossless bool" do
-      assert {:ok, {:output, [encoder_options: %{webp: %WebpOptions{near_lossless: true, preset: :photo}}]}} =
+      assert {:ok,
+              {:output,
+               [encoder_options: %{webp: %WebpOptions{near_lossless: true, preset: :photo}}]}} =
                OptionGrammar.parse("webpo:near_lossless::photo")
     end
 

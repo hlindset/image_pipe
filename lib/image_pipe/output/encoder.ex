@@ -147,23 +147,27 @@ defmodule ImagePipe.Output.Encoder do
 
   def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
     with {:ok, _mime_type, suffix} <- output_format(resolved_output) do
-      case encoder_tokens(resolved_output.encoder_options) do
-        [] ->
-          case Image.write(image, :memory, suffix: suffix, quality: quality) do
-            {:ok, binary} -> {:ok, binary}
-            {:error, {:encode, _exception, _stack} = tagged} -> {:error, tagged}
-            {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
-          end
-
-        tokens ->
-          case VixImage.write_to_buffer(image, vix_suffix(suffix, {:quality, quality}, tokens)) do
-            {:ok, binary} -> {:ok, binary}
-            {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
-          end
-      end
+      buffer_for(image, suffix, quality, encoder_tokens(resolved_output.encoder_options))
     end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  # No encoder options: the existing `image`-wrapper path (byte-neutral baseline).
+  defp buffer_for(image, suffix, quality, []) do
+    case Image.write(image, :memory, suffix: suffix, quality: quality) do
+      {:ok, binary} -> {:ok, binary}
+      {:error, {:encode, _exception, _stack} = tagged} -> {:error, tagged}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
+  end
+
+  # Encoder options present: encode via Vix with a bracketed libvips suffix.
+  defp buffer_for(image, suffix, quality, tokens) do
+    case VixImage.write_to_buffer(image, vix_suffix(suffix, {:quality, quality}, tokens)) do
+      {:ok, binary} -> {:ok, binary}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
   end
 
   # JPEG XL is written through Vix directly to a seekable memory buffer: the
@@ -242,7 +246,12 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   defp encoder_tokens(%PngOptions{} = o) do
-    option_tokens(interlace: o.interlace, palette: o.palette, bitdepth: o.bitdepth, filter: o.filter)
+    option_tokens(
+      interlace: o.interlace,
+      palette: o.palette,
+      bitdepth: o.bitdepth,
+      filter: o.filter
+    )
   end
 
   defp encoder_tokens(%WebpOptions{} = o) do

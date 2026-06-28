@@ -28,6 +28,10 @@ import {
   sourceIdentifierForRequest,
   parseSourceIdentifier,
   trimOptionSegment,
+  jpegOptionsSegment,
+  pngOptionsSegment,
+  webpOptionsSegment,
+  avifOptionsSegment,
 } from "./processing-path";
 import {
   fiddlePathForState,
@@ -2091,5 +2095,54 @@ describe("parseSourceIdentifier", () => {
 
   it("returns null when the identifier does not map to a known sample image", () => {
     expect(parseSourceIdentifier("s3://sources/not-a-real-image.jpg")).toBeNull();
+  });
+});
+
+describe("codec encoder option segments", () => {
+  it("returns null when no codec field is set", () => {
+    expect(jpegOptionsSegment(defaultFiddleState)).toBeNull();
+    expect(pngOptionsSegment(defaultFiddleState)).toBeNull();
+    expect(webpOptionsSegment(defaultFiddleState)).toBeNull();
+    expect(avifOptionsSegment(defaultFiddleState)).toBeNull();
+  });
+
+  it("emits jpgo with empty positions for unset leading fields", () => {
+    const state = { ...defaultFiddleState, jpegOptions: { optimize_scans: true } };
+    expect(jpegOptionsSegment(state)).toBe("jpgo:::::1");
+    expect(optionSegments(state)).toContain("jpgo:::::1");
+  });
+
+  it("trims trailing empty jpgo positions", () => {
+    const state = { ...defaultFiddleState, jpegOptions: { progressive: true } };
+    expect(jpegOptionsSegment(state)).toBe("jpgo:1");
+  });
+
+  it("emits jpgo bools as 1/0 and quant_table as an int", () => {
+    const state = {
+      ...defaultFiddleState,
+      jpegOptions: { progressive: true, no_subsample: false, quant_table: 3 },
+    };
+    expect(jpegOptionsSegment(state)).toBe("jpgo:1:0::::3");
+  });
+
+  it("emits pngo with interlaced/quantize/colors", () => {
+    const state = {
+      ...defaultFiddleState,
+      pngOptions: { quantize: true, quantization_colors: 128 },
+    };
+    expect(pngOptionsSegment(state)).toBe("pngo::1:128");
+  });
+
+  it("emits webpo compression/smart_subsample/preset", () => {
+    const state = {
+      ...defaultFiddleState,
+      webpOptions: { compression: "near_lossless" as const, preset: "photo" as const },
+    };
+    expect(webpOptionsSegment(state)).toBe("webpo:near_lossless::photo");
+  });
+
+  it("emits avifo subsample", () => {
+    const state = { ...defaultFiddleState, avifOptions: { subsample: "off" as const } };
+    expect(avifOptionsSegment(state)).toBe("avifo:off");
   });
 });

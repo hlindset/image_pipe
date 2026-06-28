@@ -17,6 +17,13 @@ import {
   type SourceType,
   type ObjSubMode,
   type TrimBackgroundMode,
+  type JpegOptionsState,
+  type PngOptionsState,
+  type WebpOptionsState,
+  type AvifOptionsState,
+  type WebpCompression,
+  type WebpPreset,
+  type AvifSubsample,
 } from "./processing-path";
 import { defaultIiifState, iiifBrowserPath, parseIiifTail, type IiifState } from "./iiif-path";
 import {
@@ -309,6 +316,22 @@ function applyOptionSegment(currentState: FiddleState, segment: string): FiddleS
 
     case "ph":
       return parsePreserveHdr(currentState, args);
+
+    case "jpeg_options":
+    case "jpgo":
+      return parseJpegOptions(currentState, args);
+
+    case "png_options":
+    case "pngo":
+      return parsePngOptions(currentState, args);
+
+    case "webp_options":
+    case "webpo":
+      return parseWebpOptions(currentState, args);
+
+    case "avif_options":
+    case "avifo":
+      return parseAvifOptions(currentState, args);
 
     default:
       return null;
@@ -1110,6 +1133,141 @@ function parsePreserveHdr(currentState: FiddleState, args: string[]): FiddleStat
     ...currentState,
     preserveHdr: value,
   };
+}
+
+// jpgo:%progressive:%no_subsample:%trellis_quant:%overshoot_deringing:%optimize_scans:%quant_table
+// All positions optional; an empty position keeps the field unset (omit-vs-false).
+function parseJpegOptions(currentState: FiddleState, args: string[]): FiddleState | null {
+  if (args.length > 6) {
+    return null;
+  }
+
+  const [progressive, noSubsample, trellis, overshoot, optimizeScans, quantTable] = args;
+
+  const jpegOptions: JpegOptionsState = {};
+
+  if (!assignOptionalBoolean(jpegOptions, "progressive", progressive)) return null;
+  if (!assignOptionalBoolean(jpegOptions, "no_subsample", noSubsample)) return null;
+  if (!assignOptionalBoolean(jpegOptions, "trellis_quant", trellis)) return null;
+  if (!assignOptionalBoolean(jpegOptions, "overshoot_deringing", overshoot)) return null;
+  if (!assignOptionalBoolean(jpegOptions, "optimize_scans", optimizeScans)) return null;
+  if (!assignOptionalInteger(jpegOptions, "quant_table", quantTable, 0, 8)) return null;
+
+  return { ...currentState, jpegOptions };
+}
+
+// pngo:%interlaced:%quantize:%quantization_colors
+function parsePngOptions(currentState: FiddleState, args: string[]): FiddleState | null {
+  if (args.length > 3) {
+    return null;
+  }
+
+  const [interlaced, quantize, colors] = args;
+
+  const pngOptions: PngOptionsState = {};
+
+  if (!assignOptionalBoolean(pngOptions, "interlaced", interlaced)) return null;
+  if (!assignOptionalBoolean(pngOptions, "quantize", quantize)) return null;
+  if (!assignOptionalInteger(pngOptions, "quantization_colors", colors, 2, 256)) return null;
+
+  return { ...currentState, pngOptions };
+}
+
+// webpo:%compression:%smart_subsample:%preset
+function parseWebpOptions(currentState: FiddleState, args: string[]): FiddleState | null {
+  if (args.length > 3) {
+    return null;
+  }
+
+  const [compression, smartSubsample, preset] = args;
+
+  const webpOptions: WebpOptionsState = {};
+
+  if (compression !== undefined && compression !== "") {
+    if (compression !== "lossy" && compression !== "near_lossless" && compression !== "lossless") {
+      return null;
+    }
+
+    webpOptions.compression = compression as WebpCompression;
+  }
+
+  if (!assignOptionalBoolean(webpOptions, "smart_subsample", smartSubsample)) return null;
+
+  if (preset !== undefined && preset !== "") {
+    if (!webpPresets.has(preset)) {
+      return null;
+    }
+
+    webpOptions.preset = preset as WebpPreset;
+  }
+
+  return { ...currentState, webpOptions };
+}
+
+// avifo:%subsample
+function parseAvifOptions(currentState: FiddleState, args: string[]): FiddleState | null {
+  if (args.length > 1) {
+    return null;
+  }
+
+  const [subsample] = args;
+
+  const avifOptions: AvifOptionsState = {};
+
+  if (subsample !== undefined && subsample !== "") {
+    if (subsample !== "auto" && subsample !== "on" && subsample !== "off") {
+      return null;
+    }
+
+    avifOptions.subsample = subsample as AvifSubsample;
+  }
+
+  return { ...currentState, avifOptions };
+}
+
+const webpPresets = new Set<string>(["default", "photo", "picture", "drawing", "icon", "text"]);
+
+// Assigns target[key] from an optional positional boolean arg. Empty/absent
+// leaves the field unset; an invalid boolean returns false (caller rejects).
+function assignOptionalBoolean<T extends object, K extends keyof T>(
+  target: T,
+  key: K,
+  raw: string | undefined,
+): boolean {
+  if (raw === undefined || raw === "") {
+    return true;
+  }
+
+  const value = parseBooleanValue(raw);
+
+  if (value === null) {
+    return false;
+  }
+
+  target[key] = value as T[K];
+  return true;
+}
+
+// Assigns target[key] from an optional positional integer arg bounded to [lo, hi].
+function assignOptionalInteger<T extends object, K extends keyof T>(
+  target: T,
+  key: K,
+  raw: string | undefined,
+  lo: number,
+  hi: number,
+): boolean {
+  if (raw === undefined || raw === "") {
+    return true;
+  }
+
+  const value = parseNumber(raw);
+
+  if (value === null || !Number.isInteger(value) || value < lo || value > hi) {
+    return false;
+  }
+
+  target[key] = value as T[K];
+  return true;
 }
 
 // autoquality:none | autoquality:size:%target[:%min[:%max]]

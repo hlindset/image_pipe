@@ -1210,12 +1210,18 @@ defmodule ImagePipe.Cache.KeyTest do
     opts = %{jpeg: %ImagePipe.Plan.Output.JpegOptions{interlace: true}}
 
     key_a =
-      build_key!(conn, plan(output: %Output{mode: {:explicit, :jpeg}, encoder_options: opts}),
-        source_identity())
+      build_key!(
+        conn,
+        plan(output: %Output{mode: {:explicit, :jpeg}, encoder_options: opts}),
+        source_identity()
+      )
 
     key_b =
-      build_key!(conn, plan(output: %Output{mode: {:explicit, :jpeg}, encoder_options: opts}),
-        source_identity())
+      build_key!(
+        conn,
+        plan(output: %Output{mode: {:explicit, :jpeg}, encoder_options: opts}),
+        source_identity()
+      )
 
     assert key_a.hash == key_b.hash
   end

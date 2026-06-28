@@ -118,3 +118,60 @@ describe("source type round-trip", () => {
     });
   }
 });
+
+describe("codec encoder option round-trip", () => {
+  it("parses jpgo:::::1 setting only optimize_scans (omit-vs-false)", () => {
+    const parsed = parseFiddlePath("/jpgo:::::1/plain/local:///images/dog.jpg");
+    expect(parsed.jpegOptions).toEqual({ optimize_scans: true });
+  });
+
+  it("round-trips a full jpgo through build + parse", () => {
+    const state = {
+      ...defaultFiddleState,
+      jpegOptions: {
+        progressive: true,
+        no_subsample: false,
+        trellis_quant: true,
+        overshoot_deringing: false,
+        optimize_scans: true,
+        quant_table: 5,
+      },
+    };
+    const parsed = parseFiddlePath(fiddlePathForState(state));
+    expect(parsed.jpegOptions).toEqual(state.jpegOptions);
+  });
+
+  it("round-trips pngo through build + parse", () => {
+    const state = {
+      ...defaultFiddleState,
+      pngOptions: { interlaced: true, quantize: true, quantization_colors: 64 },
+    };
+    const parsed = parseFiddlePath(fiddlePathForState(state));
+    expect(parsed.pngOptions).toEqual(state.pngOptions);
+  });
+
+  it("round-trips webpo through build + parse", () => {
+    const state = {
+      ...defaultFiddleState,
+      webpOptions: {
+        compression: "near_lossless" as const,
+        smart_subsample: true,
+        preset: "drawing" as const,
+      },
+    };
+    const parsed = parseFiddlePath(fiddlePathForState(state));
+    expect(parsed.webpOptions).toEqual(state.webpOptions);
+  });
+
+  it("round-trips avifo through build + parse", () => {
+    const state = { ...defaultFiddleState, avifOptions: { subsample: "off" as const } };
+    const parsed = parseFiddlePath(fiddlePathForState(state));
+    expect(parsed.avifOptions).toEqual(state.avifOptions);
+  });
+
+  it("parses the full-name aliases identically to the short tokens", () => {
+    const short = parseFiddlePath("/jpgo:1/plain/local:///images/dog.jpg");
+    const long = parseFiddlePath("/jpeg_options:1/plain/local:///images/dog.jpg");
+    expect(long.jpegOptions).toEqual(short.jpegOptions);
+  });
+});

@@ -313,7 +313,14 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
         :jpeg,
         JpegOptions,
         args,
-        [:progressive, :no_subsample, :trellis_quant, :overshoot_deringing, :optimize_scans, :quant_table],
+        [
+          :progressive,
+          :no_subsample,
+          :trellis_quant,
+          :overshoot_deringing,
+          :optimize_scans,
+          :quant_table
+        ],
         &jpeg_arg/2,
         &identity/1,
         segment
@@ -352,30 +359,26 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   # Walk positional args; empty string ⇒ no override; otherwise translate to
   # libvips field assignments and build the struct, then run a per-format
   # finalizer. Too many args ⇒ invalid.
+  defp codec_options(_format_key, _mod, args, positions, _translator, _finalize, segment)
+       when length(args) > length(positions),
+       do: {:error, {:invalid_option_segment, segment}}
+
   defp codec_options(format_key, mod, args, positions, translator, finalize, segment) do
-    if length(args) > length(positions) do
-      {:error, {:invalid_option_segment, segment}}
-    else
-      padded = args ++ List.duplicate("", length(positions) - length(args))
+    padded = args ++ List.duplicate("", length(positions) - length(args))
+    pairs = Enum.zip(positions, padded)
 
-      result =
-        positions
-        |> Enum.zip(padded)
-        |> Enum.reduce_while({:ok, []}, fn
-          {_pos, ""}, {:ok, acc} ->
-            {:cont, {:ok, acc}}
+    case Enum.reduce_while(pairs, {:ok, []}, &reduce_codec_arg(&1, &2, translator)) do
+      {:ok, assigns} -> {:ok, [encoder_options: %{format_key => finalize.(struct(mod, assigns))}]}
+      :error -> {:error, {:invalid_option_segment, segment}}
+    end
+  end
 
-          {pos, raw}, {:ok, acc} ->
-            case translator.(pos, raw) do
-              {:ok, assigns} -> {:cont, {:ok, acc ++ assigns}}
-              :error -> {:halt, {:error, {:invalid_option_segment, segment}}}
-            end
-        end)
+  defp reduce_codec_arg({_pos, ""}, {:ok, acc}, _translator), do: {:cont, {:ok, acc}}
 
-      case result do
-        {:ok, assigns} -> {:ok, [encoder_options: %{format_key => finalize.(struct(mod, assigns))}]}
-        {:error, _} = err -> err
-      end
+  defp reduce_codec_arg({pos, raw}, {:ok, acc}, translator) do
+    case translator.(pos, raw) do
+      {:ok, assigns} -> {:cont, {:ok, acc ++ assigns}}
+      :error -> {:halt, :error}
     end
   end
 
@@ -394,8 +397,10 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp png_arg(:quantize, v),
     do:
-      with({:ok, b} <- boolish(v),
-           do: {:ok, if(b, do: [palette: true, filter: :none], else: [palette: false])})
+      with(
+        {:ok, b} <- boolish(v),
+        do: {:ok, if(b, do: [palette: true, filter: :none], else: [palette: false])}
+      )
 
   defp png_arg(:quantization_colors, v) do
     case Integer.parse(v) do
