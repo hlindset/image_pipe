@@ -81,15 +81,27 @@ In `lib/image_pipe/config.ex`, change `@map_defaults` (currently lines 59-65) to
   ]
 ```
 
-- [ ] **Step 4: Run the test + the imgproxy autoquality regression**
+- [ ] **Step 4: Update the imgproxy empty-maps default test**
+
+`test/parser/imgproxy_test.exs` (the `per-metric autoquality config` describe block, ~lines 223-229) asserts the resolved defaults are empty maps — which this change replaces with the seeded maps (this path goes through `Config.resolve!`). Update it:
+
+```elixir
+    test "defaults: target/allowed_error carry the per-metric seeds" do
+      opts = Imgproxy.validate_options!(imgproxy: [])[:imgproxy]
+      assert opts[:autoquality_target] == %{ssimulacra2: 78, butteraugli: 1.0}
+      assert opts[:autoquality_allowed_error] == %{ssimulacra2: 1.0, butteraugli: 0.1}
+    end
+```
+
+- [ ] **Step 5: Run the config test + the imgproxy parser regression**
 
 Run: `mise exec -- mix test test/image_pipe/config_test.exs test/parser/imgproxy_test.exs -v`
-Expected: PASS. (The imgproxy suite proves the promotion is behavior-preserving — its private builder still reads these maps via `||`, now hitting the seeded value instead of the constant.)
+Expected: PASS. (The rest of the imgproxy parser suite proves the promotion is behavior-preserving — its private builder still reads these maps via `||`, now hitting the seeded value instead of the constant.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/image_pipe/config.ex test/image_pipe/config_test.exs
+git add lib/image_pipe/config.ex test/image_pipe/config_test.exs test/parser/imgproxy_test.exs
 git commit -m "feat(config): seed per-metric autoquality target/allowed_error defaults
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -353,26 +365,57 @@ In `lib/image_pipe/parser/imgproxy/options.ex`, the `metric ->` branch of `resol
 In the same file, delete:
 - The module attributes `@default_ssim2_target 78` (line 20) and `@default_butteraugli_target 1.0` (line 24), plus their leading comments.
 - The private functions `build_quality_search/3`, `build_quality_metric/4`, `resolve_allowed_error/3`, `default_allowed_error/1`, `resolve_quality_search_target/3`, `validate_target_range/2`, and `default_target/1` (the block spanning roughly lines 415-494).
+- The now-orphaned alias `alias ImagePipe.Plan.Output.QualitySearch.Metric` (line 11) — after the deletions, only the deleted `validate_target_range/2` used `Metric`, so leaving the alias trips `--warnings-as-errors`. Keep the bare `alias ImagePipe.Plan.Output.QualitySearch` (line 10) — the rewired `QualitySearch.build/3` call uses it.
 
 Keep `effective_quality_search_method/2` and `url_quality_search_fields/1` (metric selection stays in the adapter). Verify no other references to the deleted names remain:
 
-Run: `mise exec -- grep -n "default_target\|default_allowed_error\|build_quality_search\|build_quality_metric\|resolve_quality_search_target\|@default_ssim2_target\|@default_butteraugli_target" lib/image_pipe/parser/imgproxy/options.ex`
+Run: `mise exec -- grep -n "default_target\|default_allowed_error\|build_quality_search\|build_quality_metric\|resolve_quality_search_target\|@default_ssim2_target\|@default_butteraugli_target\|QualitySearch.Metric" lib/image_pipe/parser/imgproxy/options.ex`
 Expected: no matches.
 
-- [ ] **Step 3: Run the imgproxy regression suites**
+- [ ] **Step 3: Migrate the imgproxy `options_test.exs` autoquality unit tests**
 
-Run: `mise exec -- mix test test/parser/imgproxy_test.exs test/image_pipe/imgproxy_wire_conformance_test.exs -v`
-Expected: PASS unchanged — same resolved structs, same values (behavior-preserving).
+`test/parser/imgproxy/options_test.exs` calls `Options.resolve_quality_search_defaults(output, defaults)` directly via the `resolve_output_result/2` helper (~lines 517-521) with hand-built `defaults` that never pass through `Config.resolve!`. Several cases (~lines 351-448) relied on the deleted built-in per-metric fallbacks (target 78/1.0, allowed_error 1.0/0.1) and the deleted `:size`-target `{:error, _}` return. Two edits make them pass against the new builder, which now reads the *resolved* config:
 
-- [ ] **Step 4: Compile with warnings-as-errors (catches any orphaned helper)**
+1. Route the helper's `defaults` through `Config.resolve!` so the seeded perceptual maps (and validation) apply — mirroring production:
+
+```elixir
+  defp resolve_output_result(overrides, defaults) do
+    output = ParsedRequest.output_request(overrides)
+    Options.resolve_quality_search_defaults(output, ImagePipe.Config.resolve!(defaults))
+  end
+```
+
+2. The `config size autoquality_target must be a positive integer byte count` case (the `for bad <- [0, -1, 1.5]` loop) now fails validation at `Config.resolve!` (which raises), not in the builder. Change it to assert the raise:
+
+```elixir
+    test "config size autoquality_target must be a positive integer byte count" do
+      for bad <- [0, -1, 1.5] do
+        assert_raise ArgumentError, fn ->
+          resolve_output_result(
+            %{quality_search: {:autoquality, [metric: :size]}},
+            autoquality_target: %{size: bad}
+          )
+        end
+      end
+    end
+```
+
+Also delete the now-inaccurate breadcrumb comment ("Pass the new map-shaped autoquality_allowed_error … until Task 9 lands") above the `per-metric autoquality resolution` describe block. The remaining cases ("defaults to the ssim2/butteraugli target", "0.1/1.0 allowed_error", "do not bleed across metrics") pass unchanged because `Config.resolve!` now seeds those maps.
+
+- [ ] **Step 4: Run the imgproxy regression suites**
+
+Run: `mise exec -- mix test test/parser/imgproxy_test.exs test/parser/imgproxy/options_test.exs test/image_pipe/imgproxy_wire_conformance_test.exs -v`
+Expected: PASS — same resolved structs, same values (behavior-preserving); the migrated unit tests assert the same numbers via the seeded config.
+
+- [ ] **Step 5: Compile with warnings-as-errors (catches any orphaned helper/alias)**
 
 Run: `mise exec -- mix compile --warnings-as-errors`
-Expected: clean compile, no "function X is unused" warnings.
+Expected: clean compile, no "unused" warnings (alias or function).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/image_pipe/parser/imgproxy/options.ex
+git add lib/image_pipe/parser/imgproxy/options.ex test/parser/imgproxy/options_test.exs
 git commit -m "refactor(imgproxy): delegate autoquality search to neutral builder
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -741,7 +784,7 @@ Expected: FAIL — today both responses use the encoder built-in default (identi
 
 - [ ] **Step 3: Thread `auto_rotate` + `apply_to_output` into `image_plan`**
 
-In `lib/image_pipe/parser/iiif/plan_builder.ex`, edit `image_plan/3` (lines 63-92). Change the `auto_rotate` source (line 64) and add the `apply_to_output` step to the `with` chain:
+In `lib/image_pipe/parser/iiif/plan_builder.ex`, edit `image_plan/3` (lines 63-92). Change the `auto_rotate` source (line 64) and add the `apply_to_output` step to the `with` chain. Also update the `image_plan/3` `@doc` (lines ~56-57): it currently says `auto_rotate: boolean() (default false)` — drop the "(default `false`)" note (the builder now reads `auto_rotate` from the resolved neutral config via `Keyword.fetch!`, default `true`; it is no longer defaulted here).
 
 ```elixir
   def image_plan(source, tokens, opts \\ []) do
@@ -791,7 +834,7 @@ Then wrap the opts argument of **every** `PlanBuilder.image_plan/3` call with it
   defp build(tokens), do: PlanBuilder.image_plan(@source, tokens, opts(auto_rotate: true))
 ```
 
-And each inline call (the calls at roughly lines 186, 199, 267, 286, 318, 338) changes its final argument the same way — e.g. `auto_rotate: false` → `opts(auto_rotate: false)`, `max_width: 2000` → `opts(max_width: 2000)`, `[max_width: 2000, max_area: 3_000_000]` → `opts(max_width: 2000, max_area: 3_000_000)`. These tests assert on `auto_rotate`, ops, and `out.mode` (field access, not exact-struct equality), so the extra populated `Output` fields don't affect them.
+And each inline call (the calls at roughly lines 186, 199, 267, 286, 318, 338) changes its final argument the same way: `auto_rotate: true` → `opts(auto_rotate: true)`, `auto_rotate: false` → `opts(auto_rotate: false)`, `max_width: 2000` → `opts(max_width: 2000)`, `[max_width: 2000, max_area: 3_000_000]` → `opts(max_width: 2000, max_area: 3_000_000)`. The `no bounds configured` call (line ~338) passes no opts and becomes `opts()` (empty extra). These tests assert on `auto_rotate`, ops, and `out.mode` (field access, not exact-struct equality), so the extra populated `Output` fields don't affect them.
 
 - [ ] **Step 5: Run the wire test + the IIIF parser/unit tests**
 
@@ -884,12 +927,26 @@ In `lib/image_pipe/parser/twic_pics.ex`, remove the `@schema` (line 18) and the 
   defp twicpics_overlay, do: []
 ```
 
-- [ ] **Step 4: Run the TwicPics parser tests**
+- [ ] **Step 4: Update the pre-existing `validate_options!` shape test**
+
+`test/parser/twic_pics_test.exs` has `test "validate_options!/1 normalizes the :twicpics sub-options into the opts"` asserting `validate_options!([]) == [twicpics: []]` and `validate_options!(parser: TwicPics)[:twicpics] == []`. `:twicpics` now carries the **resolved** neutral config, not `[]`. Update it to assert the resolved shape:
+
+```elixir
+  test "validate_options!/1 resolves the :twicpics neutral config into the opts" do
+    opts = TwicPics.validate_options!([])
+    assert Keyword.fetch!(opts[:twicpics], :quality) == 80
+    assert Keyword.fetch!(opts[:twicpics], :strip_metadata) == true
+  end
+```
+
+The `raises on a non-list :twicpics value` test (line ~34) still passes — the new code keeps the `is_list` guard with the same `~r/invalid twicpics options/` message.
+
+- [ ] **Step 5: Run the TwicPics parser tests**
 
 Run: `mise exec -- mix test test/parser/twic_pics_test.exs -v`
-Expected: PASS.
+Expected: PASS. (The `parse/2` tests still call `parse(conn, [])` and pass — `parse/2` is not changed until Task 9.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/image_pipe/parser/twic_pics.ex test/parser/twic_pics_test.exs
@@ -969,9 +1026,21 @@ In `lib/image_pipe/parser/twic_pics/plan_builder.ex`, change `to_plan/2` (lines 
   end
 ```
 
-- [ ] **Step 5: Fix the direct `to_plan/2` call sites (three files)**
+- [ ] **Step 5: Fix the direct callers broken by the `parse/2` + `to_plan/3` changes**
 
-Three tests call the old `to_plan/2` to build a plan for an unrelated assertion. Pass `ImagePipe.Config.resolve!([])` as the third argument (the resolved neutral defaults) in each:
+Two `TwicPics.parse(conn, [])` call sites now break — Step 3's `parse/2` does `Keyword.fetch!(opts, :twicpics)`, so empty opts raise `KeyError`. In `test/parser/twic_pics_test.exs` (lines ~12 and ~17), pass validated opts:
+
+```elixir
+    assert {:ok, %Plan{output: %Plan.Output{mode: {:explicit, :avif}}}} =
+             TwicPics.parse(conn, TwicPics.validate_options!([]))
+```
+
+```elixir
+    assert {:error, {:unsupported_transform, "zoom"}} =
+             TwicPics.parse(conn, TwicPics.validate_options!([]))
+```
+
+Three more tests call the old `to_plan/2`; pass `ImagePipe.Config.resolve!([])` as the third argument (the resolved neutral defaults):
 
 - `test/parser/twic_pics/plan_builder_test.exs:11`:
   ```elixir
@@ -988,7 +1057,7 @@ Three tests call the old `to_plan/2` to build a plan for an unrelated assertion.
     {:ok, plan} = PlanBuilder.to_plan(%Source.Path{segments: ["x.png"]}, chain, ImagePipe.Config.resolve!([]))
   ```
 
-(These assert on operations / cache keys / focus geometry, not output quality, so the extra populated `Output` fields don't affect them.)
+(These assert on output mode / operations / cache keys / focus geometry, not output quality, so the extra populated `Output` fields don't affect them.)
 
 - [ ] **Step 6: Run the wire test + the existing TwicPics/cache/focus tests**
 
@@ -999,7 +1068,8 @@ Expected: PASS — URL quality outweighs the config default; existing TwicPics/c
 
 ```bash
 git add lib/image_pipe/parser/twic_pics.ex lib/image_pipe/parser/twic_pics/plan_builder.ex \
-  test/image_pipe/twic_pics_wire_conformance_test.exs test/parser/twic_pics/plan_builder_test.exs \
+  test/image_pipe/twic_pics_wire_conformance_test.exs test/parser/twic_pics_test.exs \
+  test/parser/twic_pics/plan_builder_test.exs \
   test/image_pipe/cache/key_test.exs test/image_pipe/transform/focus_test.exs
 git commit -m "feat(twicpics): thread resolved config onto the plan Output
 
