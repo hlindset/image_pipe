@@ -44,4 +44,15 @@ defmodule ImagePipe.Output.Resolved do
             | ImagePipe.Plan.Output.AvifOptions.t()
             | ImagePipe.Plan.Output.JxlOptions.t()
         }
+
+  @doc """
+  The negotiated JPEG XL encode effort: `JxlOptions.effort`, defaulting to
+  libvips `jxlsave`'s own default (7) when unset. Single source of truth for the
+  lazy-encode and native-search JXL paths.
+  """
+  @spec jxl_effort(t()) :: 1..9
+  def jxl_effort(%__MODULE__{encoder_options: %ImagePipe.Plan.Output.JxlOptions{effort: e}}),
+    do: e || 7
+
+  def jxl_effort(%__MODULE__{}), do: 7
 end

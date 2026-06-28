@@ -34,14 +34,15 @@ defmodule ImagePipe.Output.NativeJxlSearch do
         opts
       ) do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
-    native_jxl_butteraugli(image, nqs, resolved.max_bytes, jxl_effort(resolved), telemetry_opts)
+
+    native_jxl_butteraugli(
+      image,
+      nqs,
+      resolved.max_bytes,
+      Resolved.jxl_effort(resolved),
+      telemetry_opts
+    )
   end
-
-  # JXL effort: the negotiated JxlOptions.effort, defaulting to libvips' 7 when unset.
-  defp jxl_effort(%Resolved{encoder_options: %ImagePipe.Plan.Output.JxlOptions{effort: e}}),
-    do: e || 7
-
-  defp jxl_effort(%Resolved{}), do: 7
 
   # libvips drives JXL `distance` directly: there is no external measure and no
   # band loop. We clamp the target into the Q-bracket's distance range, then

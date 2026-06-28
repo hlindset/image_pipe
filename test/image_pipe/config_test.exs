@@ -47,6 +47,19 @@ defmodule ImagePipe.ConfigTest do
       assert Keyword.fetch!(resolved, :jpeg_options) == %JpegOptions{interlace: true}
     end
 
+    test "field-wise merges encoder-option structs across overlay and host layers" do
+      # Distinct fields on each layer must BOTH survive (field-wise merge, not
+      # whole-struct replacement) — guards the `layer/2` struct-merge path.
+      resolved =
+        Config.resolve!(
+          [jpeg_options: %JpegOptions{interlace: true}],
+          jpeg_options: %JpegOptions{quant_table: 5}
+        )
+
+      assert Keyword.fetch!(resolved, :jpeg_options) ==
+               %JpegOptions{interlace: true, quant_table: 5}
+    end
+
     test "the layer/2 rewrite still merges existing plain-map keys (format_quality)" do
       resolved = Config.resolve!(format_quality: %{webp: 70})
       fq = Keyword.fetch!(resolved, :format_quality)

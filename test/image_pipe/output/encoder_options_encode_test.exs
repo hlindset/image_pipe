@@ -1,7 +1,10 @@
 defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Output.{Encoder, Resolved}
+  import Plug.Test
+
+  alias ImagePipe.Output.{Encoder, Policy, Resolved}
+  alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
   defp finalized(w \\ 64, h \\ 64) do
@@ -33,6 +36,23 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
     {:ok, decoded} = Image.from_binary(bin)
     assert Image.width(decoded) == 64
     # progressive marker SOF2 (0xFFC2) present in a progressive JPEG
+    assert :binary.match(bin, <<0xFF, 0xC2>>) != :nomatch
+  end
+
+  test "encoder options thread through the real Output -> Policy.resolve path" do
+    # Build from %Output{} and let Policy.resolve/2 produce %Resolved{}, so a
+    # wiring break in the producer chain (not just the hand-built struct) fails.
+    output = %Output{
+      mode: {:explicit, :jpeg},
+      quality: {:quality, 75},
+      encoder_options: %{jpeg: %JpegOptions{interlace: true}}
+    }
+
+    policy = Policy.from_output_plan(conn(:get, "/"), output, [])
+    {:ok, resolved} = Policy.resolve(policy, :jpeg)
+    assert resolved.encoder_options == %JpegOptions{interlace: true}
+
+    {:ok, bin} = Encoder.encode_to_buffer(finalized(), resolved, 75)
     assert :binary.match(bin, <<0xFF, 0xC2>>) != :nomatch
   end
 

@@ -119,7 +119,9 @@ defmodule ImagePipe.Cache.Key do
        keep_copyright: output.keep_copyright,
        hdr: output.hdr,
        flatten_background: Color.key_data(output.flatten_background),
-       encoder_options: encoder_options_key(output.encoder_options)
+       # Explicit format: only the selected format's options shape the bytes, so
+       # narrow the digest (Policy.resolved/2 forwards only Map.get(.., format)).
+       encoder_options: encoder_options_key(Map.take(output.encoder_options, [format]))
      ]}
   end
 

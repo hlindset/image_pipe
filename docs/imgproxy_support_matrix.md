@@ -649,12 +649,9 @@ overlay** on top of the neutral defaults. **imgproxy parity == neutral defaults 
 — the overlay is empty (the value-level divergences, JXL `effort` 7 vs 4 and AVIF
 `effort` 4 vs 1, are documented above rather than overlaid).
 
-- ⭕ `IMGPROXY_JPEG_PROGRESSIVE`
-- ⭕ `IMGPROXY_JPEG_*`
-- ⭕ `IMGPROXY_PNG_*`
-- ⭕ `IMGPROXY_WEBP_*`
-- ⭕ `IMGPROXY_AVIF_*`
-- ⭕ `IMGPROXY_JXL_*`
+The `IMGPROXY_{JPEG,PNG,WEBP,AVIF,JXL}_*` advanced-compression env configs are
+covered by the five `*_options` keys above (and the `jpgo`/`pngo`/`webpo`/`avifo`
+URL rows under "Output and encoding").
 
 ### Autoquality and byte-budget search
 

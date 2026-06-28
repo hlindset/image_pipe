@@ -72,7 +72,7 @@ defmodule ImagePipe.Output.Encoder do
          _suffix,
          _opts
        ) do
-    case encode_jxl_buffer(finalized, quality, jxl_effort(resolved)) do
+    case encode_jxl_buffer(finalized, quality, Resolved.jxl_effort(resolved)) do
       {:ok, binary} -> {:ok, [binary], mime_type, nil}
       {:error, _reason} = err -> err
     end
@@ -143,7 +143,7 @@ defmodule ImagePipe.Output.Encoder do
   @spec encode_to_buffer(VixImage.t(), Resolved.t(), 1..100) ::
           {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
   def encode_to_buffer(%VixImage{} = image, %Resolved{format: :jpeg_xl} = resolved, quality),
-    do: encode_jxl_buffer(image, quality, jxl_effort(resolved))
+    do: encode_jxl_buffer(image, quality, Resolved.jxl_effort(resolved))
 
   def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
     with {:ok, _mime_type, suffix} <- output_format(resolved_output) do
@@ -218,10 +218,6 @@ defmodule ImagePipe.Output.Encoder do
 
   defp effort_token(nil), do: nil
   defp effort_token(effort) when is_integer(effort), do: "effort=#{effort}"
-
-  # JXL effort: the negotiated JxlOptions.effort, defaulting to libvips' 7 when unset.
-  defp jxl_effort(%Resolved{encoder_options: %JxlOptions{effort: e}}), do: e || 7
-  defp jxl_effort(%Resolved{}), do: 7
 
   # ".jpg" + Q + option tokens -> ".jpg[Q=75,interlace=true,...]". Q omitted for :default.
   defp vix_suffix(suffix, quality, tokens) do
