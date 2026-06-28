@@ -305,8 +305,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
       assert out.quality_search.target == 90.0
       assert out.quality_search.min_quality == 70 and out.quality_search.max_quality == 80
       assert out.quality_search.allowed_error == 1.0
-      assert out.quality_search.format_min == %{avif: 60}
-      assert out.quality_search.format_max == %{avif: 65}
+      # The avif override merges onto the seeded per-format defaults (jpeg_xl kept).
+      assert out.quality_search.format_min == %{avif: 60, jpeg_xl: 45}
+      assert out.quality_search.format_max == %{avif: 65, jpeg_xl: 80}
       assert out.quality_search.max_resolution == 0
     end
 
@@ -370,11 +371,12 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
 
     test "config size autoquality_target must be a positive integer byte count" do
       for bad <- [0, -1, 1.5] do
-        assert {:error, _} =
-                 resolve_output_result(
-                   %{quality_search: {:autoquality, [metric: :size]}},
-                   autoquality_target: %{size: bad}
-                 )
+        assert_raise ArgumentError, fn ->
+          resolve_output_result(
+            %{quality_search: {:autoquality, [metric: :size]}},
+            autoquality_target: %{size: bad}
+          )
+        end
       end
     end
 
@@ -400,8 +402,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
   end
 
   describe "per-metric autoquality resolution" do
-    # Pass the new map-shaped autoquality_allowed_error (%{}) so the OLD code reads
-    # the map back as the literal allowed_error (red) until Task 9 lands.
     test "butteraugli without config gets base 70/80 guardrail and 0.1 allowed_error (no 1/100)" do
       out =
         resolve_output(
@@ -517,6 +517,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
 
   defp resolve_output_result(overrides, defaults) do
     output = ParsedRequest.output_request(overrides)
-    Options.resolve_quality_search_defaults(output, defaults)
+    # The builder reads the *resolved* neutral config (seeded per-metric maps),
+    # mirroring production where `defaults` is `Config.resolve!`'s output.
+    Options.resolve_quality_search_defaults(output, ImagePipe.Config.resolve!(defaults))
   end
 end
