@@ -542,4 +542,21 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
       assert byte_size(url_q.resp_body) > byte_size(config_q.resp_body)
     end
   end
+
+  describe "cross-dialect encoder option inheritance" do
+    test "host jpeg_options config reaches a TwicPics request" do
+      # TwicPics has no encoder-option URL surface, but it threads neutral config
+      # via apply_to_output/2 — so a host-set jpeg_options must reach the encoder.
+      opts =
+        Keyword.put(@opts, :twicpics,
+          jpeg_options: %ImagePipe.Plan.Output.JpegOptions{interlace: true}
+        )
+
+      conn = call("/images/beach.jpg?twic=v1/output=jpeg", opts)
+
+      assert conn.status == 200
+      # progressive JPEG carries the SOF2 marker (0xFFC2)
+      assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
+    end
+  end
 end

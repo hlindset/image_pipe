@@ -4172,6 +4172,64 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     ]
   end
 
+  describe "codec encoder options" do
+    test "jpgo:1 yields a progressive (decodable) JPEG" do
+      opts = [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+        ]
+      ]
+
+      conn = call_imgproxy("/_/f:jpeg/jpgo:1/plain/images/x.jpg", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      # progressive JPEG carries the SOF2 marker (0xFFC2)
+      assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
+      assert {100, 100} = dimensions(conn)
+    end
+
+    test "pngo::1:16 yields a decodable palette PNG" do
+      opts = [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: UniformOriginImage]}
+        ]
+      ]
+
+      conn = call_imgproxy("/_/f:png/pngo::1:16/plain/images/x.png", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/png"]
+      assert {64, 64} = dimensions(conn)
+    end
+
+    test "jpgo:::::1 keeps a host-configured interlace true (omit-vs-false)" do
+      # Host config sets interlace; the URL token sets only optimize_scans (pos 5),
+      # leaving the progressive position empty — the config default must survive.
+      opts = [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+        ],
+        imgproxy: [jpeg_options: %ImagePipe.Plan.Output.JpegOptions{interlace: true}]
+      ]
+
+      conn = call_imgproxy("/_/f:jpeg/jpgo:::::1/plain/images/x.jpg", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
+    end
+  end
+
   defp call_imgproxy(path, opts, accept \\ nil) do
     conn =
       :get
