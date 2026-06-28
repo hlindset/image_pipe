@@ -38,11 +38,13 @@ These are imgproxy **Pro** options — **not** in the local OSS checkout. Verifi
 
 ### PNG — `png_options:%interlaced:%quantize:%quantization_colors`
 
-| imgproxy flag | type / default | libvips `pngsave` param |
+| imgproxy flag | type / default | libvips `pngsave` param (8.18.2, **pinned**) |
 | --- | --- | --- |
 | `interlaced` | bool / false | `interlace` |
 | `quantize` | bool / false | `palette` |
-| `quantization_colors` | int 2–256 / 256 | `colours` |
+| `quantization_colors` | int 2–256 / 256 | `bitdepth` (bucketed — see below) |
+
+**`quantization_colors` → `bitdepth`, not `colours`.** libvips 8.18.2 `pngsave` has **no `colours` param**; palette size is set by `bitdepth ∈ {1,2,4,8,16}`. imgproxy itself buckets (`vips/vips.c` `vips_pngsave_go`): `colors > 16 → bitdepth 8`, `5–16 → 4`, `3–4 → 2`, `≤2 → 1`. We replicate that bucket. imgproxy also sets `filter: none` when quantizing and `filter: all` otherwise; we mirror this only inside the quantize path (omit otherwise, to preserve byte-neutral default). imgproxy's *auto*-quantize path (source already ≤8-bit palette) is imgproxy-internal cleverness and **out of scope** — we quantize only on explicit `quantize`.
 
 PNG quantization needs libvips built with Quantizr or libimagequant (same constraint imgproxy documents) — a deployment dependency, not a no-op.
 
@@ -59,12 +61,16 @@ PNG quantization needs libvips built with Quantizr or libimagequant (same constr
 
 ### AVIF — `avif_options:%subsample`
 
-| imgproxy flag | type / default | libvips `heifsave` param |
+| imgproxy flag | type / default | libvips `heifsave` param (8.18.2, **pinned**) |
 | --- | --- | --- |
-| `subsample` | enum `auto`/`on`/`off` / `auto` | `subsample_mode` (`:auto`/`:on`/`:off`) |
-| `speed` (config-only) | int 0–9 / 8 | encode effort/speed param |
+| `subsample` | enum `auto`/`on`/`off` / `auto` | `subsample-mode` (`off`/`on`/`auto`) |
+| `speed` (config-only) | int 0–9 / 8 | `effort = 9 - speed` |
 
-`subsample: auto` already means "subsample when Q<90" in both imgproxy and libvips `heifsave`. The libvips `heifsave` param name for AVIF speed/effort (and its direction vs. imgproxy's 0=slow/9=fast `speed`) **must be confirmed against the deployed libvips during implementation** — the byte-neutral default (below) means this only matters when `speed` is explicitly set.
+`subsample: auto` already means "subsample when Q<90" in both imgproxy and libvips `heifsave`.
+
+**`speed` → `effort = 9 - speed`** (pinned: `vips/vips.c:1285` `"effort", 9 - opts.AvifSpeed`; libvips 8.18.2 `heifsave` has **no `speed` param**, only `effort` (gint, default **4**)). This creates a **default-divergence decision**: imgproxy's default `speed 8` → `effort 1`, but libvips' own `effort` default is `4` (≈ `speed 5`). The byte-neutral principle (omit-on-unset → libvips `effort 4`) keeps ImagePipe's *current* AVIF output unchanged but does **not** match imgproxy's speed-8 default.
+
+**Recommendation:** keep byte-neutral — unset `avif speed` ⇒ omit the token ⇒ libvips `effort 4`, and document in the support matrix that ImagePipe's default AVIF effort follows libvips (`effort 4` ≈ `speed 5`), a deliberate divergence from imgproxy's `speed 8`. A host that wants imgproxy parity sets `avif speed: 8` explicitly (→ `effort 1`). This avoids an AVIF fixture rebake. (The alternative — seeding the imgproxy default and always emitting `effort 1` — would change current AVIF bytes and force a rebake for a config-only knob with no URL/fiddle surface; not worth it.) **Flag for the compatibility reviewer + user sign-off.**
 
 ### JXL — config-only `effort` (already landed as flat `jxl_effort`)
 
@@ -90,8 +96,9 @@ ImagePipe.Plan.Output.JxlOptions{effort}
 **Byte-neutral default principle.** `nil` ⇒ the encoder emits no libvips suffix token for that field, leaving the libvips `*save` default. Therefore *default output is byte-identical to today*. Consequences:
 
 - **No imgproxy differential-fixture rebake.** Existing wire conformance is preserved bit-for-bit.
-- The `webp effort` (libvips default 4 = imgproxy default 4) and `avif speed`↔libvips-param ambiguity only bite when a value is explicitly set.
-- `Config.default/1` still reports imgproxy's documented defaults *as data* for introspection; resolution emits a token only when a value is set.
+- `webp effort`: libvips `webpsave` default `4` == imgproxy default `4`, so omit-on-unset already matches imgproxy. No divergence.
+- `avif speed`: libvips `heifsave effort` default `4` ≠ imgproxy default (`effort 1`). Byte-neutral default diverges from imgproxy here — see the AVIF section's default-divergence decision.
+- `Config.default/1` reports a neutral default *as data* for introspection. For most fields that is imgproxy's documented default; for `avif speed` it is the **libvips-aligned** value (effort 4 / speed 5), per the recommendation above, so introspection matches emitted behavior.
 
 ### 2. `Plan.Output`
 
