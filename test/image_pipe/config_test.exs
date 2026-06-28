@@ -107,6 +107,50 @@ defmodule ImagePipe.ConfigTest do
     end
   end
 
+  describe "apply_to_output/2" do
+    alias ImagePipe.Plan.Output
+    alias ImagePipe.Plan.Output.QualitySearch.Ssimulacra2
+
+    test "stamps the neutral fields, normalizing quality, without touching :quality" do
+      resolved = Config.resolve!([])
+      base = %Output{mode: {:explicit, :webp}}
+
+      assert {:ok, out} = Config.apply_to_output(base, resolved)
+      assert out.quality == :default
+      assert out.default_quality == {:quality, 80}
+      assert out.format_qualities == %{webp: {:quality, 79}, avif: {:quality, 63}, jpeg_xl: {:quality, 77}}
+      assert out.color_profile == :strip
+      assert out.hdr == :tone_map
+      assert out.quality_search == :none
+    end
+
+    test "a URL quality on the base output is preserved" do
+      resolved = Config.resolve!([])
+      base = %Output{mode: {:explicit, :webp}, quality: {:quality, 55}}
+      assert {:ok, out} = Config.apply_to_output(base, resolved)
+      assert out.quality == {:quality, 55}
+    end
+
+    test "keep_copyright is forced false when metadata is not stripped" do
+      resolved = Config.resolve!(strip_metadata: false, keep_copyright: true)
+      assert {:ok, out} = Config.apply_to_output(%Output{mode: :automatic}, resolved)
+      assert out.strip_metadata == false
+      assert out.keep_copyright == false
+    end
+
+    test "builds the quality_search from a configured autoquality method" do
+      resolved = Config.resolve!(autoquality_method: :ssimulacra2)
+      assert {:ok, %Output{quality_search: %Ssimulacra2{target: 78}}} =
+               Config.apply_to_output(%Output{mode: :automatic}, resolved)
+    end
+
+    test "propagates a from_config error (size method, no target)" do
+      resolved = Config.resolve!(autoquality_method: :size)
+      assert {:error, {:invalid_option, :autoquality, :missing_target}} =
+               Config.apply_to_output(%Output{mode: :automatic}, resolved)
+    end
+  end
+
   property "scalar defaults survive when host omits them" do
     check all q <- integer(1..100) do
       resolved = Config.resolve!(quality: q)

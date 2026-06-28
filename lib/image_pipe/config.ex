@@ -14,6 +14,8 @@ defmodule ImagePipe.Config do
 
   use Boundary, top_level?: true, deps: [ImagePipe.Plan], exports: []
 
+  alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Output.QualitySearch.Metric
 
   @neutral_schema_kw [
@@ -102,6 +104,43 @@ defmodule ImagePipe.Config do
     range_check!(resolved)
     resolved
   end
+
+  @doc """
+  Stamp resolved neutral config onto a base `Plan.Output`. Sets the encoder/
+  metadata/color/autoquality fields; deliberately leaves `:quality` (the URL-level
+  quality a dialect may have set) untouched, so a URL quality wins over the config
+  `default_quality`/`format_qualities` base. Returns `{:error, _}` if the
+  autoquality config is invalid (e.g. `:size` method with no target).
+  """
+  @spec apply_to_output(Output.t(), keyword()) :: {:ok, Output.t()} | {:error, term()}
+  def apply_to_output(%Output{} = output, resolved) when is_list(resolved) do
+    strip = Keyword.fetch!(resolved, :strip_metadata)
+    keep = Keyword.fetch!(resolved, :keep_copyright)
+
+    with {:ok, quality_search} <- QualitySearch.from_config(resolved) do
+      {:ok,
+       %{
+         output
+         | default_quality: {:quality, Keyword.fetch!(resolved, :quality)},
+           format_qualities: normalize_format_qualities(Keyword.fetch!(resolved, :format_quality)),
+           strip_metadata: strip,
+           keep_copyright: strip and keep,
+           color_profile: color_profile_policy(Keyword.fetch!(resolved, :strip_color_profile)),
+           hdr: hdr_policy(Keyword.fetch!(resolved, :preserve_hdr)),
+           jxl_effort: Keyword.get(resolved, :jxl_effort),
+           quality_search: quality_search
+       }}
+    end
+  end
+
+  # Config carries bare per-format ints; Plan.Output wants the {:quality, n} shape.
+  defp normalize_format_qualities(map), do: Map.new(map, fn {fmt, q} -> {fmt, {:quality, q}} end)
+
+  defp color_profile_policy(true), do: :strip
+  defp color_profile_policy(false), do: :preserve_source
+
+  defp hdr_policy(true), do: :preserve
+  defp hdr_policy(false), do: :tone_map
 
   defp validate_input!(opts) do
     case NimbleOptions.validate(opts, @schema) do
