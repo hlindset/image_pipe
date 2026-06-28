@@ -28,7 +28,8 @@ defmodule ImagePipe.Request.Options do
     :auto_webp,
     :auto_jpeg_xl,
     :format_order,
-    :allow_debug_headers
+    :allow_debug_headers,
+    :allow_origin
   ]
   @stale_origin_option_keys [
     :root_url,
@@ -131,6 +132,9 @@ defmodule ImagePipe.Request.Options do
                     allow_debug_headers: [
                       type: :boolean,
                       default: false
+                    ],
+                    allow_origin: [
+                      type: {:custom, __MODULE__, :validate_allow_origin, []}
                     ]
                   )
 
@@ -186,6 +190,16 @@ defmodule ImagePipe.Request.Options do
 
   def validate_format_order(_order),
     do: {:error, "expected a list of modern format atoms"}
+
+  @doc false
+  def validate_allow_origin(value) when is_binary(value) and value != "",
+    do: {:ok, value}
+
+  def validate_allow_origin(""),
+    do: {:error, "expected a non-empty string (omit allow_origin to disable CORS)"}
+
+  def validate_allow_origin(_value),
+    do: {:error, "expected a string"}
 
   defp validate_known_opts!(opts) do
     known_opts = Keyword.take(opts, @validated_option_keys)
