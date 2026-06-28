@@ -11,16 +11,18 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   @initial %{ops: [], guide: :carried, format: :auto, quality: :default, debug?: false}
 
-  @spec to_plan(Source.t(), [{String.t(), String.t()}]) :: {:ok, Plan.t()} | {:error, term()}
-  def to_plan(source, chain) when is_list(chain) do
+  @spec to_plan(Source.t(), [{String.t(), String.t()}], keyword()) ::
+          {:ok, Plan.t()} | {:error, term()}
+  def to_plan(source, chain, config) when is_list(chain) do
     with {:ok, acc} <- fold(chain),
-         {:ok, output} <- Output.build(%{format: acc.format, quality: acc.quality}) do
+         {:ok, output} <- Output.build(%{format: acc.format, quality: acc.quality}),
+         {:ok, output} <- ImagePipe.Config.apply_to_output(output, config) do
       {:ok,
        %Plan{
          source: source,
          pipelines: [%Pipeline{operations: Enum.reverse(acc.ops)}],
          output: output,
-         auto_rotate: true,
+         auto_rotate: Keyword.fetch!(config, :auto_rotate),
          response: %Response{debug?: acc.debug?}
        }}
     end

@@ -31,6 +31,8 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     )
   end
 
+  defp quality_opts(quality), do: Keyword.put(@opts, :twicpics, quality: quality)
+
   test "auto-orients an EXIF-tagged source by default, without any geometry" do
     conn = call("/images/oriented.jpg?twic=v1/output=jpeg", exif_opts())
     assert conn.status == 200
@@ -519,6 +521,25 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
         )
 
       assert conn.status == 400
+    end
+  end
+
+  describe "host-config quality" do
+    # Discriminating test: with the URL omitting quality, output depends solely on
+    # the configured default — so it fails unless the config is threaded onto Output.
+    test "configured quality is honored when the URL omits quality" do
+      low = call("/images/beach.jpg?twic=v1/output=jpeg", quality_opts(20))
+      high = call("/images/beach.jpg?twic=v1/output=jpeg", quality_opts(90))
+
+      assert low.status == 200 and high.status == 200
+      assert byte_size(high.resp_body) > byte_size(low.resp_body)
+    end
+
+    test "a URL quality still wins over the configured default" do
+      url_q = call("/images/beach.jpg?twic=v1/output=jpeg/quality=90", quality_opts(20))
+      config_q = call("/images/beach.jpg?twic=v1/output=jpeg", quality_opts(20))
+
+      assert byte_size(url_q.resp_body) > byte_size(config_q.resp_body)
     end
   end
 end

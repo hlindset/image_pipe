@@ -50,10 +50,12 @@ defmodule ImagePipe.Parser.TwicPics do
   defp twicpics_overlay, do: []
 
   @impl ImagePipe.Parser
-  def parse(%Plug.Conn{} = conn, _opts) do
+  def parse(%Plug.Conn{} = conn, opts) do
+    config = Keyword.fetch!(opts, :twicpics)
+
     with {:ok, source, manipulation} <- Path.extract(conn),
          {:ok, chain} <- Manipulation.parse(manipulation) do
-      PlanBuilder.to_plan(source, chain)
+      PlanBuilder.to_plan(source, chain, config)
     end
   end
 
