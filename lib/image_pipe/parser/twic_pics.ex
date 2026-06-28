@@ -15,30 +15,39 @@ defmodule ImagePipe.Parser.TwicPics do
   alias ImagePipe.Parser.TwicPics.Path
   alias ImagePipe.Parser.TwicPics.PlanBuilder
 
-  @schema NimbleOptions.new!([])
+  # TwicPics has no host-level dialect options today; the full neutral surface is
+  # honored, so the reject seam is a no-op.
+  @supported_neutral :all
 
   @impl ImagePipe.Parser
   def validate_options!(opts) when is_list(opts) do
-    twicpics_opts =
-      opts
-      |> Keyword.get(:twicpics, [])
-      |> validate_twicpics_options!()
+    twicpics = Keyword.get(opts, :twicpics, [])
 
-    Keyword.put(opts, :twicpics, twicpics_opts)
-  end
-
-  defp validate_twicpics_options!(twicpics_opts) when is_list(twicpics_opts) do
-    case NimbleOptions.validate(twicpics_opts, @schema) do
-      {:ok, validated} ->
-        validated
-
-      {:error, %NimbleOptions.ValidationError{} = error} ->
-        raise ArgumentError, "invalid twicpics config: #{Exception.message(error)}"
+    unless is_list(twicpics) do
+      raise ArgumentError, "invalid twicpics options: expected a keyword list"
     end
+
+    {neutral, unknown} = Keyword.split(twicpics, ImagePipe.Config.keys())
+
+    unless unknown == [] do
+      raise ArgumentError, "invalid twicpics config: unknown keys #{inspect(Keyword.keys(unknown))}"
+    end
+
+    neutral =
+      neutral
+      |> ImagePipe.Config.reject_unsupported!(@supported_neutral, "TwicPics")
+      |> ImagePipe.Config.resolve!(twicpics_overlay())
+
+    # Config-only dialect: surface a bad autoquality method/target at boot.
+    case ImagePipe.Plan.Output.QualitySearch.from_config(neutral) do
+      {:ok, _} -> :ok
+      {:error, reason} -> raise ArgumentError, "invalid twicpics config: #{inspect(reason)}"
+    end
+
+    Keyword.put(opts, :twicpics, neutral)
   end
 
-  defp validate_twicpics_options!(_twicpics_opts),
-    do: raise(ArgumentError, "invalid twicpics options: expected a keyword list")
+  defp twicpics_overlay, do: []
 
   @impl ImagePipe.Parser
   def parse(%Plug.Conn{} = conn, _opts) do
