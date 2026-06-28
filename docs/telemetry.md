@@ -543,6 +543,8 @@ controls.
 Request and stage spans use narrow result atoms:
 
 - `:ok`
+- `:options` - an `OPTIONS` request answered with `204` (CORS preflight /
+  capability discovery). A success outcome (OTel span status `:ok`).
 - `:parser_error`
 - `:plan_error`
 - `:source_error`

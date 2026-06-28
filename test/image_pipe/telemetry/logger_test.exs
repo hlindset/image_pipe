@@ -47,6 +47,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode: ok (jpeg)"
   end
 
+  test "renders the request span with the :options (OPTIONS) outcome" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :request, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :options, status: 204}
+        )
+      end)
+
+    assert log =~ "request: options"
+  end
+
   test "escalates an encode processing error to warning" do
     Telemetry.attach_default_logger(level: :info)
 
