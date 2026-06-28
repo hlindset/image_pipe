@@ -159,7 +159,8 @@ defmodule ImagePipe.Config do
   @spec encoder_options_from_config(keyword()) :: %{optional(atom()) => struct()}
   def encoder_options_from_config(resolved) do
     for {format, key} <- @encoder_option_config,
-        struct = Keyword.fetch!(resolved, key),
+        struct = Keyword.get(resolved, key),
+        not is_nil(struct),
         not struct.__struct__.all_nil?(struct),
         into: %{},
         do: {format, struct}
