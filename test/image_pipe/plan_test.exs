@@ -153,6 +153,10 @@ defmodule ImagePipe.PlanTest do
     # struct under the wrong format key is rejected too
     mismatched = %{plan.output | encoder_options: %{png: %ImagePipe.Plan.Output.JpegOptions{}}}
     assert {:error, {:invalid_output_plan, _}} = Plan.validate_shape(%{plan | output: mismatched})
+
+    # an unknown format key (even with a real struct) is rejected
+    unknown = %{plan.output | encoder_options: %{bogus: %ImagePipe.Plan.Output.JpegOptions{}}}
+    assert {:error, {:invalid_output_plan, _}} = Plan.validate_shape(%{plan | output: unknown})
   end
 
   describe "operation_names/1" do

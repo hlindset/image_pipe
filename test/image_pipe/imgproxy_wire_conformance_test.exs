@@ -4209,6 +4209,25 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert {64, 64} = dimensions(conn)
     end
 
+    test "webpo:lossless yields a decodable WebP via the Vix-encoded path" do
+      # webp/avif encode through the Vix-direct suffix path (not the `image`
+      # wrapper jpg/png path), so exercise it end-to-end through the wire.
+      opts = [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+        ]
+      ]
+
+      conn = call_imgproxy("/_/f:webp/webpo:lossless:1:photo/plain/images/x.jpg", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/webp"]
+      assert {100, 100} = dimensions(conn)
+    end
+
     test "jpgo:::::1 keeps a host-configured interlace true (omit-vs-false)" do
       # Host config sets interlace; the URL token sets only optimize_scans (pos 5),
       # leaving the progressive position empty — the config default must survive.
