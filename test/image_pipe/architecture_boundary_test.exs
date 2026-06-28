@@ -46,6 +46,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
+    ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
@@ -104,7 +105,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     iiif = boundary_declaration(ImagePipe.Parser.IIIF)
     twicpics = boundary_declaration(ImagePipe.Parser.TwicPics)
 
-    assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
+    assert_boundary_deps(parser, [
+      ImagePipe.Config,
+      ImagePipe.Format,
+      ImagePipe.Plan,
+      ImagePipe.Renderer
+    ])
+
     # The Parser behaviour boundary must not export any concrete adapter: the core
     # never names a specific parser, so an adapter (imgproxy/…) can be ripped out
     # without editing the behaviour boundary.
@@ -131,7 +138,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
     assert_boundary_exports(twicpics, [])
 
-    assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
+    assert_allowed_deps(parser, [
+      ImagePipe.Config,
+      ImagePipe.Format,
+      ImagePipe.Plan,
+      ImagePipe.Renderer
+    ])
 
     assert_allowed_deps(imgproxy, [
       ImagePipe.Format,
@@ -155,6 +167,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(request, [
       ImagePipe.Cache,
+      ImagePipe.Config,
       ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
@@ -389,10 +402,29 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(format, [ImagePipe.Format.Detector])
   end
 
+  test "config boundary depends only on format and plan, exports nothing" do
+    config = boundary_declaration(ImagePipe.Config)
+
+    assert_boundary_deps(config, [ImagePipe.Plan])
+    assert_boundary_exports(config, [])
+
+    refute_boundary_deps(config, [
+      ImagePipe.Parser,
+      ImagePipe.Output,
+      ImagePipe.Request,
+      ImagePipe.Cache
+    ])
+  end
+
   test "output boundary depends only on format and plan data" do
     output = boundary_declaration(ImagePipe.Output)
 
-    assert_boundary_deps(output, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Telemetry])
+    assert_boundary_deps(output, [
+      ImagePipe.Config,
+      ImagePipe.Format,
+      ImagePipe.Plan,
+      ImagePipe.Telemetry
+    ])
 
     refute_boundary_deps(output, [
       ImagePipe.Source,

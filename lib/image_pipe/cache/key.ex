@@ -100,7 +100,8 @@ defmodule ImagePipe.Cache.Key do
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
        hdr: output.hdr,
-       flatten_background: Color.key_data(output.flatten_background)
+       flatten_background: Color.key_data(output.flatten_background),
+       jxl_effort: output.jxl_effort
      ]}
   end
 
@@ -117,7 +118,8 @@ defmodule ImagePipe.Cache.Key do
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
        hdr: output.hdr,
-       flatten_background: Color.key_data(output.flatten_background)
+       flatten_background: Color.key_data(output.flatten_background),
+       jxl_effort: output.jxl_effort
      ]}
   end
 
@@ -141,7 +143,8 @@ defmodule ImagePipe.Cache.Key do
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
        hdr: output.hdr,
-       flatten_background: Color.key_data(output.flatten_background)
+       flatten_background: Color.key_data(output.flatten_background),
+       jxl_effort: output.jxl_effort
      ]}
   end
 

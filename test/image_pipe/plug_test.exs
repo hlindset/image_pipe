@@ -695,7 +695,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "init keeps rejecting unknown top-level imgproxy options after presets are added" do
-    assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
+    assert_raise ArgumentError, ~r/unknown.*:trusted_signatures/, fn ->
       init_image_pipe(
         [
           parser: ImagePipe.Parser.Imgproxy,
@@ -722,7 +722,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "init rejects unknown top-level imgproxy options before requests" do
-    assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
+    assert_raise ArgumentError, ~r/unknown.*:trusted_signatures/, fn ->
       init_image_pipe(
         [
           parser: ImagePipe.Parser.Imgproxy,
@@ -1193,7 +1193,8 @@ defmodule ImagePipe.PlugTest do
                green: 255,
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
-             ]
+             ],
+             jxl_effort: nil
            ]
 
     refute inspect(key_a.data) =~ "image/webp"
@@ -1519,7 +1520,8 @@ defmodule ImagePipe.PlugTest do
         green: 255,
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
-      ]
+      ],
+      jxl_effort: nil
     )
 
     refute_received :origin_was_called
@@ -1560,7 +1562,8 @@ defmodule ImagePipe.PlugTest do
             green: 255,
             blue: 255,
             alpha: [unit: :ratio, numerator: 1, denominator: 1]
-          ]
+          ],
+          jxl_effort: nil
         ] ->
           {:hit, cached_entry}
 
@@ -1599,7 +1602,8 @@ defmodule ImagePipe.PlugTest do
         green: 255,
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
-      ]
+      ],
+      jxl_effort: nil
     )
 
     refute_received :origin_was_called
@@ -1640,7 +1644,8 @@ defmodule ImagePipe.PlugTest do
             green: 255,
             blue: 255,
             alpha: [unit: :ratio, numerator: 1, denominator: 1]
-          ]
+          ],
+          jxl_effort: nil
         ] ->
           {:hit, cached_entry}
 
@@ -1682,7 +1687,8 @@ defmodule ImagePipe.PlugTest do
         green: 255,
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
-      ]
+      ],
+      jxl_effort: nil
     )
 
     refute_received :origin_was_called
@@ -1723,7 +1729,8 @@ defmodule ImagePipe.PlugTest do
             green: 255,
             blue: 255,
             alpha: [unit: :ratio, numerator: 1, denominator: 1]
-          ]
+          ],
+          jxl_effort: nil
         ] ->
           {:hit, cached_entry}
 
@@ -1765,7 +1772,8 @@ defmodule ImagePipe.PlugTest do
         green: 255,
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
-      ]
+      ],
+      jxl_effort: nil
     )
 
     refute_received :origin_was_called

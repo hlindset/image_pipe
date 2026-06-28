@@ -253,11 +253,11 @@ defmodule ImagePipe.Parser.Imgproxy.SignatureTest do
 
   describe "Imgproxy.validate_options!/1" do
     test "rejects unknown top-level imgproxy options" do
-      assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
+      assert_raise ArgumentError, ~r/unknown.*:trusted_signatures/, fn ->
         Imgproxy.validate_options!(imgproxy: [trusted_signatures: ["local-dev!"]])
       end
 
-      assert_raise ArgumentError, ~r/unknown options.*:keys/, fn ->
+      assert_raise ArgumentError, ~r/unknown.*:keys/, fn ->
         Imgproxy.validate_options!(imgproxy: [keys: ["74657374"], salts: ["73616c74"]])
       end
     end

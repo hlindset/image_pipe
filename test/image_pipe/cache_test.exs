@@ -400,7 +400,8 @@ defmodule ImagePipe.CacheTest do
                green: 255,
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
-             ]
+             ],
+             jxl_effort: nil
            ]
 
     assert_received {:cache_get, ^key, adapter_opts}

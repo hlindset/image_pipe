@@ -340,6 +340,8 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
            |> Map.put(:color_profile, color_profile)
            |> resolve_quality_defaults(defaults)
            |> resolve_quality_search_defaults(defaults) do
+      output = Map.put(output, :jxl_effort, Keyword.get(defaults, :jxl_effort))
+
       options =
         options
         |> Map.put(:auto_rotate, auto_rotate?)

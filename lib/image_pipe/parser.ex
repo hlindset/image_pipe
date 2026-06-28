@@ -6,6 +6,7 @@ defmodule ImagePipe.Parser do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Renderer
