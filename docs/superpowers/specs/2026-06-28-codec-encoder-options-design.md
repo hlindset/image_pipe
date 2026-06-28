@@ -21,71 +21,75 @@ End-to-end, all five codec families:
 - Fiddle controls + URL state for the URL-token flags.
 - `docs/imgproxy_support_matrix.md` surface-axis update.
 
-## Source-of-truth semantics (imgproxy docs)
+## Core principle: the neutral core speaks libvips
 
-These are imgproxy **Pro** options — **not** in the local OSS checkout. Verified against the imgproxy docs checkout (`/Users/hlindset/src/imgproxy-docs`), `usage/processing.mdx` + `configuration/options.mdx` (Advanced * compression). The compatibility reviewer verifies the mappings below against those documented semantics, not Pro source.
+The product-neutral core exposes **libvips-native** encoder params — libvips field names, libvips value semantics, libvips ranges. libvips is the actual encoder, so it is the natural neutral vocabulary for encoder knobs (it is the engine, not a dialect). Each compatibility parser keeps its **own** vocabulary at the URL surface and *translates* into the libvips-native core; dialect-specific names/values/quirks stay isolated in the parser. We deliberately **diverge from imgproxy's defaults** where libvips differs (notably AVIF) — the core does not replicate imgproxy's documented defaults; a host that wants imgproxy parity sets the libvips knob explicitly.
 
-### JPEG — `jpeg_options:%progressive:%no_subsample:%trellis_quant:%overshoot_deringing:%optimize_scans:%quant_table`
+The tables below give the **neutral (libvips) field** and, in the last column, the **imgproxy URL token + value** that translates to it (§7 owns the translation). imgproxy's flags are **Pro** — not in the OSS checkout; verified against the imgproxy docs checkout (`/Users/hlindset/src/imgproxy-docs`, `usage/processing.mdx` + `configuration/options.mdx`) and the OSS `vips/vips.c` save wrappers (authoritative for the libvips mapping), plus live libvips 8.18.2 introspection.
 
-| imgproxy flag | type / default | libvips `jpegsave` param |
+### JPEG — libvips `jpegsave`
+
+| neutral field (libvips) | type / range | imgproxy URL translation (`jpgo:%progressive:%no_subsample:%trellis_quant:%overshoot_deringing:%optimize_scans:%quant_table`) |
 | --- | --- | --- |
-| `progressive` | bool / false | `interlace` |
-| `no_subsample` | bool / false | `subsample_mode: :off` |
-| `trellis_quant` | bool / false | `trellis_quant` |
-| `overshoot_deringing` | bool / false | `overshoot_deringing` |
-| `optimize_scans` | bool / false (requires `progressive`) | `optimize_scans` |
-| `quant_table` | int 0–8 / 0 | `quant_table` |
+| `interlace` | bool | `progressive` (bool) |
+| `subsample_mode` | `:auto`/`:on`/`:off` | `no_subsample` (bool): `true` ⇒ `:off` |
+| `trellis_quant` | bool | `trellis_quant` (bool) |
+| `overshoot_deringing` | bool | `overshoot_deringing` (bool) |
+| `optimize_scans` | bool | `optimize_scans` (bool) |
+| `quant_table` | int 0–8 | `quant_table` (int) |
 
-### PNG — `png_options:%interlaced:%quantize:%quantization_colors`
+### PNG — libvips `pngsave` (8.18.2, **pinned**)
 
-| imgproxy flag | type / default | libvips `pngsave` param (8.18.2, **pinned**) |
+| neutral field (libvips) | type / range | imgproxy URL translation (`pngo:%interlaced:%quantize:%quantization_colors`) |
 | --- | --- | --- |
-| `interlaced` | bool / false | `interlace` |
-| `quantize` | bool / false | `palette` |
-| `quantization_colors` | int 2–256 / 256 | `bitdepth` (bucketed — see below) |
+| `interlace` | bool | `interlaced` (bool) |
+| `palette` | bool | `quantize` (bool) |
+| `bitdepth` | `1`/`2`/`4`/`8`/`16` | `quantization_colors` (int 2–256) → bucket (below) |
+| `filter` | `:none`/`:sub`/`:up`/`:avg`/`:paeth`/`:all` | set `:none` when imgproxy `quantize` is on |
 
-**`quantization_colors` → `bitdepth`, not `colours`.** libvips 8.18.2 `pngsave` has **no `colours` param**; palette size is set by `bitdepth ∈ {1,2,4,8,16}`. imgproxy itself buckets (`vips/vips.c` `vips_pngsave_go`): `colors > 16 → bitdepth 8`, `5–16 → 4`, `3–4 → 2`, `≤2 → 1`. We replicate that bucket. imgproxy also sets `filter: none` when quantizing and `filter: all` otherwise; we mirror this only inside the quantize path (omit otherwise, to preserve byte-neutral default). imgproxy's *auto*-quantize path (source already ≤8-bit palette) is imgproxy-internal cleverness and **out of scope** — we quantize only on explicit `quantize`.
+**`quantization_colors` → `bitdepth`, not `colours`.** libvips 8.18.2 `pngsave` has **no `colours` param**; palette size is `bitdepth ∈ {1,2,4,8,16}`. The neutral field is `bitdepth` directly. The **imgproxy parser** buckets `quantization_colors` exactly as imgproxy does (`vips/vips.c` `vips_pngsave_go`): `>16 → 8`, `5–16 → 4`, `3–4 → 2`, `≤2 → 1` (so the imgproxy path never emits `16`). imgproxy also sets `filter: none` when quantizing; the imgproxy parser sets the neutral `filter: :none` in that path (a host can set `filter` directly via the neutral core). imgproxy's *auto*-quantize path (source already ≤8-bit palette) is imgproxy-internal and **out of scope** — we quantize only on explicit `quantize`. PNG quantization needs libvips built with Quantizr or libimagequant (a deployment dependency, not a no-op).
 
-PNG quantization needs libvips built with Quantizr or libimagequant (same constraint imgproxy documents) — a deployment dependency, not a no-op.
+### WebP — libvips `webpsave`
 
-### WebP — `webp_options:%compression:%smart_subsample:%preset`
-
-| imgproxy flag | type / default | libvips `webpsave` param |
+| neutral field (libvips) | type / range | imgproxy URL translation (`webpo:%compression:%smart_subsample:%preset`) |
 | --- | --- | --- |
-| `compression` | enum `lossy`/`near_lossless`/`lossless` / `lossy` | `lossless` + `near_lossless` |
-| `smart_subsample` | bool / false | `smart_subsample` |
-| `preset` | enum default/photo/picture/drawing/icon/text / `default` | `preset` |
-| `effort` (config-only) | int 1–6 / 4 | `effort` |
+| `lossless` | bool | from `compression` enum (below) |
+| `near_lossless` | bool | from `compression` enum (below) |
+| `smart_subsample` | bool | `smart_subsample` (bool) |
+| `preset` | `:default`/`:photo`/`:picture`/`:drawing`/`:icon`/`:text` | `preset` (same names) |
+| `effort` | int 0–6 | *(no URL token — host config only; was imgproxy env `WEBP_EFFORT`)* |
 
-`compression` mapping: `lossy` ⇒ neither; `lossless` ⇒ `lossless: true`; `near_lossless` ⇒ `near_lossless: true` (libvips treats near-lossless as a lossless variant).
+imgproxy `compression` enum → the two libvips bools: `lossy` ⇒ neither; `lossless` ⇒ `lossless: true`; `near_lossless` ⇒ `near_lossless: true`.
 
-### AVIF — `avif_options:%subsample`
+### AVIF — libvips `heifsave` (8.18.2, **pinned**)
 
-| imgproxy flag | type / default | libvips `heifsave` param (8.18.2, **pinned**) |
+| neutral field (libvips) | type / range | imgproxy URL translation (`avifo:%subsample`) |
 | --- | --- | --- |
-| `subsample` | enum `auto`/`on`/`off` / `auto` | `subsample-mode` (`off`/`on`/`auto`) |
-| `speed` (config-only) | int 0–9 / 8 | `effort = 9 - speed` |
+| `subsample_mode` | `:auto`/`:on`/`:off` | `subsample` (same names) |
+| `effort` | int 0–9 | *(no URL token — host config only; imgproxy env `AVIF_SPEED` translates as `effort = 9 - speed`)* |
 
-`subsample: auto` already means "subsample when Q<90" in both imgproxy and libvips `heifsave`.
+`subsample: auto` ≈ "subsample when Q<90" (imgproxy-documented; libvips heifsave decides the exact threshold internally). The neutral core uses libvips `effort` directly (default 4); we **do not** replicate imgproxy's `speed 8` default. imgproxy's env `AVIF_SPEED` is mapped by `effort = 9 - speed` (pinned: `vips/vips.c:1285` `"effort", 9 - opts.AvifSpeed`; libvips 8.18.2 `heifsave` has **no `speed` param**, only `effort`).
 
-**`speed` → `effort = 9 - speed`** (pinned: `vips/vips.c:1285` `"effort", 9 - opts.AvifSpeed`; libvips 8.18.2 `heifsave` has **no `speed` param**, only `effort` (gint, default **4**)). This creates a **default-divergence decision**: imgproxy's default `speed 8` → `effort 1`, but libvips' own `effort` default is `4` (≈ `speed 5`). The byte-neutral principle (omit-on-unset → libvips `effort 4`) keeps ImagePipe's *current* AVIF output unchanged but does **not** match imgproxy's speed-8 default.
+### JXL — libvips `jxlsave` (migrating the already-landed `jxl_effort`)
 
-**Recommendation:** keep byte-neutral — unset `avif speed` ⇒ omit the token ⇒ libvips `effort 4`, and document in the support matrix that ImagePipe's default AVIF effort follows libvips (`effort 4` ≈ `speed 5`), a deliberate divergence from imgproxy's `speed 8`. A host that wants imgproxy parity sets `avif speed: 8` explicitly (→ `effort 1`). This avoids an AVIF fixture rebake. (The alternative — seeding the imgproxy default and always emitting `effort 1` — would change current AVIF bytes and force a rebake for a config-only knob with no URL/fiddle surface; not worth it.) **Flag for the compatibility reviewer + user sign-off.**
+| neutral field (libvips) | type / range | imgproxy URL translation |
+| --- | --- | --- |
+| `effort` | int 1–9 (unset ⇒ libvips default 7) | *(no URL token; imgproxy env `JXL_EFFORT` is config-only)* |
 
-### JXL — config-only `effort` (already landed as flat `jxl_effort`)
-
-imgproxy has no `jxl_options` URL token; `IMGPROXY_JXL_EFFORT` (1–9, default 4; libvips default 7) is env-only. Migrated from the flat `jxl_effort` config key / `Plan.Output` field into `JxlOptions{effort}` for uniformity.
+Migrated from the flat `jxl_effort` config key / `Plan.Output` field into `JxlOptions{effort}` for uniformity. The existing 7-vs-4 divergence (libvips default 7, imgproxy default 4) is the precedent for this whole "neutral core tracks libvips" posture.
 
 ## Design
 
 ### 1. Typed per-format structs (`plan` boundary)
 
+Field names and value semantics are **libvips-native** (not imgproxy's):
+
 ```
-ImagePipe.Plan.Output.JpegOptions{progressive, no_subsample, trellis_quant,
+ImagePipe.Plan.Output.JpegOptions{interlace, subsample_mode, trellis_quant,
                                    overshoot_deringing, optimize_scans, quant_table}
-ImagePipe.Plan.Output.PngOptions{interlaced, quantize, quantization_colors}
-ImagePipe.Plan.Output.WebpOptions{compression, smart_subsample, preset, effort}
-ImagePipe.Plan.Output.AvifOptions{subsample, speed}
+ImagePipe.Plan.Output.PngOptions{interlace, palette, bitdepth, filter}
+ImagePipe.Plan.Output.WebpOptions{lossless, near_lossless, smart_subsample, preset, effort}
+ImagePipe.Plan.Output.AvifOptions{subsample_mode, effort}
 ImagePipe.Plan.Output.JxlOptions{effort}
 ```
 
@@ -96,9 +100,8 @@ ImagePipe.Plan.Output.JxlOptions{effort}
 **Byte-neutral default principle.** The neutral default for *every* encoder-option field is **unset** (`nil`). `nil` ⇒ the encoder emits no libvips suffix token for that field, leaving the libvips `*save` default. Therefore *default output is byte-identical to today*, for **all** dialects. Consequences:
 
 - **No imgproxy differential-fixture rebake.** Existing wire conformance is preserved bit-for-bit.
-- **We do NOT bake imgproxy's documented per-flag defaults as ImagePipe defaults.** imgproxy's documented defaults (e.g. `quantization_colors 256`, `avif speed 8`, `webp effort 4`) are *reference data* in the mapping tables above — what imgproxy emits when its host leaves the knob alone — **not** values ImagePipe seeds. ImagePipe's defaults track **libvips** (= emit nothing). This matches the already-landed `jxl_effort` precedent exactly: its neutral default is `7` (libvips `jxlsave` default), **not** imgproxy's `4` — ImagePipe already chose libvips-aligned over imgproxy-aligned, byte-neutral, opt-in parity.
-- For the booleans this is a non-issue: imgproxy's documented default is `false` = the libvips default = emit-nothing. The only knobs where "unset = libvips default" ≠ "imgproxy default" are `avif speed` (libvips effort 4 ≈ speed 5, vs imgproxy 8) and `jxl effort` (libvips 7 vs imgproxy 4, already shipped) — both **accepted, documented divergences**; a host opts into imgproxy parity by setting the knob explicitly.
-- `Config.default/1` therefore reports the **unset** value for each `*_options` field (an all-`nil` struct), so introspection matches emitted behavior with no special-casing.
+- **The neutral core tracks libvips, not imgproxy.** Defaults are unset (emit nothing ⇒ libvips' own default). We do **not** seed imgproxy's documented per-flag defaults; where libvips and imgproxy differ (AVIF effort 4 vs imgproxy speed-8/effort-1; JXL effort 7 vs imgproxy 4), the core follows libvips and the divergence is accepted (already the posture for the shipped `jxl_effort 7`). A host opts into imgproxy-like behavior by setting the libvips knob explicitly.
+- `Config.default/1` reports the **unset** value for each `*_options` field (an all-`nil` struct), so introspection matches emitted behavior with no special-casing.
 
 ### 2. `Plan.Output`
 
@@ -108,9 +111,9 @@ ImagePipe.Plan.Output.JxlOptions{effort}
 
 ### 3. `ImagePipe.Config`
 
-- Add five map-valued neutral keys: `jpeg_options`, `png_options`, `webp_options`, `avif_options`, `jxl_options`. Remove the flat `jxl_effort` key.
-- Per-field validation (types + enums + ranges): `quant_table` 0–8, `quantization_colors` 2–256, `compression ∈ {lossy,near_lossless,lossless}`, `preset ∈ {default,photo,picture,drawing,icon,text}`, `subsample ∈ {auto,on,off}`, webp `effort` 1–6, avif `speed` 0–9, jxl `effort` 1–9. (These bound the *host-set* surface; they mirror imgproxy's documented ranges, which may be narrower than libvips' own — e.g. libvips `webpsave effort` accepts 0, imgproxy documents 1–6, so we validate 1–6.)
-- `@map_defaults` seed **unset** structs (all-`nil` fields) for the five keys — per §1, ImagePipe does **not** bake imgproxy's documented defaults. `Config.default/1` returns the unset struct.
+- Add five map-valued neutral keys (libvips-named): `jpeg_options`, `png_options`, `webp_options`, `avif_options`, `jxl_options`. Remove the flat `jxl_effort` key.
+- Per-field validation uses **libvips** types/enums/ranges (not imgproxy's, which may be narrower): jpeg `quant_table` 0–8, `subsample_mode ∈ {auto,on,off}`; png `bitdepth ∈ {1,2,4,8,16}`, `filter ∈ {none,sub,up,avg,paeth,all}`; webp `preset ∈ {default,photo,picture,drawing,icon,text}`, `effort` 0–6; avif `subsample_mode ∈ {auto,on,off}`, `effort` 0–9; jxl `effort` 1–9; all bools as bool.
+- `@map_defaults` seed **unset** structs (all-`nil` fields) for the five keys. `Config.default/1` returns the unset struct.
 - `apply_to_output/2` stamps the resolved structs into `Plan.Output.encoder_options` — gives **IIIF/TwicPics** host defaults for free (no URL surface).
 - `jxl_options.effort` keeps the existing late-resolution behavior: `resolve!/2` validates but does **not** default it; `Output.Policy` applies the libvips-aligned `7` when unset (today's `output.jxl_effort || Config.default(:jxl_effort)` becomes `JxlOptions.effort || 7`). Preserves byte-neutrality for JXL.
 
@@ -148,25 +151,34 @@ This is identity, **not** a generation gate (no interaction with `max_body_bytes
 
 ### 7. imgproxy parser surface
 
+The imgproxy parser keeps **imgproxy vocabulary** at the URL and **translates** into the libvips-native struct (per the "imgproxy URL translation" columns in the source-of-truth tables). All dialect quirks (the names, the `compression`→two-bool split, the `quantization_colors`→`bitdepth` bucket, `filter: none` on quantize) live **only** here.
+
 - New URL tokens + aliases in the option grammar: `jpeg_options`/`jpgo`, `png_options`/`pngo`, `webp_options`/`webpo`, `avif_options`/`avifo`.
-- `webp effort` / `avif speed` get **no** URL token (config-only, matching imgproxy).
+- No URL token for webp/avif/jxl `effort` (imgproxy exposes those only as env config; a host sets the neutral libvips `effort` directly).
 
-**URL arg decoding (the omit-vs-false rule).** Each token is colon-positional per the imgproxy signature with **all args optional**. The decode contract, matching imgproxy's "redefine only the args present":
+**Translation map (imgproxy arg ⇒ libvips field/value):**
 
-- An **empty / absent** positional ⇒ that field stays `nil` ⇒ **no override**, the config default (host or unset) is kept. An empty positional is **not** decoded as `false`.
-- A **present** positional sets the field (`1`/`t`/`true` ⇒ `true`, `0`/`f`/`false` ⇒ `false` for bools; the literal value for ints/enums).
-- Worked examples: `jpgo:::true` ⇒ only `optimize_scans: true` (positions 1–2 empty ⇒ `progressive`/`no_subsample` stay `nil`); `jpgo:true` ⇒ only `progressive: true`. So a host-configured `progressive: true` survives a `jpgo` token that omits position 1.
+- jpeg: `progressive`⇒`interlace`; `no_subsample:true`⇒`subsample_mode: :off`; `trellis_quant`/`overshoot_deringing`/`optimize_scans`⇒same; `quant_table`⇒`quant_table`.
+- png: `interlaced`⇒`interlace`; `quantize:true`⇒`palette: true` **and** `filter: :none`; `quantization_colors`⇒`bitdepth` via the imgproxy bucket (`>16→8, 5–16→4, 3–4→2, ≤2→1`).
+- webp: `compression`⇒`{lossless, near_lossless}` (`lossy`⇒neither, `lossless`⇒`lossless: true`, `near_lossless`⇒`near_lossless: true`); `smart_subsample`⇒same; `preset`⇒`preset`.
+- avif: `subsample`⇒`subsample_mode`.
 
-The parser produces sparse `*Options` structs (absent token ⇒ struct absent / all-`nil`) in `parsed_request`; `apply_request_defaults` merges them over the config-default structs.
+**URL arg decoding (the omit-vs-false rule).** Each token is colon-positional per the imgproxy signature with **all args optional**, matching imgproxy's "redefine only the args present":
 
-**`optimize_scans` requires `progressive`.** imgproxy documents the dependency; libvips `jpegsave` accepts `optimize_scans` without `interlace`. Decision: **accept and emit as-is** (no cross-field rejection) — the effective `progressive` may legitimately arrive from config while the URL sets only `optimize_scans`, so a parse-time or config-time rejection would wrongly fail valid post-merge states. Documented + tested (the libvips token is emitted whenever the field is set; libvips decides the interaction).
+- An **empty / absent** positional ⇒ the translated libvips field stays `nil` ⇒ **no override**, the config default (host or unset) is kept. An empty positional is **not** decoded as `false`.
+- A **present** positional sets the field (`1`/`t`/`true` ⇒ `true`, `0`/`f`/`false` ⇒ `false` for bools; the literal/translated value for ints/enums).
+- Worked examples: `jpgo:::true` ⇒ only `optimize_scans: true` (positions 1–2 empty ⇒ `interlace`/`subsample_mode` stay `nil`); `jpgo:true` ⇒ only `interlace: true`. A host-configured `interlace: true` survives a `jpgo` token that omits position 1.
+
+The parser produces sparse libvips-named `*Options` structs (absent token ⇒ struct absent / all-`nil`) in `parsed_request`; `apply_request_defaults` merges them over the config-default structs.
+
+**`optimize_scans` requires `progressive` (imgproxy doc).** libvips `jpegsave` accepts `optimize_scans` without `interlace`. Decision: **accept and emit as-is** (no cross-field rejection) — the effective `interlace` may legitimately arrive from config while the URL sets only `optimize_scans`, so a parse/config-time rejection would wrongly fail valid post-merge states. libvips decides the interaction.
 
 ### 8. Fiddle + docs
 
-- `fiddle/assets/` Svelte: controls + URL state for the URL-token flags only (the two config-only knobs `webp effort` / `avif speed` get **neither** control nor URL state). Control types: **checkboxes** for the bools (`progressive`, `no_subsample`, `trellis_quant`, `overshoot_deringing`, `optimize_scans`, `interlaced`, `quantize`, `smart_subsample`); **selects** for the enums (`compression`, `preset`, `subsample`); **number inputs** for `quant_table` (0–8) and `quantization_colors` (2–256).
+- `fiddle/assets/` Svelte: the demo drives **imgproxy URLs**, so its controls use **imgproxy vocabulary** for the URL-token flags (the parser translates). Control types: **checkboxes** for the bools (`progressive`, `no_subsample`, `trellis_quant`, `overshoot_deringing`, `optimize_scans`, `interlaced`, `quantize`, `smart_subsample`); **selects** for the enums (`compression`, `preset`, `subsample`); **number inputs** for `quant_table` (0–8) and `quantization_colors` (2–256). The effort knobs (host-config only) get no control.
 - `docs/imgproxy_support_matrix.md`:
-  - **Surface axis:** flip the four "Output and encoding" / "Advanced encoder options" rows to supported.
-  - **Behavioral/"Diverges" note:** add an AVIF default-effort divergence note (ImagePipe unset ⇒ libvips `effort 4` ≈ speed 5, vs imgproxy `speed 8`), mirroring the existing `jxl_effort` 7-vs-4 divergence treatment.
+  - **Surface axis:** flip the four "Output and encoding" / "Advanced encoder options" rows to supported, noting these are translated into the libvips-native neutral core.
+  - **Behavioral/"Diverges" note:** add an AVIF default-effort divergence note (ImagePipe core uses libvips `effort` default 4; imgproxy default is speed 8 / effort 1), mirroring the existing `jxl_effort` 7-vs-4 divergence treatment.
   - **Reconcile existing JXL rows:** the migration of `jxl_effort` → `jxl_options` means the existing `IMGPROXY_JXL_EFFORT ⚠️` bullet and the `IMGPROXY_*` ⭕ encoder-config stub rows must be updated in the same change.
   - Note the PNG-quantize libvips-build dependency (Quantizr / libimagequant).
 
@@ -204,9 +216,10 @@ These options change encoded *bytes*, not decoded *pixels*, so the PNG pixel-dif
 
 - **Wire/header tests** (real `ImagePipe.call/2`): content-type, valid/decodable output, smaller-or-valid where a flag should shrink.
 - **libvips-param unit coverage** per flag: assert the encoder emits the expected suffix token from a given struct.
-- **Byte-neutral-default assertion:** encode with `encoder_options: %{}` vs the pre-change encoder path on a fixed source, assert byte-equality (guards the no-rebake claim). Explicitly assert that unset `avif speed` lands on libvips `effort 4` (the one divergence the baseline must not paper over).
-- **Cross-dialect inheritance:** an IIIF (or TwicPics) request under a host-configured `jpeg_options` produces output reflecting the option — pins the §4 "imgproxy `apply_request_defaults` folds the same defaults as `apply_to_output`" requirement so the dialects can't drift.
-- **Sparse-override merge (omit-vs-false):** a focused parser test asserting a config-set field (e.g. `progressive: true`) **survives** an omitted URL position (`jpgo::true`), and that a present `0`/`false` positional **does** override — pins the §7 decode contract.
+- **Byte-neutral-default assertion:** encode with `encoder_options: %{}` vs the pre-change encoder path on a fixed source, assert byte-equality (guards the no-rebake claim). Includes AVIF: unset ⇒ no `effort` token ⇒ libvips default 4 (the accepted divergence from imgproxy, which the baseline must not paper over).
+- **Cross-dialect inheritance:** an IIIF (or TwicPics) request under a host-configured `jpeg_options: %{interlace: true}` produces output reflecting it — pins the §4 "imgproxy `apply_request_defaults` folds the same defaults as `apply_to_output`" requirement so dialects can't drift.
+- **imgproxy translation:** assert the imgproxy arg→libvips field map (e.g. `jpgo` `progressive`⇒`interlace`, `no_subsample:true`⇒`subsample_mode: :off`; `webpo` `compression:near_lossless`⇒`near_lossless: true`; `pngo` `quantization_colors`→`bitdepth` bucket; `avifo` `subsample`⇒`subsample_mode`).
+- **Sparse-override merge (omit-vs-false):** a focused parser test asserting a config-set neutral field (e.g. `interlace: true`) **survives** an omitted leading URL position (`jpgo::true`), and that a present `0`/`false` positional **does** override — pins the §7 decode contract.
 - **Cache-key + ETag inclusion:** two requests differing only in an encoder option get distinct keys/ETags; identical options ⇒ identical.
 - **imgproxy grammar:** order-insensitivity / alias equivalence.
 - **Config validation/range tests:** enum + range rejection at the boundary.
