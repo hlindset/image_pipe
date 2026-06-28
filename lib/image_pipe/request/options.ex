@@ -192,8 +192,14 @@ defmodule ImagePipe.Request.Options do
     do: {:error, "expected a list of modern format atoms"}
 
   @doc false
-  def validate_allow_origin(value) when is_binary(value) and value != "",
-    do: {:ok, value}
+  def validate_allow_origin(value) when is_binary(value) and value != "" do
+    # Reject control characters at init: emitted verbatim into the
+    # Access-Control-Allow-Origin header, a stray CR/LF/NUL would otherwise raise
+    # Plug.Conn.InvalidHeaderError per-request (a 500) instead of failing fast here.
+    if String.match?(value, ~r/[[:cntrl:]]/),
+      do: {:error, "must not contain control characters"},
+      else: {:ok, value}
+  end
 
   def validate_allow_origin(""),
     do: {:error, "expected a non-empty string (omit allow_origin to disable CORS)"}
