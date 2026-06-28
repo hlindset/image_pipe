@@ -22,6 +22,7 @@ defmodule ImagePipe.Plug do
   alias ImagePipe.Error
   alias ImagePipe.Parser
   alias ImagePipe.Plan
+  alias ImagePipe.Response.CORS
   alias ImagePipe.Request.HTTPCache
   alias ImagePipe.Request.Options
   alias ImagePipe.Request.Runner
@@ -41,11 +42,21 @@ defmodule ImagePipe.Plug do
   def call(%Plug.Conn{} = conn, opts) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
     Telemetry.Trace.maybe_extract_inbound(conn)
+    conn = CORS.maybe_register(conn, opts)
 
     Telemetry.span(telemetry_opts, [:request], request_metadata(conn, opts), fn ->
       {conn, metadata} = do_call(conn, opts)
       {conn, Map.put(metadata, :status, conn.status)}
     end)
+  end
+
+  defp do_call(%Plug.Conn{method: "OPTIONS"} = conn, opts) do
+    {conn, _send_metadata} =
+      send_response(conn, opts, :options, fn ->
+        CORS.send_options(conn, opts)
+      end)
+
+    {conn, %{result: :options}}
   end
 
   defp do_call(%Plug.Conn{method: method} = conn, opts) when method not in ["GET", "HEAD"] do
