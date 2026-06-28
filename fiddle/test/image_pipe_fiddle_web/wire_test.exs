@@ -59,8 +59,9 @@ defmodule ImagePipeFiddleWeb.WireTest do
 
   test "OPTIONS /iiif-image answers CORS preflight", %{conn: conn} do
     conn = options(conn, "/iiif-image/dog/full/max/0/default.jpg")
-    assert conn.status == 200
+    assert conn.status == 204
     assert get_resp_header(conn, "access-control-allow-methods") |> hd() =~ "GET"
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
   end
 
   test "IIIF browser deep-link still serves the SPA shell", %{conn: conn} do
