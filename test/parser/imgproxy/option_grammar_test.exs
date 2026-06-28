@@ -649,6 +649,69 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     end
   end
 
+  describe "codec encoder options" do
+    alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
+
+    test "jpgo translates imgproxy names to libvips fields" do
+      assert {:ok,
+              {:output,
+               [encoder_options: %{jpeg: %JpegOptions{interlace: true, subsample_mode: :off}}]}} =
+               OptionGrammar.parse("jpgo:1:1")
+    end
+
+    test "jpgo omitted leading positions stay nil (omit-vs-false)" do
+      # positions: progressive:no_subsample:trellis_quant:overshoot_deringing:optimize_scans:quant_table
+      assert {:ok, {:output, [encoder_options: %{jpeg: %JpegOptions{optimize_scans: true} = j}]}} =
+               OptionGrammar.parse("jpgo:::::true")
+
+      assert j.interlace == nil
+      assert j.subsample_mode == nil
+      assert j.trellis_quant == nil
+    end
+
+    test "jpgo no_subsample:false maps to explicit :auto (resettable, byte-neutral)" do
+      assert {:ok, {:output, [encoder_options: %{jpeg: %JpegOptions{subsample_mode: :auto}}]}} =
+               OptionGrammar.parse("jpgo::0")
+    end
+
+    test "pngo quantization_colors buckets to bitdepth and sets filter/palette" do
+      assert {:ok,
+              {:output,
+               [encoder_options: %{png: %PngOptions{palette: true, bitdepth: 8, filter: :none}}]}} =
+               OptionGrammar.parse("pngo::1:128")
+    end
+
+    test "pngo emits raw bitdepth at the grammar level (orphan drop happens post-merge)" do
+      assert {:ok, {:output, [encoder_options: %{png: %PngOptions{bitdepth: 8, palette: nil}}]}} =
+               OptionGrammar.parse("pngo:::128")
+    end
+
+    test "webpo compression emits both lossless bools explicitly (resettable)" do
+      assert {:ok,
+              {:output,
+               [
+                 encoder_options: %{
+                   webp: %WebpOptions{lossless: false, near_lossless: true, preset: :photo}
+                 }
+               ]}} =
+               OptionGrammar.parse("webpo:near_lossless::photo")
+    end
+
+    test "avifo subsample -> subsample_mode" do
+      assert {:ok, {:output, [encoder_options: %{avif: %AvifOptions{subsample_mode: :off}}]}} =
+               OptionGrammar.parse("avifo:off")
+    end
+
+    test "full names parse identically to aliases" do
+      assert OptionGrammar.parse("jpeg_options:1") == OptionGrammar.parse("jpgo:1")
+      assert OptionGrammar.parse("png_options::1:16") == OptionGrammar.parse("pngo::1:16")
+    end
+
+    test "too many positionals is an invalid segment" do
+      assert {:error, {:invalid_option_segment, _}} = OptionGrammar.parse("avifo:off:extra")
+    end
+  end
+
   defp color!(red, green, blue) do
     assert {:ok, color} = Color.rgb(red, green, blue)
     color

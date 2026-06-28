@@ -8,6 +8,7 @@ defmodule ImagePipe.Output.Encoder do
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage, as: VixMutableImage
   alias Vix.Vips.Operation
@@ -66,21 +67,29 @@ defmodule ImagePipe.Output.Encoder do
   # deliver it through the same one-element-list contract the search path uses.
   defp lazy_output(
          finalized,
-         %Resolved{format: :jpeg_xl, quality: quality, jxl_effort: effort},
+         %Resolved{format: :jpeg_xl, quality: quality} = resolved,
          mime_type,
          _suffix,
          _opts
        ) do
-    case encode_jxl_buffer(finalized, quality, effort) do
+    case encode_jxl_buffer(finalized, quality, Resolved.jxl_effort(resolved)) do
       {:ok, binary} -> {:ok, [binary], mime_type, nil}
       {:error, _reason} = err -> err
     end
   end
 
   defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do
-    image_module = Keyword.get(opts, :image_module, Image)
-    stream = image_module.stream!(finalized, output_options(suffix, resolved_output))
-    {:ok, stream, mime_type, nil}
+    case encoder_tokens(resolved_output.encoder_options) do
+      [] ->
+        image_module = Keyword.get(opts, :image_module, Image)
+        stream = image_module.stream!(finalized, output_options(suffix, resolved_output))
+        {:ok, stream, mime_type, nil}
+
+      tokens ->
+        vsuffix = vix_suffix(suffix, resolved_output.quality, tokens)
+        stream = VixImage.write_to_stream(finalized, vsuffix)
+        {:ok, stream, mime_type, nil}
+    end
   end
 
   # A quality search runs when a search objective or a hard byte budget is set.
@@ -134,18 +143,31 @@ defmodule ImagePipe.Output.Encoder do
   @spec encode_to_buffer(VixImage.t(), Resolved.t(), 1..100) ::
           {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
   def encode_to_buffer(%VixImage{} = image, %Resolved{format: :jpeg_xl} = resolved, quality),
-    do: encode_jxl_buffer(image, quality, resolved.jxl_effort)
+    do: encode_jxl_buffer(image, quality, Resolved.jxl_effort(resolved))
 
   def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
-    with {:ok, _mime_type, suffix} <- output_format(resolved_output),
-         {:ok, binary} <- Image.write(image, :memory, suffix: suffix, quality: quality) do
-      {:ok, binary}
-    else
-      {:error, {:encode, _exception, _stack} = tagged} -> {:error, tagged}
-      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    with {:ok, _mime_type, suffix} <- output_format(resolved_output) do
+      buffer_for(image, suffix, quality, encoder_tokens(resolved_output.encoder_options))
     end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  # No encoder options: the existing `image`-wrapper path (byte-neutral baseline).
+  defp buffer_for(image, suffix, quality, []) do
+    case Image.write(image, :memory, suffix: suffix, quality: quality) do
+      {:ok, binary} -> {:ok, binary}
+      {:error, {:encode, _exception, _stack} = tagged} -> {:error, tagged}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
+  end
+
+  # Encoder options present: encode via Vix with a bracketed libvips suffix.
+  defp buffer_for(image, suffix, quality, tokens) do
+    case VixImage.write_to_buffer(image, vix_suffix(suffix, {:quality, quality}, tokens)) do
+      {:ok, binary} -> {:ok, binary}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
   end
 
   # JPEG XL is written through Vix directly to a seekable memory buffer: the
@@ -196,6 +218,62 @@ defmodule ImagePipe.Output.Encoder do
 
   defp effort_token(nil), do: nil
   defp effort_token(effort) when is_integer(effort), do: "effort=#{effort}"
+
+  # ".jpg" + Q + option tokens -> ".jpg[Q=75,interlace=true,...]". Q omitted for :default.
+  defp vix_suffix(suffix, quality, tokens) do
+    case Enum.reject([quality_token(quality) | tokens], &is_nil/1) do
+      [] -> suffix
+      parts -> "#{suffix}[#{Enum.join(parts, ",")}]"
+    end
+  end
+
+  # libvips suffix tokens (k=v, dash-named) from the negotiated encoder-option struct.
+  defp encoder_tokens(nil), do: []
+
+  defp encoder_tokens(%JpegOptions{} = o) do
+    option_tokens(
+      interlace: o.interlace,
+      "subsample-mode": o.subsample_mode,
+      "trellis-quant": o.trellis_quant,
+      "overshoot-deringing": o.overshoot_deringing,
+      "optimize-scans": o.optimize_scans,
+      "quant-table": o.quant_table
+    )
+  end
+
+  defp encoder_tokens(%PngOptions{} = o) do
+    option_tokens(
+      interlace: o.interlace,
+      palette: o.palette,
+      bitdepth: o.bitdepth,
+      filter: o.filter
+    )
+  end
+
+  defp encoder_tokens(%WebpOptions{} = o) do
+    option_tokens(
+      lossless: o.lossless,
+      "near-lossless": o.near_lossless,
+      "smart-subsample": o.smart_subsample,
+      preset: o.preset,
+      effort: o.effort
+    )
+  end
+
+  defp encoder_tokens(%AvifOptions{} = o) do
+    option_tokens("subsample-mode": o.subsample_mode, effort: o.effort)
+  end
+
+  defp encoder_tokens(%JxlOptions{}), do: []
+
+  defp option_tokens(pairs) do
+    for {k, v} <- pairs, not is_nil(v), do: "#{k}=#{token_value(v)}"
+  end
+
+  defp token_value(true), do: "true"
+  defp token_value(false), do: "false"
+  defp token_value(v) when is_atom(v), do: Atom.to_string(v)
+  defp token_value(v), do: to_string(v)
 
   defp encode_error(reason),
     do: ArgumentError.exception("failed to encode to buffer: #{inspect(reason)}")

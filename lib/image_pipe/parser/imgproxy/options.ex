@@ -1,12 +1,14 @@
 defmodule ImagePipe.Parser.Imgproxy.Options do
   @moduledoc false
 
+  alias ImagePipe.Config
   alias ImagePipe.Parser.Imgproxy.OptionGrammar
   alias ImagePipe.Parser.Imgproxy.Orientation
   alias ImagePipe.Parser.Imgproxy.ParsedRequest
   alias ImagePipe.Parser.Imgproxy.PipelineRequest
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Output.PngOptions
   alias ImagePipe.Plan.Output.QualitySearch
 
   @effect_fields [
@@ -254,6 +256,12 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
             | format_qualities: Map.merge(output.format_qualities, format_qualities)
           }
 
+        {:encoder_options, new}, output ->
+          merged =
+            Map.merge(output.encoder_options, new, fn _fmt, a, b -> a.__struct__.merge(a, b) end)
+
+          %{output | encoder_options: merged}
+
         assignment, output ->
           merge_request_map(output, [assignment])
       end)
@@ -326,7 +334,8 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
            |> Map.put(:color_profile, color_profile)
            |> resolve_quality_defaults(defaults)
            |> resolve_quality_search_defaults(defaults) do
-      output = Map.put(output, :jxl_effort, Keyword.get(defaults, :jxl_effort))
+      output =
+        Map.put(output, :encoder_options, merge_encoder_options(defaults, output.encoder_options))
 
       options =
         options
@@ -336,6 +345,42 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       {:ok, options}
     end
   end
+
+  # Config-default encoder structs (pruned of all-nil) under the URL override
+  # structs, per-field via each struct's merge/2. Prune all-nil results so an
+  # unused feature yields %{} (byte- and cache-key-neutral). Normalization runs
+  # AFTER the merge so config+URL (e.g. config `palette` + URL `quantization_colors`)
+  # compose before the orphan-bitdepth rule applies.
+  defp merge_encoder_options(defaults, url_map) do
+    base = Config.encoder_options_from_config(defaults)
+
+    (Map.keys(base) ++ Map.keys(url_map))
+    |> Enum.uniq()
+    |> Enum.reduce(%{}, fn fmt, acc ->
+      merged =
+        Map.get(base, fmt)
+        |> merge_format_struct(Map.get(url_map, fmt))
+        |> normalize_encoder_option()
+
+      if merged && not merged.__struct__.all_nil?(merged),
+        do: Map.put(acc, fmt, merged),
+        else: acc
+    end)
+  end
+
+  defp merge_format_struct(nil, over), do: over
+  defp merge_format_struct(base, nil), do: base
+  defp merge_format_struct(base, over), do: base.__struct__.merge(base, over)
+
+  # imgproxy computes PNG `bitdepth` ONLY inside `if (quantize)`. After the full
+  # config+URL merge, drop an orphan bitdepth when palette isn't enabled (e.g.
+  # `pngo:::128` alone ⇒ %PngOptions{}). Palette true with no colors leaves
+  # bitdepth nil = libvips palette default 8 (= imgproxy 256→8).
+  defp normalize_encoder_option(%PngOptions{palette: p, bitdepth: b} = o)
+       when p != true and not is_nil(b),
+       do: %{o | bitdepth: nil}
+
+  defp normalize_encoder_option(o), do: o
 
   # Fold host-config default quality into the product-neutral output. Config
   # `format_quality` (bare ints) is normalized to the `quality()` shape and used

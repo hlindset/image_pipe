@@ -115,6 +115,39 @@ export type CocoClass = (typeof cocoClasses)[number];
 
 export type TrimBackgroundMode = "auto" | "color";
 
+// imgproxy codec encoder-option tokens (jpgo/pngo/webpo/avifo). Each field maps
+// 1:1 to a positional argument in imgproxy's URL vocabulary; an unset field
+// (undefined) emits an EMPTY positional so omit-vs-false semantics survive the
+// round trip. There is no URL token for webp/avif/jxl effort (host-config only).
+export type WebpCompression = "lossy" | "near_lossless" | "lossless";
+export type WebpPreset = "default" | "photo" | "picture" | "drawing" | "icon" | "text";
+export type AvifSubsample = "auto" | "on" | "off";
+
+export type JpegOptionsState = {
+  progressive?: boolean;
+  no_subsample?: boolean;
+  trellis_quant?: boolean;
+  overshoot_deringing?: boolean;
+  optimize_scans?: boolean;
+  quant_table?: number;
+};
+
+export type PngOptionsState = {
+  interlaced?: boolean;
+  quantize?: boolean;
+  quantization_colors?: number;
+};
+
+export type WebpOptionsState = {
+  compression?: WebpCompression;
+  smart_subsample?: boolean;
+  preset?: WebpPreset;
+};
+
+export type AvifOptionsState = {
+  subsample?: AvifSubsample;
+};
+
 export type FiddleState = {
   signatureMode: SignatureMode;
   signatureKey: string;
@@ -229,6 +262,10 @@ export type FiddleState = {
   stripColorProfile: boolean;
   colorProfile: ColorProfile;
   preserveHdr: boolean;
+  jpegOptions: JpegOptionsState;
+  pngOptions: PngOptionsState;
+  webpOptions: WebpOptionsState;
+  avifOptions: AvifOptionsState;
 };
 
 export type ProcessedImageMetadata = {
@@ -461,6 +498,10 @@ export const defaultFiddleState: FiddleState = {
   stripColorProfile: true,
   colorProfile: "none",
   preserveHdr: false,
+  jpegOptions: {},
+  pngOptions: {},
+  webpOptions: {},
+  avifOptions: {},
 };
 
 export function optionSegments(currentState: FiddleState): string[] {
@@ -655,7 +696,107 @@ export function optionSegments(currentState: FiddleState): string[] {
     segments.push("ph:1");
   }
 
+  const jpgoSegment = jpegOptionsSegment(currentState);
+
+  if (jpgoSegment !== null) {
+    segments.push(jpgoSegment);
+  }
+
+  const pngoSegment = pngOptionsSegment(currentState);
+
+  if (pngoSegment !== null) {
+    segments.push(pngoSegment);
+  }
+
+  const webpoSegment = webpOptionsSegment(currentState);
+
+  if (webpoSegment !== null) {
+    segments.push(webpoSegment);
+  }
+
+  const avifoSegment = avifOptionsSegment(currentState);
+
+  if (avifoSegment !== null) {
+    segments.push(avifoSegment);
+  }
+
   return segments;
+}
+
+// imgproxy boolean args are emitted as 1/0 elsewhere in this file (e.g. ar:1,
+// fl:1, exar:1, kcr:0). Codec-option bools follow the same convention, and unset
+// fields emit an EMPTY positional so omit-vs-false survives the round trip.
+function boolArg(value: boolean | undefined): string {
+  if (value === undefined) {
+    return "";
+  }
+
+  return value ? "1" : "0";
+}
+
+function valueArg(value: string | number | undefined): string {
+  return value === undefined ? "" : String(value);
+}
+
+// Joins a token name with positional args, dropping trailing empty positions.
+// Returns null when every position is empty (nothing to emit).
+function codecOptionSegment(name: string, args: string[]): string | null {
+  let lastSet = -1;
+
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] !== "") {
+      lastSet = i;
+    }
+  }
+
+  if (lastSet === -1) {
+    return null;
+  }
+
+  return [name, ...args.slice(0, lastSet + 1)].join(":");
+}
+
+// jpgo:%progressive:%no_subsample:%trellis_quant:%overshoot_deringing:%optimize_scans:%quant_table
+export function jpegOptionsSegment(currentState: FiddleState): string | null {
+  const o = currentState.jpegOptions;
+
+  return codecOptionSegment("jpgo", [
+    boolArg(o.progressive),
+    boolArg(o.no_subsample),
+    boolArg(o.trellis_quant),
+    boolArg(o.overshoot_deringing),
+    boolArg(o.optimize_scans),
+    valueArg(o.quant_table),
+  ]);
+}
+
+// pngo:%interlaced:%quantize:%quantization_colors
+export function pngOptionsSegment(currentState: FiddleState): string | null {
+  const o = currentState.pngOptions;
+
+  return codecOptionSegment("pngo", [
+    boolArg(o.interlaced),
+    boolArg(o.quantize),
+    valueArg(o.quantization_colors),
+  ]);
+}
+
+// webpo:%compression:%smart_subsample:%preset
+export function webpOptionsSegment(currentState: FiddleState): string | null {
+  const o = currentState.webpOptions;
+
+  return codecOptionSegment("webpo", [
+    valueArg(o.compression),
+    boolArg(o.smart_subsample),
+    valueArg(o.preset),
+  ]);
+}
+
+// avifo:%subsample
+export function avifOptionsSegment(currentState: FiddleState): string | null {
+  const o = currentState.avifOptions;
+
+  return codecOptionSegment("avifo", [valueArg(o.subsample)]);
 }
 
 // autoquality:size:%target:%min:%max

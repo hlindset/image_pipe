@@ -15,7 +15,7 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
     strip_color_profile: nil,
     color_profile: nil,
     preserve_hdr: nil,
-    jxl_effort: nil
+    encoder_options: %{}
   }
   @default_policy %{expires: 0}
   @default_cache %{cachebuster: nil}
@@ -46,7 +46,7 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
           required(:strip_color_profile) => boolean() | nil,
           required(:color_profile) => :srgb | :display_p3 | :adobe_rgb | nil,
           required(:preserve_hdr) => boolean() | nil,
-          required(:jxl_effort) => 1..9 | nil
+          required(:encoder_options) => %{optional(ImagePipe.Format.output_format()) => struct()}
         }
   @type policy_request() :: %{required(:expires) => non_neg_integer()}
   @type cache_request() :: %{required(:cachebuster) => String.t() | nil}

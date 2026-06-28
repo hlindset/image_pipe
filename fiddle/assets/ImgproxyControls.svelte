@@ -8,13 +8,17 @@
   import { fiddleObjClasses, expandedToolboxesForState } from "./fiddle-url-state";
   import {
     autoqualityOptionSegment,
+    avifOptionsSegment,
     controlLimits,
     cropOptionSegment,
     cropPixelLimit,
     gravitySegment,
+    jpegOptionsSegment,
+    pngOptionsSegment,
     resizeOptionSegment,
     resetCropPixelsToSource,
     trimOptionSegment,
+    webpOptionsSegment,
     type FiddleState,
     type SourceImage,
   } from "./processing-path";
@@ -29,6 +33,7 @@
   let orientationOpen = $state(true);
   let scaleOptionsOpen = $state(true);
   let effectsOpen = $state(true);
+  let encoderOptionsOpen = $state(true);
 
   const fiddleObjClassesForPicker = fiddleObjClasses as readonly string[];
 
@@ -77,6 +82,16 @@
   const effectsSummary = $derived(effectSegments(fiddleState).join("/") || "Off");
   const metadataSummary = $derived(metadataSegments(fiddleState).join("/") || "On");
   const autoqualitySummary = $derived(autoqualityOptionSegment(fiddleState) ?? "Off");
+  const encoderOptionsSummary = $derived(
+    [
+      jpegOptionsSegment(fiddleState),
+      pngOptionsSegment(fiddleState),
+      webpOptionsSegment(fiddleState),
+      avifOptionsSegment(fiddleState),
+    ]
+      .filter(Boolean)
+      .join("/") || "Off",
+  );
   const maxBytesSummary = $derived(
     fiddleState.maxBytesEnabled && fiddleState.maxBytes > 0 ? `mb:${fiddleState.maxBytes}` : "Off",
   );
@@ -234,6 +249,55 @@
   function setFocalPoint(nx: number, ny: number): void {
     fiddleState.gravityFocalX = nx;
     fiddleState.gravityFocalY = ny;
+  }
+
+  // Codec encoder options are tri-state per field (unset / on / off / value),
+  // so they are driven by selects and number inputs keyed to "" = unset. These
+  // helpers translate the select/input value to undefined (unset) or a value,
+  // returning a fresh nested object so Svelte reactivity sees the change.
+  type TriBool = "" | "on" | "off";
+
+  function triBoolValue(value: boolean | undefined): TriBool {
+    if (value === undefined) {
+      return "";
+    }
+
+    return value ? "on" : "off";
+  }
+
+  function fromTriBool(value: string): boolean | undefined {
+    if (value === "on") {
+      return true;
+    }
+
+    if (value === "off") {
+      return false;
+    }
+
+    return undefined;
+  }
+
+  function selectValue<T extends string>(value: T | undefined): "" | T {
+    return value ?? "";
+  }
+
+  function fromSelectValue<T extends string>(value: string): T | undefined {
+    return value === "" ? undefined : (value as T);
+  }
+
+  // Canonical bounded integer only — mirrors the backend's `Integer.parse/1`
+  // + range check, so the controls never emit a value the URL parser would 400
+  // on (e.g. 1.5, 1e2, or out-of-range).
+  function fromIntInput(value: string, lo: number, hi: number): number | undefined {
+    const trimmed = value.trim();
+
+    if (trimmed === "" || !/^[+-]?\d+$/.test(trimmed)) {
+      return undefined;
+    }
+
+    const parsed = Number(trimmed);
+
+    return Number.isInteger(parsed) && parsed >= lo && parsed <= hi ? parsed : undefined;
   }
 </script>
 
@@ -1202,6 +1266,264 @@
 </section>
 
 <section class="tool-section">
+  <Collapsible.Root class="collapsible-root" bind:open={encoderOptionsOpen}>
+    <Collapsible.Trigger
+      class="accordion-heading"
+      aria-label={encoderOptionsOpen ? "Collapse encoder options" : "Expand encoder options"}
+    >
+      <div>
+        <h2>Encoder options</h2>
+        <p>{encoderOptionsSummary}</p>
+      </div>
+      <span class="accordion-chevron" aria-hidden="true"></span>
+    </Collapsible.Trigger>
+
+    <Collapsible.Content class="collapsible-content">
+      <!-- jpgo:%progressive:%no_subsample:%trellis_quant:%overshoot_deringing:%optimize_scans:%quant_table -->
+      <h3 class="encoder-format-heading">JPEG (jpgo)</h3>
+
+      <label class="field">
+        <span>Progressive</span>
+        <select
+          value={triBoolValue(fiddleState.jpegOptions.progressive)}
+          onchange={(e) => {
+            fiddleState.jpegOptions = {
+              ...fiddleState.jpegOptions,
+              progressive: fromTriBool(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>No subsample</span>
+        <select
+          value={triBoolValue(fiddleState.jpegOptions.no_subsample)}
+          onchange={(e) => {
+            fiddleState.jpegOptions = {
+              ...fiddleState.jpegOptions,
+              no_subsample: fromTriBool(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Trellis quant</span>
+        <select
+          value={triBoolValue(fiddleState.jpegOptions.trellis_quant)}
+          onchange={(e) => {
+            fiddleState.jpegOptions = {
+              ...fiddleState.jpegOptions,
+              trellis_quant: fromTriBool(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Overshoot deringing</span>
+        <select
+          value={triBoolValue(fiddleState.jpegOptions.overshoot_deringing)}
+          onchange={(e) => {
+            fiddleState.jpegOptions = {
+              ...fiddleState.jpegOptions,
+              overshoot_deringing: fromTriBool(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Optimize scans</span>
+        <select
+          value={triBoolValue(fiddleState.jpegOptions.optimize_scans)}
+          onchange={(e) => {
+            fiddleState.jpegOptions = {
+              ...fiddleState.jpegOptions,
+              optimize_scans: fromTriBool(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Quant table (0–8)</span>
+        <input
+          class="text-input"
+          type="number"
+          min="0"
+          max="8"
+          step="1"
+          value={fiddleState.jpegOptions.quant_table ?? ""}
+          onchange={(e) => {
+            fiddleState.jpegOptions = {
+              ...fiddleState.jpegOptions,
+              quant_table: fromIntInput(e.currentTarget.value, 0, 8),
+            };
+          }}
+        />
+      </label>
+
+      <!-- pngo:%interlaced:%quantize:%quantization_colors -->
+      <h3 class="encoder-format-heading">PNG (pngo)</h3>
+
+      <label class="field">
+        <span>Interlaced</span>
+        <select
+          value={triBoolValue(fiddleState.pngOptions.interlaced)}
+          onchange={(e) => {
+            fiddleState.pngOptions = {
+              ...fiddleState.pngOptions,
+              interlaced: fromTriBool(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Quantize</span>
+        <select
+          value={triBoolValue(fiddleState.pngOptions.quantize)}
+          onchange={(e) => {
+            fiddleState.pngOptions = {
+              ...fiddleState.pngOptions,
+              quantize: fromTriBool(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Quantization colors (2–256)</span>
+        <input
+          class="text-input"
+          type="number"
+          min="2"
+          max="256"
+          step="1"
+          value={fiddleState.pngOptions.quantization_colors ?? ""}
+          onchange={(e) => {
+            fiddleState.pngOptions = {
+              ...fiddleState.pngOptions,
+              quantization_colors: fromIntInput(e.currentTarget.value, 2, 256),
+            };
+          }}
+        />
+      </label>
+
+      <!-- webpo:%compression:%smart_subsample:%preset -->
+      <h3 class="encoder-format-heading">WebP (webpo)</h3>
+
+      <label class="field">
+        <span>Compression</span>
+        <select
+          value={selectValue(fiddleState.webpOptions.compression)}
+          onchange={(e) => {
+            fiddleState.webpOptions = {
+              ...fiddleState.webpOptions,
+              compression: fromSelectValue(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="lossy">lossy</option>
+          <option value="near_lossless">near_lossless</option>
+          <option value="lossless">lossless</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Smart subsample</span>
+        <select
+          value={triBoolValue(fiddleState.webpOptions.smart_subsample)}
+          onchange={(e) => {
+            fiddleState.webpOptions = {
+              ...fiddleState.webpOptions,
+              smart_subsample: fromTriBool(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Preset</span>
+        <select
+          value={selectValue(fiddleState.webpOptions.preset)}
+          onchange={(e) => {
+            fiddleState.webpOptions = {
+              ...fiddleState.webpOptions,
+              preset: fromSelectValue(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="default">default</option>
+          <option value="photo">photo</option>
+          <option value="picture">picture</option>
+          <option value="drawing">drawing</option>
+          <option value="icon">icon</option>
+          <option value="text">text</option>
+        </select>
+      </label>
+
+      <!-- avifo:%subsample -->
+      <h3 class="encoder-format-heading">AVIF (avifo)</h3>
+
+      <label class="field">
+        <span>Subsample</span>
+        <select
+          value={selectValue(fiddleState.avifOptions.subsample)}
+          onchange={(e) => {
+            fiddleState.avifOptions = {
+              ...fiddleState.avifOptions,
+              subsample: fromSelectValue(e.currentTarget.value),
+            };
+          }}
+        >
+          <option value="">&lt;unset&gt;</option>
+          <option value="auto">auto</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+    </Collapsible.Content>
+  </Collapsible.Root>
+</section>
+
+<section class="tool-section">
   <div class="accordion-heading">
     <div>
       <h2>Metadata &amp; color</h2>
@@ -1496,5 +1818,14 @@
 
   .muted-label {
     color: var(--text-muted);
+  }
+
+  .encoder-format-heading {
+    margin: 6px 0 0;
+    color: var(--text-heading);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 </style>

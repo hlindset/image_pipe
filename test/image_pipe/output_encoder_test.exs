@@ -193,7 +193,8 @@ defmodule ImagePipe.Output.EncoderTest do
           strip_metadata: true,
           keep_copyright: true,
           color_profile: :strip,
-          jxl_effort: effort
+          encoder_options:
+            if(effort, do: %ImagePipe.Plan.Output.JxlOptions{effort: effort}, else: nil)
         }
       end
 

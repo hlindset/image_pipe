@@ -3,6 +3,7 @@ defmodule ImagePipe.ConfigTest do
   use ExUnitProperties
 
   alias ImagePipe.Config
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
   describe "resolve!/2 layering" do
     test "applies neutral defaults when host and overlay are empty" do
@@ -32,13 +33,48 @@ defmodule ImagePipe.ConfigTest do
       assert resolved[:format_quality] == %{webp: 50, avif: 40, jpeg_xl: 77}
     end
 
-    test "jxl_effort is validated-if-present but not defaulted" do
-      refute Keyword.has_key?(Config.resolve!([], []), :jxl_effort)
-      assert Config.resolve!(jxl_effort: 4)[:jxl_effort] == 4
+    test "defaults the five encoder-option keys to unset structs" do
+      resolved = Config.resolve!([])
+      assert Keyword.fetch!(resolved, :jpeg_options) == %JpegOptions{}
+      assert Keyword.fetch!(resolved, :png_options) == %PngOptions{}
+      assert Keyword.fetch!(resolved, :webp_options) == %WebpOptions{}
+      assert Keyword.fetch!(resolved, :avif_options) == %AvifOptions{}
+      assert Keyword.fetch!(resolved, :jxl_options) == %JxlOptions{}
+    end
+
+    test "merges a host-set encoder option over the unset default" do
+      resolved = Config.resolve!(jpeg_options: %JpegOptions{interlace: true})
+      assert Keyword.fetch!(resolved, :jpeg_options) == %JpegOptions{interlace: true}
+    end
+
+    test "field-wise merges encoder-option structs across overlay and host layers" do
+      # Distinct fields on each layer must BOTH survive (field-wise merge, not
+      # whole-struct replacement) — guards the `layer/2` struct-merge path.
+      resolved =
+        Config.resolve!(
+          [jpeg_options: %JpegOptions{interlace: true}],
+          jpeg_options: %JpegOptions{quant_table: 5}
+        )
+
+      assert Keyword.fetch!(resolved, :jpeg_options) ==
+               %JpegOptions{interlace: true, quant_table: 5}
+    end
+
+    test "the layer/2 rewrite still merges existing plain-map keys (format_quality)" do
+      resolved = Config.resolve!(format_quality: %{webp: 70})
+      fq = Keyword.fetch!(resolved, :format_quality)
+      assert fq[:webp] == 70
+      assert fq[:avif] == 63
     end
 
     test "resolve! is idempotent (same effective values; order is not significant)" do
-      once = Config.resolve!(quality: 90, format_quality: %{webp: 50}, jxl_effort: 4)
+      once =
+        Config.resolve!(
+          quality: 90,
+          format_quality: %{webp: 50},
+          jxl_options: %JxlOptions{effort: 4}
+        )
+
       assert Map.new(Config.resolve!(once)) == Map.new(once)
     end
   end
@@ -71,9 +107,31 @@ defmodule ImagePipe.ConfigTest do
       end
     end
 
-    test "rejects out-of-range jxl_effort" do
-      assert_raise ArgumentError, fn -> Config.resolve!(jxl_effort: 0) end
-      assert_raise ArgumentError, fn -> Config.resolve!(jxl_effort: 10) end
+    test "rejects out-of-range jxl_options effort" do
+      assert_raise ArgumentError, fn -> Config.resolve!(jxl_options: %JxlOptions{effort: 0}) end
+      assert_raise ArgumentError, fn -> Config.resolve!(jxl_options: %JxlOptions{effort: 10}) end
+    end
+
+    test "rejects out-of-range / unknown encoder-option values (libvips ranges)" do
+      assert_raise ArgumentError, ~r/quant_table/, fn ->
+        Config.resolve!(jpeg_options: %JpegOptions{quant_table: 9})
+      end
+
+      assert_raise ArgumentError, ~r/bitdepth/, fn ->
+        Config.resolve!(png_options: %PngOptions{bitdepth: 3})
+      end
+
+      assert_raise ArgumentError, ~r/preset/, fn ->
+        Config.resolve!(webp_options: %WebpOptions{preset: :bogus})
+      end
+
+      assert_raise ArgumentError, ~r/effort/, fn ->
+        Config.resolve!(webp_options: %WebpOptions{effort: 7})
+      end
+
+      assert_raise ArgumentError, ~r/interlace.*must be a boolean/, fn ->
+        Config.resolve!(jpeg_options: %JpegOptions{interlace: "yes"})
+      end
     end
 
     test "rejects unknown neutral keys" do
@@ -84,13 +142,33 @@ defmodule ImagePipe.ConfigTest do
   describe "introspection" do
     test "keys/0 lists the neutral keys" do
       assert :quality in Config.keys()
-      assert :jxl_effort in Config.keys()
+      assert :jxl_options in Config.keys()
+      assert :jpeg_options in Config.keys()
       refute :signature in Config.keys()
     end
 
-    test "default/1 exposes neutral defaults including jxl_effort" do
-      assert Config.default(:jxl_effort) == 7
+    test "default/1 exposes neutral defaults including the unset encoder-option structs" do
+      assert Config.default(:jxl_options) == %JxlOptions{}
+      assert Config.default(:jpeg_options) == %JpegOptions{}
       assert Config.default(:quality) == 80
+    end
+  end
+
+  describe "apply_to_output/2 encoder options" do
+    test "stamps non-empty encoder_options onto Plan.Output" do
+      resolved = Config.resolve!(webp_options: %WebpOptions{preset: :photo})
+
+      {:ok, out} =
+        Config.apply_to_output(%ImagePipe.Plan.Output{mode: :automatic}, resolved)
+
+      assert out.encoder_options == %{webp: %WebpOptions{preset: :photo}}
+    end
+
+    test "leaves encoder_options empty when nothing is set" do
+      {:ok, out} =
+        Config.apply_to_output(%ImagePipe.Plan.Output{mode: :automatic}, Config.resolve!([]))
+
+      assert out.encoder_options == %{}
     end
   end
 

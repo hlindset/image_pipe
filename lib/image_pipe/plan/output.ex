@@ -18,9 +18,10 @@ defmodule ImagePipe.Plan.Output do
 
   `quality_search` and `max_bytes` are resolved defaults (`:none`/`nil` = off).
 
-  `jxl_effort` (1–9) is the JPEG XL encode effort. It is optional (`nil` = unset):
-  unlike `quality`, its neutral default is resolved by `ImagePipe.Output` from
-  `ImagePipe.Config.default(:jxl_effort)`, so a hand-built plan inherits it.
+  `encoder_options` maps an output `format()` to its libvips-native encoder
+  option struct (`JpegOptions`/`PngOptions`/`WebpOptions`/`AvifOptions`/`JxlOptions`).
+  An absent format means no options, i.e. libvips defaults. A parser resolves host
+  config (and, for imgproxy, URL tokens) into this map before building the plan.
   """
 
   alias ImagePipe.Plan.Color
@@ -47,7 +48,7 @@ defmodule ImagePipe.Plan.Output do
             quality_search: :none,
             max_bytes: nil,
             quality_search_offsets: @default_quality_search_offsets,
-            jxl_effort: nil
+            encoder_options: %{}
 
   @type format :: :avif | :webp | :jpeg | :png | :jpeg_xl
   @type quality :: :default | {:quality, 1..100}
@@ -75,7 +76,7 @@ defmodule ImagePipe.Plan.Output do
             | ImagePipe.Plan.Output.QualitySearch.Butteraugli.t(),
           max_bytes: nil | pos_integer(),
           quality_search_offsets: quality_search_offsets(),
-          jxl_effort: nil | 1..9
+          encoder_options: %{optional(format()) => struct()}
         }
 
   @doc "The built-in confirm-skipped crop-offset policy (bench Part M / #380)."

@@ -521,4 +521,33 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     # mirroring production where `defaults` is `Config.resolve!`'s output.
     Options.resolve_quality_search_defaults(output, ImagePipe.Config.resolve!(defaults))
   end
+
+  defp encoder_options_for(segments, defaults) do
+    assert {:ok, request} =
+             Options.parse(segments, Presets.empty(), ImagePipe.Config.resolve!(defaults))
+
+    request.output.encoder_options
+  end
+
+  describe "codec encoder option merge (config + URL)" do
+    alias ImagePipe.Plan.Output.{PngOptions, WebpOptions}
+
+    test "config palette + URL quantization_colors compose (orphan drop is post-merge, #4)" do
+      opts = encoder_options_for(~w(pngo:::128), png_options: %PngOptions{palette: true})
+      assert opts[:png] == %PngOptions{palette: true, bitdepth: 8}
+    end
+
+    test "URL quantization_colors without palette anywhere drops the orphan bitdepth" do
+      assert encoder_options_for(~w(pngo:::128), []) == %{}
+    end
+
+    test "an explicit URL compression resets a host-configured lossless WebP" do
+      opts = encoder_options_for(~w(webpo:lossy), webp_options: %WebpOptions{lossless: true})
+      assert opts[:webp].lossless == false
+    end
+
+    test "a later jpgo segment resets an earlier subsample_mode" do
+      assert encoder_options_for(~w(jpgo::1 jpgo::0), [])[:jpeg].subsample_mode == :auto
+    end
+  end
 end

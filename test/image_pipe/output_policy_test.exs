@@ -10,21 +10,26 @@ defmodule ImagePipe.Output.PolicyTest do
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Output.QualitySearch
 
-  describe "jxl_effort resolution" do
-    test "resolved jxl_effort falls back to the Config default when unset" do
+  describe "encoder_options resolution" do
+    test "resolved encoder_options is the negotiated-format struct" do
       conn = conn(:get, "/")
-      plan = %Output{mode: {:explicit, :jpeg_xl}, jxl_effort: nil}
+
+      plan = %Output{
+        mode: {:explicit, :jpeg_xl},
+        encoder_options: %{jpeg_xl: %ImagePipe.Plan.Output.JxlOptions{effort: 4}}
+      }
+
       policy = Policy.from_output_plan(conn, plan, [])
       {:ok, resolved} = Policy.resolve(policy, :jpeg_xl)
-      assert resolved.jxl_effort == ImagePipe.Config.default(:jxl_effort)
+      assert resolved.encoder_options == %ImagePipe.Plan.Output.JxlOptions{effort: 4}
     end
 
-    test "an explicit Plan jxl_effort overrides the default" do
+    test "resolved encoder_options is nil when the format has no options" do
       conn = conn(:get, "/")
-      plan = %Output{mode: {:explicit, :jpeg_xl}, jxl_effort: 4}
+      plan = %Output{mode: {:explicit, :jpeg_xl}}
       policy = Policy.from_output_plan(conn, plan, [])
       {:ok, resolved} = Policy.resolve(policy, :jpeg_xl)
-      assert resolved.jxl_effort == 4
+      assert resolved.encoder_options == nil
     end
   end
 
@@ -57,7 +62,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  strip_metadata: true,
                  keep_copyright: true,
                  color_profile: :strip,
-                 jxl_effort: ImagePipe.Config.default(:jxl_effort)
+                 encoder_options: %{}
                }
     end
 
@@ -77,7 +82,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  strip_metadata: true,
                  keep_copyright: true,
                  color_profile: :strip,
-                 jxl_effort: ImagePipe.Config.default(:jxl_effort)
+                 encoder_options: %{}
                }
     end
 
@@ -340,7 +345,7 @@ defmodule ImagePipe.Output.PolicyTest do
                   strip_metadata: true,
                   keep_copyright: true,
                   color_profile: :strip,
-                  jxl_effort: ImagePipe.Config.default(:jxl_effort)
+                  encoder_options: nil
                 }}
     end
 
@@ -362,7 +367,7 @@ defmodule ImagePipe.Output.PolicyTest do
                   strip_metadata: true,
                   keep_copyright: true,
                   color_profile: :strip,
-                  jxl_effort: ImagePipe.Config.default(:jxl_effort)
+                  encoder_options: nil
                 }}
     end
   end

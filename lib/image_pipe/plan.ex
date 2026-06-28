@@ -14,6 +14,11 @@ defmodule ImagePipe.Plan do
       Output.QualitySearch.Size,
       Output.QualitySearch.Ssimulacra2,
       Output.QualitySearch.Butteraugli,
+      Output.JpegOptions,
+      Output.PngOptions,
+      Output.WebpOptions,
+      Output.AvifOptions,
+      Output.JxlOptions,
       RenderContext,
       Response,
       SourceInfo,
@@ -265,11 +270,31 @@ defmodule ImagePipe.Plan do
   defp validate_output(output), do: {:error, {:invalid_output_plan, output}}
 
   defp validate_output_quality_shape(output) do
-    case validate_output_quality(output) do
-      :ok -> :ok
+    with :ok <- validate_output_quality(output),
+         :ok <- validate_encoder_options(output) do
+      :ok
+    else
       :error -> {:error, {:invalid_output_plan, output}}
     end
   end
+
+  @encoder_option_structs %{
+    jpeg: Output.JpegOptions,
+    png: Output.PngOptions,
+    webp: Output.WebpOptions,
+    avif: Output.AvifOptions,
+    jpeg_xl: Output.JxlOptions
+  }
+
+  defp validate_encoder_options(%Output{encoder_options: opts}) when is_map(opts) do
+    if Enum.all?(opts, fn {format, value} ->
+         is_struct(value) and Map.get(@encoder_option_structs, format) == value.__struct__
+       end),
+       do: :ok,
+       else: :error
+  end
+
+  defp validate_encoder_options(_output), do: :error
 
   defp validate_output_quality(%Output{quality: quality, format_qualities: format_qualities})
        when is_map(format_qualities) do

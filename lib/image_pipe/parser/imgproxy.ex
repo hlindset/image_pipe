@@ -25,7 +25,7 @@ defmodule ImagePipe.Parser.Imgproxy do
   alias ImagePipe.Parser.Imgproxy.SourceEncryption
 
   # Dialect-only config. The product-neutral plan/output tunables (quality,
-  # format_quality, strip_metadata, autoquality_*, jxl_effort, …) live in
+  # format_quality, strip_metadata, autoquality_*, jpeg_options/.../jxl_options, …) live in
   # `ImagePipe.Config`; this adapter validates only its dialect keys and delegates
   # the neutral keys to `Config.resolve!/2`.
   @dialect_schema NimbleOptions.new!(
@@ -57,8 +57,8 @@ defmodule ImagePipe.Parser.Imgproxy do
   ]
 
   # Sparse parity overrides applied on top of the neutral defaults. EMPTY today
-  # ("imgproxy parity == neutral defaults"); `jxl_effort: 4` is the documented
-  # future byte-parity lever, intentionally not set here.
+  # ("imgproxy parity == neutral defaults"); `jxl_options: %JxlOptions{effort: 4}`
+  # is the documented future byte-parity lever, intentionally not set here.
   defp imgproxy_overlay, do: []
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])

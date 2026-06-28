@@ -5,6 +5,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   alias ImagePipe.Parser.Imgproxy.Format
   alias ImagePipe.Parser.Imgproxy.PercentEncoding
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Response
 
   # Objw class weights are relative ratios used in a weighted centroid. A weight
@@ -69,6 +70,14 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "kcr" => {:keep_copyright, [:keep_copyright]},
     "preserve_hdr" => {:preserve_hdr, [:preserve_hdr]},
     "ph" => {:preserve_hdr, [:preserve_hdr]},
+    "jpeg_options" => {:jpeg_options, []},
+    "jpgo" => {:jpeg_options, []},
+    "png_options" => {:png_options, []},
+    "pngo" => {:png_options, []},
+    "webp_options" => {:webp_options, []},
+    "webpo" => {:webp_options, []},
+    "avif_options" => {:avif_options, []},
+    "avifo" => {:avif_options, []},
     "debug" => {:debug, [:debug]}
   }
 
@@ -166,7 +175,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
               :autoquality,
               :strip_metadata,
               :keep_copyright,
-              :preserve_hdr
+              :preserve_hdr,
+              :jpeg_options,
+              :png_options,
+              :webp_options,
+              :avif_options
             ],
        do: {:output, assignments}
 
@@ -294,8 +307,151 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
+  defp parse_known_option(:jpeg_options, _spec, args, segment),
+    do:
+      codec_options(
+        :jpeg,
+        JpegOptions,
+        args,
+        [
+          :progressive,
+          :no_subsample,
+          :trellis_quant,
+          :overshoot_deringing,
+          :optimize_scans,
+          :quant_table
+        ],
+        &jpeg_arg/2,
+        &identity/1,
+        segment
+      )
+
+  defp parse_known_option(:png_options, _spec, args, segment),
+    do:
+      codec_options(
+        :png,
+        PngOptions,
+        args,
+        [:interlaced, :quantize, :quantization_colors],
+        &png_arg/2,
+        &identity/1,
+        segment
+      )
+
+  defp parse_known_option(:webp_options, _spec, args, segment),
+    do:
+      codec_options(
+        :webp,
+        WebpOptions,
+        args,
+        [:compression, :smart_subsample, :preset],
+        &webp_arg/2,
+        &identity/1,
+        segment
+      )
+
+  defp parse_known_option(:avif_options, _spec, args, segment),
+    do: codec_options(:avif, AvifOptions, args, [:subsample], &avif_arg/2, &identity/1, segment)
+
   defp parse_known_option(_kind, _fields, _args, segment),
     do: {:error, {:invalid_option_segment, segment}}
+
+  # Walk positional args; empty string ⇒ no override; otherwise translate to
+  # libvips field assignments and build the struct, then run a per-format
+  # finalizer. Too many args ⇒ invalid.
+  defp codec_options(_format_key, _mod, args, positions, _translator, _finalize, segment)
+       when length(args) > length(positions),
+       do: {:error, {:invalid_option_segment, segment}}
+
+  defp codec_options(format_key, mod, args, positions, translator, finalize, segment) do
+    padded = args ++ List.duplicate("", length(positions) - length(args))
+    pairs = Enum.zip(positions, padded)
+
+    case Enum.reduce_while(pairs, {:ok, []}, &reduce_codec_arg(&1, &2, translator)) do
+      {:ok, assigns} -> {:ok, [encoder_options: %{format_key => finalize.(struct(mod, assigns))}]}
+      :error -> {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
+  defp reduce_codec_arg({_pos, ""}, {:ok, acc}, _translator), do: {:cont, {:ok, acc}}
+
+  defp reduce_codec_arg({pos, raw}, {:ok, acc}, translator) do
+    case translator.(pos, raw) do
+      {:ok, assigns} -> {:cont, {:ok, acc ++ assigns}}
+      :error -> {:halt, :error}
+    end
+  end
+
+  defp jpeg_arg(:progressive, v), do: bool_assign(:interlace, v)
+  # imgproxy no_subsample:true → subsample off; false → :auto (libvips default,
+  # "subsampling enabled"). We emit the explicit value (not nil) so a present
+  # `0`/`false` can reset an earlier/host-set `:off` — :auto is byte-neutral.
+  defp jpeg_arg(:no_subsample, v),
+    do: with({:ok, b} <- boolish(v), do: {:ok, [subsample_mode: if(b, do: :off, else: :auto)]})
+
+  defp jpeg_arg(:trellis_quant, v), do: bool_assign(:trellis_quant, v)
+  defp jpeg_arg(:overshoot_deringing, v), do: bool_assign(:overshoot_deringing, v)
+  defp jpeg_arg(:optimize_scans, v), do: bool_assign(:optimize_scans, v)
+  defp jpeg_arg(:quant_table, v), do: int_assign(:quant_table, v, 0..8)
+
+  defp png_arg(:interlaced, v), do: bool_assign(:interlace, v)
+
+  defp png_arg(:quantize, v),
+    do:
+      with(
+        {:ok, b} <- boolish(v),
+        do: {:ok, if(b, do: [palette: true, filter: :none], else: [palette: false])}
+      )
+
+  defp png_arg(:quantization_colors, v) do
+    case Integer.parse(v) do
+      {n, ""} when n >= 2 and n <= 256 -> {:ok, [bitdepth: png_bitdepth(n)]}
+      _ -> :error
+    end
+  end
+
+  # Emit BOTH bools explicitly so a present `compression` always fully determines
+  # the mode (and can reset an earlier/host-set lossless). `lossy` = both false =
+  # libvips default, byte-neutral.
+  defp webp_arg(:compression, "lossy"), do: {:ok, [lossless: false, near_lossless: false]}
+  defp webp_arg(:compression, "lossless"), do: {:ok, [lossless: true, near_lossless: false]}
+  defp webp_arg(:compression, "near_lossless"), do: {:ok, [lossless: false, near_lossless: true]}
+  defp webp_arg(:compression, _), do: :error
+  defp webp_arg(:smart_subsample, v), do: bool_assign(:smart_subsample, v)
+
+  defp webp_arg(:preset, v) when v in ~w(default photo picture drawing icon text),
+    do: {:ok, [preset: String.to_existing_atom(v)]}
+
+  defp webp_arg(:preset, _), do: :error
+
+  defp avif_arg(:subsample, v) when v in ~w(auto on off),
+    do: {:ok, [subsample_mode: String.to_existing_atom(v)]}
+
+  defp avif_arg(:subsample, _), do: :error
+
+  # imgproxy's quantization_colors -> libvips bitdepth bucket (vips_pngsave_go).
+  defp png_bitdepth(n) when n > 16, do: 8
+  defp png_bitdepth(n) when n > 4, do: 4
+  defp png_bitdepth(n) when n > 2, do: 2
+  defp png_bitdepth(_), do: 1
+
+  defp identity(o), do: o
+
+  defp bool_assign(field, v), do: with({:ok, b} <- boolish(v), do: {:ok, [{field, b}]})
+
+  defp int_assign(field, v, lo..hi//_) do
+    case Integer.parse(v) do
+      {n, ""} when n >= lo and n <= hi -> {:ok, [{field, n}]}
+      _ -> :error
+    end
+  end
+
+  defp boolish(v) do
+    case parse_boolean(v) do
+      {:ok, b} -> {:ok, b}
+      {:error, _} -> :error
+    end
+  end
 
   # autoquality:%method[:%method_args...] — emits the tagged
   # {:autoquality, fields | :disabled} shape, carrying only the URL-present

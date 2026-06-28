@@ -136,6 +136,29 @@ defmodule ImagePipe.PlanTest do
     assert {:error, {:invalid_auto_rotate, _}} = Plan.validate_shape(%{plan | auto_rotate: "yes"})
   end
 
+  test "validate_shape accepts recognized encoder_options structs and rejects malformed maps" do
+    plan = plan()
+
+    good = %{
+      plan.output
+      | encoder_options: %{jpeg: %ImagePipe.Plan.Output.JpegOptions{interlace: true}}
+    }
+
+    assert {:ok, _} = Plan.validate_shape(%{plan | output: good})
+
+    # a bare map (not a recognized struct) must be rejected at the boundary
+    bad = %{plan.output | encoder_options: %{jpeg: %{lossless: true}}}
+    assert {:error, {:invalid_output_plan, _}} = Plan.validate_shape(%{plan | output: bad})
+
+    # struct under the wrong format key is rejected too
+    mismatched = %{plan.output | encoder_options: %{png: %ImagePipe.Plan.Output.JpegOptions{}}}
+    assert {:error, {:invalid_output_plan, _}} = Plan.validate_shape(%{plan | output: mismatched})
+
+    # an unknown format key (even with a real struct) is rejected
+    unknown = %{plan.output | encoder_options: %{bogus: %ImagePipe.Plan.Output.JpegOptions{}}}
+    assert {:error, {:invalid_output_plan, _}} = Plan.validate_shape(%{plan | output: unknown})
+  end
+
   describe "operation_names/1" do
     test "returns stable operation-name atoms in order across pipelines" do
       {:ok, resize} = Operation.resize(:fit, {:px, 100}, :auto, enlargement: :deny)
