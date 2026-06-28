@@ -13,6 +13,7 @@ defmodule ImagePipe.Response do
     ],
     exports: [
       CacheHeaders,
+      CORS,
       Json,
       PreparedStream,
       Sender

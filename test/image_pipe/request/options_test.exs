@@ -18,4 +18,26 @@ defmodule ImagePipe.Request.OptionsTest do
       Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_debug_headers: "yes")
     end
   end
+
+  test "allow_origin is absent by default (CORS off)" do
+    opts = Options.validate!(parser: ImagePipe.Parser.Imgproxy)
+    refute Keyword.has_key?(opts, :allow_origin)
+  end
+
+  test "allow_origin accepts a non-empty string" do
+    opts = Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_origin: "*")
+    assert Keyword.fetch!(opts, :allow_origin) == "*"
+  end
+
+  test "allow_origin rejects an empty string" do
+    assert_raise ArgumentError, ~r/allow_origin/, fn ->
+      Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_origin: "")
+    end
+  end
+
+  test "allow_origin rejects control characters (fails at init, not per-request)" do
+    assert_raise ArgumentError, ~r/allow_origin/, fn ->
+      Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_origin: "*\r\nSet-Cookie: x=1")
+    end
+  end
 end

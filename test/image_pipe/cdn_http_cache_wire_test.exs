@@ -234,6 +234,55 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
+  test "CORS header lands on a cache-hit response when allow_origin is set" do
+    entry = %Entry{
+      body: "cached body",
+      content_type: "image/jpeg",
+      headers: [{"cache-control", "public, max-age=60"}],
+      created_at: DateTime.utc_now()
+    }
+
+    opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry},
+        http_cache: [mode: :enabled],
+        allow_origin: "https://cdn.test"
+      )
+
+    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+
+    assert conn.status == 200
+    assert conn.resp_body == "cached body"
+    assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    refute_received :source_fetch_called
+  end
+
+  test "CORS header lands on a 304 Not Modified response when allow_origin is set" do
+    opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheProbe, test_pid: self()},
+        http_cache: [mode: :enabled],
+        allow_origin: "https://cdn.test"
+      )
+
+    first = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    [etag] = get_resp_header(first, "etag")
+    flush_messages()
+
+    conn =
+      :get
+      |> conn("/_/plain/beach.jpg")
+      |> put_req_header("if-none-match", etag)
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 304
+    assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+  end
+
   test "host-set content-disposition is preserved on both miss and cache-hit responses" do
     probe_opts =
       ImagePipe.Plug.init(

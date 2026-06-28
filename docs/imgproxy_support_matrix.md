@@ -366,10 +366,22 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 
 ### CORS response headers
 
-A host Plug can add CORS headers around ImagePipe responses. ImagePipe doesn't
-expose a CORS option.
+ImagePipe exposes a dialect-neutral `allow_origin` mount option (default off).
+When set, `ImagePipe.Plug` stamps `Access-Control-Allow-Origin: <value>` verbatim
+on every response (image, errors, redirect, 304) via a `register_before_send/2`
+hook and answers `OPTIONS` as a CORS preflight. It is a core feature available
+for any parser, not just IIIF.
 
-- 🧩 `IMGPROXY_ALLOW_ORIGIN`
+- ✅ `IMGPROXY_ALLOW_ORIGIN` → `allow_origin` (configuration default; verbatim
+  origin value, off when unset — same semantics as imgproxy's empty default).
+
+**Diverges (behavioral):** the neutral core answers `OPTIONS` with `204 No Content`
+(imgproxy: `200`), advertises `Access-Control-Allow-Methods: GET, HEAD, OPTIONS`
+(imgproxy: `GET, OPTIONS` — ImagePipe also serves `HEAD`), and emits
+`Access-Control-Allow-Methods` **only on the preflight** response (imgproxy stamps
+it on every CORS response). `Access-Control-Allow-Origin` itself — the load-bearing
+header — matches imgproxy on every response. The divergences are preflight-only
+and behaviorally inert (the methods header is consulted only during preflight).
 
 ### Routing prefix
 

@@ -247,6 +247,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(response, [ImagePipe.Request, ImagePipe.Source, ImagePipe.Transform])
 
     assert_boundary_exports(response, [
+      ImagePipe.Response.CORS,
       ImagePipe.Response.CacheHeaders,
       ImagePipe.Response.Json,
       ImagePipe.Response.PreparedStream,

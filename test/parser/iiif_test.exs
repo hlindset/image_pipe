@@ -122,34 +122,3 @@ defmodule ImagePipe.Parser.IIIFTest do
     end
   end
 end
-
-defmodule ImagePipe.Parser.IIIF.CORSTest do
-  use ExUnit.Case, async: true
-  import Plug.Test
-  import Plug.Conn, only: [get_resp_header: 2]
-
-  alias ImagePipe.Parser.IIIF.CORS
-
-  test "OPTIONS -> 200 with CORS headers and halted" do
-    conn =
-      conn(:options, "/abc/full/max/0/default.jpg")
-      |> CORS.call(CORS.init([]))
-
-    assert conn.status == 200
-    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
-    assert get_resp_header(conn, "access-control-allow-methods") == ["GET, OPTIONS"]
-    assert conn.halted
-  end
-
-  test "GET -> conn has before_send callback that adds Allow-Origin" do
-    conn =
-      conn(:get, "/abc/full/max/0/default.jpg")
-      |> CORS.call(CORS.init([]))
-
-    refute conn.halted
-
-    # Trigger the before_send callbacks by sending a response
-    conn = Plug.Conn.send_resp(conn, 200, "ok")
-    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
-  end
-end

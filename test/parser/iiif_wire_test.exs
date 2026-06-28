@@ -4,7 +4,6 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Parser.IIIF.CORS
   alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -98,6 +97,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     [
       parser: ImagePipe.Parser.IIIF,
       iiif: [resolver: static_resolver()],
+      allow_origin: "*",
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
       ]
@@ -108,6 +108,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     [
       parser: ImagePipe.Parser.IIIF,
       iiif: [resolver: static_resolver(), tile_size: tile_size],
+      allow_origin: "*",
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
       ]
@@ -118,6 +119,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     [
       parser: ImagePipe.Parser.IIIF,
       iiif: [resolver: static_resolver()] ++ bounds,
+      allow_origin: "*",
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
       ]
@@ -128,6 +130,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     [
       parser: ImagePipe.Parser.IIIF,
       iiif: [resolver: static_resolver()],
+      allow_origin: "*",
       sources: [
         path:
           {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: MultiOriginImage]}
@@ -139,6 +142,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     [
       parser: ImagePipe.Parser.IIIF,
       iiif: [resolver: static_resolver(), quality: quality],
+      allow_origin: "*",
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
       ]
@@ -154,28 +158,20 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   defp call_iiif(path, opts, req_headers \\ []) do
     initialized = ImagePipe.Plug.init(opts)
 
-    conn =
-      :get
-      |> conn(path)
-      |> put_script_name(["iiif"])
-      |> add_req_headers(req_headers)
-
-    cors_conn = CORS.call(conn, CORS.init([]))
-
-    if cors_conn.halted do
-      cors_conn
-    else
-      ImagePipe.Plug.call(cors_conn, initialized)
-    end
+    :get
+    |> conn(path)
+    |> put_script_name(["iiif"])
+    |> add_req_headers(req_headers)
+    |> ImagePipe.Plug.call(initialized)
   end
 
-  defp call_options(path) do
-    conn =
-      :options
-      |> conn(path)
-      |> put_script_name(["iiif"])
+  defp call_options(path, opts) do
+    initialized = ImagePipe.Plug.init(opts)
 
-    CORS.call(conn, CORS.init([]))
+    :options
+    |> conn(path)
+    |> put_script_name(["iiif"])
+    |> ImagePipe.Plug.call(initialized)
   end
 
   defp put_script_name(conn, script_name), do: %{conn | script_name: script_name}
@@ -428,11 +424,20 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
   end
 
-  test "contract 8d: OPTIONS preflight → 200 with access-control-allow-methods" do
-    conn = call_options("/img/full/max/0/default.jpg")
+  test "contract 8d: OPTIONS → 204 with Allow + access-control-allow-methods" do
+    conn = call_options("/img/full/max/0/default.jpg", iiif_opts(OriginImage))
 
-    assert conn.status == 200
-    assert get_resp_header(conn, "access-control-allow-methods") != []
+    assert conn.status == 204
+    assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+    assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
+  end
+
+  test "contract 8e: error response (400) carries access-control-allow-origin" do
+    conn = call_iiif("/img/full/9999,/0/default.jpg", iiif_opts(OriginImage))
+
+    assert conn.status == 400
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
   end
 
   # ---------------------------------------------------------------------------

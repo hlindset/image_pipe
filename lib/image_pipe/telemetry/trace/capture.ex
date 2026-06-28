@@ -315,6 +315,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   defp status_from(meta) do
     case meta[:result] do
       :ok -> :ok
+      :options -> :ok
       nil -> :ok
       _other -> :error
     end

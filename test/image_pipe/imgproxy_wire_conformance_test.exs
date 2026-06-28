@@ -952,6 +952,58 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert byte_size(conn.resp_body) > 0
   end
 
+  describe "CORS (dialect-neutral, through the imgproxy parser)" do
+    test "image response carries Access-Control-Allow-Origin when allow_origin set" do
+      encoded = encoded_source("images/beach.jpg")
+
+      conn =
+        call_imgproxy(
+          "/_/rt:force/w:120/h:90/f:jpeg/#{encoded}",
+          [allow_origin: "https://cdn.test"] ++ @default_opts
+        )
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+
+    test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
+      conn =
+        conn(:options, "/_/anything")
+        |> ImagePipe.Plug.call(
+          ImagePipe.Plug.init([allow_origin: "https://cdn.test"] ++ @default_opts)
+        )
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+
+    test "OPTIONS → 204 + Allow, no CORS headers when allow_origin unset" do
+      conn =
+        conn(:options, "/_/anything")
+        |> ImagePipe.Plug.call(ImagePipe.Plug.init(@default_opts))
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      assert get_resp_header(conn, "access-control-allow-methods") == []
+      assert get_resp_header(conn, "access-control-allow-origin") == []
+    end
+
+    test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
+      conn =
+        conn(:put, "/_/anything")
+        |> ImagePipe.Plug.call(
+          ImagePipe.Plug.init([allow_origin: "https://cdn.test"] ++ @default_opts)
+        )
+
+      assert conn.status == 405
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      # Proves the before-send hook is not 200-only: it fires on the 405 too.
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+  end
+
   test "automatic output negotiates modern formats from Accept and sets Vary" do
     cases = [
       {"image/avif,image/webp", "image/avif"},
