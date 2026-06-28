@@ -136,8 +136,18 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 | `output=heif` | 🚫 Rejected | Not in the v1 explicit-format set (`avif`/`webp`/`jpeg`/`png`); the parser rejects it with `{:unsupported_output, "heif"}` before side effects. |
 | `output=blurhash\|preview\|maincolor\|meancolor\|blank` | 🚫 Rejected | Non-image preview outputs; deferred. |
 | `output=h264\|h265\|vp9` | 🛑 Out of scope | Video output codecs. |
-| `quality=1..100` | ✅ Supported | `Plan.Output` quality. |
+| `quality=1..100` | ✅ Supported | URL `Plan.Output` quality — **top precedence**. When the URL omits `quality`, the configured host default (`twicpics: [quality: …]`, neutral default `80`; per-format `webp 79 / avif 63 / jpeg_xl 77`) applies as the base. |
 | `quality-max` / `quality-min` | 🚫 Rejected | Conditional variants deferred. |
+
+**Host neutral config (surface + behavioral).** The neutral `ImagePipe.Config`
+tunables — `quality`, `format_quality`, `strip_metadata`/`keep_copyright`,
+`strip_color_profile`, `preserve_hdr`, `jxl_effort`, and the `autoquality_*` knobs
+— are accepted under the `twicpics:` key, validated through `ImagePipe.Config`, and
+stamped onto `Plan.Output`. A URL `quality=N` still wins over the configured
+default. **Behavioral default:** absent host config, output uses the neutral
+default quality (above) rather than the libvips encoder built-in. An invalid
+autoquality combination (e.g. `autoquality_method: :size` with no `:size` target)
+is rejected at mount time.
 
 ## Debug headers (ImagePipe extension)
 

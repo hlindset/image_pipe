@@ -129,6 +129,17 @@ The opaque IIIF `{identifier}` is resolved by a host-configured `ImagePipe.Parse
 
 ## Diverges / intentional notes
 
+- **Host neutral config is honored** (surface + behavioral). The neutral
+  `ImagePipe.Config` tunables — `quality`, `format_quality`, `strip_metadata`/
+  `keep_copyright`, `strip_color_profile`, `preserve_hdr`, `jxl_effort`, and the
+  `autoquality_*` knobs — are accepted under the `iiif:` key, validated through
+  `ImagePipe.Config`, and stamped onto `Plan.Output` (`auto_rotate` is one of these
+  neutral keys). IIIF has no URL-level encode-quality surface (its `quality` token
+  is `color`/`gray`/`bitonal`, not an encoder Q), so host config is the only way to
+  set these. **Behavioral default:** absent host config, output now uses the neutral
+  default quality — global `80`, per-format `webp 79 / avif 63 / jpeg_xl 77` — rather
+  than the libvips encoder built-in. An invalid autoquality combination (e.g.
+  `autoquality_method: :size` with no `:size` target) is rejected at mount time.
 - **`auto_rotate` defaults `true`** (configurable via `iiif: [auto_rotate: …]`). IIIF region/size/rotation and the info.json dimensions are defined in the **displayed** (post-EXIF-orientation) coordinate system. This is the more correct behavior, not a divergence: an absolute-coordinate `CropRegion` is made display-correct by flushing the EXIF pending orientation *before* the crop (rescaling against the orientation-swapped `decode_shrink`); the IIIF rotation param folds into `pending_orientation` (right-angle, non-mirrored) and is applied after the region crop; an arbitrary or mirrored rotation instead runs as a materializing chain op (see Rotation). The validator reference image is orientation-1, so the gate is unaffected.
 - **Upscale-without-`^` returns the spec-recommended 400** via the `{:bad_request, _}` transform reason. The *general*, host-customizable error→status mapping is tracked by [#267](https://github.com/hlindset/image_pipe/issues/267).
 - **`gray` on a non-alpha output format (e.g. `gray.jpg`) with an alpha source flattens onto the background** (valid output) via the encoder's format-driven flatten ([#269](https://github.com/hlindset/image_pipe/pull/269)); `gray` preserves alpha for alpha-capable formats (`gray.png`/`gray.webp`/`gray.avif`).
