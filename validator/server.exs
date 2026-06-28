@@ -34,7 +34,6 @@ end
 defmodule ValidatorServer.IIIFPlug do
   @moduledoc false
 
-  alias ImagePipe.Parser.IIIF.CORS
   alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -54,6 +53,7 @@ defmodule ValidatorServer.IIIFPlug do
              @image_id => %SourcePath{segments: ["ref.png"]}
            }}
       ],
+      allow_origin: "*",
       sources: [
         path:
           {RootHTTPAdapter,
@@ -64,15 +64,7 @@ defmodule ValidatorServer.IIIFPlug do
   end
 
   @impl Plug
-  def call(conn, opts) do
-    cors_conn = CORS.call(conn, CORS.init([]))
-
-    if cors_conn.halted do
-      cors_conn
-    else
-      ImagePipe.Plug.call(cors_conn, opts)
-    end
-  end
+  def call(conn, opts), do: ImagePipe.Plug.call(conn, opts)
 end
 
 defmodule ValidatorServer.Router do
