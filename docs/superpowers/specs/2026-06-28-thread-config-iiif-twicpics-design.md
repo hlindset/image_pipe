@@ -87,13 +87,26 @@ autoquality_allowed_error: %{ssimulacra2: 1.0, butteraugli: 0.1}
 
 `Config.layer/2` already merges map-valued keys (`Map.merge(default, override)`),
 so a host configuring just one metric keeps the other's default. Config
-validation already range-checks every entry. This is **behavior-identical**:
-today the empty-map lookup misses and falls to the private constant returning the
-same value; with the populated map the lookup hits and returns the same value one
-step earlier. `:size` deliberately gets **no** default entry (a byte budget must
-be explicit); the "missing `:size` target → error" path is preserved. This
-deletes imgproxy's `@default_ssim2_target`, `@default_butteraugli_target`, the
-ssimulacra2/butteraugli clauses of `default_target/1`, and `default_allowed_error/1`.
+validation already range-checks every entry (verified: 78∈{0,100}, 1.0∈{0,25},
+allowed-errors ≥ 0 — no new boot-time raise). This is **behavior-identical** in
+resolved value: today the empty-map lookup misses and falls to the private
+constant returning the same value; with the populated map the lookup hits and
+returns the same value. One non-value path change to note: the promoted target
+now flows through `validate_target_range/2` where the private-constant fallback
+previously bypassed it (harmless — the seeded values are in-range; assert it in
+the new unit test). `:size` deliberately gets **no** default entry (a byte budget
+must be explicit); the "missing `:size` target → error" path is preserved, and is
+the *only* missing-target path left — seeding the perceptual targets makes their
+`:missing_target` branch unreachable (a host can override a metric target but,
+because `Map.merge` cannot remove a key, cannot un-seed it; acceptable — a
+perceptual search always wants a target).
+
+This deletes imgproxy's `@default_ssim2_target`, `@default_butteraugli_target`,
+the ssimulacra2/butteraugli clauses of `default_target/1`, and
+`default_allowed_error/1`. **Remove cleanly:** the deletion must also simplify the
+now-dead final `|| default_allowed_error(metric)` arm in `resolve_allowed_error`
+and the `nil ->` quality fallbacks made unreachable by always-seeded config — no
+stranded dead branches.
 
 **1b. Promote the one builder to the neutral core.** Move the builder to a new
 module `ImagePipe.Plan.Output.QualitySearch` (the namespace has no parent module
@@ -113,8 +126,19 @@ Public surface:
 ```
 
 `build/3` keeps the URL-target range re-check (imgproxy's URL path needs it;
-`Metric.target_range/1` is already neutral and under `Plan`). The reachability is
-correct: every parser's boundary deps include `Plan`.
+`Metric.target_range/1` is already neutral and under `Plan`) **and** the `:size`
+missing-target `{:error, _}` branch.
+
+**Boundary export (required — not "no boundary changes"):** today
+`ImagePipe.Plan.Output.QualitySearch` is a pure namespace prefix; only its four
+children (`Metric/Size/Ssimulacra2/Butteraugli`) are individually exported from
+the `Plan` boundary. Introducing a real parent module that `Config` and the
+imgproxy adapter call across the boundary requires **adding
+`Output.QualitySearch` to the `Plan` boundary `exports`** in
+`lib/image_pipe/plan.ex` **and** to the exact-match `assert_boundary_exports(plan,
+[...])` assertion in `architecture_boundary_test.exs` (exact equality — omitting
+it fails the test). Reachability is then correct: every parser's boundary deps
+include `Plan`, and `Config` deps `[Plan]`.
 
 **Metric selection stays at the edges** — it is the one genuinely
 dialect-specific piece. imgproxy keeps `effective_quality_search_method`
@@ -141,19 +165,27 @@ IIIF and TwicPics need the identical ~8-field mapping from resolved config onto
 `Config` already deps `[Plan]` (the only dep; no boundary/architecture-test
 change). It stamps:
 
-- `default_quality` ← config `quality` (as `{:quality, n}`).
+- `default_quality` ← config `quality` as `{:quality, n}`. Use `Keyword.fetch!`,
+  not a `nil → :default` fallback: `Config.resolve!/2` always seeds `quality: 80`,
+  so it is never `nil` here (the imgproxy `nil` branch would be dead code).
 - `format_qualities` ← config `format_quality`, each value normalized to
-  `{:quality, n}`.
+  `{:quality, n}`. This is a **wholesale set**, not a merge — safe because neither
+  dialect has a URL per-format-quality surface (the base is always `%{}`). A
+  *future* dialect that pre-populates `output.format_qualities` from a URL must
+  merge (as imgproxy's `resolve_quality_defaults` does), not call this helper blindly.
 - `strip_metadata` ← config `strip_metadata`; `keep_copyright` ←
   `strip_metadata and keep_copyright` (the canonical-cache-key rule: copyright is
   only meaningful when stripping).
 - `color_profile` ← `strip_color_profile` (`true → :strip`, `false →
   :preserve_source`).
 - `hdr` ← `preserve_hdr` (`true → :preserve`, `false → :tone_map`).
-- `jxl_effort` ← config `jxl_effort`.
+- `jxl_effort` ← config `jxl_effort`. Note `resolve!/2` does **not** seed this
+  (it has no scalar default — `Output`/`Policy` resolve `nil` to
+  `Config.default(:jxl_effort) = 7` downstream), so stamping the possibly-`nil`
+  value is correct; do not force `7` here (matches imgproxy `Options.ex`).
 - `quality_search` ← `Plan.Output.QualitySearch.from_config(resolved)`,
   propagating its `{:error, _}` (e.g. `autoquality_method: :size` with no
-  `:size` target — a real host misconfig that must surface).
+  `:size` target — a real host misconfig; see Error handling for where it fails).
 
 It **never touches `output.quality`** — the dialect's base `Output` carries the
 URL quality (or `:default`), which gives "URL wins, config is the base" for free
@@ -175,7 +207,18 @@ are three "not supported" cases, surfaced at two layers:
 | --- | --- | --- |
 | Unknown key (typo / wrong-dialect key) | host config (init) | `ArgumentError` at `validate_options!` (already: NimbleOptions / the `{dialect, unknown}` split) |
 | Known neutral key this dialect can't honor | host config (init) | `ArgumentError` via `Config.reject_unsupported!/3` (below) |
-| Known key whose *value* needs an absent capability (e.g. `autoquality_method: :size` with no target) | host config (init) **or** per-request (URL) | `ArgumentError` for config; tagged `{:error, {:unsupported_*, ...}}` → 4xx via `handle_error` for URL |
+| Known key whose *value* needs an absent capability (e.g. `autoquality_method: :size` with no target) | host config (init) for config-only dialects; per-request (URL) where a URL can supply the value | `ArgumentError` at init via the eager `from_config/1` check (below); tagged `{:error, {:unsupported_*, ...}}` → 4xx for the URL path (imgproxy) |
+
+> **Where the `:size`-no-target check fires.** `Config.resolve!/2`'s `range_check!`
+> validates each key independently — it does **not** cross-check
+> `autoquality_method` against `autoquality_target`. For IIIF/TwicPics the metric
+> and target come *entirely* from config (no URL can supply a target), so the
+> misconfig is fully determined at mount time. To fail loudly at boot rather than
+> 400-ing every request, IIIF/TwicPics `validate_options!` **eagerly run
+> `Plan.Output.QualitySearch.from_config/1` on the resolved config and raise an
+> `ArgumentError` if it errors** (discarding the built struct — `apply_to_output`
+> rebuilds it per request; idempotent). imgproxy cannot do this (a URL may supply
+> the target), so its `:size`-no-target stays a per-request `{:error, _}` → 4xx.
 
 The neutral core must never name a dialect (`Config → [Plan]` boundary), so the
 *capability knowledge* lives in the adapter and is passed **into** Config; Config
@@ -187,10 +230,14 @@ owns only the mechanism and the message:
         :: keyword()
 ```
 
-It raises a uniform, dialect-named `ArgumentError` for any neutral key outside
-the declared `supported` set and returns the rest untouched. It never decides
-*what* is supported — the adapter declares that via a `@supported_neutral`
-attribute beside its `@dialect_keys`. This keeps the split symmetric: `Config.keys()`
+**Contract: raise-or-return-identical, never a subset.** It raises a uniform,
+dialect-named `ArgumentError` if any neutral key falls outside the declared
+`supported` set; otherwise it returns its input keyword **verbatim** (same keys,
+same order). It must never `Keyword.take`/filter — silently dropping a key would
+defeat the very "fail loudly, never silently ignore" invariant this seam exists
+for. `:all` is the identity case. It never decides *what* is supported — the
+adapter declares that via a `@supported_neutral` attribute beside its
+`@dialect_keys`. This keeps the split symmetric: `Config.keys()`
 (which neutral keys exist — core's business) vs. `@dialect_keys` /
 `@supported_neutral` (what *this* adapter accepts and honors — adapter's business).
 
@@ -209,8 +256,11 @@ first choice; the helper is the fallback for when a hole is unavoidable.
   `auto_rotate`); reject unknown keys; pass the neutral subset through
   `Config.reject_unsupported!(neutral, @supported_neutral, "IIIF")`
   (`@supported_neutral` is `:all` under this design); resolve via
-  `Config.resolve!/2` with an (empty) `iiif_overlay/0`; merge resolved-neutral
-  back into `opts[:iiif]`. Keep `validate_max_bounds!`.
+  `Config.resolve!/2` with an (empty) `iiif_overlay/0`; **eagerly run
+  `Plan.Output.QualitySearch.from_config/1` on the resolved config and raise an
+  `ArgumentError` if it errors** (surfaces an `autoquality_method: :size`-without-
+  target misconfig at boot, not on every request); merge resolved-neutral back
+  into `opts[:iiif]`. Keep `validate_max_bounds!`.
 - **`PlanBuilder.image_plan/3`**: source the top-level `Plan.auto_rotate` from the
   neutral `auto_rotate` (resolved into `opts`); build the base `Output` as today
   (`{:explicit, fmt}`), then run it through `Config.apply_to_output/2` with the
@@ -227,8 +277,10 @@ first choice; the helper is the fallback for when a hole is unavoidable.
   the neutral subset through
   `Config.reject_unsupported!(neutral, @supported_neutral, "TwicPics")`
   (`@supported_neutral` is `:all`); resolve via `Config.resolve!/2` with an
-  (empty) `twicpics_overlay/0`; store the resolved-neutral config back in
-  `opts[:twicpics]`.
+  (empty) `twicpics_overlay/0`; **eagerly run
+  `Plan.Output.QualitySearch.from_config/1` on the resolved config and raise an
+  `ArgumentError` if it errors** (same boot-time misconfig surfacing as IIIF);
+  store the resolved-neutral config back in `opts[:twicpics]`.
 - **`parse/2`**: read `opts[:twicpics]` (was `_opts`) and pass the resolved
   config into `PlanBuilder.to_plan/3`.
 - **`PlanBuilder.to_plan/3`**: source `Plan.auto_rotate` from neutral config
@@ -237,13 +289,20 @@ first choice; the helper is the fallback for when a hole is unavoidable.
   URL `quality` precedence is preserved because `apply_to_output` leaves
   `output.quality` alone.
 
-### 6. Boundaries, cache, ETag — no changes
+### 6. Boundaries (one new `Plan` export), cache, ETag — no dep or cache changes
 
-- **Boundaries**: both adapters already inherit `ImagePipe.Config` via the
-  `ImagePipe.Parser` ancestor boundary (imgproxy does the same — its own deps do
-  not list `Config`). The architecture test's per-adapter dep lists stay as-is.
-  `Config` keeps `deps: [Plan]`. The new `Plan.Output.QualitySearch` module is
-  within the `Plan` boundary.
+- **Boundary deps — no change**: both adapters already inherit `ImagePipe.Config`
+  via the `ImagePipe.Parser` ancestor boundary (imgproxy does the same — its own
+  deps do not list `Config`). The architecture test's per-adapter **dep** lists
+  stay as-is, and `Config` keeps `deps: [Plan]`. TwicPics needs no new `Format`
+  dep (format atoms flow as plain data).
+- **Boundary exports — one addition**: the new parent module
+  `ImagePipe.Plan.Output.QualitySearch` must be added to the `Plan` boundary
+  `exports` in `lib/image_pipe/plan.ex` (its four children are exported today; the
+  parent is not), and to the exact-match `assert_boundary_exports(plan, [...])`
+  assertion in `architecture_boundary_test.exs`. Without both, `Config` and the
+  imgproxy adapter calling it cross-boundary fails the `:boundary` checker / the
+  architecture test. (See §1b.)
 - **Cache key / ETag**: every threaded field already participates (it lives on
   `Plan.Output`, and `auto_rotate` on `Plan`). Populating them from config for
   IIIF/TwicPics flows into the key/ETag automatically — no cache code changes.
@@ -267,13 +326,19 @@ config set:
 These are intended (the point of host-tunable defaults) but are real
 pixel/byte-level changes for IIIF and TwicPics, so:
 
-**Conformance docs (per project rules).** Update `docs/twicpics_support_matrix.md`
-and `docs/iiif_3_support_matrix.md` in this change: note the new host-config
-surface (the neutral tunables now apply), the quality-default behavior
-(`default_quality`/`format_qualities` base under any URL quality), and any
-divergence the new defaults introduce vs the target. Axes touched: **surface**
-(config now honored) and **behavioral/pixel** (default quality). The
-imgproxy-compatibility reviewer confirms the imgproxy refactor (§1) is
+**Conformance docs (per project rules).** Update three matrices in this change:
+- `docs/twicpics_support_matrix.md` and `docs/iiif_3_support_matrix.md` — note the
+  new host-config surface (the neutral tunables now apply), the quality-default
+  behavior (`default_quality`/`format_qualities` base under any URL quality), and
+  any divergence the new defaults introduce vs the target. Axes: **surface**
+  (config now honored) and **behavioral/pixel** (default quality).
+- `docs/imgproxy_support_matrix.md` — the autoquality section names the deleted
+  `@default_butteraugli_target` constant (~line 666). The *value* (1.0) is
+  unchanged, but the constant no longer exists; reword to say the per-metric
+  fallbacks now live in `ImagePipe.Config`'s map defaults. Axis: **stage/internal
+  resolution** (no surface or pixel change for imgproxy).
+
+The imgproxy-compatibility reviewer confirms the imgproxy refactor (§1) is
 behavior-preserving against the upstream source; a TwicPics-parity check confirms
 the new quality defaults are acceptable for that target (TwicPics renders with
 libvips, so pixel comparison is meaningful).
@@ -286,10 +351,14 @@ libvips, so pixel comparison is meaningful).
   is `:all` everywhere); the seam for future per-dialect holes (see §3).
 - Invalid neutral config: `Config.resolve!/2` raises `ArgumentError` (init-time,
   as today).
-- `autoquality_method: :size` with no `:size` target: `from_config/1` returns
-  `{:error, _}`, surfaced from `apply_to_output/2` at plan-build time. (Config
-  validation cannot catch this — it's a cross-key constraint between the chosen
-  method and the target map.)
+- `autoquality_method: :size` with no `:size` target: `Config.resolve!/2`'s
+  `range_check!` cannot catch this (it validates keys independently, never
+  cross-checking method-vs-target). For **IIIF/TwicPics** the value is fully
+  config-determined (no URL can supply a target), so `validate_options!` eagerly
+  runs `from_config/1` and raises `ArgumentError` at **init** — failing at boot,
+  not 400-ing every request. For **imgproxy** a URL may supply the target, so it
+  stays a per-request `{:error, _}` → 4xx (`from_config`/`build` error
+  propagating through the parse path's `with`).
 
 ## Testing
 
@@ -303,17 +372,23 @@ Following the existing wire-level + unit discipline:
 - **`Config.apply_to_output/2` (new unit test)**: field mapping incl. the
   `keep_copyright`-forced-false rule, `format_quality` normalization, and that
   `output.quality` is left untouched.
-- **`Config.reject_unsupported!/3` (new unit test)**: `:all` passes everything
-  through; a declared subset raises a dialect-named `ArgumentError` for an
-  out-of-subset key and returns the rest. (A focused example test, not a
-  per-dialect pin — every dialect declares `:all` today.)
+- **`Config.reject_unsupported!/3` (new unit test)**: a Config-level *mechanism*
+  test (not a per-dialect pin — every dialect declares `:all`): `:all` returns the
+  input **identically** (assert `==` on keys and order, guarding the
+  never-a-subset contract); a declared subset raises a dialect-named
+  `ArgumentError` for an out-of-subset key.
+- **Init-time misconfig (IIIF & TwicPics)**: `autoquality_method: :size` with no
+  `:size` target raises `ArgumentError` from `validate_options!` (boots loudly,
+  does not 400 per request).
 - **IIIF wire tests**: a host-config `quality`/`format_quality` visibly changes
   decoded output (decode the response body, compare against the prior default);
   `auto_rotate` sourced from neutral; a configured `autoquality_method`
   round-trips; info.json unaffected.
 - **TwicPics wire tests**: URL `quality` still wins over config; config
   `default_quality`/`format_quality` apply when URL omits quality; a configured
-  neutral tunable (e.g. `strip_metadata: false`) is honored.
+  neutral tunable is honored — incl. `strip_metadata: false` forcing
+  `keep_copyright: false` (the one case the new rule diverges from the old struct
+  default).
 - **Cache**: a semantically equivalent IIIF/TwicPics request reuses the cache;
   changing a threaded config field changes the key (covered by the existing
   key-data tests once the fields are populated — no new key fields).
@@ -342,16 +417,21 @@ Following the existing wire-level + unit discipline:
   `reject_unsupported!/3`; moduledoc note.
 - `lib/image_pipe/plan/output/quality_search.ex` *(new)* — `build/3` +
   `from_config/1` (moved from imgproxy `Options.ex`).
+- `lib/image_pipe/plan.ex` — add `Output.QualitySearch` to the `Plan` boundary
+  `exports`.
 
 **imgproxy (behavior-preserving)**
 - `lib/image_pipe/parser/imgproxy/options.ex` — delete the private fallback
   constants + `default_target`/`default_allowed_error`; call
-  `Plan.Output.QualitySearch.build/3` from `resolve_quality_search_defaults`.
+  `Plan.Output.QualitySearch.build/3` from `resolve_quality_search_defaults`;
+  remove the now-dead `|| default_allowed_error(...)` arm and any unreachable
+  `nil ->` fallback (clean removal).
 
 **IIIF**
 - `lib/image_pipe/parser/iiif.ex` — neutral/dialect split in
   `validate_options!`; `@supported_neutral :all` + `reject_unsupported!/3` call;
-  drop `auto_rotate` from the dialect schema; add `iiif_overlay/0`.
+  eager `from_config/1` boot check; drop `auto_rotate` from the dialect schema;
+  add `iiif_overlay/0`.
 - `lib/image_pipe/parser/iiif/plan_builder.ex` — `image_plan` sources
   `auto_rotate` from neutral and runs the base `Output` through
   `Config.apply_to_output/2`.
@@ -359,13 +439,21 @@ Following the existing wire-level + unit discipline:
 **TwicPics**
 - `lib/image_pipe/parser/twic_pics.ex` — neutral/dialect split in
   `validate_options!`; `@supported_neutral :all` + `reject_unsupported!/3` call;
-  pass resolved config through `parse/2`; add `twicpics_overlay/0`.
+  eager `from_config/1` boot check; pass resolved config through `parse/2`; add
+  `twicpics_overlay/0`.
 - `lib/image_pipe/parser/twic_pics/plan_builder.ex` — `to_plan/3` sources
   `auto_rotate` from neutral and runs the base `Output` through
   `Config.apply_to_output/2`.
 
+**Tests / architecture**
+- `test/image_pipe/architecture_boundary_test.exs` — add
+  `ImagePipe.Plan.Output.QualitySearch` to the exact-match
+  `assert_boundary_exports(plan, [...])` list.
+
 **Docs**
 - `docs/twicpics_support_matrix.md`, `docs/iiif_3_support_matrix.md` — surface +
   behavioral updates.
+- `docs/imgproxy_support_matrix.md` — reword the autoquality fallback note that
+  names the deleted `@default_butteraugli_target` constant (value unchanged).
 
 **Tests** — as enumerated above.
