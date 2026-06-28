@@ -151,6 +151,24 @@ defmodule ImagePipe.ConfigTest do
     end
   end
 
+  describe "reject_unsupported!/3" do
+    test ":all returns the input keyword verbatim (same keys and order)" do
+      input = [quality: 80, strip_metadata: true]
+      assert Config.reject_unsupported!(input, :all, "IIIF") == input
+    end
+
+    test "a declared subset returns input unchanged when all keys are inside it" do
+      input = [quality: 80]
+      assert Config.reject_unsupported!(input, [:quality, :strip_metadata], "X") == input
+    end
+
+    test "raises a dialect-named ArgumentError for an out-of-subset key" do
+      assert_raise ArgumentError, ~r/Demo parser does not support config.*autoquality_method/, fn ->
+        Config.reject_unsupported!([autoquality_method: :ssimulacra2], [:quality], "Demo")
+      end
+    end
+  end
+
   property "scalar defaults survive when host omits them" do
     check all q <- integer(1..100) do
       resolved = Config.resolve!(quality: q)

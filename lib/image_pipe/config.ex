@@ -133,6 +133,27 @@ defmodule ImagePipe.Config do
     end
   end
 
+  @doc """
+  Reject host config keys a dialect declares unsupported. The adapter passes the
+  neutral subset it honors (`:all` for full support); any key outside it raises a
+  uniform, dialect-named `ArgumentError`. Otherwise returns the input keyword
+  **verbatim** — it never filters, so a key is never silently dropped.
+  """
+  @spec reject_unsupported!(keyword(), [atom()] | :all, String.t()) :: keyword()
+  def reject_unsupported!(neutral, :all, _dialect) when is_list(neutral), do: neutral
+
+  def reject_unsupported!(neutral, supported, dialect)
+      when is_list(neutral) and is_list(supported) and is_binary(dialect) do
+    case Keyword.keys(neutral) -- supported do
+      [] ->
+        neutral
+
+      unsupported ->
+        raise ArgumentError,
+              "the #{dialect} parser does not support config: #{inspect(unsupported)}"
+    end
+  end
+
   # Config carries bare per-format ints; Plan.Output wants the {:quality, n} shape.
   defp normalize_format_qualities(map), do: Map.new(map, fn {fmt, q} -> {fmt, {:quality, q}} end)
 
