@@ -46,6 +46,11 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span, %Span{name: "image_pipe.request", status: :error}}
   end
 
+  test "maps the :options (OPTIONS) result to :ok status, not :error" do
+    Telemetry.span([], [:request], %{}, fn -> {:ok, %{result: :options, status: 204}} end)
+    assert_receive {:span, %Span{name: "image_pipe.request", status: :ok}}
+  end
+
   test "captures an exception as :error with a folded exception event" do
     assert_raise RuntimeError, fn ->
       Telemetry.span([], [:request], %{}, fn -> raise "boom" end)
