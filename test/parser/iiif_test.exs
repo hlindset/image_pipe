@@ -87,6 +87,40 @@ defmodule ImagePipe.Parser.IIIFTest do
       end
     end
   end
+
+  describe "neutral config" do
+    test "accepts and resolves a neutral quality key" do
+      iiif = Keyword.fetch!(IIIF.validate_options!(opts_with(quality: 90)), :iiif)
+      assert Keyword.fetch!(iiif, :quality) == 90
+      assert Keyword.fetch!(iiif, :tile_size) == 512
+    end
+
+    test "auto_rotate is now a neutral key (honored, default true)" do
+      iiif = Keyword.fetch!(IIIF.validate_options!(@opts), :iiif)
+      assert Keyword.fetch!(iiif, :auto_rotate) == true
+
+      iiif2 = Keyword.fetch!(IIIF.validate_options!(opts_with(auto_rotate: false)), :iiif)
+      assert Keyword.fetch!(iiif2, :auto_rotate) == false
+    end
+
+    test "rejects an unknown dialect key" do
+      assert_raise ArgumentError, ~r/unknown keys/, fn ->
+        IIIF.validate_options!(opts_with(bogus: 1))
+      end
+    end
+
+    test "raises at init for autoquality :size with no target" do
+      assert_raise ArgumentError, ~r/autoquality/, fn ->
+        IIIF.validate_options!(opts_with(autoquality_method: :size))
+      end
+    end
+
+    test "raises on a non-keyword :iiif value" do
+      assert_raise ArgumentError, ~r/expected a keyword list/, fn ->
+        IIIF.validate_options!(iiif: :nope)
+      end
+    end
+  end
 end
 
 defmodule ImagePipe.Parser.IIIF.CORSTest do

@@ -1359,7 +1359,13 @@ defmodule ImagePipe.Cache.KeyTest do
     alias ImagePipe.Parser.TwicPics.PlanBuilder
 
     defp twic_plan!(chain) do
-      {:ok, plan} = PlanBuilder.to_plan(%Source.Path{segments: ["images", "cat.jpg"]}, chain)
+      {:ok, plan} =
+        PlanBuilder.to_plan(
+          %Source.Path{segments: ["images", "cat.jpg"]},
+          chain,
+          ImagePipe.Config.resolve!([])
+        )
+
       plan
     end
 

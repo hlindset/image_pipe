@@ -9,6 +9,7 @@ defmodule ImagePipe.Plan do
     exports: [
       Pipeline,
       Output,
+      Output.QualitySearch,
       Output.QualitySearch.Metric,
       Output.QualitySearch.Size,
       Output.QualitySearch.Ssimulacra2,

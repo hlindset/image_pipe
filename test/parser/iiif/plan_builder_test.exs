@@ -8,7 +8,11 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
 
   @source %SourcePath{segments: ["images", "beach.jpg"]}
 
-  defp build(tokens), do: PlanBuilder.image_plan(@source, tokens, auto_rotate: true)
+  # image_plan now stamps the resolved neutral config onto the Output, so direct
+  # callers must pass a resolved config; merge any per-test extras over the defaults.
+  defp opts(extra), do: Keyword.merge(ImagePipe.Config.resolve!([]), extra)
+
+  defp build(tokens), do: PlanBuilder.image_plan(@source, tokens, opts(auto_rotate: true))
 
   test "region+size+rotation+gray emit ops in IIIF order" do
     {:ok, %Plan{pipelines: [%{operations: ops}], output: out}} =
@@ -192,7 +196,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
           quality: :default,
           format: :jpg
         },
-        auto_rotate: true
+        opts(auto_rotate: true)
       )
 
     {:ok, %Plan{auto_rotate: false}} =
@@ -205,7 +209,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
           quality: :default,
           format: :jpg
         },
-        auto_rotate: false
+        opts(auto_rotate: false)
       )
   end
 
@@ -273,7 +277,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
             quality: :default,
             format: :jpg
           },
-          max_width: 2000
+          opts(max_width: 2000)
         )
 
       assert resize.max_width == 2000
@@ -292,8 +296,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
             quality: :default,
             format: :jpg
           },
-          max_width: 2000,
-          max_area: 3_000_000
+          opts(max_width: 2000, max_area: 3_000_000)
         )
 
       assert resize.max_width == 2000
@@ -324,7 +327,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
               quality: :default,
               format: :jpg
             },
-            max_width: 2000
+            opts(max_width: 2000)
           )
 
         assert resize.max_width == 2000
@@ -344,7 +347,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
             quality: :default,
             format: :jpg
           },
-          auto_rotate: true
+          opts(auto_rotate: true)
         )
 
       assert resize.max_width == nil

@@ -17,25 +17,66 @@ defmodule ImagePipe.Parser.IIIF do
   alias ImagePipe.Parser.IIIF.Grammar
   alias ImagePipe.Parser.IIIF.Path
   alias ImagePipe.Parser.IIIF.PlanBuilder
+  alias ImagePipe.Plan.Output.QualitySearch
 
-  @schema NimbleOptions.new!(
-            resolver: [type: {:custom, __MODULE__, :validate_resolver, []}, required: true],
-            auto_rotate: [type: :boolean, default: true],
-            formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
-            qualities: [type: {:list, :atom}, default: [:default, :color, :gray, :bitonal]],
-            tile_size: [type: :pos_integer, default: 512],
-            max_width: [type: :pos_integer],
-            max_height: [type: :pos_integer],
-            max_area: [type: :pos_integer]
-          )
+  @dialect_schema NimbleOptions.new!(
+                    resolver: [
+                      type: {:custom, __MODULE__, :validate_resolver, []},
+                      required: true
+                    ],
+                    formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
+                    qualities: [
+                      type: {:list, :atom},
+                      default: [:default, :color, :gray, :bitonal]
+                    ],
+                    tile_size: [type: :pos_integer, default: 512],
+                    max_width: [type: :pos_integer],
+                    max_height: [type: :pos_integer],
+                    max_area: [type: :pos_integer]
+                  )
+
+  @dialect_keys [:resolver, :formats, :qualities, :tile_size, :max_width, :max_height, :max_area]
+
+  # The full neutral surface is honored; the reject seam is a no-op today.
+  @supported_neutral :all
 
   @impl true
   def validate_options!(opts) do
     iiif = Keyword.get(opts, :iiif, [])
-    validated = NimbleOptions.validate!(iiif, @schema)
-    validate_max_bounds!(validated)
-    Keyword.put(opts, :iiif, validated)
+
+    unless Keyword.keyword?(iiif) do
+      raise ArgumentError, "iiif: expected a keyword list"
+    end
+
+    {neutral, rest} = Keyword.split(iiif, ImagePipe.Config.keys())
+    {dialect, unknown} = Keyword.split(rest, @dialect_keys)
+
+    unless unknown == [] do
+      raise ArgumentError, "iiif: unknown keys #{inspect(Keyword.keys(unknown))}"
+    end
+
+    dialect = NimbleOptions.validate!(dialect, @dialect_schema)
+    validate_max_bounds!(dialect)
+
+    neutral =
+      neutral
+      |> ImagePipe.Config.reject_unsupported!(@supported_neutral, "IIIF")
+      |> ImagePipe.Config.resolve!(iiif_overlay())
+
+    # Config-only dialect: the autoquality search is fully determined here, so
+    # surface a bad method/target combination at boot rather than per request.
+    case QualitySearch.from_config(neutral) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        raise ArgumentError, "iiif: invalid autoquality config: #{inspect(reason)}"
+    end
+
+    Keyword.put(opts, :iiif, Keyword.merge(neutral, dialect))
   end
+
+  defp iiif_overlay, do: []
 
   # IIIF Image API 3.0 §5.1: maxWidth must be specified if maxHeight is specified.
   defp validate_max_bounds!(iiif) do

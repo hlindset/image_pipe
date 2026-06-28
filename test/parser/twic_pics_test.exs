@@ -10,12 +10,15 @@ defmodule ImagePipe.Parser.TwicPicsTest do
   test "parse/2 returns a Plan for a valid twic request" do
     conn = conn(:get, "/images/beach.jpg?twic=v1/resize=100/output=avif")
 
-    assert {:ok, %Plan{output: %Plan.Output{mode: {:explicit, :avif}}}} = TwicPics.parse(conn, [])
+    assert {:ok, %Plan{output: %Plan.Output{mode: {:explicit, :avif}}}} =
+             TwicPics.parse(conn, TwicPics.validate_options!([]))
   end
 
   test "parse/2 returns an error for an unsupported transform" do
     conn = conn(:get, "/images/beach.jpg?twic=v1/zoom=2")
-    assert {:error, {:unsupported_transform, "zoom"}} = TwicPics.parse(conn, [])
+
+    assert {:error, {:unsupported_transform, "zoom"}} =
+             TwicPics.parse(conn, TwicPics.validate_options!([]))
   end
 
   test "handle_error/2 sends a 400 text response" do
@@ -26,14 +29,34 @@ defmodule ImagePipe.Parser.TwicPicsTest do
     assert get_resp_header(result, "content-type") == ["text/plain; charset=utf-8"]
   end
 
-  test "validate_options!/1 normalizes the :twicpics sub-options into the opts" do
-    assert TwicPics.validate_options!([]) == [twicpics: []]
-    assert TwicPics.validate_options!(parser: TwicPics)[:twicpics] == []
+  test "validate_options!/1 resolves the :twicpics neutral config into the opts" do
+    opts = TwicPics.validate_options!([])
+    assert Keyword.fetch!(opts[:twicpics], :quality) == 80
+    assert Keyword.fetch!(opts[:twicpics], :strip_metadata) == true
   end
 
   test "validate_options!/1 raises on a non-list :twicpics value" do
     assert_raise ArgumentError, ~r/invalid twicpics options/, fn ->
       TwicPics.validate_options!(twicpics: :nope)
+    end
+  end
+
+  describe "neutral config" do
+    test "accepts and resolves a neutral quality key" do
+      opts = TwicPics.validate_options!(twicpics: [quality: 90])
+      assert Keyword.fetch!(opts[:twicpics], :quality) == 90
+    end
+
+    test "rejects an unknown key" do
+      assert_raise ArgumentError, ~r/unknown keys/, fn ->
+        TwicPics.validate_options!(twicpics: [bogus: 1])
+      end
+    end
+
+    test "raises at init for autoquality :size with no target" do
+      assert_raise ArgumentError, ~r/autoquality|invalid twicpics/, fn ->
+        TwicPics.validate_options!(twicpics: [autoquality_method: :size])
+      end
     end
   end
 end

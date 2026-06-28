@@ -8,7 +8,9 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
 
-  defp build(chain), do: PlanBuilder.to_plan(%Source.Path{segments: ["x.jpg"]}, chain)
+  defp build(chain),
+    do:
+      PlanBuilder.to_plan(%Source.Path{segments: ["x.jpg"]}, chain, ImagePipe.Config.resolve!([]))
 
   test "resize single dim -> fit auto; WxH -> stretch" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [r1]}]}} = build([{"resize", "100"}])
