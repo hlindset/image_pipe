@@ -16,7 +16,6 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Parser.IIIF.CORS
   alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -61,8 +60,7 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
   defp call_iiif(path) do
     initialized = ImagePipe.Plug.init(opts())
     conn = :get |> conn(path) |> Map.put(:script_name, ["iiif"])
-    cors = CORS.call(conn, CORS.init([]))
-    if cors.halted, do: cors, else: ImagePipe.Plug.call(cors, initialized)
+    ImagePipe.Plug.call(conn, initialized)
   end
 
   # --- OSD getTileUrl replica (per iiiftilesource.js, v3) ----------------------
