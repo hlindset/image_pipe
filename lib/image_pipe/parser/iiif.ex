@@ -43,6 +43,11 @@ defmodule ImagePipe.Parser.IIIF do
   @impl true
   def validate_options!(opts) do
     iiif = Keyword.get(opts, :iiif, [])
+
+    unless Keyword.keyword?(iiif) do
+      raise ArgumentError, "iiif: expected a keyword list"
+    end
+
     {neutral, rest} = Keyword.split(iiif, ImagePipe.Config.keys())
     {dialect, unknown} = Keyword.split(rest, @dialect_keys)
 

@@ -114,6 +114,12 @@ defmodule ImagePipe.Parser.IIIFTest do
         IIIF.validate_options!(opts_with(autoquality_method: :size))
       end
     end
+
+    test "raises on a non-keyword :iiif value" do
+      assert_raise ArgumentError, ~r/expected a keyword list/, fn ->
+        IIIF.validate_options!(iiif: :nope)
+      end
+    end
   end
 end
 

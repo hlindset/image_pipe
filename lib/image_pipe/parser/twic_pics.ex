@@ -24,7 +24,7 @@ defmodule ImagePipe.Parser.TwicPics do
   def validate_options!(opts) when is_list(opts) do
     twicpics = Keyword.get(opts, :twicpics, [])
 
-    unless is_list(twicpics) do
+    unless Keyword.keyword?(twicpics) do
       raise ArgumentError, "invalid twicpics options: expected a keyword list"
     end
 

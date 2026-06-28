@@ -69,6 +69,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   # across qualities).
   defmodule HighFreqOrigin do
     @moduledoc false
+    @external_resource "test/support/image_pipe/test/imgproxy_differential/sources/high_freq.jpg"
     @body File.read!("test/support/image_pipe/test/imgproxy_differential/sources/high_freq.jpg")
 
     def init(opts), do: opts
