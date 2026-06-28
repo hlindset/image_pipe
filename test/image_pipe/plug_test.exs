@@ -1194,7 +1194,7 @@ defmodule ImagePipe.PlugTest do
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
              ],
-             jxl_effort: nil
+             encoder_options: %{}
            ]
 
     refute inspect(key_a.data) =~ "image/webp"
@@ -1521,7 +1521,7 @@ defmodule ImagePipe.PlugTest do
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
       ],
-      jxl_effort: nil
+      encoder_options: %{}
     )
 
     refute_received :origin_was_called
@@ -1563,7 +1563,7 @@ defmodule ImagePipe.PlugTest do
             blue: 255,
             alpha: [unit: :ratio, numerator: 1, denominator: 1]
           ],
-          jxl_effort: nil
+          encoder_options: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1603,7 +1603,7 @@ defmodule ImagePipe.PlugTest do
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
       ],
-      jxl_effort: nil
+      encoder_options: %{}
     )
 
     refute_received :origin_was_called
@@ -1645,7 +1645,7 @@ defmodule ImagePipe.PlugTest do
             blue: 255,
             alpha: [unit: :ratio, numerator: 1, denominator: 1]
           ],
-          jxl_effort: nil
+          encoder_options: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1688,7 +1688,7 @@ defmodule ImagePipe.PlugTest do
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
       ],
-      jxl_effort: nil
+      encoder_options: %{}
     )
 
     refute_received :origin_was_called
@@ -1730,7 +1730,7 @@ defmodule ImagePipe.PlugTest do
             blue: 255,
             alpha: [unit: :ratio, numerator: 1, denominator: 1]
           ],
-          jxl_effort: nil
+          encoder_options: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1773,7 +1773,7 @@ defmodule ImagePipe.PlugTest do
         blue: 255,
         alpha: [unit: :ratio, numerator: 1, denominator: 1]
       ],
-      jxl_effort: nil
+      encoder_options: %{}
     )
 
     refute_received :origin_was_called

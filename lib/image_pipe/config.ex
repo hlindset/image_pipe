@@ -15,6 +15,7 @@ defmodule ImagePipe.Config do
   use Boundary, top_level?: true, deps: [ImagePipe.Plan], exports: []
 
   alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Output.QualitySearch.Metric
 
@@ -36,7 +37,11 @@ defmodule ImagePipe.Config do
     autoquality_format_max_quality: [type: {:map, :atom, :pos_integer}],
     autoquality_max_resolution: [type: :non_neg_integer],
     autoquality_max_iterations: [type: :pos_integer],
-    jxl_effort: [type: {:in, 1..9}]
+    jpeg_options: [type: {:struct, JpegOptions}],
+    png_options: [type: {:struct, PngOptions}],
+    webp_options: [type: {:struct, WebpOptions}],
+    avif_options: [type: {:struct, AvifOptions}],
+    jxl_options: [type: {:struct, JxlOptions}]
   ]
 
   @schema NimbleOptions.new!(@neutral_schema_kw)
@@ -63,15 +68,27 @@ defmodule ImagePipe.Config do
     autoquality_target: %{ssimulacra2: 78, butteraugli: 1.0},
     autoquality_allowed_error: %{ssimulacra2: 1.0, butteraugli: 0.1},
     autoquality_format_min_quality: %{avif: 60, jpeg_xl: 45},
-    autoquality_format_max_quality: %{avif: 65, jpeg_xl: 80}
+    autoquality_format_max_quality: %{avif: 65, jpeg_xl: 80},
+    # Encoder options default to UNSET structs (all-nil): ImagePipe tracks libvips
+    # defaults (emit nothing), never imgproxy's documented per-flag defaults.
+    jpeg_options: %JpegOptions{},
+    png_options: %PngOptions{},
+    webp_options: %WebpOptions{},
+    avif_options: %AvifOptions{},
+    jxl_options: %JxlOptions{}
   ]
 
-  # jxl_effort is NOT applied by resolve! (Output resolves it from default/1); 7 is
-  # libvips jxlsave's own default, so seeding 7 is byte-neutral vs emitting no effort.
-  @default_jxl_effort 7
-
-  @all_defaults @scalar_defaults ++ @map_defaults ++ [jxl_effort: @default_jxl_effort]
+  @all_defaults @scalar_defaults ++ @map_defaults
   @map_keys Keyword.keys(@map_defaults)
+
+  # Output `format()` ↔ neutral config key for the per-format encoder options.
+  @encoder_option_config %{
+    jpeg: :jpeg_options,
+    png: :png_options,
+    webp: :webp_options,
+    avif: :avif_options,
+    jpeg_xl: :jxl_options
+  }
 
   @doc "The neutral schema (types only)."
   @spec schema() :: NimbleOptions.t()
@@ -128,10 +145,24 @@ defmodule ImagePipe.Config do
            keep_copyright: strip and keep,
            color_profile: color_profile_policy(Keyword.fetch!(resolved, :strip_color_profile)),
            hdr: hdr_policy(Keyword.fetch!(resolved, :preserve_hdr)),
-           jxl_effort: Keyword.get(resolved, :jxl_effort),
+           encoder_options: encoder_options_from_config(resolved),
            quality_search: quality_search
        }}
     end
+  end
+
+  @doc """
+  Build the `Plan.Output.encoder_options` map (`%{format => struct}`) from resolved
+  neutral config, pruning all-`nil` structs so an unused feature yields `%{}`. Also
+  used by the imgproxy parser to seed config defaults before overlaying URL tokens.
+  """
+  @spec encoder_options_from_config(keyword()) :: %{optional(atom()) => struct()}
+  def encoder_options_from_config(resolved) do
+    for {format, key} <- @encoder_option_config,
+        struct = Keyword.fetch!(resolved, key),
+        not struct.__struct__.all_nil?(struct),
+        into: %{},
+        do: {format, struct}
   end
 
   @doc """
@@ -180,12 +211,17 @@ defmodule ImagePipe.Config do
   defp layer(base, override) do
     Enum.reduce(override, base, fn {key, value}, acc ->
       if key in @map_keys do
-        Keyword.update(acc, key, value, &Map.merge(&1, value))
+        Keyword.update(acc, key, value, &merge_map_value(&1, value))
       else
         Keyword.put(acc, key, value)
       end
     end)
   end
+
+  # Encoder-option structs layer per-field via their own merge/2; the plain map
+  # config keys (format_quality, autoquality_*) keep the Map.merge behavior.
+  defp merge_map_value(%mod{} = base, %mod{} = over), do: mod.merge(base, over)
+  defp merge_map_value(base, over) when is_map(base) and is_map(over), do: Map.merge(base, over)
 
   @quality_value_keys [:quality, :autoquality_min_quality, :autoquality_max_quality]
   @quality_map_keys [
@@ -200,7 +236,47 @@ defmodule ImagePipe.Config do
     validate_target!(Keyword.fetch!(resolved, :autoquality_target))
     validate_allowed_error!(Keyword.fetch!(resolved, :autoquality_allowed_error))
     validate_brackets!(resolved)
+    validate_encoder_options!(resolved)
     :ok
+  end
+
+  defp validate_encoder_options!(resolved) do
+    j = Keyword.fetch!(resolved, :jpeg_options)
+    enum!(:jpeg_options, :subsample_mode, j.subsample_mode, [:auto, :on, :off])
+    int_range!(:jpeg_options, :quant_table, j.quant_table, 0..8)
+
+    p = Keyword.fetch!(resolved, :png_options)
+    enum!(:png_options, :bitdepth, p.bitdepth, [1, 2, 4, 8, 16])
+    enum!(:png_options, :filter, p.filter, [:none, :sub, :up, :avg, :paeth, :all])
+
+    w = Keyword.fetch!(resolved, :webp_options)
+    enum!(:webp_options, :preset, w.preset, [:default, :photo, :picture, :drawing, :icon, :text])
+    int_range!(:webp_options, :effort, w.effort, 0..6)
+
+    a = Keyword.fetch!(resolved, :avif_options)
+    enum!(:avif_options, :subsample_mode, a.subsample_mode, [:auto, :on, :off])
+    int_range!(:avif_options, :effort, a.effort, 0..9)
+
+    int_range!(:jxl_options, :effort, Keyword.fetch!(resolved, :jxl_options).effort, 1..9)
+    :ok
+  end
+
+  defp int_range!(_key, _field, nil, _range), do: :ok
+
+  defp int_range!(key, field, value, lo..hi//_) do
+    unless is_integer(value) and value >= lo and value <= hi do
+      raise ArgumentError,
+            "invalid config: #{key} #{field} (#{inspect(value)}) must be in #{lo}..#{hi}"
+    end
+  end
+
+  defp enum!(_key, _field, nil, _allowed), do: :ok
+
+  defp enum!(key, field, value, allowed) do
+    unless value in allowed do
+      raise ArgumentError,
+            "invalid config: #{key} #{field} (#{inspect(value)}) must be one of #{inspect(allowed)}"
+    end
   end
 
   defp validate_quality_value!(key, value) do

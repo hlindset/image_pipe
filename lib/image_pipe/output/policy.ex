@@ -28,7 +28,7 @@ defmodule ImagePipe.Output.Policy do
                 quality_search: :none,
                 max_bytes: nil,
                 quality_search_offsets: Output.default_quality_search_offsets(),
-                jxl_effort: nil
+                encoder_options: %{}
               ]
 
   @passthrough_source_formats [:jpeg, :png]
@@ -61,7 +61,7 @@ defmodule ImagePipe.Output.Policy do
             | Output.QualitySearch.Butteraugli.t(),
           max_bytes: nil | pos_integer(),
           quality_search_offsets: Output.quality_search_offsets(),
-          jxl_effort: nil | 1..9
+          encoder_options: %{optional(format()) => struct()}
         }
 
   @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
@@ -80,7 +80,7 @@ defmodule ImagePipe.Output.Policy do
       quality_search: output.quality_search,
       max_bytes: output.max_bytes,
       quality_search_offsets: output.quality_search_offsets,
-      jxl_effort: output.jxl_effort || ImagePipe.Config.default(:jxl_effort)
+      encoder_options: output.encoder_options
     }
   end
 
@@ -99,7 +99,7 @@ defmodule ImagePipe.Output.Policy do
       quality_search: output.quality_search,
       max_bytes: output.max_bytes,
       quality_search_offsets: output.quality_search_offsets,
-      jxl_effort: output.jxl_effort || ImagePipe.Config.default(:jxl_effort)
+      encoder_options: output.encoder_options
     }
   end
 
@@ -194,7 +194,7 @@ defmodule ImagePipe.Output.Policy do
       flatten_background: policy.flatten_background,
       quality_search: resolve_search(policy, format),
       max_bytes: policy.max_bytes,
-      jxl_effort: policy.jxl_effort
+      encoder_options: Map.get(policy.encoder_options, format)
     }
   end
 

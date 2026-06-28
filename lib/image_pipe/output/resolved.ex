@@ -16,7 +16,7 @@ defmodule ImagePipe.Output.Resolved do
                 flatten_background: Color.white(),
                 quality_search: :none,
                 max_bytes: nil,
-                jxl_effort: nil
+                encoder_options: nil
               ]
 
   @type format :: ImagePipe.Format.output_format()
@@ -36,6 +36,12 @@ defmodule ImagePipe.Output.Resolved do
             | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t()
             | ImagePipe.Output.ResolvedQualitySearch.NativeJxlButteraugli.t(),
           max_bytes: nil | pos_integer(),
-          jxl_effort: nil | 1..9
+          encoder_options:
+            nil
+            | ImagePipe.Plan.Output.JpegOptions.t()
+            | ImagePipe.Plan.Output.PngOptions.t()
+            | ImagePipe.Plan.Output.WebpOptions.t()
+            | ImagePipe.Plan.Output.AvifOptions.t()
+            | ImagePipe.Plan.Output.JxlOptions.t()
         }
 end

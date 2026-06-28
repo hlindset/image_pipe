@@ -235,7 +235,7 @@ defmodule ImagePipe.Cache.KeyTest do
                  blue: 255,
                  alpha: [unit: :ratio, numerator: 1, denominator: 1]
                ],
-               jxl_effort: nil
+               encoder_options: %{}
              ],
              auto_rotate: false,
              representation: [version: 1],
@@ -1011,7 +1011,7 @@ defmodule ImagePipe.Cache.KeyTest do
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
              ],
-             jxl_effort: nil
+             encoder_options: %{}
            ]
 
     refute inspect(key_one.data) =~ "image/webp"
@@ -1055,7 +1055,7 @@ defmodule ImagePipe.Cache.KeyTest do
                  blue: 255,
                  alpha: [unit: :ratio, numerator: 1, denominator: 1]
                ],
-               jxl_effort: nil
+               encoder_options: %{}
              ]
 
       refute inspect(key.data) =~ "*/*"
@@ -1115,7 +1115,7 @@ defmodule ImagePipe.Cache.KeyTest do
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
              ],
-             jxl_effort: nil
+             encoder_options: %{}
            ]
   end
 
@@ -1174,24 +1174,50 @@ defmodule ImagePipe.Cache.KeyTest do
     end
   end
 
-  test "different jxl_effort changes the cache key" do
+  test "different encoder options change the cache key (and do not crash)" do
     conn = conn(:get, "/_/f:jxl/plain/images/cat.jpg")
 
     key_a =
       build_key!(
         conn,
-        plan(output: %Output{mode: {:explicit, :jpeg_xl}, jxl_effort: 7}),
+        plan(
+          output: %Output{
+            mode: {:explicit, :jpeg_xl},
+            encoder_options: %{jpeg_xl: %ImagePipe.Plan.Output.JxlOptions{effort: 7}}
+          }
+        ),
         source_identity()
       )
 
     key_b =
       build_key!(
         conn,
-        plan(output: %Output{mode: {:explicit, :jpeg_xl}, jxl_effort: 4}),
+        plan(
+          output: %Output{
+            mode: {:explicit, :jpeg_xl},
+            encoder_options: %{jpeg_xl: %ImagePipe.Plan.Output.JxlOptions{effort: 4}}
+          }
+        ),
         source_identity()
       )
 
-    refute key_a.hash == key_b.hash, "expected differing jxl_effort to change the cache key"
+    refute key_a.hash == key_b.hash, "expected differing encoder options to change the cache key"
+  end
+
+  test "identical encoder options yield identical keys" do
+    conn = conn(:get, "/_/f:jpg/plain/images/cat.jpg")
+
+    opts = %{jpeg: %ImagePipe.Plan.Output.JpegOptions{interlace: true}}
+
+    key_a =
+      build_key!(conn, plan(output: %Output{mode: {:explicit, :jpeg}, encoder_options: opts}),
+        source_identity())
+
+    key_b =
+      build_key!(conn, plan(output: %Output{mode: {:explicit, :jpeg}, encoder_options: opts}),
+        source_identity())
+
+    assert key_a.hash == key_b.hash
   end
 
   test "different output metadata flags change cache key" do
@@ -1252,7 +1278,7 @@ defmodule ImagePipe.Cache.KeyTest do
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
              ],
-             jxl_effort: nil
+             encoder_options: %{}
            ]
 
     refute inspect(key.data) =~ "image/jpeg"

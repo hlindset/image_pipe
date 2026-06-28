@@ -129,7 +129,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
        keep_copyright: request.keep_copyright,
        color_profile: color_profile_policy(request.color_profile, request.strip_color_profile),
        hdr: hdr_policy(request.preserve_hdr),
-       jxl_effort: request.jxl_effort
+       encoder_options: request.encoder_options
      }}
   end
 
@@ -152,7 +152,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
            color_profile:
              color_profile_policy(request.color_profile, request.strip_color_profile),
            hdr: hdr_policy(request.preserve_hdr),
-           jxl_effort: request.jxl_effort
+           encoder_options: request.encoder_options
          }}
 
       false ->

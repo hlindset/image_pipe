@@ -101,7 +101,7 @@ defmodule ImagePipe.Cache.Key do
        keep_copyright: output.keep_copyright,
        hdr: output.hdr,
        flatten_background: Color.key_data(output.flatten_background),
-       jxl_effort: output.jxl_effort
+       encoder_options: encoder_options_key(output.encoder_options)
      ]}
   end
 
@@ -119,7 +119,7 @@ defmodule ImagePipe.Cache.Key do
        keep_copyright: output.keep_copyright,
        hdr: output.hdr,
        flatten_background: Color.key_data(output.flatten_background),
-       jxl_effort: output.jxl_effort
+       encoder_options: encoder_options_key(output.encoder_options)
      ]}
   end
 
@@ -144,7 +144,7 @@ defmodule ImagePipe.Cache.Key do
        keep_copyright: output.keep_copyright,
        hdr: output.hdr,
        flatten_background: Color.key_data(output.flatten_background),
-       jxl_effort: output.jxl_effort
+       encoder_options: encoder_options_key(output.encoder_options)
      ]}
   end
 
@@ -158,6 +158,11 @@ defmodule ImagePipe.Cache.Key do
   # like the per-format clamps — it is stored identity and enters both the key and the
   # ETag; omitting it would let a config change serve a stale 304. Per-format clamps
   # are sorted for canonical equality.
+  # Encoder-option structs must be flattened to plain maps before the digest
+  # (MaterialDigest.canonicalize/1 Enum.maps over maps; structs aren't Enumerable).
+  defp encoder_options_key(map),
+    do: Map.new(map, fn {format, struct} -> {format, Map.from_struct(struct)} end)
+
   defp quality_search_key(:none), do: :none
 
   defp quality_search_key(%QualitySearch.Size{} = s) do

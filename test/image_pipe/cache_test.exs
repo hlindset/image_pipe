@@ -401,7 +401,7 @@ defmodule ImagePipe.CacheTest do
                blue: 255,
                alpha: [unit: :ratio, numerator: 1, denominator: 1]
              ],
-             jxl_effort: nil
+             encoder_options: %{}
            ]
 
     assert_received {:cache_get, ^key, adapter_opts}
