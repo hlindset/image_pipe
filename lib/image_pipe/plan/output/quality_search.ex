@@ -28,7 +28,14 @@ defmodule ImagePipe.Plan.Output.QualitySearch do
     end
   end
 
-  @doc "Build a search struct for an already-decided metric, URL fields over config."
+  @doc """
+  Build a search struct for an already-decided metric, URL fields over config.
+
+  Requires a `config` carrying the seeded per-metric `autoquality_target` and
+  `autoquality_allowed_error` maps (what `ImagePipe.Config.resolve!/2` produces) —
+  for a perceptual metric without them, `allowed_error` would be `nil` and the
+  target would be missing. All in-repo callers pass resolved config.
+  """
   @spec build(:size | :ssimulacra2 | :butteraugli, keyword(), keyword()) ::
           {:ok, struct()} | {:error, term()}
   def build(:size, fields, config) do

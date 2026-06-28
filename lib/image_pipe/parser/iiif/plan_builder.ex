@@ -63,7 +63,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   """
   @spec image_plan(ImagePipe.Plan.Source.t(), map(), keyword()) ::
           {:ok, Plan.t()} | {:error, term()}
-  def image_plan(source, tokens, opts \\ []) do
+  def image_plan(source, tokens, opts) do
     auto_rotate = Keyword.fetch!(opts, :auto_rotate)
     debug? = Keyword.get(opts, :debug?, false)
     max_width = Keyword.get(opts, :max_width)
