@@ -297,6 +297,15 @@ test "resolve! merges a host-set encoder option over the unset default" do
   assert Keyword.fetch!(resolved, :jpeg_options) == %JpegOptions{interlace: true}
 end
 
+test "the layer/2 rewrite still merges existing plain-map keys (format_quality)" do
+  # Guard: the layer/2 change (struct-aware merge) must not regress the existing
+  # non-struct map keys. A sparse host override keeps the other default entries.
+  resolved = ImagePipe.Config.resolve!(format_quality: %{webp: 70})
+  fq = Keyword.fetch!(resolved, :format_quality)
+  assert fq[:webp] == 70
+  assert fq[:avif] == 63
+end
+
 test "resolve! rejects an out-of-range libvips value" do
   assert_raise ArgumentError, ~r/quant_table/, fn ->
     ImagePipe.Config.resolve!(jpeg_options: %JpegOptions{quant_table: 9})
@@ -595,6 +604,13 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
     b = Encoder.encode_to_buffer(finalized(), resolved(:jpeg, %JpegOptions{}), 75)
     assert a == b
   end
+
+  test "JXL effort: unset JxlOptions encodes identically to nil (libvips default 7)" do
+    alias ImagePipe.Plan.Output.JxlOptions
+    a = Encoder.encode_to_buffer(finalized(), resolved(:jpeg_xl, nil), 75)
+    b = Encoder.encode_to_buffer(finalized(), resolved(:jpeg_xl, %JxlOptions{}), 75)
+    assert a == b
+  end
 end
 ```
 
@@ -759,6 +775,8 @@ Change line 37 from `resolved.jxl_effort` to read the struct effort (default 7).
 
 and change the call to `native_jxl_butteraugli(image, nqs, resolved.max_bytes, jxl_effort(resolved), telemetry_opts)`.
 
+Coverage: this read is exercised by the existing native-JXL search tests (`grep -rln NativeJxlButteraugli test/`); the Task 10 green checkpoint runs `test/image_pipe/output`, which covers it. If no existing test drives this path with a non-default effort, add one asserting `jxl_effort/1` returns the struct effort (and `7` when unset).
+
 ---
 
 ## Task 9: `Cache.Key` — `jxl_effort` → `encoder_options` (3 sites)
@@ -766,14 +784,25 @@ and change the call to `native_jxl_butteraugli(image, nqs, resolved.max_bytes, j
 **Files:**
 - Modify: `lib/image_pipe/cache/key.ex` (lines ~104, ~122, ~147)
 
-- [ ] **Step 1: Replace all three `jxl_effort:` entries**
+**CRITICAL:** `MaterialDigest.canonicalize/1` (`lib/image_pipe/material_digest.ex:41,47`) recurses into any `is_map/1` value with `Enum.map/2`. A bare `%JpegOptions{}` is a map but **not** `Enumerable`, so `Enum.map` raises `Protocol.UndefinedError` — every request with encoder options set would crash cache-key computation. The existing code flattens structs to plain data *before* the digest (`Color.key_data/1`, `quality_search_key/1`). Do the same: flatten the option structs to plain maps.
+
+- [ ] **Step 1: Add a flattening helper and use it at all three sites**
+
+Add near the other key helpers in `cache/key.ex`:
+
+```elixir
+  # Encoder-option structs must be flattened to plain maps before the digest
+  # (MaterialDigest.canonicalize/1 Enum.maps over maps; structs aren't Enumerable).
+  defp encoder_options_key(map),
+    do: Map.new(map, fn {format, struct} -> {format, Map.from_struct(struct)} end)
+```
 
 In `output_plan_data/2` (both `:automatic` and `:explicit` clauses) and in `output_data/3` (the `:automatic` clause), replace the line
 `jxl_effort: output.jxl_effort`
 with
-`encoder_options: output.encoder_options`.
+`encoder_options: encoder_options_key(output.encoder_options)`.
 
-(The whole pre-negotiation map enters the key; `MaterialDigest.canonicalize/1` hashes the structs. The ETag inherits via `plan_material/2` — no separate edit.)
+(The whole pre-negotiation map enters the key as plain `%{format => %{field => value}}`. The ETag inherits via `plan_material/2` — no separate edit. The Task 10 Step 2 key test, which builds a key with options set, is the guard that this doesn't crash.)
 
 - [ ] **Step 2: Compile the whole project**
 
@@ -784,21 +813,33 @@ Expected: clean compile (the Task 4 migration is now complete).
 
 ## Task 10: Migration green checkpoint + commit
 
-- [ ] **Step 1: Run the output/cache/policy test suites**
+- [ ] **Step 1: Migrate the existing `jxl_effort` tests (these are compile errors, not just failures)**
+
+Removing the `jxl_effort` struct key makes any literal `%Output{jxl_effort:}` / `%Resolved{jxl_effort:}` / `%Policy{jxl_effort:}` a **compile error**, and `Config.default(:jxl_effort)` now raises `KeyError`. Migrate each (run `grep -rn jxl_effort test/` to confirm the full set — the list below is exhaustive as of this plan):
+
+- `test/image_pipe/output_policy_test.exs` — `%Policy{jxl_effort:}` (≈51-61, 71-81), `%Resolved{jxl_effort:}` (≈336-343, 358-365); **delete** the `describe "jxl_effort resolution"` block (≈13-29) — it tests removed semantics and calls `Config.default(:jxl_effort)`. Replace with `encoder_options:` forms / a `JxlOptions.effort || 7` resolution test in the encoder test if still meaningful.
+- `test/image_pipe/config_test.exs` — remove the old `:jxl_effort` key / `Config.default(:jxl_effort) == 7` / range-rejection assertions (≈35-41, 74-76, 87-92); the new `jxl_options` tests from Task 3 replace them.
+- `test/image_pipe/cache/key_test.exs` — `jxl_effort: nil` in expected key-data (≈238, 1014, 1058, 1118, 1255) → `encoder_options: %{}`; the `%Output{jxl_effort:}` test (≈1177-1194) → `encoder_options:`.
+- `test/image_pipe/plug_test.exs` — `jxl_effort: nil` key-data assertions (≈1197, 1524, 1566, 1606, 1648, 1691, 1733, 1776) → `encoder_options: %{}`.
+- `test/image_pipe/output_encoder_test.exs` — `%Resolved{jxl_effort:}` (≈181-200) → `encoder_options: %JxlOptions{effort: …}`.
+- `test/image_pipe/plan/output_test.exs:11-13` — `%Output{jxl_effort:}` → `encoder_options:`.
+- `test/image_pipe/cache_test.exs:404`, `test/image_pipe/imgproxy_resize_auto_test.exs:147-154` — same migration.
+
+- [ ] **Step 2: Run the output/cache/policy/plug test suites**
 
 Run:
 ```bash
-PATH="$(mise where elixir)/bin:$PATH" mise exec -- mix test test/image_pipe/output test/image_pipe/cache test/image_pipe/plan
+PATH="$(mise where elixir)/bin:$PATH" mise exec -- mix test test/image_pipe/output test/image_pipe/cache test/image_pipe/plan test/image_pipe/plug_test.exs
 ```
-Expected: PASS. If a pre-existing test built `%Resolved{jxl_effort: ...}` or `%Plan.Output{jxl_effort: ...}`, update it to `encoder_options:` form.
+Expected: PASS.
 
-- [ ] **Step 2: Add a cache-key inclusion test**
+- [ ] **Step 3: Add a cache-key inclusion test (this is also the C1 crash guard)**
 
 ```elixir
 # add to test/image_pipe/cache/key_test.exs
 alias ImagePipe.Plan.Output.JpegOptions
 
-test "encoder_options change the cache key but not when identical" do
+test "encoder_options change the cache key but not when identical (and do not crash)" do
   base = %ImagePipe.Plan.Output{mode: {:explicit, :jpeg}}
   k1 = key_for(%{base | encoder_options: %{}})
   k2 = key_for(%{base | encoder_options: %{jpeg: %JpegOptions{interlace: true}}})
@@ -808,9 +849,9 @@ test "encoder_options change the cache key but not when identical" do
 end
 ```
 
-(Use the file's existing key-building helper for `key_for/1`; mirror an existing key test's setup.)
+(Use the file's existing key-building helper for `key_for/1`; mirror an existing key test's setup. Building `k2` exercises the struct-flattening from Task 9 — without it, `MaterialDigest.canonicalize/1` raises.)
 
-- [ ] **Step 3: Run + commit the whole migration**
+- [ ] **Step 4: Run + commit the whole migration**
 
 Run: `PATH="$(mise where elixir)/bin:$PATH" mise exec -- mix test test/image_pipe/cache/key_test.exs`
 Expected: PASS.
@@ -863,6 +904,16 @@ test "avifo subsample -> subsample_mode" do
            OptionGrammar.parse("avifo:off")
 end
 
+test "jpgo no_subsample:false leaves subsample_mode unset (libvips :auto)" do
+  assert {:ok, [encoder_options: %{jpeg: %JpegOptions{subsample_mode: nil}}]} =
+           OptionGrammar.parse("jpgo::0")
+end
+
+test "pngo quantization_colors without quantize drops bitdepth (orphan)" do
+  assert {:ok, [encoder_options: %{png: %PngOptions{bitdepth: nil, palette: nil}}]} =
+           OptionGrammar.parse("pngo:::128")
+end
+
 test "alias full names parse identically" do
   assert OptionGrammar.parse("jpeg_options:1") == OptionGrammar.parse("jpgo:1")
 end
@@ -902,26 +953,27 @@ Add (the field list is informational; the codec parser reads raw args):
 
 - [ ] **Step 4: Add the codec-option parser + per-format translation**
 
-Add an alias `alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}`, then a generic positional decoder and four `parse_known_option` clauses. The decoder walks `{position_name, raw_value}` pairs; empty/absent ⇒ skip (field stays nil); present ⇒ run the per-format translator which returns `{:ok, [field: value]}` libvips assignments.
+Add an alias `alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}`, then a generic positional decoder and four `parse_known_option` clauses. **Placement matters:** `parse_known_option/4` ends in a catch-all at `option_grammar.ex:297-298` (`{:error, {:invalid_option_segment, segment}}`). Insert the four new clauses **before** that catch-all (e.g. right after the `:autoquality` clause near line 267), or they are shadowed and every codec option errors. The decoder walks `{position_name, raw_value}` pairs; empty/absent ⇒ skip (field stays nil); present ⇒ run the per-format translator which returns `{:ok, [field: value]}` libvips assignments.
 
 ```elixir
   defp parse_known_option(:jpeg_options, _spec, args, segment),
     do: codec_options(:jpeg, JpegOptions, args,
           [:progressive, :no_subsample, :trellis_quant, :overshoot_deringing, :optimize_scans, :quant_table],
-          &jpeg_arg/2, segment)
+          &jpeg_arg/2, &identity/1, segment)
 
   defp parse_known_option(:png_options, _spec, args, segment),
-    do: codec_options(:png, PngOptions, args, [:interlaced, :quantize, :quantization_colors], &png_arg/2, segment)
+    do: codec_options(:png, PngOptions, args, [:interlaced, :quantize, :quantization_colors], &png_arg/2, &png_finalize/1, segment)
 
   defp parse_known_option(:webp_options, _spec, args, segment),
-    do: codec_options(:webp, WebpOptions, args, [:compression, :smart_subsample, :preset], &webp_arg/2, segment)
+    do: codec_options(:webp, WebpOptions, args, [:compression, :smart_subsample, :preset], &webp_arg/2, &identity/1, segment)
 
   defp parse_known_option(:avif_options, _spec, args, segment),
-    do: codec_options(:avif, AvifOptions, args, [:subsample], &avif_arg/2, segment)
+    do: codec_options(:avif, AvifOptions, args, [:subsample], &avif_arg/2, &identity/1, segment)
 
   # Walk positional args; empty string ⇒ no override; otherwise translate to
-  # libvips field assignments and build the struct. Too many args ⇒ invalid.
-  defp codec_options(format_key, mod, args, positions, translator, segment) do
+  # libvips field assignments and build the struct, then run a per-format
+  # finalizer. Too many args ⇒ invalid.
+  defp codec_options(format_key, mod, args, positions, translator, finalize, segment) do
     if length(args) > length(positions) do
       {:error, {:invalid_option_segment, segment}}
     else
@@ -938,14 +990,17 @@ Add an alias `alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions,
         end)
 
       case result do
-        {:ok, assigns} -> {:ok, [encoder_options: %{format_key => struct(mod, assigns)}]}
+        {:ok, assigns} -> {:ok, [encoder_options: %{format_key => finalize.(struct(mod, assigns))}]}
         {:error, _} = err -> err
       end
     end
   end
 
   defp jpeg_arg(:progressive, v), do: bool_assign(:interlace, v)
-  defp jpeg_arg(:no_subsample, v), do: with({:ok, b} <- boolish(v), do: {:ok, [subsample_mode: if(b, do: :off, else: :on)]})
+  # imgproxy no_subsample:false = "subsampling enabled" = libvips default (:auto),
+  # so emit nothing; only the true case forces :off. :on is unreachable in imgproxy.
+  defp jpeg_arg(:no_subsample, v),
+    do: with({:ok, b} <- boolish(v), do: {:ok, if(b, do: [subsample_mode: :off], else: [])})
   defp jpeg_arg(:trellis_quant, v), do: bool_assign(:trellis_quant, v)
   defp jpeg_arg(:overshoot_deringing, v), do: bool_assign(:overshoot_deringing, v)
   defp jpeg_arg(:optimize_scans, v), do: bool_assign(:optimize_scans, v)
@@ -959,6 +1014,16 @@ Add an alias `alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions,
       _ -> :error
     end
   end
+
+  # imgproxy computes bitdepth ONLY inside `if (quantize)`. So drop an orphan
+  # bitdepth when palette isn't enabled (e.g. `pngo:::128` ⇒ %PngOptions{}).
+  # With palette true but no colors given, leaving bitdepth nil = libvips palette
+  # default 8 = imgproxy's 256→8, so no need to force it.
+  defp png_finalize(%PngOptions{palette: p, bitdepth: b} = o) when p != true and not is_nil(b),
+    do: %{o | bitdepth: nil}
+  defp png_finalize(o), do: o
+
+  defp identity(o), do: o
 
   defp webp_arg(:compression, "lossy"), do: {:ok, []}
   defp webp_arg(:compression, "lossless"), do: {:ok, [lossless: true]}
@@ -1076,7 +1141,7 @@ In `plan_builder.ex`, in **both** `output_plan/1` clauses (`:automatic` and `{:e
 
 - [ ] **Step 5: Reconcile the `imgproxy_overlay/0` comment**
 
-In `lib/image_pipe/parser/imgproxy.ex` (around line 60–61), the comment cites `jxl_effort: 4` as a future byte-parity lever. If `imgproxy_overlay/0` actually sets `jxl_effort: 4`, change it to `jxl_options: %ImagePipe.Plan.Output.JxlOptions{effort: 4}` (and update the comment); if it's comment-only, update the comment to name `jxl_options`. Verify with: `grep -n "jxl_effort\|jxl_options\|imgproxy_overlay" lib/image_pipe/parser/imgproxy.ex`.
+`imgproxy_overlay/0` returns `[]`; the `jxl_effort: 4` reference at `imgproxy.ex:60-61` is **comment-only** (confirmed). Update that comment to name `jxl_options` (the byte-parity lever is now `jxl_options: %JxlOptions{effort: 4}`). No code change. Verify with: `grep -n "jxl_effort\|jxl_options\|imgproxy_overlay" lib/image_pipe/parser/imgproxy.ex`.
 
 - [ ] **Step 6: Compile + run parser tests**
 
@@ -1100,11 +1165,14 @@ git commit -m "feat(imgproxy): wire encoder options through defaults + plan buil
 ## Task 13: Wire-level conformance tests
 
 **Files:**
-- Test: `test/image_pipe/imgproxy_wire_conformance_test.exs` (file exists; add a describe block)
+- Test: `test/image_pipe/imgproxy_wire_conformance_test.exs` (imgproxy wire + omit-vs-false)
+- Test: `test/image_pipe/twic_pics_wire_conformance_test.exs` (cross-dialect inheritance)
 
-- [ ] **Step 1: Add wire tests (real `ImagePipe.call/2`)**
+Note: the **core** cross-dialect inheritance claim (config defaults reach a non-imgproxy dialect via `apply_to_output/2`) is already pinned by the Task 3 `apply_to_output` unit test. This task adds the **end-to-end** wire proofs. There is no IIIF wire test file; TwicPics has one (`twic_pics_wire_conformance_test.exs`), so use TwicPics for the cross-dialect wire test.
 
-Add representative tests asserting user-visible contracts. Mirror the file's existing request helpers (`build_conn`, mount opts). Cover: progressive jpeg via `jpgo`, palette png via `pngo`, cross-dialect inheritance (host config `jpeg_options` on a non-imgproxy request), and the omit-vs-false merge.
+- [ ] **Step 1: imgproxy wire tests (real `ImagePipe.call/2`)**
+
+Add to `imgproxy_wire_conformance_test.exs`. Mirror the file's existing request helpers (read the top of the file for the exact `get`/mount/`content_type` helper names; the snippet below uses placeholder helper names to adapt).
 
 ```elixir
 describe "codec encoder options" do
@@ -1112,33 +1180,50 @@ describe "codec encoder options" do
     conn = get_imgproxy(conn, "rs:fit:32:32/jpgo:1/plain/#{sample_url()}@jpg")
     assert conn.status == 200
     assert content_type(conn) == "image/jpeg"
+    # progressive JPEG carries SOF2 (0xFFC2)
     assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
+    {:ok, img} = Image.from_binary(conn.resp_body)
+    assert Image.width(img) == 32
   end
 
-  test "host jpeg_options config applies to an IIIF request" do
-    # Mount with config jpeg_options: %JpegOptions{interlace: true}; issue an IIIF
-    # request that outputs JPEG; assert the SOF2 progressive marker is present.
+  test "pngo::1:16 yields a decodable palette PNG", %{conn: conn} do
+    conn = get_imgproxy(conn, "rs:fit:32:32/pngo::1:16/plain/#{sample_url()}@png")
+    assert conn.status == 200
+    assert content_type(conn) == "image/png"
+    {:ok, img} = Image.from_binary(conn.resp_body)
+    assert Image.width(img) == 32
   end
 
-  test "jpgo:::1 keeps a config-set interlace true (omit-vs-false)" do
-    # Mount config jpeg_options interlace: true; request jpgo:::1 (sets only
-    # optimize_scans); assert output is still progressive (interlace survived).
+  test "jpgo:::1 with host interlace config stays progressive (omit-vs-false)" do
+    # Mount this request with mount opts: jpeg_options: %JpegOptions{interlace: true}.
+    # jpgo:::1 sets only optimize_scans; the omitted progressive position must NOT
+    # reset interlace, so the output is still progressive.
+    conn = get_imgproxy(conn_with_opts(jpeg_options: %JpegOptions{interlace: true}),
+                        "rs:fit:32:32/jpgo:::1/plain/#{sample_url()}@jpg")
+    assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
   end
 end
 ```
 
-(Fill in `get_imgproxy`/`sample_url`/`content_type` from the existing helpers in that file. For the IIIF test, use the IIIF wire test mount pattern from `test/image_pipe/iiif_*` if present, else a `ImagePipe.call/2` with IIIF mount opts.)
+(Read the file's actual helper names — `get`/`request`, the mount/opts helper, `content_type` — and adapt. If per-test mount opts aren't ergonomic in that file, drive this case as a `Plan.Output` + `Output.Policy.resolve` + `Encoder` assertion instead, which needs no wire mount.)
 
-- [ ] **Step 2: Run**
+- [ ] **Step 2: TwicPics cross-dialect wire test**
 
-Run: `PATH="$(mise where elixir)/bin:$PATH" mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
+Add to `twic_pics_wire_conformance_test.exs`: a TwicPics request mounted with host config `webp_options: %WebpOptions{smart_subsample: true}` (or `jpeg_options`), asserting status 200 + decodable output of the expected type. This proves a non-imgproxy dialect inherits host encoder config via `apply_to_output/2` end-to-end. Mirror that file's existing mount/request helpers.
+
+- [ ] **Step 3: Run**
+
+Run:
+```bash
+PATH="$(mise where elixir)/bin:$PATH" mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs test/image_pipe/twic_pics_wire_conformance_test.exs
+```
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add test/image_pipe/imgproxy_wire_conformance_test.exs
-git commit -m "test(imgproxy): wire-level codec encoder option conformance"
+git add test/image_pipe/imgproxy_wire_conformance_test.exs test/image_pipe/twic_pics_wire_conformance_test.exs
+git commit -m "test: wire-level codec encoder option conformance + cross-dialect"
 ```
 
 ---
@@ -1201,7 +1286,7 @@ Find the "Output and encoding" / "Advanced encoder options" rows for `jpeg_optio
 
 - [ ] **Step 2: Add the Diverges note**
 
-Add a behavioral "Diverges" note for AVIF default effort (ImagePipe core uses libvips `effort` default 4; imgproxy default speed 8 / effort 1), mirroring the existing `jxl_effort` 7-vs-4 treatment. Note the PNG-quantize libvips-build dependency (Quantizr / libimagequant) and the `quantization_colors → bitdepth` bucketing.
+Add a behavioral "Diverges" note for AVIF default effort (ImagePipe core uses libvips `effort` default 4; imgproxy default speed 8 / effort 1), mirroring the existing `jxl_effort` 7-vs-4 treatment. Add a second "Diverges" note: a progressive JPEG via `jpgo` omits `optimize_coding` (imgproxy always sets it; ImagePipe's baseline `Image.write` path never has — a **pre-existing** byte divergence carried forward, not introduced here). Note the PNG-quantize libvips-build dependency (Quantizr / libimagequant) and the `quantization_colors → bitdepth` bucketing.
 
 - [ ] **Step 3: Commit**
 
