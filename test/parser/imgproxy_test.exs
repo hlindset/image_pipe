@@ -107,7 +107,8 @@ defmodule ImagePipe.Parser.ImgproxyTest do
       )
 
     assert opts[:imgproxy][:autoquality_method] == :ssimulacra2
-    assert opts[:imgproxy][:autoquality_target] == %{ssimulacra2: 90.0}
+    # The host ssim2 override merges onto the seeded per-metric defaults.
+    assert opts[:imgproxy][:autoquality_target] == %{ssimulacra2: 90.0, butteraugli: 1.0}
   end
 
   test "rejects an inverted global autoquality bracket" do
@@ -222,10 +223,10 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   describe "per-metric autoquality config" do
-    test "defaults: target/allowed_error are empty maps" do
+    test "defaults: target/allowed_error carry the per-metric seeds" do
       opts = Imgproxy.validate_options!(imgproxy: [])[:imgproxy]
-      assert opts[:autoquality_target] == %{}
-      assert opts[:autoquality_allowed_error] == %{}
+      assert opts[:autoquality_target] == %{ssimulacra2: 78, butteraugli: 1.0}
+      assert opts[:autoquality_allowed_error] == %{ssimulacra2: 1.0, butteraugli: 0.1}
     end
 
     test "accepts per-metric maps" do

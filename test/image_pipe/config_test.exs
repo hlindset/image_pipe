@@ -94,6 +94,19 @@ defmodule ImagePipe.ConfigTest do
     end
   end
 
+  describe "autoquality fallback defaults" do
+    test "resolve! seeds per-metric target and allowed_error defaults" do
+      resolved = Config.resolve!([])
+      assert Keyword.fetch!(resolved, :autoquality_target) == %{ssimulacra2: 78, butteraugli: 1.0}
+      assert Keyword.fetch!(resolved, :autoquality_allowed_error) == %{ssimulacra2: 1.0, butteraugli: 0.1}
+    end
+
+    test "a host override merges onto the seeded map, keeping the other metric" do
+      resolved = Config.resolve!(autoquality_target: %{ssimulacra2: 90})
+      assert Keyword.fetch!(resolved, :autoquality_target) == %{ssimulacra2: 90, butteraugli: 1.0}
+    end
+  end
+
   property "scalar defaults survive when host omits them" do
     check all q <- integer(1..100) do
       resolved = Config.resolve!(quality: q)

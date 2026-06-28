@@ -58,8 +58,8 @@ defmodule ImagePipe.Config do
 
   @map_defaults [
     format_quality: %{webp: 79, avif: 63, jpeg_xl: 77},
-    autoquality_target: %{},
-    autoquality_allowed_error: %{},
+    autoquality_target: %{ssimulacra2: 78, butteraugli: 1.0},
+    autoquality_allowed_error: %{ssimulacra2: 1.0, butteraugli: 0.1},
     autoquality_format_min_quality: %{avif: 60, jpeg_xl: 45},
     autoquality_format_max_quality: %{avif: 65, jpeg_xl: 80}
   ]
