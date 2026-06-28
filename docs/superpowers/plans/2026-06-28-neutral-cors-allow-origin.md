@@ -344,16 +344,20 @@ Add this `describe` block to `test/image_pipe/imgproxy_wire_conformance_test.exs
       assert get_resp_header(conn, "access-control-allow-origin") == []
     end
 
-    test "PUT → 405 + Allow regardless of CORS" do
+    test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
       conn =
         conn(:put, "/_/anything")
         |> ImagePipe.Plug.call(ImagePipe.Plug.init([allow_origin: "https://cdn.test"] ++ @default_opts))
 
       assert conn.status == 405
       assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      # Proves the before-send hook is not 200-only: it fires on the 405 too.
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
     end
   end
 ```
+
+> **Coverage note:** the spec lists `Access-Control-Allow-Origin` on image / info / 303-redirect / **error** / **304**. The before-send hook is registered once in `call/2` and fires for *every* `send_resp`, so all outcomes are covered by the same mechanism. This plan asserts it explicitly on: the 200 image (above), the 405 (above, the non-2xx/error class), the IIIF 303 redirect and IIIF parser-error 4xx (Task 6), and info.json (Task 6). A dedicated 304 assertion is deliberately omitted — it would require standing up conditional-request (`If-None-Match`) infrastructure in the harness for **no additional mechanism coverage** (304 routes through the same `send_resp`/before-send path as the 405, which is asserted).
 
 (If `get_resp_header/2` is not already imported in this file, add `import Plug.Conn, only: [get_resp_header: 2]` near the top — but it is used by the existing `content_type/1` helper, so it should already be available.)
 
@@ -453,15 +457,19 @@ git commit -m "feat(plug): neutral CORS decoration + always-answer OPTIONS"
 
 `status_from/1` maps any non-`:ok` result to span status `:error`. A `204`
 OPTIONS is a success, so `:options` must map to `:ok`. (Leave `:method_not_allowed`,
-`:redirect`, `:not_modified` as-is — out of scope.)
+`:redirect`, `:not_modified` as-is — out of scope.) Note `status_from/1` is the
+**single** result→status mapper and is shared by both the `[:request]` and
+`[:send]` spans, which both carry `result: :options` for an OPTIONS request — so
+this one edit covers both spans.
 
 - [ ] **Step 1: Write the failing test**
 
-Locate the capture test file (`grep -rl "status_from\|defmodule.*CaptureTest" test/`). Append a test that drives the `[:request]` stop with `result: :options` and asserts the captured span status is `:ok`. Model it on the existing capture tests in that file (reuse their telemetry-emit + capture harness). If the existing tests assert on a `status:` field of a captured span, follow that exact shape. Example shape:
+Append a test to `test/image_pipe/telemetry/trace/capture_test.exs` that drives the `[:request]` stop with `result: :options` and asserts the captured span status is `:ok`. Model it on the existing capture tests in that file (reuse their telemetry-emit + capture harness). **Use a unique `telemetry_prefix`** (e.g. `[:"cors_opts_#{System.unique_integer([:positive])}"]`) — `:telemetry` handlers are global and a default-prefix emission from another async test would leak. If the existing tests assert on a `status:` field of a captured span, follow that exact shape. Example shape:
 
 ```elixir
   test "request stop with :options result captures span status :ok" do
-    # ... attach Capture, emit [<prefix>, :request, :stop] with %{result: :options}, ...
+    # ... attach Capture on a UNIQUE prefix, emit [<prefix>, :request, :stop]
+    #     with %{result: :options}, ...
     # assert the captured span's status == :ok (NOT :error)
   end
 ```
@@ -524,7 +532,7 @@ change** — only a coverage assertion and a docs line.
 
 - [ ] **Step 1: Write the Logger assertion**
 
-In `test/image_pipe/logger_test.exs` (or wherever `ImagePipe.Telemetry.Logger` is tested — `grep -rl "Telemetry.Logger" test/`), add a test that attaches the Logger, emits a `[:request, :stop]` with `result: :options, status: 204`, and asserts the captured log line surfaces `options`. Use `ExUnit.CaptureLog` and a unique `telemetry_prefix`, matching the existing tests in that file. Example shape:
+In `test/image_pipe/telemetry/logger_test.exs`, add a test that attaches the Logger, emits a `[:request, :stop]` with `result: :options, status: 204`, and asserts the captured log line surfaces `options`. Use `ExUnit.CaptureLog` and a unique `telemetry_prefix`, matching the existing tests in that file. This is a **coverage-only** assertion (no Logger code changes — the generic `message/3` clause already renders `meta[:result]`), so it is expected to pass on first run rather than fail-first. Example shape:
 
 ```elixir
   test "request stop with :options result logs the options outcome" do
@@ -541,7 +549,7 @@ In `test/image_pipe/logger_test.exs` (or wherever `ImagePipe.Telemetry.Logger` i
 
 - [ ] **Step 2: Run test to verify it passes (generic clause already handles it)**
 
-Run: `mise exec -- mix test test/image_pipe/logger_test.exs`
+Run: `mise exec -- mix test test/image_pipe/telemetry/logger_test.exs`
 Expected: PASS — the generic `message/3` clause renders `result: :options`.
 (If it FAILS because the assertion text doesn't match the rendered line, adjust the assertion to the actual format, e.g. `"image_pipe request: options"`. Do not change the Logger.)
 
@@ -556,7 +564,7 @@ error values. Match the surrounding doc style.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add test/image_pipe/logger_test.exs docs/telemetry.md
+git add test/image_pipe/telemetry/logger_test.exs docs/telemetry.md
 git commit -m "test(telemetry): cover :options result in Logger; document it"
 ```
 
@@ -649,6 +657,19 @@ always-answer behavior and pass opts:
     assert conn.status == 204
     assert get_resp_header(conn, "allow") == ["GET, HEAD"]
     assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
+  end
+```
+
+Also add a new test asserting CORS lands on an **error** response through the
+core (the spec lists `error` among the outcomes that must carry the header).
+Reuse the existing Contract 9a parser-error path (a 400):
+
+```elixir
+  test "contract 8e: error response (400) carries access-control-allow-origin" do
+    conn = call_iiif("/img/full/9999,/0/default.jpg", iiif_opts(OriginImage))
+
+    assert conn.status == 400
     assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
   end
 ```
@@ -793,7 +814,21 @@ The wire-test bullet mentions CORS; ensure it still reads accurately (CORS is no
 exercised through `ImagePipe.Plug` with `allow_origin: "*"`, not a sibling plug).
 Adjust the parenthetical if it names the old plug.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Note the static `cors` extraFeature advertisement**
+
+`lib/image_pipe/parser/iiif/info.ex` lists `"cors"` in `@extra_features`
+**unconditionally**, so `info.json` advertises the `cors` capability regardless
+of whether the host set `allow_origin`. Post-change, that advertisement is
+accurate only when CORS is configured — which the canonical IIIF mount does
+(`allow_origin: "*"`). Add a one-line note to the `cors` row (or the matrix's
+"Diverges / caveats" prose, if present) recording this: *"The `cors`
+extraFeature is advertised statically and assumes the host configures
+`allow_origin` (the canonical mount does); it is not gated on the option."* Do
+**not** make the advertisement conditional — that would couple the IIIF info
+renderer to the neutral `allow_origin` mount option for a `SHOULD`-level cosmetic
+feature (tracked as possible future work, not part of this change).
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add docs/iiif_3_support_matrix.md

@@ -118,11 +118,17 @@ the neutral core actually allows. (The old IIIF plug and imgproxy emit the
 narrower `GET, OPTIONS`; there is no conformance reason to mirror that in the
 neutral core.)
 
-#### Minor divergence from imgproxy
+#### Minor divergences from imgproxy
 
-Both always respond to OPTIONS; imgproxy uses `200` empty, the neutral core uses
-the idiomatic `204 No Content`. If a future imgproxy parser wants exact `200`
-parity, that is an imgproxy-adapter concern, not the neutral core.
+- Both always respond to OPTIONS; imgproxy uses `200` empty, the neutral core
+  uses the idiomatic `204 No Content`. If a future imgproxy parser wants exact
+  `200` parity, that is an imgproxy-adapter concern, not the neutral core.
+- imgproxy's `WithCORS` middleware sets `Access-Control-Allow-Methods` on **every**
+  CORS response (GET/HEAD/OPTIONS). The neutral core scopes
+  `Access-Control-Allow-Methods` to the **OPTIONS** response only (the before-send
+  hook adds just `Access-Control-Allow-Origin` to GET/HEAD/error/304). This is
+  intentional: `Access-Control-Allow-Methods` is a *preflight*-response header, so
+  emitting it only on OPTIONS is the CORS-spec-idiomatic behavior.
 
 ### 3. Cache interaction
 
@@ -190,6 +196,13 @@ lists). Cross-check that the new result value renders with its outcome and that
   mount options want flat universal defaults, not a dialect-overlay layer.
 - **Multiple origins / `Origin` reflection / `Vary: Origin`**: single static
   value only, matching imgproxy.
+- **Gating the IIIF `info.json` `cors` extraFeature on `allow_origin`**: the IIIF
+  info renderer (`lib/image_pipe/parser/iiif/info.ex`) advertises `"cors"` in
+  `@extra_features` statically. Post-change that is accurate only when the host
+  sets `allow_origin` (the canonical mount does). Making the advertisement
+  conditional would couple the IIIF info renderer to the neutral mount option for
+  a `SHOULD`-level cosmetic feature — deferred. The conformance doc records the
+  assumption instead.
 
 ## Acceptance criteria
 
