@@ -1,0 +1,8 @@
+# .coderabbit.yaml - complete structure
+language: en-US
+
+reviews:
+  path_filters:
+    - "!**/*.lock"
+    - "!docs/superpowers/**/*"
+
