@@ -165,11 +165,50 @@ code between all three dialects is the autoquality builder (§1b); the simple
 field mapping is shared only between the two config-only dialects, which is why
 it lives in `Config.apply_to_output` rather than being forced onto imgproxy.
 
-### 3. IIIF adapter changes
+### 3. Surfacing unsupported config (the `reject_unsupported!/3` seam)
+
+**Invariant:** a host-configured setting that a dialect won't act on must fail
+loudly at the config boundary — never be silently accepted and ignored. There
+are three "not supported" cases, surfaced at two layers:
+
+| Case | Layer | Surface |
+| --- | --- | --- |
+| Unknown key (typo / wrong-dialect key) | host config (init) | `ArgumentError` at `validate_options!` (already: NimbleOptions / the `{dialect, unknown}` split) |
+| Known neutral key this dialect can't honor | host config (init) | `ArgumentError` via `Config.reject_unsupported!/3` (below) |
+| Known key whose *value* needs an absent capability (e.g. `autoquality_method: :size` with no target) | host config (init) **or** per-request (URL) | `ArgumentError` for config; tagged `{:error, {:unsupported_*, ...}}` → 4xx via `handle_error` for URL |
+
+The neutral core must never name a dialect (`Config → [Plan]` boundary), so the
+*capability knowledge* lives in the adapter and is passed **into** Config; Config
+owns only the mechanism and the message:
+
+```elixir
+# ImagePipe.Config
+@spec reject_unsupported!(neutral :: keyword(), supported :: [atom()] | :all, dialect :: String.t())
+        :: keyword()
+```
+
+It raises a uniform, dialect-named `ArgumentError` for any neutral key outside
+the declared `supported` set and returns the rest untouched. It never decides
+*what* is supported — the adapter declares that via a `@supported_neutral`
+attribute beside its `@dialect_keys`. This keeps the split symmetric: `Config.keys()`
+(which neutral keys exist — core's business) vs. `@dialect_keys` /
+`@supported_neutral` (what *this* adapter accepts and honors — adapter's business).
+
+**Under this design every adapter declares `:all`** (the full neutral surface is
+uniformly honored across imgproxy/IIIF/TwicPics), so `reject_unsupported!/3` is a
+no-op seam today. It exists so that a *future* neutral key a given dialect
+genuinely cannot map onto produces a clear "the `<dialect>` parser does not
+support config: `[...]`" error at boot instead of a silent no-op. Preferring to
+*eliminate* the unsupported case (uniform threading) over erroring on it is the
+first choice; the helper is the fallback for when a hole is unavoidable.
+
+### 4. IIIF adapter changes
 
 - **`validate_options!`**: split `opts[:iiif]` into neutral (`Config.keys()`) vs
   the rest; validate the rest against the IIIF dialect schema (now *without*
-  `auto_rotate`); reject unknown keys; resolve the neutral subset via
+  `auto_rotate`); reject unknown keys; pass the neutral subset through
+  `Config.reject_unsupported!(neutral, @supported_neutral, "IIIF")`
+  (`@supported_neutral` is `:all` under this design); resolve via
   `Config.resolve!/2` with an (empty) `iiif_overlay/0`; merge resolved-neutral
   back into `opts[:iiif]`. Keep `validate_max_bounds!`.
 - **`PlanBuilder.image_plan/3`**: source the top-level `Plan.auto_rotate` from the
@@ -181,12 +220,14 @@ it lives in `Config.apply_to_output` rather than being forced onto imgproxy.
 - **`PlanBuilder.info_plan/3`**: unchanged. info.json builds no `Output`; the
   neutral keys are simply unused there. `auto_rotate: false` stays (no pixels).
 
-### 4. TwicPics adapter changes
+### 5. TwicPics adapter changes
 
 - **`validate_options!`**: split `opts[:twicpics]` into neutral vs rest; the
-  dialect schema stays empty, so any non-neutral key is unknown → reject;
-  resolve the neutral subset via `Config.resolve!/2` with an (empty)
-  `twicpics_overlay/0`; store the resolved-neutral config back in
+  dialect schema stays empty, so any non-neutral key is unknown → reject; pass
+  the neutral subset through
+  `Config.reject_unsupported!(neutral, @supported_neutral, "TwicPics")`
+  (`@supported_neutral` is `:all`); resolve via `Config.resolve!/2` with an
+  (empty) `twicpics_overlay/0`; store the resolved-neutral config back in
   `opts[:twicpics]`.
 - **`parse/2`**: read `opts[:twicpics]` (was `_opts`) and pass the resolved
   config into `PlanBuilder.to_plan/3`.
@@ -196,7 +237,7 @@ it lives in `Config.apply_to_output` rather than being forced onto imgproxy.
   URL `quality` precedence is preserved because `apply_to_output` leaves
   `output.quality` alone.
 
-### 5. Boundaries, cache, ETag — no changes
+### 6. Boundaries, cache, ETag — no changes
 
 - **Boundaries**: both adapters already inherit `ImagePipe.Config` via the
   `ImagePipe.Parser` ancestor boundary (imgproxy does the same — its own deps do
@@ -240,6 +281,9 @@ libvips, so pixel comparison is meaningful).
 ## Error handling
 
 - Unknown host keys: rejected at `validate_options!` per dialect (as imgproxy).
+- Known-but-unsupported neutral key: `Config.reject_unsupported!/3` raises a
+  dialect-named `ArgumentError` (init-time). No-op today (`@supported_neutral`
+  is `:all` everywhere); the seam for future per-dialect holes (see §3).
 - Invalid neutral config: `Config.resolve!/2` raises `ArgumentError` (init-time,
   as today).
 - `autoquality_method: :size` with no `:size` target: `from_config/1` returns
@@ -259,6 +303,10 @@ Following the existing wire-level + unit discipline:
 - **`Config.apply_to_output/2` (new unit test)**: field mapping incl. the
   `keep_copyright`-forced-false rule, `format_quality` normalization, and that
   `output.quality` is left untouched.
+- **`Config.reject_unsupported!/3` (new unit test)**: `:all` passes everything
+  through; a declared subset raises a dialect-named `ArgumentError` for an
+  out-of-subset key and returns the rest. (A focused example test, not a
+  per-dialect pin — every dialect declares `:all` today.)
 - **IIIF wire tests**: a host-config `quality`/`format_quality` visibly changes
   decoded output (decode the response body, compare against the prior default);
   `auto_rotate` sourced from neutral; a configured `autoquality_method`
@@ -290,8 +338,8 @@ Following the existing wire-level + unit discipline:
 
 **Neutral core**
 - `lib/image_pipe/config.ex` — populate `autoquality_target` /
-  `autoquality_allowed_error` map defaults; add `apply_to_output/2`; moduledoc
-  note.
+  `autoquality_allowed_error` map defaults; add `apply_to_output/2` and
+  `reject_unsupported!/3`; moduledoc note.
 - `lib/image_pipe/plan/output/quality_search.ex` *(new)* — `build/3` +
   `from_config/1` (moved from imgproxy `Options.ex`).
 
@@ -302,16 +350,16 @@ Following the existing wire-level + unit discipline:
 
 **IIIF**
 - `lib/image_pipe/parser/iiif.ex` — neutral/dialect split in
-  `validate_options!`; drop `auto_rotate` from the dialect schema; add
-  `iiif_overlay/0`.
+  `validate_options!`; `@supported_neutral :all` + `reject_unsupported!/3` call;
+  drop `auto_rotate` from the dialect schema; add `iiif_overlay/0`.
 - `lib/image_pipe/parser/iiif/plan_builder.ex` — `image_plan` sources
   `auto_rotate` from neutral and runs the base `Output` through
   `Config.apply_to_output/2`.
 
 **TwicPics**
 - `lib/image_pipe/parser/twic_pics.ex` — neutral/dialect split in
-  `validate_options!`; pass resolved config through `parse/2`; add
-  `twicpics_overlay/0`.
+  `validate_options!`; `@supported_neutral :all` + `reject_unsupported!/3` call;
+  pass resolved config through `parse/2`; add `twicpics_overlay/0`.
 - `lib/image_pipe/parser/twic_pics/plan_builder.ex` — `to_plan/3` sources
   `auto_rotate` from neutral and runs the base `Output` through
   `Config.apply_to_output/2`.
