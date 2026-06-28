@@ -22,10 +22,10 @@ defmodule ImagePipe.Plug do
   alias ImagePipe.Error
   alias ImagePipe.Parser
   alias ImagePipe.Plan
-  alias ImagePipe.Response.CORS
   alias ImagePipe.Request.HTTPCache
   alias ImagePipe.Request.Options
   alias ImagePipe.Request.Runner
+  alias ImagePipe.Response.CORS
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
