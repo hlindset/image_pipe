@@ -288,11 +288,7 @@
   // Canonical bounded integer only — mirrors the backend's `Integer.parse/1`
   // + range check, so the controls never emit a value the URL parser would 400
   // on (e.g. 1.5, 1e2, or out-of-range).
-  function fromIntInput(
-    value: string,
-    lo: number,
-    hi: number,
-  ): number | undefined {
+  function fromIntInput(value: string, lo: number, hi: number): number | undefined {
     const trimmed = value.trim();
 
     if (trimmed === "" || !/^[+-]?\d+$/.test(trimmed)) {
@@ -301,9 +297,7 @@
 
     const parsed = Number(trimmed);
 
-    return Number.isInteger(parsed) && parsed >= lo && parsed <= hi
-      ? parsed
-      : undefined;
+    return Number.isInteger(parsed) && parsed >= lo && parsed <= hi ? parsed : undefined;
   }
 </script>
 
