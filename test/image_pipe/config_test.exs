@@ -115,6 +115,10 @@ defmodule ImagePipe.ConfigTest do
       assert_raise ArgumentError, ~r/effort/, fn ->
         Config.resolve!(webp_options: %WebpOptions{effort: 7})
       end
+
+      assert_raise ArgumentError, ~r/interlace.*must be a boolean/, fn ->
+        Config.resolve!(jpeg_options: %JpegOptions{interlace: "yes"})
+      end
     end
 
     test "rejects unknown neutral keys" do

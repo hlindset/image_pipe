@@ -7,9 +7,7 @@ defmodule ImagePipe.Config do
   from one schema and a drop-in provider inherits sensible defaults.
 
   The schema carries types only — **no `default:`**. Defaults live in
-  `@scalar_defaults`/`@map_defaults`/`@default_jxl_effort` and are applied by
-  `resolve!/2`, so a key can be validated without being force-defaulted
-  (`jxl_effort`, whose default `Output` applies via `default/1`).
+  `@scalar_defaults`/`@map_defaults` and are applied by `resolve!/2`.
   """
 
   use Boundary, top_level?: true, deps: [ImagePipe.Plan], exports: []
@@ -105,8 +103,7 @@ defmodule ImagePipe.Config do
   @doc """
   Validate + resolve a host's neutral config against the three-layer chain
   (`defaults ← overlay ← host`). Returns a keyword of concrete neutral values,
-  range-checked. `jxl_effort` is validated-if-present but not defaulted here.
-  Raises `ArgumentError` on invalid input.
+  range-checked. Raises `ArgumentError` on invalid input.
   """
   @spec resolve!(keyword(), keyword()) :: keyword()
   def resolve!(host_opts, overlay \\ []) when is_list(host_opts) and is_list(overlay) do
@@ -245,14 +242,17 @@ defmodule ImagePipe.Config do
     j = Keyword.fetch!(resolved, :jpeg_options)
     enum!(:jpeg_options, :subsample_mode, j.subsample_mode, [:auto, :on, :off])
     int_range!(:jpeg_options, :quant_table, j.quant_table, 0..8)
+    bools!(:jpeg_options, j, [:interlace, :trellis_quant, :overshoot_deringing, :optimize_scans])
 
     p = Keyword.fetch!(resolved, :png_options)
     enum!(:png_options, :bitdepth, p.bitdepth, [1, 2, 4, 8, 16])
     enum!(:png_options, :filter, p.filter, [:none, :sub, :up, :avg, :paeth, :all])
+    bools!(:png_options, p, [:interlace, :palette])
 
     w = Keyword.fetch!(resolved, :webp_options)
     enum!(:webp_options, :preset, w.preset, [:default, :photo, :picture, :drawing, :icon, :text])
     int_range!(:webp_options, :effort, w.effort, 0..6)
+    bools!(:webp_options, w, [:lossless, :near_lossless, :smart_subsample])
 
     a = Keyword.fetch!(resolved, :avif_options)
     enum!(:avif_options, :subsample_mode, a.subsample_mode, [:auto, :on, :off])
@@ -260,6 +260,17 @@ defmodule ImagePipe.Config do
 
     int_range!(:jxl_options, :effort, Keyword.fetch!(resolved, :jxl_options).effort, 1..9)
     :ok
+  end
+
+  defp bools!(key, struct, fields),
+    do: Enum.each(fields, &bool!(key, &1, Map.fetch!(struct, &1)))
+
+  defp bool!(_key, _field, nil), do: :ok
+  defp bool!(_key, _field, value) when is_boolean(value), do: :ok
+
+  defp bool!(key, field, value) do
+    raise ArgumentError,
+          "invalid config: #{key} #{field} (#{inspect(value)}) must be a boolean"
   end
 
   defp int_range!(_key, _field, nil, _range), do: :ok

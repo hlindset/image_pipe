@@ -141,8 +141,9 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 
 **Host neutral config (surface + behavioral).** The neutral `ImagePipe.Config`
 tunables — `quality`, `format_quality`, `strip_metadata`/`keep_copyright`,
-`strip_color_profile`, `preserve_hdr`, `jxl_effort`, and the `autoquality_*` knobs
-— are accepted under the `twicpics:` key, validated through `ImagePipe.Config`, and
+`strip_color_profile`, `preserve_hdr`, the per-format encoder options
+(`jpeg_options`/`png_options`/`webp_options`/`avif_options`/`jxl_options`), and the
+`autoquality_*` knobs — are accepted under the `twicpics:` key, validated through `ImagePipe.Config`, and
 stamped onto `Plan.Output`. A URL `quality=N` still wins over the configured
 default. **Behavioral default:** absent host config, output uses the neutral
 default quality (above) rather than the libvips encoder built-in. An invalid

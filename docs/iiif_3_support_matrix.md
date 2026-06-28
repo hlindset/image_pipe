@@ -131,8 +131,9 @@ The opaque IIIF `{identifier}` is resolved by a host-configured `ImagePipe.Parse
 
 - **Host neutral config is honored** (surface + behavioral). The neutral
   `ImagePipe.Config` tunables — `quality`, `format_quality`, `strip_metadata`/
-  `keep_copyright`, `strip_color_profile`, `preserve_hdr`, `jxl_effort`, and the
-  `autoquality_*` knobs — are accepted under the `iiif:` key, validated through
+  `keep_copyright`, `strip_color_profile`, `preserve_hdr`, the per-format encoder
+  options (`jpeg_options`/`png_options`/`webp_options`/`avif_options`/`jxl_options`),
+  and the `autoquality_*` knobs — are accepted under the `iiif:` key, validated through
   `ImagePipe.Config`, and stamped onto `Plan.Output` (`auto_rotate` is one of these
   neutral keys). IIIF has no URL-level encode-quality surface (its `quality` token
   is `color`/`gray`/`bitonal`, not an encoder Q), so host config is the only way to
