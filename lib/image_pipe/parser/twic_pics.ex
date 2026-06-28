@@ -14,6 +14,7 @@ defmodule ImagePipe.Parser.TwicPics do
   alias ImagePipe.Parser.TwicPics.Manipulation
   alias ImagePipe.Parser.TwicPics.Path
   alias ImagePipe.Parser.TwicPics.PlanBuilder
+  alias ImagePipe.Plan.Output.QualitySearch
 
   # TwicPics has no host-level dialect options today; the full neutral surface is
   # honored, so the reject seam is a no-op.
@@ -30,7 +31,8 @@ defmodule ImagePipe.Parser.TwicPics do
     {neutral, unknown} = Keyword.split(twicpics, ImagePipe.Config.keys())
 
     unless unknown == [] do
-      raise ArgumentError, "invalid twicpics config: unknown keys #{inspect(Keyword.keys(unknown))}"
+      raise ArgumentError,
+            "invalid twicpics config: unknown keys #{inspect(Keyword.keys(unknown))}"
     end
 
     neutral =
@@ -39,7 +41,7 @@ defmodule ImagePipe.Parser.TwicPics do
       |> ImagePipe.Config.resolve!(twicpics_overlay())
 
     # Config-only dialect: surface a bad autoquality method/target at boot.
-    case ImagePipe.Plan.Output.QualitySearch.from_config(neutral) do
+    case QualitySearch.from_config(neutral) do
       {:ok, _} -> :ok
       {:error, reason} -> raise ArgumentError, "invalid twicpics config: #{inspect(reason)}"
     end

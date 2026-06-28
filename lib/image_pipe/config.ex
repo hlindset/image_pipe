@@ -122,7 +122,8 @@ defmodule ImagePipe.Config do
        %{
          output
          | default_quality: {:quality, Keyword.fetch!(resolved, :quality)},
-           format_qualities: normalize_format_qualities(Keyword.fetch!(resolved, :format_quality)),
+           format_qualities:
+             normalize_format_qualities(Keyword.fetch!(resolved, :format_quality)),
            strip_metadata: strip,
            keep_copyright: strip and keep,
            color_profile: color_profile_policy(Keyword.fetch!(resolved, :strip_color_profile)),

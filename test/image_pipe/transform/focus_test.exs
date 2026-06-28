@@ -163,7 +163,9 @@ defmodule ImagePipe.Transform.FocusTest do
   # Build a full TwicPics plan from a manipulation chain and run it through
   # PlanExecutor on the grid, decoding the result's centre cell.
   defp plan_cell(chain) do
-    {:ok, plan} = PlanBuilder.to_plan(%Source.Path{segments: ["x.png"]}, chain, ImagePipe.Config.resolve!([]))
+    {:ok, plan} =
+      PlanBuilder.to_plan(%Source.Path{segments: ["x.png"]}, chain, ImagePipe.Config.resolve!([]))
+
     {:ok, state} = PlanExecutor.execute(plan, %State{image: grid()}, [])
     w = Image.width(state.image)
     h = Image.height(state.image)

@@ -80,7 +80,13 @@ defmodule ImagePipe.Plan.Output.QualitySearchTest do
     end
 
     test "ssimulacra2 method builds the struct from seeded defaults" do
-      assert {:ok, %QualitySearch.Ssimulacra2{target: 78, allowed_error: 1.0, min_quality: 70, max_quality: 80}} =
+      assert {:ok,
+              %QualitySearch.Ssimulacra2{
+                target: 78,
+                allowed_error: 1.0,
+                min_quality: 70,
+                max_quality: 80
+              }} =
                QualitySearch.from_config(config(autoquality_method: :ssimulacra2))
     end
 

@@ -17,11 +17,18 @@ defmodule ImagePipe.Parser.IIIF do
   alias ImagePipe.Parser.IIIF.Grammar
   alias ImagePipe.Parser.IIIF.Path
   alias ImagePipe.Parser.IIIF.PlanBuilder
+  alias ImagePipe.Plan.Output.QualitySearch
 
   @dialect_schema NimbleOptions.new!(
-                    resolver: [type: {:custom, __MODULE__, :validate_resolver, []}, required: true],
+                    resolver: [
+                      type: {:custom, __MODULE__, :validate_resolver, []},
+                      required: true
+                    ],
                     formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
-                    qualities: [type: {:list, :atom}, default: [:default, :color, :gray, :bitonal]],
+                    qualities: [
+                      type: {:list, :atom},
+                      default: [:default, :color, :gray, :bitonal]
+                    ],
                     tile_size: [type: :pos_integer, default: 512],
                     max_width: [type: :pos_integer],
                     max_height: [type: :pos_integer],
@@ -53,9 +60,12 @@ defmodule ImagePipe.Parser.IIIF do
 
     # Config-only dialect: the autoquality search is fully determined here, so
     # surface a bad method/target combination at boot rather than per request.
-    case ImagePipe.Plan.Output.QualitySearch.from_config(neutral) do
-      {:ok, _} -> :ok
-      {:error, reason} -> raise ArgumentError, "iiif: invalid autoquality config: #{inspect(reason)}"
+    case QualitySearch.from_config(neutral) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        raise ArgumentError, "iiif: invalid autoquality config: #{inspect(reason)}"
     end
 
     Keyword.put(opts, :iiif, Keyword.merge(neutral, dialect))

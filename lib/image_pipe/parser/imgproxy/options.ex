@@ -398,7 +398,6 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   defp url_quality_search_fields({:autoquality, fields}) when is_list(fields), do: fields
   defp url_quality_search_fields(_quality_search), do: []
 
-
   defp resolve_metadata_defaults(output, defaults) do
     strip = resolve_bool(output.strip_metadata, Keyword.get(defaults, :strip_metadata, true))
     keep = resolve_bool(output.keep_copyright, Keyword.get(defaults, :keep_copyright, true))

@@ -98,7 +98,11 @@ defmodule ImagePipe.ConfigTest do
     test "resolve! seeds per-metric target and allowed_error defaults" do
       resolved = Config.resolve!([])
       assert Keyword.fetch!(resolved, :autoquality_target) == %{ssimulacra2: 78, butteraugli: 1.0}
-      assert Keyword.fetch!(resolved, :autoquality_allowed_error) == %{ssimulacra2: 1.0, butteraugli: 0.1}
+
+      assert Keyword.fetch!(resolved, :autoquality_allowed_error) == %{
+               ssimulacra2: 1.0,
+               butteraugli: 0.1
+             }
     end
 
     test "a host override merges onto the seeded map, keeping the other metric" do
@@ -118,7 +122,13 @@ defmodule ImagePipe.ConfigTest do
       assert {:ok, out} = Config.apply_to_output(base, resolved)
       assert out.quality == :default
       assert out.default_quality == {:quality, 80}
-      assert out.format_qualities == %{webp: {:quality, 79}, avif: {:quality, 63}, jpeg_xl: {:quality, 77}}
+
+      assert out.format_qualities == %{
+               webp: {:quality, 79},
+               avif: {:quality, 63},
+               jpeg_xl: {:quality, 77}
+             }
+
       assert out.color_profile == :strip
       assert out.hdr == :tone_map
       assert out.quality_search == :none
@@ -140,12 +150,14 @@ defmodule ImagePipe.ConfigTest do
 
     test "builds the quality_search from a configured autoquality method" do
       resolved = Config.resolve!(autoquality_method: :ssimulacra2)
+
       assert {:ok, %Output{quality_search: %Ssimulacra2{target: 78}}} =
                Config.apply_to_output(%Output{mode: :automatic}, resolved)
     end
 
     test "propagates a from_config error (size method, no target)" do
       resolved = Config.resolve!(autoquality_method: :size)
+
       assert {:error, {:invalid_option, :autoquality, :missing_target}} =
                Config.apply_to_output(%Output{mode: :automatic}, resolved)
     end
@@ -163,9 +175,15 @@ defmodule ImagePipe.ConfigTest do
     end
 
     test "raises a dialect-named ArgumentError for an out-of-subset key" do
-      assert_raise ArgumentError, ~r/Demo parser does not support config.*autoquality_method/, fn ->
-        Config.reject_unsupported!([autoquality_method: :ssimulacra2], [:quality], "Demo")
-      end
+      assert_raise ArgumentError,
+                   ~r/Demo parser does not support config.*autoquality_method/,
+                   fn ->
+                     Config.reject_unsupported!(
+                       [autoquality_method: :ssimulacra2],
+                       [:quality],
+                       "Demo"
+                     )
+                   end
     end
   end
 

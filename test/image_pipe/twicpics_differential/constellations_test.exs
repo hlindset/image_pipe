@@ -31,6 +31,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
   end
 
   # `ImagePipe.Parser.TwicPics.parse/2` takes (%Plug.Conn{}, opts); `Plug.Test.conn/2`
-  # already populates path_info + the `twic` query param the parser reads.
-  defp parse(path), do: TwicPics.parse(Plug.Test.conn(:get, path), [])
+  # already populates path_info + the `twic` query param the parser reads. The opts
+  # must carry the resolved `:twicpics` config (parse/2 reads it for output defaults).
+  defp parse(path), do: TwicPics.parse(Plug.Test.conn(:get, path), TwicPics.validate_options!([]))
 end

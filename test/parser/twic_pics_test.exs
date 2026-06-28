@@ -16,6 +16,7 @@ defmodule ImagePipe.Parser.TwicPicsTest do
 
   test "parse/2 returns an error for an unsupported transform" do
     conn = conn(:get, "/images/beach.jpg?twic=v1/zoom=2")
+
     assert {:error, {:unsupported_transform, "zoom"}} =
              TwicPics.parse(conn, TwicPics.validate_options!([]))
   end
