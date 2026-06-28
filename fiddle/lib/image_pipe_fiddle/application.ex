@@ -114,7 +114,8 @@ defmodule ImagePipeFiddle.Application do
       sources: [
         path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
       ],
-      allow_debug_headers: true
+      allow_debug_headers: true,
+      allow_origin: "*"
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
     |> ImagePipe.Plug.init()
