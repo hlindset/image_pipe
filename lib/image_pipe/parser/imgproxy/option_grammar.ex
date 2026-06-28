@@ -334,7 +334,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
         args,
         [:interlaced, :quantize, :quantization_colors],
         &png_arg/2,
-        &png_finalize/1,
+        &identity/1,
         segment
       )
 
@@ -383,10 +383,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp jpeg_arg(:progressive, v), do: bool_assign(:interlace, v)
-  # imgproxy no_subsample:false = "subsampling enabled" = libvips default (:auto),
-  # so emit nothing; only the true case forces :off. :on is unreachable in imgproxy.
+  # imgproxy no_subsample:true → subsample off; false → :auto (libvips default,
+  # "subsampling enabled"). We emit the explicit value (not nil) so a present
+  # `0`/`false` can reset an earlier/host-set `:off` — :auto is byte-neutral.
   defp jpeg_arg(:no_subsample, v),
-    do: with({:ok, b} <- boolish(v), do: {:ok, if(b, do: [subsample_mode: :off], else: [])})
+    do: with({:ok, b} <- boolish(v), do: {:ok, [subsample_mode: if(b, do: :off, else: :auto)]})
 
   defp jpeg_arg(:trellis_quant, v), do: bool_assign(:trellis_quant, v)
   defp jpeg_arg(:overshoot_deringing, v), do: bool_assign(:overshoot_deringing, v)
@@ -409,9 +410,12 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
-  defp webp_arg(:compression, "lossy"), do: {:ok, []}
-  defp webp_arg(:compression, "lossless"), do: {:ok, [lossless: true]}
-  defp webp_arg(:compression, "near_lossless"), do: {:ok, [near_lossless: true]}
+  # Emit BOTH bools explicitly so a present `compression` always fully determines
+  # the mode (and can reset an earlier/host-set lossless). `lossy` = both false =
+  # libvips default, byte-neutral.
+  defp webp_arg(:compression, "lossy"), do: {:ok, [lossless: false, near_lossless: false]}
+  defp webp_arg(:compression, "lossless"), do: {:ok, [lossless: true, near_lossless: false]}
+  defp webp_arg(:compression, "near_lossless"), do: {:ok, [lossless: false, near_lossless: true]}
   defp webp_arg(:compression, _), do: :error
   defp webp_arg(:smart_subsample, v), do: bool_assign(:smart_subsample, v)
 
@@ -430,14 +434,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp png_bitdepth(n) when n > 4, do: 4
   defp png_bitdepth(n) when n > 2, do: 2
   defp png_bitdepth(_), do: 1
-
-  # imgproxy computes bitdepth ONLY inside `if (quantize)`. Drop an orphan bitdepth
-  # when palette isn't enabled (e.g. `pngo:::128` ⇒ %PngOptions{}). With palette
-  # true but no colors, leaving bitdepth nil = libvips palette default 8 = 256→8.
-  defp png_finalize(%PngOptions{palette: p, bitdepth: b} = o) when p != true and not is_nil(b),
-    do: %{o | bitdepth: nil}
-
-  defp png_finalize(o), do: o
 
   defp identity(o), do: o
 

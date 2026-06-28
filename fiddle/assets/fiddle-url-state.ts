@@ -1260,9 +1260,15 @@ function assignOptionalInteger<T extends object, K extends keyof T>(
     return true;
   }
 
-  const value = parseNumber(raw);
+  // Match the backend's `Integer.parse/1`: canonical digits only — reject
+  // "3.0", "1e2", and whitespace-padded values the URL parser would 400 on.
+  if (!/^[+-]?\d+$/.test(raw)) {
+    return false;
+  }
 
-  if (value === null || !Number.isInteger(value) || value < lo || value > hi) {
+  const value = Number(raw);
+
+  if (!Number.isInteger(value) || value < lo || value > hi) {
     return false;
   }
 

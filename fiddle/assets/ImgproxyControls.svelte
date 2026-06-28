@@ -285,14 +285,25 @@
     return value === "" ? undefined : (value as T);
   }
 
-  function fromNumberInput(value: string): number | undefined {
-    if (value.trim() === "") {
+  // Canonical bounded integer only — mirrors the backend's `Integer.parse/1`
+  // + range check, so the controls never emit a value the URL parser would 400
+  // on (e.g. 1.5, 1e2, or out-of-range).
+  function fromIntInput(
+    value: string,
+    lo: number,
+    hi: number,
+  ): number | undefined {
+    const trimmed = value.trim();
+
+    if (trimmed === "" || !/^[+-]?\d+$/.test(trimmed)) {
       return undefined;
     }
 
-    const parsed = Number(value);
+    const parsed = Number(trimmed);
 
-    return Number.isFinite(parsed) ? parsed : undefined;
+    return Number.isInteger(parsed) && parsed >= lo && parsed <= hi
+      ? parsed
+      : undefined;
   }
 </script>
 
@@ -1374,7 +1385,7 @@
           onchange={(e) => {
             fiddleState.jpegOptions = {
               ...fiddleState.jpegOptions,
-              quant_table: fromNumberInput(e.currentTarget.value),
+              quant_table: fromIntInput(e.currentTarget.value, 0, 8),
             };
           }}
         />
@@ -1429,7 +1440,7 @@
           onchange={(e) => {
             fiddleState.pngOptions = {
               ...fiddleState.pngOptions,
-              quantization_colors: fromNumberInput(e.currentTarget.value),
+              quantization_colors: fromIntInput(e.currentTarget.value, 2, 256),
             };
           }}
         />

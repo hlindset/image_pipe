@@ -669,8 +669,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
       assert j.trellis_quant == nil
     end
 
-    test "jpgo no_subsample:false leaves subsample_mode unset (libvips :auto)" do
-      assert {:ok, {:output, [encoder_options: %{jpeg: %JpegOptions{subsample_mode: nil}}]}} =
+    test "jpgo no_subsample:false maps to explicit :auto (resettable, byte-neutral)" do
+      assert {:ok, {:output, [encoder_options: %{jpeg: %JpegOptions{subsample_mode: :auto}}]}} =
                OptionGrammar.parse("jpgo::0")
     end
 
@@ -681,15 +681,19 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
                OptionGrammar.parse("pngo::1:128")
     end
 
-    test "pngo quantization_colors without quantize drops bitdepth (orphan)" do
-      assert {:ok, {:output, [encoder_options: %{png: %PngOptions{bitdepth: nil, palette: nil}}]}} =
+    test "pngo emits raw bitdepth at the grammar level (orphan drop happens post-merge)" do
+      assert {:ok, {:output, [encoder_options: %{png: %PngOptions{bitdepth: 8, palette: nil}}]}} =
                OptionGrammar.parse("pngo:::128")
     end
 
-    test "webpo compression near_lossless -> near_lossless bool" do
+    test "webpo compression emits both lossless bools explicitly (resettable)" do
       assert {:ok,
               {:output,
-               [encoder_options: %{webp: %WebpOptions{near_lossless: true, preset: :photo}}]}} =
+               [
+                 encoder_options: %{
+                   webp: %WebpOptions{lossless: false, near_lossless: true, preset: :photo}
+                 }
+               ]}} =
                OptionGrammar.parse("webpo:near_lossless::photo")
     end
 

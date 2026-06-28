@@ -73,14 +73,14 @@ jobs:
             libglib2.0-dev libexpat1-dev libjpeg-turbo8-dev libpng-dev \
             libwebp-dev libtiff-dev libgif-dev libheif-dev librsvg2-dev \
             liborc-0.4-dev liblcms2-dev libjxl-dev libcgif-dev libexif-dev \
-            libheif-plugin-aomenc libheif-plugin-aomdec
+            libheif-plugin-aomenc libheif-plugin-aomdec libimagequant-dev
       - name: Cache libvips build
         id: cache-vips
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.VIPS_PREFIX }}
-          key: vips-${{ runner.os }}-${{ env.VIPS_VERSION }}-jxl-exif-v3
-      - name: Build libvips with JPEG XL
+          key: vips-${{ runner.os }}-${{ env.VIPS_VERSION }}-jxl-exif-quant-v4
+      - name: Build libvips with JPEG XL + PNG quantization
         if: steps.cache-vips.outputs.cache-hit != 'true'
         run: |
           tarball="vips-${VIPS_VERSION}.tar.xz"
@@ -88,13 +88,20 @@ jobs:
           echo "${VIPS_SHA256}  ${tarball}" | sha256sum --check --strict
           tar xJf "${tarball}"
           cd "vips-${VIPS_VERSION}"
-          meson setup build --prefix="${VIPS_PREFIX}" --libdir=lib --buildtype=release
+          # -Dimagequant=enabled: PNG palette quantization (png_options quantize) —
+          # libvips' palette save is a build-time optional, like JXL above.
+          meson setup build --prefix="${VIPS_PREFIX}" --libdir=lib --buildtype=release \
+            -Dimagequant=enabled
           meson compile -C build
           meson install -C build
-      - name: Verify libvips can write JPEG XL
+      - name: Verify libvips can write JPEG XL + quantized PNG
         run: |
           "${VIPS_PREFIX}/bin/vips" --version
           "${VIPS_PREFIX}/bin/vips" -l | grep -iq jxlsave || { echo "JXL save missing from build"; exit 1; }
+          # Functional check: a palette PNG must encode (needs libimagequant).
+          "${VIPS_PREFIX}/bin/vips" black /tmp/q.v 16 16
+          "${VIPS_PREFIX}/bin/vips" pngsave /tmp/q.v /tmp/q.png[palette=true,bitdepth=4] || {
+            echo "PNG palette quantization missing from build"; exit 1; }
       - name: Print versions
         run: mise exec -- elixir --version
       - name: Install Hex

@@ -125,6 +125,15 @@ describe("codec encoder option round-trip", () => {
     expect(parsed.jpegOptions).toEqual({ optimize_scans: true });
   });
 
+  it("rejects non-canonical integers the backend would 400 (3.0, out-of-range)", () => {
+    // "3.0" is not a canonical Integer.parse/1 value; 999 is out of 2..256.
+    const decimal = parseFiddlePath("/pngo:::3.0/plain/local:///images/dog.jpg");
+    expect(decimal.pngOptions.quantization_colors).toBeUndefined();
+
+    const oor = parseFiddlePath("/pngo:::999/plain/local:///images/dog.jpg");
+    expect(oor.pngOptions.quantization_colors).toBeUndefined();
+  });
+
   it("round-trips a full jpgo through build + parse", () => {
     const state = {
       ...defaultFiddleState,
