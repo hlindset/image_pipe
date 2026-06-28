@@ -64,6 +64,22 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     end
   end
 
+  # Serves the high-frequency radial-chirp fixture so encode quality measurably
+  # changes the output byte size (a flat color would compress near-identically
+  # across qualities).
+  defmodule HighFreqOrigin do
+    @moduledoc false
+    @body File.read!("test/support/image_pipe/test/imgproxy_differential/sources/high_freq.jpg")
+
+    def init(opts), do: opts
+
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, @body)
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Mount options
   # ---------------------------------------------------------------------------
@@ -114,6 +130,16 @@ defmodule ImagePipe.Parser.IIIFWireTest do
       sources: [
         path:
           {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: MultiOriginImage]}
+      ]
+    ]
+  end
+
+  defp iiif_opts_quality(origin_plug, quality) do
+    [
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: static_resolver(), quality: quality],
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
       ]
     ]
   end
@@ -668,6 +694,16 @@ defmodule ImagePipe.Parser.IIIFWireTest do
 
       assert conn.status == 200
       assert header(conn, "x-imagepipe-output-format") == nil
+    end
+  end
+
+  describe "host-config quality" do
+    test "a higher configured quality yields larger JPEG bytes" do
+      low = call_iiif("/img/full/400,/0/default.jpg", iiif_opts_quality(HighFreqOrigin, 20))
+      high = call_iiif("/img/full/400,/0/default.jpg", iiif_opts_quality(HighFreqOrigin, 95))
+
+      assert low.status == 200 and high.status == 200
+      assert byte_size(high.resp_body) > byte_size(low.resp_body)
     end
   end
 end

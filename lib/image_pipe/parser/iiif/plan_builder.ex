@@ -53,15 +53,18 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   `source` is an `ImagePipe.Plan.Source.*` struct already resolved by the caller.
   `tokens` is a map with keys `:region`, `:size`, `:rotation`, `:quality`, `:format`
   carrying the typed grammar values produced by `ImagePipe.Parser.IIIF.Grammar`.
-  `opts` accepts `auto_rotate: boolean()` (default `false`), the size-ceiling
-  bounds `max_width`/`max_height`/`max_area`, and `debug?: boolean()` (default
-  `false`) which opts the response into `X-ImagePipe-*` debug headers via
-  `Plan.Response.debug?`.
+  `opts` is the resolved IIIF option keyword (neutral config merged with the
+  dialect keys). It carries `auto_rotate: boolean()` (sourced from the neutral
+  config, default `true`), the size-ceiling bounds
+  `max_width`/`max_height`/`max_area`, and `debug?: boolean()` (default `false`)
+  which opts the response into `X-ImagePipe-*` debug headers via
+  `Plan.Response.debug?`. The resolved neutral config is also stamped onto the
+  `Output` via `ImagePipe.Config.apply_to_output/2`.
   """
   @spec image_plan(ImagePipe.Plan.Source.t(), map(), keyword()) ::
           {:ok, Plan.t()} | {:error, term()}
   def image_plan(source, tokens, opts \\ []) do
-    auto_rotate = Keyword.get(opts, :auto_rotate, false)
+    auto_rotate = Keyword.fetch!(opts, :auto_rotate)
     debug? = Keyword.get(opts, :debug?, false)
     max_width = Keyword.get(opts, :max_width)
 
@@ -77,7 +80,8 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
          {:ok, size_ops} <- size_operations(tokens.size, bounds),
          {:ok, rotation_ops} <- rotation_operations(tokens.rotation),
          {:ok, quality_ops} <- quality_operations(tokens.quality),
-         {:ok, output} <- output_plan(tokens.format) do
+         {:ok, output} <- output_plan(tokens.format),
+         {:ok, output} <- ImagePipe.Config.apply_to_output(output, opts) do
       operations = region_ops ++ size_ops ++ rotation_ops ++ quality_ops
 
       {:ok,
