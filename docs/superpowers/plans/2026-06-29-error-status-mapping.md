@@ -624,15 +624,17 @@ imgproxy's 422 and are **not** claimed as parity here.
 In `docs/iiif_3_support_matrix.md`, the region row (`:29`) and runtime-error row (`:120-122`) currently claim a wholly-out-of-bounds region → **400**, which is **not implemented** (the shared `Crop` op clamps to an edge strip). Correct them to the truthful current behavior and mark the 400 as deferred. Replace the "400 / wholly out of bounds" assertions with:
 
 ```markdown
-> **Out-of-bounds region (deferred):** a region wholly outside the image *should*
-> be 400 per IIIF (spec §41 / spec.md:192), but is **not yet implemented** —
-> the shared `Transform.Operation.Crop` op currently clamps to the nearest
-> in-bounds strip (200). Wiring the 400 must be IIIF-gated (the op is shared with
-> TwicPics, whose region-OOB behavior is undocumented), so it is tracked as a
-> separate follow-up rather than an unconditional change here. The runtime 400
-> for no-`^` upscale *is* implemented (via `{:transform_error, {:bad_request, _}}`
-> routed by `ImagePipe.Response.ErrorStatus`). If a future deployment disables
-> `^` upscaling, the correct status is **501** (`:unsupported_output`), not 400.
+> **Out-of-bounds region (deferred — [#427](https://github.com/hlindset/image_pipe/issues/427)):**
+> a region wholly outside the image *should* be 400 per IIIF (spec §41 /
+> spec.md:192), but is **not yet implemented** — the shared
+> `Transform.Operation.Crop` op currently clamps to the nearest in-bounds strip
+> (200). Wiring the 400 must be IIIF-gated (the op is shared with TwicPics, whose
+> region-OOB behavior is undocumented), tracked in
+> [#427](https://github.com/hlindset/image_pipe/issues/427) rather than made an
+> unconditional change here. The runtime 400 for no-`^` upscale *is* implemented
+> (via `{:transform_error, {:bad_request, _}}` routed by
+> `ImagePipe.Response.ErrorStatus`). If a future deployment disables `^`
+> upscaling, the correct status is **501** (`:unsupported_output`), not 400.
 ```
 
 Update the region table rows (`:29`, `:120-122`) so they no longer assert an implemented 400 for the wholly-outside case — say "clamps to edge (200); spec-400 deferred" instead.
@@ -666,9 +668,11 @@ git commit -m "Satisfy precommit gate for error-status mapping"
 
 Request one final parallel review of the complete diff with a **compatibility (imgproxy) lens** (confirm the source-status table against `fetcher/errors.go`). The shared-`Crop` OOB change is deferred, so TwicPics is not touched by this change — note that for the reviewer. Use `superpowers:requesting-code-review`.
 
-- [ ] **Step 4: (follow-up) File the deferred IIIF OOB-400 issue**
+- [ ] **Step 4: (follow-up) IIIF OOB-400 tracking issue**
 
-A tracking-issue body for the IIIF-gated OOB-400 work is drafted (see the session notes / `docs/superpowers/specs/`); file it so the corrected matrix can link it. Out of band from this code change.
+Filed as [#427](https://github.com/hlindset/image_pipe/issues/427) (IIIF-gated
+`reject_out_of_bounds` policy). The corrected matrix (Task 4 Step 2) links it. No
+action needed in this change.
 
 ---
 
