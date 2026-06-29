@@ -26,7 +26,7 @@ We implement **Level 2**: all of Level 0/1 plus the Level-2-required `regionByPx
 | --- | --- | --- | --- |
 | `full` | — | ✅ | No crop operation. |
 | `square` | `regionSquare` (extra) | ✅ | `Plan.Operation.CropGuided` with `aspect_ratio: {:ratio, 1, 1}`, centered (`{:anchor, :center, :center}`). The validator's `region_square` checks only that the result is square; centered is the chosen (recommended) placement. |
-| `x,y,w,h` | `regionByPx` | ✅ | `Plan.Operation.CropRegion{x: {:px,x}, y: {:px,y}, width: {:px,w}, height: {:px,h}}`. Out-of-bounds is clipped to the image; a region wholly outside, or with `w`/`h` = 0, is a **400**. |
+| `x,y,w,h` | `regionByPx` | ✅ | `Plan.Operation.CropRegion{x: {:px,x}, y: {:px,y}, width: {:px,w}, height: {:px,h}}`. Out-of-bounds is clipped to the image. `w`/`h` = 0 is a parse-time **400**. A region **wholly** outside the image *should* be 400 per IIIF but currently **clamps to the nearest in-bounds edge strip (200)** — the spec-400 is deferred (shared-`Crop` op, must be IIIF-gated; see "Status mapping" and [#427](https://github.com/hlindset/image_pipe/issues/427)). |
 | `pct:x,y,w,h` | `regionByPct` | ✅ | `CropRegion` with `{:ratio, n, d}` coordinates; decimal percents become exact integer ratios (e.g. `10.5` → `{:ratio, 105, 1000}`). |
 
 ## Size (→ `Resize`)
@@ -119,9 +119,12 @@ Emitted from the **display** dimensions (`SourceInfo.display_dimensions/1`, so E
 | --- | --- | --- |
 | Malformed/unsupported region/size/rotation/quality/format token | **400** | parse → `handle_error/2` |
 | Region `w`/`h` = 0; size computes to 0 | **400** | parse |
-| Region wholly out of bounds; explicit-size upscale without `^` | **400** | runtime `{:transform_error, {:bad_request, _}}` → `Sender` (the minimal slice of the customizable error→status mechanism, [#267](https://github.com/hlindset/image_pipe/issues/267)) |
+| Explicit-size upscale without `^` | **400** | runtime `{:transform_error, {:bad_request, :upscale_required}}` → `ImagePipe.Response.ErrorStatus` (the customizable error→status mechanism, [#267](https://github.com/hlindset/image_pipe/issues/267)) |
+| Region wholly out of bounds | **200** (clamps to edge) — spec wants 400; **deferred** ([#427](https://github.com/hlindset/image_pipe/issues/427)) | runtime |
 | Region partial overlap | **200** (clip) | runtime |
 | Unknown identifier (resolver miss); `path_info` shape mismatch (incl. unescaped-slash `a/b`) | **404** | resolver / exact-segment-count dispatch |
+
+> **Out-of-bounds region (deferred — [#427](https://github.com/hlindset/image_pipe/issues/427)):** a region wholly outside the image *should* be **400** per IIIF (spec §41, spec.md:192), but is **not yet implemented** — the shared `Transform.Operation.Crop` op clamps to the nearest in-bounds strip (200). Wiring the 400 must be IIIF-gated (the op is shared with TwicPics, whose region-OOB behavior is undocumented), so it is tracked in [#427](https://github.com/hlindset/image_pipe/issues/427) rather than made an unconditional change. If a future deployment disables `^` upscaling, the correct status for a `^`-upscale request is **501** (Not Implemented, IIIF spec §size), not the `:bad_request` → 400 the no-`^` upscale path uses.
 
 ## Identifier → Source
 
