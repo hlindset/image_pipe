@@ -22,7 +22,10 @@ defmodule ImagePipe.Response.ErrorStatus do
   # Classes a producer may assert as the lead atom of a reason. Deliberately
   # distinct from the core domain reason tags (:bad_status, :connect_error,
   # :decode, :input_limit, :unsupported_output_format, …) so a domain reason can
-  # never be mistaken for a class lead.
+  # never be mistaken for a class lead. Only the tuple form `{class, detail}`
+  # routes by class (see class_lead/1); a *bare* class atom (e.g. a source
+  # adapter returning `{:source, :not_found}`) is treated as a domain reason and
+  # falls through to the domain table / neutral fallback, not auto-routed.
   @leading_classes [
     :bad_request,
     :not_found,
