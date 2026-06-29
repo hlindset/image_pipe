@@ -57,12 +57,24 @@ coarse status. We solve them with **one mechanism**.
   its 400s by *producing* the `:bad_request` class. Per the CLAUDE.md validation
   guideline ("add the validation when the future caller appears"), deferred.
 
-## The class vocabulary
+## Two axes: status (class-keyed) and message (reason-keyed)
+
+Status and message are resolved **independently**, so a small status vocabulary
+coexists with distinct, specific response copy:
+
+- **Status** comes from the class — a small, product-neutral set of classes.
+- **Message** comes from the *reason* — a finer-grained table that keeps copy
+  specific (and may interpolate dynamic detail like an upstream status code),
+  falling back to a class-default string only when no specific row matches.
+
+This avoids collapsing every 422 (or every 404) to one generic body.
+
+### Class → status (the small table)
 
 A small, product-neutral set of client-facing classes. Most are plain atoms;
 `{:passthrough, code}` carries a dynamic upstream status.
 
-| Class | Status | Default message |
+| Class | Status | Class-default message (fallback only) |
 |---|---|---|
 | `:bad_request` | 400 | `bad request` |
 | `:unprocessable` | 422 | `unprocessable image request` |
@@ -75,18 +87,46 @@ A small, product-neutral set of client-facing classes. Most are plain atoms;
 | `:server_error` | 500 | (path-specific: `error encoding image`, `cache error`, `configuration error`, …) |
 | `{:passthrough, code}` | `code` | `upstream error` |
 
+The class-default message is used only when `message_for/1` has no specific row.
+Most reasons *do* have a specific row (see the per-axis message columns below).
+
+### Reason → message (the specific table)
+
+`message_for/1` maps the full reason to user-facing copy. Distinct per reason,
+may interpolate dynamic detail, and is the single reviewable home for response
+body strings.
+
+**Sensitivity guardrail:** messages are generic-but-distinct and must **never
+embed the source URL, query string, or any secret** — the telemetry sensitivity
+rule applies to response bodies too. `"upstream responded 503"` is fine; echoing
+the source URL is not.
+
+### Can a custom message be passed?
+
+Yes, at three levels (prefer the first two):
+
+1. **Centralized `message_for/1` row** (default) — add/edit a reason→message
+   mapping; keeps copy in one Response-layer place. Dynamic interpolation (e.g.
+   the upstream code) lives here.
+2. **Host override** (deferred Option A) — `status_for/2` returns
+   `{status, message}`, so a host customizes status *and* copy.
+3. **Producer-carried message** (e.g. `{:bad_request, {detail, msg}}`) —
+   technically supportable but **discouraged**: it pushes HTTP-response copy into
+   transform/source producers and muddies the boundary. Keep copy in Response.
+
 The class atoms are just atoms in tagged tuples — **producers depend on no new
-module**; only `Sender` knows the class→status table. This mirrors how
-`{:bad_request, _}` already works.
+module**; only `Sender`/`ErrorStatus` knows the class→status and reason→message
+tables. This mirrors how `{:bad_request, _}` already works.
 
 ## Architecture
 
 ### Module home and boundaries
 
 - **`ImagePipe.Response.ErrorStatus`** (new, in the `Response` boundary) owns
-  `classify/1` (reason → class), the default `class → {status, message}` table,
-  and the `resolve_status/2` seam. This same module is where the deferred host
-  `@callback status_for/2` behaviour will later live.
+  `classify/1` (reason → class), `default_status_code/1` (class → status),
+  `message_for/1` (reason → message), and the `resolve_status/2` seam that
+  combines them into `{status, message}`. This same module is where the deferred
+  host `@callback status_for/2` behaviour will later live.
 - Producers (transform ops, `ImagePipe.Source.*`, the session boundary) emit
   plain tagged tuples — **no boundary edges change.** Transform stays
   dependency-free of Response; Response already depends on the neutral
@@ -97,17 +137,19 @@ module**; only `Sender` knows the class→status table. This mirrors how
 ```elixir
 # ImagePipe.Response.ErrorStatus
 def resolve_status(reason) do
-  reason |> classify() |> default_status()
+  status = reason |> classify() |> default_status_code()   # class-keyed (coarse)
+  message = message_for(reason)                            # reason-keyed (specific)
+  {status, message}
 end
 
 # (deferred Option A — the only edit needed to add host override:)
 def resolve_status(reason, opts) do
   class = classify(reason)
   with mod when not is_nil(mod) <- host_policy(opts),
-       {status, msg} <- mod.status_for(class, reason) do
-    {status, msg}
+       {status, message} <- mod.status_for(class, reason) do
+    {status, message}                                       # host customizes both axes
   else
-    _ -> default_status(class)
+    _ -> {default_status_code(class), message_for(reason)}
   end
 end
 ```
@@ -130,16 +172,20 @@ The `{:render, inner}` unwrapping (recursively re-dispatching `:decode`,
 
 ### Transform / plan side (#267)
 
-| Reason | Class | Status | Change |
-|---|---|---|---|
-| `{:transform_error, {:bad_request, _}}` | `:bad_request` | 400 | migrated into vocabulary (was a one-off clause) |
-| `{:transform_error, _other}` | `:unprocessable` | 422 | unchanged |
-| `@plan_validation_error_tags` (`:unprojectable_operation_for_cache_adapter`, `:detector_unavailable`, …) | `:unprocessable` | 422 | unchanged |
-| `:empty_pipeline_plan` | `:unprocessable` | 422 | unchanged |
-| `{:unsupported_output_format, _}` | `:unsupported_output` | 501 | unchanged |
-| `{:decode, _}`, `{:unsupported_source_format, _}`, `:source_format_required` | `:unsupported_media` | 415 | unchanged |
-| `{:input_limit, _}` | `:payload_too_large` | 413 | unchanged |
-| `{:encode, _}` / `{:cache_write, _}` / `{:config, _}` | `:server_error` | 500 | unchanged (keeps stacktrace logging) |
+| Reason | Class | Status | Message (`message_for/1`) | Change |
+|---|---|---|---|---|
+| `{:transform_error, {:bad_request, _}}` | `:bad_request` | 400 | `bad request` (or a per-detail row, e.g. upscale) | migrated into vocabulary (was a one-off clause) |
+| `{:transform_error, _other}` | `:unprocessable` | 422 | `invalid image transform` | unchanged |
+| `@plan_validation_error_tags` (`:unprojectable_operation_for_cache_adapter`, `:detector_unavailable`, …) | `:unprocessable` | 422 | `invalid image transform` | unchanged |
+| `:empty_pipeline_plan` | `:unprocessable` | 422 | `invalid image transform` | unchanged |
+| `{:unsupported_output_format, _}` | `:unsupported_output` | 501 | `requested output format is not supported by this server` | unchanged |
+| `{:decode, _}`, `{:unsupported_source_format, _}`, `:source_format_required` | `:unsupported_media` | 415 | `source response is not a supported image` | unchanged |
+| `{:input_limit, _}` | `:payload_too_large` | 413 | `source image is too large` | unchanged |
+| `{:encode, _}` / `{:cache_write, _}` / `{:config, _}` | `:server_error` | 500 | `error encoding image` / `cache error` / `configuration error` | unchanged (keeps stacktrace logging) |
+
+Today's two transform/source bodies (`invalid image transform`,
+`invalid image source`) are **preserved as distinct** reason-keyed messages —
+the reason-keyed table is exactly what prevents them collapsing to one string.
 
 ### Source side (#160) — imgproxy-shaped default
 
@@ -148,17 +194,20 @@ prepare path, as session reasons — see next table). Current reasons produced b
 `ImagePipe.Source.ReqStream` / `WrappedStream` are already distinct and carry
 the upstream code, so plumbing is light.
 
-| Source reason | Class | Status | imgproxy parity |
-|---|---|---|---|
-| `:connect_error` (unreachable / unknown scheme) | `:not_found` | 404 | ✅ 404 |
-| `:too_many_redirects`, `:redirect_not_followed`, `:invalid_redirect` | `:not_found` | 404 | ✅ 404 |
-| `{:bad_status, code}`, `code in 400..499` | `{:passthrough, code}` | echo `code` | ✅ passthrough |
-| `{:bad_status, code}`, `code in 500..599` | `:bad_gateway` | 502 | ✅ 502 |
-| `{:bad_status, code}`, other | `:bad_gateway` | 502 | fallback |
-| `:receive_timeout` | `:gateway_timeout` | 504 | ✅ 504 |
-| `:body_too_large` | `:unprocessable` | 422 | ✅ 422 (oversized) |
-| `:invalid_body`, `:invalid_stream_chunk`, `:stream_exception` | `:unprocessable` | 422 | ✅ 422 (incomplete) |
-| `:invalid_adapter_result`, `:invalid_adapter_config` | `:server_error` | 500 | host-adapter misconfig, not a fetch class |
+| Source reason | Class | Status | Message (`message_for/1`) | imgproxy parity |
+|---|---|---|---|---|
+| `:connect_error` (unreachable / unknown scheme) | `:not_found` | 404 | `source unreachable` | ✅ 404 |
+| `:too_many_redirects`, `:redirect_not_followed`, `:invalid_redirect` | `:not_found` | 404 | `too many redirects` / `redirect not followed` / `invalid redirect` | ✅ 404 |
+| `{:bad_status, code}`, `code in 400..499` | `{:passthrough, code}` | echo `code` | `upstream responded #{code}` | ✅ passthrough |
+| `{:bad_status, code}`, `code in 500..599` | `:bad_gateway` | 502 | `upstream responded #{code}` | ✅ 502 |
+| `{:bad_status, code}`, other | `:bad_gateway` | 502 | `upstream responded #{code}` | fallback |
+| `:receive_timeout` | `:gateway_timeout` | 504 | `source timeout` | ✅ 504 |
+| `:body_too_large` | `:unprocessable` | 422 | `source image is too large` | ✅ 422 (oversized) |
+| `:invalid_body`, `:invalid_stream_chunk`, `:stream_exception` | `:unprocessable` | 422 | `incomplete source response` | ✅ 422 (incomplete) |
+| `:invalid_adapter_result`, `:invalid_adapter_config` | `:server_error` | 500 | `configuration error` | host-adapter misconfig, not a fetch class |
+
+Messages stay generic-but-distinct and never embed the source URL —
+`upstream responded #{code}` carries the upstream status, not its location.
 
 Judgment calls (confirmed in brainstorming): **4xx passthrough = yes** (echo the
 upstream code); **`:body_too_large` stays 422** to match imgproxy's
@@ -221,10 +270,15 @@ each changed family, per the CLAUDE.md test guidelines:
 - **Session timeout:** a trickling origin that outlives `receive_timeout` per
   message but trips the session call timeout → **504**, not 500; assert session
   stopped / producer killed (monitor + `:DOWN`), no `Process.sleep`.
-- **Classifier unit:** `ErrorStatus.classify/1` + `resolve_status/1` table —
-  every class → expected `{status, message}`, including `{:passthrough, code}`
-  echoing arbitrary codes. Keep it a focused example test; no impossible-misuse
-  struct building.
+- **Classifier unit:** `ErrorStatus.resolve_status/1` — every reason → expected
+  `{status, message}`, asserting both axes: the class-keyed status *and* the
+  reason-keyed message (including `{:bad_status, code}` echoing the code into
+  both the passthrough status and the `upstream responded #{code}` message, and
+  that the two transform/source 422 bodies remain distinct). Keep it a focused
+  example test; no impossible-misuse struct building.
+- **Wire message assertions:** the representative wire tests above assert the
+  response *body* too, pinning that distinct reasons keep distinct copy and that
+  no message embeds a source URL.
 - **No** post-migration parity/characterization pins (deleted once green per
   CLAUDE.md).
 
