@@ -181,9 +181,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
     end
   end
 
-  defp size_operations({:pct, {:ratio, num, den}, up?}, bounds) do
-    zoom = num / den
-
+  defp size_operations({:pct, {:ratio, _num, _den} = zoom, up?}, bounds) do
     with {:ok, op} <-
            Operation.resize(
              :fit,

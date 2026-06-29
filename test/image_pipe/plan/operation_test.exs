@@ -110,6 +110,14 @@ defmodule ImagePipe.Plan.OperationTest do
                )
     end
 
+    test "accept an exact ratio zoom and canonicalize it" do
+      assert {:ok, %Resize{zoom_x: {:ratio, 41, 200}, zoom_y: {:ratio, 1, 2}}} =
+               Operation.resize(:fit, :auto, :auto,
+                 zoom_x: {:ratio, 205, 1000},
+                 zoom_y: {:ratio, 50, 100}
+               )
+    end
+
     test "reject malformed resize construction without raising" do
       assert Operation.resize(:fill, {:px, 300}, :auto) ==
                {:error, {:invalid_operation, :resize, [:fill, {:px, 300}, :auto, []]}}
@@ -132,6 +140,10 @@ defmodule ImagePipe.Plan.OperationTest do
 
       assert Operation.resize(:fit, {:px, 300}, :auto, zoom_x: 0) ==
                {:error, {:invalid_operation, :resize, [:fit, {:px, 300}, :auto, [zoom_x: 0]]}}
+
+      assert Operation.resize(:fit, {:px, 300}, :auto, zoom_x: {:ratio, 0, 1}) ==
+               {:error,
+                {:invalid_operation, :resize, [:fit, {:px, 300}, :auto, [zoom_x: {:ratio, 0, 1}]]}}
 
       assert Operation.resize(:cover, {:px, 300}, {:px, 200}, x_offset: {:scale, :bad}) ==
                {:error,

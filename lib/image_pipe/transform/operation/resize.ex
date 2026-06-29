@@ -27,6 +27,10 @@ defmodule ImagePipe.Transform.Operation.Resize do
 
   @type pixels() :: {:pixels, non_neg_integer() | float()}
   @type dimension() :: :auto | pixels() | {:ratio, pos_integer(), pos_integer()}
+  # A zoom factor is a positive number or an exact positive ratio. The ratio form
+  # carries IIIF `pct:n` so the multiply (`apply_zoom`/`result_box_axis`) stays
+  # exact at a rounding tie on the derived axis (#317).
+  @type zoom() :: float() | {:ratio, pos_integer(), pos_integer()}
   @type mode() :: :fit | :fill | :fill_down | :force
 
   @type t :: %__MODULE__{
@@ -35,8 +39,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
           height: dimension(),
           min_width: pixels() | nil,
           min_height: pixels() | nil,
-          zoom_x: float(),
-          zoom_y: float(),
+          zoom_x: zoom(),
+          zoom_y: zoom(),
           dpr: float(),
           enlarge: boolean(),
           reject_enlargement: boolean(),
@@ -222,7 +226,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   defp result_box_axis(:auto, _zoom, _effective_dpr), do: :auto
 
   defp result_box_axis(value, zoom, effective_dpr),
-    do: positive_round(value * zoom * effective_dpr)
+    do: positive_round(zoom_axis(value, zoom) * effective_dpr)
 
   defp resize_image(%State{} = state, width, height) do
     source_width = image_width(state)
@@ -284,6 +288,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   defp normalize_min_dimension({:pixels, value}), do: positive_round(value)
 
   defp normalize_factor(nil, default), do: default
+  defp normalize_factor({:ratio, _n, _d} = ratio, _default), do: ratio
   defp normalize_factor(value, _default), do: value * 1.0
 
   defp resolve_base_dimensions(%__MODULE__{width: :auto, height: :auto} = operation, source) do
@@ -341,8 +346,13 @@ defmodule ImagePipe.Transform.Operation.Resize do
   end
 
   defp apply_zoom(%{width: width, height: height}, %__MODULE__{zoom_x: zoom_x, zoom_y: zoom_y}) do
-    %{width: width * zoom_x, height: height * zoom_y}
+    %{width: zoom_axis(width, zoom_x), height: zoom_axis(height, zoom_y)}
   end
+
+  # An exact ratio multiplies as `length * n / d` (numerator first, so the rational
+  # is exact before the final round); a plain factor multiplies directly.
+  defp zoom_axis(length, {:ratio, n, d}), do: length * n / d
+  defp zoom_axis(length, factor), do: length * factor
 
   defp effective_dpr(%__MODULE__{enlarge: true, dpr: dpr}, _base, _source, _opts), do: dpr
   defp effective_dpr(%__MODULE__{dpr: 1.0}, _base, _source, _opts), do: 1.0
@@ -383,8 +393,12 @@ defmodule ImagePipe.Transform.Operation.Resize do
   defp scaled_min(value, effective_dpr), do: positive_round(value * effective_dpr)
 
   defp factor_requested?(%__MODULE__{} = operation) do
-    operation.zoom_x != 1.0 or operation.zoom_y != 1.0 or operation.dpr != 1.0
+    not unit_zoom?(operation.zoom_x) or not unit_zoom?(operation.zoom_y) or operation.dpr != 1.0
   end
+
+  defp unit_zoom?({:ratio, n, n}), do: true
+  defp unit_zoom?({:ratio, _n, _d}), do: false
+  defp unit_zoom?(value), do: value == 1.0
 
   defp target_dimensions(_mode, %{width: :auto, height: :auto}, nil, _source, _enlarge),
     do: %{width: :auto, height: :auto}

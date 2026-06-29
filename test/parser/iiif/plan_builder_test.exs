@@ -123,7 +123,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
       })
   end
 
-  test "size pct emits resize fit with zoom" do
+  test "size pct emits resize fit with exact (canonicalized) ratio zoom" do
     {:ok, %Plan{pipelines: [%{operations: [%Resize{zoom_x: zoom_x, zoom_y: zoom_y}]}]}} =
       build(%{
         region: :full,
@@ -133,8 +133,8 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
         format: :png
       })
 
-    assert_in_delta zoom_x, 0.5, 0.0001
-    assert_in_delta zoom_y, 0.5, 0.0001
+    assert zoom_x == {:ratio, 1, 2}
+    assert zoom_y == {:ratio, 1, 2}
   end
 
   test "rotation 180 emits rotate op" do

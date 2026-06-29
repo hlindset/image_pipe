@@ -190,10 +190,15 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # safe direction: if the resize later clamps dpr down to fit the source, the real
   # target is smaller, so this only ever under-shrinks.
   defp target_extent(dim, %PlanResize{dpr: {:ratio, n, d}, zoom_x: zoom_x}, :x),
-    do: dim * (n / d) * zoom_x
+    do: dim * (n / d) * zoom_factor(zoom_x)
 
   defp target_extent(dim, %PlanResize{dpr: {:ratio, n, d}, zoom_y: zoom_y}, :y),
-    do: dim * (n / d) * zoom_y
+    do: dim * (n / d) * zoom_factor(zoom_y)
+
+  # A ratio zoom collapses to its float value here: this over-estimates the residual
+  # target only to bound the shrink-on-load factor, so exactness is not required.
+  defp zoom_factor({:ratio, n, d}), do: n / d
+  defp zoom_factor(factor), do: factor
 
   # Append the format-appropriate load option when load_shrink > 1.
   defp append_load_option(base, :jpeg, load_shrink) do
