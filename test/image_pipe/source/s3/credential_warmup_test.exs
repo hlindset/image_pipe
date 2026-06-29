@@ -1,10 +1,12 @@
 defmodule ImagePipe.Source.S3.CredentialWarmupTest do
-  # async: false on purpose: the supervised worker warms once in handle_continue
-  # then stops :normal, so the only sync point is its own scheduling. Under a
-  # loaded async suite the worker can be starved past the assert_receive window
-  # (issue #414). There is nothing to :sys.get_state on — the process is already
-  # gone by the time the continue returns — so removing suite contention is the
-  # fix, not a longer timeout.
+  # async: false reduces suite contention so the supervised worker isn't starved
+  # before it warms (issue #414). But the post-warm teardown — the gap between the
+  # provider running and the worker's :normal stop DOWN — is a separate wall-clock
+  # wait that runner-wide scheduler steal can still push past the global 2s budget
+  # even with async: false (issue #425). That DOWN is a guaranteed-arrival message
+  # (the worker always returns {:stop, :normal, ...}); the passing path delivers it
+  # near-instantly, so the explicit slack on it below is only a ceiling for a slow
+  # runner, never a cost on success.
   use ExUnit.Case, async: false
 
   alias ImagePipe.Source.S3.Credentials
@@ -29,8 +31,9 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
 
     ref = Process.monitor(pid)
     assert_receive {:warmed, ^scope}
-    # the worker warms once then stops :normal
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    # the worker warms once then stops :normal; give the teardown DOWN generous
+    # slack so a slow runner doesn't flake it (issue #425).
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
 
     # cache is warm: fetching does not invoke the provider again
     assert {:ok, _} = Credentials.fetch(scope, {:provider, OnceProvider, opts}, [])
