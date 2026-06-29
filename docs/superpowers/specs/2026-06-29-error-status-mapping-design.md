@@ -2,7 +2,7 @@
 
 **Issue:** [#267](https://github.com/hlindset/image_pipe/issues/267) (transform side) unified with [#160](https://github.com/hlindset/image_pipe/issues/160) (source side)
 **Date:** 2026-06-29
-**Status:** design approved, pending spec review
+**Status:** design approved (revised after 4-lens parallel review), pending final spec review
 
 ## Problem
 
@@ -20,59 +20,70 @@ status that loses information already carried in the reason:
   **422 "invalid image source"**, whereas upstream imgproxy (the primary compat
   target) returns a range of codes by failure class (404 / 502 / 504 / 4xx
   passthrough). The distinguishing reason is already carried in the
-  `{:source, reason}` tag but flattened at the mapping. Separately, a
-  trickling-origin timeout is rewrapped as `{:encode, _}` → **500**, losing its
-  source-liveness identity (it should be 504).
+  `{:source, reason}` tag but flattened at the mapping.
 
 These are the same problem on two paths: a rich internal reason collapsed to a
 coarse status. We solve them with **one mechanism**.
 
 ## Decision summary
 
-1. **Mechanism — a neutral, status-bearing *client-error class* carried in
-   failure reasons.** This is the principled generalization of the existing
-   `{:bad_request, _}` → 400 slice. A producing layer (transform op, parser,
-   source) expresses *intent* by the reason it emits; `Sender` resolves every
-   reason through **one** classifier → default-status table.
-2. **Unify #267 and #160** in this change: both paths route through the same
-   classifier. Source reasons get a per-class default table; the
-   session boundary preserves source identity instead of rewrapping to
-   `{:encode, _}`.
-3. **Source default table is imgproxy-shaped** (incl. upstream-4xx passthrough).
-   imgproxy is the primary compat target, so the *neutral* default matches it —
-   native and imgproxy agree, and **no host config is required** today.
-4. **Host override (Option A) is deferred**, but the design lands the single
-   seam (`resolve_status/2`) it slots into, so adding it later touches only that
-   function plus a new behaviour module and option validation — **zero changes
-   to producers, the class vocabulary, or the default table.**
+1. **Mechanism — an internal, status-bearing *client-error class*** carried in
+   failure reasons. This generalizes the existing `{:bad_request, _}` → 400
+   slice. A producing layer (transform op, parser, source) expresses *intent* by
+   the reason it emits; `Sender` resolves every reason through **one** classifier
+   → status table. The class set is an HTTP-response concern and lives in
+   `Response`, not a "neutral vocabulary" reusable elsewhere (see Architecture).
+2. **Unify #267 and #160** through that one classifier. Both the transform path
+   and the source path route through it, including the two *separate* source-error
+   rendering sites (streaming and resolve-time — see "Two source-error paths").
+3. **Source default table is imgproxy-shaped** (incl. upstream-4xx passthrough),
+   verified line-for-line against imgproxy `fetcher/errors.go` /
+   `imagedata/errors.go`. imgproxy is the primary compat target, so the default
+   matches it — native and imgproxy agree, **no host config required** today.
+4. **Wire one non-`Resize` producer now: IIIF out-of-bounds-region → 400.** This
+   proves the vocabulary generalizes past the lone `Resize` producer and fixes a
+   live doc-vs-code mismatch (the IIIF matrix already promises 400; `crop.ex`
+   returns 422). See "New producer".
+5. **Host override (Option A) is deferred**, but the design threads `opts`
+   through the call chain and lands the `resolve_status/2` seam **now**, so
+   adding it later touches only that function plus a behaviour module and option
+   validation — no further `Sender` call-chain edits.
 
-### Rejected alternatives
+### Rejected / out-of-scope
 
-- **Parser-attached error policy on the `Plan`.** Clean for parser-originated
-  quirks (IIIF), but source-transport failures originate in
-  `ImagePipe.Source.*`, not the parser — a plan-attached policy would declare
-  statuses for failures it doesn't produce. Fails the unify-#160 requirement.
-- **Shipping the host `error_status` behaviour now.** No concrete consumer:
-  native and imgproxy both want the imgproxy-shaped table, and IIIF expresses
-  its 400s by *producing* the `:bad_request` class. Per the CLAUDE.md validation
-  guideline ("add the validation when the future caller appears"), deferred.
+- **Parser-attached error policy on the `Plan`** — clean for parser-originated
+  quirks (IIIF) but source-transport failures originate in `ImagePipe.Source.*`,
+  not the parser; fails the unify-#160 requirement.
+- **Shipping the host `error_status` behaviour now** — no concrete consumer:
+  native and imgproxy both want the imgproxy-shaped table, and IIIF expresses its
+  400s by *producing* `:bad_request`. Per the CLAUDE.md validation guideline,
+  deferred.
+- **The 60s `{:session, :timeout}` backstop stays 500, out of scope.** The #160
+  trickling-origin case does **not** reach this reason (see "Session boundary");
+  this backstop is a genuinely wedged session (e.g. a stuck encode), classified
+  as an internal error. Its `normalize_session_prepare_error/1` handling is
+  left untouched.
+- **IIIF unsupported-format-token → 400** remains deferred (a parse-time path,
+  separable from the runtime classifier). Only the runtime OOB-region producer
+  is wired here.
 
 ## Two axes: status (class-keyed) and message (reason-keyed)
 
-Status and message are resolved **independently**, so a small status vocabulary
-coexists with distinct, specific response copy:
+Status and message are resolved **independently**:
 
-- **Status** comes from the class — a small, product-neutral set of classes.
-- **Message** comes from the *reason* — a finer-grained table that keeps copy
-  specific (and may interpolate dynamic detail like an upstream status code),
-  falling back to a class-default string only when no specific row matches.
+- **Status** comes from the class — a small set keyed for the host-override seam.
+- **Message** comes from the *reason* — a finer table keeping copy specific (and
+  interpolating dynamic detail like an upstream status code), falling back to a
+  class-default string only when no specific row matches.
 
-This avoids collapsing every 422 (or every 404) to one generic body.
+The driver for keying them separately is **override granularity**, not
+vocabulary size: status is the axis the deferred host behaviour overrides
+(by class), while message rendering stays centralized in Response. A single
+`reason → {status, message}` table would not give that seam a stable, small,
+host-facing key. The class layer earns its place via (a) that host seam and
+(b) `{:passthrough, code}`, whose status *is* the carried code — not via dedup.
 
 ### Class → status (the small table)
-
-A small, product-neutral set of client-facing classes. Most are plain atoms;
-`{:passthrough, code}` carries a dynamic upstream status.
 
 | Class | Status | Class-default message (fallback only) |
 |---|---|---|
@@ -84,65 +95,60 @@ A small, product-neutral set of client-facing classes. Most are plain atoms;
 | `:payload_too_large` | 413 | `source image is too large` |
 | `:unsupported_media` | 415 | `source response is not a supported image` |
 | `:unsupported_output` | 501 | `requested output format is not supported by this server` |
-| `:server_error` | 500 | (path-specific: `error encoding image`, `cache error`, `configuration error`, …) |
-| `{:passthrough, code}` | `code` | `upstream error` |
+| `:server_error` | 500 | (path-specific: `error encoding image`, `cache error`, `configuration error`) |
+| `{:passthrough, code}` | `code` (clamped, see below) | `upstream error` |
 
-The class-default message is used only when `message_for/1` has no specific row.
-Most reasons *do* have a specific row (see the per-axis message columns below).
+**`{:passthrough, code}` valid-range guard (BLOCKER fix).** `classify/1` emits
+`{:passthrough, code}` **only** when `code in 400..499` (matching imgproxy's
+4xx-passthrough). `default_status_code/1` defensively floors:
+`code when code in 100..599 -> code; _ -> 502`, so `Sender` can never hand
+`Plug.Conn.send_resp/3` an out-of-range status even if a future producer
+mis-tags. The range is stated explicitly so the guard is intentional, not
+incidental.
 
 ### Reason → message (the specific table)
 
-`message_for/1` maps the full reason to user-facing copy. Distinct per reason,
-may interpolate dynamic detail, and is the single reviewable home for response
-body strings.
+`message_for/1` maps the full reason to user-facing copy — distinct per reason,
+may interpolate dynamic detail, the single reviewable home for response bodies.
 
 **Sensitivity guardrail:** messages are generic-but-distinct and must **never
-embed the source URL, query string, or any secret** — the telemetry sensitivity
-rule applies to response bodies too. `"upstream responded 503"` is fine; echoing
-the source URL is not.
+embed the source URL, query string, or any secret**. The reason tuples carry no
+URL (the URL lives in `req_options`, never in the reason — confirmed across
+`ReqStream`/`WrappedStream`/`Source`), so `"upstream responded 503"` is safe;
+host-adapter reasons are treated as untrusted (below).
 
 ### Can a custom message be passed? Producers carry *detail as data*, not prose
 
-The dividing line is **not** HTTP coupling — a producer is already across that
-line the moment it emits a class like `:bad_request` (an HTTP-semantic
-category). The line is **data vs. prose**:
+The line is **not** HTTP coupling — a producer is already across it the moment it
+emits a class like `:bad_request`. The line is **data vs. prose**:
 
 - A class and a *detail atom* are a closed, enumerable vocabulary
-  (`:bad_request`, `:upscale_required`, `{:bad_status, code}`) — classification
-  reduced to data, reviewable as a bounded set.
-- A message string is open-ended *copy* — a product/UX surface. Scattering prose
-  across producers causes wording drift, removes the single place to audit tone,
-  and defeats the no-URL/no-secret check.
+  (`:bad_request`, `:region_out_of_bounds`, `{:bad_status, code}`) —
+  classification reduced to data, reviewable as a bounded set.
+- A message string is open-ended *copy*. Scattering prose across producers causes
+  wording drift, removes the single audit point, and defeats the no-URL check.
 
 A producer expresses specificity by carrying **structured detail**, and
-`message_for/1` renders the copy from it — so messages are as specific as the
-producer's knowledge, with **no prose in producers**:
+`message_for/1` renders the copy from it — no prose in producers:
 
 ```elixir
 # producer (transform op) emits data, not a string:
-{:error, {:bad_request, :upscale_required}}
+{:error, {:bad_request, :region_out_of_bounds}}
 
 # Response owns the copy, keyed on that detail (interpolating dynamic bits):
-def message_for({:transform_error, {:bad_request, :upscale_required}}),
-  do: "upscaling requires the ^ prefix"
+def message_for({:transform_error, {:bad_request, :region_out_of_bounds}}),
+  do: "requested region is outside the image"
 def message_for({:source, {:bad_status, code}}), do: "upstream responded #{code}"
 ```
 
-So a custom message is "passed" by adding/extending a `message_for/1` row keyed
-on the producer's detail — copy stays centralized and audit-able. The deferred
-host override (`status_for/2` → `{status, message}`) is the second avenue, for
-hosts that want to customize both axes.
+A custom message is "passed" by adding a `message_for/1` row keyed on the
+producer's detail; the deferred host override (`status_for/2 → {status,
+message}`) is the second avenue.
 
 **Host source-adapter reasons are untrusted input, not a prose channel.** A host
-`ImagePipe.Source` adapter may return an arbitrary error reason containing a
-third-party message; that string is **not echoed verbatim** into the response
-body (it could embed a URL or credential). Such reasons map through
-`message_for/1` to a neutral message like any other; surfacing adapter copy
-would be a separate, explicitly-designed, scrubbed opt-in.
-
-The class atoms are just atoms in tagged tuples — **producers depend on no new
-module**; only `Sender`/`ErrorStatus` knows the class→status and reason→message
-tables. This mirrors how `{:bad_request, _}` already works.
+`ImagePipe.Source` adapter may return an arbitrary error reason; its string is
+**not echoed verbatim** (could embed a URL/credential). Such reasons map through
+`message_for/1`'s catch-all to a neutral message like any other.
 
 ## Architecture
 
@@ -151,193 +157,271 @@ tables. This mirrors how `{:bad_request, _}` already works.
 - **`ImagePipe.Response.ErrorStatus`** (new, in the `Response` boundary) owns
   `classify/1` (reason → class), `default_status_code/1` (class → status),
   `message_for/1` (reason → message), and the `resolve_status/2` seam that
-  combines them into `{status, message}`. This same module is where the deferred
-  host `@callback status_for/2` behaviour will later live.
-- Producers (transform ops, `ImagePipe.Source.*`, the session boundary) emit
-  plain tagged tuples — **no boundary edges change.** Transform stays
-  dependency-free of Response; Response already depends on the neutral
-  `ImagePipe.Error`.
+  combines them into `{status, message}`. Everything here is HTTP-coupled
+  (status integers, response copy); it is **not** a neutral vocabulary and does
+  not belong in `ImagePipe.Error`. This same module is where the deferred host
+  `@callback status_for/2` will live.
+- **Do not export `ErrorStatus`** from the `Response` boundary. Only `Sender`
+  (same boundary) and the unit test call it; keep the boundary narrow. The unit
+  test must not force an export.
+- Producers (transform ops, `ImagePipe.Source.*`) emit plain tagged tuples — **no
+  boundary edges change.** Verified: `transform/chain.ex:77` wraps an op's
+  `{:error, {:bad_request, _}}` into `{:transform_error, …}`; the `Transform`
+  boundary (`deps: [Plan, Telemetry]`) has no edge to `Response`. Source emits
+  `{:source, reason}` likewise.
 
-### The seam
+### Total classification (unrecognized-reason fallback)
+
+`classify/1` must be **total**. Host source adapters are an untrusted boundary
+(CLAUDE.md: "Return values from host-implementable behaviours") and may return
+arbitrary `{:source, reason}`:
+
+- Enumerated adapter-wiring reasons — `:invalid_adapter_result`,
+  `:invalid_adapter_config`, `:missing_adapter` → `:server_error` (500).
+- **Any other / unrecognized `{:source, reason}`** → `:unprocessable` (422),
+  the safe neutral default (today's behavior).
+- Any other unrecognized top-level reason → `:server_error` (500).
+
+These catch-alls are legitimate boundary handling (untrusted host return), **not**
+impossible-misuse guards — they exist because a real external caller can produce
+the value.
+
+### The seam (opts threaded now)
+
+`Sender.handle_processing_error/3` takes no `opts` today, and the error clause in
+`send_result/3` drops `_opts`. To make Option A genuinely local later, **thread
+`opts` now**: `send_result → handle_processing_error → resolve_status`. We call
+the `/2` arity today with no host policy.
 
 ```elixir
 # ImagePipe.Response.ErrorStatus
-def resolve_status(reason) do
-  status = reason |> classify() |> default_status_code()   # class-keyed (coarse)
-  message = message_for(reason)                            # reason-keyed (specific)
-  {status, message}
-end
-
-# (deferred Option A — the only edit needed to add host override:)
-def resolve_status(reason, opts) do
+def resolve_status(reason, opts \\ []) do
   class = classify(reason)
-  with mod when not is_nil(mod) <- host_policy(opts),
+  with mod when not is_nil(mod) <- host_policy(opts),   # nil today
        {status, message} <- mod.status_for(class, reason) do
-    {status, message}                                       # host customizes both axes
+    {status, message}
   else
     _ -> {default_status_code(class), message_for(reason)}
   end
 end
 ```
 
-`Sender.handle_processing_error/3` collapses its pure status-mapping clauses
-into: `classify → resolve_status → send (headers + content-type + status +
-message)`. The reason→class mapping preserves every current status (see tables
-below); only the transform-default and source families change behavior.
+When Option A ships, the only edits are: implement `host_policy/1` (read +
+validate the mount option) and add the `@callback status_for/2`. The `class`
+type then becomes a **public, stable** host-facing type (incl. `{:passthrough,
+code}`) — a deliberate API commitment noted now. The host gets `{status,
+message}` control of both axes (it cannot partially override status-only while
+keeping our interpolated message — acceptable for the deferred design).
 
 ### What stays special (NOT folded into the pure mapping)
 
-The encode/render *exception* paths do more than pick a status — they log a
-stacktrace and `mark_send_processing_error/1` (conn private). They keep their
-current structure; the classifier unifies only the **pure** status mappings
-(transform, source, decode, input-limit, plan-validation, unsupported-output).
-The `{:render, inner}` unwrapping (recursively re-dispatching `:decode`,
-`:source`, `:input_limit`, … inner reasons) is preserved.
+The encode/render *exception* paths log a stacktrace and
+`mark_send_processing_error/1` (conn private). They keep their current structure;
+the classifier unifies only the **pure** status mappings. The `{:render, inner}`
+unwrapping stays a **pre-classify dispatch arm** that recursively re-enters
+`handle_processing_error` (so `{:render, {:source, :receive_timeout}}` resolves
+via the inner `{:source, _}` → 504); it must not be collapsed into
+`classify({:render, …})`.
+
+## Two source-error paths (BLOCKER fix)
+
+Source failures render at **two** sites; both must route through the new table:
+
+1. **Streaming/prepare path** — reaches `handle_processing_error(conn, {:source,
+   error}, …)` → delegates to `send_source_error/3`.
+2. **Resolve-time path** — `plug.ex:121` calls `Sender.send_source_error(conn,
+   error)` **directly**, bypassing `handle_processing_error`; today a standalone
+   `send_resp(422, "invalid image source")`.
+
+Fix: rewrite **`send_source_error/3` itself** to `resolve_status({:source,
+error}, opts)` and render from that. Both call sites then get the imgproxy-shaped
+table. Otherwise #160 is only half-fixed (streaming path gets new codes, resolve
+path stays 422).
 
 ## Mapping tables
 
 ### Transform / plan side (#267)
 
-| Reason | Class | Status | Message (`message_for/1`) | Change |
+| Reason | Class | Status | Message | Change |
 |---|---|---|---|---|
-| `{:transform_error, {:bad_request, _}}` | `:bad_request` | 400 | `bad request` (or a per-detail row, e.g. upscale) | migrated into vocabulary (was a one-off clause) |
+| `{:transform_error, {:bad_request, :upscale_required}}` | `:bad_request` | 400 | `upscaling requires the ^ prefix` | migrated into vocabulary |
+| `{:transform_error, {:bad_request, :region_out_of_bounds}}` | `:bad_request` | 400 | `requested region is outside the image` | **new producer** (see below) |
+| `{:transform_error, {:bad_request, _}}` (other detail) | `:bad_request` | 400 | `bad request` | generalized |
 | `{:transform_error, _other}` | `:unprocessable` | 422 | `invalid image transform` | unchanged |
-| `@plan_validation_error_tags` (`:unprojectable_operation_for_cache_adapter`, `:detector_unavailable`, …) | `:unprocessable` | 422 | `invalid image transform` | unchanged |
-| `:empty_pipeline_plan` | `:unprocessable` | 422 | `invalid image transform` | unchanged |
+| `@plan_validation_error_tags`, `:empty_pipeline_plan` | `:unprocessable` | 422 | `invalid image transform` | unchanged |
 | `{:unsupported_output_format, _}` | `:unsupported_output` | 501 | `requested output format is not supported by this server` | unchanged |
 | `{:decode, _}`, `{:unsupported_source_format, _}`, `:source_format_required` | `:unsupported_media` | 415 | `source response is not a supported image` | unchanged |
 | `{:input_limit, _}` | `:payload_too_large` | 413 | `source image is too large` | unchanged |
-| `{:encode, _}` / `{:cache_write, _}` / `{:config, _}` | `:server_error` | 500 | `error encoding image` / `cache error` / `configuration error` | unchanged (keeps stacktrace logging) |
+| `{:encode, _}` / `{:cache_write, _}` / `{:config, _}` | `:server_error` | 500 | path-specific | unchanged (keeps stacktrace logging) |
 
-Today's two transform/source bodies (`invalid image transform`,
-`invalid image source`) are **preserved as distinct** reason-keyed messages —
-the reason-keyed table is exactly what prevents them collapsing to one string.
+Today's two bodies (`invalid image transform`, `invalid image source`) are
+**preserved as distinct** reason-keyed messages.
 
 ### Source side (#160) — imgproxy-shaped default
 
-Source reasons reach `Sender` as `{:source, reason}` (and, for the streaming
-prepare path, as session reasons — see next table). Current reasons produced by
-`ImagePipe.Source.ReqStream` / `WrappedStream` are already distinct and carry
+Source reasons reach `Sender` as `{:source, reason}` (both paths above). Current
+reasons (`ReqStream` / `WrappedStream` / `Source`) are already distinct and carry
 the upstream code, so plumbing is light.
 
-| Source reason | Class | Status | Message (`message_for/1`) | imgproxy parity |
+| Source reason | Class | Status | Message | imgproxy parity |
 |---|---|---|---|---|
-| `:connect_error` (unreachable / unknown scheme) | `:not_found` | 404 | `source unreachable` | ✅ 404 |
-| `:too_many_redirects`, `:redirect_not_followed`, `:invalid_redirect` | `:not_found` | 404 | `too many redirects` / `redirect not followed` / `invalid redirect` | ✅ 404 |
-| `{:bad_status, code}`, `code in 400..499` | `{:passthrough, code}` | echo `code` | `upstream responded #{code}` | ✅ passthrough |
-| `{:bad_status, code}`, `code in 500..599` | `:bad_gateway` | 502 | `upstream responded #{code}` | ✅ 502 |
-| `{:bad_status, code}`, other | `:bad_gateway` | 502 | `upstream responded #{code}` | fallback |
-| `:receive_timeout` | `:gateway_timeout` | 504 | `source timeout` | ✅ 504 |
-| `:body_too_large` | `:unprocessable` | 422 | `source image is too large` | ✅ 422 (oversized) |
-| `:invalid_body`, `:invalid_stream_chunk`, `:stream_exception` | `:unprocessable` | 422 | `incomplete source response` | ✅ 422 (incomplete) |
-| `:invalid_adapter_result`, `:invalid_adapter_config` | `:server_error` | 500 | `configuration error` | host-adapter misconfig, not a fetch class |
+| `:connect_error` (unreachable / unknown scheme) | `:not_found` | 404 | `source unreachable` | ✅ `errors.go:37,57` |
+| `:too_many_redirects`, `:redirect_not_followed`, `:invalid_redirect` | `:not_found` | 404 | reason-specific | ✅ `errors.go:109` |
+| `{:bad_status, code}`, `code in 400..499` | `{:passthrough, code}` | echo `code` | `upstream responded #{code}` | ✅ `errors.go:88-91` |
+| `{:bad_status, code}`, `code in 500..599` | `:bad_gateway` | 502 | `upstream responded #{code}` | ✅ `errors.go:93` |
+| `{:bad_status, code}`, otherwise (incl. `< 400`) | `:not_found` | 404 | `upstream responded #{code}` | ✅ imgproxy default `statusCode = 404` (`errors.go:89`) |
+| `:receive_timeout` | `:gateway_timeout` | 504 | `source timeout` | ✅ `errors.go:131` |
+| `:body_too_large` | `:unprocessable` | 422 | `source image is too large` | ✅ `imagedata/errors.go:17` (oversized) |
+| `:invalid_body`, `:invalid_stream_chunk`, `:stream_exception` | `:unprocessable` | 422 | `incomplete source response` | ✅ `errors.go:171` (incomplete) |
+| `:invalid_adapter_result`, `:invalid_adapter_config`, `:missing_adapter` | `:server_error` | 500 | `configuration error` | host-adapter misconfig (not a fetch class) |
+| any other `{:source, reason}` | `:unprocessable` | 422 | class-default | neutral fallback (untrusted host return) |
 
-Messages stay generic-but-distinct and never embed the source URL —
-`upstream responded #{code}` carries the upstream status, not its location.
+The "otherwise `{:bad_status}`" row is 404 (imgproxy's literal default for
+`< 400`), corrected from an earlier 502; this cell is effectively unreachable
+(only non-2xx/3xx reach `:bad_status`) but matches imgproxy and stays within the
+passthrough guard's range.
 
-Judgment calls (confirmed in brainstorming): **4xx passthrough = yes** (echo the
-upstream code); **`:body_too_large` stays 422** to match imgproxy's
-oversized-body row (not 413); redirect-failure variants normalize to **404**
-(imgproxy treats redirect exhaustion as unreachable).
+## New producer: IIIF out-of-bounds-region → 400
 
-### Session boundary (#160 — trickling-origin fix)
+The IIIF matrix (`docs/iiif_3_support_matrix.md:29,122`) already documents a
+wholly-out-of-bounds region as **400** via `{:transform_error, {:bad_request,
+_}}`, but no code emits it — `crop.ex` clamps/clips and a wholly-outside region
+surfaces as `{:transform_error, {Crop, _}}` → **422**. IIIF 3.0 (`spec.md:192`)
+says such a request *should* be 400.
 
-`ImagePipe.Request.Runner.normalize_session_prepare_error/1` currently maps
-`{:session, reason}` → `{:encode, RuntimeError…}` → 500, erasing source
-identity. It must instead preserve the source-failure class:
+Wire it: the coordinate-region crop path (`Transform.Operation.Crop`'s
+`crop_from`-coordinate branch, `crop.ex:270-288`, reached from
+`Plan.Operation.CropRegion` via `plan_executor`) detects a region **wholly
+outside the image** (zero overlap / zero-area after clip) and returns
+`{:error, {:bad_request, :region_out_of_bounds}}` **before** clamping. Partial
+overlap still clips → 200; zero `w`/`h` is already a parse-time 400.
 
-| Session reason | Re-tag → class | Status | Rationale |
-|---|---|---|---|
-| `{:session, :timeout}` | `{:source, :receive_timeout}` → `:gateway_timeout` | 504 | **the headline #160 fix** — trickling/slow-but-alive origin is a source-liveness failure, not an encode error |
-| `{:session, {:shutdown, {:owner_down, _}}}`, `{:session, :cancelled}` | retain current client-abort handling | — | client/owner gone; no meaningful error page (not a fetch-class failure) |
-| `{:session, {:shutdown, _}}`, `{:session, :noproc}`, `{:session, {:exit, _}}` | `:server_error` | 500 | genuine internal failures; unchanged classification |
+**Cross-target flag (compat reviewer, final diff review):** the region-crop op is
+**shared** — IIIF *and* TwicPics both build `CropRegion` → `Crop`. A
+wholly-outside region is genuinely unsatisfiable (zero pixels), so 400 is a
+defensible *neutral* rule for both. The final review's compatibility lens **must**
+confirm this does not regress TwicPics (check `twicpics` docs + the differential
+suite for any wholly-outside-region fixture/expectation); if TwicPics needs
+clamp-to-edge instead, the OOB→400 decision becomes parser-gated rather than
+unconditional in the shared op. This is the one place "wire it now" touches a
+second compat target.
 
-The exact non-timeout session-reason routing is refined in the implementation
-plan; `:timeout → 504` is the required behavior change. Cleanup (session
-stopped, producer killed) is already correct on every path and is unchanged.
+## Session boundary (revised — the trickle case is already source-tagged)
 
-## Source-reason enrichment
+The #160 "trickling-origin → wrong status" headline is fixed by the **source
+table alone**, not by re-tagging session errors:
 
-Most reasons are already distinct and carry the code, so enrichment is small:
+- A trickling origin trips the **per-message** `receive_timeout` (~5s) in
+  `ReqStream.next_message/2` → `raise StreamError, reason: :receive_timeout`;
+  `source_session.ex` `producer_down_reason` maps it to **`{:source,
+  :receive_timeout}`**, which flows through `normalize_session_prepare_error/1`
+  unchanged and now resolves via the source row → **504**. No session re-tag
+  needed.
+- `{:session, :timeout}` is the **60s `GenServer.call` backstop** — a genuinely
+  wedged session (e.g. a stuck/non-streamable encode), not source liveness.
+  imgproxy's *whole-request* timeout is 503, but this is an internal stall:
+  **leave it at its current 500** (`{:encode, RuntimeError}` path, with its
+  stacktrace logging). `normalize_session_prepare_error/1` is **untouched** by
+  this change.
 
-- **`{:bad_status, code}` already carries the upstream status** —
-  `{:passthrough, code}` is feasible with no new threading.
-- Confirm `:connect_error` vs `:receive_timeout` vs the redirect variants stay
-  distinct end-to-end through the `{:source, _}` wrap and (where relevant) the
-  session boundary, so each lands in its row above rather than collapsing.
-- No new source reason atoms are introduced beyond what `ReqStream` /
-  `WrappedStream` already emit; this is a **classification** change, not a
-  source-protocol change.
+So the source-read deadline (504) and the wedged-session backstop (500) stay
+distinct, and the runner change for #160 is *nil* — the fix is the source row +
+routing both source-error sites through it.
 
-## Out of scope (enabled, but not delivered here)
+## Out of scope (enabled, not delivered here)
 
-The mechanism *enables* these but they are separate IIIF-parser work, tracked by
-IIIF's own issues — listing them so the boundary is explicit:
-
-- IIIF **out-of-bounds region → 400** ([matrix:29](../../iiif_3_support_matrix.md))
-  and **unsupported-format-token → 400** ([matrix:76](../../iiif_3_support_matrix.md))
-  — once this lands, the `CropRegion` op / IIIF format path can emit the
-  `:bad_request` class to realize them. Not wired in #267.
-- The **host `error_status` behaviour** (Option A). Documented as the deferred
-  extension point on `ImagePipe.Response.ErrorStatus`.
+- **IIIF unsupported-format-token → 400** — a parse-time path
+  (`handle_error/2`), separable from the runtime classifier.
+- **IIIF `^`-upscale-unsupported → 501.** ImagePipe supports `^` upscaling today,
+  so this is unreachable now; but a future IIIF deployment that *disables* `^`
+  upscale must return **501** (`:unsupported_output`'s slot), **not** the
+  `:bad_request` → 400 the upscale path otherwise uses (IIIF `spec.md:222`). Noted
+  so the future wiring doesn't reflexively emit 400.
+- **The host `error_status` behaviour** (Option A) — the deferred extension point
+  on `ImagePipe.Response.ErrorStatus`.
 
 ## Testing strategy
 
-Wire-level (real `ImagePipe.call/2`) tests asserting the user-visible status for
-each changed family, per the CLAUDE.md test guidelines:
+Wire-level (real `ImagePipe.call/2`) tests asserting the user-visible status and
+body for each changed family, per CLAUDE.md test guidelines:
 
-- **Transform:** the existing `{:bad_request, _}` → 400 (Resize `enlargement:
-  :reject`) still 400 after migration; a generic transform error still 422.
+- **Transform:** `{:bad_request, :upscale_required}` → 400 still holds after
+  migration; a generic transform error → 422; **the new IIIF OOB-region request
+  → 400** with the distinct body (a real IIIF wire request whose region is
+  wholly outside the source).
 - **Source (#160):** one representative request per source row — unreachable →
-  404, upstream 5xx → 502, upstream 4xx → that 4xx (passthrough), receive
-  timeout → 504, oversized body → 422. Use a controllable test origin /
-  source adapter; assert status + `text/plain` body, and that the failure
-  returns *before* cache write (no successful entry cached).
-- **Session timeout:** a trickling origin that outlives `receive_timeout` per
-  message but trips the session call timeout → **504**, not 500; assert session
-  stopped / producer killed (monitor + `:DOWN`), no `Process.sleep`.
-- **Classifier unit:** `ErrorStatus.resolve_status/1` — every reason → expected
-  `{status, message}`, asserting both axes: the class-keyed status *and* the
-  reason-keyed message (including `{:bad_status, code}` echoing the code into
-  both the passthrough status and the `upstream responded #{code}` message, and
-  that the two transform/source 422 bodies remain distinct). Keep it a focused
-  example test; no impossible-misuse struct building.
-- **Wire message assertions:** the representative wire tests above assert the
-  response *body* too, pinning that distinct reasons keep distinct copy and that
-  no message embeds a source URL.
-- **No** post-migration parity/characterization pins (deleted once green per
-  CLAUDE.md).
+  404, upstream 5xx → 502, **upstream 4xx → that 4xx (passthrough)**, receive
+  timeout → 504, oversized **byte** body → 422. Assert status + `text/plain`
+  body, and the failure returns **before cache write** (no successful entry
+  cached — `refute_received` the origin-fetch/commit idiom).
+- **Both source sites:** cover the **resolve-time** path (`plug.ex`
+  `send_source_error`) *and* the streaming path, so the rewrite of
+  `send_source_error/3` is exercised on both.
+- **Render-wrapped source:** `{:render, {:source, :receive_timeout}}` → 504,
+  pinning the pre-classify unwrap still routes correctly.
+- **Byte-vs-pixel limits:** an oversized **byte** body → 422 (`:body_too_large`)
+  and an oversized **pixel** image → 413 (`:input_limit`) in separate tests, so
+  they aren't conflated.
+- **Session backstop unchanged:** (optional) a wedged-session `{:session,
+  :timeout}` still → 500, documenting it's deliberately untouched.
+- **`message_for/1` contract test** (re-scoped — *not* a status mapping pin):
+  assert the message table produces **distinct, non-URL-bearing** copy per
+  reason (incl. `{:bad_status, code}` interpolating the code). Status is left to
+  the wire tests. Delete if it ever degrades into a parity pin.
+- **No** impossible-misuse / name-policing / post-migration parity tests.
 
-Telemetry assertions, if any, use a unique `telemetry_prefix` (global-handler
-discipline).
+Telemetry assertions use a unique `telemetry_prefix` (global-handler discipline).
 
 ## Telemetry / observability
 
-`Sender`'s existing per-failure `Logger` lines are preserved (relabeled to the
-class where it reads cleaner). The delivery telemetry already records `status`
-and an `Error.tag`-derived error tag (`stream_error_tag/1`); the richer source
-statuses flow through unchanged — no event renames, so no Logger/OTel-Capture
-sync is required. The deferred Logger/OTel sync rule only triggers if we add or
-rename an event, which this change does not.
+- **No event renames** → no Logger/OTel-Capture subscription edits.
+- **Emitted `status` values change** on the source path (422 → 404/502/504/
+  passthrough) — that *is* the feature; `conn.status` is the observable.
+- **Emitted error *tags* are unchanged:** `plug.ex` `processing_error_tag({:source,
+  error}) → Error.tag(error)` already emits the inner reason atom
+  (`:receive_timeout`, `:connect_error`, …), which the status remap does not
+  alter. Since the session backstop is left at 500, its previously-`{:encode,…}`
+  tag is also unchanged.
+- `Sender.stream_error_tag/1` / `stream_error_phase/1` derive from the reason and
+  are unaffected. If a telemetry test asserts the new `status`, use a unique
+  prefix.
 
 ## Docs to update (same change)
 
-- **`docs/imgproxy_support_matrix.md`** — the source-fetch-failure status table
-  is now realized (404/502/504/passthrough/422). This is a **behavioral** axis
-  change: add/adjust the source-status rows and note parity. Compatibility
-  reviewer (imgproxy lens) confirms against `fetcher/errors.go` in the local
-  `/Users/hlindset/src/imgproxy` checkout.
-- **`docs/iiif_3_support_matrix.md`** — the "Status mapping" 400 note is now
-  served by the general mechanism rather than a bespoke `Sender` clause; reword
-  the divergence note accordingly (the no-`^` upscale 400 is unchanged in
-  behavior). Surface axis: none; behavioral: the 400 path is unchanged, only its
-  implementation generalizes — keep the note accurate.
+- **`docs/imgproxy_support_matrix.md`** — **behavioral** axis: add/adjust the
+  source-fetch-failure status rows (404/502/504/passthrough/422), parity-confirmed
+  against `fetcher/errors.go` / `imagedata/errors.go`. Do **not** claim error-
+  *body* parity (imgproxy uses one uniform "Source is unreachable" string; we use
+  distinct copy — a deliberate, product-neutral divergence). Do **not** assert
+  imgproxy parity on the pre-existing `:unsupported_output` → 501 / source-format
+  → 415 rows (imgproxy is 422 there; those are unchanged, out-of-scope
+  divergences).
+- **`docs/iiif_3_support_matrix.md`** — **behavioral** axis: the OOB-region row
+  becomes truthful (now actually 400, was 422). The upscale 400's *implementation*
+  generalizes (unchanged behavior). Reword the "Status mapping" note to describe
+  the general mechanism rather than the bespoke `Sender` clause.
+- **`docs/twicpics_*`** (if a wholly-outside-region behavior is documented) —
+  reflect the shared-op OOB→400 outcome, per the cross-target flag.
+
+## Execution recommendation
+
+Per CLAUDE.md's calibrated default: this is a **sequential dependency chain in a
+few shared files within one boundary** (new `ErrorStatus` → `Sender` collapse +
+opts threading + `send_source_error` rewrite → shared `Crop` OOB producer →
+matrices → tests). **Inline execution, test-first (TDD), with one final parallel
+review of the complete diff.** The final review **must** include a compatibility
+(imgproxy + IIIF + TwicPics) lens — this is an observable-compat change touching
+two targets. The session-backstop and trickle-timeout tests (process timing) and
+the matrix parity updates (judgment vs. the local imgproxy checkout) are
+inline-only regardless.
 
 ## Risks
 
-- **Behavior change is observable** (statuses move 422 → 404/502/504/passthrough
-  on the source path). Greenfield, no back-compat concern, but the wire tests
-  above pin the new contract.
-- **Passthrough leaks upstream 4xx** to clients by default. This matches the
-  primary compat target (imgproxy); a host wanting to suppress it is exactly the
-  future consumer the deferred Option A serves.
+- **Observable status change** (422 → 404/502/504/passthrough on source;
+  422 → 400 on IIIF OOB). Greenfield, no back-compat concern; wire tests pin the
+  new contract.
+- **Passthrough leaks upstream 4xx** by default — matches the primary compat
+  target (imgproxy); suppressing it is exactly the future consumer the deferred
+  Option A serves.
+- **Shared `Crop` OOB→400 could regress TwicPics** — gated by the final compat
+  review; fall back to parser-gated OOB if TwicPics needs clamp-to-edge.
