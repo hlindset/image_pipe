@@ -88,12 +88,14 @@ defmodule ImagePipe.Response.Sender do
   def send_source_error(%Plug.Conn{} = conn, error),
     do: send_source_error(conn, error, [])
 
-  @spec send_source_error(Plug.Conn.t(), term(), [{String.t(), String.t()}]) :: Plug.Conn.t()
-  def send_source_error(%Plug.Conn{} = conn, _error, response_headers) do
+  @spec send_source_error(Plug.Conn.t(), term(), keyword()) :: Plug.Conn.t()
+  def send_source_error(%Plug.Conn{} = conn, error, opts) do
+    {status, message} = ErrorStatus.resolve_status({:source, error}, opts)
+    Logger.info("source_error: #{status} #{inspect(error)}")
+
     conn
-    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
-    |> send_resp(422, "invalid image source")
+    |> send_resp(status, message)
   end
 
   @spec send_redirect(Plug.Conn.t(), 303, String.t()) :: Plug.Conn.t()

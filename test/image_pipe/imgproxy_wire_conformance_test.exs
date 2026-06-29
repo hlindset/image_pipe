@@ -508,6 +508,29 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule Origin503 do
+    @moduledoc false
+    def call(conn, _opts), do: Plug.Conn.send_resp(conn, 503, "origin 503")
+  end
+
+  defmodule Origin451 do
+    @moduledoc false
+    def call(conn, _opts), do: Plug.Conn.send_resp(conn, 451, "origin 451")
+  end
+
+  defmodule ResolveDeniedSource do
+    @moduledoc false
+    # Minimal Source adapter whose resolve/3 fails BEFORE any fetch — exercises
+    # the resolve-time send_source_error path (plug.ex), distinct from streaming.
+    @behaviour ImagePipe.Source
+    @impl true
+    def validate_options(opts), do: {:ok, opts}
+    @impl true
+    def resolve(_source, _opts, _runtime_opts), do: {:error, {:source, :connect_error}}
+    @impl true
+    def fetch(_resolved, _opts, _runtime_opts), do: {:error, {:source, :connect_error}}
+  end
+
   defmodule SolidWideOrigin do
     @moduledoc false
     # Solid 400x300 (4:3) opaque red — larger than the extend targets below, so the
@@ -4499,6 +4522,32 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
       conn = call_imgproxy("/info/unsafe/plain/images/whatever.jpg", opts)
       assert conn.status == 415
+    end
+  end
+
+  describe "source-fetch failures map to imgproxy-shaped statuses (#160)" do
+    test "upstream 5xx -> 502 bad gateway, and does NOT cache the failure" do
+      opts = Keyword.merge(origin_opts(Origin503), cache: {CacheProbe, []})
+      conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", opts)
+
+      assert conn.status == 502
+      assert ["text/plain" <> _] = get_resp_header(conn, "content-type")
+      assert conn.resp_body == "upstream responded 503"
+      refute_received {:cache_put, _key, _entry}
+    end
+
+    test "upstream 4xx passes through (arbitrary code)" do
+      conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", origin_opts(Origin451))
+      assert conn.status == 451
+      assert conn.resp_body == "upstream responded 451"
+    end
+
+    test "resolve-time source error renders via send_source_error (connect_error -> 404)" do
+      opts = Keyword.merge(@default_opts, sources: [path: {ResolveDeniedSource, []}])
+      conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", opts)
+
+      assert conn.status == 404
+      assert conn.resp_body == "source unreachable"
     end
   end
 end
