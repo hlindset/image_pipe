@@ -750,7 +750,7 @@ defmodule ImagePipe.PlugTest do
       |> Code.string_to_quoted!()
 
     assert remote_call?(plug_ast, [:Sender], :send_result, 3)
-    assert remote_call?(plug_ast, [:Sender], :send_source_error, 2)
+    assert remote_call?(plug_ast, [:Sender], :send_source_error, 3)
 
     refute remote_call?(plug_ast, [:Plug, :Conn], :send_resp)
     refute remote_call?(plug_ast, [:Plug, :Conn], :send_chunked)
@@ -1851,8 +1851,8 @@ defmodule ImagePipe.PlugTest do
         auto_webp: false
       )
 
-    assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.status == 504
+    assert conn.resp_body == "source timeout"
     assert_receive {^ref, :first_chunk_sent, ^server}
     assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}, 1_000
   end
@@ -2196,7 +2196,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source response exceeds the size limit"
   end
 
   test "explicit source body limit overrides the default through the request flow" do
@@ -2265,7 +2265,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source response exceeds the size limit"
   end
 
   test "body limit failures after partial valid image bytes surface as source errors" do
@@ -2281,7 +2281,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source response exceeds the size limit"
   end
 
   test "source timeout while decoding partial valid image bytes surfaces as a source error" do
@@ -2301,8 +2301,8 @@ defmodule ImagePipe.PlugTest do
         server
       )
 
-    assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.status == 504
+    assert conn.resp_body == "source timeout"
 
     send(server, {ref, :close})
     assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
@@ -2322,7 +2322,7 @@ defmodule ImagePipe.PlugTest do
 
     assert conn.status == 422
     assert conn.state == :sent
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source response exceeds the size limit"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
@@ -2343,9 +2343,9 @@ defmodule ImagePipe.PlugTest do
         server
       )
 
-    assert conn.status == 422
+    assert conn.status == 504
     assert conn.state == :sent
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source timeout"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
 
     send(server, {ref, :close})

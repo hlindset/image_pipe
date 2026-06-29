@@ -108,7 +108,10 @@ defmodule ImagePipe.Response.ErrorStatus do
   defp default_status_code(:unsupported_media), do: 415
   defp default_status_code(:unsupported_output), do: 501
   defp default_status_code(:server_error), do: 500
-  defp default_status_code({:passthrough, code}) when is_integer(code) and code in 100..599, do: code
+
+  defp default_status_code({:passthrough, code}) when is_integer(code) and code in 100..599,
+    do: code
+
   defp default_status_code({:passthrough, _code}), do: 502
 
   # --- message table (reason-keyed; specific, never embeds a URL) ------------
@@ -136,6 +139,10 @@ defmodule ImagePipe.Response.ErrorStatus do
       when reason in [:invalid_adapter_result, :invalid_adapter_config, :missing_adapter],
       do: "configuration error"
 
+  # Generic fallback for an unrecognized source reason (a host-adapter reason we
+  # don't have specific copy for) — keeps the "source" context.
+  def message_for({:source, _}), do: "invalid image source"
+
   def message_for({:decode, _}), do: "source response is not a supported image"
   def message_for({:unsupported_source_format, _}), do: "source response is not a supported image"
   def message_for(:source_format_required), do: "source response is not a supported image"
@@ -148,19 +155,15 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:config, _}), do: "configuration error"
   def message_for({:encode, _}), do: "error encoding image"
   def message_for({:encode, _, _}), do: "error encoding image"
-  def message_for(reason), do: class_default_message(classify(reason))
 
-  defp class_default_message(:bad_request), do: "bad request"
-  defp class_default_message(:unprocessable), do: "unprocessable image request"
-  defp class_default_message(:not_found), do: "source not found"
-  defp class_default_message(:bad_gateway), do: "bad gateway"
-  defp class_default_message(:gateway_timeout), do: "source timeout"
-  defp class_default_message(:payload_too_large), do: "source image is too large"
-  defp class_default_message(:unsupported_media), do: "source response is not a supported image"
+  # Transform + plan-validation family share one opaque message (a transform/plan
+  # failed); source errors are the diagnostic family above.
+  def message_for(:empty_pipeline_plan), do: "invalid image transform"
 
-  defp class_default_message(:unsupported_output),
-    do: "requested output format is not supported by this server"
+  def message_for({tag, _}) when tag in @plan_validation_error_tags,
+    do: "invalid image transform"
 
-  defp class_default_message(:server_error), do: "internal server error"
-  defp class_default_message({:passthrough, _}), do: "upstream error"
+  # Any reason not matched above is an unrecognized/unknown failure, which
+  # classify/1 maps to :server_error (500).
+  def message_for(_reason), do: "internal server error"
 end

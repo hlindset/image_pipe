@@ -361,7 +361,7 @@ defmodule ImagePipe.RequestSafetyTest do
     conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/stream-fails.jpg"), opts)
 
     assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "incomplete source response"
     refute_received :cache_put
   end
 
@@ -376,7 +376,7 @@ defmodule ImagePipe.RequestSafetyTest do
     conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/cacheable-stream-fails.jpg"), opts)
 
     assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "incomplete source response"
     assert_received :cache_lookup
     refute_received :cache_put
   end
