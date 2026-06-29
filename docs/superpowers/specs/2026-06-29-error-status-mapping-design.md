@@ -101,18 +101,44 @@ embed the source URL, query string, or any secret** — the telemetry sensitivit
 rule applies to response bodies too. `"upstream responded 503"` is fine; echoing
 the source URL is not.
 
-### Can a custom message be passed?
+### Can a custom message be passed? Producers carry *detail as data*, not prose
 
-Yes, at three levels (prefer the first two):
+The dividing line is **not** HTTP coupling — a producer is already across that
+line the moment it emits a class like `:bad_request` (an HTTP-semantic
+category). The line is **data vs. prose**:
 
-1. **Centralized `message_for/1` row** (default) — add/edit a reason→message
-   mapping; keeps copy in one Response-layer place. Dynamic interpolation (e.g.
-   the upstream code) lives here.
-2. **Host override** (deferred Option A) — `status_for/2` returns
-   `{status, message}`, so a host customizes status *and* copy.
-3. **Producer-carried message** (e.g. `{:bad_request, {detail, msg}}`) —
-   technically supportable but **discouraged**: it pushes HTTP-response copy into
-   transform/source producers and muddies the boundary. Keep copy in Response.
+- A class and a *detail atom* are a closed, enumerable vocabulary
+  (`:bad_request`, `:upscale_required`, `{:bad_status, code}`) — classification
+  reduced to data, reviewable as a bounded set.
+- A message string is open-ended *copy* — a product/UX surface. Scattering prose
+  across producers causes wording drift, removes the single place to audit tone,
+  and defeats the no-URL/no-secret check.
+
+A producer expresses specificity by carrying **structured detail**, and
+`message_for/1` renders the copy from it — so messages are as specific as the
+producer's knowledge, with **no prose in producers**:
+
+```elixir
+# producer (transform op) emits data, not a string:
+{:error, {:bad_request, :upscale_required}}
+
+# Response owns the copy, keyed on that detail (interpolating dynamic bits):
+def message_for({:transform_error, {:bad_request, :upscale_required}}),
+  do: "upscaling requires the ^ prefix"
+def message_for({:source, {:bad_status, code}}), do: "upstream responded #{code}"
+```
+
+So a custom message is "passed" by adding/extending a `message_for/1` row keyed
+on the producer's detail — copy stays centralized and audit-able. The deferred
+host override (`status_for/2` → `{status, message}`) is the second avenue, for
+hosts that want to customize both axes.
+
+**Host source-adapter reasons are untrusted input, not a prose channel.** A host
+`ImagePipe.Source` adapter may return an arbitrary error reason containing a
+third-party message; that string is **not echoed verbatim** into the response
+body (it could embed a URL or credential). Such reasons map through
+`message_for/1` to a neutral message like any other; surfacing adapter copy
+would be a separate, explicitly-designed, scrubbed opt-in.
 
 The class atoms are just atoms in tagged tuples — **producers depend on no new
 module**; only `Sender`/`ErrorStatus` knows the class→status and reason→message
