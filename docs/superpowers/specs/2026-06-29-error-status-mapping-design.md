@@ -145,6 +145,46 @@ A custom message is "passed" by adding a `message_for/1` row keyed on the
 producer's detail; the deferred host override (`status_for/2 → {status,
 message}`) is the second avenue.
 
+### Custom reason atoms — the extension contract
+
+Producers introduce **custom reason atoms** freely; the *class* component routes
+them, the detail atom is open:
+
+- **The class set is the closed contract** (`:bad_request`, `:not_found`,
+  `:bad_gateway`, `:gateway_timeout`, `:payload_too_large`, `:unsupported_media`,
+  `:unsupported_output`, `:server_error`, `{:passthrough, code}`); **detail atoms
+  are the open extension point.** A producer emitting `{:bad_request,
+  <any_atom>}` routes to 400 for *any* detail — **no core `classify/1` edit for
+  the status.** It also renders the class-default message immediately; a specific
+  message is an optional `message_for/1` row.
+- A dialect parser isolates its own quirk as `{:bad_request, :some_dialect_atom}`
+  and it routes neutrally — the quirk stays in the adapter, the core never
+  enumerates dialect reasons (CLAUDE.md namespace discipline).
+- **Limit:** a custom reason needing a status *outside* the class set (e.g. 409)
+  requires deliberately adding a class — a real, rare API decision, not a
+  per-reason edit.
+
+To make this **uniform across producers**, `classify/1` resolves in this order:
+
+1. **Class-leading reason** — if the reason (or the inner reason under
+   `{:transform_error, _}` / `{:source, _}` / `{:render, _}`) leads with a known
+   class atom — `{<class>, _detail}` — route by that class. This subsumes today's
+   `{:bad_request, _}` handling and lets a transform op, a parser, **or a host
+   source adapter** assert a status by emitting `{<known_class>, <custom_atom>}`.
+   The class atom names are kept **deliberately distinct** from the core domain
+   reason tags (`:bad_status`, `:connect_error`, `:decode`, `:input_limit`,
+   `:unsupported_output_format`, …) so a domain reason can never be mistaken for a
+   class lead — verified no collision today; a producer test pins it.
+2. **Enumerated domain table** — the bare core reasons (`:connect_error`,
+   `:receive_timeout`, `{:bad_status, code}`, decode/input-limit/encode tags, …)
+   map as tabulated below.
+3. **Neutral fallback** — any unrecognized reason → `:unprocessable` (422) for a
+   `{:source, _}`, else `:server_error` (500). The total-function guarantee.
+
+So "passing a custom reason" is: emit `{<class>, <your_atom>}`. Status is correct
+for free; message is correct-but-generic for free; bespoke copy is one optional
+row.
+
 **Host source-adapter reasons are untrusted input, not a prose channel.** A host
 `ImagePipe.Source` adapter may return an arbitrary error reason; its string is
 **not echoed verbatim** (could embed a URL/credential). Such reasons map through
@@ -172,19 +212,22 @@ message}`) is the second avenue.
 
 ### Total classification (unrecognized-reason fallback)
 
-`classify/1` must be **total**. Host source adapters are an untrusted boundary
+`classify/1` must be **total** — this is step 3 of the resolution order in
+"Custom reason atoms" above. Host source adapters are an untrusted boundary
 (CLAUDE.md: "Return values from host-implementable behaviours") and may return
 arbitrary `{:source, reason}`:
 
-- Enumerated adapter-wiring reasons — `:invalid_adapter_result`,
+- Enumerated adapter-wiring reasons (step 2) — `:invalid_adapter_result`,
   `:invalid_adapter_config`, `:missing_adapter` → `:server_error` (500).
-- **Any other / unrecognized `{:source, reason}`** → `:unprocessable` (422),
-  the safe neutral default (today's behavior).
-- Any other unrecognized top-level reason → `:server_error` (500).
+- **Any other / unrecognized `{:source, reason}`** (step 3) → `:unprocessable`
+  (422), the safe neutral default (today's behavior).
+- Any other unrecognized top-level reason (step 3) → `:server_error` (500).
 
 These catch-alls are legitimate boundary handling (untrusted host return), **not**
 impossible-misuse guards — they exist because a real external caller can produce
-the value.
+the value. Note a host adapter that *wants* a specific status uses step 1:
+returning `{:source, {:not_found, :my_detail}}` routes to 404, not the neutral
+422 fallback.
 
 ### The seam (opts threaded now)
 
