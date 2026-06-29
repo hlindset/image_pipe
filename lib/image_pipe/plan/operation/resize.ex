@@ -40,6 +40,10 @@ defmodule ImagePipe.Plan.Operation.Resize do
           | {:detect, {nonempty_list(String.t()), weights()}}
   @type ratio :: {:ratio, non_neg_integer(), pos_integer()}
   @type offset :: number() | {:pixels | :scale, number()}
+  # A zoom factor is a positive number or an exact positive ratio. The ratio form
+  # carries a relative size (IIIF `pct:n`) without an early lossy `num/den` float,
+  # so the derived axis rounds exactly at a tie (#317).
+  @type zoom :: pos_integer() | float() | {:ratio, pos_integer(), pos_integer()}
 
   @type t :: %__MODULE__{
           mode: mode(),
@@ -53,8 +57,8 @@ defmodule ImagePipe.Plan.Operation.Resize do
           y_offset: offset(),
           min_width: dimension() | nil,
           min_height: dimension() | nil,
-          zoom_x: pos_integer() | float(),
-          zoom_y: pos_integer() | float(),
+          zoom_x: zoom(),
+          zoom_y: zoom(),
           max_width: pos_integer() | nil,
           max_height: pos_integer() | nil,
           max_area: pos_integer() | nil

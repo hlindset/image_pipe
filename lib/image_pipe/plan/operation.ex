@@ -439,8 +439,8 @@ defmodule ImagePipe.Plan.Operation do
          {:ok, {x_offset, y_offset}} <- resize_offsets(mode, x_offset, y_offset),
          {:ok, min_width} <- optional_tagged_resize_dimension(opts, :min_width),
          {:ok, min_height} <- optional_tagged_resize_dimension(opts, :min_height),
-         {:ok, zoom_x} <- numeric(opts, :zoom_x, 1.0),
-         {:ok, zoom_y} <- numeric(opts, :zoom_y, 1.0),
+         {:ok, zoom_x} <- zoom(opts, :zoom_x),
+         {:ok, zoom_y} <- zoom(opts, :zoom_y),
          {:ok, max_width} <- optional_positive_integer(opts, :max_width),
          {:ok, max_height} <- optional_positive_integer(opts, :max_height),
          {:ok, max_area} <- optional_positive_integer(opts, :max_area) do
@@ -555,8 +555,8 @@ defmodule ImagePipe.Plan.Operation do
          {:ok, _offsets} <- resize_offsets(mode, operation.x_offset, operation.y_offset),
          :ok <- optional_resize_dimension(operation.min_width),
          :ok <- optional_resize_dimension(operation.min_height),
-         :ok <- positive_number(operation.zoom_x),
-         :ok <- positive_number(operation.zoom_y),
+         :ok <- positive_zoom(operation.zoom_x),
+         :ok <- positive_zoom(operation.zoom_y),
          :ok <- optional_positive_integer_value(operation.max_width),
          :ok <- optional_positive_integer_value(operation.max_height),
          :ok <- optional_positive_integer_value(operation.max_area) do
@@ -992,9 +992,6 @@ defmodule ImagePipe.Plan.Operation do
     if value in values, do: {:ok, value}, else: {:error, :member}
   end
 
-  defp positive_number(value) when is_number(value) and value > 0, do: :ok
-  defp positive_number(_value), do: {:error, :number}
-
   defp number(value) when is_number(value), do: :ok
   defp number(_value), do: {:error, :number}
 
@@ -1014,13 +1011,34 @@ defmodule ImagePipe.Plan.Operation do
 
   defp tagged_offset(_value), do: {:error, :offset}
 
-  defp numeric(attrs, key, default) do
+  # A zoom factor is a positive number or an exact `{:ratio, n, d}` (canonicalized
+  # here). The ratio form lets a dialect that maps a relative size to a fraction —
+  # IIIF `pct:n` — carry it without an early lossy `num/den` float, so the derived
+  # axis rounds exactly at a tie. Absent → identity `1.0` (the non-ratio default
+  # path stays float-identical for callers that never request a zoom).
+  defp zoom(attrs, key) do
     case Keyword.fetch(attrs, key) do
-      {:ok, value} when is_number(value) and value > 0 -> {:ok, value}
-      {:ok, _value} -> {:error, key}
-      :error -> {:ok, default}
+      {:ok, value} when is_number(value) and value > 0 ->
+        {:ok, value}
+
+      {:ok, {:ratio, n, d}} when is_integer(n) and is_integer(d) and n > 0 and d > 0 ->
+        canonical_ratio(n, d)
+
+      {:ok, _value} ->
+        {:error, key}
+
+      :error ->
+        {:ok, 1.0}
     end
   end
+
+  defp positive_zoom(value) when is_number(value) and value > 0, do: :ok
+
+  defp positive_zoom({:ratio, n, d})
+       when is_integer(n) and is_integer(d) and n > 0 and d > 0,
+       do: :ok
+
+  defp positive_zoom(_value), do: {:error, :zoom}
 
   defp optional_positive_integer(attrs, key) do
     case Keyword.get(attrs, key) do

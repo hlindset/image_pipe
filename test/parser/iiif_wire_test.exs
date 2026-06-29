@@ -441,6 +441,31 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Contract 8e: pct:n size resolves the derived axis from an EXACT ratio zoom,
+  # not a lossy `num/den` float. On the 200×300 source, `pct:20.5` scales by the
+  # exact fraction 205/1000: width 200 → 41.0 (no tie), height 300 → 61.5, which
+  # rounds half-away to 62. The old float path computed 300 * (205/1000) →
+  # 61.4999… → 61, shifting the derived height by a pixel at the tie. Pins the
+  # exact result so a regression to float rounding is caught (#317).
+  # ---------------------------------------------------------------------------
+
+  test "contract 8e: pct:20.5 → exact derived height (41×62, not 41×61)" do
+    conn = call_iiif("/img/full/pct:20.5/0/default.png", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+    assert dimensions(conn) == {41, 62}
+  end
+
+  test "contract 8e2: ^pct:100.5 upscale → exact derived height (201×302, not 201×301)" do
+    # `^` allows upscale. 200×300 × 1005/1000: width 201, height 301.5 → 302
+    # (exact); the float path gives 300 * (1005/1000) → 301.4999… → 301.
+    conn = call_iiif("/img/full/%5Epct:100.5/0/default.png", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+    assert dimensions(conn) == {201, 302}
+  end
+
+  # ---------------------------------------------------------------------------
   # Contract 9: status mapping
   # ---------------------------------------------------------------------------
 
