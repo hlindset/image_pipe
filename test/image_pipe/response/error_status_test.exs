@@ -5,7 +5,8 @@ defmodule ImagePipe.Response.ErrorStatusTest do
 
   describe "resolve_status/1 — status axis" do
     test "transform bad_request details all map to 400 (open detail)" do
-      assert {400, _} = ErrorStatus.resolve_status({:transform_error, {:bad_request, :upscale_required}})
+      assert {400, _} =
+               ErrorStatus.resolve_status({:transform_error, {:bad_request, :upscale_required}})
 
       assert {400, _} =
                ErrorStatus.resolve_status({:transform_error, {:bad_request, :some_future_detail}})
@@ -75,7 +76,8 @@ defmodule ImagePipe.Response.ErrorStatusTest do
     end
 
     test "bad_status message interpolates the upstream code" do
-      assert {_, "upstream responded 503"} = ErrorStatus.resolve_status({:source, {:bad_status, 503}})
+      assert {_, "upstream responded 503"} =
+               ErrorStatus.resolve_status({:source, {:bad_status, 503}})
     end
   end
 end
