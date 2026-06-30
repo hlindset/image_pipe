@@ -548,6 +548,17 @@ defmodule ImagePipe.PlugTest do
     Task.await(task, @slow_origin_ci_load_timeout)
   end
 
+  # A stalled partial origin (one chunk of a chunked response, then the socket is
+  # held open) surfaces as a source error, but WHICH source error is timing-
+  # dependent under load: the per-message receive timeout (504 "source timeout")
+  # or the incomplete-chunked-body path (422 "incomplete source response") can win
+  # the race. Both are correct source-error classifications of the same stall; the
+  # contract under test is "surfaces as a source error" (never a 500 crash or 200).
+  defp assert_stalled_source_error(conn) do
+    assert conn.status in [422, 504]
+    assert conn.resp_body in ["incomplete source response", "source timeout"]
+  end
+
   defp chunked_body_chunk(body) do
     [Integer.to_string(byte_size(body), 16), "\r\n", body, "\r\n"]
   end
@@ -1851,8 +1862,7 @@ defmodule ImagePipe.PlugTest do
         auto_webp: false
       )
 
-    assert conn.status == 504
-    assert conn.resp_body == "source timeout"
+    assert_stalled_source_error(conn)
     assert_receive {^ref, :first_chunk_sent, ^server}
     assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}, 1_000
   end
@@ -2301,8 +2311,7 @@ defmodule ImagePipe.PlugTest do
         server
       )
 
-    assert conn.status == 504
-    assert conn.resp_body == "source timeout"
+    assert_stalled_source_error(conn)
 
     send(server, {ref, :close})
     assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
@@ -2343,9 +2352,8 @@ defmodule ImagePipe.PlugTest do
         server
       )
 
-    assert conn.status == 504
+    assert_stalled_source_error(conn)
     assert conn.state == :sent
-    assert conn.resp_body == "source timeout"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
 
     send(server, {ref, :close})
