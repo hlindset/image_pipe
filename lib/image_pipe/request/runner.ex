@@ -9,6 +9,7 @@ defmodule ImagePipe.Request.Runner do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Response
+  alias ImagePipe.Request.HTTPCache
   alias ImagePipe.Request.RenderRunner
   alias ImagePipe.Request.SourceSession
   alias ImagePipe.Request.SourceSession.Prepared, as: SessionPrepared
@@ -31,6 +32,8 @@ defmodule ImagePipe.Request.Runner do
   @type error() ::
           {:processing, term(), [{String.t(), String.t()}]}
 
+  @type not_modified() :: {:not_modified, CacheHeaders.t()}
+
   @spec run(
           Plug.Conn.t(),
           Plan.t(),
@@ -38,7 +41,7 @@ defmodule ImagePipe.Request.Runner do
           CacheHeaders.t(),
           keyword()
         ) ::
-          {:ok, delivery()} | {:error, error()}
+          {:ok, delivery()} | not_modified() | {:error, error()}
   def run(
         _conn,
         %Plan{render: {:custom, _module, params}} = plan,
@@ -90,8 +93,15 @@ defmodule ImagePipe.Request.Runner do
         process_prepared_stream(conn, plan, resolved_source, nil, prepared_http_cache, opts)
 
       {:hit, %Key{} = key, %Entry{} = entry} ->
-        hit_debug = %{cache_key: key.hash, cache_serve_us: cache_serve_us}
-        {:ok, {:cache_entry, entry, plan.response, prepared_http_cache, hit_debug}}
+        # A cache hit is the proof, absent pre-fetch, that a current representation
+        # exists for this key — so this is the only place `If-None-Match: *` may be
+        # honored (independent of whether an ETag was generated).
+        if HTTPCache.if_none_match_wildcard?(conn) do
+          {:not_modified, prepared_http_cache}
+        else
+          hit_debug = %{cache_key: key.hash, cache_serve_us: cache_serve_us}
+          {:ok, {:cache_entry, entry, plan.response, prepared_http_cache, hit_debug}}
+        end
 
       {:miss, %Key{} = key} ->
         process_cacheable_miss(conn, plan, resolved_source, key, prepared_http_cache, opts)
