@@ -5,6 +5,26 @@
 **Input:** [`2026-07-01-resolve-stage-virtual-buffer-exploration.md`](2026-07-01-resolve-stage-virtual-buffer-exploration.md)
 (the banked exploration; this document is the real spec derived from it).
 
+**Realizes [#434](https://github.com/hlindset/image_pipe/issues/434)** ("isolate
+imgproxy-specific resize/orientation resolution behind a target strategy"). This
+design *is* #434's "target resolution strategy" seam, plus the `SourceShape` /
+driver / measure substrate. Note the rationale differs deliberately: #434 is
+YAGNI-gated on "a second target ever needing different math," which is **not** met
+(TwicPics/IIIF still reduce to the same resize math). We proceed instead on the
+neutrality un-bleed + `#182`/`#237` bug-quarantine + legibility warrant — costs
+that exist *today*, independent of a second target — consciously superseding
+#434's "don't add speculatively" gate. Its precondition,
+[#433](https://github.com/hlindset/image_pipe/issues/433) (the `PlanExecutor`
+split), has landed. The implementation PR should close #434.
+
+**Orthogonal to [#262](https://github.com/hlindset/image_pipe/issues/262) /
+[#377](https://github.com/hlindset/image_pipe/issues/377)** (terminal-output
+unification and blurhash/lqip terminals). Those tap the pipeline pre-transform
+(`:source_header`) or post-transform (`:transformed_pixels`) — never mid-resolve —
+so they impose no constraint on this design, and this design's shrink-on-load
+handling is exactly what a transform-tapping terminal needs. The one touch-point
+(the delivery-boundary materialize) is aligned forward in §4.6.
+
 ---
 
 ## 1. Problem
@@ -364,12 +384,17 @@ below.
 
 **The delivery-boundary materialize is re-homed.** Today
 `OrientationFlush.flush` on a `nil`/identity pending still calls `materialize`,
-and the delivery path relies on *something* forcing pixels to RAM before encode
-for the "a mid-chain op needed RAM but the last op didn't" case. This backstop is
-orthogonal to orientation and is **not** a `Flush`. When the scheduler dissolves
-it must be explicitly re-homed to the **delivery/encode preamble**; the §4.1
-pipeline-boundary rule (which only concerns pending orientation) does not cover
-it.
+and the delivery path relies on *something* forcing pixels to RAM before the
+terminal consumes them, for the "a mid-chain op needed RAM but the last op didn't"
+case. This backstop is orthogonal to orientation and is **not** a `Flush`. When
+the scheduler dissolves it must be explicitly re-homed to the **terminal/delivery
+satisfier that consumes transformed pixels** — i.e. the `:transformed_pixels` tap
+in the [#262](https://github.com/hlindset/image_pipe/issues/262) `Renderable`
+model, shared by the image-encode terminal *and* transform-tapping non-image
+terminals like blurhash/lqip ([#377](https://github.com/hlindset/image_pipe/issues/377)),
+not the encode path alone (blurhash/lqip need realized pixels but never encode).
+The §4.1 pipeline-boundary rule (which only concerns pending orientation) does not
+cover it.
 
 ### 4.7 The acquire/interpret contract (Seam 3, part 2 — the sharpest edge)
 
