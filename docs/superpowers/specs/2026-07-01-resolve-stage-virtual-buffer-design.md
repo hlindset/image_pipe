@@ -155,6 +155,18 @@ Two continuation variants, no more:
   `{shape, strategy_state}`. `then_fn` is the "interpreter" that **declares the
   frame and pending-orientation state** of those dims (Seam 3, §4.7).
 
+`then_fn` is **constructed and returned by `resolve/3` itself** — a closure that
+captures the pre-op `{shape, strategy_state}` plus the resolver's own decisions
+(whether it emitted a `Flush`, hence the result frame; whether pending survives;
+whether `decode_shrink` resets; how the strategy carry advances — e.g. TwicPics
+focus scaling by realized/pre dims), parameterized on the dims the driver will
+read. The resolver builds it because the resolver is the only thing that knows how
+to interpret the raw ints; the driver only supplies them. Because tests assert
+`then_fn`'s *output* shape (data), not its internals, injection stays pure (§4.5,
+§8). A declarative descriptor struct is a possible alternative if the continuation
+ever needs to be serializable/inspectable; the closure is the simpler default and
+is not adopted over it here.
+
 **`strategy_state` advances at post-op time alongside the shape.** For an
 `:acquire` op the `then_fn` returns *both* shape and state, so a strategy whose
 carry depends on realized dims (TwicPics focus, §4.4/§4.5) updates at the same
