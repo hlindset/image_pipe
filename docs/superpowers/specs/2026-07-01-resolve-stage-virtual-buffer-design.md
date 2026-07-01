@@ -694,7 +694,8 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
    strategy-supplied gravity (§4.4). Parser, key-data, and parser-test updates
    in place; byte-identical on the wire. Lands after the boundary move (it
    needs the carried strategy) but rides the same PR or its own — either way
-   gated green independently.
+   gated green independently. Tracked by
+   [#438](https://github.com/hlindset/image_pipe/issues/438); closes it.
 
 3. **(Optional) B-promotion.** If the §8 property spike is green and the
    version-pinning is acceptable, flip `resize` from `read` to `advance` at the
