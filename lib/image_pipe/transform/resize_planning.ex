@@ -69,6 +69,12 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # trimmed back to what was asked for (imgproxy prepare.go TargetWidth + crop.go
   # cropToResult, #236). The intermediate covers result_box on both axes, so the
   # crop always fires.
+  @spec cover_resize_and_crop(
+          Resize.t(),
+          State.t(),
+          term(),
+          {PlanResize.offset(), PlanResize.offset()}
+        ) :: [struct()]
   def cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
     {src_w, src_h} = State.effective_source_dims(state)
 
@@ -139,6 +145,7 @@ defmodule ImagePipe.Transform.ResizePlanning do
 
   # True when this PlanResize expands into a cover (fill) resize + result-crop —
   # either an explicit cover, or an auto resize whose branch resolves to cover.
+  @spec cover_resize?(PlanResize.t(), State.t()) :: boolean()
   def cover_resize?(%PlanResize{mode: :cover}, %State{}), do: true
 
   def cover_resize?(%PlanResize{mode: :auto} = operation, %State{} = state),
@@ -159,6 +166,7 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # re-coupling) them in the storage frame. The result-crop carries the
   # display-frame result-box dims (the literal requested box, #236) and is
   # swapped + remapped by compensate_crop.
+  @spec cover_resize_and_crop_display_frame(PlanResize.t(), State.t(), term()) :: [struct()]
   def cover_resize_and_crop_display_frame(%PlanResize{} = operation, %State{} = state, gravity) do
     {src_w, src_h} = State.effective_source_dims(state)
     resize = resize_from(operation, :cover)
