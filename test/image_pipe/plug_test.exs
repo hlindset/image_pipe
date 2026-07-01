@@ -554,6 +554,8 @@ defmodule ImagePipe.PlugTest do
   # or the incomplete-chunked-body path (422 "incomplete source response") can win
   # the race. Both are correct source-error classifications of the same stall; the
   # contract under test is "surfaces as a source error" (never a 500 crash or 200).
+  # Tightening this back to a single deterministic status is tracked in #429
+  # (classify transport errors by reason in ReqStream).
   defp assert_stalled_source_error(conn) do
     assert conn.status in [422, 504]
     assert conn.resp_body in ["incomplete source response", "source timeout"]
