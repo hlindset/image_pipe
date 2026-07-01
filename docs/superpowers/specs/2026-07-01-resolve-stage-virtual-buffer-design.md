@@ -1,6 +1,6 @@
 # Design: an explicit Resolve stage over a `SourceShape` virtual buffer
 
-**Status:** Design / spec — approved for planning. *Not* an implementation plan.
+**Status:** Design / spec — reviewed (three-lens parallel review applied), approved for planning. *Not* an implementation plan.
 **Date:** 2026-07-01
 **Input:** [`2026-07-01-resolve-stage-virtual-buffer-exploration.md`](2026-07-01-resolve-stage-virtual-buffer-exploration.md)
 (the banked exploration; this document is the real spec derived from it).
@@ -40,74 +40,67 @@ against imgproxy's own source.
 - Un-bleed: imgproxy resolution leaves the neutral transform layer for an
   isolated, dialect-owned strategy.
 - A single pure resolver, driven op-by-op, is the *only* place resolution rules
-  live. Shape acquisition (header vs measurement) is the driver's separate job.
+  live. Shape acquisition (compute vs read vs materialize+read) is the
+  **driver's** separate job, behind one seam.
 - Frame invariants become first-class (an explicit `frame:` on the threaded
   shape) instead of reconstructed at each call site — attacking the recurring
   quarter-turn/shrink bug class.
-- Testability-as-data: assert resolved integer boxes without decoding output
-  (a new "ResolvedPlan golden" test), full for opaque-free plans.
+- Testability-as-data: assert resolved integer boxes as pure data. Achieved by
+  making the driver's dim-acquisition seam injectable — a test feeds the realized
+  dims for `resize`/`trim`, and resolution becomes a pure function with **no
+  decode** (§4.5, §8). This holds under the shipped design; it does **not**
+  depend on the `planned == realized` equality.
 - Consolidation: ad-hoc `State` geometry fields collapse into one `SourceShape`;
-  the shrink-carry special case is subsumed by `measure()`.
+  the shrink-carry special case is subsumed by the shape's acquire step.
 
 **Non-goals**
 
 - **No operation reordering.** The fixed neutral order is a contract; ops do not
   commute. Off the table.
-- No change to the cache key or ETag contract (§7 shows the model does not touch
-  it).
+- No change to the cache key or ETag *contract* (§7). One additive requirement:
+  strategy behavioral version tags must enter `plan_material` (§7).
 - No new public request surface. This is an internal architecture change; the
-  observable behavior is byte-identical (that is the primary safety net).
+  observable behavior is byte-identical (the primary safety net).
 - Not a perf project. libvips dimension reads are already lazy; the prize is
   decoupling and determinism, not avoiding compute.
+- **Retiring the focus read-back is not in scope for the shipped design.** It is
+  the one payoff gated on `planned == realized` and is deferred to the optional
+  B-promotion (§4.5, §9).
 
 ## 3. Current state, validated
 
 Anchor reads confirming the exploration's structural claims:
 
-- **`Renderer` is the exact precedent for a carried-module behaviour.**
+- **`Renderer` is the precedent for a carried-module behaviour.**
   [`renderer.ex`](../../../lib/image_pipe/renderer.ex) is
   `use Boundary, deps: [ImagePipe.Plan]`, carries the module in the plan
   (`{:custom, module, params}`), and dispatches without the core enumerating
-  dialects. A `Resolver` behaviour mirrors it 1:1.
+  dialects. The Resolver reuses this mechanism — with one caveat about the
+  *dispatching boundary* pinned in §5.1.
 - **`:auto` is already a versioned rule.**
   [`key_data.ex`](../../../lib/image_pipe/plan/key_data.ex) tags
-  `%Resize{mode: :auto}` with `rule: :auto_orientation_match_v1`. Marker-in-Plan /
-  rule-in-strategy is a clean, already-blessed split.
+  `%Resize{mode: :auto}` with `rule: :auto_orientation_match_v1`.
 - **The ETag is symbolic-only.**
   [`http_cache.ex`](../../../lib/image_pipe/request/http_cache.ex) derives
-  `etag_material` from `Key.plan_material(plan)` + source seed + `Accept` — never
-  resolved geometry, never output bytes.
+  `etag_material` from `Key.plan_material(plan)` + source seed + `Accept`.
 - **The neutral core is genuinely neutral.**
   [`Resize.resolve_dimensions`](../../../lib/image_pipe/transform/operation/resize.ex)
-  is the shared column (fit/cover/stretch/region/canvas + cropToResult, min-dim
-  expansion, bounds). [`ResizePlanning`](../../../lib/image_pipe/transform/resize_planning.ex)
+  is the shared column; [`ResizePlanning`](../../../lib/image_pipe/transform/resize_planning.ex)
   is the imgproxy-thick wrapper around it.
 
-Three things the exploration under-models, discovered on the anchor reads. They
-do not break the direction — **they are the design**:
+Three things the exploration under-models, discovered on the anchor reads and
+confirmed by the review. They do not break the direction — **they are the
+design**:
 
-1. **The `OrientationScheduler` layer.** The exploration's driver loop is
-   `resolve → apply → advance/measure`. Reality:
-   [`plan_executor.ex`](../../../lib/image_pipe/transform/plan_executor.ex) →
-   [`orientation_scheduler.ex`](../../../lib/image_pipe/transform/orientation_scheduler.ex)
-   is a full deferral engine. `pending_orientation` is not just a shape field; it
-   drives per-op *flush decisions* and *frame compensation* (display-frame
-   resolve + storage-frame execution + `compensate_crop`/`swap_resize`/
-   `center_bias`). This is where Seam 3 actually lives, and folding it into the
-   resolver is the bulk of the work.
-
+1. **The `OrientationScheduler` layer** is a full deferral engine, not a passive
+   shape field. `pending_orientation` drives per-op *flush decisions* and *frame
+   compensation*. Dissolving it is the bulk of the work (§4.6).
 2. **Cross-op context flow.** `PlanExecutor.update_execution_context` computes
-   `effective_padding_scale` + `canvas_preserving_padding_scale` from the resize
-   op and stashes them in a `context` map a *later* Padding/Canvas op reads. A
-   resize's DPR cap reaches forward. This is imgproxy-only (IIIF/TwicPics are
-   dpr=1).
-
-3. **Focus is already a partial measurement.**
+   `effective_padding_scale` + `canvas_preserving_padding_scale` at the resize
+   and a later Padding/Canvas op reads them. Imgproxy-only (§4.4).
+3. **Focus is already a realized read-back.**
    [`resize.ex`](../../../lib/image_pipe/transform/operation/resize.ex) scales the
-   carried focus by the *realized* post-resize dims read back off the live image,
-   because `State` never carried a trustworthy planned shape. With exact planned
-   dims on the shape, planned == realized for a forcing resize, so the read-back
-   can be retired.
+   carried focus by realized post-resize dims read off the live image (§4.5).
 
 ## 4. Architecture
 
@@ -115,48 +108,78 @@ do not break the direction — **they are the design**:
 
 ```
 Parse ──▶ Plan (symbolic, carries strategy module) ──▶ Drive:
-    seed shape (header + realized shrink + EXIF)
+    shape         = seed(header dims, realized decode_shrink, EXIF)
+    strategy_state = strategy.init()
     for each op in fixed neutral order:
         {ops, cont, strategy_state} = Resolver.resolve(shape, strategy_state, op)
-        apply ops (pixels; Chain owns per-op materialization)
-        shape = advance purely  |  interpret(measure(image))
-    boundary backstop: flush any still-pending orientation
+        apply ops (Chain — pixels + per-op materialization)
+        {shape, strategy_state} =
+          case cont do
+            {:advance, shape', state'} -> {shape', state'}          # pure (exact ops)
+            {:acquire, then_fn}        -> then_fn.(acquire_dims())   # read realized dims, then interpret
+          end
+    # driver-owned end-of-pipeline backstop:
+    if pending_orientation non-identity → driver emits a Flush (the resolver did
+       not, e.g. a rotate + streaming-effect pipeline with no resize/crop/padding
+       to flush at); identity pending is cleared without materializing
 ```
 
-Resolution rules live **once**, in the resolver. Shape acquisition (header facts
-vs a pixel measurement) is the **driver's** job. Separating these two is the
-whole idea; today's code fuses them.
+Resolution rules live **once**, in the resolver. Shape acquisition is the
+**driver's** job, funnelled through a single seam (`acquire_dims/…`, §4.5), as is
+the end-of-pipeline flush backstop (§4.6). Separating rules from acquisition is
+the whole idea; today's code fuses them.
 
 ### 4.2 The `Resolver` behaviour (Seam 1)
 
-A neutral behaviour, `use Boundary, deps: [ImagePipe.Plan]`, mirroring
-`ImagePipe.Renderer`. The Plan carries the chosen strategy module (selected by
-the parser); the driver dispatches dynamically. **No `transform → parser`
-edge** — the mechanism already blessed for renderers.
+A neutral behaviour, mirroring `ImagePipe.Renderer`. The Plan carries the chosen
+strategy module (selected by the parser); the driver dispatches dynamically.
 
 ```elixir
 @type continuation ::
-        {:advance, SourceShape.t()}
-        | {:measure, (measured :: {pos_integer(), pos_integer()} -> SourceShape.t())}
+        {:advance, SourceShape.t(), strategy_state :: term()}
+        | {:acquire, (realized :: {pos_integer(), pos_integer()} ->
+                        {SourceShape.t(), strategy_state :: term()})}
 
 @callback init() :: strategy_state :: term()
 @callback resolve(SourceShape.t(), strategy_state :: term(), Plan.Operation.t()) ::
             {[executable_op :: struct()], continuation(), strategy_state :: term()}
 ```
 
-- The **neutral default resolver** owns the shared column: fit/cover/stretch,
-  region/gravity crop, canvas, padding, `cropToResult`, CropGuided aspect-ratio,
-  and the neutral point-transform primitives. IIIF and TwicPics use only this
-  plus their own strategy overrides.
-- The **imgproxy strategy** additionally owns the imgproxy-only column (auto
-  fill-vs-fit bucketing tagged by its `..._v1` version, `min_*` coupling,
-  no-enlarge DPR cap, display-frame quarter-turn swaps, shrink rescale,
-  `fill_down`, ties-to-even). It lives under `parser/imgproxy/` — dialect quirks
-  stay in the adapter.
+Two continuation variants, no more:
 
-Delegation model: a strategy handles the ops/gravities it specializes and falls
-through to the neutral resolver for the shared cases (e.g. TwicPics resolves only
-`:carried` gravity itself; anchors/static-`fp`/smart/detect go to neutral).
+- `{:advance, shape', state'}` — the resolver computed the post-op shape purely
+  (exact ops: crop, canvas/padding, right-angle rotate, dimension-neutral
+  effects). No image read.
+- `{:acquire, then_fn}` — the post-op dims must come from the realized image; the
+  driver reads them (§4.5) and hands them to `then_fn`, which returns the next
+  `{shape, strategy_state}`. `then_fn` is the "interpreter" that **declares the
+  frame and pending-orientation state** of those dims (Seam 3, §4.7).
+
+**`strategy_state` advances at post-op time alongside the shape.** For an
+`:acquire` op the `then_fn` returns *both* shape and state, so a strategy whose
+carry depends on realized dims (TwicPics focus, §4.4/§4.5) updates at the same
+moment the shape does. An `:acquire` `then_fn` that doesn't transform the carry
+threads `strategy_state` through unchanged — so a `trim` between an imgproxy
+resize and padding cannot lose the stashed DprScale (covered by a golden case,
+§8).
+
+Roles:
+
+- **Neutral default resolver** owns the shared column: fit/cover/stretch,
+  region/gravity crop, canvas, padding, `cropToResult`, CropGuided aspect-ratio,
+  the neutral `Flush`/`MaterializeInPlace` emission, and the neutral
+  point-transform primitives. IIIF and TwicPics use this plus their own overrides.
+- **imgproxy strategy** additionally owns the imgproxy-only column (auto
+  bucketing tagged by its `..._v1` version, `min_*` coupling, no-enlarge DPR cap,
+  display-frame quarter-turn swaps, shrink rescale, `fill_down`, ties-to-even),
+  living under `parser/imgproxy/`.
+
+A strategy handles the ops/gravities it specializes and falls through to the
+neutral resolver for shared cases (e.g. TwicPics resolves only `:carried`
+gravity; anchors/static-`fp`/smart/detect go to neutral). Right-angle rotate/flip
+fold into `pending_orientation` and emit **no** executable op — the return is
+`{[], {:advance, shape', state}, strategy_state}`; this is the common streaming
+path and the empty op-list case is normal.
 
 ### 4.3 `SourceShape` — the virtual buffer
 
@@ -172,99 +195,212 @@ A pure value threaded by the driver, carrying **only neutral geometry**:
 }
 ```
 
-Two deliberate divergences from the exploration's §3.2 field list:
+Deliberate divergences from the exploration's §3.2 field list:
 
-- **Drop `has_alpha?` / `interpretation`.** Nothing in resolution reads them;
-  they are encode/color-management metadata and stay on the live image / `State`.
-  Putting them on `SourceShape` bloats "the resolution shape" with things the
-  resolver never touches.
+- **Drop `has_alpha?` / `interpretation`.** Nothing in resolution reads them; they
+  are encode/color-management metadata and stay on the live image / `State`.
+  (`trim`'s *pixel execution* reads interpretation/alpha off the live image — that
+  stays; the point is only that resolution/shape-advance never needs them.)
 - **`focus` is NOT on `SourceShape`.** It is dialect-carried state (only TwicPics
   populates/advances/consumes it), so it lives in the TwicPics `strategy_state`
-  (§4.5), not on the neutral shape. This is the same rule that keeps imgproxy's
-  DprScale off the neutral shape.
+  (§4.4). Same rule that keeps imgproxy's DprScale off the neutral shape.
 
 `SourceShape` subsumes today's `State.source_dimensions`, `State.decode_shrink`,
 and `State.pending_orientation`. `State.focus` moves to strategy state.
 
-### 4.4 Cross-op carry: the strategy accumulator (Seam 2 / finding 2)
+### 4.4 Cross-op carry: the strategy accumulator (Seam 2)
 
 The driver threads a pair `{shape, strategy_state}`. `strategy_state` is an
 opaque term **owned by the chosen strategy**; the neutral/IIIF resolvers leave it
-`nil`. This is where imgproxy stashes the DprScale it computes **once** at the
-resize and reuses at a later padding/canvas op — faithful to imgproxy's own
-compute-once-reuse model, and invisible to the neutral core and to the other
-dialects.
+`nil`. A plan uses one strategy, so its accumulator is *either* imgproxy DprScale
+*or* TwicPics focus, never both.
 
-Rejected alternatives:
+- **imgproxy** stashes the DprScale computed **once** at the resize
+  (`resize_padding_scale`, both `:resize` and `:canvas_preserving`) and reads it
+  at a later padding/canvas op. Faithful to imgproxy's compute-once-reuse
+  (`prepare.go` `calcScale` → `crop.go`/`padding.go`/`extend.go`). *Footnote:*
+  imgproxy revises DprScale once more in `limitScale` (`prepare.go:246-264`) when
+  the padded result exceeds `MaxResultDimension`; ImagePipe applies that cap in
+  the **Output boundary** (`Output.Encoder`/producer clamp), so the resolver's
+  stashed DprScale is final for padding/extend. The accumulator carries the
+  pre-clamp value — matching current behavior, pinned by results-identical.
+- **TwicPics** carries the focus point, advances it per-op via the neutral
+  point-transform primitives, and resolves `:carried` gravity into `{:fp, x, y}`
+  itself. `SetFocus` resolution *reads* neutral shape fields (dims,
+  `decode_shrink`) and *writes* `strategy_state.focus` — one-directional, no leak.
 
-- **Generic `carry: map()` on `SourceShape`** — puts dialect data on the neutral
-  shape, makes its type dishonest, and forces a neutral golden test to carry or
-  filter imgproxy junk. Bad trade for the one refactor whose entire purpose is
-  the boundary.
-- **Pipeline-aware recompute (no carry)** — reconstructing the pre-resize shape
-  replays resolution, is fragile once a `measure()` sits between resize and
-  padding, and breaks the one-op-at-a-time signature the measure model depends on.
+The neutral driver never inspects `strategy_state` (boundary holds). It does
+**not** enter the ResolvedPlan golden artifact (that is the concrete ops +
+shapes); it is private resolver memory tested via the ops it influences.
 
-`strategy_state` does **not** enter the ResolvedPlan golden artifact (that is the
-concrete ops + shapes). It is private resolver memory; we test the ops it
-influences, not the blob.
+Rejected alternatives (unchanged from review): a generic `carry: map()` on
+`SourceShape` (pollutes the neutral shape's type) and pipeline-aware recompute
+(fragile once an `:acquire` sits between resize and padding; breaks the
+one-op-at-a-time signature).
 
-### 4.5 Orientation folded into the resolver; `Flush` is a neutral op (Seam 3)
+### 4.5 Shape advancement: three modes over one injectable seam
 
-Today orientation splits into pure geometry (frame choice, `swap_resize`,
-`compensate_crop`, `center_bias`, display-frame cover coupling) and the pixel
-flush (`vips_rot` via `Materializer`/`OrientationFlush`) plus a scattered
-policy of *when* to flush.
+This is the resolution of the central design fork. There are **not** two
+architectures (read vs compute); there is **one architecture with a per-op
+dim-acquisition policy**. Every op advances the shape in one of three modes:
 
-Target:
+| Mode | Ops | Materialize? | Output dims | Continuation |
+|---|---|:---:|---|---|
+| **pure advance** | crop, canvas/padding, right-angle rotate, effects | no | exact (computable) | `{:advance, …}` |
+| **read** | resize | no | libvips-rounds | `{:acquire, …}` (lazy read) |
+| **materialize + read** | trim, arbitrary-angle rotate | yes | content/rotation-determined | `{:acquire, …}` (materializing op emitted; read after) |
 
-- **The resolver owns all the pure geometry.** Given a shape carrying
-  `pending_orientation`, it emits the compensated concrete ops. The imgproxy-only
-  parts (display-frame min-dim coupling, `swap_resize`) live in the imgproxy
-  strategy; plain right-angle rotate/flip folding into `pending_orientation`
-  stays neutral.
-- **The flush becomes a neutral, materializing executable op** the resolver emits
-  into its op list at the flush boundary; it advances the shape to
-  `frame: :display, pending_orientation: nil`. An identity pending emits no
-  `Flush` and clears the shape — the streaming fast path is preserved.
-- **`OrientationScheduler` dissolves.** Its per-op flush decisions + compensation
-  become resolver outputs + shape advances.
-- **The driver keeps one backstop only:** at a pipeline boundary, if
-  `pending_orientation` is non-identity, emit `Flush` and advance to display
-  (EXIF is seeded once for the plan; each pipeline must end in the display frame).
+The distinction that matters: only `resize` and `trim`/arbitrary-rotate cannot
+have their post-op dims computed purely — `resize` because libvips'
+shrink+reduce decomposition may round ±1 off the naive target, `trim` because the
+bbox is content-dependent, arbitrary rotate because libvips rounds the rotated
+bounding box. Everything else is exact (`extract_area`/`embed`/`vips_rot`
+right-angle) and advances purely with **zero read and zero proof**.
 
-### 4.6 The `measure()` contract (Seam 3, the sharpest edge)
+**Materialization is orthogonal to the continuation.** It is expressed by the
+resolver *emitting a materializing op* into the `ops` list (`Flush`,
+`MaterializeInPlace`, a materializing rotate, `Trim` itself), which `Chain`
+handles via `requires_materialization?`. So `read` and `materialize+read` share
+the `{:acquire, then_fn}` continuation; they differ only in whether the emitted
+op list forced pixels to RAM first.
 
-- **`measure(image)` is dumb:** `{Image.width(image), Image.height(image)}` — two
-  storage-frame integers, nothing else.
-- **The `{:measure, interpret}` continuation carries the frame knowledge.**
-  `interpret` is a resolver-supplied pure function `(w, h) -> SourceShape.t()`
-  that declares *which frame the ints are in and whether orientation is still
-  pending*. A naive `width/height` read cannot reintroduce the `#182` frame bug,
-  because the resolver is forced to state the frame explicitly.
-- **Trim is the canonical case and, we claim, the only `:measure` op.** Trim is
-  imgproxy's pre-orientation op (stage 2 < rotateAndFlip stage 7): it trims the
-  storage frame and does **not** consume `pending_orientation`. Its interpreter
-  returns `%{shape | width: w, height: h, decode_shrink: nil, frame: :storage}`
-  with **orientation still pending**. This also authoritatively subsumes the
-  "crop-before-resize clears `decode_shrink`" reset.
-- **`:measure` fires for trim alone.** Only trim has pixel-dependent *output
-  dimensions* (a content bbox). Smart/detect crops have known output dims — the
-  resolved crop box — and need pixels only for *gravity* (saliency), which is
-  Chain's existing `requires_materialization?`, not a shape measure. So
-  smart/detect advance the shape purely and merely happen to materialize.
-  **This narrowing is a claim the ResolvedPlan golden + differential bake must
-  confirm** (§8) before it is relied on.
+**The one seam.** The shape advance NEVER reads the live image itself. The driver
+owns a single `acquire_dims()` step that supplies the realized dims to an
+`:acquire` continuation. In production it reads the live image's lazy
+`width`/`height`. **In tests it is injectable** — a test hands it the realized
+dims for each `:acquire` op, so the full resolution runs as a pure function with
+no decode (§8). This is the same seam that enables the A→B promotion below, and
+the same seam that makes the ResolvedPlan golden pure. One seam, three payoffs.
 
-### 4.7 What stays put
+**Why read (not compute) for resize, in the shipped design.** Reading the
+realized dim is what the code does today (`effective_source_dims` →
+`Image.width/height`), so it is **results-identical by construction with no
+proof**. The read is lazy metadata, not a pixel computation, so it is nearly
+free. Ratios/percentages *reinforce* this: every relative dim resolves against a
+reference dim (`length * n / d`, half-away), so a ±1 reference error under a
+compute-and-trust model would propagate into every dependent ratio downstream;
+reading the reference keeps the whole fleet of ratio consumers correct without
+proving anything.
 
-- **`Chain`** keeps ownership of per-op materialization
-  (`requires_materialization?` + `Materializer`). The resolver decides *shape*;
-  the Chain decides *pixel access*. `Flush` is just another materializing op to
-  it.
-- **`Geometry`** rounding primitives (half-away, ties-to-even, `center_origin`)
-  and the neutral point-transform math remain neutral utilities the resolver
-  calls.
+**The A→B promotion (optional, later).** "B" = advancing `resize` purely
+(`{:advance, …}`) instead of reading. It is a **one-op, one-line policy flip** at
+the `acquire_dims` seam, gated on a StreamData property test proving
+`Image.resize(img, target/source)` output equals `target` across shapes, scales,
+and the alpha premultiply path (§8). It may be applied **selectively** (pure where
+proven, read fallback elsewhere). It touches nothing else — not the resolver
+rules, `SourceShape`, the accumulator, the boundary move, or orientation. If
+promoted, retiring the focus read-back rides the same seam (focus scales by
+whatever factor the seam hands it). **The A-era golden is itself the migration
+net:** if `planned == realized`, the read and computed integers are identical, so
+re-running the golden after the flip proves B equivalent to A for every covered
+case.
+
+### 4.6 Orientation folded into the resolver (Seam 3, part 1)
+
+`OrientationScheduler` dissolves into **three** resolver pixel outputs plus pure
+shape advances — not one `Flush`:
+
+- **`Flush`** (neutral, materializing): applies the pending `vips_rot`, advances
+  the shape to `frame: :display, pending_orientation: nil`. Emitted by the
+  resolver into the op list at the correct position.
+- **`MaterializeInPlace`** (neutral, materializing): `copy_memory` to RAM
+  **without** consuming `pending_orientation` — the trim storage-frame case
+  (imgproxy trims pre-orientation, stage 2 < rotateAndFlip stage 7). Distinct
+  from `Flush`; the "Chain owns materialization" model needs this second
+  materializing op so trim-under-pending materializes without orienting.
+- **pure advance / identity-clear** (no op): identity pending is cleared on the
+  shape without emitting anything — the streaming fast path.
+
+**Flush *position* is encoded by where the resolver places the op in the `ops`
+list** — there is no separate flush-timing concept. Enumerated from the current
+scheduler clauses:
+
+- region crop → `[Flush, Crop]` (flush **before**).
+- resize → `[…resize…, crop?, Flush]` (flush **after**).
+- padding / pixelate / gradient → `[Flush, op]` (flush **before**, so the op
+  decides in the display frame).
+- trim → `[MaterializeInPlace, Trim]` (materialize-in-place, **keep** pending).
+- **smart/detect gravity crop → `[Flush, Crop(uncompensated)]`.** These
+  materialize and today rely on the auto-flush firing first so they see
+  display-frame pixels and are emitted *literal*. The resolver must make that
+  explicit: emit the `Flush` itself and the crop uncompensated, rather than
+  leaning on `Chain`'s implicit materialize-flush. This keeps "the resolver owns
+  all pure geometry" true for this branch.
+
+**The pipeline-boundary flush is a driver backstop.** EXIF is seeded once for the
+plan and each pipeline must end in the display frame, so at each pipeline boundary
+the driver emits a `Flush` if `pending_orientation` is still non-identity (the
+resolver did not — e.g. `rotate` + a streaming effect like blur/colorize, with no
+resize/crop/padding to flush at). Identity pending is cleared without
+materializing. This is distinct from, and in addition to, the delivery backstop
+below.
+
+**The delivery-boundary materialize is re-homed.** Today
+`OrientationFlush.flush` on a `nil`/identity pending still calls `materialize`,
+and the delivery path relies on *something* forcing pixels to RAM before encode
+for the "a mid-chain op needed RAM but the last op didn't" case. This backstop is
+orthogonal to orientation and is **not** a `Flush`. When the scheduler dissolves
+it must be explicitly re-homed to the **delivery/encode preamble**; the §4.1
+pipeline-boundary rule (which only concerns pending orientation) does not cover
+it.
+
+### 4.7 The acquire/interpret contract (Seam 3, part 2 — the sharpest edge)
+
+- **`acquire_dims()` is dumb:** `{Image.width(image), Image.height(image)}` — two
+  integers *in whatever frame the live image currently holds*. It does not judge
+  the frame.
+- **The `then_fn` (interpreter) declares the frame.** It is a resolver-supplied
+  pure function `(w, h) -> {SourceShape.t(), strategy_state}` that states *which
+  frame the ints are in and whether orientation is still pending*, because the
+  resolver knows whether it emitted a `Flush`. A naive `width/height` read cannot
+  reintroduce the `#182` frame bug — the resolver is forced to declare the frame.
+- **Trim's interpreter** returns `frame: :storage`, **orientation still pending**,
+  `decode_shrink: nil` (trim disables shrink-on-load; the `nil` is a
+  reaffirmation, see §4.8). This is the trim-first + pending-quarter-turn + cover
+  walk: trim measures the storage frame with orientation pending, and the
+  following cover resize then resolves in the display frame (imgproxy
+  `ExtractGeometry`), exactly as `cover_resize_and_crop_display_frame` does today.
+
+**Scope of "content-dependent output dims."** Within the **transform resolver**,
+only `trim` (content bbox) and arbitrary-angle rotate (rounded rotated bbox) need
+`:acquire`-with-materialize; `resize` needs `:acquire`-read; everything else is
+`:advance`. imgproxy's other content-dependent output-sizing stage, **`fixSize`**
+(format max-dimension rescale, `fix_size.go`), lives in ImagePipe's **Output
+boundary** (`Output.Encoder` caps + producer clamp reading realized dims),
+**downstream of the resolver and out of scope** for this refactor. The spec's
+"only trim/arbitrary-rotate materialize" invariant is *resolver-scoped*, not
+pipeline-wide. Smart/detect crop output dims are "known" only *relative to the
+live input dims at the crop position* (their aspect-ratio clamp bounds against
+live dims via `correct_aspect_ratio`/`clamp_to_bounds`) — which the `read` mode
+supplies for free; they still `:advance` (no materialize for shape), needing
+pixels only for gravity.
+
+### 4.8 `decode_shrink`: three distinct resets, plus the `#185` crop swap
+
+The spec does **not** collapse the `decode_shrink` resets. There are three,
+firing on different ops:
+
+1. **trim** → `nil` (never-shrank reaffirmation; the planner returned `1.0` for a
+   trim chain, so it was never non-nil).
+2. **crop-before-resize** → clears an *actually non-nil* factor the crop consumed
+   (`#180`; today `clear_source_frame`). Load-bearing.
+3. **resize completion** → `nil` (today `resize.ex:119`).
+
+A region/gravity crop is a `pure advance`, but its advance is **advance-with-
+effect**: it must (a) apply the quarter-turn per-axis `decode_shrink` swap
+(`orient_decode_shrink`, `#185`) **before** the crop resolves — because the crop's
+axes swap *after* rescale — and (b) clear `source_dimensions`/`decode_shrink`
+*after* (the `#180` reset). Both effects are computed by the resolver when
+producing the next shape and the emitted crop ops; enumerate them explicitly so
+an implementer does not reconstruct `#185`/`#180` from scratch.
+
+### 4.9 What stays put
+
+- **`Chain`** keeps per-op materialization (`requires_materialization?` +
+  `Materializer`). The resolver decides *shape*; the Chain decides *pixel access*.
+  `Flush` and `MaterializeInPlace` are materializing ops to it.
+- **`Geometry`** rounding/placement primitives and the neutral point-transform
+  math remain neutral utilities the resolver calls.
 - **`DecodePlanner`** stays the pure pre-decode load-option planner; its output
   feeds the seed shape's realized `decode_shrink` (via a post-decode dim read).
 
@@ -273,120 +409,156 @@ Target:
 - `ImagePipe.Resolver` — neutral behaviour + dispatch facade,
   `use Boundary, deps: [ImagePipe.Plan]` (sibling to `ImagePipe.Renderer`).
 - `ImagePipe.Transform.SourceShape` — the threaded neutral geometry value, under
-  `transform` (it is transform-domain data; must never be emitted in telemetry).
-- Neutral default resolver — under `transform` (owns the shared column and the
-  driver loop, or the driver sits in a thin `transform` orchestrator that calls
-  `Resolver`).
-- imgproxy strategy — under `parser/imgproxy/`, implementing `ImagePipe.Resolver`
-  (dialect quirks in the adapter; the core never names it — the Plan carries the
-  module).
-- `parser` boundary gains `→ resolver` (already blessed: `parser → renderer`
-  exists for exactly this dialect-implements-a-neutral-behaviour pattern).
+  `transform`; transform-domain data, never emitted in telemetry.
+- Neutral default resolver + driver loop — under `transform`.
+- imgproxy strategy — under `parser/imgproxy/`, implementing `ImagePipe.Resolver`.
+- `parser` boundary gains `→ resolver` (already blessed: `parser → renderer`).
 
-Architecture tests must confirm: request/source/response code does not name
-concrete resolver strategies; the core never enumerates strategies; the imgproxy
-strategy is reachable only via the carried module.
+### 5.1 The dispatcher-boundary caveat (pin, don't assume)
+
+The `Renderer` precedent is dispatched from the **`request`** boundary
+(`render_runner.ex`), and `request` deps on `Renderer` but **not** on `Parser` —
+that is what makes a carried imgproxy renderer (living in `parser`) reachable
+with no `request → parser` edge. The Resolver's driver is `PlanExecutor`, which
+lives in **`transform`** (deps `[Plan, Telemetry]`, no parser). So the mirror
+requires a **new `transform → resolver` edge**, with the carried imgproxy
+strategy invoked dynamically (`module.resolve(...)`).
+
+Boundary treats dynamic `apply`/dispatch as a non-edge — that is *why* `Renderer`
+works — and there is no reason that rule is dispatcher-boundary-specific, so the
+mechanism should hold from `transform` too. But the spec does not assume it:
+**an architecture test, written before implementation, must assert `transform`
+gains only `→ resolver` and Boundary reports no `transform → parser` edge from
+the dynamic call.** If that ever fails, the fallback is to root the driver in
+`request` (the exact validated topology) — but the recommended path is
+driver-in-`transform` + the pinning test, since it avoids relocating the resolve
+loop out of the transform domain.
 
 ## 6. Compatibility-doc impact
 
-Per the conformance-doc discipline, [`docs/imgproxy_support_matrix.md`](../../imgproxy_support_matrix.md)
-must be updated in the same change. The axis is **stage/order** (the
-processing-pipeline section): resolution moves from the neutral transform layer
-into an imgproxy resolver strategy, and orientation flush becomes an explicit
-neutral op. No **surface** change (no option/config table row changes) and,
-because of results-identical-first, no intended **behavioral/pixel** change — the
-"Diverges" notes and wire conformance results must stay green.
+[`docs/imgproxy_support_matrix.md`](../../imgproxy_support_matrix.md) must be
+updated in the same change. The axis is **stage/order** (the processing-pipeline
+section): resolution moves into an imgproxy resolver strategy, and orientation
+flush becomes explicit neutral ops (`Flush`/`MaterializeInPlace`). No **surface**
+change and, by results-identical, no intended **behavioral/pixel** change — the
+"Diverges" notes and wire conformance must stay green. Note the `fixSize` (Output
+boundary) and `limitScale` (Output-boundary cap) relationships from §4.4/§4.7 so
+the matrix reflects where each imgproxy stage lives in ImagePipe.
 
-## 7. Cache / ETag — untouched by construction
+## 7. Cache / ETag
 
-The model does not touch the cache/ETag contract:
+Mostly untouched by construction:
 
 - **ResolvedPlan is a pure function of (symbolic Plan, source bytes)**, both
   already captured by identity. Resolved boxes add nothing to the key/ETag.
-- **Behavioral version tags, not schema bumps.** Each strategy carries a version
-  tag (auto already does: `auto_orientation_match_v1`). Changing a resolution
-  algorithm bumps that *behavioral* tag for correct invalidation — orthogonal to
-  the key *schema* version, so it does not collide with the greenfield
-  "don't bump key data versions" rule.
-- **The 304-before-any-work fast path cannot regress**, even for trim-first
-  plans: identity is `(symbolic plan + rule version + source seed + Accept)`, and
-  resolution *and* `measure()` are downstream of all four.
+- **The 304-before-any-work fast path cannot regress**: identity is
+  `(symbolic plan + rule version + source seed + Accept)`, and resolution *and*
+  `acquire_dims()` are downstream of all four.
+
+One **additive requirement** the review surfaced: the per-strategy **behavioral
+version tag must live in `Key.plan_material`** (hence the ETag material), not just
+`:auto`'s `auto_orientation_match_v1`. When the boundary moves (§9), any imgproxy
+resolution rule whose algorithm could change (DPR cap, `min_*` coupling,
+ties-to-even) and that has no version tag today must gain one — otherwise a future
+algorithm change keeps the ETag stable and the 304 path serves stale-but-
+differently-resolved bytes. This is a *behavioral* version, orthogonal to the key
+*schema* version (so it does not collide with the greenfield "don't bump key data
+versions" rule).
 
 ## 8. Testing strategy
 
-**Results-identical is the contract.** The refactor must reproduce the exact same
-integers before it is allowed to change where resolution runs.
+**Results-identical is the contract.** Reproduce the exact integers before moving
+where resolution runs.
 
-- **New: ResolvedPlan golden test.** Assert the concrete resolved op boxes as
-  data (integers), without decoding output. Full coverage for opaque-free plans;
-  for a trim-first plan the artifact degrades to "resolved prefix + opaque marker
-  + resolved suffix" (physics, not a defect). This is both the safety net and the
-  payoff.
-- **Existing: imgproxy differential bake** (`test/support/.../imgproxy_differential/`)
-  — the pixel-parity net. Must stay green throughout; a compatibility reviewer
-  (imgproxy focus) is mandatory per the review-cycle rule.
-- **Existing: wire conformance** (`imgproxy_wire_conformance_test.exs`) — status,
-  headers, content type, decoded dims, cache/source access, `Vary`. Must stay
-  green.
-- **Sequential-safety gate for `Flush` and any newly-classified op.** Per the
-  transform guidelines, any op's `requires_materialization?` classification must
-  be proven by the per-op sequential-vs-random pixel-equivalence test plus the
-  property test over input shapes; the harness self-check (a known-random op
-  raises under the streamed open) must hold.
-- **Confirm the §4.6 narrowing** (only trim triggers `:measure`; smart/detect
-  have known output dims) against the golden + differential before relying on it.
-- **Telemetry:** if any span is renamed/added (e.g. resolution stage, `Flush`),
+- **New: ResolvedPlan golden, pure via injection.** The driver's `acquire_dims`
+  seam (§4.5) is injectable, so the golden feeds realized dims for each
+  `:acquire` op (`resize`, `trim`, arbitrary rotate) and asserts every resolved
+  integer box **with no decode**. Deliberately inject a **±1 divergence** on a
+  resize to prove downstream ratio/percent consumers still resolve sanely — an
+  edge you cannot force against real libvips. Include a **resize → trim →
+  padding** plan to prove `strategy_state` (DprScale) threads untouched across an
+  `:acquire`.
+- **Existing: imgproxy differential bake** — the ground-truth net that libvips
+  actually *produces* the dims the injection tests assume, and the pixel-parity
+  net. Must stay green; a compatibility reviewer (imgproxy) is mandatory.
+- **Existing: wire conformance** — status/headers/content-type/decoded
+  dims/cache/source/`Vary`. Must stay green.
+- **Sequential-safety gate for `Flush` and `MaterializeInPlace`** (and any
+  newly-classified op), per the transform guidelines: per-op sequential-vs-random
+  pixel-equivalence + property test over shapes, with the known-random self-check.
+  **Also assert the identity fast path:** identity `pending_orientation` emits no
+  `Flush` and triggers **no** materialization (streaming-path guard) — otherwise a
+  regression that always flushes would pass the materialization test while killing
+  streaming.
+- **Stage-1 exit criterion (moved earlier):** confirm the §4.7 narrowing — that
+  only `resize` (read) and `trim`/arbitrary-rotate (materialize+read) use
+  `:acquire`, everything else `:advance` — as a *gate on stage 1*, since the
+  continuation variants are the driver's core contract.
+- **A→B property spike:** a StreamData test over `(source, target)` asserting
+  `Image.resize` output `== target` across shapes/scales/alpha. Cheap; its result
+  *decides* whether/where B is adopted. Not required to ship A.
+- **Telemetry:** if any span is renamed/added (a resolution stage, `Flush`),
   update the default Logger *and* the OTel `Capture` lists in the same change, and
-  keep `docs/telemetry.md` aligned. Prefer no new events unless there is a real
-  observability need.
+  keep `docs/telemetry.md` aligned. Prefer no new events without a real need.
 
 ## 9. Implementation sequencing (for the plan)
 
-The design describes the end-state; the implementation plan must stage it
-**results-identical first, boundary-moving second**:
+The design describes the end-state; the plan stages it **results-identical first,
+boundary-moving second**, with A as the shipped dim-acquisition policy.
 
-1. **Substrate, integers-identical.** Introduce `SourceShape` and the driven
-   resolver loop reproducing today's exact integers, with imgproxy logic still
-   physically where it is (or moved verbatim). Land the ResolvedPlan golden test.
-   Net: golden + differential + wire all green, no boundary change yet.
-2. **Fold in orientation; `Flush` as a neutral op.** Dissolve
-   `OrientationScheduler` into resolver outputs + shape advances + the driver
-   backstop. Re-prove sequential-safety for `Flush`. Golden/differential/wire
+1. **Substrate + the acquire seam, integers-identical.** Introduce `SourceShape`,
+   the two-variant continuation, and the single injectable `acquire_dims` seam,
+   reproducing today's exact integers with imgproxy logic still physically where
+   it is. Exact ops `:advance`; `resize` reads; `trim`/arbitrary-rotate
+   materialize+read. Land the injection-based ResolvedPlan golden. **Exit gate:**
+   the §4.7 continuation-variant narrowing holds; golden + differential + wire
    green.
+2. **Fold in orientation.** Dissolve `OrientationScheduler` into `Flush` /
+   `MaterializeInPlace` / pure-advance emitted by the resolver, flush position via
+   op-list order, smart/detect explicit-`Flush`, and re-home the delivery-boundary
+   materialize (§4.6). Re-prove sequential-safety + identity fast path. Green.
 3. **Move the boundary.** Extract the imgproxy-only column into an
    `ImagePipe.Resolver` strategy under `parser/imgproxy/`, carried in the Plan;
-   neutral default resolver owns the shared column. Update the support matrix and
-   architecture tests.
-4. **Retire the focus read-back** (finding 3) and move `focus` into TwicPics
-   `strategy_state`, once exact planned dims are proven to match realized.
+   add the `transform → resolver` edge and the §5.1 architecture test; add the
+   strategy behavioral version tags to `plan_material` (§7); update the support
+   matrix. Move TwicPics focus into its strategy accumulator. Green.
+4. **(Optional) B-promotion.** If the §8 property spike is green and the
+   version-pinning is acceptable, flip `resize` from `read` to `advance` at the
+   seam (selectively if needed) and retire the focus read-back. The A-era golden
+   is the equivalence net.
 
-Each stage is independently green on the golden + differential + wire nets, so a
-regression is caught at the stage that introduced it.
+Each stage is independently green on golden + differential + wire.
 
 ## 10. Risks
 
-- This is the most parity-critical, differential-pinned code in the repo. The
+- Most parity-critical, differential-pinned code in the repo. The
   results-identical gate + compatibility reviewer are non-negotiable.
-- A complete static ResolvedPlan exists only for opaque-free plans; trim-first
-  degrades to a partial artifact. Accepted (physics).
-- The frame-aware `measure()` / opaque-op continuation (§4.6) is the highest-risk
-  detail: a lazy interpreter that reads the wrong frame reintroduces the `#182`
-  bug class this refactor exists to make impossible.
-- The `Flush`-as-op re-classification must clear the sequential-safety gate; a
-  silent line/tile cache (correct pixels, no memory win) is not covered by
-  correctness tests (perf benchmark deferred, as today).
+- The frame-aware `acquire`/interpreter (§4.7) is the highest-risk detail: an
+  interpreter that declares the wrong frame reintroduces the `#182` class.
+- Orientation dissolution has three subtle pieces the spec now enumerates but that
+  are easy to get wrong: `MaterializeInPlace` vs `Flush` (trim), flush position by
+  op-list order, and the smart/detect explicit-flush coupling.
+- `decode_shrink` has three reset paths and the `#185` crop swap ordering; do not
+  collapse them.
+- `Flush`/`MaterializeInPlace` must clear the sequential-safety gate; the
+  silent-buffering perf failure mode is not covered by correctness tests (perf
+  benchmark deferred, as today).
+- B-promotion (if pursued) pins results-identical to undocumented libvips output
+  rounding across source-built version upgrades — hence gated on the property
+  spike and kept optional.
 
 ## 11. Anchors (as of 2026-07-01)
 
 - [`lib/image_pipe/transform/resize_planning.ex`](../../../lib/image_pipe/transform/resize_planning.ex) — conflated neutral-core + imgproxy resolver
-- [`lib/image_pipe/transform/orientation_scheduler.ex`](../../../lib/image_pipe/transform/orientation_scheduler.ex) — the deferral engine that dissolves into the resolver
+- [`lib/image_pipe/transform/orientation_scheduler.ex`](../../../lib/image_pipe/transform/orientation_scheduler.ex) — the deferral engine that dissolves into Flush/MaterializeInPlace/advance
 - [`lib/image_pipe/transform/plan_executor.ex`](../../../lib/image_pipe/transform/plan_executor.ex) — today's driver + the cross-op `context`
-- [`lib/image_pipe/transform/operation/resize.ex`](../../../lib/image_pipe/transform/operation/resize.ex) — the neutral `resolve_dimensions` core + the focus read-back
+- [`lib/image_pipe/transform/operation/resize.ex`](../../../lib/image_pipe/transform/operation/resize.ex) — the neutral `resolve_dimensions` core + the focus read-back (`~:111`)
+- [`lib/image_pipe/transform/focus.ex`](../../../lib/image_pipe/transform/focus.ex) — neutral point-transform math (its *carry* moves to TwicPics strategy state)
 - [`lib/image_pipe/transform/state.ex`](../../../lib/image_pipe/transform/state.ex) — the fields `SourceShape` subsumes
 - [`lib/image_pipe/transform/chain.ex`](../../../lib/image_pipe/transform/chain.ex) — per-op driver + lazy materialization (stays)
 - [`lib/image_pipe/transform/decode_planner.ex`](../../../lib/image_pipe/transform/decode_planner.ex) — pure load-option planner feeding the seed shape
-- [`lib/image_pipe/transform/focus.ex`](../../../lib/image_pipe/transform/focus.ex) — neutral point-transform math (moves its *carry* to TwicPics strategy state)
 - [`lib/image_pipe/transform/geometry.ex`](../../../lib/image_pipe/transform/geometry.ex) — neutral rounding/placement primitives (stays)
-- [`lib/image_pipe/renderer.ex`](../../../lib/image_pipe/renderer.ex) — the carried-module behaviour precedent for `Resolver`
-- [`lib/image_pipe/plan/key_data.ex`](../../../lib/image_pipe/plan/key_data.ex) — `:auto` → `auto_orientation_match_v1` (versioned-rule seam)
+- [`lib/image_pipe/renderer.ex`](../../../lib/image_pipe/renderer.ex) + [`request/render_runner.ex`](../../../lib/image_pipe/request/render_runner.ex) — the carried-module precedent and its `request`-rooted dispatch (§5.1)
+- [`lib/image_pipe/output/encoder.ex`](../../../lib/image_pipe/output/encoder.ex) + [`request/source_session/producer.ex`](../../../lib/image_pipe/request/source_session/producer.ex) — `fixSize`/`MaxResultDimension` caps (Output boundary, out of resolver scope)
+- [`lib/image_pipe/plan/key_data.ex`](../../../lib/image_pipe/plan/key_data.ex) — `:auto` → `auto_orientation_match_v1`; where strategy version tags must land
 - [`lib/image_pipe/request/http_cache.ex`](../../../lib/image_pipe/request/http_cache.ex) — ETag from symbolic plan + source seed + Accept
