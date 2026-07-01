@@ -240,11 +240,12 @@ defmodule ImagePipe.Plan.OperationTest do
 
       assert Operation.crop_region({:px, -1}, {:px, 0}, {:px, 100}, {:px, 100}) ==
                {:error,
-                {:invalid_operation, :crop_region, [{:px, -1}, {:px, 0}, {:px, 100}, {:px, 100}]}}
+                {:invalid_operation, :crop_region,
+                 [{:px, -1}, {:px, 0}, {:px, 100}, {:px, 100}, []]}}
 
       assert Operation.crop_region({:px, 0}, {:px, 0}, {:px, 0}, {:px, 100}) ==
                {:error,
-                {:invalid_operation, :crop_region, [{:px, 0}, {:px, 0}, {:px, 0}, {:px, 100}]}}
+                {:invalid_operation, :crop_region, [{:px, 0}, {:px, 0}, {:px, 0}, {:px, 100}, []]}}
     end
 
     test "allow zero crop region coordinates at construction" do
@@ -255,7 +256,8 @@ defmodule ImagePipe.Plan.OperationTest do
                   x: {:px, 0},
                   y: {:ratio, 0, 1},
                   width: {:px, 100},
-                  height: {:ratio, 1, 2}
+                  height: {:ratio, 1, 2},
+                  on_out_of_bounds: :clamp
                 }}
     end
 

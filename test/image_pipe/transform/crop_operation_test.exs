@@ -538,4 +538,31 @@ defmodule ImagePipe.Transform.CropOperationTest do
       :telemetry.detach(ref)
     end
   end
+
+  describe "coordinate crop out-of-bounds verdict" do
+    # reject_out_of_bounds is a verdict decided by the executor in the original
+    # source frame; Crop only obeys it (the wholly-outside-vs-partial distinction
+    # is covered at the executor and wire level, not here).
+    test "reject_out_of_bounds: true rejects the region as a client error" do
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: %{left: {:pixels, 500}, top: {:pixels, 10}},
+        reject_out_of_bounds: true
+      }
+
+      assert {:error, {:bad_request, :region_out_of_bounds}} = Crop.execute(op, state(400, 400))
+    end
+
+    test "default (false) clamps an origin past the edge without erroring" do
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: %{left: {:pixels, 500}, top: {:pixels, 10}}
+      }
+
+      assert {:ok, result} = Crop.execute(op, state(400, 400))
+      assert {100, 100} == dimensions(result)
+    end
+  end
 end

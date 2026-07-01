@@ -123,6 +123,9 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:transform_error, {:bad_request, :upscale_required}}),
     do: "upscaling requires the ^ prefix"
 
+  def message_for({:transform_error, {:bad_request, :region_out_of_bounds}}),
+    do: "requested region is outside the image"
+
   def message_for({:transform_error, {:bad_request, _}}), do: "bad request"
   def message_for({:transform_error, _}), do: "invalid image transform"
   def message_for({:render, inner}), do: message_for(inner)
