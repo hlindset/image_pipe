@@ -157,7 +157,6 @@ defmodule ImagePipe.Output.Encoder do
   defp buffer_for(image, suffix, quality, []) do
     case Image.write(image, :memory, suffix: suffix, quality: quality) do
       {:ok, binary} -> {:ok, binary}
-      {:error, {:encode, _exception, _stack} = tagged} -> {:error, tagged}
       {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
     end
   end

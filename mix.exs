@@ -51,7 +51,11 @@ defmodule ImagePipe.MixProject do
           ]
         ]
       ],
-      test_coverage: [tool: ExCoveralls]
+      test_coverage: [tool: ExCoveralls],
+      dialyzer: [
+        plt_core_path: "priv/plts",
+        plt_local_path: "priv/plts"
+      ]
     ]
   end
 
