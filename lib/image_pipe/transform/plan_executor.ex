@@ -1,14 +1,14 @@
 defmodule ImagePipe.Transform.PlanExecutor do
   @moduledoc false
 
-  # Deferred orientation (#146): EXIF is seeded into State.pending_orientation once,
-  # on the first pipeline (seed_orientation opt); user rotate/flip fold into pending
-  # rather than emitting eager ops; pre-flush crop/resize are compensated in the
-  # storage frame (Orientation.compensate_gravity_for / Orientation.swap_resize);
-  # pending is flushed (OrientationFlush via Materializer) at the first materializing
-  # op, immediately after a resize, before a region crop, at each pipeline boundary,
-  # or at the delivery backstop — whichever is first. An identity pending is cleared
-  # without materializing (streaming fast path).
+  # Orchestrates plan execution: seeds the data-determined preamble (EXIF
+  # orientation into State.pending_orientation and input color management, both on
+  # the seed_orientation gate), reduces over pipelines/operations threading State +
+  # execution context, and dispatches each operation. Plain operations lower via
+  # ImagePipe.Transform.Lowering and run through the Chain; deferred-orientation
+  # operations (#146) delegate to ImagePipe.Transform.OrientationScheduler, which
+  # owns the pending-orientation policy and compensation and the pipeline-boundary
+  # flush. Resize expansion/scale arithmetic lives in ImagePipe.Transform.ResizePlanning.
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation.CropGuided
@@ -183,7 +183,9 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp update_execution_context(%PlanResize{} = operation, %State{} = state, context) do
     scale = ResizePlanning.resize_padding_scale(operation, state, :resize)
-    canvas_preserving_scale = ResizePlanning.resize_padding_scale(operation, state, :canvas_preserving)
+
+    canvas_preserving_scale =
+      ResizePlanning.resize_padding_scale(operation, state, :canvas_preserving)
 
     %{
       context
