@@ -530,7 +530,7 @@ defmodule ImagePipe.TelemetryTest do
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
         init_opts(sources: []),
         :source_error,
-        422
+        500
       },
       processing: {
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),

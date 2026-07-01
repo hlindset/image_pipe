@@ -806,6 +806,33 @@ outside ImagePipe.
 - ⭕ `IMGPROXY_ENABLE_DEBUG_HEADERS`
 - ⭕ `IMGPROXY_SERVER_NAME`
 
+### Source-fetch failure → HTTP status (behavioral, [#160](https://github.com/hlindset/image_pipe/issues/160))
+
+Source-fetch failures map to imgproxy-shaped statuses via
+`ImagePipe.Response.ErrorStatus` (the general error→status mechanism,
+[#267](https://github.com/hlindset/image_pipe/issues/267)), parity-confirmed
+against the local imgproxy checkout:
+
+| Fetch failure | ImagePipe | imgproxy | Parity |
+| --- | --- | --- | --- |
+| Unreachable / connect error | 404 | 404 (`fetcher/errors.go:37`) | ✅ |
+| Too many redirects | 404 | 404 (`:109`) | ✅ |
+| Upstream 4xx | passthrough that 4xx | passthrough (`:89-91`) | ✅ |
+| Upstream 5xx | 502 | 502 (`:93`) | ✅ |
+| Request timeout (per-message read) | 504 | 504 (`:131`) | ✅ |
+| Oversized / incomplete body | 422 | 422 (`imagedata/errors.go:17`, `fetcher/errors.go:171`) | ✅ |
+
+**Diverges (non-status):** error *body* copy is distinct per reason
+(`upstream responded 503`, `source timeout`, …); imgproxy returns a single
+uniform "Source is unreachable" string. Status (the wire-observable axis)
+matches; body copy is a deliberate, product-neutral divergence. The 60s
+wedged-session backstop stays **500** (an internal stall, not source liveness;
+imgproxy's *whole-request* timeout is 503 — a separate concern). imgproxy's 499
+request-canceled has no analogue (ImagePipe handles client disconnect via prompt
+encode-kill, not a synthesized status). The pre-existing unsupported-output →
+501 and unsupported-source-format → 415 rows are unchanged ImagePipe divergences
+from imgproxy's 422 and are **not** claimed as parity here.
+
 ### Fallback image
 
 ImagePipe returns source and processing errors through its response sender. It

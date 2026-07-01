@@ -120,7 +120,9 @@ defmodule ImagePipe.Plug do
 
       {:error, {:source, error}} ->
         {conn, _send_metadata} =
-          send_response(conn, opts, :source_error, fn -> Sender.send_source_error(conn, error) end)
+          send_response(conn, opts, :source_error, fn ->
+            Sender.send_source_error(conn, error, opts)
+          end)
 
         {conn, %{result: :source_error, error: Error.tag(error)}}
     end

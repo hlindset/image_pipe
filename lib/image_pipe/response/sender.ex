@@ -20,6 +20,7 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
   alias ImagePipe.Response.CacheHeaders
+  alias ImagePipe.Response.ErrorStatus
   alias ImagePipe.Response.Json
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Telemetry
@@ -35,18 +36,6 @@ defmodule ImagePipe.Response.Sender do
 
   @type error() ::
           {:processing, term(), [{String.t(), String.t()}]}
-
-  @plan_validation_error_tags [
-    :unsupported_source,
-    :invalid_output_plan,
-    :invalid_expires,
-    :invalid_cachebuster,
-    :invalid_response_plan,
-    :invalid_pipeline_plan,
-    :invalid_pipeline_operation,
-    :unprojectable_operation_for_cache_adapter,
-    :detector_unavailable
-  ]
 
   @spec send_result(
           Plug.Conn.t(),
@@ -90,21 +79,23 @@ defmodule ImagePipe.Response.Sender do
   def send_result(
         conn,
         {:error, {:processing, reason, response_headers}},
-        _opts
+        opts
       ) do
-    handle_processing_error(conn, reason, response_headers)
+    handle_processing_error(conn, reason, response_headers, opts)
   end
 
   @spec send_source_error(Plug.Conn.t(), term()) :: Plug.Conn.t()
   def send_source_error(%Plug.Conn{} = conn, error),
     do: send_source_error(conn, error, [])
 
-  @spec send_source_error(Plug.Conn.t(), term(), [{String.t(), String.t()}]) :: Plug.Conn.t()
-  def send_source_error(%Plug.Conn{} = conn, _error, response_headers) do
+  @spec send_source_error(Plug.Conn.t(), term(), keyword()) :: Plug.Conn.t()
+  def send_source_error(%Plug.Conn{} = conn, error, opts) do
+    {status, message} = ErrorStatus.resolve_status({:source, error}, opts)
+    Logger.info("source_error: #{status} #{inspect(error)}")
+
     conn
-    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
-    |> send_resp(422, "invalid image source")
+    |> send_resp(status, message)
   end
 
   @spec send_redirect(Plug.Conn.t(), 303, String.t()) :: Plug.Conn.t()
@@ -132,89 +123,51 @@ defmodule ImagePipe.Response.Sender do
     |> send_resp(304, "")
   end
 
-  defp handle_processing_error(
-         conn,
-         {:transform_error, {:bad_request, _detail}} = reason,
-         response_headers
-       ) do
-    Logger.info("bad_request: #{inspect(reason)}")
-    send_bad_request_error(conn, response_headers)
-  end
-
-  defp handle_processing_error(
-         conn,
-         {:transform_error, reason},
-         response_headers
-       ) do
-    Logger.info("transform_error: #{inspect(reason)}")
-    send_transform_error(conn, response_headers)
-  end
-
-  defp handle_processing_error(conn, {:source, error}, response_headers),
-    do: send_source_error(conn, error, response_headers)
-
-  defp handle_processing_error(conn, {:decode, error}, response_headers),
-    do: send_decode_error(conn, error, response_headers)
-
-  defp handle_processing_error(conn, {:unsupported_source_format, _family}, response_headers),
-    do: send_decode_error(conn, :unsupported_source_format, response_headers)
-
-  defp handle_processing_error(conn, :source_format_required, response_headers),
-    do: send_decode_error(conn, :source_format_required, response_headers)
-
-  defp handle_processing_error(conn, {:input_limit, error}, response_headers),
-    do: send_input_limit_error(conn, error, response_headers)
-
-  defp handle_processing_error(conn, {:encode, exception, stacktrace}, response_headers),
+  defp handle_processing_error(conn, {:encode, exception, stacktrace}, response_headers, _opts),
     do: handle_encode_exception(exception, stacktrace, conn, response_headers)
 
-  defp handle_processing_error(conn, {:encode, :empty_stream}, response_headers) do
+  defp handle_processing_error(conn, {:encode, :empty_stream}, response_headers, _opts) do
     Logger.error("encode_error: empty_stream")
     send_encode_error(conn, response_headers)
   end
 
-  defp handle_processing_error(conn, {:cache_write, error}, response_headers),
+  defp handle_processing_error(conn, {:cache_write, error}, response_headers, _opts),
     do: send_cache_error(conn, error, response_headers)
 
-  defp handle_processing_error(conn, {:config, error}, response_headers),
+  defp handle_processing_error(conn, {:config, error}, response_headers, _opts),
     do: send_config_error(conn, error, response_headers)
 
-  defp handle_processing_error(conn, :empty_pipeline_plan, response_headers),
-    do: send_plan_validation_error(conn, :empty_pipeline_plan, response_headers)
+  defp handle_processing_error(conn, {:render, {:decode, _} = inner}, response_headers, opts),
+    do: handle_processing_error(conn, inner, response_headers, opts)
 
-  defp handle_processing_error(
-         conn,
-         {:unsupported_output_format, _format} = reason,
-         response_headers
-       ) do
-    Logger.info("unsupported_output_format: #{inspect(reason)}")
-    send_unsupported_output_format_error(conn, response_headers)
-  end
-
-  defp handle_processing_error(conn, {:render, {:decode, _} = inner}, response_headers),
-    do: handle_processing_error(conn, inner, response_headers)
-
-  defp handle_processing_error(conn, {:render, {:source, _} = inner}, response_headers),
-    do: handle_processing_error(conn, inner, response_headers)
+  defp handle_processing_error(conn, {:render, {:source, _} = inner}, response_headers, opts),
+    do: handle_processing_error(conn, inner, response_headers, opts)
 
   defp handle_processing_error(
          conn,
          {:render, {:unsupported_source_format, _} = inner},
-         response_headers
+         response_headers,
+         opts
        ),
-       do: handle_processing_error(conn, inner, response_headers)
+       do: handle_processing_error(conn, inner, response_headers, opts)
 
   defp handle_processing_error(
          conn,
          {:render, :source_format_required = inner},
-         response_headers
+         response_headers,
+         opts
        ),
-       do: handle_processing_error(conn, inner, response_headers)
+       do: handle_processing_error(conn, inner, response_headers, opts)
 
-  defp handle_processing_error(conn, {:render, {:input_limit, _} = inner}, response_headers),
-    do: handle_processing_error(conn, inner, response_headers)
+  defp handle_processing_error(
+         conn,
+         {:render, {:input_limit, _} = inner},
+         response_headers,
+         opts
+       ),
+       do: handle_processing_error(conn, inner, response_headers, opts)
 
-  defp handle_processing_error(conn, {:render, reason}, response_headers) do
+  defp handle_processing_error(conn, {:render, reason}, response_headers, _opts) do
     Logger.error("render_error: #{inspect(reason)}")
 
     conn
@@ -223,51 +176,15 @@ defmodule ImagePipe.Response.Sender do
     |> send_resp(500, "error rendering response")
   end
 
-  defp handle_processing_error(conn, {tag, _value} = reason, response_headers)
-       when tag in @plan_validation_error_tags do
-    send_plan_validation_error(conn, reason, response_headers)
-  end
-
-  defp send_plan_validation_error(conn, reason, response_headers) do
-    Logger.info("plan_validation_error: #{inspect(reason)}")
-    send_transform_error(conn, response_headers)
-  end
-
-  defp send_unsupported_output_format_error(%Plug.Conn{} = conn, response_headers) do
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(501, "requested output format is not supported by this server")
-  end
-
-  defp send_decode_error(%Plug.Conn{} = conn, _error, response_headers) do
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(415, "source response is not a supported image")
-  end
-
-  defp send_input_limit_error(%Plug.Conn{} = conn, error, response_headers) do
-    Logger.info("input_limit_error: #{inspect(error)}")
+  # Generic catch-all — MUST be the last handle_processing_error clause.
+  defp handle_processing_error(conn, reason, response_headers, opts) do
+    {status, message} = ErrorStatus.resolve_status(reason, opts)
+    Logger.info("processing_error: #{status} #{inspect(reason)}")
 
     conn
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
-    |> send_resp(413, "source image is too large")
-  end
-
-  defp send_bad_request_error(%Plug.Conn{} = conn, response_headers) do
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(400, "bad request")
-  end
-
-  defp send_transform_error(%Plug.Conn{} = conn, response_headers) do
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(422, "invalid image transform")
+    |> send_resp(status, message)
   end
 
   defp send_cache_entry(

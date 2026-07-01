@@ -548,6 +548,19 @@ defmodule ImagePipe.PlugTest do
     Task.await(task, @slow_origin_ci_load_timeout)
   end
 
+  # A stalled partial origin (one chunk of a chunked response, then the socket is
+  # held open) surfaces as a source error, but WHICH source error is timing-
+  # dependent under load: the per-message receive timeout (504 "source timeout")
+  # or the incomplete-chunked-body path (422 "incomplete source response") can win
+  # the race. Both are correct source-error classifications of the same stall; the
+  # contract under test is "surfaces as a source error" (never a 500 crash or 200).
+  # Tightening this back to a single deterministic status is tracked in #429
+  # (classify transport errors by reason in ReqStream).
+  defp assert_stalled_source_error(conn) do
+    assert conn.status in [422, 504]
+    assert conn.resp_body in ["incomplete source response", "source timeout"]
+  end
+
   defp chunked_body_chunk(body) do
     [Integer.to_string(byte_size(body), 16), "\r\n", body, "\r\n"]
   end
@@ -750,7 +763,7 @@ defmodule ImagePipe.PlugTest do
       |> Code.string_to_quoted!()
 
     assert remote_call?(plug_ast, [:Sender], :send_result, 3)
-    assert remote_call?(plug_ast, [:Sender], :send_source_error, 2)
+    assert remote_call?(plug_ast, [:Sender], :send_source_error, 3)
 
     refute remote_call?(plug_ast, [:Plug, :Conn], :send_resp)
     refute remote_call?(plug_ast, [:Plug, :Conn], :send_chunked)
@@ -1851,8 +1864,7 @@ defmodule ImagePipe.PlugTest do
         auto_webp: false
       )
 
-    assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert_stalled_source_error(conn)
     assert_receive {^ref, :first_chunk_sent, ^server}
     assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}, 1_000
   end
@@ -2196,7 +2208,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source response exceeds the size limit"
   end
 
   test "explicit source body limit overrides the default through the request flow" do
@@ -2265,7 +2277,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source response exceeds the size limit"
   end
 
   test "body limit failures after partial valid image bytes surface as source errors" do
@@ -2281,7 +2293,7 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source response exceeds the size limit"
   end
 
   test "source timeout while decoding partial valid image bytes surfaces as a source error" do
@@ -2301,8 +2313,7 @@ defmodule ImagePipe.PlugTest do
         server
       )
 
-    assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
+    assert_stalled_source_error(conn)
 
     send(server, {ref, :close})
     assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
@@ -2322,7 +2333,7 @@ defmodule ImagePipe.PlugTest do
 
     assert conn.status == 422
     assert conn.state == :sent
-    assert conn.resp_body == "invalid image source"
+    assert conn.resp_body == "source response exceeds the size limit"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
@@ -2343,9 +2354,8 @@ defmodule ImagePipe.PlugTest do
         server
       )
 
-    assert conn.status == 422
+    assert_stalled_source_error(conn)
     assert conn.state == :sent
-    assert conn.resp_body == "invalid image source"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
 
     send(server, {ref, :close})
