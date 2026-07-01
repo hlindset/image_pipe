@@ -76,7 +76,7 @@ Anchor reads confirming the exploration's structural claims:
   `use Boundary, deps: [ImagePipe.Plan]`, carries the module in the plan
   (`{:custom, module, params}`), and dispatches without the core enumerating
   dialects. The Resolver reuses this mechanism — with one caveat about the
-  *dispatching boundary* pinned in §5.1.
+  *dispatching boundary* clarified in §5.1.
 - **`:auto` is already a versioned rule.**
   [`key_data.ex`](../../../lib/image_pipe/plan/key_data.ex) tags
   `%Resize{mode: :auto}` with `rule: :auto_orientation_match_v1`.
@@ -179,7 +179,7 @@ Roles:
 
 - **Neutral default resolver** owns the shared column: fit/cover/stretch,
   region/gravity crop, canvas, padding, `cropToResult`, CropGuided aspect-ratio,
-  the neutral `Flush`/`MaterializeInPlace` emission, and the neutral
+  the neutral `Flush` emission, and the neutral
   point-transform primitives. IIIF and TwicPics use this plus their own overrides.
 - **imgproxy strategy** additionally owns the imgproxy-only column (auto
   bucketing tagged by its `..._v1` version, `min_*` coupling, no-enlarge DPR cap,
@@ -260,7 +260,7 @@ dim-acquisition policy**. Every op advances the shape in one of three modes:
 |---|---|:---:|---|---|
 | **pure advance** | crop, canvas/padding, right-angle rotate, effects | no | exact (computable) | `{:advance, …}` |
 | **read** | resize | no | libvips-rounds | `{:acquire, …}` (lazy read) |
-| **materialize + read** | trim, arbitrary-angle rotate | yes | content/rotation-determined | `{:acquire, …}` (materializing op emitted; read after) |
+| **materialize + read** | trim, arbitrary-angle rotate | yes | content/rotation-determined | `{:acquire, …}` (op is `requires_materialization?`; Chain materializes without orienting; read after) |
 
 The distinction that matters: only `resize` and `trim`/arbitrary-rotate cannot
 have their post-op dims computed purely — `resize` because libvips'
@@ -269,12 +269,15 @@ bbox is content-dependent, arbitrary rotate because libvips rounds the rotated
 bounding box. Everything else is exact (`extract_area`/`embed`/`vips_rot`
 right-angle) and advances purely with **zero read and zero proof**.
 
-**Materialization is orthogonal to the continuation.** It is expressed by the
-resolver *emitting a materializing op* into the `ops` list (`Flush`,
-`MaterializeInPlace`, a materializing rotate, `Trim` itself), which `Chain`
-handles via `requires_materialization?`. So `read` and `materialize+read` share
-the `{:acquire, then_fn}` continuation; they differ only in whether the emitted
-op list forced pixels to RAM first.
+**Materialization is orthogonal to the continuation.** Pixels reach RAM either
+because the resolver emitted a `Flush` (which materializes as it orients, §4.6) or
+because the op itself is `requires_materialization?` (trim, arbitrary rotate),
+which `Chain` handles. Crucially, **`Chain`'s materialization never orients** —
+orientation is applied only by an explicit `Flush` — so a trim under a pending
+orientation materializes to the storage frame automatically, with pending intact,
+and no separate "materialize without orient" op is needed. So `read` and
+`materialize+read` share the `{:acquire, then_fn}` continuation; they differ only
+in whether the op forced pixels to RAM first.
 
 **The one seam.** The shape advance NEVER reads the live image itself. The driver
 owns a single `acquire_dims()` step that supplies the realized dims to an
@@ -309,19 +312,26 @@ case.
 
 ### 4.6 Orientation folded into the resolver (Seam 3, part 1)
 
-`OrientationScheduler` dissolves into **three** resolver pixel outputs plus pure
-shape advances — not one `Flush`:
+`OrientationScheduler` dissolves into a **single** resolver pixel output plus pure
+shape advances:
 
 - **`Flush`** (neutral, materializing): applies the pending `vips_rot`, advances
   the shape to `frame: :display, pending_orientation: nil`. Emitted by the
-  resolver into the op list at the correct position.
-- **`MaterializeInPlace`** (neutral, materializing): `copy_memory` to RAM
-  **without** consuming `pending_orientation` — the trim storage-frame case
-  (imgproxy trims pre-orientation, stage 2 < rotateAndFlip stage 7). Distinct
-  from `Flush`; the "Chain owns materialization" model needs this second
-  materializing op so trim-under-pending materializes without orienting.
+  resolver into the op list at the correct position. This is the **only** op that
+  orients.
 - **pure advance / identity-clear** (no op): identity pending is cleared on the
   shape without emitting anything — the streaming fast path.
+
+**`Chain`'s materialization is orientation-agnostic.** Because orientation is
+applied only by an explicit `Flush`, `Chain`'s pre-op `Materializer` (for any
+`requires_materialization?` op) is a plain `copy_memory` that never orients. That
+is what lets trim (and arbitrary rotate) materialize under a pending orientation
+and operate on the **storage** frame with pending intact — so no separate
+"materialize without orient" op is needed (this fully resolves the reviewer's
+"Chain can't express materialize-without-orient" concern: non-orienting is now the
+only kind of materialize). The corollary: the smart/detect case that must run on
+*oriented* pixels emits an explicit `Flush` before the crop (below) rather than
+relying on materialization to orient.
 
 **Flush *position* is encoded by where the resolver places the op in the `ops`
 list** — there is no separate flush-timing concept. Enumerated from the current
@@ -331,7 +341,8 @@ scheduler clauses:
 - resize → `[…resize…, crop?, Flush]` (flush **after**).
 - padding / pixelate / gradient → `[Flush, op]` (flush **before**, so the op
   decides in the display frame).
-- trim → `[MaterializeInPlace, Trim]` (materialize-in-place, **keep** pending).
+- trim → `[Trim]` (Chain materializes it via `requires_materialization?` without
+  orienting, so it trims the **storage** frame; pending is **kept** by `then_fn`).
 - **smart/detect gravity crop → `[Flush, Crop(uncompensated)]`.** These
   materialize and today rely on the auto-flush firing first so they see
   display-frame pixels and are emitted *literal*. The resolver must make that
@@ -410,7 +421,8 @@ an implementer does not reconstruct `#185`/`#180` from scratch.
 
 - **`Chain`** keeps per-op materialization (`requires_materialization?` +
   `Materializer`). The resolver decides *shape*; the Chain decides *pixel access*.
-  `Flush` and `MaterializeInPlace` are materializing ops to it.
+  `Flush` is a materializing op to it; trim/arbitrary-rotate materialize via their
+  own `requires_materialization?`. Its `Materializer` never orients (§4.6).
 - **`Geometry`** rounding/placement primitives and the neutral point-transform
   math remain neutral utilities the resolver calls.
 - **`DecodePlanner`** stays the pure pre-decode load-option planner; its output
@@ -426,32 +438,32 @@ an implementer does not reconstruct `#185`/`#180` from scratch.
 - imgproxy strategy — under `parser/imgproxy/`, implementing `ImagePipe.Resolver`.
 - `parser` boundary gains `→ resolver` (already blessed: `parser → renderer`).
 
-### 5.1 The dispatcher-boundary caveat (pin, don't assume)
+### 5.1 The dispatcher boundary (a non-issue, for accuracy)
 
-The `Renderer` precedent is dispatched from the **`request`** boundary
-(`render_runner.ex`), and `request` deps on `Renderer` but **not** on `Parser` —
-that is what makes a carried imgproxy renderer (living in `parser`) reachable
-with no `request → parser` edge. The Resolver's driver is `PlanExecutor`, which
-lives in **`transform`** (deps `[Plan, Telemetry]`, no parser). So the mirror
-requires a **new `transform → resolver` edge**, with the carried imgproxy
-strategy invoked dynamically (`module.resolve(...)`).
+One accuracy note, since §3 calls the Resolver a mirror of `Renderer`: `Renderer`
+is dispatched from **`request`** (`render_runner.ex`), whereas the Resolver's
+driver is `PlanExecutor` in **`transform`** (deps `[Plan, Telemetry]`, no parser).
+So the mirror needs a **new `transform → resolver` edge**, with the carried
+imgproxy strategy invoked dynamically (`module.resolve(...)`).
 
-Boundary treats dynamic `apply`/dispatch as a non-edge — that is *why* `Renderer`
-works — and there is no reason that rule is dispatcher-boundary-specific, so the
-mechanism should hold from `transform` too. But the spec does not assume it:
-**an architecture test, written before implementation, must assert `transform`
-gains only `→ resolver` and Boundary reports no `transform → parser` edge from
-the dynamic call.** If that ever fails, the fallback is to root the driver in
-`request` (the exact validated topology) — but the recommended path is
-driver-in-`transform` + the pinning test, since it avoids relocating the resolve
-loop out of the transform domain.
+This does not create a `transform → parser` problem. `Boundary` analyzes
+*compile-time* references; a call on a module held in a variable is invisible to
+it — which is exactly why the existing `Renderer` (a parser-owned renderer
+dispatched without a `request → parser` edge) compiles. The rule is not
+dispatcher-boundary-specific, so it holds from `transform` too. And it is already
+enforced continuously: `transform`'s `Boundary` declaration plus the architecture
+tests fail immediately on any *concrete* reference to a strategy. The only
+discipline required is the one the whole design already imposes — the driver never
+names a concrete strategy, exactly as `request` never names a renderer. No special
+test or driver relocation is warranted; the standard boundary/architecture
+coverage covers it.
 
 ## 6. Compatibility-doc impact
 
 [`docs/imgproxy_support_matrix.md`](../../imgproxy_support_matrix.md) must be
 updated in the same change. The axis is **stage/order** (the processing-pipeline
 section): resolution moves into an imgproxy resolver strategy, and orientation
-flush becomes explicit neutral ops (`Flush`/`MaterializeInPlace`). No **surface**
+flush becomes an explicit neutral op (`Flush`). No **surface**
 change and, by results-identical, no intended **behavioral/pixel** change — the
 "Diverges" notes and wire conformance must stay green. Note the `fixSize` (Output
 boundary) and `limitScale` (Output-boundary cap) relationships from §4.4/§4.7 so
@@ -495,8 +507,8 @@ where resolution runs.
   net. Must stay green; a compatibility reviewer (imgproxy) is mandatory.
 - **Existing: wire conformance** — status/headers/content-type/decoded
   dims/cache/source/`Vary`. Must stay green.
-- **Sequential-safety gate for `Flush` and `MaterializeInPlace`** (and any
-  newly-classified op), per the transform guidelines: per-op sequential-vs-random
+- **Sequential-safety gate for `Flush`** (and any newly-classified op), per the
+  transform guidelines: per-op sequential-vs-random
   pixel-equivalence + property test over shapes, with the known-random self-check.
   **Also assert the identity fast path:** identity `pending_orientation` emits no
   `Flush` and triggers **no** materialization (streaming-path guard) — otherwise a
@@ -526,12 +538,14 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
    the §4.7 continuation-variant narrowing holds; golden + differential + wire
    green.
 2. **Fold in orientation.** Dissolve `OrientationScheduler` into `Flush` /
-   `MaterializeInPlace` / pure-advance emitted by the resolver, flush position via
+   pure-advance emitted by the resolver (orientation-agnostic materialization),
+   flush position via
    op-list order, smart/detect explicit-`Flush`, and re-home the delivery-boundary
    materialize (§4.6). Re-prove sequential-safety + identity fast path. Green.
 3. **Move the boundary.** Extract the imgproxy-only column into an
    `ImagePipe.Resolver` strategy under `parser/imgproxy/`, carried in the Plan;
-   add the `transform → resolver` edge and the §5.1 architecture test; add the
+   add the `transform → resolver` edge (§5.1 — covered by existing boundary/arch
+   tests, no special test); add the
    strategy behavioral version tags to `plan_material` (§7); update the support
    matrix. Move TwicPics focus into its strategy accumulator. Green.
 4. **(Optional) B-promotion.** If the §8 property spike is green and the
@@ -547,12 +561,13 @@ Each stage is independently green on golden + differential + wire.
   results-identical gate + compatibility reviewer are non-negotiable.
 - The frame-aware `acquire`/interpreter (§4.7) is the highest-risk detail: an
   interpreter that declares the wrong frame reintroduces the `#182` class.
-- Orientation dissolution has three subtle pieces the spec now enumerates but that
-  are easy to get wrong: `MaterializeInPlace` vs `Flush` (trim), flush position by
-  op-list order, and the smart/detect explicit-flush coupling.
+- Orientation dissolution has subtle pieces the spec now enumerates but that are
+  easy to get wrong: making `Chain`'s materialization orientation-agnostic (so trim
+  materializes to the storage frame), flush position by op-list order, and the
+  smart/detect explicit-`Flush` coupling.
 - `decode_shrink` has three reset paths and the `#185` crop swap ordering; do not
   collapse them.
-- `Flush`/`MaterializeInPlace` must clear the sequential-safety gate; the
+- `Flush` must clear the sequential-safety gate; the
   silent-buffering perf failure mode is not covered by correctness tests (perf
   benchmark deferred, as today).
 - B-promotion (if pursued) pins results-identical to undocumented libvips output
@@ -562,7 +577,7 @@ Each stage is independently green on golden + differential + wire.
 ## 11. Anchors (as of 2026-07-01)
 
 - [`lib/image_pipe/transform/resize_planning.ex`](../../../lib/image_pipe/transform/resize_planning.ex) — conflated neutral-core + imgproxy resolver
-- [`lib/image_pipe/transform/orientation_scheduler.ex`](../../../lib/image_pipe/transform/orientation_scheduler.ex) — the deferral engine that dissolves into Flush/MaterializeInPlace/advance
+- [`lib/image_pipe/transform/orientation_scheduler.ex`](../../../lib/image_pipe/transform/orientation_scheduler.ex) — the deferral engine that dissolves into an explicit Flush op + pure advances
 - [`lib/image_pipe/transform/plan_executor.ex`](../../../lib/image_pipe/transform/plan_executor.ex) — today's driver + the cross-op `context`
 - [`lib/image_pipe/transform/operation/resize.ex`](../../../lib/image_pipe/transform/operation/resize.ex) — the neutral `resolve_dimensions` core + the focus read-back (`~:111`)
 - [`lib/image_pipe/transform/focus.ex`](../../../lib/image_pipe/transform/focus.ex) — neutral point-transform math (its *carry* moves to TwicPics strategy state)
