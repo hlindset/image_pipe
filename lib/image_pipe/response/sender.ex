@@ -51,9 +51,18 @@ defmodule ImagePipe.Response.Sender do
   @spec send_result(
           Plug.Conn.t(),
           {:ok, delivery()}
+          | {:not_modified, CacheHeaders.t()}
           | {:error, error()},
           keyword()
         ) :: Plug.Conn.t()
+  def send_result(
+        %Plug.Conn{} = conn,
+        {:not_modified, %CacheHeaders{} = prepared},
+        _opts
+      ) do
+    send_not_modified(conn, prepared)
+  end
+
   def send_result(
         %Plug.Conn{} = conn,
         {:ok,

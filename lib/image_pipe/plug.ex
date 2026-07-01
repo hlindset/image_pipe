@@ -219,10 +219,12 @@ defmodule ImagePipe.Plug do
     |> Map.merge(send_metadata)
   end
 
+  defp request_result({:not_modified, _prepared}), do: :not_modified
   defp request_result({:ok, _delivery}), do: :ok
   defp request_result({:error, {:processing, reason, _headers}}), do: processing_result(reason)
 
   defp request_result_metadata(:not_modified), do: %{result: :not_modified}
+  defp request_result_metadata({:not_modified, _prepared}), do: %{result: :not_modified}
   defp request_result_metadata({:ok, _delivery}), do: %{result: :ok}
 
   defp request_result_metadata({:error, {:processing, reason, _headers}}),

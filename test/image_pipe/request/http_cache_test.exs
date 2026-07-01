@@ -391,7 +391,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
       assert {:not_modified, ^prepared} = HTTPCache.evaluate_conditional(conn, prepared, [])
     end
 
-    test "wildcard form is ignored in v1" do
+    test "wildcard form proceeds pre-fetch (honored only on an internal cache hit)" do
       prepared = %ImagePipe.Response.CacheHeaders{
         representation_headers: [],
         headers: [{"etag", ~s("ip1-abc")}],
@@ -464,6 +464,27 @@ defmodule ImagePipe.Request.HTTPCacheTest do
         |> put_req_header("if-none-match", ~s("ip1-abc"))
 
       assert :proceed = HTTPCache.evaluate_conditional(conn, prepared, [])
+    end
+  end
+
+  describe "if_none_match_wildcard?/1" do
+    test "true for a bare wildcard" do
+      conn = conn(:get, "/image") |> put_req_header("if-none-match", "*")
+      assert HTTPCache.if_none_match_wildcard?(conn)
+    end
+
+    test "true when a wildcard is mixed with explicit tags (collapse)" do
+      conn = conn(:get, "/image") |> put_req_header("if-none-match", ~s("ip1-abc", *))
+      assert HTTPCache.if_none_match_wildcard?(conn)
+    end
+
+    test "false for explicit tags only" do
+      conn = conn(:get, "/image") |> put_req_header("if-none-match", ~s("ip1-abc"))
+      refute HTTPCache.if_none_match_wildcard?(conn)
+    end
+
+    test "false when the header is absent" do
+      refute HTTPCache.if_none_match_wildcard?(conn(:get, "/image"))
     end
   end
 

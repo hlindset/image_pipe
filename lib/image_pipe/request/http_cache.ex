@@ -100,6 +100,24 @@ defmodule ImagePipe.Request.HTTPCache do
 
   def evaluate_conditional(%Plug.Conn{}, %CacheHeaders{}, _opts), do: :proceed
 
+  @doc """
+  Whether the request carried an `If-None-Match: *` wildcard precondition.
+
+  The wildcard is deliberately *not* honored pre-fetch (see `evaluate_conditional/3`,
+  where `:wildcard` proceeds): at that point no representation is proven to exist.
+  It is honored only once an internal cache hit proves a current representation
+  exists for the cache key, which is where callers consult this. A header mixing
+  `*` with explicit tags collapses to the wildcard — `*` ("match any current
+  representation") subsumes any specific tag.
+  """
+  @spec if_none_match_wildcard?(Plug.Conn.t()) :: boolean()
+  def if_none_match_wildcard?(%Plug.Conn{} = conn) do
+    conn
+    |> get_req_header("if-none-match")
+    |> Enum.join(",")
+    |> parse_if_none_match() == :wildcard
+  end
+
   defp conditional_method("GET"), do: :get
   defp conditional_method("HEAD"), do: :head
 

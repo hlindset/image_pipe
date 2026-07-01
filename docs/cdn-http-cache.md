@@ -100,10 +100,11 @@ generated public cache headers.
 
 ## Conditional Requests
 
-ImagePipe handles `If-None-Match` only for generated ETags. A matching `GET` or
-`HEAD` returns `304 Not Modified` after source resolution and before cache lookup,
-source fetch, decode, transform, or encode. HEAD response metadata
-(`ETag`/`Cache-Control`/`Vary`) matches the equivalent `GET`, per RFC 9110 §9.3.2.
+ImagePipe handles `If-None-Match` for explicit entity tags matching a generated
+ETag. A matching `GET` or `HEAD` returns `304 Not Modified` after source resolution
+and before cache lookup, source fetch, decode, transform, or encode. HEAD response
+metadata (`ETag`/`Cache-Control`/`Vary`) matches the equivalent `GET`, per RFC 9110
+§9.3.2.
 
 `If-None-Match` uses weak comparison for `GET` and `HEAD`, so both of these match
 the generated ETag `"ip1-token"`:
@@ -113,7 +114,14 @@ If-None-Match: "ip1-token"
 If-None-Match: W/"ip1-token"
 ```
 
-v1 ignores `If-None-Match: *`, including on internal cache hits.
+`If-None-Match: *` matches any current representation, but ImagePipe cannot prove
+one exists pre-fetch — a request can still fail at source, decode, transform, or
+encode. So the wildcard does **not** short-circuit before fetch; it proceeds into
+the runner and is honored only on an **internal cache hit**, which proves a current
+representation was successfully produced for the cache key. On a hit the response is
+`304 Not Modified`, whether or not an ETag was generated; on a miss the request
+generates and returns `200`. A header mixing `*` with explicit tags (invalid per
+RFC 9110 §13.1.2) collapses to the wildcard.
 
 ImagePipe serves only `GET` and `HEAD`. Any other method receives
 `405 Method Not Allowed` with `Allow: GET, HEAD`, before parsing, source

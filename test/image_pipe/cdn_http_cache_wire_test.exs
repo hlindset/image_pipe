@@ -91,6 +91,32 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     def abort_sink(_state, _opts), do: :ok
   end
 
+  defmodule EtaglessCachedSource do
+    @behaviour ImagePipe.Source
+
+    def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :etagless_test)}
+
+    def resolve(source, _opts, _runtime_opts) do
+      path = source.segments
+
+      {:ok,
+       %Resolved{
+         adapter: :path,
+         source_kind: :path,
+         identity: [kind: :path, adapter: :path, root: "wire-etagless", path: path],
+         internal_cache: :enabled,
+         http_cache: :enabled,
+         cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+         fetch: [path: path]
+       }}
+    end
+
+    def fetch(_resolved, opts, _runtime_opts) do
+      send(Keyword.fetch!(opts, :test_pid), :source_fetch_called)
+      {:ok, %Response{stream: [File.read!("priv/static/images/beach.jpg")]}}
+    end
+  end
+
   setup do
     opts =
       ImagePipe.Plug.init(
@@ -231,6 +257,132 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert [etag] = get_resp_header(conn, "etag")
     assert String.starts_with?(etag, "\"ip1-")
     assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+    refute_received :source_fetch_called
+  end
+
+  test "wildcard if-none-match on a cache miss proceeds and returns 200", %{opts: opts} do
+    conn =
+      :get
+      |> conn("/_/plain/beach.jpg")
+      |> put_req_header("if-none-match", "*")
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 200
+    assert conn.resp_body != ""
+    # The wildcard did not short-circuit pre-fetch: the request proceeded into the
+    # cache lookup and the source fetch, exactly as a request with no precondition.
+    assert_received {:cache_get, %Key{}}
+    assert_received :source_fetch_called
+  end
+
+  test "wildcard if-none-match on an internal cache hit returns 304" do
+    entry = %Entry{
+      body: "cached body",
+      content_type: "image/jpeg",
+      headers: [{"cache-control", "public, max-age=60"}],
+      created_at: DateTime.utc_now()
+    }
+
+    opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry},
+        http_cache: [mode: :enabled]
+      )
+
+    conn =
+      :get
+      |> conn("/_/plain/beach.jpg")
+      |> put_req_header("if-none-match", "*")
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 304
+    assert conn.resp_body == ""
+    assert [etag] = get_resp_header(conn, "etag")
+    assert String.starts_with?(etag, "\"ip1-")
+    refute_received :source_fetch_called
+  end
+
+  test "wildcard if-none-match on a HEAD internal cache hit returns 304" do
+    entry = %Entry{
+      body: "cached body",
+      content_type: "image/jpeg",
+      headers: [{"cache-control", "public, max-age=60"}],
+      created_at: DateTime.utc_now()
+    }
+
+    opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry},
+        http_cache: [mode: :enabled]
+      )
+
+    conn =
+      :head
+      |> conn("/_/plain/beach.jpg")
+      |> put_req_header("if-none-match", "*")
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 304
+    assert conn.resp_body == ""
+    refute_received :source_fetch_called
+  end
+
+  test "wildcard if-none-match returns 304 on a cache hit even without a generated etag" do
+    entry = %Entry{
+      body: "cached body",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {EtaglessCachedSource, test_pid: self()}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry},
+        http_cache: [mode: :enabled]
+      )
+
+    conn =
+      :get
+      |> conn("/_/plain/beach.jpg")
+      |> put_req_header("if-none-match", "*")
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 304
+    assert conn.resp_body == ""
+    assert get_resp_header(conn, "etag") == []
+    refute_received :source_fetch_called
+  end
+
+  test "if-none-match mixing an explicit tag with a wildcard collapses to wildcard and 304s on a cache hit" do
+    entry = %Entry{
+      body: "cached body",
+      content_type: "image/jpeg",
+      headers: [{"cache-control", "public, max-age=60"}],
+      created_at: DateTime.utc_now()
+    }
+
+    opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry},
+        http_cache: [mode: :enabled]
+      )
+
+    conn =
+      :get
+      |> conn("/_/plain/beach.jpg")
+      |> put_req_header("if-none-match", ~s("ip1-nonmatching", *))
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 304
+    assert conn.resp_body == ""
     refute_received :source_fetch_called
   end
 
