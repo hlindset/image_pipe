@@ -29,6 +29,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Trim
 
   @enlargements [:allow, :deny, :reject]
+  @out_of_bounds_policies [:clamp, :reject]
   @flip_axes [:horizontal, :vertical, :both]
   @x_anchors [:left, :center, :right]
   @y_anchors [:top, :center, :bottom]
@@ -60,6 +61,7 @@ defmodule ImagePipe.Plan.Operation do
     :max_area
   ]
   @crop_guided_keys [:x_offset, :y_offset, :aspect_ratio, :enlarge]
+  @crop_region_keys [:on_out_of_bounds]
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
   @padding_keys [:pixel_ratio, :fill]
   @trim_keys [:threshold, :background, :equal_hor, :equal_ver]
@@ -277,15 +279,32 @@ defmodule ImagePipe.Plan.Operation do
     end
   end
 
-  @spec crop_region(term(), term(), term(), term()) :: {:ok, CropRegion.t()} | {:error, error()}
-  def crop_region(x, y, width, height) do
-    with {:ok, x} <- tagged_crop_coordinate(x),
+  @spec crop_region(term(), term(), term(), term(), keyword()) ::
+          {:ok, CropRegion.t()} | {:error, error()}
+  def crop_region(x, y, width, height, opts \\ [])
+
+  def crop_region(x, y, width, height, opts) when is_list(opts) do
+    with :ok <- validate_known_options(:crop_region, opts, @crop_region_keys),
+         {:ok, x} <- tagged_crop_coordinate(x),
          {:ok, y} <- tagged_crop_coordinate(y),
          {:ok, width} <- tagged_crop_region_dimension(width),
-         {:ok, height} <- tagged_crop_region_dimension(height) do
-      {:ok, %CropRegion{x: x, y: y, width: width, height: height}}
+         {:ok, height} <- tagged_crop_region_dimension(height),
+         {:ok, on_out_of_bounds} <-
+           optional_member(opts, :on_out_of_bounds, @out_of_bounds_policies, :clamp) do
+      {:ok,
+       %CropRegion{
+         x: x,
+         y: y,
+         width: width,
+         height: height,
+         on_out_of_bounds: on_out_of_bounds
+       }}
     else
-      {:error, _reason} -> invalid(:crop_region, [x, y, width, height])
+      {:error, {:unknown_operation_options, _operation, _keys} = reason} ->
+        {:error, reason}
+
+      {:error, _reason} ->
+        invalid(:crop_region, [x, y, width, height, opts])
     end
   end
 

@@ -62,7 +62,15 @@ defmodule ImagePipe.Transform.Operation.Crop do
   are resolved relative to the current image bounds.
 
   For coordinate crops, `crop_from` is the requested top-left crop position
-  before the rectangle is clamped to image bounds.
+  before the rectangle is clamped to image bounds. `reject_out_of_bounds` is a
+  verdict decided upstream: when `true`, the requested region was found to lie
+  wholly outside the source (in the original, pre-decode-shrink frame that
+  `ImagePipe.Transform.PlanExecutor` owns), so execution returns
+  `{:error, {:bad_request, :region_out_of_bounds}}` without cropping. When
+  `false` (the default) a coordinate crop clamps to image bounds as usual. The
+  detection lives in the executor rather than here because the original-frame
+  dimensions and request coordinates are only available before the shrink
+  rescale; a partially overlapping region is never rejected.
 
   ## Examples
 
@@ -128,6 +136,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     offset_scale: 1.0,
     aspect_ratio: nil,
     enlarge: false,
+    reject_out_of_bounds: false,
     center_bias: {:near, :near}
   ]
 
@@ -156,6 +165,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
           offset_scale: pos_integer() | float(),
           aspect_ratio: nil | {:ratio, pos_integer(), pos_integer()},
           enlarge: boolean(),
+          reject_out_of_bounds: boolean(),
           center_bias: {:near | :far, :near | :far}
         }
 
@@ -197,6 +207,14 @@ defmodule ImagePipe.Transform.Operation.Crop do
       nil -> execute(%__MODULE__{params | gravity: {:anchor, :center, :center}}, state)
       {:fp, _x, _y} = fp -> execute(%__MODULE__{params | gravity: fp}, state)
     end
+  end
+
+  # A coordinate region the executor found wholly outside the source. Returning the
+  # {:bad_request, _} reason unwrapped lets Chain yield {:transform_error,
+  # {:bad_request, :region_out_of_bounds}} → 400, the same status path as Resize's
+  # :upscale_required (a {__MODULE__, _} wrap would demote it to a generic 422).
+  def execute(%__MODULE__{reject_out_of_bounds: true, crop_from: %{}}, %State{}) do
+    {:error, {:bad_request, :region_out_of_bounds}}
   end
 
   def execute(%__MODULE__{} = params, %State{} = state) do
@@ -268,6 +286,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   defp crop_coordinates(%__MODULE__{} = params, %State{}, image_width, image_height) do
+    %{left: left_coord, top: top_coord} = params.crop_from
+    left_px = resolve_position(left_coord, image_width)
+    top_px = resolve_position(top_coord, image_height)
+
     # keep :auto dimensions as is
     target_width = if params.width == :auto, do: image_width, else: params.width
     target_height = if params.height == :auto, do: image_height, else: params.height
@@ -276,9 +298,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
     crop_width = resolve_dimension(target_width, image_width, clamp?: true)
     crop_height = resolve_dimension(target_height, image_height, clamp?: true)
 
-    # figure out the crop anchor
-    {center_x, center_y} =
-      anchor_crop_to_pixels(params.crop_from, image_width, image_height, crop_width, crop_height)
+    # figure out the crop anchor from the resolved origin
+    center_x = round(left_px + crop_width / 2)
+    center_y = round(top_px + crop_height / 2)
 
     # ...and make sure crop still stays within bounds
     left = max(0, min(image_width - crop_width, round(center_x - crop_width / 2)))
@@ -581,20 +603,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
        do: {:ok, gravity}
 
   defp crop_gravity(value), do: {:error, {:invalid_crop_gravity, value}}
-
-  defp anchor_crop_to_pixels(
-         %{left: left, top: top},
-         image_width,
-         image_height,
-         crop_width,
-         crop_height
-       ) do
-    left_px = resolve_position(left, image_width)
-    top_px = resolve_position(top, image_height)
-    center_x = round(left_px + crop_width / 2)
-    center_y = round(top_px + crop_height / 2)
-    {center_x, center_y}
-  end
 
   defp correct_aspect_ratio(width, height, nil, _enlarge, _image_width, _image_height),
     do: {width, height}

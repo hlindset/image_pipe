@@ -495,6 +495,27 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     assert conn.status == 400
   end
 
+  test "contract 9c1: region origin wholly outside on x → 400 with the distinct body" do
+    # Source is 200×300; region origin x=250 is past the right edge → no overlap.
+    conn = call_iiif("/img/250,10,100,100/max/0/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 400
+    assert conn.resp_body == "requested region is outside the image"
+  end
+
+  test "contract 9c2: region origin wholly outside on y → 400" do
+    # Source is 200×300; region origin y=350 is past the bottom edge → no overlap.
+    conn = call_iiif("/img/10,350,100,100/max/0/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 400
+  end
+
+  test "contract 9c3: partially overlapping region still clips → 200" do
+    # Source is 200×300; region 150,10,100,100 overflows the right edge but its
+    # origin is in-bounds, so it clips to a 50-wide-overlap → clamped 100×100.
+    conn = call_iiif("/img/150,10,100,100/max/0/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 200
+    assert dimensions(conn) == {100, 100}
+  end
+
   test "contract 9d: unsupported format .tif → 400" do
     conn = call_iiif("/img/full/max/0/default.tif", iiif_opts(OriginImage))
     assert conn.status == 400

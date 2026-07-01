@@ -254,6 +254,16 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     refute average(from_tl) == average(from_br)
   end
 
+  test "crop=WxH@XxY with an origin past the edge clamps → 200 (not IIIF's OOB 400)" do
+    # beach.jpg is 4000×2667; origin x=5000 is wholly past the right edge. IIIF
+    # rejects a wholly-outside region (on_out_of_bounds: :reject), but TwicPics keeps
+    # the default :clamp — the shared CropRegion→Crop path must stay clamp for TwicPics.
+    conn = call("/images/beach.jpg?twic=v1/crop=100x100@5000x100/output=jpeg")
+
+    assert conn.status == 200
+    assert dimensions(conn) == {100, 100}
+  end
+
   test "focus=auto steers the cover crop (smart gravity, differs from centered baseline)" do
     # focus=auto -> {:smart, :face_assist} guide, the same attention(+face) engine
     # ImagePipe uses for imgproxy g:sm. With no detector configured (this lane) it

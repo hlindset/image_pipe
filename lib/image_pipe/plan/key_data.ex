@@ -86,7 +86,8 @@ defmodule ImagePipe.Plan.KeyData do
       x: data(operation.x),
       y: data(operation.y),
       width: data(operation.width),
-      height: data(operation.height)
+      height: data(operation.height),
+      on_out_of_bounds: operation.on_out_of_bounds
     ]
   end
 

@@ -9,6 +9,11 @@ defmodule ImagePipe.Response.ErrorStatusTest do
                ErrorStatus.resolve_status({:transform_error, {:bad_request, :upscale_required}})
 
       assert {400, _} =
+               ErrorStatus.resolve_status(
+                 {:transform_error, {:bad_request, :region_out_of_bounds}}
+               )
+
+      assert {400, _} =
                ErrorStatus.resolve_status({:transform_error, {:bad_request, :some_future_detail}})
     end
 
@@ -57,6 +62,7 @@ defmodule ImagePipe.Response.ErrorStatusTest do
     test "messages are distinct across reasons and never embed a URL" do
       reasons = [
         {:transform_error, {:bad_request, :upscale_required}},
+        {:transform_error, {:bad_request, :region_out_of_bounds}},
         {:transform_error, {SomeMod, :boom}},
         {:source, :connect_error},
         {:source, :too_many_redirects},

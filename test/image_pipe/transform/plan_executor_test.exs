@@ -698,6 +698,39 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
     assert Image.width(result) == 170
   end
 
+  describe "CropRegion out-of-bounds verdict decided in the original source frame" do
+    # A post-decode state where shrink-on-load decoded a 200×300 source to 100×150
+    # (decode_shrink 2.0). effective_source_dims reports the ORIGINAL 200×300, which is
+    # the frame the wholly-outside decision must use.
+    defp shrunk_source_state do
+      {:ok, image} = Image.new(100, 150, color: :white)
+      %State{image: image, source_dimensions: {200, 300}, decode_shrink: %{w: 2.0, h: 2.0}}
+    end
+
+    test "a near-far-edge partial overlap is NOT rejected under shrink-on-load" do
+      # x=199 is in-bounds at full res (199 < 200 → 1px overlap → clip). The coordinate
+      # rescale rounds round(199/2)=100, equal to the shrunk width 100 — deciding in the
+      # shrunk frame would spuriously 400. Deciding in the original frame keeps it a clip.
+      {:ok, region} =
+        Operation.crop_region({:px, 199}, {:px, 10}, {:px, 100}, {:px, 100},
+          on_out_of_bounds: :reject
+        )
+
+      assert {:ok, %State{}} =
+               Transform.execute_plan(plan([region]), shrunk_source_state(), [])
+    end
+
+    test "a wholly-outside origin IS rejected under shrink-on-load" do
+      {:ok, region} =
+        Operation.crop_region({:px, 250}, {:px, 10}, {:px, 100}, {:px, 100},
+          on_out_of_bounds: :reject
+        )
+
+      assert {:error, {:transform_error, {:bad_request, :region_out_of_bounds}}} =
+               Transform.execute_plan(plan([region]), shrunk_source_state(), [])
+    end
+  end
+
   defp plan(operations) do
     %Plan{
       source: %Source.Path{segments: ["images", "cat.jpg"]},

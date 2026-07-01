@@ -38,6 +38,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Focus
+  alias ImagePipe.Transform.Geometry
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
@@ -618,7 +619,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
         crop_from: %{
           left: crop_coordinate(operation.x),
           top: crop_coordinate(operation.y)
-        }
+        },
+        reject_out_of_bounds: reject_region_out_of_bounds?(operation, state)
       }
 
     [rescale_crop_for_decode_shrink(crop, state.decode_shrink)]
@@ -921,6 +923,23 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp crop_coordinate({:px, value}), do: {:pixels, value}
   defp crop_coordinate({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
+
+  defp reject_region_out_of_bounds?(%CropRegion{on_out_of_bounds: :clamp}, _state), do: false
+
+  # Decide "wholly outside" in the ORIGINAL source frame (`effective_source_dims`),
+  # against the un-rescaled request coordinates — a region entirely outside the image
+  # is a property of the request vs. the reported source dimensions, independent of
+  # the decoded resolution. Evaluating it after `rescale_crop_for_decode_shrink` would
+  # let the coordinate rescale's rounding (`round(orig / shrink)`) push a near-edge
+  # *partial* overlap up to the shrunk width and spuriously reject a serviceable
+  # request. `resolve_position` clamps negatives to 0, so the only way to be wholly
+  # outside is an origin at or past the far edge.
+  defp reject_region_out_of_bounds?(%CropRegion{on_out_of_bounds: :reject} = operation, state) do
+    {src_w, src_h} = State.effective_source_dims(state)
+
+    Geometry.resolve_position(crop_coordinate(operation.x), src_w) >= src_w or
+      Geometry.resolve_position(crop_coordinate(operation.y), src_h) >= src_h
+  end
 
   # Rescale an executable crop's ABSOLUTE coordinates for shrink-on-load through a
   # preceding crop (#151). Shrink-on-load decoded the image smaller by the realized

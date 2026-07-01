@@ -578,7 +578,8 @@ defmodule ImagePipe.Cache.KeyTest do
                  x: [unit: :logical_px, value: 0],
                  y: [unit: :ratio, numerator: 0, denominator: 1],
                  width: [unit: :ratio, numerator: 1, denominator: 2],
-                 height: [unit: :logical_px, value: 80]
+                 height: [unit: :logical_px, value: 80],
+                 on_out_of_bounds: :clamp
                ]
              ]
            ]

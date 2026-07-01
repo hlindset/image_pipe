@@ -110,13 +110,16 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   end
 
   defp region_operations({:px, x, y, w, h}) do
-    with {:ok, op} <- Operation.crop_region({:px, x}, {:px, y}, {:px, w}, {:px, h}) do
+    with {:ok, op} <-
+           Operation.crop_region({:px, x}, {:px, y}, {:px, w}, {:px, h},
+             on_out_of_bounds: :reject
+           ) do
       {:ok, [op]}
     end
   end
 
   defp region_operations({:pct, xr, yr, wr, hr}) do
-    with {:ok, op} <- Operation.crop_region(xr, yr, wr, hr) do
+    with {:ok, op} <- Operation.crop_region(xr, yr, wr, hr, on_out_of_bounds: :reject) do
       {:ok, [op]}
     end
   end

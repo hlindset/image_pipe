@@ -160,7 +160,8 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                x: [unit: :logical_px, value: 0],
                y: [unit: :ratio, numerator: 0, denominator: 1],
                width: [unit: :ratio, numerator: 1, denominator: 2],
-               height: [unit: :logical_px, value: 100]
+               height: [unit: :logical_px, value: 100],
+               on_out_of_bounds: :clamp
              ]
 
       refute Keyword.has_key?(data, :space)
