@@ -60,9 +60,6 @@ defmodule ImagePipe.Source.S3.AssumeRole do
       # doesn't double-nest the tag.
       {:error, {:invalid_source_config, reason}} ->
         {:error, reason}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

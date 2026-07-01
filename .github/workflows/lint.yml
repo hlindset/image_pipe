@@ -49,6 +49,23 @@ jobs:
         run: mise exec -- mix format --check-formatted
       - name: Run Credo
         run: mise exec -- mix credo --strict
+      - name: Restore PLT cache
+        id: plt-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: priv/plts
+          key: plt-dev-erlang29-elixir1.20.0-otp29-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            plt-dev-erlang29-elixir1.20.0-otp29-
+      - name: Create PLTs
+        if: steps.plt-cache.outputs.cache-hit != 'true'
+        run: mise exec -- mix dialyzer --plt
+        env:
+          MIX_ENV: dev
+      - name: Run Dialyzer
+        run: mise exec -- mix dialyzer
+        env:
+          MIX_ENV: dev
       - name: Check fiddle formatting
         run: cd fiddle && mise exec -- mix format --check-formatted
       - name: Fiddle type-check

@@ -47,11 +47,12 @@ env = { MIX_ENV = "test" }
 run = ["mix twicpics.gen_fixtures"]
 
 [tasks.precommit]
-description = "Elixir library checks: format, compile (warnings as errors), credo, duplication, test"
+description = "Elixir library checks: format, compile (warnings as errors), credo, dialyzer, duplication, test"
 run = [
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
   "mix credo --strict",
+  "mix dialyzer",
   # --exclude-macro alias: runs of `alias`/`as:` declarations (which AliasOrder
   # forces into a fixed order and which sibling modules in one namespace
   # legitimately overlap) are declarations, not logic clones. Mirrors the
