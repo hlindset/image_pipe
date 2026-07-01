@@ -14,7 +14,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   Enlargement: `enlarge: true` upscales; `reject_enlargement: true` errors
   (`{:error, {:bad_request, :upscale_required}}`) on a genuine upscale; both
   `false` (default) clamps to the source. They are mutually exclusive by
-  convention — `ImagePipe.Transform.PlanExecutor.resize_from/2` sets at most one.
+  convention — `ImagePipe.Transform.ResizePlanning.resize_from/2` sets at most one.
   """
 
   use ImagePipe.Transform

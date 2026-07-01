@@ -52,7 +52,11 @@ run = [
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
   "mix credo --strict",
-  "mix ex_dna",
+  # --exclude-macro alias: runs of `alias`/`as:` declarations (which AliasOrder
+  # forces into a fixed order and which sibling modules in one namespace
+  # legitimately overlap) are declarations, not logic clones. Mirrors the
+  # excluded_macros: [:alias] set on the ExDNA.Credo plugin in .credo.exs.
+  "mix ex_dna --exclude-macro alias",
   "mix test",
 ]
 
