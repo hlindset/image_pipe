@@ -62,6 +62,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Trim
   alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
+  alias ImagePipe.Transform.ResizePlanning
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
@@ -207,7 +208,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # storage frame when an orientation is pending.
   defp execute_operation(%SetFocus{point: operand}, %State{} = state, _ctx, _opts) do
     ctx = %{
-      display: display_live_dims(state),
+      display: ResizePlanning.display_live_dims(state),
       storage: {VipsImage.width(state.image), VipsImage.height(state.image)},
       decode_shrink: state.decode_shrink
     }
@@ -256,13 +257,16 @@ defmodule ImagePipe.Transform.PlanExecutor do
       PendingOrientation.identity?(po) ->
         run_executable(operation, state, ctx, opts)
 
-      PendingOrientation.quarter_turn?(po) and cover_resize?(operation, state) ->
+      PendingOrientation.quarter_turn?(po) and ResizePlanning.cover_resize?(operation, state) ->
         # The display-frame resolver already emits a storage-frame (forcing)
         # resize and a display-frame result-crop; only the crop needs the gravity/
         # offset remap and dim swap (compensate_crop), not the resize.
         executable =
           operation
-          |> cover_resize_and_crop_display_frame(state)
+          |> ResizePlanning.cover_resize_and_crop_display_frame(
+            state,
+            tagged_executable_gravity(operation.guide)
+          )
           |> Enum.map(fn
             %Crop{} = crop -> compensate_crop(crop, po)
             other -> other
@@ -558,8 +562,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   defp update_execution_context(%PlanResize{} = operation, %State{} = state, context) do
-    scale = resize_padding_scale(operation, state, :resize)
-    canvas_preserving_scale = resize_padding_scale(operation, state, :canvas_preserving)
+    scale = ResizePlanning.resize_padding_scale(operation, state, :resize)
+    canvas_preserving_scale = ResizePlanning.resize_padding_scale(operation, state, :canvas_preserving)
 
     %{
       context
@@ -570,29 +574,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp update_execution_context(_operation, %State{}, context), do: context
 
-  defp executable_operations(%PlanResize{mode: :fit} = operation, %State{} = state, _context) do
-    fit_resize_and_result_crop(resize_from(operation, :fit), operation, state)
-  end
-
-  defp executable_operations(%PlanResize{mode: :cover} = operation, %State{} = state, _context) do
-    operation
-    |> resize_from(:cover)
-    |> cover_resize_and_crop(
-      state,
-      tagged_executable_gravity(operation.guide),
-      {operation.x_offset, operation.y_offset}
-    )
-  end
-
-  defp executable_operations(%PlanResize{mode: :stretch} = operation, %State{}, _context) do
-    [resize_from(operation, :stretch)]
-  end
-
-  defp executable_operations(%PlanResize{mode: :auto} = operation, %State{} = state, _context) do
-    branch = plan_resize_branch(operation, state)
-    resize = resize_from(operation, branch)
-
-    tagged_executable_resize_operations(branch, resize, operation, state)
+  defp executable_operations(%PlanResize{} = operation, %State{} = state, context) do
+    ResizePlanning.lower(operation, state, context, tagged_executable_gravity(operation.guide))
   end
 
   defp executable_operations(%CropGuided{} = operation, %State{} = state, _context) do
@@ -743,180 +726,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
       }
     ]
 
-  defp tagged_executable_resize_operations(
-         :cover,
-         %Resize{} = resize,
-         operation,
-         %State{} = state
-       ) do
-    cover_resize_and_crop(
-      resize,
-      state,
-      tagged_executable_gravity(operation.guide),
-      {operation.x_offset, operation.y_offset}
-    )
-  end
-
-  defp tagged_executable_resize_operations(:fit, %Resize{} = resize, operation, %State{} = state) do
-    fit_resize_and_result_crop(resize, operation, state)
-  end
-
-  # A cover resize scales the whole image to cover the box (the intermediate
-  # always overflows it), then crops back. Like the fit path's cropToResult, the
-  # crop box is the literal requested dimensions (result_box_*), NOT the
-  # min-expanded target: when mw/mh drive the cover scale past the requested box,
-  # the min-dimension guarantee survives on the short axis while the long axis is
-  # trimmed back to what was asked for (imgproxy prepare.go TargetWidth + crop.go
-  # cropToResult, #236). The intermediate covers result_box on both axes, so the
-  # crop always fires.
-  defp cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
-    {src_w, src_h} = State.effective_source_dims(state)
-
-    dimensions =
-      Resize.resolve_dimensions(resize,
-        source_width: src_w,
-        source_height: src_h
-      )
-
-    [
-      resize,
-      %Crop{
-        width: result_box_crop_dimension(dimensions.result_box_width),
-        height: result_box_crop_dimension(dimensions.result_box_height),
-        crop_from: :gravity,
-        gravity: gravity,
-        x_offset: x_offset,
-        y_offset: y_offset,
-        offset_scale: dimensions.effective_dpr
-      }
-    ]
-  end
-
-  # A fit resize mirrors imgproxy's scale → cropToResult: scale into the requested
-  # box, then crop back to it. The crop bites only when min-dimensions (mw/mh)
-  # forced the scaled image past the box on an axis; a plain fit scales inside the
-  # box and stays a single resize. The crop box is the literal requested dimensions
-  # (result_box_*), NOT the min-expanded target, so the min-dimension guarantee on
-  # the short axis survives while the long axis is trimmed (imgproxy prepare.go
-  # TargetWidth + crop.go cropToResult).
-  defp fit_resize_and_result_crop(%Resize{} = resize, %PlanResize{} = operation, %State{} = state) do
-    {src_w, src_h} = State.effective_source_dims(state)
-    dimensions = Resize.resolve_dimensions(resize, source_width: src_w, source_height: src_h)
-
-    if fit_result_crop_bites?(dimensions) do
-      [
-        resize,
-        %Crop{
-          width: result_box_crop_dimension(dimensions.result_box_width),
-          height: result_box_crop_dimension(dimensions.result_box_height),
-          crop_from: :gravity,
-          gravity: tagged_executable_gravity(operation.guide),
-          x_offset: operation.x_offset,
-          y_offset: operation.y_offset,
-          offset_scale: dimensions.effective_dpr
-        }
-      ]
-    else
-      [resize]
-    end
-  end
-
-  defp fit_result_crop_bites?(dimensions) do
-    fit_axis_exceeds?(dimensions.result_box_width, dimensions.intermediate_width) or
-      fit_axis_exceeds?(dimensions.result_box_height, dimensions.intermediate_height)
-  end
-
-  defp fit_axis_exceeds?(:auto, _intermediate), do: false
-  defp fit_axis_exceeds?(box, intermediate), do: box < intermediate
-
-  defp result_box_crop_dimension(:auto), do: :auto
-  defp result_box_crop_dimension(value), do: {:pixels, value}
-
-  # True when this PlanResize expands into a cover (fill) resize + result-crop —
-  # either an explicit cover, or an auto resize whose branch resolves to cover.
-  defp cover_resize?(%PlanResize{mode: :cover}, %State{}), do: true
-
-  defp cover_resize?(%PlanResize{mode: :auto} = operation, %State{} = state),
-    do: plan_resize_branch(operation, state) == :cover
-
-  defp cover_resize?(%PlanResize{}, %State{}), do: false
-
-  # Quarter-turn cover expansion resolved in the DISPLAY frame (imgproxy parity).
-  #
-  # imgproxy's calcScale runs against the display-frame source dims (swapped by
-  # ExtractGeometry) and the min-dimension coupling (prepare.go:146-158) closes
-  # over those display axes; scale.go:10-12 then swaps only the scale factors to
-  # apply them to the stored pixels. We mirror that: swap the storage source dims
-  # to the display frame, resolve `resolve_dimensions` with the ORIGINAL request,
-  # then swap the resolved intermediate/target back into the storage frame. The
-  # executable resize is a forcing resize onto the storage-frame intermediate so
-  # Resize.execute reproduces those exact dims rather than re-deriving (and
-  # re-coupling) them in the storage frame. The result-crop carries the
-  # display-frame result-box dims (the literal requested box, #236) and is
-  # swapped + remapped by compensate_crop.
-  defp cover_resize_and_crop_display_frame(%PlanResize{} = operation, %State{} = state) do
-    {src_w, src_h} = State.effective_source_dims(state)
-    resize = resize_from(operation, :cover)
-
-    display =
-      Resize.resolve_dimensions(resize,
-        source_width: src_h,
-        source_height: src_w
-      )
-
-    [
-      %Resize{
-        mode: :force,
-        width: {:pixels, display.intermediate_height},
-        height: {:pixels, display.intermediate_width},
-        enlarge: true
-      },
-      %Crop{
-        width: result_box_crop_dimension(display.result_box_width),
-        height: result_box_crop_dimension(display.result_box_height),
-        crop_from: :gravity,
-        gravity: tagged_executable_gravity(operation.guide),
-        x_offset: operation.x_offset,
-        y_offset: operation.y_offset,
-        offset_scale: display.effective_dpr
-      }
-    ]
-  end
-
-  defp resize_from(operation, mode) do
-    %Resize{
-      mode: resize_mode(mode, operation),
-      width: tagged_executable_resize_dimension(operation.width),
-      height: tagged_executable_resize_dimension(operation.height),
-      min_width: tagged_executable_optional_resize_dimension(operation.min_width),
-      min_height: tagged_executable_optional_resize_dimension(operation.min_height),
-      zoom_x: operation.zoom_x,
-      zoom_y: operation.zoom_y,
-      dpr: tagged_dpr_float(operation.dpr),
-      enlarge: operation.enlargement == :allow,
-      reject_enlargement: operation.enlargement == :reject,
-      max_width: operation.max_width,
-      max_height: operation.max_height,
-      max_area: operation.max_area
-    }
-  end
-
-  defp resize_mode(:cover, %PlanResize{down: true}), do: :fill_down
-  defp resize_mode(:cover, %PlanResize{}), do: :fill
-  defp resize_mode(:fit, %PlanResize{}), do: :fit
-  defp resize_mode(:stretch, %PlanResize{}), do: :force
-
-  defp tagged_executable_resize_dimension(:auto), do: :auto
-  defp tagged_executable_resize_dimension({:px, value}), do: {:pixels, value}
-
-  defp tagged_executable_resize_dimension({:ratio, numerator, denominator}),
-    do: {:ratio, numerator, denominator}
-
-  defp tagged_executable_optional_resize_dimension(nil), do: nil
-
-  defp tagged_executable_optional_resize_dimension(dimension),
-    do: tagged_executable_resize_dimension(dimension)
-
   defp crop_dimension(:full_axis), do: :auto
   defp crop_dimension({:px, value}), do: {:pixels, value}
   defp crop_dimension({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
@@ -1056,120 +865,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
        ),
        do: numerator / denominator
 
-  defp resize_padding_scale(%PlanResize{enlargement: :allow} = operation, %State{}, _mode),
-    do: tagged_dpr_float(operation.dpr)
-
-  defp resize_padding_scale(%PlanResize{} = operation, %State{} = state, mode) do
-    # imgproxy computes the no-enlarge padding/DPR cap entirely in the display
-    # frame: the fitted target dims (`base.requested_*`) and the source it caps
-    # them against are both ExtractGeometry-swapped under a quarter turn. Resolve
-    # `base` against the display-frame source so the fitted dims match imgproxy's
-    # (a fit against the storage frame fits the transposed axes and skews the cap).
-    {src_w, src_h} = display_source_dims(state)
-    requested_scale = tagged_dpr_float(operation.dpr)
-    branch = plan_resize_branch(operation, state)
-    resize = resize_from(operation, branch)
-
-    base =
-      %{resize | dpr: 1.0, enlarge: true}
-      |> Resize.resolve_dimensions(
-        source_width: src_w,
-        source_height: src_h
-      )
-
-    max_without_enlarge = max_padding_scale_without_enlarge(base, state)
-    compensated = compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge, mode)
-
-    clamp_padding_scale(compensated, max_without_enlarge)
-  end
-
-  # No explicit geometry (auto/auto, no zoom): imgproxy's calcScale leaves
-  # dstW=srcW, dstH=srcH, so wshrink=hshrink=1 and the no-enlarge cap is
-  # min(wshrink,hshrink)=1.0. A no-enlarge request is ALWAYS capped — imgproxy's
-  # `!Enlarge()` block unconditionally runs `DprScale = min(DPR, min(wshrink,
-  # hshrink))` — so a geometry-less dpr (`pd:…/dpr:N` with no `w`/`h`) caps to 1
-  # rather than scaling padding by the raw dpr (#237). A zoom folds into the
-  # requested box upstream, so a zoomed request never reaches this auto/auto clause.
-  defp max_padding_scale_without_enlarge(
-         %{requested_width: :auto, requested_height: :auto},
-         %State{}
-       ),
-       do: 1.0
-
-  defp max_padding_scale_without_enlarge(
-         %{requested_width: width, requested_height: height},
-         %State{} = state
-       ) do
-    # The requested box is display-frame; size it against the display-frame source
-    # so the no-enlarge cap couples the same axes imgproxy does (its SrcWidth is
-    # ExtractGeometry-swapped under a quarter turn). Mixing the display-frame
-    # request with storage-frame source dims crosses axes under a pending quarter
-    # turn (#182).
-    {src_w, src_h} = display_source_dims(state)
-    min(src_w / width, src_h / height)
-  end
-
-  # Canvas-preserving composition keeps padding tied to the clamped resize scale
-  # instead of compensating DPR upward when enlargement is disabled.
-  defp compensate_no_enlarge_padding_scale(
-         requested_scale,
-         _max_without_enlarge,
-         :canvas_preserving
-       ),
-       do: requested_scale
-
-  defp compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge, :resize)
-       when max_without_enlarge < 1.0 do
-    requested_scale / max_without_enlarge
-  end
-
-  defp compensate_no_enlarge_padding_scale(requested_scale, _max_without_enlarge, _mode),
-    do: requested_scale
-
-  defp clamp_padding_scale(scale, max_without_enlarge),
-    do: min(scale, max(max_without_enlarge, 1.0))
-
-  defp plan_resize_branch(%PlanResize{mode: :fit}, %State{}), do: :fit
-  defp plan_resize_branch(%PlanResize{mode: :cover}, %State{}), do: :cover
-  defp plan_resize_branch(%PlanResize{mode: :stretch}, %State{}), do: :stretch
-
-  defp plan_resize_branch(%PlanResize{mode: :auto} = operation, %State{} = state) do
-    # imgproxy's ResizeAuto compares srcW−srcH against dstW−dstH on the DISPLAY
-    # axes — ExtractGeometry swaps the source dims for a quarter turn before the
-    # comparison (prepare.go). Classify against the display-frame source so an
-    # EXIF 5–8 / rot:90/270 source is not judged on transposed axes (#182).
-    {src_w, src_h} = display_source_dims(state)
-
-    resize_auto_branch(
-      src_w,
-      src_h,
-      tagged_logical_pixels(operation.width),
-      tagged_logical_pixels(operation.height)
-    )
-  end
-
-  # The source dims in the DISPLAY frame: the storage-frame effective source dims,
-  # with the axes swapped when a quarter turn is pending (the display width axis is
-  # the storage height axis, and vice versa). Used where imgproxy resolves against
-  # ExtractGeometry-swapped source dims — the ResizeAuto fill-vs-fit classification
-  # and the no-enlarge padding-scale cap.
-  defp display_source_dims(%State{pending_orientation: po} = state) do
-    {w, h} = State.effective_source_dims(state)
-
-    if not is_nil(po) and PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
-  end
-
-  # The live image dims in the display frame: a focus operand resolves against the
-  # running frame at its chain position (the live image, possibly already resized
-  # — unlike display_source_dims, which uses the residual-resize source frame),
-  # with the axes swapped when a quarter turn is pending.
-  defp display_live_dims(%State{pending_orientation: po, image: image}) do
-    w = VipsImage.width(image)
-    h = VipsImage.height(image)
-
-    if not is_nil(po) and PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
-  end
-
   defp scaled_padding_side({:px, value}, scale), do: round_half_to_even(value * scale)
 
   defp round_half_to_even(value) do
@@ -1206,38 +901,5 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp tagged_executable_gravity({:smart, :face_assist}), do: {:smart, :face_assist}
   defp tagged_executable_gravity({:detect, {spec, weights}}), do: {:detect, {spec, weights}}
 
-  defp tagged_logical_pixels({:px, value}), do: value
-  defp tagged_logical_pixels(_dimension), do: :unknown
-
-  defp tagged_dpr_float({:ratio, numerator, denominator}), do: numerator / denominator
-
   defp tagged_ratio_to_float({:ratio, numerator, denominator}), do: numerator / denominator
-
-  defp resize_auto_branch(current_width, current_height, target_width, target_height) do
-    auto_branch(
-      orientation_diff(current_width, current_height),
-      orientation_diff(target_width, target_height)
-    )
-  end
-
-  # imgproxy buckets fill-vs-fit by the sign of the width−height difference, with a
-  # square dimension (diff == 0) sharing the non-negative (landscape) bucket; cover
-  # fills only when both source and target land in the same bucket
-  # (processing/prepare.go:88-97). An `:unknown` diff is an auto (omitted) dimension,
-  # which keeps the conservative fit branch.
-  defp auto_branch(:unknown, _target_diff), do: :fit
-  defp auto_branch(_current_diff, :unknown), do: :fit
-
-  defp auto_branch(current_diff, target_diff)
-       when (current_diff >= 0 and target_diff >= 0) or
-              (current_diff < 0 and target_diff < 0),
-       do: :cover
-
-  defp auto_branch(_current_diff, _target_diff), do: :fit
-
-  defp orientation_diff(width, height)
-       when is_integer(width) and is_integer(height),
-       do: width - height
-
-  defp orientation_diff(_width, _height), do: :unknown
 end
