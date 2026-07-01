@@ -12,7 +12,10 @@
       # ExSlop: catches AI-generated code slop; its plugin enables ~31
       #   recommended high-signal checks. See https://hex.pm/packages/ex_slop.
       # ExDNA.Credo: AST-aware duplicate detection; replaces the built-in
-      #   Credo.Check.Design.DuplicatedCode.
+      #   Credo.Check.Design.DuplicatedCode. `alias` is excluded (see checks
+      #   below) so runs of `alias`/`as:` declarations — which `AliasOrder`
+      #   forces into a fixed order and which sibling modules in one namespace
+      #   legitimately overlap — are not counted as logic clones.
       #
       plugins: [{ExSlop, []}, {ExDNA.Credo, []}],
       checks: [
@@ -32,7 +35,10 @@
         #     suggested Enum.count_until/2 isn't guard-safe) and exact-count test
         #     assertions — never the `length(x) == 0` empty check it flags.
         #
-        {ExSlop.Check.Refactor.LengthComparison, false}
+        {ExSlop.Check.Refactor.LengthComparison, false},
+        # ExDNA duplicate detection, excluding `alias` declarations (see plugins
+        # note above).
+        {ExDNA.Credo, excluded_macros: [:alias]}
       ]
     }
   ]
