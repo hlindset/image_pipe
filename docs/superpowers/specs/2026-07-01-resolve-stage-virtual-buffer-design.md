@@ -550,10 +550,11 @@ where resolution runs.
   `Flush` and triggers **no** materialization (streaming-path guard) — otherwise a
   regression that always flushes would pass the materialization test while killing
   streaming.
-- **Stage-1 exit criterion (moved earlier):** confirm the §4.7 narrowing — that
-  only `resize` (read) and `trim`/arbitrary-rotate (materialize+read) use
-  `:acquire`, everything else `:advance` — as a *gate on stage 1*, since the
-  continuation variants are the driver's core contract.
+- **Stage-1 exit criterion:** confirm the §4.7 narrowing with an explicit test that
+  enumerates every `Plan.Operation.*` variant and asserts the continuation is
+  `:acquire` iff the op is `trim` / arbitrary-angle rotate / `resize`, else
+  `:advance` — defining the predicate is not proving it; the golden asserts integers,
+  not which variant fired. The continuation variants are the driver's core contract.
 - **A→B property spike:** a StreamData test over `(source, target)` asserting
   `Image.resize` output `== target` across shapes/scales/alpha. Cheap; its result
   *decides* whether/where B is adopted. Not required to ship A.
@@ -566,28 +567,55 @@ where resolution runs.
 The design describes the end-state; the plan stages it **results-identical first,
 boundary-moving second**, with A as the shipped dim-acquisition policy.
 
-1. **Substrate + the acquire seam, integers-identical.** Introduce `SourceShape`,
-   the two-variant continuation, and the single injectable `acquire_dims` seam,
-   reproducing today's exact integers with imgproxy logic still physically where
-   it is. Exact ops `:advance`; `resize` reads; `trim`/arbitrary-rotate
-   materialize+read. Land the injection-based ResolvedPlan golden. **Exit gate:**
-   the §4.7 continuation-variant narrowing holds; golden + differential + wire
-   green.
-2. **Fold in orientation.** Dissolve `OrientationScheduler` into `Flush` /
-   pure-advance emitted by the resolver (orientation-agnostic materialization),
-   flush position via
-   op-list order, smart/detect explicit-`Flush`, and re-home the delivery-boundary
-   materialize (§4.6). Re-prove sequential-safety + identity fast path. Green.
-3. **Move the boundary.** Extract the imgproxy-only column into an
+> **Staging correction (2026-07-01, from the plan review).** An earlier draft split
+> this into "substrate/integers-identical" then "fold in orientation." That boundary
+> is unsound: the injectable acquire seam and the pure injection golden require
+> resolving ops *without running pixels*, which requires separating resolution from
+> execution — which cannot be done while `OrientationScheduler` fuses them and
+> `Chain`'s materialize orients as a side effect ([`materializer.ex`](../../../lib/image_pipe/transform/materializer.ex)
+> `do_materialize` → `OrientationFlush.flush`). Making `Chain`'s materialize
+> orientation-agnostic *is* the orientation dissolution. So the substrate and the
+> orientation dissolution are **one stage**, merged below.
+
+1. **Substrate + orientation dissolution (results-identical).** One coherent stage:
+   - Introduce `SourceShape`, the two-variant continuation
+     (`{:advance, …}` | `{:acquire, then_fn}`), and the single injectable
+     `acquire_dims` seam.
+   - **Make `Chain`'s materialization orientation-agnostic** (`Materializer.materialize`
+     becomes copy-only; the `materialize_without_orientation` special case
+     disappears), and re-home orientation into an explicit neutral **`Flush`** op the
+     resolver emits. Every site that today relies on the orienting auto-flush gets an
+     explicit `Flush` at the right op-list position: before region crop / padding /
+     pixelate / gradient / smart+detect crop / arbitrary-angle rotate, after resize,
+     and the driver's pipeline-boundary + delivery backstop. `trim` emits **no**
+     `Flush` (pre-orientation, storage frame). Re-prove sequential-safety + the
+     identity fast path for `Flush`.
+   - Thread the imgproxy DprScale cross-op carry (today's
+     `PlanExecutor.update_execution_context`) through the driver so padding/canvas
+     after a resize still resolve correctly (imgproxy logic still physically in
+     `ResizePlanning`; only the *carry* is re-plumbed).
+   - Decide `SourceShape`'s boundary home so the neutral `Resolver` facade does not
+     runtime-reference it (facade passes the shape opaquely to the carried module;
+     `SourceShape` appears in `Resolver` only in typespecs, which Boundary ignores) —
+     keeping `Resolver` at `deps: [ImagePipe.Plan]`.
+   - Wire `PlanExecutor` through the driver. Land the injection-based ResolvedPlan
+     golden.
+   - **Exit gates:** the §4.7 continuation-variant narrowing holds (a test enumerates
+     ops and asserts `:acquire` iff trim/arbitrary-rotate/resize); the golden (incl.
+     trim-under-pending-orientation, `fill_down`, and a concrete ±1-divergence case)
+     + differential + wire are green.
+
+2. **Move the boundary.** Extract the imgproxy-only column into an
    `ImagePipe.Resolver` strategy under `parser/imgproxy/`, carried in the Plan;
    add the `transform → resolver` edge (§5.1 — covered by existing boundary/arch
-   tests, no special test); add the
-   strategy behavioral version tags to `plan_material` (§7); update the support
-   matrix. Move TwicPics focus into its strategy accumulator. Green.
-4. **(Optional) B-promotion.** If the §8 property spike is green and the
+   tests, no special test); add the strategy behavioral version tags to
+   `plan_material` (§7); update the support matrix. Move TwicPics focus into its
+   strategy accumulator. Closes #434. Green.
+
+3. **(Optional) B-promotion.** If the §8 property spike is green and the
    version-pinning is acceptable, flip `resize` from `read` to `advance` at the
-   seam (selectively if needed) and retire the focus read-back. The A-era golden
-   is the equivalence net.
+   seam (selectively if needed) and retire the focus read-back. The prior stage's
+   golden is the equivalence net.
 
 Each stage is independently green on golden + differential + wire.
 
