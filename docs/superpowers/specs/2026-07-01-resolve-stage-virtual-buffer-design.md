@@ -672,6 +672,21 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
 
 Each stage is independently green on golden + differential + wire.
 
+> **Recorded follow-on (2026-07-02, out of scope for this design):** the
+> TwicPics running-focus model also bleeds into the **Plan surface** —
+> `Plan.Operation.SetFocus` (a positional, dialect-semantic op; sole producer
+> `parser/twic_pics/plan_builder.ex`) and the `:carried` guide/gravity variant
+> on the neutral `Resize`/`CropGuided` ops. Stage 2 dissolves the
+> *execution-side* half (focus carry → TwicPics `strategy_state`; the strategy
+> resolves `:carried` into concrete `{:fp, x, y}` before emission, with the
+> `State.focus` consumers accounted for per §4.4). The *plan-surface* half —
+> removing the dialect vocabulary from `Plan.Operation.*` — needs its own
+> design; the leading candidate is a generic strategy-opaque directive op
+> (payload interpreted only by the plan's carried strategy, hashed opaquely in
+> key data, never seen by the neutral resolver), mirroring the Renderer's
+> `{:custom, module, params}` precedent. Not Stage-2 scope; do not let it creep
+> into the boundary move.
+
 ## 10. Risks
 
 - Most parity-critical, differential-pinned code in the repo. The
