@@ -1,5 +1,12 @@
 # Resolve Stage — Substrate (Spec §9 Stage 1) Implementation Plan
 
+> **⚠️ SUPERSEDED — DO NOT EXECUTE.** The three-lens plan review (2026-07-01)
+> found a structural flaw: this plan assumes `Chain`'s materialize never orients,
+> but today it *does* (`materializer.ex` → `OrientationFlush.flush`). The acquire
+> seam + injection golden (Stage-1 deliverables) turn out to be inseparable from
+> the orientation dissolution (Stage 2), so the spec's §9 stage boundary needs
+> re-drawing before a corrected plan is written. Kept for history; being rewritten.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Introduce the `SourceShape` virtual buffer, the `Resolver` behaviour + neutral dispatch facade, an injectable dim-acquisition seam, and a driver that resolves each plan op through the resolver — reproducing today's exact executable-op integers (results-identical), with imgproxy resolution logic still physically in `ResizePlanning`/orientation code. No boundary move, no behavior change.
