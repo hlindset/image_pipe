@@ -131,8 +131,12 @@ the whole idea; today's code fuses them.
 
 ### 4.2 The `Resolver` behaviour (Seam 1)
 
-A neutral behaviour, mirroring `ImagePipe.Renderer`. The Plan carries the chosen
-strategy module (selected by the parser); the driver dispatches dynamically.
+A neutral **behaviour + dispatch facade**, mirroring `ImagePipe.Renderer`. The
+Plan carries the chosen strategy module (selected by the parser); the driver calls
+the neutral facade `Resolver.resolve(spec, shape, strategy_state, op)`, which
+performs the dynamic `spec_module.resolve(...)` — the dispatch is quarantined in
+the facade, never in `transform` code (the dependency inversion is detailed in
+§5.1).
 
 ```elixir
 @type continuation ::
@@ -438,25 +442,32 @@ an implementer does not reconstruct `#185`/`#180` from scratch.
 - imgproxy strategy — under `parser/imgproxy/`, implementing `ImagePipe.Resolver`.
 - `parser` boundary gains `→ resolver` (already blessed: `parser → renderer`).
 
-### 5.1 The dispatcher boundary (a non-issue, for accuracy)
+### 5.1 The dispatcher edge is real and declared: `transform → resolver`
 
-One accuracy note, since §3 calls the Resolver a mirror of `Renderer`: `Renderer`
-is dispatched from **`request`** (`render_runner.ex`), whereas the Resolver's
-driver is `PlanExecutor` in **`transform`** (deps `[Plan, Telemetry]`, no parser).
-So the mirror needs a **new `transform → resolver` edge**, with the carried
-imgproxy strategy invoked dynamically (`module.resolve(...)`).
+There *is* a dependency edge here, and it must be an honest, declared one — not a
+runtime call hidden in `Boundary`'s blind spot to dynamic dispatch (that would be
+the same implicit-neutrality violation this refactor exists to remove). The
+defensible edge is **`transform → resolver`**, achieved by dependency inversion,
+exactly as `request → renderer` already is:
 
-This does not create a `transform → parser` problem. `Boundary` analyzes
-*compile-time* references; a call on a module held in a variable is invisible to
-it — which is exactly why the existing `Renderer` (a parser-owned renderer
-dispatched without a `request → parser` edge) compiles. The rule is not
-dispatcher-boundary-specific, so it holds from `transform` too. And it is already
-enforced continuously: `transform`'s `Boundary` declaration plus the architecture
-tests fail immediately on any *concrete* reference to a strategy. The only
-discipline required is the one the whole design already imposes — the driver never
-names a concrete strategy, exactly as `request` never names a renderer. No special
-test or driver relocation is warranted; the standard boundary/architecture
-coverage covers it.
+- `ImagePipe.Resolver` is the **neutral behaviour + dispatch facade**,
+  `deps: [Plan]`.
+- The imgproxy strategy under `parser/imgproxy/` **implements** `ImagePipe.Resolver`
+  → `parser → resolver`.
+- The driver in `transform` calls the **neutral facade**
+  `Resolver.resolve(spec, shape, strategy_state, op)`, where `spec` is the strategy
+  carried in the Plan (dependency injection) → `transform → resolver`. The dynamic
+  `spec_module.resolve(...)` call is **quarantined inside the facade**, mirroring
+  `Renderer.run/3`'s `module.render(...)`.
+
+All three arrows point at the neutral abstraction; `transform` and `parser` depend
+on `resolver`, neither on the other. The critical discipline: the dynamic dispatch
+lives **in the facade**, never in `transform`'s own code — `transform` must not
+call a carried module directly, since *that* would be a genuine (if
+statically-invisible) `transform → parser` dependency. Getting the inversion right
+is why `Boundary` then reports no violation; the clean static result is a
+consequence, not the justification. Declared edge: add `transform → resolver` to
+the boundary config, covered by the existing architecture tests.
 
 ## 6. Compatibility-doc impact
 
