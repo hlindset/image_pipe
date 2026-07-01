@@ -278,6 +278,30 @@ opaque term **owned by the chosen strategy**; the neutral/IIIF resolvers leave i
   remaining `State.focus` consumers (the resize read-back, `Focus.reflect_rotate`
   in the flush) must be re-fed or re-plumbed — see §9.
 
+**Plan-surface de-dialecting (Stage 2b).** `Plan.Operation.SetFocus` is the one
+dialect-branded entry in the neutral Plan vocabulary — positional TwicPics
+semantics, sole producer `parser/twic_pics/plan_builder.ex` — the same bleed
+this design treats in the transform layer, one level up. Once the Plan carries
+the strategy, it dissolves into a generic
+`%Plan.Operation.Directive{name: atom(), payload: term()}`: a pipeline entry
+addressed to the plan's **carried strategy**, mirroring the Renderer's
+`{:custom, module, params}` precedent. The TwicPics parser emits
+`%Directive{name: :set_focus, payload: operand}`; the TwicPics strategy
+resolves it (same reads as the SetFocus row above) and commits the result
+through its carry. Key data hashes directives generically
+(`[op: :directive, name: …, payload: …]`; payloads are parser-produced plain
+canonical terms — a parser contract, asserted in parser tests, not validated
+downstream). The neutral resolver has **no** `Directive` clause: a directive
+reaching it means a plan whose strategy doesn't own it, which no real producer
+constructs — so it crashes, per the impossible-internal-misuse rule (no guard,
+no tidy error, no test). `:carried` gravity is **retained and redefined
+neutrally**: with the Resolver seam, "gravity supplied by the plan's strategy"
+is a product-neutral concept (any strategy may supply a point, exactly as
+`:smart` is neutral although only some dialects use it); post-Stage-2 the
+strategy resolves it to a concrete `{:fp, x, y}` before emission, so executable
+ops never see it. Wire behavior is byte-identical; the cache key data reshapes
+in place (greenfield rule, no version bump).
+
 The neutral driver never inspects `strategy_state` (boundary holds). It does
 **not** enter the ResolvedPlan golden artifact (that is the concrete ops +
 shapes); it is private resolver memory tested via the ops it influences.
@@ -664,6 +688,13 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
    final home first: a parser-owned strategy pattern-matching `%SourceShape{}`
    is a `parser → transform` struct-expansion edge `Boundary` *does* check
    (typespecs are ignored; struct expansion is not). Closes #434. Green.
+   **Stage 2b (same stage, separately green):** de-dialect the Plan surface —
+   replace `Plan.Operation.SetFocus` with the generic strategy
+   `%Directive{name, payload}` and redefine `:carried` as the neutral
+   strategy-supplied gravity (§4.4). Parser, key-data, and parser-test updates
+   in place; byte-identical on the wire. Lands after the boundary move (it
+   needs the carried strategy) but rides the same PR or its own — either way
+   gated green independently.
 
 3. **(Optional) B-promotion.** If the §8 property spike is green and the
    version-pinning is acceptable, flip `resize` from `read` to `advance` at the
@@ -671,21 +702,6 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
    golden is the equivalence net.
 
 Each stage is independently green on golden + differential + wire.
-
-> **Recorded follow-on (2026-07-02, out of scope for this design):** the
-> TwicPics running-focus model also bleeds into the **Plan surface** —
-> `Plan.Operation.SetFocus` (a positional, dialect-semantic op; sole producer
-> `parser/twic_pics/plan_builder.ex`) and the `:carried` guide/gravity variant
-> on the neutral `Resize`/`CropGuided` ops. Stage 2 dissolves the
-> *execution-side* half (focus carry → TwicPics `strategy_state`; the strategy
-> resolves `:carried` into concrete `{:fp, x, y}` before emission, with the
-> `State.focus` consumers accounted for per §4.4). The *plan-surface* half —
-> removing the dialect vocabulary from `Plan.Operation.*` — needs its own
-> design; the leading candidate is a generic strategy-opaque directive op
-> (payload interpreted only by the plan's carried strategy, hashed opaquely in
-> key data, never seen by the neutral resolver), mirroring the Renderer's
-> `{:custom, module, params}` precedent. Not Stage-2 scope; do not let it creep
-> into the boundary move.
 
 ## 10. Risks
 
