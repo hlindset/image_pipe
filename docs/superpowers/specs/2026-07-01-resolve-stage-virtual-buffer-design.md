@@ -1,6 +1,6 @@
 # Design: an explicit Resolve stage over a `SourceShape` virtual buffer
 
-**Status:** Design / spec — reviewed (three-lens parallel review applied), approved for planning. *Not* an implementation plan.
+**Status:** Design / spec — reviewed (three-lens parallel review applied; §4/§9 revised 2026-07-02 from the Stage-1 plan's four-lens review), approved for planning. *Not* an implementation plan.
 **Date:** 2026-07-01
 **Input:** [`2026-07-01-resolve-stage-virtual-buffer-exploration.md`](2026-07-01-resolve-stage-virtual-buffer-exploration.md)
 (the banked exploration; this document is the real spec derived from it).
@@ -153,10 +153,14 @@ the whole idea; today's code fuses them.
 
 A neutral **behaviour + dispatch facade**, mirroring `ImagePipe.Renderer`. The
 Plan carries the chosen strategy module (selected by the parser); the driver calls
-the neutral facade `Resolver.resolve(spec, shape, strategy_state, op)`, which
+the neutral facade `Resolver.resolve(spec, shape, env, op)`, which
 performs the dynamic `spec_module.resolve(...)` — the dispatch is quarantined in
 the facade, never in `transform` code (the dependency inversion is detailed in
-§5.1).
+§5.1). `env` is an opaque, driver-supplied **per-op channel**, rebuilt every op
+and never threaded: everything situational a strategy needs beyond the shape and
+its own carry. Until `Lowering`/`ResizePlanning` are re-signatured to shape-based
+inputs (a Stage-2 task, §9) it carries the lowering context; `strategy_state`
+stays the strategy's own threaded memory, and the two must not be conflated.
 
 ```elixir
 @type continuation ::
@@ -165,7 +169,7 @@ the facade, never in `transform` code (the dependency inversion is detailed in
                         {SourceShape.t(), strategy_state :: term()})}
 
 @callback init() :: strategy_state :: term()
-@callback resolve(SourceShape.t(), strategy_state :: term(), Plan.Operation.t()) ::
+@callback resolve(SourceShape.t(), env :: term(), strategy_state :: term(), Plan.Operation.t()) ::
             {[executable_op :: struct()], continuation(), strategy_state :: term()}
 ```
 
@@ -263,7 +267,16 @@ opaque term **owned by the chosen strategy**; the neutral/IIIF resolvers leave i
 - **TwicPics** carries the focus point, advances it per-op via the neutral
   point-transform primitives, and resolves `:carried` gravity into `{:fp, x, y}`
   itself. `SetFocus` resolution *reads* neutral shape fields (dims,
-  `decode_shrink`) and *writes* `strategy_state.focus` — one-directional, no leak.
+  `decode_shrink`) plus the live decoded frame (`display_live_dims` — the real,
+  possibly-shrunk buffer, which the shape cannot reconstruct exactly; supplied
+  via `env`) and *writes* the focus — one-directional, no leak. In Stage 1,
+  while focus still lives on `State`, the write channel is the neutral
+  **`StateUpdate`** op: a pixel-untouched executable op carrying a field map that
+  the chain merges into execution state — the generic channel for any resolver
+  decision that is a `State` write rather than geometry (today's zero-op
+  scheduler clauses). When Stage 2 moves focus into the TwicPics carry, the
+  remaining `State.focus` consumers (the resize read-back, `Focus.reflect_rotate`
+  in the flush) must be re-fed or re-plumbed — see §9.
 
 The neutral driver never inspects `strategy_state` (boundary holds). It does
 **not** enter the ResolvedPlan golden artifact (that is the concrete ops +
@@ -284,14 +297,18 @@ dim-acquisition policy**. Every op advances the shape in one of three modes:
 |---|---|:---:|---|---|
 | **pure advance** | crop, canvas/padding, right-angle rotate, effects | no | exact (computable) | `{:advance, …}` |
 | **read** | resize | no | libvips-rounds | `{:acquire, …}` (lazy read) |
-| **materialize + read** | trim, arbitrary-angle rotate | yes | content/rotation-determined | `{:acquire, …}` (op is `requires_materialization?`; Chain materializes without orienting; read after) |
+| **materialize + read** | trim, arbitrary/mirrored rotate | yes | content/rotation-determined | `{:acquire, …}` (op is `requires_materialization?`; Chain materializes without orienting; read after) |
 
 The distinction that matters: only `resize` and `trim`/arbitrary-rotate cannot
 have their post-op dims computed purely — `resize` because libvips'
 shrink+reduce decomposition may round ±1 off the naive target, `trim` because the
 bbox is content-dependent, arbitrary rotate because libvips rounds the rotated
 bounding box. Everything else is exact (`extract_area`/`embed`/`vips_rot`
-right-angle) and advances purely with **zero read and zero proof**.
+right-angle) and advances purely with **zero read and zero proof**. (A *mirrored*
+rotate — any angle, including right angles — does not fold into
+`pending_orientation` and executes as a materializing op; its right-angle output
+dims are exact, but it is classified with the arbitrary-angle read path anyway —
+read-what-you-did costs nothing, and a later `:advance` promotion is trivial.)
 
 **Materialization is orthogonal to the continuation.** Pixels reach RAM either
 because the resolver emitted a `Flush` (which materializes as it orients, §4.6) or
@@ -367,6 +384,15 @@ scheduler clauses:
   decides in the display frame).
 - trim → `[Trim]` (Chain materializes it via `requires_materialization?` without
   orienting, so it trims the **storage** frame; pending is **kept** by `then_fn`).
+- **arbitrary-angle / mirrored rotate → `[Flush, Rotate]`** (flush **before**).
+  Today this op relies on `Chain`'s *implicit* orienting materialize; the
+  resolver makes it explicit, same as smart/detect below. One pinned definition:
+  a pipeline containing both a trim and an arbitrary rotate would today rotate
+  un-oriented pixels (the trim's materialize suppresses the rotate's); no parser
+  can produce that pipeline, and flush-before-rotate is the defined behavior.
+- canvas / background / streaming effects → **no flush.** They have no scheduler
+  clause today — absence *is* the behavior: they run in the **storage** frame
+  with pending intact. The display-frame rationale above does not extend to them.
 - **smart/detect gravity crop → `[Flush, Crop(uncompensated)]`.** These
   materialize and today rely on the auto-flush firing first so they see
   display-frame pixels and are emitted *literal*. The resolver must make that
@@ -414,7 +440,8 @@ cover it.
   `ExtractGeometry`), exactly as `cover_resize_and_crop_display_frame` does today.
 
 **Scope of "content-dependent output dims."** Within the **transform resolver**,
-only `trim` (content bbox) and arbitrary-angle rotate (rounded rotated bbox) need
+only `trim` (content bbox) and arbitrary/mirrored rotate (rounded rotated bbox;
+mirrored right-angle joins by classification, §4.5) need
 `:acquire`-with-materialize; `resize` needs `:acquire`-read; everything else is
 `:advance`. imgproxy's other content-dependent output-sizing stage, **`fixSize`**
 (format max-dimension rescale, `fix_size.go`), lives in ImagePipe's **Output
@@ -480,7 +507,7 @@ exactly as `request → renderer` already is:
 - The imgproxy strategy under `parser/imgproxy/` **implements** `ImagePipe.Resolver`
   → `parser → resolver`.
 - The driver in `transform` calls the **neutral facade**
-  `Resolver.resolve(spec, shape, strategy_state, op)`, where `spec` is the strategy
+  `Resolver.resolve(spec, shape, env, op)`, where `spec` is the strategy
   carried in the Plan (dependency injection) → `transform → resolver`. The dynamic
   `spec_module.resolve(...)` call is **quarantined inside the facade**, mirroring
   `Renderer.run/3`'s `module.render(...)`.
@@ -552,7 +579,7 @@ where resolution runs.
   streaming.
 - **Stage-1 exit criterion:** confirm the §4.7 narrowing with an explicit test that
   enumerates every `Plan.Operation.*` variant and asserts the continuation is
-  `:acquire` iff the op is `trim` / arbitrary-angle rotate / `resize`, else
+  `:acquire` iff the op is `trim` / arbitrary-angle or mirrored rotate / `resize`, else
   `:advance` — defining the predicate is not proving it; the golden asserts integers,
   not which variant fired. The continuation variants are the driver's core contract.
 - **A→B property spike:** a StreamData test over `(source, target)` asserting
@@ -577,10 +604,30 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
 > orientation-agnostic *is* the orientation dissolution. So the substrate and the
 > orientation dissolution are **one stage**, merged below.
 
+> **Plan-review corrections (2026-07-02, four-lens review of the Stage-1 plan).**
+> Design-level mechanisms the plan review surfaced, now part of this spec:
+> (a) **the driver State overlay** — while `Lowering`/`ResizePlanning`/op
+> `execute` still read `State`, the driver syncs the shape into it at one site
+> per op (`pending_orientation`, `decode_shrink`, `source_dimensions` from the
+> shape); this is the Stage-1 realization of "the shape is the source of truth",
+> and what makes the injection golden's dims actually flow into downstream
+> lowering; (b) **the `env` channel** on `resolve/4` (§4.2); (c) **the
+> `StateUpdate` op** (§4.4) as the channel for zero-op `State` writes;
+> (d) **arbitrary/mirrored rotate gets an explicit `[Flush, Rotate]`** (§4.6) —
+> the formerly implicit orient-at-materialize made explicit; (e) flush failures
+> keep the `{:materialize_error, _}` tag and the `[:transform, :materialize]`
+> span — the 415 mapping and the span tests are contract, not incidental.
+
 1. **Substrate + orientation dissolution (results-identical).** One coherent stage:
    - Introduce `SourceShape`, the two-variant continuation
      (`{:advance, …}` | `{:acquire, then_fn}`), and the single injectable
      `acquire_dims` seam.
+   - Sync the shape into `State` via the single driver overlay, and commit
+     zero-op resolver decisions (`SetFocus` → focus) through the neutral
+     `StateUpdate` op (plan-review corrections (a)/(c) above).
+   - Land the `Resolver` behaviour + facade and the `transform → resolver` edge
+     (§5.1) now — the Stage-1 driver needs the seam; the parser-owned strategy
+     still waits for Stage 2.
    - **Make `Chain`'s materialization orientation-agnostic** (`Materializer.materialize`
      becomes copy-only; the `materialize_without_orientation` special case
      disappears), and re-home orientation into an explicit neutral **`Flush`** op the
@@ -606,11 +653,17 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
      + differential + wire are green.
 
 2. **Move the boundary.** Extract the imgproxy-only column into an
-   `ImagePipe.Resolver` strategy under `parser/imgproxy/`, carried in the Plan;
-   add the `transform → resolver` edge (§5.1 — covered by existing boundary/arch
-   tests, no special test); add the strategy behavioral version tags to
-   `plan_material` (§7); update the support matrix. Move TwicPics focus into its
-   strategy accumulator. Closes #434. Green.
+   `ImagePipe.Resolver` strategy under `parser/imgproxy/`, carried in the Plan
+   (the `transform → resolver` edge and facade already landed in Stage 1); add
+   the strategy behavioral version tags to `plan_material` (§7); update the
+   support matrix. Re-signature `Lowering`/`ResizePlanning` to shape-based
+   inputs (dims + `decode_shrink`, not `State`) — the actual precondition for
+   retiring the Stage-1 `env.state` channel. Move TwicPics focus into its
+   strategy accumulator, accounting for the remaining `State.focus` consumers
+   (resize read-back, `Focus.reflect_rotate` — §4.4). Decide `SourceShape`'s
+   final home first: a parser-owned strategy pattern-matching `%SourceShape{}`
+   is a `parser → transform` struct-expansion edge `Boundary` *does* check
+   (typespecs are ignored; struct expansion is not). Closes #434. Green.
 
 3. **(Optional) B-promotion.** If the §8 property spike is green and the
    version-pinning is acceptable, flip `resize` from `read` to `advance` at the
