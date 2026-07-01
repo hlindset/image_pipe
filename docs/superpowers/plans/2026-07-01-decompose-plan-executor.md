@@ -34,6 +34,8 @@ Call this the **TARGETED GATE**. The final task runs the **FULL GATE** (`mise ru
 
 If any targeted-gate test fails after a pure relocation, do **not** edit the test — re-examine the move for a dropped clause, a changed guard order, or a lost alias. A green targeted gate is the pass condition for every task.
 
+**Targeted-gate blind spot (do not over-trust a green mid-refactor gate):** the cache-key, ETag, and output-negotiation tests are **not** in the targeted set — they run only at the FULL GATE (Task 4). This refactor consumes an already-built `Plan` and must not change the produced executable list in a way that alters any canonical-plan-derived value, but a regression there would surface only at the final full gate, not per-task. The move is verbatim so the risk is low; just don't read a green targeted gate as proving "same cache keys."
+
 ## Files
 
 - Create: `lib/image_pipe/transform/resize_planning.ex` — imgproxy resize-parity resolution (Task 1).
@@ -46,10 +48,21 @@ If any targeted-gate test fails after a pure relocation, do **not** edit the tes
 
 `ResizePlanning`'s crop-building helpers must not call `tagged_executable_gravity/1` (that helper stays in `Lowering`), so the `Lowering → ResizePlanning` edge stays one-directional with **no shared leaf module** (honoring the 4-module decision). Resolution: **thread the already-translated `gravity` value into `ResizePlanning` as a parameter.**
 
+There are **four** internal sites in `ResizePlanning` that compute
+`tagged_executable_gravity(operation.guide)` today; **all four** must switch to a
+threaded `gravity` parameter, or a `tagged_executable_gravity` reference is
+stranded in the leaf module and creates a `ResizePlanning → Lowering` cycle. (Both
+plan reviewers flagged the original three-site list as missing the `:auto`-branch
+site below — this is the corrected full set.)
+
 - `cover_resize_and_crop/4` already takes `gravity` as a parameter — no change.
-- `fit_resize_and_result_crop/3` currently computes `tagged_executable_gravity(operation.guide)` internally → change signature to `fit_resize_and_result_crop(resize, operation, state, gravity)` and use the passed `gravity`.
+- `fit_resize_and_result_crop/3` currently computes it internally → change signature to `fit_resize_and_result_crop(resize, operation, state, gravity)` and use the passed `gravity`.
 - `cover_resize_and_crop_display_frame/2` currently computes it internally → change to `cover_resize_and_crop_display_frame(operation, state, gravity)`.
-- All callers (`ResizePlanning.lower`, and `OrientationScheduler`'s quarter-turn cover clause) compute `gravity = Lowering.tagged_executable_gravity(op.guide)` and pass it in.
+- `tagged_executable_resize_operations/4` (reached only from `lower/4`'s `:auto` mode) computes `tagged_executable_gravity(operation.guide)` in its `:cover` sub-clause and passes `operation` into `fit_resize_and_result_crop` in its `:fit` sub-clause → change to `tagged_executable_resize_operations(branch, resize, operation, state, gravity)`; its `:cover` sub-clause passes the threaded `gravity` into `cover_resize_and_crop/4`, its `:fit` sub-clause passes it into `fit_resize_and_result_crop/4`.
+
+Threading chain: `lower/4` holds `gravity` (passed by its caller) and forwards it to whichever of `cover_resize_and_crop/4`, `fit_resize_and_result_crop/4`, or `tagged_executable_resize_operations/5` its mode selects; `tagged_executable_resize_operations/5` forwards it again. No `ResizePlanning` function calls `tagged_executable_gravity`.
+
+- Callers that compute the gravity: `Lowering`'s delegating `%PlanResize{}` clause (`ResizePlanning.lower(op, state, ctx, Lowering.tagged_executable_gravity(op.guide))` — an in-module call, `Lowering → ResizePlanning`), and `OrientationScheduler`'s quarter-turn cover clause (`ResizePlanning.cover_resize_and_crop_display_frame(op, state, Lowering.tagged_executable_gravity(op.guide))`).
 
 `x_offset`/`y_offset` are untranslated pass-through values; `ResizePlanning` may read them off the operation struct directly (no `Lowering` dependency).
 
@@ -77,7 +90,7 @@ If any targeted-gate test fails after a pure relocation, do **not** edit the tes
 Create `lib/image_pipe/transform/resize_planning.ex` with `defmodule ImagePipe.Transform.ResizePlanning do @moduledoc false`. Move these functions **verbatim** out of `plan_executor.ex` (current line ranges as of this plan):
 
 - Resize `executable_operations` clauses (currently lines 573–596: `:fit`, `:cover`, `:stretch`, `:auto`) → merge into a single public `lower/4` that dispatches on `operation.mode`. Each mode body is the current clause body, with `tagged_executable_gravity(operation.guide)` replaced by the passed-in `gravity` argument.
-- `tagged_executable_resize_operations/4` (746–762)
+- `tagged_executable_resize_operations/4` (746–762) → `/5` taking `gravity` (see settled detail): its `:cover` sub-clause forwards `gravity` into `cover_resize_and_crop/4`, its `:fit` sub-clause forwards it into `fit_resize_and_result_crop/4`; drop both internal `tagged_executable_gravity(operation.guide)` calls
 - `cover_resize_and_crop/4` (772–793) — unchanged
 - `fit_resize_and_result_crop/3` (802–822) → `/4` taking `gravity`; replace the internal `tagged_executable_gravity(operation.guide)` with `gravity`
 - `fit_result_crop_bites?/1`, `fit_axis_exceeds?/2`, `result_box_crop_dimension/1` (824–833)
@@ -152,7 +165,7 @@ Create `lib/image_pipe/transform/lowering.ex` (`@moduledoc false`). Move **verba
 - `rescale_crop_for_decode_shrink/2`, `shrink_abs_dimension/2`, `shrink_crop_from/3`, `shrink_abs_coordinate/2`, `shrink_abs_offset/3` (955–994)
 - `canvas_dimension/1`, `canvas_rule/2`, `scale_canvas_dimension/2`, `scale_extend_offset/2` (996–1018)
 - `executable_fill/1` (1020–1027)
-- `effective_padding_scale/3` (1029–1057)
+- `effective_padding_scale/3` (1029–1057) — **stays in Lowering, do NOT reunite with the similarly-named `resize_padding_scale/3` that moved to ResizePlanning in Task 1.** `effective_padding_scale` only reads precomputed values off the `context` map (set upstream by `update_execution_context → ResizePlanning.resize_padding_scale`); it does not call into ResizePlanning, so keeping it in Lowering creates no edge. Pulling `resize_padding_scale` back here by name would misplace resize-parity arithmetic in the lowering module.
 - `scaled_padding_side/2` (1173), `round_half_to_even/1` (1175–1185)
 - `tagged_executable_gravity/1` (all clauses, 1187–1207), `tagged_ratio_to_float/1` (1214)
 

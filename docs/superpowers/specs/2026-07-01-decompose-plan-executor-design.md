@@ -143,26 +143,25 @@ ResizePlanning → Operation.Resize, Operation.Crop, PendingOrientation, State
 No cycles. `plan → transform` remains forbidden; all edges are within the
 `Transform` boundary, so no `Boundary` `deps`/`exports` change is needed.
 
-## Open implementation detail (resolve during TDD, not a behavior question)
+## Settled implementation detail (was open; resolved in the plan + plan review)
 
-`cover_resize_and_crop_display_frame` and the fit/cover builders call primitive
-builders that also serve `Lowering` (`resize_from`, `tagged_executable_gravity`,
-`result_box_crop_dimension`). Two mechanical options, decided when the code is in
-front of us, whichever keeps the edge `Lowering → ResizePlanning` clean and
-avoids duplication:
+`cover_resize_and_crop_display_frame` and the fit/cover/auto builders computed
+`tagged_executable_gravity(operation.guide)` internally — a helper that belongs to
+`Lowering`. **Resolution (no leaf module, honoring the 4-module decision):** move
+the resize-only primitives (`resize_from`, `resize_mode`,
+`tagged_executable_resize_dimension`, `tagged_dpr_float`, `tagged_logical_pixels`)
+into `ResizePlanning`, and **thread the already-translated `gravity` value into
+`ResizePlanning` as a parameter** so `ResizePlanning` never calls
+`tagged_executable_gravity`. This keeps the edge one-directional
+(`Lowering → ResizePlanning`, never the reverse) with no shared leaf module.
 
-1. Keep the primitive builders in `Lowering` and have `ResizePlanning` call
-   `Lowering` for them (edge becomes bidirectional → **rejected** if it creates a
-   cycle).
-2. Move the shared primitives (`resize_from`, `resize_mode`,
-   `tagged_executable_resize_dimension`, `tagged_executable_gravity`) into
-   `ResizePlanning` (or a tiny shared `Transform.OperationBuilders` leaf module
-   both depend on) so the edge stays one-directional.
-
-The leaf-module option is the safest for acyclicity; the final placement is a
-mechanical call made against the compiler + `mix xref`/`Boundary`, with **no
-observable behavior consequence**. If a shared leaf module is introduced it is
-still `@moduledoc false`, unexported, and inside the boundary.
+Both plan reviewers (architecture/boundary + correctness) confirmed acyclicity
+under this resolution and caught that **four** internal sites compute the gravity
+today, not three — the `:auto`-branch `tagged_executable_resize_operations`
+sub-clauses were the missed pair. The corrected full site list and the
+gravity-threading chain live in the implementation plan
+(`docs/superpowers/plans/2026-07-01-decompose-plan-executor.md`). No observable
+behavior consequence.
 
 ## Verification
 
