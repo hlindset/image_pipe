@@ -56,7 +56,7 @@ defmodule ImagePipe.Transform.OrientationScheduler do
   @spec execute_operation(struct(), State.t(), map(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   # Right-angle, non-mirrored rotation defers into pending_orientation (lossless
-  # vips_rot at the flush, imgproxy parity, #211 seam avoidance). Same body as before.
+  # vips_rot at the flush, imgproxy parity, #211 seam avoidance).
   def execute_operation(%PlanRotate{angle: angle, mirror: false}, %State{} = state, _ctx, _opts)
       when angle in [0, 90, 180, 270] do
     po = state.pending_orientation || %PendingOrientation{}
