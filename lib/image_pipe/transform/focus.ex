@@ -52,7 +52,11 @@ defmodule ImagePipe.Transform.Focus do
           State.t()
   def reflect_rotate(%State{carried_point: nil} = state, _po, _pre), do: state
 
-  def reflect_rotate(%State{carried_point: {x, y}} = state, %PendingOrientation{} = po, {pre_w, pre_h}) do
+  def reflect_rotate(
+        %State{carried_point: {x, y}} = state,
+        %PendingOrientation{} = po,
+        {pre_w, pre_h}
+      ) do
     {fx2, fy2} = forward_fraction({ratio_div(x, pre_w), ratio_div(y, pre_h)}, po)
 
     {post_w, post_h} =

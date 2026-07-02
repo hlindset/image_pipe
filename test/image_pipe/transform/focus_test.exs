@@ -35,7 +35,8 @@ defmodule ImagePipe.Transform.FocusTest do
       state = %State{carried_point: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
       assert Focus.translate(state, -40, -30).carried_point == {{:ratio, 160, 1}, {:ratio, 70, 1}}
       # transient negative numerator is allowed (a later canvas +x recovers it)
-      assert Focus.translate(state, -300, 0).carried_point == {{:ratio, -100, 1}, {:ratio, 100, 1}}
+      assert Focus.translate(state, -300, 0).carried_point ==
+               {{:ratio, -100, 1}, {:ratio, 100, 1}}
     end
   end
 
