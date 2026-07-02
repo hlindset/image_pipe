@@ -7,8 +7,8 @@ defmodule ImagePipe.Transform.Operation.StateUpdateTest do
     {:ok, img} = Image.new(4, 4)
     state = %State{image: img}
 
-    {:ok, %State{focus: {:fp, 0.25, 0.75}, image: ^img}} =
-      StateUpdate.execute(%StateUpdate{fields: %{focus: {:fp, 0.25, 0.75}}}, state)
+    {:ok, %State{carried_point: {:fp, 0.25, 0.75}, image: ^img}} =
+      StateUpdate.execute(%StateUpdate{fields: %{carried_point: {:fp, 0.25, 0.75}}}, state)
   end
 
   test "requires_materialization? is false" do

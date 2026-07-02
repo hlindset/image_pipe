@@ -36,7 +36,7 @@ defmodule ImagePipe.Parser.TwicPics.Resolver do
 
     focus_ctx = %{display: display, storage: {live_w, live_h}, decode_shrink: shape.decode_shrink}
     resolved = Focus.resolve(operand, focus_ctx, shape.pending_orientation)
-    {[%StateUpdate{fields: %{focus: resolved}}], {:advance, shape, nil}}
+    {[%StateUpdate{fields: %{carried_point: resolved}}], {:advance, shape, nil}}
   end
 
   def resolve(%SourceShape{} = shape, nil, operation),

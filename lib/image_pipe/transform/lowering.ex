@@ -338,8 +338,9 @@ defmodule ImagePipe.Transform.Lowering do
   def tagged_executable_gravity(:bottom_right), do: {:anchor, :right, :bottom}
   def tagged_executable_gravity({:anchor, x, y}), do: {:anchor, x, y}
 
-  # Carried (TwicPics) gravity passes through to the executable Crop, which reads
-  # State.focus and normalizes it to a focal point at the libvips boundary.
+  # Carried gravity passes through to the executable Crop, which reads the
+  # neutral carried point and normalizes it to a focal point at the libvips
+  # boundary.
   def tagged_executable_gravity(:carried), do: :carried
 
   def tagged_executable_gravity({:focal, x, y}),

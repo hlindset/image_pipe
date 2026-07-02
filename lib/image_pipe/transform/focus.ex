@@ -1,10 +1,11 @@
 defmodule ImagePipe.Transform.Focus do
   @moduledoc false
-  # TwicPics carried focus point, transformed by each geometry op's realized
-  # affine. An exact-rational continuous coordinate in the live-image frame; the
-  # only float conversion is `to_fp/1`, at the libvips boundary. Every function
-  # is a no-op when `state.focus == nil` (imgproxy never carries a focus), so the
-  # imgproxy path is unaffected.
+  # Neutral point-math namespace for the carried point, transformed by each
+  # geometry op's realized affine. An exact-rational continuous coordinate in
+  # the live-image frame; the only float conversion is `to_fp/1`, at the libvips
+  # boundary. Every function is a no-op when the carried point is `nil` (a
+  # strategy may not carry a point), so point-free plans are unaffected. The
+  # TwicPics strategy is the current producer.
   #
   # The numerator is integer() (matching ImagePipe.Plan.Measure): a crop
   # translate can transiently negate it (focus left/above the crop window); a
@@ -22,21 +23,21 @@ defmodule ImagePipe.Transform.Focus do
           | {:anchor, :left | :center | :right, :top | :center | :bottom}
 
   @spec scale(State.t(), ratio(), ratio()) :: State.t()
-  def scale(%State{focus: nil} = state, _sx, _sy), do: state
+  def scale(%State{carried_point: nil} = state, _sx, _sy), do: state
 
-  def scale(%State{focus: {x, y}} = state, sx, sy),
-    do: %State{state | focus: {ratio_mul(x, sx), ratio_mul(y, sy)}}
+  def scale(%State{carried_point: {x, y}} = state, sx, sy),
+    do: %State{state | carried_point: {ratio_mul(x, sx), ratio_mul(y, sy)}}
 
   @spec translate(State.t(), integer(), integer()) :: State.t()
-  def translate(%State{focus: nil} = state, _dx, _dy), do: state
+  def translate(%State{carried_point: nil} = state, _dx, _dy), do: state
 
-  def translate(%State{focus: {x, y}} = state, dx, dy),
-    do: %State{state | focus: {ratio_add_int(x, dx), ratio_add_int(y, dy)}}
+  def translate(%State{carried_point: {x, y}} = state, dx, dy),
+    do: %State{state | carried_point: {ratio_add_int(x, dx), ratio_add_int(y, dy)}}
 
   @spec to_fp(State.t()) :: nil | {:fp, float(), float()}
-  def to_fp(%State{focus: nil}), do: nil
+  def to_fp(%State{carried_point: nil}), do: nil
 
-  def to_fp(%State{focus: {x, y}, image: image}) do
+  def to_fp(%State{carried_point: {x, y}, image: image}) do
     {:fp, clamp01(ratio_to_float(x) / Image.width(image)),
      clamp01(ratio_to_float(y) / Image.height(image))}
   end
@@ -49,9 +50,9 @@ defmodule ImagePipe.Transform.Focus do
   """
   @spec reflect_rotate(State.t(), PendingOrientation.t(), {pos_integer(), pos_integer()}) ::
           State.t()
-  def reflect_rotate(%State{focus: nil} = state, _po, _pre), do: state
+  def reflect_rotate(%State{carried_point: nil} = state, _po, _pre), do: state
 
-  def reflect_rotate(%State{focus: {x, y}} = state, %PendingOrientation{} = po, {pre_w, pre_h}) do
+  def reflect_rotate(%State{carried_point: {x, y}} = state, %PendingOrientation{} = po, {pre_w, pre_h}) do
     {fx2, fy2} = forward_fraction({ratio_div(x, pre_w), ratio_div(y, pre_h)}, po)
 
     {post_w, post_h} =
@@ -59,7 +60,7 @@ defmodule ImagePipe.Transform.Focus do
 
     %State{
       state
-      | focus: {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}
+      | carried_point: {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}
     }
   end
 

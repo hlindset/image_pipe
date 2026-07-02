@@ -14,7 +14,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
 
     op = %Directive{name: :set_focus, payload: {:coord, {:px, 200}, {:px, 150}}}
 
-    {[%StateUpdate{fields: %{focus: {x, y}}}], {:advance, ^shape, nil}} =
+    {[%StateUpdate{fields: %{carried_point: {x, y}}}], {:advance, ^shape, nil}} =
       TwicPicsResolver.resolve(shape, nil, op)
 
     assert x == {:ratio, 200, 1}

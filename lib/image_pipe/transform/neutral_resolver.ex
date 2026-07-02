@@ -466,17 +466,18 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp materializing_gravity?({:detect, _}), do: true
   defp materializing_gravity?(_other), do: false
 
-  # A carried-focus crop reads State.focus, which lives in the storage frame and
-  # already tracks the focused content — so it must NOT be gravity-remapped like
-  # an imgproxy focus-point spec. Only the crop box needs the quarter-turn dim
-  # swap; the flush then rotates image + focus together. (imgproxy never emits
-  # :carried.) This clause MUST precede the {crop_from: :gravity, gravity}
+  # A carried-gravity crop reads the neutral carried point, which lives in the
+  # storage frame and already tracks the focused content — so it must NOT be
+  # gravity-remapped like an imgproxy focus-point spec. Only the crop box needs
+  # the quarter-turn dim swap; the flush then rotates image + carried point
+  # together. This clause MUST precede the {crop_from: :gravity, gravity}
   # clause below, which a :carried crop would otherwise match.
   #
-  # A nil State.focus makes Crop.execute fall back to a centred crop, so this
+  # A nil carried point makes Crop.execute fall back to a centred crop, so this
   # crop still needs the center-discard-side compensation (#146 Bug 2) that the
-  # gravity clause applies. For a set focus the crop resolves to `:fp` gravity,
-  # which ignores center_bias, so setting it unconditionally here is harmless.
+  # gravity clause applies. For a set carried point the crop resolves to `:fp`
+  # gravity, which ignores center_bias, so setting it unconditionally here is
+  # harmless.
   defp compensate_crop(%Crop{gravity: :carried} = crop, %PendingOrientation{} = po) do
     crop = %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
 
