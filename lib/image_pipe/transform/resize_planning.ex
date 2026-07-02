@@ -11,41 +11,39 @@ defmodule ImagePipe.Transform.ResizePlanning do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.PendingOrientation
-  alias ImagePipe.Transform.State
-  alias Vix.Vips.Image, as: VipsImage
+  alias ImagePipe.Transform.SourceShape
 
-  @spec lower(PlanResize.t(), State.t(), map(), term()) :: [struct()]
-  def lower(%PlanResize{mode: :fit} = operation, %State{} = state, _context, gravity) do
-    fit_resize_and_result_crop(resize_from(operation, :fit), operation, state, gravity)
+  @spec lower(PlanResize.t(), SourceShape.t(), term()) :: [struct()]
+  def lower(%PlanResize{mode: :fit} = operation, %SourceShape{} = shape, gravity) do
+    fit_resize_and_result_crop(resize_from(operation, :fit), operation, shape, gravity)
   end
 
-  def lower(%PlanResize{mode: :cover} = operation, %State{} = state, _context, gravity) do
+  def lower(%PlanResize{mode: :cover} = operation, %SourceShape{} = shape, gravity) do
     operation
     |> resize_from(:cover)
-    |> cover_resize_and_crop(state, gravity, {operation.x_offset, operation.y_offset})
+    |> cover_resize_and_crop(shape, gravity, {operation.x_offset, operation.y_offset})
   end
 
-  def lower(%PlanResize{mode: :stretch} = operation, %State{}, _context, _gravity) do
+  def lower(%PlanResize{mode: :stretch} = operation, %SourceShape{}, _gravity) do
     [resize_from(operation, :stretch)]
   end
 
-  def lower(%PlanResize{mode: :auto} = operation, %State{} = state, _context, gravity) do
-    branch = plan_resize_branch(operation, state)
+  def lower(%PlanResize{mode: :auto} = operation, %SourceShape{} = shape, gravity) do
+    branch = plan_resize_branch(operation, shape)
     resize = resize_from(operation, branch)
-
-    tagged_executable_resize_operations(branch, resize, operation, state, gravity)
+    tagged_executable_resize_operations(branch, resize, operation, shape, gravity)
   end
 
   defp tagged_executable_resize_operations(
          :cover,
          %Resize{} = resize,
          operation,
-         %State{} = state,
+         %SourceShape{} = shape,
          gravity
        ) do
     cover_resize_and_crop(
       resize,
-      state,
+      shape,
       gravity,
       {operation.x_offset, operation.y_offset}
     )
@@ -55,10 +53,10 @@ defmodule ImagePipe.Transform.ResizePlanning do
          :fit,
          %Resize{} = resize,
          operation,
-         %State{} = state,
+         %SourceShape{} = shape,
          gravity
        ) do
-    fit_resize_and_result_crop(resize, operation, state, gravity)
+    fit_resize_and_result_crop(resize, operation, shape, gravity)
   end
 
   # A cover resize scales the whole image to cover the box (the intermediate
@@ -71,12 +69,17 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # crop always fires.
   @spec cover_resize_and_crop(
           Resize.t(),
-          State.t(),
+          SourceShape.t(),
           term(),
           {PlanResize.offset(), PlanResize.offset()}
         ) :: [struct()]
-  def cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
-    {src_w, src_h} = State.effective_source_dims(state)
+  def cover_resize_and_crop(
+        %Resize{} = resize,
+        %SourceShape{} = shape,
+        gravity,
+        {x_offset, y_offset}
+      ) do
+    {src_w, src_h} = {shape.width, shape.height}
 
     dimensions =
       Resize.resolve_dimensions(resize,
@@ -108,10 +111,10 @@ defmodule ImagePipe.Transform.ResizePlanning do
   defp fit_resize_and_result_crop(
          %Resize{} = resize,
          %PlanResize{} = operation,
-         %State{} = state,
+         %SourceShape{} = shape,
          gravity
        ) do
-    {src_w, src_h} = State.effective_source_dims(state)
+    {src_w, src_h} = {shape.width, shape.height}
     dimensions = Resize.resolve_dimensions(resize, source_width: src_w, source_height: src_h)
 
     if fit_result_crop_bites?(dimensions) do
@@ -145,13 +148,13 @@ defmodule ImagePipe.Transform.ResizePlanning do
 
   # True when this PlanResize expands into a cover (fill) resize + result-crop —
   # either an explicit cover, or an auto resize whose branch resolves to cover.
-  @spec cover_resize?(PlanResize.t(), State.t()) :: boolean()
-  def cover_resize?(%PlanResize{mode: :cover}, %State{}), do: true
+  @spec cover_resize?(PlanResize.t(), SourceShape.t()) :: boolean()
+  def cover_resize?(%PlanResize{mode: :cover}, %SourceShape{}), do: true
 
-  def cover_resize?(%PlanResize{mode: :auto} = operation, %State{} = state),
-    do: plan_resize_branch(operation, state) == :cover
+  def cover_resize?(%PlanResize{mode: :auto} = operation, %SourceShape{} = shape),
+    do: plan_resize_branch(operation, shape) == :cover
 
-  def cover_resize?(%PlanResize{}, %State{}), do: false
+  def cover_resize?(%PlanResize{}, %SourceShape{}), do: false
 
   # Quarter-turn cover expansion resolved in the DISPLAY frame (imgproxy parity).
   #
@@ -166,9 +169,13 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # re-coupling) them in the storage frame. The result-crop carries the
   # display-frame result-box dims (the literal requested box, #236) and is
   # swapped + remapped by compensate_crop.
-  @spec cover_resize_and_crop_display_frame(PlanResize.t(), State.t(), term()) :: [struct()]
-  def cover_resize_and_crop_display_frame(%PlanResize{} = operation, %State{} = state, gravity) do
-    {src_w, src_h} = State.effective_source_dims(state)
+  @spec cover_resize_and_crop_display_frame(PlanResize.t(), SourceShape.t(), term()) :: [struct()]
+  def cover_resize_and_crop_display_frame(
+        %PlanResize{} = operation,
+        %SourceShape{} = shape,
+        gravity
+      ) do
+    {src_w, src_h} = {shape.width, shape.height}
     resize = resize_from(operation, :cover)
 
     display =
@@ -230,19 +237,20 @@ defmodule ImagePipe.Transform.ResizePlanning do
   defp tagged_executable_optional_resize_dimension(dimension),
     do: tagged_executable_resize_dimension(dimension)
 
-  @spec resize_padding_scale(PlanResize.t(), State.t(), :resize | :canvas_preserving) :: number()
-  def resize_padding_scale(%PlanResize{enlargement: :allow} = operation, %State{}, _mode),
+  @spec resize_padding_scale(PlanResize.t(), SourceShape.t(), :resize | :canvas_preserving) ::
+          number()
+  def resize_padding_scale(%PlanResize{enlargement: :allow} = operation, %SourceShape{}, _mode),
     do: tagged_dpr_float(operation.dpr)
 
-  def resize_padding_scale(%PlanResize{} = operation, %State{} = state, mode) do
+  def resize_padding_scale(%PlanResize{} = operation, %SourceShape{} = shape, mode) do
     # imgproxy computes the no-enlarge padding/DPR cap entirely in the display
     # frame: the fitted target dims (`base.requested_*`) and the source it caps
     # them against are both ExtractGeometry-swapped under a quarter turn. Resolve
     # `base` against the display-frame source so the fitted dims match imgproxy's
     # (a fit against the storage frame fits the transposed axes and skews the cap).
-    {src_w, src_h} = display_source_dims(state)
+    {src_w, src_h} = display_source_dims(shape)
     requested_scale = tagged_dpr_float(operation.dpr)
-    branch = plan_resize_branch(operation, state)
+    branch = plan_resize_branch(operation, shape)
     resize = resize_from(operation, branch)
 
     base =
@@ -252,7 +260,7 @@ defmodule ImagePipe.Transform.ResizePlanning do
         source_height: src_h
       )
 
-    max_without_enlarge = max_padding_scale_without_enlarge(base, state)
+    max_without_enlarge = max_padding_scale_without_enlarge(base, shape)
     compensated = compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge, mode)
 
     clamp_padding_scale(compensated, max_without_enlarge)
@@ -267,20 +275,20 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # requested box upstream, so a zoomed request never reaches this auto/auto clause.
   defp max_padding_scale_without_enlarge(
          %{requested_width: :auto, requested_height: :auto},
-         %State{}
+         %SourceShape{}
        ),
        do: 1.0
 
   defp max_padding_scale_without_enlarge(
          %{requested_width: width, requested_height: height},
-         %State{} = state
+         %SourceShape{} = shape
        ) do
     # The requested box is display-frame; size it against the display-frame source
     # so the no-enlarge cap couples the same axes imgproxy does (its SrcWidth is
     # ExtractGeometry-swapped under a quarter turn). Mixing the display-frame
     # request with storage-frame source dims crosses axes under a pending quarter
     # turn (#182).
-    {src_w, src_h} = display_source_dims(state)
+    {src_w, src_h} = display_source_dims(shape)
     min(src_w / width, src_h / height)
   end
 
@@ -304,16 +312,16 @@ defmodule ImagePipe.Transform.ResizePlanning do
   defp clamp_padding_scale(scale, max_without_enlarge),
     do: min(scale, max(max_without_enlarge, 1.0))
 
-  defp plan_resize_branch(%PlanResize{mode: :fit}, %State{}), do: :fit
-  defp plan_resize_branch(%PlanResize{mode: :cover}, %State{}), do: :cover
-  defp plan_resize_branch(%PlanResize{mode: :stretch}, %State{}), do: :stretch
+  defp plan_resize_branch(%PlanResize{mode: :fit}, %SourceShape{}), do: :fit
+  defp plan_resize_branch(%PlanResize{mode: :cover}, %SourceShape{}), do: :cover
+  defp plan_resize_branch(%PlanResize{mode: :stretch}, %SourceShape{}), do: :stretch
 
-  defp plan_resize_branch(%PlanResize{mode: :auto} = operation, %State{} = state) do
+  defp plan_resize_branch(%PlanResize{mode: :auto} = operation, %SourceShape{} = shape) do
     # imgproxy's ResizeAuto compares srcW−srcH against dstW−dstH on the DISPLAY
     # axes — ExtractGeometry swaps the source dims for a quarter turn before the
     # comparison (prepare.go). Classify against the display-frame source so an
     # EXIF 5–8 / rot:90/270 source is not judged on transposed axes (#182).
-    {src_w, src_h} = display_source_dims(state)
+    {src_w, src_h} = display_source_dims(shape)
 
     resize_auto_branch(
       src_w,
@@ -328,23 +336,11 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # the storage height axis, and vice versa). Used where imgproxy resolves against
   # ExtractGeometry-swapped source dims — the ResizeAuto fill-vs-fit classification
   # and the no-enlarge padding-scale cap.
-  @spec display_source_dims(State.t()) :: {number(), number()}
-  def display_source_dims(%State{pending_orientation: po} = state) do
-    {w, h} = State.effective_source_dims(state)
-
-    if not is_nil(po) and PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
-  end
-
-  # The live image dims in the display frame: a focus operand resolves against the
-  # running frame at its chain position (the live image, possibly already resized
-  # — unlike display_source_dims, which uses the residual-resize source frame),
-  # with the axes swapped when a quarter turn is pending.
-  @spec display_live_dims(State.t()) :: {number(), number()}
-  def display_live_dims(%State{pending_orientation: po, image: image}) do
-    w = VipsImage.width(image)
-    h = VipsImage.height(image)
-
-    if not is_nil(po) and PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
+  @spec display_source_dims(SourceShape.t()) :: {number(), number()}
+  def display_source_dims(%SourceShape{pending_orientation: po} = shape) do
+    if not is_nil(po) and PendingOrientation.quarter_turn?(po),
+      do: {shape.height, shape.width},
+      else: {shape.width, shape.height}
   end
 
   defp tagged_logical_pixels({:px, value}), do: value

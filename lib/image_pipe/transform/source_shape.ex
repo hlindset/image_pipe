@@ -36,4 +36,17 @@ defmodule ImagePipe.Transform.SourceShape do
 
   def quarter_turn?(%__MODULE__{pending_orientation: po}),
     do: PendingOrientation.quarter_turn?(po)
+
+  # The live (decoded) image dims implied by the shape: the effective source
+  # dims divided by the realized shrink-on-load factor (exact — the factor is
+  # original ÷ decoded, so the division round-trips the decoded extent).
+  # Exact ONLY while the shape is frame-coherent: width/height and decode_shrink
+  # must describe the same frame, i.e. no advance may change the dims without
+  # clearing or compensating an outstanding shrink (the Task-0 fixtures pin the
+  # one reachable violation, canvas-under-shrink).
+  @spec live_dims(t()) :: {pos_integer(), pos_integer()}
+  def live_dims(%__MODULE__{width: w, height: h, decode_shrink: nil}), do: {w, h}
+
+  def live_dims(%__MODULE__{width: w, height: h, decode_shrink: %{w: sw, h: sh}}),
+    do: {max(1, round(w / sw)), max(1, round(h / sh))}
 end
