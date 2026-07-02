@@ -697,8 +697,18 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   test "parser code does not depend on executable transform operation modules" do
+    # A parser's ImagePipe.Resolver strategy (e.g. imgproxy's :auto/no-enlarge
+    # geometry-resolution column, #434) is a distinct concern from request
+    # parsing/planning: it translates a semantic Plan operation into executable
+    # transform operations, so it legitimately names concrete transform
+    # modules — the Boundary deps (`parser` -> `Resolver, Transform`) already
+    # permit this. Parser output — what PlanBuilder/Path/Options emit — must
+    # still stay semantic-only, which is what this rule polices.
+    resolver_strategy_files = MapSet.new(["lib/image_pipe/parser/imgproxy/resolver.ex"])
+
     violations =
       for file <- parser_files(),
+          not MapSet.member?(resolver_strategy_files, file),
           violation <- concrete_transform_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; parser output is semantic Plan operations"
       end

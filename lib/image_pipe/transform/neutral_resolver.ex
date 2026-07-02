@@ -8,6 +8,11 @@ defmodule ImagePipe.Transform.NeutralResolver do
   imgproxy or TwicPics resolver under `parser/*`) composes its own lowering
   with this module's `display_frame_advance/2` and `plain_advance/2` to reuse
   the neutral flush policy instead of re-deriving it.
+
+  `%Operation.Resize{mode: :auto}` and `%Operation.Padding{pixel_ratio:
+  {:effective, _, _}}` are imgproxy-strategy vocabulary: the imgproxy strategy
+  (`ImagePipe.Parser.Imgproxy.Resolver`) resolves both to their concrete form
+  before delegating here, so neither is reachable in this module.
   """
 
   # Neutral geometry resolver: owns the deferred-orientation execution policy
@@ -69,8 +74,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   def behavior_version, do: 1
 
   @impl ImagePipe.Resolver
-  def resolve(%SourceShape{} = shape, env, nil, operation) do
-    {ops, continuation} = do_resolve(operation, shape, env)
+  def resolve(%SourceShape{} = shape, _env, nil, operation) do
+    {ops, continuation} = do_resolve(operation, shape, nil)
     {ops, continuation, nil}
   end
 
@@ -299,10 +304,10 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # frame; with an orientation still pending they flush first so the op decides
   # in the display frame. An identity pending is cleared without a flush
   # (streaming fast path preserved).
-  defp do_resolve(%PlanPadding{} = operation, %SourceShape{} = shape, env),
+  defp do_resolve(%PlanPadding{} = operation, %SourceShape{} = shape, _env),
     do:
       display_frame_advance(
-        Lowering.padding_executables(operation, padding_scale(operation, env.ctx)),
+        Lowering.padding_executables(operation, padding_scale(operation)),
         shape
       )
 
@@ -336,8 +341,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   end
 
   # ── canvas ────────────────────────────────────────────────────────────────
-  defp do_resolve(%Canvas{} = operation, %SourceShape{} = shape, env) do
-    ops = Lowering.canvas_executables(operation, env.ctx.canvas_preserving_padding_scale || 1.0)
+  defp do_resolve(%Canvas{} = operation, %SourceShape{} = shape, _env) do
+    ops = Lowering.canvas_executables(operation, 1.0)
     plain_advance(ops, shape)
   end
 
@@ -349,26 +354,11 @@ defmodule ImagePipe.Transform.NeutralResolver do
     plain_advance(ops, shape)
   end
 
-  # The composition-scale policy for a padding op (imgproxy pd:/dpr coupling):
-  # an :effective pixel_ratio reads the scale the resize row stashed on the
-  # per-pipeline context; a literal ratio is its own scale.
-  defp padding_scale(%PlanPadding{pixel_ratio: {:effective, _fb, :resize}}, %{
-         effective_padding_scale: s
-       })
-       when is_number(s),
-       do: s
-
-  defp padding_scale(
-         %PlanPadding{pixel_ratio: {:effective, _fb, :canvas_preserving}},
-         %{canvas_preserving_padding_scale: s}
-       )
-       when is_number(s),
-       do: s
-
-  defp padding_scale(%PlanPadding{pixel_ratio: {:ratio, n, d}}, _ctx), do: n / d
-
-  defp padding_scale(%PlanPadding{pixel_ratio: {:effective, {:ratio, n, d}, _mode}}, _ctx),
-    do: n / d
+  # The composition-scale policy for a padding op: a literal ratio is its own
+  # scale. An :effective pixel_ratio is imgproxy-strategy vocabulary (the
+  # dialect's pd:/dpr coupling, resolved from strategy-carried state) and is
+  # not reachable here — the imgproxy strategy resolves it before delegation.
+  defp padding_scale(%PlanPadding{pixel_ratio: {:ratio, n, d}}), do: n / d
 
   # The compensated executable expansion for a resize under a non-identity
   # pending. A quarter turn cannot be compensated by swapping the *request* and

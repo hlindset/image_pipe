@@ -93,8 +93,13 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
                    enlargement: :deny
                  )
 
+        fixture_plan =
+          if mode == :auto,
+            do: imgproxy_plan([operation]),
+            else: plan([operation])
+
         assert {:ok, %State{} = state} =
-                 Transform.execute_plan(plan([operation]), state_with_image({1600, 1200}), [])
+                 Transform.execute_plan(fixture_plan, state_with_image({1600, 1200}), [])
 
         assert dimensions(state.image) == {200, 200},
                "#{mode}: result-crop should trim to the requested 200×200, " <>
@@ -271,7 +276,11 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
                )
 
       assert {:ok, %State{} = state} =
-               Transform.execute_plan(plan([resize, padding]), state_with_image(100, 50), [])
+               Transform.execute_plan(
+                 imgproxy_plan([resize, padding]),
+                 state_with_image(100, 50),
+                 []
+               )
 
       assert dimensions(state.image) == {100, 60}
     end
@@ -288,7 +297,11 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
                )
 
       assert {:ok, %State{} = state} =
-               Transform.execute_plan(plan([resize, padding]), state_with_image(300, 400), [])
+               Transform.execute_plan(
+                 imgproxy_plan([resize, padding]),
+                 state_with_image(300, 400),
+                 []
+               )
 
       # Cap 1.0 → padding unscaled: width +8+4=12 → 312, height +10+2=12 → 412.
       assert dimensions(state.image) == {312, 412}
@@ -310,7 +323,7 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
       assert {:ok, %State{} = state} =
                Transform.execute_plan(
-                 plan([resize, canvas, padding]),
+                 imgproxy_plan([resize, canvas, padding]),
                  state_with_image(100, 50),
                  []
                )
@@ -589,7 +602,7 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
     state = state_with_image(1600, 900)
 
     assert {:ok, %State{} = state} =
-             Transform.execute_plan(plan([operation]), state, [])
+             Transform.execute_plan(imgproxy_plan([operation]), state, [])
 
     assert dimensions(state.image) == {300, 200}
   end
@@ -616,7 +629,7 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
       assert {:ok, %State{} = state} =
                Transform.execute_plan(
-                 plan([operation]),
+                 imgproxy_plan([operation]),
                  state_with_resize_auto_source(source),
                  []
                )
@@ -653,7 +666,7 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
     assert {:ok, %State{} = state} =
              Transform.execute_plan(
-               plan([crop, resize]),
+               imgproxy_plan([crop, resize]),
                state_with_image(600, 400),
                []
              )
@@ -671,7 +684,7 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
     assert {:ok, %State{} = state} =
              Transform.execute_plan(
-               plan([operation]),
+               imgproxy_plan([operation]),
                state_with_wide_offset_image(),
                []
              )
@@ -731,13 +744,21 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
     end
   end
 
-  defp plan(operations) do
+  defp plan(operations, opts \\ []) do
     %Plan{
       source: %Source.Path{segments: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: operations}],
-      output: %ImagePipe.Plan.Output{mode: {:explicit, :jpeg}}
+      output: %ImagePipe.Plan.Output{mode: {:explicit, :jpeg}},
+      resolver: Keyword.get(opts, :resolver)
     }
   end
+
+  # `:auto` resize mode and `:effective` padding pixel ratios are imgproxy
+  # strategy vocabulary (#434): a plan exercising either must carry the
+  # imgproxy resolver, mirroring how ImagePipe.Parser.Imgproxy.PlanBuilder
+  # stamps every imgproxy plan.
+  defp imgproxy_plan(operations),
+    do: plan(operations, resolver: ImagePipe.Parser.Imgproxy.Resolver)
 
   defp state_with_image({width, height}), do: state_with_image(width, height)
 

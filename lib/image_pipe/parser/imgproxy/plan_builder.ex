@@ -13,6 +13,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   alias ImagePipe.Parser.Imgproxy.Orientation
   alias ImagePipe.Parser.Imgproxy.ParsedRequest
   alias ImagePipe.Parser.Imgproxy.PipelineRequest
+  alias ImagePipe.Parser.Imgproxy.Resolver, as: ImgproxyResolver
   alias ImagePipe.Parser.Imgproxy.Source, as: ImgproxySource
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
@@ -67,7 +68,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
          output: output,
          expires: expires,
          cachebuster: cachebuster,
-         response: response
+         response: response,
+         resolver: ImgproxyResolver
        }}
     end
   end

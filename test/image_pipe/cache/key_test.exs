@@ -1580,5 +1580,15 @@ defmodule ImagePipe.Cache.KeyTest do
                version: ImagePipe.Transform.NeutralResolver.behavior_version()
              ]
     end
+
+    test "an imgproxy-carrying plan tags the imgproxy strategy and its behavioral version" do
+      plan = %{plan() | resolver: ImagePipe.Parser.Imgproxy.Resolver}
+      {:ok, material} = Key.plan_material(plan, [])
+
+      assert material[:resolver] == [
+               strategy: ImagePipe.Parser.Imgproxy.Resolver,
+               version: ImagePipe.Parser.Imgproxy.Resolver.behavior_version()
+             ]
+    end
   end
 end

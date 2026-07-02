@@ -2,32 +2,31 @@ defmodule ImagePipe.Transform.ResolveDriver do
   @moduledoc false
 
   # Per-pipeline execution loop: for each plan operation, overlay the
-  # resolver-advanced shape onto State (THE one shape→State sync site), recompute
-  # the execution context, resolve the op through the strategy, execute the
-  # emitted executable ops through the chain, then advance the shape — purely for
-  # an `:advance` continuation, or from the post-execution image dims for an
-  # `:acquire` (injectable via `opts[:acquire_dims]` so tests can drive the
-  # geometry without pixels). At the pipeline boundary any surviving non-identity
-  # pending orientation is flushed through an explicit %Operation.Flush{}; an
-  # identity pending is cleared on State without materializing (streaming fast
-  # path preserved).
+  # resolver-advanced shape onto State (THE one shape→State sync site), resolve
+  # the op through the strategy, execute the emitted executable ops through the
+  # chain, then advance the shape — purely for an `:advance` continuation, or
+  # from the post-execution image dims for an `:acquire` (injectable via
+  # `opts[:acquire_dims]` so tests can drive the geometry without pixels). At
+  # the pipeline boundary any surviving non-identity pending orientation is
+  # flushed through an explicit %Operation.Flush{}; an identity pending is
+  # cleared on State without materializing (streaming fast path preserved).
   #
   # The overlay routes every State.effective_source_dims / decode_shrink /
   # pending_orientation read at EXECUTE time — Resize.execute, OrientationFlush.
   # flush — through the resolver-advanced shape; the resolve-time reads (Lowering,
   # ResizePlanning) take the shape directly. It is value-equal to the previous
   # scattered State mutations whenever the shape advance is correct.
+  #
+  # The strategy's own per-pipeline state (e.g. the imgproxy resolver's stashed
+  # padding scales) is threaded through `spec` — the driver passes an opaque
+  # `%{}` as `env` and never reads or computes strategy-specific state itself.
 
-  alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Resolver
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.PendingOrientation
-  alias ImagePipe.Transform.ResizePlanning
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
-
-  @initial_ctx %{effective_padding_scale: nil, canvas_preserving_padding_scale: nil}
 
   @spec run([struct()], SourceShape.t(), Resolver.spec(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
@@ -36,25 +35,23 @@ defmodule ImagePipe.Transform.ResolveDriver do
     chain = Keyword.get(opts, :chain, &Chain.execute/3)
 
     pipeline
-    |> Enum.reduce_while({:ok, shape, spec, state, @initial_ctx}, fn operation, acc ->
-      {:ok, shape, spec, state, ctx} = acc
+    |> Enum.reduce_while({:ok, shape, spec, state}, fn operation, acc ->
+      {:ok, shape, spec, state} = acc
       state = overlay(state, shape)
-      ctx = update_execution_context(operation, shape, ctx)
 
-      {ops, continuation, spec} =
-        Resolver.resolve(spec, shape, %{ctx: ctx}, operation)
+      {ops, continuation, spec} = Resolver.resolve(spec, shape, %{}, operation)
 
       case chain.(state, ops, opts) do
         {:ok, %State{} = state} ->
           {shape, spec} = advance(continuation, spec, state, acquire_dims)
-          {:cont, {:ok, shape, spec, state, ctx}}
+          {:cont, {:ok, shape, spec, state}}
 
         {:error, _reason} = error ->
           {:halt, error}
       end
     end)
     |> case do
-      {:ok, shape, _spec, state, _ctx} -> flush_boundary(state, shape, chain, opts)
+      {:ok, shape, _spec, state} -> flush_boundary(state, shape, chain, opts)
       {:error, _reason} = error -> error
     end
   end
@@ -116,21 +113,4 @@ defmodule ImagePipe.Transform.ResolveDriver do
 
   defp boundary_source_dimensions(%SourceShape{decode_shrink: nil}), do: nil
   defp boundary_source_dimensions(%SourceShape{width: w, height: h}), do: {w, h}
-
-  # The two padding scales are computed at the resize from the pre-op shape
-  # and carried on the context for later padding/canvas lowering.
-  defp update_execution_context(%PlanResize{} = operation, %SourceShape{} = shape, context) do
-    scale = ResizePlanning.resize_padding_scale(operation, shape, :resize)
-
-    canvas_preserving_scale =
-      ResizePlanning.resize_padding_scale(operation, shape, :canvas_preserving)
-
-    %{
-      context
-      | effective_padding_scale: scale,
-        canvas_preserving_padding_scale: canvas_preserving_scale
-    }
-  end
-
-  defp update_execution_context(_operation, %SourceShape{}, context), do: context
 end
