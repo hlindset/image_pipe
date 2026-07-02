@@ -1,0 +1,41 @@
+defmodule ImagePipe.Transform.ResolveDriverTest do
+  use ExUnit.Case, async: true
+
+  alias ImagePipe.Transform.{ResolveDriver, SourceShape, State}
+
+  defmodule Probe do
+    @behaviour ImagePipe.Resolver
+
+    @impl true
+    def init, do: nil
+
+    @impl true
+    def resolve(%SourceShape{} = shape, env, agent, :pure) do
+      Agent.update(agent, &[{:env_dims, env.state.source_dimensions} | &1])
+      {[], {:advance, %{shape | width: shape.width + 1}, agent}, agent}
+    end
+
+    def resolve(%SourceShape{} = shape, _env, agent, :opaque) do
+      then_fn = fn {w, h} ->
+        Agent.update(agent, &[{:acquired, w, h} | &1])
+        {%{shape | width: w, height: h}, agent}
+      end
+
+      {[], {:acquire, then_fn}, agent}
+    end
+  end
+
+  test "acquire uses injected dims; advance is pure; overlay feeds env from the shape" do
+    {:ok, img} = Image.new(10, 10)
+    agent = start_supervised!({Agent, fn -> [] end})
+    shape = SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
+
+    {:ok, %State{}} =
+      ResolveDriver.run([:pure, :opaque, :pure], shape, {Probe, agent}, %State{image: img},
+        acquire_dims: fn _ -> {77, 66} end
+      )
+
+    assert Agent.get(agent, &Enum.reverse/1) ==
+             [{:env_dims, {10, 10}}, {:acquired, 77, 66}, {:env_dims, {77, 66}}]
+  end
+end
