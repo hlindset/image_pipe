@@ -23,6 +23,15 @@ defmodule ImagePipe.Resolver do
   @callback resolve(SourceShape.t(), env(), strategy_state(), struct()) ::
               {[struct()], continuation(), strategy_state()}
 
+  @doc """
+  Behavioral version of this strategy's resolution algorithms. Enters
+  `ImagePipe.Cache.Key.plan_material/2` (hence the ETag material): bump it when
+  any resolution rule this strategy owns changes algorithm, so stale-but-
+  differently-resolved bytes cannot be revalidated through a stable ETag
+  (spec §7). Orthogonal to the key schema version.
+  """
+  @callback behavior_version() :: pos_integer()
+
   @spec resolve(spec(), shape :: term(), env(), struct()) :: {[struct()], continuation(), spec()}
   def resolve({module, strategy_state}, shape, env, op) do
     {ops, cont, next} = module.resolve(shape, env, strategy_state, op)

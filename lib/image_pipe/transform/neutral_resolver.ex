@@ -57,6 +57,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
   def init, do: nil
 
   @impl ImagePipe.Resolver
+  def behavior_version, do: 1
+
+  @impl ImagePipe.Resolver
   def resolve(%SourceShape{} = shape, env, nil, operation) do
     {ops, continuation} = do_resolve(operation, shape, env)
     {ops, continuation, nil}

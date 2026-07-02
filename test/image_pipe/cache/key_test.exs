@@ -216,6 +216,7 @@ defmodule ImagePipe.Cache.KeyTest do
                ]
              ],
              transform: [key_data_version: 1],
+             resolver: [strategy: :neutral, version: 1],
              detector: nil,
              output: [
                mode: :explicit,
@@ -1557,6 +1558,27 @@ defmodule ImagePipe.Cache.KeyTest do
 
       refute qs_key_for(qs_output(quality_search: ssim2)).hash ==
                qs_key_for(qs_output(quality_search: butter)).hash
+    end
+  end
+
+  describe "plan_material resolver tag" do
+    test "a nil-resolver plan tags the neutral strategy" do
+      {:ok, material} = Key.plan_material(plan(), [])
+
+      assert material[:resolver] == [
+               strategy: :neutral,
+               version: ImagePipe.Transform.NeutralResolver.behavior_version()
+             ]
+    end
+
+    test "a strategy-carrying plan tags the module and its behavioral version" do
+      plan = %{plan() | resolver: ImagePipe.Transform.NeutralResolver}
+      {:ok, material} = Key.plan_material(plan, [])
+
+      assert material[:resolver] == [
+               strategy: ImagePipe.Transform.NeutralResolver,
+               version: ImagePipe.Transform.NeutralResolver.behavior_version()
+             ]
     end
   end
 end
