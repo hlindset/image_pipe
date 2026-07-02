@@ -356,10 +356,12 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp plain_ops_advance([%ExtendCanvas{rule: rule}], %SourceShape{} = shape) do
     {live_w, live_h} = live_dims(shape)
 
-    case ExtendCanvas.resolved_canvas_dims(rule, live_w, live_h) do
-      {:ok, {w, h}} -> %{shape | width: w, height: h}
-      {:error, _reason} -> shape
-    end
+    # The planner can only construct a valid canvas rule, so `resolved_canvas_dims`
+    # cannot return `{:error, _}` here; match `{:ok, _}` only so an impossible
+    # malformed rule crashes loudly instead of silently leaving the shape
+    # unadvanced (a stale-dims geometry bug carried into the next op's lowering).
+    {:ok, {w, h}} = ExtendCanvas.resolved_canvas_dims(rule, live_w, live_h)
+    %{shape | width: w, height: h}
   end
 
   defp plain_ops_advance(_ops, %SourceShape{} = shape), do: shape
@@ -380,6 +382,10 @@ defmodule ImagePipe.Transform.NeutralResolver do
          advance(%{shape | width: w, height: h, frame: :display, pending_orientation: nil})}
 
       identity_or_none ->
+        # raw dims: shrink-on-load is always consumed by a resize before any
+        # display-frame op reaches here (parser invariant), so decode_shrink is
+        # nil; live_dims (used at the canvas row above) is the shrink-tolerant
+        # form.
         {w, h} = apply_op_geometry(ops, {shape.width, shape.height})
         pending = if identity_or_none == :identity, do: nil, else: shape.pending_orientation
         {ops, advance(%{shape | width: w, height: h, pending_orientation: pending})}

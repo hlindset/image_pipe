@@ -76,6 +76,12 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   # following op_start makes this the following op's own materialization (Rule B
   # standalone-before) — attributed when that op stops. Otherwise it is a flush
   # (Rule A old form) → emit a {:flush, dims} token here.
+  #
+  # This peek-ahead assumes a SINGLE pipeline per case: a mid-stream boundary
+  # flush immediately followed by the next pipeline's first op would otherwise
+  # be misclassified as that op's own Rule-B materialization, hiding a real
+  # reorder. `cases/0` is guarded below to fail loudly the day a case adds a
+  # second pipeline (Stage 2 SetFocus/TwicPics multi-pipeline plans).
   defp canonicalize(
          [{:materialize_start}, {:materialize_stop, dims, _res} | rest],
          [] = _stack,
@@ -134,6 +140,13 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       @kase kase
       @tag :resolved_plan_golden
       test "#{kase.name}: new pipeline reproduces old op/flush/dims" do
+        parsed_plan = ResolvedPlanCases.parse_plan!(@kase)
+
+        assert length(parsed_plan.pipelines) == 1,
+               "#{@kase.name}: canonicalize/1's peek-ahead heuristic assumes a single " <>
+                 "pipeline per case (a mid-stream boundary flush would be misclassified " <>
+                 "as the next pipeline's op materialization) — got #{length(parsed_plan.pipelines)} pipelines"
+
         recorded = ResolvedPlanCases.record!(@kase)
         expected = Enum.find(@expected, &(&1.name == @kase.name))
 
