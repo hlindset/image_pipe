@@ -196,7 +196,9 @@ Start metadata:
 - `:params` — the full operation struct (product-neutral, derived from the
   public request).
 
-Stop metadata: `:result` (`:ok` or `:error`).
+Stop metadata: `:result` (`:ok` or `:error`). A successful stop also carries
+`:dims` — the realized post-operation image dimensions `{width, height}` (an
+O(1) header read).
 
 ### Materialization barrier span (`[:transform, :materialize]`)
 
@@ -212,7 +214,10 @@ A flush also applies any deferred EXIF/user orientation before copying, so a
 materialize span can mark where the displayed frame changes, not only where
 pixels reach RAM.
 
-Stop metadata: `:result` (`:ok` or `:materialize_error`). A failed flush surfaces
+Stop metadata: `:result` (`:ok` or `:materialize_error`). A successful stop also
+carries `:dims` — the post-materialize image dimensions `{width, height}`, which
+surface the display-frame swap when the flush applied a pending quarter turn. A
+failed flush surfaces
 as a `:stop` carrying `result: :materialize_error` (the callers map it to a decode
 error → `415`); a raise inside the flush surfaces as a `[:transform, :materialize,
 :exception]` event.

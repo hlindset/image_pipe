@@ -33,11 +33,17 @@ defmodule ImagePipe.Transform.Materializer do
   def materialize(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
       case do_materialize(state) do
-        {:ok, new_state} -> {{:ok, new_state}, %{result: :ok}}
+        {:ok, new_state} -> {{:ok, new_state}, ok_metadata(new_state)}
         {:error, reason} -> {{:error, reason}, %{result: :materialize_error}}
       end
     end)
   end
+
+  # Successful stops also carry the realized post-materialize image dimensions
+  # (an O(1) header read) — non-sensitive, and they surface the display-frame
+  # swap when the materialization flushed a pending quarter turn.
+  defp ok_metadata(%State{image: image}),
+    do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
 
   # Delivery backstop delegates to the wrapped arity-1; it ignores opts (telemetry
   # metadata rides on the State). Do not add a second span here.
@@ -60,7 +66,7 @@ defmodule ImagePipe.Transform.Materializer do
   def materialize_without_orientation(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
       case copy_to_memory(state) do
-        {:ok, new_state} -> {{:ok, new_state}, %{result: :ok}}
+        {:ok, new_state} -> {{:ok, new_state}, ok_metadata(new_state)}
         {:error, reason} -> {{:error, reason}, %{result: :materialize_error}}
       end
     end)
@@ -95,8 +101,11 @@ defmodule ImagePipe.Transform.Materializer do
   def flush(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
       case OrientationFlush.flush(state) do
-        {:ok, new_state} -> {{:ok, new_state}, %{result: :ok}}
-        {:error, reason} -> {{:error, {:materialize_error, reason}}, %{result: :materialize_error}}
+        {:ok, new_state} ->
+          {{:ok, new_state}, ok_metadata(new_state)}
+
+        {:error, reason} ->
+          {{:error, {:materialize_error, reason}}, %{result: :materialize_error}}
       end
     end)
   end
