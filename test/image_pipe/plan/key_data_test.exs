@@ -38,6 +38,13 @@ defmodule ImagePipe.Plan.KeyDataTest do
     refute KeyData.data(op50) == KeyData.data(op60)
   end
 
+  test "directive key data hashes name and payload generically" do
+    {:ok, op} = Operation.directive(:set_focus, {:coord, {:px, 1}, {:px, 2}})
+
+    assert KeyData.data(op) ==
+             [op: :directive, name: :set_focus, payload: {:coord, {:px, 1}, {:px, 2}}]
+  end
+
   test "Resize key data includes max bounds and distinguishes them" do
     {:ok, bounded} =
       Operation.resize(:fit, :auto, :auto, max_width: 2000, max_area: 3_000_000)

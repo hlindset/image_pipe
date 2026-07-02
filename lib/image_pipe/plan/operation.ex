@@ -14,6 +14,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Gradient
@@ -24,7 +25,6 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Resize
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
-  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Plan.Operation.Sharpen
   alias ImagePipe.Plan.Operation.Trim
 
@@ -83,7 +83,7 @@ defmodule ImagePipe.Plan.Operation do
           Rotate.t()
           | Flip.t()
 
-  @type focus_operation :: SetFocus.t()
+  @type focus_operation :: Directive.t()
 
   @type effect_operation ::
           Bitonal.t()
@@ -308,20 +308,11 @@ defmodule ImagePipe.Plan.Operation do
     end
   end
 
-  @spec set_focus(term()) :: {:ok, SetFocus.t()} | {:error, error()}
-  def set_focus({:coord, x, y}) do
-    with {:ok, x} <- Measure.position(x),
-         {:ok, y} <- Measure.position(y) do
-      {:ok, %SetFocus{point: {:coord, x, y}}}
-    else
-      _ -> invalid(:set_focus, [{:coord, x, y}])
-    end
-  end
+  @spec directive(atom(), term()) :: {:ok, Directive.t()} | {:error, error()}
+  def directive(name, payload) when is_atom(name) and not is_nil(name),
+    do: {:ok, %Directive{name: name, payload: payload}}
 
-  def set_focus({:anchor, h, v}) when h in @x_anchors and v in @y_anchors,
-    do: {:ok, %SetFocus{point: {:anchor, h, v}}}
-
-  def set_focus(other), do: invalid(:set_focus, [other])
+  def directive(name, _payload), do: invalid(:directive, [name])
 
   @spec canvas(term(), term(), term(), keyword()) :: {:ok, Canvas.t()} | {:error, error()}
   def canvas(width, height, placement, opts \\ [])
@@ -550,14 +541,8 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
   def semantic?(%Bitonal{}), do: true
   def semantic?(%Gray{}), do: true
-  def semantic?(%SetFocus{point: point}), do: valid_set_focus_point?(point)
+  def semantic?(%Directive{name: name}) when is_atom(name), do: true
   def semantic?(_operation), do: false
-
-  defp valid_set_focus_point?({:coord, x, y}),
-    do: match?({:ok, _}, Measure.position(x)) and match?({:ok, _}, Measure.position(y))
-
-  defp valid_set_focus_point?({:anchor, h, v}) when h in @x_anchors and v in @y_anchors, do: true
-  defp valid_set_focus_point?(_point), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
 

@@ -41,6 +41,7 @@ defmodule ImagePipe.Plan do
       Operation.Contrast,
       Operation.CropGuided,
       Operation.CropRegion,
+      Operation.Directive,
       Operation.Duotone,
       Operation.Flip,
       Operation.Gradient,
@@ -51,7 +52,6 @@ defmodule ImagePipe.Plan do
       Operation.Rotate,
       Operation.Resize,
       Operation.Saturation,
-      Operation.SetFocus,
       Operation.Sharpen,
       Operation.Trim
     ]

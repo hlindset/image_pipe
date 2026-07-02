@@ -1405,17 +1405,17 @@ defmodule ImagePipe.Cache.KeyTest do
     end
 
     # The cache-key / ETag fast path (Key.plan_material -> KeyData.data per op) must
-    # handle the :carried guide and %SetFocus{} ops the TwicPics parser now emits.
+    # handle the :carried guide and %Directive{} ops the TwicPics parser now emits.
     # The default guide is :carried, so even a focus-less cover exercises it.
     test "plan_material handles a carried cover with no focus segment" do
       assert {:ok, _material} = Key.plan_material(twic_plan!([{"cover", "100x100"}]), [])
     end
 
-    test "plan_material keys the SetFocus operand in a coordinate-focus plan" do
+    test "plan_material keys the set_focus directive payload in a coordinate-focus plan" do
       assert {:ok, material} =
                Key.plan_material(twic_plan!([{"focus", "20x10"}, {"crop", "12x12"}]), [])
 
-      assert inspect(material) =~ "set_focus"
+      assert inspect(material) =~ "name: :set_focus"
     end
 
     test "distinct focus points produce distinct key material" do

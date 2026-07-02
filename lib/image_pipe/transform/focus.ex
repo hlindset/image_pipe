@@ -10,12 +10,16 @@ defmodule ImagePipe.Transform.Focus do
   # translate can transiently negate it (focus left/above the crop window); a
   # later canvas embed brings it back in range. Only `to_fp/1` clamps.
 
-  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
 
   @type ratio :: {:ratio, integer(), pos_integer()}
   @type point :: {ratio(), ratio()}
+
+  @type measure :: {:px, non_neg_integer()} | {:ratio, non_neg_integer(), pos_integer()}
+  @type operand ::
+          {:coord, measure(), measure()}
+          | {:anchor, :left | :center | :right, :top | :center | :bottom}
 
   @spec scale(State.t(), ratio(), ratio()) :: State.t()
   def scale(%State{focus: nil} = state, _sx, _sy), do: state
@@ -72,7 +76,7 @@ defmodule ImagePipe.Transform.Focus do
         }
 
   @doc """
-  Resolve a `SetFocus` operand into a stored carried point.
+  Resolve a `:set_focus` directive operand into a stored carried point.
 
   The operand (literal px, relative ratio, or anchor) is resolved against the
   live **display** frame, bare-pixel coordinates are rescaled by the
@@ -82,7 +86,7 @@ defmodule ImagePipe.Transform.Focus do
   like every other geometry value; the flush forward-maps it back). Negative
   coordinates never reach here (rejected by the parser's `Units`).
   """
-  @spec resolve(SetFocus.operand(), resolve_ctx(), PendingOrientation.t() | nil) :: point()
+  @spec resolve(operand(), resolve_ctx(), PendingOrientation.t() | nil) :: point()
   def resolve(operand, %{display: {dw, dh}, storage: {sw, sh}, decode_shrink: shrink}, po) do
     {sx, sy} = orient_shrink(shrink, po)
     x = resolve_axis(operand_x(operand), dw, sx)

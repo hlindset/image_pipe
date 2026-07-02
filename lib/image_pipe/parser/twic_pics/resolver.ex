@@ -8,7 +8,7 @@ defmodule ImagePipe.Parser.TwicPics.Resolver do
 
   @behaviour ImagePipe.Resolver
 
-  alias ImagePipe.Plan.Operation.SetFocus
+  alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.StateUpdate
@@ -22,7 +22,7 @@ defmodule ImagePipe.Parser.TwicPics.Resolver do
   def behavior_version, do: 1
 
   @impl ImagePipe.Resolver
-  def resolve(%SourceShape{} = shape, nil, %SetFocus{point: operand}) do
+  def resolve(%SourceShape{} = shape, nil, %Directive{name: :set_focus, payload: operand}) do
     {live_w, live_h} = SourceShape.live_dims(shape)
 
     display =

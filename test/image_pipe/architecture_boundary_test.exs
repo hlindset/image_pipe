@@ -72,11 +72,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Canvas,
     :CropGuided,
     :CropRegion,
+    :Directive,
     :Flip,
     :Padding,
     :Rotate,
-    :Resize,
-    :SetFocus
+    :Resize
   ]
   @concrete_transform_names [
     :Scale,
@@ -659,6 +659,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation.Contrast,
       ImagePipe.Plan.Operation.CropGuided,
       ImagePipe.Plan.Operation.CropRegion,
+      ImagePipe.Plan.Operation.Directive,
       ImagePipe.Plan.Operation.Duotone,
       ImagePipe.Plan.Operation.Flip,
       ImagePipe.Plan.Operation.Gradient,
@@ -669,7 +670,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation.Rotate,
       ImagePipe.Plan.Operation.Resize,
       ImagePipe.Plan.Operation.Saturation,
-      ImagePipe.Plan.Operation.SetFocus,
       ImagePipe.Plan.Operation.Sharpen,
       ImagePipe.Plan.Operation.Trim
     ])

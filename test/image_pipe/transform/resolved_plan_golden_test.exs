@@ -85,7 +85,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   # flush immediately followed by the next pipeline's first op would otherwise
   # be misclassified as that op's own Rule-B materialization, hiding a real
   # reorder. `cases/0` is guarded below to fail loudly the day a case adds a
-  # second pipeline (Stage 2 SetFocus/TwicPics multi-pipeline plans).
+  # second pipeline (Stage 2 Directive/TwicPics multi-pipeline plans).
   defp canonicalize(
          [{:materialize_start}, {:materialize_stop, dims, _res} | rest],
          [] = _stack,

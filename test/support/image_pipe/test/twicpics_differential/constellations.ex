@@ -163,10 +163,10 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       # On the 600×600 gradient_large source a px cover=300x100 target triggers a
       # clean 2× WebP shrink-on-load, so DecodePlanner plans shrink THROUGH the
       # inside=<ratio> Canvas (Canvas-only emission, processed BEFORE the resize —
-      # verified op order [Canvas, (SetFocus,) Resize]). These pin that the Stage-1
+      # verified op order [Canvas, (Directive,) Resize]). These pin that the Stage-1
       # canvas-under-shrink advance matches live TwicPics BEFORE the Stage-2
       # shape-derived focus row lands — the focus cases gate Task 1's shape-derived
-      # SetFocus row (a frame-incoherence double-divide would shift the focused crop
+      # set_focus directive row (a frame-incoherence double-divide would shift the focused crop
       # by the shrink factor, changing the gradient values the fixture pins). A
       # SMOOTH gradient source (not the sharp grid) encodes position (R∝x, G∝y) so
       # the asymmetric cover's cropped (vertical) axis reveals the focus point, the

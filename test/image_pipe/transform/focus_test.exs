@@ -39,7 +39,7 @@ defmodule ImagePipe.Transform.FocusTest do
     end
   end
 
-  describe "resolve/3 (SetFocus unit resolution)" do
+  describe "resolve/3 (set_focus directive unit resolution)" do
     # ctx/1: no orientation, no shrink (display == storage). ctx/2: + decode_shrink.
     defp ctx(dims), do: %{display: dims, storage: dims, decode_shrink: nil}
     defp ctx(dims, shrink), do: %{display: dims, storage: dims, decode_shrink: shrink}
@@ -177,7 +177,7 @@ defmodule ImagePipe.Transform.FocusTest do
     |> nearest_cell()
   end
 
-  describe "SetFocus executes through PlanExecutor" do
+  describe "set_focus directive executes through PlanExecutor" do
     test "focus=150x150/crop=12x12 steers to the focused cell via the full plan" do
       assert plan_cell([{"focus", "150x150"}, {"crop", "12x12"}]) == {1, 1}
     end

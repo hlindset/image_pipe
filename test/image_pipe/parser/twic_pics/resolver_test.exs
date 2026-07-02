@@ -3,7 +3,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
 
   alias ImagePipe.Parser.TwicPics.Resolver, as: TwicPicsResolver
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.SetFocus
+  alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.StateUpdate
   alias ImagePipe.Transform.SourceShape
@@ -12,7 +12,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
     shape =
       SourceShape.seed(%{width: 800, height: 600, pending_orientation: nil, decode_shrink: nil})
 
-    op = %SetFocus{point: {:coord, {:px, 200}, {:px, 150}}}
+    op = %Directive{name: :set_focus, payload: {:coord, {:px, 200}, {:px, 150}}}
 
     {[%StateUpdate{fields: %{focus: {x, y}}}], {:advance, ^shape, nil}} =
       TwicPicsResolver.resolve(shape, nil, op)
