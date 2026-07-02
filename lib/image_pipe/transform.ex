@@ -38,7 +38,13 @@ defmodule ImagePipe.Transform do
       Operation.Gradient,
       Operation.Trim,
       Operation.Flush,
-      Operation.StateUpdate
+      Operation.StateUpdate,
+      SourceShape,
+      NeutralResolver,
+      Lowering,
+      ResizePlanning,
+      Focus,
+      PendingOrientation
     ]
 
   alias ImagePipe.Plan

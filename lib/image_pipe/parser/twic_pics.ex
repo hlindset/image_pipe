@@ -6,7 +6,7 @@ defmodule ImagePipe.Parser.TwicPics do
   """
 
   use Boundary,
-    deps: [ImagePipe.Parser, ImagePipe.Plan],
+    deps: [ImagePipe.Parser, ImagePipe.Plan, ImagePipe.Resolver, ImagePipe.Transform],
     exports: []
 
   @behaviour ImagePipe.Parser

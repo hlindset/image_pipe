@@ -109,7 +109,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ])
 
     # The Parser behaviour boundary must not export any concrete adapter: the core
@@ -121,7 +123,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Parser,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ])
 
     assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])
@@ -135,21 +139,31 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(iiif, [])
 
-    assert_boundary_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
+    assert_boundary_deps(twicpics, [
+      ImagePipe.Parser,
+      ImagePipe.Plan,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
+    ])
+
     assert_boundary_exports(twicpics, [])
 
     assert_allowed_deps(parser, [
       ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ])
 
     assert_allowed_deps(imgproxy, [
       ImagePipe.Format,
       ImagePipe.Parser,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ])
 
     assert_allowed_deps(iiif, [
@@ -159,7 +173,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Renderer
     ])
 
-    assert_allowed_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
+    assert_allowed_deps(twicpics, [
+      ImagePipe.Parser,
+      ImagePipe.Plan,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
+    ])
   end
 
   test "request boundary declaration depends on generic facades only" do

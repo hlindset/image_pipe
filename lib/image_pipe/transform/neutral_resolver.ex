@@ -1,5 +1,14 @@
 defmodule ImagePipe.Transform.NeutralResolver do
-  @moduledoc false
+  @moduledoc """
+  The neutral default resolver strategy and the delegation target for carried
+  strategies.
+
+  Implements `ImagePipe.Resolver` with the product-neutral deferred-
+  orientation execution policy. A dialect-specific carried strategy (e.g. an
+  imgproxy or TwicPics resolver under `parser/*`) composes its own lowering
+  with this module's `display_frame_advance/2` and `plain_advance/2` to reuse
+  the neutral flush policy instead of re-deriving it.
+  """
 
   # Neutral geometry resolver: owns the deferred-orientation execution policy
   # (#146/#182/#185/#211) under the ImagePipe.Resolver contract. For each plan
@@ -292,16 +301,16 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # (streaming fast path preserved).
   defp do_resolve(%PlanPadding{} = operation, %SourceShape{} = shape, env),
     do:
-      resolve_display_frame_op(
+      display_frame_advance(
         Lowering.padding_executables(operation, padding_scale(operation, env.ctx)),
         shape
       )
 
   defp do_resolve(%PlanPixelate{} = operation, %SourceShape{} = shape, _env),
-    do: resolve_display_frame_op(Lowering.executable_operations(operation, shape), shape)
+    do: display_frame_advance(Lowering.executable_operations(operation, shape), shape)
 
   defp do_resolve(%PlanGradient{} = operation, %SourceShape{} = shape, _env),
-    do: resolve_display_frame_op(Lowering.executable_operations(operation, shape), shape)
+    do: display_frame_advance(Lowering.executable_operations(operation, shape), shape)
 
   # ── trim ──────────────────────────────────────────────────────────────────
   # imgproxy's one pre-orientation op: it trims the storage frame. Trim needs
@@ -329,7 +338,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # ── canvas ────────────────────────────────────────────────────────────────
   defp do_resolve(%Canvas{} = operation, %SourceShape{} = shape, env) do
     ops = Lowering.canvas_executables(operation, env.ctx.canvas_preserving_padding_scale || 1.0)
-    {ops, advance(plain_ops_advance(ops, shape))}
+    plain_advance(ops, shape)
   end
 
   # ── background / effects (no deferred-orientation handling) ──────────────
@@ -337,7 +346,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # pending intact, and never trigger a flush. Effects are dimension-neutral.
   defp do_resolve(operation, %SourceShape{} = shape, _env) do
     ops = Lowering.executable_operations(operation, shape)
-    {ops, advance(plain_ops_advance(ops, shape))}
+    plain_advance(ops, shape)
   end
 
   # The composition-scale policy for a padding op (imgproxy pd:/dpr coupling):
@@ -411,10 +420,16 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
   defp plain_ops_advance(_ops, %SourceShape{} = shape), do: shape
 
-  # Padding/pixelate/gradient share one shape: with a non-identity
-  # pending, flush first (display frame), else run plain. The ops are already
-  # lowered by the caller.
-  defp resolve_display_frame_op(ops, %SourceShape{} = shape) do
+  @doc """
+  Advance for an op that must decide in the DISPLAY frame (imgproxy order:
+  after rotateAndFlip): with a non-identity pending the flush fires first, an
+  identity pending clears without a flush (streaming fast path). Public so a
+  carried strategy can compose its own lowering (e.g. an effective padding
+  scale) with the neutral flush policy.
+  """
+  @spec display_frame_advance([struct()], SourceShape.t()) ::
+          {[struct()], ImagePipe.Resolver.continuation()}
+  def display_frame_advance(ops, %SourceShape{} = shape) do
     case pending_class(shape) do
       :pending ->
         po = shape.pending_orientation
@@ -434,6 +449,15 @@ defmodule ImagePipe.Transform.NeutralResolver do
         {ops, advance(%{shape | width: w, height: h, pending_orientation: pending})}
     end
   end
+
+  @doc """
+  Plain advance: run in the current frame with any pending intact, never flush;
+  canvas geometry advances the shape, everything else is dimension-neutral.
+  """
+  @spec plain_advance([struct()], SourceShape.t()) ::
+          {[struct()], ImagePipe.Resolver.continuation()}
+  def plain_advance(ops, %SourceShape{} = shape),
+    do: {ops, advance(plain_ops_advance(ops, shape))}
 
   defp apply_op_geometry([%Padding{top: top, right: right, bottom: bottom, left: left}], {w, h}),
     do: {w + left + right, h + top + bottom}
