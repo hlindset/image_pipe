@@ -78,4 +78,26 @@ defmodule ImagePipe.Transform.Materializer do
   # PlanExecutor); the :materialize_error SPAN metadata label is set in the wrapper
   # above only to drive Logger level escalation. Never re-wrap the error tuple here.
   defp do_materialize(%State{} = state), do: OrientationFlush.flush(state)
+
+  @doc """
+  Flushes pending orientation as an explicit operation.
+
+  Wraps `OrientationFlush.flush/1` in a `[:transform, :materialize]` telemetry
+  span and tags failures as `{:materialize_error, reason}` to preserve decode-error
+  → 415 response mapping. The operation is self-managing: it performs its own
+  random-access preparation and pixel copy, so callers should mark it
+  `requires_materialization?: false`.
+
+  Returns `{:ok, State.t()}` on success or `{:error, {:materialize_error, term()}}`
+  on failure.
+  """
+  @spec flush(State.t()) :: {:ok, State.t()} | {:error, {:materialize_error, term()}}
+  def flush(%State{telemetry_opts: telemetry_opts} = state) do
+    Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
+      case OrientationFlush.flush(state) do
+        {:ok, new_state} -> {{:ok, new_state}, %{result: :ok}}
+        {:error, reason} -> {{:error, {:materialize_error, reason}}, %{result: :materialize_error}}
+      end
+    end)
+  end
 end

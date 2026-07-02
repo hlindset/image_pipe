@@ -13,6 +13,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
+  alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Gradient
   alias ImagePipe.Transform.Operation.Gray
   alias ImagePipe.Transform.Operation.Monochrome
@@ -214,6 +215,12 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     end
   end
 
+  test "Flush op (quarter-turn user rotation) streams on sequential source" do
+    body = oriented_jpeg_body(1)
+    pending = %PendingOrientation{user_angle: 90}
+    assert_flush_op_sequential_matches_random(pending, body)
+  end
+
   defp alpha_png_body do
     {:ok, image} = Image.new(320, 180, color: [0, 255, 0, 255], bands: 4)
     Image.write!(image, :memory, suffix: ".png")
@@ -387,6 +394,30 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
          state = %State{image: image, pending_orientation: pending},
          {:ok, %State{} = state} <- Chain.execute(state, []),
+         {:ok, %State{} = state} <- Materializer.materialize(state) do
+      {:ok, state.image}
+    end
+  end
+
+  # Runs the Flush op (via a chain containing %Flush{}) on both a :random and
+  # a :sequential open of `body`. Asserts the output pixels match. This proves
+  # that the Flush operation itself is sequentially safe: it can be called
+  # on a sequential source without risking "Failed to memory copy image" errors.
+  defp assert_flush_op_sequential_matches_random(%PendingOrientation{} = pending, body) do
+    {:ok, random_image} = run_flush_op(pending, :random, body)
+    {:ok, sequential_image} = run_flush_op(pending, :sequential, body)
+
+    assert Image.width(sequential_image) == Image.width(random_image)
+    assert Image.height(sequential_image) == Image.height(random_image)
+    assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)
+    assert_sampled_pixels_match(sequential_image, random_image)
+  end
+
+  defp run_flush_op(%PendingOrientation{} = pending, access, body)
+       when access in [:random, :sequential] do
+    with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
+         state = %State{image: image, pending_orientation: pending},
+         {:ok, %State{} = state} <- Chain.execute(state, [%Flush{}]),
          {:ok, %State{} = state} <- Materializer.materialize(state) do
       {:ok, state.image}
     end

@@ -36,7 +36,9 @@ defmodule ImagePipe.Transform do
       Operation.Saturation,
       Operation.Colorize,
       Operation.Gradient,
-      Operation.Trim
+      Operation.Trim,
+      Operation.Flush,
+      Operation.StateUpdate
     ]
 
   alias ImagePipe.Plan
