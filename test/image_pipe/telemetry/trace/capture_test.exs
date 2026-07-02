@@ -311,6 +311,15 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert span.attributes[:error] == :body_too_large
   end
 
+  test "captures the realized :dims tuple from an operation span's stop metadata" do
+    Telemetry.span([], [:transform, :operation], %{operation: :resize, index: 0}, fn ->
+      {:ok, %{result: :ok, dims: {100, 80}}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.transform.operation"} = span}
+    assert span.attributes[:dims] == {100, 80}
+  end
+
   test "drops non-allowlisted stop-metadata keys" do
     Telemetry.span([], [:request], %{}, fn ->
       {:ok, %{result: :ok, source_url: "https://secret.example/signed?sig=abc"}}

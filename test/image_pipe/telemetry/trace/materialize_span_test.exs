@@ -116,8 +116,8 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   test "pipeline-boundary EXIF flush nests the materialize span under the Flush op span" do
     # No-geometry request on an orientation-6 source: the deferred EXIF orientation is
     # flushed at the pipeline boundary as an explicit Flush operation, so the
-    # materialize span nests under that operation span, which sits inside the
-    # execute span (where the boundary flush's materialize span used to sit).
+    # materialize span nests under that Flush operation's [:transform, :operation]
+    # span, which itself sits inside the execute span.
     conn = call("/_/f:jpeg/plain/images/oriented.jpg", exif6_opts())
     assert conn.status == 200
 
