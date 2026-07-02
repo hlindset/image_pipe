@@ -128,10 +128,12 @@ ImagePipe models this faithfully:
   consumer-resolved smart-gravity mode (not a carried point). `zoom`/`turn`/`flip`
   are focus consumers/transformers too but their TwicPics segments are deferred
   (above), so they compose with this model once they land.
-- **Stage/order (#434):** TwicPics plans resolve through the product-neutral
-  `ImagePipe.Transform.NeutralResolver` (no geometry-decision strategy of its
-  own yet); a TwicPics-specific resolution strategy, mirroring the imgproxy
-  strategy's shape, arrives with the Directive work (Stage 2b).
+- **Stage/order (#434, #438):** TwicPics plans carry the
+  `ImagePipe.Parser.TwicPics.Resolver` strategy (mirroring the imgproxy
+  strategy's shape). It owns positional focus resolution — the `:set_focus`
+  `Directive` resolves against the frame at its position and commits the
+  carried point — and hands every other operation to the product-neutral
+  `ImagePipe.Transform.NeutralResolver`.
 
 ## Output and encoding
 
