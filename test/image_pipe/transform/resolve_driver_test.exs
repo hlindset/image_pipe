@@ -10,6 +10,9 @@ defmodule ImagePipe.Transform.ResolveDriverTest do
     def init, do: nil
 
     @impl true
+    def behavior_version, do: 1
+
+    @impl true
     def resolve(%SourceShape{} = shape, _env, agent, :pure) do
       {[], {:advance, %{shape | width: shape.width + 1}, agent}, agent}
     end

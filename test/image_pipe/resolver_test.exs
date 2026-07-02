@@ -8,6 +8,8 @@ defmodule ImagePipe.ResolverTest do
     @impl true
     def init, do: %{n: 0}
     @impl true
+    def behavior_version, do: 1
+    @impl true
     def resolve(%SourceShape{} = shape, env, %{n: n}, op),
       do: {[{:emitted, op, env}], {:advance, shape, %{n: n + 1}}, %{n: n + 1}}
   end
