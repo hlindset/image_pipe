@@ -172,6 +172,39 @@ defmodule ImagePipe.Transform.Operation.Crop do
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :crop
 
+  @doc false
+  # Realized crop-box dimensions resolved purely against the given live image
+  # dims — the exact box `execute/2` crops to on an image of that size (the crop
+  # *position* is excluded; it never affects the box). Mirrors the dimension
+  # resolution inside `crop_coordinates`/`smart_crop` so the neutral resolver can
+  # advance the source shape without reading the live image.
+  @spec resolved_box_dims(t(), pos_integer(), pos_integer()) ::
+          {pos_integer(), pos_integer()}
+  def resolved_box_dims(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
+    crop_width = resolve_dimension(params.width, image_width, clamp?: true)
+    crop_height = resolve_dimension(params.height, image_height, clamp?: true)
+
+    {crop_width, crop_height} =
+      correct_aspect_ratio(
+        crop_width,
+        crop_height,
+        params.aspect_ratio,
+        params.enlarge,
+        image_width,
+        image_height
+      )
+
+    {max(1, min(image_width, crop_width)), max(1, min(image_height, crop_height))}
+  end
+
+  def resolved_box_dims(%__MODULE__{crop_from: %{}} = params, image_width, image_height) do
+    target_width = if params.width == :auto, do: image_width, else: params.width
+    target_height = if params.height == :auto, do: image_height, else: params.height
+
+    {resolve_dimension(target_width, image_width, clamp?: true),
+     resolve_dimension(target_height, image_height, clamp?: true)}
+  end
+
   @impl ImagePipe.Transform
   def requires_materialization?(%__MODULE__{gravity: :smart}), do: true
   def requires_materialization?(%__MODULE__{gravity: {:smart, _}}), do: true

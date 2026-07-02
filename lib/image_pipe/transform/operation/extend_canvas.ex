@@ -136,30 +136,45 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
     width == image_width(state) and height == image_height(state)
   end
 
-  defp canvas_dimensions(%State{} = state, {:dimensions, width, height}) do
-    width = canvas_dimension(image_width(state), width)
-    height = canvas_dimension(image_height(state), height)
+  defp canvas_dimensions(%State{} = state, rule),
+    do: resolved_canvas_dims(rule, image_width(state), image_height(state))
 
-    {:ok, {max(image_width(state), width), max(image_height(state), height)}}
+  @doc false
+  # Realized canvas dimensions for `rule` over an image of the given size — the
+  # exact canvas `execute/2` embeds into (never smaller than the image; an inert
+  # extend yields the image dims). Pure; used by the neutral resolver to advance
+  # the source shape without reading the live image.
+  @spec resolved_canvas_dims(canvas_rule(), pos_integer(), pos_integer()) ::
+          {:ok, {pos_integer(), pos_integer()}} | {:error, term()}
+  def resolved_canvas_dims({:dimensions, width, height}, image_width, image_height) do
+    width = canvas_dimension(image_width, width)
+    height = canvas_dimension(image_height, height)
+
+    {:ok, {max(image_width, width), max(image_height, height)}}
   end
 
-  defp canvas_dimensions(%State{} = state, {:aspect_ratio, {ratio_width, ratio_height}})
-       when is_number(ratio_width) and is_number(ratio_height) and ratio_width > 0 and
-              ratio_height > 0 do
+  def resolved_canvas_dims(
+        {:aspect_ratio, {ratio_width, ratio_height}},
+        image_width,
+        image_height
+      )
+      when is_number(ratio_width) and is_number(ratio_height) and ratio_width > 0 and
+             ratio_height > 0 do
     target_ratio = ratio_width / ratio_height
-    source_ratio = image_width(state) / image_height(state)
+    source_ratio = image_width / image_height
 
     {width, height} =
       if source_ratio > target_ratio do
-        {image_width(state), round(image_width(state) / target_ratio)}
+        {image_width, round(image_width / target_ratio)}
       else
-        {round(image_height(state) * target_ratio), image_height(state)}
+        {round(image_height * target_ratio), image_height}
       end
 
-    {:ok, {max(image_width(state), width), max(image_height(state), height)}}
+    {:ok, {max(image_width, width), max(image_height, height)}}
   end
 
-  defp canvas_dimensions(_state, rule), do: {:error, {:invalid_canvas_rule, rule}}
+  def resolved_canvas_dims(rule, _image_width, _image_height),
+    do: {:error, {:invalid_canvas_rule, rule}}
 
   # Dialyzer can't see through Vix's generated Operation typings (embed).
   @dialyzer {:no_fail_call, embed_image: 4}
