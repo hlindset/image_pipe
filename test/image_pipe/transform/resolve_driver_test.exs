@@ -13,21 +13,21 @@ defmodule ImagePipe.Transform.ResolveDriverTest do
     def behavior_version, do: 1
 
     @impl true
-    def resolve(%SourceShape{} = shape, _env, agent, :pure) do
-      {[], {:advance, %{shape | width: shape.width + 1}, agent}, agent}
+    def resolve(%SourceShape{} = shape, agent, :pure) do
+      {[], {:advance, %{shape | width: shape.width + 1}, agent}}
     end
 
-    def resolve(%SourceShape{} = shape, _env, agent, :opaque) do
+    def resolve(%SourceShape{} = shape, agent, :opaque) do
       then_fn = fn {w, h} ->
         Agent.update(agent, &[{:acquired, w, h} | &1])
         {%{shape | width: w, height: h}, agent}
       end
 
-      {[], {:acquire, then_fn}, agent}
+      {[], {:acquire, then_fn}}
     end
   end
 
-  test "acquire uses injected dims; advance is pure; overlay feeds env from the shape" do
+  test "acquire uses injected dims; advance is pure; overlay feeds State from the shape" do
     {:ok, img} = Image.new(10, 10)
     agent = start_supervised!({Agent, fn -> [] end})
 

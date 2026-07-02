@@ -74,15 +74,14 @@ defmodule ImagePipe.Transform.NeutralResolver do
   def behavior_version, do: 1
 
   @impl ImagePipe.Resolver
-  def resolve(%SourceShape{} = shape, _env, nil, operation) do
-    {ops, continuation} = do_resolve(operation, shape, nil)
-    {ops, continuation, nil}
+  def resolve(%SourceShape{} = shape, nil, operation) do
+    do_resolve(operation, shape)
   end
 
   # ── rotate / flip folds ───────────────────────────────────────────────────
   # Right-angle, non-mirrored rotation defers into the pending orientation
   # (lossless vips_rot at the flush, imgproxy parity, #211 seam avoidance).
-  defp do_resolve(%PlanRotate{angle: angle, mirror: false}, %SourceShape{} = shape, _env)
+  defp do_resolve(%PlanRotate{angle: angle, mirror: false}, %SourceShape{} = shape)
        when angle in [0, 90, 180, 270] do
     po = shape.pending_orientation || %PendingOrientation{}
     {[], advance(%{shape | pending_orientation: PendingOrientation.fold_rotate(po, angle)})}
@@ -92,7 +91,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # rotate lands the rotation in the display frame (EXIF auto-orient -> then
   # user rotation). decode_shrink stays untouched (nothing clears it at a
   # rotate; no parser places a shrink consumer after rotation).
-  defp do_resolve(%PlanRotate{} = operation, %SourceShape{} = shape, _env) do
+  defp do_resolve(%PlanRotate{} = operation, %SourceShape{} = shape) do
     ops = Lowering.executable_operations(operation, shape)
 
     then_fn = fn {w, h} ->
@@ -105,7 +104,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
     end
   end
 
-  defp do_resolve(%PlanFlip{axis: axis}, %SourceShape{} = shape, _env) do
+  defp do_resolve(%PlanFlip{axis: axis}, %SourceShape{} = shape) do
     po = shape.pending_orientation || %PendingOrientation{}
     {[], advance(%{shape | pending_orientation: PendingOrientation.fold_flip(po, axis)})}
   end
@@ -114,7 +113,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # Positional focus: resolve the operand against the live frame at this chain
   # position and commit the carried point through an explicit state update. No
   # pixel work, no flush.
-  defp do_resolve(%SetFocus{point: operand}, %SourceShape{} = shape, _env) do
+  defp do_resolve(%SetFocus{point: operand}, %SourceShape{} = shape) do
     {live_w, live_h} = SourceShape.live_dims(shape)
 
     display =
@@ -136,7 +135,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # fired (the flush does not touch source_dimensions), else the live
   # post-flush display dims.
   # The crop clears the source frame (#180): dims = crop box, decode_shrink nil.
-  defp do_resolve(%CropRegion{} = operation, %SourceShape{} = shape, _env) do
+  defp do_resolve(%CropRegion{} = operation, %SourceShape{} = shape) do
     case pending_class(shape) do
       :pending ->
         po = shape.pending_orientation
@@ -186,7 +185,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   end
 
   # ── gravity crop ──────────────────────────────────────────────────────────
-  defp do_resolve(%CropGuided{} = operation, %SourceShape{} = shape, _env) do
+  defp do_resolve(%CropGuided{} = operation, %SourceShape{} = shape) do
     pending_class = pending_class(shape)
     materializing? = materializing_gravity?(operation.guide)
 
@@ -266,7 +265,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # result-crop is compensated (see ResizePlanning.cover_resize_and_crop_
   # display_frame); every other branch swaps the resize request and compensates
   # any trailing crop like a gravity crop.
-  defp do_resolve(%PlanResize{} = operation, %SourceShape{} = shape, _env) do
+  defp do_resolve(%PlanResize{} = operation, %SourceShape{} = shape) do
     case pending_class(shape) do
       :pending ->
         po = shape.pending_orientation
@@ -304,17 +303,17 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # frame; with an orientation still pending they flush first so the op decides
   # in the display frame. An identity pending is cleared without a flush
   # (streaming fast path preserved).
-  defp do_resolve(%PlanPadding{} = operation, %SourceShape{} = shape, _env),
+  defp do_resolve(%PlanPadding{} = operation, %SourceShape{} = shape),
     do:
       display_frame_advance(
         Lowering.padding_executables(operation, padding_scale(operation)),
         shape
       )
 
-  defp do_resolve(%PlanPixelate{} = operation, %SourceShape{} = shape, _env),
+  defp do_resolve(%PlanPixelate{} = operation, %SourceShape{} = shape),
     do: display_frame_advance(Lowering.executable_operations(operation, shape), shape)
 
-  defp do_resolve(%PlanGradient{} = operation, %SourceShape{} = shape, _env),
+  defp do_resolve(%PlanGradient{} = operation, %SourceShape{} = shape),
     do: display_frame_advance(Lowering.executable_operations(operation, shape), shape)
 
   # ── trim ──────────────────────────────────────────────────────────────────
@@ -324,7 +323,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # An identity pending clears on the shape here (the materialize is trim's
   # flush site, with no pixel work). decode_shrink: nil is a never-shrank
   # reaffirmation — the decode planner returns 1.0 for trim chains.
-  defp do_resolve(%PlanTrim{} = operation, %SourceShape{} = shape, _env) do
+  defp do_resolve(%PlanTrim{} = operation, %SourceShape{} = shape) do
     ops = Lowering.executable_operations(operation, shape)
 
     pending =
@@ -341,7 +340,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   end
 
   # ── canvas ────────────────────────────────────────────────────────────────
-  defp do_resolve(%Canvas{} = operation, %SourceShape{} = shape, _env) do
+  defp do_resolve(%Canvas{} = operation, %SourceShape{} = shape) do
     ops = Lowering.canvas_executables(operation, 1.0)
     plain_advance(ops, shape)
   end
@@ -349,7 +348,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # ── background / effects (no deferred-orientation handling) ──────────────
   # These run plain, in the storage frame, with any
   # pending intact, and never trigger a flush. Effects are dimension-neutral.
-  defp do_resolve(operation, %SourceShape{} = shape, _env) do
+  defp do_resolve(operation, %SourceShape{} = shape) do
     ops = Lowering.executable_operations(operation, shape)
     plain_advance(ops, shape)
   end

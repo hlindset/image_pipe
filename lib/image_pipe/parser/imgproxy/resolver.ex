@@ -34,7 +34,7 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
   def behavior_version, do: 1
 
   @impl ImagePipe.Resolver
-  def resolve(%SourceShape{} = shape, env, _carry, %PlanResize{} = operation) do
+  def resolve(%SourceShape{} = shape, _carry, %PlanResize{} = operation) do
     branch = resize_branch(operation, shape)
 
     carry = %{
@@ -42,31 +42,31 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
       canvas_preserving_padding_scale: padding_scale(operation, shape, branch, :canvas_preserving)
     }
 
-    delegate(%PlanResize{operation | mode: branch}, shape, env, carry)
+    delegate(%PlanResize{operation | mode: branch}, shape, carry)
   end
 
-  def resolve(%SourceShape{} = shape, _env, carry, %PlanPadding{} = operation) do
+  def resolve(%SourceShape{} = shape, carry, %PlanPadding{} = operation) do
     ops = Lowering.padding_executables(operation, padding_scale_for(operation, carry))
     {ops, continuation} = NeutralResolver.display_frame_advance(ops, shape)
-    {ops, rewrap(continuation, carry), carry}
+    {ops, rewrap(continuation, carry)}
   end
 
-  def resolve(%SourceShape{} = shape, _env, carry, %Canvas{} = operation) do
+  def resolve(%SourceShape{} = shape, carry, %Canvas{} = operation) do
     ops = Lowering.canvas_executables(operation, carry.canvas_preserving_padding_scale || 1.0)
     {ops, continuation} = NeutralResolver.plain_advance(ops, shape)
-    {ops, rewrap(continuation, carry), carry}
+    {ops, rewrap(continuation, carry)}
   end
 
-  def resolve(%SourceShape{} = shape, env, carry, operation),
-    do: delegate(operation, shape, env, carry)
+  def resolve(%SourceShape{} = shape, carry, operation),
+    do: delegate(operation, shape, carry)
 
   # ── delegation ────────────────────────────────────────────────────────────
   # The neutral resolver threads nil strategy state; re-wrap the continuation
   # so the imgproxy carry survives the advance (including through :acquire —
   # a trim between resize and padding must not lose the stashed DprScale).
-  defp delegate(operation, shape, env, carry) do
-    {ops, continuation, nil} = NeutralResolver.resolve(shape, env, nil, operation)
-    {ops, rewrap(continuation, carry), carry}
+  defp delegate(operation, shape, carry) do
+    {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
+    {ops, rewrap(continuation, carry)}
   end
 
   defp rewrap({:advance, %SourceShape{} = shape, nil}, carry), do: {:advance, shape, carry}

@@ -18,8 +18,9 @@ defmodule ImagePipe.Transform.ResolveDriver do
   # scattered State mutations whenever the shape advance is correct.
   #
   # The strategy's own per-pipeline state (e.g. the imgproxy resolver's stashed
-  # padding scales) is threaded through `spec` — the driver passes an opaque
-  # `%{}` as `env` and never reads or computes strategy-specific state itself.
+  # padding scales) is threaded through `spec`, carried forward via the
+  # continuation the strategy returns — the driver never reads or computes
+  # strategy-specific state itself.
 
   alias ImagePipe.Resolver
   alias ImagePipe.Transform.Chain
@@ -39,7 +40,7 @@ defmodule ImagePipe.Transform.ResolveDriver do
       {:ok, shape, spec, state} = acc
       state = overlay(state, shape)
 
-      {ops, continuation, spec} = Resolver.resolve(spec, shape, %{}, operation)
+      {ops, continuation} = Resolver.resolve(spec, shape, operation)
 
       case chain.(state, ops, opts) do
         {:ok, %State{} = state} ->

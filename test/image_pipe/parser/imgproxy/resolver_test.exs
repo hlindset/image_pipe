@@ -12,26 +12,30 @@ defmodule ImagePipe.Parser.Imgproxy.ResolverTest do
   end
 
   defp resolve(shape, carry, op) do
-    ImgproxyResolver.resolve(shape, %{}, carry, op)
+    ImgproxyResolver.resolve(shape, carry, op)
   end
+
+  defp carry_of({:advance, _shape, carry}), do: carry
+  defp carry_of({:acquire, then_fn}), do: then_fn |> then(& &1.({0, 0})) |> elem(1)
 
   test "auto resize buckets landscape source x landscape target to cover (prepare.go:88-97)" do
     {:ok, op} = Operation.resize(:auto, {:px, 300}, {:px, 200})
 
-    {[%Resize{mode: :fill} | _], _cont, _carry} =
+    {[%Resize{mode: :fill} | _], _cont} =
       resolve(shape(800, 600), ImgproxyResolver.init(), op)
   end
 
   test "auto resize buckets landscape source x portrait target to fit" do
     {:ok, op} = Operation.resize(:auto, {:px, 200}, {:px, 300})
 
-    {[%Resize{mode: :fit} | _], _cont, _carry} =
+    {[%Resize{mode: :fit} | _], _cont} =
       resolve(shape(800, 600), ImgproxyResolver.init(), op)
   end
 
   test "a resize stashes the padding scales; a later padding consumes them (#237)" do
     {:ok, resize} = Operation.resize(:fit, {:px, 100}, {:px, 100}, dpr: 2)
-    {_ops, _cont, carry} = resolve(shape(800, 600), ImgproxyResolver.init(), resize)
+    {_ops, cont} = resolve(shape(800, 600), ImgproxyResolver.init(), resize)
+    carry = carry_of(cont)
 
     assert %{effective_padding_scale: scale} = carry
     assert is_number(scale)
@@ -41,13 +45,13 @@ defmodule ImagePipe.Parser.Imgproxy.ResolverTest do
         pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
       )
 
-    {[%Padding{top: top} | _], _cont, _carry} = resolve(shape(100, 75), carry, padding)
+    {[%Padding{top: top} | _], _cont} = resolve(shape(100, 75), carry, padding)
     assert top == round(10 * scale)
   end
 
   test "a geometry-less dpr caps the padding scale to 1.0 (#237)" do
     {:ok, resize} = Operation.resize(:fit, :auto, :auto, dpr: 2)
-    {_ops, _cont, carry} = resolve(shape(800, 600), ImgproxyResolver.init(), resize)
-    assert carry.effective_padding_scale == 1.0
+    {_ops, cont} = resolve(shape(800, 600), ImgproxyResolver.init(), resize)
+    assert carry_of(cont).effective_padding_scale == 1.0
   end
 end
