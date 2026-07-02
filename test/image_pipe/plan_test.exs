@@ -159,6 +159,18 @@ defmodule ImagePipe.PlanTest do
     assert {:error, {:invalid_output_plan, _}} = Plan.validate_shape(%{plan | output: unknown})
   end
 
+  test "validate_shape rejects a non-module resolver" do
+    plan = %{plan() | resolver: "imgproxy"}
+    assert {:error, {:invalid_resolver_plan, "imgproxy"}} = Plan.validate_shape(plan)
+  end
+
+  test "validate_shape accepts a nil and a module resolver" do
+    assert {:ok, _} = Plan.validate_shape(plan())
+
+    assert {:ok, _} =
+             Plan.validate_shape(%{plan() | resolver: ImagePipe.Transform.NeutralResolver})
+  end
+
   describe "operation_names/1" do
     test "returns stable operation-name atoms in order across pipelines" do
       {:ok, resize} = Operation.resize(:fit, {:px, 100}, :auto, enlargement: :deny)

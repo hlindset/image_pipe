@@ -38,28 +38,34 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Resize{width: {:ratio, 1, 2}} = b
   end
 
-  test "focus anchor emits a positional SetFocus and a carried cover (#321)" do
+  test "focus anchor emits a positional set_focus directive and a carried cover (#321)" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, cover]}]}} =
              build([{"focus", "top"}, {"cover", "100x100"}])
 
-    assert %Operation.SetFocus{point: {:anchor, :center, :top}} = set_focus
+    assert %Operation.Directive{name: :set_focus, payload: {:anchor, :center, :top}} = set_focus
     assert %Operation.Resize{mode: :cover, guide: :carried} = cover
   end
 
-  test "relative-unit coordinate focus emits SetFocus + carried cover (#321)" do
+  test "relative-unit coordinate focus emits set_focus directive + carried cover (#321)" do
     # focus=25px75p splits on x -> ["25p","75p"] -> x=25% (1/4), y=75% (3/4).
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, cover]}]}} =
              build([{"focus", "25px75p"}, {"cover", "100x100"}])
 
-    assert %Operation.SetFocus{point: {:coord, {:ratio, 1, 4}, {:ratio, 3, 4}}} = set_focus
+    assert %Operation.Directive{
+             name: :set_focus,
+             payload: {:coord, {:ratio, 1, 4}, {:ratio, 3, 4}}
+           } = set_focus
+
     assert %Operation.Resize{mode: :cover, guide: :carried} = cover
   end
 
-  test "bare-pixel coordinate focus emits SetFocus + carried cover (#321)" do
+  test "bare-pixel coordinate focus emits set_focus directive + carried cover (#321)" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, cover]}]}} =
              build([{"focus", "20x10"}, {"cover", "100x100"}])
 
-    assert %Operation.SetFocus{point: {:coord, {:px, 20}, {:px, 10}}} = set_focus
+    assert %Operation.Directive{name: :set_focus, payload: {:coord, {:px, 20}, {:px, 10}}} =
+             set_focus
+
     assert %Operation.Resize{mode: :cover, guide: :carried} = cover
   end
 
@@ -67,23 +73,30 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, _cover]}]}} =
              build([{"focus", "100x50p"}, {"cover", "100x100"}])
 
-    assert %Operation.SetFocus{point: {:coord, {:px, 100}, {:ratio, 1, 2}}} = set_focus
+    assert %Operation.Directive{name: :set_focus, payload: {:coord, {:px, 100}, {:ratio, 1, 2}}} =
+             set_focus
   end
 
   test "relative focus > 1 is clamped at execution, not rejected at the parser (#321)" do
     # focus=150px150p -> both 150% (ratio 3/2). The parser no longer rejects it;
-    # it emits a SetFocus that clamps to the edge at execution.
+    # it emits a set_focus directive that clamps to the edge at execution.
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, _cover]}]}} =
              build([{"focus", "150px150p"}, {"cover", "100x100"}])
 
-    assert %Operation.SetFocus{point: {:coord, {:ratio, 3, 2}, {:ratio, 3, 2}}} = set_focus
+    assert %Operation.Directive{
+             name: :set_focus,
+             payload: {:coord, {:ratio, 3, 2}, {:ratio, 3, 2}}
+           } = set_focus
   end
 
-  test "an edge focal ratio of exactly 1 (100p) emits SetFocus (#321)" do
+  test "an edge focal ratio of exactly 1 (100p) emits a set_focus directive (#321)" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, _cover]}]}} =
              build([{"focus", "100px0p"}, {"cover", "100x100"}])
 
-    assert %Operation.SetFocus{point: {:coord, {:ratio, 1, 1}, {:ratio, 0, 1}}} = set_focus
+    assert %Operation.Directive{
+             name: :set_focus,
+             payload: {:coord, {:ratio, 1, 1}, {:ratio, 0, 1}}
+           } = set_focus
   end
 
   test "focus=auto -> face-assist smart guide on the next cover" do
@@ -104,13 +117,15 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert {:error, _} = build([{"focus", "-50x-50"}])
   end
 
-  test "focus=center emits a centre SetFocus (live TwicPics accepts it)" do
+  test "focus=center emits a centre set_focus directive (live TwicPics accepts it)" do
     # Live TwicPics accepts focus=center (resolves to the centre point), even though
-    # the documented anchor list omits it. We emit a centre-anchor SetFocus.
+    # the documented anchor list omits it. We emit a centre-anchor set_focus directive.
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, cover]}]}} =
              build([{"focus", "center"}, {"cover", "100x100"}])
 
-    assert %Operation.SetFocus{point: {:anchor, :center, :center}} = set_focus
+    assert %Operation.Directive{name: :set_focus, payload: {:anchor, :center, :center}} =
+             set_focus
+
     assert %Operation.Resize{mode: :cover, guide: :carried} = cover
   end
 
@@ -156,7 +171,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [set_focus, guided]}]}} =
              build([{"focus", "top"}, {"crop", "100x100"}])
 
-    assert %Operation.SetFocus{point: {:anchor, :center, :top}} = set_focus
+    assert %Operation.Directive{name: :set_focus, payload: {:anchor, :center, :top}} = set_focus
     assert %Operation.CropGuided{guide: :carried} = guided
 
     # crop@coords emits a CropRegion; the running guide stays :carried (the focus

@@ -16,6 +16,7 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Gradient
@@ -25,7 +26,6 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Resize
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
-  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Plan.Operation.Sharpen
   alias ImagePipe.Plan.Operation.Trim
 
@@ -142,10 +142,13 @@ defmodule ImagePipe.Plan.KeyData do
   def data(%Rotate{angle: angle, mirror: mirror}), do: [op: :rotate, angle: angle, mirror: mirror]
   def data(%Flip{axis: axis}), do: [op: :flip, axis: axis]
 
-  # SetFocus carries no pixel op itself, but it selects the focal point the next
-  # cover/crop consumes — so it changes the stored bytes and must contribute to
-  # the cache key (and, via the same material, the ETag).
-  def data(%SetFocus{point: point}), do: [op: :set_focus, point: set_focus_point_data(point)]
+  # A directive carries no pixel op itself, but the strategy decision it commits
+  # (e.g. the focal point the next cover/crop consumes) changes the stored
+  # bytes — so it contributes to the cache key (and, via the same material, the
+  # ETag). Hashed generically; payload canonicality is a parser contract.
+  def data(%Directive{name: name, payload: payload}),
+    do: [op: :directive, name: name, payload: payload]
+
   def data(%Blur{sigma: sigma}), do: [op: :blur, sigma: sigma]
   def data(%Sharpen{sigma: sigma}), do: [op: :sharpen, sigma: sigma]
   def data(%Pixelate{size: size}), do: [op: :pixelate, size: size]
@@ -224,9 +227,6 @@ defmodule ImagePipe.Plan.KeyData do
 
   defp trim_background_data(:auto), do: :auto
   defp trim_background_data(%Color{} = color), do: Color.key_data(color)
-
-  defp set_focus_point_data({:coord, x, y}), do: [type: :coord, x: data(x), y: data(y)]
-  defp set_focus_point_data({:anchor, h, v}), do: [type: :anchor, x: h, y: v]
 
   defp guide_data(:center), do: :center
   defp guide_data(:carried), do: :carried

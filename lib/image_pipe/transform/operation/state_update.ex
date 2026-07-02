@@ -3,9 +3,9 @@ defmodule ImagePipe.Transform.Operation.StateUpdate do
   Executable state update operation that merges non-image fields into State.
 
   This operation provides a neutral channel for resolvers and other runtime
-  logic to commit updates to State fields (such as `:focus`) without modifying
-  the image itself. The image is untouched; only the specified fields are
-  merged into the state struct.
+  logic to commit updates to State fields (such as `:carried_point`) without
+  modifying the image itself. The image is untouched; only the specified fields
+  are merged into the state struct.
 
   Useful for carrying forward resolver-computed state changes alongside
   the image transformation chain.

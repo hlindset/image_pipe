@@ -1,6 +1,6 @@
 # Design: an explicit Resolve stage over a `SourceShape` virtual buffer
 
-**Status:** Design / spec — reviewed (three-lens parallel review applied; §4/§9 revised 2026-07-02 from the Stage-1 plan's four-lens review), approved for planning. *Not* an implementation plan.
+**Status:** Design / spec — reviewed (three-lens parallel review applied; §4/§9 revised 2026-07-02 from the Stage-1 plan's four-lens review; §4.2/§4.3/§4.4/§5.1/§7/§9 revised 2026-07-02 by the Stage-2 design pass, validating against the post-[#439](https://github.com/hlindset/image_pipe/pull/439) code — Stage 1 has landed), approved for planning. *Not* an implementation plan.
 **Date:** 2026-07-01
 **Input:** [`2026-07-01-resolve-stage-virtual-buffer-exploration.md`](2026-07-01-resolve-stage-virtual-buffer-exploration.md)
 (the banked exploration; this document is the real spec derived from it).
@@ -84,8 +84,8 @@ against imgproxy's own source.
 - Not a perf project. libvips dimension reads are already lazy; the prize is
   decoupling and determinism, not avoiding compute.
 - **Retiring the focus read-back is not in scope for the shipped design.** It is
-  the one payoff gated on `planned == realized` and is deferred to the optional
-  B-promotion (§4.5, §9).
+  deferred to Stage 3, the dedicated (non-optional) carried-point stage — the
+  staged continuation (§4.4, §9).
 
 ## 3. Current state, validated
 
@@ -152,15 +152,21 @@ the whole idea; today's code fuses them.
 ### 4.2 The `Resolver` behaviour (Seam 1)
 
 A neutral **behaviour + dispatch facade**, mirroring `ImagePipe.Renderer`. The
-Plan carries the chosen strategy module (selected by the parser); the driver calls
-the neutral facade `Resolver.resolve(spec, shape, env, op)`, which
-performs the dynamic `spec_module.resolve(...)` — the dispatch is quarantined in
-the facade, never in `transform` code (the dependency inversion is detailed in
-§5.1). `env` is an opaque, driver-supplied **per-op channel**, rebuilt every op
-and never threaded: everything situational a strategy needs beyond the shape and
-its own carry. Until `Lowering`/`ResizePlanning` are re-signatured to shape-based
-inputs (a Stage-2 task, §9) it carries the lowering context; `strategy_state`
-stays the strategy's own threaded memory, and the two must not be conflated.
+Plan carries the chosen strategy module — Stage 2 adds
+`Plan.resolver :: module() | nil` (parser-set; `nil` = the neutral resolver),
+mirroring `render:` — and the driver calls the neutral facade
+`Resolver.resolve(spec, shape, op)`, which performs the dynamic
+`spec_module.resolve(...)`; the dispatch is quarantined in the facade, never in
+`transform` code (the dependency inversion is detailed in §5.1). The Stage-1
+transitional signature carried an `env` per-op channel (the lowering context)
+and returned `strategy_state` both inside the continuation and as a trailing
+tuple element; Stage 2 deletes both. Every `env.state` read is shape-derivable
+once `Lowering`/`ResizePlanning` are re-signatured to shape-based inputs
+(`live_dims/1` reconstructs the decoded frame *exactly* from the shape's
+realized shrink factors — original ÷ decoded round-trips), the cross-op `ctx`
+retires into the imgproxy strategy carry (§4.4), and the trailing
+`strategy_state` was redundant — the continuation is its only live channel (the
+Stage-1 driver already discards the trailing element).
 
 ```elixir
 @type continuation ::
@@ -169,8 +175,9 @@ stays the strategy's own threaded memory, and the two must not be conflated.
                         {SourceShape.t(), strategy_state :: term()})}
 
 @callback init() :: strategy_state :: term()
-@callback resolve(SourceShape.t(), env :: term(), strategy_state :: term(), Plan.Operation.t()) ::
-            {[executable_op :: struct()], continuation(), strategy_state :: term()}
+@callback behavior_version() :: pos_integer()
+@callback resolve(SourceShape.t(), strategy_state :: term(), Plan.Operation.t()) ::
+            {[executable_op :: struct()], continuation()}
 ```
 
 Two continuation variants, no more:
@@ -186,9 +193,8 @@ Two continuation variants, no more:
 `then_fn` is **constructed and returned by `resolve/3` itself** — a closure that
 captures the pre-op `{shape, strategy_state}` plus the resolver's own decisions
 (whether it emitted a `Flush`, hence the result frame; whether pending survives;
-whether `decode_shrink` resets; how the strategy carry advances — e.g. TwicPics
-focus scaling by realized/pre dims), parameterized on the dims the driver will
-read. The resolver builds it because the resolver is the only thing that knows how
+whether `decode_shrink` resets; how the strategy carry advances), parameterized
+on the dims the driver will read. The resolver builds it because the resolver is the only thing that knows how
 to interpret the raw ints; the driver only supplies them. Because tests assert
 `then_fn`'s *output* shape (data), not its internals, injection stays pure (§4.5,
 §8). A declarative descriptor struct is a possible alternative if the continuation
@@ -197,29 +203,40 @@ is not adopted over it here.
 
 **`strategy_state` advances at post-op time alongside the shape.** For an
 `:acquire` op the `then_fn` returns *both* shape and state, so a strategy whose
-carry depends on realized dims (TwicPics focus, §4.4/§4.5) updates at the same
-moment the shape does. An `:acquire` `then_fn` that doesn't transform the carry
-threads `strategy_state` through unchanged — so a `trim` between an imgproxy
-resize and padding cannot lose the stashed DprScale (covered by a golden case,
-§8).
+carry depends on realized dims (the deferred Stage-3 focus carry, §4.4) updates
+at the same moment the shape does. An `:acquire` `then_fn` that doesn't
+transform the carry threads `strategy_state` through unchanged — so a `trim`
+between an imgproxy resize and padding cannot lose the stashed DprScale
+(covered by a golden case, §8).
 
-Roles:
+Roles — **inventory corrected by the Stage-2 validation pass** (the original
+role list pre-dated the Stage-1 landing; post-#439, several rows it assigned to
+the imgproxy strategy are demonstrably *shared* paths that TwicPics/IIIF plans
+traverse today, pinned by their differentials — moving them would change bytes
+or force duplication):
 
-- **Neutral default resolver** owns the shared column: fit/cover/stretch,
-  region/gravity crop, canvas, padding, `cropToResult`, CropGuided aspect-ratio,
-  the neutral `Flush` emission, and the neutral
-  point-transform primitives. IIIF and TwicPics use this plus their own overrides.
-- **imgproxy strategy** additionally owns the imgproxy-only column (auto
-  bucketing tagged by its `..._v1` version, `min_*` coupling, no-enlarge DPR cap,
-  display-frame quarter-turn swaps, shrink rescale, `fill_down`, ties-to-even),
-  living under `parser/imgproxy/`.
+- **Neutral default resolver** owns the shared column: fit/cover/stretch
+  expansion including the `#236` crop-back-to-literal-box (TwicPics `cover`
+  exercises it), region/gravity crop, canvas, padding *mechanics*, CropGuided
+  aspect-ratio, orientation compensation + the neutral `Flush` emission (landed
+  neutral in Stage 1 — TwicPics EXIF + `cover` exercises the quarter-turn
+  compensation), the decode-shrink coordinate rescale (`#151`; shared by
+  TwicPics crops), the neutral point-transform primitives, and the min/dpr/zoom
+  *arithmetic* in the executable's `resolve_dimensions` (§3 already classifies
+  it as the shared column). IIIF and TwicPics use this plus their own overrides.
+- **imgproxy strategy** owns the imgproxy *decision* column, living under
+  `parser/imgproxy/`: the `:auto` fill-vs-fit bucketing (tagged by its `..._v1`
+  version; the strategy rewrites the op to the concrete branch before
+  delegating), the no-enlarge DPR/padding-scale cap (`#237`) plus its cross-op
+  carry (§4.4), and the `fill_down` mapping. Neutral code encountering
+  `mode: :auto` or `pixel_ratio: {:effective, …}` becomes impossible internal
+  misuse — it crashes, per the no-guard rule.
 
-A strategy handles the ops/gravities it specializes and falls through to the
-neutral resolver for shared cases (e.g. TwicPics resolves only `:carried`
-gravity; anchors/static-`fp`/smart/detect go to neutral). Right-angle rotate/flip
-fold into `pending_orientation` and emit **no** executable op — the return is
-`{[], {:advance, shape', state}, strategy_state}`; this is the common streaming
-path and the empty op-list case is normal.
+A strategy handles the ops it specializes and **directly delegates** the rest to
+the exported `NeutralResolver` (wrap-and-delegate; no facade change). Right-angle
+rotate/flip fold into `pending_orientation` and emit **no** executable op — the
+return is `{[], {:advance, shape', state}}`; this is the common streaming path
+and the empty op-list case is normal.
 
 ### 4.3 `SourceShape` — the virtual buffer
 
@@ -241,19 +258,25 @@ Deliberate divergences from the exploration's §3.2 field list:
   are encode/color-management metadata and stay on the live image / `State`.
   (`trim`'s *pixel execution* reads interpretation/alpha off the live image — that
   stays; the point is only that resolution/shape-advance never needs them.)
-- **`focus` is NOT on `SourceShape`.** It is dialect-carried state (only TwicPics
-  populates/advances/consumes it), so it lives in the TwicPics `strategy_state`
-  (§4.4). Same rule that keeps imgproxy's DprScale off the neutral shape.
+- **`focus` is NOT on `SourceShape`.** It is strategy-supplied point state, not
+  source geometry. The original plan — move it into the TwicPics
+  `strategy_state` — is **deferred to Stage 3 by scope**, with the staged
+  continuation banked (§4.4). In the shipped Stage-2 design it remains on
+  `State` as the *neutral* carried point (renamed `carried_point`), advanced by
+  the executables' nil-safe point mechanics exactly as today.
 
 `SourceShape` subsumes today's `State.source_dimensions`, `State.decode_shrink`,
-and `State.pending_orientation`. `State.focus` moves to strategy state.
+and `State.pending_orientation`. `State.focus` stays on `State` (neutralized,
+§4.4) until Stage 3.
 
 ### 4.4 Cross-op carry: the strategy accumulator (Seam 2)
 
 The driver threads a pair `{shape, strategy_state}`. `strategy_state` is an
-opaque term **owned by the chosen strategy**; the neutral/IIIF resolvers leave it
-`nil`. A plan uses one strategy, so its accumulator is *either* imgproxy DprScale
-*or* TwicPics focus, never both.
+opaque term **owned by the chosen strategy**; the neutral/IIIF/TwicPics
+resolvers leave it `nil` in Stage 2 (the TwicPics carry is deferred, below). It
+is seeded per pipeline — `init/0` at each `ResolveDriver.run`, matching the
+Stage-1 per-run `ctx` reset, so the carry scope is results-identical by
+construction.
 
 - **imgproxy** stashes the DprScale computed **once** at the resize
   (`resize_padding_scale`, both `:resize` and `:canvas_preserving`) and reads it
@@ -264,19 +287,67 @@ opaque term **owned by the chosen strategy**; the neutral/IIIF resolvers leave i
   the **Output boundary** (`Output.Encoder`/producer clamp), so the resolver's
   stashed DprScale is final for padding/extend. The accumulator carries the
   pre-clamp value — matching current behavior, pinned by results-identical.
-- **TwicPics** carries the focus point, advances it per-op via the neutral
-  point-transform primitives, and resolves `:carried` gravity into `{:fp, x, y}`
-  itself. `SetFocus` resolution *reads* neutral shape fields (dims,
-  `decode_shrink`) plus the live decoded frame (`display_live_dims` — the real,
-  possibly-shrunk buffer, which the shape cannot reconstruct exactly; supplied
-  via `env`) and *writes* the focus — one-directional, no leak. In Stage 1,
-  while focus still lives on `State`, the write channel is the neutral
-  **`StateUpdate`** op: a pixel-untouched executable op carrying a field map that
-  the chain merges into execution state — the generic channel for any resolver
-  decision that is a `State` write rather than geometry (today's zero-op
-  scheduler clauses). When Stage 2 moves focus into the TwicPics carry, the
-  remaining `State.focus` consumers (the resize read-back, `Focus.reflect_rotate`
-  in the flush) must be re-fed or re-plumbed — see §9.
+- **TwicPics** — the carried focus. **Stage-2 validation finding (2026-07-02):
+  the full carry move is gated and deferred to Stage 3.** The original design
+  (advance the focus in the strategy carry via `then_fn`'s realized dims)
+  under-modeled multi-op emissions: `focus=…/cover=WxH` lowers *one* plan op
+  into `[resize, crop(:carried)]`, and the acquire seam supplies only the dims
+  after the whole op list ran — but the crop-origin translate
+  (`left = round_ties_to_even(fp·W′ − cw/2)`, whose result feeds the focus a
+  *later* crop consumes) needs the realized **intermediate** post-resize dims,
+  which are never acquired. (The fp itself needs no realized dims —
+  scale-by-realized then normalize-by-realized cancels to the pre-resize
+  fraction — but the translate does.) Today this is exact only because the
+  executables update the focus at *executable* granularity — inside `execute`,
+  with the live image in hand (`resize.ex` `Focus.scale`, `crop.ex`
+  `carry_focus_through_crop`, `extend_canvas.ex` translate,
+  `orientation_flush.ex` `reflect_rotate`) — while the carry advances at
+  *plan-op* granularity, observing only each emitted list's endpoints.
+  **Designed mechanism (2026-07-02, third pass): the staged continuation —
+  split the emission at the realized-dims seam.** The driver already splits
+  execution at every *plan-op* seam (each unsafe op's realized dims are read
+  and fed forward before the next op resolves); Stage 3 extends that same seam
+  *into* a multi-executable expansion. An `:acquire` `then_fn` may return a
+  further `{ops, continuation}` stage instead of a final
+  `{shape, strategy_state}`: for the cover, `resolve` returns
+  `{[resize], {:acquire, stage}}`, the driver executes the resize, reads the
+  realized `W′` (header metadata — no pixel force), and `stage.(W′)` returns
+  `{[crop], {:advance, …}}` with the crop parameterized — and the carry
+  translated, via a pure origin helper (the `resolved_box_dims` twin) —
+  against the *measured* intermediate: the same integers `Crop.execute`
+  produces today. No new op class, no side channel: shape acquisition stays
+  the driver's one seam (§4.5), just allowed to fire more than once per plan
+  op; flush positioning still reads off the concatenated stages' op order; the
+  injection golden injects per stage. *Rejected lighter alternative:* an
+  interleaved neutral `Measure` op (`[resize, Measure, crop]`) recording dims
+  into a driver-owned channel for the final `then_fn` — workable for the cover
+  only because its crop happens to be fully emittable up front (the fp needs
+  no `W′` — the cancellation), but it adds an op class plus a measurement
+  channel and can never *parameterize* a later executable on the measurement;
+  staging subsumes it. Either way the move is **independent of the
+  `planned == realized` property** — it is deferred to Stage 3 by *scope*, not
+  by a hard gate (§9). In Stage 2 the focus
+  stays on `State`, re-documented (and renamed `carried_point`) as the neutral
+  strategy-supplied carried point — the same neutrality move Stage 2b makes for
+  `:carried` gravity — and the executables keep their nil-safe point mechanics.
+  The TwicPics strategy still exists: it owns the **Directive** row (below),
+  resolving the operand against neutral shape fields alone (the Stage-1
+  `display_live_dims` env read dies with `env` — `live_dims/1` reconstructs the
+  decoded frame exactly from the shape wherever the shape is *frame-coherent*,
+  superseding this section's earlier "cannot reconstruct exactly" claim) and
+  committing via the neutral **`StateUpdate`** op: a pixel-untouched executable
+  op carrying a field map that the chain merges into execution state — the
+  generic channel for any resolver decision that is a `State` write rather
+  than geometry. **Frame-coherence caveat (2026-07-02 plan review):** the
+  reconstruction's exactness requires that no shape advance change the dims
+  without clearing or compensating an outstanding `decode_shrink`. The Stage-1
+  Canvas plain-advance violates this — `DecodePlanner` plans shrink *through*
+  a Canvas, and the advance writes live-frame canvas dims while retaining the
+  shrink factor — reachable via TwicPics `inside=<ratio>` before a px resize
+  on a shrink-triggering source, and covered by no existing fixture. The
+  Stage-2 plan's Task 0 pins these chains against upstream before the
+  shape-derived focus row lands; the mechanism decision, if the pin exposes a
+  divergence, is made there, not silently.
 
 **Plan-surface de-dialecting (Stage 2b).** `Plan.Operation.SetFocus` is the one
 dialect-branded entry in the neutral Plan vocabulary — positional TwicPics
@@ -287,8 +358,9 @@ the strategy, it dissolves into a generic
 addressed to the plan's **carried strategy**, mirroring the Renderer's
 `{:custom, module, params}` precedent. The TwicPics parser emits
 `%Directive{name: :set_focus, payload: operand}`; the TwicPics strategy
-resolves it (same reads as the SetFocus row above) and commits the result
-through its carry. Key data hashes directives generically
+resolves it (same reads as the TwicPics row above) and commits the result
+through the `StateUpdate` op (through its carry once Stage 3 moves the point
+there). Key data hashes directives generically
 (`[op: :directive, name: …, payload: …]`; payloads are parser-produced plain
 canonical terms — a parser contract, asserted in parser tests, not validated
 downstream). The neutral resolver has **no** `Directive` clause: a directive
@@ -297,10 +369,13 @@ constructs — so it crashes, per the impossible-internal-misuse rule (no guard,
 no tidy error, no test). `:carried` gravity is **retained and redefined
 neutrally**: with the Resolver seam, "gravity supplied by the plan's strategy"
 is a product-neutral concept (any strategy may supply a point, exactly as
-`:smart` is neutral although only some dialects use it); post-Stage-2 the
-strategy resolves it to a concrete `{:fp, x, y}` before emission, so executable
-ops never see it. Wire behavior is byte-identical; the cache key data reshapes
-in place (greenfield rule, no version bump).
+`:smart` is neutral although only some dialects use it). The
+resolve-to-a-concrete-`{:fp, x, y}`-before-emission step (so executable ops
+never see `:carried`) is **deferred to Stage 3** with the focus carry — it
+rides the same staged-continuation mechanism (above); in Stage 2 the executable
+`:carried` gravity remains, redefined as reading the neutral carried point. Wire behavior is
+byte-identical; the cache key data reshapes in place (greenfield rule, no
+version bump).
 
 The neutral driver never inspects `strategy_state` (boundary holds). It does
 **not** enter the ResolvedPlan golden artifact (that is the concrete ops +
@@ -513,10 +588,16 @@ an implementer does not reconstruct `#185`/`#180` from scratch.
 - `ImagePipe.Resolver` — neutral behaviour + dispatch facade,
   `use Boundary, deps: [ImagePipe.Plan]` (sibling to `ImagePipe.Renderer`).
 - `ImagePipe.Transform.SourceShape` — the threaded neutral geometry value, under
-  `transform`; transform-domain data, never emitted in telemetry.
-- Neutral default resolver + driver loop — under `transform`.
+  `transform` (its **final home** — settled by the Stage-2 pass, §5.1); joins the
+  `transform` export list. Transform-domain data, never emitted in telemetry.
+- Neutral default resolver + driver loop — under `transform`; `NeutralResolver`
+  and the re-signatured shape-based lowering entry points join the export list
+  (strategies delegate to them, §4.2).
 - imgproxy strategy — under `parser/imgproxy/`, implementing `ImagePipe.Resolver`.
-- `parser` boundary gains `→ resolver` (already blessed: `parser → renderer`).
+- TwicPics strategy — under `parser/twic_pics/`, implementing
+  `ImagePipe.Resolver` (owns the Directive row, §4.4).
+- `parser` boundary gains `→ resolver` (already blessed: `parser → renderer`)
+  **and `→ transform`** (§5.1 amendment).
 
 ### 5.1 The dispatcher edge is real and declared: `transform → resolver`
 
@@ -531,19 +612,37 @@ exactly as `request → renderer` already is:
 - The imgproxy strategy under `parser/imgproxy/` **implements** `ImagePipe.Resolver`
   → `parser → resolver`.
 - The driver in `transform` calls the **neutral facade**
-  `Resolver.resolve(spec, shape, env, op)`, where `spec` is the strategy
+  `Resolver.resolve(spec, shape, op)`, where `spec` is the strategy
   carried in the Plan (dependency injection) → `transform → resolver`. The dynamic
   `spec_module.resolve(...)` call is **quarantined inside the facade**, mirroring
   `Renderer.run/3`'s `module.render(...)`.
 
-All three arrows point at the neutral abstraction; `transform` and `parser` depend
-on `resolver`, neither on the other. The critical discipline: the dynamic dispatch
-lives **in the facade**, never in `transform`'s own code — `transform` must not
-call a carried module directly, since *that* would be a genuine (if
-statically-invisible) `transform → parser` dependency. Getting the inversion right
-is why `Boundary` then reports no violation; the clean static result is a
-consequence, not the justification. Declared edge: add `transform → resolver` to
-the boundary config, covered by the existing architecture tests.
+All three arrows point at the neutral abstraction; `transform` never depends on
+`parser` (the reverse edge is real and declared — see the Stage-2 amendment
+below). The critical discipline: the dynamic dispatch lives **in the facade**,
+never in `transform`'s own code — `transform` must not call a carried module
+directly, since *that* would be a genuine (if statically-invisible)
+`transform → parser` dependency. Getting the inversion right is why `Boundary`
+then reports no violation; the clean static result is a consequence, not the
+justification. Declared edge: add `transform → resolver` to the boundary config,
+covered by the existing architecture tests.
+
+**Stage-2 amendment (2026-07-02): the static `parser → transform` edge is real
+and declared too.** Strategies pattern-match `%SourceShape{}`, **emit executable
+`%Transform.Operation.*{}` structs**, and call the shared shape-based lowering
+entry points — an irreducible static dependency no placement trick avoids:
+moving `SourceShape` into the `resolver` boundary doesn't help (the executable
+ops and `Lowering` are irreducibly `transform`), and moving those into
+`resolver` would need `resolver → transform`, cycling against the declared
+`transform → resolver`. So `parser` declares `deps: […, ImagePipe.Transform]`.
+The edge is acyclic and uses only exported entry points (`transform` already
+exports every operation struct; `SourceShape`, `NeutralResolver`, and the
+lowering facades join the list). The load-bearing inversion is untouched:
+`transform` never names a dialect, and the dynamic dispatch stays quarantined
+in the facade. A focused architecture test scopes what strategy modules may
+reach (operation structs, `SourceShape`, the designated lowering/`NeutralResolver`
+entry points — not `Chain`/`State` internals), and the AGENTS.md boundary table
+gains the edge with that rationale.
 
 ## 6. Compatibility-doc impact
 
@@ -554,7 +653,10 @@ flush becomes an explicit neutral op (`Flush`). No **surface**
 change and, by results-identical, no intended **behavioral/pixel** change — the
 "Diverges" notes and wire conformance must stay green. Note the `fixSize` (Output
 boundary) and `limitScale` (Output-boundary cap) relationships from §4.4/§4.7 so
-the matrix reflects where each imgproxy stage lives in ImagePipe.
+the matrix reflects where each imgproxy stage lives in ImagePipe. Stage 2 also
+touches [`docs/twicpics_support_matrix.md`](../../twicpics_support_matrix.md) on
+the same **stage/order** axis (the focus/directive plumbing moves; no surface or
+pixel change).
 
 ## 7. Cache / ETag
 
@@ -575,6 +677,18 @@ algorithm change keeps the ETag stable and the 304 path serves stale-but-
 differently-resolved bytes. This is a *behavioral* version, orthogonal to the key
 *schema* version (so it does not collide with the greenfield "don't bump key data
 versions" rule).
+
+**Settled (Stage-2 design, 2026-07-02): one behavioral version per strategy.**
+The `ImagePipe.Resolver` behaviour gains `behavior_version/0` (§4.2), and
+`Key.plan_material` gains a single entry — `resolver: [strategy: Module,
+version: n]` — for **every** plan (nil-strategy plans tag the neutral resolver
+the same way), so any resolution-algorithm change bumps one number. Coarse (a
+bump invalidates all of that strategy's cached variants) but simple and
+impossible to forget per rule. The per-op `auto_orientation_match_v1` tag is
+kept — it names the rule a specific op invoked, orthogonal to the strategy
+version. Finer per-rule tags are tracked in
+[#440](https://github.com/hlindset/image_pipe/issues/440) in case cache
+retention on algorithm changes ever warrants them.
 
 ## 8. Testing strategy
 
@@ -641,6 +755,9 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
 > the formerly implicit orient-at-materialize made explicit; (e) flush failures
 > keep the `{:materialize_error, _}` tag and the `[:transform, :materialize]`
 > span — the 415 mapping and the span tests are contract, not incidental.
+> (Of these, (a) the overlay survives Stage 2 in reduced form — executables'
+> execute-time reads only — and (b) the `env` channel is retired by the Stage-2
+> re-signature; §4.2, §9 Stage 2.)
 
 1. **Substrate + orientation dissolution (results-identical).** One coherent stage:
    - Introduce `SourceShape`, the two-variant continuation
@@ -676,31 +793,102 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
      trim-under-pending-orientation, `fill_down`, and a concrete ±1-divergence case)
      + differential + wire are green.
 
-2. **Move the boundary.** Extract the imgproxy-only column into an
-   `ImagePipe.Resolver` strategy under `parser/imgproxy/`, carried in the Plan
-   (the `transform → resolver` edge and facade already landed in Stage 1); add
-   the strategy behavioral version tags to `plan_material` (§7); update the
-   support matrix. Re-signature `Lowering`/`ResizePlanning` to shape-based
-   inputs (dims + `decode_shrink`, not `State`) — the actual precondition for
-   retiring the Stage-1 `env.state` channel. Move TwicPics focus into its
-   strategy accumulator, accounting for the remaining `State.focus` consumers
-   (resize read-back, `Focus.reflect_rotate` — §4.4). Decide `SourceShape`'s
-   final home first: a parser-owned strategy pattern-matching `%SourceShape{}`
-   is a `parser → transform` struct-expansion edge `Boundary` *does* check
-   (typespecs are ignored; struct expansion is not). Closes #434. Green.
-   **Stage 2b (same stage, separately green):** de-dialect the Plan surface —
-   replace `Plan.Operation.SetFocus` with the generic strategy
-   `%Directive{name, payload}` and redefine `:carried` as the neutral
-   strategy-supplied gravity (§4.4). Parser, key-data, and parser-test updates
-   in place; byte-identical on the wire. Lands after the boundary move (it
-   needs the carried strategy) but rides the same PR or its own — either way
-   gated green independently. Tracked by
-   [#438](https://github.com/hlindset/image_pipe/issues/438); closes it.
+2. **Move the boundary (closes #434).** Design settled 2026-07-02 (the Stage-2
+   design pass, validated against the post-#439 code):
+   - **Scope decision record.** The executable `Resize`/`Crop` mode/unit math
+     stays put, and the TwicPics focus stays on `State` as the neutral carried
+     point — both deferred to Stage 3 **by scope**: the focus-carry move needs
+     realized *intermediate* dims inside multi-executable emissions that the
+     per-plan-op acquire never observes (mechanism designed and banked: the
+     staged continuation, §4.4 — no `planned == realized` dependency), and
+     thinning the executables needs a Resolver **error channel** that doesn't
+     exist yet (below). Stage 2 stays results-identical by construction.
+   - **Strategy carry in the Plan.** `Plan` gains `resolver: module() | nil`
+     (parser-set: imgproxy and TwicPics set their strategies, IIIF/native `nil`
+     = neutral), mirroring `render:`. `PlanExecutor` seeds
+     `{module, module.init()}` **per pipeline** (§4.4 — matches the Stage-1
+     per-run `ctx` reset).
+   - **Callback re-signature.** `resolve(shape, strategy_state, op) ::
+     {ops, continuation}` — `env` deleted, trailing `strategy_state` collapsed
+     into the continuation (§4.2); `behavior_version/0` added. The driver's
+     `update_execution_context`/`@initial_ctx` are deleted (the DprScale pair
+     becomes imgproxy strategy state).
+   - **imgproxy strategy** under `parser/imgproxy/` per the corrected §4.2
+     inventory: `:auto` bucketing (rewrite-to-concrete-branch, keeps
+     `auto_orientation_match_v1`), the no-enlarge DPR/padding-scale computation
+     + carry, `fill_down` mapping; wrap-and-delegate everything else to the
+     exported `NeutralResolver`. Neutral seeing `mode: :auto` or
+     `pixel_ratio: {:effective, …}` crashes (impossible internal misuse).
+   - **Re-signature `Lowering`/`ResizePlanning`** to `%SourceShape{}` inputs
+     (+ an explicit scale argument for the padding/canvas rows);
+     `NeutralResolver`'s `lowering_state` rebuilds become shape rebuilds;
+     `display_source_dims`/`display_live_dims` become shape functions. The
+     driver **overlay stays**, now solely to feed the executables' execute-time
+     `State` reads (`Resize.execute`, `Flush`) until Stage 3 thins them.
+   - **Boundary.** Declare `parser → transform` and `parser → resolver`;
+     `SourceShape`'s final home is `transform`, exported (§5.1 amendment);
+     focused architecture test + AGENTS.md boundary-table update.
+   - **Keys.** `plan_material` gains the per-strategy behavioral version entry
+     (§7).
+   - **Docs.** imgproxy support matrix, **stage/order** axis: the resolution
+     column now lives in the imgproxy strategy; note `fixSize`/`limitScale`
+     remain Output-boundary (§4.4/§4.7). TwicPics matrix: same axis for the
+     focus/directive plumbing — no surface or pixel change on either target.
+   - **Tests.** Golden proving the DprScale carry threads across an `:acquire`
+     as strategy state (the §8 resize → trim → padding case); `plan_material`
+     strategy-tag test; the architecture test above; golden + differential +
+     wire green; imgproxy compatibility reviewer mandatory.
 
-3. **(Optional) B-promotion.** If the §8 property spike is green and the
-   version-pinning is acceptable, flip `resize` from `read` to `advance` at the
-   seam (selectively if needed) and retire the focus read-back. The prior stage's
-   golden is the equivalence net.
+   **Stage 2b (same PR, separately-green commit sequence; closes #438):**
+   de-dialect the Plan surface — replace `Plan.Operation.SetFocus` with the
+   generic strategy `%Directive{name, payload}`, resolved by the plan's carried
+   strategy (the TwicPics strategy's Directive row commits through
+   `StateUpdate`; the neutral resolver has no Directive clause). Key data
+   reshapes in place; parser payload-canonicality tests; byte-identical on the
+   wire. `:carried` is redefined neutrally and `State.focus` renames to the
+   neutral `carried_point` (§4.4); the executables-never-see-`:carried` clause
+   rides Stage 3. Lands after the boundary move (it needs the carried
+   strategy).
+
+3. **The carried-point move (non-optional; own plan + PR, immediately after
+   Stage 2 merges).** Promoted out of the optional stage (2026-07-02 review
+   discussion) so it cannot dangle behind a property spike that may say no.
+   Mechanism: the **staged continuation** (§4.4) — an `:acquire` `then_fn` may
+   return a further `{ops, continuation}` stage, so a multi-executable
+   expansion splits at the realized-dims seam (`[resize]` → read `W′` →
+   `[crop]`). Scope:
+   - The continuation-contract change + the driver stage loop; the injection
+     golden extends to inject dims per stage.
+   - Pure origin helpers on `Crop`/`ExtendCanvas` (mirroring
+     `resolved_box_dims`), shared with `execute` so they cannot drift.
+   - Move the carried point into the TwicPics `strategy_state`; resolve
+     `:carried` to a concrete `{:fp, x, y}` before emission — substituted
+     *after* orientation compensation, so a storage-frame fp is never
+     gravity-remapped (the invariant today's `compensate_crop` `:carried`
+     clause encodes).
+   - Fold `reflect_rotate` at strategy-emitted `Flush`es; the driver's
+     boundary-backstop flush is unobservable for every parser-reachable
+     pipeline with a live point — document that invariant.
+   - Delete the executables' point mechanics (`Focus.scale`/`translate`/
+     `reflect_rotate` call sites) and the `State` `carried_point` field.
+   - Pinned behaviors to preserve, enumerated up front: smart/detect crops do
+     **not** carry the point today (no `carry_focus_through_crop` on that
+     path); region and gravity crops translate it; canvas embeds translate it.
+   Results-identical, gated by the TwicPics differential plus new goldens for
+   focus → cover → later-consumer chains. **Independent of the property
+   spike.** Green.
+
+4. **(Optional) B-promotion + executable thinning.** If the §8 property spike
+   is green and the version-pinning is acceptable, flip `resize` from `read`
+   to `advance` at the seam (selectively if needed); Stage 3's extra resize
+   stage can then collapse in favor of the computed dims, retiring the focus
+   read-back's successor. The prior stages' goldens are the equivalence net.
+   Also banked here from the Stage-2 scope decision (§4.4): **thin the
+   executables** to apply-exact primitives (resolver emits force-to-exact
+   resizes / exact-box crops); prerequisite: an **error channel on the
+   Resolver contract** — `reject_enlargement`/`upscale_required` must surface
+   at resolve time, before pixels; today they surface from `Resize.execute`
+   through `Chain`.
 
 Each stage is independently green on golden + differential + wire.
 
@@ -729,7 +917,7 @@ Each stage is independently green on golden + differential + wire.
 - [`lib/image_pipe/transform/orientation_scheduler.ex`](../../../lib/image_pipe/transform/orientation_scheduler.ex) — the deferral engine that dissolves into an explicit Flush op + pure advances
 - [`lib/image_pipe/transform/plan_executor.ex`](../../../lib/image_pipe/transform/plan_executor.ex) — today's driver + the cross-op `context`
 - [`lib/image_pipe/transform/operation/resize.ex`](../../../lib/image_pipe/transform/operation/resize.ex) — the neutral `resolve_dimensions` core + the focus read-back (`~:111`)
-- [`lib/image_pipe/transform/focus.ex`](../../../lib/image_pipe/transform/focus.ex) — neutral point-transform math (its *carry* moves to TwicPics strategy state)
+- [`lib/image_pipe/transform/focus.ex`](../../../lib/image_pipe/transform/focus.ex) — neutral point-transform math (its *carry* stays on `State` as the neutral `carried_point` until Stage 3; §4.4)
 - [`lib/image_pipe/transform/state.ex`](../../../lib/image_pipe/transform/state.ex) — the fields `SourceShape` subsumes
 - [`lib/image_pipe/transform/chain.ex`](../../../lib/image_pipe/transform/chain.ex) — per-op driver + lazy materialization (stays)
 - [`lib/image_pipe/transform/decode_planner.ex`](../../../lib/image_pipe/transform/decode_planner.ex) — pure load-option planner feeding the seed shape

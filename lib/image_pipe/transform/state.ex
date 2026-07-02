@@ -47,11 +47,14 @@ defmodule ImagePipe.Transform.State do
     delivery-boundary stamp. `source_color_profile` is the raw source ICC bytes
     (or `nil`), and `color_imported?` indicates whether an actual `icc_import` ran.
     Transform-domain data; must never be emitted in telemetry metadata.
-  - `focus`: TwicPics carried focus point `{x, y}` (exact rationals,
-    `ImagePipe.Plan.Measure.t()` shape) in the live-image frame, transformed by
-    each geometry op via `ImagePipe.Transform.Focus`; `nil` defaults to center at
-    a TwicPics consumer. imgproxy never sets it, so every `Focus.*` call is a
-    no-op on the imgproxy path.
+  - `carried_point`: the strategy-supplied carried point `{x, y}` (exact
+    rationals, `ImagePipe.Plan.Measure.t()` shape) in the live-image frame,
+    transformed by each geometry op via `ImagePipe.Transform.Focus`; `nil`
+    defaults to center at a `:carried`-gravity consumer. Product-neutral: any
+    carried strategy may supply a point (exactly as `:smart` gravity is neutral);
+    today the TwicPics strategy is the one producer, committing it through
+    `ImagePipe.Transform.Operation.StateUpdate`. Every `Focus.*` call is a no-op
+    when it is `nil`, so point-free plans are unaffected.
   """
 
   defstruct image: nil,
@@ -65,7 +68,7 @@ defmodule ImagePipe.Transform.State do
             materialized?: false,
             source_color_profile: nil,
             color_imported?: false,
-            focus: nil
+            carried_point: nil
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
@@ -79,7 +82,7 @@ defmodule ImagePipe.Transform.State do
           materialized?: boolean(),
           source_color_profile: binary() | nil,
           color_imported?: boolean(),
-          focus: {ImagePipe.Plan.Measure.t(), ImagePipe.Plan.Measure.t()} | nil
+          carried_point: {ImagePipe.Plan.Measure.t(), ImagePipe.Plan.Measure.t()} | nil
         }
 
   def set_image(%__MODULE__{} = state, %Vix.Vips.Image{} = image) do

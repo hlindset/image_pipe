@@ -232,9 +232,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
-  # A carried-focus consumer (TwicPics cover/crop) reads State.focus and resolves
-  # it to a focal-point gravity at the libvips boundary; a nil focus falls back to
-  # the center anchor (byte-identical to a plain centered crop).
+  # A carried-gravity consumer (TwicPics cover/crop) reads the neutral carried
+  # point and resolves it to a focal-point gravity at the libvips boundary; a nil
+  # carried point falls back to the center anchor (byte-identical to a plain
+  # centered crop).
   def execute(%__MODULE__{gravity: :carried} = params, %State{} = state) do
     case Focus.to_fp(state) do
       nil -> execute(%__MODULE__{params | gravity: {:anchor, :center, :center}}, state)

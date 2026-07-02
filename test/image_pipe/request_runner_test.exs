@@ -896,7 +896,10 @@ defmodule ImagePipe.Request.RunnerTest do
     assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
              run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
-               plan(pipelines: [%Pipeline{operations: [operation]}]),
+               plan(
+                 pipelines: [%Pipeline{operations: [operation]}],
+                 resolver: ImagePipe.Parser.Imgproxy.Resolver
+               ),
                resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,

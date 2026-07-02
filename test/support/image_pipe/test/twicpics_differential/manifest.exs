@@ -1,9 +1,13 @@
 %{
   twicpics_api: "v1",
-  baked_at: "2026-06-18T21:34:27.062202Z",
+  baked_at: "2026-07-02T10:21:25.021962Z",
   twicpics_version: "1.8.2",
   pipe_libvips_at_gen: "8.18.2",
   sources: %{
+    "gradient_large.webp" => %{
+      hosted_url: "https://imagepipe.twic.pics/tdkxst.webp",
+      sha256: "bbf52bc91860f5e339f93fca28ba8bc7eb3aa072526ac095d67789cbc791cdae"
+    },
     "grid_4x4.png" => %{
       hosted_url: "https://imagepipe.twic.pics/b7g72c.png",
       sha256: "f1bf4cd2fd1a3745ea5e103de70cb6a2aacbe637dc47f806facc8e8d67ac03bd"
@@ -177,6 +181,24 @@
       fixture_filename: "focus_topleft_cover_wide.png",
       fixture_sha256: "c12af0208d1545cbe51bd42e6130c293a8bbb33eaf0f68c36b218a240b3d6268",
       oracle_signature: "2956034c6f349b50c6fd6bad94d975d4356fe8cfda67d4650e2622c2c67e11e7"
+    },
+    "inside_ratio_cover_shrink" => %{
+      authored_sha256: "07e0b14b35fd147f9194ebe4fa0ae25b8e1608efe466da8c37b06db1fae0b64e",
+      fixture_filename: "inside_ratio_cover_shrink.png",
+      fixture_sha256: "ef51ed0802a5819886690171c75247acb45191d2000ed901987cca9a500ef194",
+      oracle_signature: "bf0acac795000a781de8b2943568ddf4e9e245589a1985ab583396f6807e7a6b"
+    },
+    "inside_ratio_focus_anchor_cover_shrink" => %{
+      authored_sha256: "c5a0c617a3c361fb05a3f20e99abe9ca739173dda2d58df17b1d786371e35c17",
+      fixture_filename: "inside_ratio_focus_anchor_cover_shrink.png",
+      fixture_sha256: "502cef4b759a6314d0c3ec642eb03b6f46e56d30a29422d4d16d4a1f9f427146",
+      oracle_signature: "268531c8b7803b8b9b9fc5a8ccb723aec2826f3648ff5f562941275e98d0c160"
+    },
+    "inside_ratio_focus_px_cover_shrink" => %{
+      authored_sha256: "31e81ea238d5f0787e74654e752ae1ece3bd0cf7a2d046cc9419b86be99e06aa",
+      fixture_filename: "inside_ratio_focus_px_cover_shrink.png",
+      fixture_sha256: "d600d265e09bb7641a4862d9f03052bfea66867fd51a3385df75953af19540a7",
+      oracle_signature: "11acb79c0d8ecde9c38c2fd7a635fcb8132ebf3a2f677fce494bf65986a71431"
     },
     "inside_tall_tb" => %{
       authored_sha256: "7b7899fdd1d399458f06b94e337f06fabb1980b4eb2a42e508147dd3265beafa",

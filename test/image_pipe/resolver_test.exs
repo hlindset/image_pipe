@@ -8,17 +8,18 @@ defmodule ImagePipe.ResolverTest do
     @impl true
     def init, do: %{n: 0}
     @impl true
-    def resolve(%SourceShape{} = shape, env, %{n: n}, op),
-      do: {[{:emitted, op, env}], {:advance, shape, %{n: n + 1}}, %{n: n + 1}}
+    def behavior_version, do: 1
+    @impl true
+    def resolve(%SourceShape{} = shape, %{n: n}, op),
+      do: {[{:emitted, op}], {:advance, shape, %{n: n + 1}}}
   end
 
-  test "facade dispatches, passes env opaquely, threads strategy_state via the spec" do
+  test "facade dispatches, threads strategy_state via the continuation" do
     shape =
       SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
 
-    {ops, cont, {Dummy, st}} = Resolver.resolve({Dummy, Dummy.init()}, shape, :env_token, :op)
-    assert ops == [{:emitted, :op, :env_token}]
+    {ops, cont} = Resolver.resolve({Dummy, Dummy.init()}, shape, :op)
+    assert ops == [{:emitted, :op}]
     assert {:advance, ^shape, %{n: 1}} = cont
-    assert st == %{n: 1}
   end
 end

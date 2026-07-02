@@ -64,12 +64,17 @@ defmodule ImagePipe.Transform.DeferredOrientationFrameTest do
 
   # ── Pipeline runners ─────────────────────────────────────────────────────────
 
+  # `rt:auto` and effective-DPR padding are imgproxy strategy vocabulary
+  # (#434); this module's frame-parity oracle is imgproxy-shaped throughout
+  # ("rt:auto", imgproxy's mainPipeline stage order), so every case runs
+  # through the imgproxy resolver.
   defp run(ops, image, auto_rotate? \\ true) do
     plan = %Plan{
       source: nil,
       output: nil,
       auto_rotate: auto_rotate?,
-      pipelines: [%Plan.Pipeline{operations: ops}]
+      pipelines: [%Plan.Pipeline{operations: ops}],
+      resolver: ImagePipe.Parser.Imgproxy.Resolver
     }
 
     {:ok, %State{} = s} =

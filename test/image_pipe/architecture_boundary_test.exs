@@ -42,6 +42,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/parser.ex",
     "lib/image_pipe/parser/**/*.ex"
   ]
+  @resolver_strategy_globs [
+    "lib/image_pipe/parser/**/resolver.ex"
+  ]
+  @resolver_strategy_forbidden_transform_names [:Chain, :State, :Materializer, :DecodePlanner]
   @cache_key_files ["lib/image_pipe/cache/key.ex"]
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
@@ -68,11 +72,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Canvas,
     :CropGuided,
     :CropRegion,
+    :Directive,
     :Flip,
     :Padding,
     :Rotate,
-    :Resize,
-    :SetFocus
+    :Resize
   ]
   @concrete_transform_names [
     :Scale,
@@ -109,7 +113,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ])
 
     # The Parser behaviour boundary must not export any concrete adapter: the core
@@ -121,7 +127,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Parser,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ])
 
     assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])
@@ -135,21 +143,31 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(iiif, [])
 
-    assert_boundary_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
+    assert_boundary_deps(twicpics, [
+      ImagePipe.Parser,
+      ImagePipe.Plan,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
+    ])
+
     assert_boundary_exports(twicpics, [])
 
     assert_allowed_deps(parser, [
       ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ])
 
     assert_allowed_deps(imgproxy, [
       ImagePipe.Format,
       ImagePipe.Parser,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ])
 
     assert_allowed_deps(iiif, [
@@ -159,7 +177,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Renderer
     ])
 
-    assert_allowed_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
+    assert_allowed_deps(twicpics, [
+      ImagePipe.Parser,
+      ImagePipe.Plan,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
+    ])
   end
 
   test "request boundary declaration depends on generic facades only" do
@@ -636,6 +659,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation.Contrast,
       ImagePipe.Plan.Operation.CropGuided,
       ImagePipe.Plan.Operation.CropRegion,
+      ImagePipe.Plan.Operation.Directive,
       ImagePipe.Plan.Operation.Duotone,
       ImagePipe.Plan.Operation.Flip,
       ImagePipe.Plan.Operation.Gradient,
@@ -646,7 +670,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation.Rotate,
       ImagePipe.Plan.Operation.Resize,
       ImagePipe.Plan.Operation.Saturation,
-      ImagePipe.Plan.Operation.SetFocus,
       ImagePipe.Plan.Operation.Sharpen,
       ImagePipe.Plan.Operation.Trim
     ])
@@ -678,10 +701,35 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   test "parser code does not depend on executable transform operation modules" do
+    # A parser's ImagePipe.Resolver strategy (e.g. imgproxy's :auto/no-enlarge
+    # geometry-resolution column, #434) is a distinct concern from request
+    # parsing/planning: it translates a semantic Plan operation into executable
+    # transform operations, so it legitimately names concrete transform
+    # modules — the Boundary deps (`parser` -> `Resolver, Transform`) already
+    # permit this. Parser output — what PlanBuilder/Path/Options emit — must
+    # still stay semantic-only, which is what this rule polices.
+    resolver_strategy_files = MapSet.new(resolver_strategy_files())
+
     violations =
       for file <- parser_files(),
+          not MapSet.member?(resolver_strategy_files, file),
           violation <- concrete_transform_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; parser output is semantic Plan operations"
+      end
+
+    assert violations == []
+  end
+
+  test "a carried resolver strategy never touches execution state or pixel access" do
+    # A Plan-carried resolver strategy (#434) resolves geometry only: it
+    # translates a semantic Plan operation into executable transform ops and
+    # threads strategy-local carry state. It must not reach into transform
+    # execution state or pixel access — those stay owned by Chain/PlanExecutor.
+    violations =
+      for file <- resolver_strategy_files(),
+          violation <- resolver_strategy_forbidden_transform_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; " <>
+          "a resolver strategy resolves geometry and never touches execution state or pixel access"
       end
 
     assert violations == []
@@ -709,6 +757,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp parser_files do
     @parser_globs
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp resolver_strategy_files do
+    @resolver_strategy_globs
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.uniq()
     |> Enum.sort()
@@ -1030,6 +1085,51 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.reverse()
     |> Enum.uniq()
   end
+
+  defp resolver_strategy_forbidden_transform_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {tag, meta,
+         [
+           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePipe, :Transform]}, :{}]},
+            _call_meta, grouped_aliases}
+         ]} = node,
+        violations
+        when tag in [:alias, :import] ->
+          grouped_aliases
+          |> Enum.map(&resolver_strategy_forbidden_transform_alias/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(&violation(meta, &1))
+          |> then(&{node, &1 ++ violations})
+
+        {:__aliases__, meta, [:ImagePipe, :Transform, module | _rest]} = node, violations
+        when module in @resolver_strategy_forbidden_transform_names ->
+          {node, [violation(meta, "ImagePipe.Transform.#{module}") | violations]}
+
+        {:__aliases__, meta, [:Transform, module | _rest]} = node, violations
+        when module in @resolver_strategy_forbidden_transform_names ->
+          {node, [violation(meta, "Transform.#{module}") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
+  end
+
+  defp resolver_strategy_forbidden_transform_alias({:__aliases__, _meta, [module]})
+       when module in @resolver_strategy_forbidden_transform_names,
+       do: "ImagePipe.Transform.#{module}"
+
+  defp resolver_strategy_forbidden_transform_alias({:__aliases__, _meta, [module | _rest]})
+       when module in @resolver_strategy_forbidden_transform_names,
+       do: "ImagePipe.Transform.#{module}"
+
+  defp resolver_strategy_forbidden_transform_alias(_alias), do: nil
 
   defp concrete_detector_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()

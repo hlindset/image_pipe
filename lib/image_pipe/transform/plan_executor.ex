@@ -4,10 +4,11 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # Orchestrates plan execution: seeds the data-determined preamble (EXIF
   # orientation into State.pending_orientation and input color management, both on
   # the seed_orientation gate), then drives each pipeline through
-  # ImagePipe.Transform.ResolveDriver with the neutral resolver
-  # (ImagePipe.Transform.NeutralResolver), which owns the pending-orientation
-  # policy and compensation and emits explicit Flush/StateUpdate ops. Resize
-  # expansion/scale arithmetic lives in ImagePipe.Transform.ResizePlanning.
+  # ImagePipe.Transform.ResolveDriver with the Plan-carried resolution strategy
+  # (plan.resolver, defaulting to ImagePipe.Transform.NeutralResolver when nil),
+  # which owns the pending-orientation policy and compensation and emits explicit
+  # Flush/StateUpdate ops. Resize expansion/scale arithmetic lives in
+  # ImagePipe.Transform.ResizePlanning.
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Pipeline
@@ -22,7 +23,11 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def execute(%Plan{pipelines: pipelines, auto_rotate: auto_rotate}, %State{} = state, opts) do
+  def execute(
+        %Plan{pipelines: pipelines, auto_rotate: auto_rotate, resolver: resolver},
+        %State{} = state,
+        opts
+      ) do
     state = %{
       state
       | detector: ImagePipe.Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
@@ -42,7 +47,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
       end
 
     with {:ok, state} <- seed_color_management(state, opts) do
-      execute_pipelines(pipelines, state, opts)
+      execute_pipelines(pipelines, resolver || NeutralResolver, state, opts)
     end
   end
 
@@ -83,9 +88,9 @@ defmodule ImagePipe.Transform.PlanExecutor do
     end
   end
 
-  defp execute_pipelines(pipelines, %State{} = state, opts) do
+  defp execute_pipelines(pipelines, resolver, %State{} = state, opts) do
     Enum.reduce_while(pipelines, {:ok, state}, fn pipeline, {:ok, state} ->
-      case execute_pipeline(pipeline, state, opts) do
+      case execute_pipeline(pipeline, resolver, state, opts) do
         {:ok, %State{} = state} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -93,13 +98,14 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   # Each pipeline runs through the resolve driver: the source shape seeds from
-  # the state's effective source frame, the neutral resolver decides ops and
-  # shape advances per operation, and the driver's boundary rule resolves any
-  # still-pending orientation (EXIF is seeded once for the whole plan and a
-  # pipeline's output is the next pipeline's input, so each pipeline must end in
-  # the display frame; an identity pending is cleared without materializing —
-  # the streaming fast path).
-  defp execute_pipeline(%Pipeline{operations: operations}, %State{} = state, opts) do
+  # the state's effective source frame, the Plan-carried strategy decides ops
+  # and shape advances per operation (a fresh init/0 per pipeline, spec §4.4),
+  # and the driver's boundary rule resolves any still-pending orientation (EXIF
+  # is seeded once for the whole plan and a pipeline's output is the next
+  # pipeline's input, so each pipeline must end in the display frame; an
+  # identity pending is cleared without materializing — the streaming fast
+  # path).
+  defp execute_pipeline(%Pipeline{operations: operations}, resolver, %State{} = state, opts) do
     {w, h} = State.effective_source_dims(state)
 
     shape =
@@ -110,6 +116,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
         decode_shrink: state.decode_shrink
       })
 
-    ResolveDriver.run(operations, shape, {NeutralResolver, NeutralResolver.init()}, state, opts)
+    ResolveDriver.run(operations, shape, {resolver, resolver.init()}, state, opts)
   end
 end

@@ -9,7 +9,9 @@ defmodule ImagePipe.Parser do
       ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Renderer,
+      ImagePipe.Resolver,
+      ImagePipe.Transform
     ],
     exports: []
 

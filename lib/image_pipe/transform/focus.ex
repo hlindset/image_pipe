@@ -1,38 +1,43 @@
 defmodule ImagePipe.Transform.Focus do
   @moduledoc false
-  # TwicPics carried focus point, transformed by each geometry op's realized
-  # affine. An exact-rational continuous coordinate in the live-image frame; the
-  # only float conversion is `to_fp/1`, at the libvips boundary. Every function
-  # is a no-op when `state.focus == nil` (imgproxy never carries a focus), so the
-  # imgproxy path is unaffected.
+  # Neutral point-math namespace for the carried point, transformed by each
+  # geometry op's realized affine. An exact-rational continuous coordinate in
+  # the live-image frame; the only float conversion is `to_fp/1`, at the libvips
+  # boundary. Every function is a no-op when the carried point is `nil` (a
+  # strategy may not carry a point), so point-free plans are unaffected. The
+  # TwicPics strategy is the current producer.
   #
   # The numerator is integer() (matching ImagePipe.Plan.Measure): a crop
   # translate can transiently negate it (focus left/above the crop window); a
   # later canvas embed brings it back in range. Only `to_fp/1` clamps.
 
-  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
 
   @type ratio :: {:ratio, integer(), pos_integer()}
   @type point :: {ratio(), ratio()}
 
-  @spec scale(State.t(), ratio(), ratio()) :: State.t()
-  def scale(%State{focus: nil} = state, _sx, _sy), do: state
+  @type measure :: {:px, non_neg_integer()} | {:ratio, non_neg_integer(), pos_integer()}
+  @type operand ::
+          {:coord, measure(), measure()}
+          | {:anchor, :left | :center | :right, :top | :center | :bottom}
 
-  def scale(%State{focus: {x, y}} = state, sx, sy),
-    do: %State{state | focus: {ratio_mul(x, sx), ratio_mul(y, sy)}}
+  @spec scale(State.t(), ratio(), ratio()) :: State.t()
+  def scale(%State{carried_point: nil} = state, _sx, _sy), do: state
+
+  def scale(%State{carried_point: {x, y}} = state, sx, sy),
+    do: %State{state | carried_point: {ratio_mul(x, sx), ratio_mul(y, sy)}}
 
   @spec translate(State.t(), integer(), integer()) :: State.t()
-  def translate(%State{focus: nil} = state, _dx, _dy), do: state
+  def translate(%State{carried_point: nil} = state, _dx, _dy), do: state
 
-  def translate(%State{focus: {x, y}} = state, dx, dy),
-    do: %State{state | focus: {ratio_add_int(x, dx), ratio_add_int(y, dy)}}
+  def translate(%State{carried_point: {x, y}} = state, dx, dy),
+    do: %State{state | carried_point: {ratio_add_int(x, dx), ratio_add_int(y, dy)}}
 
   @spec to_fp(State.t()) :: nil | {:fp, float(), float()}
-  def to_fp(%State{focus: nil}), do: nil
+  def to_fp(%State{carried_point: nil}), do: nil
 
-  def to_fp(%State{focus: {x, y}, image: image}) do
+  def to_fp(%State{carried_point: {x, y}, image: image}) do
     {:fp, clamp01(ratio_to_float(x) / Image.width(image)),
      clamp01(ratio_to_float(y) / Image.height(image))}
   end
@@ -45,9 +50,13 @@ defmodule ImagePipe.Transform.Focus do
   """
   @spec reflect_rotate(State.t(), PendingOrientation.t(), {pos_integer(), pos_integer()}) ::
           State.t()
-  def reflect_rotate(%State{focus: nil} = state, _po, _pre), do: state
+  def reflect_rotate(%State{carried_point: nil} = state, _po, _pre), do: state
 
-  def reflect_rotate(%State{focus: {x, y}} = state, %PendingOrientation{} = po, {pre_w, pre_h}) do
+  def reflect_rotate(
+        %State{carried_point: {x, y}} = state,
+        %PendingOrientation{} = po,
+        {pre_w, pre_h}
+      ) do
     {fx2, fy2} = forward_fraction({ratio_div(x, pre_w), ratio_div(y, pre_h)}, po)
 
     {post_w, post_h} =
@@ -55,7 +64,7 @@ defmodule ImagePipe.Transform.Focus do
 
     %State{
       state
-      | focus: {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}
+      | carried_point: {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}
     }
   end
 
@@ -72,7 +81,7 @@ defmodule ImagePipe.Transform.Focus do
         }
 
   @doc """
-  Resolve a `SetFocus` operand into a stored carried point.
+  Resolve a `:set_focus` directive operand into a stored carried point.
 
   The operand (literal px, relative ratio, or anchor) is resolved against the
   live **display** frame, bare-pixel coordinates are rescaled by the
@@ -82,7 +91,7 @@ defmodule ImagePipe.Transform.Focus do
   like every other geometry value; the flush forward-maps it back). Negative
   coordinates never reach here (rejected by the parser's `Units`).
   """
-  @spec resolve(SetFocus.operand(), resolve_ctx(), PendingOrientation.t() | nil) :: point()
+  @spec resolve(operand(), resolve_ctx(), PendingOrientation.t() | nil) :: point()
   def resolve(operand, %{display: {dw, dh}, storage: {sw, sh}, decode_shrink: shrink}, po) do
     {sx, sy} = orient_shrink(shrink, po)
     x = resolve_axis(operand_x(operand), dw, sx)

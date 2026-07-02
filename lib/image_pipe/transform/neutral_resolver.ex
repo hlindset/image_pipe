@@ -1,15 +1,28 @@
 defmodule ImagePipe.Transform.NeutralResolver do
-  @moduledoc false
+  @moduledoc """
+  The neutral default resolver strategy and the delegation target for carried
+  strategies.
+
+  Implements `ImagePipe.Resolver` with the product-neutral deferred-
+  orientation execution policy. A dialect-specific carried strategy (e.g. an
+  imgproxy or TwicPics resolver under `parser/*`) composes its own lowering
+  with this module's `display_frame_advance/2` and `plain_advance/2` to reuse
+  the neutral flush policy instead of re-deriving it.
+
+  `%Operation.Resize{mode: :auto}` and `%Operation.Padding{pixel_ratio:
+  {:effective, _, _}}` are imgproxy-strategy vocabulary: the imgproxy strategy
+  (`ImagePipe.Parser.Imgproxy.Resolver`) resolves both to their concrete form
+  before delegating here, so neither is reachable in this module.
+  """
 
   # Neutral geometry resolver: owns the deferred-orientation execution policy
   # (#146/#182/#185/#211) under the ImagePipe.Resolver contract. For each plan
   # operation it emits the executable ops to run — with every orientation flush
   # (including the pre-materialize flush that smart/detect crops and
   # arbitrary/mirrored rotates need) made explicit as %Operation.Flush{}, and
-  # every zero-op State write expressed as a shape advance (geometry) or an
-  # emitted %Operation.StateUpdate{} (non-geometry). All geometry is delegated
-  # to Lowering/ResizePlanning public helpers and the executable ops' own pure
-  # dims functions; nothing is re-derived.
+  # every zero-op State write expressed as a shape advance. All geometry is
+  # delegated to Lowering/ResizePlanning public helpers and the executable
+  # ops' own pure dims functions; nothing is re-derived.
   #
   # Continuation classification: :acquire iff the post-op dims cannot be
   # computed purely — resize, trim, and arbitrary-angle/mirrored rotate;
@@ -29,6 +42,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
   @behaviour ImagePipe.Resolver
 
+  alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
@@ -37,36 +51,33 @@ defmodule ImagePipe.Transform.NeutralResolver do
   alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
-  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
-  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.Lowering
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Resize
-  alias ImagePipe.Transform.Operation.StateUpdate
   alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.ResizePlanning
   alias ImagePipe.Transform.SourceShape
-  alias ImagePipe.Transform.State
-  alias Vix.Vips.Image, as: VipsImage
 
   @impl ImagePipe.Resolver
   def init, do: nil
 
   @impl ImagePipe.Resolver
-  def resolve(%SourceShape{} = shape, env, nil, operation) do
-    {ops, continuation} = do_resolve(operation, shape, env)
-    {ops, continuation, nil}
+  def behavior_version, do: 1
+
+  @impl ImagePipe.Resolver
+  def resolve(%SourceShape{} = shape, nil, operation) do
+    do_resolve(operation, shape)
   end
 
   # ── rotate / flip folds ───────────────────────────────────────────────────
   # Right-angle, non-mirrored rotation defers into the pending orientation
   # (lossless vips_rot at the flush, imgproxy parity, #211 seam avoidance).
-  defp do_resolve(%PlanRotate{angle: angle, mirror: false}, %SourceShape{} = shape, _env)
+  defp do_resolve(%PlanRotate{angle: angle, mirror: false}, %SourceShape{} = shape)
        when angle in [0, 90, 180, 270] do
     po = shape.pending_orientation || %PendingOrientation{}
     {[], advance(%{shape | pending_orientation: PendingOrientation.fold_rotate(po, angle)})}
@@ -76,8 +87,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # rotate lands the rotation in the display frame (EXIF auto-orient -> then
   # user rotation). decode_shrink stays untouched (nothing clears it at a
   # rotate; no parser places a shrink consumer after rotation).
-  defp do_resolve(%PlanRotate{} = operation, %SourceShape{} = shape, env) do
-    ops = Lowering.executable_operations(operation, env.state, env.ctx)
+  defp do_resolve(%PlanRotate{} = operation, %SourceShape{} = shape) do
+    ops = Lowering.executable_operations(operation, shape)
 
     then_fn = fn {w, h} ->
       {%{shape | width: w, height: h, frame: :display, pending_orientation: nil}, nil}
@@ -89,25 +100,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
     end
   end
 
-  defp do_resolve(%PlanFlip{axis: axis}, %SourceShape{} = shape, _env) do
+  defp do_resolve(%PlanFlip{axis: axis}, %SourceShape{} = shape) do
     po = shape.pending_orientation || %PendingOrientation{}
     {[], advance(%{shape | pending_orientation: PendingOrientation.fold_flip(po, axis)})}
-  end
-
-  # ── SetFocus ──────────────────────────────────────────────────────────────
-  # Positional focus: resolve the operand against the live frame at this chain
-  # position and commit the carried point through an explicit state update. No
-  # pixel work, no flush. Declared Stage-1 live-image read: display_live_dims
-  # reads the real decoded frame, which the shape cannot supply (TwicPics-only).
-  defp do_resolve(%SetFocus{point: operand}, %SourceShape{} = shape, env) do
-    focus_ctx = %{
-      display: ResizePlanning.display_live_dims(env.state),
-      storage: {VipsImage.width(env.state.image), VipsImage.height(env.state.image)},
-      decode_shrink: env.state.decode_shrink
-    }
-
-    resolved = Focus.resolve(operand, focus_ctx, shape.pending_orientation)
-    {[%StateUpdate{fields: %{focus: resolved}}], advance(shape)}
   end
 
   # ── region crop ───────────────────────────────────────────────────────────
@@ -118,21 +113,23 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # fired (the flush does not touch source_dimensions), else the live
   # post-flush display dims.
   # The crop clears the source frame (#180): dims = crop box, decode_shrink nil.
-  defp do_resolve(%CropRegion{} = operation, %SourceShape{} = shape, env) do
+  defp do_resolve(%CropRegion{} = operation, %SourceShape{} = shape) do
     case pending_class(shape) do
       :pending ->
         po = shape.pending_orientation
-        %State{} = state = env.state
+        {pf_w, pf_h} = post_flush_effective_dims(shape, po)
 
-        lowering_state = %State{
-          state
-          | pending_orientation: nil,
-            decode_shrink: orient_decode_shrink(shape.decode_shrink, po),
-            source_dimensions: post_flush_effective_dims(shape, po)
+        lowering_shape = %SourceShape{
+          shape
+          | width: pf_w,
+            height: pf_h,
+            frame: :display,
+            pending_orientation: nil,
+            decode_shrink: orient_decode_shrink(shape.decode_shrink, po)
         }
 
-        [crop] = ops = Lowering.executable_operations(operation, lowering_state, env.ctx)
-        {live_w, live_h} = swap_if_quarter_turn(live_dims(shape), po)
+        [crop] = ops = Lowering.executable_operations(operation, lowering_shape)
+        {live_w, live_h} = swap_if_quarter_turn(SourceShape.live_dims(shape), po)
         {box_w, box_h} = Crop.resolved_box_dims(crop, live_w, live_h)
 
         {[%Flush{} | ops],
@@ -148,8 +145,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
       identity_or_none ->
         # Identity: the would-be flush clears the pending without pixel work
         # (orient_decode_shrink is a no-op for a non-quarter-turn identity).
-        [crop] = ops = Lowering.executable_operations(operation, env.state, env.ctx)
-        {live_w, live_h} = live_dims(shape)
+        [crop] = ops = Lowering.executable_operations(operation, shape)
+        {live_w, live_h} = SourceShape.live_dims(shape)
         {box_w, box_h} = Crop.resolved_box_dims(crop, live_w, live_h)
 
         pending = if identity_or_none == :identity, do: nil, else: shape.pending_orientation
@@ -166,7 +163,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   end
 
   # ── gravity crop ──────────────────────────────────────────────────────────
-  defp do_resolve(%CropGuided{} = operation, %SourceShape{} = shape, env) do
+  defp do_resolve(%CropGuided{} = operation, %SourceShape{} = shape) do
     pending_class = pending_class(shape)
     materializing? = materializing_gravity?(operation.guide)
 
@@ -176,8 +173,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
         # fires first and the crop stays literal, lowered against the
         # pre-flush state (the unoriented decode_shrink).
         po = shape.pending_orientation
-        [crop] = ops = Lowering.executable_operations(operation, env.state, env.ctx)
-        {live_w, live_h} = swap_if_quarter_turn(live_dims(shape), po)
+        [crop] = ops = Lowering.executable_operations(operation, shape)
+        {live_w, live_h} = swap_if_quarter_turn(SourceShape.live_dims(shape), po)
         {box_w, box_h} = Crop.resolved_box_dims(crop, live_w, live_h)
 
         {[%Flush{} | ops],
@@ -197,20 +194,19 @@ defmodule ImagePipe.Transform.NeutralResolver do
         # compensate_crop swaps their axes for the quarter turn AFTER the
         # rescale, so the per-axis factors are pre-swapped (#185).
         po = shape.pending_orientation
-        %State{} = state = env.state
 
-        lowering_state = %State{
-          state
+        lowering_shape = %SourceShape{
+          shape
           | decode_shrink: orient_decode_shrink(shape.decode_shrink, po)
         }
 
         [crop] =
           ops =
           operation
-          |> Lowering.executable_operations(lowering_state, env.ctx)
+          |> Lowering.executable_operations(lowering_shape)
           |> Enum.map(&compensate_crop(&1, po))
 
-        {live_w, live_h} = live_dims(shape)
+        {live_w, live_h} = SourceShape.live_dims(shape)
         {box_w, box_h} = Crop.resolved_box_dims(crop, live_w, live_h)
 
         {ops, advance(%{shape | width: box_w, height: box_h, decode_shrink: nil})}
@@ -220,8 +216,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
         # frame. An identity pending is kept (this row is not a flush site) —
         # except for a materializing (smart/detect) gravity, whose flush site
         # clears the identity pending without pixel work.
-        [crop] = ops = Lowering.executable_operations(operation, env.state, env.ctx)
-        {live_w, live_h} = live_dims(shape)
+        [crop] = ops = Lowering.executable_operations(operation, shape)
+        {live_w, live_h} = SourceShape.live_dims(shape)
         {box_w, box_h} = Crop.resolved_box_dims(crop, live_w, live_h)
 
         pending =
@@ -247,11 +243,11 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # result-crop is compensated (see ResizePlanning.cover_resize_and_crop_
   # display_frame); every other branch swaps the resize request and compensates
   # any trailing crop like a gravity crop.
-  defp do_resolve(%PlanResize{} = operation, %SourceShape{} = shape, env) do
+  defp do_resolve(%PlanResize{} = operation, %SourceShape{} = shape) do
     case pending_class(shape) do
       :pending ->
         po = shape.pending_orientation
-        ops = pending_resize_ops(operation, po, env)
+        ops = pending_resize_ops(operation, po, shape)
 
         then_fn = fn {w, h} ->
           {%{
@@ -270,7 +266,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
         # Plain path (no compensation, no flush). An identity pending is kept
         # (this row is not a flush site); the pipeline boundary clears it
         # without pixels.
-        ops = Lowering.executable_operations(operation, env.state, env.ctx)
+        ops = Lowering.executable_operations(operation, shape)
 
         then_fn = fn {w, h} ->
           {%{shape | width: w, height: h, decode_shrink: nil}, nil}
@@ -285,14 +281,18 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # frame; with an orientation still pending they flush first so the op decides
   # in the display frame. An identity pending is cleared without a flush
   # (streaming fast path preserved).
-  defp do_resolve(%PlanPadding{} = operation, %SourceShape{} = shape, env),
-    do: resolve_display_frame_op(operation, shape, env)
+  defp do_resolve(%PlanPadding{} = operation, %SourceShape{} = shape),
+    do:
+      display_frame_advance(
+        Lowering.padding_executables(operation, padding_scale(operation)),
+        shape
+      )
 
-  defp do_resolve(%PlanPixelate{} = operation, %SourceShape{} = shape, env),
-    do: resolve_display_frame_op(operation, shape, env)
+  defp do_resolve(%PlanPixelate{} = operation, %SourceShape{} = shape),
+    do: display_frame_advance(Lowering.executable_operations(operation, shape), shape)
 
-  defp do_resolve(%PlanGradient{} = operation, %SourceShape{} = shape, env),
-    do: resolve_display_frame_op(operation, shape, env)
+  defp do_resolve(%PlanGradient{} = operation, %SourceShape{} = shape),
+    do: display_frame_advance(Lowering.executable_operations(operation, shape), shape)
 
   # ── trim ──────────────────────────────────────────────────────────────────
   # imgproxy's one pre-orientation op: it trims the storage frame. Trim needs
@@ -301,8 +301,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # An identity pending clears on the shape here (the materialize is trim's
   # flush site, with no pixel work). decode_shrink: nil is a never-shrank
   # reaffirmation — the decode planner returns 1.0 for trim chains.
-  defp do_resolve(%PlanTrim{} = operation, %SourceShape{} = shape, env) do
-    ops = Lowering.executable_operations(operation, env.state, env.ctx)
+  defp do_resolve(%PlanTrim{} = operation, %SourceShape{} = shape) do
+    ops = Lowering.executable_operations(operation, shape)
 
     pending =
       case pending_class(shape) do
@@ -317,14 +317,25 @@ defmodule ImagePipe.Transform.NeutralResolver do
     {ops, {:acquire, then_fn}}
   end
 
-  # ── canvas / background / effects (no deferred-orientation handling) ──────
-  # These run plain, in the storage frame, with any
-  # pending intact, and never trigger a flush. Canvas advances dims per its
-  # geometry in the shape's current frame; effects are dimension-neutral.
-  defp do_resolve(operation, %SourceShape{} = shape, env) do
-    ops = Lowering.executable_operations(operation, env.state, env.ctx)
-    {ops, advance(plain_ops_advance(ops, shape))}
+  # ── canvas ────────────────────────────────────────────────────────────────
+  defp do_resolve(%Canvas{} = operation, %SourceShape{} = shape) do
+    ops = Lowering.canvas_executables(operation, 1.0)
+    plain_advance(ops, shape)
   end
+
+  # ── background / effects (no deferred-orientation handling) ──────────────
+  # These run plain, in the storage frame, with any
+  # pending intact, and never trigger a flush. Effects are dimension-neutral.
+  defp do_resolve(operation, %SourceShape{} = shape) do
+    ops = Lowering.executable_operations(operation, shape)
+    plain_advance(ops, shape)
+  end
+
+  # The composition-scale policy for a padding op: a literal ratio is its own
+  # scale. An :effective pixel_ratio is imgproxy-strategy vocabulary (the
+  # dialect's pd:/dpr coupling, resolved from strategy-carried state) and is
+  # not reachable here — the imgproxy strategy resolves it before delegation.
+  defp padding_scale(%PlanPadding{pixel_ratio: {:ratio, n, d}}), do: n / d
 
   # The compensated executable expansion for a resize under a non-identity
   # pending. A quarter turn cannot be compensated by swapping the *request* and
@@ -334,12 +345,16 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # therefore resolves in the display frame and only its result-crop is
   # compensated; every other branch swaps the resize request and compensates a
   # trailing crop like a gravity crop.
-  defp pending_resize_ops(%PlanResize{} = operation, %PendingOrientation{} = po, env) do
+  defp pending_resize_ops(
+         %PlanResize{} = operation,
+         %PendingOrientation{} = po,
+         %SourceShape{} = shape
+       ) do
     if PendingOrientation.quarter_turn?(po) and
-         ResizePlanning.cover_resize?(operation, env.state) do
+         ResizePlanning.cover_resize?(operation, shape) do
       operation
       |> ResizePlanning.cover_resize_and_crop_display_frame(
-        env.state,
+        shape,
         Lowering.tagged_executable_gravity(operation.guide)
       )
       |> Enum.map(fn
@@ -348,30 +363,40 @@ defmodule ImagePipe.Transform.NeutralResolver do
       end)
     else
       operation
-      |> Lowering.executable_operations(env.state, env.ctx)
+      |> Lowering.executable_operations(shape)
       |> compensate_resize(po)
     end
   end
 
   defp plain_ops_advance([%ExtendCanvas{rule: rule}], %SourceShape{} = shape) do
-    {live_w, live_h} = live_dims(shape)
+    {live_w, live_h} = SourceShape.live_dims(shape)
 
     # The planner can only construct a valid canvas rule, so `resolved_canvas_dims`
     # cannot return `{:error, _}` here; match `{:ok, _}` only so an impossible
     # malformed rule crashes loudly instead of silently leaving the shape
     # unadvanced (a stale-dims geometry bug carried into the next op's lowering).
     {:ok, {w, h}} = ExtendCanvas.resolved_canvas_dims(rule, live_w, live_h)
-    %{shape | width: w, height: h}
+
+    # resolved_canvas_dims resolves against the live frame (via live_dims), so the
+    # canvas dims are already live-frame and an outstanding shrink no longer applies:
+    # clear it to keep the shape frame-coherent, as every reset site does. Retaining
+    # it would make a later shape-derived read (live_dims) double-divide the live-frame
+    # dims by a stale factor.
+    %{shape | width: w, height: h, decode_shrink: nil}
   end
 
   defp plain_ops_advance(_ops, %SourceShape{} = shape), do: shape
 
-  # Padding/pixelate/gradient share one shape: with a non-identity
-  # pending, flush first (display frame), else run plain. The emitted op lowers
-  # from ctx/params only, so the lowering state needs no rebuild.
-  defp resolve_display_frame_op(operation, %SourceShape{} = shape, env) do
-    ops = Lowering.executable_operations(operation, env.state, env.ctx)
-
+  @doc """
+  Advance for an op that must decide in the DISPLAY frame (imgproxy order:
+  after rotateAndFlip): with a non-identity pending the flush fires first, an
+  identity pending clears without a flush (streaming fast path). Public so a
+  carried strategy can compose its own lowering (e.g. an effective padding
+  scale) with the neutral flush policy.
+  """
+  @spec display_frame_advance([struct()], SourceShape.t()) ::
+          {[struct()], ImagePipe.Resolver.continuation()}
+  def display_frame_advance(ops, %SourceShape{} = shape) do
     case pending_class(shape) do
       :pending ->
         po = shape.pending_orientation
@@ -392,6 +417,15 @@ defmodule ImagePipe.Transform.NeutralResolver do
     end
   end
 
+  @doc """
+  Plain advance: run in the current frame with any pending intact, never flush;
+  canvas geometry advances the shape, everything else is dimension-neutral.
+  """
+  @spec plain_advance([struct()], SourceShape.t()) ::
+          {[struct()], ImagePipe.Resolver.continuation()}
+  def plain_advance(ops, %SourceShape{} = shape),
+    do: {ops, advance(plain_ops_advance(ops, shape))}
+
   defp apply_op_geometry([%Padding{top: top, right: right, bottom: bottom, left: left}], {w, h}),
     do: {w + left + right, h + top + bottom}
 
@@ -403,14 +437,6 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
   defp pending_class(%SourceShape{pending_orientation: %PendingOrientation{} = po}),
     do: if(PendingOrientation.identity?(po), do: :identity, else: :pending)
-
-  # The live (decoded) image dims implied by the shape: the effective source
-  # dims divided by the realized shrink-on-load factor (exact — the factor is
-  # original ÷ decoded, so the division round-trips the decoded extent).
-  defp live_dims(%SourceShape{width: w, height: h, decode_shrink: nil}), do: {w, h}
-
-  defp live_dims(%SourceShape{width: w, height: h, decode_shrink: %{w: sw, h: sh}}),
-    do: {max(1, round(w / sw)), max(1, round(h / sh))}
 
   defp swap_if_quarter_turn({w, h}, %PendingOrientation{} = po) do
     if PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
@@ -440,17 +466,18 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp materializing_gravity?({:detect, _}), do: true
   defp materializing_gravity?(_other), do: false
 
-  # A carried-focus crop reads State.focus, which lives in the storage frame and
-  # already tracks the focused content — so it must NOT be gravity-remapped like
-  # an imgproxy focus-point spec. Only the crop box needs the quarter-turn dim
-  # swap; the flush then rotates image + focus together. (imgproxy never emits
-  # :carried.) This clause MUST precede the {crop_from: :gravity, gravity}
+  # A carried-gravity crop reads the neutral carried point, which lives in the
+  # storage frame and already tracks the focused content — so it must NOT be
+  # gravity-remapped like an imgproxy focus-point spec. Only the crop box needs
+  # the quarter-turn dim swap; the flush then rotates image + carried point
+  # together. This clause MUST precede the {crop_from: :gravity, gravity}
   # clause below, which a :carried crop would otherwise match.
   #
-  # A nil State.focus makes Crop.execute fall back to a centred crop, so this
+  # A nil carried point makes Crop.execute fall back to a centred crop, so this
   # crop still needs the center-discard-side compensation (#146 Bug 2) that the
-  # gravity clause applies. For a set focus the crop resolves to `:fp` gravity,
-  # which ignores center_bias, so setting it unconditionally here is harmless.
+  # gravity clause applies. For a set carried point the crop resolves to `:fp`
+  # gravity, which ignores center_bias, so setting it unconditionally here is
+  # harmless.
   defp compensate_crop(%Crop{gravity: :carried} = crop, %PendingOrientation{} = po) do
     crop = %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
 

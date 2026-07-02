@@ -54,6 +54,7 @@ defmodule ImagePipe.Cache.Key do
      [
        pipelines: pipelines_data(plan.pipelines),
        transform: transform_data(),
+       resolver: resolver_data(plan.resolver),
        detector: Keyword.get(opts, :detector_identity),
        output: output,
        auto_rotate: plan.auto_rotate,
@@ -73,6 +74,12 @@ defmodule ImagePipe.Cache.Key do
   end
 
   defp transform_data, do: [key_data_version: @transform_key_data_version]
+
+  # The carried strategy's behavioral version (spec §7). The neutral default's
+  # version is pinned here because cache does not depend on transform; the
+  # key_test drift assertion ties it to NeutralResolver.behavior_version/0.
+  defp resolver_data(nil), do: [strategy: :neutral, version: 1]
+  defp resolver_data(module), do: [strategy: module, version: module.behavior_version()]
 
   defp representation_data(:image), do: [version: @representation_version]
 

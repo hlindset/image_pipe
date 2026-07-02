@@ -18,28 +18,29 @@ defmodule ImagePipe.Transform.FocusTest do
   alias Vix.Vips.Image, as: VipsImage
 
   describe "rational helpers" do
-    test "default focus is nil and helpers no-op on nil" do
-      state = %State{focus: nil}
-      assert Focus.scale(state, {:ratio, 1, 2}, {:ratio, 1, 2}).focus == nil
-      assert Focus.translate(state, -10, -5).focus == nil
+    test "default carried point is nil and helpers no-op on nil" do
+      state = %State{carried_point: nil}
+      assert Focus.scale(state, {:ratio, 1, 2}, {:ratio, 1, 2}).carried_point == nil
+      assert Focus.translate(state, -10, -5).carried_point == nil
       assert Focus.to_fp(state) == nil
     end
 
     test "scale multiplies each axis exactly (rational, no float)" do
-      state = %State{focus: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
+      state = %State{carried_point: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
       scaled = Focus.scale(state, {:ratio, 1, 2}, {:ratio, 1, 2})
-      assert scaled.focus == {{:ratio, 100, 1}, {:ratio, 50, 1}}
+      assert scaled.carried_point == {{:ratio, 100, 1}, {:ratio, 50, 1}}
     end
 
     test "translate subtracts/adds integer deltas exactly" do
-      state = %State{focus: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
-      assert Focus.translate(state, -40, -30).focus == {{:ratio, 160, 1}, {:ratio, 70, 1}}
+      state = %State{carried_point: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
+      assert Focus.translate(state, -40, -30).carried_point == {{:ratio, 160, 1}, {:ratio, 70, 1}}
       # transient negative numerator is allowed (a later canvas +x recovers it)
-      assert Focus.translate(state, -300, 0).focus == {{:ratio, -100, 1}, {:ratio, 100, 1}}
+      assert Focus.translate(state, -300, 0).carried_point ==
+               {{:ratio, -100, 1}, {:ratio, 100, 1}}
     end
   end
 
-  describe "resolve/3 (SetFocus unit resolution)" do
+  describe "resolve/3 (set_focus directive unit resolution)" do
     # ctx/1: no orientation, no shrink (display == storage). ctx/2: + decode_shrink.
     defp ctx(dims), do: %{display: dims, storage: dims, decode_shrink: nil}
     defp ctx(dims, shrink), do: %{display: dims, storage: dims, decode_shrink: shrink}
@@ -87,7 +88,7 @@ defmodule ImagePipe.Transform.FocusTest do
   describe "to_fp/1" do
     test "normalizes to a 0..1 fraction against the live image dims" do
       img = Image.new!(400, 400, color: [0, 0, 0])
-      state = %State{image: img, focus: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
+      state = %State{image: img, carried_point: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
       assert {:fp, fx, fy} = Focus.to_fp(state)
       assert_in_delta fx, 0.5, 1.0e-9
       assert_in_delta fy, 0.25, 1.0e-9
@@ -95,9 +96,9 @@ defmodule ImagePipe.Transform.FocusTest do
 
     test "clamps fp into [0,1]" do
       img = Image.new!(400, 400, color: [0, 0, 0])
-      over = %State{image: img, focus: {{:ratio, 500, 1}, {:ratio, 500, 1}}}
+      over = %State{image: img, carried_point: {{:ratio, 500, 1}, {:ratio, 500, 1}}}
       assert Focus.to_fp(over) == {:fp, 1.0, 1.0}
-      under = %State{image: img, focus: {{:ratio, -10, 1}, {:ratio, -10, 1}}}
+      under = %State{image: img, carried_point: {{:ratio, -10, 1}, {:ratio, -10, 1}}}
       assert Focus.to_fp(under) == {:fp, 0.0, 0.0}
     end
   end
@@ -138,10 +139,10 @@ defmodule ImagePipe.Transform.FocusTest do
     end)
   end
 
-  # Set the carried focus, run `ops` (transformers), then a tiny crop reading
-  # the carried focus; decode the centre pixel's cell.
+  # Set the carried point, run `ops` (transformers), then a tiny crop reading
+  # the carried point; decode the centre pixel's cell.
   defp focus_cell(image, focus, ops, crop_size \\ 12) do
-    state = %State{image: image, focus: focus, materialized?: true}
+    state = %State{image: image, carried_point: focus, materialized?: true}
     {:ok, state} = Chain.execute(state, ops)
     {:fp, fx, fy} = Focus.to_fp(state)
 
@@ -177,7 +178,7 @@ defmodule ImagePipe.Transform.FocusTest do
     |> nearest_cell()
   end
 
-  describe "SetFocus executes through PlanExecutor" do
+  describe "set_focus directive executes through PlanExecutor" do
     test "focus=150x150/crop=12x12 steers to the focused cell via the full plan" do
       assert plan_cell([{"focus", "150x150"}, {"crop", "12x12"}]) == {1, 1}
     end
@@ -218,7 +219,7 @@ defmodule ImagePipe.Transform.FocusTest do
   end
 
   describe "nil-focus carried crop equals a centred crop under pending orientation" do
-    # A nil State.focus makes a :carried crop fall back to the centre anchor, so it
+    # A nil carried point makes a :carried crop fall back to the centre anchor, so it
     # MUST be pixel-identical to an explicit :center crop under any pending EXIF
     # orientation. This is the invariant `compensate_crop(:carried)` preserves via
     # center_bias (Orientation.center_discard_sides) — dropping it shifts the kept
@@ -334,10 +335,10 @@ defmodule ImagePipe.Transform.FocusTest do
       assert focus_cell(grid(), cell_center({2, 2}), [resize, canvas]) == {2, 2}
     end
 
-    test "the orientation flush rotates the carried focus with the image (turn 90)" do
+    test "the orientation flush rotates the carried point with the image (turn 90)" do
       state = %State{
         image: grid(),
-        focus: cell_center({1, 0}),
+        carried_point: cell_center({1, 0}),
         pending_orientation: %PendingOrientation{user_angle: 90},
         materialized?: false
       }

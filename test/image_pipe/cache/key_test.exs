@@ -15,6 +15,7 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
+  alias ImagePipe.Transform.NeutralResolver
 
   defp source_identity(overrides \\ []) do
     Keyword.merge(
@@ -216,6 +217,7 @@ defmodule ImagePipe.Cache.KeyTest do
                ]
              ],
              transform: [key_data_version: 1],
+             resolver: [strategy: :neutral, version: 1],
              detector: nil,
              output: [
                mode: :explicit,
@@ -1403,17 +1405,17 @@ defmodule ImagePipe.Cache.KeyTest do
     end
 
     # The cache-key / ETag fast path (Key.plan_material -> KeyData.data per op) must
-    # handle the :carried guide and %SetFocus{} ops the TwicPics parser now emits.
+    # handle the :carried guide and %Directive{} ops the TwicPics parser now emits.
     # The default guide is :carried, so even a focus-less cover exercises it.
     test "plan_material handles a carried cover with no focus segment" do
       assert {:ok, _material} = Key.plan_material(twic_plan!([{"cover", "100x100"}]), [])
     end
 
-    test "plan_material keys the SetFocus operand in a coordinate-focus plan" do
+    test "plan_material keys the set_focus directive payload in a coordinate-focus plan" do
       assert {:ok, material} =
                Key.plan_material(twic_plan!([{"focus", "20x10"}, {"crop", "12x12"}]), [])
 
-      assert inspect(material) =~ "set_focus"
+      assert inspect(material) =~ "name: :set_focus"
     end
 
     test "distinct focus points produce distinct key material" do
@@ -1557,6 +1559,37 @@ defmodule ImagePipe.Cache.KeyTest do
 
       refute qs_key_for(qs_output(quality_search: ssim2)).hash ==
                qs_key_for(qs_output(quality_search: butter)).hash
+    end
+  end
+
+  describe "plan_material resolver tag" do
+    test "a nil-resolver plan tags the neutral strategy" do
+      {:ok, material} = Key.plan_material(plan(), [])
+
+      assert material[:resolver] == [
+               strategy: :neutral,
+               version: NeutralResolver.behavior_version()
+             ]
+    end
+
+    test "a strategy-carrying plan tags the module and its behavioral version" do
+      plan = %{plan() | resolver: NeutralResolver}
+      {:ok, material} = Key.plan_material(plan, [])
+
+      assert material[:resolver] == [
+               strategy: NeutralResolver,
+               version: NeutralResolver.behavior_version()
+             ]
+    end
+
+    test "an imgproxy-carrying plan tags the imgproxy strategy and its behavioral version" do
+      plan = %{plan() | resolver: Imgproxy.Resolver}
+      {:ok, material} = Key.plan_material(plan, [])
+
+      assert material[:resolver] == [
+               strategy: Imgproxy.Resolver,
+               version: Imgproxy.Resolver.behavior_version()
+             ]
     end
   end
 end

@@ -48,14 +48,14 @@ defmodule ImagePipe.Transform.Lowering do
   alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.Operation.Trim
   alias ImagePipe.Transform.ResizePlanning
-  alias ImagePipe.Transform.State
+  alias ImagePipe.Transform.SourceShape
 
-  @spec executable_operations(struct(), State.t(), map()) :: [struct()]
-  def executable_operations(%PlanResize{} = operation, %State{} = state, context) do
-    ResizePlanning.lower(operation, state, context, tagged_executable_gravity(operation.guide))
+  @spec executable_operations(struct(), SourceShape.t()) :: [struct()]
+  def executable_operations(%PlanResize{} = operation, %SourceShape{} = shape) do
+    ResizePlanning.lower(operation, shape, tagged_executable_gravity(operation.guide))
   end
 
-  def executable_operations(%CropGuided{} = operation, %State{} = state, _context) do
+  def executable_operations(%CropGuided{} = operation, %SourceShape{} = shape) do
     crop =
       %Crop{
         width: crop_dimension(operation.width),
@@ -68,10 +68,10 @@ defmodule ImagePipe.Transform.Lowering do
         enlarge: operation.enlarge
       }
 
-    [rescale_crop_for_decode_shrink(crop, state.decode_shrink)]
+    [rescale_crop_for_decode_shrink(crop, shape.decode_shrink)]
   end
 
-  def executable_operations(%CropRegion{} = operation, %State{} = state, _context) do
+  def executable_operations(%CropRegion{} = operation, %SourceShape{} = shape) do
     crop =
       %Crop{
         width: crop_dimension(operation.width),
@@ -80,21 +80,116 @@ defmodule ImagePipe.Transform.Lowering do
           left: crop_coordinate(operation.x),
           top: crop_coordinate(operation.y)
         },
-        reject_out_of_bounds: reject_region_out_of_bounds?(operation, state)
+        reject_out_of_bounds: reject_region_out_of_bounds?(operation, shape)
       }
 
-    [rescale_crop_for_decode_shrink(crop, state.decode_shrink)]
+    [rescale_crop_for_decode_shrink(crop, shape.decode_shrink)]
   end
 
-  def executable_operations(%Canvas{} = operation, %State{}, context) do
+  def executable_operations(%PlanBackground{} = operation, %SourceShape{}) do
+    [%Background{color: Color.to_rgba_list(operation.color)}]
+  end
+
+  def executable_operations(%PlanBlur{sigma: sigma}, %SourceShape{}),
+    do: [%Blur{sigma: sigma}]
+
+  def executable_operations(%PlanSharpen{sigma: sigma}, %SourceShape{}),
+    do: [%Sharpen{sigma: sigma}]
+
+  def executable_operations(%PlanPixelate{size: size}, %SourceShape{}),
+    do: [%Pixelate{size: size}]
+
+  def executable_operations(%PlanMonochrome{} = operation, %SourceShape{}) do
+    [
+      %Monochrome{
+        intensity: tagged_ratio_to_float(operation.intensity),
+        color: Color.to_rgb_list(operation.color)
+      }
+    ]
+  end
+
+  def executable_operations(%PlanDuotone{} = operation, %SourceShape{}) do
+    [
+      %Duotone{
+        intensity: tagged_ratio_to_float(operation.intensity),
+        shadow: Color.to_rgb_list(operation.shadow),
+        highlight: Color.to_rgb_list(operation.highlight)
+      }
+    ]
+  end
+
+  def executable_operations(%PlanBrightness{value: value}, %SourceShape{}),
+    do: [%Brightness{value: value}]
+
+  def executable_operations(%PlanContrast{value: value}, %SourceShape{}),
+    do: [%Contrast{value: value}]
+
+  def executable_operations(%PlanBitonal{}, %SourceShape{}), do: [%Bitonal{}]
+
+  def executable_operations(%PlanGray{}, %SourceShape{}), do: [%Gray{}]
+
+  def executable_operations(%PlanRotate{angle: angle, mirror: mirror}, %SourceShape{}),
+    do: [%Rotate{angle: angle, mirror: mirror}]
+
+  def executable_operations(%PlanSaturation{value: value}, %SourceShape{}),
+    do: [%Saturation{value: value}]
+
+  def executable_operations(%PlanColorize{} = operation, %SourceShape{}) do
+    [
+      %Colorize{
+        opacity: tagged_ratio_to_float(operation.opacity),
+        color: Color.to_rgb_list(operation.color),
+        keep_alpha: operation.keep_alpha
+      }
+    ]
+  end
+
+  def executable_operations(%PlanGradient{} = operation, %SourceShape{}) do
+    [
+      %Gradient{
+        opacity: tagged_ratio_to_float(operation.opacity),
+        color: Color.to_rgb_list(operation.color),
+        angle: operation.angle,
+        start: operation.start,
+        stop: operation.stop
+      }
+    ]
+  end
+
+  def executable_operations(%PlanTrim{} = operation, %SourceShape{}),
+    do: [
+      %Trim{
+        threshold: operation.threshold,
+        background: operation.background,
+        equal_hor: operation.equal_hor,
+        equal_ver: operation.equal_ver
+      }
+    ]
+
+  # Pure translation given an already-decided composition scale; the scale
+  # POLICY (literal ratio vs the resize-carried effective scale) belongs to the
+  # resolver/strategy that decided it.
+  @spec padding_executables(PlanPadding.t(), number()) :: [struct()]
+  def padding_executables(%PlanPadding{} = operation, scale) when is_number(scale) do
+    [
+      %Padding{
+        top: scaled_padding_side(operation.top, scale),
+        right: scaled_padding_side(operation.right, scale),
+        bottom: scaled_padding_side(operation.bottom, scale),
+        left: scaled_padding_side(operation.left, scale),
+        fill: executable_fill(operation.fill)
+      }
+    ]
+  end
+
+  @spec canvas_executables(Canvas.t(), number()) :: [struct()]
+  def canvas_executables(%Canvas{} = operation, scale) when is_number(scale) do
     # imgproxy dpr-scales the extend target box (TargetWidth = Scale(width, DprScale),
     # prepare.go) and absolute extend offsets (RoundToEven(offset * DprScale),
     # calc_position.go), keeping the composition dpr-stable — it skips the enlarge-off
     # DprScale compensation when extend is enabled. The resize op records exactly that
     # composition-preserving scale; thread it into the canvas op the same way padding
     # does via scaled_padding_side. (Like padding, zoom is not folded into the scale.)
-    scale = context.canvas_preserving_padding_scale || 1.0
-
     width = operation.width |> canvas_dimension() |> scale_canvas_dimension(scale)
     height = operation.height |> canvas_dimension() |> scale_canvas_dimension(scale)
 
@@ -109,100 +204,6 @@ defmodule ImagePipe.Transform.Lowering do
     ]
   end
 
-  def executable_operations(%PlanPadding{} = operation, %State{} = state, context) do
-    scale = effective_padding_scale(operation, state, context)
-
-    [
-      %Padding{
-        top: scaled_padding_side(operation.top, scale),
-        right: scaled_padding_side(operation.right, scale),
-        bottom: scaled_padding_side(operation.bottom, scale),
-        left: scaled_padding_side(operation.left, scale),
-        fill: executable_fill(operation.fill)
-      }
-    ]
-  end
-
-  def executable_operations(%PlanBackground{} = operation, %State{}, _context) do
-    [%Background{color: Color.to_rgba_list(operation.color)}]
-  end
-
-  def executable_operations(%PlanBlur{sigma: sigma}, %State{}, _context),
-    do: [%Blur{sigma: sigma}]
-
-  def executable_operations(%PlanSharpen{sigma: sigma}, %State{}, _context),
-    do: [%Sharpen{sigma: sigma}]
-
-  def executable_operations(%PlanPixelate{size: size}, %State{}, _context),
-    do: [%Pixelate{size: size}]
-
-  def executable_operations(%PlanMonochrome{} = operation, %State{}, _context) do
-    [
-      %Monochrome{
-        intensity: tagged_ratio_to_float(operation.intensity),
-        color: Color.to_rgb_list(operation.color)
-      }
-    ]
-  end
-
-  def executable_operations(%PlanDuotone{} = operation, %State{}, _context) do
-    [
-      %Duotone{
-        intensity: tagged_ratio_to_float(operation.intensity),
-        shadow: Color.to_rgb_list(operation.shadow),
-        highlight: Color.to_rgb_list(operation.highlight)
-      }
-    ]
-  end
-
-  def executable_operations(%PlanBrightness{value: value}, %State{}, _context),
-    do: [%Brightness{value: value}]
-
-  def executable_operations(%PlanContrast{value: value}, %State{}, _context),
-    do: [%Contrast{value: value}]
-
-  def executable_operations(%PlanBitonal{}, %State{}, _context), do: [%Bitonal{}]
-
-  def executable_operations(%PlanGray{}, %State{}, _context), do: [%Gray{}]
-
-  def executable_operations(%PlanRotate{angle: angle, mirror: mirror}, %State{}, _context),
-    do: [%Rotate{angle: angle, mirror: mirror}]
-
-  def executable_operations(%PlanSaturation{value: value}, %State{}, _context),
-    do: [%Saturation{value: value}]
-
-  def executable_operations(%PlanColorize{} = operation, %State{}, _context) do
-    [
-      %Colorize{
-        opacity: tagged_ratio_to_float(operation.opacity),
-        color: Color.to_rgb_list(operation.color),
-        keep_alpha: operation.keep_alpha
-      }
-    ]
-  end
-
-  def executable_operations(%PlanGradient{} = operation, %State{}, _context) do
-    [
-      %Gradient{
-        opacity: tagged_ratio_to_float(operation.opacity),
-        color: Color.to_rgb_list(operation.color),
-        angle: operation.angle,
-        start: operation.start,
-        stop: operation.stop
-      }
-    ]
-  end
-
-  def executable_operations(%PlanTrim{} = operation, %State{}, _context),
-    do: [
-      %Trim{
-        threshold: operation.threshold,
-        background: operation.background,
-        equal_hor: operation.equal_hor,
-        equal_ver: operation.equal_ver
-      }
-    ]
-
   defp crop_dimension(:full_axis), do: :auto
   defp crop_dimension({:px, value}), do: {:pixels, value}
   defp crop_dimension({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
@@ -210,7 +211,7 @@ defmodule ImagePipe.Transform.Lowering do
   defp crop_coordinate({:px, value}), do: {:pixels, value}
   defp crop_coordinate({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
 
-  defp reject_region_out_of_bounds?(%CropRegion{on_out_of_bounds: :clamp}, _state), do: false
+  defp reject_region_out_of_bounds?(%CropRegion{on_out_of_bounds: :clamp}, _shape), do: false
 
   # Decide "wholly outside" in the ORIGINAL source frame (`effective_source_dims`),
   # against the un-rescaled request coordinates — a region entirely outside the image
@@ -220,8 +221,8 @@ defmodule ImagePipe.Transform.Lowering do
   # *partial* overlap up to the shrunk width and spuriously reject a serviceable
   # request. `resolve_position` clamps negatives to 0, so the only way to be wholly
   # outside is an origin at or past the far edge.
-  defp reject_region_out_of_bounds?(%CropRegion{on_out_of_bounds: :reject} = operation, state) do
-    {src_w, src_h} = State.effective_source_dims(state)
+  defp reject_region_out_of_bounds?(%CropRegion{on_out_of_bounds: :reject} = operation, shape) do
+    {src_w, src_h} = {shape.width, shape.height}
 
     Geometry.resolve_position(crop_coordinate(operation.x), src_w) >= src_w or
       Geometry.resolve_position(crop_coordinate(operation.y), src_h) >= src_h
@@ -312,36 +313,6 @@ defmodule ImagePipe.Transform.Lowering do
 
   defp executable_fill({:solid, %Color{} = color}), do: {:color, Color.to_rgba_list(color)}
 
-  defp effective_padding_scale(
-         %PlanPadding{pixel_ratio: {:effective, _fallback, :resize}},
-         %State{},
-         %{effective_padding_scale: scale}
-       )
-       when is_number(scale),
-       do: scale
-
-  defp effective_padding_scale(
-         %PlanPadding{pixel_ratio: {:effective, _fallback, :canvas_preserving}},
-         %State{},
-         %{canvas_preserving_padding_scale: scale}
-       )
-       when is_number(scale),
-       do: scale
-
-  defp effective_padding_scale(
-         %PlanPadding{pixel_ratio: {:ratio, numerator, denominator}},
-         %State{},
-         _context
-       ),
-       do: numerator / denominator
-
-  defp effective_padding_scale(
-         %PlanPadding{pixel_ratio: {:effective, {:ratio, numerator, denominator}, _mode}},
-         %State{},
-         _context
-       ),
-       do: numerator / denominator
-
   defp scaled_padding_side({:px, value}, scale), do: round_half_to_even(value * scale)
 
   defp round_half_to_even(value) do
@@ -367,8 +338,9 @@ defmodule ImagePipe.Transform.Lowering do
   def tagged_executable_gravity(:bottom_right), do: {:anchor, :right, :bottom}
   def tagged_executable_gravity({:anchor, x, y}), do: {:anchor, x, y}
 
-  # Carried (TwicPics) gravity passes through to the executable Crop, which reads
-  # State.focus and normalizes it to a focal point at the libvips boundary.
+  # Carried gravity passes through to the executable Crop, which reads the
+  # neutral carried point and normalizes it to a focal point at the libvips
+  # boundary.
   def tagged_executable_gravity(:carried), do: :carried
 
   def tagged_executable_gravity({:focal, x, y}),

@@ -17,11 +17,15 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
 
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Parser.Imgproxy.Resolver, as: ImgproxyResolver
+  alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
+  alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
   alias ImagePipe.Test.ResolvedPlanCases
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.Operation.Padding, as: ExecPadding
   alias ImagePipe.Transform.ResolveDriver
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
@@ -81,7 +85,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   # flush immediately followed by the next pipeline's first op would otherwise
   # be misclassified as that op's own Rule-B materialization, hiding a real
   # reorder. `cases/0` is guarded below to fail loudly the day a case adds a
-  # second pipeline (Stage 2 SetFocus/TwicPics multi-pipeline plans).
+  # second pipeline (Stage 2 Directive/TwicPics multi-pipeline plans).
   defp canonicalize(
          [{:materialize_start}, {:materialize_stop, dims, _res} | rest],
          [] = _stack,
@@ -313,6 +317,101 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
 
       # Keep w0/h0 referenced so the recorded reference stays self-documenting.
       assert {w0, h0} == recorded_realized
+    end
+  end
+
+  describe "imgproxy strategy carry survives an :acquire (spec §8)" do
+    # Proves `ImagePipe.Parser.Imgproxy.Resolver.rewrap/2` threads the stashed
+    # DprScale (#237 no-enlarge padding/DPR cap) through an intervening
+    # `:acquire` untouched — a trim between the resize and the padding must not
+    # lose the carry.
+    #
+    # Plan = a no-enlarge fit resize (dpr 2, 800x600 source into a 400x300 box,
+    # well inside the source so the no-enlarge cap does not clamp it back down)
+    # -> trim (a second :acquire, unrelated to padding) -> padding with an
+    # :effective pixel_ratio in :resize mode.
+    #
+    # Hand-derived effective_padding_scale (ImagePipe.Parser.Imgproxy.Resolver.
+    # padding_scale/4, :resize mode):
+    #   requested_scale = dpr = 2.0
+    #   base = fit(dpr: 1.0, enlarge: true) resolved against the 800x600 source
+    #     -> requested_width/height = 400/300 (a plain fit already inside the
+    #        source, no min-dimension expansion)
+    #   max_without_enlarge = min(800/400, 600/300) = min(2.0, 2.0) = 2.0
+    #   :resize mode, max_without_enlarge >= 1.0 -> compensated = requested_scale = 2.0
+    #   min(compensated, max(max_without_enlarge, 1.0)) = min(2.0, 2.0) = 2.0
+    #
+    # A padding side of 10px scales by the carried 2.0 (Lowering.scaled_padding_side,
+    # round-half-to-even): round(10 * 2.0) = 20.
+    test "a stashed DprScale survives an intervening trim :acquire" do
+      shape =
+        SourceShape.seed(%{
+          width: 800,
+          height: 600,
+          pending_orientation: nil,
+          decode_shrink: nil
+        })
+
+      resize = %PlanResize{
+        mode: :fit,
+        width: {:px, 400},
+        height: {:px, 300},
+        dpr: {:ratio, 2, 1},
+        enlargement: :deny,
+        guide: :center
+      }
+
+      trim = %PlanTrim{threshold: 10.0, background: :auto, equal_hor: false, equal_ver: false}
+
+      {:ok, padding} =
+        Operation.padding({:px, 10}, {:px, 10}, {:px, 10}, {:px, 10},
+          pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
+        )
+
+      plan = [resize, trim, padding]
+
+      {:ok, image} = Image.new(800, 600, color: :white)
+      state = %State{image: image}
+
+      batches_agent =
+        start_supervised!(Supervisor.child_spec({Agent, fn -> [] end}, id: :batches))
+
+      capturing_chain = fn %State{} = st, ops, _opts ->
+        Agent.update(batches_agent, &[{ops, st.source_dimensions} | &1])
+        {:ok, st}
+      end
+
+      # Resize acquires its realized fitted dims (400x300, matching the plain
+      # fit); trim acquires unrelated dims (390x290) — the DprScale carry must
+      # survive this intervening acquire untouched.
+      acquire_dims_agent =
+        start_supervised!(
+          Supervisor.child_spec({Agent, fn -> [{400, 300}, {390, 290}] end}, id: :acquire_dims)
+        )
+
+      inject = fn _image ->
+        Agent.get_and_update(acquire_dims_agent, fn [next | rest] -> {next, rest} end)
+      end
+
+      assert {:ok, %State{}} =
+               ResolveDriver.run(
+                 plan,
+                 shape,
+                 {ImgproxyResolver, ImgproxyResolver.init()},
+                 state,
+                 chain: capturing_chain,
+                 acquire_dims: inject
+               )
+
+      batches = Agent.get(batches_agent, &Enum.reverse/1)
+
+      assert [
+               {[%_{}], _resize_dims},
+               {[%_{}], _trim_dims},
+               {[%ExecPadding{top: top, right: right, bottom: bottom, left: left}], _padding_dims}
+             ] = batches
+
+      assert {top, right, bottom, left} == {20, 20, 20, 20}
     end
   end
 end

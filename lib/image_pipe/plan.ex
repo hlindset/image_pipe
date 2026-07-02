@@ -41,6 +41,7 @@ defmodule ImagePipe.Plan do
       Operation.Contrast,
       Operation.CropGuided,
       Operation.CropRegion,
+      Operation.Directive,
       Operation.Duotone,
       Operation.Flip,
       Operation.Gradient,
@@ -51,7 +52,6 @@ defmodule ImagePipe.Plan do
       Operation.Rotate,
       Operation.Resize,
       Operation.Saturation,
-      Operation.SetFocus,
       Operation.Sharpen,
       Operation.Trim
     ]
@@ -69,7 +69,8 @@ defmodule ImagePipe.Plan do
                 cachebuster: nil,
                 response: %Response{},
                 auto_rotate: false,
-                render: :image
+                render: :image,
+                resolver: nil
               ]
 
   @type t :: %__MODULE__{
@@ -80,7 +81,8 @@ defmodule ImagePipe.Plan do
           cachebuster: String.t() | nil,
           response: Response.t(),
           auto_rotate: boolean(),
-          render: :image | {:custom, module(), map()}
+          render: :image | {:custom, module(), map()},
+          resolver: module() | nil
         }
 
   @type pipeline_error() ::
@@ -96,6 +98,7 @@ defmodule ImagePipe.Plan do
           | {:invalid_response_plan, term()}
           | {:invalid_auto_rotate, term()}
           | {:invalid_render_plan, term()}
+          | {:invalid_resolver_plan, term()}
 
   @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
   def validate_shape(%__MODULE__{} = plan) do
@@ -104,7 +107,8 @@ defmodule ImagePipe.Plan do
          :ok <- validate_expires(plan.expires),
          :ok <- validate_cachebuster(plan.cachebuster),
          :ok <- validate_response(plan.response),
-         :ok <- validate_auto_rotate(plan.auto_rotate) do
+         :ok <- validate_auto_rotate(plan.auto_rotate),
+         :ok <- validate_resolver(plan.resolver) do
       {:ok, plan}
     end
   end
@@ -344,6 +348,14 @@ defmodule ImagePipe.Plan do
 
   defp validate_auto_rotate(value) when is_boolean(value), do: :ok
   defp validate_auto_rotate(value), do: {:error, {:invalid_auto_rotate, value}}
+
+  # The geometry-resolution strategy carried by the plan (spec §4.2): a module
+  # implementing ImagePipe.Resolver, selected by the parser; nil = the neutral
+  # resolver. Parsers are host-implementable, so the shape is validated like
+  # render:.
+  defp validate_resolver(nil), do: :ok
+  defp validate_resolver(module) when is_atom(module), do: :ok
+  defp validate_resolver(other), do: {:error, {:invalid_resolver_plan, other}}
 
   # The terminal pairs the render selector with the output config: only the
   # built-in `:image` terminal carries an image `%Output{}`; a custom renderer

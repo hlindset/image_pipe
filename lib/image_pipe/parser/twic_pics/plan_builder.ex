@@ -2,6 +2,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   @moduledoc false
 
   alias ImagePipe.Parser.TwicPics.Output
+  alias ImagePipe.Parser.TwicPics.Resolver
   alias ImagePipe.Parser.TwicPics.Units
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
@@ -23,7 +24,8 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
          pipelines: [%Pipeline{operations: Enum.reverse(acc.ops)}],
          output: output,
          auto_rotate: Keyword.fetch!(config, :auto_rotate),
-         response: %Response{debug?: acc.debug?}
+         response: %Response{debug?: acc.debug?},
+         resolver: Resolver
        }}
     end
   end
@@ -166,7 +168,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   # emits no operation.
   defp focus("auto", acc), do: {:ok, %{acc | guide: {:smart, :face_assist}}}
   # Live TwicPics accepts `focus=center` (resolves to the centre point) even though
-  # the documented anchor list omits it; emit a centre-anchor SetFocus.
+  # the documented anchor list omits it; emit a centre-anchor :set_focus directive.
   defp focus("center", acc), do: emit_focus({:anchor, :center, :center}, acc)
 
   defp focus(args, acc) do
@@ -177,12 +179,12 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   end
 
   # A coordinate focus (literal px, relative p/s, or mixed) emits a positional
-  # SetFocus that resolves its units against the running frame at execution and
-  # carries the resolved point. Out-of-range positives are clamped there; negative
-  # coordinates are rejected by Units before this point.
+  # :set_focus directive that resolves its units against the running frame at
+  # execution and carries the resolved point. Out-of-range positives are clamped
+  # there; negative coordinates are rejected by Units before this point.
   defp focus_coordinates(args, acc) do
     with {:ok, {x, y}} <- Units.coordinates(args),
-         {:ok, op} <- Operation.set_focus({:coord, x, y}) do
+         {:ok, op} <- Operation.directive(:set_focus, {:coord, x, y}) do
       {:ok, %{acc | ops: [op | acc.ops], guide: :carried}}
     else
       _ -> {:error, {:unsupported_focus, args}}
@@ -190,7 +192,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   end
 
   defp emit_focus(anchor, acc) do
-    with {:ok, op} <- Operation.set_focus(anchor) do
+    with {:ok, op} <- Operation.directive(:set_focus, anchor) do
       {:ok, %{acc | ops: [op | acc.ops], guide: :carried}}
     end
   end
