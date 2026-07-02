@@ -84,8 +84,8 @@ against imgproxy's own source.
 - Not a perf project. libvips dimension reads are already lazy; the prize is
   decoupling and determinism, not avoiding compute.
 - **Retiring the focus read-back is not in scope for the shipped design.** It is
-  the one payoff gated on `planned == realized` and is deferred to the optional
-  B-promotion (§4.5, §9).
+  deferred to the optional Stage 3 — via the B-promotion's computed dims or,
+  independently of that property, the `Measure` mechanism (§4.4, §9).
 
 ## 3. Current state, validated
 
@@ -260,8 +260,8 @@ Deliberate divergences from the exploration's §3.2 field list:
   stays; the point is only that resolution/shape-advance never needs them.)
 - **`focus` is NOT on `SourceShape`.** It is strategy-supplied point state, not
   source geometry. The original plan — move it into the TwicPics
-  `strategy_state` — is **deferred to Stage 3**: the move is gated on
-  `planned == realized` (§4.4). In the shipped Stage-2 design it remains on
+  `strategy_state` — is **deferred to Stage 3 by scope**, with the `Measure`
+  mechanism banked (§4.4). In the shipped Stage-2 design it remains on
   `State` as the *neutral* carried point (renamed `carried_point`), advanced by
   the executables' nil-safe point mechanics exactly as today.
 
@@ -298,12 +298,24 @@ construction.
   which are never acquired. (The fp itself needs no realized dims —
   scale-by-realized then normalize-by-realized cancels to the pre-resize
   fraction — but the translate does.) Today this is exact only because the
-  executables update the focus inside `execute` with live dims
-  (`resize.ex` `Focus.scale`, `crop.ex` `carry_focus_through_crop`,
-  `extend_canvas.ex` translate, `orientation_flush.ex` `reflect_rotate`). So
-  the move is gated on the **same `planned == realized` property as the
-  B-promotion** (§4.5) — or on a per-emitted-executable acquisition redesign of
-  the continuation contract — and rides Stage 3 (§9). In Stage 2 the focus
+  executables update the focus at *executable* granularity — inside `execute`,
+  with the live image in hand (`resize.ex` `Focus.scale`, `crop.ex`
+  `carry_focus_through_crop`, `extend_canvas.ex` translate,
+  `orientation_flush.ex` `reflect_rotate`) — while the carry advances at
+  *plan-op* granularity, observing only each emitted list's endpoints.
+  **Designed mechanism (2026-07-02, second pass): a neutral `Measure` op.**
+  The strategy interleaves it into a multi-executable emission
+  (`[resize, Measure, crop]`); `Measure` is pixel-untouched, reads the live
+  dims at execute time (header metadata — no pixel force, same cost as the
+  acquire read) into a driver-owned measurement channel, and the driver feeds
+  the recorded measurements to the `:acquire` continuation alongside the final
+  dims. `then_fn` then folds the carry through the list *exactly*: the crop's
+  fp needs no W′ (the cancellation), so the crop is emitted with a concrete
+  `{:fp, x, y}` at resolve time; the translate recomputes the origin from
+  `{fp, W′, cw, off}` via a pure origin helper (the `resolved_box_dims` twin),
+  producing the same integers as `Crop.execute`. This makes the move
+  **independent of the `planned == realized` property** — it is deferred to
+  Stage 3 by *scope*, not by a hard gate (§9). In Stage 2 the focus
   stays on `State`, re-documented (and renamed `carried_point`) as the neutral
   strategy-supplied carried point — the same neutrality move Stage 2b makes for
   `:carried` gravity — and the executables keep their nil-safe point mechanics.
@@ -338,9 +350,9 @@ neutrally**: with the Resolver seam, "gravity supplied by the plan's strategy"
 is a product-neutral concept (any strategy may supply a point, exactly as
 `:smart` is neutral although only some dialects use it). The
 resolve-to-a-concrete-`{:fp, x, y}`-before-emission step (so executable ops
-never see `:carried`) is **deferred to Stage 3** with the focus carry — same
-realized-dims gate (above); in Stage 2 the executable `:carried` gravity
-remains, redefined as reading the neutral carried point. Wire behavior is
+never see `:carried`) is **deferred to Stage 3** with the focus carry — it
+rides the same `Measure` mechanism (above); in Stage 2 the executable
+`:carried` gravity remains, redefined as reading the neutral carried point. Wire behavior is
 byte-identical; the cache key data reshapes in place (greenfield rule, no
 version bump).
 
@@ -764,10 +776,11 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
    design pass, validated against the post-#439 code):
    - **Scope decision record.** The executable `Resize`/`Crop` mode/unit math
      stays put, and the TwicPics focus stays on `State` as the neutral carried
-     point — both deferred to Stage 3 behind the `planned == realized` gate
-     (§4.4): the focus-carry move needs realized *intermediate* dims inside
-     multi-op emissions that the acquire seam never supplies, and thinning the
-     executables needs a Resolver **error channel** that doesn't exist yet
+     point — both deferred to Stage 3 **by scope**: the focus-carry move needs
+     realized *intermediate* dims inside multi-executable emissions that the
+     per-plan-op acquire never observes (mechanism designed and banked: the
+     `Measure` op, §4.4 — no `planned == realized` dependency), and thinning
+     the executables needs a Resolver **error channel** that doesn't exist yet
      (below). Stage 2 stays results-identical by construction.
    - **Strategy carry in the Plan.** `Plan` gains `resolver: module() | nil`
      (parser-set: imgproxy and TwicPics set their strategies, IIIF/native `nil`
@@ -819,21 +832,23 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
 3. **(Optional) B-promotion + the banked Stage-2 deferrals.** If the §8 property
    spike is green and the version-pinning is acceptable, flip `resize` from
    `read` to `advance` at the seam (selectively if needed) and retire the focus
-   read-back. The prior stages' goldens are the equivalence net. Riding the same
-   gate, banked from the Stage-2 scope decision (§4.4):
+   read-back. The prior stages' goldens are the equivalence net. Banked from
+   the Stage-2 scope decision (§4.4):
    - **Thin the executables** to apply-exact primitives (resolver emits
      force-to-exact resizes / exact-box crops). Prerequisite: an **error
      channel on the Resolver contract** — `reject_enlargement` /
      `upscale_required` must surface at resolve time, before pixels; today they
      surface from `Resize.execute` through `Chain`.
-   - **Move the carried point into the TwicPics strategy carry** and resolve
-     `:carried` to a concrete `{:fp, x, y}` before emission, deleting the
-     executables' point mechanics (`Focus.scale`/`translate`/`reflect_rotate`
-     call sites) — needs pure origin helpers on `Crop`/`ExtendCanvas`
-     (mirroring `resolved_box_dims`).
-   - **Fallback if the spike finds counterexamples:** a per-emitted-executable
-     acquisition redesign of the continuation contract — to be designed then,
-     not now.
+   - **Move the carried point into the TwicPics strategy carry** via the
+     **`Measure` mechanism** (§4.4): the neutral pixel-untouched measuring op
+     interleaved into multi-executable emissions, the driver measurement
+     channel feeding the `:acquire` continuation, and pure origin helpers on
+     `Crop`/`ExtendCanvas` (mirroring `resolved_box_dims`). Resolve `:carried`
+     to a concrete `{:fp, x, y}` before emission and delete the executables'
+     point mechanics (`Focus.scale`/`translate`/`reflect_rotate` call sites).
+     **Independent of the property spike** — the fold is exact by measurement,
+     so this lands whether or not B is adopted (and if B lands, the `Measure`
+     interleave for resize can drop in favor of the computed dims).
 
 Each stage is independently green on golden + differential + wire.
 
