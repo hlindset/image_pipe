@@ -44,7 +44,43 @@
 
 ---
 
-## Stage 2 — the boundary move (Tasks 1–7; closes #434)
+## Stage 2 — the boundary move (Tasks 0–7; closes #434)
+
+### Task 0: Pin the canvas-under-shrink chains (investigation gate)
+
+**Why this task exists (plan-review finding, verified 2026-07-02):**
+`DecodePlanner` plans shrink-on-load *through* a Canvas — `crop_extent_before_resize`
+skips it (`_operation → {:cont, acc}`) and `Enum.find(chain, &match?(%PlanResize{}, &1))`
+finds a resize anywhere later in the chain — so a TwicPics `inside=<W:H ratio>`
+(Canvas-only emission) followed by a px `cover`/`resize` runs with `decode_shrink`
+**outstanding at the Canvas position** on a large source. The Stage-1 Canvas
+plain-advance (`neutral_resolver.ex` `plain_ops_advance`) then writes the
+*live-frame* canvas result into `shape.width/height` while **retaining**
+`decode_shrink` — the shape becomes frame-incoherent, `SourceShape.live_dims/1`
+double-divides afterwards, and Task 1's shape-derived focus row would change
+bytes for `inside=<ratio>/focus=…/cover=…` chains. The existing TwicPics
+differential never triggers this (no `inside`+`focus` constellation; ~400²
+sources never shrink), so **no current gate catches it** — and the incoherence
+may already affect Stage-1 shape advances for `inside=<ratio>/cover=<px>`
+(no focus) on large sources, i.e. a possible live pre-existing bug.
+
+**Files:**
+- Modify: `test/support/image_pipe/test/twicpics_differential/` (new fixtures per its README workflow; a new large source also needs a `SourceInventory` entry — check `consumers` rules in AGENTS.md)
+
+- [ ] **Step 1: Bake pinning fixtures.** Following `test/support/image_pipe/test/imgproxy_differential/README.md` conventions as adapted by the TwicPics differential suite: add constellations for `inside=<W:H ratio>/cover=<WxH px>`, `inside=<ratio>/crop=<WxH px>`, and `inside=<ratio>/focus=<px and anchor>/cover=<px>` over a source large enough to trigger shrink-on-load for the px target (reuse an existing large inventory source if one exists; otherwise add one **with** its inventory entry). Bake against live TwicPics (Docker; locally set `TESTCONTAINERS_RYUK_DISABLED=true`, `MIX_ENV=test mix deps.get` first).
+
+- [ ] **Step 2: Evaluate — STOP conditions.**
+  - If current (Stage-1) output **diverges from upstream TwicPics** on any new fixture: stop, file a bug (suspected Stage-1 Canvas-advance frame incoherence), and consult before executing Task 1 — the mechanism decision (make the Canvas plain-advance frame-coherent vs. other options) must be made explicitly, not inside this plan.
+  - If all green: commit the fixtures. They convert the silent divergence into a standard differential failure — Task 1 Step 6 item 4 (the shape-derived focus row) is **gated on these fixtures staying green**; if it turns them red, stop and consult rather than adjusting the fixtures.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add -A
+git commit -m "test: pin TwicPics canvas-under-shrink chains ahead of the resolve Stage-2 move"
+```
+
+---
 
 ### Task 1: Re-signature `Lowering`/`ResizePlanning` to `SourceShape` inputs
 
@@ -56,7 +92,7 @@ The resolver stops reading `env.state`; every lowering input comes off the threa
 - Modify: `lib/image_pipe/transform/lowering.ex`
 - Modify: `lib/image_pipe/transform/neutral_resolver.ex`
 - Modify: `lib/image_pipe/transform/resolve_driver.ex`
-- Test: `test/image_pipe/transform/source_shape_test.exs` (new `live_dims/1` cases); existing suites pin the rest
+- Test: `test/image_pipe/transform/source_shape_test.exs` (new `live_dims/1` cases); `test/image_pipe/transform/resolve_driver_test.exs` (its `Probe` resolver reads `env.state` — rework below); existing suites pin the rest
 
 **Interfaces:**
 - Produces: `SourceShape.live_dims(shape) :: {pos_integer(), pos_integer()}`;
@@ -103,6 +139,10 @@ In `source_shape.ex`, add (body verbatim from `NeutralResolver.live_dims/1`, inc
 # The live (decoded) image dims implied by the shape: the effective source
 # dims divided by the realized shrink-on-load factor (exact — the factor is
 # original ÷ decoded, so the division round-trips the decoded extent).
+# Exact ONLY while the shape is frame-coherent: width/height and decode_shrink
+# must describe the same frame, i.e. no advance may change the dims without
+# clearing or compensating an outstanding shrink (the Task-0 fixtures pin the
+# one reachable violation, canvas-under-shrink).
 @spec live_dims(t()) :: {pos_integer(), pos_integer()}
 def live_dims(%__MODULE__{width: w, height: h, decode_shrink: nil}), do: {w, h}
 
@@ -241,7 +281,7 @@ lowering_shape = %SourceShape{
 ```
 
 3. `CropGuided` compensated row: `lowering_shape = %SourceShape{shape | decode_shrink: orient_decode_shrink(shape.decode_shrink, po)}`.
-4. `SetFocus` row goes shape-derived (the Stage-1 live-image read dies; `live_dims/1` reconstructs the decoded frame exactly — spec §4.4):
+4. `SetFocus` row goes shape-derived (the Stage-1 live-image read dies; `live_dims/1` reconstructs the decoded frame exactly wherever the shape is frame-coherent — spec §4.4). **Gated on Task 0:** the new canvas-under-shrink fixtures must stay green after this change; if they go red, stop and consult (do not adjust the fixtures).
 
 ```elixir
 defp do_resolve(%SetFocus{point: operand}, %SourceShape{} = shape, _env) do
@@ -327,6 +367,10 @@ and `update_execution_context` computes from the shape (value-equal to the overl
 
 Call it with `shape` in the reduce. The `overlay/2` remains untouched — it now exists **solely** to feed the executables' execute-time `State` reads; update its comment to say exactly that.
 
+- [ ] **Step 7b: Rework `resolve_driver_test.exs`'s `Probe` resolver**
+
+The test file's `Probe` resolver reads `env.state.source_dimensions` and asserts "overlay feeds env from the shape" via an `{:env_dims, …}` message — `env.state` no longer exists. Rework the `Probe` to capture the overlaid dims through the **injected chain** instead (the chain fun receives the post-overlay `%State{}`; send `state.source_dimensions` from there) and re-point the assertion; the property it pins (the overlay writes the shape's dims into `State` before each op) is unchanged and must stay pinned.
+
 - [ ] **Step 8: Full verification**
 
 Run: `mise exec -- mix compile --warnings-as-errors && mise exec -- mix test`
@@ -398,7 +442,7 @@ describe "plan_material resolver tag" do
 end
 ```
 
-(the first test doubles as the drift test pinning `Key`'s hardcoded neutral version to `NeutralResolver.behavior_version/0`; adapt the plan-fixture helper name to the file's existing one.)
+(the first test doubles as the drift test pinning `Key`'s hardcoded neutral version to `NeutralResolver.behavior_version/0`. **The nil-resolver test must use a hand-built plan** — the file's existing `imgproxy_plan!/1`/`twic_plan!/1` fixtures are parser-built and stop being nil-resolver once Tasks 4/8 wire the builders; a parser-independent fixture keeps this test true through the whole plan.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -461,7 +505,7 @@ defp execute_pipeline(%Pipeline{operations: operations}, resolver, %State{} = st
 end
 ```
 
-with `execute/3` passing `plan.resolver || NeutralResolver` (destructure `resolver` from the `%Plan{}` match).
+with `execute/3` passing `plan.resolver || NeutralResolver` (destructure `resolver` from the `%Plan{}` match). Update the module's `@moduledoc` — it currently says pipelines run "with the neutral resolver"; it now selects the Plan-carried strategy, defaulting to neutral.
 
 `cache/key.ex` — in `plan_material/2`, after `transform:`:
 
@@ -498,6 +542,8 @@ git commit -m "feat: Plan-carried resolver strategy + behavioral version in plan
 **Files:**
 - Modify: `lib/image_pipe/transform.ex` (exports)
 - Modify: `lib/image_pipe/parser.ex` (deps)
+- Modify: `lib/image_pipe/parser/imgproxy.ex`, `lib/image_pipe/parser/twic_pics.ex` (sub-boundary deps — the strategies live inside these `use Boundary` declarations)
+- Modify: `test/image_pipe/architecture_boundary_test.exs` (the parser deps are asserted **exactly** — `assert_boundary_deps`/`assert_allowed_deps` for `parser` and for both sub-boundaries)
 - Modify: `lib/image_pipe/transform/neutral_resolver.ex` (public helpers + `@moduledoc`)
 - Modify: `AGENTS.md` (boundary table)
 
@@ -521,6 +567,20 @@ git commit -m "feat: Plan-carried resolver strategy + behavioral version in plan
       ImagePipe.Transform
     ],
 ```
+
+`ImagePipe.Parser.Imgproxy` (`lib/image_pipe/parser/imgproxy.ex`) and
+`ImagePipe.Parser.TwicPics` (`lib/image_pipe/parser/twic_pics.ex`) are their own
+`use Boundary` declarations, and the strategies (Tasks 4/8) live inside them —
+add `ImagePipe.Resolver` and `ImagePipe.Transform` to **both** sub-boundaries'
+`deps:` lists now (Boundary violations are compile warnings and Tasks 4/8 gate
+on `--warnings-as-errors`).
+
+Then update `test/image_pipe/architecture_boundary_test.exs`: the parser
+boundary and both sub-boundaries have **exact** deps assertions
+(`assert_boundary_deps(parser, [Config, Format, Plan, Renderer])` around line
+108 plus the matching `assert_allowed_deps`, and the imgproxy/twicpics
+sub-boundary assertions around lines 120–139) — extend each list with
+`Resolver` and `Transform`.
 
 - [ ] **Step 2: Make the two advance helpers public**
 
@@ -560,8 +620,8 @@ In the *Boundary library guidelines* `deps:` list, change the `parser` line to:
   - `parser` → `plan`, `renderer`, `resolver`, `transform` (a dialect's carried
     resolver strategy under `parser/*` implements `ImagePipe.Resolver`, pattern-
     matches `SourceShape`, and emits executable transform ops — the declared
-    static edge; the core stays adapter-ignorant, and dynamic dispatch stays
-    quarantined in the `Resolver` facade)
+    static edge; the core stays adapter-ignorant, and the per-op resolve
+    dispatch stays quarantined in the `Resolver` facade)
 ```
 
 - [ ] **Step 4: Verify and commit**
@@ -661,7 +721,7 @@ Expected: FAIL — module doesn't exist.
 
 In `resize_planning.ex`:
 - Make `resize_from/2` public with `@spec resize_from(PlanResize.t(), :fit | :cover | :stretch) :: Resize.t()` (mechanical plan→executable translation, including the `down: true` → `:fill_down` mode row — `down` is neutral Plan vocabulary; the imgproxy-only *behavior* lives in the executable's `fill_down` clauses, the shared column per spec §3).
-- Delete: the `lower(%PlanResize{mode: :auto}, …)` clause, the `cover_resize?(%PlanResize{mode: :auto}, …)` clause, `plan_resize_branch/2`, `auto_branch/2`, `orientation_diff/2`, `tagged_logical_pixels/1`, `resize_padding_scale/3`, `max_padding_scale_without_enlarge/2`, `compensate_no_enlarge_padding_scale/3`, `clamp_padding_scale/2`, and `display_source_dims/1`. (They reappear inside the strategy, Step 4.) Keep `tagged_dpr_float/1` if still used by `resize_from`; otherwise it moves too.
+- Delete: the `lower(%PlanResize{mode: :auto}, …)` clause, the `cover_resize?(%PlanResize{mode: :auto}, …)` clause, `tagged_executable_resize_operations/5` (its only caller is the deleted `:auto` `lower` clause), `plan_resize_branch/2`, `resize_auto_branch/4`, `auto_branch/2`, `orientation_diff/2`, `tagged_logical_pixels/1`, `resize_padding_scale/3`, `max_padding_scale_without_enlarge/2`, `compensate_no_enlarge_padding_scale/3`, `clamp_padding_scale/2`, and `display_source_dims/1` — plus the `PendingOrientation` alias if nothing else uses it. (They reappear inside the strategy, Step 4; unused leftovers fail `--warnings-as-errors`.) Keep `tagged_dpr_float/1` if still used by `resize_from`; otherwise it moves too.
 - Update the `@moduledoc`: this module is now the *neutral* resize expansion (fit/cover/stretch + result-crop mechanics); mode selection and the padding-scale cap live in the imgproxy strategy.
 
 - [ ] **Step 4: Create the strategy**
@@ -815,14 +875,24 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
     min(compensated, max(max_without_enlarge, 1.0))
   end
 
-  # No explicit geometry (auto/auto, no zoom): wshrink=hshrink=1, and imgproxy's
-  # `!Enlarge()` block ALWAYS caps, so a geometry-less dpr caps to 1 (#237).
+  # No explicit geometry (auto/auto, no zoom): imgproxy's calcScale leaves
+  # dstW=srcW, dstH=srcH, so wshrink=hshrink=1 and the no-enlarge cap is
+  # min(wshrink,hshrink)=1.0. A no-enlarge request is ALWAYS capped — imgproxy's
+  # `!Enlarge()` block unconditionally runs `DprScale = min(DPR, min(wshrink,
+  # hshrink))` — so a geometry-less dpr caps to 1 (#237). A zoom folds into the
+  # requested box upstream, so a zoomed request never reaches this auto/auto
+  # clause.
   defp max_padding_scale_without_enlarge(
          %{requested_width: :auto, requested_height: :auto},
          %SourceShape{}
        ),
        do: 1.0
 
+  # The requested box is display-frame; size it against the display-frame source
+  # so the no-enlarge cap couples the same axes imgproxy does (its SrcWidth is
+  # ExtractGeometry-swapped under a quarter turn). Mixing the display-frame
+  # request with storage-frame source dims crosses axes under a pending quarter
+  # turn (#182).
   defp max_padding_scale_without_enlarge(
          %{requested_width: width, requested_height: height},
          %SourceShape{} = shape
@@ -888,7 +958,7 @@ Keep the comment blocks — they carry the imgproxy-source citations the compati
 ```
 
 (drop the `PlanResize`/`ResizePlanning` aliases.)
-3. `neutral_resolver.ex`: delete the two `{:effective, …}` `padding_scale` clauses (imgproxy plans no longer reach the neutral resolver; an `:effective` padding here is impossible internal misuse — crash by no matching clause, no test). Same for the `Canvas` row: replace `env.ctx.canvas_preserving_padding_scale || 1.0` with the literal `1.0` (only non-imgproxy plans reach it; their scale was always 1.0). The neutral `resolve/4` now ignores `env` entirely.
+3. `neutral_resolver.ex`: the scale policy goes ctx-free and narrows to the literal form only. `padding_scale/2` becomes `padding_scale/1` keeping **only** the `{:ratio, n, d}` clause — **all three** `{:effective, …}` clauses die, including the `{:effective, {:ratio, n, d}, _mode}` fallback (a fallback surviving would make an `:effective` padding *resolve* instead of crash, contradicting the crash-by-omission contract; the fallback behavior lives on in the strategy's `padding_scale_for/2`). The padding row's call site becomes `Lowering.padding_executables(operation, padding_scale(operation))` — **it must stop reading `env.ctx`**, which the driver no longer populates (a `%{}.ctx` read is a `KeyError` on the kept literal path). Same for the `Canvas` row: replace `env.ctx.canvas_preserving_padding_scale || 1.0` with the literal `1.0` (only non-imgproxy plans reach it; their scale was always 1.0 — no non-imgproxy parser sets `dpr`). The neutral `resolve/4` now ignores `env` entirely.
 4. `neutral_resolver.ex` moduledoc: note `mode: :auto` is imgproxy-strategy-resolved before delegation and unreachable here.
 
 - [ ] **Step 6: Golden — carry survives an `:acquire`**
@@ -922,7 +992,7 @@ git commit -m "feat: extract the imgproxy resolution column into a carried strat
 - Modify: `lib/image_pipe/transform/neutral_resolver.ex`
 - Modify: `lib/image_pipe/parser/imgproxy/resolver.ex`
 - Modify: `lib/image_pipe/transform/resolve_driver.ex`
-- Test: `test/image_pipe/resolver_test.exs`, `test/image_pipe/transform/neutral_resolver_test.exs`, `test/image_pipe/parser/imgproxy/resolver_test.exs`
+- Test: `test/image_pipe/resolver_test.exs`, `test/image_pipe/transform/neutral_resolver_test.exs`, `test/image_pipe/transform/resolve_driver_test.exs` (the `Probe` resolver's callback arity), `test/image_pipe/parser/imgproxy/resolver_test.exs`
 
 **Interfaces:**
 - Produces (the frozen Stage-2 contract, spec §4.2):
@@ -1011,11 +1081,11 @@ git commit -m "test: scope what a carried resolver strategy may reach (#434)"
 
 - [ ] **Step 1: imgproxy matrix — stage/order axis**
 
-In the processing-pipeline section: resolution decisions (`:auto` bucketing, the no-enlarge DPR/padding-scale cap, `fill_down`) now live in the Plan-carried `ImagePipe.Parser.Imgproxy.Resolver` strategy; shared expansion mechanics (fit/cover/stretch, `cropToResult`, orientation compensation, shrink rescale) stay in the neutral transform column; `fixSize`/`limitScale` remain Output-boundary (spec §4.4/§4.7). No surface rows change; no "Diverges" change.
+In the processing-pipeline section: resolution *decisions* (`:auto` bucketing, the no-enlarge DPR/padding-scale cap) now live in the Plan-carried `ImagePipe.Parser.Imgproxy.Resolver` strategy; `fill_down` is described as **reachable only via the imgproxy strategy** (its `down → :fill_down` mapping stays in the shared `resize_from` column, the behavior in the executable's `fill_down` clauses — match what Task 4 landed); shared expansion mechanics (fit/cover/stretch, `cropToResult`, orientation compensation, shrink rescale) stay in the neutral transform column; `fixSize`/`limitScale` remain Output-boundary (spec §4.4/§4.7). Sweep the pipeline-stage rows for prose the move stales — at minimum the stage-6 `scale` row's `display_source_dims/1` reference (now a strategy-private function) and the stage-10 `extend` row's "the executor threads the resize's composition-preserving scale into the canvas op" (now the imgproxy strategy carry); check stage 12 (`padding`) the same way. No surface rows change; no "Diverges" change.
 
 - [ ] **Step 2: TwicPics matrix — stage/order note**
 
-Note that TwicPics plans resolve through the neutral strategy in Stage 2 (its own strategy arrives with the Directive work, below). No surface/pixel change.
+The doc has no pipeline/stage section; the natural home is the "Focus state (carried)" subsection. Note there that TwicPics plans resolve through the neutral strategy in Stage 2 (its own strategy arrives with the Directive work, below). No surface/pixel change.
 
 - [ ] **Step 3: Stage-2 gate**
 
@@ -1037,9 +1107,10 @@ git commit -m "docs: support-matrix stage/order sync for the resolver strategy m
 
 **Files:**
 - Create: `lib/image_pipe/parser/twic_pics/resolver.ex`
-- Test (create): `test/image_pipe/parser/twic_pics/resolver_test.exs`
+- Test (create): `test/image_pipe/parser/twic_pics/resolver_test.exs` (note: existing TwicPics *parser* tests live at `test/parser/twic_pics/` — the `test/image_pipe/parser/` path here follows the imgproxy strategy-test precedent from Task 4; don't "fix" either location)
 - Modify: `lib/image_pipe/parser/twic_pics/plan_builder.ex`
 - Modify: `lib/image_pipe/transform/neutral_resolver.ex`
+- Modify: `test/image_pipe/transform/neutral_resolver_test.exs` (the `@advance_ops` `SetFocus` entry)
 
 **Interfaces:**
 - Produces: `ImagePipe.Parser.TwicPics.Resolver` (implements `ImagePipe.Resolver`; `init/0` → `nil`, `behavior_version/0` → `1`); owns the `%SetFocus{}` row (this task) / `%Directive{}` row (Task 9). The neutral resolver has **no** focus row afterwards.
@@ -1135,6 +1206,8 @@ end
 
 Then: delete the `%SetFocus{}` `do_resolve` clause (and the `SetFocus`/`Focus`/`StateUpdate` aliases if now unused) from `neutral_resolver.ex` — a `SetFocus` reaching the neutral resolver is impossible internal misuse (only TwicPics emits it, and TwicPics plans now carry this strategy) — and add `resolver: ImagePipe.Parser.TwicPics.Resolver` to the `%Plan{}` in `parser/twic_pics/plan_builder.ex`.
 
+In `test/image_pipe/transform/neutral_resolver_test.exs`, **delete** the `{"SetFocus", %SetFocus{point: {:anchor, :center, :center}}}` entry from `@advance_ops` (and its now-unused alias) — after this task it would be an impossible-internal-misuse assertion (AGENTS: no such tests). Its continuation-classification coverage (`SetFocus` resolves as `:advance`, zero pixel ops) moves into the new TwicPics resolver test — the first test above already asserts exactly that shape.
+
 - [ ] **Step 4: Verify**
 
 Run: `mise exec -- mix test test/image_pipe/parser/twic_pics/resolver_test.exs test/image_pipe/twic_pics_wire_conformance_test.exs test/image_pipe/twicpics_differential_conformance_test.exs test/image_pipe/transform`
@@ -1155,8 +1228,9 @@ git commit -m "feat: TwicPics resolver strategy owns positional focus resolution
 - Create: `lib/image_pipe/plan/operation/directive.ex`
 - Delete: `lib/image_pipe/plan/operation/set_focus.ex`
 - Modify: `lib/image_pipe/plan.ex` (exports), `lib/image_pipe/plan/operation.ex`, `lib/image_pipe/plan/key_data.ex`
-- Modify: `lib/image_pipe/parser/twic_pics/plan_builder.ex`, `lib/image_pipe/parser/twic_pics/resolver.ex`
-- Test: `test/image_pipe/plan/operation_test.exs`, `test/image_pipe/plan/key_data_test.exs` (or `operation_key_data_test.exs` — wherever `set_focus` key data is asserted today), `test/image_pipe/parser/twic_pics/resolver_test.exs`
+- Modify: `lib/image_pipe/parser/twic_pics/plan_builder.ex`, `lib/image_pipe/parser/twic_pics/resolver.ex`, `lib/image_pipe/transform/focus.ex` (operand type)
+- Modify: `docs/twicpics_support_matrix.md` (the surface-table notes and "Focus state (carried)" section name `SetFocus` — lines ~86–92, 113; AGENTS requires the conformance doc updated in the same change)
+- Test: `test/image_pipe/plan/operation_test.exs` (add the directive test AND delete the existing `%SetFocus{}` constructor tests — compile errors once the struct is gone), `test/image_pipe/plan/key_data_test.exs` (no `op: :set_focus` assertion exists today; the directive test is an **addition**), `test/parser/twic_pics/plan_builder_test.exs` (~8 `%Operation.SetFocus{point: …}` pattern matches → rewrite to `%Directive{name: :set_focus, payload: …}` **keeping the operand-value assertions** — they are the spec-§4.4 payload-canonicality carrier, e.g. the reduced `{:ratio, 1, 4}` pins), `test/image_pipe/architecture_boundary_test.exs` (the **exact** Plan-boundary exports enumeration includes `Operation.SetFocus` → swap to `Operation.Directive`; also sweep the stale `:SetFocus` in `@concrete_plan_names`), `test/image_pipe/cache/key_test.exs` (the `inspect(material) =~ "set_focus"` assertion survives only coincidentally via `name: :set_focus` — re-point it at the reshaped `[op: :directive, …]` entry), `test/image_pipe/parser/twic_pics/resolver_test.exs`
 
 **Interfaces:**
 - Produces: `%ImagePipe.Plan.Operation.Directive{name: atom(), payload: term()}`; `Operation.directive(name, payload) :: {:ok, Directive.t()} | {:error, error()}`; key data `[op: :directive, name: name, payload: payload]`. `SetFocus` no longer exists anywhere.
@@ -1172,7 +1246,7 @@ test "directive/2 wraps a strategy-addressed pipeline entry" do
 end
 ```
 
-In the key-data test file that currently asserts `op: :set_focus`:
+In `test/image_pipe/plan/key_data_test.exs` (a new addition — nothing asserts `op: :set_focus` today):
 
 ```elixir
 test "directive key data hashes name and payload generically" do
@@ -1261,6 +1335,10 @@ def resolve(%SourceShape{} = shape, nil, %Directive{name: :set_focus, payload: o
 
 (alias `ImagePipe.Plan.Operation.Directive`; drop the `SetFocus` alias; update the strategy test's op construction; the `Focus.resolve/3` operand type reference in `focus.ex` — `@spec resolve(SetFocus.operand(), …)` — moves the operand type into `Focus` itself or inlines it, since `SetFocus` is gone: define `@type operand :: {:coord, measure, measure} | {:anchor, …}` locally in `focus.ex` and drop its `SetFocus` alias.)
 
+- [ ] **Step 4b: Sweep the remaining SetFocus consumers**
+
+Work through the Files list's test entries: rewrite `test/parser/twic_pics/plan_builder_test.exs`'s `%Operation.SetFocus{point: p}` matches to `%Operation.Directive{name: :set_focus, payload: p}` keeping every operand-value assertion; update the architecture test's Plan exports enumeration and `@concrete_plan_names`; delete `operation_test.exs`'s old `set_focus/1` constructor tests; re-point `key_test.exs`'s `=~ "set_focus"` assertion at the reshaped entry. Update `docs/twicpics_support_matrix.md` where it names `Plan.Operation.SetFocus` / "emits a positional `SetFocus`" (surface-table notes and the "Focus state (carried)" section) to the Directive vocabulary — behavior unchanged, wording only.
+
 - [ ] **Step 5: Full verification**
 
 Run: `mise exec -- mix compile --warnings-as-errors && mise exec -- mix test`
@@ -1280,8 +1358,10 @@ git commit -m "feat: de-dialect the Plan surface — SetFocus becomes a generic 
 **Files:**
 - Modify: `lib/image_pipe/transform/state.ex`, `lib/image_pipe/transform/focus.ex`
 - Modify: `lib/image_pipe/transform/operation/crop.ex`, `lib/image_pipe/transform/operation/resize.ex`, `lib/image_pipe/transform/operation/extend_canvas.ex`, `lib/image_pipe/transform/orientation_flush.ex` (only if they pattern-match the field name — they call the `Focus.*` API, so most need no change)
+- Modify: `lib/image_pipe/transform/operation/state_update.ex` (moduledoc names `:focus`), `lib/image_pipe/transform/lowering.ex` ("reads State.focus" comment), `lib/image_pipe/transform/neutral_resolver.ex` (`compensate_crop` doc block)
 - Modify: `lib/image_pipe/parser/twic_pics/resolver.ex` (StateUpdate field key)
-- Test: `test/image_pipe/transform/focus_test.exs`, `test/image_pipe/transform/focus_property_test.exs`
+- Modify: `docs/twicpics_support_matrix.md` (the "Focus state (carried)" section names `ImagePipe.Transform.State.focus`)
+- Test: `test/image_pipe/transform/focus_test.exs`, `test/image_pipe/transform/focus_property_test.exs`, `test/image_pipe/transform/operation/state_update_test.exs` (`%State{focus: …}` pattern — compile error after the rename), `test/image_pipe/parser/twic_pics/resolver_test.exs` (asserts `fields: %{focus: …}`)
 
 - [ ] **Step 1: Rename the field**
 
@@ -1302,8 +1382,8 @@ In `focus.ex`: every `state.focus` read / `%State{focus: …}` match becomes `ca
 
 - [ ] **Step 2: Grep gate**
 
-Run: `grep -rn "state\.focus\|focus:" lib/image_pipe/transform/state.ex lib/image_pipe/transform/focus.ex lib/image_pipe/parser/twic_pics/`
-Expected: no remaining `focus`-named field references (the `Focus` module name itself stays — it's the point-math namespace).
+Run: `grep -rn "State\.focus\|state\.focus\|focus:" lib/ test/ docs/twicpics_support_matrix.md`
+Expected: no remaining `focus`-named **field** references anywhere — audit every hit (the `Focus` module name itself stays — it's the point-math namespace; hits on unrelated words like "focal" or the smart-crop `focus=` grammar docs are fine).
 
 - [ ] **Step 3: Full verification and commit**
 
@@ -1346,8 +1426,9 @@ Verify with: `gh pr view --json closingIssuesReferences`. End the body with the 
 
 ---
 
-## Self-Review Notes (kept for the plan-review cycle)
+## Self-Review Notes
 
 - **Spec coverage:** §9 Stage 2 bullets map to: scope record (Global Constraints), `Plan.resolver` (Task 2), callback collapse (Task 5), imgproxy strategy + neutral narrowing (Task 4), `Lowering`/`ResizePlanning` re-signature (Task 1), boundary + architecture test (Tasks 3, 6), keys (Task 2/4), docs (Task 7), carry golden (Task 4). §9 Stage 2b maps to Tasks 8–10. Stage 3/4 items are explicitly out of scope.
-- **Known judgment calls for reviewers:** (a) `resize_from/2` keeps the `down → :fill_down` translation in neutral `ResizePlanning` (mechanical plan-vocabulary mapping; the imgproxy-only behavior lives in the executable's shared column) — spec §4.2's "fill_down mapping" ownership is realized as the strategy being the only reachable path to `down: true`; (b) `Key.resolver_data(nil)` pins `[strategy: :neutral, version: 1]` because `cache` does not depend on `transform` — drift-tested against `NeutralResolver.behavior_version/0`; (c) strategy unit-test fixtures must be checked against the real `Plan.Operation` constructor signatures before first run.
-- **Compatibility reviewer focus:** Task 4 (the moved `:auto`/`#237` code must stay line-faithful to `prepare.go`/`calc_position.go` citations), Task 1's `CropRegion`/`CropGuided` shape rebuilds (the `#185` swap and `#180` reset must survive verbatim), and the differential/wire suites at every task boundary.
+- **Known judgment calls:** (a) `resize_from/2` keeps the `down → :fill_down` translation in neutral `ResizePlanning` (mechanical plan-vocabulary mapping; the imgproxy-only behavior lives in the executable's shared column) — spec §4.2's "fill_down mapping" ownership is realized as the strategy being the only reachable path to `down: true`; (b) `Key.resolver_data(nil)` pins `[strategy: :neutral, version: 1]` because `cache` does not depend on `transform` — drift-tested against `NeutralResolver.behavior_version/0`; (c) strategy unit-test fixtures must be checked against the real `Plan.Operation` constructor signatures before first run.
+- **Plan-review cycle applied (2026-07-02, three parallel reviewers: imgproxy compatibility APPROVE-WITH-FIXES; quality/process REQUEST-CHANGES; 2b/cache/TwicPics REQUEST-CHANGES).** All blockers and should-fixes incorporated: Task 0 added (canvas-under-shrink pinning gate — the one behavioral finding, `DecodePlanner` verified to plan shrink through a Canvas); architecture-test and parser sub-boundary updates (Task 3); `resolve_driver_test` Probe rework (Tasks 1/5); neutral padding-scale made ctx-free with all three `:effective` clauses dying (Task 4); delete-list and citation completeness (Task 4); SetFocus/`carried_point` consumer sweeps enumerated (Tasks 8–10); TwicPics conformance-doc sync attached to Tasks 9/10. **Declined:** normalizing an explicit `NeutralResolver` module to `:neutral` in `resolver_data/1` (reviewer F6 nit) — no real producer sets the module explicitly, and the normalization would need `cache` to name a `transform` module, the exact boundary problem the pin avoids.
+- **Compatibility reviewer focus (for per-task review during execution):** Task 4 (the moved `:auto`/`#237` code must stay line-faithful to `prepare.go`/`calc_position.go` citations), Task 1's `CropRegion`/`CropGuided` shape rebuilds (the `#185` swap and `#180` reset must survive verbatim), Task 0/1's canvas-under-shrink gate, and the differential/wire suites at every task boundary.

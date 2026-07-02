@@ -333,11 +333,21 @@ construction.
   The TwicPics strategy still exists: it owns the **Directive** row (below),
   resolving the operand against neutral shape fields alone (the Stage-1
   `display_live_dims` env read dies with `env` — `live_dims/1` reconstructs the
-  decoded frame exactly from the shape, superseding this section's earlier
-  "cannot reconstruct exactly" claim) and committing via the neutral
-  **`StateUpdate`** op: a pixel-untouched executable op carrying a field map
-  that the chain merges into execution state — the generic channel for any
-  resolver decision that is a `State` write rather than geometry.
+  decoded frame exactly from the shape wherever the shape is *frame-coherent*,
+  superseding this section's earlier "cannot reconstruct exactly" claim) and
+  committing via the neutral **`StateUpdate`** op: a pixel-untouched executable
+  op carrying a field map that the chain merges into execution state — the
+  generic channel for any resolver decision that is a `State` write rather
+  than geometry. **Frame-coherence caveat (2026-07-02 plan review):** the
+  reconstruction's exactness requires that no shape advance change the dims
+  without clearing or compensating an outstanding `decode_shrink`. The Stage-1
+  Canvas plain-advance violates this — `DecodePlanner` plans shrink *through*
+  a Canvas, and the advance writes live-frame canvas dims while retaining the
+  shrink factor — reachable via TwicPics `inside=<ratio>` before a px resize
+  on a shrink-triggering source, and covered by no existing fixture. The
+  Stage-2 plan's Task 0 pins these chains against upstream before the
+  shape-derived focus row lands; the mechanism decision, if the pin exposes a
+  divergence, is made there, not silently.
 
 **Plan-surface de-dialecting (Stage 2b).** `Plan.Operation.SetFocus` is the one
 dialect-branded entry in the neutral Plan vocabulary — positional TwicPics
