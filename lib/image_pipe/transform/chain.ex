@@ -67,7 +67,7 @@ defmodule ImagePipe.Transform.Chain do
           %{operation: name, index: index, params: operation},
           fn ->
             res = run_operation(operation, state)
-            {res, %{result: elem(res, 0)}}
+            {res, stop_metadata(res)}
           end
         )
 
@@ -78,6 +78,13 @@ defmodule ImagePipe.Transform.Chain do
       end
     end)
   end
+
+  # Successful stops also carry the realized post-op image dimensions (an O(1)
+  # header read) — decoded dimensions are product-neutral, non-sensitive metadata.
+  defp stop_metadata({:ok, %State{image: image}}),
+    do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
+
+  defp stop_metadata(res), do: %{result: elem(res, 0)}
 
   defp run_operation(operation, %State{} = state) do
     case maybe_materialize(state, operation) do

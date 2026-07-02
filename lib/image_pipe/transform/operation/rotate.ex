@@ -12,8 +12,9 @@ defmodule ImagePipe.Transform.Operation.Rotate do
 
   Materializing op: rotation reads pixels out of row order, so it cannot run over
   a sequential decode. As a `requires_materialization?: true` op it is preceded by
-  `Chain`/`Materializer`'s orientation-applying flush, so it always sees the
-  EXIF-corrected display frame.
+  `Chain`/`Materializer`'s copy-to-memory; when an orientation is pending, the
+  resolver emits an explicit `Operation.Flush` before this op, so it always sees
+  the EXIF-corrected display frame.
   """
 
   use ImagePipe.Transform

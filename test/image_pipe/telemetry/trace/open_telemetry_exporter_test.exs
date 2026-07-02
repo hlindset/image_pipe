@@ -91,6 +91,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporterTest do
           width: 100,
           result: :ok,
           params: 1..3,
+          dims: {100, 80},
           operations: ["scale", "crop"],
           classes: [:cat, :dog],
           dropme: nil
@@ -104,6 +105,9 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporterTest do
     assert attrs[:width] == 100
     assert attrs[:result] == "ok"
     assert attrs[:params] == inspect(1..3)
+    # :dims is a tuple (non-primitive), coerced through the same generic
+    # fallback as :params.
+    assert attrs[:dims] == inspect({100, 80})
     assert attrs[:operations] == ["scale", "crop"]
     assert attrs[:classes] == ["cat", "dog"]
     refute Map.has_key?(attrs, :dropme)

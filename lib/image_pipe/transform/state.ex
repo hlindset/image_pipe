@@ -15,17 +15,23 @@ defmodule ImagePipe.Transform.State do
     silently falling back to attention smartcrop.
   - `telemetry_opts`: telemetry metadata threaded through stage spans.
   - `source_dimensions`: the *exact* original (full-resolution) `{w, h}` the
-    residual resize must size against, set only when shrink-on-load has reduced the
-    decoded image; `nil` otherwise. It is exact (not reconstructed from the shrunk
+    residual resize must size against, set by decode when shrink-on-load has reduced
+    the decoded image; `nil` otherwise. It is exact (not reconstructed from the shrunk
     dims), so the residual resize lands on the same target as a full-resolution
     decode. It stays in the storage frame — EXIF/user orientation is carried as a
     pending rotation on `pending_orientation` and flushed after the resize, so no
     pre-resize op swaps these dimensions. A preceding crop or quarter-turn rotate no
     longer declines shrink-on-load (#151); the resize target is expressed against the
-    cropped/displayed axes instead (see `ImagePipe.Transform.DecodePlanner`). The
-    residual resize clears it to `nil` (alongside `decode_shrink`), and a crop reached
-    before the resize clears both as well (the cropped live image is then the frame
-    the resize sizes against) — so neither survives into a later pipeline.
+    cropped/displayed axes instead (see `ImagePipe.Transform.DecodePlanner`).
+
+    During pipeline execution the field carries a second meaning: before each
+    operation `ImagePipe.Transform.ResolveDriver` overlays the resolver-advanced
+    `ImagePipe.Transform.SourceShape` onto the state, writing the shape's current
+    effective dims here — so every `effective_source_dims/1` read resolves against
+    the shape-tracked frame (value-equal to the live image dims whenever no shrink
+    is outstanding). At the pipeline boundary the driver restores the decode
+    meaning: the stored original extent iff shrink-on-load survived unconsumed,
+    `nil` otherwise — so a stale frame never leaks into a later pipeline.
   - `decode_shrink`: the *realized* per-axis shrink factor `%{w: float, h: float}`
     (each `>= 1.0`, original ÷ decoded) actually applied by shrink-on-load, or `nil`
     when the decode was full-resolution. A crop preceding the resize rescales its

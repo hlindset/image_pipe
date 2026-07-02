@@ -10,7 +10,7 @@ defmodule ImagePipe.Transform do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Plan, ImagePipe.Telemetry],
+    deps: [ImagePipe.Plan, ImagePipe.Telemetry, ImagePipe.Resolver],
     exports: [
       State,
       Chain,
@@ -36,7 +36,9 @@ defmodule ImagePipe.Transform do
       Operation.Saturation,
       Operation.Colorize,
       Operation.Gradient,
-      Operation.Trim
+      Operation.Trim,
+      Operation.Flush,
+      Operation.StateUpdate
     ]
 
   alias ImagePipe.Plan
