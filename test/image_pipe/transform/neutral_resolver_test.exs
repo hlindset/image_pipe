@@ -1,11 +1,28 @@
 defmodule ImagePipe.Transform.NeutralResolverTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Operation.Background
+  alias ImagePipe.Plan.Operation.Bitonal
   alias ImagePipe.Plan.Operation.Blur
+  alias ImagePipe.Plan.Operation.Brightness
+  alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Colorize
+  alias ImagePipe.Plan.Operation.Contrast
+  alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Duotone
+  alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Gradient
+  alias ImagePipe.Plan.Operation.Gray
+  alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
+  alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
+  alias ImagePipe.Plan.Operation.Saturation
+  alias ImagePipe.Plan.Operation.SetFocus
+  alias ImagePipe.Plan.Operation.Sharpen
   alias ImagePipe.Plan.Operation.Trim
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Flush
@@ -183,5 +200,117 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
     assert shape2.frame == :display
     assert shape2.decode_shrink == nil
     assert {shape2.width, shape2.height} == {30, 20}
+  end
+
+  # ── §4.7 narrowing gate ────────────────────────────────────────────────────
+  # Enumerates every ImagePipe.Plan.Operation.* variant and asserts the
+  # continuation tag NeutralResolver.resolve/4 returns for a representative,
+  # minimally-valid instance. This is the driver's core :acquire/:advance
+  # contract (spec §4.7): :acquire iff the op is %Resize{}, %Trim{}, or
+  # %Rotate{} with an angle outside [0, 90, 180, 270] or mirror: true;
+  # :advance for everything else. Defining a private classify/1 helper would
+  # not prove this — the assertion below drives the real resolve/4 dispatch,
+  # so a newly added op with no classification clause fails loudly here
+  # instead of silently falling through to the wrong tag.
+  @white Color.white()
+
+  describe "§4.7 narrowing: every Plan.Operation.* is classified :acquire or :advance" do
+    @acquire_ops [
+      {"Resize",
+       %PlanResize{
+         mode: :fit,
+         width: {:px, 50},
+         height: {:px, 40},
+         dpr: {:ratio, 1, 1},
+         enlargement: :forbid,
+         guide: :center
+       }},
+      {"Trim", %Trim{threshold: 10, background: :auto, equal_hor: false, equal_ver: false}},
+      {"Rotate (arbitrary angle, no mirror)", %PlanRotate{angle: 45, mirror: false}},
+      {"Rotate (right-angle, mirrored)", %PlanRotate{angle: 90, mirror: true}}
+    ]
+
+    @advance_ops [
+      {"Background", %Background{color: @white}},
+      {"Bitonal", %Bitonal{}},
+      {"Blur", %Blur{sigma: 1.0}},
+      {"Brightness", %Brightness{value: 10}},
+      {"Canvas",
+       %Canvas{
+         width: {:px, 120},
+         height: {:px, 100},
+         placement: :center,
+         fill: :transparent,
+         overflow: :reject
+       }},
+      {"Colorize", %Colorize{opacity: {:ratio, 1, 1}, color: @white, keep_alpha: false}},
+      {"Contrast", %Contrast{value: 10}},
+      {"CropGuided", %CropGuided{width: {:px, 30}, height: {:px, 20}, guide: :center}},
+      {"CropRegion", %CropRegion{x: {:px, 0}, y: {:px, 0}, width: {:px, 30}, height: {:px, 20}}},
+      {"Duotone", %Duotone{intensity: {:ratio, 1, 1}, shadow: @white, highlight: @white}},
+      {"Flip", %Flip{axis: :horizontal}},
+      {"Gradient",
+       %Gradient{opacity: {:ratio, 1, 1}, color: @white, angle: 0.0, start: 0.0, stop: 1.0}},
+      {"Gray", %Gray{}},
+      {"Monochrome", %Monochrome{intensity: {:ratio, 1, 1}, color: @white}},
+      {"Padding",
+       %Padding{
+         top: {:px, 2},
+         right: {:px, 2},
+         bottom: {:px, 2},
+         left: {:px, 2},
+         pixel_ratio: {:ratio, 1, 1},
+         fill: :transparent
+       }},
+      {"Pixelate", %Pixelate{size: 8}},
+      {"Rotate (right-angle, no mirror)", %PlanRotate{angle: 90, mirror: false}},
+      {"Saturation", %Saturation{value: 10}},
+      {"SetFocus", %SetFocus{point: {:anchor, :center, :center}}},
+      {"Sharpen", %Sharpen{sigma: 1.0}}
+    ]
+
+    test "acquire-classified ops", %{shape: s, env: e} do
+      for {label, op} <- @acquire_ops do
+        {_ops, continuation, nil} = NeutralResolver.resolve(s, e, nil, op)
+
+        assert match?({:acquire, _then_fn}, continuation),
+               "expected #{label} (#{inspect(op)}) to resolve :acquire, got #{inspect(continuation)}"
+      end
+    end
+
+    test "advance-classified ops", %{shape: s, env: e} do
+      for {label, op} <- @advance_ops do
+        {_ops, continuation, nil} = NeutralResolver.resolve(s, e, nil, op)
+
+        assert match?({:advance, %SourceShape{}, nil}, continuation),
+               "expected #{label} (#{inspect(op)}) to resolve :advance, got #{inspect(continuation)}"
+      end
+    end
+
+    test "every Plan.Operation.* module on disk is covered by this gate" do
+      operation_dir =
+        Path.join([File.cwd!(), "lib", "image_pipe", "plan", "operation"])
+
+      covered =
+        (@acquire_ops ++ @advance_ops)
+        |> Enum.map(fn {_label, op} -> op.__struct__ end)
+        |> MapSet.new()
+
+      on_disk =
+        operation_dir
+        |> File.ls!()
+        |> Enum.map(fn filename ->
+          filename
+          |> Path.basename(".ex")
+          |> Macro.camelize()
+          |> then(&Module.concat(ImagePipe.Plan.Operation, &1))
+        end)
+        |> MapSet.new()
+
+      missing = MapSet.difference(on_disk, covered)
+
+      assert MapSet.size(missing) == 0,
+             "Plan.Operation.* modules missing from the §4.7 narrowing gate: #{inspect(MapSet.to_list(missing))}"
+    end
   end
 end
