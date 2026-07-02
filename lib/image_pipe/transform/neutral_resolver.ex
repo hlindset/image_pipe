@@ -1,15 +1,15 @@
 defmodule ImagePipe.Transform.NeutralResolver do
   @moduledoc false
 
-  # Neutral geometry resolver: every ImagePipe.Transform.OrientationScheduler
-  # clause ported into the ImagePipe.Resolver contract. For each plan operation
-  # it emits the exact executable ops today's scheduler runs — with every
-  # flush_if_pending call (and the formerly implicit orient-at-materialize for
-  # smart/detect crops and arbitrary/mirrored rotates) made explicit as
-  # %Operation.Flush{}, and every zero-op State write expressed as a shape
-  # advance (geometry) or an emitted %Operation.StateUpdate{} (non-geometry).
-  # All geometry is delegated to Lowering/ResizePlanning public helpers and the
-  # executable ops' own pure dims functions; nothing is re-derived.
+  # Neutral geometry resolver: owns the deferred-orientation execution policy
+  # (#146/#182/#185/#211) under the ImagePipe.Resolver contract. For each plan
+  # operation it emits the executable ops to run — with every orientation flush
+  # (including the pre-materialize flush that smart/detect crops and
+  # arbitrary/mirrored rotates need) made explicit as %Operation.Flush{}, and
+  # every zero-op State write expressed as a shape advance (geometry) or an
+  # emitted %Operation.StateUpdate{} (non-geometry). All geometry is delegated
+  # to Lowering/ResizePlanning public helpers and the executable ops' own pure
+  # dims functions; nothing is re-derived.
   #
   # Continuation classification: :acquire iff the post-op dims cannot be
   # computed purely — resize, trim, and arbitrary-angle/mirrored rotate;
@@ -17,17 +17,15 @@ defmodule ImagePipe.Transform.NeutralResolver do
   #
   # An identity pending never emits a %Flush{}: at the first would-be flush site
   # it is cleared on the shape instead (the driver overlay propagates the clear
-  # to State), preserving the streaming fast path (scheduler flush_if_pending's
-  # identity clause).
+  # to State), preserving the streaming fast path.
   #
-  # Pinned divergence (arbitrary/mirrored rotate row): today the rotation's
-  # orientation flush is implicit in the pre-op materialize; a pipeline with
-  # both a trim and an arbitrary rotate would therefore rotate un-oriented
-  # pixels (trim's materialize marks the state materialized, so the rotate's
-  # materialize is skipped). No parser can produce that pipeline (imgproxy `rot`
-  # is right-angle-only, IIIF has no trim, TwicPics has no arbitrary-angle
-  # rotate), so this row always flushes first; every parser-reachable pipeline
-  # is pixel-identical.
+  # Pinned divergence (arbitrary/mirrored rotate row): with the flush implicit
+  # in the pre-op materialize, a pipeline with both a trim and an arbitrary
+  # rotate would rotate un-oriented pixels (trim's materialize marks the state
+  # materialized, so the rotate's materialize is skipped). No parser can produce
+  # that pipeline (imgproxy `rot` is right-angle-only, IIIF has no trim,
+  # TwicPics has no arbitrary-angle rotate), so this row always flushes first;
+  # every parser-reachable pipeline is pixel-identical.
 
   @behaviour ImagePipe.Resolver
 
@@ -74,11 +72,10 @@ defmodule ImagePipe.Transform.NeutralResolver do
     {[], advance(%{shape | pending_orientation: PendingOrientation.fold_rotate(po, angle)})}
   end
 
-  # Arbitrary angle or mirror: a materializing op. Today the pre-op materialize
-  # implicitly flushes any pending orientation first so the rotation lands in
-  # the display frame; the flush is now an explicit op before the rotate.
-  # decode_shrink stays untouched (nothing clears it at a rotate today; no
-  # parser places a shrink consumer after rotation).
+  # Arbitrary angle or mirror: a materializing op. An explicit flush before the
+  # rotate lands the rotation in the display frame (EXIF auto-orient -> then
+  # user rotation). decode_shrink stays untouched (nothing clears it at a
+  # rotate; no parser places a shrink consumer after rotation).
   defp do_resolve(%PlanRotate{} = operation, %SourceShape{} = shape, env) do
     ops = Lowering.executable_operations(operation, env.state, env.ctx)
 
@@ -117,9 +114,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # Runs literally on oriented pixels: flush pending first. The lowering frame
   # is the post-flush frame — region coords rescale against the quarter-turn-
   # swapped per-axis decode_shrink factors (#185), while the out-of-bounds
-  # check keeps reading exactly what today's post-flush lowering reads (the
-  # stored original storage-frame dims when shrink-on-load fired — the flush
-  # does not touch source_dimensions — else the live post-flush display dims).
+  # check reads the stored original storage-frame dims when shrink-on-load
+  # fired (the flush does not touch source_dimensions), else the live
+  # post-flush display dims.
   # The crop clears the source frame (#180): dims = crop box, decode_shrink nil.
   defp do_resolve(%CropRegion{} = operation, %SourceShape{} = shape, env) do
     case pending_class(shape) do
@@ -175,10 +172,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
     cond do
       pending_class == :pending and materializing? ->
-        # Smart/detect crops materialize; today the orienting materialize fires
-        # first so the crop sees display-frame pixels. The flush is now explicit
-        # and the crop stays literal, lowered against the pre-flush state (the
-        # unoriented decode_shrink), exactly as today's run_executable lowers it.
+        # Smart/detect crops need display-frame pixels: the explicit flush
+        # fires first and the crop stays literal, lowered against the
+        # pre-flush state (the unoriented decode_shrink).
         po = shape.pending_orientation
         [crop] = ops = Lowering.executable_operations(operation, env.state, env.ctx)
         {live_w, live_h} = swap_if_quarter_turn(live_dims(shape), po)
@@ -196,7 +192,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
       pending_class == :pending ->
         # Compensated crop pre-flush in the storage frame; NO trailing flush —
-        # today's flush fires at the next flushing op or the pipeline boundary.
+        # the flush fires at the next flushing op or the pipeline boundary.
         # decode_shrink is storage-frame; the crop dims are display-frame and
         # compensate_crop swaps their axes for the quarter turn AFTER the
         # rescale, so the per-axis factors are pre-swapped (#185).
@@ -221,9 +217,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
       true ->
         # No pending, or identity pending: the crop runs literally in the live
-        # frame. An identity pending is kept — today's identity branch never
-        # reaches a flush — except for a materializing (smart/detect) gravity,
-        # whose pre-op materialize cleared the identity pending today.
+        # frame. An identity pending is kept (this row is not a flush site) —
+        # except for a materializing (smart/detect) gravity, whose flush site
+        # clears the identity pending without pixel work.
         [crop] = ops = Lowering.executable_operations(operation, env.state, env.ctx)
         {live_w, live_h} = live_dims(shape)
         {box_w, box_h} = Crop.resolved_box_dims(crop, live_w, live_h)
@@ -271,9 +267,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
         {ops ++ [%Flush{}], {:acquire, then_fn}}
 
       _none_or_identity ->
-        # Plain path (no compensation, no flush). An identity pending is kept:
-        # today's identity branch runs the executable directly and never
-        # reaches a flush; the pipeline boundary clears it without pixels.
+        # Plain path (no compensation, no flush). An identity pending is kept
+        # (this row is not a flush site); the pipeline boundary clears it
+        # without pixels.
         ops = Lowering.executable_operations(operation, env.state, env.ctx)
 
         then_fn = fn {w, h} ->
@@ -302,8 +298,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # imgproxy's one pre-orientation op: it trims the storage frame. Trim needs
   # random access, so the chain's copy-only materialize copies the un-oriented
   # pixels and the pending is kept for a later flush. Never emits a %Flush{}.
-  # An identity pending was cleared by today's orienting materialize, so it
-  # clears on the shape here. decode_shrink: nil is a never-shrank
+  # An identity pending clears on the shape here (the materialize is trim's
+  # flush site, with no pixel work). decode_shrink: nil is a never-shrank
   # reaffirmation — the decode planner returns 1.0 for trim chains.
   defp do_resolve(%PlanTrim{} = operation, %SourceShape{} = shape, env) do
     ops = Lowering.executable_operations(operation, env.state, env.ctx)
@@ -321,8 +317,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
     {ops, {:acquire, then_fn}}
   end
 
-  # ── canvas / background / effects (no scheduler clause today) ─────────────
-  # Absence is the behavior: these run plain, in the storage frame, with any
+  # ── canvas / background / effects (no deferred-orientation handling) ──────
+  # These run plain, in the storage frame, with any
   # pending intact, and never trigger a flush. Canvas advances dims per its
   # geometry in the shape's current frame; effects are dimension-neutral.
   defp do_resolve(operation, %SourceShape{} = shape, env) do
@@ -368,7 +364,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
   defp plain_ops_advance(_ops, %SourceShape{} = shape), do: shape
 
-  # Padding/pixelate/gradient share one scheduler shape: with a non-identity
+  # Padding/pixelate/gradient share one shape: with a non-identity
   # pending, flush first (display frame), else run plain. The emitted op lowers
   # from ctx/params only, so the lowering state needs no rebuild.
   defp resolve_display_frame_op(operation, %SourceShape{} = shape, env) do
@@ -414,7 +410,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
     if PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
   end
 
-  # What today's post-flush lowering reads via State.effective_source_dims: the
+  # What post-flush lowering reads via State.effective_source_dims: the
   # flush does not touch source_dimensions, so when shrink-on-load fired the
   # stored original storage-frame dims still answer; otherwise the live
   # post-flush (display-frame) image answers.

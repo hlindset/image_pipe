@@ -147,7 +147,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
         pending_orientation: PendingOrientation.from_exif(6, true)
       }
 
-    {:ok, flushed} = Materializer.materialize(state)
+    {:ok, flushed} = Materializer.flush(state)
 
     op = %Crop{
       width: {:pixels, 30},

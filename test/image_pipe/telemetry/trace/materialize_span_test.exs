@@ -7,15 +7,16 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
 
-  # The [:transform, :materialize] barrier span fires once per flush, wherever the
-  # flush happens. There are THREE distinct nesting parents in practice, all covered
-  # below:
+  # The [:transform, :materialize] barrier span fires once per materialization,
+  # wherever it happens. There are THREE distinct nesting parents in practice, all
+  # covered below:
   #
   #   1. mid-chain, before a random-access op (e.g. a smart crop) -> parent is the
   #      [:transform, :operation] span (Chain.maybe_materialize, inside run_operation);
-  #   2. a pipeline-boundary flush of a still-pending EXIF orientation (PlanExecutor),
-  #      which runs inside [:transform, :execute] but not under any single operation ->
-  #      parent is the [:transform, :execute] span;
+  #   2. a pipeline-boundary flush of a still-pending EXIF orientation, executed as
+  #      an explicit Flush operation by the resolve driver -> parent is that Flush
+  #      op's [:transform, :operation] span, which itself nests under
+  #      [:transform, :execute];
   #   3. the delivery backstop (Processor.materialize_for_delivery/2), which runs AFTER
   #      [:transform, :execute] has closed -> parent is the request root.
   #
@@ -112,10 +113,11 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     assert parent.name == "image_pipe.transform.operation"
   end
 
-  test "pipeline-boundary EXIF flush nests the materialize span under [:transform, :execute]" do
+  test "pipeline-boundary EXIF flush nests the materialize span under the Flush op span" do
     # No-geometry request on an orientation-6 source: the deferred EXIF orientation is
-    # flushed at the pipeline boundary inside the execute span (not under a single op,
-    # and before the execute span closes).
+    # flushed at the pipeline boundary as an explicit Flush operation, so the
+    # materialize span nests under that operation span, which sits inside the
+    # execute span (where the boundary flush's materialize span used to sit).
     conn = call("/_/f:jpeg/plain/images/oriented.jpg", exif6_opts())
     assert conn.status == 200
 
@@ -124,7 +126,11 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
     parent = parent_of(spans, mat)
     assert parent, "materialize span must have a captured parent"
-    assert parent.name == "image_pipe.transform.execute"
+    assert parent.name == "image_pipe.transform.operation"
+
+    grandparent = parent_of(spans, parent)
+    assert grandparent, "the Flush operation span must have a captured parent"
+    assert grandparent.name == "image_pipe.transform.execute"
   end
 
   test "delivery backstop flush nests the materialize span under the request root" do

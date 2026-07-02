@@ -192,6 +192,9 @@ per-operation timing. Honest aggregate timing lives on `[:transform, :execute]`.
 Start metadata:
 
 - `:operation` — the operation name atom (e.g. `:resize`, `:crop_region`).
+  Includes the neutral bookkeeping operations the resolver emits: `:flush`
+  (applies a pending orientation) and `:state_update` (merges non-image state
+  fields, e.g. a carried focus).
 - `:index` — zero-based position in the executed chain.
 - `:params` — the full operation struct (product-neutral, derived from the
   public request).
@@ -204,15 +207,16 @@ O(1) header read).
 
 Each time the pipeline flushes the lazy libvips state to a RAM-resident buffer it
 emits a `[:image_pipe, :transform, :materialize]` span from
-`ImagePipe.Transform.Materializer.materialize/1`. This is the **honest
-per-barrier timing the per-operation spans deliberately lack**: libvips defers
-and fuses pixel work until materialization, so a materialize span's duration is
-real flush cost (orientation pixels written, `copy_memory`), not construction
-time.
+`ImagePipe.Transform.Materializer` (`materialize/1`, the plain `copy_memory`, or
+`flush/1`, the explicit orientation flush run by the `Flush` operation). This is
+the **honest per-barrier timing the per-operation spans deliberately lack**:
+libvips defers and fuses pixel work until materialization, so a materialize
+span's duration is real flush cost (orientation pixels written, `copy_memory`),
+not construction time.
 
-A flush also applies any deferred EXIF/user orientation before copying, so a
-materialize span can mark where the displayed frame changes, not only where
-pixels reach RAM.
+The `flush/1` form also applies the deferred EXIF/user orientation before
+copying, so its materialize span marks where the displayed frame changes, not
+only where pixels reach RAM.
 
 Stop metadata: `:result` (`:ok` or `:materialize_error`). A successful stop also
 carries `:dims` — the post-materialize image dimensions `{width, height}`, which
@@ -222,16 +226,17 @@ as a `:stop` carrying `result: :materialize_error` (the callers map it to a deco
 error → `415`); a raise inside the flush surfaces as a `[:transform, :materialize,
 :exception]` event.
 
-Parenting depends on where the flush happens — there are three cases:
+Parenting depends on where the materialization happens — there are three cases:
 
-- **mid-chain**, before the first operation that needs random access (right-angle
-  rotate, vertical/both flip, smart/object-detect crop): nested under that
+- **mid-chain**, before an operation that needs random access (trim,
+  arbitrary-angle rotate, smart/object-detect crop): nested under that
   operation's `[:transform, :operation]` span;
-- **pipeline-boundary**, when a still-pending EXIF orientation is flushed by the
-  plan executor: nested under `[:transform, :execute]` (not under any single
-  operation);
+- **explicit flush**, when a pending EXIF/user orientation is applied by the
+  `Flush` operation (emitted by the resolver mid-pipeline or at the pipeline
+  boundary): nested under that `Flush` op's `[:transform, :operation]` span,
+  inside `[:transform, :execute]`;
 - **delivery backstop**, when a chain streamed through without ever materializing
-  and the late delivery flush runs after `[:transform, :execute]` has closed:
+  and the late delivery copy runs after `[:transform, :execute]` has closed:
   nested under the request root.
 
 Every request that decodes and runs the transform pipeline (a cache miss)

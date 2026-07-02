@@ -3,32 +3,20 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   # Orchestrates plan execution: seeds the data-determined preamble (EXIF
   # orientation into State.pending_orientation and input color management, both on
-  # the seed_orientation gate), reduces over pipelines/operations threading State +
-  # execution context, and dispatches each operation. Plain operations lower via
-  # ImagePipe.Transform.Lowering and run through the Chain; deferred-orientation
-  # operations (#146) delegate to ImagePipe.Transform.OrientationScheduler, which
-  # owns the pending-orientation policy and compensation and the pipeline-boundary
-  # flush. Resize expansion/scale arithmetic lives in ImagePipe.Transform.ResizePlanning.
+  # the seed_orientation gate), then drives each pipeline through
+  # ImagePipe.Transform.ResolveDriver with the neutral resolver
+  # (ImagePipe.Transform.NeutralResolver), which owns the pending-orientation
+  # policy and compensation and emits explicit Flush/StateUpdate ops. Resize
+  # expansion/scale arithmetic lives in ImagePipe.Transform.ResizePlanning.
 
   alias ImagePipe.Plan
-  alias ImagePipe.Plan.Operation.CropGuided
-  alias ImagePipe.Plan.Operation.CropRegion
-  alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
-  alias ImagePipe.Plan.Operation.Gradient, as: PlanGradient
-  alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
-  alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
-  alias ImagePipe.Plan.Operation.Resize, as: PlanResize
-  alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
-  alias ImagePipe.Plan.Operation.SetFocus
-  alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Telemetry
-  alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.InputColorManagement
-  alias ImagePipe.Transform.Lowering
-  alias ImagePipe.Transform.OrientationScheduler
+  alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.PendingOrientation
-  alias ImagePipe.Transform.ResizePlanning
+  alias ImagePipe.Transform.ResolveDriver
+  alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
@@ -104,95 +92,24 @@ defmodule ImagePipe.Transform.PlanExecutor do
     end)
   end
 
+  # Each pipeline runs through the resolve driver: the source shape seeds from
+  # the state's effective source frame, the neutral resolver decides ops and
+  # shape advances per operation, and the driver's boundary rule resolves any
+  # still-pending orientation (EXIF is seeded once for the whole plan and a
+  # pipeline's output is the next pipeline's input, so each pipeline must end in
+  # the display frame; an identity pending is cleared without materializing —
+  # the streaming fast path).
   defp execute_pipeline(%Pipeline{operations: operations}, %State{} = state, opts) do
-    initial_context = %{effective_padding_scale: nil, canvas_preserving_padding_scale: nil}
+    {w, h} = State.effective_source_dims(state)
 
-    Enum.reduce_while(operations, {:ok, state, initial_context}, fn operation,
-                                                                    {:ok, state, context} ->
-      context = update_execution_context(operation, state, context)
+    shape =
+      SourceShape.seed(%{
+        width: w,
+        height: h,
+        pending_orientation: state.pending_orientation,
+        decode_shrink: state.decode_shrink
+      })
 
-      case execute_operation(operation, state, context, opts) do
-        {:ok, %State{} = state} -> {:cont, {:ok, state, context}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    # Resolve any still-pending orientation at the pipeline boundary. EXIF is
-    # seeded once for the whole plan (on the first pipeline) and a pipeline's
-    # output is the next pipeline's input, so each pipeline must end in the
-    # display frame — deferral is scoped to a single pipeline rather than spanning
-    # the chain. This is a backstop: an earlier resize / materializing op / region
-    # crop usually flushed already (making this a no-op), and an identity
-    # orientation is cleared without materializing (streaming fast path). It does
-    # real pixel work only when a rotation is still pending here (e.g. a pipeline
-    # of rotate + streaming effects, with no resize to trigger an earlier flush).
-    |> case do
-      {:ok, state, _context} -> OrientationScheduler.flush_if_pending(state)
-      {:error, _reason} = error -> error
-    end
+    ResolveDriver.run(operations, shape, {NeutralResolver, NeutralResolver.init()}, state, opts)
   end
-
-  # Deferred-orientation operations delegate to OrientationScheduler, which owns the
-  # pending-orientation policy and compensation. Rotate/flip/focus/crop always route
-  # there; resize/padding/pixelate/gradient/trim route there only when an orientation
-  # is pending — a nil-pending one falls through to the plain path below.
-  defp execute_operation(%PlanRotate{} = op, %State{} = state, ctx, opts),
-    do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%PlanFlip{} = op, %State{} = state, ctx, opts),
-    do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%SetFocus{} = op, %State{} = state, ctx, opts),
-    do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%CropRegion{} = op, %State{} = state, ctx, opts),
-    do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%CropGuided{} = op, %State{} = state, ctx, opts),
-    do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%PlanResize{} = op, %State{pending_orientation: po} = state, ctx, opts)
-       when not is_nil(po),
-       do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%PlanPadding{} = op, %State{pending_orientation: po} = state, ctx, opts)
-       when not is_nil(po),
-       do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%PlanPixelate{} = op, %State{pending_orientation: po} = state, ctx, opts)
-       when not is_nil(po),
-       do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%PlanGradient{} = op, %State{pending_orientation: po} = state, ctx, opts)
-       when not is_nil(po),
-       do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  defp execute_operation(%PlanTrim{} = op, %State{pending_orientation: po} = state, ctx, opts)
-       when not is_nil(po),
-       do: OrientationScheduler.execute_operation(op, state, ctx, opts)
-
-  # Plain operation, no pending-orientation handling.
-  defp execute_operation(operation, %State{} = state, context, opts) do
-    run_executable(operation, state, context, opts)
-  end
-
-  defp run_executable(operation, %State{} = state, context, opts) do
-    operation
-    |> Lowering.executable_operations(state, context)
-    |> then(&Chain.execute(state, &1, opts))
-  end
-
-  defp update_execution_context(%PlanResize{} = operation, %State{} = state, context) do
-    scale = ResizePlanning.resize_padding_scale(operation, state, :resize)
-
-    canvas_preserving_scale =
-      ResizePlanning.resize_padding_scale(operation, state, :canvas_preserving)
-
-    %{
-      context
-      | effective_padding_scale: scale,
-        canvas_preserving_padding_scale: canvas_preserving_scale
-    }
-  end
-
-  defp update_execution_context(_operation, %State{}, context), do: context
 end
