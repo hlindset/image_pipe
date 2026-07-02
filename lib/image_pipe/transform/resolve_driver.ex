@@ -69,8 +69,13 @@ defmodule ImagePipe.Transform.ResolveDriver do
     }
   end
 
-  defp advance({:advance, %SourceShape{} = shape, _strategy_state}, spec, _state, _acquire_dims),
-    do: {shape, spec}
+  defp advance(
+         {:advance, %SourceShape{} = shape, strategy_state},
+         {module, _strategy_state},
+         _state,
+         _acquire_dims
+       ),
+       do: {shape, {module, strategy_state}}
 
   defp advance({:acquire, then_fn}, {module, _strategy_state}, %State{} = state, acquire_dims) do
     {%SourceShape{} = shape, strategy_state} = then_fn.(acquire_dims.(state.image))

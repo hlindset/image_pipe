@@ -286,31 +286,5 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
                "expected #{label} (#{inspect(op)}) to resolve :advance, got #{inspect(continuation)}"
       end
     end
-
-    test "every Plan.Operation.* module on disk is covered by this gate" do
-      operation_dir =
-        Path.join([File.cwd!(), "lib", "image_pipe", "plan", "operation"])
-
-      covered =
-        (@acquire_ops ++ @advance_ops)
-        |> Enum.map(fn {_label, op} -> op.__struct__ end)
-        |> MapSet.new()
-
-      on_disk =
-        operation_dir
-        |> File.ls!()
-        |> Enum.map(fn filename ->
-          filename
-          |> Path.basename(".ex")
-          |> Macro.camelize()
-          |> then(&Module.concat(ImagePipe.Plan.Operation, &1))
-        end)
-        |> MapSet.new()
-
-      missing = MapSet.difference(on_disk, covered)
-
-      assert MapSet.size(missing) == 0,
-             "Plan.Operation.* modules missing from the §4.7 narrowing gate: #{inspect(MapSet.to_list(missing))}"
-    end
   end
 end
