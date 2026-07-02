@@ -708,7 +708,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # modules — the Boundary deps (`parser` -> `Resolver, Transform`) already
     # permit this. Parser output — what PlanBuilder/Path/Options emit — must
     # still stay semantic-only, which is what this rule polices.
-    resolver_strategy_files = MapSet.new(["lib/image_pipe/parser/imgproxy/resolver.ex"])
+    resolver_strategy_files = MapSet.new(resolver_strategy_files())
 
     violations =
       for file <- parser_files(),
