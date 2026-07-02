@@ -21,6 +21,7 @@ defmodule ImagePipe.Test.ResolvedPlanCases do
 
   use Boundary, top_level?: true, check: [out: false]
 
+  alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Request.Processor
   alias ImagePipe.Source
   alias ImagePipe.Transform.State
@@ -74,7 +75,7 @@ defmodule ImagePipe.Test.ResolvedPlanCases do
   @doc "Parse a case's URL through the real imgproxy parser into a Plan."
   def parse_plan!(%{} = kase) do
     conn = Plug.Test.conn(:get, imgproxy_path(kase))
-    {:ok, plan} = ImagePipe.Parser.Imgproxy.parse(conn, [])
+    {:ok, plan} = Imgproxy.parse(conn, [])
     plan
   end
 

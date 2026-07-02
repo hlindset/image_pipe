@@ -13,7 +13,9 @@ defmodule ImagePipe.ResolverTest do
   end
 
   test "facade dispatches, passes env opaquely, threads strategy_state via the spec" do
-    shape = SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
+    shape =
+      SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
+
     {ops, cont, {Dummy, st}} = Resolver.resolve({Dummy, Dummy.init()}, shape, :env_token, :op)
     assert ops == [{:emitted, :op, :env_token}]
     assert {:advance, ^shape, %{n: 1}} = cont

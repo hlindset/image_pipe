@@ -28,7 +28,9 @@ defmodule ImagePipe.Transform.ResolveDriverTest do
   test "acquire uses injected dims; advance is pure; overlay feeds env from the shape" do
     {:ok, img} = Image.new(10, 10)
     agent = start_supervised!({Agent, fn -> [] end})
-    shape = SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
+
+    shape =
+      SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
 
     {:ok, %State{}} =
       ResolveDriver.run([:pure, :opaque, :pure], shape, {Probe, agent}, %State{image: img},

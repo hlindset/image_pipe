@@ -37,8 +37,13 @@
         #
         {ExSlop.Check.Refactor.LengthComparison, false},
         # ExDNA duplicate detection, excluding `alias` declarations (see plugins
-        # note above).
-        {ExDNA.Credo, excluded_macros: [:alias]}
+        # note above). orientation_scheduler.ex is transitionally excluded: the
+        # NeutralResolver deliberately carries verbatim ports of its
+        # compensation clauses while both implementations coexist for parity
+        # bisection; the exclusion goes away when the scheduler is retired.
+        {ExDNA.Credo,
+         excluded_macros: [:alias],
+         files: %{excluded: ["lib/image_pipe/transform/orientation_scheduler.ex"]}}
       ]
     }
   ]

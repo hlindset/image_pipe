@@ -6,6 +6,7 @@ defmodule ImagePipe.Transform.Operation.StateUpdateTest do
   test "merges fields into State without touching the image" do
     {:ok, img} = Image.new(4, 4)
     state = %State{image: img}
+
     {:ok, %State{focus: {:fp, 0.25, 0.75}, image: ^img}} =
       StateUpdate.execute(%StateUpdate{fields: %{focus: {:fp, 0.25, 0.75}}}, state)
   end
