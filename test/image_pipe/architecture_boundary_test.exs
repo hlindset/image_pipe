@@ -42,6 +42,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/parser.ex",
     "lib/image_pipe/parser/**/*.ex"
   ]
+  @resolver_strategy_globs [
+    "lib/image_pipe/parser/**/resolver.ex"
+  ]
+  @resolver_strategy_forbidden_transform_names [:Chain, :State, :Materializer, :DecodePlanner]
   @cache_key_files ["lib/image_pipe/cache/key.ex"]
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
@@ -716,6 +720,21 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
+  test "a carried resolver strategy never touches execution state or pixel access" do
+    # A Plan-carried resolver strategy (#434) resolves geometry only: it
+    # translates a semantic Plan operation into executable transform ops and
+    # threads strategy-local carry state. It must not reach into transform
+    # execution state or pixel access — those stay owned by Chain/PlanExecutor.
+    violations =
+      for file <- resolver_strategy_files(),
+          violation <- resolver_strategy_forbidden_transform_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; " <>
+          "a resolver strategy resolves geometry and never touches execution state or pixel access"
+      end
+
+    assert violations == []
+  end
+
   defp request_source_response_files do
     @request_source_response_globs
     |> Enum.flat_map(&Path.wildcard/1)
@@ -738,6 +757,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp parser_files do
     @parser_globs
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp resolver_strategy_files do
+    @resolver_strategy_globs
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.uniq()
     |> Enum.sort()
@@ -1059,6 +1085,51 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.reverse()
     |> Enum.uniq()
   end
+
+  defp resolver_strategy_forbidden_transform_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {tag, meta,
+         [
+           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePipe, :Transform]}, :{}]},
+            _call_meta, grouped_aliases}
+         ]} = node,
+        violations
+        when tag in [:alias, :import] ->
+          grouped_aliases
+          |> Enum.map(&resolver_strategy_forbidden_transform_alias/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(&violation(meta, &1))
+          |> then(&{node, &1 ++ violations})
+
+        {:__aliases__, meta, [:ImagePipe, :Transform, module | _rest]} = node, violations
+        when module in @resolver_strategy_forbidden_transform_names ->
+          {node, [violation(meta, "ImagePipe.Transform.#{module}") | violations]}
+
+        {:__aliases__, meta, [:Transform, module | _rest]} = node, violations
+        when module in @resolver_strategy_forbidden_transform_names ->
+          {node, [violation(meta, "Transform.#{module}") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
+  end
+
+  defp resolver_strategy_forbidden_transform_alias({:__aliases__, _meta, [module]})
+       when module in @resolver_strategy_forbidden_transform_names,
+       do: "ImagePipe.Transform.#{module}"
+
+  defp resolver_strategy_forbidden_transform_alias({:__aliases__, _meta, [module | _rest]})
+       when module in @resolver_strategy_forbidden_transform_names,
+       do: "ImagePipe.Transform.#{module}"
+
+  defp resolver_strategy_forbidden_transform_alias(_alias), do: nil
 
   defp concrete_detector_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
