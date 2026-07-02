@@ -84,8 +84,8 @@ against imgproxy's own source.
 - Not a perf project. libvips dimension reads are already lazy; the prize is
   decoupling and determinism, not avoiding compute.
 - **Retiring the focus read-back is not in scope for the shipped design.** It is
-  deferred to the optional Stage 3 — via the B-promotion's computed dims or,
-  independently of that property, the staged continuation (§4.4, §9).
+  deferred to Stage 3, the dedicated (non-optional) carried-point stage — the
+  staged continuation (§4.4, §9).
 
 ## 3. Current state, validated
 
@@ -840,27 +840,45 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
    rides Stage 3. Lands after the boundary move (it needs the carried
    strategy).
 
-3. **(Optional) B-promotion + the banked Stage-2 deferrals.** If the §8 property
-   spike is green and the version-pinning is acceptable, flip `resize` from
-   `read` to `advance` at the seam (selectively if needed) and retire the focus
-   read-back. The prior stages' goldens are the equivalence net. Banked from
-   the Stage-2 scope decision (§4.4):
-   - **Thin the executables** to apply-exact primitives (resolver emits
-     force-to-exact resizes / exact-box crops). Prerequisite: an **error
-     channel on the Resolver contract** — `reject_enlargement` /
-     `upscale_required` must surface at resolve time, before pixels; today they
-     surface from `Resize.execute` through `Chain`.
-   - **Move the carried point into the TwicPics strategy carry** via the
-     **staged continuation** (§4.4): an `:acquire` `then_fn` may return a
-     further `{ops, continuation}` stage, so a multi-executable expansion
-     splits at the realized-dims seam (`[resize]` → read `W′` → `[crop]`),
-     plus pure origin helpers on `Crop`/`ExtendCanvas` (mirroring
-     `resolved_box_dims`). Resolve `:carried` to a concrete `{:fp, x, y}`
-     before emission and delete the executables' point mechanics
-     (`Focus.scale`/`translate`/`reflect_rotate` call sites). **Independent of
-     the property spike** — the fold is exact by measurement, so this lands
-     whether or not B is adopted (and if B lands, the extra stage for resize
-     can collapse in favor of the computed dims).
+3. **The carried-point move (non-optional; own plan + PR, immediately after
+   Stage 2 merges).** Promoted out of the optional stage (2026-07-02 review
+   discussion) so it cannot dangle behind a property spike that may say no.
+   Mechanism: the **staged continuation** (§4.4) — an `:acquire` `then_fn` may
+   return a further `{ops, continuation}` stage, so a multi-executable
+   expansion splits at the realized-dims seam (`[resize]` → read `W′` →
+   `[crop]`). Scope:
+   - The continuation-contract change + the driver stage loop; the injection
+     golden extends to inject dims per stage.
+   - Pure origin helpers on `Crop`/`ExtendCanvas` (mirroring
+     `resolved_box_dims`), shared with `execute` so they cannot drift.
+   - Move the carried point into the TwicPics `strategy_state`; resolve
+     `:carried` to a concrete `{:fp, x, y}` before emission — substituted
+     *after* orientation compensation, so a storage-frame fp is never
+     gravity-remapped (the invariant today's `compensate_crop` `:carried`
+     clause encodes).
+   - Fold `reflect_rotate` at strategy-emitted `Flush`es; the driver's
+     boundary-backstop flush is unobservable for every parser-reachable
+     pipeline with a live point — document that invariant.
+   - Delete the executables' point mechanics (`Focus.scale`/`translate`/
+     `reflect_rotate` call sites) and the `State` `carried_point` field.
+   - Pinned behaviors to preserve, enumerated up front: smart/detect crops do
+     **not** carry the point today (no `carry_focus_through_crop` on that
+     path); region and gravity crops translate it; canvas embeds translate it.
+   Results-identical, gated by the TwicPics differential plus new goldens for
+   focus → cover → later-consumer chains. **Independent of the property
+   spike.** Green.
+
+4. **(Optional) B-promotion + executable thinning.** If the §8 property spike
+   is green and the version-pinning is acceptable, flip `resize` from `read`
+   to `advance` at the seam (selectively if needed); Stage 3's extra resize
+   stage can then collapse in favor of the computed dims, retiring the focus
+   read-back's successor. The prior stages' goldens are the equivalence net.
+   Also banked here from the Stage-2 scope decision (§4.4): **thin the
+   executables** to apply-exact primitives (resolver emits force-to-exact
+   resizes / exact-box crops); prerequisite: an **error channel on the
+   Resolver contract** — `reject_enlargement`/`upscale_required` must surface
+   at resolve time, before pixels; today they surface from `Resize.execute`
+   through `Chain`.
 
 Each stage is independently green on golden + differential + wire.
 
