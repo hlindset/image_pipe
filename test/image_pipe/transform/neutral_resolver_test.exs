@@ -21,7 +21,6 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
   alias ImagePipe.Plan.Operation.Saturation
-  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Plan.Operation.Sharpen
   alias ImagePipe.Plan.Operation.Trim
   alias ImagePipe.Transform.NeutralResolver
@@ -246,7 +245,6 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
       {"Pixelate", %Pixelate{size: 8}},
       {"Rotate (right-angle, no mirror)", %PlanRotate{angle: 90, mirror: false}},
       {"Saturation", %Saturation{value: 10}},
-      {"SetFocus", %SetFocus{point: {:anchor, :center, :center}}},
       {"Sharpen", %Sharpen{sigma: 1.0}}
     ]
 

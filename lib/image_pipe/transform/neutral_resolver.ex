@@ -20,10 +20,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # operation it emits the executable ops to run — with every orientation flush
   # (including the pre-materialize flush that smart/detect crops and
   # arbitrary/mirrored rotates need) made explicit as %Operation.Flush{}, and
-  # every zero-op State write expressed as a shape advance (geometry) or an
-  # emitted %Operation.StateUpdate{} (non-geometry). All geometry is delegated
-  # to Lowering/ResizePlanning public helpers and the executable ops' own pure
-  # dims functions; nothing is re-derived.
+  # every zero-op State write expressed as a shape advance. All geometry is
+  # delegated to Lowering/ResizePlanning public helpers and the executable
+  # ops' own pure dims functions; nothing is re-derived.
   #
   # Continuation classification: :acquire iff the post-op dims cannot be
   # computed purely — resize, trim, and arbitrary-angle/mirrored rotate;
@@ -52,16 +51,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
   alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
-  alias ImagePipe.Plan.Operation.SetFocus
   alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
-  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.Lowering
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Resize
-  alias ImagePipe.Transform.Operation.StateUpdate
   alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.ResizePlanning
@@ -107,24 +103,6 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp do_resolve(%PlanFlip{axis: axis}, %SourceShape{} = shape) do
     po = shape.pending_orientation || %PendingOrientation{}
     {[], advance(%{shape | pending_orientation: PendingOrientation.fold_flip(po, axis)})}
-  end
-
-  # ── SetFocus ──────────────────────────────────────────────────────────────
-  # Positional focus: resolve the operand against the live frame at this chain
-  # position and commit the carried point through an explicit state update. No
-  # pixel work, no flush.
-  defp do_resolve(%SetFocus{point: operand}, %SourceShape{} = shape) do
-    {live_w, live_h} = SourceShape.live_dims(shape)
-
-    display =
-      case shape.pending_orientation do
-        nil -> {live_w, live_h}
-        po -> swap_if_quarter_turn({live_w, live_h}, po)
-      end
-
-    focus_ctx = %{display: display, storage: {live_w, live_h}, decode_shrink: shape.decode_shrink}
-    resolved = Focus.resolve(operand, focus_ctx, shape.pending_orientation)
-    {[%StateUpdate{fields: %{focus: resolved}}], advance(shape)}
   end
 
   # ── region crop ───────────────────────────────────────────────────────────

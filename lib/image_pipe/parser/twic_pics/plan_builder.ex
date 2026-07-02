@@ -2,6 +2,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   @moduledoc false
 
   alias ImagePipe.Parser.TwicPics.Output
+  alias ImagePipe.Parser.TwicPics.Resolver
   alias ImagePipe.Parser.TwicPics.Units
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
@@ -23,7 +24,8 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
          pipelines: [%Pipeline{operations: Enum.reverse(acc.ops)}],
          output: output,
          auto_rotate: Keyword.fetch!(config, :auto_rotate),
-         response: %Response{debug?: acc.debug?}
+         response: %Response{debug?: acc.debug?},
+         resolver: Resolver
        }}
     end
   end
