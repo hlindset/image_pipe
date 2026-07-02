@@ -15,6 +15,7 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
+  alias ImagePipe.Transform.NeutralResolver
 
   defp source_identity(overrides \\ []) do
     Keyword.merge(
@@ -1567,27 +1568,27 @@ defmodule ImagePipe.Cache.KeyTest do
 
       assert material[:resolver] == [
                strategy: :neutral,
-               version: ImagePipe.Transform.NeutralResolver.behavior_version()
+               version: NeutralResolver.behavior_version()
              ]
     end
 
     test "a strategy-carrying plan tags the module and its behavioral version" do
-      plan = %{plan() | resolver: ImagePipe.Transform.NeutralResolver}
+      plan = %{plan() | resolver: NeutralResolver}
       {:ok, material} = Key.plan_material(plan, [])
 
       assert material[:resolver] == [
-               strategy: ImagePipe.Transform.NeutralResolver,
-               version: ImagePipe.Transform.NeutralResolver.behavior_version()
+               strategy: NeutralResolver,
+               version: NeutralResolver.behavior_version()
              ]
     end
 
     test "an imgproxy-carrying plan tags the imgproxy strategy and its behavioral version" do
-      plan = %{plan() | resolver: ImagePipe.Parser.Imgproxy.Resolver}
+      plan = %{plan() | resolver: Imgproxy.Resolver}
       {:ok, material} = Key.plan_material(plan, [])
 
       assert material[:resolver] == [
-               strategy: ImagePipe.Parser.Imgproxy.Resolver,
-               version: ImagePipe.Parser.Imgproxy.Resolver.behavior_version()
+               strategy: Imgproxy.Resolver,
+               version: Imgproxy.Resolver.behavior_version()
              ]
     end
   end
