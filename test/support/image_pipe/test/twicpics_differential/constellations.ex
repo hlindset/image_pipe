@@ -20,7 +20,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
   @doc "Default per-band pixel tolerance: Δ2 threshold, 64 band-byte budget."
   def default_tol, do: %{threshold: 2, budget: 64}
 
-  @source_files %{grid_4x4: "grid_4x4.png"}
+  @source_files %{grid_4x4: "grid_4x4.png", gradient_large: "gradient_large.webp"}
   @suffix "output=png"
 
   @doc "Map of `source` atom -> committed source filename."
@@ -158,8 +158,74 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("number_fold_asymmetric", "resize=(300/2)x(50*2)", :number),
       c("number_nested_chain_safe", "resize=(100/(4/2))", :number),
       c("number_round_half_up", "resize=(7/2)", :number),
-      c("number_clamp_to_one", "resize=(1/4)", :number)
+      c("number_clamp_to_one", "resize=(1/4)", :number),
+      # --- canvas-under-shrink pins (#434 Stage-2 gate; large WebP source) ---
+      # On the 600×600 gradient_large source a px cover=300x100 target triggers a
+      # clean 2× WebP shrink-on-load, so DecodePlanner plans shrink THROUGH the
+      # inside=<ratio> Canvas (Canvas-only emission, processed BEFORE the resize —
+      # verified op order [Canvas, (SetFocus,) Resize]). These pin that the Stage-1
+      # canvas-under-shrink advance matches live TwicPics BEFORE the Stage-2
+      # shape-derived focus row lands — the focus cases gate Task 1's shape-derived
+      # SetFocus row (a frame-incoherence double-divide would shift the focused crop
+      # by the shrink factor, changing the gradient values the fixture pins). A
+      # SMOOTH gradient source (not the sharp grid) encodes position (R∝x, G∝y) so
+      # the asymmetric cover's cropped (vertical) axis reveals the focus point, the
+      # anchor vs px focus land in different bands, and there are no sharp internal
+      # edges to resample.
+      #
+      # Verdict `:diverges`, NOT `:equal`: the OPAQUE content matches TwicPics
+      # exactly (measured: 0 pixels Δ>32 in the opaque region), but `inside`'s
+      # transparent letterbox is the one place ImagePipe's shrink-on-load path and
+      # TwicPics differ — the undefined RGB *under* alpha=0 (invisible) resamples
+      # differently, ~600 pixels at Δ up to 254. It is intrinsic to letterbox-under-
+      # shrink (the no-shrink inside_wide_lr/inside_tall_tb cases are byte-identical
+      # because both engines take the same full-decode path), invisible, and
+      # permanent, so it is monitored inside a two-sided band rather than hidden by a
+      # loose `:equal` tol. The band is generous on the invisible transparent noise
+      # (robust to libvips drift) but a real placement shift dirties the 16.5k opaque
+      # content pixels — tens of thousands of Δ2 outliers, far above the ceiling.
+      # `inside=<ratio>/crop` is not included — it emits no Resize, so nothing
+      # shrinks (it cannot pin canvas-under-shrink).
+      c("inside_ratio_cover_shrink", "inside=16:9/cover=300x100", :inside_shrink,
+        source: :gradient_large,
+        verdict: :diverges,
+        divergence: canvas_under_shrink_divergence()
+      ),
+      c(
+        "inside_ratio_focus_anchor_cover_shrink",
+        "inside=16:9/focus=top-left/cover=300x100",
+        :inside_shrink,
+        source: :gradient_large,
+        verdict: :diverges,
+        divergence: canvas_under_shrink_divergence()
+      ),
+      c(
+        "inside_ratio_focus_px_cover_shrink",
+        "inside=16:9/focus=300x550/cover=300x100",
+        :inside_shrink,
+        source: :gradient_large,
+        verdict: :diverges,
+        divergence: canvas_under_shrink_divergence()
+      )
     ]
+  end
+
+  # Shared band for the canvas-under-shrink pins (#434). The divergence lives only
+  # in the invisible RGB under `inside`'s transparent letterbox (opaque content
+  # matches TwicPics to Δ≤32); the band is wide on that invisible noise so a libvips
+  # update can't false-fail it, while a real placement shift adds tens of thousands
+  # of opaque-content Δ2 outliers — far above the ceiling.
+  defp canvas_under_shrink_divergence do
+    %{
+      reason:
+        "inside=<ratio>'s transparent letterbox under 2× WebP shrink-on-load: the RGB under " <>
+          "alpha=0 (invisible) resamples differently between ImagePipe's shrink-on-load path and " <>
+          "TwicPics. Opaque content matches exactly (0 pixels Δ>32). Permanent and invisible; a " <>
+          "placement regression would dirty the opaque content and blow the outliers ceiling.",
+      max_delta: 64..255,
+      outliers: 600..2400,
+      issue: 434
+    }
   end
 
   defp c(id, chain, group, opts \\ []) do

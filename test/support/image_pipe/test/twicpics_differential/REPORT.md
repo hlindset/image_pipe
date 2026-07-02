@@ -1,6 +1,6 @@
 # TwicPics differential — bake report
 
-Baked: 2026-06-18T21:34:27.062202Z · TwicPics: 1.8.2 · libvips (at gen): 8.18.2
+Baked: 2026-07-02T10:21:25.021962Z · TwicPics: 1.8.2 · libvips (at gen): 8.18.2
 
 | case | fixture | sha256 |
 |---|---|---|
@@ -32,6 +32,9 @@ Baked: 2026-06-18T21:34:27.062202Z · TwicPics: 1.8.2 · libvips (at gen): 8.18.
 | `focus_right_cover_tall` | focus_right_cover_tall.png | 695b893c6afa |
 | `focus_topleft_cover_ratio` | focus_topleft_cover_ratio.png | 8578a31f415a |
 | `focus_topleft_cover_wide` | focus_topleft_cover_wide.png | c12af0208d15 |
+| `inside_ratio_cover_shrink` | inside_ratio_cover_shrink.png | ef51ed0802a5 |
+| `inside_ratio_focus_anchor_cover_shrink` | inside_ratio_focus_anchor_cover_shrink.png | 502cef4b759a |
+| `inside_ratio_focus_px_cover_shrink` | inside_ratio_focus_px_cover_shrink.png | d600d265e09b |
 | `inside_tall_tb` | inside_tall_tb.png | 1a76c060b778 |
 | `inside_wide_lr` | inside_wide_lr.png | 1b188ccf76f4 |
 | `number_clamp_to_one` | number_clamp_to_one.png | c2f2e90ad979 |
