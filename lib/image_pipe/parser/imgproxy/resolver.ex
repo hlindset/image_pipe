@@ -63,7 +63,8 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
   # ── delegation ────────────────────────────────────────────────────────────
   # The neutral resolver threads nil strategy state; re-wrap the continuation
   # so the imgproxy carry survives the advance (including through :acquire —
-  # a trim between resize and padding must not lose the stashed DprScale).
+  # a trim between resize and padding must not lose the stashed DprScale — and
+  # through every *stage* of a staged emission, spec §4.4).
   defp delegate(operation, shape, carry) do
     {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
     {ops, rewrap(continuation, carry)}
@@ -74,8 +75,10 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
   defp rewrap({:acquire, then_fn}, carry) do
     {:acquire,
      fn dims ->
-       {%SourceShape{} = shape, nil} = then_fn.(dims)
-       {shape, carry}
+       case then_fn.(dims) do
+         {%SourceShape{} = shape, nil} -> {shape, carry}
+         {ops, continuation} when is_list(ops) -> {ops, rewrap(continuation, carry)}
+       end
      end}
   end
 

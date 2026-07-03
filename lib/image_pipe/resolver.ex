@@ -4,9 +4,12 @@ defmodule ImagePipe.Resolver do
   A plan carries a strategy `spec` (`{module, strategy_state}`); the driver calls
   `resolve/3`; the dynamic call to the carried module is quarantined here (mirrors
   `ImagePipe.Renderer`). The continuation is the only `strategy_state` channel —
-  it carries the strategy's next state forward (see `ImagePipe.Transform.
-  ResolveDriver.advance/4`). The facade passes shape opaquely — no runtime
-  reference to `SourceShape` — so this boundary stays `deps: [ImagePipe.Plan]`.
+  it carries the strategy's next state forward, and (spec §4.4 Stage 3) may stage
+  a multi-executable expansion: an `:acquire` `then_fn` can return a further
+  `{ops, continuation}` stage, split at the realized-dims seam, which the driver
+  executes and continues (see `ImagePipe.Transform.ResolveDriver.execute_stages/7`
+  and `continue/6`). The facade passes shape opaquely — no runtime reference to
+  `SourceShape` — so this boundary stays `deps: [ImagePipe.Plan]`.
   """
   use Boundary, top_level?: true, deps: [ImagePipe.Plan], exports: []
 
@@ -14,9 +17,21 @@ defmodule ImagePipe.Resolver do
 
   @type strategy_state :: term()
   @type spec :: {module(), strategy_state()}
+
+  @typedoc """
+  What an `:acquire` `then_fn` returns: the final post-op `{shape,
+  strategy_state}`, or a further `{ops, continuation}` stage — a
+  multi-executable expansion split at the realized-dims seam (spec §4.4). The
+  driver executes the stage's ops and continues; shape acquisition stays the
+  driver's one seam, just allowed to fire more than once per plan op.
+  """
+  @type acquire_result ::
+          {SourceShape.t(), strategy_state()}
+          | {[struct()], continuation()}
+
   @type continuation ::
           {:advance, SourceShape.t(), strategy_state()}
-          | {:acquire, ({pos_integer(), pos_integer()} -> {SourceShape.t(), strategy_state()})}
+          | {:acquire, ({pos_integer(), pos_integer()} -> acquire_result())}
 
   @callback init() :: strategy_state()
   @callback resolve(SourceShape.t(), strategy_state(), struct()) ::
