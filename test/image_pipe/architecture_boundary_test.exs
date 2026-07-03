@@ -43,7 +43,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/parser/**/*.ex"
   ]
   @resolver_strategy_globs [
-    "lib/image_pipe/parser/**/resolver.ex"
+    "lib/image_pipe/parser/**/resolver.ex",
+    "lib/image_pipe/parser/**/point_flow.ex"
   ]
   @resolver_strategy_forbidden_transform_names [:Chain, :State, :Materializer, :DecodePlanner]
   @cache_key_files ["lib/image_pipe/cache/key.ex"]

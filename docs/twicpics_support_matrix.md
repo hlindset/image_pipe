@@ -120,9 +120,20 @@ ImagePipe models this faithfully:
   the neutral resolver.
 - Each geometry **transformer** (`resize`/`contain`, `cover`'s scale, `inside`'s fit
   + letterbox, the EXIF/orientation flush) applies its own realized affine to the
-  carried point; **consumers** (`cover`, `crop`) read it via the `:carried` gravity
-  and normalize it to a focal point at the libvips boundary (the only rounding
-  point). The point persists across multiple consumers until a `crop=…@XxY` reset.
+  carried point; **consumers** (`cover`, `crop`) substitute the `:carried` gravity
+  with the concrete point at resolve time (`ImagePipe.Parser.TwicPics.PointFlow`
+  advances the carry through each emitted stage with the executables' own pure
+  geometry helpers, substituting `:carried` → `{:fp, x, y}` **after** the neutral
+  resolver's orientation compensation, so a storage-frame point is never
+  gravity-remapped). The point persists across multiple consumers until a
+  `crop=…@XxY` reset.
+- **Diverges (behavioral, detector-gated):** a **smart/detect**-gravity crop
+  (`focus=auto` → `{:smart, :face_assist}`) chooses its window from pixels, so the
+  resolve-time point walk passes the carry through **unchanged** rather than
+  translating it by a crop origin it cannot know before detection runs. This edge
+  is unreachable without a configured detector (detector-less hosts fall back to
+  attention saliency, and `focus=auto` is not a carried-point consumer), so it
+  never affects the differential/wire conformance lanes.
 - This is order-sensitive (focus resolves against the frame at its position) and
   carries faithfully through EXIF-oriented sources. `focus=auto` stays a
   consumer-resolved smart-gravity mode (not a carried point). `zoom`/`turn`/`flip`
