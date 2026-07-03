@@ -116,6 +116,10 @@ defmodule ImagePipe.Transform.ResolveDriver do
   # when shrink-on-load survived unconsumed the stored original extent still
   # answers effective_source_dims, otherwise the live image speaks for itself —
   # including after the boundary flush swaps the displayed axes.
+  #
+  # This flush never touches a strategy's carried point: nothing consumes a
+  # point after the pipeline boundary (TwicPics plans are single-pipeline), so
+  # the omission is unobservable for every parser-reachable pipeline.
   defp flush_boundary(%State{} = state, %SourceShape{} = shape, chain, opts) do
     state = %State{
       state
