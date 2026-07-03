@@ -4,7 +4,6 @@ defmodule ImagePipe.Transform.FocusPropertyTest do
 
   alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.PendingOrientation
-  alias ImagePipe.Transform.State
 
   # A reduced rational fraction in [0, 1).
   defp fraction do
@@ -38,15 +37,15 @@ defmodule ImagePipe.Transform.FocusPropertyTest do
             n <- integer(1..32),
             d <- integer(1..32)
           ) do
-      state = %State{carried_point: {fx, fy}}
+      point = {fx, fy}
 
       round_trip =
-        state
+        point
         |> Focus.scale({:ratio, n, d}, {:ratio, n, d})
         |> Focus.scale({:ratio, d, n}, {:ratio, d, n})
 
-      assert round_trip.carried_point == {fx, fy}
-      {rx, ry} = round_trip.carried_point
+      assert round_trip == {fx, fy}
+      {rx, ry} = round_trip
       assert reduced?(rx) and reduced?(ry)
     end
   end
@@ -74,13 +73,12 @@ defmodule ImagePipe.Transform.FocusPropertyTest do
       start = {{:ratio, x, 1}, {:ratio, y, 1}}
 
       # dims after each 90° turn alternate 300x400 <-> 400x300
-      s0 = %State{carried_point: start}
-      s1 = Focus.reflect_rotate(s0, po, {300, 400})
-      s2 = Focus.reflect_rotate(s1, po, {400, 300})
-      s3 = Focus.reflect_rotate(s2, po, {300, 400})
-      s4 = Focus.reflect_rotate(s3, po, {400, 300})
+      p1 = Focus.reflect_rotate(start, po, {300, 400})
+      p2 = Focus.reflect_rotate(p1, po, {400, 300})
+      p3 = Focus.reflect_rotate(p2, po, {300, 400})
+      p4 = Focus.reflect_rotate(p3, po, {400, 300})
 
-      assert s4.carried_point == start
+      assert p4 == start
 
       # The intermediate single turn lands in the swapped (400x300) frame: the new
       # x came from the old y reflected (continuous coordinate dim - y), so it lies
@@ -88,7 +86,7 @@ defmodule ImagePipe.Transform.FocusPropertyTest do
       # (fraction 1.0, the far edge), which to_fp clamps to the last pixel. (This is
       # the continuous-coordinate reflection, matching Orientation.flip_x_point's
       # `1 - u`; it is not an integer pixel index, so dim is a valid boundary value.)
-      {{:ratio, nx, dx}, _ny} = s1.carried_point
+      {{:ratio, nx, dx}, _ny} = p1
       assert nx / dx >= 0 and nx / dx <= 400
     end
   end

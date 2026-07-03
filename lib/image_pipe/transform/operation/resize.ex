@@ -108,13 +108,17 @@ defmodule ImagePipe.Transform.Operation.Resize do
           # A carried focus scales with the image by the *realized* per-axis factor
           # (final dims / pre-resize live dims); reading the actual result dims keeps
           # it correct through shrink-on-load and cover intermediates.
-          state =
+          state = %State{
             state
-            |> Focus.scale(
-              {:ratio, Image.width(image), before_w},
-              {:ratio, Image.height(image), before_h}
-            )
-            |> set_image(image)
+            | carried_point:
+                Focus.scale(
+                  state.carried_point,
+                  {:ratio, Image.width(image), before_w},
+                  {:ratio, Image.height(image), before_h}
+                )
+          }
+
+          state = set_image(state, image)
 
           {:ok, %State{state | source_dimensions: nil, decode_shrink: nil}}
 

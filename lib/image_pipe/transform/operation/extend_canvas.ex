@@ -120,7 +120,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
          {:ok, {image, x, y}} <- embed_image(state, operation, width, height) do
       # The canvas embed places the image content at (x, y) in the larger frame, so
       # a carried focus translates by the realized embed offset onto its content.
-      {:ok, set_image(Focus.translate(state, x, y), image)}
+      {:ok,
+       set_image(%State{state | carried_point: Focus.translate(state.carried_point, x, y)}, image)}
     else
       true -> {:ok, state}
       {:error, reason} -> {:error, {__MODULE__, reason}}

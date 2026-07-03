@@ -303,7 +303,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # carried point falls back to the center anchor (byte-identical to a plain
   # centered crop).
   def execute(%__MODULE__{gravity: :carried} = params, %State{} = state) do
-    case Focus.to_fp(state) do
+    case Focus.to_fp(state.carried_point, image_width(state), image_height(state)) do
       nil -> execute(%__MODULE__{params | gravity: {:anchor, :center, :center}}, state)
       {:fp, _x, _y} = fp -> execute(%__MODULE__{params | gravity: fp}, state)
     end
@@ -346,7 +346,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # the focus through a region crop (translated + clamped, the same as any other
   # geometry op), it does NOT reset it to the crop-result centre.
   defp carry_focus_through_crop(%State{} = state, %__MODULE__{}, left, top),
-    do: Focus.translate(state, -left, -top)
+    do: %State{state | carried_point: Focus.translate(state.carried_point, -left, -top)}
 
   defp smart_crop(%__MODULE__{} = params, %State{} = state, interesting) do
     image_width = image_width(state)

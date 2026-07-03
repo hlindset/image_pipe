@@ -41,4 +41,18 @@ defmodule ImagePipe.Transform.PendingOrientationTest do
       assert PO.quarter_turn?(%PO{exif_angle: 180, user_angle: 0}) == false
     end
   end
+
+  describe "display_dims/2" do
+    test "nil pending and non-quarter turns keep the axes" do
+      assert PO.display_dims({80, 40}, nil) == {80, 40}
+
+      half_turn = %PO{auto_rotate?: true, exif_angle: 180}
+      assert PO.display_dims({80, 40}, half_turn) == {80, 40}
+    end
+
+    test "a pending quarter turn swaps the axes" do
+      quarter = %PO{auto_rotate?: true, exif_angle: 90}
+      assert PO.display_dims({40, 80}, quarter) == {80, 40}
+    end
+  end
 end

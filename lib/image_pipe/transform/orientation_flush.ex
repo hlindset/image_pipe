@@ -20,7 +20,7 @@ defmodule ImagePipe.Transform.OrientationFlush do
          {:ok, image} <- VipsImage.copy_memory(image) do
       # The flush is itself a focus-transforming op: a carried focus rotates/
       # reflects with the pixels (storage -> display frame) on the pre-flush dims.
-      state = Focus.reflect_rotate(state, po, pre)
+      state = %State{state | carried_point: Focus.reflect_rotate(state.carried_point, po, pre)}
       {:ok, %State{state | image: image, materialized?: true, pending_orientation: nil}}
     end
   end

@@ -12,7 +12,6 @@ defmodule ImagePipe.Parser.TwicPics.Resolver do
   alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.StateUpdate
-  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceShape
 
   @impl ImagePipe.Resolver
@@ -23,18 +22,7 @@ defmodule ImagePipe.Parser.TwicPics.Resolver do
 
   @impl ImagePipe.Resolver
   def resolve(%SourceShape{} = shape, nil, %Directive{name: :set_focus, payload: operand}) do
-    {live_w, live_h} = SourceShape.live_dims(shape)
-
-    display =
-      case shape.pending_orientation do
-        nil ->
-          {live_w, live_h}
-
-        po ->
-          if PendingOrientation.quarter_turn?(po), do: {live_h, live_w}, else: {live_w, live_h}
-      end
-
-    focus_ctx = %{display: display, storage: {live_w, live_h}, decode_shrink: shape.decode_shrink}
+    focus_ctx = %{storage: SourceShape.live_dims(shape), decode_shrink: shape.decode_shrink}
     resolved = Focus.resolve(operand, focus_ctx, shape.pending_orientation)
     {[%StateUpdate{fields: %{carried_point: resolved}}], {:advance, shape, nil}}
   end
