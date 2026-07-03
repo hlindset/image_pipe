@@ -38,7 +38,6 @@ defmodule ImagePipe.Transform do
       Operation.Gradient,
       Operation.Trim,
       Operation.Flush,
-      Operation.StateUpdate,
       SourceShape,
       NeutralResolver,
       Lowering,

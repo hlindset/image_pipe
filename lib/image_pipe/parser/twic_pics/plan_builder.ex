@@ -141,8 +141,9 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
     with {:ok, {w, h}} <- region_size(size),
          {:ok, {x, y}} <- crop_coordinates(coords),
          {:ok, op} <- Operation.crop_region(x, y, w, h) do
-      # crop@coords resets the carried focus to the crop-result centre at
-      # execution; the running guide stays :carried so the next consumer reads it.
+      # crop@coords translates the carried focus by the region's origin (the same
+      # geometry-transform treatment as any other crop); the running guide stays
+      # :carried so the next consumer reads it.
       push(%{acc | guide: :carried}, op)
     end
   end

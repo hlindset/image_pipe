@@ -1,11 +1,13 @@
 defmodule ImagePipe.Transform.Focus do
   @moduledoc false
-  # Neutral point-math namespace for the carried point, transformed by each
-  # geometry op's realized affine. An exact-rational continuous coordinate in
-  # the live-image frame; the only float conversion is `to_fp/1`, at the libvips
+  # Neutral point-math namespace for the carried point: an exact-rational
+  # continuous coordinate in the live-image frame, transformed by each geometry
+  # op's realized affine. The only float conversion is `to_fp/1`, at the libvips
   # boundary. Every function is a no-op when the carried point is `nil` (a
   # strategy may not carry a point), so point-free plans are unaffected. The
-  # TwicPics strategy is the current producer.
+  # carried point is TwicPics-strategy state advanced by
+  # `ImagePipe.Parser.TwicPics.PointFlow`; this module is the neutral point math
+  # it (and any future point-carrying strategy) uses.
   #
   # The numerator is integer() (matching ImagePipe.Plan.Measure): a crop
   # translate can transiently negate it (focus left/above the crop window); a

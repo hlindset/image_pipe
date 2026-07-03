@@ -6,13 +6,7 @@ defmodule ImagePipe.Transform.FocusTest do
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Focus
-  alias ImagePipe.Transform.Operation.Crop
-  alias ImagePipe.Transform.Operation.ExtendCanvas
-  alias ImagePipe.Transform.Operation.Resize
-  alias ImagePipe.Transform.OrientationFlush
-  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.PlanExecutor
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
@@ -125,39 +119,12 @@ defmodule ImagePipe.Transform.FocusTest do
   defp cell_color(col, row),
     do: [round(col * 255 / (@cols - 1)), round(row * 255 / (@rows - 1)), 255]
 
-  defp cell_center({col, row}),
-    do: {{:ratio, col * @cell + div(@cell, 2), 1}, {:ratio, row * @cell + div(@cell, 2), 1}}
-
   defp nearest_cell([r, g, b]) do
     for(col <- 0..(@cols - 1), row <- 0..(@rows - 1), do: {col, row})
     |> Enum.min_by(fn {col, row} ->
       [cr, cg, cb] = cell_color(col, row)
       (cr - r) ** 2 + (cg - g) ** 2 + (cb - b) ** 2
     end)
-  end
-
-  # Set the carried point, run `ops` (transformers), then a tiny crop reading
-  # the carried point; decode the centre pixel's cell.
-  defp focus_cell(image, focus, ops, crop_size \\ 12) do
-    state = %State{image: image, carried_point: focus, materialized?: true}
-    {:ok, state} = Chain.execute(state, ops)
-
-    {:fp, fx, fy} =
-      Focus.to_fp(state.carried_point, Image.width(state.image), Image.height(state.image))
-
-    {:ok, state} =
-      Chain.execute(state, [
-        %Crop{width: crop_size, height: crop_size, crop_from: :gravity, gravity: {:fp, fx, fy}}
-      ])
-
-    w = Image.width(state.image)
-    h = Image.height(state.image)
-
-    state.image
-    |> Image.get_pixel!(div(w, 2), div(h, 2))
-    |> Enum.take(3)
-    |> Enum.map(&round/1)
-    |> nearest_cell()
   end
 
   # Build a full TwicPics plan from a manipulation chain and run it through
@@ -240,7 +207,8 @@ defmodule ImagePipe.Transform.FocusTest do
           %Pipeline{operations: [%CropGuided{width: {:px, w}, height: {:px, h}, guide: guide}]}
         ],
         output: nil,
-        auto_rotate: true
+        auto_rotate: true,
+        resolver: ImagePipe.Parser.TwicPics.Resolver
       }
 
       {:ok, state} =
@@ -291,78 +259,6 @@ defmodule ImagePipe.Transform.FocusTest do
         centered = guided_crop_image(image, orient, :center, size)
         assert_images_equal(carried, centered, "orient=#{orient} crop=#{inspect(size)}")
       end
-    end
-  end
-
-  describe "carry through geometry ops" do
-    test "focus carries through a 50% fit resize" do
-      # cell (1,1) centre = (150,150); resize 400->200 halves it to (75,75) -> still (1,1)
-      resize = %Resize{mode: :fit, width: {:pixels, 200}, height: {:pixels, 200}, enlarge: false}
-      assert focus_cell(grid(), cell_center({1, 1}), [resize]) == {1, 1}
-    end
-
-    test "contain (pure fit, no crop/canvas) carries the focus" do
-      resize = %Resize{mode: :fit, width: {:pixels, 150}, height: {:pixels, 150}, enlarge: false}
-      assert focus_cell(grid(), cell_center({3, 0}), [resize]) == {3, 0}
-    end
-
-    test "cover (fill resize + result crop) reads and translates the focus" do
-      # cover=150x150 analogue: fill resize then a centred result crop of 150x150.
-      resize = %Resize{mode: :fill, width: {:pixels, 150}, height: {:pixels, 150}}
-
-      crop = %Crop{
-        width: {:pixels, 150},
-        height: {:pixels, 150},
-        crop_from: :gravity,
-        gravity: :carried
-      }
-
-      assert focus_cell(grid(), cell_center({0, 0}), [resize, crop]) == {0, 0}
-      assert focus_cell(grid(), cell_center({2, 2}), [resize, crop]) == {2, 2}
-    end
-
-    test "inside (fit + transparent letterbox canvas) carries the focus onto content" do
-      # inside=200x100 analogue: fit into 200x100 then letterbox to a 200x100 canvas.
-      resize = %Resize{mode: :fit, width: {:pixels, 200}, height: {:pixels, 100}, enlarge: false}
-
-      canvas = %ExtendCanvas{
-        rule: {:dimensions, {:pixels, 200}, {:pixels, 100}},
-        gravity: {:anchor, :center, :center},
-        background: :transparent
-      }
-
-      assert focus_cell(grid(), cell_center({2, 2}), [resize, canvas]) == {2, 2}
-    end
-
-    test "the orientation flush rotates the carried point with the image (turn 90)" do
-      state = %State{
-        image: grid(),
-        carried_point: cell_center({1, 0}),
-        pending_orientation: %PendingOrientation{user_angle: 90},
-        materialized?: false
-      }
-
-      {:ok, state} = OrientationFlush.flush(state)
-
-      {:fp, fx, fy} =
-        Focus.to_fp(state.carried_point, Image.width(state.image), Image.height(state.image))
-
-      {:ok, state} =
-        Chain.execute(state, [
-          %Crop{width: 12, height: 12, crop_from: :gravity, gravity: {:fp, fx, fy}}
-        ])
-
-      w = Image.width(state.image)
-      h = Image.height(state.image)
-
-      cell =
-        state.image
-        |> Image.get_pixel!(div(w, 2), div(h, 2))
-        |> Enum.take(3)
-        |> Enum.map(&round/1)
-        |> nearest_cell()
-
-      assert cell == {1, 0}
     end
   end
 end

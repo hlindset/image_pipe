@@ -6,21 +6,16 @@ defmodule ImagePipe.Transform.OrientationFlush do
   # autorotate reads the live EXIF tag, so calling it for an ar:0 source that still
   # carries a tag would wrongly apply suppressed EXIF rotation.
 
-  alias ImagePipe.Transform.{Focus, PendingOrientation, State}
+  alias ImagePipe.Transform.{PendingOrientation, State}
   alias Vix.Vips.Image, as: VipsImage
 
   @spec flush(State.t()) :: {:ok, State.t()} | {:error, term()}
   def flush(%State{pending_orientation: nil} = state), do: materialize(state)
 
   def flush(%State{pending_orientation: %PendingOrientation{} = po} = state) do
-    pre = {Image.width(state.image), Image.height(state.image)}
-
     with {:ok, image} <- prepare_random_access(state.image, po),
          {:ok, image} <- apply_orientation(image, po),
          {:ok, image} <- VipsImage.copy_memory(image) do
-      # The flush is itself a focus-transforming op: a carried focus rotates/
-      # reflects with the pixels (storage -> display frame) on the pre-flush dims.
-      state = %State{state | carried_point: Focus.reflect_rotate(state.carried_point, po, pre)}
       {:ok, %State{state | image: image, materialized?: true, pending_orientation: nil}}
     end
   end

@@ -501,11 +501,10 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # together. This clause MUST precede the {crop_from: :gravity, gravity}
   # clause below, which a :carried crop would otherwise match.
   #
-  # A nil carried point makes Crop.execute fall back to a centred crop, so this
-  # crop still needs the center-discard-side compensation (#146 Bug 2) that the
-  # gravity clause applies. For a set carried point the crop resolves to `:fp`
-  # gravity, which ignores center_bias, so setting it unconditionally here is
-  # harmless.
+  # The TwicPics strategy substitutes a nil carried point to the centred anchor,
+  # so this crop still needs the center-discard-side compensation (#146 Bug 2)
+  # that the gravity clause applies. A set point substitutes to `:fp` gravity,
+  # which ignores center_bias, so setting it unconditionally here is harmless.
   defp compensate_crop(%Crop{gravity: :carried} = crop, %PendingOrientation{} = po) do
     crop = %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
 

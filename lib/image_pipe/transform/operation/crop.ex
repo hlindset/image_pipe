@@ -105,7 +105,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Focal
-  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation
 
@@ -152,6 +151,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
+            # requires a point-carrying resolver strategy; a strategy substitutes a
+            # concrete gravity before an operation carrying this reaches execute/2
             | :carried
             | :smart
             | {:smart, :face_assist}
@@ -275,7 +276,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
   def requires_materialization?(%__MODULE__{gravity: :smart}), do: true
   def requires_materialization?(%__MODULE__{gravity: {:smart, _}}), do: true
   def requires_materialization?(%__MODULE__{gravity: {:detect, _}}), do: true
-  def requires_materialization?(%__MODULE__{gravity: :carried}), do: false
   def requires_materialization?(%__MODULE__{}), do: false
 
   @impl ImagePipe.Transform
@@ -295,17 +295,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
       smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
       face_assist_crop(params, state, module, dopts)
-    end
-  end
-
-  # A carried-gravity consumer (TwicPics cover/crop) reads the neutral carried
-  # point and resolves it to a focal-point gravity at the libvips boundary; a nil
-  # carried point falls back to the center anchor (byte-identical to a plain
-  # centered crop).
-  def execute(%__MODULE__{gravity: :carried} = params, %State{} = state) do
-    case Focus.to_fp(state.carried_point, image_width(state), image_height(state)) do
-      nil -> execute(%__MODULE__{params | gravity: {:anchor, :center, :center}}, state)
-      {:fp, _x, _y} = fp -> execute(%__MODULE__{params | gravity: fp}, state)
     end
   end
 
@@ -330,23 +319,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
-  defp crop_image(%__MODULE__{} = params, %State{} = state, {left, top, crop_width, crop_height}) do
+  defp crop_image(%__MODULE__{}, %State{} = state, {left, top, crop_width, crop_height}) do
     case Image.crop(state.image, left, top, crop_width, crop_height) do
-      {:ok, cropped_image} ->
-        {:ok, set_image(carry_focus_through_crop(state, params, left, top), cropped_image)}
-
-      {:error, error} ->
-        {:error, {__MODULE__, error}}
+      {:ok, cropped_image} -> {:ok, set_image(state, cropped_image)}
+      {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
-
-  # Every crop is a geometry transformer for a carried focus: the focus translates
-  # by the realized (clamped) crop origin into the cropped frame. This holds for
-  # both gravity crops and coordinate crops (`crop=WxH@XxY`) — live TwicPics carries
-  # the focus through a region crop (translated + clamped, the same as any other
-  # geometry op), it does NOT reset it to the crop-result centre.
-  defp carry_focus_through_crop(%State{} = state, %__MODULE__{}, left, top),
-    do: %State{state | carried_point: Focus.translate(state.carried_point, -left, -top)}
 
   defp smart_crop(%__MODULE__{} = params, %State{} = state, interesting) do
     image_width = image_width(state)
