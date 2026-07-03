@@ -167,4 +167,31 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
     assert content_origin(out) == {6, 4}
   end
+
+  describe "resolved_embed_offset/5 mirrors execute/2's embed placement" do
+    test "each anchor places the content at the resolved offset" do
+      # centre = Geometry.center_origin/2 = round_ties_to_even((outer − inner + 1) / 2):
+      # x = rte(21/2) = 10, y = rte(11/2) = 6.
+      for {gravity, expected} <- [
+            {{:anchor, :left, :top}, {0, 0}},
+            {{:anchor, :center, :center}, {10, 6}},
+            {{:anchor, :right, :bottom}, {20, 10}}
+          ] do
+        op = %ExtendCanvas{rule: {:dimensions, {:pixels, 40}, {:pixels, 30}}, gravity: gravity}
+
+        assert ExtendCanvas.resolved_embed_offset(op, 20, 20, 40, 30) == expected
+      end
+    end
+
+    test "a far-edge anchor subtracts its offset; the origin clamps into the canvas" do
+      op = %ExtendCanvas{
+        rule: {:dimensions, {:pixels, 40}, {:pixels, 30}},
+        gravity: {:anchor, :right, :bottom},
+        x_offset: 5.0,
+        y_offset: 100.0
+      }
+
+      assert ExtendCanvas.resolved_embed_offset(op, 20, 20, 40, 30) == {15, 0}
+    end
+  end
 end

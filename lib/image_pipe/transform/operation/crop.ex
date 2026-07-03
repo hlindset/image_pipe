@@ -205,6 +205,72 @@ defmodule ImagePipe.Transform.Operation.Crop do
      resolve_dimension(target_height, image_height, clamp?: true)}
   end
 
+  @doc false
+  # The realized crop rectangle resolved purely against the given live image
+  # dims — the exact {left, top, width, height} `execute/2` crops on an image
+  # of that size. Defined for concrete-gravity (anchor/fp) and coordinate
+  # crops; a :smart/:detect/:carried gravity has no pure rectangle (pixels or
+  # a substituted point decide it). Lets a resolver strategy translate a
+  # carried point by the realized crop origin without reading the live image.
+  @spec resolved_rect(t(), pos_integer(), pos_integer()) ::
+          {:ok, %{left: integer(), top: integer(), width: pos_integer(), height: pos_integer()}}
+          | {:error, term()}
+  def resolved_rect(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
+    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
+         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
+         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
+         {crop_width, crop_height} =
+           correct_aspect_ratio(
+             crop_width,
+             crop_height,
+             params.aspect_ratio,
+             params.enlarge,
+             image_width,
+             image_height
+           ),
+         {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
+      offset_scale = crop.offset_scale * 1.0
+      x_offset = resolve_offset(default_if_nil(params.x_offset, 0.0), image_width, offset_scale)
+      y_offset = resolve_offset(default_if_nil(params.y_offset, 0.0), image_height, offset_scale)
+
+      {:ok,
+       gravity_crop_coordinates(
+         image_width,
+         image_height,
+         crop_width,
+         crop_height,
+         gravity,
+         x_offset,
+         y_offset,
+         params.center_bias
+       )}
+    end
+  end
+
+  def resolved_rect(%__MODULE__{} = params, image_width, image_height) do
+    %{left: left_coord, top: top_coord} = params.crop_from
+    left_px = resolve_position(left_coord, image_width)
+    top_px = resolve_position(top_coord, image_height)
+
+    # keep :auto dimensions as is
+    target_width = if params.width == :auto, do: image_width, else: params.width
+    target_height = if params.height == :auto, do: image_height, else: params.height
+
+    # make sure crop is within image bounds
+    crop_width = resolve_dimension(target_width, image_width, clamp?: true)
+    crop_height = resolve_dimension(target_height, image_height, clamp?: true)
+
+    # figure out the crop anchor from the resolved origin
+    center_x = round(left_px + crop_width / 2)
+    center_y = round(top_px + crop_height / 2)
+
+    # ...and make sure crop still stays within bounds
+    left = max(0, min(image_width - crop_width, round(center_x - crop_width / 2)))
+    top = max(0, min(image_height - crop_height, round(center_y - crop_height / 2)))
+
+    {:ok, %{left: left, top: top, width: crop_width, height: crop_height}}
+  end
+
   @impl ImagePipe.Transform
   def requires_materialization?(%__MODULE__{gravity: :smart}), do: true
   def requires_materialization?(%__MODULE__{gravity: {:smart, _}}), do: true
@@ -255,7 +321,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_width = image_width(state)
     image_height = image_height(state)
 
-    case crop_coordinates(params, state, image_width, image_height) do
+    case resolved_rect(params, image_width, image_height) do
       {:ok, %{left: left, top: top, width: crop_width, height: crop_height}} ->
         crop_image(params, state, {left, top, crop_width, crop_height})
 
@@ -281,67 +347,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # geometry op), it does NOT reset it to the crop-result centre.
   defp carry_focus_through_crop(%State{} = state, %__MODULE__{}, left, top),
     do: Focus.translate(state, -left, -top)
-
-  defp crop_coordinates(
-         %__MODULE__{crop_from: :gravity} = params,
-         %State{},
-         image_width,
-         image_height
-       ) do
-    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
-         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
-         {crop_width, crop_height} =
-           correct_aspect_ratio(
-             crop_width,
-             crop_height,
-             params.aspect_ratio,
-             params.enlarge,
-             image_width,
-             image_height
-           ),
-         {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
-      offset_scale = crop.offset_scale * 1.0
-      x_offset = resolve_offset(default_if_nil(params.x_offset, 0.0), image_width, offset_scale)
-      y_offset = resolve_offset(default_if_nil(params.y_offset, 0.0), image_height, offset_scale)
-
-      {:ok,
-       gravity_crop_coordinates(
-         image_width,
-         image_height,
-         crop_width,
-         crop_height,
-         gravity,
-         x_offset,
-         y_offset,
-         params.center_bias
-       )}
-    end
-  end
-
-  defp crop_coordinates(%__MODULE__{} = params, %State{}, image_width, image_height) do
-    %{left: left_coord, top: top_coord} = params.crop_from
-    left_px = resolve_position(left_coord, image_width)
-    top_px = resolve_position(top_coord, image_height)
-
-    # keep :auto dimensions as is
-    target_width = if params.width == :auto, do: image_width, else: params.width
-    target_height = if params.height == :auto, do: image_height, else: params.height
-
-    # make sure crop is within image bounds
-    crop_width = resolve_dimension(target_width, image_width, clamp?: true)
-    crop_height = resolve_dimension(target_height, image_height, clamp?: true)
-
-    # figure out the crop anchor from the resolved origin
-    center_x = round(left_px + crop_width / 2)
-    center_y = round(top_px + crop_height / 2)
-
-    # ...and make sure crop still stays within bounds
-    left = max(0, min(image_width - crop_width, round(center_x - crop_width / 2)))
-    top = max(0, min(image_height - crop_height, round(center_y - crop_height / 2)))
-
-    {:ok, %{left: left, top: top, width: crop_width, height: crop_height}}
-  end
 
   defp smart_crop(%__MODULE__{} = params, %State{} = state, interesting) do
     image_width = image_width(state)
