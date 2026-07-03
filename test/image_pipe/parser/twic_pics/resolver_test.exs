@@ -2,6 +2,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Parser.TwicPics.Resolver, as: TwicPicsResolver
+  alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Transform.NeutralResolver
@@ -36,7 +37,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
   end
 
   test "delegated ops still match the neutral resolution for a nil point" do
-    {:ok, op} = ImagePipe.Plan.Operation.blur(2.0)
+    {:ok, op} = Operation.blur(2.0)
 
     {neutral_ops, {:advance, neutral_shape, nil}} =
       NeutralResolver.resolve(shape(800, 600), nil, op)
@@ -156,7 +157,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
   # be reproduced. Documented in docs/twicpics_support_matrix.md.
   test "a smart-gravity crop passes the point through unchanged" do
     point = {{:ratio, 100, 1}, {:ratio, 100, 1}}
-    {:ok, op} = ImagePipe.Plan.Operation.crop_guided({:px, 50}, {:px, 50}, {:smart, :face_assist})
+    {:ok, op} = Operation.crop_guided({:px, 50}, {:px, 50}, {:smart, :face_assist})
 
     {[%Crop{gravity: {:smart, :face_assist}}], {:advance, _shape, carried}} =
       TwicPicsResolver.resolve(shape(400, 400), point, op)

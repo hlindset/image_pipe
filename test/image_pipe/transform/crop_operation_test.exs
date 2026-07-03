@@ -6,6 +6,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Operation, as: VipsOperation
 
   defp state(width, height) do
     {:ok, image} = Image.new(width, height, color: :white)
@@ -569,7 +570,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
   describe "resolved_rect/3 mirrors execute/2 exactly" do
     defp xyz_state(w, h) do
-      {:ok, image} = Vix.Vips.Operation.xyz(w, h)
+      {:ok, image} = VipsOperation.xyz(w, h)
       %ImagePipe.Transform.State{image: image}
     end
 
