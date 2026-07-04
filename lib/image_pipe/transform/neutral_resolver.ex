@@ -499,13 +499,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # gravity-remapped like an imgproxy focus-point spec. Only the crop box needs
   # the quarter-turn dim swap; the flush then rotates image + carried point
   # together. This clause MUST precede the {crop_from: :gravity, gravity}
-  # clause below, which a :carried crop would otherwise match.
+  # clause below, which a :deferred crop would otherwise match.
   #
   # The TwicPics strategy substitutes a nil carried point to the centred anchor,
   # so this crop still needs the center-discard-side compensation (#146 Bug 2)
   # that the gravity clause applies. A set point substitutes to `:fp` gravity,
   # which ignores center_bias, so setting it unconditionally here is harmless.
-  defp compensate_crop(%Crop{gravity: :carried} = crop, %PendingOrientation{} = po) do
+  defp compensate_crop(%Crop{gravity: :deferred} = crop, %PendingOrientation{} = po) do
     crop = %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
 
     if PendingOrientation.quarter_turn?(po),

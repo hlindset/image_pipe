@@ -2,7 +2,7 @@ defmodule ImagePipe.Parser.TwicPics.Resolver do
   @moduledoc """
   TwicPics geometry-resolution strategy (spec §4.4/§9 Stage 3; #438): carries
   the TwicPics focus point as its strategy state, resolves the positional
-  `set_focus` directive into that carry, substitutes `:carried` gravity with a
+  `set_focus` directive into that carry, substitutes `:deferred` gravity with a
   concrete point before emission, and delegates all geometry resolution to
   `ImagePipe.Transform.NeutralResolver`, advancing the point through each
   emitted stage with the executables' pure geometry helpers

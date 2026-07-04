@@ -48,11 +48,11 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
 
   # focus (100,100) on a 400x400 source, cover=200x100 (staged [resize] ->
   # seam -> [crop]): the cover intermediate is 200x200 (injected at the seam),
-  # so the point scales to (50,50) and the crop's :carried gravity substitutes
+  # so the point scales to (50,50) and the crop's :deferred gravity substitutes
   # to fp (0.25, 0.25) against the 200x200 intermediate. The 200x100 box crops
   # at origin (0, 0) — round_ties_to_even(0.25*200 - 100) = -50 clamps to 0,
   # round_ties_to_even(0.25*200 - 50) = 0 — so the carry stays (50, 50).
-  test "a staged cover substitutes :carried to a concrete fp and translates the carry" do
+  test "a staged cover substitutes :deferred to a concrete fp and translates the carry" do
     point = {{:ratio, 100, 1}, {:ratio, 100, 1}}
 
     resize = %PlanResize{
@@ -61,7 +61,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       height: {:px, 100},
       dpr: {:ratio, 1, 1},
       enlargement: :deny,
-      guide: :carried
+      guide: :deferred
     }
 
     {[%ExecResize{}], {:acquire, stage}} =
@@ -80,7 +80,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       height: {:px, 100},
       dpr: {:ratio, 1, 1},
       enlargement: :deny,
-      guide: :carried
+      guide: :deferred
     }
 
     {[%ExecResize{}], {:acquire, stage}} = TwicPicsResolver.resolve(shape(400, 400), nil, resize)
@@ -91,7 +91,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
 
   # Under a pending quarter turn the stage is [crop, Flush]: the fp substitutes
   # against the storage-frame point BEFORE the flush (never gravity-remapped —
-  # compensate_crop's :carried clause), and the carry reflect-rotates with the
+  # compensate_crop's :deferred clause), and the carry reflect-rotates with the
   # flush. Storage 40x80 EXIF-6 source, point (20, 36) storage-frame,
   # cover=20x20 -> forcing resize to storage 20x40 (injected), point scales to
   # (10, 18), fp (0.5, 0.45); the 20x20 box (display->storage swap is identity
@@ -108,7 +108,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       height: {:px, 20},
       dpr: {:ratio, 1, 1},
       enlargement: :deny,
-      guide: :carried
+      guide: :deferred
     }
 
     {[%ExecResize{mode: :force}], {:acquire, stage}} =
@@ -138,7 +138,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       height: {:px, 20},
       dpr: {:ratio, 1, 1},
       enlargement: :deny,
-      guide: :carried
+      guide: :deferred
     }
 
     {[%ExecResize{mode: :force}], {:acquire, stage}} =

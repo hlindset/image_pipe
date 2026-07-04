@@ -1405,8 +1405,8 @@ defmodule ImagePipe.Cache.KeyTest do
     end
 
     # The cache-key / ETag fast path (Key.plan_material -> KeyData.data per op) must
-    # handle the :carried guide and %Directive{} ops the TwicPics parser now emits.
-    # The default guide is :carried, so even a focus-less cover exercises it.
+    # handle the :deferred guide and %Directive{} ops the TwicPics parser now emits.
+    # The default guide is :deferred, so even a focus-less cover exercises it.
     test "plan_material handles a carried cover with no focus segment" do
       assert {:ok, _material} = Key.plan_material(twic_plan!([{"cover", "100x100"}]), [])
     end

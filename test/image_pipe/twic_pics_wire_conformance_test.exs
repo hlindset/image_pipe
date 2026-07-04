@@ -652,7 +652,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     end
 
     # The nil-point centred fallback under EXIF with an odd extent difference:
-    # compensate_crop's :carried clause sets center_bias so the discarded pixel
+    # compensate_crop's :deferred clause sets center_bias so the discarded pixel
     # lands on the intended display side (#146 Bug 2). Pin the current BYTES
     # relation between the no-focus fallback and an explicit centre focus (the
     # fp path ignores center_bias, so these may legitimately differ by one
@@ -670,7 +670,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
       # Observed relation (current code): the bodies differ by one pixel
       # row/column — the legitimate center_bias divergence called out above (the
       # fp path taken by an explicit focus=center ignores center_bias, while the
-      # nil-point :carried fallback sets it). Pin that divergence, not equality.
+      # nil-point :deferred fallback sets it). Pin that divergence, not equality.
       refute fallback.resp_body == explicit.resp_body
     end
 

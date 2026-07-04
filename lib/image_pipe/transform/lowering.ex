@@ -340,8 +340,8 @@ defmodule ImagePipe.Transform.Lowering do
 
   # Carried gravity passes through unresolved; the plan's carried resolver
   # strategy substitutes it with a concrete focal point before emission (a
-  # strategy-less :carried is unsupported and errors at Crop.execute).
-  def tagged_executable_gravity(:carried), do: :carried
+  # strategy-less :deferred is unsupported and errors at Crop.execute).
+  def tagged_executable_gravity(:deferred), do: :deferred
 
   def tagged_executable_gravity({:focal, x, y}),
     do: {:fp, tagged_ratio_to_float(x), tagged_ratio_to_float(y)}

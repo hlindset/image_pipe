@@ -185,12 +185,12 @@ defmodule ImagePipe.Transform.FocusTest do
   end
 
   describe "nil-focus carried crop equals a centred crop under pending orientation" do
-    # A nil carried point makes a :carried crop fall back to the centre anchor, so it
+    # A nil carried point makes a :deferred crop fall back to the centre anchor, so it
     # MUST be pixel-identical to an explicit :center crop under any pending EXIF
-    # orientation. This is the invariant `compensate_crop(:carried)` preserves via
+    # orientation. This is the invariant `compensate_crop(:deferred)` preserves via
     # center_bias (Orientation.center_discard_sides) — dropping it shifts the kept
     # pixel by one on an odd-extent axis the flush reverses (regressed when the
-    # TwicPics default guide moved from :center to :carried; caught in PR review).
+    # TwicPics default guide moved from :center to :deferred; caught in PR review).
 
     # A fine, per-pixel-distinct pattern so a 1px discard difference is visible
     # (the 100px-cell grid above would hide it).
@@ -255,7 +255,7 @@ defmodule ImagePipe.Transform.FocusTest do
       # orientations 2/4/6/7 reverse an axis (or quarter-turn) where center_bias
       # bites; odd-extent crops give the centre an extra pixel to discard.
       for orient <- [2, 4, 6, 7], size <- [{20, 30}, {21, 31}, {20, 31}, {21, 30}] do
-        carried = guided_crop_image(image, orient, :carried, size)
+        carried = guided_crop_image(image, orient, :deferred, size)
         centered = guided_crop_image(image, orient, :center, size)
         assert_images_equal(carried, centered, "orient=#{orient} crop=#{inspect(size)}")
       end

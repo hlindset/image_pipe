@@ -229,7 +229,7 @@ defmodule ImagePipe.Plan.KeyData do
   defp trim_background_data(%Color{} = color), do: Color.key_data(color)
 
   defp guide_data(:center), do: :center
-  defp guide_data(:carried), do: :carried
+  defp guide_data(:deferred), do: :deferred
 
   defp guide_data(guide) when guide in @crop_anchor_guides, do: guide
 

@@ -83,7 +83,7 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | `contain-max` / `contain-min` (aliases `max` / `min`) | 🚫 Rejected | Conditional variants deferred. |
 | `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). **Pixel dimensions only** in v1 (relative units deferred). |
 | `inside=W:H` (ratio) | ✅ Supported | `Canvas({:ratio, w, 1}, {:ratio, h, 1}, placement: center, fill: transparent)` — pads/letterboxes the whole image into a box of this aspect ratio with transparent borders (expands the image's canvas on the needed axis; never crops). Single op, no resize. Integer and decimal ratios (e.g. `4:3`, `1.5:2`) both supported. (`cover=W:H` crops to the ratio; `inside=W:H` pads to it.) **Transparent fill only**; user-specified `background` deferred. Non-alpha output flattens the letterbox. |
-| `crop=WxH` | ✅ Supported | `CropGuided(W, H, guide: :carried)` — reads the carried point. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. Pixel **and** relative (`p` / `s` → `{:ratio}`) dimensions, resolved against the running image at execution time. |
+| `crop=WxH` | ✅ Supported | `CropGuided(W, H, guide: :deferred)` — reads the carried point. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. Pixel **and** relative (`p` / `s` → `{:ratio}`) dimensions, resolved against the running image at execution time. |
 | `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; **carries** the point through the crop (translated into the new frame; clamped only when the next `cover`/`crop` consumes it), like every other geometry op — it does **not** reset it to the crop-result centre. The official docs claim a reset; live TwicPics disagrees ([#331](https://github.com/hlindset/image_pipe/issues/331), confirmed by differential probe). Both axes must be explicit (an omitted axis is rejected). Pixel **and** relative dimensions/coordinates; zero-based coordinates (`@0x0`) supported. |
 | `focus=<anchor>` | ✅ Supported | One of the eight anchors, resolved at its chain position to a concrete point and carried for the following `cover` / `crop`; emits a positional `set_focus` `Directive` (no pixel operation). |
 | `focus=<coords>` (relative `p` / `s`) | ✅ Supported | A relative coordinate resolves against the running frame at its chain position into a carried point; emits a positional `set_focus` `Directive` (no pixel operation). An **out-of-range** relative focus (a ratio > 1, e.g. `150p`) is **clamped to the far edge** at resolution — matching live TwicPics — not rejected. A ratio of exactly 1 (`100p`) is the edge/corner. |
@@ -120,10 +120,10 @@ ImagePipe models this faithfully:
   neutral resolver.
 - Each geometry **transformer** (`resize`/`contain`, `cover`'s scale, `inside`'s fit
   + letterbox, the EXIF/orientation flush) applies its own realized affine to the
-  carried point; **consumers** (`cover`, `crop`) substitute the `:carried` gravity
+  carried point; **consumers** (`cover`, `crop`) substitute the `:deferred` gravity
   with the concrete point at resolve time (`ImagePipe.Parser.TwicPics.PointFlow`
   advances the carry through each emitted stage with the executables' own pure
-  geometry helpers, substituting `:carried` → `{:fp, x, y}` **after** the neutral
+  geometry helpers, substituting `:deferred` → `{:fp, x, y}` **after** the neutral
   resolver's orientation compensation, so a storage-frame point is never
   gravity-remapped). The point persists across multiple consumers until a
   `crop=…@XxY` reset.

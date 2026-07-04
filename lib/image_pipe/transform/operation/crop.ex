@@ -153,7 +153,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
             | {:fp, float(), float()}
             # requires a point-carrying resolver strategy; a strategy substitutes a
             # concrete gravity before an operation carrying this reaches execute/2
-            | :carried
+            | :deferred
             | :smart
             | {:smart, :face_assist}
             | {:detect,
@@ -210,7 +210,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # The realized crop rectangle resolved purely against the given live image
   # dims — the exact {left, top, width, height} `execute/2` crops on an image
   # of that size. Defined for concrete-gravity (anchor/fp) and coordinate
-  # crops; a :smart/:detect/:carried gravity has no pure rectangle (pixels or
+  # crops; a :smart/:detect/:deferred gravity has no pure rectangle (pixels or
   # a substituted point decide it). Lets a resolver strategy translate a
   # carried point by the realized crop origin without reading the live image.
   @spec resolved_rect(t(), pos_integer(), pos_integer()) ::

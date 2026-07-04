@@ -8,7 +8,7 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
   #     is always the TERMINAL op of its stage (the neutral staging invariant),
   #     so the factor is acquired-stage-dims / dims-entering-the-resize,
   #     applied at the stage seam.
-  #   * %Crop{} — a `:carried` gravity substitutes first: a set point becomes
+  #   * %Crop{} — a `:deferred` gravity substitutes first: a set point becomes
   #     the concrete {:fp, x, y} (Focus.to_fp against the live dims at the
   #     crop), a nil point becomes the centred anchor (byte-identical to the
   #     old Crop.execute fallback; compensate_crop has already set center_bias,
@@ -70,7 +70,7 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
   defp scale_at_seam(point, {pre_w, pre_h}, {w, h}),
     do: Focus.scale(point, {:ratio, w, pre_w}, {:ratio, h, pre_h})
 
-  defp step(%Crop{gravity: :carried} = crop, {point, {w, h}}, po),
+  defp step(%Crop{gravity: :deferred} = crop, {point, {w, h}}, po),
     do: step(%Crop{crop | gravity: substituted_gravity(point, w, h)}, {point, {w, h}}, po)
 
   defp step(%Crop{gravity: gravity} = crop, {point, {w, h}}, _po)

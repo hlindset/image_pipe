@@ -27,7 +27,7 @@ defmodule ImagePipe.Plan.Operation.CropGuided do
   @type guide ::
           anchor()
           # requires a point-carrying resolver strategy (e.g. the TwicPics parser's)
-          | :carried
+          | :deferred
           | {:anchor, :left | :center | :right, :top | :center | :bottom}
           | {:focal, {:ratio, non_neg_integer(), pos_integer()},
              {:ratio, non_neg_integer(), pos_integer()}}
