@@ -43,7 +43,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
              build([{"focus", "top"}, {"cover", "100x100"}])
 
     assert %Operation.Directive{name: :set_focus, payload: {:anchor, :center, :top}} = set_focus
-    assert %Operation.Resize{mode: :cover, guide: :carried} = cover
+    assert %Operation.Resize{mode: :cover, guide: :deferred} = cover
   end
 
   test "relative-unit coordinate focus emits set_focus directive + carried cover (#321)" do
@@ -56,7 +56,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
              payload: {:coord, {:ratio, 1, 4}, {:ratio, 3, 4}}
            } = set_focus
 
-    assert %Operation.Resize{mode: :cover, guide: :carried} = cover
+    assert %Operation.Resize{mode: :cover, guide: :deferred} = cover
   end
 
   test "bare-pixel coordinate focus emits set_focus directive + carried cover (#321)" do
@@ -66,7 +66,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Directive{name: :set_focus, payload: {:coord, {:px, 20}, {:px, 10}}} =
              set_focus
 
-    assert %Operation.Resize{mode: :cover, guide: :carried} = cover
+    assert %Operation.Resize{mode: :cover, guide: :deferred} = cover
   end
 
   test "mixed-unit coordinate focus (100x50p) parses to px + relative (#321)" do
@@ -126,7 +126,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert %Operation.Directive{name: :set_focus, payload: {:anchor, :center, :center}} =
              set_focus
 
-    assert %Operation.Resize{mode: :cover, guide: :carried} = cover
+    assert %Operation.Resize{mode: :cover, guide: :deferred} = cover
   end
 
   test "cover ratio -> guided ratio crop" do
@@ -172,9 +172,9 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
              build([{"focus", "top"}, {"crop", "100x100"}])
 
     assert %Operation.Directive{name: :set_focus, payload: {:anchor, :center, :top}} = set_focus
-    assert %Operation.CropGuided{guide: :carried} = guided
+    assert %Operation.CropGuided{guide: :deferred} = guided
 
-    # crop@coords emits a CropRegion; the running guide stays :carried (the focus
+    # crop@coords emits a CropRegion; the running guide stays :deferred (the focus
     # point is reset at execution to the crop-result centre).
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [region, after_crop]}]}} =
              build([{"crop", "100x100@20x50"}, {"cover", "10x10"}])
@@ -186,7 +186,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
              height: {:px, 100}
            } = region
 
-    assert %Operation.Resize{mode: :cover, guide: :carried} = after_crop
+    assert %Operation.Resize{mode: :cover, guide: :deferred} = after_crop
   end
 
   test "output/quality last-wins, applied to Output not the pipeline" do

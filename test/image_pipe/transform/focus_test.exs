@@ -6,44 +6,37 @@ defmodule ImagePipe.Transform.FocusTest do
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Focus
-  alias ImagePipe.Transform.Operation.Crop
-  alias ImagePipe.Transform.Operation.ExtendCanvas
-  alias ImagePipe.Transform.Operation.Resize
-  alias ImagePipe.Transform.OrientationFlush
-  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.PlanExecutor
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
   describe "rational helpers" do
     test "default carried point is nil and helpers no-op on nil" do
-      state = %State{carried_point: nil}
-      assert Focus.scale(state, {:ratio, 1, 2}, {:ratio, 1, 2}).carried_point == nil
-      assert Focus.translate(state, -10, -5).carried_point == nil
-      assert Focus.to_fp(state) == nil
+      assert Focus.scale(nil, {:ratio, 1, 2}, {:ratio, 1, 2}) == nil
+      assert Focus.translate(nil, -10, -5) == nil
+      assert Focus.to_fp(nil, 400, 400) == nil
     end
 
     test "scale multiplies each axis exactly (rational, no float)" do
-      state = %State{carried_point: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
-      scaled = Focus.scale(state, {:ratio, 1, 2}, {:ratio, 1, 2})
-      assert scaled.carried_point == {{:ratio, 100, 1}, {:ratio, 50, 1}}
+      point = {{:ratio, 200, 1}, {:ratio, 100, 1}}
+      scaled = Focus.scale(point, {:ratio, 1, 2}, {:ratio, 1, 2})
+      assert scaled == {{:ratio, 100, 1}, {:ratio, 50, 1}}
     end
 
     test "translate subtracts/adds integer deltas exactly" do
-      state = %State{carried_point: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
-      assert Focus.translate(state, -40, -30).carried_point == {{:ratio, 160, 1}, {:ratio, 70, 1}}
+      point = {{:ratio, 200, 1}, {:ratio, 100, 1}}
+      assert Focus.translate(point, -40, -30) == {{:ratio, 160, 1}, {:ratio, 70, 1}}
       # transient negative numerator is allowed (a later canvas +x recovers it)
-      assert Focus.translate(state, -300, 0).carried_point ==
+      assert Focus.translate(point, -300, 0) ==
                {{:ratio, -100, 1}, {:ratio, 100, 1}}
     end
   end
 
   describe "resolve/3 (set_focus directive unit resolution)" do
-    # ctx/1: no orientation, no shrink (display == storage). ctx/2: + decode_shrink.
-    defp ctx(dims), do: %{display: dims, storage: dims, decode_shrink: nil}
-    defp ctx(dims, shrink), do: %{display: dims, storage: dims, decode_shrink: shrink}
+    # ctx/1: no orientation, no shrink (storage dims; display is derived internally).
+    defp ctx(dims), do: %{storage: dims, decode_shrink: nil}
+    defp ctx(dims, shrink), do: %{storage: dims, decode_shrink: shrink}
 
     test "resolves px against the live frame" do
       assert Focus.resolve({:coord, {:px, 20}, {:px, 10}}, ctx({400, 400}), nil) ==
@@ -87,19 +80,17 @@ defmodule ImagePipe.Transform.FocusTest do
 
   describe "to_fp/1" do
     test "normalizes to a 0..1 fraction against the live image dims" do
-      img = Image.new!(400, 400, color: [0, 0, 0])
-      state = %State{image: img, carried_point: {{:ratio, 200, 1}, {:ratio, 100, 1}}}
-      assert {:fp, fx, fy} = Focus.to_fp(state)
+      point = {{:ratio, 200, 1}, {:ratio, 100, 1}}
+      assert {:fp, fx, fy} = Focus.to_fp(point, 400, 400)
       assert_in_delta fx, 0.5, 1.0e-9
       assert_in_delta fy, 0.25, 1.0e-9
     end
 
     test "clamps fp into [0,1]" do
-      img = Image.new!(400, 400, color: [0, 0, 0])
-      over = %State{image: img, carried_point: {{:ratio, 500, 1}, {:ratio, 500, 1}}}
-      assert Focus.to_fp(over) == {:fp, 1.0, 1.0}
-      under = %State{image: img, carried_point: {{:ratio, -10, 1}, {:ratio, -10, 1}}}
-      assert Focus.to_fp(under) == {:fp, 0.0, 0.0}
+      over = {{:ratio, 500, 1}, {:ratio, 500, 1}}
+      assert Focus.to_fp(over, 400, 400) == {:fp, 1.0, 1.0}
+      under = {{:ratio, -10, 1}, {:ratio, -10, 1}}
+      assert Focus.to_fp(under, 400, 400) == {:fp, 0.0, 0.0}
     end
   end
 
@@ -128,37 +119,12 @@ defmodule ImagePipe.Transform.FocusTest do
   defp cell_color(col, row),
     do: [round(col * 255 / (@cols - 1)), round(row * 255 / (@rows - 1)), 255]
 
-  defp cell_center({col, row}),
-    do: {{:ratio, col * @cell + div(@cell, 2), 1}, {:ratio, row * @cell + div(@cell, 2), 1}}
-
   defp nearest_cell([r, g, b]) do
     for(col <- 0..(@cols - 1), row <- 0..(@rows - 1), do: {col, row})
     |> Enum.min_by(fn {col, row} ->
       [cr, cg, cb] = cell_color(col, row)
       (cr - r) ** 2 + (cg - g) ** 2 + (cb - b) ** 2
     end)
-  end
-
-  # Set the carried point, run `ops` (transformers), then a tiny crop reading
-  # the carried point; decode the centre pixel's cell.
-  defp focus_cell(image, focus, ops, crop_size \\ 12) do
-    state = %State{image: image, carried_point: focus, materialized?: true}
-    {:ok, state} = Chain.execute(state, ops)
-    {:fp, fx, fy} = Focus.to_fp(state)
-
-    {:ok, state} =
-      Chain.execute(state, [
-        %Crop{width: crop_size, height: crop_size, crop_from: :gravity, gravity: {:fp, fx, fy}}
-      ])
-
-    w = Image.width(state.image)
-    h = Image.height(state.image)
-
-    state.image
-    |> Image.get_pixel!(div(w, 2), div(h, 2))
-    |> Enum.take(3)
-    |> Enum.map(&round/1)
-    |> nearest_cell()
   end
 
   # Build a full TwicPics plan from a manipulation chain and run it through
@@ -219,12 +185,12 @@ defmodule ImagePipe.Transform.FocusTest do
   end
 
   describe "nil-focus carried crop equals a centred crop under pending orientation" do
-    # A nil carried point makes a :carried crop fall back to the centre anchor, so it
+    # A nil carried point makes a :deferred crop fall back to the centre anchor, so it
     # MUST be pixel-identical to an explicit :center crop under any pending EXIF
-    # orientation. This is the invariant `compensate_crop(:carried)` preserves via
+    # orientation. This is the invariant `compensate_crop(:deferred)` preserves via
     # center_bias (Orientation.center_discard_sides) — dropping it shifts the kept
     # pixel by one on an odd-extent axis the flush reverses (regressed when the
-    # TwicPics default guide moved from :center to :carried; caught in PR review).
+    # TwicPics default guide moved from :center to :deferred; caught in PR review).
 
     # A fine, per-pixel-distinct pattern so a 1px discard difference is visible
     # (the 100px-cell grid above would hide it).
@@ -241,7 +207,8 @@ defmodule ImagePipe.Transform.FocusTest do
           %Pipeline{operations: [%CropGuided{width: {:px, w}, height: {:px, h}, guide: guide}]}
         ],
         output: nil,
-        auto_rotate: true
+        auto_rotate: true,
+        resolver: ImagePipe.Parser.TwicPics.Resolver
       }
 
       {:ok, state} =
@@ -288,80 +255,10 @@ defmodule ImagePipe.Transform.FocusTest do
       # orientations 2/4/6/7 reverse an axis (or quarter-turn) where center_bias
       # bites; odd-extent crops give the centre an extra pixel to discard.
       for orient <- [2, 4, 6, 7], size <- [{20, 30}, {21, 31}, {20, 31}, {21, 30}] do
-        carried = guided_crop_image(image, orient, :carried, size)
+        carried = guided_crop_image(image, orient, :deferred, size)
         centered = guided_crop_image(image, orient, :center, size)
         assert_images_equal(carried, centered, "orient=#{orient} crop=#{inspect(size)}")
       end
-    end
-  end
-
-  describe "carry through geometry ops" do
-    test "focus carries through a 50% fit resize" do
-      # cell (1,1) centre = (150,150); resize 400->200 halves it to (75,75) -> still (1,1)
-      resize = %Resize{mode: :fit, width: {:pixels, 200}, height: {:pixels, 200}, enlarge: false}
-      assert focus_cell(grid(), cell_center({1, 1}), [resize]) == {1, 1}
-    end
-
-    test "contain (pure fit, no crop/canvas) carries the focus" do
-      resize = %Resize{mode: :fit, width: {:pixels, 150}, height: {:pixels, 150}, enlarge: false}
-      assert focus_cell(grid(), cell_center({3, 0}), [resize]) == {3, 0}
-    end
-
-    test "cover (fill resize + result crop) reads and translates the focus" do
-      # cover=150x150 analogue: fill resize then a centred result crop of 150x150.
-      resize = %Resize{mode: :fill, width: {:pixels, 150}, height: {:pixels, 150}}
-
-      crop = %Crop{
-        width: {:pixels, 150},
-        height: {:pixels, 150},
-        crop_from: :gravity,
-        gravity: :carried
-      }
-
-      assert focus_cell(grid(), cell_center({0, 0}), [resize, crop]) == {0, 0}
-      assert focus_cell(grid(), cell_center({2, 2}), [resize, crop]) == {2, 2}
-    end
-
-    test "inside (fit + transparent letterbox canvas) carries the focus onto content" do
-      # inside=200x100 analogue: fit into 200x100 then letterbox to a 200x100 canvas.
-      resize = %Resize{mode: :fit, width: {:pixels, 200}, height: {:pixels, 100}, enlarge: false}
-
-      canvas = %ExtendCanvas{
-        rule: {:dimensions, {:pixels, 200}, {:pixels, 100}},
-        gravity: {:anchor, :center, :center},
-        background: :transparent
-      }
-
-      assert focus_cell(grid(), cell_center({2, 2}), [resize, canvas]) == {2, 2}
-    end
-
-    test "the orientation flush rotates the carried point with the image (turn 90)" do
-      state = %State{
-        image: grid(),
-        carried_point: cell_center({1, 0}),
-        pending_orientation: %PendingOrientation{user_angle: 90},
-        materialized?: false
-      }
-
-      {:ok, state} = OrientationFlush.flush(state)
-      {:fp, fx, fy} = Focus.to_fp(state)
-
-      {:ok, state} =
-        Chain.execute(state, [
-          %Crop{width: 12, height: 12, crop_from: :gravity, gravity: {:fp, fx, fy}}
-        ])
-
-      w = Image.width(state.image)
-      h = Image.height(state.image)
-
-      cell =
-        state.image
-        |> Image.get_pixel!(div(w, 2), div(h, 2))
-        |> Enum.take(3)
-        |> Enum.map(&round/1)
-        |> nearest_cell()
-
-      assert cell == {1, 0}
     end
   end
 end

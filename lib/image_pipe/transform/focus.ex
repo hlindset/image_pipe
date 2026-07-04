@@ -1,18 +1,19 @@
 defmodule ImagePipe.Transform.Focus do
   @moduledoc false
-  # Neutral point-math namespace for the carried point, transformed by each
-  # geometry op's realized affine. An exact-rational continuous coordinate in
-  # the live-image frame; the only float conversion is `to_fp/1`, at the libvips
+  # Neutral point-math namespace for the carried point: an exact-rational
+  # continuous coordinate in the live-image frame, transformed by each geometry
+  # op's realized affine. The only float conversion is `to_fp/1`, at the libvips
   # boundary. Every function is a no-op when the carried point is `nil` (a
   # strategy may not carry a point), so point-free plans are unaffected. The
-  # TwicPics strategy is the current producer.
+  # carried point is TwicPics-strategy state advanced by
+  # `ImagePipe.Parser.TwicPics.PointFlow`; this module is the neutral point math
+  # it (and any future point-carrying strategy) uses.
   #
   # The numerator is integer() (matching ImagePipe.Plan.Measure): a crop
   # translate can transiently negate it (focus left/above the crop window); a
   # later canvas embed brings it back in range. Only `to_fp/1` clamps.
 
   alias ImagePipe.Transform.PendingOrientation
-  alias ImagePipe.Transform.State
 
   @type ratio :: {:ratio, integer(), pos_integer()}
   @type point :: {ratio(), ratio()}
@@ -22,25 +23,19 @@ defmodule ImagePipe.Transform.Focus do
           {:coord, measure(), measure()}
           | {:anchor, :left | :center | :right, :top | :center | :bottom}
 
-  @spec scale(State.t(), ratio(), ratio()) :: State.t()
-  def scale(%State{carried_point: nil} = state, _sx, _sy), do: state
+  @spec scale(point() | nil, ratio(), ratio()) :: point() | nil
+  def scale(nil, _sx, _sy), do: nil
+  def scale({x, y}, sx, sy), do: {ratio_mul(x, sx), ratio_mul(y, sy)}
 
-  def scale(%State{carried_point: {x, y}} = state, sx, sy),
-    do: %State{state | carried_point: {ratio_mul(x, sx), ratio_mul(y, sy)}}
+  @spec translate(point() | nil, integer(), integer()) :: point() | nil
+  def translate(nil, _dx, _dy), do: nil
+  def translate({x, y}, dx, dy), do: {ratio_add_int(x, dx), ratio_add_int(y, dy)}
 
-  @spec translate(State.t(), integer(), integer()) :: State.t()
-  def translate(%State{carried_point: nil} = state, _dx, _dy), do: state
+  @spec to_fp(point() | nil, pos_integer(), pos_integer()) :: nil | {:fp, float(), float()}
+  def to_fp(nil, _width, _height), do: nil
 
-  def translate(%State{carried_point: {x, y}} = state, dx, dy),
-    do: %State{state | carried_point: {ratio_add_int(x, dx), ratio_add_int(y, dy)}}
-
-  @spec to_fp(State.t()) :: nil | {:fp, float(), float()}
-  def to_fp(%State{carried_point: nil}), do: nil
-
-  def to_fp(%State{carried_point: {x, y}, image: image}) do
-    {:fp, clamp01(ratio_to_float(x) / Image.width(image)),
-     clamp01(ratio_to_float(y) / Image.height(image))}
-  end
+  def to_fp({x, y}, width, height),
+    do: {:fp, clamp01(ratio_to_float(x) / width), clamp01(ratio_to_float(y) / height)}
 
   @doc """
   Forward (storage -> display) transform of the carried point at the orientation
@@ -48,34 +43,23 @@ defmodule ImagePipe.Transform.Focus do
   (EXIF autorotate, then user rotate, then user hflip, then user vflip). `pre` is
   the pre-flush live image dims; the post-flush frame swaps axes on a quarter turn.
   """
-  @spec reflect_rotate(State.t(), PendingOrientation.t(), {pos_integer(), pos_integer()}) ::
-          State.t()
-  def reflect_rotate(%State{carried_point: nil} = state, _po, _pre), do: state
+  @spec reflect_rotate(point() | nil, PendingOrientation.t(), {pos_integer(), pos_integer()}) ::
+          point() | nil
+  def reflect_rotate(nil, _po, _pre), do: nil
 
-  def reflect_rotate(
-        %State{carried_point: {x, y}} = state,
-        %PendingOrientation{} = po,
-        {pre_w, pre_h}
-      ) do
+  def reflect_rotate({x, y}, %PendingOrientation{} = po, {pre_w, pre_h}) do
     {fx2, fy2} = forward_fraction({ratio_div(x, pre_w), ratio_div(y, pre_h)}, po)
-
-    {post_w, post_h} =
-      if PendingOrientation.quarter_turn?(po), do: {pre_h, pre_w}, else: {pre_w, pre_h}
-
-    %State{
-      state
-      | carried_point: {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}
-    }
+    {post_w, post_h} = PendingOrientation.display_dims({pre_w, pre_h}, po)
+    {ratio_mul(fx2, {:ratio, post_w, 1}), ratio_mul(fy2, {:ratio, post_h, 1})}
   end
 
   @typedoc """
-  Resolution context for `resolve/3`: the live display-frame dims the operand
-  resolves against, the live storage-frame dims the carried point is stored in
-  (equal to `display` when no orientation is pending), and the realized
-  shrink-on-load factor (or `nil`).
+  Resolution context for `resolve/3`: the live storage-frame dims the carried
+  point is stored in, and the realized shrink-on-load factor (or `nil`). The
+  display-frame dims the operand resolves against are derived internally
+  (PendingOrientation.display_dims/2).
   """
   @type resolve_ctx :: %{
-          display: {pos_integer(), pos_integer()},
           storage: {pos_integer(), pos_integer()},
           decode_shrink: %{w: float(), h: float()} | nil
         }
@@ -92,7 +76,8 @@ defmodule ImagePipe.Transform.Focus do
   coordinates never reach here (rejected by the parser's `Units`).
   """
   @spec resolve(operand(), resolve_ctx(), PendingOrientation.t() | nil) :: point()
-  def resolve(operand, %{display: {dw, dh}, storage: {sw, sh}, decode_shrink: shrink}, po) do
+  def resolve(operand, %{storage: {sw, sh}, decode_shrink: shrink}, po) do
+    {dw, dh} = PendingOrientation.display_dims({sw, sh}, po)
     {sx, sy} = orient_shrink(shrink, po)
     x = resolve_axis(operand_x(operand), dw, sx)
     y = resolve_axis(operand_y(operand), dh, sy)

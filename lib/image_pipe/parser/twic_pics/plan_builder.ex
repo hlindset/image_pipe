@@ -10,7 +10,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
 
-  @initial %{ops: [], guide: :carried, format: :auto, quality: :default, debug?: false}
+  @initial %{ops: [], guide: :deferred, format: :auto, quality: :default, debug?: false}
 
   @spec to_plan(Source.t(), [{String.t(), String.t()}], keyword()) ::
           {:ok, Plan.t()} | {:error, term()}
@@ -141,9 +141,10 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
     with {:ok, {w, h}} <- region_size(size),
          {:ok, {x, y}} <- crop_coordinates(coords),
          {:ok, op} <- Operation.crop_region(x, y, w, h) do
-      # crop@coords resets the carried focus to the crop-result centre at
-      # execution; the running guide stays :carried so the next consumer reads it.
-      push(%{acc | guide: :carried}, op)
+      # crop@coords translates the carried focus by the region's origin (the same
+      # geometry-transform treatment as any other crop); the running guide stays
+      # :deferred so the next consumer reads it.
+      push(%{acc | guide: :deferred}, op)
     end
   end
 
@@ -185,7 +186,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   defp focus_coordinates(args, acc) do
     with {:ok, {x, y}} <- Units.coordinates(args),
          {:ok, op} <- Operation.directive(:set_focus, {:coord, x, y}) do
-      {:ok, %{acc | ops: [op | acc.ops], guide: :carried}}
+      {:ok, %{acc | ops: [op | acc.ops], guide: :deferred}}
     else
       _ -> {:error, {:unsupported_focus, args}}
     end
@@ -193,7 +194,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp emit_focus(anchor, acc) do
     with {:ok, op} <- Operation.directive(:set_focus, anchor) do
-      {:ok, %{acc | ops: [op | acc.ops], guide: :carried}}
+      {:ok, %{acc | ops: [op | acc.ops], guide: :deferred}}
     end
   end
 

@@ -871,9 +871,14 @@ boundary-moving second**, with A as the shipped dim-acquisition policy.
      pipeline with a live point — document that invariant.
    - Delete the executables' point mechanics (`Focus.scale`/`translate`/
      `reflect_rotate` call sites) and the `State` `carried_point` field.
-   - Pinned behaviors to preserve, enumerated up front: smart/detect crops do
-     **not** carry the point today (no `carry_focus_through_crop` on that
-     path); region and gravity crops translate it; canvas embeds translate it.
+   - Pinned behaviors to preserve, enumerated up front: a smart/detect crop
+     chooses its window from pixels, so the resolve-time point walk passes the
+     carry through unchanged rather than translating it by a crop origin it
+     cannot know before detection runs — a deliberately **not**-carried edge,
+     distinct from the detection-*success* execute-time path (today's
+     `carry_focus_through_crop`), which does translate the point by the
+     realized crop origin once detection has actually run; region and gravity
+     crops translate it; canvas embeds translate it.
    Results-identical, gated by the TwicPics differential plus new goldens for
    focus → cover → later-consumer chains. **Independent of the property
    spike.** Green.

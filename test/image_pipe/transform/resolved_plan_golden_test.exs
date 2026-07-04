@@ -19,13 +19,17 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
 
   alias ImagePipe.Parser.Imgproxy.Resolver, as: ImgproxyResolver
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Operation.Blur, as: PlanBlur
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
   alias ImagePipe.Test.ResolvedPlanCases
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.Operation.Flush, as: ExecFlush
   alias ImagePipe.Transform.Operation.Padding, as: ExecPadding
+  alias ImagePipe.Transform.Operation.Resize, as: ExecResize
+  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.ResolveDriver
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
@@ -412,6 +416,127 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
              ] = batches
 
       assert {top, right, bottom, left} == {20, 20, 20, 20}
+    end
+  end
+
+  describe "staged continuation (spec §4.4 Stage 3)" do
+    # A cover expands to [resize, crop]. Staged, the driver executes [resize],
+    # acquires the realized post-resize dims, and only then receives [crop] —
+    # parameterized against the MEASURED intermediate. The trailing blur
+    # observes the advanced shape via the driver overlay.
+    test "a plain cover splits at the realized-dims seam; the crop box follows acquired dims" do
+      plan = [
+        %PlanResize{
+          mode: :cover,
+          width: {:px, 100},
+          height: {:px, 100},
+          dpr: {:ratio, 1, 1},
+          enlargement: :deny,
+          guide: :center
+        },
+        %PlanBlur{sigma: 1.0}
+      ]
+
+      {:ok, image} = Image.new(800, 600, color: :white)
+
+      shape =
+        SourceShape.seed(%{width: 800, height: 600, pending_orientation: nil, decode_shrink: nil})
+
+      state = %State{image: image}
+      batches_agent = start_supervised!({Agent, fn -> [] end})
+
+      capturing_chain = fn %State{} = st, ops, _opts ->
+        Agent.update(batches_agent, &[{ops, st.source_dimensions} | &1])
+        {:ok, st}
+      end
+
+      # Realized cover intermediate for 800x600 -> 100x100 is {133, 100}; inject
+      # a -1 divergence on the height ({133, 99}) to prove the crop box resolves
+      # against the MEASURED seam dims, not the planned ones (the 100px box
+      # bounds to the 99px acquired frame).
+      inject = fn _image -> {133, 99} end
+
+      assert {:ok, %State{}} =
+               ResolveDriver.run(
+                 plan,
+                 shape,
+                 {NeutralResolver, NeutralResolver.init()},
+                 state,
+                 chain: capturing_chain,
+                 acquire_dims: inject
+               )
+
+      batches = Agent.get(batches_agent, &Enum.reverse/1)
+
+      # Three batches: [resize] / [crop] (the stage) / [blur].
+      assert [
+               {[%ExecResize{}], _},
+               {[%Crop{} = crop], _},
+               {[_blur], blur_source_dims}
+             ] = batches
+
+      # The result-crop box is bounded to the acquired frame; the advanced shape
+      # the blur sees is the crop box, computed purely from the injected dims —
+      # {100, 99}, not the planned {100, 100}.
+      assert Crop.resolved_box_dims(crop, 133, 99) == {100, 99}
+      assert blur_source_dims == {100, 99}
+    end
+
+    # Under a pending quarter turn the emission is [resize, crop, Flush]; staged
+    # it becomes [resize] / [crop, Flush], with the final shape computed purely:
+    # the compensated crop's storage-frame box, axis-swapped by the flush.
+    test "a pending-orientation cover stages; the final shape is the flushed crop box" do
+      po = PendingOrientation.from_exif(6, true)
+
+      plan = [
+        %PlanResize{
+          mode: :cover,
+          width: {:px, 20},
+          height: {:px, 20},
+          dpr: {:ratio, 1, 1},
+          enlargement: :deny,
+          guide: :center
+        },
+        %PlanBlur{sigma: 1.0}
+      ]
+
+      {:ok, image} = Image.new(40, 80, color: :white)
+
+      shape =
+        SourceShape.seed(%{width: 40, height: 80, pending_orientation: po, decode_shrink: nil})
+
+      state = %State{image: image}
+      batches_agent = start_supervised!({Agent, fn -> [] end})
+
+      capturing_chain = fn %State{} = st, ops, _opts ->
+        Agent.update(batches_agent, &[{ops, st.source_dimensions} | &1])
+        {:ok, st}
+      end
+
+      # The display-frame cover of the 80x40 display source into 20x20 is a
+      # 40x20 display intermediate == a 20x40 storage forcing resize.
+      inject = fn _image -> {20, 40} end
+
+      assert {:ok, %State{}} =
+               ResolveDriver.run(
+                 plan,
+                 shape,
+                 {NeutralResolver, NeutralResolver.init()},
+                 state,
+                 chain: capturing_chain,
+                 acquire_dims: inject
+               )
+
+      batches = Agent.get(batches_agent, &Enum.reverse/1)
+
+      assert [
+               {[%ExecResize{mode: :force}], _},
+               {[%Crop{}, %ExecFlush{}], _},
+               {[_blur], blur_source_dims}
+             ] = batches
+
+      # Storage-frame 20x20 crop box, quarter-turn-swapped by the flush -> 20x20.
+      assert blur_source_dims == {20, 20}
     end
   end
 end

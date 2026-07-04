@@ -1,18 +1,20 @@
 defmodule ImagePipe.Parser.TwicPics.Resolver do
   @moduledoc """
-  TwicPics geometry-resolution strategy (spec §4.4; #438): owns positional
-  focus resolution — the operand resolves against the live frame at its chain
-  position and commits the carried point through an explicit state update —
-  and delegates all other resolution to `ImagePipe.Transform.NeutralResolver`.
+  TwicPics geometry-resolution strategy (spec §4.4/§9 Stage 3; #438): carries
+  the TwicPics focus point as its strategy state, resolves the positional
+  `set_focus` directive into that carry, substitutes `:deferred` gravity with a
+  concrete point before emission, and delegates all geometry resolution to
+  `ImagePipe.Transform.NeutralResolver`, advancing the point through each
+  emitted stage with the executables' pure geometry helpers
+  (`ImagePipe.Parser.TwicPics.PointFlow`).
   """
 
   @behaviour ImagePipe.Resolver
 
+  alias ImagePipe.Parser.TwicPics.PointFlow
   alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.NeutralResolver
-  alias ImagePipe.Transform.Operation.StateUpdate
-  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceShape
 
   @impl ImagePipe.Resolver
@@ -22,23 +24,19 @@ defmodule ImagePipe.Parser.TwicPics.Resolver do
   def behavior_version, do: 1
 
   @impl ImagePipe.Resolver
-  def resolve(%SourceShape{} = shape, nil, %Directive{name: :set_focus, payload: operand}) do
-    {live_w, live_h} = SourceShape.live_dims(shape)
+  def resolve(%SourceShape{} = shape, _point, %Directive{name: :set_focus, payload: operand}) do
+    resolved =
+      Focus.resolve(
+        operand,
+        %{storage: SourceShape.live_dims(shape), decode_shrink: shape.decode_shrink},
+        shape.pending_orientation
+      )
 
-    display =
-      case shape.pending_orientation do
-        nil ->
-          {live_w, live_h}
-
-        po ->
-          if PendingOrientation.quarter_turn?(po), do: {live_h, live_w}, else: {live_w, live_h}
-      end
-
-    focus_ctx = %{display: display, storage: {live_w, live_h}, decode_shrink: shape.decode_shrink}
-    resolved = Focus.resolve(operand, focus_ctx, shape.pending_orientation)
-    {[%StateUpdate{fields: %{carried_point: resolved}}], {:advance, shape, nil}}
+    {[], {:advance, shape, resolved}}
   end
 
-  def resolve(%SourceShape{} = shape, nil, operation),
-    do: NeutralResolver.resolve(shape, nil, operation)
+  def resolve(%SourceShape{} = shape, point, operation) do
+    {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
+    PointFlow.advance(ops, continuation, point, shape)
+  end
 end

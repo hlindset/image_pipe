@@ -569,4 +569,127 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
       assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
     end
   end
+
+  describe "point carry through multi-consumer chains" do
+    # oriented.jpg: storage 40x80, red rows 0-39, EXIF 6 -> displays 80x40 with
+    # red on the RIGHT half. focus=44x20 (display, just inside the red edge)
+    # inverse-maps to storage (20, 36); the cover scales it to (10, 18), crops
+    # storage rows 8..27 (mixed red/white), and the flush rotates point and
+    # pixels together. focus=20x20 (white left half) maps to storage (20, 60)
+    # and crops rows 20..39 (all white). The trailing crop=10x10 reads the
+    # carried point AFTER the flush. This pins the seam scale and the crop-top
+    # derivation end to end (a dropped scale crops all-white in both chains and
+    # flips the relation); the reflect/translate failure modes are pinned by
+    # the region-crop test below ([Flush, crop] order) at the wire and by the
+    # resolver unit tests ([crop, Flush] order) at exact-integer precision —
+    # an unclamped fp crop always centres the carry, so no wire chain on this
+    # half/half fixture can isolate the [crop, Flush] reflect by itself.
+    test "EXIF-oriented focus carries through cover to a post-flush consumer" do
+      red_chain =
+        call(
+          "/images/oriented.jpg?twic=v1/focus=44x20/cover=20x20/crop=10x10/output=png",
+          exif_opts()
+        )
+
+      white_chain =
+        call(
+          "/images/oriented.jpg?twic=v1/focus=20x20/cover=20x20/crop=10x10/output=png",
+          exif_opts()
+        )
+
+      assert dimensions(red_chain) == {10, 10}
+      assert dimensions(white_chain) == {10, 10}
+
+      [_r1, g_red, _b1 | _] = average(red_chain)
+      [_r2, g_white, _b2 | _] = average(white_chain)
+      assert g_red < g_white
+    end
+
+    # Region-crop carry under EXIF: the region crop flushes FIRST ([Flush, Crop]),
+    # so the point must reflect at the flush and then translate by the region
+    # origin before the trailing consumer reads it (#331 carry semantics). The
+    # region @20x0 spans display x in [20, 60) — white in [20, 40), red in
+    # [40, 60) — so the two focus variants land the trailing 10x10 window on
+    # opposite colors: focus=72x20 translates to (52, 20), past the region's
+    # right edge, and to_fp clamps it to the red edge; focus=28x20 translates
+    # to (8, 20), deep in the white part.
+    test "EXIF-oriented focus carries through a region crop to a later consumer" do
+      red_side =
+        call(
+          "/images/oriented.jpg?twic=v1/focus=72x20/crop=40x40@20x0/crop=10x10/output=png",
+          exif_opts()
+        )
+
+      white_side =
+        call(
+          "/images/oriented.jpg?twic=v1/focus=28x20/crop=40x40@20x0/crop=10x10/output=png",
+          exif_opts()
+        )
+
+      assert dimensions(red_side) == {10, 10}
+      assert dimensions(white_side) == {10, 10}
+
+      [_r1, g_red, _b1 | _] = average(red_side)
+      [_r2, g_white, _b2 | _] = average(white_side)
+      assert g_red < g_white
+    end
+
+    # Double-resize seam: two staged covers in a row, each scaling the point by
+    # its realized factor before the next consumer reads it. Differential
+    # coverage stops at focus -> cover -> crop; this pins the second seam.
+    test "focus carries through two chained covers" do
+      focal =
+        call("/images/beach.jpg?twic=v1/focus=top-left/cover=300x100/cover=100x50/output=jpeg")
+
+      other =
+        call(
+          "/images/beach.jpg?twic=v1/focus=bottom-right/cover=300x100/cover=100x50/output=jpeg"
+        )
+
+      assert dimensions(focal) == {100, 50}
+      assert dimensions(other) == {100, 50}
+      refute average(focal) == average(other)
+    end
+
+    # The nil-point centred fallback under EXIF with an odd extent difference:
+    # compensate_crop's :deferred clause sets center_bias so the discarded pixel
+    # lands on the intended display side (#146 Bug 2). Pin the current decoded-
+    # pixel relation between the no-focus fallback and an explicit centre focus
+    # (the fp path ignores center_bias, so these may legitimately differ by one
+    # pixel row/column — record whichever relation currently holds and pin it).
+    test "nil-point centred fallback under EXIF quarter turn (odd cover box)" do
+      fallback = call("/images/oriented.jpg?twic=v1/cover=15x15/output=png", exif_opts())
+
+      explicit =
+        call("/images/oriented.jpg?twic=v1/focus=center/cover=15x15/output=png", exif_opts())
+
+      assert dimensions(fallback) == {15, 15}
+      assert dimensions(explicit) == {15, 15}
+      # Observed relation (current code): the decoded pixels differ by one pixel
+      # row/column — the legitimate center_bias divergence called out above (the
+      # fp path taken by an explicit focus=center ignores center_bias, while the
+      # nil-point :deferred fallback sets it). Pin that divergence via decoded
+      # pixels, not encoded bytes (encode-time byte nondeterminism makes raw body
+      # comparison unreliable, as noted elsewhere in this file).
+      refute average(fallback) == average(explicit)
+    end
+
+    # Canvas-embed translate: the focus is set BEFORE an inside letterbox, so
+    # the point must translate by the realized embed offset before the trailing
+    # cover consumes it. Nothing else gates PointFlow's ExtendCanvas step
+    # deterministically (the #441 inside_ratio_focus_* fixtures place the focus
+    # AFTER the inside). Opposite-corner focuses land the trailing window on
+    # opposite letterbox bands, so the outputs must differ.
+    test "focus set before an inside letterbox carries through the canvas embed" do
+      top_left =
+        call("/images/beach.jpg?twic=v1/focus=0x0/inside=200x200/cover=50x25/output=png")
+
+      bottom_right =
+        call("/images/beach.jpg?twic=v1/focus=3999x2666/inside=200x200/cover=50x25/output=png")
+
+      assert dimensions(top_left) == {50, 25}
+      assert dimensions(bottom_right) == {50, 25}
+      refute average(top_left) == average(bottom_right)
+    end
+  end
 end

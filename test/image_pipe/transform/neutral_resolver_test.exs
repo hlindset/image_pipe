@@ -25,6 +25,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
   alias ImagePipe.Plan.Operation.Trim
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Flush
+  alias ImagePipe.Transform.Operation.Resize, as: ExecResize
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceShape
 
@@ -125,7 +126,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
     assert {shape2.width, shape2.height} == {100, 80}
   end
 
-  test "resize under a non-identity pending emits a trailing Flush and acquires" do
+  test "resize under a non-identity pending stages the flush and advances at the seam" do
     po = PendingOrientation.from_exif(3, true)
     s = SourceShape.seed(%{width: 100, height: 80, pending_orientation: po, decode_shrink: nil})
 
@@ -138,11 +139,14 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
       guide: :center
     }
 
-    {ops, {:acquire, then_fn}} = NeutralResolver.resolve(s, nil, resize)
+    # Staged: the resize is the terminal op of the first stage; the flush (and
+    # any result-crop tail) arrives via the stage the then_fn returns, and the
+    # shape only advances at that stage's :advance continuation.
+    {[%ExecResize{}], {:acquire, then_fn}} = NeutralResolver.resolve(s, nil, resize)
 
-    assert %Flush{} = List.last(ops)
-    assert [%ImagePipe.Transform.Operation.Resize{} | _] = ops
-    {shape2, nil} = then_fn.({50, 40})
+    {stage_ops, {:advance, shape2, nil}} = then_fn.({50, 40})
+    assert %Flush{} = List.last(stage_ops)
+    refute Enum.any?(stage_ops, &match?(%ExecResize{}, &1))
     assert shape2.frame == :display
     assert shape2.pending_orientation == nil
     assert shape2.decode_shrink == nil
@@ -263,6 +267,32 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
 
         assert match?({:advance, %SourceShape{}, nil}, continuation),
                "expected #{label} (#{inspect(op)}) to resolve :advance, got #{inspect(continuation)}"
+      end
+    end
+
+    # Stage invariant (spec §4.4 Stage 3): a %Transform.Operation.Resize{} is
+    # always the TERMINAL op of its stage — the emitted list ends at the
+    # resize, and any tail arrives via the stage the then_fn returns, already
+    # resize-free. PointFlow's seam scaling relies on this.
+    test "a resize is the terminal op of its stage", %{shape: s} do
+      op = %PlanResize{
+        mode: :cover,
+        width: {:px, 50},
+        height: {:px, 40},
+        dpr: {:ratio, 1, 1},
+        enlargement: :forbid,
+        guide: :center
+      }
+
+      {ops, {:acquire, then_fn}} = NeutralResolver.resolve(s, nil, op)
+      assert [%ExecResize{}] = ops
+
+      case then_fn.({50, 40}) do
+        {%SourceShape{}, nil} ->
+          :ok
+
+        {stage_ops, _continuation} when is_list(stage_ops) ->
+          refute Enum.any?(stage_ops, &match?(%ExecResize{}, &1))
       end
     end
   end

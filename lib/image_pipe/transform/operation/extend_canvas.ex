@@ -80,7 +80,6 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
       resolve_dimension: 2
     ]
 
-  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.State
 
   @default_gravity {:anchor, :center, :center}
@@ -117,10 +116,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   def execute(%__MODULE__{} = operation, %State{} = state) do
     with {:ok, {width, height}} <- canvas_dimensions(state, operation.rule),
          false <- inert_extend?(state, width, height),
-         {:ok, {image, x, y}} <- embed_image(state, operation, width, height) do
-      # The canvas embed places the image content at (x, y) in the larger frame, so
-      # a carried focus translates by the realized embed offset onto its content.
-      {:ok, set_image(Focus.translate(state, x, y), image)}
+         {:ok, {image, _x, _y}} <- embed_image(state, operation, width, height) do
+      {:ok, set_image(state, image)}
     else
       true -> {:ok, state}
       {:error, reason} -> {:error, {__MODULE__, reason}}
@@ -176,11 +173,29 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   def resolved_canvas_dims(rule, _image_width, _image_height),
     do: {:error, {:invalid_canvas_rule, rule}}
 
+  @doc false
+  # The realized embed origin of the image content inside the resolved canvas —
+  # the exact {x, y} `execute/2` passes to Image.embed (gravity placement,
+  # signed offset, clamped into the canvas). Pure; the resolver-strategy twin
+  # of resolved_canvas_dims/3.
+  @spec resolved_embed_offset(t(), pos_integer(), pos_integer(), pos_integer(), pos_integer()) ::
+          {non_neg_integer(), non_neg_integer()}
+  def resolved_embed_offset(
+        %__MODULE__{} = operation,
+        image_width,
+        image_height,
+        canvas_width,
+        canvas_height
+      ) do
+    {offset(:x, operation.gravity, operation.x_offset, image_width, canvas_width),
+     offset(:y, operation.gravity, operation.y_offset, image_height, canvas_height)}
+  end
+
   # Dialyzer can't see through Vix's generated Operation typings (embed).
   @dialyzer {:no_fail_call, embed_image: 4}
   defp embed_image(%State{} = state, %__MODULE__{} = operation, width, height) do
-    x = offset(:x, operation.gravity, operation.x_offset, image_width(state), width)
-    y = offset(:y, operation.gravity, operation.y_offset, image_height(state), height)
+    {x, y} =
+      resolved_embed_offset(operation, image_width(state), image_height(state), width, height)
 
     with {:ok, image} <- alpha_ready_image(state.image, operation.background),
          {:ok, embedded} <-

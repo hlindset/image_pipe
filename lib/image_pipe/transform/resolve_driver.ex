@@ -6,10 +6,18 @@ defmodule ImagePipe.Transform.ResolveDriver do
   # the op through the strategy, execute the emitted executable ops through the
   # chain, then advance the shape — purely for an `:advance` continuation, or
   # from the post-execution image dims for an `:acquire` (injectable via
-  # `opts[:acquire_dims]` so tests can drive the geometry without pixels). At
-  # the pipeline boundary any surviving non-identity pending orientation is
-  # flushed through an explicit %Operation.Flush{}; an identity pending is
-  # cleared on State without materializing (streaming fast path preserved).
+  # `opts[:acquire_dims]` so tests can drive the geometry without pixels). A
+  # single resolve may execute in several STAGES (spec §4.4 Stage 3): an
+  # `:acquire` `then_fn` can return a further `{ops, continuation}` stage — a
+  # multi-executable expansion (e.g. a cover = [resize] then [crop]) split at
+  # the realized-dims seam — which the driver executes and continues, recursing
+  # until a final `{shape, strategy_state}`. The overlay still runs once per
+  # *plan op*, before the first stage — the shape only advances at the
+  # continuation's end, so mid-emission executables read the same overlaid frame
+  # they do today. At the pipeline boundary any surviving non-identity pending
+  # orientation is flushed through an explicit %Operation.Flush{}; an identity
+  # pending is cleared on State without materializing (streaming fast path
+  # preserved).
   #
   # The overlay routes every State.effective_source_dims / decode_shrink /
   # pending_orientation read at EXECUTE time — Resize.execute, OrientationFlush.
@@ -42,13 +50,9 @@ defmodule ImagePipe.Transform.ResolveDriver do
 
       {ops, continuation} = Resolver.resolve(spec, shape, operation)
 
-      case chain.(state, ops, opts) do
-        {:ok, %State{} = state} ->
-          {shape, spec} = advance(continuation, spec, state, acquire_dims)
-          {:cont, {:ok, shape, spec, state}}
-
-        {:error, _reason} = error ->
-          {:halt, error}
+      case execute_stages(ops, continuation, spec, state, chain, acquire_dims, opts) do
+        {:ok, shape, spec, state} -> {:cont, {:ok, shape, spec, state}}
+        {:error, _reason} = error -> {:halt, error}
       end
     end)
     |> case do
@@ -69,17 +73,38 @@ defmodule ImagePipe.Transform.ResolveDriver do
     }
   end
 
-  defp advance(
-         {:advance, %SourceShape{} = shape, strategy_state},
-         {module, _strategy_state},
-         _state,
-         _acquire_dims
-       ),
-       do: {shape, {module, strategy_state}}
+  # One resolve may execute in several stages: run this stage's ops, then either
+  # finish (final {shape, strategy_state}) or acquire the realized dims and run
+  # the next stage the then_fn returns. Recursion depth is the emission's stage
+  # count (2 for a cover) — never unbounded.
+  defp execute_stages(ops, continuation, spec, state, chain, acquire_dims, opts) do
+    case chain.(state, ops, opts) do
+      {:ok, %State{} = state} ->
+        continue(continuation, spec, state, chain, acquire_dims, opts)
 
-  defp advance({:acquire, then_fn}, {module, _strategy_state}, %State{} = state, acquire_dims) do
-    {%SourceShape{} = shape, strategy_state} = then_fn.(acquire_dims.(state.image))
-    {shape, {module, strategy_state}}
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp continue(
+         {:advance, %SourceShape{} = shape, strategy_state},
+         {module, _},
+         state,
+         _chain,
+         _acquire_dims,
+         _opts
+       ),
+       do: {:ok, shape, {module, strategy_state}, state}
+
+  defp continue({:acquire, then_fn}, {module, _} = spec, state, chain, acquire_dims, opts) do
+    case then_fn.(acquire_dims.(state.image)) do
+      {%SourceShape{} = shape, strategy_state} ->
+        {:ok, shape, {module, strategy_state}, state}
+
+      {ops, continuation} when is_list(ops) ->
+        execute_stages(ops, continuation, spec, state, chain, acquire_dims, opts)
+    end
   end
 
   defp default_acquire_dims(image), do: {Image.width(image), Image.height(image)}
@@ -91,6 +116,10 @@ defmodule ImagePipe.Transform.ResolveDriver do
   # when shrink-on-load survived unconsumed the stored original extent still
   # answers effective_source_dims, otherwise the live image speaks for itself —
   # including after the boundary flush swaps the displayed axes.
+  #
+  # This flush never touches a strategy's carried point: nothing consumes a
+  # point after the pipeline boundary (TwicPics plans are single-pipeline), so
+  # the omission is unobservable for every parser-reachable pipeline.
   defp flush_boundary(%State{} = state, %SourceShape{} = shape, chain, opts) do
     state = %State{
       state

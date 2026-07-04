@@ -192,10 +192,10 @@ per-operation timing. Honest aggregate timing lives on `[:transform, :execute]`.
 Start metadata:
 
 - `:operation` — the operation name atom (e.g. `:resize`, `:crop_region`).
-  Includes the neutral bookkeeping operations the resolver emits: `:flush`
-  (applies a pending orientation) and `:state_update` (merges non-image state
-  fields, e.g. a carried focus).
-- `:index` — zero-based position in the executed chain.
+  Includes the neutral bookkeeping operation the resolver emits: `:flush`
+  (applies a pending orientation).
+- `:index` — zero-based position within its executed batch (a staged resolve
+  may execute one plan operation's executables across more than one batch).
 - `:params` — the full operation struct (product-neutral, derived from the
   public request).
 

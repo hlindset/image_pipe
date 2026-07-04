@@ -69,4 +69,18 @@ defmodule ImagePipe.Transform.PendingOrientation do
       do: true
 
   def identity?(%__MODULE__{}), do: false
+
+  @doc """
+  The display-frame dims for storage-frame dims under a (possibly nil) pending
+  orientation: the axes swap iff a quarter turn is pending. The shared home
+  for the nil-tolerant form of this decision (the Focus/strategy dedup);
+  resolver-internal sites with a proven non-nil pending may still swap via
+  quarter_turn?/1 directly.
+  """
+  @spec display_dims({pos_integer(), pos_integer()}, t() | nil) ::
+          {pos_integer(), pos_integer()}
+  def display_dims(dims, nil), do: dims
+
+  def display_dims({w, h} = dims, %__MODULE__{} = po),
+    do: if(quarter_turn?(po), do: {h, w}, else: dims)
 end

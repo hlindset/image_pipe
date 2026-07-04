@@ -26,11 +26,11 @@ defmodule ImagePipe.Plan.OperationTest do
 
   describe "carried guide (#321)" do
     test "carried is a valid crop and cover guide" do
-      assert {:ok, %Operation.CropGuided{guide: :carried}} =
-               Operation.crop_guided({:px, 100}, {:px, 100}, :carried)
+      assert {:ok, %Operation.CropGuided{guide: :deferred}} =
+               Operation.crop_guided({:px, 100}, {:px, 100}, :deferred)
 
-      assert {:ok, %Operation.Resize{guide: :carried}} =
-               Operation.resize(:cover, {:px, 100}, {:px, 100}, guide: :carried)
+      assert {:ok, %Operation.Resize{guide: :deferred}} =
+               Operation.resize(:cover, {:px, 100}, {:px, 100}, guide: :deferred)
     end
   end
 

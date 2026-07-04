@@ -22,7 +22,6 @@ defmodule ImagePipe.Transform.Operation.Resize do
   import ImagePipe.Transform.State
   import ImagePipe.Transform.Geometry
 
-  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.State
 
   @type pixels() :: {:pixels, non_neg_integer() | float()}
@@ -92,9 +91,6 @@ defmodule ImagePipe.Transform.Operation.Resize do
     if operation.reject_enlargement and dimensions.upscale_required do
       {:error, {:bad_request, :upscale_required}}
     else
-      before_w = image_width(state)
-      before_h = image_height(state)
-
       case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
         {:ok, image} ->
           # The residual resize has finished the downscale: the image is now at its
@@ -104,18 +100,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
           # pipeline whose decode produced it, so an absolute crop in a later chained
           # pipeline is sized against that pipeline's input, not divided by a stale
           # factor (#180). See the scaleOnLoad row in docs/imgproxy_support_matrix.md.
-          #
-          # A carried focus scales with the image by the *realized* per-axis factor
-          # (final dims / pre-resize live dims); reading the actual result dims keeps
-          # it correct through shrink-on-load and cover intermediates.
-          state =
-            state
-            |> Focus.scale(
-              {:ratio, Image.width(image), before_w},
-              {:ratio, Image.height(image), before_h}
-            )
-            |> set_image(image)
-
+          state = set_image(state, image)
           {:ok, %State{state | source_dimensions: nil, decode_shrink: nil}}
 
         {:error, reason} ->

@@ -338,10 +338,11 @@ defmodule ImagePipe.Transform.Lowering do
   def tagged_executable_gravity(:bottom_right), do: {:anchor, :right, :bottom}
   def tagged_executable_gravity({:anchor, x, y}), do: {:anchor, x, y}
 
-  # Carried gravity passes through to the executable Crop, which reads the
-  # neutral carried point and normalizes it to a focal point at the libvips
-  # boundary.
-  def tagged_executable_gravity(:carried), do: :carried
+  # Deferred gravity passes through unresolved; the plan's point-carrying
+  # resolver strategy substitutes it with a concrete focal point before
+  # emission (a strategy-less :deferred is unsupported and errors at
+  # Crop.execute).
+  def tagged_executable_gravity(:deferred), do: :deferred
 
   def tagged_executable_gravity({:focal, x, y}),
     do: {:fp, tagged_ratio_to_float(x), tagged_ratio_to_float(y)}

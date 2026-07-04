@@ -238,41 +238,44 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
   # ── resize ────────────────────────────────────────────────────────────────
   # Non-identity pending: compensate for the pending orientation, run, then
-  # flush so the cover result-crop and tail are post-flush/literal. The
-  # quarter-turn cover expansion resolves in the DISPLAY frame and only its
-  # result-crop is compensated (see ResizePlanning.cover_resize_and_crop_
-  # display_frame); every other branch swaps the resize request and compensates
-  # any trailing crop like a gravity crop.
+  # flush so the cover result-crop and tail are post-flush/literal (see
+  # pending_resize_ops). Plain path: no compensation, no flush.
+  #
+  # A resize's realized dims can round ±1 off the naive target, so any op after
+  # it must be parameterized against the MEASURED post-resize dims: the
+  # emission stages at the realized-dims seam (spec §4.4). The resize is always
+  # the terminal op of its stage; the stage the then_fn returns carries the
+  # tail (result crop and/or flush), with the shape advanced purely from the
+  # acquired dims — the crop box via Crop.resolved_box_dims (the exact integers
+  # Crop.execute produces on an image of that size) and the flush's exact axis
+  # swap. A bare [resize] emission needs no stage and keeps the final form.
   defp do_resolve(%PlanResize{} = operation, %SourceShape{} = shape) do
     case pending_class(shape) do
       :pending ->
         po = shape.pending_orientation
-        ops = pending_resize_ops(operation, po, shape)
+        [resize | tail] = pending_resize_ops(operation, po, shape)
 
-        then_fn = fn {w, h} ->
-          {%{
+        stage = fn {w, h} ->
+          {box_w, box_h} = staged_tail_dims(tail, {w, h})
+          {display_w, display_h} = swap_if_quarter_turn({box_w, box_h}, po)
+
+          {tail ++ [%Flush{}],
+           advance(%{
              shape
-             | width: w,
-               height: h,
+             | width: display_w,
+               height: display_h,
                frame: :display,
                pending_orientation: nil,
                decode_shrink: nil
-           }, nil}
+           })}
         end
 
-        {ops ++ [%Flush{}], {:acquire, then_fn}}
+        {[resize], {:acquire, stage}}
 
       _none_or_identity ->
-        # Plain path (no compensation, no flush). An identity pending is kept
-        # (this row is not a flush site); the pipeline boundary clears it
-        # without pixels.
-        ops = Lowering.executable_operations(operation, shape)
-
-        then_fn = fn {w, h} ->
-          {%{shape | width: w, height: h, decode_shrink: nil}, nil}
-        end
-
-        {ops, {:acquire, then_fn}}
+        # An identity pending is kept (this row is not a flush site); the
+        # pipeline boundary clears it without pixels.
+        plain_resize_stage(Lowering.executable_operations(operation, shape), shape)
     end
   end
 
@@ -387,6 +390,31 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
   defp plain_ops_advance(_ops, %SourceShape{} = shape), do: shape
 
+  # A plain resize with an empty tail is the final form (bare [resize]); with a
+  # result-crop tail it stages, advancing the shape from the acquired dims.
+  defp plain_resize_stage([resize], %SourceShape{} = shape) do
+    then_fn = fn {w, h} ->
+      {%{shape | width: w, height: h, decode_shrink: nil}, nil}
+    end
+
+    {[resize], {:acquire, then_fn}}
+  end
+
+  defp plain_resize_stage([resize | tail], %SourceShape{} = shape) do
+    stage = fn {w, h} ->
+      {box_w, box_h} = staged_tail_dims(tail, {w, h})
+      {tail, advance(%{shape | width: box_w, height: box_h, decode_shrink: nil})}
+    end
+
+    {[resize], {:acquire, stage}}
+  end
+
+  # Realized dims of a resize's post-resize tail, computed purely against the
+  # acquired post-resize dims. The tail is at most one result crop; its box is
+  # bounded to the acquired frame exactly as Crop.execute bounds it.
+  defp staged_tail_dims([], {w, h}), do: {w, h}
+  defp staged_tail_dims([%Crop{} = crop], {w, h}), do: Crop.resolved_box_dims(crop, w, h)
+
   @doc """
   Advance for an op that must decide in the DISPLAY frame (imgproxy order:
   after rotateAndFlip): with a non-identity pending the flush fires first, an
@@ -471,14 +499,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # gravity-remapped like an imgproxy focus-point spec. Only the crop box needs
   # the quarter-turn dim swap; the flush then rotates image + carried point
   # together. This clause MUST precede the {crop_from: :gravity, gravity}
-  # clause below, which a :carried crop would otherwise match.
+  # clause below, which a :deferred crop would otherwise match.
   #
-  # A nil carried point makes Crop.execute fall back to a centred crop, so this
-  # crop still needs the center-discard-side compensation (#146 Bug 2) that the
-  # gravity clause applies. For a set carried point the crop resolves to `:fp`
-  # gravity, which ignores center_bias, so setting it unconditionally here is
-  # harmless.
-  defp compensate_crop(%Crop{gravity: :carried} = crop, %PendingOrientation{} = po) do
+  # The TwicPics strategy substitutes a nil carried point to the centred anchor,
+  # so this crop still needs the center-discard-side compensation (#146 Bug 2)
+  # that the gravity clause applies. A set point substitutes to `:fp` gravity,
+  # which ignores center_bias, so setting it unconditionally here is harmless.
+  defp compensate_crop(%Crop{gravity: :deferred} = crop, %PendingOrientation{} = po) do
     crop = %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
 
     if PendingOrientation.quarter_turn?(po),

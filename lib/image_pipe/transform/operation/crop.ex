@@ -105,7 +105,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Focal
-  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation
 
@@ -152,7 +151,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
-            | :carried
+            # requires a point-carrying resolver strategy; a strategy substitutes a
+            # concrete gravity before an operation carrying this reaches execute/2
+            | :deferred
             | :smart
             | {:smart, :face_assist}
             | {:detect,
@@ -205,89 +206,17 @@ defmodule ImagePipe.Transform.Operation.Crop do
      resolve_dimension(target_height, image_height, clamp?: true)}
   end
 
-  @impl ImagePipe.Transform
-  def requires_materialization?(%__MODULE__{gravity: :smart}), do: true
-  def requires_materialization?(%__MODULE__{gravity: {:smart, _}}), do: true
-  def requires_materialization?(%__MODULE__{gravity: {:detect, _}}), do: true
-  def requires_materialization?(%__MODULE__{gravity: :carried}), do: false
-  def requires_materialization?(%__MODULE__{}), do: false
-
-  @impl ImagePipe.Transform
-  def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do
-    smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
-  end
-
-  def execute(%__MODULE__{gravity: {:detect, {spec, weights}}} = params, %State{} = state) do
-    detect_crop(params, state, spec, weights)
-  end
-
-  def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
-    {module, dopts} = normalize_detector(state.detector)
-
-    if is_nil(module) do
-      emit_detect_skipped(["face"], state.telemetry_opts)
-      smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
-    else
-      face_assist_crop(params, state, module, dopts)
-    end
-  end
-
-  # A carried-gravity consumer (TwicPics cover/crop) reads the neutral carried
-  # point and resolves it to a focal-point gravity at the libvips boundary; a nil
-  # carried point falls back to the center anchor (byte-identical to a plain
-  # centered crop).
-  def execute(%__MODULE__{gravity: :carried} = params, %State{} = state) do
-    case Focus.to_fp(state) do
-      nil -> execute(%__MODULE__{params | gravity: {:anchor, :center, :center}}, state)
-      {:fp, _x, _y} = fp -> execute(%__MODULE__{params | gravity: fp}, state)
-    end
-  end
-
-  # A coordinate region the executor found wholly outside the source. Returning the
-  # {:bad_request, _} reason unwrapped lets Chain yield {:transform_error,
-  # {:bad_request, :region_out_of_bounds}} → 400, the same status path as Resize's
-  # :upscale_required (a {__MODULE__, _} wrap would demote it to a generic 422).
-  def execute(%__MODULE__{reject_out_of_bounds: true, crop_from: %{}}, %State{}) do
-    {:error, {:bad_request, :region_out_of_bounds}}
-  end
-
-  def execute(%__MODULE__{} = params, %State{} = state) do
-    image_width = image_width(state)
-    image_height = image_height(state)
-
-    case crop_coordinates(params, state, image_width, image_height) do
-      {:ok, %{left: left, top: top, width: crop_width, height: crop_height}} ->
-        crop_image(params, state, {left, top, crop_width, crop_height})
-
-      {:error, error} ->
-        {:error, {__MODULE__, error}}
-    end
-  end
-
-  defp crop_image(%__MODULE__{} = params, %State{} = state, {left, top, crop_width, crop_height}) do
-    case Image.crop(state.image, left, top, crop_width, crop_height) do
-      {:ok, cropped_image} ->
-        {:ok, set_image(carry_focus_through_crop(state, params, left, top), cropped_image)}
-
-      {:error, error} ->
-        {:error, {__MODULE__, error}}
-    end
-  end
-
-  # Every crop is a geometry transformer for a carried focus: the focus translates
-  # by the realized (clamped) crop origin into the cropped frame. This holds for
-  # both gravity crops and coordinate crops (`crop=WxH@XxY`) — live TwicPics carries
-  # the focus through a region crop (translated + clamped, the same as any other
-  # geometry op), it does NOT reset it to the crop-result centre.
-  defp carry_focus_through_crop(%State{} = state, %__MODULE__{}, left, top),
-    do: Focus.translate(state, -left, -top)
-
-  defp crop_coordinates(
-         %__MODULE__{crop_from: :gravity} = params,
-         %State{},
-         image_width,
-         image_height
-       ) do
+  @doc false
+  # The realized crop rectangle resolved purely against the given live image
+  # dims — the exact {left, top, width, height} `execute/2` crops on an image
+  # of that size. Defined for concrete-gravity (anchor/fp) and coordinate
+  # crops; a :smart/:detect/:deferred gravity has no pure rectangle (pixels or
+  # a substituted point decide it). Lets a resolver strategy translate a
+  # carried point by the realized crop origin without reading the live image.
+  @spec resolved_rect(t(), pos_integer(), pos_integer()) ::
+          {:ok, %{left: integer(), top: integer(), width: pos_integer(), height: pos_integer()}}
+          | {:error, term()}
+  def resolved_rect(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
          crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
          crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
@@ -319,7 +248,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
-  defp crop_coordinates(%__MODULE__{} = params, %State{}, image_width, image_height) do
+  def resolved_rect(%__MODULE__{} = params, image_width, image_height) do
     %{left: left_coord, top: top_coord} = params.crop_from
     left_px = resolve_position(left_coord, image_width)
     top_px = resolve_position(top_coord, image_height)
@@ -341,6 +270,60 @@ defmodule ImagePipe.Transform.Operation.Crop do
     top = max(0, min(image_height - crop_height, round(center_y - crop_height / 2)))
 
     {:ok, %{left: left, top: top, width: crop_width, height: crop_height}}
+  end
+
+  @impl ImagePipe.Transform
+  def requires_materialization?(%__MODULE__{gravity: :smart}), do: true
+  def requires_materialization?(%__MODULE__{gravity: {:smart, _}}), do: true
+  def requires_materialization?(%__MODULE__{gravity: {:detect, _}}), do: true
+  def requires_materialization?(%__MODULE__{}), do: false
+
+  @impl ImagePipe.Transform
+  def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do
+    smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+  end
+
+  def execute(%__MODULE__{gravity: {:detect, {spec, weights}}} = params, %State{} = state) do
+    detect_crop(params, state, spec, weights)
+  end
+
+  def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
+    {module, dopts} = normalize_detector(state.detector)
+
+    if is_nil(module) do
+      emit_detect_skipped(["face"], state.telemetry_opts)
+      smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    else
+      face_assist_crop(params, state, module, dopts)
+    end
+  end
+
+  # A coordinate region the executor found wholly outside the source. Returning the
+  # {:bad_request, _} reason unwrapped lets Chain yield {:transform_error,
+  # {:bad_request, :region_out_of_bounds}} → 400, the same status path as Resize's
+  # :upscale_required (a {__MODULE__, _} wrap would demote it to a generic 422).
+  def execute(%__MODULE__{reject_out_of_bounds: true, crop_from: %{}}, %State{}) do
+    {:error, {:bad_request, :region_out_of_bounds}}
+  end
+
+  def execute(%__MODULE__{} = params, %State{} = state) do
+    image_width = image_width(state)
+    image_height = image_height(state)
+
+    case resolved_rect(params, image_width, image_height) do
+      {:ok, %{left: left, top: top, width: crop_width, height: crop_height}} ->
+        crop_image(params, state, {left, top, crop_width, crop_height})
+
+      {:error, error} ->
+        {:error, {__MODULE__, error}}
+    end
+  end
+
+  defp crop_image(%__MODULE__{}, %State{} = state, {left, top, crop_width, crop_height}) do
+    case Image.crop(state.image, left, top, crop_width, crop_height) do
+      {:ok, cropped_image} -> {:ok, set_image(state, cropped_image)}
+      {:error, error} -> {:error, {__MODULE__, error}}
+    end
   end
 
   defp smart_crop(%__MODULE__{} = params, %State{} = state, interesting) do

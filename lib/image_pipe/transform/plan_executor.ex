@@ -7,7 +7,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # ImagePipe.Transform.ResolveDriver with the Plan-carried resolution strategy
   # (plan.resolver, defaulting to ImagePipe.Transform.NeutralResolver when nil),
   # which owns the pending-orientation policy and compensation and emits explicit
-  # Flush/StateUpdate ops. Resize expansion/scale arithmetic lives in
+  # Flush ops. Resize expansion/scale arithmetic lives in
   # ImagePipe.Transform.ResizePlanning.
 
   alias ImagePipe.Plan

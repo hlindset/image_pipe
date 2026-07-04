@@ -1,10 +1,12 @@
 defmodule ImagePipe.Transform.CropOperationTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   import ImagePipe.Test.Telemetry, only: [attach_own_event_handlers: 2]
 
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Operation, as: VipsOperation
 
   defp state(width, height) do
     {:ok, image} = Image.new(width, height, color: :white)
@@ -563,6 +565,84 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       assert {:ok, result} = Crop.execute(op, state(400, 400))
       assert {100, 100} == dimensions(result)
+    end
+  end
+
+  describe "resolved_rect/3 mirrors execute/2 exactly" do
+    defp xyz_state(w, h) do
+      {:ok, image} = VipsOperation.xyz(w, h)
+      %ImagePipe.Transform.State{image: image}
+    end
+
+    defp origin_pixel(%ImagePipe.Transform.State{image: image}) do
+      # Positional API — Image.get_pixel!(image, x, y); see the existing usage
+      # in test/transform_chain_test.exs.
+      Image.get_pixel!(image, 0, 0)
+    end
+
+    property "gravity and coordinate crops: execute's realized rect equals resolved_rect" do
+      check all image_w <- StreamData.integer(8..64),
+                image_h <- StreamData.integer(8..64),
+                crop_w <- StreamData.integer(1..64),
+                crop_h <- StreamData.integer(1..64),
+                gravity <-
+                  StreamData.one_of([
+                    StreamData.tuple(
+                      {StreamData.constant(:anchor),
+                       StreamData.member_of([:left, :center, :right]),
+                       StreamData.member_of([:top, :center, :bottom])}
+                    ),
+                    StreamData.tuple(
+                      {StreamData.constant(:fp), StreamData.float(min: 0.0, max: 1.0),
+                       StreamData.float(min: 0.0, max: 1.0)}
+                    )
+                  ]),
+                max_runs: 60 do
+        crop = %Crop{
+          width: {:pixels, crop_w},
+          height: {:pixels, crop_h},
+          crop_from: :gravity,
+          gravity: gravity
+        }
+
+        assert {:ok, %{left: left, top: top, width: w, height: h}} =
+                 Crop.resolved_rect(crop, image_w, image_h)
+
+        {:ok, state} = Crop.execute(crop, xyz_state(image_w, image_h))
+        assert origin_pixel(state) == [left, top]
+        assert {Image.width(state.image), Image.height(state.image)} == {w, h}
+      end
+    end
+
+    test "coordinate crop resolves the clamped origin" do
+      crop = %Crop{
+        width: {:pixels, 20},
+        height: {:pixels, 20},
+        crop_from: %{left: {:pixels, 50}, top: {:pixels, 10}}
+      }
+
+      assert {:ok, %{left: left, top: top, width: 20, height: 20}} =
+               Crop.resolved_rect(crop, 60, 60)
+
+      {:ok, state} = Crop.execute(crop, xyz_state(60, 60))
+      assert origin_pixel(state) == [left, top]
+    end
+
+    test "offsets and offset_scale flow into the origin" do
+      crop = %Crop{
+        width: {:pixels, 10},
+        height: {:pixels, 10},
+        crop_from: :gravity,
+        gravity: {:anchor, :left, :top},
+        x_offset: {:pixels, 3},
+        y_offset: {:pixels, 5},
+        offset_scale: 2.0
+      }
+
+      assert {:ok, %{left: 6, top: 10}} = Crop.resolved_rect(crop, 40, 40)
+
+      {:ok, state} = Crop.execute(crop, xyz_state(40, 40))
+      assert origin_pixel(state) == [6, 10]
     end
   end
 end
