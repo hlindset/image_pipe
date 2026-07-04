@@ -29,6 +29,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   alias ImagePipe.Transform.Operation.Flush, as: ExecFlush
   alias ImagePipe.Transform.Operation.Padding, as: ExecPadding
   alias ImagePipe.Transform.Operation.Resize, as: ExecResize
+  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.ResolveDriver
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
@@ -485,7 +486,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
     # it becomes [resize] / [crop, Flush], with the final shape computed purely:
     # the compensated crop's storage-frame box, axis-swapped by the flush.
     test "a pending-orientation cover stages; the final shape is the flushed crop box" do
-      po = %ImagePipe.Transform.PendingOrientation{auto_rotate?: true, exif_angle: 90}
+      po = PendingOrientation.from_exif(6, true)
 
       plan = [
         %PlanResize{

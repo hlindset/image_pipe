@@ -125,15 +125,16 @@ ImagePipe models this faithfully:
   advances the carry through each emitted stage with the executables' own pure
   geometry helpers, substituting `:deferred` → `{:fp, x, y}` **after** the neutral
   resolver's orientation compensation, so a storage-frame point is never
-  gravity-remapped). The point persists across multiple consumers until a
-  `crop=…@XxY` reset.
+  gravity-remapped). The point persists across multiple consumers until a later
+  `focus=…` overwrites it.
 - **Diverges (behavioral, detector-gated):** a **smart/detect**-gravity crop
   (`focus=auto` → `{:smart, :face_assist}`) chooses its window from pixels, so the
   resolve-time point walk passes the carry through **unchanged** rather than
-  translating it by a crop origin it cannot know before detection runs. This edge
-  is unreachable without a configured detector (detector-less hosts fall back to
-  attention saliency, and `focus=auto` is not a carried-point consumer), so it
-  never affects the differential/wire conformance lanes.
+  translating it by a crop origin it cannot know before detection runs. The
+  translate-vs-pass-through split only appears when a configured detector's
+  detection succeeds; the differential/wire conformance lanes run detector-less,
+  where `focus=auto` resolves its window from attention saliency and — like the
+  new pass-through — never advances the carried point, so old and new agree.
 - This is order-sensitive (focus resolves against the frame at its position) and
   carries faithfully through EXIF-oriented sources. `focus=auto` stays a
   consumer-resolved smart-gravity mode (not a carried point). `zoom`/`turn`/`flip`

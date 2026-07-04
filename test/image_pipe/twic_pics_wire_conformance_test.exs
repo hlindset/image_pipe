@@ -653,12 +653,10 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
 
     # The nil-point centred fallback under EXIF with an odd extent difference:
     # compensate_crop's :deferred clause sets center_bias so the discarded pixel
-    # lands on the intended display side (#146 Bug 2). Pin the current BYTES
-    # relation between the no-focus fallback and an explicit centre focus (the
-    # fp path ignores center_bias, so these may legitimately differ by one
-    # pixel row/column — record whichever relation currently holds and pin it;
-    # body equality is the strongest same-cost pin and PNG output makes it
-    # deterministic).
+    # lands on the intended display side (#146 Bug 2). Pin the current decoded-
+    # pixel relation between the no-focus fallback and an explicit centre focus
+    # (the fp path ignores center_bias, so these may legitimately differ by one
+    # pixel row/column — record whichever relation currently holds and pin it).
     test "nil-point centred fallback under EXIF quarter turn (odd cover box)" do
       fallback = call("/images/oriented.jpg?twic=v1/cover=15x15/output=png", exif_opts())
 
@@ -667,11 +665,13 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
 
       assert dimensions(fallback) == {15, 15}
       assert dimensions(explicit) == {15, 15}
-      # Observed relation (current code): the bodies differ by one pixel
+      # Observed relation (current code): the decoded pixels differ by one pixel
       # row/column — the legitimate center_bias divergence called out above (the
       # fp path taken by an explicit focus=center ignores center_bias, while the
-      # nil-point :deferred fallback sets it). Pin that divergence, not equality.
-      refute fallback.resp_body == explicit.resp_body
+      # nil-point :deferred fallback sets it). Pin that divergence via decoded
+      # pixels, not encoded bytes (encode-time byte nondeterminism makes raw body
+      # comparison unreliable, as noted elsewhere in this file).
+      refute average(fallback) == average(explicit)
     end
 
     # Canvas-embed translate: the focus is set BEFORE an inside letterbox, so

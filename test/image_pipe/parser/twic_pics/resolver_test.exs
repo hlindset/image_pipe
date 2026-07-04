@@ -99,7 +99,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
   # carry (10, 10); the flush maps fraction (0.5, 0.5) by rotate-90 to
   # (0.5, 0.5) on the swapped 20x20 frame -> carry (10, 10).
   test "a pending-orientation cover substitutes storage-frame fp and folds reflect_rotate" do
-    po = %PendingOrientation{auto_rotate?: true, exif_angle: 90}
+    po = PendingOrientation.from_exif(6, true)
     point = {{:ratio, 20, 1}, {:ratio, 36, 1}}
 
     resize = %PlanResize{
@@ -129,7 +129,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
   # actually move: fractions (0.5, 0.1) rotate-90 to (0.9, 0.5) on the swapped
   # 20x20 frame -> (18, 10). A dropped/mis-framed %Flush{} step yields (10, 2).
   test "the flush fold moves an off-centre carry" do
-    po = %PendingOrientation{auto_rotate?: true, exif_angle: 90}
+    po = PendingOrientation.from_exif(6, true)
     point = {{:ratio, 20, 1}, {:ratio, 4, 1}}
 
     resize = %PlanResize{
