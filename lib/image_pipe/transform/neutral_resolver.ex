@@ -494,70 +494,70 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp materializing_gravity?({:detect, _}), do: true
   defp materializing_gravity?(_other), do: false
 
-  # A carried-gravity crop reads the neutral carried point, which lives in the
-  # storage frame and already tracks the focused content — so it must NOT be
-  # gravity-remapped like an imgproxy focus-point spec. Only the crop box needs
-  # the quarter-turn dim swap; the flush then rotates image + carried point
-  # together. This clause MUST precede the {crop_from: :gravity, gravity}
-  # clause below, which a :deferred crop would otherwise match.
+  # A pre-flush storage-frame gravity crop under a pending orientation. The crop
+  # box and the odd-pixel discard side (a centered crop with an odd extent
+  # difference discards one extra pixel; the storage-frame near-side bias lands
+  # on the wrong display side when the flush reverses that storage axis, #146
+  # Bug 2) always compensate for the pending turn; the anchor offsets remap only
+  # when the gravity is already concrete.
   #
-  # The TwicPics strategy substitutes a nil carried point to the centred anchor,
-  # so this crop still needs the center-discard-side compensation (#146 Bug 2)
-  # that the gravity clause applies. A set point substitutes to `:fp` gravity,
-  # which ignores center_bias, so setting it unconditionally here is harmless.
-  defp compensate_crop(%Crop{gravity: :deferred} = crop, %PendingOrientation{} = po) do
-    crop = %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
-
-    if PendingOrientation.quarter_turn?(po),
-      do: %Crop{crop | width: crop.height, height: crop.width},
-      else: crop
-  end
-
+  # A strategy-deferred gravity carries a storage-frame point the plan's
+  # strategy substitutes AFTER this compensation (Pinned behavior 5) — its
+  # offsets are not yet concrete, so it must NOT be gravity-remapped and takes
+  # box + center_bias only: a nil point substitutes to the centred anchor, which
+  # needs the discard-side bias; a set point substitutes to `:fp`, which ignores
+  # it. Smart/detect gravities run on display-frame pixels (flush-before) and
+  # stay fully literal.
   defp compensate_crop(
          %Crop{crop_from: :gravity, gravity: gravity} = crop,
          %PendingOrientation{} = po
        ) do
     if materializing_gravity?(gravity) do
-      # Smart/detect crops run on display-frame pixels (flush-before), so they
-      # stay literal (no compensation).
       crop
     else
-      # The executable crop carries offsets in their tagged unit form.
-      # Orientation.compensate_gravity_for/2 ports imgproxy's RotateAndFlip,
-      # which operates on the bare float offset. Unwrap to the bare magnitude,
-      # compensate, then re-wrap — and on a quarter turn the X/Y *values* swap,
-      # so the unit wrappers swap with them.
-      {x_unit, x_value} = split_offset(crop.x_offset)
-      {y_unit, y_value} = split_offset(crop.y_offset)
-
-      {gravity, x_value, y_value} =
-        Orientation.compensate_gravity_for({gravity, x_value, y_value}, po)
-
-      {x_unit, y_unit} =
-        if PendingOrientation.quarter_turn?(po), do: {y_unit, x_unit}, else: {x_unit, y_unit}
-
-      # A centered crop with an odd extent difference discards one extra pixel;
-      # the storage-frame near-side bias lands on the wrong display side when
-      # the flush reverses that storage axis (#146 Bug 2).
-      center_bias = Orientation.center_discard_sides(po)
-
-      crop = %Crop{
-        crop
-        | gravity: gravity,
-          x_offset: x_unit.(x_value),
-          y_offset: y_unit.(y_value),
-          center_bias: center_bias
-      }
-
-      if PendingOrientation.quarter_turn?(po) do
-        %Crop{crop | width: crop.height, height: crop.width}
-      else
-        crop
-      end
+      crop
+      |> remap_concrete_offsets(po)
+      |> put_center_bias(po)
+      |> swap_box_for_quarter_turn(po)
     end
   end
 
   defp compensate_crop(%Crop{} = crop, %PendingOrientation{}), do: crop
+
+  # The executable crop carries offsets in their tagged unit form.
+  # Orientation.compensate_gravity_for/2 ports imgproxy's RotateAndFlip, which
+  # operates on the bare float offset: unwrap to the magnitude, compensate, then
+  # re-wrap — and on a quarter turn the X/Y *values* swap, so the unit wrappers
+  # swap with them. Only a concrete anchor/fp gravity has offsets to remap; a
+  # non-concrete gravity (a strategy fills it later, in the storage frame)
+  # passes through untouched.
+  defp remap_concrete_offsets(
+         %Crop{gravity: {tag, _, _} = gravity} = crop,
+         %PendingOrientation{} = po
+       )
+       when tag in [:anchor, :fp] do
+    {x_unit, x_value} = split_offset(crop.x_offset)
+    {y_unit, y_value} = split_offset(crop.y_offset)
+
+    {gravity, x_value, y_value} =
+      Orientation.compensate_gravity_for({gravity, x_value, y_value}, po)
+
+    {x_unit, y_unit} =
+      if PendingOrientation.quarter_turn?(po), do: {y_unit, x_unit}, else: {x_unit, y_unit}
+
+    %Crop{crop | gravity: gravity, x_offset: x_unit.(x_value), y_offset: y_unit.(y_value)}
+  end
+
+  defp remap_concrete_offsets(%Crop{} = crop, %PendingOrientation{}), do: crop
+
+  defp put_center_bias(%Crop{} = crop, %PendingOrientation{} = po),
+    do: %Crop{crop | center_bias: Orientation.center_discard_sides(po)}
+
+  defp swap_box_for_quarter_turn(%Crop{} = crop, %PendingOrientation{} = po) do
+    if PendingOrientation.quarter_turn?(po),
+      do: %Crop{crop | width: crop.height, height: crop.width},
+      else: crop
+  end
 
   # Split a tagged crop offset into {rewrap_fun, bare_value}. Orientation
   # compensation negates/swaps the magnitude; the rewrap restores the unit so
