@@ -17,7 +17,7 @@ defmodule ImagePipe.Parser.Imgproxy.ResolverTest do
 
   # Deliberately pure destructuring: this asserts the carry rides in the data
   # tuple. Carry survival THROUGH the seam is pinned by the continue/4
-  # assertion in the #237 test below.
+  # assertion in the padding-stash (#237) test below.
   defp carry_of({:advance, _shape, carry}), do: carry
   defp carry_of({:measure, _tag, carry}), do: carry
 

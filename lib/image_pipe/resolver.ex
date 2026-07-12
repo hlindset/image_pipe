@@ -74,8 +74,13 @@ defmodule ImagePipe.Resolver do
     module.resolve(shape, strategy_state, op)
   end
 
-  @spec continue(strategy(), tag(), {pos_integer(), pos_integer()}, term(), strategy_state()) ::
-          continue_result()
+  @spec continue(
+          strategy(),
+          tag(),
+          {pos_integer(), pos_integer()},
+          shape :: term(),
+          strategy_state()
+        ) :: continue_result()
   def continue({module, _resolve_state}, tag, dims, shape, strategy_state) do
     module.continue(tag, dims, shape, strategy_state)
   end

@@ -23,8 +23,8 @@ defmodule ImagePipe.Transform.Executor do
   # the realized-dims seam — which the driver executes and continues, recursing
   # until a final `{shape, strategy_state}`. The overlay still runs once per
   # *plan op*, before the first stage — the shape only advances at the
-  # continuation's end, so mid-emission executables read the same overlaid frame
-  # they do today. At the pipeline boundary any surviving non-identity pending
+  # continuation's end, so mid-emission executables all read the same overlaid
+  # frame. At the pipeline boundary any surviving non-identity pending
   # orientation is flushed through an explicit %Operation.Flush{}; an identity
   # pending is cleared on State without materializing (streaming fast path
   # preserved).
@@ -32,8 +32,7 @@ defmodule ImagePipe.Transform.Executor do
   # The overlay routes every State.effective_source_dims / decode_shrink /
   # pending_orientation read at EXECUTE time — Resize.execute, OrientationFlush.
   # flush — through the resolver-advanced shape; the resolve-time reads (Lowering,
-  # ResizePlanning) take the shape directly. It is value-equal to the previous
-  # scattered State mutations whenever the shape advance is correct.
+  # ResizePlanning) take the shape directly.
   #
   # The strategy's own per-pipeline state (e.g. the imgproxy resolver's stashed
   # padding scales) is threaded through `strategy`, carried forward via the

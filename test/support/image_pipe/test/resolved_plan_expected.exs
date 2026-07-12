@@ -1,6 +1,6 @@
 # Baked by ImagePipe.Test.ResolvedPlanCases.bake!/0 — the executed op /
-# materialize sequence and realized per-op dims of the PRE-cutover pipeline
-# (OrientationScheduler-driven Executor), recorded as the golden
+# materialize sequence and realized per-op dims of the PRE-cutover,
+# OrientationScheduler-driven pipeline, recorded as the golden
 # `expected` data for the ResolvedPlan golden test. Do not edit by hand.
 [
   %{
