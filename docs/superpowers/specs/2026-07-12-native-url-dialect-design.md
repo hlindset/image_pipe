@@ -330,6 +330,37 @@ identity resolution, cache access, or source fetch:
 
 Signature failures are 403 and occur before parsing. Past `expires` is 404.
 
+### Error diagnostics
+
+400 responses carry a compiler-style diagnostic as a `text/plain` body:
+the raw path as received, with carets under the offending spans and stacked
+labels.
+
+    invalid transformation options
+
+    /crop=1000,1000/w=500/bogus=10/h=invalid/src/images/cat.jpg
+                          ^^^^^^^^   ^^^^^^^
+                          |          |
+                          |          invalid value: expected px or `auto`
+                          unknown option
+
+- **Errors accumulate.** The parser validates every segment and every
+  cross-segment rule (duplicates, exclusive pairs, inertness) in one pass
+  and reports all failures together, not just the first.
+- **Spans are precise.** An unknown option underlines the key, an invalid
+  value underlines the value, and multi-segment errors (duplicate key,
+  exclusive pair) underline every participating span.
+- **Mechanics:** the parser emits structured errors carrying byte spans into
+  the raw received path; a small renderer draws the caret display. The
+  structured error list is what tests assert on; the rendering has its own
+  focused tests.
+- The diagnostic echoes only the client's own request path — no internals,
+  config, or source information beyond what the client sent. Signature
+  failures (403) stay terse ("invalid signature", no spans): a signature
+  oracle should not explain itself.
+- A machine-readable error body (JSON via `Accept` negotiation) is a
+  possible later addition, not v1.
+
 ## Signing
 
 - Signed URLs start with `sig=<base64url-hmac-sha256>`. The MAC covers the
