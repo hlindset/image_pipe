@@ -48,7 +48,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
   end
 
   test "trim → :measure, pending kept, storage frame, no Flush", %{shape: s} do
-    {ops, {:measure, after_measure}} =
+    {ops, {:measure, :trim, nil}} =
       NeutralResolver.resolve(s, nil, %Trim{
         threshold: 10,
         background: :auto,
@@ -57,7 +57,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
       })
 
     assert [%ImagePipe.Transform.Operation.Trim{}] = ops
-    {shape2, nil} = after_measure.({90, 70})
+    {shape2, nil} = NeutralResolver.continue(:trim, {90, 70}, s, nil)
     assert shape2.frame == :storage and shape2.width == 90
   end
 
@@ -65,7 +65,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
     po = PendingOrientation.from_exif(6, true)
     s = SourceShape.seed(%{width: 100, height: 80, pending_orientation: po, decode_shrink: nil})
 
-    {ops, {:measure, after_measure}} =
+    {ops, {:measure, :trim, nil}} =
       NeutralResolver.resolve(s, nil, %Trim{
         threshold: 10,
         background: :auto,
@@ -74,7 +74,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
       })
 
     refute Enum.any?(ops, &match?(%Flush{}, &1))
-    {shape2, nil} = after_measure.({90, 70})
+    {shape2, nil} = NeutralResolver.continue(:trim, {90, 70}, s, nil)
     assert shape2.frame == :storage
     assert shape2.pending_orientation == po
     assert shape2.decode_shrink == nil
@@ -140,11 +140,12 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
     }
 
     # Staged: the resize is the terminal op of the first stage; the flush (and
-    # any result-crop tail) arrives via the stage the after_measure returns, and the
+    # any result-crop tail) arrives via the stage continue/4 returns, and the
     # shape only advances at that stage's :advance continuation.
-    {[%ExecResize{}], {:measure, after_measure}} = NeutralResolver.resolve(s, nil, resize)
+    {[%ExecResize{}], {:measure, {:resize_flush_tail, _} = tag, nil}} =
+      NeutralResolver.resolve(s, nil, resize)
 
-    {stage_ops, {:advance, shape2, nil}} = after_measure.({50, 40})
+    {stage_ops, {:advance, shape2, nil}} = NeutralResolver.continue(tag, {50, 40}, s, nil)
     assert %Flush{} = List.last(stage_ops)
     refute Enum.any?(stage_ops, &match?(%ExecResize{}, &1))
     assert shape2.frame == :display
@@ -163,12 +164,24 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
       guide: :center
     }
 
-    {ops, {:measure, after_measure}} = NeutralResolver.resolve(s, nil, resize)
+    {ops, {:measure, :resize, nil}} = NeutralResolver.resolve(s, nil, resize)
 
     refute Enum.any?(ops, &match?(%Flush{}, &1))
-    {shape2, nil} = after_measure.({50, 40})
+    {shape2, nil} = NeutralResolver.continue(:resize, {50, 40}, s, nil)
     assert shape2.frame == :storage
     assert shape2.decode_shrink == nil
+  end
+
+  test "arbitrary rotate → :measure; continue lands the display frame", %{shape: s} do
+    {ops, {:measure, :rotate, nil}} =
+      NeutralResolver.resolve(s, nil, %PlanRotate{angle: 45, mirror: false})
+
+    refute ops == []
+    {shape2, nil} = NeutralResolver.continue(:rotate, {128, 128}, s, nil)
+    assert shape2.frame == :display
+    assert shape2.pending_orientation == nil
+    assert {shape2.width, shape2.height} == {128, 128}
+    assert shape2.decode_shrink == s.decode_shrink
   end
 
   test "region crop under a non-identity pending flushes before the crop" do
@@ -256,7 +269,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
       for {label, op} <- @measure_ops do
         {_ops, continuation} = NeutralResolver.resolve(s, nil, op)
 
-        assert match?({:measure, _after_measure}, continuation),
+        assert match?({:measure, _tag, nil}, continuation),
                "expected #{label} (#{inspect(op)}) to resolve :measure, got #{inspect(continuation)}"
       end
     end
@@ -272,7 +285,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
 
     # Stage invariant (spec §4.4 Stage 3): a %Transform.Operation.Resize{} is
     # always the TERMINAL op of its stage — the emitted list ends at the
-    # resize, and any tail arrives via the stage the after_measure returns, already
+    # resize, and any tail arrives via the stage continue/4 returns, already
     # resize-free. PointFlow's seam scaling relies on this.
     test "a resize is the terminal op of its stage", %{shape: s} do
       op = %PlanResize{
@@ -284,10 +297,10 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
         guide: :center
       }
 
-      {ops, {:measure, after_measure}} = NeutralResolver.resolve(s, nil, op)
+      {ops, {:measure, tag, nil}} = NeutralResolver.resolve(s, nil, op)
       assert [%ExecResize{}] = ops
 
-      case after_measure.({50, 40}) do
+      case NeutralResolver.continue(tag, {50, 40}, s, nil) do
         {%SourceShape{}, nil} ->
           :ok
 

@@ -64,10 +64,11 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       guide: :deferred
     }
 
-    {[%ExecResize{}], {:measure, stage}} =
+    {[%ExecResize{}], {:measure, tag, seam}} =
       TwicPicsResolver.resolve(shape(400, 400), point, resize)
 
-    {[%Crop{gravity: gravity}], {:advance, _shape, carried}} = stage.({200, 200})
+    {[%Crop{gravity: gravity}], {:advance, _shape, carried}} =
+      TwicPicsResolver.continue(tag, {200, 200}, shape(400, 400), seam)
 
     assert gravity == {:fp, 0.25, 0.25}
     assert carried == {{:ratio, 50, 1}, {:ratio, 50, 1}}
@@ -83,8 +84,11 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       guide: :deferred
     }
 
-    {[%ExecResize{}], {:measure, stage}} = TwicPicsResolver.resolve(shape(400, 400), nil, resize)
-    {[%Crop{gravity: gravity}], {:advance, _shape, nil}} = stage.({200, 200})
+    {[%ExecResize{}], {:measure, tag, seam}} =
+      TwicPicsResolver.resolve(shape(400, 400), nil, resize)
+
+    {[%Crop{gravity: gravity}], {:advance, _shape, nil}} =
+      TwicPicsResolver.continue(tag, {200, 200}, shape(400, 400), seam)
 
     assert gravity == {:anchor, :center, :center}
   end
@@ -111,10 +115,11 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       guide: :deferred
     }
 
-    {[%ExecResize{mode: :force}], {:measure, stage}} =
+    {[%ExecResize{mode: :force}], {:measure, tag, seam}} =
       TwicPicsResolver.resolve(shape(40, 80, po), point, resize)
 
-    {[%Crop{gravity: gravity}, %Flush{}], {:advance, advanced, carried}} = stage.({20, 40})
+    {[%Crop{gravity: gravity}, %Flush{}], {:advance, advanced, carried}} =
+      TwicPicsResolver.continue(tag, {20, 40}, shape(40, 80, po), seam)
 
     assert gravity == {:fp, 0.5, 0.45}
     assert carried == {{:ratio, 10, 1}, {:ratio, 10, 1}}
@@ -141,10 +146,11 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       guide: :deferred
     }
 
-    {[%ExecResize{mode: :force}], {:measure, stage}} =
+    {[%ExecResize{mode: :force}], {:measure, tag, seam}} =
       TwicPicsResolver.resolve(shape(40, 80, po), point, resize)
 
-    {[%Crop{gravity: gravity}, %Flush{}], {:advance, _advanced, carried}} = stage.({20, 40})
+    {[%Crop{gravity: gravity}, %Flush{}], {:advance, _advanced, carried}} =
+      TwicPicsResolver.continue(tag, {20, 40}, shape(40, 80, po), seam)
 
     assert gravity == {:fp, 0.5, 0.05}
     assert carried == {{:ratio, 18, 1}, {:ratio, 10, 1}}

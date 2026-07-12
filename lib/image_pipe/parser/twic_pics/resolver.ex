@@ -39,4 +39,8 @@ defmodule ImagePipe.Parser.TwicPics.Resolver do
     {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
     PointFlow.advance(ops, continuation, point, shape)
   end
+
+  @impl ImagePipe.Resolver
+  def continue(tag, measured, %SourceShape{} = shape, seam_state),
+    do: PointFlow.continue(tag, measured, shape, seam_state)
 end

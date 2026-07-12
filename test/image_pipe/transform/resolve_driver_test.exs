@@ -17,13 +17,14 @@ defmodule ImagePipe.Transform.ResolveDriverTest do
       {[], {:advance, %{shape | width: shape.width + 1}, agent}}
     end
 
-    def resolve(%SourceShape{} = shape, agent, :opaque) do
-      after_measure = fn {w, h} ->
-        Agent.update(agent, &[{:measured, w, h} | &1])
-        {%{shape | width: w, height: h}, agent}
-      end
+    def resolve(%SourceShape{}, agent, :opaque) do
+      {[], {:measure, :probe, agent}}
+    end
 
-      {[], {:measure, after_measure}}
+    @impl true
+    def continue(:probe, {w, h}, %SourceShape{} = shape, agent) do
+      Agent.update(agent, &[{:measured, w, h} | &1])
+      {%{shape | width: w, height: h}, agent}
     end
   end
 

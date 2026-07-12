@@ -12,22 +12,35 @@ defmodule ImagePipe.ResolverTest do
     @impl true
     def resolve(%SourceShape{} = shape, %{n: n}, op),
       do: {[{:emitted, op}], {:advance, shape, %{n: n + 1}}}
+
+    @impl true
+    def continue({:finish, extra}, {w, h}, %SourceShape{} = shape, %{n: n}),
+      do: {%{shape | width: w, height: h}, %{n: n + extra}}
   end
 
-  test "facade dispatches, threads strategy_state via the continuation" do
+  setup do
     shape =
       SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
 
+    %{shape: shape}
+  end
+
+  test "resolve/3 dispatches, threads strategy_state via the continuation", %{shape: shape} do
     {ops, cont} = Resolver.resolve({Dummy, Dummy.init()}, shape, :op)
     assert ops == [{:emitted, :op}]
     assert {:advance, ^shape, %{n: 1}} = cont
   end
 
-  describe "rewrap/2" do
-    setup do
-      shape =
-        SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
+  test "continue/5 dispatches with the continuation-carried state, not the strategy tuple's",
+       %{shape: shape} do
+    # The strategy tuple carries the stale resolve-time state; the state that
+    # travels is the one in the {:measure, tag, state} continuation.
+    assert {%SourceShape{width: 7, height: 5}, %{n: 42}} =
+             Resolver.continue({Dummy, %{n: 999}}, {:finish, 40}, {7, 5}, shape, %{n: 2})
+  end
 
+  describe "rewrap/2" do
+    setup %{shape: shape} do
       %{shape: shape, carry: %{scale: 2.5}}
     end
 
@@ -35,32 +48,9 @@ defmodule ImagePipe.ResolverTest do
       assert Resolver.rewrap({:advance, shape, nil}, carry) == {:advance, shape, carry}
     end
 
-    test "re-attaches the carry after a :measure resolves to a final shape",
-         %{shape: shape, carry: carry} do
-      continuation = {:measure, fn {5, 5} -> {shape, nil} end}
-
-      assert {:measure, after_measure} = Resolver.rewrap(continuation, carry)
-      assert after_measure.({5, 5}) == {shape, carry}
-    end
-
-    test "re-wraps the continuation of a staged expansion", %{shape: shape, carry: carry} do
-      continuation = {:measure, fn {5, 5} -> {[:stage_op], {:advance, shape, nil}} end}
-
-      assert {:measure, after_measure} = Resolver.rewrap(continuation, carry)
-      assert after_measure.({5, 5}) == {[:stage_op], {:advance, shape, carry}}
-    end
-
-    test "carries through every stage of a nested :measure expansion",
-         %{shape: shape, carry: carry} do
-      continuation =
-        {:measure,
-         fn {5, 5} ->
-           {[:stage_one], {:measure, fn {3, 3} -> {[:stage_two], {:advance, shape, nil}} end}}
-         end}
-
-      assert {:measure, outer} = Resolver.rewrap(continuation, carry)
-      assert {[:stage_one], {:measure, inner}} = outer.({5, 5})
-      assert inner.({3, 3}) == {[:stage_two], {:advance, shape, carry}}
+    test "substitutes the carry into a stateless :measure", %{carry: carry} do
+      assert Resolver.rewrap({:measure, {:resize_tail, [:crop]}, nil}, carry) ==
+               {:measure, {:resize_tail, [:crop]}, carry}
     end
   end
 end

@@ -60,9 +60,21 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
   def resolve(%SourceShape{} = shape, carry, operation),
     do: delegate(operation, shape, carry)
 
+  @impl ImagePipe.Resolver
+  def continue(tag, dims, %SourceShape{} = shape, carry) do
+    case NeutralResolver.continue(tag, dims, shape, nil) do
+      {%SourceShape{} = final, nil} ->
+        {final, carry}
+
+      {ops, continuation} when is_list(ops) ->
+        {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
+    end
+  end
+
   # ── delegation ────────────────────────────────────────────────────────────
-  # Re-wrap the neutral continuation so the imgproxy carry survives the advance
-  # — a trim between resize and padding must not lose the stashed DprScale.
+  # Re-wrap the neutral continuation (resolve) and re-attach the carry around
+  # the neutral continue (measure seams) so the imgproxy carry survives — a
+  # trim between resize and padding must not lose the stashed DprScale.
   defp delegate(operation, shape, carry) do
     {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
     {ops, ImagePipe.Resolver.rewrap(continuation, carry)}

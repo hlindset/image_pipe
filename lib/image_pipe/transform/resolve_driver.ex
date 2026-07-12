@@ -4,11 +4,12 @@ defmodule ImagePipe.Transform.ResolveDriver do
   # Per-pipeline execution loop: for each plan operation, overlay the
   # resolver-advanced shape onto State (THE one shape→State sync site), resolve
   # the op through the strategy, execute the emitted executable ops through the
-  # chain, then advance the shape — purely for an `:advance` continuation, or
-  # from the post-execution image dims for a `:measure` (injectable via
+  # chain, then advance the shape — purely for an `:advance` continuation, or,
+  # for a `{:measure, tag, state}` continuation, from the measured post-
+  # execution dims via the strategy's `continue/4` (injectable via
   # `opts[:measure_dims]` so tests can drive the geometry without pixels). A
-  # single resolve may execute in several STAGES (spec §4.4 Stage 3): a
-  # `:measure` continuation's `after_measure` fun can return a further `{ops, continuation}` stage — a
+  # single resolve may execute in several STAGES (spec §4.4 Stage 3):
+  # `continue/4` can return a further `{ops, continuation}` stage — a
   # multi-executable expansion (e.g. a cover = [resize] then [crop]) split at
   # the realized-dims seam — which the driver executes and continues, recursing
   # until a final `{shape, strategy_state}`. The overlay still runs once per
@@ -50,7 +51,7 @@ defmodule ImagePipe.Transform.ResolveDriver do
 
       {ops, continuation} = Resolver.resolve(strategy, shape, operation)
 
-      case execute_stages(ops, continuation, strategy, state, chain, measure_dims, opts) do
+      case execute_stages(ops, continuation, shape, strategy, state, chain, measure_dims, opts) do
         {:ok, shape, strategy, state} -> {:cont, {:ok, shape, strategy, state}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -75,12 +76,23 @@ defmodule ImagePipe.Transform.ResolveDriver do
 
   # One resolve may execute in several stages: run this stage's ops, then either
   # finish (final {shape, strategy_state}) or measure the realized dims and run
-  # the next stage the after_measure returns. Recursion depth is the emission's stage
-  # count (2 for a cover) — never unbounded.
-  defp execute_stages(ops, continuation, strategy, state, chain, measure_dims, opts) do
+  # the next stage the strategy's continue/4 returns. `resolve_shape` is the
+  # pre-op shape the strategy resolved against — the continue/4 contract.
+  # Recursion depth is the emission's stage count (2 for a cover) — never
+  # unbounded.
+  defp execute_stages(
+         ops,
+         continuation,
+         resolve_shape,
+         strategy,
+         state,
+         chain,
+         measure_dims,
+         opts
+       ) do
     case chain.(state, ops, opts) do
       {:ok, %State{} = state} ->
-        continue(continuation, strategy, state, chain, measure_dims, opts)
+        continue(continuation, resolve_shape, strategy, state, chain, measure_dims, opts)
 
       {:error, _reason} = error ->
         error
@@ -89,6 +101,7 @@ defmodule ImagePipe.Transform.ResolveDriver do
 
   defp continue(
          {:advance, %SourceShape{} = shape, strategy_state},
+         _resolve_shape,
          {module, _},
          state,
          _chain,
@@ -98,19 +111,35 @@ defmodule ImagePipe.Transform.ResolveDriver do
        do: {:ok, shape, {module, strategy_state}, state}
 
   defp continue(
-         {:measure, after_measure},
+         {:measure, tag, strategy_state},
+         resolve_shape,
          {module, _} = strategy,
          state,
          chain,
          measure_dims,
          opts
        ) do
-    case after_measure.(measure_dims.(state.image)) do
+    case Resolver.continue(
+           strategy,
+           tag,
+           measure_dims.(state.image),
+           resolve_shape,
+           strategy_state
+         ) do
       {%SourceShape{} = shape, strategy_state} ->
         {:ok, shape, {module, strategy_state}, state}
 
       {ops, continuation} when is_list(ops) ->
-        execute_stages(ops, continuation, strategy, state, chain, measure_dims, opts)
+        execute_stages(
+          ops,
+          continuation,
+          resolve_shape,
+          strategy,
+          state,
+          chain,
+          measure_dims,
+          opts
+        )
     end
   end
 

@@ -15,8 +15,11 @@ defmodule ImagePipe.Parser.Imgproxy.ResolverTest do
     ImgproxyResolver.resolve(shape, carry, op)
   end
 
+  # Deliberately pure destructuring: this asserts the carry rides in the data
+  # tuple. Carry survival THROUGH the seam is pinned by the continue/4
+  # assertion in the #237 test below.
   defp carry_of({:advance, _shape, carry}), do: carry
-  defp carry_of({:measure, after_measure}), do: after_measure |> then(& &1.({0, 0})) |> elem(1)
+  defp carry_of({:measure, _tag, carry}), do: carry
 
   test "auto resize buckets landscape source x landscape target to cover (prepare.go:88-97)" do
     {:ok, op} = Operation.resize(:auto, {:px, 300}, {:px, 200})
@@ -47,6 +50,11 @@ defmodule ImagePipe.Parser.Imgproxy.ResolverTest do
 
     {[%Padding{top: top} | _], _cont} = resolve(shape(100, 75), carry, padding)
     assert top == round(10 * scale)
+
+    # The seam re-attachment: continue/4 delegates the neutral tag and
+    # re-attaches the carry, so the stash survives a measure.
+    assert {%SourceShape{}, ^carry} =
+             ImgproxyResolver.continue(:resize, {100, 75}, shape(800, 600), carry)
   end
 
   test "a geometry-less dpr caps the padding scale to 1.0 (#237)" do
