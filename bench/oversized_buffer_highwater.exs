@@ -18,7 +18,7 @@
 #                        buffer -> clamp no-ops. (== what the look-ahead would produce.)
 #   gap (A - B) = the avoidable oversized buffer = what #164 would save.
 #
-# Drives the REAL seam (decode -> PlanExecutor -> materialize_for_delivery ->
+# Drives the REAL seam (decode -> Executor -> materialize_for_delivery ->
 # Output.Clamp -> Encoder consumed) via Request.Processor + the producer's clamp
 # math, with a hand-built Plan. Output is PNG and max_result_pixels is raised so
 # the per-axis dimension cap is the SOLE binding limit (no encoder / pixel-cap
@@ -211,7 +211,7 @@ defmodule OversizedBufferBench do
   # Arm C — reorder probe: clamp BEFORE materializing (byte-identical to current;
   # tests whether libvips fuses resize->clamp so the oversized intermediate is
   # never fully held). Done with the image lib directly (the resize node is the
-  # same lazy node PlanExecutor's residual resize produces) so we control the order.
+  # same lazy node Executor's residual resize produces) so we control the order.
   defp run_case("C", target, cap) do
     {sampler, _} = start_rss_sampler()
     t0 = now_ms()

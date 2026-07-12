@@ -187,7 +187,7 @@ defmodule ImagePipe.Transform.ResizeDimensionTest do
   test "fit min-dimensions expose a result box smaller than the upscaled intermediate (#194)" do
     # rs:fit:300:300/mw:280/mh:280 on a 4:3 source: fit lands 300x225, then mh:280
     # forces a uniform upscale to 373x280. The result box stays the literal requested
-    # 300x300 (NOT the min-expanded 373x280), so PlanExecutor crops the intermediate
+    # 300x300 (NOT the min-expanded 373x280), so Executor crops the intermediate
     # back to it (gravity center) — matching imgproxy's cropToResult to 300x280.
     operation = %Resize{
       mode: :fit,

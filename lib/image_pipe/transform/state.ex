@@ -25,7 +25,7 @@ defmodule ImagePipe.Transform.State do
     cropped/displayed axes instead (see `ImagePipe.Transform.DecodePlanner`).
 
     During pipeline execution the field carries a second meaning: before each
-    operation `ImagePipe.Transform.ResolveDriver` overlays the resolver-advanced
+    operation `ImagePipe.Transform.Executor` overlays the resolver-advanced
     `ImagePipe.Transform.SourceShape` onto the state, writing the shape's current
     effective dims here — so every `effective_source_dims/1` read resolves against
     the shape-tracked frame (value-equal to the live image dims whenever no shrink
@@ -41,7 +41,7 @@ defmodule ImagePipe.Transform.State do
     For JPEG block shrink and WebP scale-on-load the factor is uniform across axes.
     It is a storage-frame factor, so a gravity crop carrying a pending quarter-turn
     swaps the per-axis factors before rescaling (the display-frame crop dims are
-    swapped into the storage frame after — `ImagePipe.Transform.PlanExecutor`).
+    swapped into the storage frame after — `ImagePipe.Transform.Executor`).
   - `source_color_profile` and `color_imported?`: carry the input-color-management
     result from the preamble (`ImagePipe.Transform.InputColorManagement`) to the
     delivery-boundary stamp. `source_color_profile` is the raw source ICC bytes

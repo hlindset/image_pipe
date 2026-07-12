@@ -15,7 +15,7 @@ defmodule ImagePipe.Transform.Orientation do
   # in `RotateAndFlip` key on the *already-remapped* gravity type, and this port
   # preserves that ordering.
   #
-  # Gravity representation (executable frame, see Transform.PlanExecutor):
+  # Gravity representation (executable frame, see Transform.Executor):
   #   {:anchor, :left | :center | :right, :top | :center | :bottom}
   #   {:fp, x :: float, y :: float}        (focus point, fractional coords)
   #   :smart | {:smart, :face_assist} | {:detect, term}   (never remapped)

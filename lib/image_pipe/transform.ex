@@ -57,7 +57,7 @@ defmodule ImagePipe.Transform do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Transform.PlanExecutor
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
 
   @type attrs() :: keyword()
@@ -120,7 +120,7 @@ defmodule ImagePipe.Transform do
   @spec execute_plan(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def execute_plan(%Plan{} = plan, %State{} = state, opts \\ []) do
-    PlanExecutor.execute(plan, state, opts)
+    Executor.execute(plan, state, opts)
   end
 
   @default_detector ImagePipe.Transform.Detector.Composite

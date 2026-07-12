@@ -94,12 +94,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :AdaptiveResize
   ]
   @post_fetch_transform_state_modules [
-    ImagePipe.Transform.PlanExecutor
+    ImagePipe.Transform.Executor
   ]
   @cache_prefetch_forbidden_transform_state_names [
-    :PlanExecutor
+    :Executor
   ]
-  @runtime_forbidden_transform_execution_names [:PlanExecutor]
+  @runtime_forbidden_transform_execution_names [:Executor]
   @cache_prefetch_forbidden_transform_functions [
     :execute_plan
   ]
@@ -725,7 +725,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # A Plan-carried resolver strategy (#434) resolves geometry only: it
     # translates a semantic Plan operation into executable transform ops and
     # threads strategy-local carry state. It must not reach into transform
-    # execution state or pixel access — those stay owned by Chain/PlanExecutor.
+    # execution state or pixel access — those stay owned by Chain/Executor.
     violations =
       for file <- resolver_strategy_files(),
           violation <- resolver_strategy_forbidden_transform_references(file) do
@@ -1010,21 +1010,20 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           |> Enum.map(&violation(meta, &1))
           |> then(&{node, &1 ++ violations})
 
-        {{:., meta,
-          [{:__aliases__, _alias_meta, [:ImagePipe, :Transform, :PlanExecutor]}, :execute]},
+        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePipe, :Transform, :Executor]}, :execute]},
          _call_meta, _args} = node,
         violations ->
-          {node, [violation(meta, "ImagePipe.Transform.PlanExecutor.execute") | violations]}
+          {node, [violation(meta, "ImagePipe.Transform.Executor.execute") | violations]}
 
-        {{:., meta, [{:__aliases__, _alias_meta, [:Transform, :PlanExecutor]}, :execute]},
-         _call_meta, _args} = node,
+        {{:., meta, [{:__aliases__, _alias_meta, [:Transform, :Executor]}, :execute]}, _call_meta,
+         _args} = node,
         violations ->
-          {node, [violation(meta, "Transform.PlanExecutor.execute") | violations]}
+          {node, [violation(meta, "Transform.Executor.execute") | violations]}
 
-        {{:., meta, [{:__aliases__, _alias_meta, [:PlanExecutor]}, :execute]}, _call_meta, _args} =
+        {{:., meta, [{:__aliases__, _alias_meta, [:Executor]}, :execute]}, _call_meta, _args} =
             node,
         violations ->
-          {node, [violation(meta, "PlanExecutor.execute") | violations]}
+          {node, [violation(meta, "Executor.execute") | violations]}
 
         {:__aliases__, meta, [:ImagePipe, :Transform, module | _rest]} = node, violations
         when module in @runtime_forbidden_transform_execution_names ->
@@ -1224,21 +1223,20 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
         when function in @cache_prefetch_forbidden_transform_functions ->
           {node, [violation(meta, "Transform.#{function}") | violations]}
 
-        {{:., meta,
-          [{:__aliases__, _alias_meta, [:ImagePipe, :Transform, :PlanExecutor]}, :execute]},
+        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePipe, :Transform, :Executor]}, :execute]},
          _call_meta, _args} = node,
         violations ->
-          {node, [violation(meta, "ImagePipe.Transform.PlanExecutor.execute") | violations]}
+          {node, [violation(meta, "ImagePipe.Transform.Executor.execute") | violations]}
 
-        {{:., meta, [{:__aliases__, _alias_meta, [:Transform, :PlanExecutor]}, :execute]},
-         _call_meta, _args} = node,
+        {{:., meta, [{:__aliases__, _alias_meta, [:Transform, :Executor]}, :execute]}, _call_meta,
+         _args} = node,
         violations ->
-          {node, [violation(meta, "Transform.PlanExecutor.execute") | violations]}
+          {node, [violation(meta, "Transform.Executor.execute") | violations]}
 
-        {{:., meta, [{:__aliases__, _alias_meta, [:PlanExecutor]}, :execute]}, _call_meta, _args} =
+        {{:., meta, [{:__aliases__, _alias_meta, [:Executor]}, :execute]}, _call_meta, _args} =
             node,
         violations ->
-          {node, [violation(meta, "PlanExecutor.execute") | violations]}
+          {node, [violation(meta, "Executor.execute") | violations]}
 
         node, violations ->
           {node, violations}
@@ -1386,7 +1384,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       violations
       |> Enum.filter(
         &(&1.module in [
-            "ImagePipe.Transform.PlanExecutor"
+            "ImagePipe.Transform.Executor"
           ])
       )
       |> MapSet.new(& &1.line)
@@ -1395,15 +1393,15 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       violations
       |> Enum.filter(
         &(&1.module in [
-            "PlanExecutor.execute",
-            "Transform.PlanExecutor.execute"
+            "Executor.execute",
+            "Transform.Executor.execute"
           ])
       )
       |> MapSet.new(& &1.line)
 
     Enum.reject(violations, fn
       %{module: module, line: line}
-      when module in ["PlanExecutor"] ->
+      when module in ["Executor"] ->
         MapSet.member?(grouped_alias_lines, line) or MapSet.member?(resolver_call_lines, line)
 
       _violation ->

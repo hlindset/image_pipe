@@ -126,7 +126,7 @@ defmodule ImagePipe.Transform.Focus do
 
   # Shrink-on-load factors are storage-frame; under a pending quarter turn the
   # display axes are swapped, so swap the per-axis factors before applying them to
-  # the display-frame px operand (mirrors PlanExecutor.orient_decode_shrink).
+  # the display-frame px operand (mirrors NeutralResolver.orient_decode_shrink).
   defp orient_shrink(nil, _po), do: {nil, nil}
 
   defp orient_shrink(%{w: w, h: h}, po) do

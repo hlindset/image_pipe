@@ -13,7 +13,7 @@ defmodule ImagePipe.Test.ResolvedPlanCases do
 
   `bake!/0` writes the recordings to `resolved_plan_expected.exs`. The committed
   recordings were baked from the pre-cutover pipeline
-  (`OrientationScheduler`-driven `PlanExecutor`), so the golden test is a
+  (`OrientationScheduler`-driven `Executor`), so the golden test is a
   genuine cross-implementation net rather than a self-consistency pin. Re-bake
   only deliberately — from a checkout whose pipeline you intend to become the
   new reference.
@@ -188,7 +188,7 @@ defmodule ImagePipe.Test.ResolvedPlanCases do
     header = """
     # Baked by ImagePipe.Test.ResolvedPlanCases.bake!/0 — the executed op /
     # materialize sequence and realized per-op dims of the PRE-cutover pipeline
-    # (OrientationScheduler-driven PlanExecutor), recorded as the golden
+    # (OrientationScheduler-driven Executor), recorded as the golden
     # `expected` data for the ResolvedPlan golden test. Do not edit by hand.
     """
 

@@ -99,7 +99,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # imgproxy's `widthToScale = MinNonZero(CropWidth, SrcWidth)` (prepare.go:275-278)
   # — never the full source, which would over-shrink the cropped region. The crop's
   # absolute pixel dims and gravity offsets are rescaled by the realized shrink at
-  # execution time (PlanExecutor); relative (ratio/percent/focus-point) crops shrink
+  # execution time (Executor); relative (ratio/percent/focus-point) crops shrink
   # in place and need no coordinate rescale.
   #
   # A quarter-turn rotate reaching the chain before the resize is also allowed

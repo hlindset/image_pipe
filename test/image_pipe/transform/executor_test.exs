@@ -1,4 +1,4 @@
-defmodule ImagePipe.Transform.PlanExecutorTest do
+defmodule ImagePipe.Transform.ExecutorTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan
@@ -8,8 +8,64 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
   alias ImagePipe.Transform
-  alias ImagePipe.Transform.PlanExecutor
+  alias ImagePipe.Transform.Chain
+  alias ImagePipe.Transform.Executor
+  alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
+
+  defmodule Probe do
+    @behaviour ImagePipe.Resolver
+
+    @impl true
+    def init, do: nil
+
+    @impl true
+    def behavior_version, do: 1
+
+    @impl true
+    def resolve(%SourceShape{} = shape, agent, :pure) do
+      {[], {:advance, %{shape | width: shape.width + 1}, agent}}
+    end
+
+    def resolve(%SourceShape{}, agent, :opaque) do
+      {[], {:measure, :probe, agent}}
+    end
+
+    @impl true
+    def continue(:probe, {w, h}, %SourceShape{} = shape, agent) do
+      Agent.update(agent, &[{:measured, w, h} | &1])
+      {%{shape | width: w, height: h}, agent}
+    end
+  end
+
+  describe "run/5 (pipeline loop)" do
+    test "measure uses injected dims; advance is pure; overlay feeds State from the shape" do
+      {:ok, img} = Image.new(10, 10)
+      agent = start_supervised!({Agent, fn -> [] end})
+
+      shape =
+        SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
+
+      chain = fn %State{} = state, ops, opts ->
+        Agent.update(agent, &[{:overlaid_dims, state.source_dimensions} | &1])
+        Chain.execute(state, ops, opts)
+      end
+
+      {:ok, %State{}} =
+        Executor.run([:pure, :opaque, :pure], shape, {Probe, agent}, %State{image: img},
+          measure_dims: fn _ -> {77, 66} end,
+          chain: chain
+        )
+
+      assert Agent.get(agent, &Enum.reverse/1) ==
+               [
+                 {:overlaid_dims, {10, 10}},
+                 {:overlaid_dims, {11, 10}},
+                 {:measured, 77, 66},
+                 {:overlaid_dims, {77, 66}}
+               ]
+    end
+  end
 
   describe "resize execution" do
     test "resize fit, cover, and stretch execute through existing visible behavior" do
@@ -706,7 +762,7 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
       output: %ImagePipe.Plan.Output{mode: :automatic}
     }
 
-    {:ok, %State{image: result}} = PlanExecutor.execute(plan, state, [])
+    {:ok, %State{image: result}} = Executor.execute(plan, state, [])
 
     assert Image.width(result) == 170
   end
