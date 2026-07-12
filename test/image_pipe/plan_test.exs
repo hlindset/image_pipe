@@ -184,14 +184,6 @@ defmodule ImagePipe.PlanTest do
       assert {:ok, _} = Plan.validate_shape(%{plan | resolver: SomeStrategy})
     end
 
-    test "rejects an :auto resize mode without a resolver" do
-      assert {:ok, operation} = Operation.resize(:auto, {:px, 100}, {:px, 50})
-      plan = plan(pipelines: [%Pipeline{operations: [operation]}])
-
-      assert {:error, {:strategy_required, ^operation}} = Plan.validate_shape(plan)
-      assert {:ok, _} = Plan.validate_shape(%{plan | resolver: SomeStrategy})
-    end
-
     test "rejects an {:effective, …} padding scale without a resolver" do
       assert {:ok, operation} =
                Operation.padding({:px, 4}, {:px, 4}, {:px, 4}, {:px, 4},
@@ -212,6 +204,15 @@ defmodule ImagePipe.PlanTest do
 
       assert {:ok, _} = Plan.validate_shape(plan(pipelines: [%Pipeline{operations: [smart]}]))
       assert {:ok, _} = Plan.validate_shape(plan(pipelines: [%Pipeline{operations: [detect]}]))
+    end
+
+    # The :auto resize mode is product-neutral (the neutral resolver owns the
+    # fill-vs-fit bucketing, #448), so any dialect may emit it with no resolver.
+    test "accepts an :auto resize mode without a resolver" do
+      assert {:ok, operation} = Operation.resize(:auto, {:px, 100}, {:px, 50})
+      plan = plan(pipelines: [%Pipeline{operations: [operation]}])
+
+      assert {:ok, _} = Plan.validate_shape(plan)
     end
   end
 

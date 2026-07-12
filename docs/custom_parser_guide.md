@@ -379,10 +379,11 @@ everything.
 ### Why resolvers exist
 
 Some dialect semantics depend on the **source image's geometry**, which the
-parser cannot know (parsing happens before any fetch). Examples:
+parser cannot know (parsing happens before any fetch). Product-neutral cases
+(e.g. the `:auto` fill-vs-fit resize rule) are handled by the built-in neutral
+resolver and need no custom strategy; a custom resolver is for the
+dialect-specific ones. Examples:
 
-- imgproxy's `rt:auto` picks fill-vs-fit by comparing source and target
-  aspect orientation — decidable only once source dimensions are known.
 - imgproxy's no-enlarge rule caps the DPR/padding scale by how much the
   source can actually shrink — computed at the resize, but *consumed* by
   later padding/canvas operations.
@@ -511,18 +512,22 @@ never sees. The pieces available:
 - **`Operation.Directive`** — a no-pixel message positioned in the operation
   stream, consumed by your strategy (`:set_focus` above). Emitting a
   `Directive` your resolver has no clause for is a programmer error.
-- **Dialect-specific field markers** — e.g. `Operation.Resize` `mode: :auto`
-  and `Operation.Padding` `pixel_ratio: {:effective, ratio, mode}` exist for
-  the imgproxy strategy, which resolves them to concrete values *before*
-  delegating; the neutral resolver never sees them. If your dialect needs a
-  new marker of this kind, it is a core change — the marker lives on a shared
-  Plan struct — so keep the pairing rule in mind: every marker a parser can
-  emit must have exactly one strategy that resolves it.
+- **Dialect-specific field markers** — e.g. `Operation.Padding`
+  `pixel_ratio: {:effective, ratio, mode}` exists for the imgproxy strategy,
+  which resolves it to a concrete value *before* delegating; the neutral
+  resolver never sees it. If your dialect needs a new marker of this kind, it
+  is a core change — the marker lives on a shared Plan struct — so keep the
+  pairing rule in mind: every marker a parser can emit must have exactly one
+  strategy that resolves it. A marker only earns its place when the decision is
+  runtime-geometry-dependent, per-operation/positional, *and* has no
+  product-neutral specification; if it has one (like the `:auto` resize rule,
+  which the neutral resolver now owns), promote it instead of carrying a
+  marker.
 
 Plan validation enforces the resolver half of that pairing: a plan carrying
 any strategy-requiring vocabulary (a `:deferred` guide, a `Directive`, an
-`:auto` resize mode, an `{:effective, …}` padding scale) with `resolver: nil`
-is rejected at the plan boundary as `{:strategy_required, operation}` instead
+`{:effective, …}` padding scale) with `resolver: nil` is rejected at the plan
+boundary as `{:strategy_required, operation}` instead
 of erroring deep in the transform stage.
 
 ### The strategy SDK
@@ -535,9 +540,10 @@ SDK" tier of the Transform boundary's exports:
 - `ImagePipe.Transform.SourceShape` — the shape value and its pure helpers
   (`seed/1`, `live_dims/1`, `quarter_turn?/1`).
 - `ImagePipe.Transform.NeutralResolver` — the delegate (`resolve/3` and
-  `continue/4`) and its two advance helpers (`display_frame_advance/2`,
+  `continue/4`), its two advance helpers (`display_frame_advance/2`,
   `plain_advance/2`) for composing your own lowering with the neutral
-  orientation-flush policy.
+  orientation-flush policy, and `resolve_mode/2` for reading the concrete
+  `:fit`/`:cover`/`:stretch` branch of an `:auto` resize before delegation.
 - `ImagePipe.Transform.Focus` and `ImagePipe.Transform.PendingOrientation` —
   point and orientation geometry for carried-point strategies.
 - The executable `ImagePipe.Transform.Operation.*` structs a strategy emits,

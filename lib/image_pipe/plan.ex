@@ -359,9 +359,9 @@ defmodule ImagePipe.Plan do
   defp validate_resolver(module) when is_atom(module), do: :ok
   defp validate_resolver(other), do: {:error, {:invalid_resolver_plan, other}}
 
-  # Strategy-requiring vocabulary — a :deferred guide, a Directive, an :auto
-  # resize branch, an {:effective, …} padding scale — is only resolvable by a
-  # carried resolver strategy; the neutral resolver never sees it. Without this
+  # Strategy-requiring vocabulary — a :deferred guide, a Directive, an
+  # {:effective, …} padding scale — is only resolvable by a carried resolver
+  # strategy; the neutral resolver never sees it. Without this
   # gate such a plan passes shape validation and errors deep in the transform
   # stage. Parsers are host-implementable, so the pairing is validated at the
   # plan boundary rather than trusted. Only well-formed pipelines are walked;
@@ -387,7 +387,6 @@ defmodule ImagePipe.Plan do
 
   defp find_strategy_requiring_operation(_pipelines), do: nil
 
-  defp requires_strategy?(%Operation.Resize{mode: :auto}), do: true
   defp requires_strategy?(%Operation.Resize{guide: :deferred}), do: true
   defp requires_strategy?(%Operation.CropGuided{guide: :deferred}), do: true
   defp requires_strategy?(%Operation.Padding{pixel_ratio: {:effective, _, _}}), do: true
