@@ -233,8 +233,63 @@ skipped.
   keys, `debug`, `orient`, `cb`, `expires`, `filename`, `attachment`,
   `preset`) may appear in any group but at most once per URL; a second
   occurrence anywhere is a 400.
-- Mutual exclusions are errors, not precedence rules: `focus`+`anchor` in one
-  group is a 400; `crop`+`region` in one group is a 400.
+- Mutual exclusions are errors, not precedence rules: `focus`+`anchor`,
+  `crop`+`region`, and `extend`+`extend-ratio` in one group are 400s
+  (extending to the full box already fixes the ratio — stating both is
+  contradictory intent), as is `autoquality`+`q` anywhere in the URL (an
+  explicit quality and a quality search are contradictory instructions).
+  `q`+`format-q` is allowed with stated precedence — `format-q` wins for its
+  format — because combining them with negotiation is useful, not
+  contradictory. `max-bytes` composes with either.
+
+### Inertness policy
+
+imgproxy's other silent-failure family is the inert option: `exar` with an
+auto dimension, `crop_ar` without a crop, gravity with nothing to crop — all
+silently no-op, masking client bugs. The native policy has three tiers.
+The philosophical line: **identity is meaningful input; inertness is a bug.**
+
+**Tier 1 — identity values of continuous parameters are valid and emit no
+operation.** `dpr=1`, `zoom=1`, `blur=0`, `brightness=0`, `pixelate=1`,
+`monochrome=0` are the identity points of their parameter spaces, not
+sentinels — templated builders legitimately emit them (`dpr=${ratio}` on a
+1× device must not 400). Values outside the parameter space remain invalid
+(`pixelate=0` is not identity; 400).
+
+**Tier 2 — structurally inert options are a 400** (subject to the host
+opt-out below). An option whose prerequisite is absent cannot take effect;
+that is a client bug and we say so:
+
+| Option | Requires (same group) |
+| --- | --- |
+| `extend-ratio` | concrete (non-`auto`) `w` **and** `h` |
+| `extend-at`, `extend-offset` | `extend` or `extend-ratio` |
+| `extend` | a resize box (`w` and `h`) |
+| `anchor-offset` | `anchor`, and `anchor` ≠ `smart` |
+| `anchor`, `focus` | a consumer: `crop`, or `fit` ∈ {`cover`, `cover-down`, `auto`} |
+| `crop-ratio` | `crop` |
+| `crop-ratio-enlarge` | `crop-ratio` |
+| `enlarge` | a resize intent (`w`, `h`, `min-w`, or `min-h`) |
+| `keep-copyright` | metadata stripping active (400 with `meta=keep`) |
+
+`fit=auto` counts as a valid `anchor`/`focus` consumer at parse time:
+whether the crop happens is decided at runtime (orientation match → cover),
+so there is no false rejection.
+
+**Tier 3 — contradictions** are the exclusive pairs above: always 400, no
+opt-out.
+
+**Host opt-out (Tier 2 only).** `on_inert_option: :reject` (default) or
+`:ignore` in the parser config. Ignore mode drops the inert option, serves
+what the rest of the URL says, and emits a telemetry warning event
+(`[:image_pipe, :parser, :inert_option]`, carrying the dropped key and its
+missing prerequisite) that the default Logger and OTel capture surface. The
+knob is host config, never per-URL — a URL-level flag would let the buggy
+author silence their own alarm. Unknown keys, invalid values, duplicates,
+and contradictions have no safe fallback interpretation and stay
+unconditional 400s in both modes. Cache keys are unaffected: an ignored
+inert option never reaches the Plan, so strict and lenient hosts produce
+identical canonical plans.
 
 ### Presets
 
@@ -267,7 +322,8 @@ identity resolution, cache access, or source fetch:
 - unknown key or unknown bare flag
 - invalid value for a known key (including `key=true` for flags)
 - duplicate key in scope (group-scoped: per group; request-scoped: per URL)
-- mutually exclusive pair in one group
+- mutually exclusive pair (see Inertness policy, Tier 3)
+- structurally inert option (Tier 2), unless `on_inert_option: :ignore`
 - empty pipeline group
 - unknown preset; multi-group preset combined with URL groups
 - `sig=` present on an instance with no configured keys
@@ -303,7 +359,8 @@ Signature failures are 403 and occur before parsing. Past `expires` is 404.
   nothing downstream and uses the neutral resolver (no carried strategy — no
   dialect-specific resolve-time semantics exist in this design).
 - **Config:** its own key in `ImagePipe.Plug.init/1`
-  (`native: [keys: [...], presets: %{...}]`), validated at init.
+  (`native: [keys: [...], presets: %{...}, on_inert_option: :reject]`),
+  validated at init.
 - **Reuse boundary:** the native parser must not reach into
   `Parser.Imgproxy` internals. Where plan-construction logic genuinely
   coincides, the shared piece is promoted to a neutral home first, per the
