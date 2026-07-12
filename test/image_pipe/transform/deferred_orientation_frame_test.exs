@@ -26,7 +26,7 @@ defmodule ImagePipe.Transform.DeferredOrientationFrameTest do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Transform.{Materializer, Executor, State}
+  alias ImagePipe.Transform.{Executor, Materializer, State}
   alias ImagePipe.Transform.Operation.Trim
   alias Vix.Vips.Image, as: VipsImage
 

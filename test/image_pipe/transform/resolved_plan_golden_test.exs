@@ -24,13 +24,13 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
   alias ImagePipe.Test.ResolvedPlanCases
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush, as: ExecFlush
   alias ImagePipe.Transform.Operation.Padding, as: ExecPadding
   alias ImagePipe.Transform.Operation.Resize, as: ExecResize
   alias ImagePipe.Transform.PendingOrientation
-  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
 

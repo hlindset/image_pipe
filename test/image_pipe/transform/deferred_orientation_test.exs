@@ -2,7 +2,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Transform.{Materializer, Executor, State}
+  alias ImagePipe.Transform.{Executor, Materializer, State}
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.PendingOrientation
   alias Vix.Vips.Operation, as: VipsOperation

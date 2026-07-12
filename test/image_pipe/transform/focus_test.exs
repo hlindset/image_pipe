@@ -6,8 +6,8 @@ defmodule ImagePipe.Transform.FocusTest do
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.Executor
+  alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
