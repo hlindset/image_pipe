@@ -6,8 +6,8 @@ defmodule ImagePipe.Transform.FocusTest do
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.Focus
-  alias ImagePipe.Transform.PlanExecutor
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
@@ -128,12 +128,12 @@ defmodule ImagePipe.Transform.FocusTest do
   end
 
   # Build a full TwicPics plan from a manipulation chain and run it through
-  # PlanExecutor on the grid, decoding the result's centre cell.
+  # Executor on the grid, decoding the result's centre cell.
   defp plan_cell(chain) do
     {:ok, plan} =
       PlanBuilder.to_plan(%Source.Path{segments: ["x.png"]}, chain, ImagePipe.Config.resolve!([]))
 
-    {:ok, state} = PlanExecutor.execute(plan, %State{image: grid()}, [])
+    {:ok, state} = Executor.execute(plan, %State{image: grid()}, [])
     w = Image.width(state.image)
     h = Image.height(state.image)
 
@@ -144,7 +144,7 @@ defmodule ImagePipe.Transform.FocusTest do
     |> nearest_cell()
   end
 
-  describe "set_focus directive executes through PlanExecutor" do
+  describe "set_focus directive executes through Executor" do
     test "focus=150x150/crop=12x12 steers to the focused cell via the full plan" do
       assert plan_cell([{"focus", "150x150"}, {"crop", "12x12"}]) == {1, 1}
     end
@@ -212,7 +212,7 @@ defmodule ImagePipe.Transform.FocusTest do
       }
 
       {:ok, state} =
-        PlanExecutor.execute(plan, %State{image: Image.set_orientation!(image, orient)},
+        Executor.execute(plan, %State{image: Image.set_orientation!(image, orient)},
           seed_orientation: true
         )
 

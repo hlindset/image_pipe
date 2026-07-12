@@ -24,13 +24,13 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
   alias ImagePipe.Test.ResolvedPlanCases
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush, as: ExecFlush
   alias ImagePipe.Transform.Operation.Padding, as: ExecPadding
   alias ImagePipe.Transform.Operation.Resize, as: ExecResize
   alias ImagePipe.Transform.PendingOrientation
-  alias ImagePipe.Transform.ResolveDriver
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
 
@@ -209,7 +209,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
     #
     # Plan = a plain fit resize (measures its realized dims) followed by a
     # 1/3 gravity crop (a downstream consumer that resolves against the measured
-    # frame). We run ResolveDriver.run/5 directly with:
+    # frame). We run Executor.run/5 directly with:
     #   * opts[:chain] — a capturing chain: it records each op batch and the
     #     source_dimensions the driver overlaid onto State before that batch, and
     #     returns State unchanged (no pixels ever run).
@@ -286,7 +286,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       inject = fn _image -> injected end
 
       assert {:ok, %State{}} =
-               ResolveDriver.run(
+               Executor.run(
                  plan,
                  shape,
                  {NeutralResolver, NeutralResolver.init()},
@@ -398,7 +398,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       end
 
       assert {:ok, %State{}} =
-               ResolveDriver.run(
+               Executor.run(
                  plan,
                  shape,
                  {ImgproxyResolver, ImgproxyResolver.init()},
@@ -457,7 +457,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       inject = fn _image -> {133, 99} end
 
       assert {:ok, %State{}} =
-               ResolveDriver.run(
+               Executor.run(
                  plan,
                  shape,
                  {NeutralResolver, NeutralResolver.init()},
@@ -518,7 +518,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       inject = fn _image -> {20, 40} end
 
       assert {:ok, %State{}} =
-               ResolveDriver.run(
+               Executor.run(
                  plan,
                  shape,
                  {NeutralResolver, NeutralResolver.init()},

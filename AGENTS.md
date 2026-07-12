@@ -79,8 +79,8 @@
   - `parser` → `plan`, `renderer`, `resolver`, `transform` (a dialect's carried
     resolver strategy under `parser/*` implements `ImagePipe.Resolver`, pattern-
     matches `SourceShape`, and emits executable transform ops — the declared
-    static edge; the core stays adapter-ignorant, and the per-op resolve
-    dispatch stays quarantined in the `Resolver` facade)
+    static edge; the core stays adapter-ignorant, and the per-op
+    resolve/continue dispatch stays quarantined in the `Resolver` facade)
   - `renderer` → `plan` (neutral behaviour + dispatch facade; product-neutral renderers live here, dialect renderers live in their adapter)
   - `request` → `plan`, `cache`, `source`, `output`, `response`, `telemetry`, `renderer`, generic transform execution contract
   - `source` → `plan` only (must not depend on `cache`, `response`, `parser`)

@@ -26,7 +26,7 @@ defmodule ImagePipe.Transform.DeferredOrientationFrameTest do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Transform.{Materializer, PlanExecutor, State}
+  alias ImagePipe.Transform.{Executor, Materializer, State}
   alias ImagePipe.Transform.Operation.Trim
   alias Vix.Vips.Image, as: VipsImage
 
@@ -35,7 +35,7 @@ defmodule ImagePipe.Transform.DeferredOrientationFrameTest do
   # A storage-frame image with distinct, non-symmetric content so a wrong frame
   # decision shows up in pixels. Four colored corner blocks; quarter-turns and
   # flips permute the corners observably. `set_orientation!` writes the libvips
-  # `orientation` header directly (what PlanExecutor reads) — NO encoder round
+  # `orientation` header directly (what Executor reads) — NO encoder round
   # trip, so pixels stay exact and smart-bg detection is deterministic (a JPEG
   # round trip tints corners and breaks both). `copy_memory` gives random access.
   defp oriented(image, orientation) do
@@ -78,7 +78,7 @@ defmodule ImagePipe.Transform.DeferredOrientationFrameTest do
     }
 
     {:ok, %State{} = s} =
-      PlanExecutor.execute(plan, %State{image: image}, seed_orientation: true)
+      Executor.execute(plan, %State{image: image}, seed_orientation: true)
 
     {:ok, %State{} = s} = Materializer.materialize(s)
     s.image

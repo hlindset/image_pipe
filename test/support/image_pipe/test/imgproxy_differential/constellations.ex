@@ -179,7 +179,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # #194: imgproxy runs a universal cropToResult — scale into the requested box,
       # then crop back to it (gravity center). ImagePipe's fit path lacked it, so the
       # mw/mh min-dimension upscale left the result at 373×280 instead of cropping to
-      # 300×280. Fixed in PlanExecutor/Resize (fit result-crop). The centered crop now
+      # 300×280. Fixed in Executor/Resize (fit result-crop). The centered crop now
       # matches imgproxy's content exactly; the residual pixel delta is libvips-version
       # resampling skew on the high-frequency zone-plate source (max Δ27, zero
       # structural flips). The Δ32 threshold absorbs that skew while still failing any

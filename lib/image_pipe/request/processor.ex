@@ -167,7 +167,7 @@ defmodule ImagePipe.Request.Processor do
     )
   end
 
-  # PlanExecutor owns the pipeline loop: it seeds the EXIF orientation once
+  # Executor owns the pipeline loop: it seeds the EXIF orientation once
   # (seed_orientation), iterates all pipelines, and resolves any still-pending
   # orientation at each pipeline boundary (a backstop — within a pipeline the flush
   # usually fires earlier, at the first materializing op or after a resize). The

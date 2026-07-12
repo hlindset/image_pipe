@@ -64,11 +64,11 @@ defmodule ImagePipe.Transform.Operation.Crop do
   For coordinate crops, `crop_from` is the requested top-left crop position
   before the rectangle is clamped to image bounds. `reject_out_of_bounds` is a
   verdict decided upstream: when `true`, the requested region was found to lie
-  wholly outside the source (in the original, pre-decode-shrink frame that
-  `ImagePipe.Transform.PlanExecutor` owns), so execution returns
+  wholly outside the source (in the original, pre-decode-shrink frame, decided
+  at resolve time in `ImagePipe.Transform.Lowering`), so execution returns
   `{:error, {:bad_request, :region_out_of_bounds}}` without cropping. When
   `false` (the default) a coordinate crop clamps to image bounds as usual. The
-  detection lives in the executor rather than here because the original-frame
+  detection lives at resolve time rather than here because the original-frame
   dimensions and request coordinates are only available before the shrink
   rescale; a partially overlapping region is never rejected.
 

@@ -1413,7 +1413,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   # Regression guard for the deferred-orientation cutover: an EXIF-oriented source
   # combined with a gravity / region / focus-point / cover crop must SUCCEED.
-  # Before the offset-unit fix in PlanExecutor.compensate_crop/2, the executable
+  # Before the offset-unit fix in NeutralResolver.compensate_crop/2, the executable
   # crop's tagged offset ({:pixels, 0.0}) reached Orientation's bare-float
   # arithmetic and raised, turning every EXIF-2..7 + crop request into a 500.
   test "EXIF-oriented source with a gravity/region/fp/cover crop succeeds (no compensation crash)" do

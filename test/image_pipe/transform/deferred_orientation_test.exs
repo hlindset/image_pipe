@@ -2,12 +2,12 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Transform.{Materializer, PlanExecutor, State}
+  alias ImagePipe.Transform.{Executor, Materializer, State}
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.PendingOrientation
   alias Vix.Vips.Operation, as: VipsOperation
 
-  # Bare-module detector for the end-to-end ordering gate. PlanExecutor.execute/3
+  # Bare-module detector for the end-to-end ordering gate. Executor.execute/3
   # resolves its `:detector` opt through ImagePipe.Transform.resolve_detector/1,
   # which accepts only a bare module (the {module, opts} form is a Crop-level
   # contract), so the recording pid is carried out-of-band via the test process.
@@ -39,7 +39,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
     do: Image.Draw.rect!(Image.new!(w, h, color: :white), 0, 0, 4, 4, color: :red)
 
   defp run(plan, image) do
-    {:ok, %State{} = s} = PlanExecutor.execute(plan, %State{image: image}, seed_orientation: true)
+    {:ok, %State{} = s} = Executor.execute(plan, %State{image: image}, seed_orientation: true)
     # Delivery backstop flush (mirrors processor's materialize_for_delivery).
     {:ok, %State{} = s} = Materializer.materialize(s)
     s.image
@@ -109,7 +109,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
     :persistent_term.put({RecordingDetector, :pid}, self())
 
     {:ok, _} =
-      PlanExecutor.execute(detect_crop_plan(true), %State{image: oriented_decoded(6)},
+      Executor.execute(detect_crop_plan(true), %State{image: oriented_decoded(6)},
         seed_orientation: true,
         detector: RecordingDetector
       )
@@ -126,7 +126,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
     :persistent_term.put({RecordingDetector, :pid}, self())
 
     {:ok, _} =
-      PlanExecutor.execute(detect_crop_plan(false), %State{image: oriented_decoded(6)},
+      Executor.execute(detect_crop_plan(false), %State{image: oriented_decoded(6)},
         seed_orientation: true,
         detector: RecordingDetector
       )
@@ -138,7 +138,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
 
   # The FakeDetector `record_to:` opt (the {module, opts} Crop-level contract):
   # after the flush, the detect crop hands the detector the display frame. This
-  # exercises the opt-carrying path the wire/PlanExecutor detector option cannot.
+  # exercises the opt-carrying path the wire/Executor detector option cannot.
   test "FakeDetector record_to reports the post-flush display frame" do
     state =
       %State{
@@ -170,7 +170,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
       Operation.crop_guided({:px, 30}, {:px, 30}, {:detect, {["face"], %{}}})
 
     {:ok, %State{image: out}} =
-      PlanExecutor.execute(plan([crop], true), %State{image: oriented_decoded(6)},
+      Executor.execute(plan([crop], true), %State{image: oriented_decoded(6)},
         seed_orientation: true,
         detector: :default
       )

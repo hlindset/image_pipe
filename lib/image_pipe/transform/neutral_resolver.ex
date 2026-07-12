@@ -7,7 +7,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   orientation execution policy. A dialect-specific carried strategy (e.g. an
   imgproxy or TwicPics resolver under `parser/*`) composes its own lowering
   with this module's `display_frame_advance/2` and `plain_advance/2` to reuse
-  the neutral flush policy instead of re-deriving it.
+  the neutral flush policy instead of re-deriving it, and delegates the tags
+  this module emits back to its `continue/4` at the measure seam.
 
   `%Operation.Resize{mode: :auto}` and `%Operation.Padding{pixel_ratio:
   {:effective, _, _}}` are imgproxy-strategy vocabulary: the imgproxy strategy
@@ -26,7 +27,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
   #
   # Continuation classification: :measure iff the post-op dims cannot be
   # computed purely — resize, trim, and arbitrary-angle/mirrored rotate;
-  # everything else advances the shape purely.
+  # everything else advances the shape purely. Each :measure carries a named
+  # tag ({:measure, tag, nil}); the matching continue/4 clause below is the
+  # single place that says what happens after the measure.
   #
   # An identity pending never emits a %Flush{}: at the first would-be flush site
   # it is cleared on the shape instead (the driver overlay propagates the clear
@@ -74,6 +77,51 @@ defmodule ImagePipe.Transform.NeutralResolver do
     do_resolve(operation, shape)
   end
 
+  # ── continue: the named post-measure clauses (issue #446) ─────────────────
+  # One clause per tag; `shape` is the pre-op shape resolve/3 saw (the driver
+  # threads it), so each clause reconstructs its result from the tag, the
+  # pre-op shape, and the measured dims alone.
+
+  @impl ImagePipe.Resolver
+  def continue(:rotate, {w, h}, %SourceShape{} = shape, nil),
+    do: {%{shape | width: w, height: h, frame: :display, pending_orientation: nil}, nil}
+
+  def continue(:trim, {w, h}, %SourceShape{} = shape, nil) do
+    pending =
+      case pending_class(shape) do
+        :pending -> shape.pending_orientation
+        _none_or_identity -> nil
+      end
+
+    {%{shape | width: w, height: h, pending_orientation: pending, decode_shrink: nil}, nil}
+  end
+
+  def continue(:resize, {w, h}, %SourceShape{} = shape, nil),
+    do: {%{shape | width: w, height: h, decode_shrink: nil}, nil}
+
+  def continue({:resize_tail, tail}, {w, h}, %SourceShape{} = shape, nil) do
+    {box_w, box_h} = staged_tail_dims(tail, {w, h})
+    {tail, advance(%{shape | width: box_w, height: box_h, decode_shrink: nil})}
+  end
+
+  # The pending-resize stage: the (already compensated) tail runs, then the
+  # flush; the shape advances to the display frame with the quarter-turn swap.
+  def continue({:resize_flush_tail, tail}, {w, h}, %SourceShape{} = shape, nil) do
+    po = shape.pending_orientation
+    {box_w, box_h} = staged_tail_dims(tail, {w, h})
+    {display_w, display_h} = swap_if_quarter_turn({box_w, box_h}, po)
+
+    {tail ++ [%Flush{}],
+     advance(%{
+       shape
+       | width: display_w,
+         height: display_h,
+         frame: :display,
+         pending_orientation: nil,
+         decode_shrink: nil
+     })}
+  end
+
   # ── rotate / flip folds ───────────────────────────────────────────────────
   # Right-angle, non-mirrored rotation defers into the pending orientation
   # (lossless vips_rot at the flush, imgproxy parity, #211 seam avoidance).
@@ -90,13 +138,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp do_resolve(%PlanRotate{} = operation, %SourceShape{} = shape) do
     ops = Lowering.executable_operations(operation, shape)
 
-    after_measure = fn {w, h} ->
-      {%{shape | width: w, height: h, frame: :display, pending_orientation: nil}, nil}
-    end
-
     case pending_class(shape) do
-      :pending -> {[%Flush{} | ops], {:measure, after_measure}}
-      _none_or_identity -> {ops, {:measure, after_measure}}
+      :pending -> {[%Flush{} | ops], measure(:rotate)}
+      _none_or_identity -> {ops, measure(:rotate)}
     end
   end
 
@@ -244,7 +288,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # A resize's realized dims can round ±1 off the naive target, so any op after
   # it must be parameterized against the MEASURED post-resize dims: the
   # emission stages at the realized-dims seam (spec §4.4). The resize is always
-  # the terminal op of its stage; the stage the after_measure returns carries the
+  # the terminal op of its stage; the stage continue/4 returns carries the
   # tail (result crop and/or flush), with the shape advanced purely from the
   # measured dims — the crop box via Crop.resolved_box_dims (the exact integers
   # Crop.execute produces on an image of that size) and the flush's exact axis
@@ -254,28 +298,12 @@ defmodule ImagePipe.Transform.NeutralResolver do
       :pending ->
         po = shape.pending_orientation
         [resize | tail] = pending_resize_ops(operation, po, shape)
-
-        stage = fn {w, h} ->
-          {box_w, box_h} = staged_tail_dims(tail, {w, h})
-          {display_w, display_h} = swap_if_quarter_turn({box_w, box_h}, po)
-
-          {tail ++ [%Flush{}],
-           advance(%{
-             shape
-             | width: display_w,
-               height: display_h,
-               frame: :display,
-               pending_orientation: nil,
-               decode_shrink: nil
-           })}
-        end
-
-        {[resize], {:measure, stage}}
+        {[resize], measure({:resize_flush_tail, tail})}
 
       _none_or_identity ->
         # An identity pending is kept (this row is not a flush site); the
         # pipeline boundary clears it without pixels.
-        plain_resize_stage(Lowering.executable_operations(operation, shape), shape)
+        plain_resize_stage(Lowering.executable_operations(operation, shape))
     end
   end
 
@@ -304,20 +332,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # An identity pending clears on the shape here (the materialize is trim's
   # flush site, with no pixel work). decode_shrink: nil is a never-shrank
   # reaffirmation — the decode planner returns 1.0 for trim chains.
+  # The post-trim pending decision lives in continue(:trim, …).
   defp do_resolve(%PlanTrim{} = operation, %SourceShape{} = shape) do
-    ops = Lowering.executable_operations(operation, shape)
-
-    pending =
-      case pending_class(shape) do
-        :pending -> shape.pending_orientation
-        _none_or_identity -> nil
-      end
-
-    after_measure = fn {w, h} ->
-      {%{shape | width: w, height: h, pending_orientation: pending, decode_shrink: nil}, nil}
-    end
-
-    {ops, {:measure, after_measure}}
+    {Lowering.executable_operations(operation, shape), measure(:trim)}
   end
 
   # ── canvas ────────────────────────────────────────────────────────────────
@@ -392,22 +409,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
   # A plain resize with an empty tail is the final form (bare [resize]); with a
   # result-crop tail it stages, advancing the shape from the measured dims.
-  defp plain_resize_stage([resize], %SourceShape{} = shape) do
-    after_measure = fn {w, h} ->
-      {%{shape | width: w, height: h, decode_shrink: nil}, nil}
-    end
-
-    {[resize], {:measure, after_measure}}
-  end
-
-  defp plain_resize_stage([resize | tail], %SourceShape{} = shape) do
-    stage = fn {w, h} ->
-      {box_w, box_h} = staged_tail_dims(tail, {w, h})
-      {tail, advance(%{shape | width: box_w, height: box_h, decode_shrink: nil})}
-    end
-
-    {[resize], {:measure, stage}}
-  end
+  defp plain_resize_stage([resize]), do: {[resize], measure(:resize)}
+  defp plain_resize_stage([resize | tail]), do: {[resize], measure({:resize_tail, tail})}
 
   # Realized dims of a resize's post-resize tail, computed purely against the
   # measured post-resize dims. The tail is at most one result crop; its box is
@@ -460,6 +463,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp apply_op_geometry(_ops, {w, h}), do: {w, h}
 
   defp advance(%SourceShape{} = shape), do: {:advance, shape, nil}
+
+  defp measure(tag), do: {:measure, tag, nil}
 
   defp pending_class(%SourceShape{pending_orientation: nil}), do: :none
 

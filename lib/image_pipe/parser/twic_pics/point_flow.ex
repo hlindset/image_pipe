@@ -7,7 +7,7 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
   #   * %Resize{} — the point scales by the realized per-axis factor. A resize
   #     is always the TERMINAL op of its stage (the neutral staging invariant),
   #     so the factor is measured-stage-dims / dims-entering-the-resize,
-  #     applied at the stage seam.
+  #     applied in `continue/4` at the stage seam.
   #   * %Crop{} — a `:deferred` gravity substitutes first: a set point becomes
   #     the concrete {:fp, x, y} (Focus.to_fp against the live dims at the
   #     crop), a nil point becomes the centred anchor (byte-identical to the
@@ -30,6 +30,7 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
 
   alias ImagePipe.Resolver
   alias ImagePipe.Transform.Focus
+  alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Bitonal
   alias ImagePipe.Transform.Operation.Blur
@@ -66,34 +67,45 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
     Sharpen
   ]
 
+  @typedoc "Measure-seam carry: the point plus the dims entering the measured stage."
+  @type seam_state :: {:seam, Focus.point() | nil, {pos_integer(), pos_integer()}}
+
   @spec advance([struct()], Resolver.continuation(), Focus.point() | nil, SourceShape.t()) ::
           {[struct()], Resolver.continuation()}
   def advance(ops, continuation, point, %SourceShape{} = shape) do
     walk_stage(ops, continuation, point, SourceShape.live_dims(shape), shape.pending_orientation)
   end
 
+  @doc """
+  Continue a measure seam: scale the carried point by the realized per-axis
+  factor (every TwicPics-reachable seam follows a %Resize{}, the terminal-op
+  invariant — measured/entry is the same integer pair Resize.execute realized),
+  delegate the tag to the neutral resolver, and walk any staged expansion.
+  """
+  @spec continue(Resolver.tag(), {pos_integer(), pos_integer()}, SourceShape.t(), seam_state()) ::
+          Resolver.continue_result()
+  def continue(tag, measured, %SourceShape{} = shape, {:seam, point, entry_dims}) do
+    point = scale_at_seam(point, entry_dims, measured)
+
+    case NeutralResolver.continue(tag, measured, shape, nil) do
+      {%SourceShape{} = final, nil} ->
+        {final, point}
+
+      {ops, continuation} when is_list(ops) ->
+        walk_stage(ops, continuation, point, measured, shape.pending_orientation)
+    end
+  end
+
   defp walk_stage(ops, continuation, point, entry_dims, po) do
     {ops, {point, dims}} = Enum.map_reduce(ops, {point, entry_dims}, &step(&1, &2, po))
-    {ops, rewrap(continuation, point, dims, po)}
+    {ops, rewrap(continuation, point, dims)}
   end
 
-  defp rewrap({:advance, %SourceShape{} = shape, nil}, point, _dims, _po),
+  defp rewrap({:advance, %SourceShape{} = shape, nil}, point, _dims),
     do: {:advance, shape, point}
 
-  defp rewrap({:measure, after_measure}, point, pre_dims, po) do
-    {:measure,
-     fn measured ->
-       point = scale_at_seam(point, pre_dims, measured)
-
-       case after_measure.(measured) do
-         {%SourceShape{} = shape, nil} ->
-           {shape, point}
-
-         {ops, continuation} when is_list(ops) ->
-           walk_stage(ops, continuation, point, measured, po)
-       end
-     end}
-  end
+  defp rewrap({:measure, tag, nil}, point, dims),
+    do: {:measure, tag, {:seam, point, dims}}
 
   # Every TwicPics-reachable :measure seam follows a %Resize{} (the terminal-op
   # invariant), so the realized per-axis factor is measured/pre — the same
