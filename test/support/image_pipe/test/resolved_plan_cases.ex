@@ -57,7 +57,7 @@ defmodule ImagePipe.Test.ResolvedPlanCases do
       %{name: :trim_pending_quarter_turn, source: "exif_6.jpg", opts: "t:10"},
       # fill-down with target > source: asymmetric aspect-ratio result crop
       %{name: :fill_down_target_gt_source, source: "small.png", opts: "rs:fill-down:600:400"},
-      # trim -> resize -> padding: ctx padding scales survive intervening acquires
+      # trim -> resize -> padding: ctx padding scales survive intervening measures
       %{
         name: :trim_resize_padding,
         source: "border_asym.png",

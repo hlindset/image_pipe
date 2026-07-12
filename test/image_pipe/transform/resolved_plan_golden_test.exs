@@ -207,14 +207,14 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   describe "±1 divergence (synthetic, driver-seam injection)" do
     # Proves downstream consumers follow the ACQUIRED dims, not the planned dims.
     #
-    # Plan = a plain fit resize (acquires its realized dims) followed by a
-    # 1/3 gravity crop (a downstream consumer that resolves against the acquired
+    # Plan = a plain fit resize (measures its realized dims) followed by a
+    # 1/3 gravity crop (a downstream consumer that resolves against the measured
     # frame). We run ResolveDriver.run/5 directly with:
     #   * opts[:chain] — a capturing chain: it records each op batch and the
     #     source_dimensions the driver overlaid onto State before that batch, and
     #     returns State unchanged (no pixels ever run).
-    #   * opts[:acquire_dims] — injecting the resize's realized dims MINUS ONE
-    #     ({199, 149}) at its :acquire, standing in for the ±1 float-rounding
+    #   * opts[:measure_dims] — injecting the resize's realized dims MINUS ONE
+    #     ({199, 149}) at its :measure, standing in for the ±1 float-rounding
     #     skew that real libvips can produce and that we cannot force otherwise.
     #
     # The reference "recorded_realized" is the committed golden's plain fit
@@ -229,24 +229,24 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
     #   * prepare.go:272-273  c.CropWidth  = CalcCropSize(SrcWidth,  CropWidth())
     #                         c.CropHeight = CalcCropSize(SrcHeight, CropHeight())
     #   * crop.go:15          CropWidth = MinNonZero(cropWidth, imgWidth) (clamp).
-    #   The crop resolves BEFORE the scale (crop.go), i.e. against the acquired
-    #   source frame — this is why the downstream box follows acquired dims.
+    #   The crop resolves BEFORE the scale (crop.go), i.e. against the measured
+    #   source frame — this is why the downstream box follows measured dims.
     #
     # Hand-derived boxes for a 1/3 crop:
-    #   from acquired {199, 149}: width Round(199/3)=Round(66.333)=66,
+    #   from measured {199, 149}: width Round(199/3)=Round(66.333)=66,
     #                             height Round(149/3)=Round(49.666)=50
     #   from planned  {200, 150}: width Round(200/3)=Round(66.666)=67,
     #                             height Round(150/3)=Round(50.000)=50
     #   The WIDTH axis diverges (67 -> 66) under the -1 injection; the height axis
     #   happens not to cross a rounding boundary at 150->149 (50 both ways), which
     #   is exactly why the width axis is the documented ±1 edge here.
-    test "downstream 1/3 crop resolves against acquired (recorded-1) dims" do
+    test "downstream 1/3 crop resolves against measured (recorded-1) dims" do
       recorded_realized = {200, 150}
       injected = {199, 149}
 
       # ImagePipe.Transform.Geometry.round_half_away_from_zero mirrors Go's
       # math.Round; assert on committed integers, not "sane" values.
-      expected_box_from_acquired = {66, 50}
+      expected_box_from_measured = {66, 50}
       expected_box_from_planned = {67, 50}
 
       plan = [
@@ -282,7 +282,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
         {:ok, st}
       end
 
-      # Inject recorded_realized - 1 at the resize's :acquire.
+      # Inject recorded_realized - 1 at the resize's :measure.
       inject = fn _image -> injected end
 
       assert {:ok, %State{}} =
@@ -292,47 +292,47 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
                  {NeutralResolver, NeutralResolver.init()},
                  state,
                  chain: capturing_chain,
-                 acquire_dims: inject
+                 measure_dims: inject
                )
 
       batches = Agent.get(batches_agent, &Enum.reverse/1)
 
       # Two op batches: [resize] then [crop]. The crop batch's overlaid
-      # source_dimensions is the acquired (injected) frame — the direct evidence
-      # the driver propagated the acquired dims to the downstream consumer.
+      # source_dimensions is the measured (injected) frame — the direct evidence
+      # the driver propagated the measured dims to the downstream consumer.
       assert [{[%_{}], _resize_dims}, {[%Crop{} = crop], crop_source_dims}] = batches
 
       assert crop_source_dims == injected,
-             "downstream crop saw source_dimensions #{inspect(crop_source_dims)}, expected acquired #{inspect(injected)}"
+             "downstream crop saw source_dimensions #{inspect(crop_source_dims)}, expected measured #{inspect(injected)}"
 
       # The crop is a symbolic 1/3 scale; the executable box comes from resolving
-      # it against the frame the driver fed it. Resolving against the acquired
+      # it against the frame the driver fed it. Resolving against the measured
       # frame yields the hand-derived box and differs from the planned frame's.
       {aw, ah} = injected
-      box_from_acquired = Crop.resolved_box_dims(crop, aw, ah)
+      box_from_measured = Crop.resolved_box_dims(crop, aw, ah)
       {pw, ph} = recorded_realized
       box_from_planned = Crop.resolved_box_dims(crop, pw, ph)
 
-      assert box_from_acquired == expected_box_from_acquired
+      assert box_from_measured == expected_box_from_measured
       assert box_from_planned == expected_box_from_planned
 
-      assert box_from_acquired != box_from_planned,
-             "the ±1 injection must move the downstream box (acquired vs planned): #{inspect(box_from_acquired)} vs #{inspect(box_from_planned)}"
+      assert box_from_measured != box_from_planned,
+             "the ±1 injection must move the downstream box (measured vs planned): #{inspect(box_from_measured)} vs #{inspect(box_from_planned)}"
 
       # Keep w0/h0 referenced so the recorded reference stays self-documenting.
       assert {w0, h0} == recorded_realized
     end
   end
 
-  describe "imgproxy strategy carry survives an :acquire (spec §8)" do
+  describe "imgproxy strategy carry survives a :measure (spec §8)" do
     # Proves `ImagePipe.Parser.Imgproxy.Resolver.rewrap/2` threads the stashed
     # DprScale (#237 no-enlarge padding/DPR cap) through an intervening
-    # `:acquire` untouched — a trim between the resize and the padding must not
+    # `:measure` untouched — a trim between the resize and the padding must not
     # lose the carry.
     #
     # Plan = a no-enlarge fit resize (dpr 2, 800x600 source into a 400x300 box,
     # well inside the source so the no-enlarge cap does not clamp it back down)
-    # -> trim (a second :acquire, unrelated to padding) -> padding with an
+    # -> trim (a second :measure, unrelated to padding) -> padding with an
     # :effective pixel_ratio in :resize mode.
     #
     # Hand-derived effective_padding_scale (ImagePipe.Parser.Imgproxy.Resolver.
@@ -347,7 +347,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
     #
     # A padding side of 10px scales by the carried 2.0 (Lowering.scaled_padding_side,
     # round-half-to-even): round(10 * 2.0) = 20.
-    test "a stashed DprScale survives an intervening trim :acquire" do
+    test "a stashed DprScale survives an intervening trim :measure" do
       shape =
         SourceShape.seed(%{
           width: 800,
@@ -385,16 +385,16 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
         {:ok, st}
       end
 
-      # Resize acquires its realized fitted dims (400x300, matching the plain
-      # fit); trim acquires unrelated dims (390x290) — the DprScale carry must
-      # survive this intervening acquire untouched.
-      acquire_dims_agent =
+      # Resize measures its realized fitted dims (400x300, matching the plain
+      # fit); trim measures unrelated dims (390x290) — the DprScale carry must
+      # survive this intervening measure untouched.
+      measure_dims_agent =
         start_supervised!(
-          Supervisor.child_spec({Agent, fn -> [{400, 300}, {390, 290}] end}, id: :acquire_dims)
+          Supervisor.child_spec({Agent, fn -> [{400, 300}, {390, 290}] end}, id: :measure_dims)
         )
 
       inject = fn _image ->
-        Agent.get_and_update(acquire_dims_agent, fn [next | rest] -> {next, rest} end)
+        Agent.get_and_update(measure_dims_agent, fn [next | rest] -> {next, rest} end)
       end
 
       assert {:ok, %State{}} =
@@ -404,7 +404,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
                  {ImgproxyResolver, ImgproxyResolver.init()},
                  state,
                  chain: capturing_chain,
-                 acquire_dims: inject
+                 measure_dims: inject
                )
 
       batches = Agent.get(batches_agent, &Enum.reverse/1)
@@ -421,10 +421,10 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
 
   describe "staged continuation (spec §4.4 Stage 3)" do
     # A cover expands to [resize, crop]. Staged, the driver executes [resize],
-    # acquires the realized post-resize dims, and only then receives [crop] —
+    # measures the realized post-resize dims, and only then receives [crop] —
     # parameterized against the MEASURED intermediate. The trailing blur
     # observes the advanced shape via the driver overlay.
-    test "a plain cover splits at the realized-dims seam; the crop box follows acquired dims" do
+    test "a plain cover splits at the realized-dims seam; the crop box follows measured dims" do
       plan = [
         %PlanResize{
           mode: :cover,
@@ -453,7 +453,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       # Realized cover intermediate for 800x600 -> 100x100 is {133, 100}; inject
       # a -1 divergence on the height ({133, 99}) to prove the crop box resolves
       # against the MEASURED seam dims, not the planned ones (the 100px box
-      # bounds to the 99px acquired frame).
+      # bounds to the 99px measured frame).
       inject = fn _image -> {133, 99} end
 
       assert {:ok, %State{}} =
@@ -463,7 +463,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
                  {NeutralResolver, NeutralResolver.init()},
                  state,
                  chain: capturing_chain,
-                 acquire_dims: inject
+                 measure_dims: inject
                )
 
       batches = Agent.get(batches_agent, &Enum.reverse/1)
@@ -475,7 +475,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
                {[_blur], blur_source_dims}
              ] = batches
 
-      # The result-crop box is bounded to the acquired frame; the advanced shape
+      # The result-crop box is bounded to the measured frame; the advanced shape
       # the blur sees is the crop box, computed purely from the injected dims —
       # {100, 99}, not the planned {100, 100}.
       assert Crop.resolved_box_dims(crop, 133, 99) == {100, 99}
@@ -524,7 +524,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
                  {NeutralResolver, NeutralResolver.init()},
                  state,
                  chain: capturing_chain,
-                 acquire_dims: inject
+                 measure_dims: inject
                )
 
       batches = Agent.get(batches_agent, &Enum.reverse/1)

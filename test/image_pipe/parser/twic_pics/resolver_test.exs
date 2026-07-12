@@ -64,7 +64,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       guide: :deferred
     }
 
-    {[%ExecResize{}], {:acquire, stage}} =
+    {[%ExecResize{}], {:measure, stage}} =
       TwicPicsResolver.resolve(shape(400, 400), point, resize)
 
     {[%Crop{gravity: gravity}], {:advance, _shape, carried}} = stage.({200, 200})
@@ -83,7 +83,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       guide: :deferred
     }
 
-    {[%ExecResize{}], {:acquire, stage}} = TwicPicsResolver.resolve(shape(400, 400), nil, resize)
+    {[%ExecResize{}], {:measure, stage}} = TwicPicsResolver.resolve(shape(400, 400), nil, resize)
     {[%Crop{gravity: gravity}], {:advance, _shape, nil}} = stage.({200, 200})
 
     assert gravity == {:anchor, :center, :center}
@@ -111,7 +111,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       guide: :deferred
     }
 
-    {[%ExecResize{mode: :force}], {:acquire, stage}} =
+    {[%ExecResize{mode: :force}], {:measure, stage}} =
       TwicPicsResolver.resolve(shape(40, 80, po), point, resize)
 
     {[%Crop{gravity: gravity}, %Flush{}], {:advance, advanced, carried}} = stage.({20, 40})
@@ -141,7 +141,7 @@ defmodule ImagePipe.Parser.TwicPics.ResolverTest do
       guide: :deferred
     }
 
-    {[%ExecResize{mode: :force}], {:acquire, stage}} =
+    {[%ExecResize{mode: :force}], {:measure, stage}} =
       TwicPicsResolver.resolve(shape(40, 80, po), point, resize)
 
     {[%Crop{gravity: gravity}, %Flush{}], {:advance, _advanced, carried}} = stage.({20, 40})

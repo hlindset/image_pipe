@@ -6,7 +6,7 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
   #
   #   * %Resize{} — the point scales by the realized per-axis factor. A resize
   #     is always the TERMINAL op of its stage (the neutral staging invariant),
-  #     so the factor is acquired-stage-dims / dims-entering-the-resize,
+  #     so the factor is measured-stage-dims / dims-entering-the-resize,
   #     applied at the stage seam.
   #   * %Crop{} — a `:deferred` gravity substitutes first: a set point becomes
   #     the concrete {:fp, x, y} (Focus.to_fp against the live dims at the
@@ -49,23 +49,23 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
   defp rewrap({:advance, %SourceShape{} = shape, nil}, point, _dims, _po),
     do: {:advance, shape, point}
 
-  defp rewrap({:acquire, then_fn}, point, pre_dims, po) do
-    {:acquire,
-     fn acquired ->
-       point = scale_at_seam(point, pre_dims, acquired)
+  defp rewrap({:measure, after_measure}, point, pre_dims, po) do
+    {:measure,
+     fn measured ->
+       point = scale_at_seam(point, pre_dims, measured)
 
-       case then_fn.(acquired) do
+       case after_measure.(measured) do
          {%SourceShape{} = shape, nil} ->
            {shape, point}
 
          {ops, continuation} when is_list(ops) ->
-           walk_stage(ops, continuation, point, acquired, po)
+           walk_stage(ops, continuation, point, measured, po)
        end
      end}
   end
 
-  # Every TwicPics-reachable :acquire seam follows a %Resize{} (the terminal-op
-  # invariant), so the realized per-axis factor is acquired/pre — the same
+  # Every TwicPics-reachable :measure seam follows a %Resize{} (the terminal-op
+  # invariant), so the realized per-axis factor is measured/pre — the same
   # integers Resize.execute used to read off the live image.
   defp scale_at_seam(point, {pre_w, pre_h}, {w, h}),
     do: Focus.scale(point, {:ratio, w, pre_w}, {:ratio, h, pre_h})

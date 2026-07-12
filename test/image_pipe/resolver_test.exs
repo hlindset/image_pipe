@@ -35,31 +35,31 @@ defmodule ImagePipe.ResolverTest do
       assert Resolver.rewrap({:advance, shape, nil}, carry) == {:advance, shape, carry}
     end
 
-    test "re-attaches the carry after an :acquire resolves to a final shape",
+    test "re-attaches the carry after a :measure resolves to a final shape",
          %{shape: shape, carry: carry} do
-      continuation = {:acquire, fn {5, 5} -> {shape, nil} end}
+      continuation = {:measure, fn {5, 5} -> {shape, nil} end}
 
-      assert {:acquire, then_fn} = Resolver.rewrap(continuation, carry)
-      assert then_fn.({5, 5}) == {shape, carry}
+      assert {:measure, after_measure} = Resolver.rewrap(continuation, carry)
+      assert after_measure.({5, 5}) == {shape, carry}
     end
 
     test "re-wraps the continuation of a staged expansion", %{shape: shape, carry: carry} do
-      continuation = {:acquire, fn {5, 5} -> {[:stage_op], {:advance, shape, nil}} end}
+      continuation = {:measure, fn {5, 5} -> {[:stage_op], {:advance, shape, nil}} end}
 
-      assert {:acquire, then_fn} = Resolver.rewrap(continuation, carry)
-      assert then_fn.({5, 5}) == {[:stage_op], {:advance, shape, carry}}
+      assert {:measure, after_measure} = Resolver.rewrap(continuation, carry)
+      assert after_measure.({5, 5}) == {[:stage_op], {:advance, shape, carry}}
     end
 
-    test "carries through every stage of a nested :acquire expansion",
+    test "carries through every stage of a nested :measure expansion",
          %{shape: shape, carry: carry} do
       continuation =
-        {:acquire,
+        {:measure,
          fn {5, 5} ->
-           {[:stage_one], {:acquire, fn {3, 3} -> {[:stage_two], {:advance, shape, nil}} end}}
+           {[:stage_one], {:measure, fn {3, 3} -> {[:stage_two], {:advance, shape, nil}} end}}
          end}
 
-      assert {:acquire, outer} = Resolver.rewrap(continuation, carry)
-      assert {[:stage_one], {:acquire, inner}} = outer.({5, 5})
+      assert {:measure, outer} = Resolver.rewrap(continuation, carry)
+      assert {[:stage_one], {:measure, inner}} = outer.({5, 5})
       assert inner.({3, 3}) == {[:stage_two], {:advance, shape, carry}}
     end
   end

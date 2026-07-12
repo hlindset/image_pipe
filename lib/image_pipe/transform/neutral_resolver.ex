@@ -24,7 +24,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # delegated to Lowering/ResizePlanning public helpers and the executable
   # ops' own pure dims functions; nothing is re-derived.
   #
-  # Continuation classification: :acquire iff the post-op dims cannot be
+  # Continuation classification: :measure iff the post-op dims cannot be
   # computed purely — resize, trim, and arbitrary-angle/mirrored rotate;
   # everything else advances the shape purely.
   #
@@ -90,13 +90,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp do_resolve(%PlanRotate{} = operation, %SourceShape{} = shape) do
     ops = Lowering.executable_operations(operation, shape)
 
-    then_fn = fn {w, h} ->
+    after_measure = fn {w, h} ->
       {%{shape | width: w, height: h, frame: :display, pending_orientation: nil}, nil}
     end
 
     case pending_class(shape) do
-      :pending -> {[%Flush{} | ops], {:acquire, then_fn}}
-      _none_or_identity -> {ops, {:acquire, then_fn}}
+      :pending -> {[%Flush{} | ops], {:measure, after_measure}}
+      _none_or_identity -> {ops, {:measure, after_measure}}
     end
   end
 
@@ -244,9 +244,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # A resize's realized dims can round ±1 off the naive target, so any op after
   # it must be parameterized against the MEASURED post-resize dims: the
   # emission stages at the realized-dims seam (spec §4.4). The resize is always
-  # the terminal op of its stage; the stage the then_fn returns carries the
+  # the terminal op of its stage; the stage the after_measure returns carries the
   # tail (result crop and/or flush), with the shape advanced purely from the
-  # acquired dims — the crop box via Crop.resolved_box_dims (the exact integers
+  # measured dims — the crop box via Crop.resolved_box_dims (the exact integers
   # Crop.execute produces on an image of that size) and the flush's exact axis
   # swap. A bare [resize] emission needs no stage and keeps the final form.
   defp do_resolve(%PlanResize{} = operation, %SourceShape{} = shape) do
@@ -270,7 +270,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
            })}
         end
 
-        {[resize], {:acquire, stage}}
+        {[resize], {:measure, stage}}
 
       _none_or_identity ->
         # An identity pending is kept (this row is not a flush site); the
@@ -313,11 +313,11 @@ defmodule ImagePipe.Transform.NeutralResolver do
         _none_or_identity -> nil
       end
 
-    then_fn = fn {w, h} ->
+    after_measure = fn {w, h} ->
       {%{shape | width: w, height: h, pending_orientation: pending, decode_shrink: nil}, nil}
     end
 
-    {ops, {:acquire, then_fn}}
+    {ops, {:measure, after_measure}}
   end
 
   # ── canvas ────────────────────────────────────────────────────────────────
@@ -391,13 +391,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp plain_ops_advance(_ops, %SourceShape{} = shape), do: shape
 
   # A plain resize with an empty tail is the final form (bare [resize]); with a
-  # result-crop tail it stages, advancing the shape from the acquired dims.
+  # result-crop tail it stages, advancing the shape from the measured dims.
   defp plain_resize_stage([resize], %SourceShape{} = shape) do
-    then_fn = fn {w, h} ->
+    after_measure = fn {w, h} ->
       {%{shape | width: w, height: h, decode_shrink: nil}, nil}
     end
 
-    {[resize], {:acquire, then_fn}}
+    {[resize], {:measure, after_measure}}
   end
 
   defp plain_resize_stage([resize | tail], %SourceShape{} = shape) do
@@ -406,12 +406,12 @@ defmodule ImagePipe.Transform.NeutralResolver do
       {tail, advance(%{shape | width: box_w, height: box_h, decode_shrink: nil})}
     end
 
-    {[resize], {:acquire, stage}}
+    {[resize], {:measure, stage}}
   end
 
   # Realized dims of a resize's post-resize tail, computed purely against the
-  # acquired post-resize dims. The tail is at most one result crop; its box is
-  # bounded to the acquired frame exactly as Crop.execute bounds it.
+  # measured post-resize dims. The tail is at most one result crop; its box is
+  # bounded to the measured frame exactly as Crop.execute bounds it.
   defp staged_tail_dims([], {w, h}), do: {w, h}
   defp staged_tail_dims([%Crop{} = crop], {w, h}), do: Crop.resolved_box_dims(crop, w, h)
 

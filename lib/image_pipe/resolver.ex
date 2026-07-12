@@ -1,37 +1,38 @@
 defmodule ImagePipe.Resolver do
   @moduledoc """
   Neutral behaviour + dispatch facade for geometry resolution (spec §4.2/§5.1).
-  A plan carries a strategy `spec` (`{module, strategy_state}`); the driver calls
+  A plan carries a `strategy` (`{module, strategy_state}`); the driver calls
   `resolve/3`; the dynamic call to the carried module is quarantined here (mirrors
   `ImagePipe.Renderer`). The continuation is the only `strategy_state` channel —
   it carries the strategy's next state forward, and (spec §4.4 Stage 3) may stage
-  a multi-executable expansion: an `:acquire` `then_fn` can return a further
-  `{ops, continuation}` stage, split at the realized-dims seam, which the driver
-  executes and continues (see `ImagePipe.Transform.ResolveDriver.execute_stages/7`
-  and `continue/6`). The facade passes shape opaquely — no runtime reference to
-  `SourceShape` — so this boundary stays `deps: [ImagePipe.Plan]`.
+  a multi-executable expansion: a `:measure` continuation's `after_measure` fun
+  can return a further `{ops, continuation}` stage, split at the realized-dims
+  seam, which the driver executes and continues (see
+  `ImagePipe.Transform.ResolveDriver.execute_stages/7` and `continue/6`). The
+  facade passes shape opaquely — no runtime reference to `SourceShape` — so this
+  boundary stays `deps: [ImagePipe.Plan]`.
   """
   use Boundary, top_level?: true, deps: [ImagePipe.Plan], exports: []
 
   alias ImagePipe.Transform.SourceShape
 
   @type strategy_state :: term()
-  @type spec :: {module(), strategy_state()}
+  @type strategy :: {module(), strategy_state()}
 
   @typedoc """
-  What an `:acquire` `then_fn` returns: the final post-op `{shape,
+  What a `:measure` continuation's `after_measure` fun returns: the final post-op `{shape,
   strategy_state}`, or a further `{ops, continuation}` stage — a
   multi-executable expansion split at the realized-dims seam (spec §4.4). The
-  driver executes the stage's ops and continues; shape acquisition stays the
+  driver executes the stage's ops and continues; shape measurement stays the
   driver's one seam, just allowed to fire more than once per plan op.
   """
-  @type acquire_result ::
+  @type measure_result ::
           {SourceShape.t(), strategy_state()}
           | {[struct()], continuation()}
 
   @type continuation ::
           {:advance, SourceShape.t(), strategy_state()}
-          | {:acquire, ({pos_integer(), pos_integer()} -> acquire_result())}
+          | {:measure, ({pos_integer(), pos_integer()} -> measure_result())}
 
   @callback init() :: strategy_state()
   @callback resolve(SourceShape.t(), strategy_state(), struct()) ::
@@ -46,7 +47,7 @@ defmodule ImagePipe.Resolver do
   """
   @callback behavior_version() :: pos_integer()
 
-  @spec resolve(spec(), shape :: term(), struct()) :: {[struct()], continuation()}
+  @spec resolve(strategy(), shape :: term(), struct()) :: {[struct()], continuation()}
   def resolve({module, strategy_state}, shape, op) do
     module.resolve(shape, strategy_state, op)
   end
@@ -60,7 +61,7 @@ defmodule ImagePipe.Resolver do
   on top. The delegate threads `nil` into every continuation it builds, so a
   carried strategy that returns those continuations unmodified loses its state
   at the first `:advance`. `rewrap/2` substitutes the carry — through
-  `:advance`, through `:acquire`, and recursively through every stage of a
+  `:advance`, through `:measure`, and recursively through every stage of a
   staged expansion.
 
   Matching the inner state to `nil` is deliberate: re-wrapping a continuation
@@ -74,10 +75,10 @@ defmodule ImagePipe.Resolver do
   @spec rewrap(continuation(), strategy_state()) :: continuation()
   def rewrap({:advance, shape, nil}, strategy_state), do: {:advance, shape, strategy_state}
 
-  def rewrap({:acquire, then_fn}, strategy_state) do
-    {:acquire,
+  def rewrap({:measure, after_measure}, strategy_state) do
+    {:measure,
      fn dims ->
-       case then_fn.(dims) do
+       case after_measure.(dims) do
          {ops, continuation} when is_list(ops) -> {ops, rewrap(continuation, strategy_state)}
          {shape, nil} -> {shape, strategy_state}
        end
