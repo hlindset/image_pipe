@@ -50,4 +50,37 @@ defmodule ImagePipe.Resolver do
   def resolve({module, strategy_state}, shape, op) do
     module.resolve(shape, strategy_state, op)
   end
+
+  @doc """
+  Re-wrap a continuation produced by a stateless (nil-state) strategy so the
+  caller's `strategy_state` survives the advance.
+
+  The standard carried-state pattern delegates shared geometry to a stateless
+  strategy (`ImagePipe.Transform.NeutralResolver`) and layers dialect decisions
+  on top. The delegate threads `nil` into every continuation it builds, so a
+  carried strategy that returns those continuations unmodified loses its state
+  at the first `:advance`. `rewrap/2` substitutes the carry — through
+  `:advance`, through `:acquire`, and recursively through every stage of a
+  staged expansion.
+
+  Matching the inner state to `nil` is deliberate: re-wrapping a continuation
+  whose strategy carries its own state would silently discard it, so that
+  misuse crashes instead.
+
+  A strategy whose state must be *transformed* per emitted op (not carried
+  unchanged) walks the emission itself; see
+  `ImagePipe.Parser.TwicPics.PointFlow`.
+  """
+  @spec rewrap(continuation(), strategy_state()) :: continuation()
+  def rewrap({:advance, shape, nil}, strategy_state), do: {:advance, shape, strategy_state}
+
+  def rewrap({:acquire, then_fn}, strategy_state) do
+    {:acquire,
+     fn dims ->
+       case then_fn.(dims) do
+         {ops, continuation} when is_list(ops) -> {ops, rewrap(continuation, strategy_state)}
+         {shape, nil} -> {shape, strategy_state}
+       end
+     end}
+  end
 end

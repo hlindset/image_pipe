@@ -48,38 +48,24 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
   def resolve(%SourceShape{} = shape, carry, %PlanPadding{} = operation) do
     ops = Lowering.padding_executables(operation, padding_scale_for(operation, carry))
     {ops, continuation} = NeutralResolver.display_frame_advance(ops, shape)
-    {ops, rewrap(continuation, carry)}
+    {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
   end
 
   def resolve(%SourceShape{} = shape, carry, %Canvas{} = operation) do
     ops = Lowering.canvas_executables(operation, carry.canvas_preserving_padding_scale || 1.0)
     {ops, continuation} = NeutralResolver.plain_advance(ops, shape)
-    {ops, rewrap(continuation, carry)}
+    {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
   end
 
   def resolve(%SourceShape{} = shape, carry, operation),
     do: delegate(operation, shape, carry)
 
   # ── delegation ────────────────────────────────────────────────────────────
-  # The neutral resolver threads nil strategy state; re-wrap the continuation
-  # so the imgproxy carry survives the advance (including through :acquire —
-  # a trim between resize and padding must not lose the stashed DprScale — and
-  # through every *stage* of a staged emission, spec §4.4).
+  # Re-wrap the neutral continuation so the imgproxy carry survives the advance
+  # — a trim between resize and padding must not lose the stashed DprScale.
   defp delegate(operation, shape, carry) do
     {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
-    {ops, rewrap(continuation, carry)}
-  end
-
-  defp rewrap({:advance, %SourceShape{} = shape, nil}, carry), do: {:advance, shape, carry}
-
-  defp rewrap({:acquire, then_fn}, carry) do
-    {:acquire,
-     fn dims ->
-       case then_fn.(dims) do
-         {%SourceShape{} = shape, nil} -> {shape, carry}
-         {ops, continuation} when is_list(ops) -> {ops, rewrap(continuation, carry)}
-       end
-     end}
+    {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
   end
 
   # ── :auto bucketing (moved from ResizePlanning) ───────────────────────────
