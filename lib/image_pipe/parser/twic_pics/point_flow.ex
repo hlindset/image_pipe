@@ -22,18 +22,49 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
   #   * %Flush{} — the point rotates/reflects with the pixels
   #     (Focus.reflect_rotate on the pre-flush dims); the dims swap on a
   #     quarter turn.
-  #   * anything else — point- and dims-neutral, matching the execute-time
-  #     mechanics (streaming effects; no other dims-changing op is
-  #     TwicPics-reachable).
+  #   * one of @point_dims_neutral_ops — point- and dims-neutral, matching the
+  #     execute-time mechanics (streaming effects). Enumerated explicitly
+  #     (rather than a catch-all) so a newly TwicPics-reachable dims-changing
+  #     op (padding, a second resize form, an arbitrary-angle rotate, …)
+  #     raises instead of silently carrying a stale point.
 
   alias ImagePipe.Resolver
   alias ImagePipe.Transform.Focus
+  alias ImagePipe.Transform.Operation.Background
+  alias ImagePipe.Transform.Operation.Bitonal
+  alias ImagePipe.Transform.Operation.Blur
+  alias ImagePipe.Transform.Operation.Brightness
+  alias ImagePipe.Transform.Operation.Colorize
+  alias ImagePipe.Transform.Operation.Contrast
   alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flush
+  alias ImagePipe.Transform.Operation.Gradient
+  alias ImagePipe.Transform.Operation.Gray
+  alias ImagePipe.Transform.Operation.Monochrome
+  alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.Operation.Saturation
+  alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceShape
+
+  @point_dims_neutral_ops [
+    Background,
+    Bitonal,
+    Blur,
+    Brightness,
+    Colorize,
+    Contrast,
+    Duotone,
+    Gradient,
+    Gray,
+    Monochrome,
+    Pixelate,
+    Saturation,
+    Sharpen
+  ]
 
   @spec advance([struct()], Resolver.continuation(), Focus.point() | nil, SourceShape.t()) ::
           {[struct()], Resolver.continuation()}
@@ -96,7 +127,14 @@ defmodule ImagePipe.Parser.TwicPics.PointFlow do
 
   defp step(%Resize{} = op, acc, _po), do: {op, acc}
 
-  defp step(op, acc, _po), do: {op, acc}
+  defp step(%mod{} = op, acc, _po) when mod in @point_dims_neutral_ops, do: {op, acc}
+
+  defp step(op, _acc, _po) do
+    raise "ImagePipe.Parser.TwicPics.PointFlow has no rule for advancing the carried " <>
+            "focus point through #{inspect(op.__struct__)} — add an explicit step/3 " <>
+            "clause (or list it in @point_dims_neutral_ops if it never affects the " <>
+            "point or dims)"
+  end
 
   defp substituted_gravity(nil, _w, _h), do: {:anchor, :center, :center}
   defp substituted_gravity(point, w, h), do: Focus.to_fp(point, w, h)
