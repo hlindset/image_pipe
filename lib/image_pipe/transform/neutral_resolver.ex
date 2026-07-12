@@ -288,7 +288,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # A resize's realized dims can round ±1 off the naive target, so any op after
   # it must be parameterized against the MEASURED post-resize dims: the
   # emission stages at the realized-dims seam (spec §4.4). The resize is always
-  # the terminal op of its stage; the stage the after_measure returns carries the
+  # the terminal op of its stage; the stage continue/4 returns carries the
   # tail (result crop and/or flush), with the shape advanced purely from the
   # measured dims — the crop box via Crop.resolved_box_dims (the exact integers
   # Crop.execute produces on an image of that size) and the flush's exact axis

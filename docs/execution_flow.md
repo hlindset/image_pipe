@@ -19,17 +19,17 @@ ImagePipe.Plug.call
    └─ miss: ImagePipe.Request.Processor
       ├─ fetch → format gate → decode (sequential, shrink-on-load) → safety limits
       └─ ImagePipe.Transform.execute_plan
-         └─ ImagePipe.Transform.PlanExecutor.execute
+         └─ ImagePipe.Transform.Executor.execute
             ├─ seed EXIF orientation (pending, deferred) + input color management
             └─ per pipeline: seed ImagePipe.Transform.SourceShape, fresh strategy state
-               └─ ImagePipe.Transform.ResolveDriver.run          ← the heart
+               └─ Executor.run — the resolve loop               ← the heart
                   loop over PLAN operations:
                   ├─ overlay shape → State                       (the one sync site)
                   ├─ ImagePipe.Resolver.resolve    ②             → {executable_ops, continuation}
                   ├─ ImagePipe.Transform.Chain.execute  ③        (materialize-if-needed + op.execute)
-                  └─ continue(continuation)        ④
+                  └─ continuation                  ④
                        {:advance, shape, state}  → next plan op
-                       {:measure, after_measure} → measure dims, call back, maybe more stages
+                       {:measure, tag, state}    → measure dims → strategy continue(tag, …), maybe more stages
    └─ encode (lazy) → Producer/PreparedStream: chunked streaming,
       cancellable on disconnect, incremental cache write → Response.Sender
 ```
@@ -53,13 +53,13 @@ translator between them:
 
 When you are reading a `%Plan.Operation.Resize{}` and wondering "where do the
 pixels happen" — they don't, until a strategy lowers it inside
-`ResolveDriver.run`'s loop.
+`Executor.run`'s loop.
 
 ## The resolve loop and continuations
 
-For each pipeline, `PlanExecutor` seeds a `SourceShape` — a pure geometry
+For each pipeline, `Executor.execute` seeds a `SourceShape` — a pure geometry
 value (dims, which frame they describe, pending orientation, decode shrink) —
-and fresh strategy state from the strategy's `init/0`. `ResolveDriver.run`
+and fresh strategy state from the strategy's `init/0`. `Executor.run`
 then walks the plan operations:
 
 1. **Overlay.** The resolver-advanced shape is written onto `State`
@@ -69,17 +69,22 @@ then walks the plan operations:
    executable ops for this plan op plus a *continuation*.
 3. **Execute.** The ops run through `Chain.execute` (which materializes to RAM
    first if an op requires random pixel access).
-4. **Continue.** The continuation says how to learn the post-op geometry:
+4. **Continue.** The continuation is plain data saying how to learn the
+   post-op geometry:
    - `{:advance, new_shape, new_state}` — the strategy computed it purely;
      move to the next plan op.
-   - `{:measure, after_measure}` — it can't be known without looking (after a
+   - `{:measure, tag, state}` — it can't be known without looking (after a
      trim; after a resize whose realized dims may round ±1). The driver
-     measures the live image's dimensions and calls `after_measure.({w, h})`,
-     which returns either the final `{shape, state}` or **another**
-     `{ops, continuation}` stage to execute — that is how a cover emits its
-     result crop parameterized against the *measured* post-resize dims.
-     Recursion depth equals the emission's stage count (2 for a cover), never
-     unbounded.
+     measures the live image's dimensions and calls the strategy's
+     `continue(tag, {w, h}, shape, state)` — `shape` being the pre-op shape
+     the strategy resolved against — which returns either the final
+     `{shape, state}` or **another** `{ops, continuation}` stage to execute —
+     that is how a cover emits its result crop parameterized against the
+     *measured* post-resize dims. Recursion depth equals the emission's stage
+     count (2 for a cover), never unbounded. Every tag is a named clause in
+     the strategy — grep `NeutralResolver.continue` for the full vocabulary
+     (`:rotate`, `:trim`, `:resize`, `{:resize_tail, …}`,
+     `{:resize_flush_tail, …}`).
 
 Two rules make the state story followable:
 
@@ -88,8 +93,10 @@ Two rules make the state story followable:
   next `resolve/3` call. State is per-pipeline and dies with it.
 - **Delegation re-wraps.** Custom strategies delegate shared geometry to
   `ImagePipe.Transform.NeutralResolver` (a stateless strategy) and must
-  re-wrap its continuations via `ImagePipe.Resolver.rewrap/2` so their carry
-  survives — see the
+  substitute their carry into its stateless continuations via
+  `ImagePipe.Resolver.rewrap/2` (plain data threading); at a measure seam,
+  their `continue/4` delegates the tag to `NeutralResolver.continue/4` and
+  re-attaches the carry — see the
   [custom parser guide](custom_parser_guide.md#geometry-resolution-custom-resolver-strategies).
 
 At the pipeline boundary the driver flushes any surviving non-identity pending
@@ -105,9 +112,9 @@ targets:
 | # | Call site | What it dispatches to | How to navigate |
 |---|---|---|---|
 | ① | `parser.parse(conn, opts)` in `ImagePipe.Plug` | The mount's `:parser` module | Three in-tree parsers: `ImagePipe.Parser.Imgproxy`, `.IIIF`, `.TwicPics` — each ends in a `PlanBuilder` that constructs the `%Plan{}` |
-| ② | `Resolver.resolve(strategy, …)` facade | `plan.resolver`, defaulting to `NeutralResolver` in `PlanExecutor` | Three implementations: `ImagePipe.Transform.NeutralResolver` (all shared geometry — when in doubt, the answer is here), `ImagePipe.Parser.Imgproxy.Resolver` and `ImagePipe.Parser.TwicPics.Resolver` (thin dialect wrappers that delegate to Neutral) |
-| ③ | `chain.(state, ops, opts)` in `ResolveDriver` | Injected function; always `Chain.execute/3` in production | Test seam only. Inside `Chain`, `Transform.execute(op, state)` dispatches to the op struct's own module — struct name = module name (`%Operation.Crop{}` → `transform/operation/crop.ex`) |
-| ④ | `after_measure.(dims)` closures | Built in `NeutralResolver`, re-wrapped by strategies, invoked by the driver | Never chase a closure from its construction site. Read `ResolveDriver.continue/6` once — "measure = read dims, then run the returned tail" — then read strategy code as if sequential |
+| ② | `Resolver.resolve(strategy, …)` facade | `plan.resolver`, defaulting to `NeutralResolver` in `Executor` | Three implementations: `ImagePipe.Transform.NeutralResolver` (all shared geometry — when in doubt, the answer is here), `ImagePipe.Parser.Imgproxy.Resolver` and `ImagePipe.Parser.TwicPics.Resolver` (thin dialect wrappers that delegate to Neutral) |
+| ③ | `chain.(state, ops, opts)` in `Executor` | Injected function; always `Chain.execute/3` in production | Test seam only. Inside `Chain`, `Transform.execute(op, state)` dispatches to the op struct's own module — struct name = module name (`%Operation.Crop{}` → `transform/operation/crop.ex`) |
+| ④ | `Resolver.continue(strategy, tag, …)` in `Executor` | The strategy's `continue/4` — one named clause per tag | Tags are data: grep the tag atom (e.g. `:resize_flush_tail`) to land on both the emitting resolve row and the continue clause. Neutral tags live in `NeutralResolver.continue/4`; dialect strategies delegate the tag and re-attach their carry |
 | — | `render: {:custom, module, params}` | The plan's renderer module via `ImagePipe.Renderer` | Two in-tree renderers: the imgproxy and IIIF info renderers |
 | — | `Telemetry.span(…, fn -> … end)` wrappers | n/a | Nearly every layer wraps its real call in a span closure; when lost, skip to the closure body |
 
@@ -119,9 +126,10 @@ renderer with header facts only.
 
 1. `ImagePipe.Plug.do_call_with_plan/4` — the request skeleton and error fan-out.
 2. `ImagePipe.Request.Processor.process_decoded_source/4` — decode → transform → encode hand-offs.
-3. `ImagePipe.Transform.PlanExecutor.execute_pipeline/4` — shape seeding, strategy selection.
-4. `ImagePipe.Transform.ResolveDriver.run/5` — the loop everything above was
+3. `ImagePipe.Transform.Executor.execute_pipeline/4` — shape seeding, strategy selection.
+4. `ImagePipe.Transform.Executor.run/5` — the loop everything above was
    leading to; internalize its four steps and the rest of the transform layer
    reads linearly.
 5. `ImagePipe.Transform.NeutralResolver` — per-op lowering and the deferred-
-   orientation policy, one `do_resolve/2` clause per plan op.
+   orientation policy, one `do_resolve/2` clause per plan op and one
+   `continue/4` clause per measure tag.

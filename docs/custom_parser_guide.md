@@ -398,6 +398,8 @@ the plan to a module implementing `ImagePipe.Resolver`:
 @callback init() :: strategy_state
 @callback resolve(SourceShape.t(), strategy_state, plan_op :: struct()) ::
             {[executable_op :: struct()], continuation}
+@callback continue(tag, measured_dims :: {pos_integer, pos_integer}, SourceShape.t(), strategy_state) ::
+            {[executable_op :: struct()], continuation} | {SourceShape.t(), strategy_state}
 @callback behavior_version() :: pos_integer()
 ```
 
@@ -416,11 +418,14 @@ the pipeline's plan operations one at a time:
 2. The driver executes those ops, then follows the continuation:
    - `{:advance, new_shape, new_state}` — you computed the post-op geometry
      yourself (pure math); the driver moves on.
-   - `{:measure, after_measure}` — you can't know the post-op geometry without
+   - `{:measure, tag, state}` — you can't know the post-op geometry without
      measuring (e.g. after a trim). The driver measures the realized
-     dimensions of the live image and calls `after_measure.({w, h})`, which returns
+     dimensions of the live image and calls your `continue(tag, {w, h},
+     shape, state)` with the pre-op shape your `resolve/3` saw; it returns
      either the final `{shape, state}` or *another* `{ops, continuation}`
-     stage to execute — a staged expansion for multi-step lowering.
+     stage to execute — a staged expansion for multi-step lowering. The tag
+     is your private vocabulary: plain data naming what happens after the
+     measure, never inspected by the driver.
 
 **The continuation is the only channel for strategy state.** The driver never
 inspects your state; it threads whatever you return into the next `resolve/3`
@@ -435,13 +440,30 @@ layer their dialect decisions around it. Two in-tree patterns:
 **Re-wrap the continuation** (imgproxy — carry computed values forward). The
 strategy computes its cap once at the resize, stashes it in the carry, and
 re-wraps every continuation the neutral resolver returns with
-`ImagePipe.Resolver.rewrap/2`, which substitutes the carry through `:advance`,
-through `:measure`, and through every stage of a staged emission:
+`ImagePipe.Resolver.rewrap/2`, which substitutes the carry into the stateless
+`:advance`/`:measure` data:
 
 ```elixir
 defp delegate(operation, shape, carry) do
   {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
   {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
+end
+```
+
+Delegation has two halves: `resolve/3` re-wraps the returned continuation,
+and `continue/4` delegates the tag to the neutral resolver and re-attaches
+the carry (re-wrapping any staged expansion it returns):
+
+```elixir
+@impl ImagePipe.Resolver
+def continue(tag, dims, %SourceShape{} = shape, carry) do
+  case NeutralResolver.continue(tag, dims, shape, nil) do
+    {%SourceShape{} = final, nil} ->
+      {final, carry}
+
+    {ops, continuation} when is_list(ops) ->
+      {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
+  end
 end
 ```
 
@@ -468,6 +490,10 @@ def resolve(%SourceShape{} = shape, point, operation) do
   {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
   PointFlow.advance(ops, continuation, point, shape)
 end
+
+@impl ImagePipe.Resolver
+def continue(tag, measured, %SourceShape{} = shape, seam_state),
+  do: PointFlow.continue(tag, measured, shape, seam_state)
 ```
 
 `ImagePipe.Parser.TwicPics.Resolver` (with its `PointFlow` helper) is the
@@ -504,13 +530,14 @@ of erroring deep in the transform stage.
 A strategy builds against a deliberately small, stable surface — the "strategy
 SDK" tier of the Transform boundary's exports:
 
-- `ImagePipe.Resolver` — the behaviour, plus `rewrap/2` for carry-preserving
-  delegation.
+- `ImagePipe.Resolver` — the behaviour (including `continue/4`), plus
+  `rewrap/2` for carry-preserving delegation.
 - `ImagePipe.Transform.SourceShape` — the shape value and its pure helpers
   (`seed/1`, `live_dims/1`, `quarter_turn?/1`).
-- `ImagePipe.Transform.NeutralResolver` — the delegate (`resolve/3`) and its
-  two advance helpers (`display_frame_advance/2`, `plain_advance/2`) for
-  composing your own lowering with the neutral orientation-flush policy.
+- `ImagePipe.Transform.NeutralResolver` — the delegate (`resolve/3` and
+  `continue/4`) and its two advance helpers (`display_frame_advance/2`,
+  `plain_advance/2`) for composing your own lowering with the neutral
+  orientation-flush policy.
 - `ImagePipe.Transform.Focus` and `ImagePipe.Transform.PendingOrientation` —
   point and orientation geometry for carried-point strategies.
 - The executable `ImagePipe.Transform.Operation.*` structs a strategy emits,
@@ -577,9 +604,10 @@ Follow the two-tier layout the in-tree parsers use:
   See `test/image_pipe/twic_pics_wire_conformance_test.exs` for shape and
   scale — keep combinatorial grammar coverage in the unit tier.
 - **Resolver tests** in `test/image_pipe/parser/<dialect>/resolver_test.exs`
-  if you ship a strategy — drive `resolve/3` directly with `SourceShape`
-  values and assert emitted executables, continuations, and carry survival
-  across `:measure`.
+  if you ship a strategy — drive `resolve/3` and `continue/4` directly with
+  `SourceShape` values and assert emitted executables, continuation tags, and
+  carry survival across `:measure` — tags are plain data, so assert on them
+  directly.
 
 ## Conventions checklist
 
