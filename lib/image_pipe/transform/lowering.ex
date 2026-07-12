@@ -6,6 +6,10 @@ defmodule ImagePipe.Transform.Lowering do
   # shrink-on-load coordinate rescale; resize-mode expansion delegates to
   # ImagePipe.Transform.ResizePlanning (this module threads the translated crop
   # gravity into it as a parameter, keeping ResizePlanning a leaf).
+  #
+  # Internal lowering seam: exported from the Transform boundary for the
+  # in-tree imgproxy strategy only, not part of the strategy SDK — see the
+  # export-list tiers in ImagePipe.Transform.
 
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground

@@ -45,6 +45,7 @@ defmodule ImagePipe.Response.ErrorStatus do
     :invalid_response_plan,
     :invalid_pipeline_plan,
     :invalid_pipeline_operation,
+    :strategy_required,
     :unprojectable_operation_for_cache_adapter,
     :detector_unavailable
   ]

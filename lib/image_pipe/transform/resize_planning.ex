@@ -9,6 +9,10 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # public `resize_from/2` for the mechanical Plan->executable translation. The
   # gravity for any result-crop is threaded in as a parameter (translated by
   # Lowering) so this module stays a leaf — it never calls back into Lowering.
+  #
+  # Internal lowering seam: exported from the Transform boundary for the
+  # in-tree imgproxy strategy only, not part of the strategy SDK — see the
+  # export-list tiers in ImagePipe.Transform.
 
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Transform.Operation.Crop

@@ -13,8 +13,12 @@ defmodule ImagePipe.Transform.PrefetchValidationTest do
   test "semantic Plan operations pass source-independent validation" do
     assert {:ok, operation} = Operation.resize(:auto, {:px, 100}, {:px, 100}, enlargement: :deny)
 
+    # An :auto resize branch is strategy-requiring vocabulary, so the plan must
+    # carry a resolver to pass shape validation.
+    plan = %{plan([operation]) | resolver: ImagePipe.Parser.Imgproxy.Resolver}
+
     assert {:ok, [%Pipeline{operations: [^operation]}]} =
-             Transform.validate_prefetch_safe_plan(plan([operation]))
+             Transform.validate_prefetch_safe_plan(plan)
   end
 
   test "crop regions are prefetch-safe semantic operations" do

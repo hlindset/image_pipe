@@ -12,12 +12,22 @@ defmodule ImagePipe.Transform do
     top_level?: true,
     deps: [ImagePipe.Plan, ImagePipe.Telemetry, ImagePipe.Resolver],
     exports: [
+      # Runtime execution contract — consumed by the request layer.
       State,
       Chain,
       DecodePlanner,
       Materializer,
       Detector,
       Detector.Warmup,
+      # Strategy SDK — the stable contract for carried resolver strategies
+      # (`ImagePipe.Resolver` implementations under parser adapters): the shape
+      # value, the neutral delegate, point/orientation geometry, and the
+      # executable operations a strategy emits (including their pure geometry
+      # helpers, e.g. `Crop.resolved_rect/3`).
+      SourceShape,
+      NeutralResolver,
+      Focus,
+      PendingOrientation,
       Operation.Resize,
       Operation.Rotate,
       Operation.ExtendCanvas,
@@ -38,12 +48,11 @@ defmodule ImagePipe.Transform do
       Operation.Gradient,
       Operation.Trim,
       Operation.Flush,
-      SourceShape,
-      NeutralResolver,
+      # Internal lowering seams — exported for the in-tree imgproxy strategy
+      # only; not part of the strategy SDK and subject to change without
+      # notice.
       Lowering,
-      ResizePlanning,
-      Focus,
-      PendingOrientation
+      ResizePlanning
     ]
 
   alias ImagePipe.Plan
