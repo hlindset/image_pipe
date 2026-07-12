@@ -5,10 +5,10 @@ defmodule ImagePipe.Transform.ResolveDriver do
   # resolver-advanced shape onto State (THE one shape→State sync site), resolve
   # the op through the strategy, execute the emitted executable ops through the
   # chain, then advance the shape — purely for an `:advance` continuation, or
-  # from the post-execution image dims for an `:acquire` (injectable via
-  # `opts[:acquire_dims]` so tests can drive the geometry without pixels). A
-  # single resolve may execute in several STAGES (spec §4.4 Stage 3): an
-  # `:acquire` `then_fn` can return a further `{ops, continuation}` stage — a
+  # from the post-execution image dims for a `:measure` (injectable via
+  # `opts[:measure_dims]` so tests can drive the geometry without pixels). A
+  # single resolve may execute in several STAGES (spec §4.4 Stage 3): a
+  # `:measure` continuation's `after_measure` fun can return a further `{ops, continuation}` stage — a
   # multi-executable expansion (e.g. a cover = [resize] then [crop]) split at
   # the realized-dims seam — which the driver executes and continues, recursing
   # until a final `{shape, strategy_state}`. The overlay still runs once per
@@ -26,7 +26,7 @@ defmodule ImagePipe.Transform.ResolveDriver do
   # scattered State mutations whenever the shape advance is correct.
   #
   # The strategy's own per-pipeline state (e.g. the imgproxy resolver's stashed
-  # padding scales) is threaded through `spec`, carried forward via the
+  # padding scales) is threaded through `strategy`, carried forward via the
   # continuation the strategy returns — the driver never reads or computes
   # strategy-specific state itself.
 
@@ -37,26 +37,26 @@ defmodule ImagePipe.Transform.ResolveDriver do
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
 
-  @spec run([struct()], SourceShape.t(), Resolver.spec(), State.t(), keyword()) ::
+  @spec run([struct()], SourceShape.t(), Resolver.strategy(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def run(pipeline, %SourceShape{} = shape, spec, %State{} = state, opts \\ []) do
-    acquire_dims = Keyword.get(opts, :acquire_dims, &default_acquire_dims/1)
+  def run(pipeline, %SourceShape{} = shape, strategy, %State{} = state, opts \\ []) do
+    measure_dims = Keyword.get(opts, :measure_dims, &default_measure_dims/1)
     chain = Keyword.get(opts, :chain, &Chain.execute/3)
 
     pipeline
-    |> Enum.reduce_while({:ok, shape, spec, state}, fn operation, acc ->
-      {:ok, shape, spec, state} = acc
+    |> Enum.reduce_while({:ok, shape, strategy, state}, fn operation, acc ->
+      {:ok, shape, strategy, state} = acc
       state = overlay(state, shape)
 
-      {ops, continuation} = Resolver.resolve(spec, shape, operation)
+      {ops, continuation} = Resolver.resolve(strategy, shape, operation)
 
-      case execute_stages(ops, continuation, spec, state, chain, acquire_dims, opts) do
-        {:ok, shape, spec, state} -> {:cont, {:ok, shape, spec, state}}
+      case execute_stages(ops, continuation, strategy, state, chain, measure_dims, opts) do
+        {:ok, shape, strategy, state} -> {:cont, {:ok, shape, strategy, state}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
     |> case do
-      {:ok, shape, _spec, state} -> flush_boundary(state, shape, chain, opts)
+      {:ok, shape, _strategy, state} -> flush_boundary(state, shape, chain, opts)
       {:error, _reason} = error -> error
     end
   end
@@ -74,13 +74,13 @@ defmodule ImagePipe.Transform.ResolveDriver do
   end
 
   # One resolve may execute in several stages: run this stage's ops, then either
-  # finish (final {shape, strategy_state}) or acquire the realized dims and run
-  # the next stage the then_fn returns. Recursion depth is the emission's stage
+  # finish (final {shape, strategy_state}) or measure the realized dims and run
+  # the next stage the after_measure returns. Recursion depth is the emission's stage
   # count (2 for a cover) — never unbounded.
-  defp execute_stages(ops, continuation, spec, state, chain, acquire_dims, opts) do
+  defp execute_stages(ops, continuation, strategy, state, chain, measure_dims, opts) do
     case chain.(state, ops, opts) do
       {:ok, %State{} = state} ->
-        continue(continuation, spec, state, chain, acquire_dims, opts)
+        continue(continuation, strategy, state, chain, measure_dims, opts)
 
       {:error, _reason} = error ->
         error
@@ -92,22 +92,29 @@ defmodule ImagePipe.Transform.ResolveDriver do
          {module, _},
          state,
          _chain,
-         _acquire_dims,
+         _measure_dims,
          _opts
        ),
        do: {:ok, shape, {module, strategy_state}, state}
 
-  defp continue({:acquire, then_fn}, {module, _} = spec, state, chain, acquire_dims, opts) do
-    case then_fn.(acquire_dims.(state.image)) do
+  defp continue(
+         {:measure, after_measure},
+         {module, _} = strategy,
+         state,
+         chain,
+         measure_dims,
+         opts
+       ) do
+    case after_measure.(measure_dims.(state.image)) do
       {%SourceShape{} = shape, strategy_state} ->
         {:ok, shape, {module, strategy_state}, state}
 
       {ops, continuation} when is_list(ops) ->
-        execute_stages(ops, continuation, spec, state, chain, acquire_dims, opts)
+        execute_stages(ops, continuation, strategy, state, chain, measure_dims, opts)
     end
   end
 
-  defp default_acquire_dims(image), do: {Image.width(image), Image.height(image)}
+  defp default_measure_dims(image), do: {Image.width(image), Image.height(image)}
 
   # Pipeline boundary: a pipeline's output is the next pipeline's input, so each
   # pipeline must end in the display frame. A surviving non-identity pending is

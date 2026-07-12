@@ -30,6 +30,7 @@ defmodule ImagePipe.MixProject do
           "docs/telemetry.md",
           "docs/debug_headers.md",
           {"docs/custom_parser_guide.md", title: "Writing a Custom Parser"},
+          {"docs/execution_flow.md", title: "Execution Flow"},
           {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
           "docs/imgproxy_path_api.md",
           "docs/imgproxy_support_matrix.md",

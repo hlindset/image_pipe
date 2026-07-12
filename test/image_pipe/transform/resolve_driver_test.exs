@@ -18,16 +18,16 @@ defmodule ImagePipe.Transform.ResolveDriverTest do
     end
 
     def resolve(%SourceShape{} = shape, agent, :opaque) do
-      then_fn = fn {w, h} ->
-        Agent.update(agent, &[{:acquired, w, h} | &1])
+      after_measure = fn {w, h} ->
+        Agent.update(agent, &[{:measured, w, h} | &1])
         {%{shape | width: w, height: h}, agent}
       end
 
-      {[], {:acquire, then_fn}}
+      {[], {:measure, after_measure}}
     end
   end
 
-  test "acquire uses injected dims; advance is pure; overlay feeds State from the shape" do
+  test "measure uses injected dims; advance is pure; overlay feeds State from the shape" do
     {:ok, img} = Image.new(10, 10)
     agent = start_supervised!({Agent, fn -> [] end})
 
@@ -41,7 +41,7 @@ defmodule ImagePipe.Transform.ResolveDriverTest do
 
     {:ok, %State{}} =
       ResolveDriver.run([:pure, :opaque, :pure], shape, {Probe, agent}, %State{image: img},
-        acquire_dims: fn _ -> {77, 66} end,
+        measure_dims: fn _ -> {77, 66} end,
         chain: chain
       )
 
@@ -49,7 +49,7 @@ defmodule ImagePipe.Transform.ResolveDriverTest do
              [
                {:overlaid_dims, {10, 10}},
                {:overlaid_dims, {11, 10}},
-               {:acquired, 77, 66},
+               {:measured, 77, 66},
                {:overlaid_dims, {77, 66}}
              ]
   end

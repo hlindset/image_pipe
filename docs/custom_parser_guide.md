@@ -416,9 +416,9 @@ the pipeline's plan operations one at a time:
 2. The driver executes those ops, then follows the continuation:
    - `{:advance, new_shape, new_state}` — you computed the post-op geometry
      yourself (pure math); the driver moves on.
-   - `{:acquire, then_fn}` — you can't know the post-op geometry without
+   - `{:measure, after_measure}` — you can't know the post-op geometry without
      measuring (e.g. after a trim). The driver measures the realized
-     dimensions of the live image and calls `then_fn.({w, h})`, which returns
+     dimensions of the live image and calls `after_measure.({w, h})`, which returns
      either the final `{shape, state}` or *another* `{ops, continuation}`
      stage to execute — a staged expansion for multi-step lowering.
 
@@ -436,7 +436,7 @@ layer their dialect decisions around it. Two in-tree patterns:
 strategy computes its cap once at the resize, stashes it in the carry, and
 re-wraps every continuation the neutral resolver returns with
 `ImagePipe.Resolver.rewrap/2`, which substitutes the carry through `:advance`,
-through `:acquire`, and through every stage of a staged emission:
+through `:measure`, and through every stage of a staged emission:
 
 ```elixir
 defp delegate(operation, shape, carry) do
@@ -579,7 +579,7 @@ Follow the two-tier layout the in-tree parsers use:
 - **Resolver tests** in `test/image_pipe/parser/<dialect>/resolver_test.exs`
   if you ship a strategy — drive `resolve/3` directly with `SourceShape`
   values and assert emitted executables, continuations, and carry survival
-  across `:acquire`.
+  across `:measure`.
 
 ## Conventions checklist
 

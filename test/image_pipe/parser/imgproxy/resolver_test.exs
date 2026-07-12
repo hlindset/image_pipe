@@ -16,7 +16,7 @@ defmodule ImagePipe.Parser.Imgproxy.ResolverTest do
   end
 
   defp carry_of({:advance, _shape, carry}), do: carry
-  defp carry_of({:acquire, then_fn}), do: then_fn |> then(& &1.({0, 0})) |> elem(1)
+  defp carry_of({:measure, after_measure}), do: after_measure |> then(& &1.({0, 0})) |> elem(1)
 
   test "auto resize buckets landscape source x landscape target to cover (prepare.go:88-97)" do
     {:ok, op} = Operation.resize(:auto, {:px, 300}, {:px, 200})
