@@ -5,14 +5,14 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
   Owns the imgproxy *decision* column and delegates all shared resolution to
   `ImagePipe.Transform.NeutralResolver`:
 
-  - `:auto` fill-vs-fit bucketing by the sign of width−height, square sharing
-    the landscape bucket, on the DISPLAY axes (processing/prepare.go:88-97,
-    #182) — rewritten to the concrete mode before delegation, so the neutral
-    column never sees `:auto`.
   - The no-enlarge DPR/padding-scale cap (#237, imgproxy's unconditional
     `!Enlarge()` `DprScale = min(DPR, min(wshrink, hshrink))` block), computed
     once at the resize and carried as strategy state to later padding/canvas
     ops (compute-once-reuse, prepare.go calcScale → padding.go/extend.go).
+
+  The `:auto` fill-vs-fit bucketing is product-neutral and lives in the neutral
+  column (`NeutralResolver.resolve_mode/2`, #448); the strategy only reads the
+  concrete branch back from it to size the no-enlarge cap.
   """
 
   @behaviour ImagePipe.Resolver
@@ -35,14 +35,17 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
 
   @impl ImagePipe.Resolver
   def resolve(%SourceShape{} = shape, _carry, %PlanResize{} = operation) do
-    branch = resize_branch(operation, shape)
+    # The neutral column buckets :auto (NeutralResolver.resolve_mode/2, #448);
+    # read the concrete branch back to size the no-enlarge padding-scale cap,
+    # then delegate the operation unchanged for the neutral column to lower.
+    branch = NeutralResolver.resolve_mode(operation, shape)
 
     carry = %{
       effective_padding_scale: padding_scale(operation, shape, branch, :resize),
       canvas_preserving_padding_scale: padding_scale(operation, shape, branch, :canvas_preserving)
     }
 
-    delegate(%PlanResize{operation | mode: branch}, shape, carry)
+    delegate(operation, shape, carry)
   end
 
   def resolve(%SourceShape{} = shape, carry, %PlanPadding{} = operation) do
@@ -79,49 +82,6 @@ defmodule ImagePipe.Parser.Imgproxy.Resolver do
     {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
     {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
   end
-
-  # ── :auto bucketing (moved from ResizePlanning) ───────────────────────────
-  defp resize_branch(%PlanResize{mode: :fit}, %SourceShape{}), do: :fit
-  defp resize_branch(%PlanResize{mode: :cover}, %SourceShape{}), do: :cover
-  defp resize_branch(%PlanResize{mode: :stretch}, %SourceShape{}), do: :stretch
-
-  defp resize_branch(%PlanResize{mode: :auto} = operation, %SourceShape{} = shape) do
-    # imgproxy's ResizeAuto compares srcW−srcH against dstW−dstH on the DISPLAY
-    # axes — ExtractGeometry swaps the source dims for a quarter turn before the
-    # comparison (prepare.go). Classify against the display-frame source so an
-    # EXIF 5–8 / rot:90/270 source is not judged on transposed axes (#182).
-    {src_w, src_h} = display_source_dims(shape)
-
-    auto_branch(
-      orientation_diff(src_w, src_h),
-      orientation_diff(
-        tagged_logical_pixels(operation.width),
-        tagged_logical_pixels(operation.height)
-      )
-    )
-  end
-
-  # imgproxy buckets fill-vs-fit by the sign of the width−height difference,
-  # square (diff == 0) sharing the landscape bucket; cover fills only when both
-  # land in the same bucket (processing/prepare.go:88-97). :unknown = an auto
-  # (omitted) dimension, which keeps the conservative fit branch.
-  defp auto_branch(:unknown, _target_diff), do: :fit
-  defp auto_branch(_current_diff, :unknown), do: :fit
-
-  defp auto_branch(current_diff, target_diff)
-       when (current_diff >= 0 and target_diff >= 0) or
-              (current_diff < 0 and target_diff < 0),
-       do: :cover
-
-  defp auto_branch(_current_diff, _target_diff), do: :fit
-
-  defp orientation_diff(width, height) when is_integer(width) and is_integer(height),
-    do: width - height
-
-  defp orientation_diff(_width, _height), do: :unknown
-
-  defp tagged_logical_pixels({:px, value}), do: value
-  defp tagged_logical_pixels(_dimension), do: :unknown
 
   # ── no-enlarge padding/DPR scale (moved from ResizePlanning; #237) ────────
   defp padding_scale(

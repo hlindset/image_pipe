@@ -143,7 +143,8 @@ Use `ImagePipe.Plan.Operation.Resize` with `mode: :fit` for aspect-preserving
 fit semantics, `mode: :cover` for cover/fill semantics that require result
 cropping, and `mode: :stretch` for force/stretch semantics.
 
-Use `mode: :auto` only for the Imgproxy-compatible source-dependent rule:
+Use `mode: :auto` only for the product-neutral source-dependent rule (imgproxy
+`rt:auto` parity, owned by the neutral resolver — no custom strategy required):
 orientation match derives cover, orientation mismatch derives fit, and unknown
 target orientation derives fit. The unresolved semantic resize operation
 addresses the cache key. The selected branch resolves after a cache miss.

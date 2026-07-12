@@ -10,10 +10,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
   the neutral flush policy instead of re-deriving it, and delegates the tags
   this module emits back to its `continue/4` at the measure seam.
 
-  `%Operation.Resize{mode: :auto}` and `%Operation.Padding{pixel_ratio:
-  {:effective, _, _}}` are imgproxy-strategy vocabulary: the imgproxy strategy
-  (`ImagePipe.Parser.Imgproxy.Resolver`) resolves both to their concrete form
-  before delegating here, so neither is reachable in this module.
+  The source-dependent `%Operation.Resize{mode: :auto}` fill-vs-fit rule is
+  product-neutral and lives here (`resolve_mode/2`; imgproxy `ResizeAuto`
+  parity, #182/#448) — any dialect may emit it with no resolver.
+  `%Operation.Padding{pixel_ratio: {:effective, _, _}}` stays imgproxy-strategy
+  vocabulary (its pd:/dpr coupling has no product-neutral spec): the imgproxy
+  strategy (`ImagePipe.Parser.Imgproxy.Resolver`) resolves it to its concrete
+  form before delegating here, so it is not reachable in this module.
   """
 
   # Neutral geometry resolver: owns the deferred-orientation execution policy
@@ -69,6 +72,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
   @impl ImagePipe.Resolver
   def init, do: nil
 
+  @doc """
+  Behavioral version of the neutral resolution algorithms. The neutral column
+  now owns the `:auto` fill-vs-fit bucketing (`resolve_mode/2`, #448) in
+  addition to the deferred-orientation execution policy, so a change to that
+  rule bumps here — see `ImagePipe.Resolver.behavior_version/0` for the ETag
+  implications.
+  """
   @impl ImagePipe.Resolver
   def behavior_version, do: 1
 
@@ -294,6 +304,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # Crop.execute produces on an image of that size) and the flush's exact axis
   # swap. A bare [resize] emission needs no stage and keeps the final form.
   defp do_resolve(%PlanResize{} = operation, %SourceShape{} = shape) do
+    operation = %PlanResize{operation | mode: resolve_mode(operation, shape)}
+
     case pending_class(shape) do
       :pending ->
         po = shape.pending_orientation
@@ -356,6 +368,67 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # dialect's pd:/dpr coupling, resolved from strategy-carried state) and is
   # not reachable here — the imgproxy strategy resolves it before delegation.
   defp padding_scale(%PlanPadding{pixel_ratio: {:ratio, n, d}}), do: n / d
+
+  @doc """
+  Resolve a `%Plan.Operation.Resize{}`'s mode against the source shape,
+  bucketing the source-dependent `:auto` rule to its concrete `:fit`/`:cover`
+  branch; concrete modes pass through unchanged.
+
+  `:auto` fills when the source and target share an orientation and fits
+  otherwise, compared by the sign of the width−height difference with a square
+  (`diff == 0`) sharing the landscape bucket, on the DISPLAY axes (imgproxy's
+  `ResizeAuto`, processing/prepare.go:88-97; #182/#233). Its provenance is
+  imgproxy, but the rule is product-neutral, so the neutral column owns it and
+  any dialect may emit `:auto` with no resolver.
+
+  Public so a carried strategy that needs the concrete branch before delegation
+  (e.g. the imgproxy no-enlarge padding-scale cap) shares this one rule instead
+  of re-deriving it.
+  """
+  @spec resolve_mode(PlanResize.t(), SourceShape.t()) :: :fit | :cover | :stretch
+  def resolve_mode(%PlanResize{mode: :auto} = operation, %SourceShape{} = shape) do
+    # ExtractGeometry swaps the source dims for a quarter turn before the
+    # comparison, so classify against the display-frame source: an EXIF 5–8 /
+    # rot:90/270 source is not judged on transposed axes (#182).
+    {src_w, src_h} = display_source_dims(shape)
+
+    auto_branch(
+      orientation_diff(src_w, src_h),
+      orientation_diff(
+        tagged_logical_pixels(operation.width),
+        tagged_logical_pixels(operation.height)
+      )
+    )
+  end
+
+  def resolve_mode(%PlanResize{mode: mode}, %SourceShape{}), do: mode
+
+  # imgproxy buckets fill-vs-fit by the sign of the width−height difference,
+  # square (diff == 0) sharing the landscape bucket; cover fills only when both
+  # land in the same bucket (processing/prepare.go:88-97). :unknown = an auto
+  # (omitted) dimension, which keeps the conservative fit branch.
+  defp auto_branch(:unknown, _target_diff), do: :fit
+  defp auto_branch(_current_diff, :unknown), do: :fit
+
+  defp auto_branch(current_diff, target_diff)
+       when (current_diff >= 0 and target_diff >= 0) or
+              (current_diff < 0 and target_diff < 0),
+       do: :cover
+
+  defp auto_branch(_current_diff, _target_diff), do: :fit
+
+  defp orientation_diff(width, height) when is_integer(width) and is_integer(height),
+    do: width - height
+
+  defp orientation_diff(_width, _height), do: :unknown
+
+  defp tagged_logical_pixels({:px, value}), do: value
+  defp tagged_logical_pixels(_dimension), do: :unknown
+
+  defp display_source_dims(%SourceShape{pending_orientation: %PendingOrientation{} = po} = shape),
+    do: swap_if_quarter_turn({shape.width, shape.height}, po)
+
+  defp display_source_dims(%SourceShape{width: w, height: h}), do: {w, h}
 
   # The compensated executable expansion for a resize under a non-identity
   # pending. A quarter turn cannot be compensated by swapping the *request* and

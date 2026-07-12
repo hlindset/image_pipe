@@ -3,12 +3,14 @@ defmodule ImagePipe.Transform.ResizePlanning do
 
   # Neutral resize expansion: lowers a %Plan.Operation.Resize{} into the
   # executable resize (+ optional result-crop) sequence for the fit/cover/
-  # stretch modes. Mode selection (the imgproxy `:auto` fill-vs-fit bucketing)
-  # and the no-enlarge padding-scale cap live in the imgproxy strategy
-  # (ImagePipe.Parser.Imgproxy.Resolver), which calls back into this module's
-  # public `resize_from/2` for the mechanical Plan->executable translation. The
-  # gravity for any result-crop is threaded in as a parameter (translated by
-  # Lowering) so this module stays a leaf — it never calls back into Lowering.
+  # stretch modes. The `:auto` fill-vs-fit bucketing is resolved to a concrete
+  # mode upstream by the neutral resolver (NeutralResolver.resolve_mode/2)
+  # before lowering, so this module never sees `:auto`. The no-enlarge padding-
+  # scale cap lives in the imgproxy strategy (ImagePipe.Parser.Imgproxy.
+  # Resolver), which calls back into this module's public `resize_from/2` for
+  # the mechanical Plan->executable translation. The gravity for any result-
+  # crop is threaded in as a parameter (translated by Lowering) so this module
+  # stays a leaf — it never calls back into Lowering.
   #
   # Internal lowering seam: exported from the Transform boundary for the
   # in-tree imgproxy strategy only, not part of the strategy SDK — see the
@@ -122,8 +124,8 @@ defmodule ImagePipe.Transform.ResizePlanning do
   defp result_box_crop_dimension(value), do: {:pixels, value}
 
   # True when this PlanResize expands into a cover (fill) resize + result-crop.
-  # The imgproxy strategy rewrites :auto to :fit/:cover before delegation, so
-  # by the time a resize reaches here mode is never :auto.
+  # The neutral resolver rewrites :auto to :fit/:cover before lowering, so by
+  # the time a resize reaches here mode is never :auto.
   @spec cover_resize?(PlanResize.t(), SourceShape.t()) :: boolean()
   def cover_resize?(%PlanResize{mode: :cover}, %SourceShape{}), do: true
   def cover_resize?(%PlanResize{}, %SourceShape{}), do: false

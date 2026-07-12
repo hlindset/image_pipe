@@ -199,6 +199,100 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
     assert {shape2.width, shape2.height} == {30, 20}
   end
 
+  # ── :auto fill-vs-fit bucketing (imgproxy ResizeAuto parity, #182/#233) ─────
+  # The neutral column owns the source-dependent :auto rule: fill when source
+  # and target orientation match (square shares the landscape bucket), fit
+  # otherwise, compared on the DISPLAY axes (imgproxy prepare.go:88-97).
+  describe ":auto resize mode bucketing" do
+    defp auto_resize(width, height) do
+      %PlanResize{
+        mode: :auto,
+        width: width,
+        height: height,
+        dpr: {:ratio, 1, 1},
+        enlargement: :forbid,
+        guide: :center
+      }
+    end
+
+    defp shape_for(w, h, po \\ nil) do
+      SourceShape.seed(%{width: w, height: h, pending_orientation: po, decode_shrink: nil})
+    end
+
+    test "landscape source × landscape target → cover" do
+      assert :cover =
+               NeutralResolver.resolve_mode(
+                 auto_resize({:px, 300}, {:px, 200}),
+                 shape_for(800, 600)
+               )
+    end
+
+    test "landscape source × portrait target → fit" do
+      assert :fit =
+               NeutralResolver.resolve_mode(
+                 auto_resize({:px, 200}, {:px, 300}),
+                 shape_for(800, 600)
+               )
+    end
+
+    test "square source shares the landscape bucket (→ cover against a landscape target)" do
+      assert :cover =
+               NeutralResolver.resolve_mode(
+                 auto_resize({:px, 300}, {:px, 200}),
+                 shape_for(500, 500)
+               )
+    end
+
+    test "square target shares the landscape bucket (→ cover against a landscape source)" do
+      assert :cover =
+               NeutralResolver.resolve_mode(
+                 auto_resize({:px, 200}, {:px, 200}),
+                 shape_for(800, 600)
+               )
+    end
+
+    test "an auto (omitted) target dimension keeps the conservative fit branch" do
+      assert :fit =
+               NeutralResolver.resolve_mode(auto_resize(:auto, {:px, 200}), shape_for(800, 600))
+    end
+
+    test "concrete modes pass through unchanged" do
+      assert :fit =
+               NeutralResolver.resolve_mode(
+                 %{auto_resize({:px, 1}, {:px, 1}) | mode: :fit},
+                 shape_for(800, 600)
+               )
+
+      assert :cover =
+               NeutralResolver.resolve_mode(
+                 %{auto_resize({:px, 1}, {:px, 1}) | mode: :cover},
+                 shape_for(800, 600)
+               )
+
+      assert :stretch =
+               NeutralResolver.resolve_mode(
+                 %{auto_resize({:px, 1}, {:px, 1}) | mode: :stretch},
+                 shape_for(800, 600)
+               )
+    end
+
+    # #182: the sign comparison runs on DISPLAY-frame source dims. A pending
+    # quarter turn (EXIF 6) displays a portrait-storage source as landscape, so
+    # a landscape target buckets to cover — not the fit a storage-axis compare
+    # would pick.
+    test "classifies against the display-frame source under a pending quarter turn" do
+      po = PendingOrientation.from_exif(6, true)
+      # storage 600×800 (portrait) displays as 800×600 (landscape) under EXIF 6
+      shape = shape_for(600, 800, po)
+      assert :cover = NeutralResolver.resolve_mode(auto_resize({:px, 300}, {:px, 200}), shape)
+    end
+
+    test "resolve/3 buckets :auto end-to-end and lowers to a concrete executable resize" do
+      {[%ExecResize{mode: :fill}], {:measure, _tag, nil}} =
+        NeutralResolver.resolve(shape_for(800, 600), nil, auto_resize({:px, 300}, {:px, 200}))
+    end
+  end
+
   # ── §4.7 narrowing gate ────────────────────────────────────────────────────
   # Enumerates every ImagePipe.Plan.Operation.* variant and asserts the
   # continuation tag NeutralResolver.resolve/3 returns for a representative,
@@ -216,6 +310,15 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
       {"Resize",
        %PlanResize{
          mode: :fit,
+         width: {:px, 50},
+         height: {:px, 40},
+         dpr: {:ratio, 1, 1},
+         enlargement: :forbid,
+         guide: :center
+       }},
+      {"Resize (mode: :auto)",
+       %PlanResize{
+         mode: :auto,
          width: {:px, 50},
          height: {:px, 40},
          dpr: {:ratio, 1, 1},
