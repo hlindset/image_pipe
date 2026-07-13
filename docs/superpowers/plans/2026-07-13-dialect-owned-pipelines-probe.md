@@ -39,20 +39,20 @@ def call(conn, config) do
        :ok <- check_expires(request),                                  # 404 on past expires
        {:ok, plan_source} <- Source.translate(request.source, config),
        {:ok, resolved} <- ImagePipe.Source.resolve(plan_source, config, source_runtime_opts),
-       {:ok, selection} <- negotiate(conn, request, config),           # selection + vary? (Task 10 owns the shape)
-       representation = ImagePipe.Representation.build(resolved.identity, Identity.material(request, selection, conn, config)) do
+       {:ok, negotiation} <- negotiate(conn, request, config),         # selection + vary? + policy_material (Task 10 owns the shape)
+       representation = ImagePipe.Representation.build(resolved.identity, Identity.material(request, negotiation, conn, config)) do
     if Conditional.not_modified?(conn, representation.etag),
       do: send_304(conn, representation),
-      else: serve(conn, request, resolved, selection, representation, config)
+      else: serve(conn, request, resolved, negotiation, representation, config)
   else
     {:error, ...} -> Errors.send(conn, ...)                            # dialect-owned status mapping
   end
 end
 
-defp serve(conn, request, resolved, selection, representation, config) do
+defp serve(conn, request, resolved, negotiation, representation, config) do
   case Cache.lookup_entry(representation.cache_key, config) do
     {:hit, entry} -> deliver_cache_hit(conn, entry, representation, config)
-    _miss_or_disabled -> generate(conn, request, resolved, selection, representation, config)
+    _miss_or_disabled -> generate(conn, request, resolved, negotiation, representation, config)
   end
 end
 ```
@@ -71,7 +71,7 @@ end
 | `ImagePipe.Transform.SourceGeometry` | widening of `ImagePipe.Transform` | `%SourceGeometry{storage_dimensions, display_dimensions, pending_orientation, source_format}` + `planning_frame(geometry, auto_rotate?) :: {w, h}` [pipelines §Source-dependent planning]. |
 | `ImagePipe.Transform.DecodePlanner.Request` + `DecodePlanner.open_options_for/5` | widening of `ImagePipe.Transform` | Defunctionalized decode-plan input (no semantic op chain needed): `%Request{resize_target, crop_extent, trim?, terminal_reduction}`. Terminal-aware shrink (#377). Existing `open_options/5` untouched. |
 | `ImagePipe.Output.Policy.identity_selection/1` | widening of `ImagePipe.Output` | Public pure pre-fetch selection over an exported `%Policy{}`: `{:explicit, format} \| {:auto_head, format} \| :source_negotiated`. Owned by core so dialect identity cannot drift from what `Policy.resolve/2` encodes — pinned by an agreement property test (Task 15). |
-| `ImagePipe.Cache.Key.output_policy_material/1` | widening of `ImagePipe.Cache` | Public canonical keyword over a `%Plan.Output{}` (quality, format_qualities, quality_search, max_bytes, strip_metadata, color_profile, keep_copyright, hdr, flatten_background, encoder_options) — extracted from the existing private `output_plan_data/2` (minus the negotiation `auto:`/`mode:` inputs, which enter identity as the selection outcome instead). Framework key behavior unchanged. |
+| `ImagePipe.Output.Policy.identity_material/1` | widening of `ImagePipe.Output` | Public canonical keyword of the **effective, config-resolved** byte-affecting policy, read off the same `%Policy{}` that later drives `resolve/2` and encode: quality, `default_quality`, format_qualities, quality_search (canonicalized) + `quality_search_offsets`, max_bytes, strip_metadata, keep_copyright, color_profile, hdr, flatten_background, encoder_options. Deliberately EXCLUDES `mode`/`modern_candidates`/`headers` — negotiation enters identity only as the selection outcome. Identity therefore describes the effective policy after any host configuration is applied, not merely the parsed URL policy. |
 | `ImagePipe.Output.Terminal.Blurhash` | widening of `ImagePipe.Output` | The shared terminal computation [pipelines §Design principles 4]: `compute(image) :: {:ok, String.t()} \| {:error, term}` (4×3, fixed sRGB/tone-mapped pixel space) + `identity() :: {:blurhash, 1}` for representation material. |
 | `ImagePipe.ContractKit.CacheKey` / `ImagePipe.ContractKit.RequestSafety` | `test/support` only | `use`-macros generating the contract tests [pipelines §Enforcement model, layer 4]. |
 
@@ -160,7 +160,10 @@ defmodule ImagePipe.Representation do
   # vary = material.vary_header_names
   @spec storage_inputs(Plug.Conn.t(), [{:header, String.t()} | {:cookie, String.t()}]) ::
           {storage_only :: keyword(), vary_header_names :: [String.t()]}
-  # headers contribute value→storage_only AND name→vary; cookies value→storage_only only
+  # headers contribute value→storage_only AND name→vary; cookies value→storage_only only.
+  # Header names are normalized case-insensitively (lowercased), deduplicated, and
+  # both outputs are deterministically ordered — identity material and Vary must not
+  # depend on config list order or spelling.
 end
 ```
 
@@ -172,7 +175,7 @@ Both digests go through `ImagePipe.MaterialDigest`. Dialects never concatenate k
 | --- | --- |
 | transform groups | `representation` |
 | terminal: `:image`, or the terminal computation's identity (`Output.Terminal.Blurhash.identity()` → `{:blurhash, 1}`) | `representation` |
-| the **full parsed output policy** — `Cache.Key.output_policy_material(plan_output)` over the dialect-built `%Plan.Output{}` (carries `q` and, crucially, the constructor defaults for metadata/color/HDR/flatten/encoder options, so a core default change rides identity via the material, not luck) [native §identity table: "parsed output policy"] | `representation` |
+| the **effective output policy** — `Output.Policy.identity_material(policy)` over the same `%Policy{}` that later drives `Policy.resolve/2` and encode (carries `q` and, crucially, the effective defaults for quality/metadata/color/HDR/flatten/encoder options, so a default change — constructor or future host config — rides identity via the material, not luck) [native §identity table: "parsed output policy"] | `representation` |
 | the selection outcome (`{:image, format}` from explicit `format` or negotiation head, or `:source_negotiated`; nothing for a fixed terminal) | `representation` |
 | configured storage-vary values (`storage_inputs` config) | `storage_only` |
 | source | separate `source_identity` (from `Source.Resolved`) |
@@ -186,11 +189,15 @@ defmodule ImagePipe.Transform.DecodePlanner.Request do
   defstruct resize_target: nil,       # {w, h} display-frame px extent of the FIRST resize, or nil
             crop_extent: nil,         # {w, h} display-frame px crop extent before that resize, or nil
             trim?: false,             # a trim precedes the first resize → no shrink (dims redefined)
-            terminal_reduction: nil   # {w, h} terminal working frame (blurhash → {32, 32}), or nil
+            terminal_reduction: nil,  # {w, h} terminal working frame (blurhash → {32, 32}), or nil
+            required_extent: nil      # {w, h} MINIMUM loaded display-frame extent that must survive
+                                      # decode — a floor, not a target (the ordered spike's preflight
+                                      # speaks this field; forcing it into resize_target would misstate
+                                      # semantics). Shrink is capped so loaded dims stay ≥ this floor.
 end
 ```
 
-`open_options_for(%Request{}, source_format, {src_w, src_h}, exif_quarter_turn? \\ false, auto_rotate? \\ false) :: keyword()` — always `[access: :sequential, fail_on: :error]` plus jpeg `shrink:`/webp `scale:` computed with the same math as today's `open_options/5` (crop-extent `MinNonZero` bound, block-IDCT powers of two): `trim?` → no shrink; `resize_target` present → it governs; else `terminal_reduction` governs (the #377 case: `/output=blurhash` with no resize still shrinks on load); neither → no shrink. Quarter-turn axis swap identical to today.
+`open_options_for(%Request{}, source_format, {src_w, src_h}, exif_quarter_turn? \\ false, auto_rotate? \\ false) :: keyword()` — always `[access: :sequential, fail_on: :error]` plus jpeg `shrink:`/webp `scale:` computed with the same math as today's `open_options/5` (crop-extent `MinNonZero` bound, block-IDCT powers of two): `trim?` → no shrink; `resize_target` present → it governs; else `terminal_reduction` governs (the #377 case: `/output=blurhash` with no resize still shrinks on load); neither → no shrink from those inputs. Independently, `required_extent` caps the chosen shrink so loaded dims never fall below the floor (applies whichever input governed). Quarter-turn axis swap identical to today.
 
 ### Toolkit facts (verified against the code, 2026-07-13; each task re-verifies its own call sites)
 
@@ -217,7 +224,7 @@ end
 7. **Signing config:** `keys: ["<hex>", ...]` (ordered, first signs), no salts. `sig=` on a keyless instance is a 400 (unknown-segment diagnostic with a specific message), keys configured + missing/invalid sig → 403 terse body.
 8. **Resize-intent inertness:** resize intent = at least one concrete (non-`auto`) px dimension. `fit` and `enlarge` require it; a lone or doubled `auto` dimension is inert (400). Extends the spec's Tier-2 table where it is silent; reflect into the spec post-probe.
 9. **Terminal computations are core toolkit** (`Output.Terminal.Blurhash.compute/1` + `identity/0`); the identity tuple enters `representation`, so terminal behavior changes reach key + ETag.
-10. **Identity reads the full output policy**, not just `q`: `Cache.Key.output_policy_material/1` over the dialect-built `%Plan.Output{}`, plus the selection outcome from `Output.Policy.identity_selection/1` — both core-owned so dialect identity cannot drift from encode behavior.
+10. **Identity reads the effective output policy**, not just `q`: `Output.Policy.identity_material/1` + `identity_selection/1` over the SAME `%Policy{}` that later drives `resolve/2` and encode — core-owned, so dialect identity cannot drift from encode behavior, and any future host policy knob rides identity automatically.
 11. **Task 14 is transitional (Choice A):** the probe tests dialect-owned request orchestration over the retained neutral geometry compiler; mirror/continuation collapse is a separate post-probe decision informed by report section 7.
 
 ### Fixed stage order within a group (probe subset of [native §Pipeline groups])
@@ -349,15 +356,17 @@ Raw request path → structured, byte-spanned segments. Inputs come from `conn.r
 # handling, NO source search, NO diagnostics — this runs before verification.
 
 @spec extract(Plug.Conn.t()) ::
-        {:ok, %{sig: {value :: String.t(), span} | nil,
-                signed_path: String.t(),          # raw bytes after the sig segment (MAC input)
-                segments: [{raw :: String.t(), span}],   # option/then segments, spans into the raw path
+        {:ok, %{segments: [{raw :: String.t(), span}],   # option/then segments, spans into the raw path
                 source: {:src | :src64, raw_tail :: String.t(), span}}}
         | {:error, [Diagnostic.t()]}   # Diagnostic defined in Task 6; until then a plain map with :reason and :span
 # span :: {byte_offset, byte_length} into the mount-relative raw path
 # Full lexing — called only AFTER Signature.verify succeeds (the chain enforces
-# the order; a test in Task 8 pins it via the duplicate-slash case).
+# the order; a test in Task 8 pins it via the duplicate-slash case). It skips a
+# leading sig segment internally but does NOT return signature data — the raw
+# prefix has exactly one interpreter, split_signature/1.
 ```
+
+Mount-prefix caveat (document in `Native`'s `@moduledoc` and test): `conn.script_name` is Plug's decoded segment list, not a byte-exact raw prefix, so stripping it from `conn.request_path` is byte-exact only when the mount path is canonical unescaped ASCII. Require that of hosts in v1 (raise at `init/1` if a script_name segment round-trips unequal through percent-encoding); a config-supplied raw prefix is the future escape hatch.
 
 Rules (each a test): non-empty query string → error; `sig=` only valid first; `src`/`src64` terminal (missing → error, never a source guess); `src` tail percent-decoded exactly once, malformed escapes → error; `src64` exactly one unpadded url-b64 segment (embedded `/` or `=` → error); percent escapes in option segments → error; empty segments (duplicate slashes) and dot segments → error. For `split_signature/1`: pure split behavior on signed/unsigned/duplicate-slash/garbage paths — it must never error and never allocate diagnostics.
 
@@ -376,7 +385,7 @@ Rules (each a test): non-empty query string → error; `sig=` only valid first; 
 
 **Interfaces:**
 - Consumes: `Native.Path.extract/1`, `Native.Value.*`.
-- Produces: `Native.Parser.parse(conn, config) :: {:ok, Native.Request.t()} | {:error, {:invalid_request, [Diagnostic.t()]}}` and `Native.OptionSpec.all/0 :: [%OptionSpec{}]`.
+- Produces: `Native.Parser.parse(lexed, config) :: {:ok, Native.Request.t()} | {:error, {:invalid_request, [Diagnostic.t()]}}` (consumes Task 4's lexed map — `Parser` never touches the conn; `Path` owns all raw-path/HTTP concerns); `Native.Parser.parse_option_fragment(string, config) :: {:ok, group_options} | {:error, [Diagnostic.t()]}` — a narrow surface parsing ONE source-free, `then`-free option group over the same segment/value machinery (Task 7's preset validation and expansion consume this; config validation must not recursively invoke the full request parser); and `Native.OptionSpec.all/0 :: [%OptionSpec{}]`.
 
 `%OptionSpec{key, scope (:group | :request), value (parser fun or :flag), stage, default, prerequisites, conflicts, identity (:representation | :gate), terminal_applicability, summary, examples}` — one struct per probe-subset option (`w h fit enlarge crop region anchor focus blur trim pad bg output format q expires preset`), driving key lookup, scope/duplicate validation, value dispatch, terminal-applicability rejection, and the completeness test ("every option declares all fields plus ≥ 1 example") [native §Architecture, option schema]. The table drives mechanical concerns only; complex semantics stay ordinary code.
 
@@ -421,7 +430,7 @@ Bounds (constants, each tested): max option segments per request (64), max colle
 
 **Files:** Create `lib/image_pipe/dialect/native/presets.ex`; Test `test/image_pipe/dialect/native/presets_test.exs`. Modify `config.ex` (validate preset strings parse at `init/1` — a config-time raise, they are host config), `parser.ex` (expansion before validation passes).
 
-Semantics [native §Presets, trimmed to probe]: presets are native-dialect option strings (no `then`, no `preset`, no `src`); `preset=<name>` request-scoped; expansion order `default` preset < named presets in URL order < explicit URL options, per-key displacement across levels, normal duplicate rule within a level; unknown preset → 400; preset names never reach the canonical request (test: same URL with/without an overridden-away preset yields equal `%Native.Request{}` — cache-key transparency then follows from Task 10 for free).
+Semantics [native §Presets, trimmed to probe]: presets are native-dialect option strings (no `then`, no `preset`, no `src`), parsed via `Native.Parser.parse_option_fragment/2` (Task 5) both at `init/1` validation time and at expansion time; `preset=<name>` request-scoped; expansion order `default` preset < named presets in URL order < explicit URL options, per-key displacement across levels, normal duplicate rule within a level; unknown preset → 400; preset names never reach the canonical request (test: same URL with/without an overridden-away preset yields equal `%Native.Request{}` — cache-key transparency then follows from Task 10 for free).
 
 - [ ] Steps: failing tests (precedence chain, unknown preset, config-time raise on an invalid preset string, transparency property) → implement → green → commit — `feat(dialect): minimal native presets with strict precedence`
 
@@ -435,23 +444,30 @@ Semantics [native §Presets, trimmed to probe]: presets are native-dialect optio
 
 ```elixir
 @spec verify(sig_segment :: String.t() | nil, signed_path :: String.t(), config) ::
-        :ok | {:ok, key_index :: non_neg_integer()} | {:error, :missing_signature | :invalid_signature | :signature_without_keys}
+        {:ok, key_index :: non_neg_integer() | nil}
+        | {:error, :missing_signature | :invalid_signature | :signature_without_keys}
+# {:ok, nil} = legitimately unsigned (no keys configured, no sig present);
+# {:ok, index} = verified with that key. One shape — the chain's
+# `{:ok, key_index} <- verify(...)` never needs a special unsigned branch,
+# and `:sig_key_index` metadata receives the value verbatim.
 @spec sign(path :: String.t(), config) :: String.t()   # first key; for tests and URL helpers
 ```
 
-Rules, each a test [native §Signing, §Byte-level contract]: inputs come from `Path.split_signature/1` (Task 4's raw pre-parse split — `verify/3` must be callable without any lexing having run); MAC = HMAC-SHA256 over the raw bytes after the sig segment (from the following `/` to end of path, query excluded, mount-relative); unpadded url-b64, exactly 43 chars, non-canonical encodings rejected; ordered key list, first signs, each tried with `Plug.Crypto.secure_compare/2`; keys configured + missing/invalid → `:missing_signature`/`:invalid_signature` (→ 403, terse body, no spans); no keys + `sig=` present → `:signature_without_keys` (→ 400); no keys + no sig → `:ok`. The matched key index is returned by `verify/3`; the `[:parse]` span that carries it as `:sig_key_index` stop metadata is wired in Task 15 (which also owns the `Trace.Capture` `@safe_keys` addition, `docs/telemetry.md`, and the capture test — this task only tests the return value). Property: sign → verify round-trip over arbitrary option paths. Ordering test: a signed path containing a duplicate slash **verifies** (MAC over the raw bytes as sent) and only then 400s at parse (empty segment) — 400, never 403 [native §Byte-level contract]. `expires` (request-scoped option from Task 5): past unix timestamp → 404 gate in the chain; not identity material.
+Rules, each a test [native §Signing, §Byte-level contract]: inputs come from `Path.split_signature/1` (Task 4's raw pre-parse split — `verify/3` must be callable without any lexing having run); MAC = HMAC-SHA256 over the raw bytes after the sig segment (from the following `/` to end of path, query excluded, mount-relative); unpadded url-b64, exactly 43 chars, non-canonical encodings rejected; ordered key list, first signs, each tried with `Plug.Crypto.secure_compare/2`; keys configured + missing/invalid → `:missing_signature`/`:invalid_signature` (→ 403, terse body, no spans); no keys + `sig=` present → `:signature_without_keys` (→ 400); no keys + no sig → `{:ok, nil}`. The matched key index is returned by `verify/3`; the `[:parse]` span that carries it as `:sig_key_index` stop metadata is wired in Task 15 (which also owns the `Trace.Capture` `@safe_keys` addition, `docs/telemetry.md`, and the capture test — this task only tests the return value). Property: sign → verify round-trip over arbitrary option paths. Ordering test: a signed path containing a duplicate slash **verifies** (MAC over the raw bytes as sent) and only then 400s at parse (empty segment) — 400, never 403 [native §Byte-level contract]. `expires` (request-scoped option from Task 5): past unix timestamp → 404 gate in the chain; not identity material.
 
 - [ ] Steps: failing tests → implement → green → commit — `feat(dialect): native signing (ordered keys, verify-before-parse) + expires gate`
 
 ---
 
-### Task 9: Core `ImagePipe.Representation` + `Cache.lookup_entry/2` + `Cache.Key.output_policy_material/1`
+### Task 9: Core `ImagePipe.Representation` + `Cache.lookup_entry/2`
 
 **Files:**
 - Create: `lib/image_pipe/representation.ex`, `lib/image_pipe/representation/identity_material.ex`
-- Modify: `lib/image_pipe/cache.ex` (add `lookup_entry/2`), `lib/image_pipe/cache/key.ex` (extract the public `output_policy_material/1` from the private `output_plan_data/2` — the framework's `build/4` keeps byte-identical key data, pinned by the existing `cache/key` tests), `lib/image_pipe/dialect/native.ex` (uncomment the `ImagePipe.Representation` dep)
+- Modify: `lib/image_pipe/cache.ex` (add `lookup_entry/2`), `lib/image_pipe/dialect/native.ex` (uncomment the `ImagePipe.Representation` dep)
 - Modify: `test/image_pipe/architecture_boundary_test.exs` (registry + deps/exports for the new boundary)
-- Test: `test/image_pipe/representation_test.exs`, `test/image_pipe/cache/lookup_entry_test.exs`, `test/image_pipe/cache/output_policy_material_test.exs`
+- Test: `test/image_pipe/representation_test.exs`, `test/image_pipe/cache/lookup_entry_test.exs`
+
+(The effective-output-policy identity material lives in `Output.Policy.identity_material/1`, Task 15 — this task's `Representation.build/2` is category-agnostic and just digests what it's given.)
 
 Implement exactly the Design Reference contract. Key/ETag/Vary derivations are core-owned; the one-way property is structural: `build/2` accepts only `source_identity` (keyword material) + `%IdentityMaterial{}` — there is no function anywhere that accepts fetched bytes. `lookup_entry/2` mirrors `lookup/4`'s adapter dispatch, `[:cache, :lookup]` span, and fail-open read-error → miss behavior (share private helpers inside `cache.ex` where trivial; do not change `lookup/4`'s signature or behavior).
 
@@ -472,18 +488,18 @@ Implement exactly the Design Reference contract. Key/ETag/Vary derivations are c
 **Files:** Create `lib/image_pipe/dialect/native/identity.ex`; Test `test/image_pipe/dialect/native/identity_test.exs`.
 
 **Interfaces:**
-- Consumes: `%Native.Request{}`, the negotiation selection — **this task owns the shape**: `selection :: %{selected: {:image, Output.format() | :source_negotiated} | {:terminal, :blurhash}, vary?: boolean()}` (Task 15's `negotiate/3` later produces exactly this map; `{:terminal, _}` always has `vary?: false`), `Representation.storage_inputs/2`, `Cache.Key.output_policy_material/1` (Task 9).
-- Produces: `Native.Identity.material(request, selection, conn, config) :: Representation.IdentityMaterial.t()`; `Native.Identity.plan_output(request) :: %Plan.Output{}` (mode from `format` presence, `quality` from `q`, all other fields constructor defaults — Task 15's negotiate reuses this, so identity and encode read the same struct); `@dialect_epoch 1` exposed as `{ImagePipe.Dialect.Native, 1}`.
+- Consumes: `%Native.Request{}`, the negotiation outcome — **this task owns the shape**: `negotiation :: %{selected: {:image, Output.format() | :source_negotiated} | {:terminal, :blurhash}, vary?: boolean(), policy_material: keyword()}` (Task 15's `negotiate/3` later produces exactly this map; `{:terminal, _}` always has `vary?: false` and `policy_material: []`; for `{:image, _}` the `policy_material` is `Output.Policy.identity_material/1` over the SAME `%Policy{}` that later drives `resolve/2` and encode), `Representation.storage_inputs/2`.
+- Produces: `Native.Identity.material(request, negotiation, conn, config) :: Representation.IdentityMaterial.t()`; `Native.Identity.plan_output(request) :: %Plan.Output{}` (mode from `format` presence, `quality` from `q`, all other fields constructor defaults — Task 15's negotiate builds its `%Policy{}` from this; if a host output-policy config knob is ever added, it is applied here/in `from_output_plan`, and identity follows automatically via `identity_material/1`); `@dialect_epoch 1` exposed as `{ImagePipe.Dialect.Native, 1}`.
 
-Composition per the identity table in the Design Reference. The `representation` keyword must be built from the canonical request + selection only (groups + terminal identity + `output_policy_material(plan_output(request))` + selection outcome) — a test asserts `expires`/signature never appear in it; `conn` contributes only via `storage_inputs`.
+Composition per the identity table in the Design Reference. The `representation` keyword must be built from the canonical request + negotiation outcome only (groups + terminal identity + `policy_material` + selection outcome) — a test asserts `expires`/signature never appear in it; `conn` contributes only via `storage_inputs`.
 
 - [ ] **Step 1: Failing tests** —
   - two spellings of the same group (permuted options) → identical material (composes with Task 5's property)
   - different `Accept` headers selecting the same format → identical material; different selected formats → different `representation`; two no-modern-candidate headers (`Accept: image/jpeg` vs no header) → identical material via the `:source_negotiated` sentinel (Task 15's normalization rule)
-  - automatic negotiation puts the name `"Accept"` in `vary_header_names` (when `selection.vary?`); explicit format and the blurhash terminal put nothing there
+  - automatic negotiation puts the name `"Accept"` in `vary_header_names` (when `negotiation.vary?`); explicit format and the blurhash terminal put nothing there
   - explicit `format` → selection is `{:image, format}` regardless of `Accept`
   - blurhash terminal: selection is `{:terminal, :blurhash}`; `Output.Terminal.Blurhash.identity()` enters `representation` (no image selection outcome does); an `:image`-vs-`:blurhash` request differs
-  - output-policy material present: two requests differing only in `q` differ in `representation`; the material carries the constructor-default policy fields even when no output option is spelled (assert on the material keyword)
+  - output-policy material present: two requests differing only in `q` differ in `representation`; the material carries the effective-default policy fields even when no output option is spelled (assert on the material keyword); two hand-built `%Policy{}` variants differing only in `default_quality` yield different `representation` and different ETags (the effective-policy rule — no host knob exposes this on the wire today, so it is pinned at the unit level)
   - `expires`, sig data: never in any category
   - configured `storage_inputs` header: in key, not ETag, name in vary (integration with Task 9)
 - [ ] **Steps 2–5:** verify failure → implement → green → commit — `feat(dialect): native identity material composition`
@@ -496,7 +512,7 @@ Composition per the identity table in the Design Reference. The `representation`
 
 Implement exactly the Design Reference contract, refactoring the shrink math into private helpers shared by both entry points — `open_options/5`'s observable behavior is pinned by `test/image_pipe/decode_planner_test.exs` (run it before and after).
 
-- [ ] **Step 1: Failing tests** — parity: for a chain equivalent to `{resize_target, crop_extent}`, `open_options_for` returns exactly what `open_options` returns (table over jpeg/webp/png, both quarter-turn values); `trim?: true` → no shrink; terminal-only: `%Request{terminal_reduction: {32, 32}}` on a 3200×2400 jpeg → `shrink: 8` (the #377 guard: a tiny terminal frame still informs load shrink); resize beats terminal hint when both present; no inputs → no shrink keys.
+- [ ] **Step 1: Failing tests** — parity: for a chain equivalent to `{resize_target, crop_extent}`, `open_options_for` returns exactly what `open_options` returns (table over jpeg/webp/png, both quarter-turn values); `trim?: true` → no shrink; terminal-only: `%Request{terminal_reduction: {32, 32}}` on a 3200×2400 jpeg → `shrink: 8` (the #377 guard: a tiny terminal frame still informs load shrink); resize beats terminal hint when both present; `required_extent` floor caps a deeper shrink (e.g. terminal hint wants `shrink: 8` but `required_extent: {1600, 1200}` allows only `shrink: 2`); no inputs → no shrink keys.
 - [ ] **Steps 2–5:** verify failure → implement → green (including the untouched `decode_planner_test.exs`) → commit — `feat(core): typed decode-plan request with terminal-aware shrink`
 
 ---
@@ -565,18 +581,23 @@ Per group, in the fixed stage order, the dialect builds each stage's semantic op
 ```elixir
 defp run_op(state, shape, plan_op, opts) do
   {ops, continuation} = NeutralResolver.resolve(shape, nil, plan_op)
-  with {:ok, state} <- Chain.execute(state, ops, opts) do
-    case continuation do
-      {:advance, shape, nil} ->
-        {:ok, state, shape}
-      {:measure, tag, nil} ->
-        dims = live_dims(state)                       # Vix header read, no pixel work
-        case NeutralResolver.continue(tag, dims, shape, nil) do
-          {%SourceShape{} = shape, nil} -> {:ok, state, shape}
-          {tail_ops, {:advance, shape, nil}} ->
-            with {:ok, state} <- Chain.execute(state, tail_ops, opts), do: {:ok, state, shape}
-        end
-    end
+  with {:ok, state} <- Chain.execute(state, ops, opts),
+       do: follow(state, shape, continuation, opts, _depth = 0)
+end
+
+# Interprets the retained core compiler's closed continuation type GENERICALLY:
+# `continue/4` may return a further {ops, continuation} stage (the contract is
+# recursive), so don't assume one measure → one advance-tail. Defensive depth
+# cap (@max_continuation_depth 4) — exceeding it is a core-contract bug, crash.
+defp follow(state, _pre_shape, {:advance, shape, nil}, _opts, _depth), do: {:ok, state, shape}
+
+defp follow(state, pre_shape, {:measure, tag, nil}, opts, depth) when depth < @max_continuation_depth do
+  dims = live_dims(state)                              # Vix header read, no pixel work
+  case NeutralResolver.continue(tag, dims, pre_shape, nil) do
+    {%SourceShape{} = shape, nil} -> {:ok, state, shape}
+    {tail_ops, continuation} ->
+      with {:ok, state} <- Chain.execute(state, tail_ops, opts),
+           do: follow(state, pre_shape, continuation, opts, depth + 1)
   end
 end
 ```
@@ -587,7 +608,7 @@ end
 
 After the last group: flush boundary — if `shape.pending_orientation` is non-identity emit `%Flush{}` through `Chain`, else clear (mirror `Executor.flush_boundary/4`; streaming fast path preserved). The dialect never touches storage-frame values; all compensation happens inside `NeutralResolver`/`Lowering`/`ResizePlanning`/flush [pipelines §Source-dependent planning].
 
-- [ ] **Step 1: Failing unit tests** — for a fixed `SourceGeometry`, assert the exact executable op sequences emitted per group for: plain `w=800`; `fit=cover/w=300/h=400/focus=…` (resize + result crop with `{:fp, …}` gravity); `crop=600,400/anchor=smart/w=300`; `region=10,20,100,200`; pct crops resolved against current display dims; `w=500/then/trim=fff` (group boundary: trim runs on post-resize dims — the cheap-trim contract); pad+bg emission order.
+- [ ] **Step 1: Failing unit tests** — `follow/5` exercises **every continuation tag reachable by the probe's operations** (`:trim`, `:resize`, `{:resize_tail, _}`, `{:resize_flush_tail, _}` — enumerate against `NeutralResolver.continue/4`'s clauses at implementation time) and crashes past the depth cap; then, for a fixed `SourceGeometry`, assert the exact executable op sequences emitted per group for: plain `w=800`; `fit=cover/w=300/h=400/focus=…` (resize + result crop with `{:fp, …}` gravity); `crop=600,400/anchor=smart/w=300`; `region=10,20,100,200`; pct crops resolved against current display dims; `w=500/then/trim=fff` (group boundary: trim runs on post-resize dims — the cheap-trim contract); pad+bg emission order.
 - [ ] **Step 2: Failing pixel tests** — decode a real fixture through Task 11's bracket and assert output dimensions for contain/cover/cover-down/stretch/auto; cover result-crop dims exact at ±1-prone sizes; trim-after-resize produces the small trim (assert via dimensions), `decode_request/2` preflight values for each case.
 - [ ] **Steps 3–6:** verify failure → implement → green → commit — `feat(dialect): inline geometry planner and group executor`
 
@@ -604,18 +625,20 @@ After the last group: flush boundary — if `shape.pending_orientation` is non-i
 **Telemetry ownership (this task):** the dialect emits the standard `[:request]` span around `call/2` and the `[:parse]` span around split → verify → lex → parse (stop metadata carries `:sig_key_index` from Task 8's verify return, nil when unsigned), using `Telemetry.span/4` + `Telemetry.telemetry_opts/1`. These are existing stage names — no Logger/Capture *subscription* changes; only the `@safe_keys` metadata allowlist entry, its Capture test, and the `docs/telemetry.md` line (per the AGENTS telemetry sync rule). Task 18's kit asserts the spans fire.
 
 **Interfaces:**
-- `negotiate(conn, request, config)`: blurhash terminal → `%{selected: {:terminal, :blurhash}, vary?: false}` (no policy negotiation). Image terminal → `Native.Identity.plan_output(request)` (Task 10) → `Output.Policy.from_output_plan/3` + `ensure_capable/2` (encode-time resolution stays `Policy.resolve/2` post-decode) → **`Output.Policy.identity_selection(policy)`**, a NEW public pure function this task adds to `lib/image_pipe/output/policy.ex` (refactoring the private `resolve_before_source_fetch/1` decision — do not duplicate it into the dialect, where it would drift from encode selection):
+- `negotiate(conn, request, config)`: blurhash terminal → `%{selected: {:terminal, :blurhash}, vary?: false, policy_material: []}` (no policy negotiation). Image terminal → `Native.Identity.plan_output(request)` (Task 10) → `Output.Policy.from_output_plan/3` + `ensure_capable/2` (encode-time resolution stays `Policy.resolve/2` post-decode) → **`Output.Policy.identity_selection(policy)`** and **`Output.Policy.identity_material(policy)`**, two NEW public pure functions this task adds to `lib/image_pipe/output/policy.ex` (selection refactors the private `resolve_before_source_fetch/1` decision; material canonicalizes the effective byte-affecting policy per the Design Reference table — do not duplicate either into the dialect, where they would drift from encode behavior). **One-`%Policy{}` invariant:** the exact struct returned by `from_output_plan/3` is used for identity material, for `Policy.resolve/2`, and for encode — never rebuilt in between. Selection rule:
   - `{:explicit, format}` → selection `{:image, format}`, `vary?: false`;
   - `{:auto_head, format}` (non-empty `modern_candidates` head — the format that will actually be encoded) → `{:image, format}`, `vary?: true`;
   - `:source_negotiated` (empty candidates) → the fixed sentinel — **never** a concrete source-derived format, which is unknowable pre-fetch. Sound because the eventual jpeg-vs-png divergence is a deterministic function of `source_identity` + groups + core epoch, all already in the identity. `vary?: true`.
+  The negotiation map's `policy_material` is `identity_material(policy)`.
   Add an **agreement property test**: for every policy shape and source format, when `identity_selection/1` returns a concrete format, `Policy.resolve(policy, source_format)` encodes exactly that format — the guarantee that identity and encode cannot diverge. Normalize to the **single selected format only** — do NOT carry the candidate list into `representation`. The framework's `HTTPCache.accept_material/3` keys the whole candidate list; that is the old behavior this design deliberately replaces ("two headers that both negotiate AVIF share a cache entry and an ETag" [pipelines §Enforcement 2]) — do not mirror it. Acceptance: the contract-kit `same_selection` cases, including the no-modern bucket (Task 18).
-- `Native.Delivery.stream(conn_owner_pid, build_fun, representation, response_meta, config) :: {:ok, %Response.PreparedStream{}} | {:error, term}` — **monitor-based, no OTP supervisor**: the conn process `spawn_monitor`s the producer/session pair (modeled on `Request.SourceSession`/`Producer`, simplified: no custom-render branch, no detector identity). The dialect must NOT reuse `Request.SourceSessionSupervisor`, and must NOT add a child to `application.ex` (core naming the dialect breaks the acid test) — process lifecycle is owned entirely by the monitor pair; cleanup on owner-DOWN. Runs `build_fun` (fetch→decode→transform→encode via `Encoder.stream_output/3`) in the producer, first chunk back, `Cache.open_sink(representation.cache_key, resolved_output, config)` + incremental `write_chunk`/`commit_sink`/`abort_sink` interleave, owner-DOWN → halt + abort. Ownership table (feeds the exit-criteria report): producer owns the vips image + source stream; the session owns the sink; the `%PreparedStream{}` `cancel` closure is the one public teardown; cleanup idempotent [pipelines §Design principles 1, streaming corner case].
+- `Native.Delivery.stream(conn_owner_pid, build_fun, representation, response_meta, config) :: {:ok, %Response.PreparedStream{}} | {:error, term}` — **monitor-based, no OTP supervisor**: the conn process `spawn_monitor`s the producer/session pair (modeled on `Request.SourceSession`/`Producer`, simplified: no custom-render branch, no detector identity). The dialect must NOT reuse `Request.SourceSessionSupervisor`, and must NOT add a child to `application.ex` (core naming the dialect breaks the acid test) — process lifecycle is owned entirely by the monitor pair; cleanup on owner-DOWN. Runs `build_fun` (fetch→decode→transform→encode via `Encoder.stream_output/3`) in the producer, first chunk back, `Cache.open_sink(representation.cache_key, resolved_output, config)` + incremental `write_chunk`/`commit_sink`/`abort_sink` interleave, owner-DOWN → halt + abort. **Bracket-containment invariant** [pipelines §Design principles 1, streaming corner case]: the producer process enters `Source.with_fetched` and `Decode.with_image` and its chunk-pump loop runs **inside** both callbacks until encoder EOF or cancellation — only encoded chunks cross the process boundary; the lazy vips image and the encoder `Enumerable` never escape the brackets (a `build_fun` that returns the enumerable outward for someone else to pull is a bug: the brackets would exit while later chunks still reference their resources). Lifecycle test: instrument the bracket cleanup (a probe hook or a temp-resource sentinel) and assert cleanup has NOT run after prepare and after the first chunk, and HAS run exactly once after EOF and after mid-stream cancellation — stronger than observing eventual producer termination. Ownership table (feeds the exit-criteria report): producer owns the vips image + source stream; the session owns the sink; the `%PreparedStream{}` `cancel` closure is the one public teardown; cleanup idempotent [pipelines §Design principles 1, streaming corner case].
 - `Native.Errors.send(conn, error, config)` — dialect-owned mapping: `{:invalid_request, diags}` → 400 `text/plain` rendered diagnostics; `{:missing_signature | :invalid_signature, _}` → 403 terse; `:expired` → 404; source/decode/limit/encode errors → statuses via `Response.ErrorStatus.classify/1` defaults. `ErrorStatus` is NOT currently exported from the `Response` boundary — this task adds it to `ImagePipe.Response`'s `exports:` and updates the arch test's `assert_boundary_exports(response, …)` list (same move Task 16 makes for `Conditional`).
 - Delivery reuses `Response.Sender.send_result/3` with `{:ok, {:prepared_stream, prepared, %Plan.Response{}, cache_headers}}` where `cache_headers = %Response.CacheHeaders{etag: representation.etag, representation_headers: vary_headers, headers: []}` (verify field composition against `Sender` expectations at implementation time).
 
 - [ ] **Step 1: Failing wire tests** (each a named test; rig per Design Reference):
   - `GET /w=64/src/images/cat.jpg` → 200, image body, decoded dims 64×?, `content-type` per negotiation
-  - `Accept: image/avif` vs no Accept → different content types, both `Vary: Accept`, `ETag` present and **equal** when the selected format is equal across different Accept spellings
+  - different selection: `Accept: image/avif` vs no `Accept` → different content types and different ETags, both `Vary: Accept`
+  - same selection, different spellings: `Accept: image/avif` vs `Accept: image/avif,image/webp` (both select avif) → equal ETag and equal captured cache key
   - `/format=webp/...` → webp, **no** `Vary`
   - `/format=jpeg/q=42/...` differs in bytes from `/format=jpeg/q=90/...` (explicit lossy format so quality reliably alters bytes; representation identity carries q)
   - cache write on miss: one request → `CacheProbe` sees `:cache_lookup` (miss) then `:cache_put`; two semantically equivalent (permuted-option) URLs produce the **same captured key**. (Served-from-cache reuse asserts land in Task 16, where the hit branch exists.)
@@ -647,7 +670,7 @@ Semantics [native §Terminal contracts]: after all groups + flush, reduce intern
 **Complete-body cache write requires a scoped core widening** — the sink and entry are image-format-coupled at three verified points: `Sink.open` derives content type via `Format.mime_type!(resolved_output.format)` (raises for non-image), `Entry.Metadata` stores an image `output_format`, and `Entry.validate_content_type` rejects anything that doesn't map back to an image format — so a text body cannot pass through `Cache.open_sink(%Key{}, %Output.Resolved{}, opts)` today. Widen (files: `lib/image_pipe/cache.ex`, `lib/image_pipe/cache/sink.ex`, `lib/image_pipe/cache/entry.ex`): a `Cache.open_sink/3` clause accepting `{:complete_body, content_type :: String.t()}` in place of the `%Output.Resolved{}`, and a **tagged representation in the entry metadata** — `representation: {:image, output_format} | {:complete_body, content_type}` (do NOT overload the image-format field with a fake atom; the framework keeps producing the `{:image, _}` variant unchanged, preserving parallel-stack behavior) — plus the matching `Entry` validation branch. **Task 16's cache-hit delivery branch must also be extended here**: a `{:complete_body, _}` entry is sent as a plain complete body with its stored content type (it must not flow through image-entry delivery that assumes an encoder output). Tests: entry round-trip with `text/plain; charset=utf-8`; a warmed blurhash entry served on hit with the right content type; fail-open preserved on sink errors; existing image-entry validation unchanged. Record the widening in Task 21.6.
 Decode planning: `decode_request/2` returns `terminal_reduction: {32, 32}` composed with any user resize (resize still governs when present).
 
-- [ ] **Step 1: Failing tests** — unit: known fixture → BlurHash string is stable and plausibly shaped (`^[0-9A-Za-z#$%*+,\-.:;=?@\[\]^_{|}~]+$`, length for 4×3); pixel-space invariance: a wide-gamut/ICC-profiled source fixture yields the same blurhash as its sRGB twin (reuse the color-management test sources — check `SourceInventory` `consumers` before touching any); decode-plan assertion: blurhash with no resize on a large jpeg gets `shrink` > 1 (ties Task 11's #377 guard to the wire). Wire: `GET /w=32/output=blurhash/src/images/cat.jpg` → 200, `text/plain; charset=utf-8`, no `Vary`, ETag present; conditional GET → 304 before fetch; cached: second request served from cache (CacheProbe order); transforms-affect-terminal: `/blur=5/output=blurhash/...` differs from plain (pixels reach the terminal through the shared transform prefix); `q=50` + blurhash → 400 inert; `format=webp` + blurhash → 400 inert.
+- [ ] **Step 1: Failing tests** — unit: known fixture → BlurHash string is stable and plausibly shaped (`^[0-9A-Za-z#$%*+,\-.:;=?@\[\]^_{|}~]+$`, length for 4×3); pixel-space invariance: for a wide-gamut/ICC-profiled source and its sRGB twin (reuse the color-management test sources — check `SourceInventory` `consumers` before touching any), assert the terminal-normalized reduced frames are pixel-close first; require blurhash **string** equality only if the frames prove byte-identical (rounding in the profile conversion may legitimately differ by ±1/channel — don't write a brittle hash-equality assertion); decode-plan assertion: blurhash with no resize on a large jpeg gets `shrink` > 1 (ties Task 11's #377 guard to the wire). Wire: `GET /w=32/output=blurhash/src/images/cat.jpg` → 200, `text/plain; charset=utf-8`, no `Vary`, ETag present; conditional GET → 304 before fetch; cached: second request served from cache (CacheProbe order); transforms-affect-terminal: `/blur=5/output=blurhash/...` differs from plain (pixels reach the terminal through the shared transform prefix); `q=50` + blurhash → 400 inert; `format=webp` + blurhash → 400 inert.
 - [ ] **Steps 2–4:** implement → green → commit — `feat(dialect): blurhash pixel-tapping terminal with terminal-aware decode planning`
 
 ---
@@ -702,7 +725,7 @@ Matrix [pipelines §exit criteria]: EXIF orientation {1, 6, 8} × operations {`r
 
 **Files:** Create `test/support/image_pipe/ordered_spike/pipeline.ex` (`ImagePipe.Test.OrderedSpike.Pipeline`, not compiled into `lib/`); Test `test/image_pipe/ordered_spike_test.exs`.
 
-A synthetic TwicPics-like ordered interpreter [pipelines §The probe]: a command list like `[{:resize_w, 500}, {:crop_rel, 0.5, 0.5}, {:resize_w, 200}]` evaluated left-to-right with carried local state `%{dims: {w, h}}` — per command: compute executable op against *current measured* dims → `Chain.execute` → measure → update state. Plus `preflight/2`: walk the same command list purely over header dims, propagating a **minimum safe loaded extent** — equivalently a **maximum safe shrink factor** (the direction matters: when uncertain the preflight must demand MORE loaded pixels, never fewer; "conservative" always means less shrink). Relative ops propagate the requirement; absolute ops reset it; unknown-until-measured ops (a trim analog) collapse it to "no shrink". Output shape: `%{minimum_loaded_width: pos_integer, minimum_loaded_height: pos_integer}` (or `:no_shrink`), converted to a `DecodePlanner.Request`.
+A synthetic TwicPics-like ordered interpreter [pipelines §The probe]: a command list like `[{:resize_w, 500}, {:crop_rel, 0.5, 0.5}, {:resize_w, 200}]` evaluated left-to-right with carried local state `%{dims: {w, h}}` — per command: compute executable op against *current measured* dims → `Chain.execute` → measure → update state. Plus `preflight/2`: walk the same command list purely over header dims, propagating a **minimum safe loaded extent** — equivalently a **maximum safe shrink factor** (the direction matters: when uncertain the preflight must demand MORE loaded pixels, never fewer; "conservative" always means less shrink). Relative ops propagate the requirement; absolute ops reset it; unknown-until-measured ops (a trim analog) collapse it to "no shrink". Output shape: `%{minimum_loaded_width: pos_integer, minimum_loaded_height: pos_integer}` (or `:no_shrink`), carried into `DecodePlanner.Request` via the `required_extent` floor field — NOT via `resize_target`, whose output-box-target semantics would be misstated. That the ordered spike needs its own field is itself probe evidence (is the typed request Native-shaped or toolkit-shaped?) — record it in the Task 21 report.
 
 - [ ] **Step 1: Failing tests** — interpreter correctness (dims after each command over a fixture, both orientations); preflight soundness property (StreamData over random command lists: decode with preflight shrink → final pixel dims equal the no-shrink run's — note this pins **geometry soundness only**, not perceptual equivalence: equal final dims can conceal over-shrunk source detail, acceptable for the synthetic geometry-only command set and stated as a limitation in the report); a documented case where no useful bound exists (leading trim) → preflight yields no shrink, and the test records the measured cost delta (decode dims full vs potential) via an assertion on the plan, not wall time.
 - [ ] **Step 2:** implement → green.
@@ -724,10 +747,10 @@ Report sections (each an exit criterion [pipelines §Exit criteria]):
 3. **Error-path/ownership matrix**: rows = fetch failure, client disconnect during fetch, decode rejection, transform failure after partial work, encoder failure after first chunk, cache-lookup failure, cache-write failure, producer cancellation, response-already-sent; columns = observed status/behavior, cleanup owner, error-translation owner, per stack. **Every row must be test-backed, not reasoned**: before filling the matrix, add one named wire test per row to `native_wire_test.exs` (beyond those already scheduled in T15/T16: transform-failure-after-partial-work, encoder-failure-after-first-chunk (inject via a stub encoder or an adapter seam), cache-lookup failure and cache-write failure (failing `CacheProbe` variants), response-already-sent). Include the ownership answers: who owns the source session after encode preparation, who closes it on completion, who aborts on disconnect, who finalizes/aborts the sink, encoder-fails-after-first-chunk behavior.
 4. **Orientation-invariance matrix**: summarize Task 19's results.
 5. **Ordered spike**: Task 20's findings + the decode-bound answer, with the measured cost recorded where no bound exists.
-6. **Core-exports list**: every core module/function the probe consumed (grep the dialect + kits for `ImagePipe.` references), grouped: pre-existing exports, exports widened (`SourceGeometry`, `DecodePlanner.Request`/`open_options_for`, `Conditional`, `ErrorStatus`, `lookup_entry`, `output_policy_material`, `identity_selection`, the complete-body sink/entry variant, `with_fetched`, `Output.Terminal.Blurhash`), new boundaries (`Representation`, `Decode`), and duplicated-not-extracted (delivery session/producer, Processor decode internals + `Decode.SourceFormat`, conditional-match logic) — the draft of the real toolkit surface, with a recommendation per duplicate (extract / keep duplicated / N/A).
-7. **Direct-lowering feasibility** (required by Task 14's transitional scope): what a dialect-callable core "geometry compiler" API would need to expose — above all the deferred-orientation flush/compensation policy — for the `Plan.Operation`/`Transform.Operation` mirror and the continuation vocabulary to actually die; recommendation for the post-probe decision.
+6. **Core-exports list**: every core module/function the probe consumed (grep the dialect + kits for `ImagePipe.` references), grouped: pre-existing exports, exports widened (`SourceGeometry`, `DecodePlanner.Request`/`open_options_for`, `Conditional`, `ErrorStatus`, `lookup_entry`, `Policy.identity_selection`/`identity_material`, the complete-body sink/entry variant, `with_fetched`, `Output.Terminal.Blurhash`), new boundaries (`Representation`, `Decode`), and duplicated-not-extracted (delivery session/producer, Processor decode internals + `Decode.SourceFormat`, conditional-match logic) — the draft of the real toolkit surface, with a recommendation per duplicate (extract / keep duplicated / N/A).
+7. **Direct-lowering feasibility** (required by Task 14's transitional scope): what a dialect-callable core "geometry compiler" API would need to expose — above all the deferred-orientation flush/compensation policy — for the `Plan.Operation`/`Transform.Operation` mirror and the continuation vocabulary to actually die; recommendation for the post-probe decision. Explicitly list the probe's **transitional dependencies** here: the dialect's direct use of `%Plan.Output{}` construction, `Policy.identity_material/1`'s coupling to the `%Policy{}` struct shape, the `DecodePlanner.Request` field set (is it Native-shaped or toolkit-shaped — see the spike's `required_extent` evidence), and the retained continuation vocabulary.
 
-- [ ] **Step 1:** Fill sections 1–6 (add missing error-path wire tests as discovered).
+- [ ] **Step 1:** Fill sections 1–7 (add missing error-path wire tests as discovered).
 - [ ] **Step 2:** `mise run precommit` — full gate green.
 - [ ] **Step 3:** Cross-check every [pipelines §Exit criteria] bullet against this plan's artifacts; note any gap in the report explicitly rather than silently.
 - [ ] **Step 4: Commit** — `docs: dialect-owned pipelines probe report (hop count, change locality, error ownership, exports)`
@@ -738,5 +761,5 @@ Report sections (each an exit criterion [pipelines §Exit criteria]):
 
 - **Spec coverage check**: exit criteria map — end-to-end native requests (T15–T17), ContractKit.CacheKey + RequestSafety (T18), hop-count (T21.1), change-locality (T21.2), error-path completeness + ownership (T15/T21.3), orientation matrix (T19), ordered spike + decode question (T20), core-exports list (T21.6). Probe-subset grammar (T3–T8), canonicalization property (T5), signing byte contract (T8), identity table (T9–T10), source-dependent planning + preflight (T11–T14), pixel-tapping terminal + terminal hint (T11/T17), `then` groups incl. cheap-trim (T5/T14/T15).
 - **Known open verification points, deliberately deferred to implementation time** (each flagged in its task): exact `Image.Blurhash.encode` arity and the sRGB/tone-map conversion calls (T1/T17); `Sender`/`CacheHeaders` field composition for dialect-built headers (T15); Executor state-seeding parity in `Decode.with_image` (T12); encoder-failure injection seam for the error-path matrix (T21.3).
-- **Resolved during plan review** (do not reopen): pre-fetch selected-format identity = explicit format / candidate head / `:source_negotiated` sentinel via the new public `Output.Policy.identity_selection/1` with an encode-agreement property, single format only, never the candidate list (T15); cover staged tails execute unchanged, measured dims only advance the shape, and the dialect drives `NeutralResolver.resolve/3` + `continue/4` directly as stateless toolkit calls — an explicitly transitional geometry scope (T14, Decision 11); signature verification runs on a raw `split_signature/1` byte split before ANY lexing (T4/T8); representation carries the full output-policy material + terminal identity, not just `q` (T9/T10/T17, Decision 10); `auto_rotate?` is a required caller-supplied option of `Decode.with_image` (T12); the `[:request]`/`[:parse]` spans and the `sig_key_index` telemetry surface belong to T15; the complete-body cache write uses a tagged entry-metadata variant and extends T16's hit path (T17); `If-None-Match: *` honored on the cache-hit path only (T16); cache-reuse wire asserts live in T16, T15 asserts key equality + write only.
+- **Resolved during plan review** (do not reopen): pre-fetch selected-format identity = explicit format / candidate head / `:source_negotiated` sentinel via the new public `Output.Policy.identity_selection/1` with an encode-agreement property, single format only, never the candidate list (T15); identity policy material comes from `Output.Policy.identity_material/1` over the one `%Policy{}` used for identity, resolve, and encode (T10/T15, Decision 10); `verify/3` returns `{:ok, key_index | nil}` — one success shape, unsigned = `{:ok, nil}` (T8); cover staged tails execute unchanged, measured dims only advance the shape, and the dialect drives `NeutralResolver.resolve/3` + `continue/4` directly as stateless toolkit calls through a generic depth-capped `follow/5` — an explicitly transitional geometry scope (T14, Decision 11); signature verification runs on a raw `split_signature/1` byte split before ANY lexing, and the full lexer returns no signature data (T4/T8); presets parse through `parse_option_fragment/2`, never the full request parser (T5/T7); `auto_rotate?` is a required caller-supplied option of `Decode.with_image` (T12); the `[:request]`/`[:parse]` spans and the `sig_key_index` telemetry surface belong to T15; the delivery producer pumps chunks INSIDE the fetch/decode brackets — lazy resources never escape, pinned by a bracket-cleanup lifecycle test (T15); the ordered spike's floor rides `DecodePlanner.Request.required_extent`, not `resize_target` (T11/T20); the complete-body cache write uses a tagged entry-metadata variant and extends T16's hit path (T17); `If-None-Match: *` honored on the cache-hit path only (T16); cache-reuse wire asserts live in T16, T15 asserts key equality + write only.
 - **Not in this plan (post-probe, recorded here so nobody "helpfully" adds them)**: `lqip`, `dpr`/`zoom`/`extend`/`rotate`/`flip`/`orient`/effects beyond blur, `cb`, `filename`/`attachment`/`debug`, `format-q`/`autoquality`/`max-bytes`/encoder options, `meta`/`profile`/`hdr`, `on_inert_option: :ignore` + its telemetry event, preset families/pruning/multi-group, machine-readable error bodies, `docs/native_url_api.md`, fiddle integration, framework migration of any dialect, publishing contract kits.
