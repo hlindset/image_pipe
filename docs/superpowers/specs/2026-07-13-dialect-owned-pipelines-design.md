@@ -70,8 +70,10 @@ Consequences:
 - Safety **inside** the primitives: `max_body_bytes` enforced by fetch itself,
   `max_input_pixels` by decode itself. Unskippable, not a contract.
 - HTTP mechanics as pure helpers: `Accept` negotiation + `Vary`,
-  conditional-GET evaluation, error taxonomy → status mapping,
-  disposition/debug-header builders.
+  conditional-GET evaluation, normalized stage-error taxonomy and reusable
+  response/error helpers, disposition/debug-header builders. Core does not
+  own protocol status mapping — the same stage error may be a 400 in one
+  dialect and a 404 in another.
 - The `Representation` builder: dialects supply categorized identity
   material; core alone derives storage key, ETag, and `Vary` from it (see
   Enforcement).
@@ -92,7 +94,10 @@ The dependency arrow is `Dialect.Native → Core`, never the reverse.
   declarative — its business).
 - The visible pipeline chain.
 - Key/ETag data composition from core builders, satisfying the contracts.
-- Error rendering (bodies); dialect-specific response headers.
+- Protocol-level error mapping — from core's normalized stage errors to
+  status, body, and dialect-specific headers (IIIF's spec-mandated statuses,
+  imgproxy's expired→404). Exception: failures after the response has begun
+  are handled by the delivery primitive, which owns that lifecycle.
 - Its docs, wire tests, and contract-kit runs.
 
 ## Seam map
@@ -116,12 +121,16 @@ dialect; dialects cannot reach into each other.
 The operation mirror dies; source-dependent planning does not. Dialects
 perform it locally, after probing and before or during transform execution:
 
-- After `fetch/open`, core exposes the probed source header (format,
-  dimensions, orientation, animation) **in a defined orientation frame** —
-  display-frame geometry with the EXIF policy already accounted for, so
-  dialects plan against what the user will see and never rediscover the
-  storage/display frame compensation that the orientation-flush machinery
-  (#146) owns.
+- After `fetch/open`, core exposes probed geometry as an explicit typed
+  value rather than an overloaded "dimensions" — conceptually
+  `%SourceGeometry{storage_dimensions, display_dimensions,
+  pending_orientation}` plus a `planning_frame(geometry, auto_rotate?)`
+  helper. Dialects plan all semantic geometry in the core-selected
+  planning/display frame and normally never touch storage-frame values;
+  storage-frame compensation belongs exclusively to the transform engine's
+  orientation-flush machinery (#146). Decode planning retains access to the
+  physical storage dimensions, and tests can state which frame a dimension
+  belongs to.
 - A declarative dialect builds its full operation list from the canonical
   request plus probed header, then asks core for the decode plan:
   `DecodePlanner.plan(source_info, operations, terminal_hint)`. The
@@ -132,8 +141,12 @@ perform it locally, after probing and before or during transform execution:
 - An ordered dialect may instead interleave: compute an operation, execute,
   measure realized dimensions, update local state, compute the next. That
   loop is dialect-local ordinary code — no generic callback seam — but it is
-  a real second phase, and the decode plan it can exploit is limited to what
-  is known before pixel decode.
+  a real second phase, and pixel decode happens before its measurements. To
+  preserve shrink-on-load, the dialect runs a **preflight** over its ordered
+  request — ordinary dialect code, not a planning IR — deriving a safe
+  conservative bound on required decode dimensions for `DecodePlanner`;
+  where no useful bound exists, the fallback to weaker or no shrink-on-load
+  must be explicit and measured, not accidental.
 
 ## Enforcement model
 
@@ -159,12 +172,25 @@ framework, so the stack is different:
    pre-fetch types and returns `%Representation{cache_key, etag, vary}` —
    no function exists that builds key or ETag from fetched bytes, so "ETag
    derivable before fetch" is enforced by what the API accepts. The dialect
-   supplies **categorized** material (`%IdentityMaterial{representation: …,
-   storage_only: …, vary_inputs: …, behavior_versions: …}`) and core alone
-   derives storage key (all categories), ETag (representation +
-   behavior_versions only — storage-only inputs like cachebusters and vary
-   inputs are excluded, per the cache guidelines), and `Vary`. Dialects
-   never concatenate key material themselves; misclassifying material is a
+   supplies **categorized** material:
+
+   - `representation` — canonical byte-affecting data, including the
+     normalized outcome of any byte-affecting request header (e.g.
+     `selected_format: :avif`), never the raw header value;
+   - `storage_only` — the cachebuster and configured vary-input values
+     (host-configured headers/cookies that segregate storage *without*
+     changing bytes, per the cache guidelines);
+   - `dialect_behavior` — the dialect's behavior identity;
+   - `vary_header_names` — names only, for the HTTP `Vary` header.
+
+   Core alone derives: **cache key** = source identity + representation +
+   storage_only + dialect/core behavior identities; **ETag** = source
+   identity + representation + dialect/core behavior identities (excludes
+   storage_only and raw varying header values); **`Vary`** = header names
+   only. The general rule: if a request header changes the resulting bytes,
+   its normalized effective outcome goes in `representation` and its name in
+   `Vary`; if it segregates storage without changing bytes, its value goes
+   in `storage_only`. Dialects never concatenate key material themselves; misclassifying material is a
    categorization error visible in review, not a silent omission
    discoverable only by whichever cases a contract kit happens to test.
 
@@ -189,8 +215,11 @@ framework, so the stack is different:
 3. **Hard primitives** for safety limits, as above.
 4. **Executable contract kits** for what types can't carry:
    `use ImagePipe.ContractKit.CacheKey, dialect: …` generates tests for key
-   determinism, vary-inputs-in-key-not-ETag, reject-never-touches-source
-   (instrumented source), 304-before-fetch, telemetry stage naming. Each kit
+   determinism; negotiated outcomes participating in representation identity
+   while raw varying header values do not; storage-only material staying out
+   of the ETag; required header names appearing in `Vary`;
+   reject-never-touches-source (instrumented source); 304-before-fetch;
+   telemetry stage naming. Each kit
    defines a small test-facing behaviour ("give me two equivalent requests",
    "give me a rejectable request") — the one legitimate home for behaviours
    in this design.
@@ -292,7 +321,12 @@ toolkit's easiest consumer:
   — source geometry, carried local state, operation → execute → measure →
   next operation — not wired to any public route. It exists to validate that
   dialect-local ordinary code replaces the strategy framework without a new
-  generic callback seam. Without it, the probe may produce a toolkit
+  generic callback seam — and to answer the decode-efficiency question: can
+  a dialect preflight supply a safe conservative pre-decode bound that
+  preserves shrink-on-load, without recreating a generic planning IR? If the
+  answer is no for important cases, record the performance loss as a real
+  cost of retaining that dialect, rather than letting it surface later as an
+  accidental regression. Without this spike, the probe may produce a toolkit
   beautifully suited to native that cannot support the dialect used to
   justify the inversion.
 - **A pixel-tapping complete terminal.** BlurHash, LQIP, or a trivial
