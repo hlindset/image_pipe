@@ -23,9 +23,10 @@ The inversion: a dialect stops being a parser plugged into ImagePipe's
 pipeline and becomes **a pipeline assembled from ImagePipe's toolkit**. Its
 request path is a visible, top-to-bottom chain in its own module:
 
-    parse → validate → canonical request data → key/ETag → conditional check
-    → fetch → decode-plan → transform ops → encode/terminal → cache write
-    → deliver
+    parse → validate → canonical request → representation (key/ETag)
+    → conditional check → cache lookup → fetch/open → probe header
+    → plan geometry + decode plan → decode → transforms → terminal
+    → cache write → deliver
 
 Roughly fifteen explicit lines per dialect, calling shared stage functions
 directly. The trade, in one sentence: fifteen lines of readable duplication
@@ -51,9 +52,11 @@ Consequences:
   guarantees the primitives — not the correctness or upgrade stability of
   arbitrary assembled pipelines. This is Ecto-adapter/Plug-style
   extensibility, not a parser SDK.
-- Keeping the imgproxy dialect stops taxing the core — each dialect pays its
-  own way. The keep/drop decision becomes a per-dialect product question with
-  no architectural coupling.
+- Keeping the imgproxy dialect no longer imposes shared control-flow
+  machinery on the core. It may still pressure the curated toolkit surface
+  and remains a substantial dialect-specific maintenance commitment; the
+  keep/drop decision becomes a per-dialect product question with no
+  architectural coupling.
 
 ## Responsibility split
 
@@ -75,7 +78,11 @@ Consequences:
 - Telemetry span helpers and the standard stage names, so the Logger and OTel
   surfaces don't fragment per dialect.
 - The contract test kits (in-repo test support).
-- The native dialect — both product and canonical worked example.
+
+**First-party dialects** — shipped in this repository but dependency-wise
+ordinary dialects: `ImagePipe.Dialect.Native` (the canonical worked example)
+and whichever compat dialects survive their per-dialect product decisions.
+The dependency arrow is `Dialect.Native → Core`, never the reverse.
 
 **A dialect** — grammar + semantics + assembly:
 
@@ -96,13 +103,37 @@ Consequences:
 | `Request.*` | Dissolves: orchestration moves into dialects; reusable pieces become stage helpers (conditional evaluation, request span) |
 | `Plan.*` | Shrinks to shared value types (`Color`, px/pct/ratio units, `Output` config). The neutral interchange program dies |
 | `Resolver`, strategies, `Directive`, `:deferred`, `{:effective, …}` | Die — dialect-inline code |
-| `Renderer` | Dies — dialects return non-image bodies from their own pipelines |
+| `Renderer` | Generic dispatch dies. Shared terminal computations remain core toolkit stages; protocol renderings (IIIF `info.json`) remain dialect-owned |
 | `Parser.*` | Dialects become peers: `ImagePipe.Dialect.Native`, `.Imgproxy`, … each a self-contained pipeline module |
 
-**Acid test, enforced by Boundary:** delete every dialect directory and the
-core still compiles. Dependency direction is one-way — dialects depend on
-core exports; core depends on no dialect; dialects cannot reach into each
-other.
+**Acid test, enforced by Boundary:** delete every dialect directory —
+including the native dialect — and the core still compiles. Dependency
+direction is one-way — dialects depend on core exports; core depends on no
+dialect; dialects cannot reach into each other.
+
+## Source-dependent planning
+
+The operation mirror dies; source-dependent planning does not. Dialects
+perform it locally, after probing and before or during transform execution:
+
+- After `fetch/open`, core exposes the probed source header (format,
+  dimensions, orientation, animation) **in a defined orientation frame** —
+  display-frame geometry with the EXIF policy already accounted for, so
+  dialects plan against what the user will see and never rediscover the
+  storage/display frame compensation that the orientation-flush machinery
+  (#146) owns.
+- A declarative dialect builds its full operation list from the canonical
+  request plus probed header, then asks core for the decode plan:
+  `DecodePlanner.plan(source_info, operations, terminal_hint)`. The
+  `terminal_hint` keeps shrink-on-load terminal-aware — a pixel-tapping
+  complete terminal's final reduction (e.g. a tiny LQIP frame) logically
+  follows the user transforms but must still inform the load-time shrink
+  factor (#377's regression to guard).
+- An ordered dialect may instead interleave: compute an operation, execute,
+  measure realized dimensions, update local state, compute the next. That
+  loop is dialect-local ordinary code — no generic callback seam — but it is
+  a real second phase, and the decode plan it can exploit is limited to what
+  is known before pixel decode.
 
 ## Enforcement model
 
@@ -136,6 +167,23 @@ framework, so the stack is different:
    never concatenate key material themselves; misclassifying material is a
    categorization error visible in review, not a silent omission
    discoverable only by whichever cases a contract kit happens to test.
+
+   Identity has two owners, and each versions what it owns. The dialect
+   supplies **dialect behavior identity** (`{ImagePipe.Dialect.Native, 3}`);
+   core **injects its own execution identity** — the core execution epoch
+   (the successor of today's transform key data version), terminal behavior
+   versions, encoder/config identity — so a core-owned byte-affecting change
+   (transform rounding, orientation handling, encoder defaults) never
+   depends on every dialect remembering to bump something.
+
+   Negotiation enters identity as the **selected variant**, not the raw
+   `Accept` header: two headers that both negotiate AVIF share a cache entry
+   and an ETag, while `Vary: Accept` continues to describe HTTP selection.
+   Contract kit cases: different headers selecting the same format share
+   identity; different headers selecting different formats differ; an
+   explicit output format ignores `Accept`; fixed-content-type terminals
+   produce no `Vary`.
+
    Types prevent wrong order and wrong composition; they cannot prevent
    omission — that is layer 4's job.
 3. **Hard primitives** for safety limits, as above.
@@ -171,11 +219,25 @@ Four principles that bound the inversion:
    `Decode.with_image(fetched, plan, fun)` — that own acquisition, cleanup,
    cancellation, telemetry closure, and error normalization for their stage.
    The dialect composes them; it never threads raw resources.
+
+   The streaming corner case gets its own rule, because a lazy encoded
+   stream outlives the function that prepared it: **a lifecycle-owning
+   helper either retains ownership until all consumption completes, or
+   explicitly transfers ownership into an owned, cancellable artifact**
+   (`PreparedStream`/producer handle) that becomes responsible for cleanup.
+   Lazy resources must never escape through an unowned function, stream, or
+   closure; ownership transfer is visible at the call site and cleanup is
+   idempotent. No ambiguous middle state where a callback returns a lazy
+   factory still referencing resources the bracket believes it owns.
 2. **Canonical request equality is a dialect contract.** Every dialect
    produces a pure canonical request value before fetch: deterministic data,
    free of PIDs/functions/references/conn state, normalized so semantically
-   equivalent URLs yield equal values and byte-affecting differences yield
-   different ones, explicit about behavior versions. A dialect may parse
+   equivalent URLs yield equal values and byte-affecting differences **owned
+   by the dialect request** yield different ones. Byte-affecting inputs the
+   dialect does not own — host output config, source revisions, negotiation
+   results, core behavior versions — enter representation identity through
+   their own `IdentityMaterial` categories and core injection, not by being
+   stuffed into the canonical request struct. A dialect may parse
    through any intermediate AST, but `IdentityMaterial` consumes the
    canonical value, never raw URL tokens. This contract replaces the
    canonicalization property the neutral Plan used to supply, and the
@@ -223,6 +285,22 @@ GET, cache, and streaming — while the existing framework continues to serve
 the other dialects untouched. Extract stage helpers and the first contract
 kits from what the probe actually needs, not speculatively.
 
+Two narrow stress cases ride along, because native alone validates only the
+toolkit's easiest consumer:
+
+- **An ordered-planning spike.** One small synthetic TwicPics-like sequence
+  — source geometry, carried local state, operation → execute → measure →
+  next operation — not wired to any public route. It exists to validate that
+  dialect-local ordinary code replaces the strategy framework without a new
+  generic callback seam. Without it, the probe may produce a toolkit
+  beautifully suited to native that cannot support the dialect used to
+  justify the inversion.
+- **A pixel-tapping complete terminal.** BlurHash, LQIP, or a trivial
+  equivalent (average color), exercising terminal-aware decode planning,
+  the shared transform prefix, complete-body result caching, fixed content
+  type with no `Vary`, and cleanup without the streaming encoder path
+  (#377/#262 made concrete).
+
 Probe rules:
 
 - Parallel stacks: the framework path is not modified beyond widening core
@@ -256,7 +334,11 @@ Exit criteria:
   many places own cleanup and error translation. If the dialect chain stays
   readable under these, the design has actually succeeded; if the happy path
   is clean but error paths fragment, the lifecycle primitives (Design
-  principle 1) are under-chunked.
+  principle 1) are under-chunked. Verify **ownership**, not only response
+  behavior: who owns the source session after encode preparation, who closes
+  it on normal completion, who aborts it on client disconnect, who
+  finalizes or aborts the cache sink, and what happens when the encoder
+  fails after the first chunk.
 - A written list of core exports the probe needed, as the draft of the real
   toolkit surface.
 
