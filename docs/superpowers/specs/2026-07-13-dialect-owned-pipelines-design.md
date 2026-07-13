@@ -23,7 +23,10 @@ The inversion: a dialect stops being a parser plugged into ImagePipe's
 pipeline and becomes **a pipeline assembled from ImagePipe's toolkit**. Its
 request path is a visible, top-to-bottom chain in its own module:
 
-    parse → validate → canonical request → representation (key/ETag)
+    parse → validate → canonical request
+    → resolve source identity            (no bytes)
+    → resolve terminal selection / negotiation
+    → representation (cache key / ETag / Vary)
     → conditional check → cache lookup → fetch/open → probe header
     → plan geometry + decode plan → decode → transforms → terminal
     → cache write → deliver
@@ -190,7 +193,13 @@ framework, so the stack is different:
    only. The general rule: if a request header changes the resulting bytes,
    its normalized effective outcome goes in `representation` and its name in
    `Vary`; if it segregates storage without changing bytes, its value goes
-   in `storage_only`. Dialects never concatenate key material themselves; misclassifying material is a
+   in `storage_only`. Only HTTP header names may appear in `Vary`: a
+   configured cookie used for storage segregation contributes its value to
+   `storage_only` and nothing to `vary_header_names`. Typed configuration
+   makes this visible — `storage_inputs: [{:header, "x-tenant"},
+   {:cookie, "_variant"}]` puts both values in the key, neither in the
+   ETag, and only `x-tenant` in `Vary`. Dialects never concatenate key
+   material themselves; misclassifying material is a
    categorization error visible in review, not a silent omission
    discoverable only by whichever cases a contract kit happens to test.
 
@@ -200,7 +209,13 @@ framework, so the stack is different:
    (the successor of today's transform key data version), terminal behavior
    versions, encoder/config identity — so a core-owned byte-affecting change
    (transform rounding, orientation handling, encoder defaults) never
-   depends on every dialect remembering to bump something.
+   depends on every dialect remembering to bump something. Core injection
+   covers only core-owned computations (transforms, encode, shared
+   terminals); a dialect's behavior identity must cover everything the
+   dialect owns — canonicalization, geometry policy, protocol rendering,
+   and any dialect-owned terminal computation, so a changed IIIF
+   `info.json` rendering changes the ETag. A single dialect-wide epoch
+   suffices at this stage.
 
    Negotiation enters identity as the **selected variant**, not the raw
    `Accept` header: two headers that both negotiate AVIF share a cache entry
@@ -373,6 +388,13 @@ Exit criteria:
   it on normal completion, who aborts it on client disconnect, who
   finalizes or aborts the cache sink, and what happens when the encoder
   fails after the first chunk.
+- **An orientation-invariance matrix.** Auto-rotate on/off × identity and
+  90°/270° EXIF orientations × crop and resize planned before the
+  orientation flush, with decode shrink using storage dimensions while
+  semantic planning uses the planning frame. The assertion: dialect code
+  produces the same semantic crop/resize intent regardless of storage
+  orientation; only core performs storage-frame compensation. This directly
+  tests whether the inversion leaked #146's complexity back into dialects.
 - A written list of core exports the probe needed, as the draft of the real
   toolkit surface.
 
