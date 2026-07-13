@@ -385,17 +385,19 @@ labels.
 
 ## Architecture
 
-- **Module:** `ImagePipe.Parser.Native`, implementing the `ImagePipe.Parser`
-  behaviour, translating URLs into `ImagePipe.Plan` + `Plan.Output`. It owns
-  nothing downstream and uses the neutral resolver (no carried strategy — no
-  dialect-specific resolve-time semantics exist in this design).
-- **Config:** its own key in `ImagePipe.Plug.init/1`
-  (`native: [keys: [...], presets: %{...}, on_inert_option: :reject]`),
-  validated at init.
-- **Reuse boundary:** the native parser must not reach into
-  `Parser.Imgproxy` internals. Where plan-construction logic genuinely
-  coincides, the shared piece is promoted to a neutral home first, per the
-  boundary guidelines.
+This spec defines the wire surface only. The runtime architecture is owned by
+`2026-07-13-dialect-owned-pipelines-design.md`: the native dialect is
+`ImagePipe.Dialect.Native`, a Plug that owns its full request pipeline
+assembled from ImagePipe's core toolkit, and serves as the inversion probe's
+vertical slice.
+
+- **Config:** validated at `init/1` (raise on invalid), under the dialect's
+  own namespace (`keys: [...]`, `presets: %{...}`,
+  `on_inert_option: :reject`).
+- **Reuse boundary:** the native dialect must not reach into other dialects'
+  internals. Semantics it shares with the imgproxy dialect (resize math,
+  DPR/offset scaling) are exercised through core toolkit helpers, not
+  borrowed from `Parser.Imgproxy`.
 - **Docs:** a new `docs/native_url_api.md` is the dialect reference — the
   analogue of `imgproxy_path_api.md`. There is no conformance matrix; this
   dialect has no vendor to diverge from, so the reference doc is the ground
