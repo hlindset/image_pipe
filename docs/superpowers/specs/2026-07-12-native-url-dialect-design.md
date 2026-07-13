@@ -23,8 +23,9 @@ rule.
 
 - One canonical spelling for every concept. No aliases, ever.
 - Self-documenting URLs: readable in logs, hand-writable, srcset-friendly.
-- A grammar small enough to spec in a page and reproduce byte-exactly in any
-  client language (URL builders, signers).
+- The grammar fits on one page and reproduces byte-exactly in any client
+  language (URL builders, signers); every option is documentable as one
+  table row plus, where necessary, one linked semantic section.
 - Covers the intended native v1 surface: the engine's full transform
   vocabulary, including operations the imgproxy parser doesn't expose
   (`gray`, `bitonal`, `trim`, explicit-region crop). The architecture probe
@@ -79,10 +80,11 @@ a value keyword.
 
 ### Sources
 
-- `src/` takes the source string verbatim (slashes intact). Only `%`, `?`,
-  and `#` must be percent-encoded — the same minimal set imgproxy's plain
-  form requires. The source string is the percent-decoded remainder of the
-  path.
+- `src/` takes the source string with slashes intact. Client rule: encode
+  the source as UTF-8, then percent-encode every byte not permitted in an
+  RFC 3986 path — leaving `/` as source data. In particular, literal `%`,
+  `?`, `#`, spaces, control bytes, and non-ASCII bytes must be encoded. The
+  source string is the once-percent-decoded remainder of the path.
 - `src64/` takes exactly **one segment** of **unpadded** URL-safe Base64.
   Embedded slashes and `=` padding are invalid — segment-splitting and
   optional padding would create unlimited equivalent spellings of one
@@ -116,7 +118,8 @@ One spelling per concept, applied uniformly:
   `purple`, `fuchsia`, `green`, `lime`, `olive`, `yellow`, `navy`, `blue`,
   `teal`, `aqua`). No `#` (it would start the URL fragment).
 - **Ratios** — `16:9` or a decimal (`:` is legal in path segments).
-- **Ranges** — `blur`/`sharpen` sigma > 0; opacity, intensity, alpha, and
+- **Ranges** — `blur`/`sharpen` sigma ≥ 0 (`0` is the Tier-1 identity
+  point); opacity, intensity, alpha, and
   gradient `start`/`stop` are 0–1 fractions; trim tolerance ≥ 0; gradient
   direction is `down` (default), `up`, `left`, `right`, or degrees
   clockwise. The native reference is self-contained: no range or vocabulary
@@ -204,21 +207,26 @@ default background (alpha is preserved).
 The DPR model is **logical units**: a URL is written in CSS-pixel-like
 logical geometry, and `dpr` multiplies the *output* geometry — target
 dimensions, padding, anchor/extend offsets — so the same URL renders an
-identically structured image at any density. Keys that address *source
-content* (`crop`, `region`) are never DPR-scaled. `zoom` multiplies the
+identically structured image at any density. **Bare pixel lengths** in
+output-space fields are logical pixels, multiplied by the effective DPR.
+**Percentage lengths resolve directly against their stated physical frame
+and are never separately DPR-multiplied** — with `dpr=2`, `10pct` of a
+600-physical-pixel crop input is 60 physical pixels, not 120. Keys that
+address *source content* (`crop`, `region`) are never DPR-scaled in either
+unit. `zoom` multiplies the
 target dimensions after `dpr` and scales nothing else. When `enlarge` is
 false the engine may clamp the effective multiplier so raster output does
 not exceed the source; offsets and padding use that same effective
 multiplier so composition stays aligned with the resized image.
 
-| Field | Coordinate frame | `pct` basis | DPR-scaled |
+| Field | Coordinate frame | `pct` basis | Bare px uses effective DPR? |
 | --- | --- | --- | --- |
 | `w`, `h`, `min-w`, `min-h` | output target | n/a | yes |
-| `region` `x,y,w,h` | current display frame | current dimensions | no |
-| `crop` `w,h` | current display frame | current dimensions | no |
+| `region` `x,y,w,h` | current source-content frame | current dimensions | no |
+| `crop` `w,h` | current source-content frame | current dimensions | no |
 | `pad` | output frame | n/a | yes |
-| `anchor-offset` | crop input frame | current dimensions | yes |
-| `extend-offset` | target canvas | target dimensions | yes |
+| `anchor-offset` | crop input frame | crop input dimensions | yes |
+| `extend-offset` | target canvas | target canvas dimensions | yes |
 
 A single `anchor` (or `focus`) in a group deliberately guides both an
 explicit guided `crop` and the result crop of a `cover`/`cover-down`/`auto`
@@ -246,6 +254,30 @@ resize — one stated intent for where the subject is.
 | `filename` | disposition stem |
 | `attachment` | flag |
 
+### Terminal contracts
+
+| Output | Input | Body | Content type | Negotiates? |
+| --- | --- | --- | --- | --- |
+| `image` | transformed pixels | encoded bytes | selected image type | when `format` absent |
+| `blurhash` | transformed pixels | BlurHash string, 4×3 components (fixed in v1) | `text/plain; charset=utf-8` | no |
+| `lqip` | transformed pixels | `#` + 8 lowercase hex, no trailing newline (LQIP-CSS v1: 3×3 reduction, three sample points, packed RGBA) | `text/plain; charset=utf-8` | no |
+
+Each non-image terminal performs its own fixed internal reduction (blurhash
+≈32px working frame; lqip 3×3) *after* all user transforms; the reduction
+informs decode planning via the terminal hint. Non-image terminals compute
+in a fixed normalized pixel space (sRGB, tone-mapped) — they do not inherit
+encoded-image color policy.
+
+Applicability by terminal (inert = Tier 2):
+
+| Key family | `image` | `blurhash` / `lqip` |
+| --- | --- | --- |
+| transforms, `bg`, groups | yes | yes |
+| `format`, `q`, `format-q`, `autoquality`, `max-bytes`, encoder options | yes | inert |
+| `meta`, `keep-copyright` | yes | inert |
+| `profile`, `hdr` | yes | inert (fixed terminal pixel space) |
+| `filename`, `attachment`, `cb`, `expires`, `debug` | yes | yes (delivery/identity are terminal-independent) |
+
 ### Dropped from imgproxy with no replacement
 
 Aliases; meta-options (`resize`, `size`, `adjust`); `@ext`/`.ext` suffixes;
@@ -257,12 +289,38 @@ text values.
 
 ### Pipeline groups
 
-`then` splits the URL into ordered groups. Each group is one pass of the same
-fixed canonical operation order used today: group orientation (`rotate`,
-`flip` — the request-level EXIF policy is not a group stage; the engine
-applies it at the orientation-flush boundary) → region/guided crop
-→ resize → result crop → effects (fixed internal order) → canvas extend →
-padding → background. A single-group URL is the common case.
+`then` splits the URL into ordered groups. Each group is one pass of the
+fixed stage order below — normative for this dialect, not inherited by
+reference from any implementation or vendor. Option order within a group is
+ignored; this list is the single answer to "what runs before what":
+
+1. `rotate`
+2. `flip`
+3. `trim`
+4. `region` / guided `crop` (+ `crop-ratio`)
+5. resize (`fit`, `w`/`h`, `min-w`/`min-h`, `zoom`, `dpr`, `enlarge`)
+6. cover result crop (guided by `anchor`/`focus`)
+7. `blur`
+8. `sharpen`
+9. `pixelate`
+10. `gray`
+11. `bitonal`
+12. `monochrome`
+13. `duotone`
+14. `brightness`
+15. `contrast`
+16. `saturation`
+17. `colorize`
+18. `gradient`
+19. `extend` / `extend-ratio`
+20. `pad`
+21. `bg` (flatten)
+
+The request-level EXIF policy (`orient`) is not a group stage; the engine
+applies it at the orientation-flush boundary. A non-image terminal's
+internal reduction runs after the last group. A single-group URL is the
+common case. This numbered list is intended to become the backbone of the
+user reference: every option row links to its stage.
 
 Ordered groups are a deliberate keep (not just compatibility): they are a
 cost-control lever — `/w=500/then/trim=fff` trims a 500px image instead of a
@@ -387,13 +445,14 @@ Within a group, option order is semantically irrelevant: any permutation
 produces equal canonical native request data and identical categorized
 representation identity. URL spelling never enters the cache key.
 
-The canonical request contains everything parsed, but
-`Native.identity_material/…` categorizes it — the dialect never hashes the
-whole struct:
+The canonical request is entirely pre-negotiation and is never hashed
+whole. `Native.identity_material/…` composes canonical request semantics,
+the normalized negotiation result, and storage-only inputs:
 
-| Canonical request fields | Identity treatment |
+| Identity input | Treatment |
 | --- | --- |
-| transform groups, `output`, selected format, `q`/`format-q`/`autoquality`, `meta`/`keep-copyright`/`profile`/`hdr`, encoder options | `representation` |
+| transform groups, terminal (`output`), parsed output policy (`q`/`format-q`/`autoquality`, `meta`/`keep-copyright`/`profile`/`hdr`, encoder options) | `representation` |
+| negotiated selected format | `representation` |
 | `cb`, configured storage-vary values | `storage_only` |
 | source | separate `source_identity` |
 | signature, matched key index, `expires` | neither (gates, not identity) |
@@ -489,9 +548,12 @@ labels.
   `%2F` are different signed bytes — clients sign what they send. Dot
   segments (`.`/`..`) are rejected at parse. Malformed percent escapes are a
   400 after verification.
-- **One decoding pass.** Percent-decoding is applied exactly once, to the
-  `src` remainder and to option values where the grammar defines it. Option
-  keys and enum values are ASCII.
+- **One decoding pass, `src` only.** Percent-decoding is applied exactly
+  once, to the `src` remainder. Option keys and values are ASCII and may
+  contain only the characters their micro-syntax allows; **percent escapes
+  in option segments are rejected** — `w=%38%30%30` would be a second
+  spelling of `w=800`. Free-form values get restricted grammars instead of
+  encodings: `cb`, `filename`, and preset names use `[A-Za-z0-9._-]`.
 - **Operational requirement:** the fronting proxy must forward the path
   without percent-decoding, slash normalization, or dot-segment rewriting.
   Native signing operates on the mount-relative encoded request path exposed
@@ -515,10 +577,23 @@ vertical slice.
   internals. Semantics it shares with the imgproxy dialect (resize math,
   DPR/offset scaling) are exercised through core toolkit helpers, not
   borrowed from `Parser.Imgproxy`.
+- **Option schema as documentation source of truth:** each option is
+  declared in a dialect-local spec struct (`Native.OptionSpec`: key, scope,
+  syntax, stage, default, prerequisites, conflicts, override family,
+  identity category, terminal applicability, summary, examples). It drives
+  key lookup, scope/duplicate validation, basic value parsing, diagnostic
+  text, and the *generated* option-reference tables; complex semantics stay
+  ordinary code and prose. A completeness test requires every public option
+  to declare all fields plus at least one example — "easy to document" as a
+  maintained invariant, not an aspiration. This is `Dialect.Native`
+  implementation detail, not a generic dialect DSL.
 - **Docs:** a new `docs/native_url_api.md` is the dialect reference — the
   analogue of `imgproxy_path_api.md`. There is no conformance matrix; this
   dialect has no vendor to diverge from, so the reference doc is the ground
-  truth.
+  truth. Structure: URL anatomy (one screen) → five common examples →
+  the numbered processing-order diagram → the generated option reference
+  grouped by stage → focused semantic sections (groups, units/DPR, presets,
+  terminals, signing, errors).
 
 ## Testing
 
