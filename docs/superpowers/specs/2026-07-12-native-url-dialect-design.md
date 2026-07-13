@@ -260,7 +260,14 @@ resize — one stated intent for where the subject is.
 | --- | --- | --- | --- | --- |
 | `image` | transformed pixels | encoded bytes | selected image type | when `format` absent |
 | `blurhash` | transformed pixels | BlurHash string, 4×3 components (fixed in v1) | `text/plain; charset=utf-8` | no |
-| `lqip` | transformed pixels | `#` + 8 lowercase hex, no trailing newline (LQIP-CSS v1: 3×3 reduction, three sample points, packed RGBA) | `text/plain; charset=utf-8` | no |
+| `lqip` | transformed pixels | `#` + 8 lowercase hex, no trailing newline (LQIP-CSS: 3×3 reduction, three sample points, chroma-aware packed RGBA) | `text/plain; charset=utf-8` | no |
+
+Both terminal computations delegate to the `image` dependency:
+`Image.Blurhash` and `Image.Lqip.Css.encode/1` (the latter landed upstream
+in image 0.71.0; ImagePipe's pin moves up from 0.69). The terminal's
+`behavior_version` tracks the delegated implementation, and the probe's
+terminal work is therefore pipeline plumbing — terminal-aware decode
+planning, complete-body caching, no-`Vary` delivery — not placeholder math.
 
 Each non-image terminal performs its own fixed internal reduction (blurhash
 ≈32px working frame; lqip 3×3) *after* all user transforms; the reduction
