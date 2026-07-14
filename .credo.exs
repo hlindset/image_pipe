@@ -54,12 +54,23 @@
         # Transform boundary and is core-frozen for this task, so the dialect's
         # own resolve-loop driver cannot call it; see the module doc in
         # lib/image_pipe/dialect/native/pipeline.ex and the Task 14 report.
+        #
+        # ImagePipe.Dialect.Native.Delivery.{Coordinator,Producer} deliberately
+        # mirror ImagePipe.Request.SourceSession/Producer's monitor-based
+        # session/producer protocol (message shapes, owner-monitor direction,
+        # graceful-halt-then-cleanup flow) — SourceSession is Request-boundary
+        # code the dialect must not depend on, and generalizing the framework's
+        # Producer into a shared abstraction is explicitly post-probe work (see
+        # the pipelines design reference, "Delivery duplication", and the Task
+        # 15 report). Ignored for the same reason as the Decode pair above.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
            "lib/image_pipe/decode.ex",
            "lib/image_pipe/decode/source_format.ex",
-           "lib/image_pipe/dialect/native/pipeline.ex"
+           "lib/image_pipe/dialect/native/pipeline.ex",
+           "lib/image_pipe/dialect/native/delivery/coordinator.ex",
+           "lib/image_pipe/dialect/native/delivery/producer.ex"
          ]}
       ]
     }

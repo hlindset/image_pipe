@@ -14,6 +14,7 @@ defmodule ImagePipe.Response do
     exports: [
       CacheHeaders,
       CORS,
+      ErrorStatus,
       Json,
       PreparedStream,
       Sender

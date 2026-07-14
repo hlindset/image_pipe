@@ -64,7 +64,8 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # `trim=color,tolerance`) — the dialect must pick a reasonable default
   # threshold for the fully-automatic form. Chosen to match the tolerance
   # used in OptionSpec's own worked example (`"trim=fff,10"`).
-  # TODO(probe): trim=auto threshold pending design-owner confirmation.
+  # An unpinned probe default: recorded as an open design-owner item in the
+  # dialect-owned pipelines probe report, to confirm or adjust post-probe.
   @default_trim_threshold 10.0
 
   @blurhash_terminal_reduction {32, 32}

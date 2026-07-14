@@ -1,8 +1,6 @@
 defmodule ImagePipe.Dialect.NativeTest do
   use ExUnit.Case, async: true
 
-  import Plug.Test
-
   alias ImagePipe.Dialect.Native
 
   describe "init/1" do
@@ -78,19 +76,6 @@ defmodule ImagePipe.Dialect.NativeTest do
     end
   end
 
-  describe "call/2" do
-    test "returns 501 for a GET request on any path" do
-      opts = Native.init([])
-      conn = conn(:get, "/anything/at/all") |> Native.call(opts)
-
-      assert conn.status == 501
-    end
-
-    test "returns 501 regardless of method or path" do
-      opts = Native.init([])
-      conn = conn(:post, "/") |> Native.call(opts)
-
-      assert conn.status == 501
-    end
-  end
+  # call/2's real request chain (parse → source → negotiate → serve) is
+  # exercised end-to-end in test/image_pipe/dialect/native_wire_test.exs.
 end
