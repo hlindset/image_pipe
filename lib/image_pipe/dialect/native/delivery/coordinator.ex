@@ -330,14 +330,7 @@ defmodule ImagePipe.Dialect.Native.Delivery.Coordinator do
   defp with_owner_check(state, fun) when is_function(fun, 1) do
     case receive_owner_down_message(state) do
       {:owner_down, reason} ->
-        state =
-          case state.pending do
-            {_kind, from} ->
-              reply_pending_from(from, {:error, {:session, {:owner_down, reason}}}, state)
-
-            nil ->
-              state
-          end
+        state = reply_pending(state, {:error, {:session, {:owner_down, reason}}})
 
         case request_producer_halt(%{state | pending: nil}, nil, :owner_down) do
           {:ok, state} ->
