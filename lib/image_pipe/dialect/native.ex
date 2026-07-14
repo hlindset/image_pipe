@@ -27,7 +27,7 @@ defmodule ImagePipe.Dialect.Native do
     top_level?: true,
     deps: [
       ImagePipe.Cache,
-      # ImagePipe.Decode,            # added in Task 12
+      ImagePipe.Decode,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,

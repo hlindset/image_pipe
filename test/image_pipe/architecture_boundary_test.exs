@@ -58,6 +58,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
     ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
+    ImagePipe.Decode => "lib/image_pipe/decode.ex",
     ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
@@ -196,10 +197,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "dialect native boundary declaration depends only on core toolkit facades" do
     dialect_native = boundary_declaration(ImagePipe.Dialect.Native)
 
-    # ImagePipe.Decode (Task 12) is not created yet — it joins this list once
-    # its task lands.
     assert_boundary_deps(dialect_native, [
       ImagePipe.Cache,
+      ImagePipe.Decode,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
@@ -222,6 +222,34 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(dialect_native, [])
+  end
+
+  test "decode boundary declaration depends only on the core fetch/decode toolkit" do
+    decode = boundary_declaration(ImagePipe.Decode)
+
+    assert_boundary_deps(decode, [
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Plan,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    # A dialect-owned fetch/decode bracket must not reach into the framework's
+    # request/parser/resolver/renderer/cache/output/response stack.
+    refute_boundary_deps(decode, [
+      ImagePipe.Cache,
+      ImagePipe.Config,
+      ImagePipe.Output,
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver,
+      ImagePipe.Response
+    ])
+
+    assert_boundary_exports(decode, [])
   end
 
   test "core, transform, and parser code does not name the native dialect" do
@@ -673,6 +701,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform.DecodePlanner,
       ImagePipe.Transform.DecodePlanner.Request,
       ImagePipe.Transform.Materializer,
+      ImagePipe.Transform.SourceGeometry,
       ImagePipe.Transform.Operation.Resize,
       ImagePipe.Transform.Operation.ExtendCanvas,
       ImagePipe.Transform.Operation.Padding,

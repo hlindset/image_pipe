@@ -37,8 +37,19 @@
         #
         {ExSlop.Check.Refactor.LengthComparison, false},
         # ExDNA duplicate detection, excluding `alias` declarations (see plugins
-        # note above).
-        {ExDNA.Credo, excluded_macros: [:alias]}
+        # note above). `ignore:` excludes ImagePipe.Decode's deliberate mirror of
+        # ImagePipe.Request.Processor / Request.SourceFormat (the dialect-owned
+        # fetch/decode bracket cannot depend on the Request boundary, so the
+        # two-open decode flow and the loader-name->format classification are
+        # duplicated by hand rather than shared — see the module docs in
+        # lib/image_pipe/decode.ex and lib/image_pipe/decode/source_format.ex,
+        # and the Task 21.6 core-exports report). ExDNA reports a duplicate pair
+        # from both anchor files, and lib/image_pipe/request/processor.ex stays
+        # untouched (framework-frozen), so the pair can only be silenced by
+        # excluding the Decode-side files from the corpus entirely.
+        {ExDNA.Credo,
+         excluded_macros: [:alias],
+         ignore: ["lib/image_pipe/decode.ex", "lib/image_pipe/decode/source_format.ex"]}
       ]
     }
   ]
