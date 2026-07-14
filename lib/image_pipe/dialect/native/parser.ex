@@ -15,6 +15,11 @@ defmodule ImagePipe.Dialect.Native.Parser do
        an error.
     3. scope/duplicates — group-scoped twice in a group, or request-scoped
        twice anywhere, is an error (every occurrence's span participates).
+       Immediately after this pass, group 0's clean map is expanded with
+       any configured presets (`ImagePipe.Dialect.Native.Presets.expand/4`
+       [native §Presets, trimmed to probe]) — before pass 4 runs, so
+       cross-option validation sees the merged group, not just the URL's
+       own explicit segments.
     4. cross-option, over successfully parsed, non-duplicate values only
        (derivative suppression [native §Error diagnostics]) — Tier-3
        exclusive pairs (table-driven via `OptionSpec.conflicts`), Tier-2
@@ -32,6 +37,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
 
   alias ImagePipe.Dialect.Native.Diagnostic
   alias ImagePipe.Dialect.Native.OptionSpec
+  alias ImagePipe.Dialect.Native.Presets
   alias ImagePipe.Dialect.Native.Request
   alias ImagePipe.Dialect.Native.Request.Group
   alias ImagePipe.Dialect.Native.Request.Output
@@ -49,7 +55,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
   """
   @spec parse(lexed(), keyword()) ::
           {:ok, Request.t()} | {:error, {:invalid_request, [Diagnostic.t()]}}
-  def parse(%{segments: segments, source: {_marker, decoded_source, _span}}, _config) do
+  def parse(%{segments: segments, source: {_marker, decoded_source, source_span}}, config) do
     {groups_raw, group_structure_errors} = split_groups(segments)
     group_count = length(groups_raw)
 
@@ -64,9 +70,17 @@ defmodule ImagePipe.Dialect.Native.Parser do
     duplicate_errors = collect_duplicate_errors(occurrences, group_count)
     clean_group_maps = build_clean_group_maps(occurrences, group_count)
     clean_request_map = build_clean_request_map(occurrences)
-    cross_errors = collect_cross_option_errors(clean_group_maps, clean_request_map, occurrences)
+    whole_path_span = whole_path_span(source_span)
 
-    errors = group_structure_errors ++ segment_errors ++ duplicate_errors ++ cross_errors
+    {clean_group_maps, preset_errors, occurrences_for_cross} =
+      expand_presets(clean_group_maps, clean_request_map, occurrences, config, whole_path_span)
+
+    cross_errors =
+      collect_cross_option_errors(clean_group_maps, clean_request_map, occurrences_for_cross)
+
+    errors =
+      group_structure_errors ++
+        segment_errors ++ duplicate_errors ++ preset_errors ++ cross_errors
 
     if errors == [] do
       {:ok, assemble_request(clean_group_maps, clean_request_map, decoded_source, group_count)}
@@ -305,6 +319,60 @@ defmodule ImagePipe.Dialect.Native.Parser do
       nil -> nil
       occ -> occ.span
     end
+  end
+
+  # The mount-relative raw path's own span, `{0, byte_size(raw_path)}`,
+  # derived from the lexed source's span — `src`/`src64` is always the
+  # terminal segment (`ImagePipe.Dialect.Native.Path.extract/1`), so its
+  # offset plus its (pre-decode) length equals the whole raw path's byte
+  # length.
+  defp whole_path_span({source_offset, source_len}), do: {0, source_offset + source_len}
+
+  # -- preset expansion (Task 7) -------------------------------------------
+  #
+  # Runs after pass 3 (scope/duplicates) and before pass 4 (cross-option),
+  # so cross-option validation judges the *merged* group 0, not just the
+  # URL's own explicit segments — a preset alone need not satisfy tier-2
+  # prerequisites (e.g. `fit=cover` with no dimension), only the group it
+  # ends up contributing to. Expansion applies only to group 0: a preset's
+  # fragment carries no `then`, so it can only ever hold one group's worth
+  # of options (multi-group presets are out of scope for this probe).
+
+  defp expand_presets(clean_group_maps, clean_request_map, occurrences, config, whole_path_span) do
+    presets_config = Keyword.get(config, :presets, %{})
+    preset_names = Map.get(clean_request_map, "preset", [])
+    group0_map = Map.get(clean_group_maps, 0, %{})
+    preset_span = request_occurrence_span(occurrences, "preset") || whole_path_span
+
+    case Presets.expand(group0_map, preset_names, presets_config, preset_span) do
+      {^group0_map, []} ->
+        {clean_group_maps, [], occurrences}
+
+      {merged_map, []} ->
+        synthetic = synthetic_preset_occurrences(merged_map, group0_map, preset_span)
+        {Map.put(clean_group_maps, 0, merged_map), [], occurrences ++ synthetic}
+
+      {_unchanged_map, diagnostics} ->
+        {clean_group_maps, diagnostics, occurrences}
+    end
+  end
+
+  # A key contributed purely by a preset (not present in the URL's own
+  # explicit group map) has no real segment for pass 4's span lookups
+  # (`occurrence_span/3`) to find — a synthetic occurrence, anchored at the
+  # URL's `preset=` segment (or, when the URL has no `preset=` segment at
+  # all — a `default` preset applied with nothing naming it — at the whole
+  # raw path, `whole_path_span/1`), lets a cross-option diagnostic about
+  # that key (e.g. tier-2 inertness) still carry a real, non-empty span
+  # instead of crashing, going spanless, or degrading to a zero-length
+  # `{0, 0}` caret. `spec: nil` and the ok-tagged dummy result are inert to
+  # every pass-4 helper: they only ever read `group_index`/`key`/`span`, or
+  # `result` solely to detect a *failed* segment (never true here).
+  defp synthetic_preset_occurrences(merged_map, explicit_map, span) do
+    merged_map
+    |> Map.keys()
+    |> Enum.reject(&Map.has_key?(explicit_map, &1))
+    |> Enum.map(&occurrence(0, &1, nil, span, span, span, {:ok, :from_preset}))
   end
 
   # -- pass 4: cross-option validation -------------------------------------
@@ -698,48 +766,61 @@ defmodule ImagePipe.Dialect.Native.Parser do
     %Diagnostic{reason: reason, message: message_for(reason), spans: [span]}
   end
 
-  defp message_for(:empty_pipeline_group), do: "empty pipeline group"
-  defp message_for(:unknown_option), do: "unknown option"
-  defp message_for(:missing_value), do: "missing value"
-  defp message_for(:duplicate_option), do: "duplicate option"
-  defp message_for(:empty_segment), do: "empty option segment"
-  defp message_for(:then_not_allowed_in_fragment), do: "then is not allowed in a fragment"
+  @doc """
+  The central wording table for every `reason` a `Diagnostic` this module
+  (or `ImagePipe.Dialect.Native.Path`'s sibling table) produces — public
+  so a diagnostic built outside `Parser` (e.g.
+  `ImagePipe.Dialect.Native.Presets`'s `:unknown_preset`, which carries a
+  request-supplied name the table itself can't embed) still sources its
+  static wording from here rather than duplicating it.
+  """
+  @spec message_for(atom()) :: String.t()
+  def message_for(:empty_pipeline_group), do: "empty pipeline group"
+  def message_for(:unknown_option), do: "unknown option"
+  def message_for(:missing_value), do: "missing value"
+  def message_for(:duplicate_option), do: "duplicate option"
+  def message_for(:empty_segment), do: "empty option segment"
+  def message_for(:then_not_allowed_in_fragment), do: "then is not allowed in a fragment"
 
-  defp message_for(:source_not_allowed_in_fragment),
+  def message_for(:source_not_allowed_in_fragment),
     do: "src/src64 is not allowed in a fragment"
 
-  defp message_for(:request_scoped_key_in_fragment),
+  def message_for(:request_scoped_key_in_fragment),
     do: "request-scoped option is not allowed in a fragment"
 
-  defp message_for(:invalid_dimension), do: "invalid value: expected px or `auto`"
+  def message_for(:invalid_dimension), do: "invalid value: expected px or `auto`"
 
-  defp message_for(:invalid_fit),
+  def message_for(:invalid_fit),
     do: "invalid value: expected contain, cover, cover-down, stretch, or auto"
 
-  defp message_for(:invalid_arity),
+  def message_for(:invalid_arity),
     do: "invalid value: wrong number of comma-separated elements"
 
-  defp message_for(:invalid_element), do: "invalid value: one or more elements are invalid"
-  defp message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
-  defp message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
+  def message_for(:invalid_element), do: "invalid value: one or more elements are invalid"
+  def message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
+  def message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
 
-  defp message_for(:invalid_pad_shorthand),
+  def message_for(:invalid_pad_shorthand),
     do: "invalid value: expected 1-4 comma-separated px values"
 
-  defp message_for(:invalid_output), do: "invalid value: expected image or blurhash"
+  def message_for(:invalid_output), do: "invalid value: expected image or blurhash"
 
-  defp message_for(:invalid_format),
+  def message_for(:invalid_format),
     do: "invalid value: expected avif, webp, jpeg, png, or jxl"
 
-  defp message_for(:invalid_quality), do: "invalid value: expected an integer 1-100"
-  defp message_for(:invalid_expires), do: "invalid value: expected a positive unix timestamp"
+  def message_for(:invalid_quality), do: "invalid value: expected an integer 1-100"
+  def message_for(:invalid_expires), do: "invalid value: expected a positive unix timestamp"
 
-  defp message_for(:invalid_preset_name),
+  def message_for(:invalid_preset_name),
     do: "invalid value: expected names matching [A-Za-z0-9._-]+"
 
-  defp message_for(:true_spelled_bare),
+  # `Presets.expand/4` appends the offending name itself (request data this
+  # static table can't hold) to build the full message.
+  def message_for(:unknown_preset), do: "unknown preset"
+
+  def message_for(:true_spelled_bare),
     do: "invalid value: write the bare flag instead of key=true"
 
-  defp message_for(:invalid_flag),
+  def message_for(:invalid_flag),
     do: "invalid value: expected false (or the bare flag for true)"
 end

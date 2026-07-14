@@ -46,6 +46,36 @@ defmodule ImagePipe.Dialect.NativeTest do
         Native.init(on_inert_option: :bogus)
       end
     end
+
+    test "accepts a presets map whose fragments parse as group-scoped-only options" do
+      opts = Native.init(presets: %{"card" => "w=300/h=200/fit=cover"})
+
+      assert Keyword.fetch!(opts, :presets) == %{"card" => "w=300/h=200/fit=cover"}
+    end
+
+    test "raises on a preset fragment with an unknown option" do
+      assert_raise ArgumentError, fn ->
+        Native.init(presets: %{"bad" => "bogus=1"})
+      end
+    end
+
+    test "raises on a preset fragment containing then" do
+      assert_raise ArgumentError, fn ->
+        Native.init(presets: %{"bad" => "w=300/then/h=200"})
+      end
+    end
+
+    test "raises on a preset fragment containing a request-scoped key" do
+      assert_raise ArgumentError, fn ->
+        Native.init(presets: %{"bad" => "w=300/format=webp"})
+      end
+    end
+
+    test "raises on a presets value that is not a map of strings" do
+      assert_raise ArgumentError, fn ->
+        Native.init(presets: %{"bad" => 123})
+      end
+    end
   end
 
   describe "call/2" do

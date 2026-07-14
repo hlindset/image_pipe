@@ -1,6 +1,9 @@
 defmodule ImagePipe.Dialect.Native.ParserTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
+  alias ImagePipe.Dialect.Native.Diagnostic
+  alias ImagePipe.Dialect.Native.DiagnosticRenderer
   alias ImagePipe.Dialect.Native.Parser
   alias ImagePipe.Dialect.Native.Request
   alias ImagePipe.Dialect.Native.Request.Group
@@ -16,8 +19,8 @@ defmodule ImagePipe.Dialect.Native.ParserTest do
     %{segments: Enum.map(segments, &seg/1), source: {:src, source, {0, byte_size(source)}}}
   end
 
-  defp parse(segments, source \\ "images/cat.jpg") do
-    Parser.parse(lexed(segments, source), [])
+  defp parse(segments, source \\ "images/cat.jpg", config \\ []) do
+    Parser.parse(lexed(segments, source), config)
   end
 
   describe "worked examples [native §Examples]" do
@@ -190,8 +193,10 @@ defmodule ImagePipe.Dialect.Native.ParserTest do
       assert {:ok, %Request{expires: 1_999_999_999}} = parse(["expires=1999999999"])
     end
 
-    test "preset is grammar-validated but never reaches the canonical request" do
-      assert {:ok, with_preset} = parse(["preset=card", "w=800"])
+    test "an overridden-away preset is grammar-validated but never reaches the canonical request" do
+      config = [presets: %{"card" => "w=999"}]
+
+      assert {:ok, with_preset} = parse(["preset=card", "w=800"], "images/cat.jpg", config)
       assert {:ok, without_preset} = parse(["w=800"])
       assert with_preset == without_preset
     end
@@ -427,6 +432,128 @@ defmodule ImagePipe.Dialect.Native.ParserTest do
       # `anchor` alone has no consumer within this fragment, but that is a
       # decision for the merged request, not this narrow surface.
       assert fragment("anchor=smart") == {:ok, %{"anchor" => :smart}}
+    end
+  end
+
+  describe "presets [native §Presets, trimmed to probe]" do
+    test "a named preset contributes options the URL never states" do
+      config = [presets: %{"card" => "w=300/fit=cover"}]
+
+      assert {:ok, request} = parse(["preset=card"], "images/cat.jpg", config)
+
+      assert %Request{
+               groups: [
+                 %Group{resize: %{w: 300, h: :auto, fit: :cover, enlarge: false}}
+               ]
+             } = request
+    end
+
+    test "the default preset applies with no preset= segment in the URL at all" do
+      config = [presets: %{"default" => "blur=2.5"}]
+
+      assert {:ok, %Request{groups: [%Group{blur: 2.5}]}} =
+               parse(["w=800"], "images/cat.jpg", config)
+    end
+
+    test "precedence chain: default < named presets in URL order < explicit URL options" do
+      config = [
+        presets: %{
+          "default" => "blur=1",
+          "a" => "blur=2/trim=auto",
+          "b" => "blur=3"
+        }
+      ]
+
+      # explicit w=800 is untouched by any level; blur is set by "default",
+      # displaced by "a", then displaced again by "b" (last-listed named
+      # preset wins); trim survives from "a" since nothing displaces it.
+      assert {:ok, request} = parse(["preset=a,b", "w=800"], "images/cat.jpg", config)
+
+      assert %Request{
+               groups: [
+                 %Group{
+                   resize: %{w: 800, h: :auto, fit: :contain, enlarge: false},
+                   blur: 3.0,
+                   trim: :auto
+                 }
+               ]
+             } = request
+    end
+
+    test "an explicit URL option displaces every preset level for that key" do
+      config = [presets: %{"default" => "w=100", "card" => "w=300"}]
+
+      assert {:ok, request} = parse(["preset=card", "w=800"], "images/cat.jpg", config)
+      assert %Request{groups: [%Group{resize: %{w: 800}}]} = request
+    end
+
+    test "an unknown preset name is a 400" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["preset=nope", "w=800"], "images/cat.jpg", presets: %{})
+
+      assert Enum.any?(diagnostics, &(&1.reason == :unknown_preset))
+    end
+
+    test "a preset-contributed key can still trigger Tier-2 inertness on the merged group" do
+      # `fit=cover` alone (no resize intent from either the preset or the
+      # URL) is inert — cross-option validation runs over the *merged*
+      # group, not just the URL's own explicit segments.
+      config = [presets: %{"cover" => "fit=cover"}]
+
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["preset=cover"], "images/cat.jpg", config)
+
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "a preset combined with an explicit dimension satisfies its own inertness prerequisite" do
+      config = [presets: %{"cover" => "fit=cover"}]
+
+      assert {:ok, %Request{groups: [%Group{resize: %{fit: :cover}}]}} =
+               parse(["preset=cover", "w=800"], "images/cat.jpg", config)
+    end
+
+    test "a default-preset-only inertness diagnostic anchors to the whole raw path, not {0, 0}" do
+      # No `preset=` segment at all — the `default` preset applies purely
+      # from config, so there is no real segment for the resulting
+      # cross-option diagnostic to anchor to. It must fall back to the
+      # whole raw path, not a zero-length {0, 0} span.
+      config = [presets: %{"default" => "fit=cover"}]
+      raw_path = "/src/images/cat.jpg"
+      lexed = %{segments: [], source: {:src, "images/cat.jpg", {5, 14}}}
+
+      assert {:error, {:invalid_request, diagnostics}} = Parser.parse(lexed, config)
+
+      assert [%Diagnostic{reason: :inert_option, spans: [{0, 19}]}] = diagnostics
+      assert byte_size(raw_path) == 19
+
+      rendered =
+        raw_path
+        |> DiagnosticRenderer.render(diagnostics)
+        |> IO.iodata_to_binary()
+
+      assert rendered =~ String.duplicate("^", 19)
+    end
+
+    test "a host preset literally named `default` combined with an explicit preset=default is idempotent" do
+      config = [presets: %{"default" => "blur=2"}]
+
+      assert {:ok, applied_once} = parse(["w=800"], "images/cat.jpg", config)
+
+      assert {:ok, applied_explicitly} =
+               parse(["preset=default", "w=800"], "images/cat.jpg", config)
+
+      assert applied_once == applied_explicitly
+    end
+
+    property "an overridden-away preset never changes the canonical %Request{}" do
+      check all preset_w <- StreamData.integer(1..4000),
+                url_w <- StreamData.integer(1..4000) do
+        config = [presets: %{"card" => "w=#{preset_w}"}]
+
+        assert parse(["preset=card", "w=#{url_w}"], "images/cat.jpg", config) ==
+                 parse(["w=#{url_w}"])
+      end
     end
   end
 end

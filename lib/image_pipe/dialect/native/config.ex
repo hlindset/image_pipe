@@ -2,6 +2,7 @@ defmodule ImagePipe.Dialect.Native.Config do
   @moduledoc false
 
   alias ImagePipe.Cache
+  alias ImagePipe.Dialect.Native.Presets
   alias ImagePipe.Format
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
@@ -29,7 +30,7 @@ defmodule ImagePipe.Dialect.Native.Config do
                       default: []
                     ],
                     presets: [
-                      type: {:map, :string, :string},
+                      type: {:custom, __MODULE__, :validate_presets, []},
                       default: %{}
                     ],
                     on_inert_option: [
@@ -102,6 +103,19 @@ defmodule ImagePipe.Dialect.Native.Config do
     do:
       {:error,
        "expected {:header, name} or {:cookie, name} with a non-empty string name, got: #{inspect(value)}"}
+
+  @doc false
+  def validate_presets(value) when is_map(value) do
+    if Enum.all?(value, fn {k, v} -> is_binary(k) and is_binary(v) end) do
+      Presets.validate_config(value)
+    else
+      {:error, "expected a map of preset name to option-fragment string, got: #{inspect(value)}"}
+    end
+  end
+
+  def validate_presets(value),
+    do:
+      {:error, "expected a map of preset name to option-fragment string, got: #{inspect(value)}"}
 
   @doc false
   def validate_telemetry_prefix(telemetry_prefix) do
