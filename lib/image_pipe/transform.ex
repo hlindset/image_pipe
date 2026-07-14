@@ -16,6 +16,7 @@ defmodule ImagePipe.Transform do
       State,
       Chain,
       DecodePlanner,
+      DecodePlanner.Request,
       Materializer,
       Detector,
       Detector.Warmup,

@@ -671,6 +671,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform.State,
       ImagePipe.Transform.Chain,
       ImagePipe.Transform.DecodePlanner,
+      ImagePipe.Transform.DecodePlanner.Request,
       ImagePipe.Transform.Materializer,
       ImagePipe.Transform.Operation.Resize,
       ImagePipe.Transform.Operation.ExtendCanvas,
