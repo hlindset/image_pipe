@@ -14,6 +14,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   alias ImgproxyWireConformanceTest.CacheProbe
   alias ImgproxyWireConformanceTest.CountingOriginImage
   alias ImgproxyWireConformanceTest.OriginImage
+  alias ImgproxyWireConformanceTest.OriginShouldNotFetch
 
   @source_key_a "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   @source_key_b "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -29,6 +30,22 @@ defmodule ImagePipe.Dialect.NativeWireTest do
          root_url: "http://origin.test",
          req_options: [plug: {CountingOriginImage, test_pid: self()}]}
     ]
+  end
+
+  defp should_not_fetch_sources do
+    [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+    ]
+  end
+
+  # A fresh ETS-backed CacheProbe store: makes lookups/commits stateful
+  # (real miss-then-hit round trips) rather than the stateless default (see
+  # CacheProbe's module doc).
+  defp stateful_cache_probe do
+    table = :ets.new(:native_wire_cache_probe, [:set, :public])
+    {CacheProbe, store: table}
   end
 
   # `output_capabilities` and `on_bracket_exit` are internal test-injection
@@ -169,6 +186,92 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       assert conn_b.status == 200
 
       assert key_a.hash == key_b.hash
+    end
+  end
+
+  # ── conditional GET: 304 before any cache lookup or source fetch ───────
+
+  describe "conditional GET is evaluated before the cache lookup" do
+    test "matching If-None-Match: 304, empty body, no cache lookup, no source fetch" do
+      plain_conn = get("/w=64/src/images/cat.jpg", opts())
+      [etag] = get_resp_header(plain_conn, "etag")
+
+      config = opts(sources: should_not_fetch_sources(), cache: {CacheProbe, []})
+      conn = get("/w=64/src/images/cat.jpg", config, [{"if-none-match", etag}])
+
+      assert conn.status == 304
+      assert conn.resp_body == ""
+      refute_received :origin_fetch
+      refute_received {:cache_lookup, _key}
+    end
+  end
+
+  # ── cache hit delivery ──────────────────────────────────────────────────
+
+  describe "cache hit delivery" do
+    test "second non-conditional request is served from the stored cache entry" do
+      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+
+      conn_a = get("/w=64/src/images/cat.jpg", config)
+      assert conn_a.status == 200
+      assert_received :origin_fetch
+      assert_received {:source_order, :cache_put}
+
+      conn_b = get("/w=64/src/images/cat.jpg", config)
+
+      assert conn_b.status == 200
+      refute_received :origin_fetch
+      assert_received {:source_order, :cache_lookup}
+      refute_received {:source_order, :cache_put}
+
+      assert conn_b.resp_body == conn_a.resp_body
+      assert get_resp_header(conn_b, "content-type") == get_resp_header(conn_a, "content-type")
+      assert get_resp_header(conn_b, "etag") == get_resp_header(conn_a, "etag")
+      assert get_resp_header(conn_b, "vary") == get_resp_header(conn_a, "vary")
+    end
+
+    test "a semantically permuted URL is served from the SAME cached entry" do
+      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+
+      conn_a = get("/w=64/fit=contain/src/images/cat.jpg", config)
+      assert conn_a.status == 200
+      assert_received :origin_fetch
+
+      conn_b = get("/fit=contain/w=64/src/images/cat.jpg", config)
+
+      assert conn_b.status == 200
+      refute_received :origin_fetch
+      assert conn_b.resp_body == conn_a.resp_body
+      assert get_resp_header(conn_b, "etag") == get_resp_header(conn_a, "etag")
+    end
+
+    test "If-None-Match matching etag on a warmed cache: 304, no source fetch" do
+      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+
+      first_conn = get("/w=64/src/images/cat.jpg", config)
+      assert first_conn.status == 200
+      [etag] = get_resp_header(first_conn, "etag")
+      assert_received :origin_fetch
+
+      conn = get("/w=64/src/images/cat.jpg", config, [{"if-none-match", etag}])
+
+      assert conn.status == 304
+      assert conn.resp_body == ""
+      refute_received :origin_fetch
+    end
+
+    test "If-None-Match: * is 200 on a cold cache but 304 once the cache is warmed" do
+      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+
+      cold_conn = get("/w=64/src/images/cat.jpg", config, [{"if-none-match", "*"}])
+      assert cold_conn.status == 200
+      assert_received :origin_fetch
+
+      warm_conn = get("/w=64/src/images/cat.jpg", config, [{"if-none-match", "*"}])
+
+      assert warm_conn.status == 304
+      assert warm_conn.resp_body == ""
+      refute_received :origin_fetch
     end
   end
 

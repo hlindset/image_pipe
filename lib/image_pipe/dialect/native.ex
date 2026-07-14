@@ -10,13 +10,18 @@ defmodule ImagePipe.Dialect.Native do
   `call/2` is the visible chain [pipelines design reference "The visible
   chain"]: raw byte split → verify (403 before any parsing) → full lex →
   parse → `expires` gate (404) → source translation/resolution → negotiate
-  → build the representation identity (key/ETag/Vary) → serve.
+  → build the representation identity (key/ETag/Vary) → conditional-GET gate
+  → serve.
 
-  This task (pipeline assembly) wires every request as a generate/stream
-  MISS with a cache write — `serve/6` calls `Cache.lookup_entry/2` (so the
-  telemetry/ordering contract is real) but does not yet special-case a hit;
-  conditional-GET short-circuiting and cache-hit delivery land in a later
-  task.
+  The conditional-GET gate (`Response.Conditional.not_modified?/2`) runs
+  BEFORE `serve/6`'s cache lookup: since the ETag is derived purely from
+  pre-fetch request-identity material (`ImagePipe.Representation`), a
+  matching `If-None-Match` short-circuits to 304 without ever touching the
+  cache or the source — stricter and cheaper than the framework's own
+  post-cache-lookup conditional evaluation. `serve/6` calls
+  `Cache.lookup_entry/2` and, on a hit, delivers the stored entry directly
+  (re-checking `If-None-Match: *` at that point, per RFC 9110 §13.1.2 — see
+  `deliver_hit/4`); on a miss it falls through to `generate/6`.
 
   ## Mount prefix caveat
 
@@ -68,6 +73,7 @@ defmodule ImagePipe.Dialect.Native do
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
+  alias ImagePipe.Response.Conditional
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
@@ -111,7 +117,11 @@ defmodule ImagePipe.Dialect.Native do
           Identity.material(request, negotiation, conn, config)
         )
 
-      serve(conn, request, resolved, negotiation, representation, config)
+      if Conditional.not_modified?(conn, representation.etag) do
+        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      else
+        serve(conn, request, resolved, negotiation, representation, config)
+      end
     else
       {:error, reason} -> Errors.send(conn, reason, config)
     end
@@ -191,18 +201,42 @@ defmodule ImagePipe.Dialect.Native do
   defp normalize_selection({:auto_head, format}), do: {format, true}
   defp normalize_selection(:source_negotiated), do: {:source_negotiated, true}
 
-  # -- cache lookup (miss-shaped in this task) + generate ----------------------
+  # -- cache lookup + hit delivery / miss generate -----------------------------
 
   defp serve(conn, request, resolved, negotiation, representation, config) do
-    case Cache.lookup_entry(representation.cache_key, config) do
-      {:hit, _entry} ->
-        # Cache-hit delivery (serving the stored entry directly, with
-        # conditional-GET re-evaluation) is a later task's scope; every
-        # request currently generates + writes, even on a hit.
-        generate(conn, request, resolved, negotiation, representation, config)
+    start = System.monotonic_time(:microsecond)
+    lookup_result = Cache.lookup_entry(representation.cache_key, config)
+    cache_serve_us = System.monotonic_time(:microsecond) - start
+
+    case lookup_result do
+      {:hit, %Cache.Entry{} = entry} ->
+        deliver_hit(conn, entry, representation, cache_serve_us, config)
 
       _miss_or_disabled ->
         generate(conn, request, resolved, negotiation, representation, config)
+    end
+  end
+
+  # A cache hit is the proof, absent pre-fetch, that a current representation
+  # exists for this key — so this is the only place `If-None-Match: *` may be
+  # honored (mirroring `ImagePipe.Request.Runner`'s own hit-path check).
+  defp deliver_hit(
+         conn,
+         %Cache.Entry{} = entry,
+         %Representation{} = representation,
+         cache_serve_us,
+         config
+       ) do
+    if Conditional.if_none_match_wildcard?(conn) do
+      Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+    else
+      hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
+
+      Sender.send_result(
+        conn,
+        {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
+        config
+      )
     end
   end
 
@@ -219,15 +253,9 @@ defmodule ImagePipe.Dialect.Native do
 
     case Delivery.stream(self(), build_fun, representation, response_meta, config) do
       {:ok, prepared} ->
-        cache_headers = %CacheHeaders{
-          etag: representation.etag,
-          representation_headers: vary_headers(representation.vary),
-          headers: [{"etag", representation.etag}]
-        }
-
         Sender.send_result(
           conn,
-          {:ok, {:prepared_stream, prepared, response_meta, cache_headers}},
+          {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
           config
         )
 
@@ -250,6 +278,14 @@ defmodule ImagePipe.Dialect.Native do
 
   defp vary_headers([]), do: []
   defp vary_headers(names) when is_list(names), do: [{"vary", Enum.join(names, ", ")}]
+
+  defp cache_headers(%Representation{} = representation) do
+    %CacheHeaders{
+      etag: representation.etag,
+      representation_headers: vary_headers(representation.vary),
+      headers: [{"etag", representation.etag}]
+    }
+  end
 
   # -- build_fun: fetch → decode → transform → encode, run INSIDE the ----------
   # -- producer process, entirely inside Decode.with_image's bracket. ---------

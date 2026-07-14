@@ -63,6 +63,15 @@
         # Producer into a shared abstraction is explicitly post-probe work (see
         # the pipelines design reference, "Delivery duplication", and the Task
         # 15 report). Ignored for the same reason as the Decode pair above.
+        #
+        # ImagePipe.Response.Conditional deliberately duplicates the private
+        # If-None-Match parsing/matching helpers in
+        # ImagePipe.Request.HTTPCache (if_none_match?/2, parse_if_none_match/1)
+        # so a dialect can evaluate a conditional GET before any cache lookup
+        # without depending on the Request boundary (HTTPCache is
+        # framework-frozen). See the module doc in
+        # lib/image_pipe/response/conditional.ex and the Task 16 report.
+        # Ignored for the same reason as the pairs above.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
@@ -70,7 +79,8 @@
            "lib/image_pipe/decode/source_format.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
            "lib/image_pipe/dialect/native/delivery/coordinator.ex",
-           "lib/image_pipe/dialect/native/delivery/producer.ex"
+           "lib/image_pipe/dialect/native/delivery/producer.ex",
+           "lib/image_pipe/response/conditional.ex"
          ]}
       ]
     }
