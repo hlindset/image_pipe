@@ -25,8 +25,10 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Sink
+  alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan
+  alias ImagePipe.Telemetry
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
   @plan_key_option_keys [
@@ -75,6 +77,12 @@ defmodule ImagePipe.Cache do
           | {:miss, Key.t()}
           | {:miss, Key.t(), {:cache_read, term()}}
 
+  @type entry_lookup_result ::
+          :disabled
+          | {:hit, Entry.t()}
+          | {:miss, Key.t()}
+          | {:miss, Key.t(), {:cache_read, term()}}
+
   @doc false
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()}
   def validate_config(opts) when is_list(opts) do
@@ -103,6 +111,33 @@ defmodule ImagePipe.Cache do
       {adapter, cache_opts} ->
         lookup_configured(adapter, conn, plan, source_identity, opts, cache_opts)
     end
+  end
+
+  @doc """
+  Key-first cache lookup: mirrors `lookup/4`'s adapter dispatch and fail-open
+  read-error behavior, minus the `Plan`. A dialect that builds its own
+  `%ImagePipe.Cache.Key{}` (via `ImagePipe.Representation.build/2`) looks it
+  up directly, without a framework `Plan` to derive the key from.
+  """
+  @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
+  def lookup_entry(%Key{} = key, opts) when is_list(opts) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:cache, :lookup],
+      entry_lookup_start_metadata(opts),
+      fn ->
+        result =
+          case Keyword.get(opts, :cache) do
+            nil ->
+              :disabled
+
+            {adapter, cache_opts} ->
+              get_entry_configured(adapter, key, cache_opts)
+          end
+
+        {result, entry_lookup_stop_metadata(result)}
+      end
+    )
   end
 
   @doc false
@@ -153,27 +188,36 @@ defmodule ImagePipe.Cache do
   end
 
   defp get_configured(adapter, key, cache_opts) do
-    case adapter.get(key, cache_opts) do
-      {:hit, %Entry{} = entry} ->
-        handle_hit(entry, key, cache_opts)
-
-      :miss ->
-        {:miss, key}
-
-      {:error, reason} ->
-        handle_read_error(reason, key, cache_opts)
-
-      unexpected ->
-        handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
+    case fetch_entry(adapter, key, cache_opts) do
+      {:hit, entry} -> {:hit, key, entry}
+      :miss -> {:miss, key}
+      {:error, reason} -> handle_read_error(reason, key, cache_opts)
     end
-  rescue
-    exception -> handle_read_error(exception, key, cache_opts)
   end
 
-  defp handle_hit(%Entry{} = entry, key, cache_opts) do
+  defp get_entry_configured(adapter, key, cache_opts) do
+    case fetch_entry(adapter, key, cache_opts) do
+      {:hit, entry} -> {:hit, entry}
+      :miss -> {:miss, key}
+      {:error, reason} -> handle_read_error(reason, key, cache_opts)
+    end
+  end
+
+  defp fetch_entry(adapter, key, cache_opts) do
+    case adapter.get(key, cache_opts) do
+      {:hit, %Entry{} = entry} -> validate_fetched_entry(entry)
+      :miss -> :miss
+      {:error, reason} -> {:error, reason}
+      unexpected -> {:error, {:invalid_adapter_result, unexpected}}
+    end
+  rescue
+    exception -> {:error, exception}
+  end
+
+  defp validate_fetched_entry(%Entry{} = entry) do
     case Entry.validate(entry) do
-      :ok -> {:hit, key, entry}
-      {:error, reason} -> handle_read_error({:invalid_entry, reason}, key, cache_opts)
+      :ok -> {:hit, entry}
+      {:error, reason} -> {:error, {:invalid_entry, reason}}
     end
   end
 
@@ -255,6 +299,23 @@ defmodule ImagePipe.Cache do
     Logger.warning("cache read error: #{inspect(reason)}")
     {:miss, key, {:cache_read, reason}}
   end
+
+  defp entry_lookup_start_metadata(opts) do
+    cache =
+      case Keyword.get(opts, :cache) do
+        nil -> :disabled
+        _cache -> nil
+      end
+
+    %{cache: cache}
+  end
+
+  defp entry_lookup_stop_metadata(:disabled), do: %{result: :ok, cache: :disabled}
+  defp entry_lookup_stop_metadata({:hit, %Entry{}}), do: %{result: :ok, cache: :hit}
+  defp entry_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
+
+  defp entry_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
+    do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
 
   defp key_options(opts, cache_opts) do
     cache_opts

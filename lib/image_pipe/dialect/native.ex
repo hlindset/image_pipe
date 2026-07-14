@@ -32,7 +32,7 @@ defmodule ImagePipe.Dialect.Native do
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
-      # ImagePipe.Representation,    # added in Task 9
+      ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry,

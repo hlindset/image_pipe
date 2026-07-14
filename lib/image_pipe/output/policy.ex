@@ -28,7 +28,8 @@ defmodule ImagePipe.Output.Policy do
                 quality_search: :none,
                 max_bytes: nil,
                 quality_search_offsets: Output.default_quality_search_offsets(),
-                encoder_options: %{}
+                encoder_options: %{},
+                hdr: :tone_map
               ]
 
   @passthrough_source_formats [:jpeg, :png]
@@ -61,8 +62,12 @@ defmodule ImagePipe.Output.Policy do
             | Output.QualitySearch.Butteraugli.t(),
           max_bytes: nil | pos_integer(),
           quality_search_offsets: Output.quality_search_offsets(),
-          encoder_options: %{optional(format()) => struct()}
+          encoder_options: %{optional(format()) => struct()},
+          hdr: Output.hdr()
         }
+
+  @type identity_selection() ::
+          {:explicit, format()} | {:auto_head, format()} | :source_negotiated
 
   @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
   def from_output_plan(%Plug.Conn{} = conn, %Output{mode: :automatic} = output, opts) do
@@ -80,7 +85,8 @@ defmodule ImagePipe.Output.Policy do
       quality_search: output.quality_search,
       max_bytes: output.max_bytes,
       quality_search_offsets: output.quality_search_offsets,
-      encoder_options: output.encoder_options
+      encoder_options: output.encoder_options,
+      hdr: output.hdr
     }
   end
 
@@ -99,32 +105,65 @@ defmodule ImagePipe.Output.Policy do
       quality_search: output.quality_search,
       max_bytes: output.max_bytes,
       quality_search_offsets: output.quality_search_offsets,
-      encoder_options: output.encoder_options
+      encoder_options: output.encoder_options,
+      hdr: output.hdr
     }
   end
 
-  defp resolve_before_source_fetch(%__MODULE__{mode: {:explicit, format}}),
-    do: {:selected, format, :explicit}
+  @doc """
+  The pure pre-source-fetch format selection: explicit format, the negotiated
+  auto-candidate head, or a deferral to source-format resolution. Public and
+  core-owned so dialect identity material can read the same decision that
+  `resolve/2` later encodes, without re-deriving negotiation.
+  """
+  @spec identity_selection(t()) :: identity_selection()
+  def identity_selection(%__MODULE__{mode: {:explicit, format}}), do: {:explicit, format}
 
-  defp resolve_before_source_fetch(%__MODULE__{
-         mode: :source,
-         modern_candidates: [format | _rest]
-       }),
-       do: {:selected, format, :auto}
+  def identity_selection(%__MODULE__{mode: :source, modern_candidates: [format | _rest]}),
+    do: {:auto_head, format}
 
-  defp resolve_before_source_fetch(%__MODULE__{mode: :source, modern_candidates: []}),
-    do: :needs_source_format
+  def identity_selection(%__MODULE__{mode: :source, modern_candidates: []}),
+    do: :source_negotiated
+
+  @doc """
+  Canonical keyword of the effective, config-resolved byte-affecting policy:
+  quality, format defaults/overrides, quality search (canonicalized to a
+  digestible shape), byte/metadata/color/HDR/background/encoder knobs.
+  Deliberately excludes `mode`/`modern_candidates`/`headers` — negotiation
+  enters identity only via `identity_selection/1`'s outcome, never the raw
+  Accept header.
+  """
+  @spec identity_material(t()) :: keyword()
+  def identity_material(%__MODULE__{} = policy) do
+    [
+      quality: policy.quality,
+      default_quality: policy.default_quality,
+      format_qualities: policy.format_qualities,
+      quality_search: quality_search_identity(policy.quality_search),
+      quality_search_offsets: policy.quality_search_offsets,
+      max_bytes: policy.max_bytes,
+      strip_metadata: policy.strip_metadata,
+      keep_copyright: policy.keep_copyright,
+      color_profile: policy.color_profile,
+      hdr: policy.hdr,
+      flatten_background: Color.key_data(policy.flatten_background),
+      encoder_options: encoder_options_identity(policy.encoder_options)
+    ]
+  end
 
   @spec resolve(t(), source_format() | nil) ::
           {:ok, Resolved.t()}
           | {:error, :source_format_required}
           | {:needs_final_image_alpha, :source}
   def resolve(%__MODULE__{} = policy, source_format) do
-    case resolve_before_source_fetch(policy) do
-      {:selected, format, _reason} ->
+    case identity_selection(policy) do
+      {:explicit, format} ->
         {:ok, resolved(policy, format)}
 
-      :needs_source_format ->
+      {:auto_head, format} ->
+        {:ok, resolved(policy, format)}
+
+      :source_negotiated ->
         case resolve_source_format(policy, source_format) do
           {:selected, format, _reason} -> {:ok, resolved(policy, format)}
           {:needs_final_image_alpha, _reason} = pending -> pending
@@ -269,4 +308,50 @@ defmodule ImagePipe.Output.Policy do
   defp default_for(%__MODULE__{default_quality: default_quality}, _format), do: default_quality
 
   defp accept_header(conn), do: conn |> get_req_header("accept") |> Enum.join(",")
+
+  # Canonicalized quality-search identity: structs must not reach the digest
+  # directly (MaterialDigest.canonicalize/1 maps over maps but structs aren't
+  # Enumerable), and format_min/format_max maps are sorted to plain lists so
+  # equal-meaning searches always digest identically.
+  defp quality_search_identity(:none), do: :none
+
+  defp quality_search_identity(%Output.QualitySearch.Size{} = s) do
+    [
+      metric: :size,
+      target: s.target,
+      min_quality: s.min_quality,
+      max_quality: s.max_quality,
+      url_min_quality: s.url_min_quality,
+      url_max_quality: s.url_max_quality,
+      max_resolution: s.max_resolution,
+      format_min: Enum.sort(Map.to_list(s.format_min)),
+      format_max: Enum.sort(Map.to_list(s.format_max))
+    ]
+  end
+
+  defp quality_search_identity(%Output.QualitySearch.Ssimulacra2{} = s),
+    do: quality_metric_identity(:ssimulacra2, s)
+
+  defp quality_search_identity(%Output.QualitySearch.Butteraugli{} = s),
+    do: quality_metric_identity(:butteraugli, s)
+
+  defp quality_metric_identity(metric, s) do
+    [
+      metric: metric,
+      target: s.target,
+      min_quality: s.min_quality,
+      max_quality: s.max_quality,
+      url_min_quality: s.url_min_quality,
+      url_max_quality: s.url_max_quality,
+      allowed_error: s.allowed_error,
+      max_resolution: s.max_resolution,
+      format_min: Enum.sort(Map.to_list(s.format_min)),
+      format_max: Enum.sort(Map.to_list(s.format_max))
+    ]
+  end
+
+  # Encoder-option structs must be flattened to plain maps before the digest,
+  # for the same reason as quality-search structs above.
+  defp encoder_options_identity(map),
+    do: Map.new(map, fn {format, struct} -> {format, Map.from_struct(struct)} end)
 end

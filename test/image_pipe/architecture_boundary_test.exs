@@ -68,6 +68,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Parser.Imgproxy => "lib/image_pipe/parser/imgproxy.ex",
     ImagePipe.Parser.TwicPics => "lib/image_pipe/parser/twic_pics.ex",
     ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
+    ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Request => "lib/image_pipe/request.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
@@ -195,14 +196,15 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "dialect native boundary declaration depends only on core toolkit facades" do
     dialect_native = boundary_declaration(ImagePipe.Dialect.Native)
 
-    # ImagePipe.Decode (Task 12) and ImagePipe.Representation (Task 9) are not
-    # created yet — they join this list once their tasks land.
+    # ImagePipe.Decode (Task 12) is not created yet — it joins this list once
+    # its task lands.
     assert_boundary_deps(dialect_native, [
       ImagePipe.Cache,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry,
@@ -610,6 +612,16 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.Entry,
       ImagePipe.Cache.Key,
       ImagePipe.Cache.FileSystem
+    ])
+  end
+
+  test "representation boundary declaration depends only on cache and material digest" do
+    representation = boundary_declaration(ImagePipe.Representation)
+
+    assert_boundary_deps(representation, [ImagePipe.Cache, ImagePipe.MaterialDigest])
+
+    assert_boundary_exports(representation, [
+      ImagePipe.Representation.IdentityMaterial
     ])
   end
 
