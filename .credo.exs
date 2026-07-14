@@ -47,9 +47,20 @@
         # from both anchor files, and lib/image_pipe/request/processor.ex stays
         # untouched (framework-frozen), so the pair can only be silenced by
         # excluding the Decode-side files from the corpus entirely.
+        #
+        # ImagePipe.Dialect.Native.Pipeline also deliberately mirrors two small
+        # private helpers off ImagePipe.Transform.Executor (`overlay/2` and
+        # `boundary_source_dimensions/1`) — Executor is not exported from the
+        # Transform boundary and is core-frozen for this task, so the dialect's
+        # own resolve-loop driver cannot call it; see the module doc in
+        # lib/image_pipe/dialect/native/pipeline.ex and the Task 14 report.
         {ExDNA.Credo,
          excluded_macros: [:alias],
-         ignore: ["lib/image_pipe/decode.ex", "lib/image_pipe/decode/source_format.ex"]}
+         ignore: [
+           "lib/image_pipe/decode.ex",
+           "lib/image_pipe/decode/source_format.ex",
+           "lib/image_pipe/dialect/native/pipeline.ex"
+         ]}
       ]
     }
   ]
