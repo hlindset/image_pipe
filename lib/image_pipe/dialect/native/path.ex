@@ -30,10 +30,18 @@ defmodule ImagePipe.Dialect.Native.Path do
   into the *mount-relative* raw path — the sig segment counts toward
   offsets even though it is skipped during lexing, so diagnostics can point
   at the right byte position in the actual request path.
+
+  Lexing work is bounded: at most `@max_option_segments` segments (src/src64
+  excepted) are lexed per request before giving up with a `:too_many_segments`
+  diagnostic [native §Error diagnostics, bounded work] — a hostile path with
+  an unbounded number of segments must not buy unbounded lexing work.
   """
 
-  @type span :: {byte_offset :: non_neg_integer(), byte_length :: non_neg_integer()}
-  @type lex_error :: %{reason: atom(), span: span()}
+  alias ImagePipe.Dialect.Native.Diagnostic
+
+  @type span :: Diagnostic.span()
+
+  @max_option_segments 64
 
   # Any "%" not followed by exactly two hex digits is a malformed escape.
   @malformed_percent ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/
@@ -74,34 +82,33 @@ defmodule ImagePipe.Dialect.Native.Path do
   it) but never returns signature data — `split_signature/1` is the raw
   prefix's only interpreter.
 
-  Returns `{:ok, %{segments: [{raw, span}], source: {:src | :src64, raw_tail, span}}}`
-  on success, where `raw_tail` is the fully decoded source string (percent-
-  decoded once for `src`, base64url-decoded for `src64`) — both marker forms
-  feed the same downstream source-resolution toolkit [native §Sources].
+  Returns `{:ok, %{segments: [{raw, span}], source: {:src | :src64, decoded_tail, span}}}`
+  on success, where `decoded_tail` is the fully decoded source string
+  (percent-decoded once for `src`, base64url-decoded for `src64`) — both
+  marker forms feed the same downstream source-resolution toolkit [native
+  §Sources].
 
-  On failure returns `{:error, [%{reason: atom(), span: span()}]}` — errors
-  accumulate across independent rule violations in a single pass; until
-  Task 6 lands `Native.Diagnostic`, this is a plain map with `:reason` and
-  `:span`.
+  On failure returns `{:error, [Diagnostic.t()]}` — errors accumulate
+  across independent rule violations in a single pass.
   """
   @spec extract(Plug.Conn.t()) ::
           {:ok,
            %{
              segments: [{raw :: String.t(), span()}],
-             source: {:src | :src64, raw_tail :: String.t(), span()}
+             source: {:src | :src64, decoded_tail :: String.t(), span()}
            }}
-          | {:error, [lex_error()]}
+          | {:error, [Diagnostic.t()]}
   def extract(%Plug.Conn{} = conn) do
     path = mount_relative_path!(conn)
 
     query_errors =
       if conn.query_string != "" do
-        [%{reason: :non_empty_query_string, span: {byte_size(path), 0}}]
+        [diagnostic(:non_empty_query_string, {byte_size(path), 0})]
       else
         []
       end
 
-    lex_segments(path, lex_start(path), [], query_errors)
+    lex_segments(path, lex_start(path), [], query_errors, 0)
   end
 
   # -- mount-prefix stripping -------------------------------------------
@@ -195,35 +202,60 @@ defmodule ImagePipe.Dialect.Native.Path do
   end
 
   # -- segment lexer -------------------------------------------------------
+  #
+  # `segment_count` bounds lexing work [native §Error diagnostics, bounded
+  # work]: it counts every non-terminal segment consumed (option, flag,
+  # `then`, and every error-producing segment alike) but never the
+  # terminal src/src64 marker itself, so a request genuinely at the option
+  # budget can still reach its source.
 
-  defp lex_segments(path, rest, segments_acc, errors_acc) do
+  defp lex_segments(path, rest, segments_acc, errors_acc, segment_count) do
     case split_first_segment(rest) do
       {nil, _offset, _remainder} ->
-        {:error, errors_acc ++ [%{reason: :missing_source_marker, span: {byte_size(path), 0}}]}
+        {:error, errors_acc ++ [diagnostic(:missing_source_marker, {byte_size(path), 0})]}
 
       {segment, _local_offset, remainder} ->
         segment_offset = byte_size(path) - byte_size(rest) + 1
         segment_len = byte_size(segment)
 
-        classify_segment(
-          segment,
-          path,
-          remainder,
-          segment_offset,
-          segment_len,
-          segments_acc,
-          errors_acc
-        )
+        cond do
+          segment in ["src", "src64"] ->
+            classify_segment(
+              segment,
+              path,
+              remainder,
+              segment_offset,
+              segment_len,
+              segments_acc,
+              errors_acc,
+              segment_count
+            )
+
+          segment_count >= @max_option_segments ->
+            {:error, errors_acc ++ [diagnostic(:too_many_segments, {segment_offset, 0})]}
+
+          true ->
+            classify_segment(
+              segment,
+              path,
+              remainder,
+              segment_offset,
+              segment_len,
+              segments_acc,
+              errors_acc,
+              segment_count
+            )
+        end
     end
   end
 
-  defp classify_segment(segment, path, remainder, offset, len, segments_acc, errors_acc) do
+  defp classify_segment(segment, path, remainder, offset, len, segments_acc, errors_acc, count) do
     cond do
       segment == "" ->
-        continue(path, remainder, segments_acc, errors_acc, :empty_segment, {offset, 0})
+        continue(path, remainder, segments_acc, errors_acc, count, :empty_segment, {offset, 0})
 
       segment in [".", ".."] ->
-        continue(path, remainder, segments_acc, errors_acc, :dot_segment, {offset, len})
+        continue(path, remainder, segments_acc, errors_acc, count, :dot_segment, {offset, len})
 
       segment == "src" ->
         finish_source(:src, path, remainder, segments_acc, errors_acc)
@@ -232,7 +264,15 @@ defmodule ImagePipe.Dialect.Native.Path do
         finish_source(:src64, path, remainder, segments_acc, errors_acc)
 
       String.starts_with?(segment, "sig=") ->
-        continue(path, remainder, segments_acc, errors_acc, :sig_only_valid_first, {offset, len})
+        continue(
+          path,
+          remainder,
+          segments_acc,
+          errors_acc,
+          count,
+          :sig_only_valid_first,
+          {offset, len}
+        )
 
       String.contains?(segment, "%") ->
         continue(
@@ -240,17 +280,30 @@ defmodule ImagePipe.Dialect.Native.Path do
           remainder,
           segments_acc,
           errors_acc,
+          count,
           :percent_in_option_segment,
           {offset, len}
         )
 
       true ->
-        lex_segments(path, remainder, segments_acc ++ [{segment, {offset, len}}], errors_acc)
+        lex_segments(
+          path,
+          remainder,
+          segments_acc ++ [{segment, {offset, len}}],
+          errors_acc,
+          count + 1
+        )
     end
   end
 
-  defp continue(path, remainder, segments_acc, errors_acc, reason, span) do
-    lex_segments(path, remainder, segments_acc, errors_acc ++ [%{reason: reason, span: span}])
+  defp continue(path, remainder, segments_acc, errors_acc, count, reason, span) do
+    lex_segments(
+      path,
+      remainder,
+      segments_acc,
+      errors_acc ++ [diagnostic(reason, span)],
+      count + 1
+    )
   end
 
   # -- source marker (terminal) --------------------------------------------
@@ -287,7 +340,7 @@ defmodule ImagePipe.Dialect.Native.Path do
   end
 
   defp finish_error(reason, offset, len, errors_acc) do
-    {:error, errors_acc ++ [%{reason: reason, span: {offset, len}}]}
+    {:error, errors_acc ++ [diagnostic(reason, {offset, len})]}
   end
 
   defp decode_source_tail(:src, tail), do: percent_decode(tail)
@@ -316,4 +369,28 @@ defmodule ImagePipe.Dialect.Native.Path do
       {:ok, URI.decode(value)}
     end
   end
+
+  # -- diagnostics ----------------------------------------------------------
+
+  defp diagnostic(reason, span) do
+    %Diagnostic{reason: reason, message: message_for(reason), spans: [span]}
+  end
+
+  defp message_for(:non_empty_query_string), do: "query strings are not supported"
+  defp message_for(:sig_only_valid_first), do: "sig must be the first segment"
+  defp message_for(:missing_source_marker), do: "missing src or src64 marker"
+  defp message_for(:missing_source), do: "missing source after src/src64 marker"
+  defp message_for(:malformed_percent_escape), do: "malformed percent escape"
+  defp message_for(:src64_embedded_slash), do: "src64 value may not contain a slash"
+  defp message_for(:src64_padding), do: "src64 value may not be padded"
+  defp message_for(:invalid_base64), do: "invalid base64url value"
+
+  defp message_for(:percent_in_option_segment),
+    do: "percent escapes are not allowed in option segments"
+
+  defp message_for(:empty_segment), do: "empty path segment"
+  defp message_for(:dot_segment), do: "dot segments are not allowed"
+
+  defp message_for(:too_many_segments),
+    do: "too many option segments (max #{@max_option_segments})"
 end

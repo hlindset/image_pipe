@@ -26,19 +26,18 @@ defmodule ImagePipe.Dialect.Native.Parser do
        canonicalize to their concrete defaults) during final struct
        assembly.
 
-  Until `ImagePipe.Dialect.Native.Diagnostic` lands (Task 6), diagnostics
-  are plain maps `%{reason: atom(), message: String.t() | nil, spans:
-  [span()]}`. `reason` atoms are stable — tests match on them.
+  Diagnostics are `ImagePipe.Dialect.Native.Diagnostic` structs — `reason`
+  atoms are stable, tests match on them.
   """
 
+  alias ImagePipe.Dialect.Native.Diagnostic
   alias ImagePipe.Dialect.Native.OptionSpec
   alias ImagePipe.Dialect.Native.Request
   alias ImagePipe.Dialect.Native.Request.Group
   alias ImagePipe.Dialect.Native.Request.Output
   alias ImagePipe.Dialect.Native.Value
 
-  @type span :: {non_neg_integer(), non_neg_integer()}
-  @type diagnostic :: %{reason: atom(), message: String.t() | nil, spans: [span()]}
+  @type span :: Diagnostic.span()
   @type lexed :: %{
           segments: [{String.t(), span()}],
           source: {:src | :src64, String.t(), span()}
@@ -49,7 +48,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
   success value) into a canonical `%Request{}`.
   """
   @spec parse(lexed(), keyword()) ::
-          {:ok, Request.t()} | {:error, {:invalid_request, [diagnostic()]}}
+          {:ok, Request.t()} | {:error, {:invalid_request, [Diagnostic.t()]}}
   def parse(%{segments: segments, source: {_marker, decoded_source, _span}}, _config) do
     {groups_raw, group_structure_errors} = split_groups(segments)
     group_count = length(groups_raw)
@@ -89,7 +88,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
   `parse/2` builds internally per group.
   """
   @spec parse_option_fragment(String.t(), keyword()) ::
-          {:ok, %{optional(String.t()) => term()}} | {:error, [diagnostic()]}
+          {:ok, %{optional(String.t()) => term()}} | {:error, [Diagnostic.t()]}
   def parse_option_fragment(fragment, _config) when is_binary(fragment) do
     occurrences = fragment |> fragment_segments() |> Enum.map(&classify_fragment_segment/1)
     errors = collect_fragment_errors(occurrences)
@@ -112,7 +111,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
 
     trailing_errors =
       if saw_then? and current_rev == [] do
-        [%{reason: :empty_pipeline_group, message: nil, spans: [last_then_span]}]
+        [diagnostic(:empty_pipeline_group, last_then_span)]
       else
         []
       end
@@ -126,7 +125,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
        ) do
     errors_rev =
       if current_rev == [] do
-        [%{reason: :empty_pipeline_group, message: nil, spans: [then_span]} | errors_rev]
+        [diagnostic(:empty_pipeline_group, then_span) | errors_rev]
       else
         errors_rev
       end
@@ -196,15 +195,15 @@ defmodule ImagePipe.Dialect.Native.Parser do
   end
 
   defp segment_diagnostic(%{spec: nil, key_span: key_span}) do
-    %{reason: :unknown_option, message: nil, spans: [key_span]}
+    diagnostic(:unknown_option, key_span)
   end
 
   defp segment_diagnostic(%{result: {:error, :missing_value}, key_span: key_span}) do
-    %{reason: :missing_value, message: nil, spans: [key_span]}
+    diagnostic(:missing_value, key_span)
   end
 
   defp segment_diagnostic(%{result: {:error, reason}, value_span: value_span}) do
-    %{reason: reason, message: nil, spans: [value_span]}
+    diagnostic(reason, value_span)
   end
 
   # -- pass 3: scope/duplicate validation ----------------------------------
@@ -234,7 +233,11 @@ defmodule ImagePipe.Dialect.Native.Parser do
     |> Enum.group_by(& &1.key)
     |> Enum.filter(fn {_key, list} -> length(list) > 1 end)
     |> Enum.map(fn {_key, list} ->
-      %{reason: :duplicate_option, message: nil, spans: Enum.map(list, & &1.span)}
+      %Diagnostic{
+        reason: :duplicate_option,
+        message: message_for(:duplicate_option),
+        spans: Enum.map(list, & &1.span)
+      }
     end)
   end
 
@@ -341,7 +344,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
       occurrence_span(occurrences, group_index, key_b)
     ]
 
-    %{
+    %Diagnostic{
       reason: :mutually_exclusive_options,
       message: "#{key_a} and #{key_b} are mutually exclusive",
       spans: spans
@@ -443,7 +446,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
 
   defp inert_if(true, occurrences, group_index, key, requirement) do
     span = occurrence_span(occurrences, group_index, key)
-    [%{reason: :inert_option, message: "#{key} requires #{requirement}", spans: [span]}]
+    [%Diagnostic{reason: :inert_option, message: "#{key} requires #{requirement}", spans: [span]}]
   end
 
   defp lone_auto_dimension_errors(group_map, occurrences, group_index, resize_prereq_errored) do
@@ -456,7 +459,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
       spans = Enum.map(keys, &occurrence_span(occurrences, group_index, &1))
 
       [
-        %{
+        %Diagnostic{
           reason: :inert_option,
           message: "auto dimension has no concrete partner",
           spans: spans
@@ -478,7 +481,7 @@ defmodule ImagePipe.Dialect.Native.Parser do
     |> Enum.map(fn {key, _value} ->
       span = request_occurrence_span(occurrences, key)
 
-      %{
+      %Diagnostic{
         reason: :inert_option,
         message: "#{key} is inert for output=#{terminal}",
         spans: [span]
@@ -667,25 +670,76 @@ defmodule ImagePipe.Dialect.Native.Parser do
               :then_not_allowed_in_fragment,
               :source_not_allowed_in_fragment
             ] do
-    %{reason: reason, message: nil, spans: [span]}
+    diagnostic(reason, span)
   end
 
   defp fragment_diagnostic(%{spec: nil, key_span: key_span, result: {:error, :unknown_option}}) do
-    %{reason: :unknown_option, message: nil, spans: [key_span]}
+    diagnostic(:unknown_option, key_span)
   end
 
   defp fragment_diagnostic(%{
          result: {:error, :request_scoped_key_in_fragment},
          key_span: key_span
        }) do
-    %{reason: :request_scoped_key_in_fragment, message: nil, spans: [key_span]}
+    diagnostic(:request_scoped_key_in_fragment, key_span)
   end
 
   defp fragment_diagnostic(%{result: {:error, :missing_value}, key_span: key_span}) do
-    %{reason: :missing_value, message: nil, spans: [key_span]}
+    diagnostic(:missing_value, key_span)
   end
 
   defp fragment_diagnostic(%{result: {:error, reason}, value_span: value_span}) do
-    %{reason: reason, message: nil, spans: [value_span]}
+    diagnostic(reason, value_span)
   end
+
+  # -- diagnostics ----------------------------------------------------------
+
+  defp diagnostic(reason, span) do
+    %Diagnostic{reason: reason, message: message_for(reason), spans: [span]}
+  end
+
+  defp message_for(:empty_pipeline_group), do: "empty pipeline group"
+  defp message_for(:unknown_option), do: "unknown option"
+  defp message_for(:missing_value), do: "missing value"
+  defp message_for(:duplicate_option), do: "duplicate option"
+  defp message_for(:empty_segment), do: "empty option segment"
+  defp message_for(:then_not_allowed_in_fragment), do: "then is not allowed in a fragment"
+
+  defp message_for(:source_not_allowed_in_fragment),
+    do: "src/src64 is not allowed in a fragment"
+
+  defp message_for(:request_scoped_key_in_fragment),
+    do: "request-scoped option is not allowed in a fragment"
+
+  defp message_for(:invalid_dimension), do: "invalid value: expected px or `auto`"
+
+  defp message_for(:invalid_fit),
+    do: "invalid value: expected contain, cover, cover-down, stretch, or auto"
+
+  defp message_for(:invalid_arity),
+    do: "invalid value: wrong number of comma-separated elements"
+
+  defp message_for(:invalid_element), do: "invalid value: one or more elements are invalid"
+  defp message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
+  defp message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
+
+  defp message_for(:invalid_pad_shorthand),
+    do: "invalid value: expected 1-4 comma-separated px values"
+
+  defp message_for(:invalid_output), do: "invalid value: expected image or blurhash"
+
+  defp message_for(:invalid_format),
+    do: "invalid value: expected avif, webp, jpeg, png, or jxl"
+
+  defp message_for(:invalid_quality), do: "invalid value: expected an integer 1-100"
+  defp message_for(:invalid_expires), do: "invalid value: expected a positive unix timestamp"
+
+  defp message_for(:invalid_preset_name),
+    do: "invalid value: expected names matching [A-Za-z0-9._-]+"
+
+  defp message_for(:true_spelled_bare),
+    do: "invalid value: write the bare flag instead of key=true"
+
+  defp message_for(:invalid_flag),
+    do: "invalid value: expected false (or the bare flag for true)"
 end

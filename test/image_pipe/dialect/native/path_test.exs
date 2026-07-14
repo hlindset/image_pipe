@@ -344,21 +344,21 @@ defmodule ImagePipe.Dialect.Native.PathTest do
     test "an unknown/invalid option segment's span covers just that segment" do
       conn = conn_for("/w=800/bogus%20value/src/x")
 
-      assert {:error, [%{reason: :percent_in_option_segment, span: {7, 13}}]} =
+      assert {:error, [%{reason: :percent_in_option_segment, spans: [{7, 13}]}]} =
                Path.extract(conn)
     end
 
     test "the missing-source-marker span points at the end of the path" do
       conn = conn_for("/w=800")
 
-      assert {:error, [%{reason: :missing_source_marker, span: {6, 0}}]} = Path.extract(conn)
+      assert {:error, [%{reason: :missing_source_marker, spans: [{6, 0}]}]} = Path.extract(conn)
     end
 
     test "the non-empty-query-string span points at the end of the path" do
       conn = conn_for("/w=800/src/x?v=2")
 
       assert {:error, errors} = Path.extract(conn)
-      assert %{reason: :non_empty_query_string, span: {12, 0}} = hd(errors)
+      assert %{reason: :non_empty_query_string, spans: [{12, 0}]} = hd(errors)
     end
   end
 
