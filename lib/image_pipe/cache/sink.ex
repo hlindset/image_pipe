@@ -30,10 +30,11 @@ defmodule ImagePipe.Cache.Sink do
           state: term(),
           size: non_neg_integer(),
           max_body_bytes: non_neg_integer() | nil,
-          output_format: atom()
+          output_format: atom() | nil
         }
 
-  @spec open(module(), Key.t(), Resolved.t(), keyword(), keyword()) :: t() | nil
+  @spec open(module(), Key.t(), Resolved.t() | {:complete_body, String.t()}, keyword(), keyword()) ::
+          t() | nil
   def open(adapter, %Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
     cost_us = Keyword.get(opts, :cost_us, 0)
     debug = Keyword.get(opts, :debug_info)
@@ -44,6 +45,26 @@ defmodule ImagePipe.Cache.Sink do
     else
       {:error, reason} ->
         handle_open_error(reason, resolved_output.format, opts)
+        nil
+    end
+  end
+
+  # Complete-body sink: a dialect-owned non-image body (e.g. a BlurHash
+  # string) delivered whole, with no encoder output and no `%Resolved{}`.
+  # Mirrors the `%Resolved{}` clause above exactly, minus everything that
+  # only makes sense for an encoded image (response headers, output format).
+  def open(adapter, %Key{} = key, {:complete_body, content_type}, cache_opts, opts)
+      when is_binary(content_type) do
+    cost_us = Keyword.get(opts, :cost_us, 0)
+    debug = Keyword.get(opts, :debug_info)
+    metadata = complete_body_metadata(content_type, cost_us, debug)
+
+    case open_adapter_sink(adapter, key, metadata, cache_opts) do
+      {:ok, adapter_state} ->
+        build(adapter, key, metadata, cache_opts, adapter_state)
+
+      {:error, reason} ->
+        handle_open_error(reason, nil, opts)
         nil
     end
   end
@@ -92,10 +113,23 @@ defmodule ImagePipe.Cache.Sink do
          headers: headers,
          created_at: DateTime.utc_now(),
          output_format: resolved_output.format,
+         representation: {:image, resolved_output.format},
          cost_us: cost_us,
          debug: debug
        }}
     end
+  end
+
+  defp complete_body_metadata(content_type, cost_us, debug) do
+    %Entry.Metadata{
+      content_type: content_type,
+      headers: [],
+      created_at: DateTime.utc_now(),
+      output_format: nil,
+      representation: {:complete_body, content_type},
+      cost_us: cost_us,
+      debug: debug
+    }
   end
 
   defp open_adapter_sink(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts) do

@@ -54,6 +54,8 @@ defmodule ImagePipe.Dialect.Native do
 
   @behaviour Plug
 
+  import Plug.Conn, only: [put_resp_content_type: 3, put_resp_header: 3, send_resp: 3]
+
   alias ImagePipe.Cache
   alias ImagePipe.Decode
   alias ImagePipe.Dialect.Native.Config
@@ -70,6 +72,7 @@ defmodule ImagePipe.Dialect.Native do
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
+  alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
@@ -77,6 +80,11 @@ defmodule ImagePipe.Dialect.Native do
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
+
+  # The BlurHash terminal's delivery content type. Fixed — `format`/`q` with
+  # a non-image `output` are Tier-2 parse rejects (Task 5), so no negotiation
+  # or dialect config ever changes this.
+  @blurhash_content_type "text/plain; charset=utf-8"
 
   # The probe subset has no `orient` option — EXIF auto-orient is always on.
   # This is the dialect's own choice, per ImagePipe.Decode.with_image/4's
@@ -230,14 +238,36 @@ defmodule ImagePipe.Dialect.Native do
     if Conditional.if_none_match_wildcard?(conn) do
       Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
     else
-      hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
-
-      Sender.send_result(
-        conn,
-        {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
-        config
-      )
+      deliver_hit_entry(conn, entry, representation, cache_serve_us, config)
     end
+  end
+
+  # A `{:complete_body, content_type}` entry (e.g. a warmed BlurHash) is sent
+  # as a plain complete body with its stored content type — it must NOT flow
+  # through `Sender`'s image-entry delivery, which assumes an encoder output
+  # (`Plan.Response.content_disposition/2` only knows the fixed image
+  # delivery content types and errors on anything else).
+  defp deliver_hit_entry(
+         conn,
+         %Cache.Entry{representation: {:complete_body, content_type}} = entry,
+         %Representation{} = representation,
+         _cache_serve_us,
+         _config
+       ) do
+    conn
+    |> put_resp_header("etag", representation.etag)
+    |> put_resp_content_type(content_type, nil)
+    |> send_resp(200, entry.body)
+  end
+
+  defp deliver_hit_entry(conn, %Cache.Entry{} = entry, representation, cache_serve_us, config) do
+    hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
+
+    Sender.send_result(
+      conn,
+      {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
+      config
+    )
   end
 
   defp generate(
@@ -264,16 +294,69 @@ defmodule ImagePipe.Dialect.Native do
     end
   end
 
+  # BlurHash terminal delivery: a complete body, not a stream — fetch,
+  # decode, transform, and reduce entirely inline (no producer process), then
+  # respond with `send_resp/3` directly. `Sender`'s `{:rendered, _}` shape
+  # does JSON negotiation, not a fit for a bare text body, so this stays
+  # dialect-owned send, same as the cache-hit complete-body branch above.
   defp generate(
          conn,
-         _request,
-         _resolved,
+         request,
+         %ImageSource.Resolved{} = resolved,
          %Negotiation{selected: {:terminal, :blurhash}},
-         _representation,
+         %Representation{} = representation,
          config
        ) do
-    # BlurHash terminal delivery lands in a later task.
-    Errors.send(conn, {:unimplemented, :blurhash_terminal}, config)
+    case compute_blurhash(resolved, request, config) do
+      {:ok, hash} ->
+        write_complete_body_cache(representation, hash, config)
+        send_complete_body(conn, hash, representation)
+
+      {:error, reason} ->
+        Errors.send(conn, reason, config)
+    end
+  end
+
+  defp compute_blurhash(%ImageSource.Resolved{} = resolved, %Request{} = request, config) do
+    decode_opts = Keyword.put(config, :auto_rotate?, @auto_rotate?)
+
+    Decode.with_image(
+      resolved,
+      decode_opts,
+      &Pipeline.decode_request(request, &1),
+      fn state, geometry -> run_blurhash(state, geometry, request, config) end
+    )
+  end
+
+  defp run_blurhash(state, geometry, request, config) do
+    with {:ok, state} <- Pipeline.run(state, geometry, request, config),
+         {:ok, state} <- Pipeline.reduce_terminal(state, request, config),
+         {:ok, hash} <- Blurhash.compute(state.image) do
+      {:ok, hash}
+    else
+      {:error, {:transform, _reason}} = error -> error
+      {:error, reason} -> {:error, {:transform, {:blurhash_encode, reason}}}
+    end
+  rescue
+    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
+  catch
+    kind, reason -> {:error, {:transform, {kind, reason}}}
+  end
+
+  defp send_complete_body(conn, hash, %Representation{} = representation) do
+    conn
+    |> put_resp_header("etag", representation.etag)
+    |> put_resp_content_type(@blurhash_content_type, nil)
+    |> send_resp(200, hash)
+  end
+
+  defp write_complete_body_cache(%Representation{} = representation, hash, config) do
+    representation.cache_key
+    |> Cache.open_sink({:complete_body, @blurhash_content_type}, config)
+    |> Cache.write_chunk(hash, config)
+    |> Cache.commit_sink(config)
+
+    :ok
   end
 
   defp vary_headers([]), do: []

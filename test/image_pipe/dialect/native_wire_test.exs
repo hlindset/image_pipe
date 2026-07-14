@@ -275,6 +275,85 @@ defmodule ImagePipe.Dialect.NativeWireTest do
     end
   end
 
+  # ── output=blurhash: complete-body terminal delivery ────────────────────
+
+  describe "GET /w=32/output=blurhash/src/images/cat.jpg" do
+    test "200, text/plain body, no Vary, ETag present" do
+      conn = get("/w=32/output=blurhash/src/images/cat.jpg", opts())
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+      assert get_resp_header(conn, "vary") == []
+      assert [etag] = get_resp_header(conn, "etag")
+      assert etag != ""
+      assert conn.resp_body =~ ~r/^[0-9A-Za-z#$%*+,\-.:;=?@\[\]^_{|}~]+$/
+    end
+
+    test "conditional GET with a matching etag is 304 before any source fetch" do
+      plain_conn = get("/output=blurhash/src/images/cat.jpg", opts())
+      [etag] = get_resp_header(plain_conn, "etag")
+
+      config = opts(sources: should_not_fetch_sources(), cache: {CacheProbe, []})
+      conn = get("/output=blurhash/src/images/cat.jpg", config, [{"if-none-match", etag}])
+
+      assert conn.status == 304
+      assert conn.resp_body == ""
+      refute_received :origin_fetch
+      refute_received {:cache_lookup, _key}
+    end
+
+    test "second request is served from the stored cache entry (CacheProbe order)" do
+      config = opts(sources: counting_sources(), cache: stateful_cache_probe())
+
+      conn_a = get("/output=blurhash/src/images/cat.jpg", config)
+      assert conn_a.status == 200
+      assert_received :origin_fetch
+      assert_received {:source_order, :cache_put}
+
+      conn_b = get("/output=blurhash/src/images/cat.jpg", config)
+
+      assert conn_b.status == 200
+      refute_received :origin_fetch
+      assert_received {:source_order, :cache_lookup}
+      refute_received {:source_order, :cache_put}
+
+      assert conn_b.resp_body == conn_a.resp_body
+      assert get_resp_header(conn_b, "content-type") == get_resp_header(conn_a, "content-type")
+      assert get_resp_header(conn_b, "etag") == get_resp_header(conn_a, "etag")
+      assert get_resp_header(conn_b, "vary") == []
+    end
+
+    test "a transform earlier in the pipeline (blur) changes the resulting hash" do
+      config = opts()
+
+      plain_conn = get("/output=blurhash/src/images/cat.jpg", config)
+      blurred_conn = get("/blur=5/output=blurhash/src/images/cat.jpg", config)
+
+      assert plain_conn.status == 200
+      assert blurred_conn.status == 200
+      assert plain_conn.resp_body != blurred_conn.resp_body
+      assert get_resp_header(plain_conn, "etag") != get_resp_header(blurred_conn, "etag")
+    end
+
+    test "q=50 combined with output=blurhash is a 400, inert (never reaches source/cache)" do
+      config = opts(sources: counting_sources(), cache: {CacheProbe, []})
+      conn = get("/q=50/output=blurhash/src/images/cat.jpg", config)
+
+      assert conn.status == 400
+      refute_received :origin_fetch
+      refute_received {:cache_lookup, _key}
+    end
+
+    test "format=webp combined with output=blurhash is a 400, inert (never reaches source/cache)" do
+      config = opts(sources: counting_sources(), cache: {CacheProbe, []})
+      conn = get("/format=webp/output=blurhash/src/images/cat.jpg", config)
+
+      assert conn.status == 400
+      refute_received :origin_fetch
+      refute_received {:cache_lookup, _key}
+    end
+  end
+
   # ── 400 paths never touch source or cache ──────────────────────────────
 
   describe "400 request-validation failures never reach source/cache" do

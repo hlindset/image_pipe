@@ -272,6 +272,45 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   defp boundary_source_dimensions(%SourceShape{decode_shrink: nil}), do: nil
   defp boundary_source_dimensions(%SourceShape{width: w, height: h}), do: {w, h}
 
+  @doc """
+  Terminal reduction: after all groups + the flush boundary (i.e. called with
+  the state `run/4` returns), reduces the pipeline's output internally to fit
+  the terminal's fixed working frame — a contain-resize run through the SAME
+  lowering path every other resize goes through (`run_op/4`, `NeutralResolver`,
+  `Chain.execute/3`), not a hand-rolled resize. A no-op for the plain image
+  terminal.
+  """
+  @spec reduce_terminal(State.t(), Request.t(), keyword()) ::
+          {:ok, State.t()} | {:error, {:transform, term()}}
+  def reduce_terminal(%State{} = state, %Request{output: %Output{terminal: :image}}, _opts),
+    do: {:ok, state}
+
+  def reduce_terminal(%State{} = state, %Request{output: %Output{terminal: :blurhash}}, opts) do
+    ctx = build_ctx(opts)
+    {w, h} = State.effective_source_dims(state)
+
+    shape =
+      SourceShape.seed(%{
+        width: w,
+        height: h,
+        pending_orientation: state.pending_orientation,
+        decode_shrink: state.decode_shrink
+      })
+
+    {reduction_w, reduction_h} = @blurhash_terminal_reduction
+
+    {:ok, resize} =
+      Operation.resize(:fit, resize_dimension(reduction_w), resize_dimension(reduction_h),
+        down: false,
+        enlargement: :allow
+      )
+
+    case run_op(state, shape, resize, ctx) do
+      {:ok, state, _shape} -> {:ok, state}
+      {:error, _reason} = error -> error
+    end
+  end
+
   # -- per-group semantic op assembly --------------------------------------
   #
   # Built fresh for each group against that group's STARTING shape (the shape

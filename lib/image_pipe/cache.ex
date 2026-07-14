@@ -141,16 +141,27 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  @spec open_sink(Key.t() | nil, Resolved.t(), keyword()) :: sink() | nil
+  @spec open_sink(Key.t() | nil, Resolved.t() | {:complete_body, String.t()}, keyword()) ::
+          sink() | nil
   def open_sink(nil, %Resolved{}, _opts), do: nil
+  def open_sink(nil, {:complete_body, _content_type}, _opts), do: nil
 
   def open_sink(%Key{} = key, %Resolved{} = resolved_output, opts) when is_list(opts) do
+    dispatch_open_sink(key, resolved_output, opts)
+  end
+
+  def open_sink(%Key{} = key, {:complete_body, content_type} = target, opts)
+      when is_list(opts) and is_binary(content_type) do
+    dispatch_open_sink(key, target, opts)
+  end
+
+  defp dispatch_open_sink(key, sink_target, opts) do
     case Keyword.get(opts, :cache) do
       nil ->
         nil
 
       {adapter, cache_opts} ->
-        Sink.open(adapter, key, resolved_output, cache_opts, opts)
+        Sink.open(adapter, key, sink_target, cache_opts, opts)
     end
   end
 

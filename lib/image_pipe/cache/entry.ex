@@ -10,23 +10,35 @@ defmodule ImagePipe.Cache.Entry do
   @enforce_keys [:body, :content_type, :headers, :created_at]
   @header_name_pattern ~r/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
   @header_value_pattern ~r/^[^\x00-\x1F\x7F]*$/
+  @content_type_pattern ~r{^[!#$%&'*+\-.^_`|~0-9A-Za-z]+/[!#$%&'*+\-.^_`|~0-9A-Za-z]+(\s*;.*)?$}
 
-  defstruct @enforce_keys ++ [debug: nil]
+  defstruct @enforce_keys ++ [representation: nil, debug: nil]
 
   @type header :: {String.t(), String.t()}
+  # `representation` tags what an entry's `content_type`/`body` mean:
+  # `{:image, format}` for the framework's encoder-output path, or
+  # `{:complete_body, content_type}` for a dialect-owned non-image complete
+  # body (e.g. a BlurHash string). `nil` (the default for every entry
+  # constructed before this widening, and for adapters — such as
+  # `ImagePipe.Cache.FileSystem` — that don't yet persist the tag) is treated
+  # identically to `{:image, _}`: `validate/1` falls back to the original
+  # `Format`-based content-type check, so the `{:image, _}` path's behavior
+  # is byte-for-byte unchanged.
+  @type representation :: {:image, atom()} | {:complete_body, String.t()}
   @type t :: %__MODULE__{
           body: binary(),
           content_type: String.t(),
           headers: [header()],
           created_at: DateTime.t(),
+          representation: representation() | nil,
           debug: Info.t() | nil
         }
 
   @spec validate(t()) :: :ok | {:error, term()}
-  def validate(%__MODULE__{body: body, content_type: content_type, headers: headers}) do
-    with :ok <- validate_body(body),
-         :ok <- validate_content_type(content_type),
-         {:ok, _headers} <- cacheable_headers(headers) do
+  def validate(%__MODULE__{} = entry) do
+    with :ok <- validate_body(entry.body),
+         :ok <- validate_content_type(entry.content_type, entry.representation),
+         {:ok, _headers} <- cacheable_headers(entry.headers) do
       :ok
     end
   end
@@ -39,6 +51,28 @@ defmodule ImagePipe.Cache.Entry do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  # Representation-aware content-type validation: a `{:complete_body, _}`
+  # entry is validated as a generic MIME-shaped string (it is never an
+  # encoder output format), everything else (including `nil`, the default
+  # for entries that predate this field) keeps the original image-only check.
+  @doc false
+  @spec validate_content_type(String.t(), representation() | nil) :: :ok | {:error, term()}
+  def validate_content_type(content_type, {:complete_body, _content_type}) do
+    if valid_generic_content_type?(content_type) do
+      :ok
+    else
+      {:error, {:invalid_content_type, content_type}}
+    end
+  end
+
+  def validate_content_type(content_type, _representation),
+    do: validate_content_type(content_type)
+
+  defp valid_generic_content_type?(content_type) when is_binary(content_type),
+    do: Regex.match?(@content_type_pattern, content_type)
+
+  defp valid_generic_content_type?(_content_type), do: false
 
   @spec cacheable_headers(term()) :: {:ok, [header()]} | {:error, term()}
   def cacheable_headers(headers) when is_list(headers) do

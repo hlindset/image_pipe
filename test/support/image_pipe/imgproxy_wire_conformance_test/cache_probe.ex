@@ -77,6 +77,7 @@ defmodule ImgproxyWireConformanceTest.CacheProbe do
           content_type: metadata.content_type,
           headers: metadata.headers,
           created_at: metadata.created_at,
+          representation: metadata.representation,
           debug: metadata.debug
         }
 
