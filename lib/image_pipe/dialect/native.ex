@@ -10,6 +10,17 @@ defmodule ImagePipe.Dialect.Native do
   This module is currently a skeleton: `call/2` returns `501` on every
   request. It is replaced task by task as the native dialect's request chain
   is built out.
+
+  ## Mount prefix caveat
+
+  `ImagePipe.Dialect.Native.Path` strips the mount prefix from the raw
+  request path by treating `conn.script_name` (Plug's *decoded* segment
+  list) as a byte-exact raw string prefix of `conn.request_path`. This is
+  only correct when the mount path is canonical unescaped ASCII. A
+  `script_name` segment that round-trips unequal through percent-encoding
+  is host misconfiguration and raises at request runtime (500-class, never
+  a client 400) — non-canonical/escaped mount paths are unsupported in v1.
+  A config-supplied raw mount prefix is the future escape hatch.
   """
 
   use Boundary,
