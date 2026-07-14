@@ -7,6 +7,7 @@ defmodule ImagePipe.Plan.Color do
   data do not depend on third-party structs.
   """
 
+  alias Elixir.Color.CSS.Names, as: CssNames
   alias Elixir.Color.SRGB
 
   @enforce_keys [:space, :channels, :alpha]
@@ -44,6 +45,24 @@ defmodule ImagePipe.Plan.Color do
   end
 
   def rgb_hex(hex), do: {:error, {:invalid_color, [hex]}}
+
+  @doc """
+  Looks up a CSS named color (the full CSS Color Module Level 4 list,
+  including its aliases such as `cyan`/`aqua`, `magenta`/`fuchsia`,
+  `grey`/`gray`) and returns its 8-bit sRGB channel tuple. Returns a bare
+  tuple rather than `t()`, mirroring how callers such as the native
+  dialect's `Value.color/1` combine a color's channels with a
+  separately-parsed alpha before building a `t()`.
+  """
+  @spec rgb_name(term()) :: {:ok, {channel(), channel(), channel()}} | {:error, term()}
+  def rgb_name(name) when is_binary(name) do
+    case CssNames.lookup(name) do
+      {:ok, {red, green, blue}} -> {:ok, {red, green, blue}}
+      {:error, _reason} -> {:error, {:invalid_color, [name]}}
+    end
+  end
+
+  def rgb_name(name), do: {:error, {:invalid_color, [name]}}
 
   @spec rgba(term(), term(), term(), term()) :: {:ok, t()} | {:error, term()}
   def rgba(red, green, blue, alpha)

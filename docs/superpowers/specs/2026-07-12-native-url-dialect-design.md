@@ -113,10 +113,10 @@ One spelling per concept, applied uniformly:
   negate (meaningful when overriding a preset). `key=true` is a 400: the bare
   form is the one spelling of true.
 - **Pairs/lists** — comma-separated, fixed arity per key.
-- **Colors** — bare 3/6-digit hex (`fff`, `f4f4f4`) or one of the 16 CSS
-  basic color names (`black`, `silver`, `gray`, `white`, `maroon`, `red`,
-  `purple`, `fuchsia`, `green`, `lime`, `olive`, `yellow`, `navy`, `blue`,
-  `teal`, `aqua`). No `#` (it would start the URL fragment).
+- **Colors** — bare 3/6-digit hex (`fff`, `f4f4f4`) or any CSS Color Module
+  Level 4 named color, including its aliases (`cyan`/`aqua`,
+  `magenta`/`fuchsia`, `grey`/`gray`). No `#` (it would start the URL
+  fragment); hex is the escape hatch when a name isn't wanted.
 - **Ratios** — `16:9` or a decimal (`:` is legal in path segments).
 - **Ranges** — `blur`/`sharpen` sigma ≥ 0 (`0` is the Tier-1 identity
   point); opacity, intensity, alpha, and

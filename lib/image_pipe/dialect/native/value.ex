@@ -14,25 +14,9 @@ defmodule ImagePipe.Dialect.Native.Value do
   the grammar.
   """
 
-  @css_basic_colors %{
-    "black" => {0, 0, 0},
-    "silver" => {192, 192, 192},
-    "gray" => {128, 128, 128},
-    "white" => {255, 255, 255},
-    "maroon" => {128, 0, 0},
-    "red" => {255, 0, 0},
-    "purple" => {128, 0, 128},
-    "fuchsia" => {255, 0, 255},
-    "green" => {0, 128, 0},
-    "lime" => {0, 255, 0},
-    "olive" => {128, 128, 0},
-    "yellow" => {255, 255, 0},
-    "navy" => {0, 0, 128},
-    "blue" => {0, 0, 255},
-    "teal" => {0, 128, 128},
-    "aqua" => {0, 255, 255}
-  }
+  alias ImagePipe.Plan.Color, as: PlanColor
 
+  @css_name_pattern ~r/^[a-z]+$/
   @number_pattern ~r/^-?[0-9]+(\.[0-9]+)?$/
   @nonneg_integer_pattern ~r/^[0-9]+$/
 
@@ -121,16 +105,36 @@ defmodule ImagePipe.Dialect.Native.Value do
   end
 
   @doc """
-  Parses a color: a bare 3- or 6-digit hex triple (no `#`), or one of the
-  16 CSS basic color names [native §Value micro-syntax, §Colors]. A
-  3-digit hex is normalized to its 6-digit expansion before decoding, so
-  `fff` and `ffffff` produce the same tuple.
+  Parses a color: a bare 3- or 6-digit hex triple (no `#`), or a CSS
+  named color from the full CSS Color Module Level 4 named-color list,
+  including its aliases (`cyan`/`aqua`, `magenta`/`fuchsia`,
+  `grey`/`gray`, and the rest of the 148-name list) [native §Value
+  micro-syntax, §Colors]. A 3-digit hex is normalized to its 6-digit
+  expansion before decoding, so `fff` and `ffffff` produce the same
+  tuple.
   """
   @spec color(String.t()) :: {:ok, {0..255, 0..255, 0..255}} | {:error, :invalid_color}
   def color(string) when is_binary(string) do
-    case Map.fetch(@css_basic_colors, string) do
+    case css_named_color(string) do
       {:ok, rgb} -> {:ok, rgb}
       :error -> parse_hex_color(string)
+    end
+  end
+
+  # Only attempt named-color resolution for pure lowercase-alpha strings:
+  # every CSS named color is a single lowercase word, so this both matches
+  # the dialect's lowercase-only grammar and avoids the underlying
+  # lookup's underscore/hyphen/case normalization loosening the bare-name
+  # match (e.g. treating a hyphenated segment value as an alias for a
+  # known name).
+  defp css_named_color(string) do
+    if Regex.match?(@css_name_pattern, string) do
+      case PlanColor.rgb_name(string) do
+        {:ok, rgb} -> {:ok, rgb}
+        {:error, _reason} -> :error
+      end
+    else
+      :error
     end
   end
 

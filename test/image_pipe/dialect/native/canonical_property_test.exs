@@ -96,5 +96,10 @@ defmodule ImagePipe.Dialect.Native.CanonicalPropertyTest do
       assert parse(["trim=fff"]) == parse(["trim=ffffff"])
       assert parse(["trim=fff"]) == parse(["trim=white"])
     end
+
+    test "aliased CSS color names canonicalize to an equal %Request{} (bg)" do
+      assert {:ok, %_{}} = parse(["bg=aqua"])
+      assert parse(["bg=aqua"]) == parse(["bg=cyan"])
+    end
   end
 end

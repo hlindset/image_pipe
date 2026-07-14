@@ -203,7 +203,6 @@ defmodule ImagePipe.Dialect.Native.ValueTest do
       "ffff",
       "fffffg",
       "",
-      "orange",
       "gray1",
       "White",
       "RED",
@@ -214,6 +213,41 @@ defmodule ImagePipe.Dialect.Native.ValueTest do
       test "rejects invalid color #{inspect(input)}" do
         assert Value.color(unquote(input)) == {:error, :invalid_color}
       end
+    end
+  end
+
+  describe "color/1 — extended CSS named colors" do
+    names = [
+      {"rebeccapurple", {102, 51, 153}},
+      {"cyan", {0, 255, 255}},
+      {"magenta", {255, 0, 255}},
+      {"grey", {128, 128, 128}},
+      {"orange", {255, 165, 0}},
+      {"hotpink", {255, 105, 180}}
+    ]
+
+    for {name, rgb} <- names do
+      test "parses extended CSS color name #{inspect(name)}" do
+        assert Value.color(unquote(name)) == {:ok, unquote(Macro.escape(rgb))}
+      end
+    end
+
+    test "rejects an unknown color name" do
+      assert Value.color("notacolor") == {:error, :invalid_color}
+    end
+  end
+
+  describe "color/1 — alias equivalence" do
+    test "aqua and cyan resolve to the same tuple" do
+      assert Value.color("aqua") == Value.color("cyan")
+    end
+
+    test "fuchsia and magenta resolve to the same tuple" do
+      assert Value.color("fuchsia") == Value.color("magenta")
+    end
+
+    test "gray and grey resolve to the same tuple" do
+      assert Value.color("gray") == Value.color("grey")
     end
   end
 
