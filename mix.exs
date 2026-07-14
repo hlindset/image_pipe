@@ -141,7 +141,7 @@ defmodule ImagePipe.MixProject do
       {:opentelemetry_api, "~> 1.5", optional: true},
       {:opentelemetry, "~> 1.7", only: :test},
       {:nimble_options, "~> 1.1"},
-      {:image, "~> 0.69"},
+      {:image, "~> 0.71"},
       {:ssimulacra2, "~> 0.1.0"},
       {:butteraugli, "~> 0.1.0"},
       {:vix,
