@@ -42,6 +42,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/parser.ex",
     "lib/image_pipe/parser/**/*.ex"
   ]
+  @transform_globs [
+    "lib/image_pipe/transform.ex",
+    "lib/image_pipe/transform/**/*.ex"
+  ]
+  @dialect_forbidden_globs @parser_forbidden_globs ++ @transform_globs ++ @parser_globs
   @resolver_strategy_globs [
     "lib/image_pipe/parser/**/resolver.ex",
     "lib/image_pipe/parser/**/point_flow.ex"
@@ -53,6 +58,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
     ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
+    ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
@@ -184,6 +190,58 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Resolver,
       ImagePipe.Transform
     ])
+  end
+
+  test "dialect native boundary declaration depends only on core toolkit facades" do
+    dialect_native = boundary_declaration(ImagePipe.Dialect.Native)
+
+    # ImagePipe.Decode (Task 12) and ImagePipe.Representation (Task 9) are not
+    # created yet — they join this list once their tasks land.
+    assert_boundary_deps(dialect_native, [
+      ImagePipe.Cache,
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Response,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    # The inverted dialect must depend only on core toolkit facades: it never
+    # reaches into the framework's parser/request/resolver/renderer stack.
+    refute_boundary_deps(dialect_native, [
+      ImagePipe.Config,
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver
+    ])
+
+    assert_boundary_exports(dialect_native, [])
+  end
+
+  test "core, transform, and parser code does not name the native dialect" do
+    # A dialect must be removable without changing the core: nothing under
+    # plug/request/source/response/cache/output/plan/transform/parser may
+    # reference ImagePipe.Dialect.
+    violations =
+      for file <- dialect_forbidden_files(),
+          violation <- dialect_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; " <>
+          "a dialect must be removable without changing the core"
+      end
+
+    assert violations == []
+  end
+
+  test "parser-output-stays-semantic and dialect-forbidden greps exclude the native dialect directory" do
+    dialect_files = Path.wildcard("lib/image_pipe/dialect/**/*.ex")
+
+    assert dialect_files != []
+    assert Enum.all?(dialect_files, &(&1 not in parser_files()))
+    assert Enum.all?(dialect_files, &(&1 not in dialect_forbidden_files()))
   end
 
   test "request boundary declaration depends on generic facades only" do
@@ -761,6 +819,22 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.uniq()
     |> Enum.sort()
+  end
+
+  defp dialect_forbidden_files do
+    @dialect_forbidden_globs
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp dialect_references(file) do
+    file
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {line, _number} -> String.contains?(line, "ImagePipe.Dialect") end)
+    |> Enum.map(fn {_line, number} -> %{line: number, module: "ImagePipe.Dialect"} end)
   end
 
   defp resolver_strategy_files do
