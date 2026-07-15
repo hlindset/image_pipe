@@ -187,7 +187,7 @@ for {impl, suffix} <- [
       {ImagePipe.Parser.Imgproxy.SourceEncryption, Framework},
       {ImagePipe.Dialect.Imgproxy.SourceEncryption, Dialect}
     ] do
-  defmodule Module.concat(SourceEncryptionTest, suffix) do
+  defmodule Module.concat(ImgproxySourceEncryptionTest, suffix) do
     use ExUnit.Case, async: true
     use ExUnitProperties
 
@@ -206,13 +206,19 @@ for {impl, suffix} <- [
     @docs_segment "p5VjorNdhs7mRRw8gA9TWoRlGci3l1kuzqN43UQlRaRIQ0qtBKW3qFABIsx-ZRz_cVc8iVTYbhsNsxNBL1BHaQ"
 
     test "validate_key/1 decodes 16/24/32-byte hex keys" do
-      assert {:ok, %{key: decoded}} = @source_encryption.validate_key(@aes128_key)
+      assert {:ok, %@source_encryption{key: decoded}} =
+               @source_encryption.validate_key(@aes128_key)
+
       assert decoded == Base.decode16!(@aes128_key, case: :mixed)
 
-      assert {:ok, %{key: decoded}} = @source_encryption.validate_key(@aes192_key)
+      assert {:ok, %@source_encryption{key: decoded}} =
+               @source_encryption.validate_key(@aes192_key)
+
       assert decoded == Base.decode16!(@aes192_key, case: :mixed)
 
-      assert {:ok, %{key: decoded}} = @source_encryption.validate_key(@aes256_key)
+      assert {:ok, %@source_encryption{key: decoded}} =
+               @source_encryption.validate_key(@aes256_key)
+
       assert decoded == Base.decode16!(@aes256_key, case: :mixed)
     end
 
@@ -290,6 +296,19 @@ for {impl, suffix} <- [
                Base.url_encode64(@fixed_iv <> String.duplicate("x", 16), padding: false),
                config
              ) == {:error, :invalid_padding}
+    end
+
+    test "inspect/1 redacts the AES key" do
+      # `@derive {Inspect, except: [:key]}` lives on the struct this arm copies,
+      # so each arm must prove its own redaction. Asserted here rather than only
+      # through the adapter: the adapter block is single-arm and phase 2 deletes
+      # it, which would otherwise leave this property with no test on either arm.
+      key = Base.decode16!(@aes128_key, case: :mixed)
+      dumped = inspect(%@source_encryption{key: key})
+
+      refute dumped =~ @aes128_key
+      refute dumped =~ inspect(key)
+      assert dumped =~ "..."
     end
 
     property "encrypt_source_url/3 and decrypt_source/2 round-trip" do

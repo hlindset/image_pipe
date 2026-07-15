@@ -65,8 +65,7 @@
         # Ignored for the same reason as the pairs above.
         #
         # The ImagePipe.Dialect.Imgproxy.* leaf request structs and grammar
-        # modules (Signature, SourceEncryption, PercentEncoding, Presets, and
-        # more added as R6 proceeds) are near-verbatim phase-1 copies of their
+        # modules are near-verbatim phase-1 copies of their
         # ImagePipe.Parser.Imgproxy.* originals: the inverted dialect owns its
         # whole request chain and grammar and may not depend on the Parser
         # boundary, and the framework originals stay frozen while both arms run

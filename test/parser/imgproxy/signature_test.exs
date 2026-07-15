@@ -4,7 +4,7 @@ defmodule ImagePipe.Parser.Imgproxy.SignatureAdapterTest do
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Parser.Imgproxy.Signature
 
-  # These two tests exercise ImagePipe.Parser.Imgproxy.validate_options!/1 —
+  # These tests exercise ImagePipe.Parser.Imgproxy.validate_options!/1 —
   # the framework parser adapter's mount-time option validation — not
   # Signature itself. ImagePipe.Dialect.Imgproxy has no equivalent top-level
   # option-validation entry point yet (it arrives with the dialect's own Plug
@@ -50,12 +50,12 @@ for {impl, suffix} <- [
 
     describe "normalize_config!/1" do
       test "returns disabled config when imgproxy signature config is absent" do
-        assert %{mode: :disabled, key_salt_pairs: [], signature_size: 32} =
+        assert %@signature{mode: :disabled, key_salt_pairs: [], signature_size: 32} =
                  @signature.normalize_config!(nil)
       end
 
       test "normalizes hex key and salt pairs" do
-        assert %{
+        assert %@signature{
                  mode: :enabled,
                  key_salt_pairs: [{"test-key", "test-salt"}],
                  signature_size: 8,
@@ -90,7 +90,7 @@ for {impl, suffix} <- [
       end
 
       test "supports trusted-only signing config" do
-        assert %{
+        assert %@signature{
                  mode: :enabled,
                  key_salt_pairs: [],
                  trusted_signatures: trusted_signatures

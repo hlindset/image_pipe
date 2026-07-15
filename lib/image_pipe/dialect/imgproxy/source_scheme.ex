@@ -1,6 +1,6 @@
 defmodule ImagePipe.Dialect.Imgproxy.SourceScheme do
   @moduledoc """
-  Parser extension for custom imgproxy source schemes.
+  Extension point for custom imgproxy source schemes.
   """
 
   @callback translate(source :: String.t(), opts :: keyword()) ::
