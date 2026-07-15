@@ -151,6 +151,64 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
     end
   end
 
+  describe "the pipeline mode is derived from the whole predicate closure" do
+    test "extend_aspect_ratio with a resolvable target ratio also selects :canvas_preserving" do
+      # extend_aspect_ratio_emits?/1 reaches resize_target_ratio/1, which reads
+      # WIDTH/HEIGHT — not any extend* field. A port that copied only the
+      # extend*-field readers would leave this request in mode :resize and scale
+      # the padding by 1.0 -> 10 instead of the canvas_preserving 0.5 -> 5.
+      ops =
+        executables(
+          state_for(400, 300),
+          req([capped(dpr: 0.5, padding_top: 10, extend_aspect_ratio: true)])
+        )
+
+      assert [%Padding{top: 5}] = paddings(ops)
+    end
+
+    test "extend_aspect_ratio without a resolvable target ratio stays in mode :resize" do
+      # No height -> resize_target_ratio/1 returns :no_ratio -> emits? false.
+      # (Width-only, so the resize is a plain :fit; the cap arithmetic is the
+      # same shape: max = 400/800 = 0.5, :resize compensation -> 1.0.)
+      ops =
+        executables(
+          state_for(400, 300),
+          req([
+            preq(
+              width: {:pixels, 800},
+              enlarge: false,
+              extend_aspect_ratio: true,
+              dpr: 0.5,
+              padding_top: 10
+            )
+          ])
+        )
+
+      assert [%Padding{top: 10}] = paddings(ops)
+    end
+
+    test "an explicitly disabled extend (extend:0 with a gravity) stays in mode :resize" do
+      # The negative carve-out clause: `extend: false, extend_requested: true`
+      # short-circuits to false even though extend_gravity is set. Without that
+      # clause the gravity would select :canvas_preserving and scale by 0.5 -> 5.
+      ops =
+        executables(
+          state_for(400, 300),
+          req([
+            capped(
+              dpr: 0.5,
+              padding_top: 10,
+              extend: false,
+              extend_requested: true,
+              extend_gravity: {:anchor, :center, :center}
+            )
+          ])
+        )
+
+      assert [%Padding{top: 10}] = paddings(ops)
+    end
+  end
+
   describe "canvas always reads the canvas_preserving slot" do
     test "a canvas scales its target box by canvas_preserving_padding_scale, not the resize slot" do
       # canvas_preserving_padding_scale = 0.5 (the resize slot here is 1.0)
