@@ -18,7 +18,6 @@ defmodule ImagePipe.Request.DeliveryBuild do
   alias ImagePipe.Plan
   alias ImagePipe.Request.Processor
   alias ImagePipe.Source
-  alias ImagePipe.Source.StreamError
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State
 
@@ -58,7 +57,7 @@ defmodule ImagePipe.Request.DeliveryBuild do
   end
 
   defp prepare_stream(%__MODULE__{} = request) do
-    with_stream_translation(&prepare_fallback/2, fn ->
+    StreamPull.translate(&prepare_fallback/2, fn ->
       with {{:ok, decoded}, decode_us} <-
              measure_decode(request.plan, request.resolved_source, request.opts),
            {{:ok, %State{} = final_state}, transform_us} <-
@@ -141,17 +140,13 @@ defmodule ImagePipe.Request.DeliveryBuild do
   defp prepare_fallback(:exit, reason), do: {:error, {:producer, {:exit, reason}}}
   defp prepare_fallback(kind, reason), do: {:error, {:producer, {kind, reason}}}
 
-  defp encode_fallback(kind, reason), do: {:error, {:encode, {kind, reason}, []}}
-
   # Pulling the first chunk is what forces libvips to actually encode, so it
   # happens here, inside the `[:encode]` span and the measured `encode_us` —
   # not later, in the delivery pump, which would leave both measuring only
   # encoder-pipeline construction. `StreamPull.resume/2` then hands `pump` an
   # enumerable that replays it.
   defp first_chunk(stream) do
-    with_stream_translation(&encode_fallback/2, fn ->
-      StreamPull.first_chunk(stream)
-    end)
+    StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
   end
 
   # Effective per-axis + pixel result caps: the tighter of the host `max_result_*`
@@ -363,21 +358,5 @@ defmodule ImagePipe.Request.DeliveryBuild do
 
   defp output_negotiate_stop_metadata({:error, reason}) do
     %{result: :output_error, error: Error.tag(reason)}
-  end
-
-  # Single source of truth for StreamError -> tagged-error translation.
-  # `fallback` builds the tag for any non-StreamError throw/exit so callers keep
-  # their distinct generic tags (prepare uses :producer, the encode pull uses
-  # :encode). Once the encoder stream reaches `pump`, `ImagePipe.Delivery.Producer`
-  # applies the same rule to the chunk path.
-  defp with_stream_translation(fallback, fun) do
-    fun.()
-  rescue
-    exception in [StreamError] -> {:error, {:source, exception.reason}}
-    exception -> {:error, {:encode, exception, __STACKTRACE__}}
-  catch
-    :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
-    :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
-    kind, reason -> fallback.(kind, reason)
   end
 end

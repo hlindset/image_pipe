@@ -484,6 +484,7 @@ defmodule ImagePipe.Request.DeliveryBuildTest do
     refute_received {:cache_commit_sink, _chunks}
     assert_received {:cache_abort_sink, ["first chunk"]}
     assert_receive {:raising_stream_finalized, :raise}
+    refute_receive {:raising_stream_finalized, _state}, 200
 
     assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
                     %{
@@ -584,6 +585,7 @@ defmodule ImagePipe.Request.DeliveryBuildTest do
 
     assert is_list(stacktrace)
     assert_receive {:raising_stream_finalized, :raise}
+    refute_receive {:raising_stream_finalized, _state}, 200
   end
 
   # The ruled taxonomy guarantee: a Source.StreamError raised while the encoder
@@ -596,5 +598,6 @@ defmodule ImagePipe.Request.DeliveryBuildTest do
     assert prepared.first_chunk == "first chunk"
     assert {:error, {:source, :stream_exception}} = prepared.next.()
     assert_receive {:source_error_stream_finalized, :raise}
+    refute_receive {:source_error_stream_finalized, _state}, 200
   end
 end

@@ -27,7 +27,6 @@ defmodule ImagePipe.Delivery.Producer do
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery.StreamPull
-  alias ImagePipe.Source.StreamError
   alias ImagePipe.Telemetry.Trace
 
   @type pump_result :: :done | :halted | :empty
@@ -132,29 +131,12 @@ defmodule ImagePipe.Delivery.Producer do
 
   # -- stream demand pull ---------------------------------------------------
 
-  # Single source of truth for the pumped stream's throw -> tagged-error
-  # translation. A `Source.StreamError` escaping the stream is a SOURCE
-  # failure, and must keep the source's domain status (422/404/502) rather
-  # than degrading to the 500 an `{:encode, _}` tag would produce
-  # (`ImagePipe.Response.ErrorStatus`). Any other throw is a fault in the
-  # calling dialect's encode/stream, and stays an encode error.
-  defp with_stream_translation(fun) do
-    fun.()
-  rescue
-    exception in [StreamError] -> {:error, {:source, exception.reason}}
-    exception -> {:error, {:encode, exception, __STACKTRACE__}}
-  catch
-    :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
-    :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
-    kind, reason -> {:error, {:encode, {kind, reason}, []}}
-  end
-
   defp safe_reduce(stream) do
-    with_stream_translation(fn -> StreamPull.first_chunk(stream) end)
+    StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
   end
 
   defp safe_continue(stream_state) do
-    with_stream_translation(fn -> StreamPull.continue(stream_state) end)
+    StreamPull.translate(fn -> StreamPull.continue(stream_state) end)
   end
 
   defp halt_stream(stream_state), do: StreamPull.halt(stream_state)

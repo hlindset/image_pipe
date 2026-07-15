@@ -14,11 +14,17 @@ defmodule ImagePipe.Delivery.StreamPull do
   #     dialect's own encode span/timing) and then hand `pump` a `resume/2`
   #     enumerable that replays it.
   #
-  # Raw and untranslated: every function here may raise whatever the underlying
-  # stream raises. Callers own the throw -> tagged-error translation, because
-  # they are the ones that know which phase the failure belongs to.
+  # The pull functions are raw: `first_chunk/1`, `continue/1` and `resume/2`
+  # each let whatever the underlying stream raises propagate. `translate/2`
+  # wraps a pull in the throw -> tagged-error taxonomy both callers share; the
+  # phase-specific part (the tag for a non-`StreamError` throw) is the caller's,
+  # passed as `fallback`.
+
+  alias ImagePipe.Source.StreamError
 
   @type stream_state() :: {binary(), (term() -> term())}
+  @type tagged_error() :: {:error, term()}
+  @type fallback() :: (Exception.kind(), term() -> tagged_error())
 
   @doc """
   Reduces `stream` until its first non-empty binary chunk, suspending there.
@@ -59,31 +65,82 @@ defmodule ImagePipe.Delivery.StreamPull do
 
   @doc """
   An `Enumerable` that replays `first_chunk` (already pulled by the caller) and
-  then resumes `stream_state`, propagating a halt into the underlying
-  continuation — including when the halt lands while the replayed chunk is the
-  current element, which is the common cancel-after-first-chunk case.
+  then resumes `stream_state`.
+
+  Finalization of the underlying continuation happens exactly once, on every
+  exit path: a halt (from either the consumer's reducer or the consumer's own
+  `{:halt, acc}` demand) halts it; reaching the end does not, because a stream
+  that ran to `:done` finalized itself; and a raise does not, because the
+  exception already unwound through the underlying reduce, running its
+  finalizer on the way out. This is why it is a hand-rolled `Enumerable` and
+  not a `Stream.resource/3`: `Stream.resource/3` calls its `after_fun` with the
+  accumulator it was about to advance, so a raise from `continue/1` would halt
+  the continuation the raise had just spent, finalizing it a second time.
   """
   @spec resume(binary(), stream_state()) :: Enumerable.t()
   def resume(first_chunk, stream_state) do
-    Stream.resource(
-      fn -> {:first, first_chunk, stream_state} end,
-      &resume_next/1,
-      &resume_after/1
-    )
+    &resume_reduce({[first_chunk], stream_state}, &1, &2)
   end
 
-  defp resume_next({:first, chunk, stream_state}), do: {[chunk], stream_state}
+  # State is `{chunks_to_replay, stream_state}`, so every clause below reaches
+  # the same live continuation and a halt finalizes it in one place.
+  defp resume_reduce({_replay, stream_state}, {:halt, acc}, _fun) do
+    halt(stream_state)
+    {:halted, acc}
+  end
 
-  defp resume_next(stream_state) do
+  defp resume_reduce(state, {:suspend, acc}, fun) do
+    {:suspended, acc, &resume_reduce(state, &1, fun)}
+  end
+
+  defp resume_reduce({[chunk | replay], stream_state}, {:cont, acc}, fun) do
+    emit(chunk, {replay, stream_state}, acc, fun)
+  end
+
+  defp resume_reduce({[], stream_state}, {:cont, acc}, fun) do
+    # A raise here has already finalized the underlying stream on its way out;
+    # it must propagate untouched, with no halt of the spent continuation.
     case continue(stream_state) do
-      {:ok, chunk, stream_state} -> {[chunk], stream_state}
-      :done -> {:halt, :done}
+      {:ok, chunk, stream_state} -> emit(chunk, {[], stream_state}, acc, fun)
+      :done -> {:done, acc}
     end
   end
 
-  defp resume_after(:done), do: :ok
-  defp resume_after({:first, _chunk, stream_state}), do: halt(stream_state)
-  defp resume_after({_acc, _continuation} = stream_state), do: halt(stream_state)
+  defp emit(chunk, next_state, acc, fun) do
+    case fun.(chunk, acc) do
+      {:cont, acc} -> resume_reduce(next_state, {:cont, acc}, fun)
+      {:halt, acc} -> resume_reduce(next_state, {:halt, acc}, fun)
+      {:suspend, acc} -> {:suspended, acc, &resume_reduce(next_state, &1, fun)}
+    end
+  end
+
+  @doc """
+  Runs `fun` (a pull) under the shared throw -> tagged-error taxonomy.
+
+  A `ImagePipe.Source.StreamError` escaping a pumped stream is a SOURCE
+  failure and must keep the source's domain status (422/404/502) rather than
+  degrading to the 500 an `{:encode, _}` tag would produce
+  (`ImagePipe.Response.ErrorStatus`). Any other throw is a fault in the calling
+  dialect's encode/stream; `fallback` builds its tag, so a caller can keep a
+  phase-specific one (the framework's pre-pump build uses `:producer`) while
+  defaulting to the encode tag.
+  """
+  @spec translate((-> result)) :: result | tagged_error() when result: term()
+  def translate(fun) when is_function(fun, 0), do: translate(&encode_fallback/2, fun)
+
+  @spec translate(fallback(), (-> result)) :: result | tagged_error() when result: term()
+  def translate(fallback, fun) when is_function(fallback, 2) and is_function(fun, 0) do
+    fun.()
+  rescue
+    exception in [StreamError] -> {:error, {:source, exception.reason}}
+    exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  catch
+    :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
+    :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
+    kind, reason -> fallback.(kind, reason)
+  end
+
+  defp encode_fallback(kind, reason), do: {:error, {:encode, {kind, reason}, []}}
 
   defp reduce_result({:suspended, chunk, continuation}) when is_binary(chunk),
     do: {:ok, chunk, {chunk, continuation}}
