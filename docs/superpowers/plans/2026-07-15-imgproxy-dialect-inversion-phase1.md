@@ -72,7 +72,36 @@ The two discoveries most able to invalidate downstream work are this gate and Ta
 
 - [ ] **Step 1: Read the prior art.** Read `test/image_pipe/request/source_session_supervisor_test.exs` in full (421 lines) — your baseline tests reuse its helper pattern. Read the spec's "D3 in detail" section.
 
-- [ ] **Step 2: Write the shutdown baseline test** (green immediately — characterization):
+- [ ] **Step 2: Write the two shutdown-related baselines — they have DIFFERENT fates, stated up front.**
+
+The spec's preserve-unmodified gate applies only to tests that are
+**topology-neutral** (they observe guarantees, not mechanisms). The app-tree
+shutdown guarantee is mechanism-coupled *by nature* — it is a property of the
+supervision tree itself — so a test of it structurally cannot survive the
+supervisor's deletion. Pretending otherwise would smuggle the spec's named
+failure mode ("editing the baseline to fit the new topology") in through the
+back door. So:
+
+- **Baseline A (owner-death cleanup) — topology-neutral, MUST survive Task 3
+  unmodified.** Phrase it through the public surface: a spawned process runs a
+  real framework request (`ImagePipe.Plug.call` with the wire suite's
+  `RootHTTPAdapter`/`OriginImage` setup) against a multi-chunk origin; kill the
+  owner process after the first chunk; assert cleanup fired **exactly once**,
+  observed via the stream-lifecycle events `register_stream_events!/0` in
+  `source_session_supervisor_test.exs` uses (read that helper for the exact
+  event names and reuse the same mechanism — it is production instrumentation,
+  not supervisor internals). No `SourceSession*` module is named anywhere in
+  this test.
+- **Baseline B (app-tree shutdown) — mechanism-coupled characterization,
+  fate decided at the checkpoint.** This is the `start_supervised!` +
+  `Supervisor.stop(infra, :shutdown)` test below. Mark its moduledoc: "This
+  test characterizes the supervised topology's app-tree shutdown guarantee.
+  It CANNOT survive the D3 migration unmodified. Its fate — deleted because
+  the user ruled the app-tree arm out of contract, or kept because the user
+  ruled it in contract (which selects the dialects-only branch, since the
+  monitor topology structurally cannot preserve it) — is decided at the Task 1
+  checkpoint and recorded in the audit report. Task 3 executes that ruling; it
+  does not make it."
 
 ```elixir
 defmodule ImagePipe.Request.DeliveryShutdownBaselineTest do
@@ -91,10 +120,11 @@ defmodule ImagePipe.Request.DeliveryShutdownBaselineTest do
   # source_session_supervisor_test.exs verbatim — do not import across test
   # modules.
 
-  test "infrastructure shutdown terminates an in-flight prepared delivery, cleanup exactly once" do
-    # Mirrors source_session_supervisor_test.exs:134 but phrased as the
-    # GUARANTEE (in-flight delivery does not outlive the delivery
-    # infrastructure), not the mechanism (a DynamicSupervisor).
+  # ── Baseline B — mechanism-coupled characterization (fate: checkpoint) ──
+  test "app-tree shutdown terminates an in-flight prepared delivery, cleanup exactly once" do
+    # Characterizes source_session_supervisor_test.exs:134's guarantee. This
+    # test CANNOT survive the D3 migration; its fate is decided at the Task 1
+    # checkpoint (see Step 2's fate note), never silently at Task 3.
     register_stream_events!()
     infra = start_supervised!({ImagePipe.Request.SourceSessionSupervisor, name: nil})
 
@@ -117,32 +147,39 @@ defmodule ImagePipe.Request.DeliveryShutdownBaselineTest do
     refute_receive {:stream_closed, _}, 100
   end
 
-  test "owner death terminates an in-flight prepared delivery, cleanup exactly once" do
-    # The owner-death arm (source_session_supervisor_test.exs:110) — this is
-    # the guarantee that MUST survive the migration identically, because it
-    # is the only termination path the monitor topology has.
+  # ── Baseline A — topology-neutral, MUST survive Task 3 unmodified ──────
+  test "owner death mid-stream cleans up exactly once (public-surface observation)" do
+    # The guarantee that must survive the migration identically — it is the
+    # only termination path the monitor topology has. Observed WITHOUT naming
+    # any SourceSession* module: a real Plug request in a killed owner
+    # process, cleanup observed via the stream-lifecycle events.
     register_stream_events!()
-    infra = start_supervised!({ImagePipe.Request.SourceSessionSupervisor, name: nil})
-    owner = idle_owner!()
 
-    {:ok, session} =
-      ImagePipe.Request.SourceSessionSupervisor.start_session(
-        infra,
-        request(opts: opts(image_module: CleanupStreamImage)),
-        owner: owner
-      )
+    owner =
+      spawn(fn ->
+        conn = Plug.Test.conn(:get, "/unsafe/rs:fit:64:64/plain/images/cat.jpg")
+        ImagePipe.Plug.call(conn, ImagePipe.Plug.init(framework_opts_with_slow_origin()))
+      end)
 
-    session_ref = Process.monitor(session)
-    assert {:ok, _prepared} = ImagePipe.Request.SourceSession.prepare(session)
+    owner_ref = Process.monitor(owner)
+    # Wait for the stream-open event (delivery in flight), then kill the owner.
+    assert_receive {:stream_opened, _}, 2_000
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :killed}
 
-    send(owner, :stop_owner)
-
-    assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
-    assert_receive {:stream_closed, _}
+    assert_receive {:stream_closed, _}, 2_000
     refute_receive {:stream_closed, _}, 100
   end
 end
 ```
+
+(`framework_opts_with_slow_origin/0`: the wire suite's `RootHTTPAdapter` +
+a chunk-gated origin stub — reuse `CleanupStreamImage`'s gating pattern from
+`source_session_supervisor_test.exs`, served through the adapter. The event
+names `{:stream_opened, _}`/`{:stream_closed, _}` are placeholders for
+whatever `register_stream_events!/0` actually emits — read it and use its
+real event shapes; the required semantics are: an in-flight signal to time
+the kill, and an exactly-once cleanup signal.)
 
 Adjust helper/message names to what `source_session_supervisor_test.exs` actually defines (`register_stream_events!` may emit differently-shaped messages — copy its real contract; the *assertions* above are the required semantics: DOWN + exactly-once cleanup).
 
@@ -163,7 +200,7 @@ git add test/image_pipe/request/delivery_shutdown_baseline_test.exs \
 git commit -m "D3 gate: baseline shutdown + span-parentage characterization tests"
 ```
 
-**⛔ CHECKPOINT: present the audit report to the user. Task 3 (framework migration) proceeds only on their ruling. Tasks 2, 4–26 are unaffected either way and may proceed.**
+**⛔ CHECKPOINT: present the audit report to the user. Their ruling decides two things at once: (a) whether Task 3 runs at all, and (b) Baseline B's fate — ruled out of contract (test deleted at Task 3 with the ruling cited in the commit message) or in contract (which selects the dialects-only branch, since the monitor topology structurally cannot preserve the app-tree guarantee). Tasks 2 and 4–25 are unaffected either way; Task 26's exit-criterion 9 evidence records whichever outcome occurred.**
 
 ---
 
@@ -181,7 +218,7 @@ Move the probe's delivery lifecycle (`Native.Delivery` + `Coordinator` + `Produc
 - Modify: `.credo.exs` + `mise.toml` — the ExDNA ignore entries for `native/delivery*` files point at the old paths; re-point them at `lib/image_pipe/delivery/*` (the duplication vs `Request.SourceSession` persists until Task 3 resolves it)
 
 **Interfaces:**
-- Produces: `ImagePipe.Delivery.stream(owner_pid :: pid(), build_fun :: (pump -> :done | {:error, term()}), representation :: ImagePipe.Representation.t(), response_meta :: ImagePipe.Plan.Response.t(), config :: keyword()) :: {:ok, ImagePipe.Response.PreparedStream.t()} | {:error, term()}` — the **same 5-arity signature `Native.Delivery.stream/5` has today** (`delivery.ex:79-89`); this task moves, it does not redesign. The `build_fun` contract is the spec's: arity-1 taking `pump`, calls `pump.(stream, content_type, resolved_output)` from inside the brackets, returns `:done | {:error, term}`.
+- Produces: `ImagePipe.Delivery.stream(owner_pid :: pid(), build_fun :: (pump -> :done | {:error, term()}), representation :: ImagePipe.Representation.t(), response_meta :: ImagePipe.Plan.Response.t(), config :: keyword()) :: {:ok, ImagePipe.Response.PreparedStream.t()} | {:error, term()}` — the **same 5-arity signature `Native.Delivery.stream/5` has today** (`delivery.ex:79-89`); this task moves, it does not redesign. (Deliberate deviation from the spec's `stream(owner_pid, build_fun, opts)` sketch: `representation` and `response_meta` are load-bearing first-class arguments, not opts; the spec's `build_fun` contract itself is unchanged.) The `build_fun` contract is the spec's: arity-1 taking `pump`, calls `pump.(stream, content_type, resolved_output)` from inside the brackets, returns `:done | {:error, term}`.
 - Consumed by: Task 3 (framework), Task 17 (imgproxy chain), native (immediately).
 
 - [ ] **Step 1: Move the three files.** `git mv` each; rename modules `ImagePipe.Dialect.Native.Delivery{,.Coordinator,.Producer}` → `ImagePipe.Delivery{,.Coordinator,.Producer}`. In `delivery.ex` add the Boundary declaration:
@@ -245,9 +282,9 @@ untouched; SourceSession migration is Task 3, behind the D3 gate."
 
 - [ ] **Step 2: Migrate `runner.ex`.** Replace `SourceSessionSupervisor.start_session` + `SourceSession.prepare` with `ImagePipe.Delivery.stream(self(), build_fun, representation, response_meta, opts)` where `build_fun` wraps the existing `Processor` fetch/decode/encode flow exactly as native's `build_fun` does (`lib/image_pipe/dialect/native.ex:376-409` is the worked example). Preserve the runner's outward behavior: same `{:ok, {:prepared_stream, …}}` shapes to `Sender`, same error taxonomy.
 
-- [ ] **Step 3: The unmodified baseline tests must pass.**
+- [ ] **Step 3: The topology-neutral baselines must pass unmodified.**
 `mix test test/image_pipe/request/delivery_shutdown_baseline_test.exs test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs`
-Expected: **PASS with zero edits to those files** (the shutdown test's `start_supervised!({SourceSessionSupervisor, …})` line will no longer compile if the module is deleted first — so this step runs BEFORE Step 5's deletion, against the migrated runner with the supervisor still present but unused; then Step 5 deletes and the shutdown baseline is re-homed onto the infrastructure that replaced it **only per the user's Task 1 ruling** — if the ruling declared the app-tree arm out of contract, the test is deleted with a note in the commit message; if not, the gate fails here and this task reverts).
+Expected: **Baseline A (owner-death) and the OTel parentage baseline PASS with zero edits** against the migrated runner. Baseline B (app-tree shutdown) is handled per the Task 1 checkpoint ruling recorded in `.superpowers/sdd/d3-audit-report.md`: ruled out of contract → delete Baseline B in Step 5 citing the ruling in the commit message; ruled in contract → **this task must not have started** (the dialects-only branch applies) — if you are here anyway, stop and revert. No third option exists; weakening any baseline assertion is a gate failure.
 
 - [ ] **Step 4: Port the lifecycle tests.** Create `test/image_pipe/delivery/delivery_lifecycle_test.exs` porting owner-death, explicit-cancel, prepare-error, and double-stop-idempotence cases from `source_session_supervisor_test.exs` onto `ImagePipe.Delivery.stream/5`. Run: `mix test test/image_pipe/delivery/` — PASS.
 
@@ -342,13 +379,24 @@ end
 ### Task 6: Copy leaf request structs
 
 **Files:**
+- Create: `lib/image_pipe/dialect/imgproxy.ex` (the Boundary stub — see Interfaces)
 - Create (copies): `lib/image_pipe/dialect/imgproxy/pipeline_request.ex`, `effects.ex`, `crop_request.ex`, `orientation.ex`, `format.ex` — from the same-named files under `lib/image_pipe/parser/imgproxy/`
 - Modify: `.credo.exs` (ExDNA ignore entries for the five new files, justification "phase-1 dialect copy, retired in phase 2 per spec 2026-07-15") + the matching `--ignore` globs in `mise.toml`'s `mix ex_dna` line
 - Test: `test/image_pipe/dialect/imgproxy/leaf_structs_test.exs`
 
 **Interfaces:**
 - Produces: `ImagePipe.Dialect.Imgproxy.PipelineRequest` (struct identical to `ImagePipe.Parser.Imgproxy.PipelineRequest` — all 37 fields, same defaults), `…Effects`, `…CropRequest`, `…Orientation`, `…Format`. These are the types Tasks 7–9 and 12 build on.
-- No Boundary declaration yet — that lands on the dialect's top module in Task 17; until then the files compile as plain modules under the eventual boundary's namespace.
+- **The Boundary stub lands NOW.** Boundary classifies modules by longest prefix, and `ImagePipe` itself is a boundary (`lib/image_pipe.ex`) whose dep list does not include `ImagePipe.Config`, `Representation`, `Output`, etc. — so without a declared `ImagePipe.Dialect.Imgproxy` boundary, every copied module is absorbed into the ROOT boundary and Tasks 12/14/15's per-task `compile --warnings-as-errors` gates fail on boundary diagnostics. Create `lib/image_pipe/dialect/imgproxy.ex` in THIS task as a stub carrying the full Boundary declaration (the exact `use Boundary` block from Task 17's Interfaces, minus the `exports: [SourceScheme]` — start `exports: []`; Task 13 adds the export when the module exists; Task 17 adds `@behaviour Plug` and the chain to this same file):
+
+```elixir
+defmodule ImagePipe.Dialect.Imgproxy do
+  @moduledoc false
+  # Boundary anchor for the dialect namespace; the Plug chain lands in Task 17.
+  use Boundary,
+    top_level?: true,
+    deps: [...]   # Task 17's full list, verbatim
+end
+```
 
 - [ ] **Step 1: Copy + rename.** For each file: `cp lib/image_pipe/parser/imgproxy/X.ex lib/image_pipe/dialect/imgproxy/X.ex`, then rename the module `ImagePipe.Parser.Imgproxy.*` → `ImagePipe.Dialect.Imgproxy.*` and every internal alias between the five (e.g. `PipelineRequest` aliases `CropRequest`, `Effects`, `Orientation`). `ImagePipe.Plan.Color` references stay (shared value type per the spec's Module map).
 - [ ] **Step 2: Write the copy-fidelity test:**
@@ -572,9 +620,12 @@ Write these with the `:chain` injection seam recording executable ops; assert on
 
 ```elixir
 # pipeline_ctx: the mode is parse-time-decidable request data (spec D5) —
-# ports plan_builder.ex:677-686 (extend_operation_requested? /
-# extend_aspect_ratio_emits? predicates: port them verbatim from
-# plan_builder.ex; they read PipelineRequest.extend* fields only).
+# ports plan_builder.ex:677-686. Port the predicate CLOSURE verbatim:
+# extend_operation_requested?, extend_aspect_ratio_emits?, AND their
+# helpers extend_aspect_ratio_requested? and resize_target_ratio — the
+# last reads width/height, not extend* fields (plan_builder.ex:479-487),
+# so a port that only copies the extend*-field readers silently changes
+# the mode for aspect-ratio-extend requests.
 defp pipeline_ctx(%PipelineRequest{} = preq) do
   mode =
     if extend_operation_requested?(preq) or extend_aspect_ratio_emits?(preq),
@@ -657,21 +708,23 @@ defp padding_scale_for(
 
 **Files:**
 - Modify: `lib/image_pipe/dialect/imgproxy/pipeline.ex` (real `operations/2`, `condition_color/2`, `decode_request/2`)
-- Test: `test/image_pipe/dialect/imgproxy/pipeline_assembly_test.exs`, `test/image_pipe/dialect/imgproxy/decode_preflight_test.exs`
+- Modify: `lib/image_pipe/transform/decode_planner.ex` (the `user_quarter_turn?` field on `DecodePlanner.Request` + the XOR in `open_options_for/5` — see Interfaces; sanctioned core widening, named here per the Global Constraints rule)
+- Test: `test/image_pipe/dialect/imgproxy/pipeline_assembly_test.exs`, `test/image_pipe/dialect/imgproxy/decode_preflight_test.exs`, `test/image_pipe/transform/decode_planner_test.exs` (the new-field unit case)
 
 **Interfaces:**
 - Consumes: `Transform.InputColorManagement.condition/2` (Task 5); `plan_builder.ex`'s geometry helpers (ported); `DecodePlanner.Request` struct.
 - Produces:
   - `operations(PipelineRequest.t(), SourceShape.t()) :: [struct()]` — the 8-stage `Plan.Operation` list: `trim → orientation → crop → resize → effects → canvas → padding → background`, a verbatim port of `plan_builder.ex`'s `plan_geometry/1` (`plan_builder.ex:270-289`) and every private helper it reaches (`trim_operations/1` through `background_operations/1`). **One deliberate change:** padding emission uses a concrete `pixel_ratio: dpr_ratio(preq)` instead of `effective_padding_pixel_ratio/1` — the `{:effective, …}` marker is never constructed (D5); mode/fallback live in `pipeline_ctx/1` (Task 8).
   - `Pipeline.run/4` opens with the color preamble **before the pipeline reduce**: `InputColorManagement.condition(state, supports_hdr?: opts[:supports_hdr?] || false)`, error → `{:error, {:decode, reason}}` (mirrors `Executor.run_color_management/2`, `executor.ex:100-113`).
-  - `Pipeline.decode_request(request, SourceGeometry.t()) :: DecodePlanner.Request.t()` — FIRST pipeline only: `resize_target` from the first pipeline's width/height resolved against display dims (or crop extent when a crop precedes — mirror `native/pipeline.ex:82-125`'s resolution rules with imgproxy's zero-sentinel-already-resolved inputs), `crop_extent` from `preq.crop`, `trim?: preq.trim != nil`, `terminal_reduction: nil`, `required_extent: nil`.
+  - `Pipeline.decode_request(request, SourceGeometry.t()) :: DecodePlanner.Request.t()` — FIRST pipeline only: `resize_target` from the first pipeline's width/height resolved against display dims (or crop extent when a crop precedes — mirror `native/pipeline.ex:82-125`'s resolution rules with imgproxy's zero-sentinel-already-resolved inputs), `crop_extent` from `preq.crop`, `trim?: preq.trim != nil`, `terminal_reduction: nil`, `required_extent: nil`, **`user_quarter_turn?`** (below).
+  - **Core widening (small, this task): `DecodePlanner.Request` gains a `user_quarter_turn? :: boolean()` field (default `false`), and `open_options_for/5`'s axis-swap decision becomes `(exif_quarter_turn? and auto_rotate?) XOR user_quarter_turn?`.** Why: the framework's chain path computes `net_quarter_turn?` as `rem(exif_angle + user_rotate_angle_before_resize(chain), 180) == 90` (`decode_planner.ex:148-164`) — a user `rot:90` before the resize swaps the shrink axes, and real imgproxy folds `po.Rotate()` into `ExtractGeometry`'s swap the same way (`processing/prepare.go`). The native-shaped `open_options_for/5` knows only the EXIF turn, so a dialect using it unmodified computes the **wrong shrink axis** whenever EXIF turn XOR user turn differs from EXIF turn alone. Concrete would-fail fixtures: `exif_5_cover_rot90` / `exif_7_cover_rot90` (`constellations.ex:849-850` — EXIF quarter turn + `rot:90` = net 180, framework does NOT swap, unpatched dialect would). The XOR is exact because each term is 0 or 90 mod 180. The dialect computes `user_quarter_turn?` from the first pipeline's `preq.orientation` rotate angle: `rem(angle, 180) == 90`. The framework's own `open_options/5` chain path is untouched; this widening is the same species as the probe's other `DecodePlanner.Request` transitional gaps (probe report §7 item 3).
 
 - [ ] **Step 1: Write failing assembly tests.** Cases: (a) stage ORDER — a `PipelineRequest` with all eight concerns set yields ops in exactly the 8-stage order (assert on the module sequence of `operations/2`'s return); (b) **the marker is never constructed** — for a padding+dpr request, assert `match?({:ratio, _, _}, padding_op.pixel_ratio)` and `refute match?({:effective, _, _}, …)`; (c) zero-sentinel resize (`width: {:pixels, 0}`) yields an `:auto` dimension (port the expectations from `plan_builder_test.exs`'s corresponding cases — read that file for the exact expected structs); (d) empty `PipelineRequest` yields `[]`.
 - [ ] **Step 2:** Run — FAIL.
 - [ ] **Step 3: Port `plan_geometry/1` + helpers** from `plan_builder.ex` verbatim (they consume `PipelineRequest` and emit `Plan.Operation` structs via `ImagePipe.Plan.Operation` constructors — all exported). The port's ONLY functional change is the padding `pixel_ratio` above. Where `plan_builder` helpers reference `ParsedRequest`, they don't for geometry (verify — geometry helpers take `%PipelineRequest{}`).
 - [ ] **Step 4:** Assembly tests PASS.
 - [ ] **Step 5: Write + implement the color-preamble test:** a `run/4` call on a stub state with `color_imported?: false` and an injected `:chain` — assert `InputColorManagement.condition/2` ran before the first chain call (observable: use a real small P3-tagged image from `test/support/image_pipe/test/imgproxy_differential/sources/icc_p3.png` and assert the state's `color_imported?` is true after `run/4` with zero pipelines... the empty-pipeline case makes this a pure preamble test). Check `SourceInventory`'s `consumers` note for `icc_p3.png` before using it (AGENTS.md) — read-only use adds no inventory entry.
-- [ ] **Step 6: Write + implement decode-preflight tests** (`decode_preflight_test.exs`): first-pipeline-only scoping (two pipelines, second has the resize → `resize_target: nil`); `trim?` true when first pipeline trims; crop extent resolution. Expected values computed by hand.
+- [ ] **Step 6: Write + implement decode-preflight tests** (`decode_preflight_test.exs`): first-pipeline-only scoping (two pipelines, second has the resize → `resize_target: nil`); `trim?` true when first pipeline trims; crop extent resolution; **the user-rotate axis swap**: (a) EXIF-1 + `rot:90` + resize → `user_quarter_turn?: true` and `DecodePlanner.open_options_for` swaps the shrink axes; (b) EXIF-6 (quarter turn) + `rot:90` + auto-rotate on → net 180, NO swap (the `exif_5_cover_rot90` regression shape); (c) `rot:180` → no swap. Plus a `DecodePlanner`-unit test for the new field (both XOR arms). Expected values computed by hand.
 - [ ] **Step 7:** All pipeline tests PASS (`mix test test/image_pipe/dialect/imgproxy/`).
 - [ ] **Step 8: Gate + commit:** `git commit -m "Dialect.Imgproxy.Pipeline: 8-stage assembly, color preamble (G4), decode preflight"`
 
@@ -733,16 +786,25 @@ Phase 2 drops the Framework tuple from the list — that is the whole retirement
 - Produces: `ImagePipe.Dialect.Imgproxy.Request` — field-identical to `ParsedRequest` (`signature`, `source_kind`, `source_path`, `pipelines`, `info?`, `auto_rotate`, `output`, `policy`, `cache`, `response` with the same defaults, `parsed_request.ex:6-33`), plus the same helper constructors (`output_request/1`, `policy_request/1`, `cache_request/1`, `response_request/1`). The `pipelines` type points at the **dialect's** `PipelineRequest`. This is the canonical pre-fetch value (spec: pure data, no PIDs/conn state); Tasks 12, 15, 17 consume it.
 
 - [ ] **Step 1: Copy + rename** (`ParsedRequest` → `Request`; `Parser.Imgproxy.PipelineRequest` alias → `Dialect.Imgproxy.PipelineRequest`).
-- [ ] **Step 2: Test:** field/default equivalence vs `ParsedRequest` (same shape-compare pattern as Task 6's test) + a purity assertion:
+- [ ] **Step 2: Test:** field/default equivalence vs `ParsedRequest` (same shape-compare pattern as Task 6's test) + a purity assertion that actually discriminates (a `term_to_binary` round-trip is vacuous — pids/refs/funs survive it equal on the same node):
 
 ```elixir
-test "the canonical request is pure data (no pids/refs/functions)" do
+test "the canonical request is pure data (no pid/ref/function leaves)" do
   request = %ImagePipe.Dialect.Imgproxy.Request{
-    signature: "unsafe", source_kind: :plain, source_path: "local:///x.jpg",
+    signature: "unsafe", source_kind: :plain, source_path: "images/x.jpg",
     pipelines: [%ImagePipe.Dialect.Imgproxy.PipelineRequest{}]
   }
-  refute request |> :erlang.term_to_binary() |> :erlang.binary_to_term() != request
+
+  assert pure_data?(request)
 end
+
+defp pure_data?(%_{} = struct), do: struct |> Map.from_struct() |> pure_data?()
+defp pure_data?(%{} = map), do: map |> Map.to_list() |> pure_data?()
+defp pure_data?(list) when is_list(list), do: Enum.all?(list, &pure_data?/1)
+defp pure_data?(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> pure_data?()
+
+defp pure_data?(term),
+  do: not (is_pid(term) or is_reference(term) or is_function(term) or is_port(term))
 ```
 
 - [ ] **Step 3:** PASS; ExDNA ignore; gate; `git commit -m "Dialect.Imgproxy.Request: canonical pre-fetch request struct"`
@@ -794,7 +856,8 @@ defp parse_boolean(value), do: ...
 
 - [ ] **Step 1: Copy + rename** (internal aliases: `Path` uses `Format`, `PercentEncoding`, `SourceEncryption` — all already copied; `Source` builds `Plan.Source.*` — stays).
 - [ ] **Step 2: Dual-run convert** `path_test.exs` (90 tests PASS) and `source_test.exs` (38 tests PASS).
-- [ ] **Step 3:** ExDNA ignores; gate; commit: `git commit -m "Dialect.Imgproxy: copy Path/Source/SourceScheme; dual-run their tests"`
+- [ ] **Step 3: Add the export.** In the Task 6 Boundary stub (`lib/image_pipe/dialect/imgproxy.ex`), change `exports: []` to `exports: [SourceScheme]` — the host-facing behaviour now exists.
+- [ ] **Step 4:** ExDNA ignores; gate; commit: `git commit -m "Dialect.Imgproxy: copy Path/Source/SourceScheme; dual-run their tests"`
 
 ---
 
@@ -827,8 +890,12 @@ end
 # @dialect_keys and validate_dialect! port imgproxy.ex:33-59 + 118-128:
 # :signature (-> Signature.normalize_config!), :source_url_encryption_key
 # (-> normalized to :source_url_encryption), :base64_url_includes_filename,
-# :source_schemes, :presets. imgproxy_overlay/0 is [] (imgproxy.ex:64 —
-# "imgproxy parity == neutral defaults").
+# :source_schemes, :presets — PLUS :clock (arity-0 function, default
+# fn -> System.os_time(:second) end), which the framework carries as a
+# request option (request/options.ex:17, read at plan_builder.ex:196) and
+# the wire suite injects for its expiry tests; Task 17's check_expires
+# reads it. imgproxy_overlay/0 is [] (imgproxy.ex:64 — "imgproxy parity ==
+# neutral defaults").
 ```
 
 Note the shape change vs the framework: the framework nests everything under a `:imgproxy` key inside `ImagePipe.Plug`'s opts; the dialect takes a FLAT keyword (native's precedent). The dual-run test helpers (Task 19–20) own the translation.
@@ -878,9 +945,9 @@ Note the shape change vs the framework: the framework nests everything under a `
 
 **Interfaces:**
 - Consumes: `Response.ErrorStatus.classify/1`.
-- Produces: `Errors.send(Plug.Conn.t(), reason :: term(), keyword()) :: Plug.Conn.t()` with imgproxy's protocol mapping (spec §Errors). **Body strings must match the framework's exactly** — the dual-run wire suite (Task 19) asserts bodies. The framework's strings (`imgproxy.ex:213-239`): signature failures → 403 `"invalid image request: #{inspect(reason)}"` for reasons `:invalid_signature`, `{:invalid_signature_encoding, _}`, `{:unsupported_signature, _}`; every other parse error → 400 `"invalid image request: #{inspect(reason)}"`; content type `text/plain`. For `:expired` → 404 and post-parse stage errors, grep the framework first: `grep -rn "expired\|ErrorStatus" lib/image_pipe/request/ lib/image_pipe/plug.ex` and mirror the statuses + bodies the wire suite pins (read the wire suite's error assertions: `grep -n "resp_body ==" test/image_pipe/imgproxy_wire_conformance_test.exs | head -30`).
+- Produces: `Errors.send(Plug.Conn.t(), reason :: term(), keyword()) :: Plug.Conn.t()` with imgproxy's protocol mapping (spec §Errors). **Body strings must match the framework's exactly** — the dual-run wire suite (Task 19) asserts bodies. The framework's strings (`imgproxy.ex:213-239`): signature failures → 403, and note the framework inspects the **bare atom**, not the caught tuple — `send_signature_error/2` receives `:invalid_signature`, `:invalid_signature_encoding`, or `:unsupported_signature`, so the body is e.g. `"invalid image request: :invalid_signature_encoding"` even when the caught reason was `{:invalid_signature_encoding, sig}`; every other parse error → 400 `"invalid image request: #{inspect(reason)}"`; content type `text/plain`. **Expired → 400, NOT 404**: the framework's expiry produces `{:error, {:expired_request, expires}}` (`plan_builder.ex:186-188`) which falls to the generic clause → 400 body `"invalid image request: {:expired_request, N}"`, pinned by the wire suite (`imgproxy_wire_conformance_test.exs:4509` "an expired /info URL returns 400") and documented as a known divergence from upstream imgproxy's 404 (`docs/imgproxy_support_matrix.md:1181`). For post-parse stage errors, mirror the statuses + bodies the wire suite pins (read them: `grep -n "resp_body ==" test/image_pipe/imgproxy_wire_conformance_test.exs | head -30`).
 
-- [ ] **Step 1: Failing tests** — one per mapping row (signature 403 with exact body, parse 400 with exact body, `:expired` 404, `{:source, {:bad_status, 503}}` → 502, `{:decode, :x}` → 415, `{:transform, :x}` → 422).
+- [ ] **Step 1: Failing tests** — one per mapping row (signature 403 with exact bare-atom body, parse 400 with exact body, `{:expired_request, n}` → **400** with the framework's exact body, `{:source, {:bad_status, 503}}` → 502, `{:decode, :x}` → 415, `{:transform, :x}` → 422).
 - [ ] **Step 2–3:** Implement (clause table + `ErrorStatus` fallback, mirroring `native/errors.ex`'s structure); PASS.
 - [ ] **Step 4: Gate + commit:** `git commit -m "Dialect.Imgproxy.Errors: protocol status mapping (bodies framework-identical)"`
 
@@ -889,7 +956,7 @@ Note the shape change vs the framework: the framework nests everything under a `
 ### Task 17: The chain — `imgproxy.ex` image path
 
 **Files:**
-- Create: `lib/image_pipe/dialect/imgproxy.ex`
+- Modify: `lib/image_pipe/dialect/imgproxy.ex` (the Task 6 Boundary stub gains `@behaviour Plug` and the chain; the `use Boundary` block below is already in place from Tasks 6/13 — verify it matches, don't re-declare)
 - Test: `test/image_pipe/dialect/imgproxy_wire_smoke_test.exs`
 
 **Interfaces:**
@@ -932,7 +999,7 @@ defp route_image(conn, config) do
   now = System.os_time(:second)
 
   with {:ok, request} <- parse(conn, config),          # extract → verify → split_source → Options.parse → Path.parse_source → %Request{}, inside a [:parse] span
-       :ok <- check_expires(request, now),             # request.policy.expires, 404 gate — grep the framework for the exact comparison semantics (0 = disabled)
+       :ok <- check_expires(request, now),             # request.policy.expires; 0 = disabled; failure -> {:error, {:expired_request, expires}} -> 400 (Task 16); mirror plan_builder.ex:181-188's comparison exactly
        {:ok, plan_source} <- ImgproxySource.translate(request.source_path, source_parsing_config(config)),
        {:ok, resolved} <- ImageSource.resolve(plan_source, config, config),
        {:ok, negotiation} <- negotiate(conn, request, config) do
@@ -956,14 +1023,19 @@ end
   3. `response_meta` is NOT native's empty `%PlanResponse{}`: build it from `request.response` (`filename`, `disposition`, `debug?` — read `lib/image_pipe/plan/response.ex` for the constructor) so cache hits and misses carry the CURRENT request's disposition (spec §Identity "why sharing an entry is safe").
   4. Result limits: use the host-config values via `ImagePipe.Config` keys if present (grep `max_result` in `lib/image_pipe/config.ex`; if the framework exposes them as request options instead, mirror the framework's source — `Output.Clamp` call sites in `request/processor.ex`).
 
-- [ ] **Step 1: Write failing wire smoke tests** (pattern: `native_wire_test.exs`'s `opts/1` + `get/3` helpers, `@default_sources` from `RootHTTPAdapter` + `OriginImage`):
-  - `GET /unsafe/rs:fit:100:100/plain/local:///images/cat.jpg` → 200, decoded dims 100×N;
+- [ ] **Step 1: Write failing wire smoke tests** (pattern: `native_wire_test.exs`'s `opts/1` + `get/3` helpers, `@default_sources` from `RootHTTPAdapter` + `OriginImage`). **URL shape:** use the wire suite's relative-source form — `/unsafe/…/plain/images/beach.jpg` against the `http://origin.test` root — NOT the differential harness's `local:///` form (which needs its file-serving source wiring; a fresh agent mixing the two gets source-resolution failures):
+  - `GET /unsafe/rs:fit:100:100/plain/images/beach.jpg` → 200, decoded dims 100×N;
   - option-order equivalence: `/unsafe/w:100/h:80/...` vs `/unsafe/h:80/w:100/...` → byte-identical bodies;
   - signature required: config with `signature: [keys: [...], salts: [...]]` + bad sig → 403;
-  - `exp:` in the past → 404;
+  - `exp:` in the past → **400**, body `"invalid image request: {:expired_request, N}"` (the framework's pinned divergence from upstream's 404 — Task 16);
   - ETag present; second request with `If-None-Match` → 304 **with a should-not-fetch source** (pre-fetch conditional);
   - `fn:name.jpg` sets `content-disposition` on BOTH miss and cache-hit responses (stateful `CacheProbe`);
+  - conditional × response-meta: two requests differing only in `fn:` share an ETag, and an `If-None-Match` with that ETag → 304 regardless of which `fn:` spelling the conditional request carries (spec §Identity's If-None-Match pin);
   - a `debug?`-only pair: the same request with and without the debug option produces **byte-identical bodies** and equal ETags (spec §Identity — `debug?` is header-only, pinned by test, not prose; grep `option_grammar.ex` for the debug option's URL spelling).
+
+Additional chain contracts for this task:
+  - **`[:parse]` stop metadata:** carries `result:` plus `sig_key_index:` when signing keys are configured — mirroring native's (`native.ex:161-164`); `sig_key_index` is already in `Trace.Capture`'s `@safe_keys` and `docs/telemetry.md:537`, so no telemetry-surface list changes.
+  - **`:clock`:** the wire suite injects a clock (`Keyword.put(@default_opts, :clock, fn -> … end)`, 2 sites; a framework request option read at `plan_builder.ex:196` via `request/options.ex:17`). The dialect Config (Task 14) accepts `:clock` (`is_function/0` arity-0, default `fn -> System.os_time(:second) end`) and `check_expires` uses it instead of a hardcoded `System.os_time/1` — otherwise the dialect arm of the two expiry wire tests cannot be made deterministic.
 - [ ] **Step 2:** FAIL (module undefined).
 - [ ] **Step 3: Implement** the chain.
 - [ ] **Step 4:** Smoke tests PASS.
@@ -980,9 +1052,11 @@ end
 
 **Interfaces:**
 - Produces: `InfoRenderer.render(SourceInfo.t()) :: {content_type :: String.t(), body :: iodata()}` — the same `@wire` table + JSON doc as today (`info_renderer.ex:30-54`), minus the Renderer behaviour.
-- The info branch (mirrors native's blurhash complete-body branch, `native.ex:302-360`): parse with `Path.parse_source_no_extension` + `auto_rotate: false`, `info?: true` (the framework's `parse_info_request`, `imgproxy.ex:179-211`); negotiation `%Negotiation{selected: {:terminal, :info}, vary?: false, policy_material: [], policy: nil}`; identity `selection_material({:terminal, :info}) == [terminal: :info]`; generate = `Decode.with_image(resolved, decode_opts, fn _geometry -> %DecodePlanner.Request{resize_target: nil, crop_extent: nil, trim?: false, terminal_reduction: nil, required_extent: nil} end, fn state, geometry -> build SourceInfo end)` where SourceInfo is `%Plan.SourceInfo{format: geometry.source_format, width: elem(geometry.storage_dimensions, 0), height: elem(geometry.storage_dimensions, 1), orientation: exif header read from state.image (render_runner.ex:59-64 pattern), byte_size: nil}`; render → complete-body cache write (`Cache.open_sink(key, {:complete_body, content_type}, config) |> Cache.write_chunk(body) |> Cache.commit_sink()` — native's `write_complete_body_cache/3` pattern) → `send_resp(200, body)` with etag header. Cache hit: the `{:complete_body, content_type}` entry branch native already has (`native.ex:250-261` pattern). G5 (FileSystem doesn't persist complete-body) is a known, recorded non-blocker.
+- The info branch (mirrors native's blurhash complete-body branch, `native.ex:302-360`): parse with `Path.parse_source_no_extension` + `auto_rotate: false`, `info?: true` (the framework's `parse_info_request`, `imgproxy.ex:179-211`); negotiation `%Negotiation{selected: {:terminal, :info}, vary?: false, policy_material: [], policy: nil}`; identity `selection_material({:terminal, :info}) == [terminal: :info]`; generate = `Decode.with_image(resolved, decode_opts, fn _geometry -> %DecodePlanner.Request{resize_target: nil, crop_extent: nil, trim?: false, terminal_reduction: nil, required_extent: nil} end, fn state, geometry -> build SourceInfo end)` where SourceInfo is `%Plan.SourceInfo{format: geometry.source_format, width: elem(geometry.storage_dimensions, 0), height: elem(geometry.storage_dimensions, 1), orientation: exif header read from state.image (`lib/image_pipe/request/render_runner.ex:59-64` pattern), byte_size: nil}`; render → complete-body cache write (`Cache.open_sink(key, {:complete_body, content_type}, config) |> Cache.write_chunk(body) |> Cache.commit_sink()` — native's `write_complete_body_cache/3` pattern) → `send_resp(200, body)` with etag header. Cache hit: the `{:complete_body, content_type}` entry branch native already has (`native.ex:250-261` pattern) — **response headers (etag, content type) are reconstructed from the current request/representation, never read from the stored entry beyond its content type** (spec §The /info/ cache path). Cache write failures fail open exactly as the image path does. G5 (FileSystem doesn't persist complete-body) is a known, recorded non-blocker.
 
-- [ ] **Step 1: Failing wire tests:** `/info/unsafe/plain/local:///images/cat.jpg` → 200 `application/json` with `format`/`mime_type`/`width`/`height`/`orientation` keys matching the framework's response for the same request (assert JSON-decoded equality against a framework `ImagePipe.Plug` call — the strongest info-parity check); repeat with a signed config (403 on bad sig); cache hit round-trip via stateful `CacheProbe` (second request served with same body, no second source fetch via counting source).
+Routing caveat (compat): the info branch must flow through the **copied** `Path.split_endpoint/1` → `Path.extract/1` on the prefix-stripped conn — the signature is verified over the path WITHOUT the `/info` prefix (`path.ex:8, 213-217` + `imgproxy.ex:182-183`), matching upstream. Do not re-derive the signed path in the chain.
+
+- [ ] **Step 1: Failing wire tests:** `/info/unsafe/plain/images/beach.jpg` → 200 `application/json` with `format`/`mime_type`/`width`/`height`/`orientation` keys matching the framework's response for the same request (assert JSON-decoded equality against a framework `ImagePipe.Plug` call — the strongest info-parity check); repeat with a signed config (403 on bad sig); cache hit round-trip via stateful `CacheProbe` (second request served with same body, no second source fetch via counting source); **a cache-write-failure case** (a `CacheProbe` whose `write_chunk` errors → 200 with the correct JSON body, fail-open — the /info analog of the image path's row 7).
 - [ ] **Step 2–3:** Implement; PASS.
 - [ ] **Step 4: Gate + commit:** `git commit -m "Dialect.Imgproxy: /info endpoint (dialect-owned rendering, complete-body cache)"`
 
@@ -1015,7 +1089,9 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     end
     # translate_opts/1: framework opts nest dialect keys under :imgproxy and
     # carry parser:; the dialect takes a flat keyword (Task 14). Flatten:
-    # drop :parser, hoist the :imgproxy sublist, pass sources/cache through.
+    # drop :parser, hoist the :imgproxy sublist, pass sources/cache/:clock
+    # through (:clock is a dialect Config key per Task 14 — the expiry tests
+    # need it on both arms).
     ...
   end
 end
@@ -1040,8 +1116,8 @@ CAUTION: shared module-level stubs (`OriginImage`, `CacheProbe`, `CountingOrigin
 - Per-arm isolation: the differential harness uses no cache today (verify: `grep -n cache test/support/image_pipe/test/differential/harness.ex` — expected none) — nothing to isolate; state that in the commit message rather than adding machinery.
 
 - [ ] **Step 1:** Extend the harness; loop the conformance test's case generation over `[:framework, :dialect]` with the arm in the test name.
-- [ ] **Step 2: Run.** `mix test test/image_pipe/imgproxy_differential_conformance_test.exs` — expected ~326 generated tests (163 × 2), PASS. **Never re-bake**; a dialect-arm failure is a dialect bug.
-- [ ] **Step 3: Gate + commit:** `git commit -m "Differential conformance dual-runs framework + dialect (163 x 2, no re-bake)"`
+- [ ] **Step 2: Run.** `mix test test/image_pipe/imgproxy_differential_conformance_test.exs` — expected: **(current per-constellation case count) × 2** plus the unchanged guard tests (the sources-hash/manifest drift tests do NOT dual-run — they check fixtures, not a stack). Count the cases first (`grep -cE '(c|lossy)\("' test/support/image_pipe/test/imgproxy_differential/constellations.ex`, ≈152 at plan-writing time) and record the actual doubled total in the commit message. PASS. **Never re-bake**; a dialect-arm failure is a dialect bug.
+- [ ] **Step 3: Gate + commit:** `git commit -m "Differential conformance dual-runs framework + dialect (<actual count> x 2, no re-bake)"` (substitute the real per-arm case count from Step 2).
 
 ---
 
@@ -1052,7 +1128,7 @@ CAUTION: shared module-level stubs (`OriginImage`, `CacheProbe`, `CountingOrigin
 
 **Interfaces:** consumes Task 19's `translate_opts` pattern and Task 20's constellation URL builder (`Constellations.imgproxy_path/1`).
 
-- [ ] **Step 1: Write the test:** for a representative deterministic set — every constellation with `verdict: :equal` in `constellations.ex` (read it; exclude any marked nondeterministic — if exclusions exist, name each in a module attribute with a comment, spec: "any exclusion must be named"):
+- [ ] **Step 1: Write the test:** over **all** constellations (both constellation constructors hardcode `verdict: :equal` — `constellations.ex:864,876` — so there is no verdict to filter on, and no nondeterminism marking exists). Expected outcome: no exclusions — in-process encoding is deterministic for equal inputs (the wire suite's own `resp_body ==` assertions rely on it). If a case nonetheless proves nondeterministic across arms, name it in an `@excluded` module attribute with a one-line reason (spec: "any exclusion must be named, not silently dropped") — likely candidates would be lossy `group:`-tagged AVIF cases, but none are expected:
 
 ```elixir
 test "framework and dialect produce byte-identical bodies", %{} do
@@ -1080,8 +1156,8 @@ Each arm builds its own opts (no shared cache/state — spec §Per-arm cache iso
 
 **Interfaces:** `use ImagePipe.ContractKit.CacheKey, dialect: ImagePipe.Dialect.Imgproxy` + `use ImagePipe.ContractKit.RequestSafety, dialect: ImagePipe.Dialect.Imgproxy`. The worked example is `test/image_pipe/dialect/native_contract_test.exs` — read it + both kits first; the kits may assume config-shape details (signing key format, sources) that need imgproxy-specific values.
 
-- [ ] **Step 1: Implement the callbacks** with imgproxy paths:
-  - `equivalent_requests/1`: `["/unsafe/rs:fit:100:100/plain/local:///images/cat.jpg", "/unsafe/w:100/h:100/rt:fit/plain/local:///images/cat.jpg"]` (rs shorthand vs longhand — verify equivalence against the framework first with a quick wire probe); option order (`/unsafe/w:100/h:80/...` vs `/unsafe/h:80/w:100/...`); preset vs inline expansion.
+- [ ] **Step 1: Implement the callbacks** with imgproxy paths (wire-suite URL shape — `plain/images/beach.jpg` relative sources against the kit's origin wiring, not `local:///`):
+  - `equivalent_requests/1`: `["/unsafe/rs:fit:100:100/plain/images/beach.jpg", "/unsafe/w:100/h:100/rt:fit/plain/images/beach.jpg"]` (rs shorthand vs longhand — verify equivalence against the framework first with a quick wire probe); option order (`/unsafe/w:100/h:80/...` vs `/unsafe/h:80/w:100/...`); preset vs inline expansion.
   - `format_negotiation_cases/1`: mirror native's four buckets with imgproxy URLs (`f:webp` for explicit).
   - `storage_only_case/1`: a `cb:v1` vs `cb:v2` pair (cachebuster: differing keys, equal ETags — the kit asserts the split).
   - `rejectable_requests/1`: bad signature, malformed option (`rs:bogus:1:1`), oversized dimension — each with the kit's expected no-source-touch property.
@@ -1136,7 +1212,7 @@ Each arm builds its own opts (no shared cache/state — spec §Per-arm cache iso
 **Files:**
 - Modify: `docs/imgproxy_support_matrix.md` (stage/order rows: stage 4 gains `Dialect.Imgproxy.Pipeline.run/4` alongside `Executor.execute/3`; stage 8's "reachable only through the imgproxy resolution strategy" adds the dialect's strategy-free `down: true` emission; scan every row naming `Resolver`/`PlanBuilder`: `grep -n "Resolver\|PlanBuilder\|resolution strategy" docs/imgproxy_support_matrix.md` and update each to name both stacks)
 - Modify: `docs/imgproxy_path_api.md` (mount note: the dialect mounts directly — `plug ImagePipe.Dialect.Imgproxy, sources: […]` — vs the framework's `parser:` option)
-- Modify: `test/image_pipe/architecture_boundary_test.exs` — add the `ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex"` map entry (follow `ImagePipe.Dialect.Native`'s at `:62`), `assert_boundary_deps` with Task 17's exact dep list, `assert_boundary_exports(imgproxy_dialect, [ImagePipe.Dialect.Imgproxy.SourceScheme])`, and extend the "no core file names a dialect" assertion (`:610-622` region) to include `Dialect.Imgproxy`
+- Modify: `test/image_pipe/architecture_boundary_test.exs` — add the `ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex"` map entry (follow `ImagePipe.Dialect.Native`'s at `:62`), `assert_boundary_deps` with Task 17's exact dep list, and `assert_boundary_exports(imgproxy_dialect, [ImagePipe.Dialect.Imgproxy.SourceScheme])`. The "no core file names a dialect" check: verify first whether the generic `ImagePipe.Dialect` prefix filter (`architecture_boundary_test.exs:258, 880`) already covers `Dialect.Imgproxy` — it filters by prefix, so it likely does; add an assertion only if a gap is demonstrated, not by rote (the `:610-622` region polices parser adapters, not dialects)
 - Create: `.superpowers/sdd/phase1-exit-criteria.md`
 
 - [ ] **Step 1: Docs sync** (all three files above).
@@ -1150,7 +1226,7 @@ mise run precommit
 
 Expected: format, compile --warnings-as-errors, credo --strict, dialyzer, ExDNA, full `mix test` — ALL green. (If `.jxl` failures appear: rebuild vix per the memory note — `VIX_COMPILATION_MODE=PLATFORM_PROVIDED_LIBVIPS`, not a source problem.)
 
-- [ ] **Step 4: Exit-criteria cross-check.** Write `.superpowers/sdd/phase1-exit-criteria.md`: the spec's 10 phase-1 exit criteria, each with its evidence (test file + count / commit / gate output). Criterion 9 records the D3 gate's actual outcome from Task 1/3. Any criterion not fully satisfied is listed as an explicit gap, never smoothed over (probe report's honesty contract).
+- [ ] **Step 4: Exit-criteria cross-check.** Write `.superpowers/sdd/phase1-exit-criteria.md`: **all 13** of the spec's phase-1 exit criteria (numbered 1–13), each with its evidence (test file + count / commit / gate output). Criterion 9 records the D3 gate's actual outcome from Task 1/3. Any criterion not fully satisfied is listed as an explicit gap, never smoothed over (probe report's honesty contract).
 - [ ] **Step 5: Commit:** `git commit -m "Docs sync + architecture boundary entry + phase-1 exit-criteria cross-check"`
 
 **⛔ END OF PHASE 1. Do not start phase 2 (Parser.Imgproxy retirement) — it gets its own plan against the same spec.**

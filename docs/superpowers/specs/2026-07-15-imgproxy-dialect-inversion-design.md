@@ -215,7 +215,7 @@ branch native lacks:
 route → Path.split_endpoint                  → {:info | :image}
       → Path.extract + Signature.verify      (403 before any parse)
       → Path.split_source → Options.parse    → %Request{}
-      → check_expires                        (404 gate)
+      → check_expires                        (400 gate — see Errors)
       → Source.translate → Source.resolve    (identity, no bytes)
       → negotiate                            (image terminal only)
       → Representation.build                 (key / ETag / Vary)
@@ -519,16 +519,17 @@ mapping:
 | Condition | Status |
 |---|---|
 | invalid / unsupported / malformed signature | **403** |
-| `expires` elapsed | **404** |
+| `expires` elapsed | **400**, body `"invalid image request: {:expired_request, N}"` — matching the framework's generic error clause (`parser/imgproxy.ex:230-233`) and the wire suite's pin (`imgproxy_wire_conformance_test.exs:4509`). Upstream imgproxy documents 404 here; ImagePipe's 400 is a **known, documented divergence** (`docs/imgproxy_support_matrix.md:1181`), and the inversion preserves it — changing it would be a conformance change out of this migration's scope |
 | parse / validation failure | **400** |
 | unknown endpoint (`/unknown/…`) | **403** — `path.ex:8-14` has no unknown branch (`_ -> :image`), so any non-`/info/` path is an image request and hits signature verification first |
 | core stage errors | via `Response.ErrorStatus.classify/1` — source → 502, decode → 415, transform → 422 |
 
 `ErrorStatus.classify/1` is a reusable **default**, not a core-owned mapping:
 the dialect chooses to adopt it for core stage errors and owns its own gate
-mappings outright (403/404/400 above). That is the design's "core does not own
-protocol status mapping" clause — the same `expires` condition is a dialect
-decision here (404), and IIIF maps its own gates to its spec-mandated statuses.
+mappings outright (403/400 above). That is the design's "core does not own
+protocol status mapping" clause — the `expires` mapping is a dialect decision
+(here 400, preserving ImagePipe's documented divergence from upstream's 404),
+and IIIF maps its own gates to its spec-mandated statuses.
 
 ## Testing
 
@@ -779,8 +780,8 @@ topology indefinitely. Either way this is a D3 outcome, not phase-2 work.
    primitive gained no supervised mode.
 10. Telemetry contract test green on both arms (stage names, ordering, error
     stages), each using a private `telemetry_prefix`.
-8. Boundary + architecture tests enforce the acid test.
-9. `mise run precommit` green with `PATH="$(mise where elixir)/bin:$PATH"` (the
+11. Boundary + architecture tests enforce the acid test.
+12. `mise run precommit` green with `PATH="$(mise where elixir)/bin:$PATH"` (the
    Homebrew 1.19.3 shadow false-reds `mix dialyzer` on pre-existing framework
    specs).
-10. The support matrix's stage/order rows are synced.
+13. The support matrix's stage/order rows are synced.
