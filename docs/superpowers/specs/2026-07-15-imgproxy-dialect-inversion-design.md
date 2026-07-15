@@ -16,16 +16,18 @@ dynamic-dispatch seams 5 → ~1, three orchestrators → one readable module. Bu
 native is the toolkit's *easiest* consumer. It validated dialect-owned
 orchestration over a retained neutral geometry compiler; it did not validate
 the pattern against a dialect that carries resolver state, owns a second
-endpoint, needs input color management, or has a byte-level parity obligation
-to a real upstream product.
+endpoint, needs input color management, or has a pixel- and wire-parity
+obligation to a real upstream product.
 
 imgproxy is the right second dialect for one reason above all: **it already has
 a regression net that compares against real imgproxy output.** ~163 differential
 fixtures pixel-compare against a pinned `darthsim/imgproxy` bake, and 149
 wire-conformance tests assert status/headers/pixels through real `call/2`
 requests. Both are black-box and stack-agnostic. Inverting the internals
-underneath them turns them into a byte-parity proof that the inversion
-preserved behavior — evidence no amount of internal review can supply.
+underneath them turns them into a pixel- and wire-parity proof that the
+inversion preserved behavior — evidence no amount of internal review can
+supply. A cross-arm raw-body-hash assertion (see Testing) adds encoded-byte
+equality between the two stacks on top of that.
 
 Three things imgproxy forces that native never exercised:
 
@@ -52,9 +54,66 @@ Three things imgproxy forces that native never exercised:
 |---|---|---|
 | D1 | **Phase 1 copies the grammar; phase 2 retires `Parser.Imgproxy`.** | The ~3,100 lines of grammar are framework-free and could *move*, but only if the old parser dies. Copying keeps an always-green, reversible intermediate; phase 2 deletes the original and retires the copy. Duplication is real but transient and ExDNA-ignored, exactly as the probe did for its six files. |
 | D2 | **The regression net dual-runs both stacks in phase 1.** | Parameterize the harness over `[Parser.Imgproxy, Dialect.Imgproxy]`. Proves dialect ≡ framework ≡ real imgproxy simultaneously, and keeps the still-shipping framework parser covered while D3 migrates `Request.SourceSession` underneath it. Phase 2 drops the framework arm for free. |
-| D3 | **Extraction A fully unifies — `Request.SourceSession` migrates too.** | The stated payoff and the probe's §6d headline finding. Reads "byte-frozen" as observable-output-frozen, not no-refactor; the framework's *machinery* keeps serving IIIF/TwicPics with identical output. De-risked by D2 keeping the framework arm green. |
+| D3 | **Extraction A targets full unification, subject to a topology audit gate.** | The stated payoff and the probe's §6d headline finding. Reads "byte-frozen" as observable-output-frozen, not no-refactor. But unification means deleting a `DynamicSupervisor` child from `application.ex` — a process-topology change, not an internals swap. Gated; see below. |
 | D4 | **Spec both phases; implement phase 1 now.** | Phase 1 is already ~25–30 TDD tasks. Designing the end state gives the duplication a dated exit without a 50-task branch. |
 | D5 | **Carry handled as a local; the `{:effective, …}` marker dies.** | See below — the marker is provably pure redundancy once the dialect owns both emit and run. |
+
+### D3 in detail — the topology audit gate
+
+**The conflict.** The framework starts sessions through
+`ImagePipe.Request.SourceSessionSupervisor` (`use DynamicSupervisor`, a child
+of `application.ex`). The probe's primitive uses `GenServer.start/2` —
+deliberately not `start_link/2` — and is monitor-based, with the extraction
+note's invariant #5 stating "No supervisor / no `application.ex` child". Full
+unification therefore removes a supervised child from the application tree and
+changes the framework's process topology. This is larger than the force-kill
+timing delta originally identified.
+
+**The gate.** `Request.SourceSession` migrates to `ImagePipe.Delivery` **only
+if** a pre-implementation audit confirms `SourceSessionSupervisor` provides no
+supported host extension point, required admission control, meaningful restart
+recovery, or shutdown guarantee the monitor-owned primitive cannot preserve. If
+any such dependency is found, phase 1 limits Extraction A to `Dialect.Native`
+and `Dialect.Imgproxy`, the framework stays unchanged, and the exact blocker is
+recorded. **The core primitive will not gain a supervised mode solely to
+accommodate the retiring framework** — that would make process topology part of
+a new primitive's API to preserve machinery scheduled for deletion.
+
+Note the rationale deliberately does *not* rest on "the framework is going away
+anyway". Retirement schedules slip, and that argument would license an
+undocumented breaking change. The actual argument: if the supervisor carries no
+behavioural contract, removing it is a simplification — and this phase has the
+best comparative test setup we will ever have for proving it.
+
+**Audit findings (already established; recorded here, re-verified by the audit
+task before any code moves):**
+
+| Question | Finding | Verdict |
+|---|---|---|
+| Restart recovery | `source_session.ex:55` → `restart: :temporary`; `source_session_supervisor_test.exs:215` pins "temporary sessions are not restarted after a crash before prepare" | **Pass** — supervision supplies no restart recovery |
+| Admission / concurrency | `DynamicSupervisor.init(strategy: :one_for_one)` — no `max_children`, no start-failure policy | **Pass** — no admission contract |
+| Host-visible surface | No public API docs; `docs/telemetry.md:860` mentions the `SourceSession → Producer` seam explanatorily; module lives in `ImagePipe.Request.*`, the boundary the design dissolves | **Pass**, doc-sync item only |
+| Ownership / failure propagation | Covered by the probe's 9-row error matrix for the monitor topology | **Pass** |
+| Cancellation latency | force-kill → graceful halt + ~1s backstop (G6) | **Pass**, already scoped |
+| **Application shutdown** | `source_session_supervisor_test.exs:134` pins "supervisor shutdown is parent shutdown, not request owner death" | **OPEN — the one real item** |
+
+**The open item.** The supervisor's only established guarantee is
+shutdown-by-parent, distinct from owner death. Under the monitor topology
+nothing links the coordinator to the application tree; during shutdown it dies
+because its owner dies — plausibly the same outcome by a different mechanism,
+but that must be **proven by a test, not inferred**. If it cannot be, the gate
+degrades Extraction A to dialects-only.
+
+**Consequent work:** `source_session_supervisor_test.exs` (421 lines) loses its
+subject and must be ported to the primitive's equivalents; `request_runner_test`
+and `architecture_boundary_test` reference the supervisor.
+
+**Telemetry risk (dual-run does not cover this).**
+`docs/superpowers/plans/2026-06-10-otel-replay-parent-hierarchy.md` shows OTel
+span parentage is replayed across process boundaries. Changing the framework's
+delivery topology can shift span hierarchy, which a pixel-comparison net cannot
+detect. The telemetry contract test below must therefore cover the **framework
+arm after migration**, not only the dialect.
 
 ### D5 in detail — why the marker can die
 
@@ -153,6 +212,19 @@ dialect-owned rendering. This is the design's "protocol renderings stay
 dialect-owned" clause, and the reason renderer *dispatch* dies here rather than
 being replaced.
 
+**The `/info/` cache path**, explicitly (the chain reaches cache lookup before
+the branch, so this must be stated rather than left implicit). `/info/` uses the
+**complete-body** cache variant the probe added for BlurHash — the same
+`Cache.open_sink(key, {:complete_body, content_type}, config)` →
+`write_chunk` → `commit_sink` sequence, and the same
+`%Cache.Entry{representation: {:complete_body, _}}` hit delivery via
+`send_resp/3`, never `Sender`'s image path. JSON response headers are
+**reconstructed from the current request**, not stored. Cache write failures
+fail open exactly as the image path does. Carries probe gap **G5**:
+`Cache.FileSystem` does not persist the `{:complete_body, _}` tag, so a
+FileSystem-cached `/info/` result is lost across restart — fail-open and safe,
+recorded not fixed.
+
 **The image path** is native's chain: `Delivery.stream` → `build_fun` running
 fetch/decode/transform/encode inside `Decode.with_image`'s bracket → `Sender`.
 
@@ -167,7 +239,30 @@ escape hatch, so the probe could only validate it at core unit level).
 
 `Dialect.Imgproxy.Pipeline` mirrors `Native.Pipeline` with three differences.
 
-### 1. The carry
+### 1. Per-pipeline scoping — imgproxy's `-` groups are NOT native's `then` groups
+
+**This is the one place the native template must not be copied.** The two
+group semantics differ, and conflating them is a parity bug:
+
+| | Native `then` groups (`Native.Pipeline.run/4`) | imgproxy `-` pipelines (`Executor.execute_pipeline/4`) |
+|---|---|---|
+| `SourceShape` | seeded **once**, threaded across all groups | **re-seeded per pipeline** from `State.effective_source_dims/1` |
+| Orientation flush | **once**, after the last group | **per pipeline** (`flush_boundary/4` ends each `run/5`) |
+| Resolver carry | n/a (native passes `nil`) | **fresh `resolver.init()` per pipeline** (`executor.ex:150`, commented "a fresh init/0 per pipeline, spec §4.4") |
+
+Native's single-seed/single-flush is what makes its "cheap trim" contract work
+(a group-2 trim runs on group-1's executed output). imgproxy's chained
+pipelines are a *full processing pass over the previous pipeline's in-memory
+output* — each must end in the display frame, because a pipeline's output is
+the next one's input. The dialect therefore reproduces **`execute_pipeline`'s**
+shape, not `Native.Pipeline.run`'s: per pipeline, re-seed the shape, reset the
+carry, run the ops, flush the boundary.
+
+Carry, mode, and fallback are all **scoped to a single pipeline** and never
+leak into the next. Pinned by tests: a second pipeline with no resize must take
+its own fallback, never the preceding pipeline's computed scale.
+
+### 2. The carry
 
 `run/4` threads `{state, shape, carry}` through the op reduce instead of
 native's `{state, shape}`.
@@ -183,8 +278,30 @@ native's `{state, shape}`.
   `NeutralResolver.plain_advance/2` / `display_frame_advance/2`.
 - Everything else — `NeutralResolver.resolve(shape, nil, op)`.
 
-Fallback when no resize ran: `carry.effective_padding_scale || dpr_from_request`
-— parse-time known, so no marker is needed to carry it.
+**Where the update point is, precisely.** The carry is computed inside the
+resize's `resolve/3` from the **pre-resolve shape**, before any continuation is
+followed — reproducing `resolver.ex:37-49` exactly. It is **never recomputed in
+`continue/4`**: today's `continue/4` only `rewrap`s the carry through
+(`resolver.ex:67-75`), so no `{:measure, …}` staleness window exists. The
+dialect keeps that property: the carry is written at exactly one site.
+
+**Where the mode lives after emit.** The `:resize` / `:canvas_preserving` mode
+and the `dpr` fallback are derived from the `%PipelineRequest{}` and are
+**pipeline-scoped values held by the dialect's own group assembly**, not fields
+on the emitted operation:
+
+```elixir
+%Group{
+  operations: [...],
+  padding_scale_mode: :resize | :canvas_preserving,
+  dpr_fallback: dpr
+}
+```
+
+The information the marker used to ferry is therefore *stated*, not lost — it
+simply lives in dialect-local data instead of on a shared neutral struct.
+Fallback when no resize ran in **this** pipeline:
+`carry.effective_padding_scale || group.dpr_fallback`.
 
 **Unreferenced by the dialect as a result:** `ImagePipe.Resolver`, `rewrap/2`,
 strategy selection/registration, `Directive`, and `{:effective, …}`.
@@ -196,7 +313,7 @@ declarative, so ordered planning is not exercised (that is a later TwicPics
 inversion — and note the probe found `required_extent` mechanically inert for
 ordered dialects, needing a shrink-*driving* field first).
 
-### 2. Stage order
+### 3. Stage order
 
 Eight stages, not native's six, copied from `plan_geometry/1`:
 
@@ -204,10 +321,10 @@ Eight stages, not native's six, copied from `plan_geometry/1`:
 trim → orientation → crop → resize → effects → canvas → padding → background
 ```
 
-Group threading, the single-seed/single-flush `SourceShape`, the `overlay/2`
-sync rule, and the `follow/5` measure driver transfer unchanged from native.
+The `overlay/2` sync rule and the `follow/5` measure driver transfer unchanged
+from native. The seed/flush/carry scoping does **not** — see §1.
 
-### 3. The color preamble (G4)
+### 4. The color preamble (G4)
 
 `run/4` opens with `InputColorManagement.condition(state, supports_hdr?: hdr?)`
 **before the group reduce**, mirroring `Executor.execute/3`'s
@@ -262,6 +379,27 @@ All four are demand-driven by the above.
    Surface: `stream(owner_pid, build_fun, opts)` → `{:ok,
    Response.PreparedStream.t()} | {:error, term}`.
 
+   **The `build_fun` contract, stated explicitly** (a bare "build_fun" is not a
+   contract — a zero-arity function returning an encoder `Enumerable` would
+   typecheck while letting the decode bracket close before consumption, which
+   silently violates invariant #2). Taking native's proven shape as the
+   specification:
+
+   - **Arity 1.** `build_fun.(pump)`, where `pump` is supplied by `Delivery`.
+   - **The primitive does not drive the encoder.** `build_fun` calls
+     `pump.(stream, content_type, resolved_output)` from **inside** the
+     `Source.with_fetched` + `Decode.with_image` brackets. The pump loop runs
+     there until encoder EOF or cancel. This is what guarantees containment:
+     only encoded chunks cross the process boundary; the lazy vips image and
+     the encoder `Enumerable` never escape.
+   - **Return:** `:done | {:error, term}` — never a lazy stream or image.
+   - **Headers/encoder metadata** reach the coordinator via `pump`'s
+     `content_type` + `resolved_output` arguments, i.e. **before** the first
+     chunk, so the cache sink is opened with correct metadata.
+   - **Errors** inside `build_fun` become `{:error, _}` results on the
+     coordinator, which aborts the sink; after the first chunk is sent no
+     status change is possible (the probe's error-matrix row 5).
+
    **The five invariants it must preserve** (from Task 15's Opus review, via the
    extraction note): monitor direction (`Process.monitor(owner_pid)`, not
    `spawn_monitor` from the owner); bracket containment (the pump loop runs
@@ -274,17 +412,15 @@ All four are demand-driven by the above.
    `ImagePipe.Delivery.stream/3` directly — a thin pass-through adapter would be
    a module whose only purpose is to be called through, which the design's
    survival test rejects. `Dialect.Imgproxy` calls it directly for the same
-   reason. **`Request.SourceSession` + its `Producer` migrate onto it** (D3);
-   the framework's extra concerns (custom-render branch, detector identity)
-   become `build_fun` variations, not a fork.
+   reason. **`Request.SourceSession` + its `Producer` migrate onto it if and
+   only if D3's topology gate passes**; the framework's extra concerns
+   (custom-render branch, detector identity) become `build_fun` variations, not
+   a fork. If the gate fails, the framework keeps its supervised session and
+   Extraction A ships for the two dialects only.
 
-   **Risk, explicitly sequenced:** the framework force-kills on cancel; the
-   probe's primitive graceful-halts. An **audit task runs first** to determine
-   whether any framework test depends on force-kill timing. If one does, it is
-   surfaced as a finding, not silently changed. The G6 caveat (cleanup is
-   exactly-once for the streamed case, best-effort with a ~1s force-kill
-   backstop for a slow single synchronous encode) carries forward into the
-   primitive's moduledoc.
+   The G6 caveat (cleanup is exactly-once for the streamed case, best-effort
+   with a ~1s force-kill backstop for a slow single synchronous encode) carries
+   forward into the primitive's moduledoc.
 
    The complete-body path (BlurHash, `/info/`) stays a dialect-owned
    `send_resp/3` — the primitive is for the streamed-encoder path only.
@@ -320,8 +456,27 @@ conn, config))`.
   *headers* only, never the encoded bytes. Two requests differing only in `fn:`
   produce byte-identical bodies and **must** share both a cache entry and an
   ETag. This matches `Cache.Key` today (`cache_data(cachebuster)` at
-  `key.ex:219`, with no response fields). Pinned by an explicit test rather than
-  left as a coincidence.
+  `key.ex:219`, with no response fields).
+
+  **Why sharing an entry is safe** (the load-bearing half): on a cache hit,
+  `sender.ex:208` derives `Content-Disposition` from the **caller's**
+  `%PlanResponse{}` — the *current* request — while the entry supplies only
+  `content_type`. So an entry generated for `fn:a.jpg` cannot make a later
+  `fn:b.jpg` request return `a.jpg`. Native passes an empty `%PlanResponse{}`
+  (it has no filename); **the dialect must pass the current request's response
+  meta on both the hit and miss paths**. Pinned by tests on a cache hit and on
+  an `If-None-Match` request, plus a `debug?`-only pair asserting
+  byte-identical encoded bodies — `debug?` is named riskily enough that it
+  should not rest on prose.
+
+**Key/ETag change across stacks is intended.** The dialect's
+`dialect_behavior` differs from the framework's behavior material, so the same
+URL yields a different cache key and ETag on each stack. This is correct: a
+deployment mounts one dialect, and the design states cross-dialect cache-entry
+sharing "dies by design". It is *not* in tension with the conformance doc's "no
+behavioral/pixel change" — that phrase is scoped to AGENTS.md's imgproxy
+conformance axes (surface / stage-order / pixel), not to ImagePipe's own
+storage identity. ETags are opaque; a migrating client re-validates once.
 
 ## Errors
 
@@ -333,14 +488,26 @@ mapping:
 | invalid / unsupported / malformed signature | **403** |
 | `expires` elapsed | **404** |
 | parse / validation failure | **400** |
+| unknown endpoint (`/unknown/…`) | **403** — `path.ex:8-14` has no unknown branch (`_ -> :image`), so any non-`/info/` path is an image request and hits signature verification first |
 | core stage errors | via `Response.ErrorStatus.classify/1` — source → 502, decode → 415, transform → 422 |
 
-This is the design's "core does not own protocol status mapping" clause: the
-same stage error is a 404 here and something else in IIIF.
+`ErrorStatus.classify/1` is a reusable **default**, not a core-owned mapping:
+the dialect chooses to adopt it for core stage errors and owns its own gate
+mappings outright (403/404/400 above). That is the design's "core does not own
+protocol status mapping" clause — the same `expires` condition is a dialect
+decision here (404), and IIIF maps its own gates to its spec-mandated statuses.
 
 ## Testing
 
 ### The regression net (D2)
+
+**What the net does and does not prove.** The differential is a
+tolerance-budgeted **pixel** comparison and the wire suite asserts status,
+headers, and selected bodies. Together they prove **pixel parity and wire
+parity** against real imgproxy — *not* encoded-byte equality, which can differ
+while decoding to identical pixels. This spec therefore says "pixel/wire
+parity", never "byte parity", except where raw bodies are actually compared
+(below).
 
 - **Dual-run differential** — parameterize `Harness.plug_opts/0`
   (`test/support/image_pipe/test/imgproxy_differential/harness.ex:21`) over both
@@ -353,6 +520,21 @@ same stage error is a 404 here and something else in IIIF.
   path. The 149 assertions are stack-agnostic. One site
   (`:3881` `Imgproxy.encrypt_source_url/3`) is a test-side URL builder to
   re-home.
+- **Cross-arm raw body equality** — a direct framework-vs-dialect
+  `:crypto.hash(:sha256, resp_body)` assertion over a representative fixture
+  set. This is *stronger* than both arms independently passing a tolerance
+  budget: it proves the inversion changed nothing the encoder can see. It is
+  feasible because in-process encoding is already deterministic for equal
+  inputs — the wire suite relies on exactly this today
+  (`:894` `second_conn.resp_body == first_conn.resp_body`, `:929`
+  `default_conn.resp_body == q50_conn.resp_body`). Both arms share the encoder
+  and everything downstream of `Plan.Operation`, so any inequality is a real
+  divergence. Restricted to deterministic-encode fixtures; any exclusion must
+  be named, not silently dropped.
+- **Per-arm cache isolation** — each dual-run arm gets its own cache instance.
+  Keys differ by `dialect_behavior` so collision is already improbable, but
+  isolation is free and removes any chance of one arm's stored entry masking a
+  generation failure in the other.
 
 ### Dialect coverage
 
@@ -378,17 +560,70 @@ TDD must therefore be unit-level red/green (grammar, pipeline carry, identity,
 errors), with the net as an **integration gate at the end** — not a per-task
 signal. Plans must not assume the differential suite gives incremental feedback.
 
-### Untouched in phase 1
+### Grammar copy-fidelity (the phase-1 coverage hole, and its fix)
 
-The ~300 white-box parser tests (`test/parser/imgproxy/**`,
-`test/parser/imgproxy_test.exs`) keep testing the still-alive `Parser.Imgproxy`.
-They neither block nor validate the dialect.
+The wire + differential corpus exercises the grammar through URLs, but not
+every parse error, alias, duplicate option, preset interaction, or
+percent-encoding edge. Left alone, the copied grammar would be
+production-capable in the dialect while its edge cases were only tested against
+the original — and "dual-run catches copy drift" is only true for drift the
+integration corpus covers.
+
+**The tests split cleanly by what they assert:**
+
+- **Parameterizable over the module under test (~211 tests)** —
+  `option_grammar_test.exs` (66), `options_test.exs` (53), `path_test.exs`
+  (45), `signature_test.exs` (20), `source_test.exs` (19),
+  `source_encryption_test.exs` (8). These assert **grammar output**, not plans:
+  e.g. `option_grammar_test.exs:16` asserts
+  `OptionGrammar.parse("zoom:1:2") == OptionGrammar.parse("z:1:2")`. Running
+  each against both the original and the copy is a direct proof of copy
+  fidelity, including error paths. **Do this in phase 1.**
+- **Not parameterizable (~236 tests)** — `imgproxy_test.exs` (153),
+  `plan_builder_test.exs` (77), `imgproxy_property_test.exs` (6) assert
+  `{:ok, %Plan{}}` (`plan_builder_test.exs:36`). The dialect has no `to_plan/2`
+  and no `%Plan{}`, so these cannot be pointed at it mechanically; they keep
+  testing the still-alive `Parser.Imgproxy` and are ported in phase 2.
+
+### Mount / path semantics
+
+Mounting a Plug directly rather than via `parser:` can change which path
+representation is authoritative (`request_path` vs `path_info` vs
+`script_name`; raw vs decoded), which is load-bearing for signatures,
+`%2F`, `@ext`, and base64/`enc` sources.
+
+**The copy protects us**: `path.ex` moves with its own
+`parser_request_path/1` mount-prefix handling, so the dialect inherits
+**imgproxy's existing semantics** — it does *not* adopt native's
+`script_name` byte-prefix approach (whose moduledoc documents raising on
+non-canonical mount paths). This must be pinned rather than assumed:
+
+- root mounting and mounting below a prefix;
+- `/info/` under a non-root mount;
+- percent-encoded source bytes;
+- query strings excluded from signed material.
+
+### Telemetry equivalence
+
+"No changes expected" is weaker than the rest of this spec, and the delivery
+owner process changes under Extraction A. A contract test covers: image cache
+miss, image cache hit, 304, `/info/`, streamed error after preparation, and
+owner cancellation — asserting stage names, ordering, and error stages. It runs
+against **both arms**, because D3's topology change can shift OTel span
+parentage that the pixel net cannot see.
+
+Per the test guidelines, every telemetry assertion uses a unique private
+`telemetry_prefix` — `:telemetry` handlers are global, and a default-prefix
+assertion in an `async: true` test can be satisfied by another module's
+emission.
 
 ## Documentation sync
 
-Per AGENTS.md's conformance-doc rule, the axis affected is **stage/order** — no
-surface or behavioral/pixel change is intended (that is exactly what the net
-proves).
+Per AGENTS.md's conformance-doc rule, the axis affected is **stage/order**. No
+change is intended on the **surface** or **behavioral/pixel** axes — that is
+exactly what the net proves. This claim is scoped to those three imgproxy
+conformance axes and says nothing about ImagePipe's own storage identity: cache
+keys and ETags *do* change across stacks, deliberately (see Identity).
 
 `docs/imgproxy_support_matrix.md` rows that name framework implementation paths
 become inaccurate for the inverted stack and must be updated in the same change:
@@ -403,17 +638,25 @@ become inaccurate for the inverted stack and must be updated in the same change:
 `docs/imgproxy_path_api.md` needs a mount-point note (the dialect is mounted
 directly, not via `parser:`).
 
+`docs/telemetry.md:860` describes the "request → `SourceSession` → `Producer`
+process seams". If D3's gate passes, that seam is renamed to the
+`ImagePipe.Delivery` primitive and the line must be updated.
+
 Telemetry: the dialect emits the same standard stage names as native
 (`[:request]`, `[:parse]`, …), so no Logger or `Trace.Capture` list changes are
-expected. Any new metadata key must be added to **both** surfaces per the
-telemetry guidelines.
+expected — **asserted by the telemetry contract test above, not assumed**. Any
+new metadata key must be added to **both** the Logger's subscription lists and
+`Trace.Capture`'s `@span_stages`/`@safe_keys`, per the telemetry guidelines.
 
 ## Phase 2 — retirement (specified, not implemented)
 
 1. Delete the `Parser.Imgproxy` tree (parser, `plan_builder`, `resolver`,
    `info_renderer`, `parsed_request`, and the copied grammar's originals).
-2. Port the ~300 white-box tests onto `Dialect.Imgproxy.*` internals — largely
-   module renames, since the grammar moved rather than changed.
+2. Port the ~236 `%Plan{}`-asserting white-box tests (`imgproxy_test.exs`,
+   `plan_builder_test.exs`, `imgproxy_property_test.exs`) onto the dialect's
+   `%Request{}` + `Pipeline` equivalents — these need rewritten assertions, not
+   renames, since the dialect has no `to_plan/2`. The ~211 grammar-module tests
+   are already dual-run from phase 1 and simply drop their framework arm.
 3. Drop the framework arm from both suites (D2's dual-run collapses to one).
 4. Remove the ExDNA `--ignore` globs and `.credo.exs` entries for the imgproxy
    duplication.
@@ -467,13 +710,22 @@ telemetry guidelines.
    fetch, cache hit/miss, streamed delivery.
 2. **The dual-run differential suite is green on both arms**, unchanged fixtures,
    no re-bake.
-3. **The dual-run wire suite is green on both arms** (149 × 2).
+3. **The dual-run wire suite is green on both arms** (149 × 2), plus the
+   cross-arm raw-body-hash equality set.
 4. `ContractKit.CacheKey` + `ContractKit.RequestSafety` pass against the dialect.
 5. The orientation matrix passes **including the auto-rotate-OFF arm** (G1
    closed, recorded as such).
 6. The error-path matrix passes.
-7. `Request.SourceSession` runs on `ImagePipe.Delivery`; the force-kill audit is
-   recorded either way.
+7. The ~211 grammar-module tests pass against **both** the original and the
+   copy, proving copy fidelity including error paths.
+8. `-` pipeline scoping is pinned: per-pipeline re-seed, per-pipeline flush, and
+   a carry that never leaks into a pipeline with no resize of its own.
+9. **D3's gate is resolved either way** — either `Request.SourceSession` runs on
+   `ImagePipe.Delivery` with application-shutdown termination proven by test, or
+   Extraction A is dialects-only with the exact blocker recorded. The core
+   primitive gained no supervised mode.
+10. Telemetry contract test green on both arms (stage names, ordering, error
+    stages), each using a private `telemetry_prefix`.
 8. Boundary + architecture tests enforce the acid test.
 9. `mise run precommit` green with `PATH="$(mise where elixir)/bin:$PATH"` (the
    Homebrew 1.19.3 shadow false-reds `mix dialyzer` on pre-existing framework
