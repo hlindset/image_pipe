@@ -25,7 +25,8 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
   alias ImagePipe.Dialect.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
+  alias ImagePipe.Telemetry.Trace.TestExporter
+  alias ImagePipe.Test.Trace.SpanWalk
   alias ImgproxyWireConformanceTest.CacheProbe
   alias ImgproxyWireConformanceTest.OriginImage
 
@@ -72,7 +73,7 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
     conn = Native.call(conn(:get, "/w=64/src/images/cat.jpg"), config)
     assert conn.status == 200
 
-    spans = collect()
+    spans = SpanWalk.collect()
     root = Enum.find(spans, &(&1.name == "image_pipe.request"))
     assert root, "expected a request root span"
     assert root.parent_span_id == nil
@@ -84,31 +85,8 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
       assert span, "expected a #{name} span"
       assert span.trace_id == root.trace_id, "#{name} must share the request's trace"
 
-      assert descendant_of_root?(span, root, by_span_id),
+      assert SpanWalk.descendant_of_root?(span, root, by_span_id),
              "#{name} must be a transitive descendant of the request root"
-    end
-  end
-
-  defp collect(timeout \\ 300) do
-    receive do
-      {:span, %Span{} = s} -> [s | collect(timeout)]
-    after
-      timeout -> []
-    end
-  end
-
-  # Walks `parent_span_id` links from `span` up to `root`'s span_id — true
-  # once the chain reaches root, false if the chain runs out first.
-  defp descendant_of_root?(%Span{} = span, %Span{span_id: root_id}, by_span_id),
-    do: walk_to_root(span.parent_span_id, root_id, by_span_id)
-
-  defp walk_to_root(nil, _root_id, _by_span_id), do: false
-  defp walk_to_root(id, root_id, _by_span_id) when id == root_id, do: true
-
-  defp walk_to_root(id, root_id, by_span_id) do
-    case Map.fetch(by_span_id, id) do
-      {:ok, %Span{parent_span_id: parent_id}} -> walk_to_root(parent_id, root_id, by_span_id)
-      :error -> false
     end
   end
 end
