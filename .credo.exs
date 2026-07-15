@@ -73,18 +73,23 @@
         # entries go with them (phase-1 dialect copy, retired in phase 2 per spec
         # 2026-07-15).
         #
-        # ImagePipe.Dialect.Imgproxy.Pipeline is ignored for BOTH reasons at once:
-        # like Native.Pipeline it mirrors Transform.Executor's private overlay/2
-        # and boundary_source_dimensions/1 (Executor is not exported from the
-        # Transform boundary and is core-frozen, so a dialect's own resolve-loop
-        # driver cannot call it), and like the leaf structs it carries phase-1
-        # copies of frozen Parser.Imgproxy.PlanBuilder geometry (resize_mode/1
-        # now; the verbatim carry math in Task 8) that retire in phase 2.
+        # ImagePipe.Dialect.Imgproxy.Pipeline mirrors Transform.Executor's private
+        # overlay/2 and boundary_source_dimensions/1 for the same blessed reason
+        # Native.Pipeline does (Executor is not exported from the Transform
+        # boundary and is core-frozen, so a dialect's own resolve-loop driver
+        # cannot call it), and carries the verbatim copy of
+        # Parser.Imgproxy.Resolver's padding/DPR carry arithmetic.
+        #
+        # ImagePipe.Dialect.Imgproxy.Assembly is the phase-1 copy of frozen
+        # Parser.Imgproxy.PlanBuilder's geometry half (plan_geometry/1 and every
+        # private helper it reaches). Transient like the leaf structs: retired in
+        # phase 2 when the framework original is deleted.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
            "lib/image_pipe/decode.ex",
            "lib/image_pipe/decode/source_format.ex",
+           "lib/image_pipe/dialect/imgproxy/assembly.ex",
            "lib/image_pipe/dialect/imgproxy/crop_request.ex",
            "lib/image_pipe/dialect/imgproxy/effects.ex",
            "lib/image_pipe/dialect/imgproxy/format.ex",
