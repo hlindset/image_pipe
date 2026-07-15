@@ -100,6 +100,7 @@
            "lib/image_pipe/dialect/imgproxy/pipeline.ex",
            "lib/image_pipe/dialect/imgproxy/pipeline_request.ex",
            "lib/image_pipe/dialect/imgproxy/presets.ex",
+           "lib/image_pipe/dialect/imgproxy/request.ex",
            "lib/image_pipe/dialect/imgproxy/signature.ex",
            "lib/image_pipe/dialect/imgproxy/source_encryption.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
