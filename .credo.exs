@@ -95,6 +95,8 @@
            "lib/image_pipe/dialect/imgproxy/crop_request.ex",
            "lib/image_pipe/dialect/imgproxy/effects.ex",
            "lib/image_pipe/dialect/imgproxy/format.ex",
+           "lib/image_pipe/dialect/imgproxy/option_grammar.ex",
+           "lib/image_pipe/dialect/imgproxy/options.ex",
            "lib/image_pipe/dialect/imgproxy/orientation.ex",
            "lib/image_pipe/dialect/imgproxy/percent_encoding.ex",
            "lib/image_pipe/dialect/imgproxy/pipeline.ex",
