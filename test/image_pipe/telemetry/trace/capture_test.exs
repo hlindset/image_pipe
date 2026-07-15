@@ -116,6 +116,21 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert span.attributes[:nat_var] == 0.11
   end
 
+  test "captures :sig_key_index on the native URL dialect's [:parse] stop metadata" do
+    Telemetry.span([], [:parse], %{}, fn -> {:ok, %{result: :ok, sig_key_index: 1}} end)
+
+    assert_receive {:span, %Span{name: "image_pipe.parse"} = span}
+    assert span.status == :ok
+    assert span.attributes[:sig_key_index] == 1
+  end
+
+  test "an unsigned request's nil :sig_key_index does not appear as a [:parse] span attribute" do
+    Telemetry.span([], [:parse], %{}, fn -> {:ok, %{result: :ok, sig_key_index: nil}} end)
+
+    assert_receive {:span, %Span{name: "image_pipe.parse"} = span}
+    refute Map.has_key?(span.attributes, :sig_key_index)
+  end
+
   test "captures the encode-search probe as a span nested under the search, with its phase/numbers" do
     Telemetry.span([], [:encode, :search], %{objective: :ssimulacra2}, fn ->
       Telemetry.span(

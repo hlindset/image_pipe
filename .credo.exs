@@ -37,8 +37,51 @@
         #
         {ExSlop.Check.Refactor.LengthComparison, false},
         # ExDNA duplicate detection, excluding `alias` declarations (see plugins
-        # note above).
-        {ExDNA.Credo, excluded_macros: [:alias]}
+        # note above). `ignore:` excludes ImagePipe.Decode's deliberate mirror of
+        # ImagePipe.Request.Processor / Request.SourceFormat (the dialect-owned
+        # fetch/decode bracket cannot depend on the Request boundary, so the
+        # two-open decode flow and the loader-name->format classification are
+        # duplicated by hand rather than shared — see the module docs in
+        # lib/image_pipe/decode.ex and lib/image_pipe/decode/source_format.ex,
+        # and the Task 21.6 core-exports report). ExDNA reports a duplicate pair
+        # from both anchor files, and lib/image_pipe/request/processor.ex stays
+        # untouched (framework-frozen), so the pair can only be silenced by
+        # excluding the Decode-side files from the corpus entirely.
+        #
+        # ImagePipe.Dialect.Native.Pipeline also deliberately mirrors two small
+        # private helpers off ImagePipe.Transform.Executor (`overlay/2` and
+        # `boundary_source_dimensions/1`) — Executor is not exported from the
+        # Transform boundary and is core-frozen for this task, so the dialect's
+        # own resolve-loop driver cannot call it; see the module doc in
+        # lib/image_pipe/dialect/native/pipeline.ex and the Task 14 report.
+        #
+        # ImagePipe.Dialect.Native.Delivery.{Coordinator,Producer} deliberately
+        # mirror ImagePipe.Request.SourceSession/Producer's monitor-based
+        # session/producer protocol (message shapes, owner-monitor direction,
+        # graceful-halt-then-cleanup flow) — SourceSession is Request-boundary
+        # code the dialect must not depend on, and generalizing the framework's
+        # Producer into a shared abstraction is explicitly post-probe work (see
+        # the pipelines design reference, "Delivery duplication", and the Task
+        # 15 report). Ignored for the same reason as the Decode pair above.
+        #
+        # ImagePipe.Response.Conditional deliberately duplicates the private
+        # If-None-Match parsing/matching helpers in
+        # ImagePipe.Request.HTTPCache (if_none_match?/2, parse_if_none_match/1)
+        # so a dialect can evaluate a conditional GET before any cache lookup
+        # without depending on the Request boundary (HTTPCache is
+        # framework-frozen). See the module doc in
+        # lib/image_pipe/response/conditional.ex and the Task 16 report.
+        # Ignored for the same reason as the pairs above.
+        {ExDNA.Credo,
+         excluded_macros: [:alias],
+         ignore: [
+           "lib/image_pipe/decode.ex",
+           "lib/image_pipe/decode/source_format.ex",
+           "lib/image_pipe/dialect/native/pipeline.ex",
+           "lib/image_pipe/dialect/native/delivery/coordinator.ex",
+           "lib/image_pipe/dialect/native/delivery/producer.ex",
+           "lib/image_pipe/response/conditional.ex"
+         ]}
       ]
     }
   ]

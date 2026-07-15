@@ -18,6 +18,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
+  alias ImagePipe.Transform.DecodePlanner.Request
 
   @type source_format() ::
           :jpeg | :webp | :png | :tiff | :jpeg2000 | :jpeg_xl | :heif | :avif | atom()
@@ -47,6 +48,83 @@ defmodule ImagePipe.Transform.DecodePlanner do
     base = [access: :sequential, fail_on: :error]
     load_shrink = compute_load_shrink(chain, shrink_w, shrink_h)
     append_load_option(base, source_format, load_shrink)
+  end
+
+  @doc """
+  Chooses decode load options from a defunctionalized `%Request{}` instead of a
+  semantic op chain (#377/#454).
+
+  Same base access options and the same jpeg `shrink:`/webp `scale:` math as
+  `open_options/5`, computed from resolved display-frame extents rather than
+  walking a `Plan.Pipeline` chain. Precedence: `trim?` disables shrink; else
+  `resize_target` governs when present; else `terminal_reduction` governs (a
+  tiny terminal frame, e.g. blurhash, still informs load shrink even with no
+  resize); neither present means no shrink from those inputs.
+  `required_extent` independently caps the chosen shrink so the loaded
+  display-frame extent never falls below that floor.
+  """
+  @spec open_options_for(
+          Request.t(),
+          source_format(),
+          {pos_integer(), pos_integer()},
+          boolean(),
+          boolean()
+        ) :: keyword()
+  def open_options_for(
+        %Request{} = request,
+        source_format,
+        {src_w, src_h},
+        exif_quarter_turn? \\ false,
+        auto_rotate? \\ false
+      )
+      when is_atom(source_format) and
+             is_integer(src_w) and src_w > 0 and
+             is_integer(src_h) and src_h > 0 and
+             is_boolean(exif_quarter_turn?) and is_boolean(auto_rotate?) do
+    {shrink_w, shrink_h} = shrink_axes({src_w, src_h}, exif_quarter_turn? and auto_rotate?)
+
+    base = [access: :sequential, fail_on: :error]
+
+    load_shrink =
+      request
+      |> compute_load_shrink_for_request(shrink_w, shrink_h)
+      |> cap_to_required_extent(request.required_extent, shrink_w, shrink_h)
+
+    append_load_option(base, source_format, load_shrink)
+  end
+
+  # --- Request-based shrink computation (mirrors compute_load_shrink/3) ---
+
+  defp compute_load_shrink_for_request(%Request{trim?: true}, _shrink_w, _shrink_h), do: 1.0
+
+  defp compute_load_shrink_for_request(
+         %Request{resize_target: {target_w, target_h}} = request,
+         shrink_w,
+         shrink_h
+       ) do
+    {crop_w, crop_h} = request.crop_extent || {shrink_w, shrink_h}
+    ratio_from_targets(crop_w, crop_h, target_w, target_h)
+  end
+
+  defp compute_load_shrink_for_request(
+         %Request{terminal_reduction: {target_w, target_h}},
+         shrink_w,
+         shrink_h
+       ) do
+    ratio_from_targets(shrink_w, shrink_h, target_w, target_h)
+  end
+
+  defp compute_load_shrink_for_request(%Request{}, _shrink_w, _shrink_h), do: 1.0
+
+  # `required_extent` is a floor on the *loaded* display-frame extent, not on the
+  # extent feeding a resize/terminal target — so it is measured against the (axis-
+  # swapped) source dims, independent of any crop, exactly like `load_shrink`
+  # itself is bounded from below by 1.0 (never over-shrink past the source).
+  defp cap_to_required_extent(load_shrink, nil, _shrink_w, _shrink_h), do: load_shrink
+
+  defp cap_to_required_extent(load_shrink, {required_w, required_h}, shrink_w, shrink_h) do
+    floor_ratio = ratio_from_targets(shrink_w, shrink_h, required_w, required_h)
+    min(load_shrink, floor_ratio)
   end
 
   # The resize target is expressed against the *displayed* axes. When the combined
@@ -170,20 +248,25 @@ defmodule ImagePipe.Transform.DecodePlanner do
        when not is_nil(mw) or not is_nil(mh),
        do: 1.0
 
-  defp resize_load_shrink(%PlanResize{width: {:px, w}, height: {:px, h}} = resize, src_w, src_h)
-       when w > 0 and h > 0 do
-    min(src_w / target_extent(w, resize, :x), src_h / target_extent(h, resize, :y))
+  defp resize_load_shrink(%PlanResize{width: width, height: height} = resize, src_w, src_h) do
+    target_w = px_target_extent(width, resize, :x)
+    target_h = px_target_extent(height, resize, :y)
+    ratio_from_targets(src_w, src_h, target_w, target_h)
   end
 
-  defp resize_load_shrink(%PlanResize{width: {:px, w}} = resize, src_w, _src_h) when w > 0 do
-    src_w / target_extent(w, resize, :x)
-  end
+  defp px_target_extent({:px, n}, resize, axis) when n > 0, do: target_extent(n, resize, axis)
+  defp px_target_extent(_dimension, _resize, _axis), do: nil
 
-  defp resize_load_shrink(%PlanResize{height: {:px, h}} = resize, _src_w, src_h) when h > 0 do
-    src_h / target_extent(h, resize, :y)
-  end
+  # Shared ratio math for both entry points: `src / target` per axis, taking the
+  # tighter (larger) ratio when both axes have a target (never over-shrink past
+  # either constraint), a single axis's ratio when only one target is given, or
+  # `1.0` (no shrink) when neither axis has a target.
+  defp ratio_from_targets(_src_w, _src_h, nil, nil), do: 1.0
+  defp ratio_from_targets(src_w, _src_h, target_w, nil), do: src_w / target_w
+  defp ratio_from_targets(_src_w, src_h, nil, target_h), do: src_h / target_h
 
-  defp resize_load_shrink(_resize, _src_w, _src_h), do: 1.0
+  defp ratio_from_targets(src_w, src_h, target_w, target_h),
+    do: min(src_w / target_w, src_h / target_h)
 
   # The residual resize inflates the requested pixel extent by `dpr` (both axes)
   # and `zoom` (per axis). Using the requested (uninflated-by-clamping) dpr is the

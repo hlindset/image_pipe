@@ -42,6 +42,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/parser.ex",
     "lib/image_pipe/parser/**/*.ex"
   ]
+  @transform_globs [
+    "lib/image_pipe/transform.ex",
+    "lib/image_pipe/transform/**/*.ex"
+  ]
+  @dialect_forbidden_globs @parser_forbidden_globs ++ @transform_globs ++ @parser_globs
   @resolver_strategy_globs [
     "lib/image_pipe/parser/**/resolver.ex",
     "lib/image_pipe/parser/**/point_flow.ex"
@@ -53,6 +58,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
     ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
+    ImagePipe.Decode => "lib/image_pipe/decode.ex",
+    ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
@@ -62,6 +69,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Parser.Imgproxy => "lib/image_pipe/parser/imgproxy.ex",
     ImagePipe.Parser.TwicPics => "lib/image_pipe/parser/twic_pics.ex",
     ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
+    ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Request => "lib/image_pipe/request.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
@@ -186,6 +194,86 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
+  test "dialect native boundary declaration depends only on core toolkit facades" do
+    dialect_native = boundary_declaration(ImagePipe.Dialect.Native)
+
+    assert_boundary_deps(dialect_native, [
+      ImagePipe.Cache,
+      ImagePipe.Decode,
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Representation,
+      ImagePipe.Response,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    # The inverted dialect must depend only on core toolkit facades: it never
+    # reaches into the framework's parser/request/resolver/renderer stack.
+    refute_boundary_deps(dialect_native, [
+      ImagePipe.Config,
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver
+    ])
+
+    assert_boundary_exports(dialect_native, [])
+  end
+
+  test "decode boundary declaration depends only on the core fetch/decode toolkit" do
+    decode = boundary_declaration(ImagePipe.Decode)
+
+    assert_boundary_deps(decode, [
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Plan,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    # A dialect-owned fetch/decode bracket must not reach into the framework's
+    # request/parser/resolver/renderer/cache/output/response stack.
+    refute_boundary_deps(decode, [
+      ImagePipe.Cache,
+      ImagePipe.Config,
+      ImagePipe.Output,
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver,
+      ImagePipe.Response
+    ])
+
+    assert_boundary_exports(decode, [])
+  end
+
+  test "core, transform, and parser code does not name the native dialect" do
+    # A dialect must be removable without changing the core: nothing under
+    # plug/request/source/response/cache/output/plan/transform/parser may
+    # reference ImagePipe.Dialect.
+    violations =
+      for file <- dialect_forbidden_files(),
+          violation <- dialect_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; " <>
+          "a dialect must be removable without changing the core"
+      end
+
+    assert violations == []
+  end
+
+  test "parser-output-stays-semantic and dialect-forbidden greps exclude the native dialect directory" do
+    dialect_files = Path.wildcard("lib/image_pipe/dialect/**/*.ex")
+
+    assert dialect_files != []
+    assert Enum.all?(dialect_files, &(&1 not in parser_files()))
+    assert Enum.all?(dialect_files, &(&1 not in dialect_forbidden_files()))
+  end
+
   test "request boundary declaration depends on generic facades only" do
     request = boundary_declaration(ImagePipe.Request)
 
@@ -273,6 +361,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(response, [
       ImagePipe.Response.CORS,
       ImagePipe.Response.CacheHeaders,
+      ImagePipe.Response.Conditional,
+      ImagePipe.Response.ErrorStatus,
       ImagePipe.Response.Json,
       ImagePipe.Response.PreparedStream,
       ImagePipe.Response.Sender
@@ -555,6 +645,16 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
+  test "representation boundary declaration depends only on cache and material digest" do
+    representation = boundary_declaration(ImagePipe.Representation)
+
+    assert_boundary_deps(representation, [ImagePipe.Cache, ImagePipe.MaterialDigest])
+
+    assert_boundary_exports(representation, [
+      ImagePipe.Representation.IdentityMaterial
+    ])
+  end
+
   test "bounded-mode FileSystem cache code stays within the cache boundary" do
     forbidden_terms = [
       "ImagePipe.Request",
@@ -601,7 +701,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform.State,
       ImagePipe.Transform.Chain,
       ImagePipe.Transform.DecodePlanner,
+      ImagePipe.Transform.DecodePlanner.Request,
       ImagePipe.Transform.Materializer,
+      ImagePipe.Transform.SourceGeometry,
       ImagePipe.Transform.Operation.Resize,
       ImagePipe.Transform.Operation.ExtendCanvas,
       ImagePipe.Transform.Operation.Padding,
@@ -761,6 +863,22 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.uniq()
     |> Enum.sort()
+  end
+
+  defp dialect_forbidden_files do
+    @dialect_forbidden_globs
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp dialect_references(file) do
+    file
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {line, _number} -> String.contains?(line, "ImagePipe.Dialect") end)
+    |> Enum.map(fn {_line, number} -> %{line: number, module: "ImagePipe.Dialect"} end)
   end
 
   defp resolver_strategy_files do

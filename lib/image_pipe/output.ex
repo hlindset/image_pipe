@@ -10,6 +10,7 @@ defmodule ImagePipe.Output do
       Encoder,
       Negotiation,
       Policy,
-      Resolved
+      Resolved,
+      Terminal.Blurhash
     ]
 end

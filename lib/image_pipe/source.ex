@@ -100,6 +100,39 @@ defmodule ImagePipe.Source do
     end
   end
 
+  @doc """
+  Fetch bracket: resolves through `fetch/3` (its `[:source, :fetch]` span,
+  `wrap_response/2` body-size limiting, and `{:source, _}` error
+  normalization already apply there), then hands the response to `fun`.
+
+  `fun` receives the `Response.t()` directly. There is no separate close
+  step here because closing is not this bracket's job to invent: when
+  `fetch/3` returns a stream response, that stream is a lazy `Enumerable`
+  built on `Stream.resource/3` (by the host adapter, then wrapped by
+  `wrap_response/2`'s `WrappedStream`), and `Stream.resource/3` already
+  guarantees its own cleanup function runs on any termination of
+  enumeration it starts — normal completion, an early halt, or an
+  exception propagating out of the reducer. A caller that fully drains the
+  stream before doing further work (as `ImagePipe.Decode.with_image/4`
+  does) therefore never leaves a live resource behind on any later error
+  path. This bracket does not itself re-drain or otherwise touch
+  `response.stream`: a `Stream` is re-entrant, so touching it a second time
+  would reopen — and re-fetch — the same resource rather than reuse it.
+
+  If `fun` raises or throws, the exception/throw propagates unchanged: this
+  bracket normalizes only `fetch/3`'s own `{:error, {:source, _}}` return,
+  never a caller exception.
+  """
+  @spec with_fetched(Resolved.t(), keyword(), (Response.t() -> result)) ::
+          result | {:error, error()}
+        when result: var
+  def with_fetched(%Resolved{} = resolved, runtime_opts, fun) when is_function(fun, 1) do
+    case fetch(resolved, runtime_opts, runtime_opts) do
+      {:ok, %Response{} = response} -> fun.(response)
+      {:error, {:source, _reason}} = error -> error
+    end
+  end
+
   @spec wrap_response(Response.t(), keyword()) :: {:ok, Response.t()} | {:error, error()}
   def wrap_response(%Response{path: path, stream: nil} = response, _runtime_opts)
       when is_binary(path) do

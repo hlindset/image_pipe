@@ -16,9 +16,14 @@ defmodule ImagePipe.Transform do
       State,
       Chain,
       DecodePlanner,
+      DecodePlanner.Request,
       Materializer,
       Detector,
       Detector.Warmup,
+      # Decode-time geometry value produced by `ImagePipe.Decode.with_image/4`'s
+      # header open and consumed by a dialect's decode preflight — not part of
+      # the strategy SDK below (no `ImagePipe.Resolver` strategy sees it).
+      SourceGeometry,
       # Strategy SDK — the stable contract for carried resolver strategies
       # (`ImagePipe.Resolver` implementations under parser adapters): the shape
       # value, the neutral delegate, point/orientation geometry, and the
