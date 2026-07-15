@@ -98,13 +98,16 @@
            "lib/image_pipe/dialect/imgproxy/option_grammar.ex",
            "lib/image_pipe/dialect/imgproxy/options.ex",
            "lib/image_pipe/dialect/imgproxy/orientation.ex",
+           "lib/image_pipe/dialect/imgproxy/path.ex",
            "lib/image_pipe/dialect/imgproxy/percent_encoding.ex",
            "lib/image_pipe/dialect/imgproxy/pipeline.ex",
            "lib/image_pipe/dialect/imgproxy/pipeline_request.ex",
            "lib/image_pipe/dialect/imgproxy/presets.ex",
            "lib/image_pipe/dialect/imgproxy/request.ex",
            "lib/image_pipe/dialect/imgproxy/signature.ex",
+           "lib/image_pipe/dialect/imgproxy/source.ex",
            "lib/image_pipe/dialect/imgproxy/source_encryption.ex",
+           "lib/image_pipe/dialect/imgproxy/source_scheme.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
            "lib/image_pipe/response/conditional.ex"
          ]}

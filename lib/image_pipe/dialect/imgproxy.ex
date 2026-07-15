@@ -20,5 +20,5 @@ defmodule ImagePipe.Dialect.Imgproxy do
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ],
-    exports: []
+    exports: [SourceScheme]
 end
