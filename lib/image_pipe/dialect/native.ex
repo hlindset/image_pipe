@@ -313,9 +313,12 @@ defmodule ImagePipe.Dialect.Native do
          %Representation{} = representation,
          config
        ) do
+    fetch_started_at = System.monotonic_time(:microsecond)
+
     case compute_blurhash(resolved, request, config) do
       {:ok, hash} ->
-        write_complete_body_cache(representation, hash, config)
+        cost_us = System.monotonic_time(:microsecond) - fetch_started_at
+        write_complete_body_cache(representation, hash, cost_us, config)
         send_complete_body(conn, hash, representation)
 
       {:error, reason} ->
@@ -356,9 +359,12 @@ defmodule ImagePipe.Dialect.Native do
     |> send_resp(200, hash)
   end
 
-  defp write_complete_body_cache(%Representation{} = representation, hash, config) do
+  defp write_complete_body_cache(%Representation{} = representation, hash, cost_us, config) do
     representation.cache_key
-    |> Cache.open_sink({:complete_body, @blurhash_content_type}, config)
+    |> Cache.open_sink(
+      {:complete_body, @blurhash_content_type},
+      Keyword.put(config, :cost_us, cost_us)
+    )
     |> Cache.write_chunk(hash, config)
     |> Cache.commit_sink(config)
 

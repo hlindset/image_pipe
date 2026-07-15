@@ -304,6 +304,23 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       assert conn.resp_body =~ ~r/^[0-9A-Za-z#$%*+,\-.:;=?@\[\]^_{|}~]+$/
     end
 
+    # The BlurHash terminal never goes through `Delivery` (it computes and
+    # caches its complete body inline in `write_complete_body_cache/3`), so
+    # gap 3's `cost_us` fix on the streamed path does not reach it. A ~30-byte
+    # hash is cheap to store but expensive to regenerate (full decode +
+    # transform), so a zero here mis-scores it as worthless under the
+    # FileSystem adapter's `effective_cost = if cost_us > 0, do: cost_us,
+    # else: size_bytes` fallback — the exact inversion the bug is about.
+    test "the stored complete-body entry records the real generation cost, not zero" do
+      config = opts(cache: {CacheProbe, []})
+
+      conn = get("/w=32/output=blurhash/src/images/cat.jpg", config)
+      assert conn.status == 200
+
+      assert_received {:cache_open_sink, _key, %Entry.Metadata{cost_us: cost_us}}
+      assert cost_us > 0
+    end
+
     test "conditional GET with a matching etag is 304 before any source fetch" do
       plain_conn = get("/output=blurhash/src/images/cat.jpg", opts())
       [etag] = get_resp_header(plain_conn, "etag")
