@@ -22,6 +22,13 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineAssemblyTest do
   # emit and run, so it emits the concrete `fallback` and carries `mode` in
   # `Assembly.pipeline_ctx/1`. `assert_arms_agree/2` checks that correspondence
   # exactly — fallback AND mode — so the marker's information cannot be lost.
+  #
+  # This file RETIRES WITH THE FRAMEWORK ARM, the same way `leaf_structs_test.exs`
+  # does: its oracle is `PlanBuilder`, so phase 2's deletion of the framework arm
+  # deletes this file's reason to exist along with its subject. Do not port it
+  # onto the dialect alone — a comparison of the dialect against itself is the
+  # very self-referential pin this file was written to replace. Whatever
+  # behavior it is the last cover for must move to a dialect-owned test FIRST.
 
   alias ImagePipe.Dialect.Imgproxy.Assembly
   alias ImagePipe.Parser.Imgproxy.ParsedRequest
@@ -93,11 +100,13 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineAssemblyTest do
 
   # --- the comparison -----------------------------------------------------
 
+  # Both arms must ASSEMBLE, and agree op for op. An error from BOTH arms is a
+  # failure here, not agreement: a row names the stage it exercises, and fields
+  # that drift into a rejection would otherwise keep the row green while it
+  # stopped reaching that stage entirely. Rows that mean to assert a rejection
+  # opt in through `assert_arms_reject/1` below.
   defp assert_arms_agree(fields) do
     case {framework_operations(fields), dialect_operations(fields)} do
-      {{:error, framework_reason}, {:error, dialect_reason}} ->
-        assert dialect_reason == framework_reason
-
       {{:ok, framework_ops}, {:ok, dialect_ops}} ->
         assert length(dialect_ops) == length(framework_ops),
                "op count differs\nframework: #{inspect(framework_ops, pretty: true)}\ndialect:   #{inspect(dialect_ops, pretty: true)}"
@@ -109,7 +118,25 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineAssemblyTest do
 
       {framework, dialect} ->
         flunk("""
-        one arm errored and the other did not
+        expected BOTH arms to assemble (use assert_arms_reject/1 to assert a rejection)
+        fields:    #{inspect(fields, pretty: true)}
+        framework: #{inspect(framework, pretty: true)}
+        dialect:   #{inspect(dialect, pretty: true)}
+        """)
+    end
+  end
+
+  # The rejection counterpart: both arms must reject, with the identical reason.
+  defp assert_arms_reject(fields) do
+    case {framework_operations(fields), dialect_operations(fields)} do
+      {{:error, framework_reason}, {:error, dialect_reason}} ->
+        assert dialect_reason == framework_reason
+        {:error, dialect_reason}
+
+      {framework, dialect} ->
+        flunk("""
+        expected BOTH arms to reject
+        fields:    #{inspect(fields, pretty: true)}
         framework: #{inspect(framework, pretty: true)}
         dialect:   #{inspect(dialect, pretty: true)}
         """)
@@ -410,24 +437,24 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineAssemblyTest do
 
   describe "plan_geometry's missing_dimensions guards" do
     test "fill without either dimension is rejected" do
-      assert_arms_agree(resizing_type: :fill, width: nil, height: nil)
+      assert_arms_reject(resizing_type: :fill, width: nil, height: nil)
     end
 
     test "fill without one dimension is rejected" do
-      assert_arms_agree(resizing_type: :fill, width: nil, height: {:pixels, 100})
-      assert_arms_agree(resizing_type: :fill, width: {:pixels, 100}, height: nil)
+      assert_arms_reject(resizing_type: :fill, width: nil, height: {:pixels, 100})
+      assert_arms_reject(resizing_type: :fill, width: {:pixels, 100}, height: nil)
     end
 
     test "fill_down and auto without one dimension are rejected" do
       for type <- [:fill_down, :auto] do
-        assert_arms_agree(resizing_type: type, width: nil, height: {:pixels, 100})
-        assert_arms_agree(resizing_type: type, width: {:pixels, 100}, height: nil)
-        assert_arms_agree(resizing_type: type, width: nil, height: nil)
+        assert_arms_reject(resizing_type: type, width: nil, height: {:pixels, 100})
+        assert_arms_reject(resizing_type: type, width: {:pixels, 100}, height: nil)
+        assert_arms_reject(resizing_type: type, width: nil, height: nil)
       end
     end
 
     test "the guards fire before any other stage, so a trim does not mask them" do
-      assert_arms_agree(
+      assert_arms_reject(
         trim: [threshold: 10.0, background: :auto, equal_hor: false, equal_ver: false],
         resizing_type: :fill,
         width: nil,
