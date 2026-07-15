@@ -1,5 +1,6 @@
 defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   # `Pipeline.decode_request/2` feeds `DecodePlanner.open_options_for/5`, the
   # defunctionalized entry point. The framework arm reaches the SAME decision
@@ -37,9 +38,9 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
 
   defp request(pipelines), do: %{pipelines: pipelines}
 
-  defp geometry(display_dims \\ @source_dims) do
+  defp geometry(display_dims \\ @source_dims, storage_dims \\ @source_dims) do
     %SourceGeometry{
-      storage_dimensions: @source_dims,
+      storage_dimensions: storage_dims,
       display_dimensions: display_dims,
       pending_orientation: %PendingOrientation{},
       source_format: :png
@@ -47,27 +48,27 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
   end
 
   # The framework arm's answer for the same first pipeline.
-  defp chain_options(fields, format, exif_qt?, auto_rotate?) do
+  defp chain_options(fields, format, exif_qt?, auto_rotate?, dims \\ @source_dims) do
     {:ok, ops} = Assembly.operations(preq(fields))
-    DecodePlanner.open_options(ops, format, @source_dims, exif_qt?, auto_rotate?)
+    DecodePlanner.open_options(ops, format, dims, exif_qt?, auto_rotate?)
   end
 
-  defp preflight_options(fields, format, exif_qt?, auto_rotate?) do
+  defp preflight_options(fields, format, exif_qt?, auto_rotate?, dims \\ @source_dims) do
     decode_request =
       Pipeline.decode_request(
         request([preq(fields)]),
-        geometry(display_dims_for(exif_qt?, auto_rotate?))
+        geometry(display_dims_for(exif_qt?, auto_rotate?, dims), dims)
       )
 
-    DecodePlanner.open_options_for(decode_request, format, @source_dims, exif_qt?, auto_rotate?)
+    DecodePlanner.open_options_for(decode_request, format, dims, exif_qt?, auto_rotate?)
   end
 
   # What `Decode.with_image/4` actually seeds: `display_dimensions` is the storage
   # dims already swapped when an EXIF quarter turn is being honoured. Feeding the
   # preflight unswapped dims on that arm would be testing a state Decode never
   # produces.
-  defp display_dims_for(true, true), do: {2400, 3200}
-  defp display_dims_for(_exif_qt?, _auto_rotate?), do: @source_dims
+  defp display_dims_for(true, true, {w, h}), do: {h, w}
+  defp display_dims_for(_exif_qt?, _auto_rotate?, dims), do: dims
 
   # Asserts the preflight agrees with the chain path across every format and both
   # EXIF settings, and returns the plain (no-EXIF) jpeg options so a caller can
@@ -96,12 +97,51 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
       assert assert_agrees_with_chain(width: {:pixels, 400}, height: {:pixels, 300})[:shrink] == 8
     end
 
-    test "a single-axis resize resolves :auto against the planning frame" do
-      # Only one axis is targeted, so the chain's ratio is that axis alone:
-      # 3200/400 = 8, and 2400/300 = 8. The aspect resolution must land on the
-      # same factor, which it does because it is proportional by construction.
+    test "a single-axis resize targets that axis alone" do
+      # Only one axis is targeted, so the ratio is that axis alone: 3200/400 = 8,
+      # and 2400/300 = 8. Both arms reach that through the SAME
+      # `ratio_from_targets/4` single-axis clause — the preflight carries the
+      # untargeted axis as `nil` rather than synthesizing one from the aspect.
       assert assert_agrees_with_chain(width: {:pixels, 400})[:shrink] == 8
       assert assert_agrees_with_chain(height: {:pixels, 300})[:shrink] == 8
+    end
+
+    test "a single-axis resize against a NON-proportional source" do
+      # The regression these rows exist for: 3200x2405 is not 4:3, so a
+      # synthesized aspect axis (`round(400 * 2405/3200)` = 301) binds the `min/2`
+      # tighter than the targeted axis alone and halves the shrink — decoding 2x
+      # the pixels the framework arm does.
+      assert chain_options([width: {:pixels, 400}], :jpeg, false, false, {3200, 2405})[:shrink] ==
+               8
+
+      assert preflight_options([width: {:pixels, 400}], :jpeg, false, false, {3200, 2405})[
+               :shrink
+             ] == 8
+
+      for dims <- [{3200, 2405}, {1999, 1333}, {2401, 3199}],
+          fields <- [[width: {:pixels, 400}], [height: {:pixels, 300}], [width: {:pixels, 250}]],
+          format <- @formats do
+        assert preflight_options(fields, format, false, false, dims) ==
+                 chain_options(fields, format, false, false, dims)
+      end
+    end
+
+    test "a sub-1.0 dpr shrinks the target below one pixel without dividing by zero" do
+      # `rs:fit:1:0/dpr:0.4` -> target extent 1 * 0.4 = 0.4. `dpr` is
+      # `:positive_float` in the grammar, so this is a parser-valid request the
+      # framework arm serves. The chain path never rounds the inflated target, so
+      # neither may the preflight: rounding lands on 0 and divides by zero, and
+      # flooring at 1 divides by the wrong number (agreeing for jpeg, whose shrink
+      # saturates at 8, but not for webp's continuous `scale:`).
+      assert_agrees_with_chain(width: {:pixels, 1}, dpr: 0.4)
+      assert_agrees_with_chain(width: {:pixels, 2}, height: {:pixels, 2}, dpr: 0.1, zoom_x: 0.2)
+    end
+
+    test "a non-integral inflated target keeps its fractional extent" do
+      # 333 * 1.1 = 366.3. Rounding to 366 agrees for jpeg (both saturate at
+      # shrink 8) but not for webp, whose `scale:` is continuous.
+      assert_agrees_with_chain(width: {:pixels, 333}, dpr: 1.1)
+      assert_agrees_with_chain(height: {:pixels, 251}, zoom_y: 1.3)
     end
 
     test "a zero-sentinel dimension is not a target" do
@@ -220,6 +260,20 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
       )
     end
 
+    test "a scale crop resolves through the exact rational the crop op carries" do
+      # `{:scale, 0.29}` lowers to `{:ratio, 29, 100}`, so the crop extent is
+      # `round(2850 * 29/100)` = 827. Re-deriving it from the raw float gives
+      # `round(826.4999999999999)` = 826 — one pixel out, which moves the shrink
+      # ratio and, on webp's continuous `scale:`, the decoded size.
+      for dims <- [{2850, 2583}, {3200, 2400}, {1999, 1333}], format <- @formats do
+        fields = [crop: [width: {:scale, 0.29}, height: {:scale, 0.29}], width: {:pixels, 400}]
+
+        assert preflight_options(fields, format, false, false, dims) ==
+                 chain_options(fields, format, false, false, dims),
+               "scale crop disagrees for #{inspect(dims)}/#{format}"
+      end
+    end
+
     test "a crop with a single-axis resize resolves :auto against the CROP extent" do
       # The resize runs against the post-crop image, so its :auto axis follows the
       # crop's aspect, not the source's.
@@ -229,6 +283,101 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
       )
     end
   end
+
+  # --- the generated agreement space --------------------------------------
+  #
+  # The hand-picked rows above pin specific named edge cases, but they choose
+  # their own inputs — and an oracle only removes the author's *expectations*
+  # from the loop, not the author's blind spot in choosing rows. Every
+  # rounding-sensitive row above targets 400x300 against a 3200x2400 source
+  # (exact divisors) with an inflating dpr/zoom, which is precisely the shape
+  # where a synthesized aspect axis agrees with the chain by accident. This
+  # property removes that bias: non-proportional sources, single-axis targets,
+  # and sub-1.0 dpr/zoom are all in range.
+
+  describe "agreement with the chain path, generatively" do
+    property "over target x dpr x zoom x source dims, including non-proportional" do
+      check all(
+              dims <- source_dims(),
+              width <- dimension(),
+              height <- dimension(),
+              dpr <- factor(),
+              zoom_x <- factor(),
+              zoom_y <- factor(),
+              format <- member_of(@formats),
+              max_runs: 500
+            ) do
+        fields = [width: width, height: height, dpr: dpr, zoom_x: zoom_x, zoom_y: zoom_y]
+
+        assert preflight_options(fields, format, false, false, dims) ==
+                 chain_options(fields, format, false, false, dims),
+               """
+               preflight disagrees with the chain path
+               fields:    #{inspect(fields)}
+               dims:      #{inspect(dims)}, format: #{format}
+               chain:     #{inspect(chain_options(fields, format, false, false, dims))}
+               preflight: #{inspect(preflight_options(fields, format, false, false, dims))}
+               """
+      end
+    end
+
+    property "with a crop narrowing the extent that feeds the resize" do
+      check all(
+              dims <- source_dims(),
+              crop_w <- crop_dimension(),
+              crop_h <- crop_dimension(),
+              width <- dimension(),
+              height <- dimension(),
+              dpr <- factor(),
+              format <- member_of(@formats),
+              max_runs: 300
+            ) do
+        fields = [
+          crop: [width: crop_w, height: crop_h],
+          width: width,
+          height: height,
+          dpr: dpr
+        ]
+
+        assert preflight_options(fields, format, false, false, dims) ==
+                 chain_options(fields, format, false, false, dims),
+               """
+               preflight disagrees with the chain path (cropped)
+               fields: #{inspect(fields)}
+               dims:   #{inspect(dims)}, format: #{format}
+               """
+      end
+    end
+  end
+
+  # Deliberately NOT constrained to a proportional family, and deliberately odd:
+  # a shrink sized against a synthesized aspect axis only diverges when the frame
+  # does not divide evenly.
+  defp source_dims, do: tuple({integer(400..4000), integer(400..4000)})
+
+  # `nil` (absent) and the `{:pixels, 0}` zero-sentinel are both "not a target";
+  # a concrete pixel dimension is.
+  defp dimension do
+    one_of([
+      constant(nil),
+      constant({:pixels, 0}),
+      map(integer(1..2000), &{:pixels, &1})
+    ])
+  end
+
+  defp crop_dimension do
+    one_of([
+      constant(:auto),
+      constant({:pixels, 0}),
+      map(integer(1..5000), &{:pixels, &1}),
+      map(integer(1..100), &{:scale, &1 / 100})
+    ])
+  end
+
+  # Spans sub-1.0 (deflating) as well as inflating factors. Bounded away from
+  # denormal territory: `dpr * zoom` underflowing to 0.0 divides by zero on BOTH
+  # arms identically, which is a framework property, not a preflight divergence.
+  defp factor, do: one_of([constant(nil), map(integer(1..400), &(&1 / 100))])
 
   # --- the user-rotate axis swap (the 9a field, consumed) -----------------
 

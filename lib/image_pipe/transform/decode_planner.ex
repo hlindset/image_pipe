@@ -63,6 +63,12 @@ defmodule ImagePipe.Transform.DecodePlanner do
   `required_extent` independently caps the chosen shrink so the loaded
   display-frame extent never falls below that floor.
 
+  Both entry points share `ratio_from_targets/4`, so a `resize_target` whose
+  axes carry what the chain path's own `resize_load_shrink/3` would compute —
+  each axis independently optional, and fractional once `dpr`/`zoom` inflate it
+  (see `t:Request.resize_target/0`) — yields the identical ratio rather than an
+  approximation of it.
+
   The shrink-axis swap is decided by the same *net* turn `open_options/5`
   computes from the chain: the EXIF turn (`exif_quarter_turn?` and
   `auto_rotate?`) XOR the dialect's own pre-resize rotate

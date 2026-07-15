@@ -602,9 +602,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   defp dpr_ratio(%PipelineRequest{dpr: nil}), do: {:ratio, 1, 1}
 
   defp dpr_ratio(%PipelineRequest{dpr: dpr}) do
-    case Operation.resize(:fit, :auto, :auto, dpr: dpr) do
-      {:ok, %{dpr: ratio}} -> ratio
-    end
+    {:ok, %{dpr: ratio}} = Operation.resize(:fit, :auto, :auto, dpr: dpr)
+    ratio
   end
 
   # ── stage 8: background ──────────────────────────────────────────────────
@@ -625,13 +624,27 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   defp resize_dimension({:pixels, value}) when is_integer(value) and value > 0,
     do: {:ok, {:px, value}}
 
-  defp crop_dimension(:auto), do: {:ok, :full_axis}
-  defp crop_dimension({:pixels, 0}), do: {:ok, :full_axis}
+  @doc """
+  The tagged measure one crop dimension lowers to.
 
-  defp crop_dimension({:pixels, value}) when is_integer(value) and value > 0,
+  Public so the decode preflight (`Pipeline.decode_request/2`) can resolve the
+  crop extent from the SAME measure the crop operation carries. A `{:scale, _}`
+  lowers to an exact rational, so re-deriving the extent from the raw float
+  instead lands a pixel off wherever the two disagree — `{:scale, 0.29}` against
+  2850 is `round(2850 * 29/100)` = 827, where the float is 826.4999999999999.
+  """
+  @spec crop_dimension(CropRequest.dimension()) ::
+          {:ok, :full_axis | {:px, pos_integer()} | {:ratio, non_neg_integer(), pos_integer()}}
+          | {:error, Operation.error()}
+  def crop_dimension(dimension)
+
+  def crop_dimension(:auto), do: {:ok, :full_axis}
+  def crop_dimension({:pixels, 0}), do: {:ok, :full_axis}
+
+  def crop_dimension({:pixels, value}) when is_integer(value) and value > 0,
     do: {:ok, {:px, value}}
 
-  defp crop_dimension({:scale, value}), do: tagged_ratio_from_decimal(value)
+  def crop_dimension({:scale, value}), do: tagged_ratio_from_decimal(value)
 
   defp canvas_dimension(nil), do: {:ok, :auto}
   defp canvas_dimension({:pixels, 0}), do: {:ok, :auto}

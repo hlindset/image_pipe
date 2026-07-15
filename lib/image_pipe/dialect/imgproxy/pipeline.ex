@@ -60,9 +60,11 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   arm's own "only the first pipeline" shrink-on-load scoping.
 
   Every field is derived to agree with what `DecodePlanner.open_options/5`
-  computes from the equivalent op chain — the framework arm's path — including
-  the three rules `resize_load_shrink/3` owns and a display-frame resolution of
-  `:auto` is not enough to reproduce on its own:
+  computes from the equivalent op chain — the framework arm's path. The two
+  paths *converge* rather than approximate each other: this function resolves
+  the same per-axis extents `resize_load_shrink/3` resolves, and both then hand
+  them to the planner's own `ratio_from_targets/4`. What that leaves this
+  function to reproduce is the three rules `resize_load_shrink/3` owns:
 
     * `min_width`/`min_height` disable shrink outright, so a request carrying
       either yields `resize_target: nil` rather than a box;
@@ -72,8 +74,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
     * a zero-sentinel or absent dimension is not a target at all, so an
       auto/auto resize (a bare `dpr:`, say) yields no box.
 
+  An axis with no target stays `nil` and an inflated extent stays fractional —
+  see `resize_target/1`, and `t:DecodePlanner.Request.resize_target/0` for why
+  the field admits both.
+
   `pipeline_assembly_test.exs`'s sibling `decode_preflight_test.exs` pins that
-  agreement against `open_options/5` directly rather than restating it.
+  agreement against `open_options/5` directly rather than restating it, by
+  example and by property.
   """
   @spec decode_request(%{pipelines: [PipelineRequest.t()]}, SourceGeometry.t()) ::
           DecodePlanner.Request.t()
@@ -82,14 +89,10 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
         %SourceGeometry{} = geometry
       ) do
     quarter_turn? = user_quarter_turn?(preq)
-    crop_extent = crop_extent(preq, planning_dims(geometry, quarter_turn?))
 
-    # `:auto` resolves against whatever extent actually feeds the resize: the
-    # crop's extent when this pipeline crops (the resize runs against the
-    # post-crop image), else the full planning frame.
     %DecodePlanner.Request{
-      resize_target: resize_target(preq, crop_extent || planning_dims(geometry, quarter_turn?)),
-      crop_extent: crop_extent,
+      resize_target: resize_target(preq),
+      crop_extent: crop_extent(preq, planning_dims(geometry, quarter_turn?)),
       trim?: preq.trim != nil,
       terminal_reduction: nil,
       required_extent: nil,
@@ -122,28 +125,49 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   defp crop_extent(%PipelineRequest{crop: %CropRequest{} = crop}, {dw, dh}),
     do: {crop_axis_extent(crop.width, dw), crop_axis_extent(crop.height, dh)}
 
-  # Mirrors `DecodePlanner.crop_axis_extent/2` over the dialect's own crop
-  # dimension spellings (which `Assembly.crop_dimension/1` maps to the tagged
-  # measures that function reads).
-  defp crop_axis_extent(:auto, dim), do: dim
-  defp crop_axis_extent({:pixels, 0}, dim), do: dim
-  defp crop_axis_extent({:pixels, n}, dim), do: min(n, dim)
-  defp crop_axis_extent({:scale, scale}, dim), do: min(dim, max(1, round(dim * scale)))
+  # Mirrors `DecodePlanner.crop_axis_extent/2` clause for clause, over the SAME
+  # tagged measure the chain's own crop operation carries — `Assembly.
+  # crop_dimension/1` is the one place the dialect's spellings lower, so routing
+  # through it converges the two paths instead of re-deriving the extent here.
+  #
+  # Re-deriving is what a `{:scale, _}` punishes: the operation carries an exact
+  # rational, and `round(dim * num / den)` is not `round(dim * float)` at a
+  # half-pixel boundary (`{:scale, 0.29}` against 2850 -> 827 vs 826), which
+  # moves the shrink ratio and, on webp's continuous `scale:`, the decode itself.
+  defp crop_axis_extent(dimension, dim) do
+    {:ok, measure} = Assembly.crop_dimension(dimension)
+    tagged_crop_axis_extent(measure, dim)
+  end
+
+  defp tagged_crop_axis_extent(:full_axis, dim), do: dim
+  defp tagged_crop_axis_extent({:px, n}, dim), do: min(n, dim)
+
+  defp tagged_crop_axis_extent({:ratio, num, den}, dim),
+    do: min(dim, max(1, round(dim * num / den)))
 
   # `resize_load_shrink/3`'s first clause: a min_* floor interacts with aspect
   # ratio in ways that are not a per-axis multiplier, so the chain path declines
   # to shrink at all. No target box can express that; `nil` reproduces it.
-  defp resize_target(%PipelineRequest{min_width: mw, min_height: mh}, _aspect_dims)
+  defp resize_target(%PipelineRequest{min_width: mw, min_height: mh})
        when not is_nil(mw) or not is_nil(mh),
        do: nil
 
-  defp resize_target(%PipelineRequest{} = preq, {aw, ah}) do
+  # An untargeted axis stays `nil` rather than being synthesized from the aspect
+  # ratio: `ratio_from_targets/4` — the SAME function the chain path's
+  # `resize_load_shrink/3` calls — then takes that axis's ratio alone, exactly as
+  # the chain does. A derived partner axis would instead bind its `min/2` tighter
+  # whenever the frame is not exactly proportional, shrinking less and decoding
+  # more pixels than the framework arm.
+  #
+  # The extents are NOT rounded, for the same reason: `resize_load_shrink/3`
+  # divides by the fractional dpr/zoom-inflated target directly, so rounding here
+  # would move the ratio (visibly, on webp's continuous `scale:`) and would round
+  # a sub-pixel target — `rs:fit:1:0/dpr:0.4` — down to a division by zero.
+  defp resize_target(%PipelineRequest{} = preq) do
     case {target_extent(preq.width, preq.dpr, preq.zoom_x),
           target_extent(preq.height, preq.dpr, preq.zoom_y)} do
       {nil, nil} -> nil
-      {nil, h} -> {round(h * aw / ah), round(h)}
-      {w, nil} -> {round(w), round(w * ah / aw)}
-      {w, h} -> {round(w), round(h)}
+      target -> target
     end
   end
 
