@@ -200,6 +200,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(dialect_native, [
       ImagePipe.Cache,
       ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
