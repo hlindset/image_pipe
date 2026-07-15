@@ -15,14 +15,41 @@
 - **Toolchain:** run every `mix` command as `export PATH="$(mise where elixir)/bin:$PATH" && mix …` (the Homebrew Elixir 1.19.3 shadow false-reds `mix dialyzer` on pre-existing framework specs). Fresh worktrees: `mise trust && mise exec -- mix deps.get` first.
 - **Framework is observable-output-frozen.** The only sanctioned framework edits: Task 3's gated `SourceSession` migration, and test-helper normalization in Tasks 19–20. Nothing else under `lib/image_pipe/{request,plan,resolver,renderer,parser}/**` changes except where a task names the exact file.
 - **No re-bake.** Never run `mix imgproxy.gen_fixtures` or `mix imgproxy.gen_sources`. A differential failure is a parity bug in the dialect, not a fixture problem.
-- **Acid test:** `ImagePipe.Dialect.Imgproxy` depends only on core boundaries; no core module names it; it never names `ImagePipe.Dialect.Native`, `ImagePipe.Parser.*`, `ImagePipe.Request.*`, `ImagePipe.Resolver`, or `ImagePipe.Renderer`.
+- **Acid test:** `ImagePipe.Dialect.Imgproxy` depends only on core boundaries; no core module names it; **no product dialect names another product dialect** — it never names `ImagePipe.Dialect.Native`, `ImagePipe.Parser.*`, `ImagePipe.Request.*`, `ImagePipe.Resolver`, or `ImagePipe.Renderer`. (`ImagePipe.Dialect.SharedConfig` is a shared core boundary that happens to live under the `Dialect` namespace, not a product dialect; both dialects may name it.)
+- **Commit trailer:** the `git commit` commands in the tasks omit the trailer for brevity — append `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` to every commit, including the intra-task commits (9a/9b/9c).
 - **Telemetry tests:** every telemetry assertion uses a unique private `telemetry_prefix` (see AGENTS.md Test guidelines; existing example: `@clamp_telemetry_prefix` in `imgproxy_wire_conformance_test.exs`).
 - **Subagents:** never run state-mutating git (`stash`, `reset`, `checkout -- .`); never read `deps/` source; run only the targeted tests your task names, not the full suite (the final task runs the full gates).
 - **Copied-code duplication** is deliberate and transient: each copy task adds matching ignore entries to `.credo.exs` (ExDNA plugin) **and** the `mix ex_dna` invocation in `mise.toml` — both, or the two gates diverge (probe report §Final gates item 3).
 - **Per-task gate** (every task, before its final commit): `mix format --check-formatted && mix compile --warnings-as-errors && mix credo --strict` plus the task's own tests. Full `mise run precommit` runs only in Task 26.
-- **Commit style:** end commit messages with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 
 ---
+
+## Execution batching (subagent runs)
+
+Tasks are the **review units** (each keeps its own commits and gates); batches
+are the **subagent runs**. One run executes its batch's tasks in order,
+committing per task (or per intra-task commit plan, e.g. 9a/9b/9c); the
+two-stage review (spec reviewer + code-quality reviewer) runs once per batch
+over the batch's whole diff, with per-task commit granularity preserved for
+bisection. 26 tasks → **11 runs**:
+
+| Run | Tasks | Why batched / why solo |
+|---|---|---|
+| R1 | 1 | Solo — ends at the hard user checkpoint. |
+| R2 | 2 + 4 + 5 | Three independent, mechanical core moves (Delivery move, SharedConfig, exports). No inter-task debugging risk. |
+| R3 | 3 | Solo — the gated framework migration; runs only after the checkpoint ruling, must be cleanly revertable. |
+| R4 | 6 + 7 + 8 | Leaf structs → skeleton → carry: one continuous context over the same two files; the skeleton/carry tests build on each other. |
+| R5 | 9 | Solo — the largest single task (geometry port + core planner widening, three commits); parity-critical, gets the Opus reviewer. |
+| R6 | 10 + 11 + 12 + 13 | All grammar copies + dual-run conversions: mechanical, same recipe four times, no design decisions. |
+| R7 | 14 + 15 + 16 | Config, Identity, Errors: three small sibling modules with no cross-debugging. |
+| R8 | 17 + 18 | The chain + /info: one module, consecutive edits. |
+| R9 | 19 | Solo — the highest-churn test refactor (4,500-line dual-run conversion), needs undivided context + the fallback path. |
+| R10 | 20 + 21 + 22 + 23 | The remaining nets: differential dual-run, body-hash, kits, orientation matrix. Debugging any failure here means a dialect bug fixed in place. |
+| R11 | 24 + 25 + 26 | Error matrix, telemetry contract, docs + final gates + cross-check. |
+
+R3 blocks on R1's checkpoint; R2 and R4–R8 don't. If a batch's later task
+uncovers a defect in an earlier task's commit, fix forward within the run —
+never rewrite the earlier commit.
 
 ## Task overview (dependency order)
 
@@ -59,11 +86,12 @@
 
 ### Task 1: D3 baseline characterization + gate checkpoint
 
-The two discoveries most able to invalidate downstream work are this gate and Task 7's skeleton — hence they run first. This task writes the **baseline tests green against the untouched supervised topology** (characterization-then-preserve, NOT red-green: the guarantees already exist). Task 3 must make the same *unmodified* tests pass post-migration; editing them to fit the new topology is a gate failure.
+The two discoveries most able to invalidate downstream work are this gate and Task 7's skeleton — hence they run first. This task writes the **baseline tests green against the untouched supervised topology** (characterization-then-preserve, NOT red-green: the guarantees already exist). The preserve-unmodified rule applies to **Baseline A and the OTel parentage baseline only**: Task 3 must keep those two passing with zero edits, and weakening either assertion is a gate failure. **Baseline B** (app-tree shutdown) is a mechanism-coupled characterization that structurally cannot survive the supervisor's deletion — its fate is decided at this task's checkpoint, never during Task 3. The two kinds live in **separate files** so Task 3 never edits a file containing an immutable baseline.
 
 **Files:**
-- Create: `test/image_pipe/request/delivery_shutdown_baseline_test.exs`
-- Create: `test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs`
+- Create: `test/image_pipe/request/delivery_owner_cleanup_baseline_test.exs` (Baseline A — immutable)
+- Create: `test/image_pipe/request/source_session_app_shutdown_characterization_test.exs` (Baseline B — fate decided at checkpoint)
+- Create: `test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs` (immutable)
 - Create: `.superpowers/sdd/d3-audit-report.md` (the audit finding, for the user checkpoint)
 
 **Interfaces:**
@@ -104,14 +132,17 @@ back door. So:
   does not make it."
 
 ```elixir
-defmodule ImagePipe.Request.DeliveryShutdownBaselineTest do
+# test/image_pipe/request/source_session_app_shutdown_characterization_test.exs
+defmodule ImagePipe.Request.SourceSessionAppShutdownCharacterizationTest do
   @moduledoc """
-  D3 topology-gate BASELINE (spec §D3 in detail, sequencing step 1).
-
-  Characterizes the delivery-infrastructure shutdown guarantee as it exists
-  on the supervised topology, BEFORE the SourceSession -> ImagePipe.Delivery
-  migration. Task 3 must keep these tests passing UNMODIFIED; a changed
-  assertion is a gate failure, not a passing gate.
+  D3 topology-gate BASELINE B (spec §D3 in detail): a mechanism-coupled
+  CHARACTERIZATION of the supervised topology's app-tree shutdown guarantee.
+  This file CANNOT survive the D3 migration unmodified; its fate — deleted
+  because the user ruled the app-tree arm out of contract, or kept because
+  the user ruled it in contract (selecting the dialects-only branch) — is
+  decided at the Task 1 checkpoint and recorded in the audit report.
+  Baseline A (owner-death, immutable) lives in
+  delivery_owner_cleanup_baseline_test.exs, deliberately in a separate file.
   """
   use ExUnit.Case, async: false
 
@@ -147,7 +178,18 @@ defmodule ImagePipe.Request.DeliveryShutdownBaselineTest do
     refute_receive {:stream_closed, _}, 100
   end
 
-  # ── Baseline A — topology-neutral, MUST survive Task 3 unmodified ──────
+end
+
+# test/image_pipe/request/delivery_owner_cleanup_baseline_test.exs — its OWN
+# file, so Task 3 never touches the characterization file above.
+defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
+  @moduledoc """
+  D3 topology-gate BASELINE A (immutable): topology-neutral owner-death
+  cleanup, observed through the public Plug surface. Task 3 must keep this
+  passing UNMODIFIED; a changed assertion is a gate failure.
+  """
+  use ExUnit.Case, async: false
+
   test "owner death mid-stream cleans up exactly once (public-surface observation)" do
     # The guarantee that must survive the migration identically — it is the
     # only termination path the monitor topology has. Observed WITHOUT naming
@@ -183,7 +225,7 @@ the kill, and an exactly-once cleanup signal.)
 
 Adjust helper/message names to what `source_session_supervisor_test.exs` actually defines (`register_stream_events!` may emit differently-shaped messages — copy its real contract; the *assertions* above are the required semantics: DOWN + exactly-once cleanup).
 
-- [ ] **Step 3: Run it.** `mix test test/image_pipe/request/delivery_shutdown_baseline_test.exs` — expected: **PASS** (characterization of existing behavior).
+- [ ] **Step 3: Run both files.** `mix test test/image_pipe/request/delivery_owner_cleanup_baseline_test.exs test/image_pipe/request/source_session_app_shutdown_characterization_test.exs` — expected: **PASS** (characterization of existing behavior).
 
 - [ ] **Step 4: Write the OTel parentage baseline.** Find the existing Capture test infra: `ls test/image_pipe/telemetry/` and read the trace-capture test file there. Write a test that drives one framework **cache-miss streamed image request** through `ImagePipe.Plug` (copy the request setup from `test/image_pipe/imgproxy_wire_conformance_test.exs` `@default_opts` + `call_imgproxy/3`, using a private `telemetry_prefix`), captures spans via the existing Capture harness, and asserts **semantic parentage only**: the `[:source]`/`[:transform, :execute]`/`[:encode]`-family spans (use the exact stage names Capture's `@span_stages` lists) are descendants of the `[:request]` span. Do **not** assert PIDs, span counts, or process structure (spec: "Assert semantics, not mechanism" — D3 *intends* to change topology).
 
@@ -194,7 +236,8 @@ Adjust helper/message names to what `source_session_supervisor_test.exs` actuall
 - [ ] **Step 7: Commit and STOP for the user checkpoint.**
 
 ```bash
-git add test/image_pipe/request/delivery_shutdown_baseline_test.exs \
+git add test/image_pipe/request/delivery_owner_cleanup_baseline_test.exs \
+        test/image_pipe/request/source_session_app_shutdown_characterization_test.exs \
         test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs \
         .superpowers/sdd/d3-audit-report.md
 git commit -m "D3 gate: baseline shutdown + span-parentage characterization tests"
@@ -283,8 +326,8 @@ untouched; SourceSession migration is Task 3, behind the D3 gate."
 - [ ] **Step 2: Migrate `runner.ex`.** Replace `SourceSessionSupervisor.start_session` + `SourceSession.prepare` with `ImagePipe.Delivery.stream(self(), build_fun, representation, response_meta, opts)` where `build_fun` wraps the existing `Processor` fetch/decode/encode flow exactly as native's `build_fun` does (`lib/image_pipe/dialect/native.ex:376-409` is the worked example). Preserve the runner's outward behavior: same `{:ok, {:prepared_stream, …}}` shapes to `Sender`, same error taxonomy.
 
 - [ ] **Step 3: The topology-neutral baselines must pass unmodified.**
-`mix test test/image_pipe/request/delivery_shutdown_baseline_test.exs test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs`
-Expected: **Baseline A (owner-death) and the OTel parentage baseline PASS with zero edits** against the migrated runner. Baseline B (app-tree shutdown) is handled per the Task 1 checkpoint ruling recorded in `.superpowers/sdd/d3-audit-report.md`: ruled out of contract → delete Baseline B in Step 5 citing the ruling in the commit message; ruled in contract → **this task must not have started** (the dialects-only branch applies) — if you are here anyway, stop and revert. No third option exists; weakening any baseline assertion is a gate failure.
+`mix test test/image_pipe/request/delivery_owner_cleanup_baseline_test.exs test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs`
+Expected: **Baseline A (owner-death) and the OTel parentage baseline PASS with zero edits** against the migrated runner. Baseline B (`source_session_app_shutdown_characterization_test.exs` — a separate file this task may delete but never edit) is handled per the Task 1 checkpoint ruling recorded in `.superpowers/sdd/d3-audit-report.md`: ruled out of contract → delete Baseline B's file in Step 5 citing the ruling in the commit message; ruled in contract → **this task must not have started** (the dialects-only branch applies) — if you are here anyway, stop and revert. No third option exists; weakening any baseline assertion is a gate failure.
 
 - [ ] **Step 4: Port the lifecycle tests.** Create `test/image_pipe/delivery/delivery_lifecycle_test.exs` porting owner-death, explicit-cancel, prepare-error, and double-stop-idempotence cases from `source_session_supervisor_test.exs` onto `ImagePipe.Delivery.stream/5`. Run: `mix test test/image_pipe/delivery/` — PASS.
 
@@ -453,25 +496,37 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineScopingTest do
   # test/image_pipe/dialect/native/ pipeline tests for the pattern of
   # constructing a State with source_dimensions + a stub image.
 
-  test "SourceShape is re-seeded per pipeline from the prior pipeline's output dims" do
-    # Two pipelines: p1 resizes to 400x300; p2's ops must be resolved against
-    # a shape seeded at 400x300, NOT the original 1600x1200.
-    # Inject :chain to record each executed op batch and return a State whose
-    # effective_source_dims reflect the resize output; inject :measure_dims
-    # to return the post-resize dims. Assert the second pipeline's eventual
-    # crop/resize executables are parameterized against 400x300.
+  # Every observation below uses ONLY the three native-precedent seams
+  # (:chain, :measure_dims, :continue) — no new lifecycle seams; the tests
+  # are chosen so the MINIMAL resize-only operations/2 stub (Step 5) can
+  # prove them. Carry freshness is pinned in Task 8 (it needs padding).
+
+  test "pending orientation is flushed at EVERY pipeline boundary (provable with EMPTY ops)" do
+    # State with a non-identity pending_orientation and TWO pipelines whose
+    # op assembly is empty: flush needs no operations at all — run_pipeline
+    # calls flush_boundary unconditionally. The recorded :chain batches must
+    # show a %Transform.Operation.Flush{} at the END of pipeline 1; after it
+    # runs, pipeline 2's boundary is an identity-clear (no second Flush).
+    # This is the Executor.execute_pipeline/4 contract: each pipeline ends
+    # in the display frame.
   end
 
-  test "pending orientation is flushed at every pipeline boundary" do
-    # State with a non-identity pending_orientation and TWO pipelines:
-    # the recorded op batches must include a %Transform.Operation.Flush{}
-    # at the END of pipeline 1 (not only after pipeline 2) — each pipeline
-    # ends in the display frame (Executor.execute_pipeline/4 contract).
+  test "SourceShape re-seeds per pipeline: p2's width-only resize derives height from p1's OUTPUT aspect" do
+    # An ABSOLUTE p2 resize would not reveal the seed — use a width-only
+    # resize (height :auto), whose auto height resolves against the CURRENT
+    # shape's aspect. p1 resizes 1600x1200 -> 400x300 (:measure_dims returns
+    # 400x300 after p1's chain call); p2 is `width: 200, height: auto`.
+    # Correct re-seed -> p2's executable resize targets 200x150 (p1's 4:3
+    # output). The failure this discriminates: a native-style single seed
+    # would resolve p2 against 1600x1200 and still yield 4:3 here, so pin
+    # the seed itself too: p1 targets a DIFFERENT aspect (400x200, 2:1) and
+    # assert p2's executable is 200x100 (2:1), not 200x150 (original 4:3).
   end
 
   test "an empty request runs zero pipelines and returns the state unchanged" do
     # pipelines: [%PipelineRequest{}] (the singleton default) with no ops set
-    # -> {:ok, state} with no chain calls (empty op assembly => no-op).
+    # -> {:ok, state}; the ONLY chain activity permitted is a boundary Flush
+    # when pending orientation is non-identity (none here: pending nil).
   end
 end
 ```
@@ -576,8 +631,8 @@ end
 
 Copy the named native functions verbatim (they are the proven mechanics; the scoping difference lives entirely in `run/4`/`run_pipeline/3` calling them per pipeline).
 
-- [ ] **Step 4:** `mix test test/image_pipe/dialect/imgproxy/pipeline_scoping_test.exs` — the empty-request test PASSES; the two-pipeline tests still FAIL (no ops assembled yet — `operations/2` returns `[]`). Mark those two `@tag :pending_task_9` with `ExUnit.configure(exclude: [:pending_task_9])`? **No** — instead write them against a minimal hand-rolled `operations/2` stub? **No.** Correct TDD resolution: the two scoping tests drive a *minimal* `operations/2` that handles ONLY `width`/`height` (a bare `Operation.resize(:fit, …)` from `preq.width`/`preq.height`, nil-safe) — just enough to observe scoping. Task 9 replaces it with the full 8-stage assembly and keeps these tests green.
-- [ ] **Step 5:** Implement the minimal `operations/2` (resize-only); all three tests PASS.
+- [ ] **Step 4:** `mix test test/image_pipe/dialect/imgproxy/pipeline_scoping_test.exs` — the flush test and empty-request test PASS already (flush needs no ops); the re-seed test still FAILS (no ops assembled — `operations/2` returns `[]`).
+- [ ] **Step 5:** Implement the minimal `operations/2` — ONLY `width`/`height` (a bare `Operation.resize(:fit, …)` from `preq.width`/`preq.height`, nil-safe, `:auto` for the absent axis) — just enough for the re-seed test to observe the seed through the auto-height resolution. All three tests PASS. Task 9 replaces this stub with the full 8-stage assembly and keeps these tests green.
 - [ ] **Step 6: Gate + commit:** `git commit -m "Dialect.Imgproxy.Pipeline: per-pipeline seed/carry/flush skeleton (spec §Pipeline 1)"`
 
 ---
@@ -639,6 +694,10 @@ defp run_op(state, shape, _carry, %PlanResize{} = op, _pctx, ctx) do
   # Carry is computed here, from the PRE-resolve shape, before any
   # continuation is followed — reproducing resolver.ex:37-49 exactly; it is
   # never recomputed in follow/5 [spec §Pipeline 2 "update point"].
+  # NeutralResolver.resolve_mode/2 EXISTS and is already a cross-boundary
+  # public call (neutral_resolver.ex:389,404; called by the framework's
+  # resolver.ex:41; NeutralResolver is in Transform's Boundary exports) —
+  # no new core API is needed here.
   branch = NeutralResolver.resolve_mode(op, shape)
 
   carry = %{
@@ -706,6 +765,12 @@ defp padding_scale_for(
 
 ### Task 9: `Pipeline` part 3 — 8-stage assembly, color preamble, decode preflight
 
+**Three separate commits inside this one task** — the DecodePlanner widening is a semantic core change and must be independently bisectable/revertable even though it shares a task (and a subagent run) with the assembly work:
+
+- **Commit 9a** (Steps 5b–6): the `DecodePlanner.Request.user_quarter_turn?` field + XOR, with its unit tests AND a construction sweep — `grep -rn "DecodePlanner.Request{" lib/ test/` — verifying every existing `%DecodePlanner.Request{}` construction site either safely relies on the `false` default or is deliberately updated; list the sites in the commit message. Run the existing DecodePlanner tests (`mix test test/image_pipe/transform/decode_planner_test.exs`) unmodified-green before the dialect consumes the field.
+- **Commit 9b** (Steps 1–4): the 8-stage assembly + marker-free emission.
+- **Commit 9c** (Steps 5, 7): the color preamble + the dialect's `decode_request/2` consuming 9a's field.
+
 **Files:**
 - Modify: `lib/image_pipe/dialect/imgproxy/pipeline.ex` (real `operations/2`, `condition_color/2`, `decode_request/2`)
 - Modify: `lib/image_pipe/transform/decode_planner.ex` (the `user_quarter_turn?` field on `DecodePlanner.Request` + the XOR in `open_options_for/5` — see Interfaces; sanctioned core widening, named here per the Global Constraints rule)
@@ -726,7 +791,7 @@ defp padding_scale_for(
 - [ ] **Step 5: Write + implement the color-preamble test:** a `run/4` call on a stub state with `color_imported?: false` and an injected `:chain` — assert `InputColorManagement.condition/2` ran before the first chain call (observable: use a real small P3-tagged image from `test/support/image_pipe/test/imgproxy_differential/sources/icc_p3.png` and assert the state's `color_imported?` is true after `run/4` with zero pipelines... the empty-pipeline case makes this a pure preamble test). Check `SourceInventory`'s `consumers` note for `icc_p3.png` before using it (AGENTS.md) — read-only use adds no inventory entry.
 - [ ] **Step 6: Write + implement decode-preflight tests** (`decode_preflight_test.exs`): first-pipeline-only scoping (two pipelines, second has the resize → `resize_target: nil`); `trim?` true when first pipeline trims; crop extent resolution; **the user-rotate axis swap**: (a) EXIF-1 + `rot:90` + resize → `user_quarter_turn?: true` and `DecodePlanner.open_options_for` swaps the shrink axes; (b) EXIF-6 (quarter turn) + `rot:90` + auto-rotate on → net 180, NO swap (the `exif_5_cover_rot90` regression shape); (c) `rot:180` → no swap. Plus a `DecodePlanner`-unit test for the new field (both XOR arms). Expected values computed by hand.
 - [ ] **Step 7:** All pipeline tests PASS (`mix test test/image_pipe/dialect/imgproxy/`).
-- [ ] **Step 8: Gate + commit:** `git commit -m "Dialect.Imgproxy.Pipeline: 8-stage assembly, color preamble (G4), decode preflight"`
+- [ ] **Step 8: Gate.** All pipeline + DecodePlanner tests green; the three commits (9a planner widening / 9b assembly / 9c preamble+preflight) are already made per the commit plan above — verify with `git log --oneline -3` that each landed separately.
 
 ---
 
@@ -873,6 +938,9 @@ defp parse_boolean(value), do: ...
 
 ```elixir
 def validate!(opts) when is_list(opts) do
+  # ImagePipe.Config.keys/0 is an established public interface — config.ex:97,
+  # already consumed exactly this way by the framework parser
+  # (parser/imgproxy.ex:101, 260). No new core widening here.
   {shared, rest} = Keyword.split(opts, SharedConfig.keys())
   {neutral, rest} = Keyword.split(rest, ImagePipe.Config.keys())
   {dialect, unknown} = Keyword.split(rest, @dialect_keys)
@@ -1030,7 +1098,7 @@ end
   - `exp:` in the past → **400**, body `"invalid image request: {:expired_request, N}"` (the framework's pinned divergence from upstream's 404 — Task 16);
   - ETag present; second request with `If-None-Match` → 304 **with a should-not-fetch source** (pre-fetch conditional);
   - `fn:name.jpg` sets `content-disposition` on BOTH miss and cache-hit responses (stateful `CacheProbe`);
-  - conditional × response-meta: two requests differing only in `fn:` share an ETag, and an `If-None-Match` with that ETag → 304 regardless of which `fn:` spelling the conditional request carries (spec §Identity's If-None-Match pin);
+  - conditional × response-meta: two requests differing only in `fn:` share an ETag, and an `If-None-Match` with that ETag → 304 regardless of which `fn:` spelling the conditional request carries (spec §Identity's If-None-Match pin). **304 header contract, stated:** a 304 deliberately carries NO `content-disposition` — `Sender`'s core-owned `@not_modified_header_allowlist ~w(cache-control date etag expires vary)` (`sender.ex:28`) makes this structural and identical on both stacks; assert the header's absence on the 304 alongside its presence on the 200s;
   - a `debug?`-only pair: the same request with and without the debug option produces **byte-identical bodies** and equal ETags (spec §Identity — `debug?` is header-only, pinned by test, not prose; grep `option_grammar.ex` for the debug option's URL spelling).
 
 Additional chain contracts for this task:
@@ -1052,7 +1120,7 @@ Additional chain contracts for this task:
 
 **Interfaces:**
 - Produces: `InfoRenderer.render(SourceInfo.t()) :: {content_type :: String.t(), body :: iodata()}` — the same `@wire` table + JSON doc as today (`info_renderer.ex:30-54`), minus the Renderer behaviour.
-- The info branch (mirrors native's blurhash complete-body branch, `native.ex:302-360`): parse with `Path.parse_source_no_extension` + `auto_rotate: false`, `info?: true` (the framework's `parse_info_request`, `imgproxy.ex:179-211`); negotiation `%Negotiation{selected: {:terminal, :info}, vary?: false, policy_material: [], policy: nil}`; identity `selection_material({:terminal, :info}) == [terminal: :info]`; generate = `Decode.with_image(resolved, decode_opts, fn _geometry -> %DecodePlanner.Request{resize_target: nil, crop_extent: nil, trim?: false, terminal_reduction: nil, required_extent: nil} end, fn state, geometry -> build SourceInfo end)` where SourceInfo is `%Plan.SourceInfo{format: geometry.source_format, width: elem(geometry.storage_dimensions, 0), height: elem(geometry.storage_dimensions, 1), orientation: exif header read from state.image (`lib/image_pipe/request/render_runner.ex:59-64` pattern), byte_size: nil}`; render → complete-body cache write (`Cache.open_sink(key, {:complete_body, content_type}, config) |> Cache.write_chunk(body) |> Cache.commit_sink()` — native's `write_complete_body_cache/3` pattern) → `send_resp(200, body)` with etag header. Cache hit: the `{:complete_body, content_type}` entry branch native already has (`native.ex:250-261` pattern) — **response headers (etag, content type) are reconstructed from the current request/representation, never read from the stored entry beyond its content type** (spec §The /info/ cache path). Cache write failures fail open exactly as the image path does. G5 (FileSystem doesn't persist complete-body) is a known, recorded non-blocker.
+- The info branch (mirrors native's blurhash complete-body branch, `native.ex:302-360`): parse with `Path.parse_source_no_extension` + `auto_rotate: false`, `info?: true` (the framework's `parse_info_request`, `imgproxy.ex:179-211`); negotiation `%Negotiation{selected: {:terminal, :info}, vary?: false, policy_material: [], policy: nil}`; identity `selection_material({:terminal, :info}) == [terminal: :info]`; generate = `Decode.with_image(resolved, decode_opts, fn _geometry -> %DecodePlanner.Request{resize_target: nil, crop_extent: nil, trim?: false, terminal_reduction: nil, required_extent: nil} end, fn state, geometry -> build SourceInfo end)` where SourceInfo is `%Plan.SourceInfo{format: geometry.source_format, width: elem(geometry.storage_dimensions, 0), height: elem(geometry.storage_dimensions, 1), orientation: exif header read from state.image (`lib/image_pipe/request/render_runner.ex:59-64` pattern), byte_size: nil}`; render → complete-body cache write (`Cache.open_sink(key, {:complete_body, content_type}, config) |> Cache.write_chunk(body) |> Cache.commit_sink()` — native's `write_complete_body_cache/3` pattern; the pipe chain is safe because fail-open error handling lives INSIDE `Cache.Sink`, not the caller — `do_write_chunk/3` aborts the adapter sink synchronously on error and subsequent writes/commit no-op, proven by the probe's error-matrix row 7) → `send_resp(200, body)` with etag header. Cache hit: the `{:complete_body, content_type}` entry branch native already has (`native.ex:250-261` pattern) — **response headers (etag, content type) are reconstructed from the current request/representation, never read from the stored entry beyond its content type** (spec §The /info/ cache path). Cache write failures fail open exactly as the image path does. G5 (FileSystem doesn't persist complete-body) is a known, recorded non-blocker.
 
 Routing caveat (compat): the info branch must flow through the **copied** `Path.split_endpoint/1` → `Path.extract/1` on the prefix-stripped conn — the signature is verified over the path WITHOUT the `/info` prefix (`path.ex:8, 213-217` + `imgproxy.ex:182-183`), matching upstream. Do not re-derive the signed path in the chain.
 
@@ -1099,6 +1167,8 @@ end
 
 CAUTION: shared module-level stubs (`OriginImage`, `CacheProbe`, `CountingOriginImage`, the encoder-capability composites at `:735`) must move OUTSIDE the `for` (defined once) — they are `defmodule`s in the file body today. Also: per-arm cache isolation (spec) — any test using a stateful `CacheProbe` already creates a fresh ETS table per test, which the dual modules inherit independently; verify no test uses a NAMED shared table (grep `:named_table` in the file — if any, key the name by `@stack`).
 
+**This is the plan's highest-churn refactor — make it two commits, and know the fallback.** Commit 1: Step 1's normalization only (all invocations through `call_imgproxy/3`, framework-only, suite green at 149). Commit 2: the dual-run conversion. Wrapping a ~4,500-line module in a compile-time `for` can break module attributes holding functions, `setup_all`, and self-references — if it proves intractable, the fallback is a `__using__` macro module (`ImgproxyWireContract`) holding the shared test bodies, invoked by two thin `defmodule`s; same outcome, no `for` around support code. Either way the support `defmodule`s stay top-level.
+
 - [ ] **Step 3: Run.** `mix test test/image_pipe/imgproxy_wire_conformance_test.exs` — expected: **298 tests** (149 × 2), PASS. Any dialect-arm failure is a real parity bug: fix the dialect (Tasks 7–18 modules), never the assertion. Budget for a debugging loop here — this is the integration gate the spec warned about.
 - [ ] **Step 4: Re-home** the `:3881` `Imgproxy.encrypt_source_url/3` call: it is a test-side URL builder; point it at `ImagePipe.Parser.Imgproxy.encrypt_source_url/3` explicitly (it stays framework-owned in phase 1 — the dialect needs no URL-building helper).
 - [ ] **Step 5: Gate + commit:** `git commit -m "Wire conformance dual-runs framework + dialect (149 x 2)"`
@@ -1112,7 +1182,7 @@ CAUTION: shared module-level stubs (`OriginImage`, `CacheProbe`, `CountingOrigin
 - Modify: `test/image_pipe/imgproxy_differential_conformance_test.exs` (the generation macros loop over both arms)
 
 **Interfaces:**
-- `Harness.plug_opts(:framework)` = today's `Shared.plug_opts(ImagePipe.Parser.Imgproxy, @sources_dir)`; `Harness.plug_opts(:dialect)` = a new sibling in `Shared` (or local) doing `ImagePipe.Dialect.Imgproxy.init(sources: [...same RootHTTPAdapter wiring...])` with `render/2` calling `ImagePipe.Dialect.Imgproxy.call/2`. Keep `plug_opts/0` delegating to `plug_opts(:framework)` so `mix imgproxy.gen_report`/`diagnose` are untouched.
+- `Harness.plug_opts(:framework)` = today's `Shared.plug_opts(ImagePipe.Parser.Imgproxy, @sources_dir)`; `Harness.plug_opts(:dialect)` = a new sibling in `Shared` (or local) doing `ImagePipe.Dialect.Imgproxy.init(sources: [...same RootHTTPAdapter wiring...])` with `render/2` calling `ImagePipe.Dialect.Imgproxy.call/2`. Keep `plug_opts/0` delegating to `plug_opts(:framework)` so `mix imgproxy.gen_report`/`diagnose` are untouched — and verify that holds: `grep -rn "Harness\." lib/mix/tasks/imgproxy* test/support/image_pipe/test/imgproxy_differential/` and confirm no tooling caller pattern-matches a changed return shape or needs an arm argument; compile the mix tasks as the smoke check.
 - Per-arm isolation: the differential harness uses no cache today (verify: `grep -n cache test/support/image_pipe/test/differential/harness.ex` — expected none) — nothing to isolate; state that in the commit message rather than adding machinery.
 
 - [ ] **Step 1:** Extend the harness; loop the conformance test's case generation over `[:framework, :dialect]` with the arm in the test name.
@@ -1144,7 +1214,11 @@ end
 
 Each arm builds its own opts (no shared cache/state — spec §Per-arm cache isolation: the assertion's validity depends on each arm generating its own bytes).
 
-- [ ] **Step 2: Run** — PASS. A mismatch is the strongest possible parity signal; bisect with `mix imgproxy.diagnose` conventions (differential README).
+- [ ] **Step 2: Run** — expected PASS. **On any mismatch, classify before concluding** (byte identity across two control paths is a *stronger attempted invariant* than the spec's pixel/wire criteria — determinism within one stack does not by itself guarantee it across two):
+  1. **Semantic/parity bug** (different pixels or wire behavior) — blocks; fix the dialect. Bisect with `mix imgproxy.diagnose` conventions (differential README).
+  2. **Benign encoded-byte variation** (pixel- and wire-identical, bytes differ — e.g. metadata ordering) — does NOT block: name the case in `@excluded` with the classified cause, and record it in the Task 26 exit-criteria report as a downgrade of criterion 3's body-hash arm for that case. The pixel/wire criteria remain the spec's contract; the hash set is the stricter net on top.
+  3. **Nondeterministic fixture** — name and exclude, same recording rule.
+  No expected exclusions at plan time; every exclusion must carry its classification.
 - [ ] **Step 3: Gate + commit:** `git commit -m "Cross-arm raw body-hash equality: dialect == framework, byte-exact"`
 
 ---
