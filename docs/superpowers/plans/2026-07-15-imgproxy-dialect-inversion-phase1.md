@@ -1110,6 +1110,13 @@ Note the shape change vs the framework: the framework nests everything under a `
 - Consumes: everything above. The worked example is `lib/image_pipe/dialect/native.ex` — read it in full first; this module mirrors its `route/serve/generate/build_fun` shape with the imgproxy differences below.
 - Produces: `ImagePipe.Dialect.Imgproxy` — `@behaviour Plug`; `init/1 → Config.validate!/1`; `call/2` behind a `[:request]` telemetry span.
 
+> **`ImagePipe.Delivery`'s contract changed after this task was written (Tasks 3a/3b, 2026-07-15).** "Mirror native's" remains correct — native's call sites were updated in lockstep, so reading `native.ex` gives you the current shape. Stated explicitly so you don't port a stale signature from memory or from this plan's older prose:
+> - **`Delivery.stream/5` param 3 is `Cache.Key.t() | nil`** (was `%Representation{}`). Pass `representation.cache_key`. `nil` is supported and stages nothing — do **not** fabricate an `etag`/`vary` for the caching-off case.
+> - **`pump` is 4-arity:** `pump.(stream, content_type, resolved_output, debug)`, `debug :: %ImagePipe.Debug.Info{} | nil`. Debug computed in the producer crosses on the first-chunk reply and reaches `PreparedStream.debug`.
+> - **Trace context and `cost_us` are self-captured by the primitive** — `stream/5` captures `Trace.Stack.context()` itself and both hops adopt it; the coordinator times to-first-chunk. **Do not thread either from the dialect.** (Requiring callers to pass them is what shipped two production bugs; the primitive now makes it unrepresentable.)
+> - **Mid-stream `Source.StreamError` is translated by the primitive** into `{:error, {:source, reason}}` via `StreamPull.translate/1,2` — the dialect does not re-implement the taxonomy.
+> - **`ImagePipe.Delivery` is a top-level Boundary with `exports: [StreamPull]`** — add `ImagePipe.Delivery` to this dialect's `deps:`.
+
 ```elixir
 use Boundary,
   top_level?: true,
