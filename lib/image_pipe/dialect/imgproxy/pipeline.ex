@@ -74,15 +74,20 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
     * a zero-sentinel or absent dimension is not a target at all, so an
       auto/auto resize (a bare `dpr:`, say) yields no box.
 
-  Convergence is structural, not asserted: every value this function inflates or
-  clamps by is read back from `Assembly` — the one module that lowers the
-  dialect's spellings — so it is *the* value the operation carries, not a second
-  derivation of it. `Assembly.crop_dimension/1` for a crop's tagged measure,
-  `Assembly.dpr_ratio/1` for the dpr's exact rational. (`zoom` needs no such
-  routing: `Assembly` hands it to the operation as the same plain float, and
-  the planner passes floats through untouched.) Re-deriving any of them from the
-  raw request value instead is what breaks the agreement — see `resize_target/1`
-  and `crop_axis_extent/2`.
+  Convergence is structural wherever a value is lowered: every value this
+  function inflates or clamps by is read back from `Assembly` — the one module
+  that lowers the dialect's spellings — so it is *the* value the operation
+  carries, not a second derivation of it. `Assembly.crop_dimension/1` for a
+  crop's tagged measure, `Assembly.dpr_ratio/1` for the dpr's exact rational.
+  Re-deriving either from the raw request value instead is what breaks the
+  agreement — see `resize_target/1` and `crop_axis_extent/2`.
+
+  `zoom` is the one exception, and its agreement is *asserted rather than
+  structural*: nothing lowers it — `Assembly` hands the operation the same plain
+  float and the planner passes floats through untouched — so this function
+  re-derives the same `|| 1.0` default `Assembly` applies. The two agree because
+  both spell the default identically, which the decode-preflight property pins
+  (its factor generator emits `nil`); no lowering guarantees it.
 
   An axis with no target stays `nil` and an inflated extent stays fractional —
   see `resize_target/1`, and `t:DecodePlanner.Request.resize_target/0` for why

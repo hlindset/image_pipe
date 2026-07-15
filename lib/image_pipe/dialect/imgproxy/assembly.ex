@@ -620,7 +620,10 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   `:positive_float`, so a dpr that rounds to zero at the seventh decimal
   (`dpr:0.00000001`) parses but has no rational, and `operations/1` rejects the
   request with the same `{:invalid_operation, :resize, _}` its resize stage
-  raises — byte-identical to the framework arm's own parse-time rejection.
+  raises — byte-identical to the framework arm's own rejection of the same
+  request. A dpr-carrying request always reaches the resize stage
+  (`resize_rule_requested?/1` reads `dpr`), and that stage precedes padding on
+  both arms, so the two arms reject at the same point with the same tag.
   """
   @spec dpr_ratio(PipelineRequest.t()) ::
           {:ok, {:ratio, pos_integer(), pos_integer()}} | {:error, Operation.error()}
