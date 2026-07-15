@@ -97,7 +97,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineScopingTest do
     assert %ExecutableResize{mode: :fit, width: {:pixels, 400}, height: :auto} = resize
   end
 
-  test "pending orientation is flushed at EVERY pipeline boundary (provable with EMPTY ops)" do
+  test "a second pipeline's boundary does not re-emit a Flush once the pending is cleared" do
     # Flush needs no operations at all — run_pipeline calls flush_boundary
     # unconditionally. Two pipelines, both assembling zero ops: p1's boundary
     # flushes; once it has run, p2's boundary sees no pending and clears
@@ -145,7 +145,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineScopingTest do
     assert {Image.width(final.image), Image.height(final.image)} == {200, 100}
   end
 
-  test "an empty request runs zero pipelines and returns the state unchanged" do
+  test "a pipeline with no operations and no pending orientation touches the chain not at all" do
     state = state_for(1600, 1200)
     assert state.pending_orientation == nil
 

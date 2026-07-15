@@ -8,7 +8,12 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineRequest do
 
   @type resizing_type() :: :fit | :fill | :fill_down | :force | :auto
   @type gravity_anchor() :: {:anchor, :left | :center | :right, :top | :center | :bottom}
-  @type gravity() :: gravity_anchor() | {:fp, float(), float()} | :sm
+  @type gravity() ::
+          gravity_anchor()
+          | {:fp, float(), float()}
+          | :sm
+          | {:obj, [String.t()]}
+          | {:objw, [{String.t(), float()}]}
   @type gravity_offset() :: {:pixels, float()} | {:scale, float()}
 
   @type t() :: %__MODULE__{
