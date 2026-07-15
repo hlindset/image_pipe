@@ -329,3 +329,40 @@ now-permanent characterization of the guarantee that blocked full unification.
 
 This recommendation is not binding — per the spec and this task's brief, the
 user's ruling is what decides both whether Task 3 runs and Baseline B's fate.
+
+---
+
+## 9. RULING (user, 2026-07-15) — Outcome A: proceed with full unification
+
+The app-tree-shutdown-independent-of-owner-liveness behavior is ruled **out of
+contract**. `Application.stop(:image_plug)` does not need to terminate
+deliveries whose host connection owners remain alive.
+
+Rationale as given: the supervisor provides no restart recovery, admission
+control, or documented extension surface. Its sole unique behavior is
+reachability from the `:image_plug` application tree, while delivery ownership
+is fundamentally tied to the host request process. The existing native dialect
+also establishes the monitor-owned topology as an intentional supported model.
+
+**Binding consequences for Task 3:**
+
+1. `Request.SourceSession` migrates to the monitor-owned `ImagePipe.Delivery`
+   primitive; `SourceSessionSupervisor` and its `lib/application.ex:26` child
+   entry are deleted.
+2. **Baseline B** (`source_session_app_shutdown_characterization_test.exs`) is
+   **deleted**, citing this ruling in the deletion commit message.
+3. **Baseline A** (`delivery_owner_cleanup_baseline_test.exs`) and the **OTel
+   parentage baseline** (`delivery_span_parentage_baseline_test.exs`) are kept
+   and must pass **unmodified**. A changed assertion in either is a gate
+   failure.
+4. **New requirement closing §6d's residual gap:** Task 3 adds a lifecycle test
+   proving graceful owner-down handling **executes the producer's decode/bracket
+   cleanup exactly once** — not merely that the producer terminates and the
+   cache sink aborts. This is a test of the *new* behavior (the migration
+   introduces it), so it is not a baseline and is not subject to the
+   preserve-unmodified rule.
+
+**Binding consequence for Task 26** (exit-criterion 9 evidence): record the
+topology change, the accepted cancellation-semantic change (force-kill →
+graceful halt + ~1s backstop, §5/G6), and the new bracket-cleanup evidence
+from consequence 4.
