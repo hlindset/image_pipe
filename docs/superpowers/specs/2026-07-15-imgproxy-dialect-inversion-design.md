@@ -104,9 +104,29 @@ because its owner dies — plausibly the same outcome by a different mechanism,
 but that must be **proven by a test, not inferred**. If it cannot be, the gate
 degrades Extraction A to dialects-only.
 
-**Consequent work:** `source_session_supervisor_test.exs` (421 lines) loses its
-subject and must be ported to the primitive's equivalents; `request_runner_test`
-and `architecture_boundary_test` reference the supervisor.
+**Sequencing (strict).** This is characterization-then-preserve, not red-green:
+the guarantee already exists, so a test written after the migration could be
+unconsciously shaped to whatever the new topology happens to do.
+
+1. **Baseline first, against the untouched framework.** Write the
+   application-shutdown termination test and the OTel parent-hierarchy test and
+   get them **green on the current supervised topology**. This pins the
+   guarantee as it exists today, before anything moves.
+2. **Then migrate.** Remove `SourceSessionSupervisor`; move
+   `Request.SourceSession` onto `ImagePipe.Delivery`.
+3. **The same unmodified tests must still pass.** If they cannot be made to
+   pass without weakening the assertion, the gate has failed: revert to the
+   dialects-only branch and record the exact guarantee that blocked it.
+   **Editing the baseline test to fit the new topology is the failure mode this
+   ordering exists to prevent** — a changed assertion is a gate failure, not a
+   passing gate.
+
+**Consequent work if the gate passes (phase 1, part of Extraction A — not
+deferred to phase 2):** delete the `SourceSessionSupervisor` module and its
+`application.ex` child entry; port `source_session_supervisor_test.exs` (421
+lines) to the primitive's equivalents; update `request_runner_test` and
+`architecture_boundary_test`, which both reference the supervisor; update
+`docs/telemetry.md:860`'s process-seam description.
 
 **Telemetry risk (dual-run does not cover this).**
 `docs/superpowers/plans/2026-06-10-otel-replay-parent-hierarchy.md` shows OTel
@@ -258,9 +278,22 @@ the next one's input. The dialect therefore reproduces **`execute_pipeline`'s**
 shape, not `Native.Pipeline.run`'s: per pipeline, re-seed the shape, reset the
 carry, run the ops, flush the boundary.
 
-Carry, mode, and fallback are all **scoped to a single pipeline** and never
-leak into the next. Pinned by tests: a second pipeline with no resize must take
-its own fallback, never the preceding pipeline's computed scale.
+**What crosses a pipeline boundary — and what must not.** Exactly one thing
+flows into the next pipeline: the **executed image / `State`**. Everything else
+is per-pipeline and is rebuilt from scratch:
+
+| Crosses the boundary | Does **not** cross (rebuilt per pipeline) |
+|---|---|
+| the executed image / `State` (the next pipeline's input) | `SourceShape` — re-seeded from `State.effective_source_dims/1` |
+| | resolver carry — fresh `init()` |
+| | pending orientation — flushed at each boundary, so each pipeline both starts and ends in the display frame |
+| | `decode_shrink` / `source_dimensions` — confined to the pipeline whose decode produced them (#180) |
+
+Carry, mode, and fallback are therefore **scoped to a single pipeline** and can
+never leak into the next. Pinned by tests: a second pipeline with no resize of
+its own must take its own `dpr` fallback, never the preceding pipeline's
+computed scale; and an absolute crop in a later pipeline must size against that
+pipeline's input, not a stale decode factor.
 
 ### 2. The carry
 
@@ -531,10 +564,15 @@ parity", never "byte parity", except where raw bodies are actually compared
   and everything downstream of `Plan.Operation`, so any inequality is a real
   divergence. Restricted to deterministic-encode fixtures; any exclusion must
   be named, not silently dropped.
-- **Per-arm cache isolation** — each dual-run arm gets its own cache instance.
-  Keys differ by `dialect_behavior` so collision is already improbable, but
-  isolation is free and removes any chance of one arm's stored entry masking a
-  generation failure in the other.
+- **Per-arm cache isolation** — every dual-run test (differential, wire,
+  body-hash, and the cache tests themselves) runs each arm against its **own
+  cache namespace or a clean store**. Keys differ by `dialect_behavior` so
+  collision is already improbable, but isolation is not merely hygiene: **the
+  body-hash assertion's validity depends on it.** If the arms could share a
+  store, one arm could satisfy the equality by *reading the entry the other
+  generated* — the assertion would pass while proving nothing about the
+  dialect's own generation path. Isolation is what makes each arm independently
+  generate the bytes it is compared on.
 
 ### Dialect coverage
 
@@ -608,9 +646,16 @@ non-canonical mount paths). This must be pinned rather than assumed:
 "No changes expected" is weaker than the rest of this spec, and the delivery
 owner process changes under Extraction A. A contract test covers: image cache
 miss, image cache hit, 304, `/info/`, streamed error after preparation, and
-owner cancellation — asserting stage names, ordering, and error stages. It runs
-against **both arms**, because D3's topology change can shift OTel span
-parentage that the pixel net cannot see.
+owner cancellation. It runs against **both arms**, because D3's topology change
+can shift OTel span parentage that the pixel net cannot see.
+
+**Assert semantics, not mechanism.** The test pins **stage names, stage
+ordering, error stages, and semantic span parentage** — the relationships a
+consumer's dashboard depends on. It must **not** pin PIDs, process structure, or
+raw span counts unless those are deliberately contractual. Over-pinning
+mechanism would invert the test's purpose: D3 *intends* to change process
+topology, so a test coupled to process identity would report a false blocker on
+the gate and force a dialects-only degradation for no observable reason.
 
 Per the test guidelines, every telemetry assertion uses a unique private
 `telemetry_prefix` — `:telemetry` handlers are global, and a default-prefix
@@ -668,6 +713,14 @@ new metadata key must be added to **both** the Logger's subscription lists and
    and `plan/operation/padding.ex:13`. `ImagePipe.Resolver` itself **survives** —
    TwicPics still carries a strategy.
 7. Replace AGENTS.md's marker-accretion worked example (see D5).
+
+**Not in phase 2: the `SourceSession` supervisor cleanup.** If D3's gate passes,
+`SourceSessionSupervisor`, its `application.ex` child entry, its 421-line test,
+and the `docs/telemetry.md:860` seam description are all retired **in phase 1**,
+as part of Extraction A — the migration is what deletes them, so deferring the
+cleanup would leave a supervisor with no sessions to supervise. If the gate
+fails, they are not retired at all and the framework keeps its supervised
+topology indefinitely. Either way this is a D3 outcome, not phase-2 work.
 
 ## Non-goals
 
