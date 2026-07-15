@@ -37,7 +37,7 @@ bisection. 26 tasks → **11 runs**:
 |---|---|---|
 | R1 | 1 | Solo — ends at the hard user checkpoint. |
 | R2 | 2 + 4 + 5 | Three independent, mechanical core moves (Delivery move, SharedConfig, exports). No inter-task debugging risk. |
-| R3 | 3 | Solo — the gated framework migration; runs only after the checkpoint ruling, must be cleanly revertable. |
+| R3 | 3a + 3b | Rescoped after the D3 ruling (see Task 3a's note). 3a widens the `Delivery` contract and fixes two latent native bugs; 3b is the gated framework migration. Two review units, one run — 3b consumes 3a's contract directly. Each must be cleanly revertable on its own; 3a stands alone if 3b is ever backed out. |
 | R4 | 6 + 7 + 8 | Leaf structs → skeleton → carry: one continuous context over the same two files; the skeleton/carry tests build on each other. |
 | R5 | 9 | Solo — the largest single task (geometry port + core planner widening, three commits); parity-critical, gets the Opus reviewer. |
 | R6 | 10 + 11 + 12 + 13 | All grammar copies + dual-run conversions: mechanical, same recipe four times, no design decisions. |
@@ -57,7 +57,8 @@ never rewrite the earlier commit.
 |---|---|---|
 | 1 | D3 baseline characterization (shutdown + OTel parentage) + gate checkpoint | D3 in detail |
 | 2 | Extraction A part 1: `ImagePipe.Delivery` core boundary (move from native) | Core changes §2 |
-| 3 | Extraction A part 2 (GATED): `Request.SourceSession` migration | D3 in detail |
+| 3a | Widen the `ImagePipe.Delivery` contract (trace, debug, `cost_us`, nil cache key); fix two latent native bugs | D3 in detail |
+| 3b | Extraction A part 2 (GATED): `Request.SourceSession` migration | D3 in detail |
 | 4 | Extraction B: `ImagePipe.Dialect.SharedConfig` + native `Config` migrates | Core changes §1 |
 | 5 | G4: export `Transform.InputColorManagement`; `Lowering` comment update | Core changes §3–4 |
 | 6 | Copy leaf request structs (`PipelineRequest`, `Effects`, `CropRequest`, `Orientation`, `Format`) | Module map |
@@ -303,9 +304,77 @@ untouched; SourceSession migration is Task 3, behind the D3 gate."
 
 ---
 
-### Task 3: Extraction A part 2 (GATED) — `Request.SourceSession` migrates
+### Task 3a: Widen the `ImagePipe.Delivery` contract to carry a full-featured dialect
 
-**Runs only if the Task 1 checkpoint ruled "proceed".** If the ruling was dialects-only: create `.superpowers/sdd/d3-gate-outcome.md` recording the exact blocker, skip this task, and remove exit-criterion 9's framework arm from Task 26's checklist (the criterion's dialects-only branch applies instead).
+> **Rescoped 2026-07-15, after the D3 ruling.** The original Task 3 (now Task
+> 3b) assumed `Delivery.stream/5` could carry `Request.SourceSession` as-is.
+> It cannot: Task 2 moved `Delivery` verbatim from the Native probe, which
+> built it as a *deliberately simplified* `SourceSession` (its own comment
+> block says so). Task 3's implementer escalated BLOCKED pre-implementation
+> with four gaps, all verified against source. **The widening is unavoidable
+> regardless of the framework migration** — Task 17's imgproxy dialect needs
+> trace parentage (Task 25 asserts it on both arms) and debug info (the
+> dual-run wire suite includes `debug_headers_wire_test.exs`). Deferring 3b
+> would not dodge this work; it would only move it to Task 17.
+
+**The four gaps (each verified; do not re-litigate, implement):**
+
+1. **Trace adoption.** `SourceSession` calls `Trace.Stack.adopt/1` on both
+   process hops (`source_session.ex:78`, `source_session/producer.ex:39`),
+   threading `trace_context` in via `start` opts. `Delivery` does not — there
+   is **zero** `Trace` reference in `delivery.ex`, `delivery/coordinator.ex`,
+   or `delivery/producer.ex`. The OTel parentage baseline walks
+   `parent_span_id` to the root span, so an unadopted context orphans the
+   stage spans and reddens an **immutable** baseline.
+2. **Debug channel.** `pump.(stream, content_type, resolved_output)` is
+   3-arity with no metadata slot. Debug info is computed *in the producer* and
+   must cross to the coordinator on the first-chunk reply, or
+   `PreparedStream.debug` is `nil`. Pinned by `debug_headers_wire_test.exs:253`
+   (miss path) and its hit-path replay block.
+3. **`cost_us`.** `cache/sink.ex:39` reads `Keyword.get(opts, :cost_us, 0)`.
+   `SourceSession` computes it (`source_session.ex:258`) and passes it
+   (`:266`); `Delivery` never does. It feeds cache admission/eviction scoring
+   (`cache/file_system.ex`).
+4. **`%Representation{}`.** The framework has a bare `Cache.Key` that is `nil`
+   when caching is off, so `representation.cache_key.hash` raises. The
+   widened contract must tolerate a nil cache key rather than requiring
+   callers to fabricate an `etag`/`vary`.
+
+**Two latent shipped bugs this closes (user ruling: fix here, call out
+explicitly in the commit message — do not let them ride silently as refactor
+side effects):** the native dialect has gaps 1 and 3 **today, in production**.
+`native.ex` threads no trace context into `Delivery`, so native's delivery
+spans are orphaned, and no native span-parentage test exists to catch it;
+native never passes `cost_us`, so every native cache entry stores `cost_us: 0`
+and mis-scores its own admission. Both predate this project (probe #456
+simplified; no test covered them). **Add a native span-parentage test and a
+`cost_us` assertion so they stay fixed** — the absence of those tests is why
+the bugs shipped.
+
+**Files:**
+- Modify: `lib/image_pipe/delivery.ex`, `lib/image_pipe/delivery/coordinator.ex`, `lib/image_pipe/delivery/producer.ex` (the four widenings)
+- Modify: `lib/image_pipe/dialect/native.ex` (thread `trace_context`; pass `cost_us`) — sanctioned dialect edit, this task only
+- Test: `test/image_pipe/delivery/` (contract tests for each widening) + a native span-parentage test + a native `cost_us` assertion
+
+**Interfaces:**
+- Produces: the widened `ImagePipe.Delivery` contract that Task 3b (framework)
+  and Task 17 (imgproxy dialect) both consume. Whatever shape you choose for
+  the trace/debug/cost_us channels, **record the final signatures in the task
+  report** — Tasks 3b and 17 build against them.
+- Constraint: native's tests must stay green; the widening is additive.
+
+- [ ] **Step 1:** Read `source_session.ex` + `source_session/producer.ex` in full — they are the reference implementation for all four gaps. Read `.superpowers/sdd/task-3-report.md` (the BLOCKED escalation) for the gap analysis.
+- [ ] **Step 2:** TDD each widening against `test/image_pipe/delivery/`. Trace adoption and the debug channel are the two that a later immutable baseline depends on; get them right first.
+- [ ] **Step 3:** Add the native span-parentage test (mirror `test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs`'s semantic-descendant approach — assert parentage, never PIDs or span counts) and the native `cost_us` assertion. **Confirm both fail before the fix and pass after** — they pin real shipped bugs, so the RED is the proof.
+- [ ] **Step 4: Gate + commit.** The commit message must name both native bugs explicitly.
+
+---
+
+### Task 3b: Extraction A part 2 (GATED) — `Request.SourceSession` migrates
+
+**The D3 gate ruled "proceed" (Outcome A) on 2026-07-15** — see
+`.superpowers/sdd/d3-audit-report.md` §9 for the ruling and its five binding
+consequences. **Depends on Task 3a's widened contract.**
 
 **Files:**
 - Modify: `lib/image_pipe/request/runner.ex` (session start goes through `ImagePipe.Delivery`)
@@ -330,6 +399,8 @@ untouched; SourceSession migration is Task 3, behind the D3 gate."
 Expected: **Baseline A (owner-death) and the OTel parentage baseline PASS with zero edits** against the migrated runner. Baseline B (`source_session_app_shutdown_characterization_test.exs` — a separate file this task may delete but never edit) is handled per the Task 1 checkpoint ruling recorded in `.superpowers/sdd/d3-audit-report.md`: ruled out of contract → delete Baseline B's file in Step 5 citing the ruling in the commit message; ruled in contract → **this task must not have started** (the dialects-only branch applies) — if you are here anyway, stop and revert. No third option exists; weakening any baseline assertion is a gate failure.
 
 - [ ] **Step 4: Port the lifecycle tests.** Create `test/image_pipe/delivery/delivery_lifecycle_test.exs` porting owner-death, explicit-cancel, prepare-error, and double-stop-idempotence cases from `source_session_supervisor_test.exs` onto `ImagePipe.Delivery.stream/5`. Run: `mix test test/image_pipe/delivery/` — PASS.
+
+- [ ] **Step 4b: The bracket-cleanup lifecycle test (REQUIRED by the D3 ruling — beyond this plan's original text).** Add a test proving graceful owner-down handling **executes the producer's decode/bracket cleanup exactly once** — not merely that the producer terminates and the cache sink aborts. Rationale (audit `.superpowers/sdd/d3-audit-report.md` §6d): Baseline A pins producer *termination* and *sink abort*, but neither implies the producer's `try/after` bracket ran. A `Delivery` whose graceful halt silently regressed to a link-kill would terminate the producer — Baseline A stays green — while skipping the bracket, which `delivery/coordinator.ex`'s comment block says is the entire reason it halts gracefully with a force-kill backstop instead of force-killing. "Exactly once" is load-bearing: assert the bracket ran, and that it ran **once** — not zero times, not twice. This is a test of the behavior the migration *introduces*, so it is not a baseline and not subject to the preserve-unmodified rule. **Verify it is load-bearing** by mutating the graceful halt into a force-kill and confirming it goes red, then restore.
 
 - [ ] **Step 5: Delete** the three source files + supervisor child + supervisor test; update `request.ex` Boundary, `request_runner_test.exs`, `architecture_boundary_test.exs`, `docs/telemetry.md:860`; remove the ExDNA ignores.
 
