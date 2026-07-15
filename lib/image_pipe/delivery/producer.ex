@@ -1,12 +1,10 @@
 defmodule ImagePipe.Delivery.Producer do
   @moduledoc false
 
-  # Demand-driven producer process for a dialect's streaming delivery,
-  # modeled on `ImagePipe.Request.SourceSession.Producer`'s message protocol
-  # (`{:next, receiver, ref}` / `{:halt, receiver, ref}`, replying
-  # `{ref, result}`), with one structural difference from that precedent:
-  # `build_fun` is opaque here (this module knows nothing about
-  # decode/transform/encode). `build_fun` is a 1-arity function that receives
+  # Demand-driven producer process for a streaming delivery. Its message
+  # protocol is `{:next, receiver, ref}` / `{:halt, receiver, ref}`, replying
+  # `{ref, result}`. `build_fun` is opaque here (this module knows nothing
+  # about decode/transform/encode): it is a 1-arity function that receives
   # `pump` and MUST call it exactly once, from inside its own nested brackets
   # (e.g. `ImagePipe.Decode.with_image/4`'s callback), once it has an encoder
   # `Enumerable` ready — see `ImagePipe.Delivery`'s moduledoc for
@@ -28,6 +26,8 @@ defmodule ImagePipe.Delivery.Producer do
   # `%PreparedStream{}` (which renders them as headers).
 
   alias ImagePipe.Debug.Info
+  alias ImagePipe.Delivery.StreamPull
+  alias ImagePipe.Source.StreamError
   alias ImagePipe.Telemetry.Trace
 
   @type pump_result :: :done | :halted | :empty
@@ -130,57 +130,32 @@ defmodule ImagePipe.Delivery.Producer do
     end
   end
 
-  # -- stream demand pull (mirrors Request.SourceSession.Producer) ----------
+  # -- stream demand pull ---------------------------------------------------
 
-  defp safe_reduce(stream) do
-    reduce_stream(stream)
+  # Single source of truth for the pumped stream's throw -> tagged-error
+  # translation. A `Source.StreamError` escaping the stream is a SOURCE
+  # failure, and must keep the source's domain status (422/404/502) rather
+  # than degrading to the 500 an `{:encode, _}` tag would produce
+  # (`ImagePipe.Response.ErrorStatus`). Any other throw is a fault in the
+  # calling dialect's encode/stream, and stays an encode error.
+  defp with_stream_translation(fun) do
+    fun.()
   rescue
+    exception in [StreamError] -> {:error, {:source, exception.reason}}
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   catch
+    :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
+    :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
     kind, reason -> {:error, {:encode, {kind, reason}, []}}
   end
 
-  defp reduce_stream(stream) do
-    result =
-      Enumerable.reduce(stream, {:cont, nil}, fn
-        chunk, _previous when is_binary(chunk) and byte_size(chunk) > 0 -> {:suspend, chunk}
-        _chunk, previous -> {:cont, previous}
-      end)
-
-    case result do
-      {:suspended, chunk, continuation} when is_binary(chunk) ->
-        {:ok, chunk, {chunk, continuation}}
-
-      {:done, _previous} ->
-        :empty
-
-      {:halted, _previous} ->
-        :empty
-    end
+  defp safe_reduce(stream) do
+    with_stream_translation(fn -> StreamPull.first_chunk(stream) end)
   end
 
   defp safe_continue(stream_state) do
-    continue_stream(stream_state)
-  rescue
-    exception -> {:error, {:encode, exception, __STACKTRACE__}}
-  catch
-    kind, reason -> {:error, {:encode, {kind, reason}, []}}
+    with_stream_translation(fn -> StreamPull.continue(stream_state) end)
   end
 
-  defp continue_stream({acc, continuation}) do
-    continuation.({:cont, acc}) |> reduce_result()
-  end
-
-  defp reduce_result({:suspended, chunk, continuation}) when is_binary(chunk),
-    do: {:ok, chunk, {chunk, continuation}}
-
-  defp reduce_result({:done, _previous}), do: :done
-  defp reduce_result({:halted, _previous}), do: :done
-
-  defp halt_stream({acc, continuation}) do
-    continuation.({:halt, acc})
-    :ok
-  catch
-    _kind, _reason -> :ok
-  end
+  defp halt_stream(stream_state), do: StreamPull.halt(stream_state)
 end

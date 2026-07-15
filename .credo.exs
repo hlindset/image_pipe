@@ -55,15 +55,6 @@
         # own resolve-loop driver cannot call it; see the module doc in
         # lib/image_pipe/dialect/native/pipeline.ex and the Task 14 report.
         #
-        # ImagePipe.Delivery.{Coordinator,Producer} deliberately
-        # mirror ImagePipe.Request.SourceSession/Producer's monitor-based
-        # session/producer protocol (message shapes, owner-monitor direction,
-        # graceful-halt-then-cleanup flow) — SourceSession is Request-boundary
-        # code that cannot depend on this core primitive, and unifying the two
-        # is Task 3's later, gated migration (see the pipelines design
-        # reference, "Delivery duplication", and the Task 15 report). Ignored
-        # for the same reason as the Decode pair above.
-        #
         # ImagePipe.Response.Conditional deliberately duplicates the private
         # If-None-Match parsing/matching helpers in
         # ImagePipe.Request.HTTPCache (if_none_match?/2, parse_if_none_match/1)
@@ -78,8 +69,6 @@
            "lib/image_pipe/decode.ex",
            "lib/image_pipe/decode/source_format.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
-           "lib/image_pipe/delivery/coordinator.ex",
-           "lib/image_pipe/delivery/producer.ex",
            "lib/image_pipe/response/conditional.ex"
          ]}
       ]

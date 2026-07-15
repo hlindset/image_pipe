@@ -1,7 +1,7 @@
 defmodule ImagePipe.Telemetry.Trace.TestExporter do
   @moduledoc """
-  Test-only exporter. Spans are exported from MULTIPLE processes (Producer,
-  SourceSession), so the receiver pid must be reachable globally — we use
+  Test-only exporter. Spans are exported from MULTIPLE processes (the delivery
+  producer and coordinator), so the receiver pid must be reachable globally — we use
   :persistent_term. REQUIREMENT: every test module using this must be `async: false`
   (ExUnit runs async:false modules with no concurrent test), and must clear the
   receiver in on_exit to keep the global key from leaking across modules.

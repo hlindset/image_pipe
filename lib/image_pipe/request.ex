@@ -6,6 +6,7 @@ defmodule ImagePipe.Request do
     deps: [
       ImagePipe.Config,
       ImagePipe.Debug,
+      ImagePipe.Delivery,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.MaterialDigest,
@@ -21,7 +22,6 @@ defmodule ImagePipe.Request do
     exports: [
       HTTPCache,
       Options,
-      Runner,
-      SourceSessionSupervisor
+      Runner
     ]
 end

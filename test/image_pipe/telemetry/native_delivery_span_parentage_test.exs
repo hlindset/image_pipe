@@ -4,7 +4,7 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
   stage spans are semantic descendants of the `[:request]` root span — the
   dialect counterpart of
   `ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`, which pins the
-  same property for the framework's `Request.SourceSession`.
+  same property for the framework's request runner.
 
   `ImagePipe.Delivery` spans work across two process hops (the coordinator
   and the producer), neither of which inherits the caller's trace stack, so

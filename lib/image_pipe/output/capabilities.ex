@@ -10,7 +10,7 @@ defmodule ImagePipe.Output.Capabilities do
   # it lets tests simulate a build that cannot write a given format without
   # touching the global `:persistent_term`, keeping `async: true` tests race-free.
   # This is the same opts-injection convention the request pipeline uses for
-  # `:source_session_supervisor`; it is not a documented/validated public option.
+  # `:image_module`; it is not a documented/validated public option.
 
   require Logger
 

@@ -5,21 +5,18 @@ defmodule ImagePipe.Request.Runner do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
   alias ImagePipe.Debug.Timing
+  alias ImagePipe.Delivery
   alias ImagePipe.Error
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Response
+  alias ImagePipe.Request.DeliveryBuild
   alias ImagePipe.Request.HTTPCache
   alias ImagePipe.Request.RenderRunner
-  alias ImagePipe.Request.SourceSession
-  alias ImagePipe.Request.SourceSession.Prepared, as: SessionPrepared
-  alias ImagePipe.Request.SourceSession.Request, as: SessionRequest
-  alias ImagePipe.Request.SourceSessionSupervisor
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Transform
 
   @type hit_debug() :: %{cache_key: String.t(), cache_serve_us: non_neg_integer()}
@@ -144,35 +141,14 @@ defmodule ImagePipe.Request.Runner do
 
     case Policy.ensure_capable(policy, opts) do
       :ok ->
-        request = %SessionRequest{
-          plan: plan,
-          resolved_source: resolved_source,
-          output_policy: policy,
-          opts: opts,
-          cache_key: cache_key
-        }
+        build_fun = DeliveryBuild.build_fun(plan, resolved_source, policy, opts)
 
-        supervisor = Keyword.get(opts, :source_session_supervisor, SourceSessionSupervisor)
-
-        # Capture the active trace context from THIS (request) process and pass it as
-        # data: the SourceSession/Producer spawn does not inherit our process stack.
-        trace_context = Trace.Stack.context()
-
-        case SourceSessionSupervisor.start_session(supervisor, request,
-               trace_context: trace_context
-             ) do
-          {:ok, session} ->
-            prepare_supervised_session(
-              session,
-              supervisor,
-              plan.response,
-              policy,
-              prepared_http_cache,
-              cache_key
-            )
+        case Delivery.stream(self(), build_fun, cache_key, plan.response, opts) do
+          {:ok, %PreparedStream{} = prepared_stream} ->
+            {:ok, {:prepared_stream, prepared_stream, plan.response, prepared_http_cache}}
 
           {:error, reason} ->
-            {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
+            {:error, {:processing, normalize_delivery_error(reason), policy.headers}}
         end
 
       {:error, reason} ->
@@ -180,80 +156,11 @@ defmodule ImagePipe.Request.Runner do
     end
   end
 
-  defp prepare_supervised_session(
-         session,
-         supervisor,
-         %Response{} = response,
-         %Policy{} = policy,
-         %CacheHeaders{} = prepared_http_cache,
-         cache_key
-       ) do
-    case SourceSession.prepare(session) do
-      {:ok, %SessionPrepared{} = prepared} ->
-        case prepared_stream(session, supervisor, prepared, response, cache_key) do
-          {:ok, %PreparedStream{} = prepared_stream} ->
-            {:ok, {:prepared_stream, prepared_stream, response, prepared_http_cache}}
-
-          {:error, reason} ->
-            _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)
-            {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
-        end
-
-      {:error, reason} ->
-        _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)
-        {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
-    end
+  defp normalize_delivery_error({:session, reason}) do
+    {:encode, RuntimeError.exception("delivery session failed: #{inspect(reason)}"), []}
   end
 
-  defp prepared_stream(
-         session,
-         supervisor,
-         %SessionPrepared{} = prepared,
-         %Response{} = response,
-         cache_key
-       ) do
-    with :ok <- check_first_chunk(prepared.first_chunk),
-         {:ok, content_disposition} <-
-           Response.content_disposition(response, prepared.content_type) do
-      {:ok,
-       %PreparedStream{
-         first_chunk: prepared.first_chunk,
-         content_type: prepared.content_type,
-         headers: prepared.headers ++ [{"content-disposition", content_disposition}],
-         next: fn -> SourceSession.next(session) end,
-         cancel: fn -> cancel_supervised_session(supervisor, session) end,
-         resolved_output: prepared.resolved_output,
-         debug: prepared.debug,
-         cache_key: key_hash(cache_key)
-       }}
-    else
-      {:error, reason} ->
-        _cancel_result = SourceSession.cancel(session)
-        {:error, reason}
-    end
-  end
-
-  defp cancel_supervised_session(supervisor, session) do
-    result = SourceSession.cancel(session)
-    _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)
-
-    result
-  end
-
-  defp key_hash(%Key{hash: hash}), do: hash
-  defp key_hash(nil), do: nil
-
-  defp check_first_chunk(chunk) when is_binary(chunk) and byte_size(chunk) > 0, do: :ok
-
-  defp check_first_chunk(_chunk) do
-    {:error, {:encode, :empty_stream}}
-  end
-
-  defp normalize_session_prepare_error({:session, reason}) do
-    {:encode, RuntimeError.exception("source session failed: #{inspect(reason)}"), []}
-  end
-
-  defp normalize_session_prepare_error(reason), do: reason
+  defp normalize_delivery_error(reason), do: reason
 
   defp cache_lookup_metadata(opts) do
     cache =

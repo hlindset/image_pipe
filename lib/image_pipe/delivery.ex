@@ -1,9 +1,8 @@
 defmodule ImagePipe.Delivery do
   @moduledoc """
-  Dialect-owned streaming delivery session for a dialect's image terminal —
-  a simplified, monitor-based analog of
-  `ImagePipe.Request.SourceSession`/`Producer` [pipelines §Design principles
-  1, streaming corner case].
+  Monitor-based streaming delivery session — the single streaming topology
+  behind both the framework's request runner and a dialect's image terminal
+  [pipelines §Design principles 1, streaming corner case].
 
   ## Process topology (the flagged invariant)
 
@@ -17,36 +16,30 @@ defmodule ImagePipe.Delivery do
       its own `init/1`. THIS is the monitor direction that matters: a plain
       `spawn_monitor` from the owner would only ever observe the coordinator
       dying, never the reverse. Owner-death detection requires the
-      coordinator to watch the owner, mirroring
-      `ImagePipe.Request.SourceSession.init/1` (`source_session.ex:84`,
-      `Process.monitor(owner)`). The coordinator owns the cache sink and,
-      on owner `:DOWN`, requests a graceful producer halt and aborts the
+      coordinator to watch the owner. The coordinator owns the cache sink
+      and, on owner `:DOWN`, requests a graceful producer halt and aborts the
       sink.
     * **producer** (`Delivery.Producer`) — linked AND monitored by the
-      coordinator (mirrors `SourceSession`'s own producer exactly). It stays
-      *inside* the fetch/decode brackets for its entire lifetime: `build_fun`
-      (constructed by the calling dialect) enters
-      `ImagePipe.Decode.with_image/4` (which itself enters
-      `ImagePipe.Source.with_fetched/3`) and, from INSIDE that nested
-      callback, calls the `pump` function this module hands it. `pump` runs
-      the entire chunk-demand loop — only encoded chunks cross the process
-      boundary (via plain messages); the lazy vips image and the encoder
-      `Enumerable` never leave the producer process, and never leave the
-      bracket: `build_fun` does not return until the encoder reaches EOF or
-      is halted, so the bracket's own cleanup (a `try/after` around the
-      pipeline+encode+pump body, owned by the calling dialect) always runs
-      exactly once, whether by normal completion, an owner disconnect, or an
-      explicit `cancel`.
+      coordinator. `build_fun` (constructed by the calling dialect) runs the
+      whole fetch → decode → transform → encode flow here and, once it has an
+      encoder `Enumerable` ready, calls the `pump` function this module hands
+      it. `pump` runs the entire chunk-demand loop — only encoded chunks
+      cross the process boundary (via plain messages); the lazy vips image
+      and the encoder `Enumerable` never leave the producer process.
+      `build_fun` does not return until the encoder reaches EOF or is halted,
+      so a dialect that wraps its pump call in brackets (e.g.
+      `ImagePipe.Decode.with_image/4`, which itself enters
+      `ImagePipe.Source.with_fetched/3`) stays *inside* them for the delivery's
+      entire lifetime, and their cleanup runs exactly once — whether by normal
+      completion, an owner disconnect, or an explicit `cancel`.
 
   ## Why owner-down uses a graceful halt, not a forceful kill
 
-  `SourceSession` force-kills its producer on owner-down
-  (`Process.exit(producer, :shutdown)` — the producer never traps exits, so
-  the exit signal terminates it immediately, with no further Elixir code
-  running). This coordinator does not do that: because the calling dialect's
-  producer runs a `try/after` around its own encode/pump body (the bracket-
-  cleanup instrumentation), a forceful kill would skip that `after` block.
-  Instead, owner-down (like an explicit `cancel/1`) sends a graceful
+  A forceful kill (`Process.exit(producer, :shutdown)` — the producer never
+  traps exits, so the signal terminates it immediately, with no further Elixir
+  code running) would skip any `try/after` still on the producer's stack.
+  Since a calling dialect may run its encode/pump body inside such brackets,
+  owner-down (like an explicit `cancel/1`) instead sends a graceful
   `{:halt, ...}` message and lets the producer finish its current unit of
   work, hit `after`, and reply — backstopped by a short timeout that force-
   kills a genuinely wedged producer (accepting, in that narrow edge case,
@@ -61,9 +54,14 @@ defmodule ImagePipe.Delivery do
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Response,
+      ImagePipe.Source,
       ImagePipe.Telemetry
     ],
-    exports: []
+    # StreamPull is the encoder-stream demand protocol. It is exported because
+    # a calling dialect that forces the first chunk itself (to keep that pull
+    # inside its own encode span) needs `first_chunk/1` + `resume/2` to hand
+    # the already-pulled chunk back to `pump`.
+    exports: [StreamPull]
 
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
@@ -76,8 +74,7 @@ defmodule ImagePipe.Delivery do
   @doc """
   Starts a delivery session, drives it through its first demand, and returns
   a `%ImagePipe.Response.PreparedStream{}` once the first encoded chunk is
-  ready — mirroring `ImagePipe.Request.SourceSession.prepare/2`'s contract,
-  minus the supervisor.
+  ready.
 
   `conn_owner_pid` MUST be `self()` at the call site (the process running
   the calling dialect's `Plug.call/2`). Two things are keyed off that: the

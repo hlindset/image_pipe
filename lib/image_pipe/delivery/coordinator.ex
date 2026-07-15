@@ -1,30 +1,25 @@
 defmodule ImagePipe.Delivery.Coordinator do
   @moduledoc false
 
-  # Monitor-based session coordinator for a dialect's streaming
-  # delivery — modeled on `ImagePipe.Request.SourceSession`, simplified (no
-  # OTP supervisor, no custom-render branch, no detector identity, opaque
-  # `build_fun` instead of a `%Plan{}`-driven producer).
+  # Monitor-based session coordinator for a streaming delivery, driving an
+  # opaque `build_fun` (it knows nothing about decode/transform/encode).
   #
   # Monitor DIRECTION (the flagged invariant): a `spawn_monitor` from an owner
   # only watches the CHILD — owner-death detection requires the CHILD to
   # monitor the owner back. This coordinator does `Process.monitor(owner)` in
-  # `init/1` (mirroring `SourceSession.init/1` at the framework's
-  # `source_session.ex:84`), so an owner (conn process) dying mid-stream is
-  # observed here via a `:DOWN` message, not the other way around.
+  # `init/1`, so an owner (conn process) dying mid-stream is observed here via
+  # a `:DOWN` message, not the other way around.
   #
-  # Bracket-cleanup note: unlike `SourceSession`, which force-kills its
-  # producer on owner-down (`Process.exit/2` — the producer never traps
-  # exits, so a non-:normal exit reason terminates it immediately, skipping
-  # any `try/after` still on its stack), this coordinator ALWAYS requests a
-  # graceful halt first (`Producer.request_halt/2`), backstopped by a timeout
-  # that force-kills a wedged producer. This is deliberate: the calling
-  # dialect's producer runs its whole encode/pump loop INSIDE
-  # `ImagePipe.Decode.with_image/4`'s bracket callback, wrapped in a
-  # `try/after` (owned by the calling dialect's `build_fun`) so bracket
-  # cleanup runs exactly once — a forceful kill would skip that `after`
-  # block, breaking the cleanup-runs-exactly-once invariant on owner
-  # disconnect, not just on explicit cancel.
+  # Bracket-cleanup note: this coordinator ALWAYS requests a graceful halt
+  # first (`Producer.request_halt/2`), backstopped by a timeout that
+  # force-kills a wedged producer. A forceful kill (`Process.exit/2` — the
+  # producer never traps exits, so a non-:normal exit reason terminates it
+  # immediately) would skip any `try/after` still on the producer's stack.
+  # That matters because a calling dialect may run its whole encode/pump loop
+  # INSIDE a bracket callback (e.g. `ImagePipe.Decode.with_image/4`) wrapped
+  # in a `try/after`: killing forcefully would break the
+  # cleanup-runs-exactly-once invariant on owner disconnect, not just on
+  # explicit cancel.
 
   use GenServer
 
@@ -171,14 +166,7 @@ defmodule ImagePipe.Delivery.Coordinator do
           state
       end
 
-    case request_producer_halt(%{state | pending: nil}, nil, :owner_down) do
-      {:ok, state} ->
-        {:noreply, %{state | phase: :cancelled}}
-
-      {:stop, state} ->
-        state = abort_cache_sink(state, :owner_down)
-        {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled}}
-    end
+    halt_for_owner_down(state, reason)
   end
 
   def handle_info(
@@ -362,19 +350,26 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp with_owner_check(state, fun) when is_function(fun, 1) do
     case receive_owner_down_message(state) do
       {:owner_down, reason} ->
-        state = reply_pending(state, {:error, {:session, {:owner_down, reason}}})
-
-        case request_producer_halt(%{state | pending: nil}, nil, :owner_down) do
-          {:ok, state} ->
-            {:noreply, %{state | phase: :cancelled}}
-
-          {:stop, state} ->
-            state = abort_cache_sink(state, :owner_down)
-            {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled}}
-        end
+        state
+        |> reply_pending({:error, {:session, {:owner_down, reason}}})
+        |> halt_for_owner_down(reason)
 
       :none ->
         fun.(state)
+    end
+  end
+
+  # Owner-down teardown, reached either from the monitor's :DOWN message or
+  # from the pre-reply owner check: halt the producer gracefully, and only once
+  # it is gone (or if it was already gone) abort the staged cache bytes.
+  defp halt_for_owner_down(state, reason) do
+    case request_producer_halt(%{state | pending: nil}, nil, :owner_down) do
+      {:ok, state} ->
+        {:noreply, %{state | phase: :cancelled}}
+
+      {:stop, state} ->
+        state = abort_cache_sink(state, :owner_down)
+        {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled}}
     end
   end
 

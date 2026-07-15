@@ -283,6 +283,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Config,
       ImagePipe.Debug,
+      ImagePipe.Delivery,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.MaterialDigest,
@@ -300,17 +301,15 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(request, [
       ImagePipe.Request.HTTPCache,
       ImagePipe.Request.Options,
-      ImagePipe.Request.Runner,
-      ImagePipe.Request.SourceSessionSupervisor
+      ImagePipe.Request.Runner
     ])
   end
 
-  test "application boundary owns OTP startup and depends on request lifecycle infrastructure" do
+  test "application boundary owns OTP startup" do
     application = boundary_declaration(ImagePipe.Application)
 
     assert_boundary_deps(application, [
       ImagePipe.Output,
-      ImagePipe.Request,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ])
@@ -371,10 +370,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "response delivery stays unaware of source sessions and cache staging" do
+  test "response delivery stays unaware of delivery sessions and cache staging" do
     forbidden_terms = [
-      "ImagePipe.Request.SourceSession",
-      "ImagePipe.Request.SourceSessionSupervisor",
+      "ImagePipe.Delivery",
       "ImagePipe.Cache.Sink",
       "Cache.open_sink",
       "Cache.write_chunk",
@@ -392,7 +390,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
           term <- forbidden_terms,
           String.contains?(line, term) do
-        "#{file}:#{number} must not depend on #{term}; SourceSession owns cache staging"
+        "#{file}:#{number} must not depend on #{term}; ImagePipe.Delivery owns cache staging"
       end
 
     assert violations == []
@@ -430,7 +428,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     violations =
       for {file, source} <- response_sources,
-          term <- ["SourceSession", "SourceSessionSupervisor"],
+          term <- ["ImagePipe.Delivery"],
           String.contains?(source, term) do
         "#{file} must not reference #{term}; response delivery uses PreparedStream callbacks"
       end
@@ -439,11 +437,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     request = boundary_declaration(ImagePipe.Request)
 
-    forbidden_exports = [
-      ImagePipe.Request.SourceSession,
-      ImagePipe.Request.SourceSession.Prepared,
-      ImagePipe.Request.SourceSession.Request
-    ]
+    forbidden_exports = [ImagePipe.Request.DeliveryBuild]
 
     assert Enum.filter(request.exports, &(&1 in forbidden_exports)) == []
   end
@@ -455,7 +449,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # ImagePipe.Telemetry.Trace is the opt-in span-tracer facade; the Plug edge calls
     # Trace.maybe_extract_inbound/1, so it is exported. Trace.Stack/Trace.Context are
     # exported because request/source code threads + adopts the trace context across the
-    # request->SourceSession (hop A) and request->Producer (hop B) process seams (it
+    # request->delivery-coordinator (hop A) and request->producer (hop B) process seams (it
     # calls only these generic Trace.* modules, never concrete transform ops).
     # Trace.ReqStep is exported because the source Req-client build site attaches it to
     # trace outbound fetches as a logical client span. Trace.Span and Trace.Exporter are

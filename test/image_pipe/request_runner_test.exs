@@ -4,7 +4,6 @@ defmodule ImagePipe.Request.RunnerTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Entry
-  alias ImagePipe.Cache.Key
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
@@ -13,7 +12,6 @@ defmodule ImagePipe.Request.RunnerTest do
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Request.Runner
-  alias ImagePipe.Request.SourceSessionSupervisor
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Response.Sender
@@ -440,13 +438,9 @@ defmodule ImagePipe.Request.RunnerTest do
     )
   end
 
-  defp start_source_session_supervisor do
-    start_supervised!({SourceSessionSupervisor, name: nil})
-  end
-
-  defp assert_cancelled(%PreparedStream{} = prepared, supervisor) do
+  defp assert_cancelled(%PreparedStream{} = prepared) do
     assert :ok = prepared.cancel.()
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   defp drain_prepared_stream(%PreparedStream{} = prepared) do
@@ -457,26 +451,15 @@ defmodule ImagePipe.Request.RunnerTest do
     end
   end
 
-  defp assert_supervisor_active(supervisor) do
-    _state = :sys.get_state(supervisor)
-    assert %{active: 1, workers: 1} = DynamicSupervisor.count_children(supervisor)
+  # `Runner.run/5` streams through `ImagePipe.Delivery`, which monitors its
+  # coordinator from the owner — this test process. That DOWN is the
+  # session-terminated signal.
+  defp refute_session_terminated do
+    refute_received {:DOWN, _ref, :process, _coordinator, _reason}
   end
 
-  defp assert_supervisor_empty(supervisor) do
-    supervisor
-    |> DynamicSupervisor.which_children()
-    |> Enum.each(fn
-      {_id, pid, :worker, _modules} when is_pid(pid) ->
-        ref = Process.monitor(pid)
-        assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
-        SourceSessionSupervisor.stop_session(supervisor, pid)
-
-      _child ->
-        :ok
-    end)
-
-    _state = :sys.get_state(supervisor)
-    assert %{active: 0, workers: 0} = DynamicSupervisor.count_children(supervisor)
+  defp assert_session_terminated do
+    assert_receive {:DOWN, _ref, :process, _coordinator, _reason}, 2_000
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do
@@ -530,14 +513,12 @@ defmodule ImagePipe.Request.RunnerTest do
 
   test "source-only opaque TIFF automatic output falls back to JPEG after transforms" do
     require_tiff_support!()
-    supervisor = start_source_session_supervisor()
 
     assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
              run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: tiff_body(:white)}}
              )
 
@@ -545,19 +526,17 @@ defmodule ImagePipe.Request.RunnerTest do
              resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
            } = prepared
 
-    assert_cancelled(prepared, supervisor)
+    assert_cancelled(prepared)
   end
 
   test "source-only alpha TIFF automatic output falls back to PNG after transforms" do
     require_tiff_support!()
-    supervisor = start_source_session_supervisor()
 
     assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
              run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
              )
 
@@ -565,12 +544,11 @@ defmodule ImagePipe.Request.RunnerTest do
              resolved_output: %Resolved{format: :png, response_headers: [{"vary", "Accept"}]}
            } = prepared
 
-    assert_cancelled(prepared, supervisor)
+    assert_cancelled(prepared)
   end
 
   test "opaque background transform removes alpha before source-only fallback" do
     require_tiff_support!()
-    supervisor = start_source_session_supervisor()
 
     plan =
       plan(
@@ -583,7 +561,6 @@ defmodule ImagePipe.Request.RunnerTest do
                conn(:get, "/_/bg:fff/plain/images/source.tiff"),
                plan,
                resolved_source(),
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
              )
 
@@ -591,12 +568,11 @@ defmodule ImagePipe.Request.RunnerTest do
              resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
            } = prepared
 
-    assert_cancelled(prepared, supervisor)
+    assert_cancelled(prepared)
   end
 
   test "modern Accept candidate still wins for source-only input before final alpha fallback" do
     require_tiff_support!()
-    supervisor = start_source_session_supervisor()
 
     conn =
       :get
@@ -608,7 +584,6 @@ defmodule ImagePipe.Request.RunnerTest do
                conn,
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
              )
 
@@ -616,13 +591,11 @@ defmodule ImagePipe.Request.RunnerTest do
              resolved_output: %Resolved{format: :webp, response_headers: [{"vary", "Accept"}]}
            } = prepared
 
-    assert_cancelled(prepared, supervisor)
+    assert_cancelled(prepared)
   end
 
   test "source-only automatic fallback cache miss writes JPEG entry with Vary" do
     require_tiff_support!()
-
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
@@ -631,7 +604,6 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{
                  path: {SourceBytes, body: tiff_body(:white), test_pid: self(), test_ref: ref}
                }
@@ -654,13 +626,11 @@ defmodule ImagePipe.Request.RunnerTest do
                      %Entry{content_type: "image/jpeg", headers: [{"vary", "Accept"}]}, _opts}
 
     refute_received {:cache_lookup, _second_key}
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "source-only alpha fallback cache miss writes PNG entry with Vary" do
     require_tiff_support!()
-
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
@@ -669,7 +639,6 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{
                  path:
                    {SourceBytes,
@@ -694,7 +663,7 @@ defmodule ImagePipe.Request.RunnerTest do
                      %Entry{content_type: "image/png", headers: [{"vary", "Accept"}]}, _opts}
 
     refute_received {:cache_lookup, _second_key}
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "source-only automatic cache hit returns cached entry without fetching source" do
@@ -884,7 +853,6 @@ defmodule ImagePipe.Request.RunnerTest do
   end
 
   test "cache miss executes semantic plan after fetch and stores under original key" do
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, operation} =
@@ -902,7 +870,6 @@ defmodule ImagePipe.Request.RunnerTest do
                ),
                resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, test_pid: self(), test_ref: ref}}
              )
 
@@ -918,18 +885,15 @@ defmodule ImagePipe.Request.RunnerTest do
     assert :ok = drain_prepared_stream(prepared)
     assert_received {:cache_put, ^key, %Entry{}, _opts}
     refute_received {:cache_lookup, _second_key}
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "no-cache explicit output returns a prepared stream delivery" do
-    supervisor = start_source_session_supervisor()
-
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}, %CacheHeaders{}}} =
              run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
                resolved_source(internal_cache: :enabled),
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -939,32 +903,28 @@ defmodule ImagePipe.Request.RunnerTest do
     assert is_function(prepared.next, 0)
     assert is_function(prepared.cancel, 0)
 
-    assert_supervisor_active(supervisor)
-    assert_cancelled(prepared, supervisor)
+    refute_session_terminated()
+    assert_cancelled(prepared)
   end
 
   test "cache-skip explicit output returns a prepared stream delivery even when cache is configured" do
-    supervisor = start_source_session_supervisor()
-
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}, %CacheHeaders{}}} =
              run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
                resolved_source(internal_cache: :disabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: make_ref()},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _entry, _opts}
 
-    assert_supervisor_active(supervisor)
-    assert_cancelled(prepared, supervisor)
+    refute_session_terminated()
+    assert_cancelled(prepared)
   end
 
   test "configured cache miss writes cache after successful prepared stream delivery" do
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
@@ -973,13 +933,12 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(),
                resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
     assert_received {:cache_lookup, key}
     refute_received {:cache_put, _key, _entry, _opts}
-    assert_supervisor_active(supervisor)
+    refute_session_terminated()
 
     conn =
       Sender.send_result(
@@ -997,11 +956,10 @@ defmodule ImagePipe.Request.RunnerTest do
 
     assert is_binary(body)
     assert byte_size(body) > 0
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "cache read fail-open miss returns a prepared stream and writes cache after successful drain" do
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}, %CacheHeaders{}}} =
@@ -1010,22 +968,20 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(),
                resolved_source(internal_cache: :enabled),
                cache: {CacheReadErrorWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
     assert_received {:runner_event, ^ref, {:cache_lookup, key}}
     refute_received {:runner_event, ^ref, {:cache_put, _key, %Entry{}}}
-    assert_supervisor_active(supervisor)
+    refute_session_terminated()
 
     assert :ok = drain_prepared_stream(prepared)
 
     assert_received {:runner_event, ^ref, {:cache_put, ^key, %Entry{content_type: "image/jpeg"}}}
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "streamed cache miss does not write cache when the client closes before done" do
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
@@ -1034,7 +990,6 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(),
                resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -1052,11 +1007,10 @@ defmodule ImagePipe.Request.RunnerTest do
     assert_received {:runner_event, ^ref, {:cache_abort, _key, chunks}}
     assert chunks != []
     refute_received {:cache_put, _key, _entry, _opts}
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "streamed cache miss does not write cache when send_chunked fails" do
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
@@ -1065,7 +1019,6 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(),
                resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -1083,11 +1036,10 @@ defmodule ImagePipe.Request.RunnerTest do
     assert_received {:runner_event, ^ref, {:cache_abort, _key, chunks}}
     assert chunks != []
     refute_received {:cache_put, _key, _entry, _opts}
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "streamed cache miss does not write cache when the first chunk fails" do
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
@@ -1096,7 +1048,6 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(),
                resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -1114,13 +1065,11 @@ defmodule ImagePipe.Request.RunnerTest do
     assert_received {:runner_event, ^ref, {:cache_abort, _key, chunks}}
     assert chunks != []
     refute_received {:cache_put, _key, _entry, _opts}
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "streamed cache miss staging write errors fail open" do
     attach_telemetry([[:image_pipe, :cache, :stage]])
-
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
@@ -1129,7 +1078,6 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(),
                resolved_source(internal_cache: :enabled),
                cache: {CacheWriteErrorProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -1144,14 +1092,13 @@ defmodule ImagePipe.Request.RunnerTest do
     refute Map.get(conn.private, :image_pipe_send_result) == :processing_error
     assert_received {:runner_event, ^ref, {:cache_put_attempted, chunk}}
     assert is_binary(chunk)
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
 
     assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
                     %{result: :cache_error, cache: :stage_error, error: :write_failed}}
   end
 
   test "streamed automatic cache miss writes negotiated entry with Vary" do
-    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
@@ -1161,7 +1108,6 @@ defmodule ImagePipe.Request.RunnerTest do
                plan(output: %Output{mode: :automatic}),
                resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -1180,28 +1126,23 @@ defmodule ImagePipe.Request.RunnerTest do
 
     assert is_binary(body)
     assert content_type in ["image/webp", "image/jpeg"]
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "no-cache decode failure returns a pre-response processing error and removes the session" do
-    supervisor = start_source_session_supervisor()
-
     assert {:error, {:processing, {:decode, _reason}, _headers}} =
              run(
                conn(:get, "/_/plain/images/not-image.jpg"),
                plan(),
                resolved_source(internal_cache: :enabled),
                body: "not an image",
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: "not an image"}}
              )
 
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 
   test "multiple pipelines reach processing" do
-    supervisor = start_source_session_supervisor()
-
     plan =
       plan(
         pipelines: [
@@ -1215,7 +1156,6 @@ defmodule ImagePipe.Request.RunnerTest do
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan,
                resolved_source(),
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -1223,12 +1163,10 @@ defmodule ImagePipe.Request.RunnerTest do
              resolved_output: %Resolved{format: :jpeg, quality: :default, response_headers: []}
            } = prepared
 
-    assert_cancelled(prepared, supervisor)
+    assert_cancelled(prepared)
   end
 
   test "resolved output carries effective explicit quality" do
-    supervisor = start_source_session_supervisor()
-
     plan =
       plan(
         output: %Output{
@@ -1243,7 +1181,6 @@ defmodule ImagePipe.Request.RunnerTest do
                conn(:get, "/_/f:webp/fq:webp:70/plain/images/beach.jpg"),
                plan,
                resolved_source(),
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -1255,7 +1192,7 @@ defmodule ImagePipe.Request.RunnerTest do
              }
            } = prepared
 
-    assert_cancelled(prepared, supervisor)
+    assert_cancelled(prepared)
   end
 
   test "known plan operations are included in cache lookup key data" do
@@ -1307,8 +1244,6 @@ defmodule ImagePipe.Request.RunnerTest do
   end
 
   test "cache hits and misses carry plan response delivery metadata" do
-    supervisor = start_source_session_supervisor()
-
     response = %ImagePipe.Plan.Response{
       disposition: :attachment,
       filename: "carried"
@@ -1319,11 +1254,10 @@ defmodule ImagePipe.Request.RunnerTest do
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
                resolved_source(),
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
-    assert_cancelled(prepared, supervisor)
+    assert_cancelled(prepared)
 
     entry = %Entry{
       body: "cached jpeg",
@@ -1397,15 +1331,12 @@ defmodule ImagePipe.Request.RunnerTest do
       filename: "report"
     }
 
-    supervisor = start_source_session_supervisor()
-
     assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, ^response, %CacheHeaders{}}} =
              run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
                resolved_source(),
                cache: {CacheHitWriteProbe, entry: invalid_entry, test_pid: self()},
-               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
@@ -1415,6 +1346,6 @@ defmodule ImagePipe.Request.RunnerTest do
     assert :ok = drain_prepared_stream(prepared)
     assert_received {:cache_put, ^key, %Entry{content_type: "image/jpeg"}, _opts}
     refute_received {:cache_lookup, _another_key}
-    assert_supervisor_empty(supervisor)
+    assert_session_terminated()
   end
 end

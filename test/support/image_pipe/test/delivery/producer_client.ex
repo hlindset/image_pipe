@@ -1,26 +1,26 @@
-defmodule ImagePipe.Test.SourceSession.ProducerClient do
+defmodule ImagePipe.Test.Delivery.ProducerClient do
   @moduledoc """
-  Blocking, synchronous client for `ImagePipe.Request.SourceSession.Producer`,
-  used only by tests. Production code drives the producer through
-  `ImagePipe.Request.SourceSession`, which owns the async reply/monitor handling;
-  tests want a simple call/response, so that logic lives here, in test support.
+  Blocking, synchronous client for `ImagePipe.Delivery.Producer`, used only by
+  tests. Production code drives the producer through
+  `ImagePipe.Delivery.Coordinator`, which owns the async reply/monitor
+  handling; tests want a simple call/response, so that logic lives here, in
+  test support.
   """
 
   # Test-only helper that deliberately drives the non-exported Producer demand
   # protocol; opt out of Boundary's outgoing checks rather than widen the
-  # ImagePipe.Request export surface for a test affordance.
+  # ImagePipe.Delivery export surface for a test affordance.
   use Boundary, top_level?: true, check: [out: false]
 
+  alias ImagePipe.Delivery.Producer
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Request.SourceSession.Producer
 
   @call_timeout 15_000
   @halt_timeout 2_000
 
   @spec next(pid(), timeout()) ::
           {:ok,
-           {:first_chunk, binary(), String.t(), [{String.t(), String.t()}], Resolved.t(),
-            ImagePipe.Debug.Info.t() | nil}}
+           {:first_chunk, binary(), String.t(), Resolved.t(), ImagePipe.Debug.Info.t() | nil}}
           | {:ok, {:chunk, binary()}}
           | {:ok, :done}
           | {:error, term()}

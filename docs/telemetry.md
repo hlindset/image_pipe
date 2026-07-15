@@ -857,9 +857,9 @@ span tracer** that consumes those events, reconstructs correctly-nested
 distributed-trace-shaped spans (one `trace_id` per request, parent/child
 relationships preserved across the `[:transform, :execute]` /
 `[:transform, :operation]` / `[:transform, :materialize]` nesting and across the
-request → `SourceSession` → `Producer` process seams — the producer-emitted
-`[:encode]` span parents to the request root, and `[:deliver]` nests under
-`[:send]` in the request process), and hands each finished span to a pluggable
+request → `ImagePipe.Delivery` coordinator → producer process seams — the
+producer-emitted `[:encode]` span parents to the request root, and `[:deliver]`
+nests under `[:send]` in the request process), and hands each finished span to a pluggable
 exporter as an `ImagePipe.Telemetry.Trace.Span`.
 
 The tracer is **not** attached automatically. A host opts in with

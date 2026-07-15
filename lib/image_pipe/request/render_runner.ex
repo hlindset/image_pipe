@@ -3,7 +3,7 @@ defmodule ImagePipe.Request.RenderRunner do
   Request-layer orchestration for non-image renders. Decodes the source to the
   needed depth (Phase 1: header only) and invokes the renderer via the neutral
   `ImagePipe.Renderer` facade, returning a complete body. Never starts a
-  SourceSession/Producer and never constructs an `%Output.Resolved{}`.
+  streaming delivery and never constructs an `%Output.Resolved{}`.
   """
 
   alias ImagePipe.Error

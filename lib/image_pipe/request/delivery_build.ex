@@ -1,119 +1,64 @@
-defmodule ImagePipe.Request.SourceSession.Producer do
+defmodule ImagePipe.Request.DeliveryBuild do
   @moduledoc false
+
+  # The framework's `ImagePipe.Delivery` build_fun: fetch → decode → transform
+  # → clamp → encode, run entirely inside the delivery producer process. It
+  # hands the encoder's output to `pump`, along with the `%Debug.Info{}` it
+  # collected while producing it.
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Debug.Timing
+  alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Plan
   alias ImagePipe.Request.Processor
-  alias ImagePipe.Request.SourceSession.Request
+  alias ImagePipe.Source
   alias ImagePipe.Source.StreamError
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Transform.State
 
-  defstruct [
-    :request,
-    :stream_state,
-    :resolved_output,
-    :content_type,
-    prepared?: false
-  ]
+  @enforce_keys [:plan, :resolved_source, :output_policy, :opts]
+  defstruct @enforce_keys
 
-  @type t() :: pid()
+  @type t() :: %__MODULE__{
+          plan: Plan.t(),
+          resolved_source: Source.Resolved.t(),
+          output_policy: Policy.t(),
+          opts: keyword()
+        }
 
-  @spec start_link(Request.t(), keyword()) :: {:ok, pid()}
-  def start_link(%Request{} = request, opts \\ []) do
-    caller_chain = Keyword.get(opts, :caller_chain, Process.get(:"$callers", []))
-    trace_context = Keyword.get(opts, :trace_context)
+  @spec build_fun(Plan.t(), Source.Resolved.t(), Policy.t(), keyword()) ::
+          (ImagePipe.Delivery.Producer.pump() ->
+             ImagePipe.Delivery.Producer.pump_result() | {:error, term()})
+  def build_fun(%Plan{} = plan, %Source.Resolved{} = resolved_source, %Policy{} = policy, opts) do
+    request = %__MODULE__{
+      plan: plan,
+      resolved_source: resolved_source,
+      output_policy: policy,
+      opts: opts
+    }
 
-    pid =
-      spawn_link(fn ->
-        Process.put(:"$callers", caller_chain)
-        # Hop B: adopt the request's trace context (passed as data, since the spawned
-        # process does not inherit the caller's trace stack) so producer-process spans
-        # (source.fetch_decode, transform.execute, …) nest under the request root.
-        Trace.Stack.adopt(trace_context)
-        loop(%__MODULE__{request: request})
-      end)
-
-    {:ok, pid}
+    fn pump -> build_and_pump(request, pump) end
   end
 
-  # SourceSession drives the producer with these non-blocking primitives after
-  # enforcing single-flight demand. A blocking test client lives in
-  # ImagePipe.Test.SourceSession.ProducerClient.
-  @spec request_next(pid(), pid()) :: reference()
-  def request_next(pid, receiver) when is_pid(pid) and is_pid(receiver) do
-    ref = make_ref()
-    send(pid, {:next, receiver, ref})
-    ref
-  end
-
-  @spec request_halt(pid(), pid()) :: reference()
-  def request_halt(pid, receiver) when is_pid(pid) and is_pid(receiver) do
-    ref = make_ref()
-    send(pid, {:halt, receiver, ref})
-    ref
-  end
-
-  defp loop(%__MODULE__{} = state) do
-    receive do
-      {:next, caller, ref} ->
-        case next_result(state) do
-          {:reply, reply, state} ->
-            send(caller, {ref, reply})
-            loop(state)
-
-          {:stop, reply} ->
-            # Domain failures are terminal protocol replies. After sending one,
-            # the producer exits normally; unexpected death is reported by the
-            # SourceSession monitor.
-            send(caller, {ref, reply})
-            exit(:normal)
-        end
-
-      {:halt, caller, ref} ->
-        reply = halt_stream(state)
-        send(caller, {ref, reply})
-        exit(:normal)
-    end
-  end
-
-  defp next_result(%__MODULE__{prepared?: false} = state) do
-    case prepare_first_chunk(state) do
-      {:ok, chunk, state, debug} ->
-        reply =
-          {:ok,
-           {:first_chunk, chunk, state.content_type, state.resolved_output.response_headers,
-            state.resolved_output, debug}}
-
-        {:reply, reply, %{state | prepared?: true}}
+  defp build_and_pump(%__MODULE__{} = request, pump) do
+    case prepare_stream(request) do
+      {:ok, stream, content_type, resolved_output, debug} ->
+        pump.(stream, content_type, resolved_output, debug)
 
       :empty ->
-        {:stop, {:error, {:encode, :empty_stream}}}
+        {:error, {:encode, :empty_stream}}
 
       {:error, reason} ->
-        {:stop, {:error, reason}}
+        {:error, reason}
     end
   end
 
-  defp next_result(%__MODULE__{stream_state: nil}) do
-    {:stop, {:ok, :done}}
-  end
-
-  defp next_result(%__MODULE__{stream_state: {acc, continuation}} = state) do
-    case continue_stream(acc, continuation, %{state | stream_state: nil}) do
-      {:ok, chunk, state} -> {:reply, {:ok, {:chunk, chunk}}, state}
-      :done -> {:stop, {:ok, :done}}
-      {:error, reason} -> {:stop, {:error, reason}}
-    end
-  end
-
-  defp prepare_first_chunk(%__MODULE__{request: %Request{} = request} = state) do
+  defp prepare_stream(%__MODULE__{} = request) do
     with_stream_translation(&prepare_fallback/2, fn ->
       with {{:ok, decoded}, decode_us} <-
              measure_decode(request.plan, request.resolved_source, request.opts),
@@ -147,13 +92,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
             timings: %{decode: decode_us, transform: transform_us, encode: encode_us}
           })
 
-        {:ok, chunk,
-         %{
-           state
-           | stream_state: stream_state,
-             resolved_output: resolved_output,
-             content_type: content_type
-         }, debug}
+        {:ok, StreamPull.resume(chunk, stream_state), content_type, resolved_output, debug}
       else
         {:empty, _us} -> :empty
         :empty -> :empty
@@ -205,9 +144,14 @@ defmodule ImagePipe.Request.SourceSession.Producer do
 
   defp encode_fallback(kind, reason), do: {:error, {:encode, {kind, reason}, []}}
 
+  # Pulling the first chunk is what forces libvips to actually encode, so it
+  # happens here, inside the `[:encode]` span and the measured `encode_us` —
+  # not later, in the delivery pump, which would leave both measuring only
+  # encoder-pipeline construction. `StreamPull.resume/2` then hands `pump` an
+  # enumerable that replays it.
   defp first_chunk(stream) do
     with_stream_translation(&encode_fallback/2, fn ->
-      reduce_stream(stream)
+      StreamPull.first_chunk(stream)
     end)
   end
 
@@ -422,16 +366,11 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     %{result: :output_error, error: Error.tag(reason)}
   end
 
-  defp continue_stream(acc, continuation, state) do
-    with_stream_translation(&encode_fallback/2, fn ->
-      continuation.({:cont, acc})
-      |> reduce_result(state)
-    end)
-  end
-
   # Single source of truth for StreamError -> tagged-error translation.
   # `fallback` builds the tag for any non-StreamError throw/exit so callers keep
-  # their distinct generic tags (prepare uses :producer, chunk paths use :encode).
+  # their distinct generic tags (prepare uses :producer, the encode pull uses
+  # :encode). Once the encoder stream reaches `pump`, `ImagePipe.Delivery.Producer`
+  # applies the same rule to the chunk path.
   defp with_stream_translation(fallback, fun) do
     fun.()
   rescue
@@ -441,42 +380,5 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
     :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
     kind, reason -> fallback.(kind, reason)
-  end
-
-  defp reduce_stream(stream) do
-    # The producer owns the raw Enumerable continuation so each demand pulls one
-    # encoded chunk without blocking SourceSession's GenServer mailbox.
-    result =
-      Enumerable.reduce(stream, {:cont, nil}, fn
-        chunk, _previous when is_binary(chunk) and byte_size(chunk) > 0 -> {:suspend, chunk}
-        _chunk, previous -> {:cont, previous}
-      end)
-
-    case result do
-      {:suspended, chunk, continuation} when is_binary(chunk) ->
-        {:ok, chunk, {chunk, continuation}}
-
-      {:done, _previous} ->
-        :empty
-
-      {:halted, _previous} ->
-        :empty
-    end
-  end
-
-  defp reduce_result({:suspended, chunk, continuation}, state) when is_binary(chunk) do
-    {:ok, chunk, %{state | stream_state: {chunk, continuation}}}
-  end
-
-  defp reduce_result({:done, _previous}, _state), do: :done
-  defp reduce_result({:halted, _previous}, _state), do: :done
-
-  defp halt_stream(%__MODULE__{stream_state: nil}), do: :ok
-
-  defp halt_stream(%__MODULE__{stream_state: {acc, continuation}}) do
-    continuation.({:halt, acc})
-    :ok
-  catch
-    kind, reason -> {:error, {kind, reason}}
   end
 end
