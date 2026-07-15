@@ -63,11 +63,25 @@
         # framework-frozen). See the module doc in
         # lib/image_pipe/response/conditional.ex and the Task 16 report.
         # Ignored for the same reason as the pairs above.
+        #
+        # The ImagePipe.Dialect.Imgproxy.* leaf request structs are near-verbatim
+        # phase-1 copies of their ImagePipe.Parser.Imgproxy.* originals: the
+        # inverted dialect owns its whole request chain and may not depend on the
+        # Parser boundary, and the framework originals stay frozen while both arms
+        # run side by side. Unlike the blessed mirrors above this duplication is
+        # TRANSIENT — the originals are deleted in phase 2, at which point these
+        # entries go with them (phase-1 dialect copy, retired in phase 2 per spec
+        # 2026-07-15).
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
            "lib/image_pipe/decode.ex",
            "lib/image_pipe/decode/source_format.ex",
+           "lib/image_pipe/dialect/imgproxy/crop_request.ex",
+           "lib/image_pipe/dialect/imgproxy/effects.ex",
+           "lib/image_pipe/dialect/imgproxy/format.ex",
+           "lib/image_pipe/dialect/imgproxy/orientation.ex",
+           "lib/image_pipe/dialect/imgproxy/pipeline_request.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
            "lib/image_pipe/response/conditional.ex"
          ]}
