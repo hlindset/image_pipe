@@ -122,18 +122,10 @@ defmodule ImagePipe.Delivery.Coordinator do
      }}
   end
 
-  def handle_call(:prepare, _from, state) do
-    {:reply, {:error, {:protocol, {:invalid_phase, state.phase}}}, state}
-  end
-
   def handle_call(:next, from, %{phase: phase, producer: producer, pending: nil} = state)
       when phase in [:prepared, :streaming] and is_pid(producer) do
     ref = Producer.request_next(producer, self())
     {:noreply, %{state | phase: :streaming, pending: {:next, from}, producer_request_ref: ref}}
-  end
-
-  def handle_call(:next, _from, state) do
-    {:reply, {:error, {:protocol, :not_prepared}}, state}
   end
 
   def handle_call(:cancel, from, %{pending: nil} = state) do

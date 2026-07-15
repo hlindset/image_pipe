@@ -404,8 +404,6 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
   end
 
   defp start_producer(build_fun) when is_function(build_fun, 1) do
-    Process.put(:"$callers", [self()])
-
     start_supervised!(%{
       id: {Producer, make_ref()},
       start: {Producer, :start_link, [build_fun, nil]},
