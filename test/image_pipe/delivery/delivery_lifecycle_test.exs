@@ -17,6 +17,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response, as: PlanResponse
+  alias ImagePipe.Test.Delivery.SessionProbe
 
   @event_target __MODULE__.StreamEvents
 
@@ -97,12 +98,18 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
     )
   end
 
-  # `Delivery.stream/5` monitors the coordinator from the owner, so when the
-  # test process is the owner this DOWN is the deterministic "session is gone"
-  # signal — without it, a call racing a stopping coordinator sees
-  # `{:exit, :normal}` rather than `:noproc`.
+  # Monitoring the session from here is what makes "the session is gone"
+  # deterministic — without a barrier, a call racing a stopping coordinator sees
+  # `{:exit, :normal}` rather than `:noproc`. Monitoring a coordinator that is
+  # already dead still delivers a :DOWN, so there is no race with a session that
+  # stopped before we looked.
   defp await_session_gone do
-    assert_receive {:DOWN, _ref, :process, _coordinator, _reason}, 2_000
+    for coordinator <- SessionProbe.coordinators() do
+      ref = Process.monitor(coordinator)
+      assert_receive {:DOWN, ^ref, :process, ^coordinator, _reason}, 2_000
+    end
+
+    assert SessionProbe.coordinators() == []
   end
 
   # Starts a delivery owned by a separate process, so owner death is testable.
@@ -195,6 +202,49 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
       assert {:error, {:session, :timeout}} = Coordinator.prepare(coordinator, 100)
       assert_receive {:build_started, producer}
       send(producer, :release)
+    end
+
+    test "leaves no coordinator behind" do
+      build_fun = fn _pump -> {:error, {:decode, :not_an_image}} end
+
+      assert {:error, {:decode, :not_an_image}} =
+               Delivery.stream(self(), build_fun, nil, %PlanResponse{}, [])
+
+      await_session_gone()
+    end
+
+    # A prepare timeout is the one error return where the coordinator does NOT
+    # stop itself: the call gave up, but the coordinator and its wedged producer
+    # are still alive. Nothing else reclaims them — the conn owner is the
+    # connection process under Bandit, so a wedged encode would hold its
+    # producer for the rest of a keep-alive connection. `Delivery.stream/5`
+    # cancels on every prepare error for this case; this pins the cancel that
+    # makes it work, including the force-kill backstop for a producer too wedged
+    # to observe the graceful halt.
+    test "cancelling after a prepare timeout reclaims the coordinator and its wedged producer" do
+      test_pid = self()
+
+      # Wedged: never reaches `pump`, and never handles the graceful halt
+      # message either — so only the backstop can reclaim it.
+      build_fun = fn _pump ->
+        send(test_pid, {:build_started, self()})
+
+        receive do
+          :never_sent -> :ok
+        end
+      end
+
+      {:ok, coordinator} = Coordinator.start(build_fun, self(), nil, nil, [])
+      coordinator_ref = Process.monitor(coordinator)
+
+      assert {:error, {:session, :timeout}} = Coordinator.prepare(coordinator, 100)
+      assert_receive {:build_started, producer}
+      producer_ref = Process.monitor(producer)
+
+      assert :ok = Coordinator.cancel(coordinator)
+
+      assert_receive {:DOWN, ^producer_ref, :process, ^producer, _reason}, 2_000
+      assert_receive {:DOWN, ^coordinator_ref, :process, ^coordinator, _reason}, 2_000
     end
   end
 

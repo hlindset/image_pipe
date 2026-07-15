@@ -28,6 +28,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Delivery.SessionProbe
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.Blur, as: ExecutableBlur
   alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize
@@ -509,9 +510,15 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
 
-      # `Delivery.stream/5` establishes this monitor inside the calling
-      # (owner) process itself — no separate `Process.monitor/1` needed here.
-      assert_receive {:DOWN, _ref, :process, _coordinator_pid, _reason}
+      # The coordinator is the session's other child. It monitors this process
+      # (its owner), which is how the probe finds it; monitoring it back here is
+      # what makes its teardown observable.
+      for coordinator <- SessionProbe.coordinators() do
+        ref = Process.monitor(coordinator)
+        assert_receive {:DOWN, ^ref, :process, ^coordinator, _reason}, 2_000
+      end
+
+      assert SessionProbe.coordinators() == []
     end
   end
 

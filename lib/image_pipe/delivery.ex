@@ -10,8 +10,7 @@ defmodule ImagePipe.Delivery do
 
     * **conn owner** — the process running the calling dialect's `Plug.call/2`
       (`self()` at the point `stream/5` is called, always). It holds the
-      `%ImagePipe.Response.PreparedStream{}` `next`/`cancel` closures and
-      monitors the coordinator for teardown visibility.
+      `%ImagePipe.Response.PreparedStream{}` `next`/`cancel` closures.
     * **coordinator** (`Delivery.Coordinator`) — `Process.monitor(owner)` in
       its own `init/1`. THIS is the monitor direction that matters: a plain
       `spawn_monitor` from the owner would only ever observe the coordinator
@@ -101,11 +100,9 @@ defmodule ImagePipe.Delivery do
     {:ok, coordinator} =
       Coordinator.start(build_fun, conn_owner_pid, cache_key, Trace.Stack.context(), config)
 
-    _owner_teardown_monitor = Process.monitor(coordinator)
-
     case Coordinator.prepare(coordinator) do
       {:ok, prepared} -> prepared_stream(coordinator, cache_key, response_meta, prepared)
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> cancel_and_error(coordinator, reason)
     end
   end
 
@@ -127,9 +124,20 @@ defmodule ImagePipe.Delivery do
          }}
 
       {:error, reason} ->
-        _cancel_result = Coordinator.cancel(coordinator)
-        {:error, reason}
+        cancel_and_error(coordinator, reason)
     end
+  end
+
+  # Every error return from this module reclaims the coordinator before it
+  # returns. Most failures already stopped it (a producer error stops the
+  # session itself), in which case this is a `:noproc` no-op. The one that does
+  # not is `{:session, :timeout}`: the call gave up but the coordinator and its
+  # wedged producer are still alive, and the conn owner is not a reclaim path —
+  # under Bandit it is the *connection* process, so a wedged encode would hold
+  # its producer (vips image, fds) for the rest of a keep-alive connection.
+  defp cancel_and_error(coordinator, reason) do
+    _cancel_result = Coordinator.cancel(coordinator)
+    {:error, reason}
   end
 
   defp key_hash(%Key{hash: hash}), do: hash

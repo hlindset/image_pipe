@@ -18,6 +18,7 @@ defmodule ImagePipe.Request.RunnerTest do
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved, as: SourceResolved
   alias ImagePipe.Source.Response, as: SourceResponse
+  alias ImagePipe.Test.Delivery.SessionProbe
   alias Vix.Vips.Image, as: VipsImage
 
   defmodule CacheHit do
@@ -451,15 +452,21 @@ defmodule ImagePipe.Request.RunnerTest do
     end
   end
 
-  # `Runner.run/5` streams through `ImagePipe.Delivery`, which monitors its
-  # coordinator from the owner — this test process. That DOWN is the
-  # session-terminated signal.
+  # Affirmative liveness: the session is still there, not merely "no teardown
+  # signal has arrived yet".
   defp refute_session_terminated do
-    refute_received {:DOWN, _ref, :process, _coordinator, _reason}
+    assert SessionProbe.coordinators() != [], "expected a live delivery coordinator"
   end
 
   defp assert_session_terminated do
-    assert_receive {:DOWN, _ref, :process, _coordinator, _reason}, 2_000
+    # Monitoring a coordinator that is already dead still delivers a :DOWN, so
+    # there is no race with a session that stopped before we looked.
+    for coordinator <- SessionProbe.coordinators() do
+      ref = Process.monitor(coordinator)
+      assert_receive {:DOWN, ^ref, :process, ^coordinator, _reason}, 2_000
+    end
+
+    assert SessionProbe.coordinators() == []
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do
