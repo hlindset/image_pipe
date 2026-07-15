@@ -726,12 +726,16 @@ Every spec exit-criteria bullet, cross-checked against the probe's artifacts.
   the streamed case, best-effort (1s force-kill, `try/after` skipped) for a slow
   single synchronous encode. Documented tradeoff, not unconditional.
 
-### Open design-owner items (unpinned probe defaults — confirm/adjust post-probe)
+### Design-owner defaults (resolved)
 
-- **`trim=color` default tolerance `0`** (Task 5) — no spec anchor; a reasonable,
-  tested probe default.
-- **`trim=auto` default threshold `10.0`** (Task 14) — no spec anchor; a
-  reasonable, tested probe default.
+- **`trim` default tolerance/threshold `10`** — both `trim=auto` (Task 14) and
+  `trim=color` with an omitted tolerance (Task 5, revised) default to `10`,
+  matching imgproxy's `TrimThreshold` default (`processing/options.go`) and the
+  underlying libvips `find_trim` default. `trim=color`'s original `0` was an
+  internal split (the same libvips threshold defaulting differently across the
+  two spellings); it is now aligned to `10`. Integer `10` (not `10.0`) keeps
+  `trim=fff` canonically equal to the explicit `trim=fff,10`, preserving
+  cache-key transparency (pinned by a canonicalization test).
 
 ### Post-probe strengthening / sync (logged, not blocking)
 

@@ -635,7 +635,12 @@ defmodule ImagePipe.Dialect.Native.Parser do
 
   defp assemble_trim(nil), do: nil
   defp assemble_trim(:auto), do: :auto
-  defp assemble_trim({color, nil}), do: {color, 0}
+  # An omitted tolerance defaults to 10 — matching imgproxy's TrimThreshold
+  # default (and libvips find_trim), and `trim=auto`'s @default_trim_threshold.
+  # Integer 10 (not 10.0) so `trim=fff` canonicalizes identically to the
+  # explicit `trim=fff,10` (Value.number yields an integer), preserving
+  # cache-key transparency across the two spellings.
+  defp assemble_trim({color, nil}), do: {color, 10}
   defp assemble_trim({color, tolerance}), do: {color, tolerance}
 
   # Tier-1 identity canonicalization: blur=0 (the identity sigma) is

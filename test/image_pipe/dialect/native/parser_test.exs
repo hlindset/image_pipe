@@ -77,12 +77,24 @@ defmodule ImagePipe.Dialect.Native.ParserTest do
       assert request == %Request{
                groups: [
                  %Group{resize: %{w: 500, h: :auto, fit: :contain, enlarge: false}},
-                 %Group{trim: {{255, 255, 255}, 0}}
+                 %Group{trim: {{255, 255, 255}, 10}}
                ],
                output: %Output{terminal: :image, format: nil, quality: nil},
                source: "images/cat.jpg",
                expires: nil
              }
+    end
+
+    test "trim=color defaults its tolerance to 10, canonically equal to explicit ,10" do
+      assert {:ok, defaulted} = parse(["trim=fff"])
+      assert {:ok, explicit} = parse(["trim=fff,10"])
+
+      assert [%Group{trim: {{255, 255, 255}, 10}}] = defaulted.groups
+      # Same canonical request as the explicit spelling -> same cache key/ETag.
+      assert defaulted == explicit
+      # A different tolerance must NOT collapse onto the default.
+      assert {:ok, other} = parse(["trim=fff,5"])
+      refute defaulted == other
     end
 
     test "relative crop with explicit units" do
