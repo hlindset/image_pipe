@@ -1,9 +1,8 @@
 defmodule ImagePipe.Dialect.SharedConfig do
   @moduledoc """
-  Shared runtime option keys and validation for dialect config modules
-  (`ImagePipe.Dialect.Native.Config` today, `Imgproxy.Config` in the
-  in-tree imgproxy dialect) — a core boundary that happens to live under
-  the `Dialect` namespace, not a product dialect itself.
+  Shared runtime option keys and validation for dialect config modules — a
+  core boundary that happens to live under the `Dialect` namespace, not a
+  product dialect itself.
 
   `keys/0` names the runtime option keys every dialect shares (source
   fetching, caching, request-safety limits, output negotiation defaults);
@@ -11,6 +10,11 @@ defmodule ImagePipe.Dialect.SharedConfig do
   and `:sources` to their own boundaries. A calling dialect's config module
   splits its options on `keys/0`, validates the shared subset here, and
   validates its own dialect-specific keys itself.
+
+  Shared-key validation failures raise against this module's own option
+  surface ("invalid ImagePipe shared runtime options: …"), not the calling
+  dialect's — every dialect reports one identical message for a bad shared
+  key, and its own message only for its own keys.
   """
 
   use Boundary,
