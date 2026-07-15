@@ -8,6 +8,7 @@ defmodule ImagePipe.Request.DeliveryBuild do
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Debug.Timing
+  alias ImagePipe.Delivery
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
@@ -31,9 +32,7 @@ defmodule ImagePipe.Request.DeliveryBuild do
           opts: keyword()
         }
 
-  @spec build_fun(Plan.t(), Source.Resolved.t(), Policy.t(), keyword()) ::
-          (ImagePipe.Delivery.Producer.pump() ->
-             ImagePipe.Delivery.Producer.pump_result() | {:error, term()})
+  @spec build_fun(Plan.t(), Source.Resolved.t(), Policy.t(), keyword()) :: Delivery.build_fun()
   def build_fun(%Plan{} = plan, %Source.Resolved{} = resolved_source, %Policy{} = policy, opts) do
     request = %__MODULE__{
       plan: plan,
