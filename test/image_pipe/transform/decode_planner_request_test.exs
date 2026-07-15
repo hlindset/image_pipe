@@ -47,6 +47,60 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
     end
   end
 
+  # --- user_quarter_turn? XORs with the EXIF turn ---
+  #
+  # Every expectation below is derived from `open_options/5`'s chain path, which
+  # owns the same rule (`net_quarter_turn?/3`: `rem(exif_angle + user_angle, 180)
+  # == 90`). The chain is the oracle; the `%Request{}` form must agree with it.
+
+  test "user_quarter_turn? swaps the shrink axes when there is no EXIF turn" do
+    # src 3200x800; a rot:90 before a fit:200x50 resize means the target's axes
+    # are the stored axes swapped -> shrink computed against {800, 3200}.
+    assert {:ok, rotate} = Operation.rotate(90)
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 200}, {:px, 50})
+    chain = [rotate, resize]
+
+    request = %Request{resize_target: {200, 50}, user_quarter_turn?: true}
+
+    for format <- @formats do
+      expected = DecodePlanner.open_options(chain, format, {3200, 800}, false, false)
+      actual = DecodePlanner.open_options_for(request, format, {3200, 800}, false, false)
+
+      assert actual == expected,
+             "mismatch for #{format}: #{inspect(actual)} != #{inspect(expected)}"
+    end
+
+    # And it genuinely differs from the unswapped arm: min(800/200, 3200/50) = 4
+    # (shrink 4) vs. min(3200/200, 800/50) = 16 (shrink 8).
+    assert DecodePlanner.open_options_for(request, :jpeg, {3200, 800})[:shrink] == 4
+
+    assert DecodePlanner.open_options_for(%Request{resize_target: {200, 50}}, :jpeg, {3200, 800})[
+             :shrink
+           ] == 8
+  end
+
+  test "an EXIF quarter turn and a user quarter turn cancel to no swap" do
+    # The `exif_5_cover_rot90` regression shape: EXIF 5/6/7/8 (90) + rot:90 =
+    # net 180, which does NOT transpose the displayed axes. XOR gives false;
+    # reading the EXIF term alone would wrongly swap.
+    assert {:ok, rotate} = Operation.rotate(90)
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 200}, {:px, 50})
+    chain = [rotate, resize]
+
+    request = %Request{resize_target: {200, 50}, user_quarter_turn?: true}
+
+    for format <- @formats do
+      expected = DecodePlanner.open_options(chain, format, {3200, 800}, true, true)
+      actual = DecodePlanner.open_options_for(request, format, {3200, 800}, true, true)
+
+      assert actual == expected,
+             "mismatch for #{format}: #{inspect(actual)} != #{inspect(expected)}"
+    end
+
+    # No swap -> shrink against {3200, 800}: min(3200/200, 800/50) = 16 -> 8.
+    assert DecodePlanner.open_options_for(request, :jpeg, {3200, 800}, true, true)[:shrink] == 8
+  end
+
   # --- trim? disables shrink ---
 
   test "trim? true disables shrink even when resize_target is present" do
