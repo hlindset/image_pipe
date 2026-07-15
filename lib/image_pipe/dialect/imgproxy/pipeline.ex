@@ -18,11 +18,15 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   """
 
   alias ImagePipe.Dialect.Imgproxy.Assembly
+  alias ImagePipe.Dialect.Imgproxy.CropRequest
+  alias ImagePipe.Dialect.Imgproxy.Orientation
   alias ImagePipe.Dialect.Imgproxy.PipelineRequest
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Transform.Chain
+  alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Lowering
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Flush
@@ -47,6 +51,109 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   @empty_carry %{effective_padding_scale: nil, canvas_preserving_padding_scale: nil}
 
   @doc """
+  The dialect's decode preflight: builds the `DecodePlanner.Request` that
+  informs shrink-on-load, from the request's FIRST pipeline only.
+
+  Decode happens once, before any pipeline runs, so only the first pipeline's
+  trim/crop/resize/rotate can safely inform it — a later `-` pipeline runs
+  against whatever the first already produced. This reproduces the framework
+  arm's own "only the first pipeline" shrink-on-load scoping.
+
+  Every field is derived to agree with what `DecodePlanner.open_options/5`
+  computes from the equivalent op chain — the framework arm's path — including
+  the three rules `resize_load_shrink/3` owns and a display-frame resolution of
+  `:auto` is not enough to reproduce on its own:
+
+    * `min_width`/`min_height` disable shrink outright, so a request carrying
+      either yields `resize_target: nil` rather than a box;
+    * a concrete target is inflated by `dpr` and the per-axis `zoom`, because
+      the residual resize will scale up to it and a shrink sized against the
+      uninflated box would decode below it and resize a softened image;
+    * a zero-sentinel or absent dimension is not a target at all, so an
+      auto/auto resize (a bare `dpr:`, say) yields no box.
+
+  `pipeline_assembly_test.exs`'s sibling `decode_preflight_test.exs` pins that
+  agreement against `open_options/5` directly rather than restating it.
+  """
+  @spec decode_request(%{pipelines: [PipelineRequest.t()]}, SourceGeometry.t()) ::
+          DecodePlanner.Request.t()
+  def decode_request(
+        %{pipelines: [%PipelineRequest{} = preq | _]},
+        %SourceGeometry{} = geometry
+      ) do
+    quarter_turn? = user_quarter_turn?(preq)
+    crop_extent = crop_extent(preq, planning_dims(geometry, quarter_turn?))
+
+    # `:auto` resolves against whatever extent actually feeds the resize: the
+    # crop's extent when this pipeline crops (the resize runs against the
+    # post-crop image), else the full planning frame.
+    %DecodePlanner.Request{
+      resize_target: resize_target(preq, crop_extent || planning_dims(geometry, quarter_turn?)),
+      crop_extent: crop_extent,
+      trim?: preq.trim != nil,
+      terminal_reduction: nil,
+      required_extent: nil,
+      user_quarter_turn?: quarter_turn?
+    }
+  end
+
+  # The frame this pipeline's crop and resize dimensions are expressed against —
+  # the source displayed through the NET turn (EXIF ∘ user rotate), which is the
+  # same frame `open_options_for/5` swaps its shrink axes into.
+  #
+  # NOT `geometry.display_dimensions`: that is swapped by the EXIF turn ALONE, so
+  # the two frames disagree exactly when a user rotate changes the net turn — a
+  # `rot:90` on an EXIF-quarter-turn source cancels to net 180, leaving the shrink
+  # axes unswapped while `display_dimensions` stays swapped. Since
+  # `display_dimensions` is `swap^exif(storage)` and the net turn is
+  # `exif XOR user`, applying the user turn to the display frame lands exactly on
+  # `swap^net(storage)`.
+  defp planning_dims(%SourceGeometry{display_dimensions: {w, h}}, true), do: {h, w}
+  defp planning_dims(%SourceGeometry{display_dimensions: dims}, false), do: dims
+
+  # Assembly emits at most one rotate, in stage 2 — always before the stage-4
+  # resize — so the chain's `user_rotate_angle_before_resize/1` sum is just this
+  # angle.
+  defp user_quarter_turn?(%PipelineRequest{orientation: %Orientation{rotate: angle}}),
+    do: rem(angle, 180) == 90
+
+  defp crop_extent(%PipelineRequest{crop: nil}, _display_dims), do: nil
+
+  defp crop_extent(%PipelineRequest{crop: %CropRequest{} = crop}, {dw, dh}),
+    do: {crop_axis_extent(crop.width, dw), crop_axis_extent(crop.height, dh)}
+
+  # Mirrors `DecodePlanner.crop_axis_extent/2` over the dialect's own crop
+  # dimension spellings (which `Assembly.crop_dimension/1` maps to the tagged
+  # measures that function reads).
+  defp crop_axis_extent(:auto, dim), do: dim
+  defp crop_axis_extent({:pixels, 0}, dim), do: dim
+  defp crop_axis_extent({:pixels, n}, dim), do: min(n, dim)
+  defp crop_axis_extent({:scale, scale}, dim), do: min(dim, max(1, round(dim * scale)))
+
+  # `resize_load_shrink/3`'s first clause: a min_* floor interacts with aspect
+  # ratio in ways that are not a per-axis multiplier, so the chain path declines
+  # to shrink at all. No target box can express that; `nil` reproduces it.
+  defp resize_target(%PipelineRequest{min_width: mw, min_height: mh}, _aspect_dims)
+       when not is_nil(mw) or not is_nil(mh),
+       do: nil
+
+  defp resize_target(%PipelineRequest{} = preq, {aw, ah}) do
+    case {target_extent(preq.width, preq.dpr, preq.zoom_x),
+          target_extent(preq.height, preq.dpr, preq.zoom_y)} do
+      {nil, nil} -> nil
+      {nil, h} -> {round(h * aw / ah), round(h)}
+      {w, nil} -> {round(w), round(w * ah / aw)}
+      {w, h} -> {round(w), round(h)}
+    end
+  end
+
+  # `px_target_extent/3` + `target_extent/3`: only a concrete pixel dimension is
+  # a target, inflated by dpr and the axis's zoom.
+  defp target_extent(nil, _dpr, _zoom), do: nil
+  defp target_extent({:pixels, 0}, _dpr, _zoom), do: nil
+  defp target_extent({:pixels, n}, dpr, zoom), do: n * (dpr || 1.0) * (zoom || 1.0)
+
+  @doc """
   Executes every `-` pipeline of an imgproxy request against a decoded state.
 
   `opts` accepts the same runtime options threaded to `Chain.execute/3`
@@ -58,18 +165,51 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   A pipeline whose geometry `Assembly.operations/1` rejects (`rs:fill` with no
   dimensions, say) halts the reduce with that rejection, unwrapped and
   byte-identical to the framework arm's own parse-time error.
+
+  Runs the input color-management preamble before the first pipeline; a failure
+  there is a decode failure, `{:error, {:decode, reason}}`.
   """
   @spec run(State.t(), SourceGeometry.t(), %{pipelines: [PipelineRequest.t()]}, keyword()) ::
-          {:ok, State.t()} | {:error, {:transform, term()} | Assembly.error()}
+          {:ok, State.t()}
+          | {:error, {:transform, term()} | {:decode, term()} | Assembly.error()}
   def run(%State{} = state, %SourceGeometry{} = _geometry, %{pipelines: pipelines}, opts) do
     ctx = build_ctx(opts)
 
+    with {:ok, %State{} = state} <- condition_color(state, opts) do
+      run_pipelines(pipelines, state, ctx)
+    end
+  end
+
+  # Mirrors `Executor.execute_pipelines/4`: the first failing pipeline halts the
+  # rest.
+  defp run_pipelines(pipelines, %State{} = state, ctx) do
     Enum.reduce_while(pipelines, {:ok, state}, fn %PipelineRequest{} = preq, {:ok, state} ->
       case run_pipeline(state, preq, ctx) do
         {:ok, %State{} = state} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  # Input color management is a data-determined preamble, not a Plan operation
+  # (AGENTS.md: its behavior is sourced entirely from the decoded image's own
+  # headers, which no operation struct can see). It imports the embedded profile
+  # into a working space before ANY operation runs — so it belongs here, ahead of
+  # the pipeline reduce, and runs exactly once per request rather than once per
+  # `-` pipeline (`condition/2` is idempotent via `color_imported?`, but the
+  # boundary is the request's).
+  #
+  # Mirrors `Executor.run_color_management/2` (`executor.ex:100-113`). A failure
+  # is a corrupt/unsupported profile — a decode failure, surfaced as `{:decode,
+  # _}` (415) to stay consistent with the materialization contract, NOT as
+  # `{:transform, _}`.
+  defp condition_color(%State{} = state, opts) do
+    hdr? = Keyword.get(opts, :supports_hdr?, false)
+
+    case InputColorManagement.condition(state, supports_hdr?: hdr?) do
+      {:ok, %State{} = state} -> {:ok, state}
+      {:error, {InputColorManagement, reason}} -> {:error, {:decode, reason}}
+    end
   end
 
   # Per-pipeline: fresh shape seed, fresh carry, own flush boundary. The seed
