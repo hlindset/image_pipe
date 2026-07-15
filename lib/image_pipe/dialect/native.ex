@@ -88,6 +88,10 @@ defmodule ImagePipe.Dialect.Native do
   # or dialect config ever changes this.
   @blurhash_content_type "text/plain; charset=utf-8"
 
+  # The probe subset collects no debug facts, so it hands `Delivery` nothing
+  # for the `X-ImagePipe-*` headers or the cache entry's stored debug.
+  @debug_info nil
+
   # The probe subset has no `orient` option — EXIF auto-orient is always on.
   # This is the dialect's own choice, per ImagePipe.Decode.with_image/4's
   # contract ("the EXIF policy is the CALLER's choice, never baked into this
@@ -283,7 +287,7 @@ defmodule ImagePipe.Dialect.Native do
     response_meta = %PlanResponse{}
     build_fun = build_fun(resolved, request, negotiation, config)
 
-    case Delivery.stream(self(), build_fun, representation, response_meta, config) do
+    case Delivery.stream(self(), build_fun, representation.cache_key, response_meta, config) do
       {:ok, prepared} ->
         Sender.send_result(
           conn,
@@ -402,7 +406,7 @@ defmodule ImagePipe.Dialect.Native do
          {:ok, clamped, _clamp_info} <- Clamp.clamp(state.image, result_limits(), config),
          {:ok, stream, content_type, _search_meta} <-
            Encoder.stream_output(clamped, resolved_output, config) do
-      pump.(stream, content_type, resolved_output)
+      pump.(stream, content_type, resolved_output, @debug_info)
     end
   rescue
     exception -> {:error, {:transform, {exception, __STACKTRACE__}}}

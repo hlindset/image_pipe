@@ -57,18 +57,19 @@ defmodule ImagePipe.Delivery do
     top_level?: true,
     deps: [
       ImagePipe.Cache,
+      ImagePipe.Debug,
       ImagePipe.Output,
       ImagePipe.Plan,
-      ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Telemetry
     ],
     exports: []
 
+  alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Plan.Response, as: PlanResponse
-  alias ImagePipe.Representation
   alias ImagePipe.Response.PreparedStream
+  alias ImagePipe.Telemetry.Trace
 
   @type build_fun :: ImagePipe.Delivery.Producer.build_fun()
 
@@ -79,35 +80,39 @@ defmodule ImagePipe.Delivery do
   minus the supervisor.
 
   `conn_owner_pid` MUST be `self()` at the call site (the process running
-  the calling dialect's `Plug.call/2`) — the coordinator's owner-death
-  detection is keyed off this pid.
+  the calling dialect's `Plug.call/2`). Two things are keyed off that: the
+  coordinator's owner-death detection, and the trace context this function
+  captures — the calling process's current span is the parent both hops
+  (coordinator and producer) adopt, so a dialect never passes, and can never
+  forget to pass, a trace context.
+
+  `cache_key` is `nil` when the calling dialect has no cache configured for
+  this request; the session then simply stages nothing.
 
   `build_fun` runs fetch → decode → transform → encode entirely inside the
   producer process; see the moduledoc for the bracket-containment contract
-  it must uphold.
+  it must uphold. It hands its encoder output to `pump`, along with the
+  `%ImagePipe.Debug.Info{}` it collected while producing it (or `nil` for a
+  dialect that collects none) — the session carries that onto both the
+  returned `%PreparedStream{}` and the cache entry it stages, stamping the
+  measured generation cost into it as the `:total` timing.
   """
-  @spec stream(pid(), build_fun(), Representation.t(), PlanResponse.t(), keyword()) ::
+  @spec stream(pid(), build_fun(), Key.t() | nil, PlanResponse.t(), keyword()) ::
           {:ok, PreparedStream.t()} | {:error, term()}
-  def stream(
-        conn_owner_pid,
-        build_fun,
-        %Representation{} = representation,
-        %PlanResponse{} = response_meta,
-        config
-      )
+  def stream(conn_owner_pid, build_fun, cache_key, %PlanResponse{} = response_meta, config)
       when is_pid(conn_owner_pid) and is_function(build_fun, 1) and is_list(config) do
     {:ok, coordinator} =
-      Coordinator.start(build_fun, conn_owner_pid, representation.cache_key, config)
+      Coordinator.start(build_fun, conn_owner_pid, cache_key, Trace.Stack.context(), config)
 
     _owner_teardown_monitor = Process.monitor(coordinator)
 
     case Coordinator.prepare(coordinator) do
-      {:ok, prepared} -> prepared_stream(coordinator, representation, response_meta, prepared)
+      {:ok, prepared} -> prepared_stream(coordinator, cache_key, response_meta, prepared)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp prepared_stream(coordinator, %Representation{} = representation, response_meta, prepared) do
+  defp prepared_stream(coordinator, cache_key, response_meta, prepared) do
     case PlanResponse.content_disposition(response_meta, prepared.content_type) do
       {:ok, content_disposition} ->
         {:ok,
@@ -120,7 +125,8 @@ defmodule ImagePipe.Delivery do
            next: fn -> Coordinator.next(coordinator) end,
            cancel: fn -> Coordinator.cancel(coordinator) end,
            resolved_output: prepared.resolved_output,
-           cache_key: representation.cache_key.hash
+           debug: prepared.debug,
+           cache_key: key_hash(cache_key)
          }}
 
       {:error, reason} ->
@@ -128,4 +134,7 @@ defmodule ImagePipe.Delivery do
         {:error, reason}
     end
   end
+
+  defp key_hash(%Key{hash: hash}), do: hash
+  defp key_hash(nil), do: nil
 end

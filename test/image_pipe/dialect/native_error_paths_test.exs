@@ -27,7 +27,6 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   alias ImagePipe.Dialect.Native
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response, as: PlanResponse
-  alias ImagePipe.Representation
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.Blur, as: ExecutableBlur
@@ -241,7 +240,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   defp bracketed_build_fun(chunks, test_pid) do
     fn pump ->
       try do
-        pump.(Stream.map(chunks, & &1), "image/jpeg", fake_resolved_output())
+        pump.(Stream.map(chunks, & &1), "image/jpeg", fake_resolved_output(), nil)
       after
         send(test_pid, :bracket_cleanup)
       end
@@ -298,7 +297,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
         end
 
         try do
-          pump.(Stream.map(["a", "b"], & &1), "image/jpeg", fake_resolved_output())
+          pump.(Stream.map(["a", "b"], & &1), "image/jpeg", fake_resolved_output(), nil)
         after
           send(test_pid, :bracket_cleanup)
         end
@@ -311,7 +310,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
           end
         end)
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
       coordinator_ref = Process.monitor(coordinator)
 
       prepare_task = Task.async(fn -> Coordinator.prepare(coordinator) end)
@@ -493,11 +492,10 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
       test_pid = self()
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
 
-      representation = %Representation{cache_key: fake_cache_key(), etag: "\"test\"", vary: []}
       config = [cache: {ObservingCacheProbe, []}]
 
       assert {:ok, prepared} =
-               Delivery.stream(self(), build_fun, representation, %PlanResponse{}, config)
+               Delivery.stream(self(), build_fun, fake_cache_key(), %PlanResponse{}, config)
 
       assert prepared.first_chunk == "a"
       assert_received {:cache_open_sink, _key, _metadata}
@@ -525,7 +523,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
       build_fun = bracketed_build_fun(["a", "b"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)

@@ -29,7 +29,9 @@ defmodule ImagePipe.Delivery.Coordinator do
   use GenServer
 
   alias ImagePipe.Cache
+  alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery.Producer
+  alias ImagePipe.Telemetry.Trace
 
   @call_timeout 60_000
   @cancel_timeout 2_000
@@ -39,6 +41,7 @@ defmodule ImagePipe.Delivery.Coordinator do
     :owner,
     :owner_monitor,
     :cache_key,
+    :trace_context,
     :config,
     :producer,
     :producer_monitor,
@@ -48,6 +51,7 @@ defmodule ImagePipe.Delivery.Coordinator do
     :cache_sink,
     :resolved_output,
     :content_type,
+    :fetch_started_at,
     phase: :new
   ]
 
@@ -61,10 +65,17 @@ defmodule ImagePipe.Delivery.Coordinator do
   # conn owner in production), which is not what "monitor-based" means here —
   # an owner dying should be *observed and handled* (graceful producer halt +
   # cache-sink abort), not have its death propagate as an exit signal.
-  @spec start(Producer.build_fun(), pid(), term(), keyword()) :: GenServer.on_start()
-  def start(build_fun, owner, cache_key, config)
+  @spec start(
+          Producer.build_fun(),
+          pid(),
+          Cache.Key.t() | nil,
+          Trace.Context.t() | nil,
+          keyword()
+        ) ::
+          GenServer.on_start()
+  def start(build_fun, owner, cache_key, trace_context, config)
       when is_function(build_fun, 1) and is_pid(owner) do
-    GenServer.start(__MODULE__, {build_fun, owner, cache_key, config})
+    GenServer.start(__MODULE__, {build_fun, owner, cache_key, trace_context, config})
   end
 
   @spec prepare(server(), timeout()) :: {:ok, map()} | {:error, term()}
@@ -77,9 +88,12 @@ defmodule ImagePipe.Delivery.Coordinator do
   def cancel(server, timeout \\ @cancel_timeout), do: call_session(server, :cancel, timeout)
 
   @impl GenServer
-  def init({build_fun, owner, cache_key, config}) when is_pid(owner) do
+  def init({build_fun, owner, cache_key, trace_context, config}) when is_pid(owner) do
     Process.flag(:trap_exit, true)
     Process.put(:"$callers", [owner | Process.get(:"$callers", [])])
+    # Hop A: adopt the request's trace context so spans emitted from THIS
+    # process (e.g. [:cache, :write] at commit) nest under the request root.
+    Trace.Stack.adopt(trace_context)
 
     {:ok,
      %__MODULE__{
@@ -89,13 +103,15 @@ defmodule ImagePipe.Delivery.Coordinator do
        # the other way around.
        owner_monitor: Process.monitor(owner),
        cache_key: cache_key,
+       trace_context: trace_context,
        config: config
      }}
   end
 
   @impl GenServer
   def handle_call(:prepare, from, %{phase: :new} = state) do
-    {:ok, producer} = Producer.start_link(state.build_fun)
+    fetch_started_at = System.monotonic_time(:microsecond)
+    {:ok, producer} = Producer.start_link(state.build_fun, state.trace_context)
     ref = Process.monitor(producer)
     producer_ref = Producer.request_next(producer, self())
 
@@ -106,7 +122,8 @@ defmodule ImagePipe.Delivery.Coordinator do
          producer_monitor: ref,
          phase: :preparing,
          pending: {:prepare, from},
-         producer_request_ref: producer_ref
+         producer_request_ref: producer_ref,
+         fetch_started_at: fetch_started_at
      }}
   end
 
@@ -252,11 +269,25 @@ defmodule ImagePipe.Delivery.Coordinator do
   end
 
   defp handle_producer_result(
-         {:ok, {:first_chunk, first_chunk, content_type, resolved_output}},
+         {:ok, {:first_chunk, first_chunk, content_type, resolved_output, debug}},
          %{pending: {:prepare, from}, cache_key: cache_key, config: config} = state
        ) do
     with_owner_check(state, fn state ->
-      cache_sink = Cache.open_sink(cache_key, resolved_output, config)
+      # Time-to-first-chunk is this session's generation cost: the cache's
+      # admission/eviction policy scores an entry by it, and it completes the
+      # producer's own stage timings as `:total`.
+      cost_us = System.monotonic_time(:microsecond) - state.fetch_started_at
+      debug = put_total_timing(debug, cost_us)
+
+      cache_sink =
+        Cache.open_sink(
+          cache_key,
+          resolved_output,
+          config
+          |> Keyword.put(:cost_us, cost_us)
+          |> Keyword.put(:debug_info, debug)
+        )
+
       cache_sink = Cache.write_chunk(cache_sink, first_chunk, config)
 
       GenServer.reply(
@@ -265,7 +296,8 @@ defmodule ImagePipe.Delivery.Coordinator do
          %{
            first_chunk: first_chunk,
            content_type: content_type,
-           resolved_output: resolved_output
+           resolved_output: resolved_output,
+           debug: debug
          }}
       )
 
@@ -407,4 +439,9 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp producer_down_reason(reason), do: {:session, {:producer_down, reason}}
 
   defp mark_failed(state), do: %{state | phase: :failed}
+
+  defp put_total_timing(nil, _cost_us), do: nil
+
+  defp put_total_timing(%Info{} = info, cost_us),
+    do: %{info | timings: Map.put(info.timings, :total, cost_us)}
 end

@@ -14,22 +14,37 @@ defmodule ImagePipe.Delivery.Producer do
   # for as long as `build_fun` stays "inside" its own callback stack, so the
   # lazy image/encoder never escapes to another process.
   #
-  # `pump/5` replies the FIRST chunk to the caller/ref that requested it (the
+  # `pump/6` replies the FIRST chunk to the caller/ref that requested it (the
   # same demand that triggered `build_fun` to run in the first place), then
   # `pump_loop/1` continues answering later `:next`/`:halt` demand from
   # whichever process sends it (normally the coordinator).
+  #
+  # `pump`'s fourth argument is the calling dialect's `%Debug.Info{}` (or
+  # `nil` for a dialect that collects none). The first-chunk reply is the only
+  # channel it can take: debug facts are collected here, in the producer, from
+  # values only this process sees (decoded dimensions, stage timings, encode
+  # search metadata), and they are needed on the far side of the hop by both
+  # the coordinator (which stores them on the cache entry) and the
+  # `%PreparedStream{}` (which renders them as headers).
+
+  alias ImagePipe.Debug.Info
+  alias ImagePipe.Telemetry.Trace
 
   @type pump_result :: :done | :halted | :empty
-  @type pump :: (Enumerable.t(), String.t(), term() -> pump_result())
+  @type pump :: (Enumerable.t(), String.t(), term(), Info.t() | nil -> pump_result())
   @type build_fun :: (pump() -> pump_result() | {:error, term()})
 
-  @spec start_link(build_fun()) :: {:ok, pid()}
-  def start_link(build_fun) when is_function(build_fun, 1) do
+  @spec start_link(build_fun(), Trace.Context.t() | nil) :: {:ok, pid()}
+  def start_link(build_fun, trace_context) when is_function(build_fun, 1) do
     caller_chain = Process.get(:"$callers", [])
 
     pid =
       spawn_link(fn ->
         Process.put(:"$callers", caller_chain)
+        # Hop B: adopt the request's trace context (passed as data, since the
+        # spawned process does not inherit the caller's trace stack) so spans
+        # emitted from inside `build_fun` nest under the request root.
+        Trace.Stack.adopt(trace_context)
         run(build_fun)
       end)
 
@@ -54,8 +69,8 @@ defmodule ImagePipe.Delivery.Producer do
     receive do
       {:next, caller, ref} ->
         result =
-          build_fun.(fn stream, content_type, resolved_output ->
-            pump(stream, content_type, resolved_output, caller, ref)
+          build_fun.(fn stream, content_type, resolved_output, debug ->
+            pump(stream, content_type, resolved_output, debug, caller, ref)
           end)
 
         finish(result, caller, ref)
@@ -75,10 +90,10 @@ defmodule ImagePipe.Delivery.Producer do
   defp finish({:error, _reason} = result, caller, ref), do: send(caller, {ref, result})
   defp finish(_pump_terminal, _caller, _ref), do: :ok
 
-  defp pump(stream, content_type, resolved_output, caller, ref) do
+  defp pump(stream, content_type, resolved_output, debug, caller, ref) do
     case safe_reduce(stream) do
       {:ok, chunk, stream_state} ->
-        send(caller, {ref, {:ok, {:first_chunk, chunk, content_type, resolved_output}}})
+        send(caller, {ref, {:ok, {:first_chunk, chunk, content_type, resolved_output, debug}}})
         pump_loop(stream_state)
 
       :empty ->

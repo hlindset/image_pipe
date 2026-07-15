@@ -4,6 +4,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Dialect.Native
@@ -186,6 +187,20 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       assert conn_b.status == 200
 
       assert key_a.hash == key_b.hash
+    end
+
+    # `cost_us` is what the FileSystem adapter's admission/eviction policy
+    # scores an entry by (`effective_cost = if cost_us > 0, do: cost_us, else:
+    # size_bytes`), so a zero here silently demotes every native entry to
+    # size-based scoring.
+    test "the stored entry records the real generation cost, not zero" do
+      config = opts(cache: {CacheProbe, []})
+
+      conn = get("/w=64/src/images/cat.jpg", config)
+      assert conn.status == 200
+
+      assert_received {:cache_open_sink, _key, %Entry.Metadata{cost_us: cost_us}}
+      assert cost_us > 0
     end
   end
 
@@ -489,7 +504,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   defp bracketed_build_fun(chunks, test_pid) do
     fn pump ->
       try do
-        pump.(Stream.map(chunks, & &1), "image/jpeg", fake_resolved_output())
+        pump.(Stream.map(chunks, & &1), "image/jpeg", fake_resolved_output(), nil)
       after
         send(test_pid, :bracket_cleanup)
       end
@@ -508,7 +523,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
           end
         end)
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
@@ -529,7 +544,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup
@@ -550,7 +565,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup
