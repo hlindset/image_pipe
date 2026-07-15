@@ -39,10 +39,8 @@ defmodule ImagePipe.Delivery.ContractTest do
     def abort_sink(_state, _opts), do: :ok
 
     defp target do
-      case Process.get(:"$callers") do
-        [pid | _rest] when is_pid(pid) -> pid
-        _callers -> self()
-      end
+      [pid | _rest] = Process.get(:"$callers")
+      pid
     end
   end
 
