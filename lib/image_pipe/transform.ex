@@ -53,11 +53,14 @@ defmodule ImagePipe.Transform do
       Operation.Gradient,
       Operation.Trim,
       Operation.Flush,
-      # Internal lowering seams — exported for the in-tree imgproxy strategy
-      # only; not part of the strategy SDK and subject to change without
-      # notice.
+      # Internal lowering seams — exported for the in-tree imgproxy consumers
+      # (the framework strategy and the inverted dialect); not part of the
+      # strategy SDK and subject to change without notice.
       Lowering,
-      ResizePlanning
+      ResizePlanning,
+      # Input color-management preamble — dialect-callable (spec G4); the
+      # framework's Executor seeds it internally.
+      InputColorManagement
     ]
 
   alias ImagePipe.Plan
