@@ -17,6 +17,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Padding
+  alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
@@ -66,6 +67,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
 
   defp paddings(ops), do: Enum.filter(ops, &match?(%Padding{}, &1))
   defp canvases(ops), do: Enum.filter(ops, &match?(%ExtendCanvas{}, &1))
+  defp resizes(ops), do: Enum.filter(ops, &match?(%Resize{}, &1))
 
   # A 400x300 source asked to become 800x600 with enlargement DENIED: the
   # !Enlarge() block caps the scale. Shared by several cases below.
@@ -119,6 +121,101 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
         )
 
       assert [%Padding{top: 20}] = paddings(ops)
+    end
+
+    test "fill_down overrides el:1 and still denies enlargement, so the scale caps" do
+      # `rs:fill_down:800:600/el:1/dpr:2/pd:10` on a 400x300 source.
+      #
+      # `enlargement/1`'s FIRST clause (`plan_builder.ex:830`) matches on
+      # resizing_type :fill_down and returns :deny, OVERRIDING `enlarge: true`.
+      # So padding_scale/4 takes its no-enlarge branch:
+      #   display source      = 400x300
+      #   base requested box  = 800x600 (dpr forced 1.0, enlarge forced true)
+      #   max_without_enlarge = min(400/800, 300/600) = 0.5
+      #   :resize compensation (max < 1.0) -> 2.0 / 0.5 = 4.0
+      #   capped -> min(4.0, max(0.5, 1.0)) = 1.0
+      #   padding top -> round_half_to_even(10 * 1.0) = 10
+      #
+      # Reading `enlarge` alone — `if(preq.enlarge, do: :allow, else: :deny)` —
+      # yields :allow, short-circuits to the raw dpr 2.0, and pads 20.
+      ops =
+        executables(
+          state_for(400, 300),
+          req([
+            preq(
+              width: {:pixels, 800},
+              height: {:pixels, 600},
+              resizing_type: :fill_down,
+              enlarge: true,
+              dpr: 2.0,
+              padding_top: 10
+            )
+          ])
+        )
+
+      assert [%Padding{top: 10}] = paddings(ops)
+    end
+
+    test "a zoom folds into the requested box, so it never reaches the auto/auto cap" do
+      # `zoom:0.5/dpr:2/pd:10`, enlarge off, on a 400x300 source. `zoom_x`/`zoom_y`
+      # make resize_rule_requested?/1 true, so an :auto/:auto :fit resize IS
+      # emitted — and the framework threads the zoom onto it, where it folds into
+      # the requested box (`Resize.resolve_base_dimensions/2` -> `apply_zoom/2`):
+      #   base (dpr forced 1.0, enlarge forced true) = 400*0.5 x 300*0.5 = 200x150
+      #   max_without_enlarge = min(400/200, 300/150) = 2.0
+      #   :resize compensation (max >= 1.0) -> uncompensated 2.0
+      #   capped -> min(2.0, max(2.0, 1.0)) = 2.0
+      #   padding top -> round_half_to_even(10 * 2.0) = 20
+      #
+      # This is the invariant `max_padding_scale_without_enlarge/2`'s own comment
+      # states: "A zoom folds into the requested box upstream, so a zoomed request
+      # never reaches this auto/auto clause." An emitted op WITHOUT zoom_x/zoom_y
+      # leaves `requested_*` at :auto, does reach that clause, caps to 1.0 and
+      # pads 10 — breaking the invariant the comment asserts.
+      ops =
+        executables(
+          state_for(400, 300),
+          req([preq(zoom_x: 0.5, zoom_y: 0.5, dpr: 2.0, padding_top: 10)])
+        )
+
+      assert [%Padding{top: 20}] = paddings(ops)
+    end
+  end
+
+  # ── which requests emit a resize at all ────────────────────────────────
+
+  describe "the {:auto, :auto, false} emission guard" do
+    test "w:0 with no height and no resize rule emits no resize at all" do
+      # `/w:0/pd:10/`: width {:pixels, 0}, height nil, resizing_type :fit (the
+      # default). The framework's `resize_operations/1` clauses 1 and 2 both miss
+      # (height is nil, not {:pixels, 0}), clause 3 misses (:fit), and clause 4
+      # routes to `resize_from_rule/1`, which MAPS THE DIMENSIONS FIRST —
+      # {:pixels, 0} -> :auto and nil -> :auto — then hits
+      # `resize_operations_for/3`'s `{:auto, :auto, false}` guard and emits `[]`.
+      #
+      # A flattened catch-all that never maps the dimensions can never reach that
+      # guard and emits a `Resize(:fit, :auto, :auto, dpr 1.0, :deny)` instead.
+      # The padding scale cannot see the difference (both give 10), so this
+      # asserts on the emitted op list, which can.
+      ops = executables(state_for(400, 300), req([preq(width: {:pixels, 0}, padding_top: 10)]))
+
+      assert resizes(ops) == []
+      assert [%Padding{top: 10}] = paddings(ops)
+    end
+
+    test "the same w:0 WITH a resize rule does emit (the guard's third element)" do
+      # Identical geometry, plus `dpr:2` -> resize_rule_requested?/1 true ->
+      # `{:auto, :auto, true}` -> emits. Pins that the guard keys off the rule and
+      # is not a blanket "both auto -> skip".
+      ops =
+        executables(
+          state_for(400, 300),
+          req([preq(width: {:pixels, 0}, dpr: 2.0, padding_top: 10)])
+        )
+
+      assert [%Resize{}] = resizes(ops)
+      # auto/auto + no zoom -> cap 1.0 -> round_half_to_even(10 * 1.0) = 10
+      assert [%Padding{top: 10}] = paddings(ops)
     end
   end
 
@@ -220,6 +317,36 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
         )
 
       assert [%ExtendCanvas{rule: {:dimensions, {:pixels, 400}, {:pixels, 300}}}] = canvases(ops)
+    end
+
+    test "extend_aspect_ratio emits its OWN canvas alongside the extend canvas" do
+      # `canvas_operations/1` (`plan_builder.ex:417-426`) emits BOTH
+      # `extend_operation/1` and `extend_aspect_ratio_operation/1`, in that order.
+      # The aspect-ratio canvas box is `{:ratio, w, 1}` x `{:ratio, h, 1}`, which
+      # `Lowering.canvas_executables/2` turns into an `{:aspect_ratio, {w, h}}`
+      # rule — deliberately NOT scaled by the carry (it is computed from the
+      # already-dpr-scaled image; `scale_canvas_dimension/2` passes ratios
+      # through).
+      ops =
+        executables(
+          state_for(400, 300),
+          req([capped(dpr: 0.5, extend: true, extend_aspect_ratio: true)])
+        )
+
+      assert [
+               %ExtendCanvas{rule: {:dimensions, {:pixels, 400}, {:pixels, 300}}},
+               %ExtendCanvas{rule: {:aspect_ratio, {800.0, 600.0}}}
+             ] = canvases(ops)
+    end
+
+    test "extend_aspect_ratio alone emits the aspect-ratio canvas and no extend canvas" do
+      ops =
+        executables(
+          state_for(400, 300),
+          req([capped(dpr: 0.5, extend_aspect_ratio: true)])
+        )
+
+      assert [%ExtendCanvas{rule: {:aspect_ratio, {800.0, 600.0}}}] = canvases(ops)
     end
   end
 
