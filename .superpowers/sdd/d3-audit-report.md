@@ -155,10 +155,11 @@ whole — only that it is not what distinguishes the two arms *today*. The
 `ImagePipe.Dialect.Native.Delivery.Coordinator` — the shipped model for
 `ImagePipe.Delivery` — "ALWAYS requests a graceful halt first
 (`Producer.request_halt/2`), backstopped by a timeout that force-kills a
-wedged producer" (`coordinator.ex:56-59`; rationale at `coordinator.ex:1-27`'s
-moduledoc: a forceful kill would skip the producer's `try/after` bracket
-cleanup, breaking the cleanup-runs-exactly-once invariant on owner disconnect,
-not just on explicit cancel). So migrating **does** convert force-kill to
+wedged producer" (`coordinator.ex:19-21`, in the header comment block at
+`coordinator.ex:4-27`; rationale at `coordinator.ex:22-27`: a forceful kill
+would skip the producer's `try/after` bracket cleanup, breaking the
+cleanup-runs-exactly-once invariant on owner disconnect, not just on explicit
+cancel). So migrating **does** convert force-kill to
 graceful-halt-with-backstop on the owner-death arm (and would on an app-tree
 arm, if one existed post-migration) — a second delta, orthogonal to the one
 above. This is not new information: §5 already scopes it as "force-kill →
@@ -182,8 +183,9 @@ delta before this correction and remains so after it.
 
 `ImagePipe.Dialect.Native.Delivery.Coordinator` — the shipped, in-production
 model for the target primitive — states this explicitly in a comment directly
-above its `start/4` entry point (`coordinator.ex:56-59`; not the moduledoc,
-which is the bracket-cleanup note quoted just above):
+above its `start/4` entry point (`coordinator.ex:56-59`; not the header comment
+block at `coordinator.ex:4-27`, which is the bracket-cleanup note quoted just
+above — `coordinator.ex:2` is `@moduledoc false`):
 
 > "No OTP supervisor and no link to the caller — the coordinator is reached
 > only via `Process.monitor/1` in both directions... `GenServer.start/2` (not
@@ -252,6 +254,24 @@ mix test test/image_pipe/request/delivery_owner_cleanup_baseline_test.exs \
          test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs
 # Result: 3 passed
 ```
+
+### 6d. Known residual hole in this gate (Task 3 must close it separately)
+
+Baseline A pins producer *termination* and *cache-sink abort*. Neither implies
+the producer's decode `try/after` **bracket cleanup** actually ran. A migrated
+`ImagePipe.Delivery` whose graceful halt silently regressed to a link-kill
+would still terminate the producer — Baseline A stays green — while skipping
+the bracket, which is precisely the invariant `coordinator.ex:22-27` says
+graceful halt exists to protect ("cleanup-runs-exactly-once on owner
+disconnect").
+
+This is **not** a fixable gap in Task 1: the current supervised topology has
+*no* bracket cleanup on owner death to characterize (it force-kills), so no
+green-against-the-untouched-topology baseline can exist for it. It is a
+property the migration *introduces*, so it must be covered by a Task 3 test of
+the new behavior (not a baseline), and recorded in Task 26's exit-criterion 9
+evidence. Flagged here so the ruling is made with the gate's actual coverage
+known, rather than an assumed-complete one.
 
 ---
 
