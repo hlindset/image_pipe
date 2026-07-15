@@ -1,7 +1,7 @@
-defmodule ImagePipe.Dialect.Native.Delivery.Coordinator do
+defmodule ImagePipe.Delivery.Coordinator do
   @moduledoc false
 
-  # Monitor-based session coordinator for the native dialect's streaming
+  # Monitor-based session coordinator for a dialect's streaming
   # delivery — modeled on `ImagePipe.Request.SourceSession`, simplified (no
   # OTP supervisor, no custom-render branch, no detector identity, opaque
   # `build_fun` instead of a `%Plan{}`-driven producer).
@@ -18,10 +18,10 @@ defmodule ImagePipe.Dialect.Native.Delivery.Coordinator do
   # exits, so a non-:normal exit reason terminates it immediately, skipping
   # any `try/after` still on its stack), this coordinator ALWAYS requests a
   # graceful halt first (`Producer.request_halt/2`), backstopped by a timeout
-  # that force-kills a wedged producer. This is deliberate: the native
+  # that force-kills a wedged producer. This is deliberate: the calling
   # dialect's producer runs its whole encode/pump loop INSIDE
   # `ImagePipe.Decode.with_image/4`'s bracket callback, wrapped in a
-  # `try/after` (see `ImagePipe.Dialect.Native`'s `build_fun`) so bracket
+  # `try/after` (owned by the calling dialect's `build_fun`) so bracket
   # cleanup runs exactly once — a forceful kill would skip that `after`
   # block, breaking the cleanup-runs-exactly-once invariant on owner
   # disconnect, not just on explicit cancel.
@@ -29,7 +29,7 @@ defmodule ImagePipe.Dialect.Native.Delivery.Coordinator do
   use GenServer
 
   alias ImagePipe.Cache
-  alias ImagePipe.Dialect.Native.Delivery.Producer
+  alias ImagePipe.Delivery.Producer
 
   @call_timeout 60_000
   @cancel_timeout 2_000

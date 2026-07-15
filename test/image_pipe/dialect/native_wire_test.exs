@@ -5,8 +5,8 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Dialect.Native
-  alias ImagePipe.Dialect.Native.Delivery.Coordinator
   alias ImagePipe.Dialect.Native.Parser
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
@@ -466,7 +466,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
 
   # ── delivery lifecycle: monitor direction + bracket containment ────────
   #
-  # These exercise ImagePipe.Dialect.Native.Delivery.Coordinator/Producer
+  # These exercise ImagePipe.Delivery.Coordinator/Producer
   # directly with a synthetic build_fun, rather than going through the full
   # HTTP call/2 chain — the flagged invariants here are the monitor
   # direction and the bracket-cleanup contract, which are properties of the

@@ -1,7 +1,7 @@
-defmodule ImagePipe.Dialect.Native.Delivery do
+defmodule ImagePipe.Delivery do
   @moduledoc """
-  Dialect-owned streaming delivery session for the native URL dialect's image
-  terminal — a simplified, monitor-based analog of
+  Dialect-owned streaming delivery session for a dialect's image terminal —
+  a simplified, monitor-based analog of
   `ImagePipe.Request.SourceSession`/`Producer` [pipelines §Design principles
   1, streaming corner case].
 
@@ -9,7 +9,7 @@ defmodule ImagePipe.Dialect.Native.Delivery do
 
   Three processes, three distinct ownership roles:
 
-    * **conn owner** — the process running `ImagePipe.Dialect.Native.call/2`
+    * **conn owner** — the process running the calling dialect's `Plug.call/2`
       (`self()` at the point `stream/5` is called, always). It holds the
       `%ImagePipe.Response.PreparedStream{}` `next`/`cancel` closures and
       monitors the coordinator for teardown visibility.
@@ -25,7 +25,7 @@ defmodule ImagePipe.Dialect.Native.Delivery do
     * **producer** (`Delivery.Producer`) — linked AND monitored by the
       coordinator (mirrors `SourceSession`'s own producer exactly). It stays
       *inside* the fetch/decode brackets for its entire lifetime: `build_fun`
-      (constructed by `ImagePipe.Dialect.Native`'s `generate/6`) enters
+      (constructed by the calling dialect) enters
       `ImagePipe.Decode.with_image/4` (which itself enters
       `ImagePipe.Source.with_fetched/3`) and, from INSIDE that nested
       callback, calls the `pump` function this module hands it. `pump` runs
@@ -34,7 +34,7 @@ defmodule ImagePipe.Dialect.Native.Delivery do
       `Enumerable` never leave the producer process, and never leave the
       bracket: `build_fun` does not return until the encoder reaches EOF or
       is halted, so the bracket's own cleanup (a `try/after` around the
-      pipeline+encode+pump body, see `ImagePipe.Dialect.Native`) always runs
+      pipeline+encode+pump body, owned by the calling dialect) always runs
       exactly once, whether by normal completion, an owner disconnect, or an
       explicit `cancel`.
 
@@ -43,7 +43,7 @@ defmodule ImagePipe.Dialect.Native.Delivery do
   `SourceSession` force-kills its producer on owner-down
   (`Process.exit(producer, :shutdown)` — the producer never traps exits, so
   the exit signal terminates it immediately, with no further Elixir code
-  running). This coordinator does not do that: because the native dialect's
+  running). This coordinator does not do that: because the calling dialect's
   producer runs a `try/after` around its own encode/pump body (the bracket-
   cleanup instrumentation), a forceful kill would skip that `after` block.
   Instead, owner-down (like an explicit `cancel/1`) sends a graceful
@@ -53,12 +53,24 @@ defmodule ImagePipe.Dialect.Native.Delivery do
   that cleanup may not run).
   """
 
-  alias ImagePipe.Dialect.Native.Delivery.Coordinator
+  use Boundary,
+    top_level?: true,
+    deps: [
+      ImagePipe.Cache,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Representation,
+      ImagePipe.Response,
+      ImagePipe.Telemetry
+    ],
+    exports: []
+
+  alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Representation
   alias ImagePipe.Response.PreparedStream
 
-  @type build_fun :: ImagePipe.Dialect.Native.Delivery.Producer.build_fun()
+  @type build_fun :: ImagePipe.Delivery.Producer.build_fun()
 
   @doc """
   Starts a delivery session, drives it through its first demand, and returns
@@ -67,7 +79,7 @@ defmodule ImagePipe.Dialect.Native.Delivery do
   minus the supervisor.
 
   `conn_owner_pid` MUST be `self()` at the call site (the process running
-  `ImagePipe.Dialect.Native.call/2`) — the coordinator's owner-death
+  the calling dialect's `Plug.call/2`) — the coordinator's owner-death
   detection is keyed off this pid.
 
   `build_fun` runs fetch → decode → transform → encode entirely inside the

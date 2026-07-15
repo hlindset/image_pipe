@@ -60,12 +60,12 @@ run = [
   # --ignore: mirrors the ExDNA.Credo `ignore:` list in .credo.exs — the six
   # files carrying the probe's deliberate, blessed dialect<->framework mirrors
   # (Decode/SourceFormat vs Request.Processor/SourceFormat; Native.Pipeline vs
-  # Transform.Executor helpers; Native.Delivery.{Coordinator,Producer} vs
+  # Transform.Executor helpers; Delivery.{Coordinator,Producer} vs
   # Request.SourceSession/Producer; Response.Conditional vs Request.HTTPCache).
   # Each is justified in .credo.exs and recorded in the Task 21.6 core-exports
   # report as a duplicated-not-extracted item; the standalone gate must mirror
   # the plugin's ignore list or the two duplication gates diverge.
-  "mix ex_dna --exclude-macro alias --ignore lib/image_pipe/decode.ex --ignore lib/image_pipe/decode/source_format.ex --ignore lib/image_pipe/dialect/native/pipeline.ex --ignore lib/image_pipe/dialect/native/delivery/coordinator.ex --ignore lib/image_pipe/dialect/native/delivery/producer.ex --ignore lib/image_pipe/response/conditional.ex",
+  "mix ex_dna --exclude-macro alias --ignore lib/image_pipe/decode.ex --ignore lib/image_pipe/decode/source_format.ex --ignore lib/image_pipe/dialect/native/pipeline.ex --ignore lib/image_pipe/delivery/coordinator.ex --ignore lib/image_pipe/delivery/producer.ex --ignore lib/image_pipe/response/conditional.ex",
   "mix test",
 ]
 

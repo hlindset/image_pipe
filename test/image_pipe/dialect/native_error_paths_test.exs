@@ -22,9 +22,9 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Delivery
+  alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Dialect.Native
-  alias ImagePipe.Dialect.Native.Delivery
-  alias ImagePipe.Dialect.Native.Delivery.Coordinator
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Representation

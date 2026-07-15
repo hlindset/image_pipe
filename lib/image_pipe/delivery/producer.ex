@@ -1,7 +1,7 @@
-defmodule ImagePipe.Dialect.Native.Delivery.Producer do
+defmodule ImagePipe.Delivery.Producer do
   @moduledoc false
 
-  # Demand-driven producer process for the native dialect's streaming delivery,
+  # Demand-driven producer process for a dialect's streaming delivery,
   # modeled on `ImagePipe.Request.SourceSession.Producer`'s message protocol
   # (`{:next, receiver, ref}` / `{:halt, receiver, ref}`, replying
   # `{ref, result}`), with one structural difference from that precedent:
@@ -9,7 +9,7 @@ defmodule ImagePipe.Dialect.Native.Delivery.Producer do
   # decode/transform/encode). `build_fun` is a 1-arity function that receives
   # `pump` and MUST call it exactly once, from inside its own nested brackets
   # (e.g. `ImagePipe.Decode.with_image/4`'s callback), once it has an encoder
-  # `Enumerable` ready — see `ImagePipe.Dialect.Native.Delivery`'s moduledoc for
+  # `Enumerable` ready — see `ImagePipe.Delivery`'s moduledoc for
   # the bracket-containment invariant this enforces: the pump loop below runs
   # for as long as `build_fun` stays "inside" its own callback stack, so the
   # lazy image/encoder never escapes to another process.

@@ -40,6 +40,7 @@ defmodule ImagePipe.Dialect.Native do
     deps: [
       ImagePipe.Cache,
       ImagePipe.Decode,
+      ImagePipe.Delivery,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
@@ -58,8 +59,8 @@ defmodule ImagePipe.Dialect.Native do
 
   alias ImagePipe.Cache
   alias ImagePipe.Decode
+  alias ImagePipe.Delivery
   alias ImagePipe.Dialect.Native.Config
-  alias ImagePipe.Dialect.Native.Delivery
   alias ImagePipe.Dialect.Native.Errors
   alias ImagePipe.Dialect.Native.Identity
   alias ImagePipe.Dialect.Native.Negotiation
