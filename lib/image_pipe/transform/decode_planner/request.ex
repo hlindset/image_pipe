@@ -29,7 +29,18 @@ defmodule ImagePipe.Transform.DecodePlanner.Request do
       by that fraction directly. Rounding it to a whole pixel would move the
       resulting ratio, and rounding a sub-pixel target lands on zero.
 
-  `{nil, nil}` and `nil` are equivalent (neither axis is a target); prefer `nil`.
+  **A resize with no targeted axis MUST normalize to `nil`, never `{nil, nil}`.**
+  The two are not interchangeable: `open_options_for/5`'s precedence reads this
+  field's *presence*, so `{nil, nil}` matches the `resize_target` clause and
+  shadows `terminal_reduction`, silently costing a terminal its load shrink —
+
+      resize_target: nil,        terminal_reduction: {32, 32}  ->  shrink: 8
+      resize_target: {nil, nil}, terminal_reduction: {32, 32}  ->  no shrink
+
+  A dialect that uses no terminal is unaffected today, which is exactly why the
+  distinction is stated here rather than left to be rediscovered: both shipped
+  pipelines normalize (`Native.Pipeline.resize_target/1`,
+  `Imgproxy.Pipeline.resize_target/1`), and the next one must too.
   """
   @type resize_target() :: {number() | nil, number() | nil}
 
