@@ -145,7 +145,7 @@ defmodule ImagePipe.Request.SourceSessionAppShutdownCharacterizationTest do
     }
   end
 
-  defp resolved_source(fetch \\ :fixture) do
+  defp resolved_source do
     %ResolvedSource{
       adapter: :path,
       source_kind: :path,
@@ -153,7 +153,7 @@ defmodule ImagePipe.Request.SourceSessionAppShutdownCharacterizationTest do
       internal_cache: :enabled,
       http_cache: :inherit,
       cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
-      fetch: fetch
+      fetch: :fixture
     }
   end
 

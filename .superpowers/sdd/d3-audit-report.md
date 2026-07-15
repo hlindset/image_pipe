@@ -57,7 +57,7 @@ end
 ```
 No `:max_children` (defaults to `:infinity`), no `:max_restarts`/`:max_seconds`
 tuning, no custom `start_child` gating. `start_session/3`
-(`source_session_supervisor.ex:29-33`) forwards directly to
+(`source_session_supervisor.ex:30-34`) forwards directly to
 `DynamicSupervisor.start_child/2` with no queueing or rejection logic.
 
 **Verdict: confirmed.** There is no admission policy to lose. A host wanting
@@ -102,11 +102,20 @@ known, accepted behavior delta. Not re-checked by this task.
 
 ---
 
-## 6. Application-tree shutdown — the OPEN item, now resolved by test
+## 6. Application-tree shutdown — the OPEN item, characterized (supervisor-stop arm) + inferred (app-stop chain)
 
-This is the one row the spec marks **OPEN**, requiring proof by a
-characterization test rather than inference, per the spec's explicit
-sequencing rule ("this must be **proven by a test, not inferred**").
+This is the one row the spec marks **OPEN**. The spec's sequencing rule
+requires the guarantee to be **proven by a test, not inferred** — Baseline B
+does that for the *supervisor-stop* arm specifically (§6a, §6c): it drives a
+real `SourceSessionSupervisor` and a real `Supervisor.stop/2`. It does not,
+and cannot without actually invoking `Application.stop(:image_plug)`, prove
+that the same guarantee holds for the full application-shutdown chain —
+`Application.stop` → `ImagePipe.Supervisor` → `SourceSessionSupervisor`. That
+link rests on the child-spec at `lib/application.ex:26` (`SourceSessionSupervisor`
+is listed as a direct child of `ImagePipe.Supervisor`, which `Application.stop`
+tears down transitively per standard OTP supervision semantics) and is an
+**inference**, not a characterization. The inference is sound — it is simply
+not what the test asserts, and should not be described as "proven by test."
 
 ### 6a. What the current (supervised) topology actually guarantees
 
@@ -135,14 +144,46 @@ termination path is the `[:cache, :stage]` telemetry event
 Baseline A and Baseline B use it as their exactly-once observation point.
 
 **Correction to how the spec's "plausibly the same outcome" framing might be
-read:** the delta between the two topologies is not *gracefulness* — both are
-equally forceful today. The delta is **scope / reachability**, addressed next.
+read:** *within the current supervised topology*, the delta between its two
+forced-termination arms (owner-death and app-tree shutdown) is not
+*gracefulness* — both are equally forceful today, as shown above. That much of
+the original correction stands.
+
+This does **not** mean gracefulness is a non-issue for the migration as a
+whole — only that it is not what distinguishes the two arms *today*. The
+*target* monitor topology changes the termination mechanism itself:
+`ImagePipe.Dialect.Native.Delivery.Coordinator` — the shipped model for
+`ImagePipe.Delivery` — "ALWAYS requests a graceful halt first
+(`Producer.request_halt/2`), backstopped by a timeout that force-kills a
+wedged producer" (`coordinator.ex:56-59`; rationale at `coordinator.ex:1-27`'s
+moduledoc: a forceful kill would skip the producer's `try/after` bracket
+cleanup, breaking the cleanup-runs-exactly-once invariant on owner disconnect,
+not just on explicit cancel). So migrating **does** convert force-kill to
+graceful-halt-with-backstop on the owner-death arm (and would on an app-tree
+arm, if one existed post-migration) — a second delta, orthogonal to the one
+above. This is not new information: §5 already scopes it as "force-kill →
+graceful halt + ~1s backstop (G6) … a known, accepted behavior delta." The
+two deltas should not be conflated:
+
+- **Gracefulness of the termination mechanism** (force-kill vs.
+  graceful-halt-with-backstop) — a *current-vs-target* delta, already flagged
+  and accepted in §5/G6. Not re-litigated by this section.
+- **Scope / reachability of app-tree shutdown** (whether a delivery is
+  reachable from `:image_plug`'s supervision tree at all, independent of
+  owner liveness) — the actual OPEN item this section (§6b onward) resolves.
+
+Neither delta changes the other's status, and neither changes §8's
+recommendation: that recommendation rests on findings 1–3, finding 6's narrow
+scope, and the native-dialect precedent (§8 points 1–3) — none of which turn
+on the gracefulness question, which was already priced in as an accepted
+delta before this correction and remains so after it.
 
 ### 6b. What changes under the monitor topology
 
 `ImagePipe.Dialect.Native.Delivery.Coordinator` — the shipped, in-production
-model for the target primitive — is explicit in its own moduledoc
-(`lib/image_pipe/dialect/native/delivery/coordinator.ex:1-27`):
+model for the target primitive — states this explicitly in a comment directly
+above its `start/4` entry point (`coordinator.ex:56-59`; not the moduledoc,
+which is the bracket-cleanup note quoted just above):
 
 > "No OTP supervisor and no link to the caller — the coordinator is reached
 > only via `Process.monitor/1` in both directions... `GenServer.start/2` (not

@@ -32,6 +32,14 @@ defmodule ImagePipe.Telemetry.DeliverySpanParentageBaselineTest do
   alias ImgproxyWireConformanceTest.CacheProbe
   alias ImgproxyWireConformanceTest.OriginImage
 
+  # No `telemetry_prefix` here (project convention otherwise requires one for
+  # telemetry-asserting tests): `TestExporter`/`Capture` attach via a global
+  # `persistent_term` singleton, not a prefix-scoped handler, so a prefix
+  # wouldn't isolate anything. Cross-test leakage is instead bounded the same
+  # way `cross_process_test.exs` (this file's prior art) bounds it: this
+  # module is `async: false`, and ExUnit runs sync modules serially after all
+  # async ones, so no concurrently-running test can attach its own receiver
+  # in between.
   setup do
     TestExporter.set_receiver(self())
     :ok = TestExporter.attach(self())

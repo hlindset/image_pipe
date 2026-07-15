@@ -19,14 +19,22 @@ defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
   `after` callback never fires on owner kill, in either the encode-stream or
   a hand-rolled `Stream.resource` case). So this test does not observe cleanup
   via a stream-finalize hook — no such hook reliably fires here. Instead it
-  observes the real `[:cache, :stage]` telemetry event that
-  `ImagePipe.Request.SourceSession` emits when it aborts the open cache sink
-  on owner death (`cache: :stage_abandoned, reason: :owner_down`) — genuine
-  production instrumentation (a documented `:telemetry` event, part of the
-  `ImagePipe.Cache` adapter contract), not a supervisor-internal count. This
+  observes the real `[:cache, :stage]` telemetry event fired when the open
+  cache sink is aborted on owner death (`cache: :stage_abandoned,
+  reason: :owner_down`) — genuine production instrumentation (a documented
+  `:telemetry` event, part of the `ImagePipe.Cache` adapter contract), not a
+  supervisor-internal count. This
   satisfies the required semantics (an in-flight signal to time the kill, and
   an exactly-once cleanup signal) with a signal that is actually guaranteed to
   fire, rather than one whose skeleton merely looked plausible.
+
+  The cache-abort telemetry event and the producer's own termination are
+  siblings fired from the same owner-DOWN handler, not one derived from the
+  other — an implementation that emits the cache-abort event but leaks the
+  producer process would still satisfy a telemetry-only assertion. This test
+  therefore also binds and monitors the producer pid (delivered through the
+  `{:delivery_in_flight, producer}` in-flight signal, a real extension point)
+  and asserts its `:DOWN`, so a leaked producer fails this baseline.
   """
 
   use ExUnit.Case, async: false
@@ -70,7 +78,7 @@ defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
   end
 
   test "owner death mid-stream cleans up exactly once (public-surface observation)" do
-    register_stream_events!()
+    register_event_target!()
 
     telemetry_prefix = [:"d3_baseline_a_#{System.unique_integer([:positive])}"]
     stage_event = telemetry_prefix ++ [:cache, :stage]
@@ -105,17 +113,26 @@ defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
     owner_ref = Process.monitor(owner)
 
     # In-flight signal: first chunk already delivered to the conn, second
-    # chunk pending — this is our window to kill the owner mid-stream.
-    assert_receive {:delivery_in_flight, _producer}, 2_000
+    # chunk pending — this is our window to kill the owner mid-stream. Bind
+    # and monitor the producer pid itself (see moduledoc): the cache-abort
+    # telemetry below and the producer's termination are independent
+    # siblings, so only monitoring the producer directly proves it doesn't
+    # leak.
+    assert_receive {:delivery_in_flight, producer}, 2_000
+    producer_ref = Process.monitor(producer)
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :killed}, 2_000
 
     # cleanup exactly once: the cache-sink abort telemetry fires exactly one time
     assert_receive {:cache_stage, %{cache: :stage_abandoned, reason: :owner_down}}, 2_000
     refute_receive {:cache_stage, _}, 100
+
+    # the producer process itself must actually terminate on owner death —
+    # the stronger, load-bearing half of the guarantee (see moduledoc)
+    assert_receive {:DOWN, ^producer_ref, :process, ^producer, _}, 2_000
   end
 
-  defp register_stream_events! do
+  defp register_event_target! do
     Process.register(self(), __MODULE__.StreamEvents)
   end
 end
