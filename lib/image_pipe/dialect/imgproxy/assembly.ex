@@ -586,24 +586,50 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
            padding_left: left
          } = request
        ) do
-    with {:ok, operation} <-
+    with {:ok, pixel_ratio} <- dpr_ratio(request),
+         {:ok, operation} <-
            Operation.padding(
              {:px, top},
              {:px, right},
              {:px, bottom},
              {:px, left},
-             pixel_ratio: dpr_ratio(request),
+             pixel_ratio: pixel_ratio,
              fill: :transparent
            ) do
       {:ok, [operation]}
     end
   end
 
-  defp dpr_ratio(%PipelineRequest{dpr: nil}), do: {:ratio, 1, 1}
+  @doc """
+  The exact rational one request's `dpr` lowers to — the same value every
+  operation in its pipeline carries.
 
-  defp dpr_ratio(%PipelineRequest{dpr: dpr}) do
-    {:ok, %{dpr: ratio}} = Operation.resize(:fit, :auto, :auto, dpr: dpr)
-    ratio
+  Public so the decode preflight (`Pipeline.decode_request/2`) can inflate its
+  target extent by the SAME rational the resize operation carries, rather than
+  re-deriving it from the raw float. `Plan.Operation` lowers a float dpr through
+  `Float.round(7)` (`operation.ex:721-726`), so the two part company past the
+  seventh decimal: `dpr:1.0000000000001` carries `{:ratio, 1, 1}` — a flat 400px
+  target — while the float still inflates that target to 400.00000000004, which
+  is enough to drop a 3200px jpeg's shrink from 8 to 4 and decode 4x the pixels.
+
+  Derived by lowering through `Operation.resize/4` itself rather than this
+  module's own `tagged_ratio_from_decimal/1`: the point is to carry whatever the
+  operation carries, and only `Plan.Operation` decides that.
+
+  The error is reachable from the grammar, not defensive: `dpr` is
+  `:positive_float`, so a dpr that rounds to zero at the seventh decimal
+  (`dpr:0.00000001`) parses but has no rational, and `operations/1` rejects the
+  request with the same `{:invalid_operation, :resize, _}` its resize stage
+  raises — byte-identical to the framework arm's own parse-time rejection.
+  """
+  @spec dpr_ratio(PipelineRequest.t()) ::
+          {:ok, {:ratio, pos_integer(), pos_integer()}} | {:error, Operation.error()}
+  def dpr_ratio(%PipelineRequest{dpr: nil}), do: {:ok, {:ratio, 1, 1}}
+
+  def dpr_ratio(%PipelineRequest{dpr: dpr}) do
+    with {:ok, %{dpr: ratio}} <- Operation.resize(:fit, :auto, :auto, dpr: dpr) do
+      {:ok, ratio}
+    end
   end
 
   # ── stage 8: background ──────────────────────────────────────────────────
@@ -632,10 +658,14 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   lowers to an exact rational, so re-deriving the extent from the raw float
   instead lands a pixel off wherever the two disagree — `{:scale, 0.29}` against
   2850 is `round(2850 * 29/100)` = 827, where the float is 826.4999999999999.
+
+  Total over `CropRequest.dimension()` — every spelling in the type has a
+  measure, so the `{:ok, _}` is the shape `crop_operations/1`'s `with` wants
+  rather than a real failure mode, and the preflight's hard match on it is not
+  swallowing an error.
   """
   @spec crop_dimension(CropRequest.dimension()) ::
           {:ok, :full_axis | {:px, pos_integer()} | {:ratio, non_neg_integer(), pos_integer()}}
-          | {:error, Operation.error()}
   def crop_dimension(dimension)
 
   def crop_dimension(:auto), do: {:ok, :full_axis}

@@ -74,6 +74,16 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
     * a zero-sentinel or absent dimension is not a target at all, so an
       auto/auto resize (a bare `dpr:`, say) yields no box.
 
+  Convergence is structural, not asserted: every value this function inflates or
+  clamps by is read back from `Assembly` — the one module that lowers the
+  dialect's spellings — so it is *the* value the operation carries, not a second
+  derivation of it. `Assembly.crop_dimension/1` for a crop's tagged measure,
+  `Assembly.dpr_ratio/1` for the dpr's exact rational. (`zoom` needs no such
+  routing: `Assembly` hands it to the operation as the same plain float, and
+  the planner passes floats through untouched.) Re-deriving any of them from the
+  raw request value instead is what breaks the agreement — see `resize_target/1`
+  and `crop_axis_extent/2`.
+
   An axis with no target stays `nil` and an inflated extent stays fractional —
   see `resize_target/1`, and `t:DecodePlanner.Request.resize_target/0` for why
   the field admits both.
@@ -163,19 +173,44 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # divides by the fractional dpr/zoom-inflated target directly, so rounding here
   # would move the ratio (visibly, on webp's continuous `scale:`) and would round
   # a sub-pixel target — `rs:fit:1:0/dpr:0.4` — down to a division by zero.
+  # The dpr is resolved through `Assembly.dpr_ratio/1` — the one place the
+  # request's dpr lowers — for the same reason `crop_axis_extent/2` routes
+  # through `Assembly.crop_dimension/1`: the resize operation carries an exact
+  # rational, and re-deriving the extent from the raw float here is what
+  # punishes you. `Plan.Operation` lowers a float dpr through `Float.round(7)`,
+  # so `dpr:1.0000000000001` carries `{:ratio, 1, 1}` and targets a flat 400px,
+  # where the float inflates the same target to 400.00000000004 — enough to drop
+  # a 3200px jpeg's shrink from 8 to 4 and decode 4x the pixels.
+  #
+  # `zoom` is deliberately NOT routed the same way: `Assembly` hands it to the
+  # operation as a plain float and `DecodePlanner.zoom_factor/1` passes floats
+  # through untouched, so the raw value IS the value the operation carries.
+  #
+  # A dpr with no rational (`dpr:0.00000001`, which rounds to zero at the
+  # seventh decimal) is a request `Assembly.operations/1` rejects outright. The
+  # preflight runs ahead of that rejection, so it declines to shrink rather than
+  # sizing a decode against a target no operation will ever carry.
   defp resize_target(%PipelineRequest{} = preq) do
-    case {target_extent(preq.width, preq.dpr, preq.zoom_x),
-          target_extent(preq.height, preq.dpr, preq.zoom_y)} do
-      {nil, nil} -> nil
-      target -> target
+    with {:ok, dpr} <- Assembly.dpr_ratio(preq),
+         {target_w, target_h} when not (is_nil(target_w) and is_nil(target_h)) <-
+           {target_extent(preq.width, dpr, preq.zoom_x),
+            target_extent(preq.height, dpr, preq.zoom_y)} do
+      {target_w, target_h}
+    else
+      _no_target -> nil
     end
   end
 
   # `px_target_extent/3` + `target_extent/3`: only a concrete pixel dimension is
-  # a target, inflated by dpr and the axis's zoom.
+  # a target, inflated by dpr and the axis's zoom. The multiplication is ordered
+  # `(n * dpr) * zoom` to match `DecodePlanner.target_extent/3`'s own
+  # `dim * (n / d) * zoom_factor(zoom)` — float multiplication does not
+  # associate, and the two paths must land on the same bits, not merely close.
   defp target_extent(nil, _dpr, _zoom), do: nil
   defp target_extent({:pixels, 0}, _dpr, _zoom), do: nil
-  defp target_extent({:pixels, n}, dpr, zoom), do: n * (dpr || 1.0) * (zoom || 1.0)
+
+  defp target_extent({:pixels, n}, {:ratio, num, den}, zoom),
+    do: n * (num / den) * (zoom || 1.0)
 
   @doc """
   Executes every `-` pipeline of an imgproxy request against a decoded state.

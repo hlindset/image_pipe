@@ -166,6 +166,48 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
              ] == 4
     end
 
+    test "dpr resolves through the exact rational the resize op carries" do
+      # The dpr twin of the `{:scale, 0.29}` crop row below. `Plan.Operation`
+      # lowers a float dpr through `Float.round(7)` (`operation.ex:721-726`), so
+      # `dpr:1.0000000000001` carries `{:ratio, 1, 1}` and the residual resize's
+      # real target is a flat 400x300 — chain ratio 3200/400 = 8, jpeg shrink 8.
+      # Re-deriving the extent from the raw float inflates the target to
+      # 400.00000000004, drops the ratio a hair under 8, and decodes at shrink 4:
+      # 4x the pixels the framework arm decodes. On webp's continuous `scale:`
+      # every such epsilon shows, in either direction.
+      #
+      # `dpr` is `:positive_float` in the grammar, so these are parser-valid
+      # requests the framework arm serves.
+      for dpr <- [1.0000000000001, 0.9999999999999, 2.0000000000001, 0.4000000000001],
+          format <- @formats do
+        fields = [width: {:pixels, 400}, height: {:pixels, 300}, dpr: dpr]
+
+        assert preflight_options(fields, format, false, false) ==
+                 chain_options(fields, format, false, false),
+               "dpr #{dpr} disagrees for #{format}"
+      end
+    end
+
+    test "a dpr with no rational is not a target" do
+      # `dpr:0.00000001` rounds to zero at the seventh decimal, so it has no
+      # rational: the resize stage rejects the request outright, byte-identical
+      # to the framework arm's own parse-time rejection. The preflight runs ahead
+      # of that rejection, so it declines to shrink rather than sizing a decode
+      # against a target no operation will ever carry — the request never reaches
+      # a decode anyway.
+      fields = [width: {:pixels, 400}, height: {:pixels, 300}, dpr: 0.00000001]
+
+      assert {:error, {:invalid_operation, :resize, _}} = Assembly.operations(preq(fields))
+
+      decode_request = Pipeline.decode_request(request([preq(fields)]), geometry())
+      assert decode_request.resize_target == nil
+
+      refute Keyword.has_key?(
+               DecodePlanner.open_options_for(decode_request, :jpeg, @source_dims),
+               :shrink
+             )
+    end
+
     test "zoom inflates the target, per axis" do
       assert_agrees_with_chain(width: {:pixels, 400}, height: {:pixels, 300}, zoom_x: 2.0)
       assert_agrees_with_chain(width: {:pixels, 400}, height: {:pixels, 300}, zoom_y: 2.0)
@@ -374,10 +416,30 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
     ])
   end
 
-  # Spans sub-1.0 (deflating) as well as inflating factors. Bounded away from
-  # denormal territory: `dpr * zoom` underflowing to 0.0 divides by zero on BOTH
-  # arms identically, which is a framework property, not a preflight divergence.
-  defp factor, do: one_of([constant(nil), map(integer(1..400), &(&1 / 100))])
+  # Spans sub-1.0 (deflating) as well as inflating factors, and — deliberately —
+  # past the SEVENTH decimal. `Plan.Operation` lowers a float `dpr` through
+  # `Float.round(7)`, so the rational the resize op carries and the raw float
+  # part company only there; a generator bounded at two decimals is bit-identical
+  # on both arms and could never see the one dpr divergence it exists to catch.
+  # The `tick` term perturbs a plain two-decimal factor at the thirteenth decimal,
+  # which round-trips through the lowering to the same rational the unperturbed
+  # value gives — so the chain path's target is unmoved and the raw float's is not.
+  #
+  # Bounded away from denormal territory: `dpr * zoom` underflowing to 0.0 divides
+  # by zero on BOTH arms identically, which is a framework property, not a
+  # preflight divergence. Bounded away from zero at the seventh decimal too — a
+  # dpr that rounds to 0 there has no rational at all, and `Assembly.operations/1`
+  # rejects the request rather than assembling a chain to compare against (the
+  # `no rational` row above covers that shape).
+  defp factor do
+    one_of([
+      constant(nil),
+      map(integer(1..400), &(&1 / 100)),
+      map({integer(1..400), integer(-9..9)}, fn {units, tick} ->
+        units / 100 + tick * 1.0e-13
+      end)
+    ])
+  end
 
   # --- the user-rotate axis swap (the 9a field, consumed) -----------------
 
