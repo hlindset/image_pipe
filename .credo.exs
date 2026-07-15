@@ -72,6 +72,14 @@
         # TRANSIENT — the originals are deleted in phase 2, at which point these
         # entries go with them (phase-1 dialect copy, retired in phase 2 per spec
         # 2026-07-15).
+        #
+        # ImagePipe.Dialect.Imgproxy.Pipeline is ignored for BOTH reasons at once:
+        # like Native.Pipeline it mirrors Transform.Executor's private overlay/2
+        # and boundary_source_dimensions/1 (Executor is not exported from the
+        # Transform boundary and is core-frozen, so a dialect's own resolve-loop
+        # driver cannot call it), and like the leaf structs it carries phase-1
+        # copies of frozen Parser.Imgproxy.PlanBuilder geometry (resize_mode/1
+        # now; the verbatim carry math in Task 8) that retire in phase 2.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
@@ -81,6 +89,7 @@
            "lib/image_pipe/dialect/imgproxy/effects.ex",
            "lib/image_pipe/dialect/imgproxy/format.ex",
            "lib/image_pipe/dialect/imgproxy/orientation.ex",
+           "lib/image_pipe/dialect/imgproxy/pipeline.ex",
            "lib/image_pipe/dialect/imgproxy/pipeline_request.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
            "lib/image_pipe/response/conditional.ex"
