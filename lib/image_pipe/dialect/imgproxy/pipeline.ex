@@ -54,9 +54,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   `:measure_dims`, `:continue` — mirroring `Executor.run/5`'s own injectable
   seams, defaulting to the real `Chain.execute/3`, a live Vix header read, and
   `NeutralResolver.continue/4` respectively. Real callers never set these.
+
+  A pipeline whose geometry `Assembly.operations/1` rejects (`rs:fill` with no
+  dimensions, say) halts the reduce with that rejection, unwrapped and
+  byte-identical to the framework arm's own parse-time error.
   """
   @spec run(State.t(), SourceGeometry.t(), %{pipelines: [PipelineRequest.t()]}, keyword()) ::
-          {:ok, State.t()} | {:error, {:transform, term()}}
+          {:ok, State.t()} | {:error, {:transform, term()} | Assembly.error()}
   def run(%State{} = state, %SourceGeometry{} = _geometry, %{pipelines: pipelines}, opts) do
     ctx = build_ctx(opts)
 
@@ -85,8 +89,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
     pctx = Assembly.pipeline_ctx(preq)
 
-    with {:ok, state, shape, _carry} <-
-           run_ops(state, shape, @empty_carry, Assembly.operations(preq), pctx, ctx) do
+    with {:ok, ops} <- Assembly.operations(preq),
+         {:ok, state, shape, _carry} <- run_ops(state, shape, @empty_carry, ops, pctx, ctx) do
       flush_boundary(state, shape, ctx)
     end
   end
