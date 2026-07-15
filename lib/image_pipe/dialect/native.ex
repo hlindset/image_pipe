@@ -41,6 +41,7 @@ defmodule ImagePipe.Dialect.Native do
       ImagePipe.Cache,
       ImagePipe.Decode,
       ImagePipe.Delivery,
+      ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
