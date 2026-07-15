@@ -271,11 +271,11 @@ defmodule ImagePipe.Dialect.Native.PipelinePixelTest do
       }
     end
 
-    test "a plain resize sets resize_target with :auto resolved against display dims" do
+    test "a plain resize sets resize_target, leaving an :auto axis untargeted" do
       request = req([group(%{resize: %{w: 400, h: :auto, fit: :contain, enlarge: false}})])
       decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
 
-      assert decode_request.resize_target == {400, 300}
+      assert decode_request.resize_target == {400, nil}
       assert decode_request.crop_extent == nil
       assert decode_request.trim? == false
       assert decode_request.terminal_reduction == nil
@@ -293,7 +293,7 @@ defmodule ImagePipe.Dialect.Native.PipelinePixelTest do
 
       decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
 
-      assert decode_request.resize_target == {300, 200}
+      assert decode_request.resize_target == {300, nil}
       assert decode_request.crop_extent == {600, 400}
     end
 
@@ -315,7 +315,7 @@ defmodule ImagePipe.Dialect.Native.PipelinePixelTest do
       decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
 
       assert decode_request.trim? == false
-      assert decode_request.resize_target == {400, 300}
+      assert decode_request.resize_target == {400, nil}
     end
 
     test "output=blurhash sets the terminal reduction regardless of groups" do

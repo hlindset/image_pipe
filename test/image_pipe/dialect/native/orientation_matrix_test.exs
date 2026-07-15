@@ -314,17 +314,20 @@ defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
 
   describe "shrink correctness (orientation 6 quarter turn)" do
     # A 1600x1200 STORAGE-frame source tagged EXIF-6 (quarter turn): DISPLAY
-    # dims are 1200x1600. `w=300` (h: auto) resolved against the 1200x1600
-    # DISPLAY frame is {300, 400} (300 * 1600 / 1200 = 400) — the preflight
-    # assertion below. The real decode must then shrink the STORAGE axes
-    # (1600x1200) by a factor computed against the axis-SWAPPED comparison
-    # (as if storage were display-shaped, 1200x1600) vs that {300, 400}
-    # target: min(1200/300, 1600/400) = 4.0 -> a jpeg shrink-on-load of 4,
-    # landing the loaded (pre-flush, still-storage-orientation) image at
-    # 1600/4 x 1200/4 = 400x300 -- NOT 300x400 (which would be the result of
-    # skipping the axis swap and shrinking against the unswapped storage dims
-    # directly: min(1600/300, 1200/400) = 3.0 -> shrink 2 -> 800x600, a
-    # visibly different, wrong, loaded size).
+    # dims are 1200x1600. `w=200` targets the DISPLAY width and nothing else, so
+    # the preflight's target is {200, nil} — the assertion below. The real decode
+    # must then shrink the STORAGE axes (1600x1200) by a factor computed against
+    # the axis-SWAPPED comparison (as if storage were display-shaped, 1200x1600)
+    # vs that target: 1200/200 = 6.0 -> a jpeg shrink-on-load of 4, landing the
+    # loaded (pre-flush, still-storage-orientation) image at 1600/4 x 1200/4 =
+    # 400x300. Skipping the axis swap would divide the unswapped storage width
+    # instead: 1600/200 = 8.0 -> shrink 8 -> 200x150, a visibly different, wrong,
+    # loaded size.
+    #
+    # The 200 is load-bearing, not arbitrary: a single-axis target makes the swap
+    # decide which source axis is divided, so the two candidates must straddle a
+    # jpeg power-of-2 shrink boundary to be told apart. `w=300` gives 4.0 vs 5.33
+    # — both quantize to shrink 4, and the test would pass either way.
     defp exif_six_source do
       {:ok, base} = Image.new(1600, 1200, color: [90, 100, 110])
       base_png = Image.write!(base, :memory, suffix: ".png")
@@ -332,7 +335,7 @@ defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
     end
 
     test "decode_request/2 plans resize_target against the DISPLAY frame" do
-      request = parse!(["w=300"])
+      request = parse!(["w=200"])
 
       geometry = %SourceGeometry{
         storage_dimensions: {1600, 1200},
@@ -343,11 +346,11 @@ defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
 
       decode_request = Pipeline.decode_request(request, geometry)
 
-      assert decode_request.resize_target == {300, 400}
+      assert decode_request.resize_target == {200, nil}
     end
 
     test "the real decode shrinks the STORAGE axes consistently with that display-frame plan" do
-      request = parse!(["w=300"])
+      request = parse!(["w=200"])
       opts = source_opts(exif_six_source())
 
       {:ok, {loaded_w, loaded_h}} =

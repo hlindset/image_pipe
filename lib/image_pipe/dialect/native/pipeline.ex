@@ -84,34 +84,36 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
         %Request{groups: [%Group{} = group | _]} = request,
         %SourceGeometry{} = geometry
       ) do
-    {display_w, display_h} = geometry.display_dimensions
-    crop_extent = crop_extent(group, {display_w, display_h})
-
-    # `:auto` resolves against whatever extent actually feeds the resize: the
-    # crop's extent when a crop precedes it in this group (the resize itself
-    # runs against the post-crop image, not the original display frame),
-    # else the full display dims.
-    resize_aspect_dims = crop_extent || {display_w, display_h}
-
     %DecodePlanner.Request{
-      resize_target: resize_target(group.resize, resize_aspect_dims),
-      crop_extent: crop_extent,
+      resize_target: resize_target(group.resize),
+      crop_extent: crop_extent(group, geometry.display_dimensions),
       trim?: group.trim != nil,
       terminal_reduction: terminal_reduction(request.output),
       required_extent: nil
     }
   end
 
-  defp resize_target(nil, _aspect_dims), do: nil
+  # An `:auto` axis is not a target: it stays `nil`, so `ratio_from_targets/4`
+  # — the same function the framework's `open_options/5` reaches through
+  # `resize_load_shrink/3` — takes the targeted axis's ratio alone, exactly as
+  # the chain path does. Synthesizing the missing axis from the aspect ratio
+  # instead binds that function's `min/2` tighter than the chain path whenever
+  # the source is not exactly proportional to the requested box, shrinking less
+  # and decoding more pixels than the framework arm for the same request.
+  # A resize with NO targeted axis normalizes to `nil`, not `{nil, nil}`: the
+  # planner's precedence reads `resize_target`'s presence, so an empty box would
+  # shadow `terminal_reduction` and cost the blurhash terminal its load shrink.
+  defp resize_target(nil), do: nil
 
-  defp resize_target(%{w: :auto, h: h}, {dw, dh}) when is_integer(h),
-    do: {round(h * dw / dh), h}
+  defp resize_target(%{w: w, h: h}) do
+    case {target_axis(w), target_axis(h)} do
+      {nil, nil} -> nil
+      target -> target
+    end
+  end
 
-  defp resize_target(%{w: w, h: :auto}, {dw, dh}) when is_integer(w),
-    do: {w, round(w * dh / dw)}
-
-  defp resize_target(%{w: w, h: h}, _aspect_dims) when is_integer(w) and is_integer(h),
-    do: {w, h}
+  defp target_axis(:auto), do: nil
+  defp target_axis(n) when is_integer(n), do: n
 
   defp crop_extent(%Group{region: {_x, _y, w, h}}, {dw, dh}),
     do: {round(resolve_length(w, dw)), round(resolve_length(h, dh))}
