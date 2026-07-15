@@ -26,6 +26,7 @@ defmodule ImagePipe.Request.DeliveryBuildTest do
   alias ImagePipe.Request.DeliveryBuild
   alias ImagePipe.Source.Resolved, as: ResolvedSource
   alias ImagePipe.SourceTest.ValidAdapter
+  alias ImagePipe.Test.Delivery.SessionProbe
 
   @event_target __MODULE__.StreamEvents
 
@@ -111,6 +112,75 @@ defmodule ImagePipe.Request.DeliveryBuildTest do
         end,
         fn state ->
           if target = Process.whereis(@event_target), do: send(target, {:stream_finalized, state})
+        end
+      )
+    end
+  end
+
+  # The two stubs below park the producer at a chosen point and hand the test
+  # its pid, so the test can release the producer and kill the owner in a
+  # pinned order. That is what forces the producer's reply to be queued at the
+  # coordinator BEFORE the owner's :DOWN — the one ordering the coordinator's
+  # `handle_info({:DOWN, ...})` clause never sees, and the only one its
+  # pre-reply owner check can act on.
+
+  defmodule OwnerDownBeforeDoneImage do
+    @event_target ImagePipe.Request.DeliveryBuildTest.StreamEvents
+
+    def stream!(_image, suffix: ".jpg") do
+      Stream.resource(
+        fn -> :first end,
+        fn
+          :first ->
+            {["first chunk"], :finish}
+
+          :finish ->
+            if target = Process.whereis(@event_target) do
+              send(target, {:before_stream_done, self()})
+            end
+
+            receive do
+              :continue_stream_done -> {[], :done}
+            end
+
+          :done ->
+            {:halt, :done}
+        end,
+        fn state ->
+          if target = Process.whereis(@event_target) do
+            send(target, {:owner_down_stream_finalized, state})
+          end
+        end
+      )
+    end
+  end
+
+  defmodule OwnerDownBeforeSecondChunkImage do
+    @event_target ImagePipe.Request.DeliveryBuildTest.StreamEvents
+
+    def stream!(_image, suffix: ".jpg") do
+      Stream.resource(
+        fn -> :first end,
+        fn
+          :first ->
+            {["first chunk"], :second}
+
+          :second ->
+            if target = Process.whereis(@event_target) do
+              send(target, {:before_second_chunk, self()})
+            end
+
+            receive do
+              :continue_second_chunk -> {["second chunk"], :done}
+            end
+
+          :done ->
+            {:halt, :done}
+        end,
+        fn state ->
+          if target = Process.whereis(@event_target) do
+            send(target, {:owner_down_second_chunk_finalized, state})
+          end
         end
       )
     end
@@ -301,15 +371,39 @@ defmodule ImagePipe.Request.DeliveryBuildTest do
     owner =
       spawn(fn ->
         result = Delivery.stream(self(), build_fun, cache_key(), %PlanResponse{}, config)
-        send(parent, {:delivery, self(), result})
+        # The coordinator monitors its owner, so only the owner can see it.
+        send(parent, {:delivery, self(), SessionProbe.coordinators(), result})
 
         receive do
           :stop_owner -> :ok
         end
       end)
 
-    assert_receive {:delivery, ^owner, result}, 5_000
-    {owner, result}
+    assert_receive {:delivery, ^owner, coordinators, result}, 5_000
+    {owner, coordinators, result}
+  end
+
+  # Waits until `matcher` matches a message sitting in `pid`'s mailbox.
+  #
+  # Used only against a `:sys.suspend/1`-frozen coordinator, to pin the order
+  # two signals land in. There is no message to wait on here — the event being
+  # observed is another process's mailbox contents — so this polls, bounded,
+  # and fails loudly with the mailbox it saw.
+  defp await_queued(pid, matcher, deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 2_000
+    {:messages, messages} = Process.info(pid, :messages)
+
+    cond do
+      Enum.any?(messages, matcher) ->
+        :ok
+
+      System.monotonic_time(:millisecond) < deadline ->
+        Process.sleep(1)
+        await_queued(pid, matcher, deadline)
+
+      true ->
+        flunk("no matching message queued at #{inspect(pid)}; mailbox: #{inspect(messages)}")
+    end
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do
@@ -501,7 +595,7 @@ defmodule ImagePipe.Request.DeliveryBuildTest do
   test "cache staging aborts staged chunks on owner death" do
     attach_telemetry([[:image_pipe, :cache, :stage]])
 
-    {owner, {:ok, prepared}} =
+    {owner, _coordinators, {:ok, prepared}} =
       start_owned_cached_delivery(opts: [image_module: CleanupStreamImage])
 
     owner_ref = Process.monitor(owner)
@@ -523,6 +617,99 @@ defmodule ImagePipe.Request.DeliveryBuildTest do
 
     refute_received {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
                      %{cache: :stage_abandoned}}
+  end
+
+  # The two cases below pin the coordinator's PRE-REPLY owner check — the guard
+  # that runs before it stages, commits, or answers with a producer result it
+  # has already received. Its `handle_info({:DOWN, ...})` clause covers the easy
+  # ordering (owner dies while the session is idle); these cover the race it
+  # cannot see: the producer's reply is already queued when the owner dies, so
+  # the coordinator would otherwise commit an entry for a delivery whose owner
+  # is gone. Both freeze the coordinator with `:sys.suspend/1` to pin that
+  # order deterministically rather than hoping for it.
+  test "cache staging checks pending owner death before committing at done" do
+    attach_telemetry([[:image_pipe, :cache, :stage]])
+
+    {owner, [coordinator], {:ok, prepared}} =
+      start_owned_cached_delivery(opts: [image_module: OwnerDownBeforeDoneImage])
+
+    owner_ref = Process.monitor(owner)
+    assert prepared.first_chunk == "first chunk"
+    assert_received {:cache_write_chunk, "first chunk"}
+
+    parent = self()
+    _caller = spawn(fn -> send(parent, {:next_result, prepared.next.()}) end)
+
+    assert_receive {:before_stream_done, producer}, 2_000
+    producer_ref = Process.monitor(producer)
+
+    :sys.suspend(coordinator)
+
+    send(producer, :continue_stream_done)
+    assert_receive {:DOWN, ^producer_ref, :process, ^producer, :normal}, 2_000
+    await_queued(coordinator, &match?({_ref, {:ok, :done}}, &1))
+
+    send(owner, :stop_owner)
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+    await_queued(coordinator, &match?({:DOWN, _ref, :process, ^owner, _reason}, &1))
+
+    :sys.resume(coordinator)
+
+    assert_receive {:next_result, {:error, {:session, {:owner_down, :normal}}}}, 2_000
+    assert_receive {:cache_abort_sink, ["first chunk"]}, 2_000
+    refute_received {:cache_commit_sink, _chunks}
+
+    assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
+                    %{
+                      result: :ok,
+                      cache: :stage_abandoned,
+                      reason: :owner_down,
+                      output_format: :jpeg
+                    }}
+  end
+
+  test "next checks pending owner death before returning later chunks" do
+    attach_telemetry([[:image_pipe, :cache, :stage]])
+
+    {owner, [coordinator], {:ok, prepared}} =
+      start_owned_cached_delivery(opts: [image_module: OwnerDownBeforeSecondChunkImage])
+
+    owner_ref = Process.monitor(owner)
+    assert prepared.first_chunk == "first chunk"
+    assert_received {:cache_write_chunk, "first chunk"}
+
+    parent = self()
+    caller = spawn(fn -> send(parent, {:next_result, prepared.next.()}) end)
+    caller_ref = Process.monitor(caller)
+
+    assert_receive {:before_second_chunk, producer}, 2_000
+
+    :sys.suspend(coordinator)
+
+    send(producer, :continue_second_chunk)
+    await_queued(coordinator, &match?({_ref, {:ok, {:chunk, "second chunk"}}}, &1))
+
+    send(owner, :stop_owner)
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+    await_queued(coordinator, &match?({:DOWN, _ref, :process, ^owner, _reason}, &1))
+
+    :sys.resume(coordinator)
+
+    assert_receive {:next_result, {:error, {:session, {:owner_down, :normal}}}}, 2_000
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+
+    # The second chunk was received but never staged, and the entry never
+    # commits: only the first chunk is in the aborted sink.
+    assert_receive {:cache_abort_sink, ["first chunk"]}, 2_000
+    refute_received {:cache_commit_sink, _chunks}
+
+    assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
+                    %{
+                      result: :ok,
+                      cache: :stage_abandoned,
+                      reason: :owner_down,
+                      output_format: :jpeg
+                    }}
   end
 
   test "cache staging write errors fail open after stream completion" do
