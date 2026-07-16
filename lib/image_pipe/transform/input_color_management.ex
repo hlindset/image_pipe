@@ -142,6 +142,39 @@ defmodule ImagePipe.Transform.InputColorManagement do
     end
   end
 
+  @doc """
+  Hands `condition/2`'s two `State` fields to the encoder, as private image
+  metadata, at the delivery boundary.
+
+  The read-side counterpart of `condition/2`: it is the ONLY writer of the
+  `imagepipe-icc-imported` / `imagepipe-icc-backup` headers that
+  `ImagePipe.Output.Encoder`'s colorspace-to-result step reads (mirroring
+  imgproxy `colorspaceToResult`). It lives here, next to `condition/2`, because
+  `condition/2` is the only writer of the `State` fields it carries — the pair
+  is one seam, and every caller that runs the preamble must also run this or the
+  encoder silently takes the "no import ran" branch on an imported image.
+
+  Call it once per request, after the last operation and before encoding. Both
+  in-tree dialects and `ImagePipe.Request.Processor` do.
+
+  A state that never imported (`color_imported?: false`, e.g. a profile-less or
+  linear-light source) is returned unchanged: there is nothing to carry.
+  """
+  @spec stamp_carry(State.t()) :: State.t()
+  def stamp_carry(%State{color_imported?: false} = state), do: state
+
+  def stamp_carry(%State{source_color_profile: profile} = state) when is_binary(profile) do
+    {:ok, image} =
+      VixImage.mutate(state.image, fn mut ->
+        :ok = MutableImage.set(mut, "imagepipe-icc-backup", :VipsBlob, profile)
+        :ok = MutableImage.set(mut, "imagepipe-icc-imported", :gint, 1)
+      end)
+
+    State.set_image(state, image)
+  end
+
+  def stamp_carry(%State{} = state), do: state
+
   defp to_colorspace(image, target), do: Operation.colourspace(image, target)
 
   # Best-effort: only Radiance-coded sources need unpacking; everything else is a
