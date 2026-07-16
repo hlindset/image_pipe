@@ -85,6 +85,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Dialect.Imgproxy.ResponseMeta
   alias ImagePipe.Dialect.Imgproxy.Signature
   alias ImagePipe.Dialect.Imgproxy.Source, as: ImgproxySource
+  alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
@@ -297,7 +298,22 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   defp parse_stop_metadata({:ok, %Request{}}), do: %{result: :ok}
-  defp parse_stop_metadata({:error, _reason}), do: %{result: :error}
+
+  # `error:` names WHICH parse failed — `:unknown_option`, `:invalid_format`,
+  # `:missing_dimensions`, `:invalid_encrypted_source`. Telemetry is part of the
+  # runtime observability contract (AGENTS.md) and `Error.tag/1` output is a
+  # product-neutral, non-sensitive atom, so there is no reason to withhold it.
+  #
+  # This deliberately does NOT reproduce the framework's value, which is the
+  # constant `:error` for every parse failure it can have: `ImagePipe.Plug`'s
+  # `wrap_parser_error/1` re-wraps `{:error, reason}` as `{:error, {:parser,
+  # {:error, reason}}}`, so `result_metadata/1`'s `Error.tag(error)` reads the
+  # tag of `{:error, reason}` — the atom `:error` — and never reaches `reason`.
+  # Observed on the framework arm for three unrelated failures (a missing
+  # dimension, an invalid format, an unknown option): `%{error: :error}` each
+  # time. Matching that would carry the quirk into a chain that does not share
+  # the double-wrap, to emit a constant conveying nothing.
+  defp parse_stop_metadata({:error, reason}), do: %{result: :error, error: Error.tag(reason)}
 
   # -- pre-fetch gates --------------------------------------------------------
 
@@ -458,8 +474,12 @@ defmodule ImagePipe.Dialect.Imgproxy do
           config
         )
 
+      # The negotiated policy's headers ride the failure, as they do on the
+      # framework's own delivery errors (`Runner.process_prepared_stream/6` tags
+      # `policy.headers` onto every `Delivery.stream/5` error): this response was
+      # Accept-negotiated even though it failed.
       {:error, reason} ->
-        Errors.send(conn, reason, config)
+        Errors.send(conn, reason, config, negotiation.policy.headers)
     end
   end
 

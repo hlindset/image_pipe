@@ -1255,32 +1255,27 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       assert byte_size(conn.resp_body) > 0
     end
 
-    # FRAMEWORK-ONLY — DIVERGENCE D2, not a missing config key. This request runs
-    # fine on both arms and they disagree on a header:
-    #   GET /_/plain/images/vector.svg   Accept: image/avif,image/webp
-    #     framework: 415 + `Vary: Accept`
-    #     dialect:   415 + NO Vary        <-- left: [], right: ["Accept"]
-    # Status and body match; only the Vary is lost. It matters: the response was
-    # Accept-negotiated, so a shared cache may serve this 415 to a client whose
-    # Accept would have negotiated a different (working) outcome. The sibling
-    # test below — explicit `f:png`, where `Vary: []` IS correct — passes on both
-    # arms, which localizes this to the dialect's error path failing to carry the
-    # negotiation's `vary?`, not to Vary being globally absent.
-    # Re-arm this test when the dialect stamps Vary on error responses.
-    if @stack == :framework do
-      test "automatic output rejects decoded SVG source responses as unsupported images" do
-        if svg_supported?() do
-          conn =
-            "/_/plain/images/vector.svg"
-            |> call_imgproxy(svg_origin_opts(), "image/avif,image/webp")
+    # An Accept-negotiated response must carry `Vary: Accept` even when it fails,
+    # or a shared cache may serve this 415 to a client whose Accept would have
+    # negotiated a different (working) outcome. The framework attaches
+    # `policy.headers` to every processing error (`Runner.process_prepared_stream/6`);
+    # the dialect threads the same negotiation headers through `Errors.send/4`.
+    #
+    # Was DIVERGENCE D2 (dialect: 415 with no Vary). The sibling test below —
+    # explicit `f:png`, where `Vary: []` IS correct — is what proves the header is
+    # negotiation-derived rather than stamped unconditionally.
+    test "automatic output rejects decoded SVG source responses as unsupported images" do
+      if svg_supported?() do
+        conn =
+          "/_/plain/images/vector.svg"
+          |> call_imgproxy(svg_origin_opts(), "image/avif,image/webp")
 
-          assert conn.status == 415
-          assert conn.resp_body == "source response is not a supported image"
-          assert get_resp_header(conn, "vary") == ["Accept"]
-          assert_received {:cache_lookup, _key}
-          assert_received :origin_fetch
-          refute_received {:cache_put, _key, _entry}
-        end
+        assert conn.status == 415
+        assert conn.resp_body == "source response is not a supported image"
+        assert get_resp_header(conn, "vary") == ["Accept"]
+        assert_received {:cache_lookup, _key}
+        assert_received :origin_fetch
+        refute_received {:cache_put, _key, _entry}
       end
     end
 
@@ -1914,71 +1909,75 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       refute_received :origin_fetch
     end
 
-    # FRAMEWORK-ONLY — DIVERGENCE D3, a telemetry-contract gap. Everything
-    # user-visible here matches on both arms (400, the collapsed
+    # Everything user-visible matches on both arms (400, the collapsed
     # "invalid image request: :invalid_encrypted_source" body, and every
     # pre-fetch refute). The arms part on ONE piece of `[:parse, :stop]`
-    # metadata:
-    #   framework (plug.ex:258): %{result: :error, error: Error.tag(error)}
-    #   dialect (imgproxy.ex `parse_stop_metadata/1`): %{result: :error}
-    #                                                  <-- no :error key at all
-    # So the dialect reports THAT a parse failed but never WHICH failure, for
-    # every parse error, not just this one. Per AGENTS.md telemetry is part of
-    # the runtime observability contract, and `Error.tag/1` output is
-    # product-neutral and non-sensitive — there is no reason for the dialect to
-    # withhold it.
+    # metadata, the `error:` tag, and they are asserted per-arm rather than
+    # gated — gating parked the pre-fetch SAFETY half (the valuable half, which
+    # passed on the dialect all along) to hold a telemetry nit.
     #
-    # NOTE the split: the pre-fetch SAFETY half of this test (refute cache
-    # lookup / origin fetch) is the valuable half and it PASSED on the dialect
-    # before this gate. Gating the test to keep the suite green parks the safety
-    # assertions too. Re-arm the whole test once the dialect tags the error;
-    # do NOT split the safety half out and call the divergence handled.
-    if @stack == :framework do
-      test "malformed encrypted source collapses parser errors and stops before cache lookup and origin fetch" do
-        telemetry_prefix = [:image_pipe_wire_encrypted_safety]
-        parse_stop = telemetry_prefix ++ [:parse, :stop]
-        parse_exception = telemetry_prefix ++ [:parse, :exception]
-        source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+    # The two values differ because the framework's is a CONSTANT, not a tag.
+    # `ImagePipe.Plug.wrap_parser_error/1` re-wraps `{:error, reason}` as
+    # `{:error, {:parser, {:error, reason}}}`, so `result_metadata/1`'s
+    # `Error.tag(error)` reads the tag of `{:error, reason}` — the atom `:error`
+    # — and never reaches `reason`. Probed on the framework arm, three unrelated
+    # parse failures all report `%{error: :error}`:
+    #     /_/rs:fill/…  /_/f:nope/…  /_/zz:1/…   ->  %{error: :error, result: :error}
+    # The dialect's chain has no such double-wrap and reports the real tag. This
+    # is the dialect being strictly more informative, not drifting: reproducing
+    # `:error` would import a quirk to emit a constant conveying nothing.
+    @parse_error_tag (case @stack do
+                        # `Error.tag({:error, :invalid_encrypted_source})`
+                        :framework -> :error
+                        :dialect -> :invalid_encrypted_source
+                      end)
 
-        attach_safety_telemetry(telemetry_prefix)
+    test "malformed encrypted source collapses parser errors and stops before cache lookup and origin fetch" do
+      telemetry_prefix = [:image_pipe_wire_encrypted_safety]
+      parse_stop = telemetry_prefix ++ [:parse, :stop]
+      parse_exception = telemetry_prefix ++ [:parse, :exception]
+      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
 
-        opts =
-          encrypted_opts(
-            telemetry_prefix: telemetry_prefix,
-            cache: {CacheProbe, []},
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-            ]
-          )
+      attach_safety_telemetry(telemetry_prefix)
 
-        malformed_paths = [
-          "/_/enc/not+base64",
-          "/_/enc/#{Base.url_encode64(String.duplicate("x", 31), padding: false)}",
-          "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 17), padding: false)}",
-          "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 16), padding: false)}"
-        ]
+      opts =
+        encrypted_opts(
+          telemetry_prefix: telemetry_prefix,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        )
 
-        bodies =
-          for path <- malformed_paths do
-            conn = call_imgproxy(path, opts)
+      malformed_paths = [
+        "/_/enc/not+base64",
+        "/_/enc/#{Base.url_encode64(String.duplicate("x", 31), padding: false)}",
+        "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 17), padding: false)}",
+        "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 16), padding: false)}"
+      ]
 
-            assert conn.status == 400
+      expected_tag = @parse_error_tag
 
-            assert_received {:telemetry_event, ^parse_stop, _measurements,
-                             %{result: :error, error: :error}}
+      bodies =
+        for path <- malformed_paths do
+          conn = call_imgproxy(path, opts)
 
-            conn.resp_body
-          end
+          assert conn.status == 400
 
-        assert Enum.uniq(bodies) == ["invalid image request: :invalid_encrypted_source"]
-        refute_received {:telemetry_event, ^parse_exception, _, _}
-        refute_received {:telemetry_event, ^source_resolve_start, _, _}
-        refute_received {:cache_lookup, _key}
-        refute_received {:cache_put, _key, _entry}
-        refute_received :origin_fetch
-      end
+          assert_received {:telemetry_event, ^parse_stop, _measurements,
+                           %{result: :error, error: ^expected_tag}}
+
+          conn.resp_body
+        end
+
+      assert Enum.uniq(bodies) == ["invalid image request: :invalid_encrypted_source"]
+      refute_received {:telemetry_event, ^parse_exception, _, _}
+      refute_received {:telemetry_event, ^source_resolve_start, _, _}
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _entry}
+      refute_received :origin_fetch
     end
 
     test "filesystem cache reuses normalized automatic Accept candidates" do
@@ -4064,28 +4063,23 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       on_exit(fn -> :telemetry.detach(handler_id) end)
     end
 
-    # Framework-only: its sole caller is the "malformed encrypted source" test,
-    # gated on divergence D3 (the dialect's [:parse, :stop] carries no :error
-    # tag). Re-arm both together.
-    if @stack == :framework do
-      defp attach_safety_telemetry(telemetry_prefix) do
-        handler_id = {__MODULE__, self(), :safety}
+    defp attach_safety_telemetry(telemetry_prefix) do
+      handler_id = {__MODULE__, self(), :safety}
 
-        :telemetry.attach_many(
-          handler_id,
-          [
-            telemetry_prefix ++ [:parse, :stop],
-            telemetry_prefix ++ [:parse, :exception],
-            telemetry_prefix ++ [:source, :resolve, :start],
-            telemetry_prefix ++ [:source, :resolve, :stop],
-            telemetry_prefix ++ [:source, :resolve, :exception]
-          ],
-          &__MODULE__.handle_telemetry_event/4,
-          self()
-        )
+      :telemetry.attach_many(
+        handler_id,
+        [
+          telemetry_prefix ++ [:parse, :stop],
+          telemetry_prefix ++ [:parse, :exception],
+          telemetry_prefix ++ [:source, :resolve, :start],
+          telemetry_prefix ++ [:source, :resolve, :stop],
+          telemetry_prefix ++ [:source, :resolve, :exception]
+        ],
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
 
-        on_exit(fn -> :telemetry.detach(handler_id) end)
-      end
+      on_exit(fn -> :telemetry.detach(handler_id) end)
     end
 
     defp signed_request_path(signed_path) do
