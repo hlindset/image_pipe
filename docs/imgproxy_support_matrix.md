@@ -192,11 +192,24 @@ save. ImagePipe realizes these at request and output boundaries:
 
 ## Dialect-stack divergences
 
-`ImagePipe.Dialect.Imgproxy` is conformant on all three axes above — the
-dual-run wire and differential suites prove it, byte for byte, against the
-framework stack. These are the surfaces where the two stacks nonetheless differ.
-None is an imgproxy-conformance gap; all are ImagePipe-side, and a host that
-mounts the dialect should read them.
+`ImagePipe.Dialect.Imgproxy` is conformant with the framework stack on all three
+axes above **for every case both arms run** — and that is substantial: the
+differential suite renders all **162 constellations on both arms** (no case is
+framework-only) and asserts byte-for-byte equality against imgproxy-baked
+fixtures, and **120 of the 150 wire cases run on both arms**, asserting status,
+headers, content type, decoded pixels, and cache/source access order.
+
+The carve-out is precise, not a hedge:
+
+- **30 wire cases are framework-only**, each with a stated reason in the suite —
+  every one a config seam the dialect has no key for (`detector:`,
+  `allow_origin:`, `max_result_*`, …), not a case the dialect fails.
+- **Object detection is accepted but never honored.** See the `g:obj` row below.
+- **The § below lists real divergences** (CORS, `OPTIONS`, `max_result_*`,
+  telemetry stage-set) that hold on every request, not just the untested ones.
+
+None of these is an imgproxy-conformance gap; all are ImagePipe-side, and a host
+that mounts the dialect should read them.
 
 Where a row says "shared with `Dialect.Native`", the behavior is a property of
 the dialect architecture and ships today in `ImagePipe.Dialect.Native` — the
@@ -229,6 +242,20 @@ imgproxy dialect did not introduce it.
   The CORS *feature* on the dialect is a phase-2 deferral (see the
   [CORS response headers](#cors-response-headers) section and
   `.superpowers/sdd/phase1-exit-criteria.md`); this row records the gap.
+- **`g:obj:*`/`g:objw:*` are accepted but never honored — every object-detect
+  request falls back to attention cropping.** The dialect's grammar parses the
+  tokens (it is a verbatim copy of the framework's), but the dialect carries no
+  detector and exposes no `detector:` config key to supply one, so the
+  `{:detect, _}` guide can never be satisfied. Note the framework does the same
+  **by default**: it only rejects when the host sets `detector_required: true`,
+  and otherwise degrades to attention with
+  `[:transform, :detect, :skipped]` telemetry (`result: :no_detector`). So on
+  stock config the two stacks agree; they diverge only for a host that
+  configured a real detector on the framework stack, which then silently loses
+  detection-guided crops on the dialect. `detector_required: true` **is**
+  honored by the dialect: an object-detect request is rejected 422 before any
+  source fetch or cache access, exactly as `ImagePipe.Plug` does with no
+  detector configured. Detector *support* is a phase-2 deferral (backlog B1).
 - **Host `max_result_width`/`max_result_height`/`max_result_pixels` are ignored.**
   The dialect's config has no such keys, so `Output.Clamp` runs against the
   framework's *defaults* (8192/8192/40 MP) hard-coded in `Dialect.Imgproxy`. A

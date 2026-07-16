@@ -322,9 +322,14 @@ phase-2 simplification candidate.
 
 ## Not covered by any criterion, recorded so it is not lost
 
-- **Object detection (`g:obj:*`) is unverified on the dialect arm.** The grammar
-  accepts the URL; no dual-run case exercises it, and **two of the uncovered
-  cases are request-*safety* tests**.
+- **Object detection (`g:obj:*`) is honored by neither dialect config nor
+  detector — the request-*safety* half is now closed.** The grammar accepts the
+  URL and the dialect always falls back to attention cropping (as the framework
+  itself does when no detector is configured). `detector_required: true` **is**
+  honored: the dialect rejects 422 pre-fetch, dual-run with an access-sequence
+  assertion. Detector *support* stays phase-2 backlog B1, so the object-guided
+  crop pixels, class filter, objw weights, and detector cache-key identity
+  remain framework-only.
 - **Four bugs this project found in the shipped `Dialect.Native`, all fixed**:
   orphaned trace spans (no trace context threaded → delivery spans landed in a
   different trace); `cost_us: 0` on every cache entry (mis-scoring admission —

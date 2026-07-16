@@ -42,21 +42,31 @@ only once the dialect has been running in production or is otherwise trusted.
 
 ## B. Deferred correctness / safety gaps (ordered by severity)
 
-### B1. Object detection (`g:obj:*`) request-safety validation — **loudest**
+### B1. Object detection (`g:obj:*`) — detector support
 
-The framework rejects an unavailable detector **before any source fetch**
-(`ImagePipe.Plug`'s `validate_detector_capability/2`, gated on
-`detector_required`). The dialect has **no equivalent**, and the grammar
-*accepts* `g:obj:*` URLs — so two request-*safety* behaviors are unverified on
-the dialect arm on a reachable URL. This is a request-safety-boundary gap (AGENTS.md:
-"parser/planner validation failures should return before source fetch or cache
-access"), which is why it's first.
+**The request-safety half is closed.** `Dialect.Imgproxy.Config` now has
+`detector_required` (boolean, default `false` — the framework's exact default),
+and `Dialect.Imgproxy`'s `route_image` gates on it alongside `check_geometry/1`:
+an object-detect request under `detector_required: true` is rejected 422 before
+any source fetch or cache access, mirroring `ImagePipe.Plug`'s
+`validate_detector_capability/2` and its `{:error, {:detector, :unavailable}}`
+reason. The pre-fetch guarantee is dual-run in the wire suite, asserting the
+access sequence (no source resolve, no cache lookup, no origin fetch), with a
+`detector_required: false` no-divergence guard beside it.
 
-- Recorded: `phase1-exit-criteria.md` (obj-detect note), `imgproxy_support_matrix.md`.
-- Fix shape: add the pre-fetch detector-capability gate to the dialect chain
-  (`Dialect.Imgproxy` `route_image`, alongside the existing `check_geometry/1`
-  pre-fetch gate), and pin it with a test asserting **no source fetch** on a
-  rejected request (a status assertion is not enough — the status may match).
+**What remains: detector support itself.** The dialect carries no detector and
+has no `:detector` config seam, so `g:obj:*`/`g:objw:*` always fall back to
+attention cropping. On stock config that matches the framework, which degrades
+the same way when no detector is configured — the gap bites only a host that
+configured a real detector on the framework stack.
+
+- Recorded: `imgproxy_support_matrix.md` (§ Dialect-stack divergences, the
+  `g:obj` row).
+- Fix shape: add a `:detector` config seam, thread detector model identity into
+  the cache key (the framework's `Runner.with_detector_identity/2`), and run the
+  detector in the dialect's pipeline. Then un-gate the framework-only
+  object-detection block in the wire suite (object-guided crop pixels, the class
+  filter, objw weights, detector identity in the cache key).
 
 ### B2. CORS response headers
 
