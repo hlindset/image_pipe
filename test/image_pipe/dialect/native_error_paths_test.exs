@@ -535,6 +535,9 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
       assert_received :cache_get
       refute_received {:cache_open_sink, _key, _metadata}
       refute_received :cache_commit_sink
+
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
     end
   end
 

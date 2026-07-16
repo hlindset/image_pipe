@@ -576,6 +576,9 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
       assert_received :cache_get
       refute_received {:cache_open_sink, _key, _metadata}
       refute_received :cache_commit_sink
+
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
     end
 
     test "an empty stream -> pre-header text 500, conn sent, sink never opened" do
@@ -598,6 +601,9 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
       assert_received :cache_get
       refute_received {:cache_open_sink, _key, _metadata}
       refute_received :cache_commit_sink
+
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
     end
   end
 

@@ -3823,7 +3823,10 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     # running async module emitting the default-prefix output clamp event cannot
     # leak into these tests' mailboxes (which would flake the refute_received
     # assertions). The clamp request opts below set this same prefix.
-    @clamp_telemetry_prefix [:image_pipe_clamp_test]
+    # Stack-suffixed: both generated arm modules run async and telemetry
+    # handlers are VM-global, so a shared prefix would leak one arm's clamp
+    # emissions into the sibling module's mailbox.
+    @clamp_telemetry_prefix [:"image_pipe_clamp_test_#{stack}"]
     @clamp_event @clamp_telemetry_prefix ++ [:output, :clamp]
 
     describe "output encoder dimension clamp (#150)" do
