@@ -1928,6 +1928,32 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       assert dimensions(conn) == {80, 80}
     end
 
+    # Face-assist is deliberately NOT part of the strict detector gate: the
+    # framework's `validate_detector_capability/2` keys the gate on
+    # `Plan.detect_classes/1` alone (a `{:detect, _}` guide), while a face-assist
+    # smart crop carries a `{:smart, :face_assist}` guide that participates only in
+    # cache-key identity, never in the gate. So even under `detector_required: true`
+    # with an UNAVAILABLE face detector, a `g:sm` + face-detection request must
+    # DEGRADE to attention (200), not reject (422). Pinning this on BOTH arms keeps
+    # the dialect's gate from adding face-assist and inventing a divergence the
+    # framework does not have.
+    @face_assist_gate_opts if @stack == :framework,
+                             do: [
+                               detector: UnavailableDetector,
+                               detector_required: true,
+                               imgproxy: [smart_crop_face_detection: true]
+                             ],
+                             else: [detector_required: true, smart_crop_face_detection: true]
+
+    test "face-assist smart crop under detector_required + unavailable detector degrades to 200" do
+      opts = Keyword.merge(@default_opts, @face_assist_gate_opts)
+
+      conn = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert conn.status == 200
+      assert dimensions(conn) == {50, 50}
+    end
+
     test "encrypted unsupported decoded source scheme stops before cache lookup and origin fetch" do
       telemetry_prefix = [:image_pipe_wire_safety]
       source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
@@ -3063,189 +3089,179 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       end
     end
 
-    # FRAMEWORK-ONLY (the whole object-detection block below, through the
-    # "g:objw:face:3 filters to face class" test): every one of these injects a
-    # fake detector via `detector:`, and the dialect config has no `:detector`
-    # seam — it carries no detector at all, so it cannot honor `g:obj:*` /
-    # `g:objw:*` and always falls back to attention cropping. Detector SUPPORT
-    # is phase-2 backlog B1.
+    # Object-detection block, dual-run on both arms: the dialect gained a
+    # `:detector` config seam in B1a (mirroring the framework's), so an injected
+    # fake detector reaches the crop path on both stacks and object-guided crops,
+    # class filtering, objw weights, and the class-aware strict gate are now
+    # verified against the dialect too. Detector model identity in the cache key
+    # remains a framework-only bit until the cache-identity task.
     #
-    # The `detector_required` half is NOT part of this hole: the dialect has the
-    # key, and its pre-fetch 422 is dual-run above ("detector_required +
-    # unavailable detector rejects before source AND cache access"), with the
-    # `detector_required: false` no-divergence guard beside it.
+    # Task 10: Pixel divergence — g:obj:car crop biases toward the detected corner
+    # object, distinct from both center gravity and attention (smart) gravity.
+    test "g:obj:car crop biases toward the detected object, differing from center and attention" do
+      opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+
+      obj = call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", opts)
+      centered = call_imgproxy("/_/rs:fill:50:50/g:ce/f:jpeg/plain/images/beach.jpg", opts)
+      attention = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert obj.status == 200
+      assert dimensions(obj) == {50, 50}
+      refute obj.resp_body == centered.resp_body
+      refute obj.resp_body == attention.resp_body
+    end
+
+    # Task 10: No-geometry — g:obj:car without resize/crop must return 200.
+    test "no-geometry g:obj:car returns 200 without a resize or crop" do
+      opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+
+      conn = call_imgproxy("/_/g:obj:car/plain/images/beach.jpg", opts)
+
+      assert conn.status == 200
+    end
+
+    # Task 10: Gate triad — class-aware strict gate with PartialDetector.
+    # Face child: available, owns ["face"]. Object child: unavailable, owns ["car"].
+    test "detector_required gate triad: face->200, unicorn->200(degrade), car->422 pre-fetch" do
+      opts = Keyword.merge(@default_opts, detector: PartialDetector, detector_required: true)
+
+      # face child available -> routes and succeeds
+      face_conn =
+        call_imgproxy("/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert face_conn.status == 200
+
+      # unknown class routes to no child -> available? vacuously true -> degrades to 200
+      unicorn_conn =
+        call_imgproxy("/_/rs:fill:50:50/g:obj:unicorn/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert unicorn_conn.status == 200
+
+      # object child unavailable -> 422 BEFORE any source fetch or cache access.
+      # Copy the exact setup from "detector_required + unavailable detector" test (~line 599).
+      telemetry_prefix = [:image_pipe_wire_gate_triad]
+      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+      attach_source_resolve_telemetry(telemetry_prefix)
+
+      gate_opts =
+        Keyword.merge(opts,
+          telemetry_prefix: telemetry_prefix,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        )
+
+      car_conn =
+        call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
+
+      assert car_conn.status == 422
+      refute_received {:telemetry_event, ^source_resolve_start, _, _}
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _entry}
+      refute_received :origin_fetch
+    end
+
+    # Slice 2: a face weight measurably changes the crop end-to-end. Exact focal
+    # math is pinned in FocalTest; here we only prove the weight reaches pixels.
+    # rs:fill:2000:2000 on beach.jpg (4000×2667) scales to 3000×2000, large enough
+    # that the WeightedSceneDetector boxes ({2000,800,800,1000} and {1400,600,400,400})
+    # both fit and the uniform vs boosted centroids land at different crop positions.
+    test "objw face weight changes the rendered crop vs uniform" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+      uniform =
+        call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+      boosted =
+        call_imgproxy(
+          "/_/rs:fill:2000:2000/g:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg",
+          opts
+        )
+
+      assert uniform.status == 200
+      assert boosted.status == 200
+      assert dimensions(boosted) == {2000, 2000}
+      refute boosted.resp_body == uniform.resp_body
+    end
+
+    # Slice 2: uniform-weight objw canonicalizes to obj:all (the weight scalar
+    # cancels in the centroid), so it renders identically. (Cache-key identity is a
+    # separate question, covered in the cache task — not asserted here.)
+    test "objw with all-equal weights renders identically to obj:all" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+      objw =
+        call_imgproxy("/_/rs:fill:2000:2000/g:objw:all:2/f:jpeg/plain/images/beach.jpg", opts)
+
+      obj = call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert objw.resp_body == obj.resp_body
+    end
+
+    # Slice 2: the c:W:H:objw crop form reaches the crop path and applies the weight.
+    test "c:W:H:objw crop form applies the weight" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+      weighted =
+        call_imgproxy("/_/c:2000:2000:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg", opts)
+
+      uniform = call_imgproxy("/_/c:2000:2000:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert weighted.status == 200
+      refute weighted.resp_body == uniform.resp_body
+    end
+
+    # Slice 2: no-geometry objw returns 200.
+    test "no-geometry g:objw returns 200 without a resize or crop" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+      conn = call_imgproxy("/_/g:objw:all:1:face:3/plain/images/beach.jpg", opts)
+      assert conn.status == 200
+    end
+
+    # Filtering: objw:face:3 must gate detection to the face class only (not all),
+    # so its crop matches obj:face (face box only) and DIFFERS from obj:all (both boxes).
+    # WeightedSceneDetector returns a person box (large, right-of-center) and a face box
+    # (small, left-of-center), filtered by opts[:classes].
     #
-    # What remains unverified against the dialect: object-guided crop pixels, the
-    # class filter, objw weights, and detector model identity in the cache key —
-    # none of which the dialect can produce without a detector.
-    if @stack == :framework do
-      # Task 10: Pixel divergence — g:obj:car crop biases toward the detected corner
-      # object, distinct from both center gravity and attention (smart) gravity.
-      test "g:obj:car crop biases toward the detected object, differing from center and attention" do
-        opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+    # Beach.jpg is 4000x2667. WeightedSceneDetector boxes:
+    #   person: {2000,800,800,1000} center_x=2400 (60% across) — right side
+    #   face:   {1400,600,400,400}  center_x=1600 (40% across) — left side
+    # rs:fill:2000:2000 scales to 3000×2000, crops 1000px horizontally:
+    #   face-only focal_x_scaled ≈ 1200 → crop_x=200
+    #   obj:all focal_x_scaled ≈ 1614 → crop_x=614
+    # These are 414px apart in a 1000px-crop range, reliably different bytes.
+    test "g:objw:face:3 filters to face class — matches obj:face, differs from obj:all" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
 
-        obj = call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", opts)
-        centered = call_imgproxy("/_/rs:fill:50:50/g:ce/f:jpeg/plain/images/beach.jpg", opts)
-        attention = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+      # objw:face:3 — spec is ["face"], detects only face box (single class → weight inert)
+      objw_face =
+        call_imgproxy(
+          "/_/rs:fill:2000:2000/g:objw:face:3/f:jpeg/plain/images/beach.jpg",
+          opts
+        )
 
-        assert obj.status == 200
-        assert dimensions(obj) == {50, 50}
-        refute obj.resp_body == centered.resp_body
-        refute obj.resp_body == attention.resp_body
-      end
+      # obj:face — spec is ["face"], same face-only detection
+      obj_face =
+        call_imgproxy("/_/rs:fill:2000:2000/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
 
-      # Task 10: No-geometry — g:obj:car without resize/crop must return 200.
-      test "no-geometry g:obj:car returns 200 without a resize or crop" do
-        opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+      # obj:all — spec is :all, both person and face boxes counted (person dominates due to size)
+      obj_all =
+        call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
 
-        conn = call_imgproxy("/_/g:obj:car/plain/images/beach.jpg", opts)
+      assert objw_face.status == 200
+      assert obj_face.status == 200
+      assert obj_all.status == 200
 
-        assert conn.status == 200
-      end
+      # objw:face:3 detects only face -> same crop focus as obj:face
+      assert objw_face.resp_body == obj_face.resp_body
 
-      # Task 10: Gate triad — class-aware strict gate with PartialDetector.
-      # Face child: available, owns ["face"]. Object child: unavailable, owns ["car"].
-      test "detector_required gate triad: face->200, unicorn->200(degrade), car->422 pre-fetch" do
-        opts = Keyword.merge(@default_opts, detector: PartialDetector, detector_required: true)
-
-        # face child available -> routes and succeeds
-        face_conn =
-          call_imgproxy("/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert face_conn.status == 200
-
-        # unknown class routes to no child -> available? vacuously true -> degrades to 200
-        unicorn_conn =
-          call_imgproxy("/_/rs:fill:50:50/g:obj:unicorn/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert unicorn_conn.status == 200
-
-        # object child unavailable -> 422 BEFORE any source fetch or cache access.
-        # Copy the exact setup from "detector_required + unavailable detector" test (~line 599).
-        telemetry_prefix = [:image_pipe_wire_gate_triad]
-        source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-        attach_source_resolve_telemetry(telemetry_prefix)
-
-        gate_opts =
-          Keyword.merge(opts,
-            telemetry_prefix: telemetry_prefix,
-            cache: {CacheProbe, []},
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-            ]
-          )
-
-        car_conn =
-          call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
-
-        assert car_conn.status == 422
-        refute_received {:telemetry_event, ^source_resolve_start, _, _}
-        refute_received {:cache_lookup, _key}
-        refute_received {:cache_put, _key, _entry}
-        refute_received :origin_fetch
-      end
-
-      # Slice 2: a face weight measurably changes the crop end-to-end. Exact focal
-      # math is pinned in FocalTest; here we only prove the weight reaches pixels.
-      # rs:fill:2000:2000 on beach.jpg (4000×2667) scales to 3000×2000, large enough
-      # that the WeightedSceneDetector boxes ({2000,800,800,1000} and {1400,600,400,400})
-      # both fit and the uniform vs boosted centroids land at different crop positions.
-      test "objw face weight changes the rendered crop vs uniform" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-        uniform =
-          call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-        boosted =
-          call_imgproxy(
-            "/_/rs:fill:2000:2000/g:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg",
-            opts
-          )
-
-        assert uniform.status == 200
-        assert boosted.status == 200
-        assert dimensions(boosted) == {2000, 2000}
-        refute boosted.resp_body == uniform.resp_body
-      end
-
-      # Slice 2: uniform-weight objw canonicalizes to obj:all (the weight scalar
-      # cancels in the centroid), so it renders identically. (Cache-key identity is a
-      # separate question, covered in the cache task — not asserted here.)
-      test "objw with all-equal weights renders identically to obj:all" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-        objw =
-          call_imgproxy("/_/rs:fill:2000:2000/g:objw:all:2/f:jpeg/plain/images/beach.jpg", opts)
-
-        obj = call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert objw.resp_body == obj.resp_body
-      end
-
-      # Slice 2: the c:W:H:objw crop form reaches the crop path and applies the weight.
-      test "c:W:H:objw crop form applies the weight" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-        weighted =
-          call_imgproxy("/_/c:2000:2000:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg", opts)
-
-        uniform = call_imgproxy("/_/c:2000:2000:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert weighted.status == 200
-        refute weighted.resp_body == uniform.resp_body
-      end
-
-      # Slice 2: no-geometry objw returns 200.
-      test "no-geometry g:objw returns 200 without a resize or crop" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-        conn = call_imgproxy("/_/g:objw:all:1:face:3/plain/images/beach.jpg", opts)
-        assert conn.status == 200
-      end
-
-      # Filtering: objw:face:3 must gate detection to the face class only (not all),
-      # so its crop matches obj:face (face box only) and DIFFERS from obj:all (both boxes).
-      # WeightedSceneDetector returns a person box (large, right-of-center) and a face box
-      # (small, left-of-center), filtered by opts[:classes].
-      #
-      # Beach.jpg is 4000x2667. WeightedSceneDetector boxes:
-      #   person: {2000,800,800,1000} center_x=2400 (60% across) — right side
-      #   face:   {1400,600,400,400}  center_x=1600 (40% across) — left side
-      # rs:fill:2000:2000 scales to 3000×2000, crops 1000px horizontally:
-      #   face-only focal_x_scaled ≈ 1200 → crop_x=200
-      #   obj:all focal_x_scaled ≈ 1614 → crop_x=614
-      # These are 414px apart in a 1000px-crop range, reliably different bytes.
-      test "g:objw:face:3 filters to face class — matches obj:face, differs from obj:all" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-        # objw:face:3 — spec is ["face"], detects only face box (single class → weight inert)
-        objw_face =
-          call_imgproxy(
-            "/_/rs:fill:2000:2000/g:objw:face:3/f:jpeg/plain/images/beach.jpg",
-            opts
-          )
-
-        # obj:face — spec is ["face"], same face-only detection
-        obj_face =
-          call_imgproxy("/_/rs:fill:2000:2000/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
-
-        # obj:all — spec is :all, both person and face boxes counted (person dominates due to size)
-        obj_all =
-          call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert objw_face.status == 200
-        assert obj_face.status == 200
-        assert obj_all.status == 200
-
-        # objw:face:3 detects only face -> same crop focus as obj:face
-        assert objw_face.resp_body == obj_face.resp_body
-
-        # objw:face:3 differs from obj:all because detection set differs (face-only vs all)
-        # The face (left-of-center, crop_x≈200) vs all-classes (crop_x≈614) produces different crops.
-        refute objw_face.resp_body == obj_all.resp_body
-      end
+      # objw:face:3 differs from obj:all because detection set differs (face-only vs all)
+      # The face (left-of-center, crop_x≈200) vs all-classes (crop_x≈614) produces different crops.
+      refute objw_face.resp_body == obj_all.resp_body
     end
 
     # Task 19: autoquality + max_bytes wire-level acceptance.
@@ -3471,33 +3487,29 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     # WeightedSceneDetector returns face and person boxes in a large region of beach.jpg
     # (4000x2667), so rs:fill:2000:2000 keeps them in-bounds after resize; without the
     # fix, weighted_centroid raises ArithmeticError with a 1e308 face weight. With the
-    # fix, the weight is rejected at parse time and the source is never fetched.
-    # FRAMEWORK-ONLY: `detector:` — no dialect config seam (see the
-    # object-detection block note). Another safety test lost on the dialect arm:
-    # this one pins that a near-max-float objw weight is a clean 4xx, not a 500
-    # from an ArithmeticError in the centroid math.
-    if @stack == :framework do
-      test "objw weight at 1e308 is rejected with 4xx before any source fetch" do
-        opts =
-          Keyword.merge(@default_opts,
-            detector: WeightedSceneDetector,
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test",
-                 req_options: [plug: {CountingOriginImage, test_pid: self()}]}
-            ]
-          )
+    # fix, the weight is rejected at parse time and the source is never fetched. Dual-run
+    # since B1a: the dialect's `:detector` seam feeds WeightedSceneDetector, so the parse-
+    # time weight rejection is exercised on both arms.
+    test "objw weight at 1e308 is rejected with 4xx before any source fetch" do
+      opts =
+        Keyword.merge(@default_opts,
+          detector: WeightedSceneDetector,
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+          ]
+        )
 
-        conn =
-          call_imgproxy(
-            "/_/rs:fill:2000:2000/g:objw:face:1e308/f:jpeg/plain/images/beach.jpg",
-            opts
-          )
+      conn =
+        call_imgproxy(
+          "/_/rs:fill:2000:2000/g:objw:face:1e308/f:jpeg/plain/images/beach.jpg",
+          opts
+        )
 
-        assert conn.status in 400..499
-        refute_received :origin_fetch
-      end
+      assert conn.status in 400..499
+      refute_received :origin_fetch
     end
 
     # Layer 4 — wire conformance for now-sequential chains

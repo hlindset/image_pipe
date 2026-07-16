@@ -196,15 +196,15 @@ save. ImagePipe realizes these at request and output boundaries:
 axes above **for every case both arms run** — and that is substantial: the
 differential suite renders all **162 constellations on both arms** (no case is
 framework-only) and asserts byte-for-byte equality against imgproxy-baked
-fixtures, and **141 of the 153 wire cases run on both arms**, asserting status,
+fixtures, and **151 of the 154 wire cases run on both arms**, asserting status,
 headers, content type, decoded pixels, and cache/source access order.
 
 The carve-out is precise, not a hedge:
 
-- **12 wire cases are framework-only**, each with a stated reason in the suite —
-  every one a config seam the dialect has no key for (`detector:`, …), not a
-  case the dialect fails.
-- **Object detection is accepted but never honored.** See the `g:obj` row below.
+- **3 wire cases are framework-only**, each with a stated reason in the suite —
+  the detector *model-identity* cache-key tests (`face_ver:`/`object_ver:` DI),
+  which the dialect does not yet fold into its cache key (Task 6), not cases the
+  dialect fails.
 - **The § below lists real divergences** (telemetry stage-set) that hold on
   every request, not just the untested ones.
 
@@ -231,20 +231,24 @@ imgproxy dialect did not introduce it.
   same way. The general "cache keys and ETags differ across the two stacks"
   (below) is unaffected: that is about the ETag *value* for a strong source, not
   whether one is emitted.
-- **`g:obj:*`/`g:objw:*` are accepted but never honored — every object-detect
-  request falls back to attention cropping.** The dialect's grammar parses the
-  tokens (it is a verbatim copy of the framework's), but the dialect carries no
-  detector and exposes no `detector:` config key to supply one, so the
-  `{:detect, _}` guide can never be satisfied. Note the framework does the same
-  **by default**: it only rejects when the host sets `detector_required: true`,
-  and otherwise degrades to attention with
-  `[:transform, :detect, :skipped]` telemetry (`result: :no_detector`). So on
-  stock config the two stacks agree; they diverge only for a host that
-  configured a real detector on the framework stack, which then silently loses
-  detection-guided crops on the dialect. `detector_required: true` **is**
-  honored by the dialect: an object-detect request is rejected 422 before any
-  source fetch or cache access, exactly as `ImagePipe.Plug` does with no
-  detector configured. Detector *support* is a phase-2 deferral (backlog B1).
+- **`g:obj:*`/`g:objw:*` are honored on both stacks (was a divergence — B1a).**
+  The dialect gained a `:detector` config seam mirroring the framework's
+  (`:default` → the bundled composite, `nil` to disable, or a module), seeded
+  onto the transform state so the `{:detect, _}` guide reaches `Crop.execute/2`.
+  Object-guided crop pixels, class filtering, and objw weights are now
+  pixel-verified dual-run in the wire suite. The strict-mode capability gate is
+  class-aware and mirrors `ImagePipe.Plug.validate_detector_capability/2`: under
+  `detector_required: true`, an object-detect request whose configured detector
+  is unavailable *for the requested classes* is rejected 422 before any source
+  fetch or cache access; a composite that owns the face model but not the object
+  model rejects `g:obj:car` while `g:obj:face` succeeds. Face-assist smart crops
+  (`{:smart, :face_assist}`) are deliberately excluded from the gate on both
+  stacks — they participate only in cache-key identity. **Remaining framework-only
+  bit:** the detector *model identity* is not yet folded into the dialect's cache
+  key, so a key does not change when a host swaps detector model versions
+  (`face_ver:`/`object_ver:`). That is the cache-key-identity task (Task 6); until
+  it lands, do not point both stacks at one cache store expecting model-version
+  reuse to differ.
 - **`/info` is cached; the framework never caches it.** A dialect-owned complete-
   body cache entry, honoring `internal_cache: :disabled`. No parity source exists
   (the framework's render path returns before any cache access).
@@ -283,12 +287,13 @@ imgproxy dialect did not introduce it.
 
 ### Unverified
 
-- **Object detection (`g:obj:*`) is unverified on the dialect stack.** The
-  grammar accepts the URL; no dual-run case covers it, and two of the uncovered
-  cases are request-*safety* tests.
-- **16 wire-conformance cases run framework-only**, gated on config keys the
-  dialect has no equivalent for yet (each gated `if @stack == :framework` with a
-  stated reason).
+- **Detector model identity in the cache key is unverified on the dialect
+  stack.** Object-detect crop pixels, class filtering, objw weights, and the
+  strict gate are now dual-run; the one uncovered slice is the cache-key
+  sensitivity to detector model versions (`face_ver:`/`object_ver:`), deferred to
+  the cache-key-identity task (Task 6).
+- **3 wire-conformance cases run framework-only**, the detector model-identity
+  cache-key tests (each gated `if @stack == :framework` with a stated reason).
 
 ## Differential conformance
 

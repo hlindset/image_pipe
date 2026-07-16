@@ -24,6 +24,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
+  alias ImagePipe.Transform
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.InputColorManagement
@@ -258,11 +259,24 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
           | {:error, {:transform, term()} | {:decode, term()} | Assembly.error()}
   def run(%State{} = state, %SourceGeometry{} = _geometry, %{pipelines: pipelines}, opts) do
     ctx = build_ctx(opts)
+    state = seed_detector(state, opts)
 
     with {:ok, %State{} = state} <- condition_color(state, opts),
          {:ok, %State{} = state} <- run_pipelines(pipelines, state, ctx) do
       {:ok, InputColorManagement.stamp_carry(state)}
     end
+  end
+
+  # Seeds the host-configured detector onto the transform state so object-guided
+  # crops (`{:detect, _}` guides flowing into `Crop.execute/2`) reach it. Mirrors
+  # the fields `ImagePipe.Transform.Executor.execute/3` sets — minus
+  # `telemetry_opts`, which `ImagePipe.Decode.with_image/4` already seeded.
+  defp seed_detector(%State{} = state, opts) do
+    %State{
+      state
+      | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
+        detector_required: Keyword.get(opts, :detector_required, false)
+    }
   end
 
   # The postamble to `condition_color/2`'s preamble, and required by it: the

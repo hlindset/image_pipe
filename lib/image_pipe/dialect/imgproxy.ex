@@ -99,6 +99,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.SourceGeometry
   alias Vix.Vips.Image, as: VipsImage
@@ -401,27 +402,66 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   # Strict-mode capability gate, mirroring `ImagePipe.Plug`'s
-  # `validate_detector_capability/2`: when the host opts into
+  # `validate_detector_capability/2` (plug.ex): when the host opts into
   # `detector_required` and the request asks for content detection
-  # (`g:obj:face` / `g:objw:*` -> a `{:detect, _}` guide), reject before any
-  # source fetch or cache access rather than silently degrading to attention.
+  # (`g:obj:*` / `g:objw:*` -> a `{:detect, _}` guide), reject before any source
+  # fetch or cache access when the configured detector is unavailable for the
+  # requested classes, rather than silently degrading to attention. Availability
+  # is class-dependent (a composite may own the face model but not the object
+  # model), so the resolved classes are threaded through.
   #
-  # This dialect carries no detector — there is no `:detector` config seam to
-  # supply one (detector SUPPORT is phase-2 backlog B1) — so a detection
-  # request under `detector_required: true` is unconditionally unavailable.
-  # That is the same answer the framework gives with no detector configured.
-  # When `detector_required` is false BOTH stacks degrade to attention
-  # cropping, so this gate adds no always-on divergence.
+  # The gate consults `detect_classes/1` ONLY — deliberately NOT `face_assist?/1`.
+  # The framework's gate checks `Plan.detect_classes(plan) != nil` alone, while a
+  # face-assist smart guide participates only in cache-key identity. Adding it to
+  # the gate would invent a divergence, not close one.
   defp check_detector(operations, config) do
-    if Keyword.get(config, :detector_required, false) and detection_requested?(operations) do
-      {:error, {:detector, :unavailable}}
-    else
-      :ok
+    case detect_classes(operations) do
+      nil ->
+        :ok
+
+      classes ->
+        if Keyword.get(config, :detector_required, false) and
+             not Transform.detector_available?(
+               Keyword.get(config, :detector, :default),
+               Keyword.put(config, :classes, classes)
+             ) do
+          {:error, {:detector, :unavailable}}
+        else
+          :ok
+        end
     end
   end
 
-  defp detection_requested?(operations) do
-    Enum.any?(operations, &match?({:detect, _spec}, Map.get(&1, :guide)))
+  # The detect-guide classes requested across the pipelines' operations, or `nil`
+  # when none request detection. Mirrors `ImagePipe.Plan.detect_classes/1`'s exact
+  # return contract (`:all | nonempty_list(String.t()) | nil`) over the dialect
+  # operations' `{:detect, {spec, weights}}` guides. Task 6's cache-key identity
+  # reuses it alongside `face_assist?/1`.
+  @doc false
+  @spec detect_classes([map()]) :: :all | nonempty_list(String.t()) | nil
+  def detect_classes(operations) do
+    operations
+    |> Enum.reduce_while([], fn op, acc ->
+      case Map.get(op, :guide) do
+        {:detect, {:all, _weights}} -> {:halt, :all}
+        {:detect, {classes, _weights}} when is_list(classes) -> {:cont, classes ++ acc}
+        _ -> {:cont, acc}
+      end
+    end)
+    |> case do
+      :all -> :all
+      [] -> nil
+      classes -> classes |> Enum.uniq() |> Enum.sort()
+    end
+  end
+
+  # True when any operation requests a face-assisted smart guide
+  # (`{:smart, :face_assist}`). Mirrors `ImagePipe.Plan.face_assist?/1`. Not
+  # consulted by the gate above (see its note); Task 6's cache-key identity does.
+  @doc false
+  @spec face_assist?([map()]) :: boolean()
+  def face_assist?(operations) do
+    Enum.any?(operations, &(Map.get(&1, :guide) == {:smart, :face_assist}))
   end
 
   # -- negotiation ------------------------------------------------------------

@@ -28,6 +28,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
     :source_schemes,
     :presets,
     :storage_inputs,
+    :detector,
     :detector_required,
     :clock
   ]
@@ -54,12 +55,21 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
                       type: {:list, {:custom, SharedConfig, :validate_storage_input, []}},
                       default: []
                     ],
-                    # The strict-mode capability gate only — this dialect carries
-                    # no detector (there is no `:detector` seam to configure one),
-                    # so an object-detection request under `detector_required:
-                    # true` is always unavailable. The default matches the
-                    # framework's (`ImagePipe.Request.Options`), which likewise
-                    # degrades to attention cropping when it is false.
+                    # The host-configured content detector, mirroring
+                    # `ImagePipe.Request.Options`: `:default` resolves to the
+                    # bundled composite, `nil` disables detection, or a module
+                    # names a custom detector. Seeded onto the transform state so
+                    # object-guided crops reach it, and consulted by the
+                    # strict-mode capability gate below.
+                    detector: [
+                      type: {:or, [{:in, [:default, nil]}, :atom]},
+                      default: :default
+                    ],
+                    # The strict-mode capability gate: under `detector_required:
+                    # true`, an object-detection request whose configured detector
+                    # is unavailable rejects before source fetch or cache access
+                    # rather than silently degrading to attention cropping. The
+                    # default matches the framework's (`ImagePipe.Request.Options`).
                     detector_required: [
                       type: :boolean,
                       default: false
