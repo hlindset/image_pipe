@@ -67,6 +67,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   @behaviour Plug
 
+  import Plug.Conn, only: [put_resp_content_type: 2, put_resp_header: 3, send_resp: 3]
+
   alias ImagePipe.Cache
   alias ImagePipe.Decode
   alias ImagePipe.Delivery
@@ -74,6 +76,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Dialect.Imgproxy.Config
   alias ImagePipe.Dialect.Imgproxy.Errors
   alias ImagePipe.Dialect.Imgproxy.Identity
+  alias ImagePipe.Dialect.Imgproxy.InfoRenderer
   alias ImagePipe.Dialect.Imgproxy.Negotiation
   alias ImagePipe.Dialect.Imgproxy.Options
   alias ImagePipe.Dialect.Imgproxy.Path
@@ -86,16 +89,34 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Response, as: PlanResponse
+  alias ImagePipe.Plan.SourceInfo
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.Conditional
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.SourceGeometry
+  alias Vix.Vips.Image, as: VipsImage
 
   # The dialect collects no debug facts yet, so it hands `Delivery` nothing
   # for the `X-ImagePipe-*` headers or the cache entry's stored debug.
   @debug_info nil
+
+  # `/info` has one fixed terminal: no format to select, and so nothing to vary
+  # by or to carry as output-policy identity material.
+  @info_negotiation %Negotiation{
+    selected: {:terminal, :info},
+    vary?: false,
+    policy_material: [],
+    policy: nil
+  }
+
+  # `/info` reads the header and nothing else, so it asks the decode planner for
+  # no shrink at all: every field of a bare request is already the "no
+  # preflight" answer.
+  @info_decode_request %DecodePlanner.Request{}
 
   # Effective per-axis + pixel result caps for `Output.Clamp`, mirroring
   # `ImagePipe.Request.DeliveryBuild`'s own `effective_limits/2`: the tighter
@@ -120,13 +141,46 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   defp route(%Plug.Conn{} = conn, config) do
     case Path.split_endpoint(conn) do
-      {:info, _info_conn} -> Errors.send(conn, :info_not_implemented, config)
+      {:info, info_conn} -> route_info(info_conn, config)
       :image -> route_image(conn, config)
     end
   end
 
+  # The `/info` terminal [spec §The /info cache path]. Skips three of the image
+  # chain's steps because the framework arm's own info plan does
+  # (`PlanBuilder.to_plan/2`'s `info?: true` head builds `pipelines: []`,
+  # `output: nil`, `response: %Response{}`): the geometry check has no
+  # operations to reject, negotiation has no format to select, and there is no
+  # image body to attach a `Content-Disposition` to. The `exp` gate and the
+  # signature still apply.
+  #
+  # The signature is verified over the path WITHOUT the `/info` prefix —
+  # `split_endpoint/1` already handed back a prefix-stripped conn, and
+  # `Path.extract/1` reads it — matching upstream. The chain never re-derives
+  # the signed path.
+  defp route_info(%Plug.Conn{} = conn, config) do
+    with {:ok, request} <- parse(conn, config, :info),
+         :ok <- check_expires(request, config),
+         {:ok, plan_source} <- ImgproxySource.translate(request.source_path, config),
+         {:ok, resolved} <- ImageSource.resolve(plan_source, config, config) do
+      representation =
+        Representation.build(
+          resolved.identity,
+          Identity.material(request, @info_negotiation, conn, config)
+        )
+
+      if Conditional.not_modified?(conn, representation.etag) do
+        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      else
+        serve_info(conn, resolved, representation, config)
+      end
+    else
+      {:error, reason} -> Errors.send(conn, reason, config)
+    end
+  end
+
   defp route_image(%Plug.Conn{} = conn, config) do
-    with {:ok, request} <- parse(conn, config),
+    with {:ok, request} <- parse(conn, config, :image),
          :ok <- check_expires(request, config),
          :ok <- check_geometry(request),
          {:ok, plan_source} <- ImgproxySource.translate(request.source_path, config),
@@ -160,28 +214,36 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # returns a bare `:ok` — it tries every configured key/salt pair with
   # `Enum.any?/2` and never reports which one matched, in this dialect's copy
   # and in the frozen framework original alike.
-  defp parse(%Plug.Conn{} = conn, config) do
+  defp parse(%Plug.Conn{} = conn, config, endpoint) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:parse], %{}, fn ->
-      result = parse_image_request(conn, config)
+      result = parse_request(conn, config, endpoint)
       {result, parse_stop_metadata(result)}
     end)
   end
 
-  defp parse_image_request(%Plug.Conn{} = conn, config) do
+  defp parse_request(%Plug.Conn{} = conn, config, endpoint) do
     with {:ok, signature, signed_path, path_info} <- Path.extract(conn),
          :ok <- Signature.verify(signature, signed_path, Keyword.fetch!(config, :signature)),
          {:ok, option_segments, source_kind, raw_source_path} <- Path.split_source(path_info),
          {:ok, request_options} <- parse_options(option_segments, config),
          {:ok, source_path, source_format} <-
-           Path.parse_source(source_kind, raw_source_path, config) do
-      {:ok, image_request(signature, source_path, source_format, request_options)}
+           parse_source(endpoint, source_kind, raw_source_path, config) do
+      {:ok, request(endpoint, signature, source_path, source_format, request_options)}
     end
   end
 
   defp parse_options(option_segments, config),
     do: Options.parse(option_segments, Keyword.fetch!(config, :presets), config)
 
-  defp image_request(signature, source_path, source_format, request_options) do
+  # `/info` reads no output extension off the source: an `@jpg` suffix selects a
+  # delivery format, and /info delivers JSON.
+  defp parse_source(:image, source_kind, raw_source_path, config),
+    do: Path.parse_source(source_kind, raw_source_path, config)
+
+  defp parse_source(:info, source_kind, raw_source_path, config),
+    do: Path.parse_source_no_extension(source_kind, raw_source_path, config)
+
+  defp request(:image, signature, source_path, source_format, request_options) do
     %Request{
       signature: signature,
       source_kind: :plain,
@@ -189,6 +251,25 @@ defmodule ImagePipe.Dialect.Imgproxy do
       pipelines: request_options.pipelines,
       auto_rotate: request_options.auto_rotate,
       output: %{request_options.output | format: source_format || request_options.output.format},
+      policy: request_options.policy,
+      cache: request_options.cache,
+      response: request_options.response
+    }
+  end
+
+  # Ports `ImagePipe.Parser.Imgproxy.parse_info_request/2`'s struct: `info?`
+  # set, `auto_rotate` forced off (the reported orientation is the source's own
+  # header, so the decode must not consume it), and the output untouched by the
+  # discarded source format.
+  defp request(:info, signature, source_path, _source_format, request_options) do
+    %Request{
+      signature: signature,
+      source_kind: :plain,
+      source_path: source_path,
+      pipelines: request_options.pipelines,
+      info?: true,
+      auto_rotate: false,
+      output: request_options.output,
       policy: request_options.policy,
       cache: request_options.cache,
       response: request_options.response
@@ -318,6 +399,113 @@ defmodule ImagePipe.Dialect.Imgproxy do
       {:error, reason} ->
         Errors.send(conn, reason, config)
     end
+  end
+
+  # -- /info: a complete body, not a stream -----------------------------------
+  #
+  # Fetch, decode-to-header, and render entirely inline (no producer process),
+  # then respond with `send_resp/3` directly. `Sender`'s `{:rendered, _}` shape
+  # would do its own Accept negotiation over renderer-supplied offers, which
+  # this terminal does not have; and its image-entry delivery assumes an
+  # encoder output (`Plan.Response.content_disposition/2` only knows the image
+  # delivery content types and errors on anything else). So both the hit and
+  # the miss path stay a dialect-owned send.
+
+  defp serve_info(conn, resolved, %Representation{} = representation, config) do
+    case Cache.lookup_entry(representation.cache_key, config) do
+      {:hit, %Cache.Entry{representation: {:complete_body, content_type}} = entry} ->
+        deliver_info_hit(conn, content_type, entry.body, representation, config)
+
+      # Anything else — a miss, a disabled cache, or an entry an adapter stored
+      # without the `{:complete_body, _}` tag (`Cache.FileSystem` does not
+      # persist it yet) — regenerates. An untagged entry is indistinguishable
+      # from an image entry, and sending one here would answer /info with image
+      # bytes.
+      _miss_or_untagged ->
+        generate_info(conn, resolved, representation, config)
+    end
+  end
+
+  # As on the image path, a cache hit is the proof that a current representation
+  # exists for this key, so it is the only place `If-None-Match: *` is honored.
+  defp deliver_info_hit(conn, content_type, body, %Representation{} = representation, config) do
+    if Conditional.if_none_match_wildcard?(conn) do
+      Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+    else
+      send_complete_body(conn, content_type, body, representation)
+    end
+  end
+
+  defp generate_info(conn, resolved, %Representation{} = representation, config) do
+    started_at = System.monotonic_time(:microsecond)
+
+    case source_info(resolved, config) do
+      {:ok, %SourceInfo{} = info} ->
+        {content_type, body} = InfoRenderer.render(info)
+        cost_us = System.monotonic_time(:microsecond) - started_at
+        write_complete_body_cache(representation, content_type, body, cost_us, config)
+        send_complete_body(conn, content_type, body, representation)
+
+      {:error, reason} ->
+        Errors.send(conn, reason, config)
+    end
+  end
+
+  defp source_info(resolved, config) do
+    Decode.with_image(
+      resolved,
+      Keyword.put(config, :auto_rotate?, false),
+      fn _geometry -> @info_decode_request end,
+      fn state, geometry -> {:ok, build_source_info(state, geometry)} end
+    )
+  end
+
+  # `width`/`height` are the STORED dimensions — `SourceInfo.display_dimensions/1`
+  # is what applies the quarter-turn swap at render time. Reading them off
+  # `geometry.display_dimensions` instead would swap them twice.
+  defp build_source_info(state, %SourceGeometry{storage_dimensions: {width, height}} = geometry) do
+    %SourceInfo{
+      format: geometry.source_format,
+      width: width,
+      height: height,
+      orientation: exif_orientation(state.image),
+      byte_size: nil
+    }
+  end
+
+  defp exif_orientation(image) do
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, value} when is_integer(value) and value in 1..8 -> value
+      _absent_or_invalid -> 1
+    end
+  end
+
+  # Fail-open, like every cache write: the sink's own error handling aborts the
+  # adapter sink synchronously on a failed write, after which further writes and
+  # the commit no-op — so the pipe chain needs no error branch of its own.
+  defp write_complete_body_cache(
+         %Representation{} = representation,
+         content_type,
+         body,
+         cost_us,
+         config
+       ) do
+    representation.cache_key
+    |> Cache.open_sink({:complete_body, content_type}, Keyword.put(config, :cost_us, cost_us))
+    |> Cache.write_chunk(IO.iodata_to_binary(body), config)
+    |> Cache.commit_sink(config)
+
+    :ok
+  end
+
+  # The ETag and the content type are rebuilt from the CURRENT request's
+  # representation, never read back off a stored entry (beyond its content
+  # type) [spec §The /info cache path].
+  defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
+    conn
+    |> put_resp_header("etag", representation.etag)
+    |> put_resp_content_type(content_type)
+    |> send_resp(200, body)
   end
 
   defp vary_headers([]), do: []

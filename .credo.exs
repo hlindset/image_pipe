@@ -107,6 +107,11 @@
         # source_filename/1 family it reaches. Transient like the other
         # phase-1 copies: retired in phase 2 with the framework original.
         #
+        # ImagePipe.Dialect.Imgproxy.InfoRenderer is the phase-1 copy of frozen
+        # Parser.Imgproxy.InfoRenderer (the /info wire table and JSON doc),
+        # minus the ImagePipe.Renderer behaviour the dialect cannot depend on.
+        # Transient like the other phase-1 copies.
+        #
         # ImagePipe.Dialect.Imgproxy is the dialect's Plug chain, and mirrors
         # ImagePipe.Dialect.Native's chain shape (negotiate/3's policy branch,
         # generate's Delivery.stream case, resolve_output/3, cache_headers/1 +
@@ -134,6 +139,7 @@
            "lib/image_pipe/dialect/imgproxy/effects.ex",
            "lib/image_pipe/dialect/imgproxy/format.ex",
            "lib/image_pipe/dialect/imgproxy/identity.ex",
+           "lib/image_pipe/dialect/imgproxy/info_renderer.ex",
            "lib/image_pipe/dialect/imgproxy/option_grammar.ex",
            "lib/image_pipe/dialect/imgproxy/options.ex",
            "lib/image_pipe/dialect/imgproxy/orientation.ex",
