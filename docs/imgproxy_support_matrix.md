@@ -297,7 +297,7 @@ imgproxy dialect did not introduce it.
 - **Object detection (`g:obj:*`) is unverified on the dialect stack.** The
   grammar accepts the URL; no dual-run case covers it, and two of the uncovered
   cases are request-*safety* tests.
-- **~24 wire-conformance cases run framework-only**, gated on config keys the
+- **16 wire-conformance cases run framework-only**, gated on config keys the
   dialect has no equivalent for yet (each gated `if @stack == :framework` with a
   stated reason).
 

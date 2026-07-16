@@ -27,6 +27,9 @@ defmodule ImagePipe.Dialect.SharedConfigTest do
     assert validated[:max_body_bytes] == 10_000_000
     assert validated[:max_input_pixels] == 40_000_000
     assert validated[:auto_avif] == true
+    assert validated[:max_result_width] == 8_192
+    assert validated[:max_result_height] == 8_192
+    assert validated[:max_result_pixels] == 40_000_000
   end
 
   test "validate_runtime!/1 rejects invalid values" do
