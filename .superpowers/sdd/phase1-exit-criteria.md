@@ -4,7 +4,7 @@ Cross-check of the design spec's 13 phase-1 exit criteria
 (`docs/superpowers/specs/2026-07-15-imgproxy-dialect-inversion-design.md`,
 §Exit criteria) against the tree at the end of R11 (Task 26).
 
-**Verdict: 11 of 13 hold. Two do not — #1 and #10.** Both are recorded below
+**Verdict: 12 of 13 hold (was 11). #1 resolved on-branch; #10 resolved post-phase-1 (7482607f). The remaining gap: the telemetry STAGE-SET difference under #10, out of scope.** Both are recorded below
 with what specifically fails, not smoothed over. Neither blocks phase 1's
 premise (the dialect serves imgproxy URLs with zero pixel divergence across
 162 × 2 differential constellations and 263 × 2 wire cases); both are real
@@ -171,7 +171,22 @@ produced, and it exists only because the user added the requirement.
 edited). Baselines A + OTel parentage byte-UNCHANGED and green through the whole
 migration (`git numstat 7e249e4e..HEAD` = 0 lines over both).
 
-## 10. ⚠️ Telemetry contract test — PARTIAL
+## 10. ✅ Telemetry contract test — RESOLVED (2026-07-16, commit 7482607f)
+
+> **Update.** The pre-delivery `:result` gap below was closed after phase 1.
+> Both dialects now stamp the framework's result vocabulary on `[:request,
+> :stop]` via the shared `ImagePipe.Telemetry.request_result/1` classifier (a
+> deps-free pure function; the dialect adds the `:error` tag). A 502 is now
+> `[:request, :stop] = :source_error`; `Logger.stage_warning?/2` was extended to
+> escalate `:source_error`/`:plan_error`/`:parser_error` (`:processing_error`
+> stays non-escalating on both stacks — it also carries client disconnects). A
+> "pre-delivery error" scenario in the contract test pins it on both arms,
+> RED-before-verified. The **stage-set** difference below (7 framework-only
+> stages + `[:output, :clamp]`) remains out of scope and still holds.
+>
+> Original assessment preserved below for the record.
+
+## 10 (original). ⚠️ Telemetry contract test — PARTIAL
 
 > Telemetry contract test green on both arms (stage names, ordering, error
 > stages), each using a private `telemetry_prefix`.
@@ -316,7 +331,7 @@ phase-2 simplification candidate.
   parser-VALID request the framework serves); and the input-colour preamble it
   never ran. Two more shipped-Native defects were recorded above: the
   ETag/`no-store` unsoundness (#1) is now **fixed** in the branch-closing fix
-  wave (see #1); the pre-delivery telemetry silence (#10) stays open (deferred).
+  wave (see #1); the pre-delivery telemetry silence (#10) is now CLOSED (7482607f) — only the stage-set difference remains, out of scope.
 - **CORS is a framework-`Plug`-only gate — the third framework-only-gate
   instance, deferred to phase 2.** `ImagePipe.Plug` stamps
   `Access-Control-Allow-Origin` on every response when `allow_origin` is set

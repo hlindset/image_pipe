@@ -251,13 +251,17 @@ imgproxy dialect did not introduce it.
   `[:transform, :operation]`, and `[:deliver]` — no stage the framework does not,
   and the exact sequence `Dialect.Native` emits. Measured and pinned by
   `ImagePipe.ImgproxyTelemetryStageSetTest`. **Shared with `Dialect.Native`.**
-- **A request that fails before delivery emits no `:result` on any stage.** The
-  dialect's `[:request, :stop]` metadata is `%{status: …}` with no `:result`, so
-  `Telemetry.Logger`'s `outcome/1` renders every dialect request `:ok` and
-  `level_for/3` never escalates a failure. A 502 on the dialect arm is
-  observable only as `[:source, :fetch, :stop] = :ok` plus the status. Failures
-  *after* delivery starts do surface, on the core-owned `[:deliver]` span
-  (`:processing_error`). **Shared with `Dialect.Native`.**
+- **A pre-delivery failure now carries a `:result` on `[:request, :stop]`**
+  (resolved; was a divergence). Both dialects stamp the framework's own result
+  vocabulary — `:ok` / `:not_modified` / `:parser_error` / `:plan_error` /
+  `:source_error` / `:cache_error` / `:processing_error`, plus an `:error` tag —
+  via the shared `ImagePipe.Telemetry.request_result/1` classifier, so
+  `Telemetry.Logger`'s `outcome/1` and `level_for/3` see and escalate a failed
+  dialect request as the framework does. A 502 is now `[:request, :stop] =
+  :source_error`. `:processing_error` intentionally does not escalate at
+  `[:request]`/`[:send]`/`[:deliver]` on either stack (it also carries normal
+  client disconnects). Pinned by the "pre-delivery error" scenario in
+  `imgproxy_telemetry_contract_test.exs`. **Shared with `Dialect.Native`.**
 - **`[:output, :clamp]` is not emitted** even when the clamp fires.
 - **`[:parse, :stop]`'s `:result` means different things.** The framework's
   `[:parse]` span encloses `PlanBuilder.to_plan/2`, so a geometry rejection
