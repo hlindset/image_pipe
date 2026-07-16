@@ -98,7 +98,6 @@ defmodule ImagePipe.Request.DeliveryBuild do
         {:ok, StreamPull.resume(chunk, stream_state), content_type, resolved_output, debug}
       else
         {:empty, _us} -> :empty
-        :empty -> :empty
         {{:error, reason}, _us} -> {:error, reason}
         {:error, reason} -> {:error, reason}
       end

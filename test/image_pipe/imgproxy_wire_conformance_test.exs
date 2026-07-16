@@ -15,9 +15,11 @@
 # names — green while proving nothing. `FrameworkParser` below is the ONE
 # deliberately unparameterized reference, and it is a URL builder, not a stack.
 #
-# Framework-only tests are gated `if @stack == :framework` with a stated reason
-# (a request option the phase-1 dialect config has no key for). They are the
-# places a parity gap can still hide; see the report for the full list.
+# Every test case runs on both arms. The only per-arm differences left are
+# opts splits for `http_cache:` — a framework-only `Request.Options` opt-in
+# gating ETag emission, which the dialect config (correctly) raises on and
+# whose behavior the dialects realize unconditionally — each commented at its
+# call site.
 for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
   defmodule Module.concat(ImagePipe.ImgproxyWireConformanceTest, suffix) do
     use ExUnit.Case, async: true
@@ -1994,13 +1996,11 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     # PipelineRequest just as the framework does — so pinning this on BOTH arms
     # keeps the dialect's gate from turning an active face-assist request into a
     # divergence the framework does not have.
-    @face_assist_gate_opts if @stack == :framework,
-                             do: [
-                               detector: UnavailableDetector,
-                               detector_required: true,
-                               imgproxy: [smart_crop_face_detection: true]
-                             ],
-                             else: [detector_required: true, smart_crop_face_detection: true]
+    @face_assist_gate_opts [
+      detector: UnavailableDetector,
+      detector_required: true,
+      imgproxy: [smart_crop_face_detection: true]
+    ]
 
     test "face-assist smart crop under detector_required + unavailable detector degrades to 200" do
       opts = Keyword.merge(@default_opts, @face_assist_gate_opts)
@@ -4710,8 +4710,8 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         # Deliberately NOT filtering: an option the dialect has no key for must
         # raise out of `Config.validate!/1`, loudly, at the arm that lacks it —
         # never be silently dropped into a test that then passes while exercising
-        # different semantics. Tests carrying such options are gated
-        # `if @stack == :framework` at the call site instead.
+        # different semantics. Tests carrying such an option (today only
+        # `http_cache:`) select per-arm opts at the call site instead.
         defp translate_opts(opts) do
           {imgproxy, rest} = Keyword.pop(opts, :imgproxy, [])
 

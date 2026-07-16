@@ -210,43 +210,6 @@ imgproxy dialect did not introduce it.
 
 ### Behavioral
 
-- **`ETag`/`Cache-Control` byte-identity gate — aligned (was a divergence).**
-  A source that resolves `cache_semantics.byte_identity: :none` (an ETag is a
-  *strong byte-identity validator*, and such a source has none) now gets **no**
-  `ETag` and `Cache-Control: no-store` on **all three** stacks. The framework
-  does this in `Request.HttpCache`; the dialects reach the identical decision
-  through `ImagePipe.Representation.build/3` /
-  `Representation.response_headers/1`, the one seam both stacks call. Before this
-  landed, both dialects (and shipped `Dialect.Native`) emitted a strong `ETag` +
-  `must-revalidate` regardless, so a conditional GET 304'd against changed
-  content and shared caches stored bytes the framework marks `no-store` — the
-  same unreachable-core shape as the stage-4 colour-carry stamp, resolved the
-  same way. The general "cache keys and ETags differ across the two stacks"
-  (below) is unaffected: that is about the ETag *value* for a strong source, not
-  whether one is emitted.
-- **`g:obj:*`/`g:objw:*` are honored on both stacks (was a divergence — B1a).**
-  The dialect gained a `:detector` config seam mirroring the framework's
-  (`:default` → the bundled composite, `nil` to disable, or a module), seeded
-  onto the transform state so the `{:detect, _}` guide reaches `Crop.execute/2`.
-  Object-guided crop pixels, class filtering, and objw weights are now
-  pixel-verified dual-run in the wire suite. The strict-mode capability gate is
-  class-aware and mirrors `ImagePipe.Plug.validate_detector_capability/2`: under
-  `detector_required: true`, an object-detect request whose configured detector
-  is unavailable *for the requested classes* is rejected 422 before any source
-  fetch or cache access; a composite that owns the face model but not the object
-  model rejects `g:obj:car` while `g:obj:face` succeeds. Face-assist smart crops
-  (`{:smart, :face_assist}`, produced by `g:sm` + `smart_crop_face_detection`)
-  are deliberately excluded from the strict-mode gate on both stacks: with an
-  unavailable face detector they degrade to attention (200), never reject (422).
-  Both stacks read the flag and produce the guide — the framework off its
-  `:imgproxy` config, the dialect by stamping the neutral flag onto its
-  `PipelineRequest` — so when a face detector *is* available the guide biases the
-  crop toward the detected face (a dual-run pixel-verified effect), not merely
-  cache-key identity. The detector *model identity* is folded into the dialect's
-  cache key AND ETag (B1b): both change when a host swaps detector model versions,
-  class-aware so only the detector children the requested class set routes to
-  contribute — mirroring `Runner.with_detector_identity/2`, dual-run and
-  pixel-independent-verified in the wire suite.
 - **`/info` is cached; the framework never caches it.** A dialect-owned complete-
   body cache entry, honoring `internal_cache: :disabled`. No parity source exists
   (the framework's render path returns before any cache access).
@@ -256,66 +219,14 @@ imgproxy dialect did not introduce it.
 
 ### Observability
 
-- **Stage-set parity is reached** (resolved; the dialect used to emit 4 fewer
-  stages). The last four framework-only stages now fire on the dialect stacks
-  too: `[:send]` (one dialect-owned span wrapping every terminal send —
-  `Sender.send_result`, the error sends, the /info complete-body send, and the
-  OPTIONS-204/method-405 heads — with the framework's `result`/`status` stop
-  metadata; `[:deliver]` nests inside it on streamed paths), `[:source,
-  :fetch_decode]` (emitted from the shared `ImagePipe.Decode.with_image/4`
-  bracket: it encloses fetch + decode, `[:source, :fetch]` nests inside it, and
-  it closes before the build continuation runs, so transform/encode failures are
-  never misattributed to it), `[:transform, :execute]` (wrapping the dialect
-  pipeline run, with the framework's aggregate `operations`/`operation_count`
-  start metadata), and `[:encode]` (wrapping `Encoder.stream_output` **and** the
-  first-chunk pull, so the span times the real forced encode). No stage is
-  framework-only anymore; both dialects emit the identical sequence. Measured
-  and pinned by `ImagePipe.ImgproxyTelemetryStageSetTest`. **Shared with
-  `Dialect.Native`.**
-- **A first-chunk encode failure now surfaces as a pre-header 500** (resolved;
-  was a divergence — behavioral). Both dialect build paths force the first
-  encoded chunk inside the producer (mirroring the framework's
-  `DeliveryBuild.encode_first_chunk/3`), so an encode failure discovered on the
-  first pull fails the request before any header is written — a 500, matching
-  the framework and upstream imgproxy — instead of aborting a mid-stream chunked
-  200. A failure after the first chunk still halts the committed stream
-  (`error_paths_test.exs` row 5 is unchanged). **Shared with `Dialect.Native`.**
-- **`[:transform, :materialize]` now fires on every stack** (resolved; was a
-  divergence). Both dialect build paths run the framework's post-clamp,
-  pre-encode delivery backstop (`Materializer.materialize/2`, mirroring
-  `ImagePipe.Request.Processor.materialize_for_delivery/2`): a lazy vips pipeline
-  that never materialized mid-chain is copied to RAM once before encode (skipped
-  when an op already materialized; a copy failure maps to a decode error → 415).
-  The span comes for free from the shared `Transform.Materializer`; the carry
-  stamp half is not duplicated (`Pipeline.run/4`'s tail already stamped it).
-  Position pinned by the cache-miss scenario in
-  `imgproxy_telemetry_contract_test.exs`. **Shared with `Dialect.Native`.**
-- **`[:output, :negotiate]` and `[:transform, :input_color_management]` now fire
-  on every stack** (resolved; were divergences). Negotiate emission moved into the
-  shared `ImagePipe.Output.Negotiate.negotiate_output/4` seam (one span enclosing
-  both resolution legs), and the input-color-management span moved into the shared
-  `ImagePipe.Transform.InputColorManagement.condition/2` seam (fired via
-  `state.telemetry_opts` on every real conditioning run, including the no-op
-  `imported?: false` case), which the framework delivery build and both dialects
-  call — so all three arms emit identical start/stop metadata. Dual-run pinned by
-  `imgproxy_telemetry_contract_test.exs`. **Shared with `Dialect.Native`.**
-- **A pre-delivery failure now carries a `:result` on `[:request, :stop]`**
-  (resolved; was a divergence). Both dialects stamp the framework's own result
-  vocabulary — `:ok` / `:not_modified` / `:parser_error` / `:plan_error` /
-  `:source_error` / `:cache_error` / `:processing_error`, plus an `:error` tag —
-  via the shared `ImagePipe.Telemetry.request_result/1` classifier, so
-  `Telemetry.Logger`'s `outcome/1` and `level_for/3` see and escalate a failed
-  dialect request as the framework does. A 502 is now `[:request, :stop] =
-  :source_error`. `:processing_error` intentionally does not escalate at
-  `[:request]`/`[:send]`/`[:deliver]` on either stack (it also carries normal
-  client disconnects). Pinned by the "pre-delivery error" scenario in
-  `imgproxy_telemetry_contract_test.exs`. **Shared with `Dialect.Native`.**
-- **`[:output, :clamp]` now fires on every stack** (resolved; was a divergence).
-  Emission moved into the shared clamp seam
-  `ImagePipe.Output.Clamp.clamp_with_telemetry/4`, which the framework delivery
-  build and both dialects call, so all three arms emit the one-shot with identical
-  metadata whenever the clamp downscales. Dual-run pinned by the clamp telemetry
-  cases in `imgproxy_wire_conformance_test.exs`. **Shared with `Dialect.Native`.**
+The dialect stacks emit the framework's full stage set — `[:send]`, `[:source,
+:fetch_decode]`, `[:transform, :execute]`, `[:transform,
+:input_color_management]`, `[:transform, :materialize]`, `[:output,
+:negotiate]`, `[:output, :clamp]`, `[:encode]` included — with identical
+start/stop metadata, pinned by `ImagePipe.ImgproxyTelemetryStageSetTest`
+(`@framework_only == []`, dialect ≡ native sequence equality); emission sites
+are documented in `docs/telemetry.md`. One semantic difference remains:
+
 - **`[:parse, :stop]`'s `:result` means different things.** The framework's
   `[:parse]` span encloses `PlanBuilder.to_plan/2`, so a geometry rejection
   (`rs:fill` with no dimensions) is `:error`; the dialect's `check_geometry/1`
@@ -1201,7 +1112,7 @@ transforms or output encoding.
 | `gravity:sm` | `g:sm` | Supported | Smart gravity via libvips attention smart crop (`VIPS_INTERESTING_ATTENTION`). |
 | `gravity:obj:face` | `g:obj:face` | Supported | Single `face` class via optional `image_vision` YuNet face detection; falls back to libvips attention when the detector is unavailable. |
 | `gravity:obj` / `g:obj:all` | | Supported | All detected objects — union of face (YuNet) and COCO-80 object (RT-DETR) detectors; falls back to libvips attention when the detector is unavailable. |
-| `gravity:obj:%c1:…:%cN` | | Supported | Multi-class object gravity using the COCO-80 vocabulary (underscore spelling, e.g. `g:obj:car:traffic_light`). Unknown classes are silently dropped (best-effort). Class-aware cache identity: only the detector children routed by the requested class set contribute to the cache key. |
+| `gravity:obj:%c1:…:%cN` | | Supported | Multi-class object gravity using the COCO-80 vocabulary (underscore spelling, e.g. `g:obj:car:traffic_light`). Unknown classes are silently dropped (best-effort). Class-aware cache identity: only the detector children routed by the requested class set contribute to the cache key and `ETag`, so swapping a detector model version invalidates exactly the variants that model produced. |
 | `gravity:objw` | | Supported | Pro per-class object-detection gravity weights. `g:objw:%c1:%w1:…:%cN:%wN` — positional class/weight pairs, weights are positive decimals (`≤ 0` rejected). Named classes form the detection spec (filter), exactly like `obj`; `all` is the pseudo-class that broadens detection to every class and sets the baseline default weight (e.g. `objw:all:2:face:3` = "detect everything, weight 2 by default, faces weight 3"). `objw:face:3` filters to faces (spec `["face"]`); `objw:all:1:face:3` detects all with face boost (spec `:all`) — they are NOT equivalent. Supported in both `g:` and `c:W:H:` forms. Falls back to libvips attention smart crop when the detector is unavailable. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, smart gravity (`c:W:H:sm`), object gravity (`c:W:H:obj:face`, `c:W:H:obj:car:dog`, `c:W:H:obj`, `c:W:H:obj:all`), and per-class weighted object gravity (`c:W:H:objw:%c1:%w1:…`); smart gravity runs libvips attention smart crop, and object gravity uses optional `image_vision` detection with attention fallback. |
