@@ -240,10 +240,27 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   def run(%State{} = state, %SourceGeometry{} = _geometry, %{pipelines: pipelines}, opts) do
     ctx = build_ctx(opts)
 
-    with {:ok, %State{} = state} <- condition_color(state, opts) do
-      run_pipelines(pipelines, state, ctx)
+    with {:ok, %State{} = state} <- condition_color(state, opts),
+         {:ok, %State{} = state} <- run_pipelines(pipelines, state, ctx) do
+      {:ok, InputColorManagement.stamp_carry(state)}
     end
   end
+
+  # The postamble to `condition_color/2`'s preamble, and required by it: the
+  # import leaves the working-space image on `State`, and ONLY this stamp tells
+  # `Output.Encoder`'s colorspace-to-result step that it ran. Without it the
+  # encoder takes its "no import ran" branch on an imported image — re-converting
+  # an already-converted image (scp on) or skipping the source-profile re-export
+  # (scp:0). Both mistakes leave the output profile header identical to the
+  # framework's, so only a pixel comparison catches them
+  # (`ImagePipe.Dialect.ColorCarryParityTest`).
+  #
+  # Mirrors `Request.Processor.materialize_for_delivery/2`, which stamps at the
+  # framework's delivery boundary. Here the boundary is `run/4`'s tail: the last
+  # operation has run, and the only things left are `Output.Clamp` and the
+  # encoder — neither of which drops image metadata. It is `run/4`'s tail rather
+  # than the caller's so the preamble and its postamble stay one seam, in one
+  # module, and every `run/4` caller gets both.
 
   # Mirrors `Executor.execute_pipelines/4`: the first failing pipeline halts the
   # rest.

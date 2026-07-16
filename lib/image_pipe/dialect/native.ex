@@ -406,7 +406,13 @@ defmodule ImagePipe.Dialect.Native do
   end
 
   defp build_and_pump(state, geometry, request, negotiation, config, pump) do
-    with {:ok, state} <- Pipeline.run(state, geometry, request, config),
+    with {:ok, state} <-
+           Pipeline.run(
+             state,
+             geometry,
+             request,
+             pipeline_opts(negotiation, request, geometry, config)
+           ),
          {:ok, resolved_output} <-
            resolve_output(negotiation.policy, geometry.source_format, state.image),
          {:ok, clamped, _clamp_info} <- Clamp.clamp(state.image, result_limits(), config),
@@ -418,6 +424,21 @@ defmodule ImagePipe.Dialect.Native do
     exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
   catch
     kind, reason -> {:error, {:transform, {kind, reason}}}
+  end
+
+  # `Pipeline.run/4`'s input-color-management preamble needs to know whether the
+  # HDR working space survives to the output, which is a fact about the
+  # NEGOTIATED format, not about any operation. Mirrors
+  # `ImagePipe.Dialect.Imgproxy`'s threading of the same option — including its
+  # conservative `false` for the branch where the format is only known after the
+  # transform. The blurhash terminal has no negotiated image format and does not
+  # thread this, taking the same conservative default.
+  defp pipeline_opts(%Negotiation{policy: policy}, %Request{} = request, geometry, config) do
+    Keyword.put(
+      config,
+      :supports_hdr?,
+      Policy.supports_hdr?(policy, Identity.plan_output(request), geometry.source_format)
+    )
   end
 
   defp resolve_output(policy, source_format, image) do
