@@ -210,7 +210,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
       representation =
         Representation.build(
           resolved.identity,
-          Identity.material(request, @info_negotiation, conn, config),
+          Identity.material(request, @info_negotiation, conn, config, nil),
           resolved.cache_semantics.byte_identity
         )
 
@@ -236,10 +236,12 @@ defmodule ImagePipe.Dialect.Imgproxy do
          {:ok, response_meta} <- ResponseMeta.build(request, plan_source),
          {:ok, resolved} <- ImageSource.resolve(plan_source, config, config),
          {:ok, negotiation} <- negotiate(conn, request, config) do
+      detector_identity = detector_identity(operations, config)
+
       representation =
         Representation.build(
           resolved.identity,
-          Identity.material(request, negotiation, conn, config),
+          Identity.material(request, negotiation, conn, config, detector_identity),
           resolved.cache_semantics.byte_identity
         )
 
@@ -319,11 +321,11 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # `PlanBuilder.to_plan/2`'s `info?: true` head (`pipelines: []`, `output:
   # nil`). /info never runs a pipeline and never encodes — `serve_info/4` goes
   # straight to `source_info/2` with `@info_decode_request` — so nothing on this
-  # path reads either field except `Identity.material/4`. Carrying them meant
+  # path reads either field except `Identity.material/5`. Carrying them meant
   # `/info/rs:fill:100:100/…` and `/info/…` got different cache keys and
   # different ETags for byte-identical bodies, forcing a client to re-download
   # identical content: exactly what the ETag's narrowness exists to prevent
-  # (AGENTS.md). Dropping them here rather than teaching `Identity.material/4` to
+  # (AGENTS.md). Dropping them here rather than teaching `Identity.material/5` to
   # ignore them for this terminal keeps the struct honest about what the request
   # will execute — an identity that folds in only what the struct carries cannot
   # regrow this bug when a field is added.
@@ -462,6 +464,28 @@ defmodule ImagePipe.Dialect.Imgproxy do
   @spec face_assist?([map()]) :: boolean()
   def face_assist?(operations) do
     Enum.any?(operations, &(Map.get(&1, :guide) == {:smart, :face_assist}))
+  end
+
+  # The resolved detector identity for cache-key/ETag material, computed ONCE per
+  # request (before `Representation.build`, so the ETag and the key derive from a
+  # single resolution). Fully mirrors `Request.Runner.with_detector_identity/2`,
+  # INCLUDING the face-assist leg: identity is resolved when the pipelines request
+  # detection (`detect_classes/1` — a `{:detect, _}` guide) OR a face-assisted
+  # smart guide (`face_assist?/1`, whose attention point blends the detected face
+  # centroid), with the framework's `["face"]` classes fallback. A disabled
+  # detector (`Transform.detector_identity/2` returning nil) leaves the material's
+  # `detector:` entry absent, same as no detection. Otherwise nil.
+  defp detector_identity(operations, config) do
+    detect_classes = detect_classes(operations)
+
+    if detect_classes != nil or face_assist?(operations) do
+      Transform.detector_identity(
+        Keyword.get(config, :detector, :default),
+        Keyword.put(config, :classes, detect_classes || ["face"])
+      )
+    else
+      nil
+    end
   end
 
   # -- negotiation ------------------------------------------------------------

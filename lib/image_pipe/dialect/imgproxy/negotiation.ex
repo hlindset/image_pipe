@@ -2,7 +2,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Negotiation do
   @moduledoc """
   The imgproxy dialect's negotiation outcome.
 
-  Carries exactly what `ImagePipe.Dialect.Imgproxy.Identity.material/4` needs
+  Carries exactly what `ImagePipe.Dialect.Imgproxy.Identity.material/5` needs
   to compose identity, plus the one `%ImagePipe.Output.Policy{}` that later
   drives `Policy.resolve/2` and encode — so the one-`%Policy{}` invariant
   (identity and encode never look at two different policy structs) is

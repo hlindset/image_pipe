@@ -196,19 +196,12 @@ save. ImagePipe realizes these at request and output boundaries:
 axes above **for every case both arms run** — and that is substantial: the
 differential suite renders all **162 constellations on both arms** (no case is
 framework-only) and asserts byte-for-byte equality against imgproxy-baked
-fixtures, and **151 of the 154 wire cases run on both arms**, asserting status,
-headers, content type, decoded pixels, and cache/source access order.
+fixtures, and **all 156 wire cases run on both arms** (no case is framework-only),
+asserting status, headers, content type, decoded pixels, and cache/source access
+order.
 
-The carve-out is precise, not a hedge:
-
-- **3 wire cases are framework-only**, each with a stated reason in the suite —
-  the detector *model-identity* cache-key tests (`face_ver:`/`object_ver:` DI),
-  which the dialect does not yet fold into its cache key (Task 6), not cases the
-  dialect fails.
-- **The § below lists real divergences** (telemetry stage-set) that hold on
-  every request, not just the untested ones.
-
-None of these is an imgproxy-conformance gap; all are ImagePipe-side, and a host
+The § below lists the real divergences (telemetry stage-set) that hold on every
+request. None is an imgproxy-conformance gap; all are ImagePipe-side, and a host
 that mounts the dialect should read them.
 
 Where a row says "shared with `Dialect.Native`", the behavior is a property of
@@ -249,12 +242,11 @@ imgproxy dialect did not introduce it.
   `:imgproxy` config, the dialect by stamping the neutral flag onto its
   `PipelineRequest` — so when a face detector *is* available the guide biases the
   crop toward the detected face (a dual-run pixel-verified effect), not merely
-  cache-key identity. **Remaining framework-only
-  bit:** the detector *model identity* is not yet folded into the dialect's cache
-  key, so a key does not change when a host swaps detector model versions
-  (`face_ver:`/`object_ver:`). That is the cache-key-identity task (Task 6); until
-  it lands, do not point both stacks at one cache store expecting model-version
-  reuse to differ.
+  cache-key identity. The detector *model identity* is folded into the dialect's
+  cache key AND ETag (B1b): both change when a host swaps detector model versions,
+  class-aware so only the detector children the requested class set routes to
+  contribute — mirroring `Runner.with_detector_identity/2`, dual-run and
+  pixel-independent-verified in the wire suite.
 - **`/info` is cached; the framework never caches it.** A dialect-owned complete-
   body cache entry, honoring `internal_cache: :disabled`. No parity source exists
   (the framework's render path returns before any cache access).
@@ -290,16 +282,6 @@ imgproxy dialect did not introduce it.
   (`rs:fill` with no dimensions) is `:error`; the dialect's `check_geometry/1`
   runs after the span closes, so the same request reports `:ok` and then 400s.
   Both reject pre-fetch.
-
-### Unverified
-
-- **Detector model identity in the cache key is unverified on the dialect
-  stack.** Object-detect crop pixels, class filtering, objw weights, and the
-  strict gate are now dual-run; the one uncovered slice is the cache-key
-  sensitivity to detector model versions (`face_ver:`/`object_ver:`), deferred to
-  the cache-key-identity task (Task 6).
-- **3 wire-conformance cases run framework-only**, the detector model-identity
-  cache-key tests (each gated `if @stack == :framework` with a stated reason).
 
 ## Differential conformance
 

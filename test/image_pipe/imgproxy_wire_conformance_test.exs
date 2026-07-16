@@ -595,57 +595,120 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       def identity(_opts), do: {__MODULE__, :unavailable}
     end
 
-    defmodule FaceVerFake do
+    # Versioned detector fakes for the detector-model-identity cache-key/ETag
+    # block. Each carries a CONSTANT identity per module, so a "model version
+    # change" is a swap to a different module — the DI-key mechanism the block
+    # once used (`face_ver:`/`object_ver:` top-level keys) is gone, because the
+    # dialect's `Config.validate!/1` raises on any key outside its closed set.
+    # Face and object leaves keep DISTINCT `supported_classes`, so a composite
+    # routes an object-only request past the face leaf entirely (and vice
+    # versa) — the property the independence cases assert.
+    defmodule FaceVerFakeV1 do
       @moduledoc false
       @behaviour ImagePipe.Transform.Detector
 
       @impl true
       def supported_classes(_), do: ["face"]
-
       @impl true
       def available?(_), do: true
-
       @impl true
-      def identity(opts), do: {__MODULE__, Keyword.get(opts, :face_ver, :v1)}
-
+      def identity(_), do: {__MODULE__, :v1}
       @impl true
       def detect(_, _), do: {:ok, []}
     end
 
-    defmodule ObjectVerFake do
+    defmodule FaceVerFakeV2 do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      @impl true
+      def supported_classes(_), do: ["face"]
+      @impl true
+      def available?(_), do: true
+      @impl true
+      def identity(_), do: {__MODULE__, :v2}
+      @impl true
+      def detect(_, _), do: {:ok, []}
+    end
+
+    defmodule ObjectVerFakeV1 do
       @moduledoc false
       @behaviour ImagePipe.Transform.Detector
 
       @impl true
       def supported_classes(_), do: ["car", "dog"]
-
       @impl true
       def available?(_), do: true
-
       @impl true
-      def identity(opts), do: {__MODULE__, Keyword.get(opts, :object_ver, :v1)}
-
+      def identity(_), do: {__MODULE__, :v1}
       @impl true
       def detect(_, _), do: {:ok, []}
     end
 
-    defmodule VerComposite do
+    defmodule ObjectVerFakeV2 do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      @impl true
+      def supported_classes(_), do: ["car", "dog"]
+      @impl true
+      def available?(_), do: true
+      @impl true
+      def identity(_), do: {__MODULE__, :v2}
+      @impl true
+      def detect(_, _), do: {:ok, []}
+    end
+
+    defmodule VerCompositeV1V1 do
       @moduledoc false
       @behaviour ImagePipe.Transform.Detector
 
       alias ImagePipe.Transform.Detector.Composite
 
-      defp c, do: Composite.new([FaceVerFake, ObjectVerFake])
+      defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV1])
 
       @impl true
       def supported_classes(_o), do: Composite.supported_classes(c())
-
       @impl true
       def detect(i, o), do: Composite.detect(c(), i, o)
-
       @impl true
       def available?(o), do: Composite.available?(c(), o)
+      @impl true
+      def identity(o), do: Composite.identity(c(), o)
+    end
 
+    defmodule VerCompositeV2V1 do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      alias ImagePipe.Transform.Detector.Composite
+
+      defp c, do: Composite.new([FaceVerFakeV2, ObjectVerFakeV1])
+
+      @impl true
+      def supported_classes(_o), do: Composite.supported_classes(c())
+      @impl true
+      def detect(i, o), do: Composite.detect(c(), i, o)
+      @impl true
+      def available?(o), do: Composite.available?(c(), o)
+      @impl true
+      def identity(o), do: Composite.identity(c(), o)
+    end
+
+    defmodule VerCompositeV1V2 do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      alias ImagePipe.Transform.Detector.Composite
+
+      defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV2])
+
+      @impl true
+      def supported_classes(_o), do: Composite.supported_classes(c())
+      @impl true
+      def detect(i, o), do: Composite.detect(c(), i, o)
+      @impl true
+      def available?(o), do: Composite.available?(c(), o)
       @impl true
       def identity(o), do: Composite.identity(c(), o)
     end
@@ -1874,18 +1937,10 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     end
 
     # `detector_required: true` + a detection request the stack cannot honor must
-    # reject BEFORE source and cache access, on both arms.
-    #
-    # The two arms reach "cannot honor" differently, which is why the opts are
-    # `@stack`-conditional. The framework HAS a detector seam, so an unavailable
-    # detector has to be injected (`detector: UnavailableDetector`). The dialect
-    # has NO detector at all (`detector:` is not one of its config keys), so any
-    # object-detection request is unconditionally unavailable — the same outcome
-    # the framework reaches with no detector configured. The observable contract
-    # asserted below is identical for both.
-    @detector_gate_opts if @stack == :framework,
-                          do: [detector: UnavailableDetector, detector_required: true],
-                          else: [detector_required: true]
+    # reject BEFORE source and cache access, on both arms. Both arms carry a
+    # `:detector` config key (the dialect gained it in B1a), so both inject the
+    # same unavailable detector explicitly — identical opts, identical contract.
+    @detector_gate_opts [detector: UnavailableDetector, detector_required: true]
 
     test "detector_required + unavailable detector rejects before source AND cache access" do
       telemetry_prefix = [:image_pipe_wire_safety]
@@ -3638,79 +3693,130 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       assert r > 250 and g > 250 and b > 250
     end
 
-    # FRAMEWORK-ONLY (the detector-model-identity cache-key block below, plus its
-    # three private helpers, which have no other callers): `ver_opts/1` injects
-    # `detector: VerComposite` and the per-model `face_ver:`/`object_ver:` DI
-    # keys, none of which the dialect config has (see the object-detection block
-    # note). The helpers are gated with the tests so the dialect arm compiles
-    # without unused-function warnings.
+    # Detector-model-identity cache-key + ETag conformance, run on BOTH arms since
+    # Task 6 (B1b): the dialect now folds the resolved detector identity into its
+    # representation, exactly as the framework's `Runner.with_detector_identity/2`
+    # does, so a key AND an ETag change when — and only when — a model swap can
+    # change the pixels. R7 found and fixed a REAL cache-key collision in
+    # `Dialect.Imgproxy.Identity` (a dropped `__struct__` gave two different
+    # encodes one key); these are the wire-level version of that hazard.
     #
-    # What this leaves unproven on the dialect arm is pointed: R7 found and fixed
-    # a REAL cache-key collision in `Dialect.Imgproxy.Identity` (a dropped
-    # `__struct__` gave two different encodes one key). These tests are the wire-
-    # level version of exactly that hazard — that a model identity participates
-    # in the key when, and only when, it can change the pixels.
-    if @stack == :framework do
-      # Capture the cache key the plug looked up for one request. Uses the file's
-      # existing CacheProbe (it sends {:cache_lookup, key}) and call_imgproxy/2.
-      defp lookup_key(path, opts) do
-        call_imgproxy(path, opts)
-        assert_received {:cache_lookup, key}
-        key
+    # "Model version change" = a swap to a different versioned composite module
+    # (`composite_for/2`), not a DI key — the dialect's closed config forbids the
+    # `face_ver:`/`object_ver:` extension keys the block once used.
+
+    # The cache key AND the response ETag the stack produced for one request.
+    defp key_and_etag(path, opts) do
+      conn = call_imgproxy(path, opts)
+      assert_received {:cache_lookup, key}
+      {key, single_etag(conn)}
+    end
+
+    defp single_etag(conn) do
+      assert [etag] = get_resp_header(conn, "etag")
+      etag
+    end
+
+    # A strong source byte identity is what makes the stack emit an ETag at all
+    # (a `:none` source gets `no-store` and no ETag on every arm); the framework
+    # additionally gates ETag emission behind `http_cache: [mode: :enabled]`,
+    # which the dialects have no equivalent of. Both are set here so the ETag
+    # half of these cases has a header to assert on.
+    defp probe_opts do
+      base =
+        Keyword.merge(@default_opts,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               byte_identity: :strong,
+               req_options: [plug: OriginImage]}
+          ]
+        )
+
+      if @stack == :framework do
+        Keyword.put(base, :http_cache, mode: :enabled)
+      else
+        base
       end
+    end
 
-      defp probe_opts do
-        Keyword.merge(@default_opts, cache: {CacheProbe, []})
-      end
+    # A composite whose face leaf is `face_ver` and object leaf is `object_ver`,
+    # selected through the `detector:` key both arms accept. Defaults are `:v1`.
+    defp ver_opts(extra) do
+      face_ver = Keyword.get(extra, :face_ver, :v1)
+      object_ver = Keyword.get(extra, :object_ver, :v1)
 
-      defp ver_opts(extra) do
-        Keyword.merge(probe_opts(), [detector: VerComposite] ++ extra)
-      end
+      Keyword.merge(probe_opts(),
+        detector: composite_for(face_ver, object_ver),
+        detector_required: false
+      )
+    end
 
-      test "object-only request key is independent of the face model identity" do
-        assert lookup_key(
-                 "/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg",
-                 ver_opts(face_ver: :v1)
-               ) ==
-                 lookup_key(
-                   "/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg",
-                   ver_opts(face_ver: :v2)
-                 )
-      end
+    defp composite_for(:v1, :v1), do: VerCompositeV1V1
+    defp composite_for(:v2, :v1), do: VerCompositeV2V1
+    defp composite_for(:v1, :v2), do: VerCompositeV1V2
 
-      test "face-only request key is independent of the object model identity" do
-        assert lookup_key(
-                 "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
-                 ver_opts(object_ver: :v1)
-               ) ==
-                 lookup_key(
-                   "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
-                   ver_opts(object_ver: :v2)
-                 )
-      end
+    test "object-only request key and ETag are independent of the face model identity" do
+      {key_v1, etag_v1} =
+        key_and_etag("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v1))
 
-      test "mixed request key changes when either model identity changes" do
-        base =
-          lookup_key(
-            "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
-            ver_opts(face_ver: :v1, object_ver: :v1)
-          )
+      {key_v2, etag_v2} =
+        key_and_etag("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v2))
 
-        diff_face =
-          lookup_key(
-            "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
-            ver_opts(face_ver: :v2, object_ver: :v1)
-          )
+      assert key_v1 == key_v2
+      assert etag_v1 == etag_v2
+    end
 
-        diff_obj =
-          lookup_key(
-            "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
-            ver_opts(face_ver: :v1, object_ver: :v2)
-          )
+    test "face-only request key and ETag are independent of the object model identity" do
+      {key_v1, etag_v1} =
+        key_and_etag(
+          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+          ver_opts(object_ver: :v1)
+        )
 
-        assert base != diff_face
-        assert base != diff_obj
-      end
+      {key_v2, etag_v2} =
+        key_and_etag(
+          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+          ver_opts(object_ver: :v2)
+        )
+
+      assert key_v1 == key_v2
+      assert etag_v1 == etag_v2
+    end
+
+    test "face-only request key and ETag change when the face model identity changes" do
+      {key_v1, etag_v1} =
+        key_and_etag(
+          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+          ver_opts(face_ver: :v1)
+        )
+
+      {key_v2, etag_v2} =
+        key_and_etag(
+          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+          ver_opts(face_ver: :v2)
+        )
+
+      assert key_v1 != key_v2
+      assert etag_v1 != etag_v2
+    end
+
+    test "mixed request key and ETag change when either model identity changes" do
+      path = "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg"
+
+      {base_key, base_etag} = key_and_etag(path, ver_opts(face_ver: :v1, object_ver: :v1))
+
+      {diff_face_key, diff_face_etag} =
+        key_and_etag(path, ver_opts(face_ver: :v2, object_ver: :v1))
+
+      {diff_obj_key, diff_obj_etag} = key_and_etag(path, ver_opts(face_ver: :v1, object_ver: :v2))
+
+      assert base_key != diff_face_key
+      assert base_key != diff_obj_key
+      assert base_etag != diff_face_etag
+      assert base_etag != diff_obj_etag
     end
 
     # Scope the clamp tests' telemetry to a private prefix so a concurrently
