@@ -57,8 +57,13 @@ change (removing or narrowing its row) per the conformance-doc rule.
   to `ImagePipe.Dialect.SharedConfig` — it already owns the sibling safety
   limits `max_body_bytes`/`max_input_pixels` (shared_config.ex:41-42, 61-68),
   and both dialect configs delegate to it (imgproxy config.ex:79,88; native
-  config.ex:35,43), so one change fixes both dialects and ends the constant
-  triplication.
+  config.ex:35,43), so one change fixes both dialects. (`Request.Options`
+  keeps the framework's own defaults while the framework serves IIIF/TwicPics,
+  so the triplication reduces to one dialect source plus the framework's.)
+  `output_capabilities`'s schema: an optional map (format → boolean),
+  `required: false`, **no default** — a default would change the absent-key
+  probe semantics of `Output.Capabilities` (capabilities.ex:37-41), which
+  treats the key as an override seam.
 - `Dialect.Imgproxy.result_limits/1` (imgproxy.ex:793-802) reads
   `Keyword.fetch!(config, :max_result_*)` instead of module attributes,
   keeping its existing `min_limit` against the encoder hard limit.
@@ -83,7 +88,7 @@ top of `call/2` (plug.ex:45), so a before-send hook stamps
 OPTIONS, 405). Both dialects have no CORS handling and no `allow_origin` key.
 
 **Fix.** `Response.CORS` is already exported and both dialects' Boundary deps
-include `ImagePipe.Response` (imgproxy.ex:60, native.ex:50) — direct reuse,
+include `ImagePipe.Response` (imgproxy.ex:62, native.ex:50) — direct reuse,
 no boundary change:
 - Add `allow_origin` to `Dialect.SharedConfig` (it is dialect-neutral, like
   the safety limits), validated as in `Request.Options` — non-empty binary,
@@ -92,11 +97,18 @@ no boundary change:
   dialect's `call/2` (imgproxy.ex:137-144; native.ex:114), mirroring
   plug.ex:45, so all exit paths are covered without touching each send site.
 
-Semantics note for the compatibility reviewer: the framework's CORS is a
-single static allow-origin echo — no wildcard matching, no `Vary: Origin`
-(cors.ex:15-25). The dialect copies that behavior exactly; parity with the
-framework, and with upstream imgproxy's `IMGPROXY_ALLOW_ORIGIN`, is the goal —
-not a richer CORS model.
+Semantics note: the framework's CORS is a single static allow-origin echo —
+no wildcard matching, no `Vary: Origin` (cors.ex:15-25) — and **framework
+parity verbatim is the target**, including its recorded, deliberate deltas
+from upstream imgproxy (`Access-Control-Allow-Methods: GET, HEAD, OPTIONS`
+only on OPTIONS, where upstream sends `GET, OPTIONS` on every CORS response;
+support matrix :522-528). Do not "correct" toward upstream's methods list
+mid-implementation — that would break the framework-parity wire cases.
+
+Doc duty beyond the divergences section: the matrix's § CORS response headers
+(imgproxy_support_matrix.md:505-517) states the dialect stacks "have no CORS
+handling at all — no `allow_origin` config key"; B2 makes that paragraph
+false and must rewrite it in the same change.
 
 ### B5 — OPTIONS / method layer
 
@@ -116,6 +128,16 @@ carry the CORS stamp, which B2's before-send hook provides).
 
 **Un-gates:** the 4-case CORS/method describe (conformance:1025) and the
 `call_imgproxy_method/3` helper gate (:4518).
+
+Doc duty: the conformance docs currently record **no** 405 comparison
+anywhere. Upstream imgproxy v4 answers a non-GET/HEAD method on an image URL
+with `404` and no `Allow` header (unmatched route — exact-method routing,
+imgproxy `server/router.go:145-158`), and its OPTIONS answer is `200` with a
+blank body and no `Allow` (`OkHandler`); ImagePipe's `405` + `Allow` and
+`204` + `Allow` are deliberate divergences that become the sole imgproxy
+stack's behavior after §A. Record the method-layer divergence (and make the
+HEAD difference explicit — upstream answers HEAD with a blank 200 where
+ImagePipe serves it as a processed request) in the matrix in the same change.
 
 ### B1 — object-detection support
 
@@ -137,20 +159,27 @@ phase 1 and is dual-run; this item is detector *support*.
    where the divergence actually exists. Delete the "no `:detector` seam"
    comment at config.ex:57-62.
 2. **State seeding:** the dialect's `Pipeline.run/4` / `run_pipeline`
-   (pipeline.ex:259-266, 333-350) seeds `State` but omits what
+   (pipeline.ex:259-266, 333-350) seeds `State` but omits the detector fields
    `Executor.execute` sets at executor.ex:62-67. Set `state.detector =
-   Transform.resolve_detector(config[:detector])`, `state.detector_required`,
-   and `state.telemetry_opts` before `Chain.execute`. (`telemetry_opts`
-   seeding also makes the shared crop code's `[:transform, :detect]`
-   spans/events carry the dialect's prefix instead of being dropped —
-   a B3 prerequisite that lands here.)
+   Transform.resolve_detector(config[:detector])` and
+   `state.detector_required` before `Chain.execute`. (`state.telemetry_opts`
+   is already seeded on the dialect path — `Decode.with_image` builds `State`
+   with it, decode.ex:136-141 — so the shared crop code's
+   `[:transform, :detect]` spans already carry the dialect's prefix; only the
+   two detector fields are unseeded.)
 3. **Cache-key / ETag identity:** the dialect equivalent of
    `Runner.with_detector_identity/2` (runner.ex:194-207): compute
    `Transform.detector_identity(config[:detector], classes)` from the
    assembled operations' guides (the dialect already computes
    `detection_requested?/1` over operations for the 422 gate,
    imgproxy.ex:423-425) and fold it into `Identity.material/4`
-   (identity.ex:45-71), analogous to `cache/key.ex:58`. Face-assist counts as
+   (identity.ex:45-71), analogous to `cache/key.ex:58`. The term goes into
+   `IdentityMaterial.representation` — not `storage_only` — which is what
+   makes it feed both the ETag and the cache key
+   (representation.ex:92-100). That matches the framework, where detector
+   identity is ETag material too (`etag_material/4` drops only `:cache` from
+   the key material, http_cache.ex:59-77) — legitimately so, since a
+   detector/model change alters output bytes. Face-assist counts as
    detection here exactly as `Plan.face_assist?/1` does for the framework.
    No epoch bump (P7). The identity must be computed **once** per request and
    feed both the ETag and the cache key, as the framework does by resolving
@@ -174,11 +203,24 @@ identity cache-key block (:3577) — 12 cases. The dual-run
 - `[:output, :clamp]`: both dialects already call shared `Output.Clamp.clamp/3`
   and discard `clamp_info` (imgproxy.ex:754, native.ex:479); the framework
   emits from `DeliveryBuild.emit_clamp_telemetry/3` (delivery_build.ex:170-186).
-  Move the one-shot emission into `Clamp.clamp/3` itself; the framework's
-  emit site delegates or is deleted. Fires only when clamping occurred, as now.
+  Move the one-shot emission into the clamp seam; the framework's emit site
+  delegates or is deleted. Fires only when clamping occurred, as now. Shape
+  detail: the framework's event carries `format:`, which `Clamp.clamp/3`
+  never receives (clamp.ex:33 — its moduledoc pins "knows nothing about
+  formats"), so the move threads the format and telemetry opts into the
+  clamp call (both dialects already pass `config` there; the framework passes
+  its opts) and revises that moduledoc note. The framework's event metadata
+  stays key-for-key identical.
 - `[:output, :negotiate]`: span moves from `DeliveryBuild.resolve_output/4`
-  (delivery_build.ex:324-332) to around the shared `Output.Policy.resolve/2`
-  call, or a shared negotiate helper — all three stacks call it.
+  (delivery_build.ex:324-332) into a **shared negotiate helper** that
+  encloses *both* legs of the framework's current span — `Policy.resolve` and
+  the `:needs_final_image_alpha` second resolution (delivery_build.ex:335-346)
+  — with stop metadata built from the final resolved output. Wrapping bare
+  `Policy.resolve/2` is not the seam: it takes no opts (no telemetry prefix
+  can reach it) and would change framework stop metadata on the alpha path.
+  Framework byte-stability guard: telemetry_test.exs:209-213 pins the
+  negotiate stop metadata (and :724-757 the input-color-management metadata)
+  and must stay green unchanged.
 - `[:transform, :input_color_management]`: span moves from the framework-only
   `Executor.seed_color_management/2` (executor.ex:92-94) into shared
   `InputColorManagement.condition/2`, which both dialects call directly
@@ -219,11 +261,13 @@ mirrors):**
 - Subscription surfaces need **no list changes** — all 8 events are already in
   `Telemetry.Logger`'s `@group_span_events`/`@output_oneshot` and
   `Trace.Capture`'s `@span_stages`/`@oneshot_stages` (the framework already
-  emits them). But `Capture.@safe_keys` must gain the metadata keys that
-  become reachable via dialect emission and are currently dropped:
-  clamp's `:source_dimensions`/`:dimensions`/`:limits`, input-color-
-  management's `:working_space`/`:imported?` (all non-sensitive). Add a
-  Capture test per the telemetry guidelines.
+  emits them). But `Capture.@safe_keys` should gain the currently-dropped,
+  non-sensitive metadata keys on these events: clamp's
+  `:source_dimensions`/`:dimensions`/`:limits`, input-color-management's
+  `:working_space`/`:imported?`. These are dropped for the framework today
+  too, so adding them additively changes framework OTel span attributes as
+  well — deliberate, and owned by this item. Add a Capture test per the
+  telemetry guidelines.
 - `docs/telemetry.md`: emission-site prose for the relocated spans;
   the support matrix § Observability row closes.
 
@@ -232,11 +276,15 @@ mirrors):**
 `grep -c '@stack == :framework' test/image_pipe/imgproxy_wire_conformance_test.exs`
 returns only the two prose mentions — **zero gated blocks; all 30
 formerly-gated cases dual-run green**, each having been RED on the dialect arm
-when un-gated. The support matrix § Dialect-stack divergences section retains
-only: the deliberate cache-key/ETag cross-stack difference, dialect-only
-`/info` caching, and the expired→400 deliberate divergence. `mise run
-precommit` green (with the `$(mise where elixir)/bin` PATH fix — plain
-`mise exec` hits the Homebrew 1.19.3 shadow).
+when un-gated; the suite's gate-convention comments (conformance:18, :4555)
+are reworded to match. The support matrix § Dialect-stack divergences section
+retains only: the deliberate cache-key/ETag cross-stack difference,
+dialect-only `/info` caching, and the `[:parse, :stop]` `:result`-semantics
+difference (the framework's `[:parse]` span encloses `to_plan/2` where the
+dialect's `check_geometry/1` runs after span close — no wave-1 item fixes it;
+the row dies naturally in wave 2's one-stack rewrite). `mise run precommit`
+green (with the `$(mise where elixir)/bin` PATH fix — plain `mise exec` hits
+the Homebrew 1.19.3 shadow).
 
 ## Wave 2 — §A: retire `Parser.Imgproxy`
 
@@ -253,7 +301,7 @@ validation) lives inside the deleted tree. `ImagePipe.Plug` survives with two
 live consumers (IIIF, TwicPics).
 
 **Test migration** (the bulk):
-- **Generic-parser re-pointing:** `plug_test.exs` (~90 occurrences of
+- **Generic-parser re-pointing:** `plug_test.exs` (~80 occurrences of
   `parser: ImagePipe.Parser.Imgproxy`), `request_safety_test.exs`,
   `cdn_http_cache_wire_test.exs`, `telemetry_test.exs`, `cache_test.exs`,
   `request_options_test.exs`, the `telemetry/trace/*` suite — these test the
@@ -285,10 +333,12 @@ live consumers (IIIF, TwicPics).
 - **Architecture tests:** drop the module→file map entry
   (architecture_boundary_test.exs:88) and the `SourceScheme` export
   assertions (:136, :163). The rip-out AST matchers (:1467-1507) **stay** —
-  they now enforce that nothing reintroduces a `Parser.Imgproxy` alias.
+  their job is the namespace rule (core never names a concrete adapter,
+  architecture_boundary_test.exs:690), and post-§A the `[:Imgproxy|_]`
+  matchers usefully catch `Dialect.Imgproxy` leaking into core.
 
 **Fiddle migration:** `build_imgproxy_opts/0`
-(fiddle application.ex:83-101) drops `parser:`, hoists the `imgproxy:`
+(fiddle application.ex:84-103) drops `parser:`, hoists the `imgproxy:`
 sublist to top-level (the wire suite's `translate_opts/1` transform), and
 switches `ImagePipe.Plug.init/call` → `ImagePipe.Dialect.Imgproxy.init/call`
 (here and in the `imgproxy.ex` web wrapper);
@@ -306,8 +356,8 @@ source-schemes, `Identity` helpers, `ResponseMeta`, `InfoRenderer` — then
 **re-audit**: an entry is deleted only if the surviving file no longer
 duplicates anything (some may still mirror native and need a re-justified
 ignore). The #457-breadcrumbed ignores (`dialect/imgproxy.ex`,
-`dialect/imgproxy/pipeline.ex`, `decode.ex`, `native/pipeline.ex`,
-`response/conditional.ex`) survive (P9).
+`dialect/imgproxy/pipeline.ex`, `decode.ex`, `decode/source_format.ex`,
+`native/pipeline.ex`, `response/conditional.ex`) survive (P9).
 
 **Marker retirement** (phase-1 spec §Phase 2 item 6): `{:effective, …}` dies
 from `plan.ex:363,392`, `plan/key_data.ex:209`, `plan/operation.ex:68,745,748`,
@@ -372,8 +422,8 @@ cases red).
    (+ `Access-Control-Allow-Methods` when configured); non-GET/HEAD → 405 +
    `Allow`; all dual-run.
 4. B4/B6: host-set `max_result_*` and `output_capabilities` honored by both
-   dialects; the `@default_max_result_*` triplication is gone
-   (single source in `SharedConfig`).
+   dialects; the dialect copies of `@default_max_result_*` are gone (single
+   dialect source in `SharedConfig`; `Request.Options` keeps the framework's).
 5. B3: `ImgproxyTelemetryStageSetTest`'s `@framework_only` is `[]`; dialect ≡
    native stage sequence holds; `@safe_keys` covers the newly reachable
    metadata; `docs/telemetry.md` synced.
