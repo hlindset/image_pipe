@@ -135,6 +135,14 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end)
   end
 
+  defp route(%Plug.Conn{method: "OPTIONS"} = conn, config) do
+    {CORS.send_options(conn, config), %{result: :options}}
+  end
+
+  defp route(%Plug.Conn{method: method} = conn, _config) when method not in ["GET", "HEAD"] do
+    {Sender.send_method_not_allowed(conn), %{result: :method_not_allowed}}
+  end
+
   defp route(%Plug.Conn{} = conn, config) do
     case Path.split_endpoint(conn) do
       {:info, info_conn} -> route_info(info_conn, config)

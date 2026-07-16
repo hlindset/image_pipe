@@ -1085,58 +1085,47 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
           )
 
         assert conn.status == 200
+        assert content_type(conn) == ["application/json; charset=utf-8"]
         assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
       end
     end
 
-    # FRAMEWORK-ONLY. The dialect still has no method layer:
-    # `Dialect.Imgproxy.call/2` routes straight to `:info`/`:image`
-    # (imgproxy.ex `route/2`), with no `OPTIONS` preflight and no 405 — that
-    # layer is Task 4. `allow_origin` itself IS a dialect config key now (see
-    # the describe above), so `OPTIONS -> 204 + Allow` still reaches the
-    # dialect and still returns **400**, not 204: the dialect parses `OPTIONS
-    # /_/anything` as an image request and rejects the path. That is a live
-    # behavioral divergence, not just an unbuilt seam (divergence D1 in
-    # .superpowers/sdd/task-19-report.md). Gating this describe parks it;
-    # re-arm when the dialect grows a method layer.
-    if @stack == :framework do
-      describe "CORS OPTIONS/method layer (framework-only until the dialect grows one)" do
-        test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
-          conn =
-            call_imgproxy_method(
-              :options,
-              "/_/anything",
-              [allow_origin: "https://cdn.test"] ++ @default_opts
-            )
+    describe "CORS OPTIONS/method layer" do
+      test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
+        conn =
+          call_imgproxy_method(
+            :options,
+            "/_/anything",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
 
-          assert conn.status == 204
-          assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-          assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
-          assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-        end
+        assert conn.status == 204
+        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+        assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
 
-        test "OPTIONS → 204 + Allow, no CORS headers when allow_origin unset" do
-          conn = call_imgproxy_method(:options, "/_/anything", @default_opts)
+      test "OPTIONS → 204 + Allow, no CORS headers when allow_origin unset" do
+        conn = call_imgproxy_method(:options, "/_/anything", @default_opts)
 
-          assert conn.status == 204
-          assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-          assert get_resp_header(conn, "access-control-allow-methods") == []
-          assert get_resp_header(conn, "access-control-allow-origin") == []
-        end
+        assert conn.status == 204
+        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+        assert get_resp_header(conn, "access-control-allow-methods") == []
+        assert get_resp_header(conn, "access-control-allow-origin") == []
+      end
 
-        test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
-          conn =
-            call_imgproxy_method(
-              :put,
-              "/_/anything",
-              [allow_origin: "https://cdn.test"] ++ @default_opts
-            )
+      test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
+        conn =
+          call_imgproxy_method(
+            :put,
+            "/_/anything",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
 
-          assert conn.status == 405
-          assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-          # Proves the before-send hook is not 200-only: it fires on the 405 too.
-          assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-        end
+        assert conn.status == 405
+        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+        # Proves the before-send hook is not 200-only: it fires on the 405 too.
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
       end
     end
 
@@ -4553,15 +4542,11 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     end
 
     # The non-GET siblings (method gating, CORS preflight) need the method, not
-    # an Accept header. Framework-only for the same reason its only callers are
-    # (the CORS describe): the dialect has no method layer to exercise, so on
-    # the dialect arm this would be an unused function.
-    if @stack == :framework do
-      defp call_imgproxy_method(method, path, opts) do
-        method
-        |> conn(path)
-        |> call_imgproxy_conn(opts)
-      end
+    # an Accept header.
+    defp call_imgproxy_method(method, path, opts) do
+      method
+      |> conn(path)
+      |> call_imgproxy_conn(opts)
     end
 
     # The single stack-invocation site: every wire request in this file reaches

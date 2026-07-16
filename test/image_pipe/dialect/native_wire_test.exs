@@ -520,6 +520,44 @@ defmodule ImagePipe.Dialect.NativeWireTest do
     end
   end
 
+  # ── OPTIONS / method layer ──────────────────────────────────────────────
+
+  defp call_method(method, path, config) do
+    method
+    |> conn(path)
+    |> Native.call(config)
+  end
+
+  describe "OPTIONS / method layer" do
+    test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
+      config = opts(allow_origin: "https://cdn.test")
+      conn = call_method(:options, "/w=64/src/images/cat.jpg", config)
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+
+    test "OPTIONS → 204 + Allow, no CORS headers when allow_origin unset" do
+      conn = call_method(:options, "/w=64/src/images/cat.jpg", opts())
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      assert get_resp_header(conn, "access-control-allow-methods") == []
+      assert get_resp_header(conn, "access-control-allow-origin") == []
+    end
+
+    test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
+      config = opts(allow_origin: "https://cdn.test")
+      conn = call_method(:put, "/w=64/src/images/cat.jpg", config)
+
+      assert conn.status == 405
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+  end
+
   # ── delivery lifecycle: monitor direction + bracket containment ────────
   #
   # These exercise ImagePipe.Delivery.Coordinator/Producer

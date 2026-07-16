@@ -114,6 +114,14 @@ defmodule ImagePipe.Dialect.Native do
     end)
   end
 
+  defp route(%Plug.Conn{method: "OPTIONS"} = conn, config) do
+    {CORS.send_options(conn, config), %{result: :options}}
+  end
+
+  defp route(%Plug.Conn{method: method} = conn, _config) when method not in ["GET", "HEAD"] do
+    {Sender.send_method_not_allowed(conn), %{result: :method_not_allowed}}
+  end
+
   defp route(%Plug.Conn{} = conn, config) do
     now = System.os_time(:second)
 
