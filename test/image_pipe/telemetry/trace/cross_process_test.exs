@@ -35,7 +35,7 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
 
   # A cache-miss request that fetches + decodes a real source and writes to cache.
   # CacheProbe(result: :miss) drives open_sink -> write_chunk -> commit_sink, so the
-  # [:cache, :write] span fires from the SourceSession process (hop A target).
+  # [:cache, :write] span fires from the delivery coordinator process (hop A target).
   defp miss_opts do
     [
       parser: ImagePipe.Parser.Imgproxy,

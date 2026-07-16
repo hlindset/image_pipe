@@ -11,7 +11,7 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
   #
   #   * [:encode] is the forced output encode (Encoder.stream_output + first_chunk),
   #     emitted from the PRODUCER process in
-  #     ImagePipe.Request.SourceSession.Producer.encode_first_chunk/3. It is the
+  #     ImagePipe.Request.DeliveryBuild.encode_first_chunk/3. It is the
   #     heaviest stage of most requests and parents to the request root — a sibling
   #     of the delivery-backstop [:transform, :materialize], in the same process.
   #

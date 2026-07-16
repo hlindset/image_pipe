@@ -62,6 +62,17 @@ defmodule ImagePipe.Transform.DecodePlanner do
   resize); neither present means no shrink from those inputs.
   `required_extent` independently caps the chosen shrink so the loaded
   display-frame extent never falls below that floor.
+
+  Both entry points share `ratio_from_targets/4`, so a `resize_target` whose
+  axes carry what the chain path's own `resize_load_shrink/3` would compute —
+  each axis independently optional, and fractional once `dpr`/`zoom` inflate it
+  (see `t:Request.resize_target/0`) — yields the identical ratio rather than an
+  approximation of it.
+
+  The shrink-axis swap is decided by the same *net* turn `open_options/5`
+  computes from the chain: the EXIF turn (`exif_quarter_turn?` and
+  `auto_rotate?`) XOR the dialect's own pre-resize rotate
+  (`request.user_quarter_turn?`).
   """
   @spec open_options_for(
           Request.t(),
@@ -81,7 +92,11 @@ defmodule ImagePipe.Transform.DecodePlanner do
              is_integer(src_w) and src_w > 0 and
              is_integer(src_h) and src_h > 0 and
              is_boolean(exif_quarter_turn?) and is_boolean(auto_rotate?) do
-    {shrink_w, shrink_h} = shrink_axes({src_w, src_h}, exif_quarter_turn? and auto_rotate?)
+    {shrink_w, shrink_h} =
+      shrink_axes(
+        {src_w, src_h},
+        request_net_quarter_turn?(request, exif_quarter_turn?, auto_rotate?)
+      )
 
     base = [access: :sequential, fail_on: :error]
 
@@ -149,6 +164,19 @@ defmodule ImagePipe.Transform.DecodePlanner do
     exif_angle = if auto_rotate? and exif_quarter_turn?, do: 90, else: 0
     rem(exif_angle + user_rotate_angle_before_resize(chain), 180) == 90
   end
+
+  # The `%Request{}` form of `net_quarter_turn?/3` above. A defunctionalized
+  # request has no chain to walk, so the dialect resolves its own pre-resize
+  # rotate to a boolean and the two terms combine by XOR — exact, because each
+  # term contributes 0 or 90 mod 180 and the sum is a quarter turn iff exactly
+  # one of them is. A dialect that emits no rotate before its resize leaves
+  # `user_quarter_turn?` at `false`, collapsing this to the EXIF term alone.
+  defp request_net_quarter_turn?(
+         %Request{user_quarter_turn?: user_turn?},
+         exif_qt?,
+         auto_rotate?
+       ),
+       do: (exif_qt? and auto_rotate?) != user_turn?
 
   # Sum of user `%Rotate{}` angles reaching the chain before the first resize,
   # reduced mod 360. A 180° rotate contributes no axis swap; two quarter turns

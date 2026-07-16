@@ -22,13 +22,13 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Delivery
+  alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Dialect.Native
-  alias ImagePipe.Dialect.Native.Delivery
-  alias ImagePipe.Dialect.Native.Delivery.Coordinator
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response, as: PlanResponse
-  alias ImagePipe.Representation
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Delivery.SessionProbe
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.Blur, as: ExecutableBlur
   alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize
@@ -241,7 +241,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   defp bracketed_build_fun(chunks, test_pid) do
     fn pump ->
       try do
-        pump.(Stream.map(chunks, & &1), "image/jpeg", fake_resolved_output())
+        pump.(Stream.map(chunks, & &1), "image/jpeg", fake_resolved_output(), nil)
       after
         send(test_pid, :bracket_cleanup)
       end
@@ -272,6 +272,50 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
       assert conn.resp_body == "upstream responded 503"
       refute_received {:cache_open_sink, _key, _metadata}
     end
+
+    # A pre-delivery failure (a fetch error, discovered before
+    # `Delivery.stream/5` is ever called) must still stamp `:result` on the
+    # `[:request]` span's stop metadata — the bug this test guards is
+    # `Native.call/2`'s span carrying only `:status`, which renders every
+    # failing request as `ok` under the default Logger's `outcome/1`
+    # (AGENTS.md, telemetry guidelines).
+    test "stamps :source_error as :result on the [:request] stop span" do
+      test_pid = self()
+      prefix = [:"native_error_paths_#{System.unique_integer([:positive])}"]
+
+      config =
+        opts(
+          telemetry_prefix: prefix,
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {Origin503, test_pid: test_pid}]}
+          ],
+          cache: {ObservingCacheProbe, []}
+        )
+
+      handler_id = "native-error-paths-#{inspect(prefix)}"
+
+      :telemetry.attach(
+        handler_id,
+        prefix ++ [:request, :stop],
+        fn _event, _measurements, metadata, test_pid ->
+          send(test_pid, {:request_stop, metadata})
+        end,
+        test_pid
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      conn = get("/w=64/src/images/cat.jpg", config)
+      assert conn.status == 502
+
+      assert_received {:request_stop, metadata}
+      assert metadata[:result] == :source_error
+      assert metadata[:error] == :source
+      assert metadata[:status] == 502
+    end
   end
 
   # ── row 2: client disconnect during fetch (fetch-phase variant) ─────────
@@ -298,7 +342,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
         end
 
         try do
-          pump.(Stream.map(["a", "b"], & &1), "image/jpeg", fake_resolved_output())
+          pump.(Stream.map(["a", "b"], & &1), "image/jpeg", fake_resolved_output(), nil)
         after
           send(test_pid, :bracket_cleanup)
         end
@@ -311,7 +355,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
           end
         end)
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
       coordinator_ref = Process.monitor(coordinator)
 
       prepare_task = Task.async(fn -> Coordinator.prepare(coordinator) end)
@@ -493,11 +537,10 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
       test_pid = self()
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
 
-      representation = %Representation{cache_key: fake_cache_key(), etag: "\"test\"", vary: []}
       config = [cache: {ObservingCacheProbe, []}]
 
       assert {:ok, prepared} =
-               Delivery.stream(self(), build_fun, representation, %PlanResponse{}, config)
+               Delivery.stream(self(), build_fun, fake_cache_key(), %PlanResponse{}, config)
 
       assert prepared.first_chunk == "a"
       assert_received {:cache_open_sink, _key, _metadata}
@@ -511,9 +554,15 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
 
-      # `Delivery.stream/5` establishes this monitor inside the calling
-      # (owner) process itself — no separate `Process.monitor/1` needed here.
-      assert_receive {:DOWN, _ref, :process, _coordinator_pid, _reason}
+      # The coordinator is the session's other child. It monitors this process
+      # (its owner), which is how the probe finds it; monitoring it back here is
+      # what makes its teardown observable.
+      for coordinator <- SessionProbe.coordinators() do
+        ref = Process.monitor(coordinator)
+        assert_receive {:DOWN, ^ref, :process, ^coordinator, _reason}, 2_000
+      end
+
+      assert SessionProbe.coordinators() == []
     end
   end
 
@@ -525,7 +574,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
       build_fun = bracketed_build_fun(["a", "b"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)

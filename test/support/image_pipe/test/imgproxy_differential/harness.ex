@@ -15,10 +15,17 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Harness do
   @fixtures_dir "#{@base}/fixtures"
 
   @doc """
-  `ImagePipe.Plug` opts wired to serve the committed sources locally. Build once and
-  thread it through repeated `render/2` calls to avoid re-initializing per render.
+  An arm wired to serve the committed sources locally. Build once and thread it
+  through repeated `render/2` calls to avoid re-initializing per render.
+
+    * `:framework` — `ImagePipe.Plug` + `ImagePipe.Parser.Imgproxy`
+    * `:dialect` — `ImagePipe.Dialect.Imgproxy`, which owns its own request chain
+
+  Each call builds independent opts; two arms share no state.
   """
-  def plug_opts, do: Shared.plug_opts(ImagePipe.Parser.Imgproxy, @sources_dir)
+  def plug_opts(arm \\ :framework)
+  def plug_opts(:framework), do: Shared.plug_opts(ImagePipe.Parser.Imgproxy, @sources_dir)
+  def plug_opts(:dialect), do: Shared.dialect_plug_opts(ImagePipe.Dialect.Imgproxy, @sources_dir)
 
   @doc "Live ImagePipe render for a constellation → `{body_bytes, content_type}`."
   def render(constellation, plug_opts \\ plug_opts()),

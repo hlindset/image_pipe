@@ -5,7 +5,6 @@ defmodule ImagePipe.Application do
     top_level?: true,
     deps: [
       ImagePipe.Output,
-      ImagePipe.Request,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ]
@@ -22,8 +21,7 @@ defmodule ImagePipe.Application do
 
     children = [
       ImagePipe.Telemetry.Trace.OtelReplay,
-      ImagePipe.Source.S3.RefreshCache,
-      ImagePipe.Request.SourceSessionSupervisor
+      ImagePipe.Source.S3.RefreshCache
     ]
 
     opts = [strategy: :one_for_one, name: ImagePipe.Supervisor]

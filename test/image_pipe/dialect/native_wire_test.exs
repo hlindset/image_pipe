@@ -4,9 +4,10 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Dialect.Native
-  alias ImagePipe.Dialect.Native.Delivery.Coordinator
   alias ImagePipe.Dialect.Native.Parser
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
@@ -20,7 +21,9 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   @source_key_b "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
   @default_sources [
-    path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    path:
+      {RootHTTPAdapter,
+       root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
   ]
 
   defp counting_sources do
@@ -28,6 +31,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       path:
         {RootHTTPAdapter,
          root_url: "http://origin.test",
+         byte_identity: :strong,
          req_options: [plug: {CountingOriginImage, test_pid: self()}]}
     ]
   end
@@ -36,7 +40,9 @@ defmodule ImagePipe.Dialect.NativeWireTest do
     [
       path:
         {RootHTTPAdapter,
-         root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+         root_url: "http://origin.test",
+         byte_identity: :strong,
+         req_options: [plug: OriginShouldNotFetch]}
     ]
   end
 
@@ -187,6 +193,20 @@ defmodule ImagePipe.Dialect.NativeWireTest do
 
       assert key_a.hash == key_b.hash
     end
+
+    # `cost_us` is what the FileSystem adapter's admission/eviction policy
+    # scores an entry by (`effective_cost = if cost_us > 0, do: cost_us, else:
+    # size_bytes`), so a zero here silently demotes every native entry to
+    # size-based scoring.
+    test "the stored entry records the real generation cost, not zero" do
+      config = opts(cache: {CacheProbe, []})
+
+      conn = get("/w=64/src/images/cat.jpg", config)
+      assert conn.status == 200
+
+      assert_received {:cache_open_sink, _key, %Entry.Metadata{cost_us: cost_us}}
+      assert cost_us > 0
+    end
   end
 
   # ── conditional GET: 304 before any cache lookup or source fetch ───────
@@ -287,6 +307,23 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       assert [etag] = get_resp_header(conn, "etag")
       assert etag != ""
       assert conn.resp_body =~ ~r/^[0-9A-Za-z#$%*+,\-.:;=?@\[\]^_{|}~]+$/
+    end
+
+    # The BlurHash terminal never goes through `Delivery` (it computes and
+    # caches its complete body inline in `write_complete_body_cache/3`), so
+    # gap 3's `cost_us` fix on the streamed path does not reach it. A ~30-byte
+    # hash is cheap to store but expensive to regenerate (full decode +
+    # transform), so a zero here mis-scores it as worthless under the
+    # FileSystem adapter's `effective_cost = if cost_us > 0, do: cost_us,
+    # else: size_bytes` fallback — the exact inversion the bug is about.
+    test "the stored complete-body entry records the real generation cost, not zero" do
+      config = opts(cache: {CacheProbe, []})
+
+      conn = get("/w=32/output=blurhash/src/images/cat.jpg", config)
+      assert conn.status == 200
+
+      assert_received {:cache_open_sink, _key, %Entry.Metadata{cost_us: cost_us}}
+      assert cost_us > 0
     end
 
     test "conditional GET with a matching etag is 304 before any source fetch" do
@@ -466,7 +503,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
 
   # ── delivery lifecycle: monitor direction + bracket containment ────────
   #
-  # These exercise ImagePipe.Dialect.Native.Delivery.Coordinator/Producer
+  # These exercise ImagePipe.Delivery.Coordinator/Producer
   # directly with a synthetic build_fun, rather than going through the full
   # HTTP call/2 chain — the flagged invariants here are the monitor
   # direction and the bracket-cleanup contract, which are properties of the
@@ -489,7 +526,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   defp bracketed_build_fun(chunks, test_pid) do
     fn pump ->
       try do
-        pump.(Stream.map(chunks, & &1), "image/jpeg", fake_resolved_output())
+        pump.(Stream.map(chunks, & &1), "image/jpeg", fake_resolved_output(), nil)
       after
         send(test_pid, :bracket_cleanup)
       end
@@ -508,7 +545,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
           end
         end)
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
@@ -529,7 +566,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup
@@ -550,7 +587,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
       owner = self()
 
-      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), [])
+      {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup

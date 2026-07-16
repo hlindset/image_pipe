@@ -8,8 +8,9 @@ defmodule ImagePipe.Transform.Lowering do
   # gravity into it as a parameter, keeping ResizePlanning a leaf).
   #
   # Internal lowering seam: exported from the Transform boundary for the
-  # in-tree imgproxy strategy only, not part of the strategy SDK — see the
-  # export-list tiers in ImagePipe.Transform.
+  # in-tree imgproxy consumers (the framework strategy and the inverted
+  # dialect), not part of the strategy SDK and subject to change without
+  # notice — see the export-list tiers in ImagePipe.Transform.
 
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground

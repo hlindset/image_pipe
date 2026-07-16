@@ -28,13 +28,10 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   "cheap trim" contract work: a trim in group 2 runs on group 1's already-
   executed output dims, not the original source.
 
-  **Known probe limitation — color management.** This module does not apply
-  working-space (embedded-ICC) color management. `ImagePipe.Decode.with_image/4`
-  does not seed it, and doing so here would require exporting
-  `ImagePipe.Transform.InputColorManagement` from the `Transform` boundary — a
-  core-widening decision out of this probe's scope. Correct for sRGB inputs
-  (the common case and the test fixtures); diverges only for ICC/wide-gamut
-  inputs. See the Task 14 report for the full note to Task 21.
+  **Input color management** brackets that order: the embedded-ICC working-space
+  import runs as a preamble before the first group, and the delivery-boundary
+  carry stamp runs after the last one — both owned by `run/4`, both from
+  `ImagePipe.Transform.InputColorManagement`.
   """
 
   alias ImagePipe.Dialect.Native.Request
@@ -45,6 +42,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.PendingOrientation
@@ -84,34 +82,36 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
         %Request{groups: [%Group{} = group | _]} = request,
         %SourceGeometry{} = geometry
       ) do
-    {display_w, display_h} = geometry.display_dimensions
-    crop_extent = crop_extent(group, {display_w, display_h})
-
-    # `:auto` resolves against whatever extent actually feeds the resize: the
-    # crop's extent when a crop precedes it in this group (the resize itself
-    # runs against the post-crop image, not the original display frame),
-    # else the full display dims.
-    resize_aspect_dims = crop_extent || {display_w, display_h}
-
     %DecodePlanner.Request{
-      resize_target: resize_target(group.resize, resize_aspect_dims),
-      crop_extent: crop_extent,
+      resize_target: resize_target(group.resize),
+      crop_extent: crop_extent(group, geometry.display_dimensions),
       trim?: group.trim != nil,
       terminal_reduction: terminal_reduction(request.output),
       required_extent: nil
     }
   end
 
-  defp resize_target(nil, _aspect_dims), do: nil
+  # An `:auto` axis is not a target: it stays `nil`, so `ratio_from_targets/4`
+  # — the same function the framework's `open_options/5` reaches through
+  # `resize_load_shrink/3` — takes the targeted axis's ratio alone, exactly as
+  # the chain path does. Synthesizing the missing axis from the aspect ratio
+  # instead binds that function's `min/2` tighter than the chain path whenever
+  # the source is not exactly proportional to the requested box, shrinking less
+  # and decoding more pixels than the framework arm for the same request.
+  # A resize with NO targeted axis normalizes to `nil`, not `{nil, nil}`: the
+  # planner's precedence reads `resize_target`'s presence, so an empty box would
+  # shadow `terminal_reduction` and cost the blurhash terminal its load shrink.
+  defp resize_target(nil), do: nil
 
-  defp resize_target(%{w: :auto, h: h}, {dw, dh}) when is_integer(h),
-    do: {round(h * dw / dh), h}
+  defp resize_target(%{w: w, h: h}) do
+    case {target_axis(w), target_axis(h)} do
+      {nil, nil} -> nil
+      target -> target
+    end
+  end
 
-  defp resize_target(%{w: w, h: :auto}, {dw, dh}) when is_integer(w),
-    do: {w, round(w * dh / dw)}
-
-  defp resize_target(%{w: w, h: h}, _aspect_dims) when is_integer(w) and is_integer(h),
-    do: {w, h}
+  defp target_axis(:auto), do: nil
+  defp target_axis(n) when is_integer(n), do: n
 
   defp crop_extent(%Group{region: {_x, _y, w, h}}, {dw, dh}),
     do: {round(resolve_length(w, dw)), round(resolve_length(h, dh))}
@@ -137,8 +137,42 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   `NeutralResolver.continue/4` respectively. Real callers never set these.
   """
   @spec run(State.t(), SourceGeometry.t(), Request.t(), keyword()) ::
-          {:ok, State.t()} | {:error, {:transform, term()}}
+          {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
   def run(%State{} = state, %SourceGeometry{} = _geometry, %Request{} = request, opts) do
+    with {:ok, %State{} = state} <- condition_color(state, opts),
+         {:ok, %State{} = state} <- run_groups(state, request, opts) do
+      {:ok, InputColorManagement.stamp_carry(state)}
+    end
+  end
+
+  # Input color management is a data-determined preamble, not a Plan operation
+  # (AGENTS.md: its behavior is sourced entirely from the decoded image's own
+  # headers, which no operation struct can see), so it imports the embedded
+  # profile into a working space before ANY group runs, and `stamp_carry/1`
+  # above hands the result to `Output.Encoder`'s colorspace-to-result step at
+  # the delivery boundary. The two are one seam: without the stamp the encoder
+  # takes its "no import ran" branch on an imported image and re-converts
+  # already-converted pixels — a mistake that leaves the output profile header
+  # correct, so only a pixel comparison catches it
+  # (`ImagePipe.Dialect.ColorCarryParityTest`).
+  #
+  # Mirrors `Executor.run_color_management/2` and the imgproxy dialect's own
+  # `condition_color/2`, including their divergences: no `seed_orientation` gate
+  # (`run/4` IS the real-execution path here) and no
+  # `[:transform, :input_color_management]` span (this dialect emits no stage
+  # spans yet). A failure is a corrupt/unsupported profile — a decode failure,
+  # surfaced as `{:decode, _}` (415), consistent with the materialization
+  # contract.
+  defp condition_color(%State{} = state, opts) do
+    hdr? = Keyword.get(opts, :supports_hdr?, false)
+
+    case InputColorManagement.condition(state, supports_hdr?: hdr?) do
+      {:ok, %State{} = state} -> {:ok, state}
+      {:error, {InputColorManagement, reason}} -> {:error, {:decode, reason}}
+    end
+  end
+
+  defp run_groups(%State{} = state, %Request{} = request, opts) do
     ctx = build_ctx(opts)
     {w, h} = State.effective_source_dims(state)
 

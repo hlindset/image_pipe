@@ -46,7 +46,24 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/transform.ex",
     "lib/image_pipe/transform/**/*.ex"
   ]
-  @dialect_forbidden_globs @parser_forbidden_globs ++ @transform_globs ++ @parser_globs
+  # The core modules this dialect-inversion run extracted out of the framework
+  # (delivery/decode/representation/config). They are core — a dialect must be
+  # removable without editing them — so they belong in the "core must not name a
+  # dialect" grep alongside plug/request/source/response/cache/output/plan/
+  # transform/parser. The Boundary compiler already enforces the real dep graph;
+  # this closes the grep's blind spot over exactly the surface the run added.
+  @core_extraction_globs [
+    "lib/image_pipe/delivery.ex",
+    "lib/image_pipe/delivery/**/*.ex",
+    "lib/image_pipe/decode.ex",
+    "lib/image_pipe/decode/**/*.ex",
+    "lib/image_pipe/representation.ex",
+    "lib/image_pipe/representation/**/*.ex",
+    "lib/image_pipe/config.ex",
+    "lib/image_pipe/config/**/*.ex"
+  ]
+  @dialect_forbidden_globs @parser_forbidden_globs ++
+                             @transform_globs ++ @parser_globs ++ @core_extraction_globs
   @resolver_strategy_globs [
     "lib/image_pipe/parser/**/resolver.ex",
     "lib/image_pipe/parser/**/point_flow.ex"
@@ -59,6 +76,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
+    ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
+    ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
@@ -200,6 +219,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(dialect_native, [
       ImagePipe.Cache,
       ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
@@ -222,6 +243,44 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(dialect_native, [])
+  end
+
+  test "dialect imgproxy boundary declaration depends only on core toolkit facades" do
+    dialect_imgproxy = boundary_declaration(ImagePipe.Dialect.Imgproxy)
+
+    assert_boundary_deps(dialect_imgproxy, [
+      ImagePipe.Cache,
+      ImagePipe.Config,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect.SharedConfig,
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Representation,
+      ImagePipe.Response,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    # Same rule as the native dialect: only core toolkit facades, never the
+    # framework's parser/request/resolver/renderer stack. `ImagePipe.Config` is
+    # the one dep native does not take — this dialect's `Config` splits its flat
+    # host keyword three ways and validates the neutral half through the core
+    # config boundary. It is a core facade, not part of the framework stack.
+    refute_boundary_deps(dialect_imgproxy, [
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver
+    ])
+
+    # `SourceScheme` is the one export: a host implements it to translate a
+    # custom `foo://` source scheme. Nothing else in the dialect is a host
+    # contract, so nothing else is exported.
+    assert_boundary_exports(dialect_imgproxy, [ImagePipe.Dialect.Imgproxy.SourceScheme])
   end
 
   test "decode boundary declaration depends only on the core fetch/decode toolkit" do
@@ -252,7 +311,36 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(decode, [])
   end
 
-  test "core, transform, and parser code does not name the native dialect" do
+  test "delivery boundary declaration depends only on core streaming/cache facades" do
+    delivery = boundary_declaration(ImagePipe.Delivery)
+
+    # `ImagePipe.Output` is a pinned-but-currently-unused declared dep (a known
+    # dead entry left by the extraction); this pins the declared list as-is.
+    assert_boundary_deps(delivery, [
+      ImagePipe.Cache,
+      ImagePipe.Debug,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Response,
+      ImagePipe.Source,
+      ImagePipe.Telemetry
+    ])
+
+    # The shared delivery primitive must not reach into the framework's
+    # request/parser/resolver/renderer/config stack, and must never name a
+    # concrete dialect.
+    refute_boundary_deps(delivery, [
+      ImagePipe.Config,
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver
+    ])
+
+    assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
+  end
+
+  test "core, transform, and parser code does not name a dialect" do
     # A dialect must be removable without changing the core: nothing under
     # plug/request/source/response/cache/output/plan/transform/parser may
     # reference ImagePipe.Dialect.
@@ -266,7 +354,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "parser-output-stays-semantic and dialect-forbidden greps exclude the native dialect directory" do
+  test "parser-output-stays-semantic and dialect-forbidden greps exclude the dialect directory" do
     dialect_files = Path.wildcard("lib/image_pipe/dialect/**/*.ex")
 
     assert dialect_files != []
@@ -281,6 +369,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Config,
       ImagePipe.Debug,
+      ImagePipe.Delivery,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.MaterialDigest,
@@ -298,17 +387,15 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(request, [
       ImagePipe.Request.HTTPCache,
       ImagePipe.Request.Options,
-      ImagePipe.Request.Runner,
-      ImagePipe.Request.SourceSessionSupervisor
+      ImagePipe.Request.Runner
     ])
   end
 
-  test "application boundary owns OTP startup and depends on request lifecycle infrastructure" do
+  test "application boundary owns OTP startup" do
     application = boundary_declaration(ImagePipe.Application)
 
     assert_boundary_deps(application, [
       ImagePipe.Output,
-      ImagePipe.Request,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ])
@@ -369,10 +456,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "response delivery stays unaware of source sessions and cache staging" do
+  test "response delivery stays unaware of delivery sessions and cache staging" do
     forbidden_terms = [
-      "ImagePipe.Request.SourceSession",
-      "ImagePipe.Request.SourceSessionSupervisor",
+      "ImagePipe.Delivery",
       "ImagePipe.Cache.Sink",
       "Cache.open_sink",
       "Cache.write_chunk",
@@ -390,7 +476,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
           term <- forbidden_terms,
           String.contains?(line, term) do
-        "#{file}:#{number} must not depend on #{term}; SourceSession owns cache staging"
+        "#{file}:#{number} must not depend on #{term}; ImagePipe.Delivery owns cache staging"
       end
 
     assert violations == []
@@ -428,7 +514,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     violations =
       for {file, source} <- response_sources,
-          term <- ["SourceSession", "SourceSessionSupervisor"],
+          term <- ["ImagePipe.Delivery"],
           String.contains?(source, term) do
         "#{file} must not reference #{term}; response delivery uses PreparedStream callbacks"
       end
@@ -437,11 +523,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     request = boundary_declaration(ImagePipe.Request)
 
-    forbidden_exports = [
-      ImagePipe.Request.SourceSession,
-      ImagePipe.Request.SourceSession.Prepared,
-      ImagePipe.Request.SourceSession.Request
-    ]
+    forbidden_exports = [ImagePipe.Request.DeliveryBuild]
 
     assert Enum.filter(request.exports, &(&1 in forbidden_exports)) == []
   end
@@ -453,7 +535,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # ImagePipe.Telemetry.Trace is the opt-in span-tracer facade; the Plug edge calls
     # Trace.maybe_extract_inbound/1, so it is exported. Trace.Stack/Trace.Context are
     # exported because request/source code threads + adopts the trace context across the
-    # request->SourceSession (hop A) and request->Producer (hop B) process seams (it
+    # request->delivery-coordinator (hop A) and request->producer (hop B) process seams (it
     # calls only these generic Trace.* modules, never concrete transform ops).
     # Trace.ReqStep is exported because the source Req-client build site attaches it to
     # trace outbound fetches as a logical client span. Trace.Span and Trace.Exporter are

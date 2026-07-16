@@ -3,13 +3,27 @@ defmodule ImagePipe.Representation do
   Builds a response's cache key, ETag, and Vary header names from categorized,
   pre-fetch identity material.
 
-  `build/2` is the one-way seam a dialect uses to turn its own canonical
-  request data into core-owned identity: it accepts only `source_identity`
-  (opaque keyword material from `ImagePipe.Source.Resolved`) and a
-  `%ImagePipe.Representation.IdentityMaterial{}` — both available before any
-  source fetch. There is no function anywhere in this boundary (or any other)
-  that builds a key or ETag from fetched bytes; that is what lets a
-  conditional GET resolve before fetch, decode, or encode.
+  `build/3` is the one-way seam a dialect uses to turn its own canonical
+  request data into core-owned identity: it accepts `source_identity` (opaque
+  keyword material from `ImagePipe.Source.Resolved`), a
+  `%ImagePipe.Representation.IdentityMaterial{}`, and the source's
+  `byte_identity` — all available before any source fetch. There is no
+  function anywhere in this boundary (or any other) that builds a key or ETag
+  from fetched bytes; that is what lets a conditional GET resolve before fetch,
+  decode, or encode.
+
+  ## Byte identity governs the ETag
+
+  A strong-byte-identity source contributes an `ETag`. A source whose bytes
+  carry no stable identity (`byte_identity: :none` — reachable with the shipped
+  `Source.HTTP`/`Source.File`/`Source.S3` adapters whenever the origin supplies
+  no validator) gets **no** `ETag` and a `Cache-Control: no-store` directive
+  (`response_headers/1`), so a conditional GET can never revalidate against
+  content whose bytes may have changed. This is the sole boundary both dialects
+  reach for that decision — it lives here rather than in each dialect so no
+  dialect can re-ship the divergence. The framework's
+  `ImagePipe.Request.HTTPCache` reproduces the identical decision on its own
+  path (`cache_control_without_etag/2` / `do_generated_etag/4`).
 
   The cache key and the ETag answer different questions and are derived from
   different (but overlapping) slices of the same data:
@@ -41,22 +55,35 @@ defmodule ImagePipe.Representation do
   @core_execution_epoch 1
   @etag_schema "ipr1"
 
-  @enforce_keys [:cache_key, :etag, :vary]
+  @enforce_keys [:cache_key, :etag, :vary, :no_store?]
   defstruct @enforce_keys
+
+  # Mirrors `ImagePipe.Source.CacheSemantics.byte_identity/0` structurally so
+  # the decision can live here without this boundary taking a dep on
+  # `ImagePipe.Source`: the caller passes the plain term, this module owns the
+  # `== :none` decision (the D5 discipline — one decision, one place).
+  @type byte_identity :: {:strong, term()} | :none
 
   @type t :: %__MODULE__{
           cache_key: Key.t(),
-          etag: String.t(),
-          vary: [String.t()]
+          etag: String.t() | nil,
+          vary: [String.t()],
+          no_store?: boolean()
         }
 
   @doc """
   Builds the cache key, ETag, and Vary header names for a representation from
   `source_identity` (opaque keyword material identifying the source byte
-  content) and pre-fetch `material`.
+  content), pre-fetch `material`, and the source's `byte_identity`.
+
+  A `byte_identity` of `:none` withholds the ETag and marks the representation
+  `no_store?` — see the moduledoc and `response_headers/1`. The cache key is
+  computed regardless (internal storage identity does not depend on HTTP byte
+  identity).
   """
-  @spec build(source_identity :: keyword(), IdentityMaterial.t()) :: t()
-  def build(source_identity, %IdentityMaterial{} = material) when is_list(source_identity) do
+  @spec build(source_identity :: keyword(), IdentityMaterial.t(), byte_identity()) :: t()
+  def build(source_identity, %IdentityMaterial{} = material, byte_identity)
+      when is_list(source_identity) do
     key_data = [
       representation_schema: 1,
       core_epoch: @core_execution_epoch,
@@ -66,12 +93,28 @@ defmodule ImagePipe.Representation do
       storage_only: material.storage_only
     ]
 
+    no_store? = byte_identity == :none
+
     %__MODULE__{
       cache_key: %Key{hash: digest_hex(key_data), data: key_data},
-      etag: etag(Keyword.delete(key_data, :storage_only)),
-      vary: material.vary_header_names
+      etag: if(no_store?, do: nil, else: etag(Keyword.delete(key_data, :storage_only))),
+      vary: material.vary_header_names,
+      no_store?: no_store?
     }
   end
+
+  @doc """
+  The identity/cache response headers a dialect stamps for this representation.
+
+  A strong-byte-identity representation contributes its `ETag`. A `no_store?`
+  representation (a `:none` source) instead contributes `Cache-Control:
+  no-store` and no `ETag` — routing both dialects through one decision so
+  neither can 304 against changed content or let a shared cache store bytes
+  with no stable identity.
+  """
+  @spec response_headers(t()) :: [{String.t(), String.t()}]
+  def response_headers(%__MODULE__{no_store?: true}), do: [{"cache-control", "no-store"}]
+  def response_headers(%__MODULE__{etag: etag}), do: [{"etag", etag}]
 
   @doc """
   Splits configured `storage_inputs` (header/cookie names from dialect

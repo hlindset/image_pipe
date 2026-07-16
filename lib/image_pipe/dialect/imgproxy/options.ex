@@ -1,0 +1,574 @@
+defmodule ImagePipe.Dialect.Imgproxy.Options do
+  @moduledoc false
+
+  alias ImagePipe.Config
+  alias ImagePipe.Dialect.Imgproxy.OptionGrammar
+  alias ImagePipe.Dialect.Imgproxy.Orientation
+  alias ImagePipe.Dialect.Imgproxy.PipelineRequest
+  alias ImagePipe.Dialect.Imgproxy.Presets
+  alias ImagePipe.Dialect.Imgproxy.Request
+  alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Output.PngOptions
+  alias ImagePipe.Plan.Output.QualitySearch
+
+  @effect_fields [
+    :blur,
+    :sharpen,
+    :pixelate,
+    :monochrome,
+    :duotone,
+    :brightness,
+    :contrast,
+    :saturation,
+    :colorize,
+    :gradient
+  ]
+
+  @type request_options :: %{
+          pipelines: [PipelineRequest.t()],
+          auto_rotate: boolean(),
+          output: Request.output_request(),
+          policy: Request.policy_request(),
+          cache: Request.cache_request(),
+          response: Request.response_request()
+        }
+
+  @spec parse([String.t()], Presets.t(), keyword()) :: {:ok, request_options()} | {:error, term()}
+  def parse(option_segments, %Presets{} = presets, defaults \\ []) when is_list(defaults) do
+    with {:ok, options} <- initial_request_options() |> apply_default_preset(presets),
+         {:ok, options} <- apply_segments(option_segments, options, presets, []),
+         {:ok, options} <- drain_queued_preset_groups(options, presets),
+         {:ok, options} <-
+           options |> finalize_request_options() |> apply_request_defaults(defaults) do
+      request = Map.take(options, [:pipelines, :auto_rotate, :output, :policy, :cache, :response])
+
+      {:ok, request}
+    end
+  end
+
+  defp initial_request_options do
+    %{
+      current_pipeline: %PipelineRequest{},
+      queued_preset_groups: [],
+      pipelines: [],
+      output: Request.output_request(),
+      policy: Request.policy_request(),
+      cache: Request.cache_request(),
+      response: Request.response_request()
+    }
+  end
+
+  defp finalize_request_options(options) do
+    options = finalize_current_pipeline(options)
+    pipelines = Enum.reverse(options.pipelines)
+
+    pipelines =
+      if pipelines == [] do
+        [%PipelineRequest{}]
+      else
+        pipelines
+      end
+
+    %{
+      options
+      | current_pipeline: %PipelineRequest{},
+        queued_preset_groups: [],
+        pipelines: pipelines
+    }
+  end
+
+  defp apply_default_preset(options, %Presets{} = presets) do
+    case Presets.fetch(presets, "default") do
+      {:ok, groups} -> apply_preset_groups(groups, options, presets, ["default"])
+      :error -> {:ok, options}
+    end
+  end
+
+  defp apply_segments(segments, options, presets, active_presets) do
+    Enum.reduce_while(segments, {:ok, options}, fn segment, {:ok, options} ->
+      case apply_segment(segment, options, presets, active_presets) do
+        {:ok, options} -> {:cont, {:ok, options}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp apply_segment("-", options, presets, _active_presets) do
+    options
+    |> finalize_current_pipeline()
+    |> apply_next_queued_preset_group(presets)
+  end
+
+  defp apply_segment(segment, options, presets, active_presets) do
+    case OptionGrammar.parse(segment) do
+      {:ok, {:preset, names}} ->
+        apply_preset_names(names, options, presets, active_presets)
+
+      {:ok, {:pipeline, assignments}} ->
+        {:ok, update_current_pipeline(options, assignments)}
+
+      {:ok, {:output, assignments}} ->
+        {:ok, update_output(options, assignments)}
+
+      {:ok, {:cache, assignments}} ->
+        {:ok, update_cache(options, assignments)}
+
+      {:ok, {:policy, assignments}} ->
+        {:ok, update_policy(options, assignments)}
+
+      {:ok, {:response, assignments}} ->
+        {:ok, update_response(options, assignments)}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp apply_preset_names(names, options, presets, active_presets) do
+    Enum.reduce_while(names, {:ok, options}, fn name, {:ok, options} ->
+      case apply_preset(name, options, presets, active_presets) do
+        {:ok, options} -> {:cont, {:ok, options}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp apply_preset(name, options, presets, active_presets) do
+    case name in active_presets do
+      true ->
+        {:ok, options}
+
+      false ->
+        case Presets.fetch(presets, name) do
+          {:ok, groups} -> apply_preset_groups(groups, options, presets, [name | active_presets])
+          :error -> {:error, {:unknown_preset, name}}
+        end
+    end
+  end
+
+  defp apply_preset_groups([first_group | remaining_groups], options, presets, active_presets) do
+    with {:ok, options} <- apply_segments(first_group, options, presets, active_presets) do
+      {:ok, enqueue_preset_groups(options, remaining_groups, active_presets)}
+    end
+  end
+
+  defp enqueue_preset_groups(options, [], _active_presets), do: options
+
+  defp enqueue_preset_groups(%{queued_preset_groups: queue} = options, groups, active_presets) do
+    levels = Enum.map(groups, &[{&1, active_presets}])
+    %{options | queued_preset_groups: merge_queued_preset_levels(queue, levels)}
+  end
+
+  defp apply_next_queued_preset_group(%{queued_preset_groups: []} = options, _presets),
+    do: {:ok, options}
+
+  defp apply_next_queued_preset_group(
+         %{queued_preset_groups: [entries | queue]} = options,
+         presets
+       ) do
+    %{options | queued_preset_groups: queue}
+    |> apply_queued_preset_entries(entries, presets)
+  end
+
+  defp apply_queued_preset_entries(options, entries, presets) do
+    Enum.reduce_while(entries, {:ok, options}, fn {segments, active_presets}, {:ok, options} ->
+      case apply_segments(segments, options, presets, active_presets) do
+        {:ok, options} -> {:cont, {:ok, options}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp merge_queued_preset_levels([], levels), do: levels
+  defp merge_queued_preset_levels(queue, []), do: queue
+
+  defp merge_queued_preset_levels([queue_level | queue], [new_level | levels]) do
+    [queue_level ++ new_level | merge_queued_preset_levels(queue, levels)]
+  end
+
+  defp drain_queued_preset_groups(%{queued_preset_groups: []} = options, _presets),
+    do: {:ok, options}
+
+  defp drain_queued_preset_groups(options, presets) do
+    with {:ok, options} <-
+           options
+           |> finalize_current_pipeline()
+           |> apply_next_queued_preset_group(presets) do
+      drain_queued_preset_groups(options, presets)
+    end
+  end
+
+  defp finalize_current_pipeline(%{current_pipeline: pipeline, pipelines: pipelines} = options) do
+    if pipeline_empty?(pipeline) do
+      %{options | current_pipeline: %PipelineRequest{}}
+    else
+      %{options | current_pipeline: %PipelineRequest{}, pipelines: [pipeline | pipelines]}
+    end
+  end
+
+  defp update_current_pipeline(%{current_pipeline: pipeline} = options, assignments) do
+    pipeline =
+      Enum.reduce(assignments, pipeline, fn
+        {:orientation, orientation_assignments}, pipeline ->
+          %{
+            pipeline
+            | orientation: struct!(pipeline.orientation, orientation_assignments),
+              orientation_requested: true,
+              auto_rotate_requested:
+                pipeline.auto_rotate_requested or
+                  Keyword.has_key?(orientation_assignments, :auto_orient)
+          }
+
+        {:padding, padding_args}, pipeline ->
+          apply_padding(pipeline, padding_args)
+
+        {:background_color, color}, pipeline ->
+          apply_background_color(pipeline, color)
+
+        {:background_alpha, alpha}, pipeline ->
+          apply_background_alpha(pipeline, alpha)
+
+        {:trim, trim_assignments}, pipeline ->
+          %{pipeline | trim: trim_assignments}
+
+        {field, _value} = assignment, pipeline when field in @effect_fields ->
+          %{pipeline | effects: struct!(pipeline.effects, [assignment])}
+
+        {:strip_color_profile, value}, pipeline ->
+          %{pipeline | strip_color_profile: value, strip_color_profile_requested: true}
+
+        {:color_profile, value}, pipeline ->
+          %{pipeline | color_profile: value}
+
+        assignment, pipeline ->
+          struct!(pipeline, [assignment])
+      end)
+
+    %{options | current_pipeline: pipeline}
+  end
+
+  defp update_output(%{output: output} = options, assignments) do
+    output =
+      Enum.reduce(assignments, output, fn
+        {:format_qualities, format_qualities}, output ->
+          %{
+            output
+            | format_qualities: Map.merge(output.format_qualities, format_qualities)
+          }
+
+        {:encoder_options, new}, output ->
+          merged =
+            Map.merge(output.encoder_options, new, fn _fmt, a, b -> a.__struct__.merge(a, b) end)
+
+          %{output | encoder_options: merged}
+
+        assignment, output ->
+          merge_request_map(output, [assignment])
+      end)
+
+    %{options | output: output}
+  end
+
+  defp update_cache(%{cache: cache} = options, assignments) do
+    %{options | cache: merge_request_map(cache, assignments)}
+  end
+
+  defp update_policy(%{policy: policy} = options, assignments) do
+    %{options | policy: merge_request_map(policy, assignments)}
+  end
+
+  defp update_response(%{response: response} = options, assignments) do
+    %{options | response: merge_request_map(response, assignments)}
+  end
+
+  defp merge_request_map(request, assignments) do
+    attrs = Map.new(assignments)
+    unknown_keys = Map.keys(attrs) -- Map.keys(request)
+
+    case unknown_keys do
+      [] -> Map.merge(request, attrs)
+      keys -> raise ArgumentError, "unknown request keys: #{inspect(keys)}"
+    end
+  end
+
+  defp pipeline_empty?(%PipelineRequest{} = pipeline) do
+    normalize_empty_pipeline_values(pipeline) == %PipelineRequest{}
+  end
+
+  defp normalize_empty_pipeline_values(%PipelineRequest{} = pipeline) do
+    %{
+      pipeline
+      | gravity_x_offset: normalize_zero_offset(pipeline.gravity_x_offset),
+        gravity_y_offset: normalize_zero_offset(pipeline.gravity_y_offset)
+    }
+  end
+
+  defp normalize_zero_offset(offset) when is_float(offset) and offset == 0.0,
+    do: {:pixels, 0.0}
+
+  defp normalize_zero_offset(offset), do: offset
+
+  defp apply_request_defaults(%{pipelines: pipelines, output: output} = options, defaults) do
+    auto_rotate? = effective_auto_rotate(pipelines, Keyword.get(defaults, :auto_rotate, false))
+
+    strip_color_profile? =
+      effective_strip_color_profile(pipelines, Keyword.get(defaults, :strip_color_profile, true))
+
+    color_profile = effective_color_profile(pipelines)
+
+    pipelines =
+      pipelines
+      |> Enum.map(fn pipeline ->
+        pipeline
+        |> consume_auto_rotate_request()
+        |> consume_strip_color_profile_request()
+        |> consume_color_profile_request()
+      end)
+      |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
+      |> reject_empty_pipelines()
+
+    with {:ok, output} <-
+           output
+           |> resolve_metadata_defaults(defaults)
+           |> Map.put(:strip_color_profile, strip_color_profile?)
+           |> Map.put(:color_profile, color_profile)
+           |> resolve_quality_defaults(defaults)
+           |> resolve_quality_search_defaults(defaults) do
+      output =
+        Map.put(output, :encoder_options, merge_encoder_options(defaults, output.encoder_options))
+
+      options =
+        options
+        |> Map.put(:auto_rotate, auto_rotate?)
+        |> Map.merge(%{pipelines: pipelines, output: output})
+
+      {:ok, options}
+    end
+  end
+
+  # Config-default encoder structs (pruned of all-nil) under the URL override
+  # structs, per-field via each struct's merge/2. Prune all-nil results so an
+  # unused feature yields %{} (byte- and cache-key-neutral). Normalization runs
+  # AFTER the merge so config+URL (e.g. config `palette` + URL `quantization_colors`)
+  # compose before the orphan-bitdepth rule applies.
+  defp merge_encoder_options(defaults, url_map) do
+    base = Config.encoder_options_from_config(defaults)
+
+    (Map.keys(base) ++ Map.keys(url_map))
+    |> Enum.uniq()
+    |> Enum.reduce(%{}, fn fmt, acc ->
+      merged =
+        Map.get(base, fmt)
+        |> merge_format_struct(Map.get(url_map, fmt))
+        |> normalize_encoder_option()
+
+      if merged && not merged.__struct__.all_nil?(merged),
+        do: Map.put(acc, fmt, merged),
+        else: acc
+    end)
+  end
+
+  defp merge_format_struct(nil, over), do: over
+  defp merge_format_struct(base, nil), do: base
+  defp merge_format_struct(base, over), do: base.__struct__.merge(base, over)
+
+  # imgproxy computes PNG `bitdepth` ONLY inside `if (quantize)`. After the full
+  # config+URL merge, drop an orphan bitdepth when palette isn't enabled (e.g.
+  # `pngo:::128` alone ⇒ %PngOptions{}). Palette true with no colors leaves
+  # bitdepth nil = libvips palette default 8 (= imgproxy 256→8).
+  defp normalize_encoder_option(%PngOptions{palette: p, bitdepth: b} = o)
+       when p != true and not is_nil(b),
+       do: %{o | bitdepth: nil}
+
+  defp normalize_encoder_option(o), do: o
+
+  # Fold host-config default quality into the product-neutral output. Config
+  # `format_quality` (bare ints) is normalized to the `quality()` shape and used
+  # as the base under the already-merged URL `fq` (`output.format_qualities`).
+  # A URL `:default` entry (`fq:fmt:0`) means "unset" — imgproxy treats `0` as
+  # unset — so it must not erase the config per-format value; reject those before
+  # merging. `default_quality` carries the configured global default.
+  defp resolve_quality_defaults(output, defaults) do
+    config_fq =
+      defaults
+      |> Keyword.get(:format_quality, %{})
+      |> Map.new(fn {format, q} -> {format, {:quality, q}} end)
+
+    url_fq =
+      output.format_qualities
+      |> Enum.reject(fn {_format, quality} -> quality == :default end)
+      |> Map.new()
+
+    default_quality =
+      case Keyword.get(defaults, :quality) do
+        nil -> :default
+        value -> {:quality, value}
+      end
+
+    %{
+      output
+      | format_qualities: Map.merge(config_fq, url_fq),
+        default_quality: default_quality
+    }
+  end
+
+  @doc false
+  @spec resolve_quality_search_defaults(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def resolve_quality_search_defaults(output, defaults) do
+    case effective_quality_search_method(output.quality_search, defaults) do
+      :none ->
+        {:ok, %{output | quality_search: :none}}
+
+      metric ->
+        QualitySearch.build(
+          metric,
+          url_quality_search_fields(output.quality_search),
+          defaults
+        )
+        |> case do
+          {:ok, search} -> {:ok, %{output | quality_search: search}}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp effective_quality_search_method({:autoquality, :disabled}, _defaults), do: :none
+
+  defp effective_quality_search_method({:autoquality, fields}, defaults) when is_list(fields),
+    do: Keyword.get(fields, :metric, Keyword.get(defaults, :autoquality_method, :none))
+
+  defp effective_quality_search_method(:none, defaults),
+    do: Keyword.get(defaults, :autoquality_method, :none)
+
+  defp url_quality_search_fields({:autoquality, fields}) when is_list(fields), do: fields
+  defp url_quality_search_fields(_quality_search), do: []
+
+  defp resolve_metadata_defaults(output, defaults) do
+    strip = resolve_bool(output.strip_metadata, Keyword.get(defaults, :strip_metadata, true))
+    keep = resolve_bool(output.keep_copyright, Keyword.get(defaults, :keep_copyright, true))
+    preserve_hdr = resolve_bool(output.preserve_hdr, Keyword.get(defaults, :preserve_hdr, false))
+    # keep_copyright is only meaningful when metadata is being stripped; force it
+    # false otherwise so byte-identical outputs share one canonical cache key.
+    %{output | strip_metadata: strip, keep_copyright: strip and keep, preserve_hdr: preserve_hdr}
+  end
+
+  defp resolve_bool(nil, default), do: default
+  defp resolve_bool(value, _default) when is_boolean(value), do: value
+
+  defp effective_auto_rotate(pipelines, default) do
+    Enum.reduce(pipelines, default, fn
+      %PipelineRequest{
+        auto_rotate_requested: true,
+        orientation: %Orientation{auto_orient: auto_rotate?}
+      },
+      _auto_rotate? ->
+        auto_rotate?
+
+      %PipelineRequest{}, auto_rotate? ->
+        auto_rotate?
+    end)
+  end
+
+  defp consume_auto_rotate_request(
+         %PipelineRequest{orientation: %Orientation{} = orientation} = pipeline
+       ) do
+    orientation = %Orientation{orientation | auto_orient: false}
+
+    %{
+      pipeline
+      | orientation: orientation,
+        orientation_requested: orientation_requested?(orientation),
+        auto_rotate_requested: false
+    }
+  end
+
+  defp effective_strip_color_profile(pipelines, default) do
+    Enum.reduce(pipelines, default, fn
+      %PipelineRequest{strip_color_profile_requested: true, strip_color_profile: value}, _acc ->
+        value
+
+      %PipelineRequest{}, acc ->
+        acc
+    end)
+  end
+
+  defp consume_strip_color_profile_request(%PipelineRequest{} = pipeline),
+    do: %{pipeline | strip_color_profile: false, strip_color_profile_requested: false}
+
+  defp effective_color_profile(pipelines) do
+    Enum.reduce(pipelines, nil, fn
+      %PipelineRequest{color_profile: target}, _acc when not is_nil(target) -> target
+      %PipelineRequest{}, acc -> acc
+    end)
+  end
+
+  defp consume_color_profile_request(%PipelineRequest{} = pipeline),
+    do: %{pipeline | color_profile: nil}
+
+  defp apply_strip_color_profile_to_first_pipeline(pipelines, false), do: pipelines
+
+  defp apply_strip_color_profile_to_first_pipeline([first | rest], true),
+    do: [%{first | strip_color_profile: true} | rest]
+
+  defp reject_empty_pipelines(pipelines) do
+    case Enum.reject(pipelines, &pipeline_empty?/1) do
+      [] -> [%PipelineRequest{}]
+      pipelines -> pipelines
+    end
+  end
+
+  defp orientation_requested?(%Orientation{} = orientation), do: orientation != %Orientation{}
+
+  defp apply_padding(%PipelineRequest{} = pipeline, values) do
+    top = padding_value(Enum.at(values, 0), pipeline.padding_top)
+    right = padding_value(Enum.at(values, 1), fallback_padding(top, pipeline.padding_right))
+    bottom = padding_value(Enum.at(values, 2), fallback_padding(top, pipeline.padding_bottom))
+    left = padding_value(Enum.at(values, 3), fallback_padding(right, pipeline.padding_left))
+
+    %{
+      pipeline
+      | padding_top: top,
+        padding_right: right,
+        padding_bottom: bottom,
+        padding_left: left
+    }
+  end
+
+  defp padding_value(nil, current), do: current
+  defp padding_value(:unset, current), do: current
+  defp padding_value(value, _current) when is_integer(value), do: value
+
+  defp fallback_padding(:unset, current), do: current
+  defp fallback_padding(value, _current), do: value
+
+  defp apply_background_color(%PipelineRequest{} = pipeline, nil) do
+    %{pipeline | background_color: nil, background_alpha: nil}
+  end
+
+  defp apply_background_color(%PipelineRequest{} = pipeline, %Color{} = color) do
+    %{pipeline | background_color: color_with_alpha!(color, pipeline.background_alpha)}
+  end
+
+  defp apply_background_alpha(%PipelineRequest{} = pipeline, alpha) do
+    color =
+      pipeline.background_color
+      |> default_background_color()
+      |> color_with_alpha!(alpha)
+
+    %{pipeline | background_color: color, background_alpha: alpha}
+  end
+
+  defp default_background_color(nil) do
+    {:ok, black} = Color.rgb(0, 0, 0)
+    black
+  end
+
+  defp default_background_color(%Color{} = color), do: color
+
+  defp color_with_alpha!(%Color{} = color, nil), do: color
+
+  defp color_with_alpha!(%Color{} = color, alpha) do
+    {:ok, color} = Color.with_alpha(color, alpha)
+    color
+  end
+end

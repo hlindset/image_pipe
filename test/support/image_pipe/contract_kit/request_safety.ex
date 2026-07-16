@@ -104,6 +104,7 @@ defmodule ImagePipe.ContractKit.RequestSafety do
         path:
           {RootHTTPAdapter,
            root_url: "http://contract-kit-request-safety.test",
+           byte_identity: :strong,
            req_options: [plug: {CountingOriginImage, test_pid: self()}]}
       ]
     ]
@@ -120,6 +121,7 @@ defmodule ImagePipe.ContractKit.RequestSafety do
       path:
         {RootHTTPAdapter,
          root_url: "http://contract-kit-request-safety.test",
+         byte_identity: :strong,
          req_options: [plug: OriginShouldNotFetch]}
     ]
 

@@ -204,7 +204,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.SourceInventory do
                produced_by: :gen_sources,
                content:
                  "Red field, white corner, green/blue cross-lines, converted to Display-P3 (embedded P3 profile).",
-               consumers: [:icm, :icm_sequential, :color_result],
+               consumers: [:icm, :icm_sequential, :color_result, :color_carry_parity],
                invariant:
                  "MUST keep the embedded P3 profile: the ICM `@p3_fixture` asserts a wide-gamut import, and " <>
                    "other tests borrow this profile to tag images in-test."

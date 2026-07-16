@@ -9,6 +9,46 @@ ImagePipe normalizes aliases and conflicts, converts supported options into
 For a feature-by-feature comparison with Imgproxy's processing URL surface, see
 [Imgproxy support matrix](imgproxy_support_matrix.md).
 
+## Mounting
+
+Two stacks serve the path API described here, and this document's URL surface is
+identical on both:
+
+```elixir
+# framework stack: ImagePipe.Plug selects its dialect with `parser:`, and
+# namespaces that dialect's own keys under `:imgproxy`.
+plug ImagePipe.Plug,
+  parser: ImagePipe.Parser.Imgproxy,
+  sources: [...],
+  imgproxy: [source_url_encryption_key: "..."]
+
+# dialect stack: the dialect IS the plug. One flat keyword — no `parser:`, and
+# no `:imgproxy` sublist, because there is nothing to namespace against.
+plug ImagePipe.Dialect.Imgproxy,
+  sources: [...],
+  source_url_encryption_key: "..."
+```
+
+The config shapes differ; the URLs do not. Examples below that pass
+`imgproxy: [...]` to `ImagePipe.Plug.init/1` are framework-stack spellings —
+on the dialect, hoist those keys to the top level.
+
+The dialect's config validates strictly: a key it has no equivalent for raises
+out of `init/1` rather than being ignored, so a framework option the dialect does
+not implement fails loudly at boot. See
+[Dialect-stack divergences](imgproxy_support_matrix.md#dialect-stack-divergences)
+for what those are.
+
+### Mount point
+
+Both stacks read the request path the same way, and both may be mounted at the
+root or below a prefix (`Plug.Router.forward/2`, or any mount that sets
+`script_name`). The mount prefix is stripped before the signature segment is
+read, so it is **not** part of the signed material: one signed path verifies at
+`/` and under `/img` alike. The same holds for the `/info` prefix, which is
+stripped before the signature is checked (matching upstream). Query strings are
+excluded from the signed material and from the response's identity.
+
 ## Path shape
 
 The general shape is:

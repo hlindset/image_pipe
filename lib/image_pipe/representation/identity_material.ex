@@ -1,6 +1,6 @@
 defmodule ImagePipe.Representation.IdentityMaterial do
   @moduledoc """
-  Pre-fetch identity material a dialect hands to `ImagePipe.Representation.build/2`.
+  Pre-fetch identity material a dialect hands to `ImagePipe.Representation.build/3`.
 
   Categorizes everything that can shape a response's identity into exactly
   the two buckets the cache key and ETag treat differently:

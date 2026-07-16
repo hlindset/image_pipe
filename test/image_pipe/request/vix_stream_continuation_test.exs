@@ -1,16 +1,16 @@
 defmodule ImagePipe.Request.VixStreamContinuationTest do
   use ExUnit.Case, async: false
 
+  alias ImagePipe.Delivery.Producer
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Request.SourceSession.Producer
-  alias ImagePipe.Request.SourceSession.Request
+  alias ImagePipe.Request.DeliveryBuild
   alias ImagePipe.Source.Resolved, as: ResolvedSource
   alias ImagePipe.SourceTest.ValidAdapter
-  alias ImagePipe.Test.SourceSession.ProducerClient
+  alias ImagePipe.Test.Delivery.ProducerClient
 
   @cleanup_observation_timeout 1_000
 
@@ -330,13 +330,13 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
 
   @tag :producer_cleanup
   @tag :writer_cleanup
-  test "killing a source session producer stops the observed target pipe" do
+  test "killing a delivery producer stops the observed target pipe" do
     Process.flag(:trap_exit, true)
 
-    producer = start_producer(producer_request())
+    producer = start_producer(producer_build_fun())
     ref = Process.monitor(producer)
 
-    assert {:ok, {:first_chunk, first_chunk, "image/jpeg", [], _resolved_output, _debug}} =
+    assert {:ok, {:first_chunk, first_chunk, "image/jpeg", _resolved_output, _debug}} =
              ProducerClient.next(producer)
 
     assert is_binary(first_chunk)
@@ -403,12 +403,10 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
     end
   end
 
-  defp start_producer(%Request{} = request) do
-    caller_chain = [self()]
-
+  defp start_producer(build_fun) when is_function(build_fun, 1) do
     start_supervised!(%{
       id: {Producer, make_ref()},
-      start: {Producer, :start_link, [request, [caller_chain: caller_chain]]},
+      start: {Producer, :start_link, [build_fun, nil]},
       restart: :temporary,
       shutdown: 2_000,
       type: :worker
@@ -460,7 +458,7 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
     end
   end
 
-  defp producer_request do
+  defp producer_build_fun do
     runtime_opts = [
       sources: %{path: {ValidAdapter, []}},
       output_formats: [jpeg: []],
@@ -472,18 +470,14 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
       max_result_pixels: 40_000_000
     ]
 
-    %Request{
-      plan: plan(),
-      resolved_source: resolved_source(),
-      output_policy:
-        Policy.from_output_plan(
-          Plug.Test.conn(:get, "/"),
-          %Output{mode: {:explicit, :jpeg}},
-          runtime_opts
-        ),
-      opts: runtime_opts,
-      cache_key: nil
-    }
+    policy =
+      Policy.from_output_plan(
+        Plug.Test.conn(:get, "/"),
+        %Output{mode: {:explicit, :jpeg}},
+        runtime_opts
+      )
+
+    DeliveryBuild.build_fun(plan(), resolved_source(), policy, runtime_opts)
   end
 
   defp plan do

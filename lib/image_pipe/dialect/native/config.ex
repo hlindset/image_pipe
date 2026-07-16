@@ -1,29 +1,15 @@
 defmodule ImagePipe.Dialect.Native.Config do
   @moduledoc false
 
-  alias ImagePipe.Cache
   alias ImagePipe.Dialect.Native.Presets
-  alias ImagePipe.Format
-  alias ImagePipe.Source
-  alias ImagePipe.Telemetry
-
-  @default_max_body_bytes 10_000_000
-  @default_max_input_pixels 40_000_000
+  alias ImagePipe.Dialect.SharedConfig
 
   @validated_option_keys [
     :keys,
     :presets,
     :on_inert_option,
-    :storage_inputs,
-    :max_body_bytes,
-    :max_input_pixels,
-    :telemetry_prefix,
-    :auto_avif,
-    :auto_webp,
-    :auto_jpeg_xl,
-    :format_order
+    :storage_inputs
   ]
-  @known_option_keys @validated_option_keys ++ [:cache, :sources]
   @options_schema NimbleOptions.new!(
                     keys: [
                       type: {:list, {:custom, __MODULE__, :validate_hex_key, []}},
@@ -38,47 +24,23 @@ defmodule ImagePipe.Dialect.Native.Config do
                       default: :reject
                     ],
                     storage_inputs: [
-                      type: {:list, {:custom, __MODULE__, :validate_storage_input, []}},
+                      type: {:list, {:custom, SharedConfig, :validate_storage_input, []}},
                       default: []
-                    ],
-                    max_body_bytes: [
-                      type: :pos_integer,
-                      default: @default_max_body_bytes
-                    ],
-                    max_input_pixels: [
-                      type: :pos_integer,
-                      default: @default_max_input_pixels
-                    ],
-                    telemetry_prefix: [
-                      type: {:custom, __MODULE__, :validate_telemetry_prefix, []},
-                      default: Telemetry.default_prefix()
-                    ],
-                    auto_avif: [
-                      type: :boolean,
-                      default: true
-                    ],
-                    auto_webp: [
-                      type: :boolean,
-                      default: true
-                    ],
-                    auto_jpeg_xl: [
-                      type: :boolean,
-                      default: true
-                    ],
-                    format_order: [
-                      type: {:custom, __MODULE__, :validate_format_order, []}
                     ]
                   )
 
   @doc false
   @spec validate!(keyword()) :: keyword()
   def validate!(opts) when is_list(opts) do
-    opts
-    |> Cache.validate_config!()
-    |> Source.validate_config!()
-    |> reject_unknown_opts!()
-    |> validate_known_opts!()
-    |> reject_unimplemented_on_inert_option!()
+    {shared_opts, dialect_opts} = Keyword.split(opts, SharedConfig.keys())
+
+    dialect_opts =
+      dialect_opts
+      |> reject_unknown_opts!()
+      |> validate_known_opts!()
+      |> reject_unimplemented_on_inert_option!()
+
+    Keyword.merge(dialect_opts, SharedConfig.validate_runtime!(shared_opts))
   end
 
   @doc false
@@ -93,18 +55,6 @@ defmodule ImagePipe.Dialect.Native.Config do
     do: {:error, "expected a hex-encoded string, got: #{inspect(value)}"}
 
   @doc false
-  def validate_storage_input({:header, name}) when is_binary(name) and name != "",
-    do: {:ok, {:header, name}}
-
-  def validate_storage_input({:cookie, name}) when is_binary(name) and name != "",
-    do: {:ok, {:cookie, name}}
-
-  def validate_storage_input(value),
-    do:
-      {:error,
-       "expected {:header, name} or {:cookie, name} with a non-empty string name, got: #{inspect(value)}"}
-
-  @doc false
   def validate_presets(value) when is_map(value) do
     if Enum.all?(value, fn {k, v} -> is_binary(k) and is_binary(v) end) do
       Presets.validate_config(value)
@@ -117,49 +67,8 @@ defmodule ImagePipe.Dialect.Native.Config do
     do:
       {:error, "expected a map of preset name to option-fragment string, got: #{inspect(value)}"}
 
-  @doc false
-  def validate_telemetry_prefix(telemetry_prefix) do
-    if telemetry_prefix_valid?(telemetry_prefix) do
-      {:ok, telemetry_prefix}
-    else
-      {:error, "expected a non-empty list of atoms"}
-    end
-  end
-
-  defp telemetry_prefix_valid?([_ | _] = list), do: Enum.all?(list, &is_atom/1)
-  defp telemetry_prefix_valid?(_not_a_nonempty_list), do: false
-
-  @doc false
-  def validate_format_order(order) do
-    modern_formats = Format.modern_formats()
-
-    with true <- is_list(order),
-         true <- order != [],
-         true <- Enum.all?(order, &(&1 in modern_formats)),
-         true <- Enum.uniq(order) |> length() == length(order) do
-      {:ok, order}
-    else
-      false -> format_order_error(order, modern_formats)
-    end
-  end
-
-  defp format_order_error(order, _modern_formats) when not is_list(order) do
-    {:error, "expected a list of modern format atoms"}
-  end
-
-  defp format_order_error([], _modern_formats),
-    do: {:error, "expected a non-empty list of modern formats"}
-
-  defp format_order_error(order, modern_formats) do
-    if Enum.all?(order, &(&1 in modern_formats)) do
-      {:error, "expected distinct formats, got: #{inspect(order)}"}
-    else
-      {:error, "expected formats from #{inspect(modern_formats)}, got: #{inspect(order)}"}
-    end
-  end
-
   defp reject_unknown_opts!(opts) do
-    case Enum.find(Keyword.keys(opts), &(&1 not in @known_option_keys)) do
+    case Enum.find(Keyword.keys(opts), &(&1 not in @validated_option_keys)) do
       nil ->
         opts
 

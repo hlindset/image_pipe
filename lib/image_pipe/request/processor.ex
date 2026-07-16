@@ -11,10 +11,10 @@ defmodule ImagePipe.Request.Processor do
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
   alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
-  alias Vix.Vips.MutableImage, as: VixMutableImage
 
   @type source_format() :: SourceFormat.source_format()
   @type decoded() :: %{
@@ -306,26 +306,9 @@ defmodule ImagePipe.Request.Processor do
       end
 
     with {:ok, %State{} = materialized} <- classify_delivery_materialize_result(result) do
-      {:ok, stamp_color_carry(materialized)}
+      {:ok, InputColorManagement.stamp_carry(materialized)}
     end
   end
-
-  # Carry the imported source ICC profile onto private image metadata so the
-  # encoder's colorspace-to-result step can re-embed it. Only when an import ran.
-  defp stamp_color_carry(%State{color_imported?: false} = state), do: state
-
-  defp stamp_color_carry(%State{source_color_profile: profile} = state)
-       when is_binary(profile) do
-    {:ok, image} =
-      VipsImage.mutate(state.image, fn mut ->
-        :ok = VixMutableImage.set(mut, "imagepipe-icc-backup", :VipsBlob, profile)
-        :ok = VixMutableImage.set(mut, "imagepipe-icc-imported", :gint, 1)
-      end)
-
-    State.set_image(state, image)
-  end
-
-  defp stamp_color_carry(%State{} = state), do: state
 
   defp materialize_state(%State{} = state, opts) do
     materializer = Keyword.get(opts, :image_materializer, Materializer)

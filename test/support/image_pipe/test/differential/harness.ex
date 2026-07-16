@@ -1,30 +1,44 @@
 defmodule ImagePipe.Test.Differential.Harness do
   @moduledoc """
-  Shared live-render machinery for differential suites. Builds an `ImagePipe.Plug`
-  pipeline that serves committed source bytes over a local function plug, so a
-  suite's conformance test, report, and diagnose tasks all render identically.
-  Suite-specific wrappers supply the parser and the per-case request path.
+  Shared live-render machinery for differential suites. Builds a request pipeline
+  that serves committed source bytes over a local function plug, so a suite's
+  conformance test, report, and diagnose tasks all render identically.
+  Suite-specific wrappers supply the parser (or dialect) and the per-case path.
+
+  An arm is an opaque `{plug_module, initialized_opts}` pair: `plug_opts/2` builds
+  the framework arm (`ImagePipe.Plug` + a parser), `dialect_plug_opts/2` the
+  inverted arm (a dialect that owns its own request chain). `render/2` dispatches
+  on the pair, so callers thread an arm through without knowing which stack it is.
+  Each arm carries its own initialized opts — nothing (no cache, no counter) is
+  shared between two arms built from separate calls.
   """
   use Boundary, top_level?: true, check: [out: false]
 
   import Plug.Test
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
-  @doc "`ImagePipe.Plug` opts serving `sources_dir`'s files locally for `parser`."
+  @doc "Framework arm: `ImagePipe.Plug` opts serving `sources_dir`'s files for `parser`."
   def plug_opts(parser, sources_dir) do
-    ImagePipe.Plug.init(
-      parser: parser,
-      sources: [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: source_plug(sources_dir)]}
-      ]
-    )
+    {ImagePipe.Plug,
+     ImagePipe.Plug.init(
+       parser: parser,
+       sources: sources(sources_dir)
+     )}
   end
 
-  @doc "Render `request_path` through `plug_opts` → `{body_bytes, content_type}`."
-  def render(request_path, plug_opts) do
-    conn = :get |> conn(request_path) |> ImagePipe.Plug.call(plug_opts)
+  @doc """
+  Dialect arm: `dialect` initialized over the same local source wiring.
+
+  The dialect IS the plug and takes one flat keyword list, so there is no
+  `:parser` key to pass — that is the whole point of the inversion.
+  """
+  def dialect_plug_opts(dialect, sources_dir) do
+    {dialect, dialect.init(sources: sources(sources_dir))}
+  end
+
+  @doc "Render `request_path` through an arm → `{body_bytes, content_type}`."
+  def render(request_path, {plug, plug_opts}) do
+    conn = :get |> conn(request_path) |> plug.call(plug_opts)
 
     content_type =
       conn
@@ -39,6 +53,14 @@ defmodule ImagePipe.Test.Differential.Harness do
   def render_image(request_path, plug_opts) do
     {body, _ct} = render(request_path, plug_opts)
     Image.open!(body, access: :random, fail_on: :error)
+  end
+
+  defp sources(sources_dir) do
+    [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test", req_options: [plug: source_plug(sources_dir)]}
+    ]
   end
 
   defp source_plug(sources_dir) do
