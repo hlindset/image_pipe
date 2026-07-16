@@ -1,16 +1,14 @@
 defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
   @moduledoc """
-  D3 topology-gate BASELINE A (immutable): topology-neutral owner-death
-  cleanup, observed entirely through the public Plug surface (no
-  `ImagePipe.Request.SourceSession*` module is named anywhere in this file).
-  Task 3 must keep this test passing UNMODIFIED after the D3 migration; a
-  weakened or edited assertion is a gate failure.
+  Topology-neutral owner-death cleanup, observed entirely through the public
+  Plug surface: this test names no internal delivery module, only
+  `ImagePipe.Plug.call/2` and the response it produces.
 
   The delivery-owning process — the one that called `ImagePipe.Plug.call/2` —
   is killed mid-stream, after the first chunk of a multi-chunk response but
-  before the second. This characterizes the ONLY termination path the future
-  monitor topology will have (there is no supervisor to fall back on), so it
-  is exactly the guarantee that must survive D3 identically.
+  before the second. This characterizes the ONLY termination path the
+  monitor-based delivery topology has (there is no supervisor to fall back
+  on), so it is exactly the guarantee that must hold under it.
 
   Observation-point note: a raw process kill does NOT gracefully halt the
   encoder's output stream — `Stream.resource/3`'s `after` callback only runs

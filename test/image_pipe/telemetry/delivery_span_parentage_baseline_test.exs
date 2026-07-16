@@ -1,20 +1,18 @@
 defmodule ImagePipe.Telemetry.DeliverySpanParentageBaselineTest do
   @moduledoc """
-  D3 topology-gate OTel PARENTAGE BASELINE (immutable): pins that a real
-  cache-miss, streamed framework request's stage spans are semantic
-  descendants of the `[:request]` root span — the property D3's topology
-  change (moving `SourceSession`/`Producer` off a `DynamicSupervisor`-owned
-  process onto a monitor-based one) most directly puts at risk, since span
-  parentage today is stitched across process hops
-  (`ImagePipe.Telemetry.Trace.Stack` adopting a `trace_context` in the
-  spawned Producer/SourceSession processes).
+  OTel parentage baseline: pins that a real cache-miss, streamed framework
+  request's stage spans are semantic descendants of the `[:request]` root
+  span — the property the delivery topology (a monitor-based
+  `ImagePipe.Delivery` producer rather than a `DynamicSupervisor`-owned one)
+  most directly puts at risk, since span parentage is stitched across process
+  hops (`ImagePipe.Telemetry.Trace.Stack` adopting a `trace_context` in the
+  spawned delivery producer process).
 
   Deliberately asserts SEMANTICS ONLY (trace membership + transitive
   parent-chain descent to the request root), never mechanism: no PIDs, no
-  span counts, no process-hop structure. D3 intends to change the process
-  topology that produces this parentage; asserting the mechanism instead of
-  the semantics would make this baseline a false gate. Task 3 must keep this
-  test passing UNMODIFIED; a weakened or edited assertion is a gate failure.
+  span counts, no process-hop structure. The process topology that produces
+  this parentage is free to change; asserting the mechanism instead of the
+  semantics would make this a false gate.
 
   Prior art: `test/image_pipe/telemetry/trace/cross_process_test.exs` pins
   the same underlying property (hop A/hop B span parentage) at a finer,

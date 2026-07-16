@@ -16,7 +16,19 @@ stated — a partial is not a pass.
 
 ---
 
-## 1. ⚠️ End-to-end request service — PARTIAL
+## 1. ✅ End-to-end request service — RESOLVED (was ⚠️ PARTIAL)
+
+> **Update (branch-closing fix wave):** the one non-holding clause below was
+> ruled FIX-NOW and is fixed. The byte-identity ETag-suppression decision was
+> relocated from the framework-only `Request.HTTPCache` to
+> `ImagePipe.Representation.build/3` / `Representation.response_headers/1`, the
+> one seam both dialects reach. A `byte_identity: :none` source now withholds
+> the `ETag` and sends `Cache-Control: no-store` on **all three** stacks
+> (framework unchanged and byte-identical; imgproxy and shipped `Dialect.Native`
+> fixed). Proven on the observable response by
+> `test/image_pipe/dialect/byte_identity_cache_headers_test.exs` (imgproxy
+> streamed + `/info`, native streamed + blurhash) with RED-before evidence. The
+> criterion now holds. The original diagnosis is kept below as the record.
 
 > `ImagePipe.Dialect.Imgproxy` serves real requests end-to-end: full option
 > surface, `/info/`, signing + salts, `expires`, `-` pipelines, presets,
@@ -302,8 +314,22 @@ phase-2 simplification candidate.
   preflight axis synthesis (diverging from the chain path on non-proportional
   single-axis resizes; `rs:fit:1:0/dpr:0.4` crashed with `ArithmeticError` on a
   parser-VALID request the framework serves); and the input-colour preamble it
-  never ran. Two more shipped-Native defects are recorded above as open: the
-  ETag/`no-store` unsoundness (#1) and the pre-delivery telemetry silence (#10).
+  never ran. Two more shipped-Native defects were recorded above: the
+  ETag/`no-store` unsoundness (#1) is now **fixed** in the branch-closing fix
+  wave (see #1); the pre-delivery telemetry silence (#10) stays open (deferred).
+- **CORS is a framework-`Plug`-only gate — the third framework-only-gate
+  instance, deferred to phase 2.** `ImagePipe.Plug` stamps
+  `Access-Control-Allow-Origin` on every response when `allow_origin` is set
+  (`plug.ex` → `CORS.maybe_register/2`); the inverted dialect stacks
+  (`Dialect.Imgproxy`, `Dialect.Native`) never route through `ImagePipe.Plug` and
+  have **no** CORS handling at all — no `allow_origin` key, no `Response.CORS`, no
+  preflight, and `Access-Control-Allow-Origin` on **no** response. This joins the
+  ETag/`no-store` gate (#1, now fixed) and the host `max_result_*` clamps
+  (recorded under #13) as the class of correctness/feature gates that live only in
+  the framework path. Unlike #1, the CORS *feature* is a fair phase-2 deferral (a
+  host can add CORS in its own router meanwhile); it is now recorded in
+  `docs/imgproxy_support_matrix.md` § Dialect-stack divergences and § CORS
+  response headers so the gap is not a doc claim outliving the code.
 - **`{:session, :timeout}` prepare-timeout reclamation has no RED-able test
   through `stream/5`** — `Delivery.stream/5` hard-codes a 60s timeout. Pinned at
   the `Coordinator` level instead. Closing it properly means deciding whether the

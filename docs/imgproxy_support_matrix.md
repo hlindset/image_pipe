@@ -204,23 +204,31 @@ imgproxy dialect did not introduce it.
 
 ### Behavioral
 
-- **`ETag`/`Cache-Control` ignore the source's byte identity.** The framework
-  withholds the `ETag` entirely and sends `Cache-Control: no-store` for a source
-  that resolves `cache_semantics.byte_identity: :none`
-  (`Request.HttpCache.do_generated_etag/4`); an ETag is a *strong byte-identity
-  validator*, and a source that cannot identify its bytes has none. **The dialect
-  emits an ETag regardless**, derived from `Resolved.identity` (addressing
-  identity — cache-*key* material), and `Cache-Control: max-age=0, private,
-  must-revalidate`. A conditional GET against such a source therefore 304s even
-  when the origin's bytes have changed, and shared caches store what the
-  framework marks `no-store`. Reachable with the shipped `Source.HTTP`,
-  `Source.File`, and `Source.S3` adapters whenever the origin supplies no
-  validator. **Shared with `Dialect.Native`.** The gate lives only in
-  `Request.HttpCache`, which no dialect routes through — the same
-  unreachable-core shape as the stage-4 colour-carry stamp, and it wants the same
-  treatment (relocate the gate to a core seam both stacks call).
-- **`OPTIONS /…` is 400, not 204 + `Allow`.** The dialect has no method layer;
-  `ImagePipe.Plug` has one.
+- **`ETag`/`Cache-Control` byte-identity gate — aligned (was a divergence).**
+  A source that resolves `cache_semantics.byte_identity: :none` (an ETag is a
+  *strong byte-identity validator*, and such a source has none) now gets **no**
+  `ETag` and `Cache-Control: no-store` on **all three** stacks. The framework
+  does this in `Request.HttpCache`; the dialects reach the identical decision
+  through `ImagePipe.Representation.build/3` /
+  `Representation.response_headers/1`, the one seam both stacks call. Before this
+  landed, both dialects (and shipped `Dialect.Native`) emitted a strong `ETag` +
+  `must-revalidate` regardless, so a conditional GET 304'd against changed
+  content and shared caches stored bytes the framework marks `no-store` — the
+  same unreachable-core shape as the stage-4 colour-carry stamp, resolved the
+  same way. The general "cache keys and ETags differ across the two stacks"
+  (below) is unaffected: that is about the ETag *value* for a strong source, not
+  whether one is emitted.
+- **`OPTIONS /…` is 400, not 204 + `Allow`, and CORS is framework-only.** The
+  dialect has no method layer (`ImagePipe.Plug` has one), and it has no CORS
+  handling of any kind: `Access-Control-Allow-Origin` is stamped on **every**
+  framework response when `allow_origin` is set, but the dialect stacks emit it
+  on **no** response — they never route through `ImagePipe.Plug`'s
+  `CORS.maybe_register/2` and expose no `allow_origin` config key. A host that
+  serves cross-origin requests on the framework stack loses that on the dialect
+  stack and must add CORS in its own router. **Shared with `Dialect.Native`.**
+  The CORS *feature* on the dialect is a phase-2 deferral (see the
+  [CORS response headers](#cors-response-headers) section and
+  `.superpowers/sdd/phase1-exit-criteria.md`); this row records the gap.
 - **Host `max_result_width`/`max_result_height`/`max_result_pixels` are ignored.**
   The dialect's config has no such keys, so `Output.Clamp` runs against the
   framework's *defaults* (8192/8192/40 MP) hard-coded in `Dialect.Imgproxy`. A
@@ -463,11 +471,19 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 
 ### CORS response headers
 
-ImagePipe exposes a dialect-neutral `allow_origin` mount option (default off).
-When set, `ImagePipe.Plug` stamps `Access-Control-Allow-Origin: <value>` verbatim
+`ImagePipe.Plug` exposes a dialect-neutral `allow_origin` mount option (default
+off). When set, the plug stamps `Access-Control-Allow-Origin: <value>` verbatim
 on every response (image, errors, redirect, 304) via a `register_before_send/2`
-hook and answers `OPTIONS` as a CORS preflight. It is a core feature available
-for any parser, not just IIIF.
+hook and answers `OPTIONS` as a CORS preflight. It works for any parser mounted
+through `ImagePipe.Plug`, not just IIIF.
+
+**This is a framework-`Plug`-only feature.** The inverted dialect stacks
+(`ImagePipe.Dialect.Imgproxy`, `ImagePipe.Dialect.Native`) mount directly and
+never route through `ImagePipe.Plug`, so they have **no** CORS handling at all —
+no `allow_origin` config key, no `Response.CORS`, no preflight. A host that
+needs CORS on the dialect stack must add it in its own router. See
+[Dialect-stack divergences](#dialect-stack-divergences); this is the same
+framework-only-gate shape as the host `max_result_*` clamps.
 
 - ✅ `IMGPROXY_ALLOW_ORIGIN` → `allow_origin` (configuration default; verbatim
   origin value, off when unset — same semantics as imgproxy's empty default).
