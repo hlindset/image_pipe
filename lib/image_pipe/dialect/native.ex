@@ -344,6 +344,11 @@ defmodule ImagePipe.Dialect.Native do
       {:ok, hash}
     else
       {:error, {:transform, _reason}} = error -> error
+      # `Pipeline.run/4` returns `{:decode, _}` too, from the input-colour
+      # preamble. It must reach `Errors.send/3` untouched: a malformed embedded
+      # profile is a decode failure (415), and rewrapping it below would make
+      # the same source 415 from the image terminal and 422 from this one.
+      {:error, {:decode, _reason}} = error -> error
       {:error, reason} -> {:error, {:transform, {:blurhash_encode, reason}}}
     end
   rescue

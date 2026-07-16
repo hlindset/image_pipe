@@ -2599,7 +2599,7 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
                "scp:1: icc-profile-data must be absent from the response"
 
         assert Image.colorspace(scp1_image) == :srgb,
-               "scp:1: output colorspace must be sRGB (colorspace-to-result transformed pixels)"
+               "scp:1: output colorspace header must be sRGB (pixels are proven by ColorCarryParityTest)"
       end
 
       test "default request (no scp in URL) drops the ICC profile" do
