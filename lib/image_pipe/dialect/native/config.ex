@@ -24,7 +24,7 @@ defmodule ImagePipe.Dialect.Native.Config do
                       default: :reject
                     ],
                     storage_inputs: [
-                      type: {:list, {:custom, __MODULE__, :validate_storage_input, []}},
+                      type: {:list, {:custom, SharedConfig, :validate_storage_input, []}},
                       default: []
                     ]
                   )
@@ -53,18 +53,6 @@ defmodule ImagePipe.Dialect.Native.Config do
 
   def validate_hex_key(value),
     do: {:error, "expected a hex-encoded string, got: #{inspect(value)}"}
-
-  @doc false
-  def validate_storage_input({:header, name}) when is_binary(name) and name != "",
-    do: {:ok, {:header, name}}
-
-  def validate_storage_input({:cookie, name}) when is_binary(name) and name != "",
-    do: {:ok, {:cookie, name}}
-
-  def validate_storage_input(value),
-    do:
-      {:error,
-       "expected {:header, name} or {:cookie, name} with a non-empty string name, got: #{inspect(value)}"}
 
   @doc false
   def validate_presets(value) when is_map(value) do

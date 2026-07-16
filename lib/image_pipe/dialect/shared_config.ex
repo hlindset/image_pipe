@@ -92,6 +92,27 @@ defmodule ImagePipe.Dialect.SharedConfig do
   def keys, do: @keys
 
   @doc """
+  Validates one `storage_inputs` entry: `{:header, name}` or `{:cookie,
+  name}` with a non-empty string name. Not itself one of `keys/0` — dialects
+  that support configured storage-vary inputs (`ImagePipe.Representation.
+  storage_inputs/2`) reference this from their own `storage_inputs:` schema
+  entry, since which dialects expose the option (and its default) is a
+  per-dialect config-surface choice, not a shared runtime default.
+  """
+  @spec validate_storage_input(term()) ::
+          {:ok, {:header, String.t()} | {:cookie, String.t()}} | {:error, String.t()}
+  def validate_storage_input({:header, name}) when is_binary(name) and name != "",
+    do: {:ok, {:header, name}}
+
+  def validate_storage_input({:cookie, name}) when is_binary(name) and name != "",
+    do: {:ok, {:cookie, name}}
+
+  def validate_storage_input(value),
+    do:
+      {:error,
+       "expected {:header, name} or {:cookie, name} with a non-empty string name, got: #{inspect(value)}"}
+
+  @doc """
   Validates and defaults the shared runtime keys, delegating `:cache` to
   `ImagePipe.Cache.validate_config!/1` and `:sources` to
   `ImagePipe.Source.validate_config!/1`. Raises `ArgumentError` on invalid

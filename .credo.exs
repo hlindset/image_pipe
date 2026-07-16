@@ -85,12 +85,23 @@
         # Parser.Imgproxy.PlanBuilder's geometry half (plan_geometry/1 and every
         # private helper it reaches). Transient like the leaf structs: retired in
         # phase 2 when the framework original is deleted.
+        #
+        # ImagePipe.Dialect.Imgproxy.Config's source_schemes validation
+        # (validate_source_schemes/1, valid_source_scheme_entry?/1,
+        # valid_source_scheme_translator?/1) is the same transient phase-1 copy
+        # of frozen Parser.Imgproxy's equivalent private helpers (the dialect
+        # cannot depend on the Parser boundary). The Config module's own
+        # `storage_inputs` validator is NOT duplicated — it delegates to the
+        # newly-shared ImagePipe.Dialect.SharedConfig.validate_storage_input/1,
+        # which ImagePipe.Dialect.Native.Config now also delegates to instead of
+        # carrying its own copy.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
            "lib/image_pipe/decode.ex",
            "lib/image_pipe/decode/source_format.ex",
            "lib/image_pipe/dialect/imgproxy/assembly.ex",
+           "lib/image_pipe/dialect/imgproxy/config.ex",
            "lib/image_pipe/dialect/imgproxy/crop_request.ex",
            "lib/image_pipe/dialect/imgproxy/effects.ex",
            "lib/image_pipe/dialect/imgproxy/format.ex",
