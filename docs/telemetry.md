@@ -240,10 +240,14 @@ Parenting depends on where the materialization happens — there are three cases
   boundary): nested under that `Flush` op's `[:transform, :operation]` span,
   inside `[:transform, :execute]`;
 - **delivery backstop**, when a chain streamed through without ever materializing
-  and the late delivery copy runs after `[:transform, :execute]` has closed:
-  nested under the request root.
+  and the late delivery copy runs after the transform pipeline has closed
+  (after `[:transform, :execute]` on the framework): nested under the request root.
 
-Every request that decodes and runs the transform pipeline (a cache miss)
+The delivery backstop runs on every stack — the framework delivery build
+(`ImagePipe.Request.Processor.materialize_for_delivery/2`) and both in-tree
+dialects, which run the same post-clamp, pre-encode `Materializer.materialize/2`
+barrier — so all three emit the backstop span with identical metadata. Every
+request that decodes and runs the transform pipeline (a cache miss)
 materializes at least once: a chain that never materializes mid-pipeline hits the
 delivery backstop. Requests served from cache (cache hits, conditional `304`s) skip
 decode and transform entirely, so they emit no `[:transform, :materialize]` span

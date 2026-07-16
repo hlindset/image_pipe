@@ -102,7 +102,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
   alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.SourceGeometry
+  alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
   # The dialect collects no debug facts yet, so it hands `Delivery` nothing
@@ -807,7 +809,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   defp build_and_pump(state, geometry, request, negotiation, config, pump) do
-    with {:ok, state} <-
+    with {:ok, %State{} = state} <-
            Pipeline.run(
              state,
              geometry,
@@ -823,14 +825,33 @@ defmodule ImagePipe.Dialect.Imgproxy do
              resolved_output.format,
              config
            ),
+         {:ok, %State{image: image}} <-
+           materialize_for_delivery(%State{state | image: clamped}, config),
          {:ok, stream, content_type, _search_meta} <-
-           Encoder.stream_output(clamped, resolved_output, config) do
+           Encoder.stream_output(image, resolved_output, config) do
       pump.(stream, content_type, resolved_output, @debug_info)
     end
   rescue
     exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
   catch
     kind, reason -> {:error, {:transform, {kind, reason}}}
+  end
+
+  # Delivery backstop, mirroring the framework's post-clamp barrier
+  # (`ImagePipe.Request.Processor.materialize_for_delivery/2`): the build path has
+  # no discretionary op that forces a mid-pipeline materialize, so a lazy vips
+  # pipeline can reach the encoder unmaterialized. Copy to RAM once before encode
+  # unless an op already did, mapping a copy failure to a decode error (→ 415) via
+  # `Materializer.materialize/2`. The `[:transform, :materialize]` span comes for
+  # free from `Materializer`. The carry stamp is NOT re-applied — `Pipeline.run/4`'s
+  # tail already stamped it, so this half of the framework barrier is not duplicated.
+  defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
+
+  defp materialize_for_delivery(%State{} = state, config) do
+    case Materializer.materialize(state, config) do
+      {:ok, %State{} = materialized} -> {:ok, materialized}
+      {:error, reason} -> {:error, {:decode, reason}}
+    end
   end
 
   # `Pipeline.run/4`'s input-color-management preamble needs to know whether the

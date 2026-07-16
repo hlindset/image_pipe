@@ -195,6 +195,7 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       [:transform, :input_color_management],
       [:transform, :operation],
       [:output, :negotiate],
+      [:transform, :materialize],
       [:deliver]
     ]
 
@@ -242,6 +243,18 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
 
     defp index_of(events, stage, phase) do
       Enum.find_index(events, fn {s, p, _meta} -> s == stage and p == phase end)
+    end
+
+    # The LAST occurrence's index. `[:transform, :operation]` spans emit once per
+    # operation, so a plain fit-resize produces several; the delivery-backstop
+    # position assertion must anchor on the last operation `:stop`, not the first,
+    # or it would pass with materialization landing between two operations.
+    defp last_index_of(events, stage, phase) do
+      events
+      |> Enum.with_index()
+      |> Enum.reduce(nil, fn {{s, p, _meta}, i}, acc ->
+        if s == stage and p == phase, do: i, else: acc
+      end)
     end
 
     defp result_of(events, stage, phase) do
@@ -351,6 +364,16 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
                  index_of(events, [:transform, :operation], :start)
 
         assert index_of(events, [:transform, :operation], :stop) <
+                 index_of(events, [:deliver], :start)
+
+        # The delivery backstop materializes the lazy vips pipeline AFTER the last
+        # transform operation closes and BEFORE delivery opens — the same
+        # post-clamp, pre-encode position the framework runs it at. A plain
+        # fit-resize has no materializing op, so the span can only be the backstop.
+        assert last_index_of(events, [:transform, :operation], :stop) <
+                 index_of(events, [:transform, :materialize], :start)
+
+        assert index_of(events, [:transform, :materialize], :stop) <
                  index_of(events, [:deliver], :start)
       end
     end
@@ -584,7 +607,6 @@ defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
     [:send],
     [:source, :fetch_decode],
     [:transform, :execute],
-    [:transform, :materialize],
     [:encode]
   ]
 

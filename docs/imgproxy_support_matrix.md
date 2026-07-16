@@ -256,15 +256,24 @@ imgproxy dialect did not introduce it.
 
 ### Observability
 
-- **The dialect emits 5 fewer telemetry stages** (`[:send]`,
-  `[:source, :fetch_decode]`, `[:transform, :execute]`,
-  `[:transform, :materialize]`, `[:encode]`) — all owned by framework-only modules
-  the dialect does not route through. It emits `[:request]`, `[:parse]`,
-  `[:source, :resolve]`, `[:cache, :lookup]`, `[:source, :fetch]`,
+- **The dialect emits 4 fewer telemetry stages** (`[:send]`,
+  `[:source, :fetch_decode]`, `[:transform, :execute]`, `[:encode]`) — all owned by
+  framework-only modules the dialect does not route through. It emits `[:request]`,
+  `[:parse]`, `[:source, :resolve]`, `[:cache, :lookup]`, `[:source, :fetch]`,
   `[:transform, :input_color_management]`, `[:transform, :operation]`,
-  `[:output, :negotiate]`, and `[:deliver]` — no stage the framework does not,
-  and the exact sequence `Dialect.Native` emits. Measured and pinned by
-  `ImagePipe.ImgproxyTelemetryStageSetTest`. **Shared with `Dialect.Native`.**
+  `[:output, :negotiate]`, `[:transform, :materialize]`, and `[:deliver]` — no stage
+  the framework does not, and the exact sequence `Dialect.Native` emits. Measured and
+  pinned by `ImagePipe.ImgproxyTelemetryStageSetTest`. **Shared with `Dialect.Native`.**
+- **`[:transform, :materialize]` now fires on every stack** (resolved; was a
+  divergence). Both dialect build paths run the framework's post-clamp,
+  pre-encode delivery backstop (`Materializer.materialize/2`, mirroring
+  `ImagePipe.Request.Processor.materialize_for_delivery/2`): a lazy vips pipeline
+  that never materialized mid-chain is copied to RAM once before encode (skipped
+  when an op already materialized; a copy failure maps to a decode error → 415).
+  The span comes for free from the shared `Transform.Materializer`; the carry
+  stamp half is not duplicated (`Pipeline.run/4`'s tail already stamped it).
+  Position pinned by the cache-miss scenario in
+  `imgproxy_telemetry_contract_test.exs`. **Shared with `Dialect.Native`.**
 - **`[:output, :negotiate]` and `[:transform, :input_color_management]` now fire
   on every stack** (resolved; were divergences). Negotiate emission moved into the
   shared `ImagePipe.Output.Negotiate.negotiate_output/4` seam (one span enclosing
