@@ -344,13 +344,49 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     refute Map.has_key?(span.attributes, :source_url)
   end
 
-  test "captures the input color management span" do
+  test "captures the input color management span with its working_space/imported? attributes" do
     Telemetry.span([], [:transform, :input_color_management], %{}, fn ->
-      {:ok, %{result: :ok, working_space: :VIPS_INTERPRETATION_sRGB}}
+      {:ok, %{result: :ok, working_space: :VIPS_INTERPRETATION_sRGB, imported?: true}}
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.transform.input_color_management"} = span}
     assert span.status == :ok
+    assert span.attributes[:working_space] == :VIPS_INTERPRETATION_sRGB
+    assert span.attributes[:imported?] == true
+  end
+
+  test "folds the clamp one-shot onto the enclosing span with its dimension/limit attributes" do
+    Telemetry.span([], [:render], %{}, fn ->
+      Telemetry.execute(
+        [],
+        [:output, :clamp],
+        %{scale: 0.5},
+        %{
+          format: :webp,
+          source_dimensions: {2000, 1500},
+          dimensions: {1000, 750},
+          limits: %{max_width: 1000, max_height: :infinity, max_pixels: 1_000_000}
+        }
+      )
+
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.render"} = span}
+
+    refute_received {:span, %Span{name: "image_pipe.output.clamp"}}
+
+    clamp = Enum.find(span.events, &(&1.name == "image_pipe.output.clamp"))
+    assert clamp
+    assert clamp.attributes[:format] == :webp
+    assert clamp.attributes[:source_dimensions] == {2000, 1500}
+    assert clamp.attributes[:dimensions] == {1000, 750}
+
+    assert clamp.attributes[:limits] == %{
+             max_width: 1000,
+             max_height: :infinity,
+             max_pixels: 1_000_000
+           }
   end
 
   test "an inbound-continued root keeps root: true despite a non-nil parent" do

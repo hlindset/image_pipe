@@ -1054,3 +1054,9 @@ tracer (start the SDK). See `docs/cookbook/opentelemetry-jaeger.md`.
 sampled flag set — trace-level correlation requires every span to reach the SDK.
 Host-side `trace_flags` sampling does not apply on this path; do sampling in your
 downstream OTel collector instead.
+
+**Span attributes:** the `[:output, :clamp]` one-shot's `source_dimensions` /
+`dimensions` / `limits` and the `[:transform, :input_color_management]` span's
+`working_space` / `imported?` are on the capture allowlist, so they surface as
+OTel span attributes on every stack — the framework and both dialects alike (all
+product-neutral geometry, a colorspace atom, and a boolean; no secrets).

@@ -200,7 +200,7 @@ fixtures, and **all 156 wire cases run on both arms** (no case is framework-only
 asserting status, headers, content type, decoded pixels, and cache/source access
 order.
 
-The § below lists the real divergences (telemetry stage-set) that hold on every
+The § below lists the remaining dialect-stack divergences that hold on every
 request. None is an imgproxy-conformance gap; all are ImagePipe-side, and a host
 that mounts the dialect should read them.
 

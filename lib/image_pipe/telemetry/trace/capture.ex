@@ -143,6 +143,15 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     # coerced the same as :params by the OTel exporter's generic non-primitive
     # fallback (OtelReplay.coerce/1)
     :dims,
+    # output-clamp one-shot shape: the pre/post dimension tuples and the resolved
+    # limits map (all product-neutral geometry; the negotiated :format is above)
+    :source_dimensions,
+    :dimensions,
+    :limits,
+    # input color-management stop shape: the imported working-space atom and the
+    # ICC-import boolean (product-neutral; sourced from runtime image inspection)
+    :working_space,
+    :imported?,
     # cache admission / warm-start
     :victim_count,
     :own_state_loaded,

@@ -83,19 +83,29 @@ from the framework arm silently loses CORS.
 
 ### B3. Telemetry **stage-set** parity (the remaining half of exit-criterion 10)
 
-The `:result`-on-`[:request]` half of #10 was **fixed** in phase 1. What remains:
-the dialect emits **7 fewer stage spans** than the framework — `[:send]`,
-`[:source, :fetch_decode]`, `[:transform, :execute]`,
-`[:transform, :input_color_management]`, `[:transform, :materialize]`,
-`[:output, :negotiate]`, `[:encode]` — and never emits `[:output, :clamp]`.
+**Closed.** The `:result`-on-`[:request]` half of #10 was fixed in phase 1; the
+stage-set half is now closed too. Every stage the dialect used to omit fires from
+a shared seam on both dialect stacks: `[:output, :clamp]` from the clamp seam
+`Output.Clamp.clamp_with_telemetry/4` (commit 4f91b66a); `[:output, :negotiate]`
+from `Output.Negotiate.negotiate_output/4` and
+`[:transform, :input_color_management]` from
+`Transform.InputColorManagement.condition/2` (08322034);
+`[:transform, :materialize]` from the shared `Transform.Materializer` delivery
+backstop (0de936ed); and `[:send]`, `[:source, :fetch_decode]`,
+`[:transform, :execute]`, `[:encode]` from the dialect's own delivery/pipeline
+path (f41d0081, which also forces the first encoded chunk so `[:encode]` times the
+real encode). This close-out added the currently-dropped clamp/ICM metadata keys
+(`source_dimensions`/`dimensions`/`limits`, `working_space`/`imported?`) to
+`Telemetry.Trace.Capture`'s `@safe_keys` allowlist so they surface as OTel span
+attributes on every stack.
 
-- Recorded: `imgproxy_support_matrix.md` § Observability;
-  `phase1-exit-criteria.md` #10 (resolved header + stage-set caveat). Pinned by
-  `ImagePipe.ImgproxyTelemetryStageSetTest` — **update that pin if you close any
-  of it**, and keep the two subscription surfaces in sync (`Telemetry.Logger`
-  lists + `Telemetry.Trace.Capture`'s `@span_stages`/`@safe_keys`).
-- Fix shape: emit the missing spans from the dialect's own pipeline/delivery
-  path, or route more of it through the core-owned spans.
+- Recorded: `imgproxy_support_matrix.md` § Observability (all rows resolved,
+  stage-set parity reached); `docs/telemetry.md` (each stage documented as firing
+  on every stack, plus the OTel span-attribute note). Pinned by
+  `ImagePipe.ImgproxyTelemetryStageSetTest`, whose stage-set pin now asserts
+  `@framework_only == []`; the two subscription surfaces (`Telemetry.Logger` lists
+  + `Telemetry.Trace.Capture`'s `@span_stages`/`@oneshot_stages`) already list all
+  events.
 
 ### B4. Host-configured `max_result_*` ignored by the dialect
 
