@@ -28,6 +28,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
     :source_schemes,
     :presets,
     :storage_inputs,
+    :detector_required,
     :clock
   ]
 
@@ -52,6 +53,16 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
                     storage_inputs: [
                       type: {:list, {:custom, SharedConfig, :validate_storage_input, []}},
                       default: []
+                    ],
+                    # The strict-mode capability gate only — this dialect carries
+                    # no detector (there is no `:detector` seam to configure one),
+                    # so an object-detection request under `detector_required:
+                    # true` is always unavailable. The default matches the
+                    # framework's (`ImagePipe.Request.Options`), which likewise
+                    # degrades to attention cropping when it is false.
+                    detector_required: [
+                      type: :boolean,
+                      default: false
                     ],
                     clock: [
                       type: {:custom, __MODULE__, :validate_clock, []},

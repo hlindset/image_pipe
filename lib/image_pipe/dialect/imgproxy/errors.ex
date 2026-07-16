@@ -30,6 +30,11 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
         `{:input_limit, _}` -> 413.
       - `{:unsupported_output_format, _}` -> 501 (negotiation's
         `Policy.ensure_capable/2`, pre-fetch).
+      - `{:detector, :unavailable}` -> 422 (the `detector_required` gate,
+        pre-fetch). Rewrapped as `{:detector_unavailable, :unavailable}` —
+        the plan-validation tag `ErrorStatus` knows, and the exact one
+        `ImagePipe.Plug` hands its own `Sender.send_result/3`, so both arms
+        render one status and one message for one failure.
       - `{:encode, _, _}` -> 500 (`Output.Encoder.stream_output/3`).
       - `{:session, _}` -> 500. The delivery session failed around the
         producer rather than inside it, which carries no image-domain
@@ -89,6 +94,10 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
 
   def send(%Plug.Conn{} = conn, {:unsupported_signature, _signature}, _config, headers) do
     send_signature_error(conn, :unsupported_signature, headers)
+  end
+
+  def send(%Plug.Conn{} = conn, {:detector, :unavailable}, config, headers) do
+    send_core_stage_error(conn, {:detector_unavailable, :unavailable}, config, headers)
   end
 
   def send(%Plug.Conn{} = conn, {:source, _reason} = reason, config, headers) do

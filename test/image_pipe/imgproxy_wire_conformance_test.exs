@@ -1820,39 +1820,59 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       refute_received :origin_fetch
     end
 
-    # FRAMEWORK-ONLY: `detector:`/`detector_required:` — no dialect config seam
-    # (see the object-detection block note). Note what this costs: this is a
-    # request-SAFETY test (reject before source and cache access), and the
-    # dialect's equivalent pre-fetch guarantee for a required-but-unavailable
-    # detector is therefore unproven.
-    if @stack == :framework do
-      test "detector_required + unavailable detector rejects before source AND cache access" do
-        telemetry_prefix = [:image_pipe_wire_safety]
-        source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+    # `detector_required: true` + a detection request the stack cannot honor must
+    # reject BEFORE source and cache access, on both arms.
+    #
+    # The two arms reach "cannot honor" differently, which is why the opts are
+    # `@stack`-conditional. The framework HAS a detector seam, so an unavailable
+    # detector has to be injected (`detector: UnavailableDetector`). The dialect
+    # has NO detector at all (`detector:` is not one of its config keys), so any
+    # object-detection request is unconditionally unavailable — the same outcome
+    # the framework reaches with no detector configured. The observable contract
+    # asserted below is identical for both.
+    @detector_gate_opts if @stack == :framework,
+                          do: [detector: UnavailableDetector, detector_required: true],
+                          else: [detector_required: true]
 
-        attach_source_resolve_telemetry(telemetry_prefix)
+    test "detector_required + unavailable detector rejects before source AND cache access" do
+      telemetry_prefix = [:image_pipe_wire_safety]
+      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
 
-        opts =
-          Keyword.merge(@default_opts,
-            telemetry_prefix: telemetry_prefix,
-            detector: UnavailableDetector,
-            detector_required: true,
-            cache: {CacheProbe, []},
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-            ]
-          )
+      attach_source_resolve_telemetry(telemetry_prefix)
 
-        conn = call_imgproxy("/_/rs:fill:80:80/g:obj:face/plain/images/beach.jpg", opts)
+      opts =
+        @default_opts
+        |> Keyword.merge(@detector_gate_opts)
+        |> Keyword.merge(
+          telemetry_prefix: telemetry_prefix,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        )
 
-        assert conn.status == 422
-        refute_received {:telemetry_event, ^source_resolve_start, _, _}
-        refute_received {:cache_lookup, _key}
-        refute_received {:cache_put, _key, _entry}
-        refute_received :origin_fetch
-      end
+      conn = call_imgproxy("/_/rs:fill:80:80/g:obj:face/plain/images/beach.jpg", opts)
+
+      assert conn.status == 422
+      refute_received {:telemetry_event, ^source_resolve_start, _, _}
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _entry}
+      refute_received :origin_fetch
+    end
+
+    # The no-new-divergence guard for the gate above: with `detector_required`
+    # left at its default (false), `g:obj:*` must still succeed on BOTH arms.
+    # The dialect cannot honor the detection and falls back to attention
+    # cropping — which is exactly what the framework does when no detector is
+    # configured. A 4xx here would be a new always-on divergence.
+    test "g:obj without detector_required still returns 200 (no new divergence)" do
+      conn =
+        call_imgproxy("/_/rs:fill:80:80/g:obj:face/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+      assert conn.status == 200
+      assert dimensions(conn) == {80, 80}
     end
 
     test "encrypted unsupported decoded source scheme stops before cache lookup and origin fetch" do
@@ -3006,19 +3026,19 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
 
     # FRAMEWORK-ONLY (the whole object-detection block below, through the
     # "g:objw:face:3 filters to face class" test): every one of these injects a
-    # fake detector via `detector:`/`detector_required:`, and the phase-1 dialect
-    # config has NO detector seam at all — no `:detector`, no
-    # `:detector_required`, and nothing under `lib/image_pipe/dialect/` so much
-    # as mentions a detector.
+    # fake detector via `detector:`, and the dialect config has no `:detector`
+    # seam — it carries no detector at all, so it cannot honor `g:obj:*` /
+    # `g:objw:*` and always falls back to attention cropping. Detector SUPPORT
+    # is phase-2 backlog B1.
     #
-    # This is the single largest coverage hole in the dialect arm (13 tests):
-    # `g:obj:*` / `g:objw:*` gravity, the class filter, the `detector_required`
-    # gate (including its pre-fetch 422), and detector model identity in the
-    # cache key are ALL unverified against the dialect. The dialect's grammar
-    # parses these tokens — `Options`/`OptionGrammar` are verbatim copies — so a
-    # request would be accepted; what happens downstream is untested. Whether the
-    # dialect is even meant to carry detection in phase 1 is a scope question for
-    # the controller, flagged in the report.
+    # The `detector_required` half is NOT part of this hole: the dialect has the
+    # key, and its pre-fetch 422 is dual-run above ("detector_required +
+    # unavailable detector rejects before source AND cache access"), with the
+    # `detector_required: false` no-divergence guard beside it.
+    #
+    # What remains unverified against the dialect: object-guided crop pixels, the
+    # class filter, objw weights, and detector model identity in the cache key —
+    # none of which the dialect can produce without a detector.
     if @stack == :framework do
       # Task 10: Pixel divergence — g:obj:car crop biases toward the detected corner
       # object, distinct from both center gravity and attention (smart) gravity.

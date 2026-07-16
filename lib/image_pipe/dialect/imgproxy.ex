@@ -10,8 +10,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
   `call/2` is the visible chain [pipelines design reference "The visible
   chain"]: endpoint split → raw path extract → signature verify (403 before
   any option parsing) → option parse → `exp` gate (400) → geometry check →
-  source translation/resolution → negotiate → build the representation
-  identity (key/ETag/Vary) → conditional-GET gate → serve.
+  `detector_required` gate (422) → source translation/resolution → negotiate
+  → build the representation identity (key/ETag/Vary) → conditional-GET gate
+  → serve.
 
   ## Everything decidable from the request is decided before the fetch
 
@@ -161,11 +162,13 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # This dialect's own client-reject reasons — the signature and `exp` gates,
   # both pre-fetch and pre-option-parse — get the framework's client-error
   # atom directly, the same way `ImagePipe.Plug`'s parser errors always render
-  # `:parser_error` regardless of the underlying reason. `Assembly.operations/1`'s
-  # geometry rejection is the one exception: `{:missing_dimensions, _}` is a
-  # plan-shape failure (mirrors the framework's `PlanBuilder`-time geometry
-  # check), not a syntax one, so it gets `:plan_error` even though `Errors.send/4`
-  # answers it with the same 400 as every other parse reject.
+  # `:parser_error` regardless of the underlying reason. Two pre-fetch gates are
+  # the exception, both plan-shape failures rather than syntax ones, and both
+  # `:plan_error` to match the framework: `Assembly.operations/1`'s geometry
+  # rejection (`{:missing_dimensions, _}`, mirroring the framework's
+  # `PlanBuilder`-time check — `Errors.send/4` still answers it with the same 400
+  # as every other parse reject), and `check_detector/2`'s `{:detector,
+  # :unavailable}` (mirroring `ImagePipe.Plug`'s own `:plan_error` for it).
   #
   # Everything else — Options/Path/Source translate rejects (`:unknown_option`,
   # `:invalid_option_segment`, `:invalid_source_url`, …), and the core-stage
@@ -180,6 +183,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   defp outcome_result({:unsupported_signature, _signature}), do: :parser_error
   defp outcome_result({:expired_request, _expires}), do: :parser_error
   defp outcome_result({:missing_dimensions, _resizing_type}), do: :plan_error
+  defp outcome_result({:detector, :unavailable}), do: :plan_error
   defp outcome_result(reason), do: Telemetry.request_result({:error, reason})
 
   # The `/info` terminal [spec §The /info cache path]. Skips three of the image
@@ -225,7 +229,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
   defp route_image(%Plug.Conn{} = conn, config) do
     with {:ok, request} <- parse(conn, config, :image),
          :ok <- check_expires(request, config),
-         :ok <- check_geometry(request),
+         {:ok, operations} <- check_geometry(request),
+         :ok <- check_detector(operations, config),
          {:ok, plan_source} <- ImgproxySource.translate(request.source_path, config),
          {:ok, response_meta} <- ResponseMeta.build(request, plan_source),
          {:ok, resolved} <- ImageSource.resolve(plan_source, config, config),
@@ -384,14 +389,39 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # The geometry half of the framework arm's parse-time plan build, run here
   # for its rejection only — see the moduledoc. The operations themselves are
   # produced (again) by `Pipeline.run/4`, which owns the per-pipeline shape
-  # the operations are assembled against.
+  # the operations are assembled against. They are handed back here so
+  # `check_detector/2` can read their guides without a third assembly pass.
   defp check_geometry(%Request{pipelines: pipelines}) do
-    Enum.reduce_while(pipelines, :ok, fn pipeline_request, :ok ->
+    Enum.reduce_while(pipelines, {:ok, []}, fn pipeline_request, {:ok, acc} ->
       case Assembly.operations(pipeline_request) do
-        {:ok, _operations} -> {:cont, :ok}
+        {:ok, operations} -> {:cont, {:ok, acc ++ operations}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  # Strict-mode capability gate, mirroring `ImagePipe.Plug`'s
+  # `validate_detector_capability/2`: when the host opts into
+  # `detector_required` and the request asks for content detection
+  # (`g:obj:face` / `g:objw:*` -> a `{:detect, _}` guide), reject before any
+  # source fetch or cache access rather than silently degrading to attention.
+  #
+  # This dialect carries no detector — there is no `:detector` config seam to
+  # supply one (detector SUPPORT is phase-2 backlog B1) — so a detection
+  # request under `detector_required: true` is unconditionally unavailable.
+  # That is the same answer the framework gives with no detector configured.
+  # When `detector_required` is false BOTH stacks degrade to attention
+  # cropping, so this gate adds no always-on divergence.
+  defp check_detector(operations, config) do
+    if Keyword.get(config, :detector_required, false) and detection_requested?(operations) do
+      {:error, {:detector, :unavailable}}
+    else
+      :ok
+    end
+  end
+
+  defp detection_requested?(operations) do
+    Enum.any?(operations, &match?({:detect, _spec}, Map.get(&1, :guide)))
   end
 
   # -- negotiation ------------------------------------------------------------
