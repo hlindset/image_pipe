@@ -217,6 +217,87 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
 
   # ── complete-body cache round trip ──────────────────────────────────────
 
+  # ── identity ignores what /info does not execute ────────────────────────
+
+  # /info never runs a pipeline and never encodes: `serve_info/4` goes straight
+  # to `source_info/2` with `@info_decode_request`. So an option that only feeds
+  # the pipeline or the encoder cannot change a byte of the response, and must
+  # not move the ETag (a byte-identity validator, AGENTS.md) or the cache key.
+  #
+  # All three of these parse: `Options.parse` accepts `rs:fill` (the
+  # missing-dimensions rejection is `Assembly`'s, and `route_info` correctly
+  # never runs `check_geometry`), and `q:`/`f:` are plain output options.
+  #
+  # The framework arm is no oracle here — its /info emits no ETag at all — but it
+  # is where the shape comes from: `PlanBuilder.to_plan/2`'s `info?: true` head
+  # builds `pipelines: []` and `output: nil`.
+  describe "/info identity" do
+    @ignored_option_paths [
+      "/info/unsafe/plain/images/beach.jpg",
+      "/info/unsafe/rs:fill:100:100/plain/images/beach.jpg",
+      "/info/unsafe/q:50/plain/images/beach.jpg",
+      "/info/unsafe/f:webp/plain/images/beach.jpg"
+    ]
+
+    test "options /info cannot execute change neither the body, the ETag, nor the cache key" do
+      config = opts(cache: {CacheProbe, []})
+
+      results =
+        for path <- @ignored_option_paths do
+          conn = get(path, config)
+          assert conn.status == 200
+          assert_received {:cache_lookup, key}
+
+          {conn.resp_body, get_resp_header(conn, "etag"), key.hash}
+        end
+
+      {bodies, etags, key_hashes} = unzip3(results)
+
+      # The premise: these four requests genuinely return the same bytes.
+      assert length(Enum.uniq(bodies)) == 1
+
+      assert [etag] = Enum.uniq(etags)
+      assert [_single] = etag
+      assert length(Enum.uniq(key_hashes)) == 1
+    end
+  end
+
+  # A configured `storage_inputs` header selects a different resolved source, so
+  # it varies the /info body for real — and `Representation.storage_inputs/2`
+  # duly returns it as a vary name. The 304 branch emits it (`cache_headers/1` ->
+  # `representation_headers`); the 200 must agree, or a shared cache keyed
+  # without it hands one tenant's /info to another.
+  describe "/info Vary" do
+    test "a 200 and its own 304 agree on the Vary a configured storage_input adds" do
+      config = opts(storage_inputs: [header: "x-tenant"], cache: {CacheProbe, []})
+      tenant = [{"x-tenant", "acme"}]
+
+      ok = get("/info/unsafe/plain/images/beach.jpg", config, tenant)
+      assert ok.status == 200
+      assert [etag] = get_resp_header(ok, "etag")
+
+      not_modified =
+        get("/info/unsafe/plain/images/beach.jpg", config, [{"if-none-match", etag} | tenant])
+
+      assert not_modified.status == 304
+
+      assert get_resp_header(ok, "vary") == ["x-tenant"]
+      assert get_resp_header(ok, "vary") == get_resp_header(not_modified, "vary")
+    end
+
+    test "a 200 carries no Vary when no storage_input is configured" do
+      conn = get("/info/unsafe/plain/images/beach.jpg", opts(cache: {CacheProbe, []}))
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "vary") == []
+    end
+  end
+
+  defp unzip3(triples) do
+    {Enum.map(triples, &elem(&1, 0)), Enum.map(triples, &elem(&1, 1)),
+     Enum.map(triples, &elem(&1, 2))}
+  end
+
   describe "complete-body cache" do
     test "the second request is served from the stored entry: same body, no second source fetch" do
       config = opts(sources: counting_sources(), cache: stateful_cache_probe())

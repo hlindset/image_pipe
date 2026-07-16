@@ -154,6 +154,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # image body to attach a `Content-Disposition` to. The `exp` gate and the
   # signature still apply.
   #
+  # `request/5`'s `:info` head drops the parsed pipelines and output for the same
+  # reason, so none of the three can reach this terminal's identity.
+  #
   # The signature is verified over the path WITHOUT the `/info` prefix —
   # `split_endpoint/1` already handed back a prefix-stripped conn, and
   # `Path.extract/1` reads it — matching upstream. The chain never re-derives
@@ -261,15 +264,32 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # set, `auto_rotate` forced off (the reported orientation is the source's own
   # header, so the decode must not consume it), and the output untouched by the
   # discarded source format.
+  #
+  # The parsed `pipelines` and `output` are DROPPED, mirroring
+  # `PlanBuilder.to_plan/2`'s `info?: true` head (`pipelines: []`, `output:
+  # nil`). /info never runs a pipeline and never encodes — `serve_info/4` goes
+  # straight to `source_info/2` with `@info_decode_request` — so nothing on this
+  # path reads either field except `Identity.material/4`. Carrying them meant
+  # `/info/rs:fill:100:100/…` and `/info/…` got different cache keys and
+  # different ETags for byte-identical bodies, forcing a client to re-download
+  # identical content: exactly what the ETag's narrowness exists to prevent
+  # (AGENTS.md). Dropping them here rather than teaching `Identity.material/4` to
+  # ignore them for this terminal keeps the struct honest about what the request
+  # will execute — an identity that folds in only what the struct carries cannot
+  # regrow this bug when a field is added.
+  #
+  # `output` is not nilable on this struct (unlike the framework's `Plan`), so
+  # the defaults — no format, no quality, no encoder options — are the spelling
+  # of "no output intent".
   defp request(:info, signature, source_path, _source_format, request_options) do
     %Request{
       signature: signature,
       source_kind: :plain,
       source_path: source_path,
-      pipelines: request_options.pipelines,
+      pipelines: [],
       info?: true,
       auto_rotate: false,
-      output: request_options.output,
+      output: Request.output_request(),
       policy: request_options.policy,
       cache: request_options.cache,
       response: request_options.response
@@ -560,14 +580,26 @@ defmodule ImagePipe.Dialect.Imgproxy do
     :ok
   end
 
-  # The ETag and the content type are rebuilt from the CURRENT request's
-  # representation, never read back off a stored entry (beyond its content
-  # type) [spec §The /info cache path].
+  # The ETag, the Vary, and the content type are rebuilt from the CURRENT
+  # request's representation, never read back off a stored entry (beyond its
+  # content type) [spec §The /info cache path].
+  #
+  # The Vary must be stamped here and not only on the 304 branch: this terminal
+  # never varies by Accept (`@info_negotiation`), but a configured
+  # `storage_inputs` header can select a different resolved source and so a
+  # genuinely different body. It varies the key, `cache_headers/1` already puts it
+  # on the 304, and a 200 that omitted it left the two responses inconsistent and
+  # let a shared cache serve one tenant's /info to another.
   defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
     conn
+    |> put_resp_headers(vary_headers(representation.vary))
     |> put_resp_header("etag", representation.etag)
     |> put_resp_content_type(content_type)
     |> send_resp(200, body)
+  end
+
+  defp put_resp_headers(conn, headers) do
+    Enum.reduce(headers, conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
   end
 
   defp vary_headers([]), do: []
