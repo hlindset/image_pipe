@@ -53,7 +53,7 @@ The tests currently use the framework arm as a body-equality oracle. Re-anchor w
 - Source of ported behavior: `test/parser/imgproxy/plan_builder_test.exs` (no-dialect-leak :944; objw canonicalization props :1372/:1386 + mappings :1323–1359; smart/`:face_assist`/detect guide mapping :844–1069; fixed op order :575, :623, :1414–1437)
 
 **Interfaces:**
-- Consumes: `ImagePipe.Dialect.Imgproxy.Assembly.operations/1` (`%Request{} → [%ImagePipe.Plan.Operation.…{}]`); build `%Request{}`s the way `pipeline_assembly_test.exs` and `pipeline_carry_test.exs` already do (via the dialect grammar: `OptionGrammar`/`Options` — copy their request-builder helpers, do not hand-build structs no producer makes).
+- Consumes: `ImagePipe.Dialect.Imgproxy.Assembly.operations/1` — its contract is `PipelineRequest.t() → {:ok, [Operation.semantic_operation()]} | {:error, …}` (assembly.ex:71–72), **not** `%Request{}`. Parse a canonical `%Request{}` via the dialect grammar the way `pipeline_assembly_test.exs` and `pipeline_carry_test.exs` already do (copy their request-builder helpers, do not hand-build structs no producer makes), then exercise `operations/1` over each of `request.pipelines`.
 - Produces: the sole post-§A home for these invariants (currently last-covered by `pipeline_assembly_test.exs`, which Task 21 deletes).
 
 Port only what nothing else covers. Wire/differential already pin the *pixel* behavior; these pin the *structural* invariants:
@@ -205,7 +205,7 @@ The split is driven by the `{:effective, …}` padding marker, not cap math: a p
 - [ ] **Step 2 — Region B (:621–757, nested `imgproxy:` config init) — DELETE** (8 tests): the nested-sublist config path dies with the parser; flat-key equivalents live in `test/image_pipe/dialect/imgproxy/config_test.exs` (:33 signature normalize, :45 presets validate, :51 invalid presets, :27 unknown-key raise) **plus the relocated `signature_test.exs` (Task 20) for full normalization** (`signature_size`, `trusted_signatures` — config_test:33 alone asserts only mode).
 - [ ] **Step 3 — Region D (:1890–1955, preset runtime) — DELETE** (3 tests): covered by dialect presets/pipeline tests + `cache/key` preset-expansion equivalence in `dialect/imgproxy_contract_test.exs`.
 - [ ] **Step 4 — Region C (:757–2576, ~60 generic tests):** repoint by feature, **split across the two surviving parsers**:
-  - **Auto-negotiation / `Vary: Accept` / modern-candidate / Accept-cache-key cases (:1013, :1073, :1147, :1274, :1355, :1373, :1421, :1457–1488, :1495) → TwicPics `twic=v1/output=auto`.** IIIF cannot express format negotiation — `iiif_wire_test.exs:581–592` *asserts* IIIF image responses never carry `Vary: Accept`; TwicPics `output=auto` → `%PlanOutput{mode: :automatic}` is the surviving negotiating parser (`twic_pics_wire_conformance_test.exs:406` is the precedent).
+  - **Every automatic-output case → TwicPics `twic=v1/output=auto`.** Don't work from a line list — do a **semantic sweep**: `grep -n 'vary\|Vary\|negotiat\|automatic' test/image_pipe/plug_test.exs` and classify every hit; each test asserting `vary == ["Accept"]` or exercising `%Plan.Output{mode: :automatic}` (the auto-negotiation, modern-candidate, disabled-modern-format, Accept-cache-key, source-format-negotiation, and negotiated-cache-write regions — spans at least :1013–:1497, :1543–:1828, :1985, :2047, :2073, :2450–:2468) must go through TwicPics. IIIF cannot express format negotiation — `iiif_wire_test.exs:581–592` *asserts* IIIF image responses never carry `Vary: Accept`; TwicPics `output=auto` → `%PlanOutput{mode: :automatic}` is the surviving negotiating parser (`twic_pics_wire_conformance_test.exs:406` is the precedent).
   - **Explicit-format `vary == []` cases (:1436, :1450) and geometry/streaming/cache/limit/error cases → IIIF** (streaming/chunking, cache hit/miss, sequential access, pixel/body limits, decode/encode error paths).
   - For cases whose *setup* leans on imgproxy options with no equivalent: `cb:` (:1101) — **delete with citation** (grammar→cachebuster mapping: relocated `options_test.exs:224` via Task 20; key-vs-ETag behavior: `dialect/imgproxy/identity_test.exs:116`); `fn:`/`att:` (:1219) — delete with citation (`dialect/imgproxy_wire_smoke_test.exs:241` disposition); `el:1` (:2184) — delete with citation (wire enlarge cases :2502/:3881); `rt:force`/`rs:fill`/`fl:0:1` sequential/materialization drivers (:1988–2073, :2380–2397) — repoint using IIIF spellings that force the same materialization (IIIF rotation `90` forces the quarter-turn path); `w:-1`/`f:best` validation-failure drivers (:954, :972, :1298, :1312, :1873) — repoint using IIIF-invalid inputs (bad region/size strings) since the assertion is "parse failure before fetch", not the specific message.
 - [ ] **Step 5:** After the sweep: `grep -c 'Parser.Imgproxy' test/image_pipe/plug_test.exs` → 0. Run the file green. Verify no Plug feature lost its last coverage: streaming, caching, **≥1 `Vary: Accept` negotiation test through TwicPics**, limits, error paths each still have ≥1 test (the repointed ones).
@@ -225,6 +225,18 @@ The split is driven by the `{:effective, …}` padding marker, not cap math: a p
 
 - [ ] **Step 1:** Repoint the file to TwicPics (`/beach.jpg?twic=v1/…`). Grammar-keyed cases translate: `g:obj:face` (:494) → delete-with-citation (dialect wire covers detection identity) or TwicPics `focus`; `rs:fill…/c:…` ordering (:577–583) → TwicPics `cover`/`crop`; `el:1` (:595–616) → delete with citation (dialect wire enlarge cases); `scp:0/1` (:633–638) → delete with citation (wire `scp` normalization block) unless TwicPics exposes an equivalent toggle; `cb:v2` (:660) → TwicPics has no cachebuster — the case's substance is "cachebuster busts CDN cache", which for the surviving framework parsers doesn't exist; delete with citation to the surviving dialect cachebuster coverage (relocated `options_test.exs:224` grammar mapping + `dialect/imgproxy/identity_test.exs:116` key-busts-but-not-ETag).
 - [ ] **Step 2:** Green run; confirm the parser-generic CDN contract (ETag, HEAD, cache-control, Vary) retained coverage. Commit `test: CDN/http-cache wire contract served through TwicPics`.
+
+### Task 14b: `cache/key_test.exs`
+
+**Files:** `test/image_pipe/cache/key_test.exs` (24 imgproxy references: alias :10; `encrypt_source_url` :66; `Imgproxy.parse` at :168, :370–405, :768–783, :1341/:1350, :1382–1383; `validate_options!` :395, :1380; `Imgproxy.Resolver` :1586–1591)
+
+This file unit-tests the **surviving** framework `Cache.Key` module (IIIF/TwicPics still use it) but builds most of its plans via `Imgproxy.parse`. Triage by region:
+
+- [ ] **Step 1 — repoint the generic Key tests** (plans as inputs to key composition: :168, :768–783 alias/order equivalence, and similar) to `TwicPics.parse`-built plans (the file already aliases `TwicPics.PlanBuilder` at ~:1394 — in-file precedent). The assertion is Key's composition behavior, not imgproxy grammar.
+- [ ] **Step 2 — delete the imgproxy-grammar-bound key tests with citations:** signature-proof exclusion (:1316–1350) → `dialect/imgproxy/identity_test.exs` ("signature/expires excluded"); preset == expanded key equality (:1375–1383) → `dialect/imgproxy_contract_test.exs` (`pr:` == expansion cache-key equivalence); encoded/encrypted-source key equivalence (:370–405) → `dialect/imgproxy/identity_test.exs` canonicalization + the wire encrypted-source cases. Verify each citation by opening the cited test before deleting; port to the dialect identity suite if a specific equivalence is missing.
+- [ ] **Step 3 — resolver-strategy key material (:1586–1591):** the test pins that a plan's carried resolver strategy + `behavior_version` feed the key. Repoint to `ImagePipe.Parser.TwicPics.Resolver` (the surviving strategy carrier) — the behavior is Key's, not imgproxy's.
+- [ ] **Step 4 — `encrypt_source_url` at :66:** swap to `ImagePipe.Dialect.Imgproxy.encrypt_source_url/3`? No — this helper builds an encrypted-source URL for a *framework parse*; it belongs to the Step 2 region and dies with it. If any surviving test still needs an encrypted segment, use the dialect facade (Task 17).
+- [ ] **Step 5:** `grep -c 'Imgproxy' test/image_pipe/cache/key_test.exs` → 0; run the file green; commit `test: cache key unit tests off the framework imgproxy parser`.
 
 ### Task 15: `debug_headers_wire_test.exs`
 
@@ -257,17 +269,25 @@ The split is driven by the `{:effective, …}` padding marker, not cap math: a p
 **Interfaces:**
 - Produces: `ImagePipe.Dialect.Imgproxy.encrypt_source_url/3` — `(binary(), binary(), keyword()) :: {:ok, binary()} | {:error, :invalid_source_url | :invalid_key | :invalid_iv | :invalid_options}`, delegating to `ImagePipe.Dialect.Imgproxy.SourceEncryption.encrypt_source_url/3` (:20). Task 18 consumes it.
 
-- [ ] **Step 1: Failing test:**
+- [ ] **Step 1: Failing tests — port the framework facade's full contract** (from `test/parser/imgproxy/source_encryption_test.exs:64–80`, which Task 20 deletes with the framework-only region) onto `ImagePipe.Dialect.Imgproxy.encrypt_source_url/3`:
   ```elixir
-  test "encrypt_source_url/3 is public API on the dialect" do
-    key = String.duplicate("a", 64)
-    assert {:ok, segment} = ImagePipe.Dialect.Imgproxy.encrypt_source_url("local:///x.png", key, [])
-    assert is_binary(segment)
-    assert {:error, :invalid_key} = ImagePipe.Dialect.Imgproxy.encrypt_source_url("local:///x.png", "short", [])
+  test "encrypt_source_url/3 encrypts a source URL into an imgproxy source segment" do
+    assert ImagePipe.Dialect.Imgproxy.encrypt_source_url(@source_url, @aes128_key, iv: @fixed_iv) ==
+             {:ok, @expected_segment}
+  end
+
+  test "encrypt_source_url/3 returns stable errors for malformed runtime input" do
+    alias ImagePipe.Dialect.Imgproxy, as: D
+    assert D.encrypt_source_url(:not_binary, @aes128_key) == {:error, :invalid_source_url}
+    assert D.encrypt_source_url(@source_url, :not_binary) == {:error, :invalid_key}
+    assert D.encrypt_source_url(@source_url, "not-hex") == {:error, :invalid_key}
+    assert {:ok, _segment} = D.encrypt_source_url(@source_url, @aes128_key, [])
+    assert D.encrypt_source_url(@source_url, @aes128_key, %{iv: @fixed_iv}) == {:error, :invalid_options}
+    assert D.encrypt_source_url(@source_url, @aes128_key, unknown: true) == {:error, :invalid_options}
   end
   ```
-  Run → FAIL (undefined function).
-- [ ] **Step 2: Implement** the facade on `Dialect.Imgproxy` (copy the framework's `@doc`/`@spec` shape from `lib/image_pipe/parser/imgproxy.ex:68–88`, adjusted). Check `SourceEncryption` is exported from the dialect boundary; if not, export it or route through the top-level module only.
+  (Copy `@source_url`/`@aes128_key`/`@fixed_iv`/`@expected_segment` values from the old file — the deterministic-IV vector proves the facade forwards options; testing the internal `SourceEncryption` module directly would not.) Run → FAIL (undefined function).
+- [ ] **Step 2: Implement** the facade on `Dialect.Imgproxy` (copy the framework's `@doc`/`@spec` shape from `lib/image_pipe/parser/imgproxy.ex:68–88`, adjusted). **Do not add a boundary export** — the facade lives in the boundary root `dialect/imgproxy.ex` and calls its sibling sub-module intra-boundary.
 - [ ] **Step 3:** Run green. Update `docs/imgproxy_path_api.md:112,117` and `docs/imgproxy_support_matrix.md:1087` to name `ImagePipe.Dialect.Imgproxy.encrypt_source_url/3`.
 - [ ] **Step 4:** Commit `feat: public encrypt_source_url/3 facade on Dialect.Imgproxy`.
 
@@ -289,7 +309,7 @@ Current machinery (verified): dual-run comprehension :23; `@stack` :30; `Framewo
 **Files:** `test/image_pipe/imgproxy_differential_conformance_test.exs`, `test/support/image_pipe/test/imgproxy_differential/harness.ex`, `test/support/mix/tasks/imgproxy.gen_fixtures.ex`, `test/image_pipe/imgproxy_telemetry_contract_test.exs`
 
 - [ ] **Step 1 — differential:** drop `{:framework, Framework}` from :19's comprehension and unwrap to a single module; delete the framework-only provenance `IO.puts` gate (:44–52). `ImgproxyDifferentialFixtureIntegrityTest` (:175–203) untouched.
-- [ ] **Step 2 — harness:** `plug_opts/1` (:26–28) loses the `:framework` clause; collapse to `plug_opts/0` returning the dialect opts (update the doc comment :17–25 and both call sites in the differential/cross-arm files — cross-arm dies in Task 21).
+- [ ] **Step 2 — cross-arm first, then harness:** `git rm test/image_pipe/imgproxy_cross_arm_body_test.exs` (its `setup_all` calls `Harness.plug_opts(:framework)`, so it must die **before** the harness collapse, not in Task 21; citation: cross-arm comparison is its entire purpose — the dual-run era ends here). Then `plug_opts/1` (:26–28) loses the `:framework` clause; collapse to `plug_opts/0` returning the dialect opts (update the doc comment :17–25 and the differential suite's call site).
 - [ ] **Step 3 — gen_fixtures:** `validate_parses!` (:103–117) currently calls `Imgproxy.parse/1`. The dialect has no public parse — replace parse-validation with render-validation. **`Harness.render/2` returns `{resp_body, content_type}` and discards the status**, so it cannot express a 200 check; inline the plug call instead (gen_fixtures already imports `conn/2`):
   ```elixir
   defp validate_renders! do
@@ -321,10 +341,10 @@ Current machinery (verified): dual-run comprehension :23; `@stack` :30; `Framewo
 
 ### Task 21: Delete the parity pins
 
-**Files (git rm whole):** `test/image_pipe/imgproxy_cross_arm_body_test.exs`, `test/image_pipe/dialect/imgproxy/pipeline_assembly_test.exs`, `test/image_pipe/dialect/imgproxy/leaf_structs_test.exs`, `test/image_pipe/parser/imgproxy/info_dispatch_test.exs`, `test/image_pipe/parser/imgproxy/resolver_test.exs`, `test/image_pipe/parser/imgproxy/info_renderer_test.exs`
+**Files (git rm whole):** `test/image_pipe/dialect/imgproxy/pipeline_assembly_test.exs`, `test/image_pipe/dialect/imgproxy/leaf_structs_test.exs`, `test/image_pipe/parser/imgproxy/info_dispatch_test.exs`, `test/image_pipe/parser/imgproxy/resolver_test.exs`, `test/image_pipe/parser/imgproxy/info_renderer_test.exs` (cross_arm_body already died in Task 19 Step 2)
 **Files (edit):** `test/image_pipe/dialect/imgproxy/request_test.exs`
 
-- [ ] **Step 1:** Delete the five whole files, citing per file: cross_arm — cross-arm comparison is its purpose; pipeline_assembly — self-documented "RETIRES WITH THE FRAMEWORK ARM" (:26–31), invariants rehomed by Task 2; leaf_structs — field-parity pin, same moduledoc; info_dispatch/info_renderer/resolver — covered by `info_wire_test.exs` (+ Task 5's spelling port) and `pipeline_carry_test.exs`/`decode_preflight_test.exs`/Task 7.
+- [ ] **Step 1:** Delete the five whole files, citing per file: pipeline_assembly — self-documented "RETIRES WITH THE FRAMEWORK ARM" (:26–31), invariants rehomed by Task 2; leaf_structs — field-parity pin, same moduledoc; info_dispatch/info_renderer/resolver — covered by `info_wire_test.exs` (+ Task 5's spelling port) and `pipeline_carry_test.exs`/`decode_preflight_test.exs`/Task 7.
 - [ ] **Step 2:** `request_test.exs`: delete the 6 `ParsedRequest`-comparison tests and the framework alias; keep the `"the canonical request is pure data"` test.
 - [ ] **Step 3:** Verify `test/image_pipe/parser/` contains no imgproxy files; remove the empty dir. Run `mix test` (full) → green. Commit `test: delete framework↔dialect parity pins (transition complete)`.
 
@@ -336,11 +356,13 @@ Current machinery (verified): dual-run comprehension :23; `@stack` :30; `Framewo
 
 ### Task 22: Delete `lib/image_pipe/parser/imgproxy*`
 
+**Prerequisite: Task 25 (fiddle migration) must already be landed.** The fiddle is a separate mix project that root `precommit` does not compile; deleting the parser first would leave the branch with an uncompilable fiddle between commits. Execution order is therefore: … Task 21 → Checkpoint C → **Task 25** → Task 22 → Tasks 23–24, 26–27.
+
 **Files:**
 - Delete: `lib/image_pipe/parser/imgproxy.ex` + `lib/image_pipe/parser/imgproxy/` (19 files, verified: crop_request, effects, format, info_renderer, option_grammar, options, orientation, parsed_request, path, percent_encoding, pipeline_request, plan_builder, presets, resolver, signature, source, source_encryption, source_scheme + the root)
 - Modify: `test/image_pipe/architecture_boundary_test.exs` (:88 module→file map entry; :136 `boundary_declaration(ImagePipe.Parser.Imgproxy)`; :163 `assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])`)
 
-- [ ] **Step 1 — gate:** `grep -rn 'Parser\.Imgproxy\|parser/imgproxy' lib/ test/ fiddle/lib fiddle/test | grep -v 'lib/image_pipe/parser/imgproxy' | grep -v architecture_boundary_test` → only **comment/doc-prose hits deferred to Task 27** — expected: `neutral_resolver.ex:18`, `resize_planning.ex:9–10`, and the dialect-tree comment/moduledoc mentions (`dialect/imgproxy.ex:316,368`, `dialect/imgproxy/errors.ex:12`, `dialect/imgproxy/config.ex:105`, `dialect/imgproxy/response_meta.ex:7`, `dialect/imgproxy/identity.ex:89,120,129`, `dialect/imgproxy/assembly.ex:8`, `dialect/imgproxy/info_renderer.ex:10`) — plus fiddle if Task 25 hasn't landed yet. Any hit that is *code* (alias, call, module reference that compiles): stop, fix first.
+- [ ] **Step 1 — gate:** `grep -rn 'Parser\.Imgproxy\|parser/imgproxy' lib/ test/ fiddle/lib fiddle/test | grep -v 'lib/image_pipe/parser/imgproxy' | grep -v architecture_boundary_test` → only **comment/doc-prose hits deferred to Task 27** — expected: `neutral_resolver.ex:18`, `resize_planning.ex:9–10`, and the dialect-tree comment/moduledoc mentions (`dialect/imgproxy.ex:316,368`, `dialect/imgproxy/errors.ex:12`, `dialect/imgproxy/config.ex:105`, `dialect/imgproxy/response_meta.ex:7`, `dialect/imgproxy/identity.ex:89,120,129`, `dialect/imgproxy/assembly.ex:8`, `dialect/imgproxy/info_renderer.ex:10`). Fiddle must be clean already (Task 25 is a prerequisite). Any hit that is *code* (alias, call, module reference that compiles): stop, fix first.
 - [ ] **Step 2:** `git rm -r lib/image_pipe/parser/imgproxy.ex lib/image_pipe/parser/imgproxy/`
 - [ ] **Step 3:** Architecture test: drop :88, :136, :163. The rip-out AST matchers (`imgproxy_parser_references/1`, :1451–1515) **stay** — post-§A they catch `Dialect.Imgproxy` leaking into core via the `[:Imgproxy | _]` matchers.
 - [ ] **Step 4:** `export PATH="$(mise where elixir)/bin:$PATH" && mix compile --warnings-as-errors && mix test` → green. Then the full gate: `mise run precommit` → green (expect ExDNA noise only if the dialect ignores now mis-target; that cleanup is Task 26 — if ExDNA fails here because an ignore's *duplication partner* died, note it and fix in Task 26 within the same PR, or pull Task 26 forward if the gate must pass per-commit — prefer pulling forward the minimal entries).
@@ -371,7 +393,7 @@ Current machinery (verified): dual-run comprehension :23; `@stack` :30; `Framewo
 - [ ] **Step 1:** Replace the parenthetical illustration `(a field value only the emitting dialect's resolver understands, e.g. \`Padding\` \`pixel_ratio: {:effective, …}\`)` with the live marker: TwicPics `:deferred` gravity (`Plan.Operation.CropGuided`/`Resize` `guide: :deferred`, resolved by `ImagePipe.Parser.TwicPics.Resolver`'s focus carry). Keep the `mode: :auto` promotion story (it is the "worked example" of criterion (c) failing) — only the *illustration of a legitimate marker* changes. The three criteria stay verbatim.
 - [ ] **Step 2:** Comment-only change: no verify gate needed. Commit `docs: marker-accretion example is TwicPics deferred focus`.
 
-### Task 25: Fiddle migration
+### Task 25: Fiddle migration — **executes between Checkpoint C and Task 22** (see Task 22's prerequisite; numbering kept for cross-references)
 
 **Files:**
 - Modify: `fiddle/lib/image_pipe_fiddle/application.ex` (`build_imgproxy_opts/0` :84–102), `fiddle/lib/image_pipe_fiddle_web/imgproxy.ex` (the web wrapper), `fiddle/test/image_pipe_fiddle/imgproxy_source_mounts_test.exs`
@@ -455,3 +477,5 @@ Three parallel reviewers, disjoint lenses, all APPROVE-WITH-EDITS; every finding
 - **Compatibility** (zero observable imgproxy-behavior change; wire/differential dialect arms + local imgproxy checkout as ground truth): confirmed Tasks 17/18/25/28 behavior-identical, C1's unobservability traced per-pipeline. Edits applied: Task 28 Step 2b (carry-sentinel rework) + `@spec`; Task 19 render-validation realized with real status check; cachebuster citations corrected (Tasks 12/14).
 - **Coverage/deletion-evidence:** edits applied: Task 12 negotiation cases → TwicPics `output=auto` (IIIF never negotiates); Task 1 covers all three `framework_get` sites; Task 10 Step 1b ports the `/-/` shrink-leak tests (#180) instead of deleting; Task 3 gains preset-error + group-merge ports; Task 4 gains delete-citations; Task 2 gains stage-sequence + `mw:0` items.
 - **Executability** (all anchors verified): edits applied: Task 11 rewritten (delete `{:effective}` executor tests, not swap; helper removal); Task 8 Step 5 removes the golden's module-level attribute/aliases; Task 22 gate expectation enumerates the deferred comment hits; Task 19 keeps `@test_only_seam_keys`; Task 23 deletes the `@effective_padding_modes` attribute; Task 26 counts corrected (28 entries / ~20 removals / ~8 survivors); Task 27 gains `errors.ex:12` + inline comments; Task 7 notes the `resolve/3` contract; Task 20 notes the helper-module renames.
+
+Round 2 (external review, worktree-verified before applying): **Task 14b added** — `cache/key_test.exs` (24 imgproxy refs) was missing from the inventory; **two ordering fixes** — cross_arm_body dies in Task 19 before the harness collapse (its `setup_all` calls `plug_opts(:framework)`), and Task 25 (fiddle) is now a prerequisite of Task 22 (the fiddle would otherwise sit uncompilable between commits); **Task 17** ports the framework facade's full contract (deterministic-IV vector + all error atoms — no boundary export needed); **Task 12** negotiation repoints work from a semantic `Vary`/automatic sweep, not a line list; **Task 2** corrected to `Assembly.operations/1`'s real `PipelineRequest.t()` contract. Rejected: "fiddle/mix.lock is not dirty" — it is, in this worktree.
