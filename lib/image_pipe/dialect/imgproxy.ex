@@ -73,6 +73,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Cache
   alias ImagePipe.Decode
   alias ImagePipe.Delivery
+  alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Dialect.Imgproxy.Assembly
   alias ImagePipe.Dialect.Imgproxy.Config
   alias ImagePipe.Dialect.Imgproxy.Errors
@@ -91,6 +92,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
+  alias ImagePipe.Output.Resolved, as: ResolvedOutput
+  alias ImagePipe.Plan.Operation, as: PlanOperation
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Plan.SourceInfo
   alias ImagePipe.Representation
@@ -140,11 +143,17 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   defp route(%Plug.Conn{method: "OPTIONS"} = conn, config) do
-    {CORS.send_options(conn, config), %{result: :options}}
+    conn = send_with_span(conn, config, :options, fn -> CORS.send_options(conn, config) end)
+    {conn, %{result: :options}}
   end
 
-  defp route(%Plug.Conn{method: method} = conn, _config) when method not in ["GET", "HEAD"] do
-    {Sender.send_method_not_allowed(conn), %{result: :method_not_allowed}}
+  defp route(%Plug.Conn{method: method} = conn, config) when method not in ["GET", "HEAD"] do
+    conn =
+      send_with_span(conn, config, :method_not_allowed, fn ->
+        Sender.send_method_not_allowed(conn)
+      end)
+
+    {conn, %{result: :method_not_allowed}}
   end
 
   defp route(%Plug.Conn{} = conn, config) do
@@ -152,6 +161,26 @@ defmodule ImagePipe.Dialect.Imgproxy do
       {:info, info_conn} -> route_info(info_conn, config)
       :image -> route_image(conn, config)
     end
+  end
+
+  # The `[:send]` span, wrapping every terminal send this dialect performs —
+  # `Sender.send_result/3`, `Errors.send/4`, the /info complete-body
+  # `send_resp/3`, and the OPTIONS-204/method-405 heads — mirroring
+  # `ImagePipe.Plug.send_response/4` + `send_stop_metadata/2`. `[:deliver]`
+  # (the shared `Response.Sender` streaming span) nests inside it; both run in
+  # the connection-owner process.
+  defp send_with_span(%Plug.Conn{}, config, result, fun) do
+    Telemetry.span(Telemetry.telemetry_opts(config), [:send], %{result: result}, fn ->
+      sent_conn = fun.()
+      {sent_conn, send_stop_metadata(sent_conn, result)}
+    end)
+  end
+
+  defp send_stop_metadata(%Plug.Conn{} = conn, result) do
+    %{
+      result: Map.get(conn.private, :image_pipe_send_result, result),
+      status: conn.status
+    }
   end
 
   # The `[:request]` span's `:result` vocabulary [AGENTS.md, telemetry
@@ -218,15 +247,13 @@ defmodule ImagePipe.Dialect.Imgproxy do
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
-        conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
-        {conn, request_metadata(:not_modified)}
+        send_not_modified(conn, representation, config)
       else
         serve_info(conn, resolved, representation, config)
       end
     else
       {:error, reason} ->
-        conn = Errors.send(conn, reason, config)
-        {conn, request_metadata({:error, reason})}
+        send_error(conn, reason, config)
     end
   end
 
@@ -249,16 +276,39 @@ defmodule ImagePipe.Dialect.Imgproxy do
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
-        conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
-        {conn, request_metadata(:not_modified)}
+        send_not_modified(conn, representation, config)
       else
         serve(conn, request, resolved, negotiation, representation, response_meta, config)
       end
     else
       {:error, reason} ->
-        conn = Errors.send(conn, reason, config)
-        {conn, request_metadata({:error, reason})}
+        send_error(conn, reason, config)
     end
+  end
+
+  # The three send shapes every branch of this chain reduces to, each one a
+  # `[:send]`-wrapped terminal paired with its `[:request]`-stop metadata.
+
+  defp send_not_modified(conn, %Representation{} = representation, config) do
+    metadata = request_metadata(:not_modified)
+
+    conn =
+      send_with_span(conn, config, metadata.result, fn ->
+        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      end)
+
+    {conn, metadata}
+  end
+
+  defp send_error(conn, reason, config, headers \\ []) do
+    metadata = request_metadata({:error, reason})
+
+    conn =
+      send_with_span(conn, config, metadata.result, fn ->
+        Errors.send(conn, reason, config, headers)
+      end)
+
+    {conn, metadata}
   end
 
   # -- extract → verify → split → parse, one telemetry span ------------------
@@ -580,19 +630,21 @@ defmodule ImagePipe.Dialect.Imgproxy do
          config
        ) do
     if Conditional.if_none_match_wildcard?(conn) do
-      conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
-      {conn, request_metadata(:not_modified)}
+      send_not_modified(conn, representation, config)
     else
       hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
+      metadata = request_metadata(:ok)
 
       conn =
-        Sender.send_result(
-          conn,
-          {:ok, {:cache_entry, entry, response_meta, cache_headers(representation), hit_debug}},
-          config
-        )
+        send_with_span(conn, config, metadata.result, fn ->
+          Sender.send_result(
+            conn,
+            {:ok, {:cache_entry, entry, response_meta, cache_headers(representation), hit_debug}},
+            config
+          )
+        end)
 
-      {conn, request_metadata(:ok)}
+      {conn, metadata}
     end
   end
 
@@ -612,22 +664,25 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
     case Delivery.stream(self(), build_fun, cache_key, response_meta, config) do
       {:ok, prepared} ->
-        conn =
-          Sender.send_result(
-            conn,
-            {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
-            config
-          )
+        metadata = request_metadata(:ok)
 
-        {conn, request_metadata(:ok)}
+        conn =
+          send_with_span(conn, config, metadata.result, fn ->
+            Sender.send_result(
+              conn,
+              {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
+              config
+            )
+          end)
+
+        {conn, metadata}
 
       # The negotiated policy's headers ride the failure, as they do on the
       # framework's own delivery errors (`Runner.process_prepared_stream/6` tags
       # `policy.headers` onto every `Delivery.stream/5` error): this response was
       # Accept-negotiated even though it failed.
       {:error, reason} ->
-        conn = Errors.send(conn, reason, config, negotiation.policy.headers)
-        {conn, request_metadata({:error, reason})}
+        send_error(conn, reason, config, negotiation.policy.headers)
     end
   end
 
@@ -681,11 +736,16 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # exists for this key, so it is the only place `If-None-Match: *` is honored.
   defp deliver_info_hit(conn, content_type, body, %Representation{} = representation, config) do
     if Conditional.if_none_match_wildcard?(conn) do
-      conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
-      {conn, request_metadata(:not_modified)}
+      send_not_modified(conn, representation, config)
     else
-      conn = send_complete_body(conn, content_type, body, representation)
-      {conn, request_metadata(:ok)}
+      metadata = request_metadata(:ok)
+
+      conn =
+        send_with_span(conn, config, metadata.result, fn ->
+          send_complete_body(conn, content_type, body, representation)
+        end)
+
+      {conn, metadata}
     end
   end
 
@@ -699,12 +759,17 @@ defmodule ImagePipe.Dialect.Imgproxy do
         {content_type, body} = InfoRenderer.render(info)
         cost_us = System.monotonic_time(:microsecond) - started_at
         write_complete_body_cache(cache_key, content_type, body, cost_us, config)
-        conn = send_complete_body(conn, content_type, body, representation)
-        {conn, request_metadata(:ok)}
+        metadata = request_metadata(:ok)
+
+        conn =
+          send_with_span(conn, config, metadata.result, fn ->
+            send_complete_body(conn, content_type, body, representation)
+          end)
+
+        {conn, metadata}
 
       {:error, reason} ->
-        conn = Errors.send(conn, reason, config)
-        {conn, request_metadata({:error, reason})}
+        send_error(conn, reason, config)
     end
   end
 
@@ -809,13 +874,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   defp build_and_pump(state, geometry, request, negotiation, config, pump) do
-    with {:ok, %State{} = state} <-
-           Pipeline.run(
-             state,
-             geometry,
-             request,
-             pipeline_opts(negotiation, request, geometry, config)
-           ),
+    with {:ok, %State{} = state} <- run_transform(state, geometry, request, negotiation, config),
          {:ok, resolved_output} <-
            resolve_output(negotiation.policy, geometry.source_format, state.image, config),
          {:ok, clamped, _clamp_info} <-
@@ -827,15 +886,100 @@ defmodule ImagePipe.Dialect.Imgproxy do
            ),
          {:ok, %State{image: image}} <-
            materialize_for_delivery(%State{state | image: clamped}, config),
-         {:ok, stream, content_type, _search_meta} <-
-           Encoder.stream_output(image, resolved_output, config) do
-      pump.(stream, content_type, resolved_output, @debug_info)
+         {:ok, chunk, content_type, stream_state, _search_meta} <-
+           encode_first_chunk(image, resolved_output, config) do
+      pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, @debug_info)
+    else
+      :empty -> {:error, {:encode, :empty_stream}}
+      {:error, _reason} = error -> error
     end
   rescue
     exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
   catch
     kind, reason -> {:error, {:transform, {kind, reason}}}
   end
+
+  # The `[:transform, :execute]` span, wrapping the full pipeline run with the
+  # framework's own start/stop shapes (`Request.Processor.process_decoded_source/3`
+  # + `transform_stop_metadata/1`): start carries the aggregate semantic-plan
+  # view (`operations`/`operation_count`), stop the `:result`.
+  defp run_transform(state, geometry, %Request{} = request, negotiation, config) do
+    operations = operation_names(request)
+
+    Telemetry.span(
+      Telemetry.telemetry_opts(config),
+      [:transform, :execute],
+      %{operations: operations, operation_count: length(operations)},
+      fn ->
+        result =
+          Pipeline.run(
+            state,
+            geometry,
+            request,
+            pipeline_opts(negotiation, request, geometry, config)
+          )
+
+        {result, transform_stop_metadata(result)}
+      end
+    )
+  end
+
+  # The ordered semantic operation-name atoms across the request's pipelines —
+  # the dialect counterpart of `Plan.operation_names/1`, over the same
+  # `Assembly.operations/1` product `Pipeline.run/4` executes. Assembly cannot
+  # reject here: `check_geometry/1` already ran the same pure function over
+  # every pipeline before the fetch.
+  defp operation_names(%Request{pipelines: pipelines}) do
+    Enum.flat_map(pipelines, fn pipeline_request ->
+      {:ok, operations} = Assembly.operations(pipeline_request)
+      Enum.map(operations, &PlanOperation.name/1)
+    end)
+  end
+
+  defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
+
+  defp transform_stop_metadata({:error, error}),
+    do: %{result: :processing_error, error: Error.tag(error)}
+
+  # The `[:encode]` span, mirroring the framework's honest forced-encode span
+  # (`Request.DeliveryBuild.encode_first_chunk/3` + `first_chunk/1`):
+  # `Encoder.stream_output/3` only builds the lazy encoder pipeline, so the
+  # first chunk is pulled HERE, inside the span and inside the producer — not
+  # later in the delivery pump, which would leave the span timing only encoder
+  # construction. `StreamPull.resume/2` then hands `pump` an enumerable that
+  # replays it. This is also what surfaces a first-chunk encode failure as a
+  # pre-header 500 (the framework's and upstream imgproxy's behavior) instead
+  # of a mid-stream abort of an already-committed 200.
+  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(config),
+      [:encode],
+      %{output_format: resolved_output.format},
+      fn ->
+        result =
+          with {:ok, stream, content_type, search_meta} <-
+                 Encoder.stream_output(image, resolved_output, config),
+               {:ok, chunk, stream_state} <- first_chunk(stream) do
+            {:ok, chunk, content_type, stream_state, search_meta}
+          end
+
+        {result, encode_stop_metadata(result, resolved_output.format)}
+      end
+    )
+  end
+
+  defp first_chunk(stream) do
+    StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
+  end
+
+  defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state, _search_meta}, format),
+    do: %{result: :ok, output_format: format}
+
+  defp encode_stop_metadata(:empty, format),
+    do: %{result: :processing_error, output_format: format, error: :empty_stream}
+
+  defp encode_stop_metadata({:error, reason}, format),
+    do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
 
   # Delivery backstop, mirroring the framework's post-clamp barrier
   # (`ImagePipe.Request.Processor.materialize_for_delivery/2`): the build path has

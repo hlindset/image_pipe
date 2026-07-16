@@ -379,6 +379,42 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
     |> Enum.reject(&is_nil/1)
   end
 
+  @doc """
+  The ordered semantic operation-name atoms `run/4` will execute across all
+  groups — the dialect counterpart of `ImagePipe.Plan.operation_names/1`,
+  feeding the `[:transform, :execute]` span's aggregate start metadata.
+
+  A structural mirror of `group_operations/2` above (which needs a live
+  `SourceShape` to resolve pct lengths, unavailable before execution): op
+  *presence* per group is shape-independent, so each clause here answers
+  `Operation.name/1` of the op its `group_operations/2` counterpart would
+  build — including the identity elisions (`pad=0`, no crop/region).
+  """
+  @spec operation_names(Request.t()) :: [atom()]
+  def operation_names(%Request{groups: groups}) do
+    Enum.flat_map(groups, &group_operation_names/1)
+  end
+
+  defp group_operation_names(%Group{} = group) do
+    [
+      group.trim && :trim,
+      crop_name(group),
+      group.resize && :resize,
+      group.blur && :blur,
+      pad_name(group.pad),
+      group.bg && :background
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp crop_name(%Group{region: region}) when region != nil, do: :crop_region
+  defp crop_name(%Group{crop: crop}) when crop != nil, do: :crop_guided
+  defp crop_name(%Group{}), do: nil
+
+  defp pad_name(nil), do: nil
+  defp pad_name({0, 0, 0, 0}), do: nil
+  defp pad_name({_top, _right, _bottom, _left}), do: :padding
+
   defp trim_op(nil), do: nil
 
   defp trim_op(:auto), do: build_trim_op(@default_trim_threshold, :auto)

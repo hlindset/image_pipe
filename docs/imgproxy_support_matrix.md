@@ -256,14 +256,30 @@ imgproxy dialect did not introduce it.
 
 ### Observability
 
-- **The dialect emits 4 fewer telemetry stages** (`[:send]`,
-  `[:source, :fetch_decode]`, `[:transform, :execute]`, `[:encode]`) — all owned by
-  framework-only modules the dialect does not route through. It emits `[:request]`,
-  `[:parse]`, `[:source, :resolve]`, `[:cache, :lookup]`, `[:source, :fetch]`,
-  `[:transform, :input_color_management]`, `[:transform, :operation]`,
-  `[:output, :negotiate]`, `[:transform, :materialize]`, and `[:deliver]` — no stage
-  the framework does not, and the exact sequence `Dialect.Native` emits. Measured and
-  pinned by `ImagePipe.ImgproxyTelemetryStageSetTest`. **Shared with `Dialect.Native`.**
+- **Stage-set parity is reached** (resolved; the dialect used to emit 4 fewer
+  stages). The last four framework-only stages now fire on the dialect stacks
+  too: `[:send]` (one dialect-owned span wrapping every terminal send —
+  `Sender.send_result`, the error sends, the /info complete-body send, and the
+  OPTIONS-204/method-405 heads — with the framework's `result`/`status` stop
+  metadata; `[:deliver]` nests inside it on streamed paths), `[:source,
+  :fetch_decode]` (emitted from the shared `ImagePipe.Decode.with_image/4`
+  bracket: it encloses fetch + decode, `[:source, :fetch]` nests inside it, and
+  it closes before the build continuation runs, so transform/encode failures are
+  never misattributed to it), `[:transform, :execute]` (wrapping the dialect
+  pipeline run, with the framework's aggregate `operations`/`operation_count`
+  start metadata), and `[:encode]` (wrapping `Encoder.stream_output` **and** the
+  first-chunk pull, so the span times the real forced encode). No stage is
+  framework-only anymore; both dialects emit the identical sequence. Measured
+  and pinned by `ImagePipe.ImgproxyTelemetryStageSetTest`. **Shared with
+  `Dialect.Native`.**
+- **A first-chunk encode failure now surfaces as a pre-header 500** (resolved;
+  was a divergence — behavioral). Both dialect build paths force the first
+  encoded chunk inside the producer (mirroring the framework's
+  `DeliveryBuild.encode_first_chunk/3`), so an encode failure discovered on the
+  first pull fails the request before any header is written — a 500, matching
+  the framework and upstream imgproxy — instead of aborting a mid-stream chunked
+  200. A failure after the first chunk still halts the committed stream
+  (`error_paths_test.exs` row 5 is unchanged). **Shared with `Dialect.Native`.**
 - **`[:transform, :materialize]` now fires on every stack** (resolved; was a
   divergence). Both dialect build paths run the framework's post-clamp,
   pre-encode delivery backstop (`Materializer.materialize/2`, mirroring

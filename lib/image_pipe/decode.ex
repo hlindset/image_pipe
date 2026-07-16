@@ -35,6 +35,7 @@ defmodule ImagePipe.Decode do
 
   alias Image.Options.Open, as: ImageOpenOptions
   alias ImagePipe.Decode.SourceFormat
+  alias ImagePipe.Error
   alias ImagePipe.Format.Detector
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
@@ -71,6 +72,23 @@ defmodule ImagePipe.Decode do
   reuse `Response.ErrorStatus`. `fun`'s own return value passes through
   unchanged (its own errors, e.g. a transform failure, are the caller's to
   classify).
+
+  ## The `[:source, :fetch_decode]` span
+
+  This bracket emits the same `[:source, :fetch_decode]` span the framework's
+  `Request.Processor.fetch_decode_validate_source_with_source_format/3` emits,
+  with mirrored start/stop metadata, so every dialect gains it from this one
+  seam (the framework does not route through here and keeps its own
+  processor-side span). The span encloses the fetch AND the decode but NOT the
+  caller's build: it opens before `Source.with_fetched/3` (so `[:source,
+  :fetch]` nests inside it) and closes *inside* the bracket, immediately after
+  the decoded `State`/`SourceGeometry` are built and before `fun` runs — a
+  transform/encode failure in `fun` can never be misattributed to it. That
+  close site is not a function boundary, hence the manual
+  `Telemetry.start_span/3` bracket: a fetch/decode error closes the span with
+  an error `:stop`, and a raise before the decode completed closes it with
+  `:exception` semantics (a raise from `fun`, after the span already stopped,
+  does not re-close it).
   """
   @spec with_image(
           Source.Resolved.t(),
@@ -82,13 +100,41 @@ defmodule ImagePipe.Decode do
   def with_image(%Source.Resolved{} = resolved, opts, decode_request_fun, fun)
       when is_function(decode_request_fun, 1) and is_function(fun, 2) do
     auto_rotate? = Keyword.fetch!(opts, :auto_rotate?)
+    span = Telemetry.start_span(Telemetry.telemetry_opts(opts), [:source, :fetch_decode], %{})
+    decoded = make_ref()
 
-    Source.with_fetched(resolved, opts, fn %Source.Response{} = response ->
-      decode_and_run(response, opts, auto_rotate?, decode_request_fun, fun)
-    end)
+    try do
+      resolved
+      |> Source.with_fetched(opts, fn %Source.Response{} = response ->
+        case decode(response, opts, auto_rotate?, decode_request_fun) do
+          {:ok, state, geometry, stop_metadata} ->
+            Telemetry.stop_span(span, stop_metadata)
+            {decoded, fun.(state, geometry)}
+
+          {:error, _reason} = error ->
+            error
+        end
+      end)
+      |> unwrap_decoded(span, decoded)
+    catch
+      kind, reason ->
+        stacktrace = __STACKTRACE__
+        Telemetry.exception_span(span, kind, reason, stacktrace)
+        :erlang.raise(kind, reason, stacktrace)
+    end
   end
 
-  defp decode_and_run(response, opts, auto_rotate?, decode_request_fun, fun) do
+  # `fun` ran (the span already stopped `:ok` inside the bracket): pass its
+  # result through untouched. Otherwise the fetch or the decode failed before
+  # the build was reached, and the error closes the span here.
+  defp unwrap_decoded({decoded, result}, _span, decoded), do: result
+
+  defp unwrap_decoded({:error, reason} = error, span, _decoded) do
+    Telemetry.stop_span(span, error_stop_metadata(reason))
+    error
+  end
+
+  defp decode(response, opts, auto_rotate?, decode_request_fun) do
     with {:ok, input} <- seekable_input(response),
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
@@ -96,7 +142,7 @@ defmodule ImagePipe.Decode do
          {:ok, header_image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
            |> wrap_decode_error(),
-         {:ok, source_format, _resolution} <-
+         {:ok, source_format, resolution} <-
            resolve_source_format(detected, header_image) |> wrap_decode_error(),
          storage_dimensions = {Image.width(header_image), Image.height(header_image)},
          :ok <- validate_pixels(storage_dimensions, opts) |> wrap_input_limit_error(),
@@ -123,9 +169,50 @@ defmodule ImagePipe.Decode do
            open_seekable_input(input, decode_options, opts)
            |> wrap_decode_error() do
       state = seed_state(image, storage_dimensions, decode_options, pending_orientation, opts)
-      fun.(state, geometry)
+
+      {:ok, state, geometry,
+       ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution)}
     end
   end
+
+  # Mirrors `Request.Processor.fetch_decode_stop_metadata/1`'s success shape.
+  defp ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution) do
+    load_option =
+      cond do
+        Keyword.has_key?(decode_options, :shrink) ->
+          {:shrink, Keyword.fetch!(decode_options, :shrink)}
+
+        Keyword.has_key?(decode_options, :scale) ->
+          {:scale, Keyword.fetch!(decode_options, :scale)}
+
+        true ->
+          nil
+      end
+
+    %{
+      result: :ok,
+      load_option: load_option,
+      achieved_shrink: compute_achieved_shrink(storage_dimensions, image),
+      original_dims: storage_dimensions,
+      loaded_dims: {Image.width(image), Image.height(image)},
+      detected_source_format: detected,
+      source_format_resolution: resolution
+    }
+  end
+
+  # Mirrors `Request.Processor.fetch_decode_stop_metadata/1`'s failure shapes
+  # over this module's wrapped error taxonomy: the unsupported-format reject
+  # keeps its specific tag and rejected family, a source failure is
+  # `:source_error`, and everything else (`{:decode, _}`, `{:input_limit, _}`)
+  # is `:processing_error` with its taxonomy tag.
+  defp error_stop_metadata({:decode, {:unsupported_source_format, family} = inner}),
+    do: %{result: :processing_error, error: Error.tag(inner), detected_source_format: family}
+
+  defp error_stop_metadata({:source, error}),
+    do: %{result: :source_error, error: Error.tag(error)}
+
+  defp error_stop_metadata(error),
+    do: %{result: :processing_error, error: Error.tag(error)}
 
   defp seed_state(image, storage_dimensions, decode_options, pending_orientation, opts) do
     source_dimensions = shrink_source_dimensions(decode_options, storage_dimensions)
