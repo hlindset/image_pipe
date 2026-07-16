@@ -8,6 +8,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
   capability).
   """
 
+  alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage
@@ -33,6 +34,13 @@ defmodule ImagePipe.Transform.InputColorManagement do
 
   Color conversion preserves dimensions; `source_dimensions`/`decode_shrink` are
   left untouched. Failures surface as `{:error, {__MODULE__, reason}}`.
+
+  Emits the `[:transform, :input_color_management]` span (via
+  `state.telemetry_opts`) on every real conditioning invocation — once per
+  executed request on every stack, including the no-op case (a profile-less or
+  linear-light source stops with `imported?: false`). The idempotent
+  `color_imported?: true` early return does not re-emit. Stop metadata:
+  `%{result:, working_space:, imported?:}`.
   """
   @spec condition(State.t(), keyword()) :: {:ok, State.t()} | {:error, {__MODULE__, term()}}
   def condition(state, opts \\ [])
@@ -44,13 +52,24 @@ defmodule ImagePipe.Transform.InputColorManagement do
     interp = VixImage.interpretation(image)
     target = working_space(interp, hdr?)
 
-    with {:ok, image} <- rad2float(image),
-         {:ok, state} <- do_condition(state, image, interp, target) do
-      {:ok, state}
-    else
-      {:error, reason} -> {:error, {__MODULE__, reason}}
-    end
+    Telemetry.span(state.telemetry_opts, [:transform, :input_color_management], %{}, fn ->
+      result =
+        with {:ok, image} <- rad2float(image),
+             {:ok, new_state} <- do_condition(state, image, interp, target) do
+          {:ok, new_state}
+        else
+          {:error, reason} -> {:error, {__MODULE__, reason}}
+        end
+
+      {result, condition_stop_metadata(result, target)}
+    end)
   end
+
+  defp condition_stop_metadata({:ok, %State{color_imported?: imported?}}, working_space),
+    do: %{result: :ok, working_space: working_space, imported?: imported?}
+
+  defp condition_stop_metadata({:error, _reason}, working_space),
+    do: %{result: :processing_error, working_space: working_space, imported?: false}
 
   # Linear-light: drop the profile (no backup, no flag) but still convert.
   defp do_condition(state, image, :VIPS_INTERPRETATION_scRGB, target) do

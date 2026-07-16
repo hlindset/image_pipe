@@ -256,15 +256,24 @@ imgproxy dialect did not introduce it.
 
 ### Observability
 
-- **The dialect emits 7 fewer telemetry stages** (`[:send]`,
+- **The dialect emits 5 fewer telemetry stages** (`[:send]`,
   `[:source, :fetch_decode]`, `[:transform, :execute]`,
-  `[:transform, :input_color_management]`, `[:transform, :materialize]`,
-  `[:output, :negotiate]`, `[:encode]`). Six are owned by framework-only modules
+  `[:transform, :materialize]`, `[:encode]`) — all owned by framework-only modules
   the dialect does not route through. It emits `[:request]`, `[:parse]`,
   `[:source, :resolve]`, `[:cache, :lookup]`, `[:source, :fetch]`,
-  `[:transform, :operation]`, and `[:deliver]` — no stage the framework does not,
+  `[:transform, :input_color_management]`, `[:transform, :operation]`,
+  `[:output, :negotiate]`, and `[:deliver]` — no stage the framework does not,
   and the exact sequence `Dialect.Native` emits. Measured and pinned by
   `ImagePipe.ImgproxyTelemetryStageSetTest`. **Shared with `Dialect.Native`.**
+- **`[:output, :negotiate]` and `[:transform, :input_color_management]` now fire
+  on every stack** (resolved; were divergences). Negotiate emission moved into the
+  shared `ImagePipe.Output.Negotiate.negotiate_output/4` seam (one span enclosing
+  both resolution legs), and the input-color-management span moved into the shared
+  `ImagePipe.Transform.InputColorManagement.condition/2` seam (fired via
+  `state.telemetry_opts` on every real conditioning run, including the no-op
+  `imported?: false` case), which the framework delivery build and both dialects
+  call — so all three arms emit identical start/stop metadata. Dual-run pinned by
+  `imgproxy_telemetry_contract_test.exs`. **Shared with `Dialect.Native`.**
 - **A pre-delivery failure now carries a `:result` on `[:request, :stop]`**
   (resolved; was a divergence). Both dialects stamp the framework's own result
   vocabulary — `:ok` / `:not_modified` / `:parser_error` / `:plan_error` /

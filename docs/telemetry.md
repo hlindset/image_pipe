@@ -150,10 +150,14 @@ Stop metadata: `:result` (`:ok` or `:processing_error`).
 ### Input color management span (`[:transform, :input_color_management]`)
 
 The `[:image_pipe, :transform, :input_color_management]` span wraps the
-data-determined input-color preamble (`ImagePipe.Transform.InputColorManagement`),
-which runs once at the start of transform execution to condition the decoded image
-into a working colorspace before any plan operation. It is emitted nested inside
-`[:transform, :execute]`.
+data-determined input-color preamble, which runs once at the start of transform
+execution to condition the decoded image into a working colorspace before any plan
+operation. It is emitted from the shared seam
+`ImagePipe.Transform.InputColorManagement.condition/2` itself (via
+`State.telemetry_opts`), so every stack that runs the preamble — the framework
+`Executor` and both in-tree dialects — emits it with identical metadata. On the
+framework stack it is nested inside `[:transform, :execute]`; the dialects do not
+emit `[:transform, :execute]`, so there it sits directly under `[:request]`.
 
 Stop metadata:
 
@@ -244,6 +248,28 @@ materializes at least once: a chain that never materializes mid-pipeline hits th
 delivery backstop. Requests served from cache (cache hits, conditional `304`s) skip
 decode and transform entirely, so they emit no `[:transform, :materialize]` span
 (nor any other transform span).
+
+### Output negotiate span (`[:output, :negotiate]`)
+
+The `[:image_pipe, :output, :negotiate]` span wraps output-format negotiation —
+resolving the request's `Output.Policy` against the decoded source format into a
+concrete `Output.Resolved`. It is emitted from the shared seam
+`ImagePipe.Output.Negotiate.negotiate_output/4`, which every stack (the framework
+delivery build and both in-tree dialects) calls, so all three emit it with
+identical metadata. The single span encloses **both** resolution legs —
+`Policy.resolve/2` and, when the format depends on the final image's alpha, the
+second `resolve_final_image_alpha` pass — so exactly one span is emitted per
+request regardless of which legs run.
+
+Start metadata: `:output_mode` — `:explicit` when the request pinned a format, or
+`:automatic` when the format is `Accept`-negotiated from the source.
+
+Stop metadata:
+
+- `:result` — `:ok`, or `:output_error` when negotiation fails (e.g. a
+  source-only format with no acceptable target).
+- `:output_format` — the negotiated output format atom, on success.
+- `:error` — a stable error category (`ImagePipe.Error.tag/1`), on failure.
 
 ### Output encode span (`[:encode]`)
 

@@ -89,6 +89,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
+  alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Plan.SourceInfo
@@ -814,7 +815,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
              pipeline_opts(negotiation, request, geometry, config)
            ),
          {:ok, resolved_output} <-
-           resolve_output(negotiation.policy, geometry.source_format, state.image),
+           resolve_output(negotiation.policy, geometry.source_format, state.image, config),
          {:ok, clamped, _clamp_info} <-
            Clamp.clamp_with_telemetry(
              state.image,
@@ -846,17 +847,16 @@ defmodule ImagePipe.Dialect.Imgproxy do
     )
   end
 
-  defp resolve_output(policy, source_format, image) do
-    case Policy.resolve(policy, source_format) do
-      {:ok, resolved_output} ->
-        {:ok, resolved_output}
-
-      {:needs_final_image_alpha, :source} ->
-        {:ok, Policy.resolve_final_image_alpha(policy, Image.has_alpha?(image))}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+  # Negotiation runs through the shared `Output.Negotiate` seam (the
+  # `[:output, :negotiate]` span emitter). The helper's unwrapped `{:error,
+  # reason}` is passed straight through, preserving this dialect's error shape.
+  defp resolve_output(policy, source_format, image, config) do
+    Negotiate.negotiate_output(
+      policy,
+      source_format,
+      fn -> Image.has_alpha?(image) end,
+      Telemetry.telemetry_opts(config)
+    )
   end
 
   defp result_limits(format, config) do

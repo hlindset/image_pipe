@@ -192,7 +192,9 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       [:source, :resolve],
       [:cache, :lookup],
       [:source, :fetch],
+      [:transform, :input_color_management],
       [:transform, :operation],
+      [:output, :negotiate],
       [:deliver]
     ]
 
@@ -582,9 +584,7 @@ defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
     [:send],
     [:source, :fetch_decode],
     [:transform, :execute],
-    [:transform, :input_color_management],
     [:transform, :materialize],
-    [:output, :negotiate],
     [:encode]
   ]
 

@@ -156,13 +156,14 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # correct, so only a pixel comparison catches it
   # (`ImagePipe.Dialect.ColorCarryParityTest`).
   #
-  # Mirrors `Executor.run_color_management/2` and the imgproxy dialect's own
-  # `condition_color/2`, including their divergences: no `seed_orientation` gate
-  # (`run/4` IS the real-execution path here) and no
-  # `[:transform, :input_color_management]` span (this dialect emits no stage
-  # spans yet). A failure is a corrupt/unsupported profile — a decode failure,
-  # surfaced as `{:decode, _}` (415), consistent with the materialization
-  # contract.
+  # Mirrors `Executor.seed_color_management/2` and the imgproxy dialect's own
+  # `condition_color/2`, including their one divergence: no `seed_orientation`
+  # gate (`run/4` IS the real-execution path here). The
+  # `[:transform, :input_color_management]` span is emitted by
+  # `InputColorManagement.condition/2` itself, so this dialect gets it for free
+  # from the shared seam. A failure is a corrupt/unsupported profile — a decode
+  # failure, surfaced as `{:decode, _}` (415), consistent with the
+  # materialization contract.
   defp condition_color(%State{} = state, opts) do
     hdr? = Keyword.get(opts, :supports_hdr?, false)
 

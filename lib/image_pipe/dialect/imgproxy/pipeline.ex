@@ -314,23 +314,18 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # `-` pipeline (`condition/2` is idempotent via `color_imported?`, but the
   # boundary is the request's).
   #
-  # Mirrors `Executor.run_color_management/2` (`executor.ex:100-113`). A failure
+  # Mirrors `Executor.seed_color_management/2` (`executor.ex:90-101`). A failure
   # is a corrupt/unsupported profile — a decode failure, surfaced as `{:decode,
   # _}` (415) to stay consistent with the materialization contract, NOT as
-  # `{:transform, _}`.
+  # `{:transform, _}`. The `[:transform, :input_color_management]` span is
+  # emitted by `InputColorManagement.condition/2` itself, so this dialect gets it
+  # for free from the shared seam.
   #
-  # TWO deliberate divergences from `Executor.seed_color_management/2`
-  # (`executor.ex:90-98`), the function that wraps that mirror:
-  #
-  #   * No `seed_orientation` gate. The framework runs this only on the real-
-  #     execution path and skips it when planning; the dialect's `run/4` IS the
-  #     real-execution path — there is no planning caller to gate against — so
-  #     the gate has no counterpart here rather than being dropped.
-  #   * No `[:transform, :input_color_management]` span. The framework wraps this
-  #     call in one, carrying `%{result:, working_space:, imported?:}`. The
-  #     dialect emits no stage spans at all yet, so a lone span here would be
-  #     arbitrary; wiring the dialect's spans (this one included) is the
-  #     telemetry task's, and this is an observability gap until then.
+  # One deliberate divergence from the framework: no `seed_orientation` gate. The
+  # framework runs the preamble only on the real-execution path and skips it when
+  # planning; the dialect's `run/4` IS the real-execution path — there is no
+  # planning caller to gate against — so the gate has no counterpart here rather
+  # than being dropped.
   defp condition_color(%State{} = state, opts) do
     hdr? = Keyword.get(opts, :supports_hdr?, false)
 
