@@ -3884,17 +3884,15 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         assert max(w, h) <= 16_383
         assert max(w, h) > 8_192
 
-        if @stack == :framework do
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
 
-          assert scale < 1.0
-          assert meta.format == :webp
-          assert meta.limits.max_width == 16_383
-          assert meta.limits.max_height == 16_383
-          assert meta.dimensions == {w, h}
-          {sw, sh} = meta.source_dimensions
-          assert max(sw, sh) > 16_383
-        end
+        assert scale < 1.0
+        assert meta.format == :webp
+        assert meta.limits.max_width == 16_383
+        assert meta.limits.max_height == 16_383
+        assert meta.dimensions == {w, h}
+        {sw, sh} = meta.source_dimensions
+        assert max(sw, sh) > 16_383
       end
 
       test "downscales an AVIF result above the 16384 encoder limit and serves it" do
@@ -3910,15 +3908,13 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         assert max(w, h) <= 16_384
         assert max(w, h) > 8_192
 
-        if @stack == :framework do
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
 
-          assert scale < 1.0
-          assert meta.format == :avif
-          assert meta.limits.max_width == 16_384
-          assert meta.limits.max_height == 16_384
-          assert meta.dimensions == {w, h}
-        end
+        assert scale < 1.0
+        assert meta.format == :avif
+        assert meta.limits.max_width == 16_384
+        assert meta.limits.max_height == 16_384
+        assert meta.dimensions == {w, h}
       end
 
       test "does not clamp or emit when a WebP result is within the encoder limit" do
@@ -3965,15 +3961,13 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
         assert w == 8192
 
-        if @stack == :framework do
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
-          assert scale < 1.0
-          assert meta.limits.max_width == 8192
-          assert meta.limits.max_height == 8192
-          assert meta.dimensions == {w, h}
-          {sw, _sh} = meta.source_dimensions
-          assert sw > 8192
-        end
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+        assert scale < 1.0
+        assert meta.limits.max_width == 8192
+        assert meta.limits.max_height == 8192
+        assert meta.dimensions == {w, h}
+        {sw, _sh} = meta.source_dimensions
+        assert sw > 8192
       end
 
       # The one place ImagePipe and imgproxy observably diverge: a PADDED request
@@ -3994,10 +3988,8 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         {w, h} = dimensions(conn)
         assert max(w, h) <= 8192
 
-        if @stack == :framework do
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
-          assert scale < 1.0
-        end
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
+        assert scale < 1.0
       end
 
       test "honors asymmetric per-axis caps without over-shrinking" do
@@ -4037,10 +4029,8 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         assert w <= 8000 and h <= 8000
         assert w * h <= 4_000_000
 
-        if @stack == :framework do
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
-          assert scale < 1.0
-        end
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
+        assert scale < 1.0
       end
 
       test "does not clamp or emit when the result is within all default caps" do

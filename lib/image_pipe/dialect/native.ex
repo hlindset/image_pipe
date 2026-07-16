@@ -479,7 +479,12 @@ defmodule ImagePipe.Dialect.Native do
          {:ok, resolved_output} <-
            resolve_output(negotiation.policy, geometry.source_format, state.image),
          {:ok, clamped, _clamp_info} <-
-           Clamp.clamp(state.image, result_limits(resolved_output.format, config), config),
+           Clamp.clamp_with_telemetry(
+             state.image,
+             result_limits(resolved_output.format, config),
+             resolved_output.format,
+             config
+           ),
          {:ok, stream, content_type, _search_meta} <-
            Encoder.stream_output(clamped, resolved_output, config) do
       pump.(stream, content_type, resolved_output, @debug_info)

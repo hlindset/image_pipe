@@ -70,9 +70,13 @@ defmodule ImagePipe.Request.DeliveryBuild do
                request.opts
              ),
            limits = effective_limits(resolved_output.format, request.opts),
-           {:ok, clamped, clamp_info} <-
-             Clamp.clamp(final_state.image, limits, request.opts),
-           :ok <- emit_clamp_telemetry(clamp_info, resolved_output.format, request.opts),
+           {:ok, clamped, _clamp_info} <-
+             Clamp.clamp_with_telemetry(
+               final_state.image,
+               limits,
+               resolved_output.format,
+               request.opts
+             ),
            {:ok, %State{image: image}} <-
              Processor.materialize_for_delivery(
                %State{final_state | image: clamped},
@@ -166,24 +170,6 @@ defmodule ImagePipe.Request.DeliveryBuild do
   # the encoder limit (`b`) can be `:infinity` ("no limit from the encoder").
   defp min_limit(a, :infinity), do: a
   defp min_limit(a, b), do: min(a, b)
-
-  defp emit_clamp_telemetry(nil, _format, _opts), do: :ok
-
-  defp emit_clamp_telemetry(%{} = info, format, opts) do
-    Telemetry.execute(
-      Telemetry.telemetry_opts(opts),
-      [:output, :clamp],
-      %{scale: info.scale},
-      %{
-        format: format,
-        source_dimensions: info.source_dimensions,
-        dimensions: info.dimensions,
-        limits: info.limits
-      }
-    )
-
-    :ok
-  end
 
   defp measure_decode(plan, resolved_source, opts),
     do:

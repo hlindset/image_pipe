@@ -762,6 +762,12 @@ Metadata:
 
 This metadata is product-neutral and non-sensitive (no URLs, secrets, or PII).
 
+The event is emitted from a single site — the shared clamp seam
+`ImagePipe.Output.Clamp.clamp_with_telemetry/4` — which every stack (the
+framework delivery build and both the imgproxy and native dialects) calls, so all
+three arms produce identical `[:output, :clamp]` metadata. It fires only when the
+clamp actually downscaled the image; a within-caps result is a silent no-op.
+
 The opt-in default Logger attaches to this event and renders it at `:warning`,
 matching imgproxy's `slog.Warn` for the same condition, e.g.:
 

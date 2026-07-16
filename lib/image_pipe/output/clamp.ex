@@ -5,11 +5,17 @@ defmodule ImagePipe.Output.Clamp do
   # total pixel budget (`:max_pixels`). The producer passes the EFFECTIVE caps =
   # min(host max_result_*, encoder limit), so encoding cannot fail AND the host
   # result cap downscales rather than errors (imgproxy `limitScale` parity).
-  # Knows nothing about formats or hosts.
   #
-  # Reads/resizes via the `image` library directly (no Transform/Telemetry dep).
+  # The core `clamp/3` is product-neutral and format-blind: it reads/resizes via
+  # the `image` library directly and returns `clamp_info` describing what it did.
+  # `clamp_with_telemetry/4` is the shared seam every stack (framework + dialects)
+  # calls: it runs `clamp/3` and, when clamping occurred, emits the `[:output,
+  # :clamp]` one-shot tagged with the negotiated `format`. Format enters here only
+  # to label that event, never to influence the resize.
+  #
   # Resize is lazy; measuring width/height reads libvips header fields (O(1)).
 
+  alias ImagePipe.Telemetry
   alias Vix.Vips.Image, as: VixImage
 
   @type limit :: pos_integer() | :infinity
@@ -54,6 +60,39 @@ defmodule ImagePipe.Output.Clamp do
          }}
       end
     end
+  end
+
+  # Shared clamp seam: run the product-neutral `clamp/3` and, when it actually
+  # downscaled, emit the `[:output, :clamp]` one-shot tagged with the negotiated
+  # `format`. All three stacks (framework + both dialects) call this so the event
+  # fires from one site. Fires only when clamping occurred (`clamp/3` returns
+  # `nil` info for a no-op).
+  @spec clamp_with_telemetry(VixImage.t(), limits(), atom(), keyword()) ::
+          {:ok, VixImage.t(), clamp_info() | nil}
+          | {:error, {:encode, Exception.t(), list()}}
+  def clamp_with_telemetry(%VixImage{} = image, %{} = limits, format, opts) do
+    with {:ok, resized, info} <- clamp(image, limits, opts) do
+      emit_clamp_telemetry(info, format, opts)
+      {:ok, resized, info}
+    end
+  end
+
+  defp emit_clamp_telemetry(nil, _format, _opts), do: :ok
+
+  defp emit_clamp_telemetry(%{} = info, format, opts) do
+    Telemetry.execute(
+      Telemetry.telemetry_opts(opts),
+      [:output, :clamp],
+      %{scale: info.scale},
+      %{
+        format: format,
+        source_dimensions: info.source_dimensions,
+        dimensions: info.dimensions,
+        limits: info.limits
+      }
+    )
+
+    :ok
   end
 
   # Most-aggressive scale across the per-axis dimension caps (linear) and the

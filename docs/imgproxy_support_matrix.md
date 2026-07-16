@@ -276,7 +276,12 @@ imgproxy dialect did not introduce it.
   `[:request]`/`[:send]`/`[:deliver]` on either stack (it also carries normal
   client disconnects). Pinned by the "pre-delivery error" scenario in
   `imgproxy_telemetry_contract_test.exs`. **Shared with `Dialect.Native`.**
-- **`[:output, :clamp]` is not emitted** even when the clamp fires.
+- **`[:output, :clamp]` now fires on every stack** (resolved; was a divergence).
+  Emission moved into the shared clamp seam
+  `ImagePipe.Output.Clamp.clamp_with_telemetry/4`, which the framework delivery
+  build and both dialects call, so all three arms emit the one-shot with identical
+  metadata whenever the clamp downscales. Dual-run pinned by the clamp telemetry
+  cases in `imgproxy_wire_conformance_test.exs`. **Shared with `Dialect.Native`.**
 - **`[:parse, :stop]`'s `:result` means different things.** The framework's
   `[:parse]` span encloses `PlanBuilder.to_plan/2`, so a geometry rejection
   (`rs:fill` with no dimensions) is `:error`; the dialect's `check_geometry/1`
