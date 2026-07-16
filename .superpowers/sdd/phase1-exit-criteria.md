@@ -4,11 +4,14 @@ Cross-check of the design spec's 13 phase-1 exit criteria
 (`docs/superpowers/specs/2026-07-15-imgproxy-dialect-inversion-design.md`,
 §Exit criteria) against the tree at the end of R11 (Task 26).
 
-**Verdict: 12 of 13 hold (was 11). #1 resolved on-branch; #10 resolved post-phase-1 (7482607f). The remaining gap: the telemetry STAGE-SET difference under #10, out of scope.** Both are recorded below
-with what specifically fails, not smoothed over. Neither blocks phase 1's
-premise (the dialect serves imgproxy URLs with zero pixel divergence across
-162 × 2 differential constellations and 263 × 2 wire cases); both are real
-defects that a phase-2 plan, or a fix wave before it, must own.
+**Verdict: 12 of 13 hold (was 11).** #1 was resolved on-branch and #10
+post-phase-1 (7482607f); each is recorded below with what specifically failed
+and how it was closed, not smoothed over. The one remaining gap is the
+telemetry **stage-set** difference under #10 (the dialect emits 7 fewer stages
++ no `[:output, :clamp]`) — out of scope for phase 1 and owned by a phase-2
+plan. None of this blocks phase 1's premise: the dialect serves imgproxy URLs
+with zero pixel divergence across 162 × 2 differential constellations and
+263 × 2 wire cases.
 
 A criterion marked ✅ means its evidence was run or read at this commit. Where
 a criterion is partly satisfied it is marked ⚠️ and its unsatisfied half is
