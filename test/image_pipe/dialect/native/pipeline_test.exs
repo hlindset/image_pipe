@@ -9,6 +9,7 @@ defmodule ImagePipe.Dialect.Native.PipelineTest do
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Operation.Background
+  alias ImagePipe.Transform.Operation.Blur, as: ExecutableBlur
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Padding
@@ -262,6 +263,64 @@ defmodule ImagePipe.Dialect.Native.PipelineTest do
                collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
     end
   end
+
+  # ── operation_names/1 drift pin ──────────────────────────────────────────
+  #
+  # `operation_names/1` builds the `[:transform, :execute]` span's start
+  # metadata; it structurally mirrors the private `group_operations/2` that
+  # `run/4` actually executes. Both are `defp` and take a live `SourceShape`, so
+  # a direct `operation_names == Enum.map(group_operations(group, shape),
+  # &Operation.name/1)` comparison would require exporting an implementation
+  # helper — forbidden by the boundary rule. Instead this pins the mirror
+  # against REAL execution, transitively through `run/4` (whose only source of
+  # per-group ops IS `group_operations/2`): for a fully-loaded group the names
+  # helper must list exactly the ops `run/4` runs, in order — so dropping (or
+  # adding) a category in either helper alone flips this test.
+
+  describe "operation_names/1 mirrors what run/4 executes" do
+    test "a fully-loaded group: the names helper lists exactly the executed ops, in order" do
+      state = state_for(1600, 1200)
+
+      # Every optional slot filled, with a `fit`/contain resize (terminal — no
+      # cover result-crop tail) and a coordinate region crop, so each semantic
+      # op lowers to exactly one executable and there is no continuation
+      # expansion to muddy the 1:1 count.
+      request =
+        req([
+          group(%{
+            trim: :auto,
+            region: {{:px, 100}, {:px, 100}, {:px, 800}, {:px, 600}},
+            resize: %{w: 400, h: :auto, fit: :contain, enlarge: false},
+            blur: 3.0,
+            pad: {10, 10, 10, 10},
+            bg: {255, 0, 0, 1.0}
+          })
+        ])
+
+      names = Pipeline.operation_names(request)
+      assert names == [:trim, :crop_region, :resize, :blur, :padding, :background]
+
+      executed =
+        collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
+        |> Enum.flat_map(fn {:ops, ops} -> ops end)
+        |> Enum.map(&executable_category/1)
+
+      # Executables carry a different name namespace than the semantic ops the
+      # metadata helper names, and one `%Crop{}` module serves both crop forms —
+      # so compare on a coarse category with crop_region/crop_guided collapsed.
+      assert executed == Enum.map(names, &coarse_category/1)
+    end
+  end
+
+  defp executable_category(%ExecutableTrim{}), do: :trim
+  defp executable_category(%Crop{}), do: :crop
+  defp executable_category(%ExecutableResize{}), do: :resize
+  defp executable_category(%ExecutableBlur{}), do: :blur
+  defp executable_category(%Padding{}), do: :padding
+  defp executable_category(%Background{}), do: :background
+
+  defp coarse_category(name) when name in [:crop_region, :crop_guided], do: :crop
+  defp coarse_category(name), do: name
 
   # ── anchor=smart never reads State.detector ──────────────────────────────
 

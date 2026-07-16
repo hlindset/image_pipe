@@ -84,6 +84,25 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
     end
   end
 
+  # A lazy `stream!/2` seam that raises on the FIRST pull, before any chunk is
+  # emitted. Because the dialect forces the first chunk inside `build_fun`'s
+  # producer (before ever calling `pump`), this surfaces as a pre-header 500,
+  # not a mid-stream abort of an already-committed 200 — the framework's
+  # `FailingStreamBeforeHeaderImage` pin. The lazy `Stream.resource` (rather
+  # than a synchronous raise in `stream!`) is what makes the FORCE load-bearing:
+  # without it, the raise would land in `pump` after the chunked 200 had already
+  # gone out.
+  defmodule RaisingBeforeFirstChunkImage do
+    @moduledoc false
+    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+      Stream.resource(
+        fn -> :start end,
+        fn :start -> raise "boom before first chunk" end,
+        fn _ -> :ok end
+      )
+    end
+  end
+
   # A `ImagePipe.Cache` adapter that announces every callback via message so
   # a test can assert sink OWNERSHIP (opened/written/aborted/committed), not
   # just the resulting HTTP response. `get/2` always misses.
@@ -482,6 +501,40 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
 
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
+    end
+  end
+
+  # ── row 5b: encoder failure BEFORE the first chunk (pre-header 500) ──────
+  #
+  # The B3 encode force means a first-chunk encode failure surfaces as a
+  # pre-header 500 (never a mid-stream abort of a committed 200). Row 5 above
+  # pins only the unchanged mid-stream half; this pins the pre-header half on
+  # the native arm — a raising first pull — mirroring the framework's
+  # `FailingStreamBeforeHeaderImage`.
+
+  describe "row 5b: encoder failure before the first chunk (pre-header 500)" do
+    test "a raising first pull -> pre-header text 500, conn sent, no chunked commit, sink never opened" do
+      test_pid = self()
+
+      config =
+        opts(
+          cache: {ObservingCacheProbe, []},
+          image_module: RaisingBeforeFirstChunkImage,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+        )
+
+      conn = get("/w=64/src/images/cat.jpg", config)
+
+      assert conn.status == 500
+      assert conn.state == :sent
+      assert conn.resp_body == "error encoding image"
+      assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+
+      # The producer failed before ever reaching `pump`, so no chunked response
+      # was committed and no cache sink was opened.
+      assert_received :cache_get
+      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received :cache_commit_sink
     end
   end
 

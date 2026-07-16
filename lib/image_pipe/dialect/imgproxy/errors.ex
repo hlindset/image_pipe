@@ -35,7 +35,11 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
         the plan-validation tag `ErrorStatus` knows, and the exact one
         `ImagePipe.Plug` hands its own `Sender.send_result/3`, so both arms
         render one status and one message for one failure.
-      - `{:encode, _, _}` -> 500 (`Output.Encoder.stream_output/3`).
+      - `{:encode, _, _}` and `{:encode, :empty_stream}` -> 500
+        (`Output.Encoder.stream_output/3`). The 2-tuple is the forced
+        first-chunk pull yielding no bytes — `build_and_pump/6`'s `:empty`
+        arm — and must render the framework's 500 "error encoding image",
+        not this module's parse-failure 400 fallback.
       - `{:session, _}` -> 500. The delivery session failed around the
         producer rather than inside it, which carries no image-domain
         reason; rewrapped as an `{:encode, _, _}` exactly as
@@ -117,6 +121,10 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
   end
 
   def send(%Plug.Conn{} = conn, {:encode, _exception, _stacktrace} = reason, config, headers) do
+    send_core_stage_error(conn, reason, config, headers)
+  end
+
+  def send(%Plug.Conn{} = conn, {:encode, :empty_stream} = reason, config, headers) do
     send_core_stage_error(conn, reason, config, headers)
   end
 

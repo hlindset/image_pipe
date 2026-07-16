@@ -65,6 +65,12 @@ run = [
   # plus the transient phase-1 Dialect.Imgproxy copies of their frozen Parser.Imgproxy
   # originals (retired in phase 2 with the originals); Dialect.Imgproxy.Pipeline
   # is both — a Transform.Executor mirror AND a PlanBuilder copy.
+  # A third bucket is the dialect Plug chains themselves (Dialect.Native and
+  # Dialect.Imgproxy): each mirrors the frozen framework delivery helpers — the
+  # Delivery.stream case, resolve_output/3, and the result-limit defaults of
+  # Request.DeliveryBuild — while the framework original stays frozen and all
+  # arms run side by side (tracked hlindset/image_pipe#457, matching .credo.exs's
+  # own justification for these files).
   # Each is justified in .credo.exs and recorded in the Task 21.6 core-exports
   # report as a duplicated-not-extracted item; the standalone gate must mirror
   # the plugin's ignore list or the two duplication gates diverge.

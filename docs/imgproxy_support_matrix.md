@@ -219,14 +219,25 @@ imgproxy dialect did not introduce it.
 
 ### Observability
 
-The dialect stacks emit the framework's full stage set — `[:send]`, `[:source,
-:fetch_decode]`, `[:transform, :execute]`, `[:transform,
-:input_color_management]`, `[:transform, :materialize]`, `[:output,
-:negotiate]`, `[:output, :clamp]`, `[:encode]` included — with identical
-start/stop metadata, pinned by `ImagePipe.ImgproxyTelemetryStageSetTest`
-(`@framework_only == []`, dialect ≡ native sequence equality); emission sites
-are documented in `docs/telemetry.md`. One semantic difference remains:
+The dialect stacks emit the framework's full stage set — the **eight**
+relocated/new stages `[:send]`, `[:source, :fetch_decode]`, `[:transform,
+:execute]`, `[:transform, :input_color_management]`, `[:transform,
+:materialize]`, `[:output, :negotiate]`, `[:output, :clamp]`, `[:encode]` carry
+**identical start/stop metadata** to the framework, pinned by
+`ImagePipe.ImgproxyTelemetryStageSetTest` (`@framework_only == []`, dialect ≡
+native sequence equality); emission sites are documented in
+`docs/telemetry.md`. The two enclosing spans, `[:request]` and `[:parse]`,
+still differ:
 
+- **`[:request]`'s metadata differs on both ends.** *(start)* The framework's
+  `[:request]` start metadata carries `parser:` and `request_method:`
+  (`ImagePipe.Plug.request_metadata/2`); the dialects open the span with `%{}`.
+  *(stop)* On a mid-stream failure the framework merges the
+  `image_pipe_send_result` send-time override into `[:request, :stop]`'s
+  `:result` (`request_stop_metadata/2` `Map.merge`es the `[:send]` metadata),
+  so the request result reflects what the send actually did; the dialects
+  compute their `[:request]` result pre-send from `request_metadata/1` and only
+  stamp `:status` after, so a mid-stream abort keeps the pre-send `:result`.
 - **`[:parse, :stop]`'s `:result` means different things.** The framework's
   `[:parse]` span encloses `PlanBuilder.to_plan/2`, so a geometry rejection
   (`rs:fill` with no dimensions) is `:error`; the dialect's `check_geometry/1`
