@@ -59,6 +59,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
+    ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
@@ -226,6 +227,44 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(dialect_native, [])
   end
 
+  test "dialect imgproxy boundary declaration depends only on core toolkit facades" do
+    dialect_imgproxy = boundary_declaration(ImagePipe.Dialect.Imgproxy)
+
+    assert_boundary_deps(dialect_imgproxy, [
+      ImagePipe.Cache,
+      ImagePipe.Config,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect.SharedConfig,
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Representation,
+      ImagePipe.Response,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    # Same rule as the native dialect: only core toolkit facades, never the
+    # framework's parser/request/resolver/renderer stack. `ImagePipe.Config` is
+    # the one dep native does not take — this dialect's `Config` splits its flat
+    # host keyword three ways and validates the neutral half through the core
+    # config boundary. It is a core facade, not part of the framework stack.
+    refute_boundary_deps(dialect_imgproxy, [
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver
+    ])
+
+    # `SourceScheme` is the one export: a host implements it to translate a
+    # custom `foo://` source scheme. Nothing else in the dialect is a host
+    # contract, so nothing else is exported.
+    assert_boundary_exports(dialect_imgproxy, [ImagePipe.Dialect.Imgproxy.SourceScheme])
+  end
+
   test "decode boundary declaration depends only on the core fetch/decode toolkit" do
     decode = boundary_declaration(ImagePipe.Decode)
 
@@ -254,7 +293,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(decode, [])
   end
 
-  test "core, transform, and parser code does not name the native dialect" do
+  test "core, transform, and parser code does not name a dialect" do
     # A dialect must be removable without changing the core: nothing under
     # plug/request/source/response/cache/output/plan/transform/parser may
     # reference ImagePipe.Dialect.
@@ -268,7 +307,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "parser-output-stays-semantic and dialect-forbidden greps exclude the native dialect directory" do
+  test "parser-output-stays-semantic and dialect-forbidden greps exclude the dialect directory" do
     dialect_files = Path.wildcard("lib/image_pipe/dialect/**/*.ex")
 
     assert dialect_files != []

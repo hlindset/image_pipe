@@ -37,6 +37,25 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
 
+  @typedoc """
+  What `run/4` and `decode_request/2` need of a request: its `-` pipelines, and
+  nothing else.
+
+  Structural rather than `Request.t()` on purpose — this module reads exactly one
+  field, and the looser contract is what lets the pipeline tests drive `run/4`
+  with a bare `%{pipelines: [...]}` instead of assembling a whole `%Request{}`
+  around the field under test.
+
+  The `optional(any()) => any()` is load-bearing: Elixir's `%{pipelines: t}`
+  shorthand means a **closed** map with that one key, which `%Request{}` — eleven
+  fields — can never satisfy. Without it the contract was unsatisfiable by its
+  only production caller, and `mix dialyzer` said so.
+  """
+  @type pipelined_request() :: %{
+          required(:pipelines) => [PipelineRequest.t()],
+          optional(any()) => any()
+        }
+
   # Reachable `continue/4` recursion is at most depth 1 for this operation set
   # (a resize's `{:resize_tail, _}`/`{:resize_flush_tail, _}` stage always
   # resolves to a terminal `{:advance, _, nil}`). This cap is defensive: an
@@ -97,7 +116,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   agreement against `open_options/5` directly rather than restating it, by
   example and by property.
   """
-  @spec decode_request(%{pipelines: [PipelineRequest.t()]}, SourceGeometry.t()) ::
+  @spec decode_request(pipelined_request(), SourceGeometry.t()) ::
           DecodePlanner.Request.t()
   def decode_request(
         %{pipelines: [%PipelineRequest{} = preq | _]},
@@ -234,7 +253,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   Runs the input color-management preamble before the first pipeline; a failure
   there is a decode failure, `{:error, {:decode, reason}}`.
   """
-  @spec run(State.t(), SourceGeometry.t(), %{pipelines: [PipelineRequest.t()]}, keyword()) ::
+  @spec run(State.t(), SourceGeometry.t(), pipelined_request(), keyword()) ::
           {:ok, State.t()}
           | {:error, {:transform, term()} | {:decode, term()} | Assembly.error()}
   def run(%State{} = state, %SourceGeometry{} = _geometry, %{pipelines: pipelines}, opts) do
