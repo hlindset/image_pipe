@@ -115,18 +115,42 @@
         # ImagePipe.Dialect.Imgproxy is the dialect's Plug chain, and mirrors
         # ImagePipe.Dialect.Native's chain shape (negotiate/3's policy branch,
         # generate's Delivery.stream case, resolve_output/3, cache_headers/1 +
-        # vary_headers/1, the result-limit defaults). Blessed for the same
-        # reason as the mirrors above, and structurally: the two are separate
-        # top-level dialect boundaries and NEITHER may name the other (a
-        # product dialect never depends on another product dialect), so the
-        # shape cannot be shared by reference. Note this is the one blessed
-        # pair with a real extraction still open: cache_headers/1 +
-        # vary_headers/1 (a %CacheHeaders{} from a %Representation{}) and
-        # resolve_output/3 (Policy.resolve/2 plus its final-image-alpha
-        # branch) are product-neutral and could be promoted into
-        # ImagePipe.Response / ImagePipe.Output so both dialects call one
-        # implementation. That is a core-API + boundary-graph decision, not a
-        # dialect's to make; see the Task R8 report.
+        # vary_headers/1, the result-limit defaults).
+        #
+        # The mirrored pairs here are NOT all blessed for the same reason, and
+        # this entry silences a ~650-line module that is still growing — so the
+        # two classes are recorded separately. Do not read this entry as "nothing
+        # in this file is extractable".
+        #
+        # (a) NOT shareable as the graph stands. cache_headers/1 + vary_headers/1
+        #     build a %CacheHeaders{} (ImagePipe.Response) from a
+        #     %Representation{}, and ImagePipe.Response does not depend on
+        #     ImagePipe.Representation. Promoting them needs a new Response ->
+        #     Representation edge — a core boundary-graph decision, not a
+        #     dialect's to make. Declined for now; see the Task R8 report.
+        #
+        # (b) Extractable TODAY, deferred only because the move would edit
+        #     shipped ImagePipe.Dialect.Native. Neither of these needs a new
+        #     edge: both dialects already depend on ImagePipe.Output.
+        #     - resolve_output/3 touches only Policy.resolve/2,
+        #       Policy.resolve_final_image_alpha/2 and Image.has_alpha?/1. THREE
+        #       copies exist: here, Native's, and the framework's own
+        #       Request.DeliveryBuild.do_resolve_output/3 — that one differing
+        #       only in wrapping its error as {:error, {:output, reason}} where
+        #       both dialects return it bare.
+        #     - result_limits/1 + min_limit/2 touch only Encoder.encoder_limit/1.
+        #       Their twin is the framework's DeliveryBuild.effective_limits/2 +
+        #       min_limit/2, which is the same function reading the host caps
+        #       from opts where this reads module attributes. NOTE this pair is
+        #       NOT the imgproxy<->native mirror the list above implies: Native's
+        #       result_limits/0 takes no format and consults no encoder limit at
+        #       all. Only the three @default_max_result_* constants are shared
+        #       with Native.
+        #
+        # The rest (negotiate/3's policy branch, generate's Delivery.stream case)
+        # is chain shape between two separate top-level dialect boundaries,
+        # NEITHER of which may name the other (a product dialect never depends on
+        # another product dialect) — that genuinely cannot be shared by reference.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
