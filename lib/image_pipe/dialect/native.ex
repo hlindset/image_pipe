@@ -128,7 +128,8 @@ defmodule ImagePipe.Dialect.Native do
       representation =
         Representation.build(
           resolved.identity,
-          Identity.material(request, negotiation, conn, config)
+          Identity.material(request, negotiation, conn, config),
+          resolved.cache_semantics.byte_identity
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
@@ -261,7 +262,7 @@ defmodule ImagePipe.Dialect.Native do
          _config
        ) do
     conn
-    |> put_resp_header("etag", representation.etag)
+    |> put_resp_headers(Representation.response_headers(representation))
     |> put_resp_content_type(content_type, nil)
     |> send_resp(200, entry.body)
   end
@@ -359,7 +360,7 @@ defmodule ImagePipe.Dialect.Native do
 
   defp send_complete_body(conn, hash, %Representation{} = representation) do
     conn
-    |> put_resp_header("etag", representation.etag)
+    |> put_resp_headers(Representation.response_headers(representation))
     |> put_resp_content_type(@blurhash_content_type, nil)
     |> send_resp(200, hash)
   end
@@ -379,11 +380,15 @@ defmodule ImagePipe.Dialect.Native do
   defp vary_headers([]), do: []
   defp vary_headers(names) when is_list(names), do: [{"vary", Enum.join(names, ", ")}]
 
+  defp put_resp_headers(conn, headers) do
+    Enum.reduce(headers, conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
+  end
+
   defp cache_headers(%Representation{} = representation) do
     %CacheHeaders{
       etag: representation.etag,
       representation_headers: vary_headers(representation.vary),
-      headers: [{"etag", representation.etag}]
+      headers: Representation.response_headers(representation)
     }
   end
 

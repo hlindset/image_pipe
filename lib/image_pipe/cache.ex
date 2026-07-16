@@ -116,7 +116,7 @@ defmodule ImagePipe.Cache do
   @doc """
   Key-first cache lookup: mirrors `lookup/4`'s adapter dispatch and fail-open
   read-error behavior, minus the `Plan`. A dialect that builds its own
-  `%ImagePipe.Cache.Key{}` (via `ImagePipe.Representation.build/2`) looks it
+  `%ImagePipe.Cache.Key{}` (via `ImagePipe.Representation.build/3`) looks it
   up directly, without a framework `Plan` to derive the key from.
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()

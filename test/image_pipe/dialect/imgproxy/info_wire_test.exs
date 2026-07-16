@@ -15,7 +15,9 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
   @signing_salt "746573742d73616c74"
 
   @default_sources [
-    path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    path:
+      {RootHTTPAdapter,
+       root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
   ]
 
   # A 40x80 source carrying EXIF orientation 6 (a quarter turn), so /info must
@@ -97,6 +99,7 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
       path:
         {RootHTTPAdapter,
          root_url: "http://origin.test",
+         byte_identity: :strong,
          req_options: [plug: {CountingOriginImage, test_pid: self()}]}
     ]
   end
@@ -163,7 +166,9 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
       sources = [
         path:
           {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: ExifOrientationOriginImage]}
+           root_url: "http://origin.test",
+           byte_identity: :strong,
+           req_options: [plug: ExifOrientationOriginImage]}
       ]
 
       path = "/info/unsafe/plain/images/oriented.jpg"
@@ -190,7 +195,9 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
           sources: [
             path:
               {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+               root_url: "http://origin.test",
+               byte_identity: :strong,
+               req_options: [plug: OriginShouldNotFetch]}
           ]
         )
 
@@ -340,6 +347,7 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
             path:
               {RootHTTPAdapter,
                root_url: "http://origin.test",
+               byte_identity: :strong,
                req_options: [plug: {CountingOriginImage, test_pid: self()}],
                internal_cache: :disabled}
           ],
@@ -365,7 +373,9 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
           sources: [
             path:
               {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+               root_url: "http://origin.test",
+               byte_identity: :strong,
+               req_options: [plug: OriginShouldNotFetch]}
           ],
           cache: {CacheProbe, []}
         )
@@ -404,7 +414,9 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
       sources = [
         path:
           {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: CorruptSourceOrigin]}
+           root_url: "http://origin.test",
+           byte_identity: :strong,
+           req_options: [plug: CorruptSourceOrigin]}
       ]
 
       path = "/info/unsafe/plain/images/whatever.jpg"

@@ -54,6 +54,11 @@ defmodule ImagePipe.Dialect.Native.IdentityTest do
   defp source_identity,
     do: [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
 
+  # Identity tests assert ETag material, so they use a strong byte identity
+  # (the `:none` withholding contract lives in the representation + wire tests).
+  defp build(source_identity, material),
+    do: Representation.build(source_identity, material, {:strong, source_identity})
+
   describe "canonical request composition" do
     test "two spellings of the same group produce identical material" do
       a = request!(["w=300", "h=400", "fit=cover", "anchor=smart"])
@@ -214,8 +219,8 @@ defmodule ImagePipe.Dialect.Native.IdentityTest do
 
       assert mat_a.representation != mat_b.representation
 
-      rep_a = Representation.build(source_identity(), mat_a)
-      rep_b = Representation.build(source_identity(), mat_b)
+      rep_a = build(source_identity(), mat_a)
+      rep_b = build(source_identity(), mat_b)
 
       assert rep_a.etag != rep_b.etag
     end
@@ -273,8 +278,8 @@ defmodule ImagePipe.Dialect.Native.IdentityTest do
 
       assert "save-data" in mat_a.vary_header_names
 
-      rep_a = Representation.build(source_identity(), mat_a)
-      rep_b = Representation.build(source_identity(), mat_b)
+      rep_a = build(source_identity(), mat_a)
+      rep_b = build(source_identity(), mat_b)
 
       assert rep_a.cache_key.hash != rep_b.cache_key.hash
       assert rep_a.etag == rep_b.etag

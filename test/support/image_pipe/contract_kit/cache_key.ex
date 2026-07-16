@@ -164,7 +164,9 @@ defmodule ImagePipe.ContractKit.CacheKey do
       sources: [
         path:
           {RootHTTPAdapter,
-           root_url: "http://contract-kit-cache-key.test", req_options: [plug: OriginImage]}
+           root_url: "http://contract-kit-cache-key.test",
+           byte_identity: :strong,
+           req_options: [plug: OriginImage]}
       ]
     ]
   end

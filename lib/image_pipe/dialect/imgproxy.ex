@@ -170,7 +170,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
       representation =
         Representation.build(
           resolved.identity,
-          Identity.material(request, @info_negotiation, conn, config)
+          Identity.material(request, @info_negotiation, conn, config),
+          resolved.cache_semantics.byte_identity
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
@@ -194,7 +195,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
       representation =
         Representation.build(
           resolved.identity,
-          Identity.material(request, negotiation, conn, config)
+          Identity.material(request, negotiation, conn, config),
+          resolved.cache_semantics.byte_identity
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
@@ -613,7 +615,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
     conn
     |> put_resp_headers(vary_headers(representation.vary))
-    |> put_resp_header("etag", representation.etag)
+    |> put_resp_headers(Representation.response_headers(representation))
     |> put_resp_content_type(content_type)
     |> send_resp(200, body)
   end
@@ -629,7 +631,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
     %CacheHeaders{
       etag: representation.etag,
       representation_headers: vary_headers(representation.vary),
-      headers: [{"etag", representation.etag}]
+      headers: Representation.response_headers(representation)
     }
   end
 

@@ -15,7 +15,9 @@ defmodule ImagePipe.Dialect.ImgproxyWireSmokeTest do
   @signing_salt "746573742d73616c74"
 
   @default_sources [
-    path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    path:
+      {RootHTTPAdapter,
+       root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
   ]
 
   defp counting_sources do
@@ -23,6 +25,7 @@ defmodule ImagePipe.Dialect.ImgproxyWireSmokeTest do
       path:
         {RootHTTPAdapter,
          root_url: "http://origin.test",
+         byte_identity: :strong,
          req_options: [plug: {CountingOriginImage, test_pid: self()}]}
     ]
   end
@@ -31,7 +34,9 @@ defmodule ImagePipe.Dialect.ImgproxyWireSmokeTest do
     [
       path:
         {RootHTTPAdapter,
-         root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+         root_url: "http://origin.test",
+         byte_identity: :strong,
+         req_options: [plug: OriginShouldNotFetch]}
     ]
   end
 

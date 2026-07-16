@@ -15,33 +15,51 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
     root_url = Keyword.fetch!(opts, :root_url)
     req_options = Keyword.get(opts, :req_options, [])
     internal_cache = Keyword.get(opts, :internal_cache, :enabled)
+    # `:none` (default) preserves this adapter's original semantics; `:strong`
+    # gives the source a stable byte identity so both dialects and the framework
+    # emit an ETag — the shape ETag/304 wire tests need.
+    byte_identity = Keyword.get(opts, :byte_identity, :none)
 
-    {:ok, [root_url: root_url, req_options: req_options, internal_cache: internal_cache]}
+    {:ok,
+     [
+       root_url: root_url,
+       req_options: req_options,
+       internal_cache: internal_cache,
+       byte_identity: byte_identity
+     ]}
   end
 
   @impl Source
   def resolve(%SourcePath{segments: segments}, opts, _runtime_opts) do
     root_url = Keyword.fetch!(opts, :root_url)
 
+    identity = [
+      kind: :path,
+      adapter: :test_http_root,
+      root: root_url,
+      path: segments
+    ]
+
     {:ok,
      %Resolved{
        adapter: :path,
        source_kind: :path,
-       identity: [
-         kind: :path,
-         adapter: :test_http_root,
-         root: root_url,
-         path: segments
-       ],
+       identity: identity,
        internal_cache: Keyword.fetch!(opts, :internal_cache),
        http_cache: :inherit,
-       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+       cache_semantics: cache_semantics(Keyword.fetch!(opts, :byte_identity), identity),
        fetch: [
          url: build_url(root_url, segments),
          req_options: Keyword.fetch!(opts, :req_options)
        ]
      }}
   end
+
+  defp cache_semantics(:none, _identity),
+    do: %CacheSemantics{byte_identity: :none, stable?: false}
+
+  defp cache_semantics(:strong, identity),
+    do: %CacheSemantics{byte_identity: {:strong, identity}, stable?: true}
 
   @impl Source
   def fetch(%Resolved{fetch: fetch}, _opts, runtime_opts) do

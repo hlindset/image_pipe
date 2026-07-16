@@ -21,7 +21,9 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   @source_key_b "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
   @default_sources [
-    path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    path:
+      {RootHTTPAdapter,
+       root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
   ]
 
   defp counting_sources do
@@ -29,6 +31,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       path:
         {RootHTTPAdapter,
          root_url: "http://origin.test",
+         byte_identity: :strong,
          req_options: [plug: {CountingOriginImage, test_pid: self()}]}
     ]
   end
@@ -37,7 +40,9 @@ defmodule ImagePipe.Dialect.NativeWireTest do
     [
       path:
         {RootHTTPAdapter,
-         root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+         root_url: "http://origin.test",
+         byte_identity: :strong,
+         req_options: [plug: OriginShouldNotFetch]}
     ]
   end
 

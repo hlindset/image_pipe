@@ -23,7 +23,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
 
   `source` is never part of this material — it is a separate
   `source_identity` (from `ImagePipe.Source.Resolved`) that the dialect
-  passes to `Representation.build/2` alongside this material.
+  passes to `Representation.build/3` alongside this material.
   """
 
   alias ImagePipe.Dialect.Imgproxy.Negotiation

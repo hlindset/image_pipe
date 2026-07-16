@@ -46,7 +46,9 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
   end
 
   @default_sources [
-    path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    path:
+      {RootHTTPAdapter,
+       root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
   ]
 
   defp opts(extra \\ []) do
@@ -102,6 +104,7 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
           path:
             {ImagePipe.SourceTest.RootHTTPAdapter,
              root_url: "http://origin.test",
+             byte_identity: :strong,
              req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
         ]
       ]
@@ -121,6 +124,7 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
           path:
             {ImagePipe.SourceTest.RootHTTPAdapter,
              root_url: "http://origin.test",
+             byte_identity: :strong,
              req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
         ]
       ]
@@ -140,6 +144,7 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
           path:
             {ImagePipe.SourceTest.RootHTTPAdapter,
              root_url: "http://origin.test",
+             byte_identity: :strong,
              req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
         ]
       ]
@@ -244,6 +249,7 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
             path:
               {RootHTTPAdapter,
                root_url: "http://origin.test",
+               byte_identity: :strong,
                req_options: [plug: {RecordingOrigin, test_pid: test_pid}]}
           ]
         )

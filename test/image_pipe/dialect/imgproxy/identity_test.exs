@@ -59,6 +59,11 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
   defp source_identity,
     do: [kind: :path, adapter: :path, root: "default", path: ["images", "x.jpg"]]
 
+  # Identity tests assert ETag material, so they use a strong byte identity
+  # (the `:none` withholding contract lives in the representation + wire tests).
+  defp build(source_identity, material),
+    do: Representation.build(source_identity, material, {:strong, source_identity})
+
   describe "response fields are excluded from identity" do
     test "two requests differing only in response.filename produce identical material" do
       a = request(response: Request.response_request(filename: "a.jpg"))
@@ -108,8 +113,8 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
 
       neg = negotiation()
 
-      rep_a = Representation.build(source_identity(), material(a, neg))
-      rep_b = Representation.build(source_identity(), material(b, neg))
+      rep_a = build(source_identity(), material(a, neg))
+      rep_b = build(source_identity(), material(b, neg))
 
       assert rep_a.cache_key.hash != rep_b.cache_key.hash
       assert rep_a.etag == rep_b.etag
@@ -274,7 +279,7 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
       req = request(pipelines: [pipeline], output: output)
       mat = material(req, negotiation())
 
-      representation = Representation.build(source_identity(), mat)
+      representation = build(source_identity(), mat)
 
       assert is_binary(representation.etag)
       assert is_binary(representation.cache_key.hash)
@@ -303,7 +308,7 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
               output: Request.output_request(quality_search: search)
             )
 
-          Representation.build(source_identity(), material(req, negotiation()))
+          build(source_identity(), material(req, negotiation()))
         end
 
       [ssimulacra2, butteraugli] = built
