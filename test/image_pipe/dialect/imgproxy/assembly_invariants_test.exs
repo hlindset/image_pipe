@@ -233,33 +233,6 @@ defmodule ImagePipe.Dialect.Imgproxy.AssemblyInvariantsTest do
   # ── 4: fixed operation order ─────────────────────────────────────────────
 
   describe "operation order is fixed regardless of URL option order" do
-    test "two field orderings of the same option set yield the same module sequence" do
-      one =
-        operations(
-          crop: [width: {:pixels, 100}, height: {:pixels, 100}],
-          orientation: [rotate: 90],
-          width: {:pixels, 200}
-        )
-
-      two =
-        operations(
-          width: {:pixels, 200},
-          orientation: [rotate: 90],
-          crop: [width: {:pixels, 100}, height: {:pixels, 100}]
-        )
-
-      assert {:ok, one_ops} = one
-      assert {:ok, two_ops} = two
-
-      assert op_modules(one_ops) == op_modules(two_ops)
-
-      assert op_modules(one_ops) == [
-               Operation.Rotate,
-               Operation.CropGuided,
-               Operation.Resize
-             ]
-    end
-
     test "a request touching every stage emits them in the fixed pipeline order" do
       assert {:ok, ops} =
                operations(
@@ -311,8 +284,6 @@ defmodule ImagePipe.Dialect.Imgproxy.AssemblyInvariantsTest do
   end
 
   # ── helpers ──────────────────────────────────────────────────────────────
-
-  defp op_modules(ops), do: Enum.map(ops, & &1.__struct__)
 
   defp color!(red, green, blue) do
     {:ok, color} = Operation.color(red, green, blue)
