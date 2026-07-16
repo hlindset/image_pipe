@@ -70,5 +70,42 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorsTest do
 
       assert conn.status == 422
     end
+
+    test "{:input_limit, reason} -> 413" do
+      conn = send_error({:input_limit, {5000, 5000}})
+
+      assert conn.status == 413
+      assert conn.resp_body == "source image is too large"
+    end
+
+    test "{:unsupported_output_format, format} -> 501" do
+      conn = send_error({:unsupported_output_format, :avif})
+
+      assert conn.status == 501
+      assert conn.resp_body == "requested output format is not supported by this server"
+    end
+
+    test "{:encode, exception, stacktrace} -> 500" do
+      conn = send_error({:encode, RuntimeError.exception("boom"), []})
+
+      assert conn.status == 500
+      assert conn.resp_body == "error encoding image"
+    end
+
+    test "{:session, reason} -> 500, rendered as an encode failure" do
+      conn = send_error({:session, :timeout})
+
+      assert conn.status == 500
+      assert conn.resp_body == "error encoding image"
+    end
+
+    # A materialization failure is a decode failure (AGENTS.md), so it must not
+    # ride the generic {:transform, _} clause out as a 422.
+    test "{:transform, {:materialize_error, reason}} -> 415, not 422" do
+      conn = send_error({:transform, {:materialize_error, :truncated}})
+
+      assert conn.status == 415
+      assert conn.resp_body == "source response is not a supported image"
+    end
   end
 end

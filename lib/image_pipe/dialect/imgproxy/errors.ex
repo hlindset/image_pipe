@@ -20,14 +20,33 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
       changing it is a conformance change out of scope for this migration.
     * every other parse/validation failure -> **400**, body
       `"invalid image request: \#{inspect(reason)}"`.
-    * core stage errors (`{:source, _}`, `{:decode, _}`, `{:transform, _}`) ->
-      `ImagePipe.Response.ErrorStatus`'s reusable default table (source ->
-      502-class, decode -> 415, transform -> 422). `{:transform, inner}` is
-      rewrapped as `{:transform_error, inner}` before reaching `ErrorStatus`
-      — this dialect's own `Pipeline.run/4` tags a chain failure
-      `{:transform, _}` where `ErrorStatus` expects the `_error`-suffixed
-      domain tag (mirrors `ImagePipe.Dialect.Native.Errors`'s identical
-      rewrap for its own `{:transform, inner}` reason).
+    * core stage errors -> `ImagePipe.Response.ErrorStatus`'s reusable
+      default table. Every reason the chain can carry out of a stage is
+      routed there explicitly, because this module's fallback clause is a
+      400 (imgproxy's parse-failure protocol), not a status lookup —
+      an unrouted stage error would silently render as a client parse
+      error:
+      - `{:source, _}` -> 502-class; `{:decode, _}` -> 415;
+        `{:input_limit, _}` -> 413.
+      - `{:unsupported_output_format, _}` -> 501 (negotiation's
+        `Policy.ensure_capable/2`, pre-fetch).
+      - `{:encode, _, _}` -> 500 (`Output.Encoder.stream_output/3`).
+      - `{:session, _}` -> 500. The delivery session failed around the
+        producer rather than inside it, which carries no image-domain
+        reason; rewrapped as an `{:encode, _, _}` exactly as
+        `ImagePipe.Request.Runner.normalize_delivery_error/1` does, so both
+        arms render one message for one failure.
+      - `{:transform, {:materialize_error, _}}` -> 415. A materialization
+        failure is a decode failure (AGENTS.md), so it is rewrapped as
+        `{:decode, _}` — the taxonomy `ImagePipe.Decode.with_image/4` itself
+        produces, and the one the framework arm reaches through
+        `Request.Processor`'s own `classify_materialize_error/1`. Clause
+        order matters: this precedes the general `{:transform, _}` clause.
+      - `{:transform, inner}` -> 422. Rewrapped as `{:transform_error,
+        inner}` — this dialect's own `Pipeline.run/4` tags a chain failure
+        `{:transform, _}` where `ErrorStatus` expects the `_error`-suffixed
+        domain tag (mirrors `ImagePipe.Dialect.Native.Errors`'s identical
+        rewrap for its own `{:transform, inner}` reason).
 
   `ErrorStatus` is a reusable *default*, not a core-owned protocol mapping:
   the dialect adopts it for core stage errors and owns its gate mappings
@@ -58,6 +77,27 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
 
   def send(%Plug.Conn{} = conn, {:decode, _reason} = reason, config) do
     send_core_stage_error(conn, reason, config)
+  end
+
+  def send(%Plug.Conn{} = conn, {:input_limit, _reason} = reason, config) do
+    send_core_stage_error(conn, reason, config)
+  end
+
+  def send(%Plug.Conn{} = conn, {:unsupported_output_format, _format} = reason, config) do
+    send_core_stage_error(conn, reason, config)
+  end
+
+  def send(%Plug.Conn{} = conn, {:encode, _exception, _stacktrace} = reason, config) do
+    send_core_stage_error(conn, reason, config)
+  end
+
+  def send(%Plug.Conn{} = conn, {:session, reason}, config) do
+    exception = RuntimeError.exception("delivery session failed: #{inspect(reason)}")
+    send_core_stage_error(conn, {:encode, exception, []}, config)
+  end
+
+  def send(%Plug.Conn{} = conn, {:transform, {:materialize_error, reason}}, config) do
+    send_core_stage_error(conn, {:decode, reason}, config)
   end
 
   def send(%Plug.Conn{} = conn, {:transform, inner}, config) do

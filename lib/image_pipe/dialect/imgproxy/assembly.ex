@@ -60,11 +60,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   stage order, or the request-level rejection its geometry implies.
 
   The error tuples are byte-identical to the framework arm's, which raises them
-  from `PlanBuilder.to_plan/2` at PARSE time — before any source fetch. The
-  dialect reaches this code at run time instead, so a rejected request is
-  currently rejected after its source is fetched and decoded: the dialect's
-  Plug chain should call `operations/1` before the fetch to restore that
-  ordering.
+  from `PlanBuilder.to_plan/2` at PARSE time — before any source fetch. This
+  function is a pure function of the request, so the dialect's Plug chain calls
+  it over every pipeline ahead of the fetch purely for that rejection
+  (`ImagePipe.Dialect.Imgproxy.check_geometry/1`), preserving the ordering.
+  `ImagePipe.Dialect.Imgproxy.Pipeline` calls it again at run time — that is
+  the call that produces the operations, against the per-pipeline shape they
+  are assembled for.
   """
   @spec operations(PipelineRequest.t()) ::
           {:ok, [Operation.semantic_operation()]} | {:error, error()}

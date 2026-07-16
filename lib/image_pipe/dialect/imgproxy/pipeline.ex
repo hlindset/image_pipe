@@ -192,9 +192,10 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # through untouched, so the raw value IS the value the operation carries.
   #
   # A dpr with no rational (`dpr:0.00000001`, which rounds to zero at the
-  # seventh decimal) is a request `Assembly.operations/1` rejects outright. The
-  # preflight runs ahead of that rejection, so it declines to shrink rather than
-  # sizing a decode against a target no operation will ever carry.
+  # seventh decimal) is a request `Assembly.operations/1` rejects outright, so
+  # the chain never reaches the preflight with one. Declining to shrink is the
+  # answer for any caller that does: sizing a decode against a target no
+  # operation will ever carry is worse than not shrinking.
   defp resize_target(%PipelineRequest{} = preq) do
     with {:ok, dpr} <- Assembly.dpr_ratio(preq),
          {target_w, target_h} when not (is_nil(target_w) and is_nil(target_h)) <-

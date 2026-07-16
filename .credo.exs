@@ -101,11 +101,33 @@
         # Parser.Imgproxy.PlanBuilder's private helpers of the same name (not
         # exported, and the dialect cannot depend on the Parser boundary).
         # Transient like the other phase-1 copies above.
+        #
+        # ImagePipe.Dialect.Imgproxy.ResponseMeta is the phase-1 copy of frozen
+        # Parser.Imgproxy.PlanBuilder's response_plan/2 and the
+        # source_filename/1 family it reaches. Transient like the other
+        # phase-1 copies: retired in phase 2 with the framework original.
+        #
+        # ImagePipe.Dialect.Imgproxy is the dialect's Plug chain, and mirrors
+        # ImagePipe.Dialect.Native's chain shape (negotiate/3's policy branch,
+        # generate's Delivery.stream case, resolve_output/3, cache_headers/1 +
+        # vary_headers/1, the result-limit defaults). Blessed for the same
+        # reason as the mirrors above, and structurally: the two are separate
+        # top-level dialect boundaries and NEITHER may name the other (a
+        # product dialect never depends on another product dialect), so the
+        # shape cannot be shared by reference. Note this is the one blessed
+        # pair with a real extraction still open: cache_headers/1 +
+        # vary_headers/1 (a %CacheHeaders{} from a %Representation{}) and
+        # resolve_output/3 (Policy.resolve/2 plus its final-image-alpha
+        # branch) are product-neutral and could be promoted into
+        # ImagePipe.Response / ImagePipe.Output so both dialects call one
+        # implementation. That is a core-API + boundary-graph decision, not a
+        # dialect's to make; see the Task R8 report.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
            "lib/image_pipe/decode.ex",
            "lib/image_pipe/decode/source_format.ex",
+           "lib/image_pipe/dialect/imgproxy.ex",
            "lib/image_pipe/dialect/imgproxy/assembly.ex",
            "lib/image_pipe/dialect/imgproxy/config.ex",
            "lib/image_pipe/dialect/imgproxy/crop_request.ex",
@@ -121,6 +143,7 @@
            "lib/image_pipe/dialect/imgproxy/pipeline_request.ex",
            "lib/image_pipe/dialect/imgproxy/presets.ex",
            "lib/image_pipe/dialect/imgproxy/request.ex",
+           "lib/image_pipe/dialect/imgproxy/response_meta.ex",
            "lib/image_pipe/dialect/imgproxy/signature.ex",
            "lib/image_pipe/dialect/imgproxy/source.ex",
            "lib/image_pipe/dialect/imgproxy/source_encryption.ex",
