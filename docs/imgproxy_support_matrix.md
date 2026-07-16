@@ -242,8 +242,14 @@ imgproxy dialect did not introduce it.
   is unavailable *for the requested classes* is rejected 422 before any source
   fetch or cache access; a composite that owns the face model but not the object
   model rejects `g:obj:car` while `g:obj:face` succeeds. Face-assist smart crops
-  (`{:smart, :face_assist}`) are deliberately excluded from the gate on both
-  stacks — they participate only in cache-key identity. **Remaining framework-only
+  (`{:smart, :face_assist}`, produced by `g:sm` + `smart_crop_face_detection`)
+  are deliberately excluded from the strict-mode gate on both stacks: with an
+  unavailable face detector they degrade to attention (200), never reject (422).
+  Both stacks read the flag and produce the guide — the framework off its
+  `:imgproxy` config, the dialect by stamping the neutral flag onto its
+  `PipelineRequest` — so when a face detector *is* available the guide biases the
+  crop toward the detected face (a dual-run pixel-verified effect), not merely
+  cache-key identity. **Remaining framework-only
   bit:** the detector *model identity* is not yet folded into the dialect's cache
   key, so a key does not change when a host swaps detector model versions
   (`face_ver:`/`object_ver:`). That is the cache-key-identity task (Task 6); until

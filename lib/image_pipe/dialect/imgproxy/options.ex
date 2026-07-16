@@ -316,6 +316,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Options do
 
     color_profile = effective_color_profile(pipelines)
 
+    face_assist? = Keyword.get(defaults, :smart_crop_face_detection, false)
+
     pipelines =
       pipelines
       |> Enum.map(fn pipeline ->
@@ -326,6 +328,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Options do
       end)
       |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
       |> reject_empty_pipelines()
+      |> Enum.map(&%{&1 | smart_crop_face_detection: face_assist?})
 
     with {:ok, output} <-
            output

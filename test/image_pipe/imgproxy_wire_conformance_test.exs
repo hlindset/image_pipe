@@ -1931,12 +1931,14 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     # Face-assist is deliberately NOT part of the strict detector gate: the
     # framework's `validate_detector_capability/2` keys the gate on
     # `Plan.detect_classes/1` alone (a `{:detect, _}` guide), while a face-assist
-    # smart crop carries a `{:smart, :face_assist}` guide that participates only in
-    # cache-key identity, never in the gate. So even under `detector_required: true`
-    # with an UNAVAILABLE face detector, a `g:sm` + face-detection request must
-    # DEGRADE to attention (200), not reject (422). Pinning this on BOTH arms keeps
-    # the dialect's gate from adding face-assist and inventing a divergence the
-    # framework does not have.
+    # smart crop carries a `{:smart, :face_assist}` guide that is not one of the
+    # gated detect classes. So even under `detector_required: true` with an
+    # UNAVAILABLE face detector, a `g:sm` + face-detection request must DEGRADE to
+    # attention (200), not reject (422). Both arms genuinely produce the
+    # `{:smart, :face_assist}` guide here — the dialect stamps the flag onto its
+    # PipelineRequest just as the framework does — so pinning this on BOTH arms
+    # keeps the dialect's gate from turning an active face-assist request into a
+    # divergence the framework does not have.
     @face_assist_gate_opts if @stack == :framework,
                              do: [
                                detector: UnavailableDetector,
@@ -1952,6 +1954,29 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
 
       assert conn.status == 200
       assert dimensions(conn) == {50, 50}
+    end
+
+    # With a face detector available, `g:sm` + `smart_crop_face_detection: true`
+    # carries a `{:smart, :face_assist}` guide that biases the fill-crop toward the
+    # detected face box, rendering DIFFERENT pixels than a plain `g:sm` attention
+    # crop with the flag off. WeightedSceneDetector's face box ({1400,600,400,400})
+    # sits left-of-center on beach.jpg (4000×2667), pulling the crop window
+    # measurably. Both the framework and the dialect read the flag (framework off
+    # `:imgproxy`, dialect off its flat config), so both arms must render the shift.
+    test "g:sm face-assist smart crop biases the rendered crop vs plain g:sm" do
+      base = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+      assisted = Keyword.merge(base, imgproxy: [smart_crop_face_detection: true])
+
+      plain =
+        call_imgproxy("/_/rs:fill:2000:2000/g:sm/f:jpeg/plain/images/beach.jpg", base)
+
+      faced =
+        call_imgproxy("/_/rs:fill:2000:2000/g:sm/f:jpeg/plain/images/beach.jpg", assisted)
+
+      assert plain.status == 200
+      assert faced.status == 200
+      assert dimensions(faced) == {2000, 2000}
+      refute faced.resp_body == plain.resp_body
     end
 
     test "encrypted unsupported decoded source scheme stops before cache lookup and origin fetch" do
