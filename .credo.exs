@@ -95,6 +95,12 @@
         # newly-shared ImagePipe.Dialect.SharedConfig.validate_storage_input/1,
         # which ImagePipe.Dialect.Native.Config now also delegates to instead of
         # carrying its own copy.
+        #
+        # ImagePipe.Dialect.Imgproxy.Identity.color_profile_policy/2 and
+        # hdr_policy/1 are verbatim copies of the frozen
+        # Parser.Imgproxy.PlanBuilder's private helpers of the same name (not
+        # exported, and the dialect cannot depend on the Parser boundary).
+        # Transient like the other phase-1 copies above.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
@@ -105,6 +111,7 @@
            "lib/image_pipe/dialect/imgproxy/crop_request.ex",
            "lib/image_pipe/dialect/imgproxy/effects.ex",
            "lib/image_pipe/dialect/imgproxy/format.ex",
+           "lib/image_pipe/dialect/imgproxy/identity.ex",
            "lib/image_pipe/dialect/imgproxy/option_grammar.ex",
            "lib/image_pipe/dialect/imgproxy/options.ex",
            "lib/image_pipe/dialect/imgproxy/orientation.ex",
