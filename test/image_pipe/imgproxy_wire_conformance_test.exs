@@ -3644,8 +3644,8 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         on_exit(fn -> :telemetry.detach(handler_id) end)
       end
 
-      # Framework-only, like its three callers below: `max_result_*` and
-      # `:output_capabilities` are not dialect config keys.
+      # Framework-only, like its three callers below: `max_result_*` is not a
+      # dialect config key.
       if @stack == :framework do
         @clamp_opts [
           parser: ImagePipe.Parser.Imgproxy,
@@ -3680,9 +3680,9 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       end
 
       # FRAMEWORK-ONLY (the three `@clamp_opts` tests below): `@clamp_opts` sets
-      # `:output_capabilities` and `:max_result_*`, and the dialect config has
-      # neither key. The sibling "clamp telemetry is isolated" test makes no
-      # stack call and stays dual-run.
+      # `:max_result_*`, and the dialect config has no such key. The sibling
+      # "clamp telemetry is isolated" test makes no stack call and stays
+      # dual-run.
       if @stack == :framework do
         test "downscales a WebP result above the 16383 encoder limit and serves it" do
           attach_clamp_telemetry()
@@ -3745,11 +3745,11 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       end
     end
 
-    # FRAMEWORK-ONLY: `:output_capabilities` + `:max_result_*`. Neither is a
-    # dialect config key. The result caps are *hardcoded* to the framework's own
-    # defaults in the dialect (imgproxy.ex `@default_max_result_{width,height,
-    # pixels}`, whose comment states the gap), so the dialect clamps at the same
-    # numbers but gives the host no way to move them — these tests move them.
+    # FRAMEWORK-ONLY: `:max_result_*` is not a dialect config key. The result
+    # caps are *hardcoded* to the framework's own defaults in the dialect
+    # (imgproxy.ex `@default_max_result_{width,height,pixels}`, whose comment
+    # states the gap), so the dialect clamps at the same numbers but gives the
+    # host no way to move them — these tests move them.
     # The clamp behavior AT the default caps is consequently unverified on the
     # dialect arm; see the report's coverage-gap note.
     if @stack == :framework do
