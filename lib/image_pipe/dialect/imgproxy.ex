@@ -120,16 +120,6 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # preflight" answer.
   @info_decode_request %DecodePlanner.Request{}
 
-  # Effective per-axis + pixel result caps for `Output.Clamp`, mirroring
-  # `ImagePipe.Request.DeliveryBuild`'s own `effective_limits/2`: the tighter
-  # of the host cap and the chosen encoder's hard limit. The framework arm
-  # exposes the host half as `max_result_*` request options; this dialect's
-  # config has no such keys yet, so the host half is fixed here at the
-  # framework's own defaults.
-  @default_max_result_width 8_192
-  @default_max_result_height 8_192
-  @default_max_result_pixels 40_000_000
-
   @impl Plug
   def init(opts), do: Config.validate!(opts)
 
@@ -752,7 +742,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
          {:ok, resolved_output} <-
            resolve_output(negotiation.policy, geometry.source_format, state.image),
          {:ok, clamped, _clamp_info} <-
-           Clamp.clamp(state.image, result_limits(resolved_output.format), config),
+           Clamp.clamp(state.image, result_limits(resolved_output.format, config), config),
          {:ok, stream, content_type, _search_meta} <-
            Encoder.stream_output(clamped, resolved_output, config) do
       pump.(stream, content_type, resolved_output, @debug_info)
@@ -790,14 +780,14 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end
   end
 
-  defp result_limits(format) do
+  defp result_limits(format, config) do
     %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
       Encoder.encoder_limit(format)
 
     %{
-      max_width: min_limit(@default_max_result_width, encoder_dimension),
-      max_height: min_limit(@default_max_result_height, encoder_dimension),
-      max_pixels: min_limit(@default_max_result_pixels, encoder_pixels)
+      max_width: min_limit(Keyword.fetch!(config, :max_result_width), encoder_dimension),
+      max_height: min_limit(Keyword.fetch!(config, :max_result_height), encoder_dimension),
+      max_pixels: min_limit(Keyword.fetch!(config, :max_result_pixels), encoder_pixels)
     }
   end
 

@@ -99,14 +99,6 @@ defmodule ImagePipe.Dialect.Native do
   # core primitive").
   @auto_rotate? true
 
-  # Effective result-dimension/pixel caps for Output.Clamp. The framework's
-  # equivalent (ImagePipe.Request.Options) exposes these as host-configurable
-  # options; the probe subset does not (Native.Config has no max_result_*
-  # keys yet), so they're fixed here at the framework's own defaults.
-  @default_max_result_width 8_192
-  @default_max_result_height 8_192
-  @default_max_result_pixels 40_000_000
-
   @impl Plug
   def init(opts), do: Config.validate!(opts)
 
@@ -476,7 +468,8 @@ defmodule ImagePipe.Dialect.Native do
            ),
          {:ok, resolved_output} <-
            resolve_output(negotiation.policy, geometry.source_format, state.image),
-         {:ok, clamped, _clamp_info} <- Clamp.clamp(state.image, result_limits(), config),
+         {:ok, clamped, _clamp_info} <-
+           Clamp.clamp(state.image, result_limits(resolved_output.format, config), config),
          {:ok, stream, content_type, _search_meta} <-
            Encoder.stream_output(clamped, resolved_output, config) do
       pump.(stream, content_type, resolved_output, @debug_info)
@@ -515,11 +508,18 @@ defmodule ImagePipe.Dialect.Native do
     end
   end
 
-  defp result_limits do
+  defp result_limits(format, config) do
+    %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
+      Encoder.encoder_limit(format)
+
     %{
-      max_width: @default_max_result_width,
-      max_height: @default_max_result_height,
-      max_pixels: @default_max_result_pixels
+      max_width: min_limit(Keyword.fetch!(config, :max_result_width), encoder_dimension),
+      max_height: min_limit(Keyword.fetch!(config, :max_result_height), encoder_dimension),
+      max_pixels: min_limit(Keyword.fetch!(config, :max_result_pixels), encoder_pixels)
     }
   end
+
+  # Only the encoder limit can be `:infinity` ("no limit from the encoder").
+  defp min_limit(host_limit, :infinity), do: host_limit
+  defp min_limit(host_limit, encoder_limit), do: min(host_limit, encoder_limit)
 end

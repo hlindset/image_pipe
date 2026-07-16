@@ -45,7 +45,10 @@ defmodule ImagePipe.Dialect.SharedConfig do
     :auto_webp,
     :auto_jpeg_xl,
     :format_order,
-    :output_capabilities
+    :output_capabilities,
+    :max_result_width,
+    :max_result_height,
+    :max_result_pixels
   ]
 
   @validated_option_keys [
@@ -56,7 +59,10 @@ defmodule ImagePipe.Dialect.SharedConfig do
     :auto_webp,
     :auto_jpeg_xl,
     :format_order,
-    :output_capabilities
+    :output_capabilities,
+    :max_result_width,
+    :max_result_height,
+    :max_result_pixels
   ]
 
   @options_schema NimbleOptions.new!(
@@ -90,6 +96,18 @@ defmodule ImagePipe.Dialect.SharedConfig do
                     output_capabilities: [
                       type: {:map, :atom, :boolean},
                       required: false
+                    ],
+                    max_result_width: [
+                      type: :pos_integer,
+                      default: 8_192
+                    ],
+                    max_result_height: [
+                      type: :pos_integer,
+                      default: 8_192
+                    ],
+                    max_result_pixels: [
+                      type: :pos_integer,
+                      default: 40_000_000
                     ]
                   )
 

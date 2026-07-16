@@ -3644,22 +3644,18 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         on_exit(fn -> :telemetry.detach(handler_id) end)
       end
 
-      # Framework-only, like its three callers below: `max_result_*` is not a
-      # dialect config key.
-      if @stack == :framework do
-        @clamp_opts [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
-          ],
-          max_result_width: 40_000,
-          max_result_height: 40_000,
-          max_result_pixels: 2_000_000_000,
-          output_capabilities: %{avif: true, webp: true},
-          telemetry_prefix: @clamp_telemetry_prefix
-        ]
-      end
+      @clamp_opts [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+        ],
+        max_result_width: 40_000,
+        max_result_height: 40_000,
+        max_result_pixels: 2_000_000_000,
+        output_capabilities: %{avif: true, webp: true},
+        telemetry_prefix: @clamp_telemetry_prefix
+      ]
 
       test "clamp telemetry is isolated from concurrent foreign emissions" do
         attach_clamp_telemetry()
@@ -3679,24 +3675,20 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         refute_received {:telemetry_event, _event, _measurements, _meta}
       end
 
-      # FRAMEWORK-ONLY (the three `@clamp_opts` tests below): `@clamp_opts` sets
-      # `:max_result_*`, and the dialect config has no such key. The sibling
-      # "clamp telemetry is isolated" test makes no stack call and stays
-      # dual-run.
-      if @stack == :framework do
-        test "downscales a WebP result above the 16383 encoder limit and serves it" do
-          attach_clamp_telemetry()
+      test "downscales a WebP result above the 16383 encoder limit and serves it" do
+        attach_clamp_telemetry()
 
-          conn =
-            call_imgproxy("/_/el:1/rs:force:18000:200/f:webp/plain/images/beach.jpg", @clamp_opts)
+        conn =
+          call_imgproxy("/_/el:1/rs:force:18000:200/f:webp/plain/images/beach.jpg", @clamp_opts)
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/webp"]
+        assert conn.status == 200
+        assert content_type(conn) == ["image/webp"]
 
-          {w, h} = dimensions(conn)
-          assert max(w, h) <= 16_383
-          assert max(w, h) > 8_192
+        {w, h} = dimensions(conn)
+        assert max(w, h) <= 16_383
+        assert max(w, h) > 8_192
 
+        if @stack == :framework do
           assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
 
           assert scale < 1.0
@@ -3707,20 +3699,22 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
           {sw, sh} = meta.source_dimensions
           assert max(sw, sh) > 16_383
         end
+      end
 
-        test "downscales an AVIF result above the 16384 encoder limit and serves it" do
-          attach_clamp_telemetry()
+      test "downscales an AVIF result above the 16384 encoder limit and serves it" do
+        attach_clamp_telemetry()
 
-          conn =
-            call_imgproxy("/_/el:1/rs:force:18000:200/f:avif/plain/images/beach.jpg", @clamp_opts)
+        conn =
+          call_imgproxy("/_/el:1/rs:force:18000:200/f:avif/plain/images/beach.jpg", @clamp_opts)
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/avif"]
+        assert conn.status == 200
+        assert content_type(conn) == ["image/avif"]
 
-          {w, h} = dimensions(conn)
-          assert max(w, h) <= 16_384
-          assert max(w, h) > 8_192
+        {w, h} = dimensions(conn)
+        assert max(w, h) <= 16_384
+        assert max(w, h) > 8_192
 
+        if @stack == :framework do
           assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
 
           assert scale < 1.0
@@ -3729,60 +3723,53 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
           assert meta.limits.max_height == 16_384
           assert meta.dimensions == {w, h}
         end
+      end
 
-        test "does not clamp or emit when a WebP result is within the encoder limit" do
-          attach_clamp_telemetry()
+      test "does not clamp or emit when a WebP result is within the encoder limit" do
+        attach_clamp_telemetry()
 
-          conn = call_imgproxy("/_/w:120/f:webp/plain/images/beach.jpg", @clamp_opts)
+        conn = call_imgproxy("/_/w:120/f:webp/plain/images/beach.jpg", @clamp_opts)
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/webp"]
-          {w, _h} = dimensions(conn)
-          assert w == 120
+        assert conn.status == 200
+        assert content_type(conn) == ["image/webp"]
+        {w, _h} = dimensions(conn)
+        assert w == 120
 
-          refute_received {:telemetry_event, @clamp_event, _measurements, _meta}
-        end
+        refute_received {:telemetry_event, @clamp_event, _measurements, _meta}
       end
     end
 
-    # FRAMEWORK-ONLY: `:max_result_*` is not a dialect config key. The result
-    # caps are *hardcoded* to the framework's own defaults in the dialect
-    # (imgproxy.ex `@default_max_result_{width,height,pixels}`, whose comment
-    # states the gap), so the dialect clamps at the same numbers but gives the
-    # host no way to move them — these tests move them.
-    # The clamp behavior AT the default caps is consequently unverified on the
-    # dialect arm; see the report's coverage-gap note.
-    if @stack == :framework do
-      describe "host result cap downscale (#165, limitScale parity)" do
-        # Default host caps: max_result_width/height = 8192, max_result_pixels = 40M.
-        @host_default_opts [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
-          ],
-          output_capabilities: %{avif: true, webp: true},
-          telemetry_prefix: @clamp_telemetry_prefix
-        ]
+    describe "host result cap downscale (#165, limitScale parity)" do
+      # Default host caps: max_result_width/height = 8192, max_result_pixels = 40M.
+      @host_default_opts [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+        ],
+        output_capabilities: %{avif: true, webp: true},
+        telemetry_prefix: @clamp_telemetry_prefix
+      ]
 
-        test "downscales a result above the default 8192 host cap and serves 200" do
-          attach_clamp_telemetry()
+      test "downscales a result above the default 8192 host cap and serves 200" do
+        attach_clamp_telemetry()
 
-          conn =
-            call_imgproxy(
-              "/_/el:1/rs:force:12000:200/f:jpeg/plain/images/beach.jpg",
-              @host_default_opts
-            )
+        conn =
+          call_imgproxy(
+            "/_/el:1/rs:force:12000:200/f:jpeg/plain/images/beach.jpg",
+            @host_default_opts
+          )
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/jpeg"]
+        assert conn.status == 200
+        assert content_type(conn) == ["image/jpeg"]
 
-          {w, h} = dimensions(conn)
-          # Parity, not just safety: when the width cap binds on a non-degenerate
-          # aspect, the long axis lands EXACTLY on 8192 — byte-intent identical to
-          # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
-          assert w == 8192
+        {w, h} = dimensions(conn)
+        # Parity, not just safety: when the width cap binds on a non-degenerate
+        # aspect, the long axis lands EXACTLY on 8192 — byte-intent identical to
+        # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
+        assert w == 8192
 
+        if @stack == :framework do
           assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
           assert scale < 1.0
           assert meta.limits.max_width == 8192
@@ -3791,80 +3778,84 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
           {sw, _sh} = meta.source_dimensions
           assert sw > 8192
         end
+      end
 
-        # The one place ImagePipe and imgproxy observably diverge: a PADDED request
-        # whose composited frame exceeds the cap. imgproxy folds the downscale into
-        # the resize scale before re-applying padding (prepare.go:233-263); ImagePipe
-        # clamps the already-composited frame. Both land <= cap; the framing differs.
-        # This test pins ImagePipe's contract (status 200, composite <= cap, clamp
-        # fired) so a future change to the clamp point can't silently alter padded
-        # behavior with a green suite.
-        test "clamps a padded result whose composited frame exceeds the host cap" do
-          attach_clamp_telemetry()
+      # The one place ImagePipe and imgproxy observably diverge: a PADDED request
+      # whose composited frame exceeds the cap. imgproxy folds the downscale into
+      # the resize scale before re-applying padding (prepare.go:233-263); ImagePipe
+      # clamps the already-composited frame. Both land <= cap; the framing differs.
+      # This test pins ImagePipe's contract (status 200, composite <= cap, clamp
+      # fired) so a future change to the clamp point can't silently alter padded
+      # behavior with a green suite.
+      test "clamps a padded result whose composited frame exceeds the host cap" do
+        attach_clamp_telemetry()
 
-          # w:100 then pad 5000px each side -> composited width ~10100 > 8192.
-          conn =
-            call_imgproxy("/_/w:100/pd:5000/f:jpeg/plain/images/beach.jpg", @host_default_opts)
+        # w:100 then pad 5000px each side -> composited width ~10100 > 8192.
+        conn =
+          call_imgproxy("/_/w:100/pd:5000/f:jpeg/plain/images/beach.jpg", @host_default_opts)
 
-          assert conn.status == 200
-          {w, h} = dimensions(conn)
-          assert max(w, h) <= 8192
+        assert conn.status == 200
+        {w, h} = dimensions(conn)
+        assert max(w, h) <= 8192
 
+        if @stack == :framework do
           assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
           assert scale < 1.0
         end
+      end
 
-        test "honors asymmetric per-axis caps without over-shrinking" do
-          attach_clamp_telemetry()
+      test "honors asymmetric per-axis caps without over-shrinking" do
+        attach_clamp_telemetry()
 
-          # Realize ~6000x200, raise width cap above it, keep height cap slack:
-          # both axes within caps -> NO clamp, served at full requested size.
-          conn =
-            call_imgproxy(
-              "/_/el:1/rs:force:6000:200/f:jpeg/plain/images/beach.jpg",
-              Keyword.merge(@host_default_opts, max_result_width: 10_000, max_result_height: 8192)
+        # Realize ~6000x200, raise width cap above it, keep height cap slack:
+        # both axes within caps -> NO clamp, served at full requested size.
+        conn =
+          call_imgproxy(
+            "/_/el:1/rs:force:6000:200/f:jpeg/plain/images/beach.jpg",
+            Keyword.merge(@host_default_opts, max_result_width: 10_000, max_result_height: 8192)
+          )
+
+        assert conn.status == 200
+        {w, h} = dimensions(conn)
+        assert w == 6000
+        assert h == 200
+        refute_received {:telemetry_event, @clamp_event, _m, _meta}
+      end
+
+      test "downscales on the host pixel cap with dims within the per-axis caps" do
+        attach_clamp_telemetry()
+
+        # ~5000x5000 = 25M px. Per-axis caps slack (8000), pixel cap 4M -> clamp on pixels.
+        conn =
+          call_imgproxy(
+            "/_/el:1/rs:force:5000:5000/f:jpeg/plain/images/beach.jpg",
+            Keyword.merge(@host_default_opts,
+              max_result_width: 8000,
+              max_result_height: 8000,
+              max_result_pixels: 4_000_000
             )
+          )
 
-          assert conn.status == 200
-          {w, h} = dimensions(conn)
-          assert w == 6000
-          assert h == 200
-          refute_received {:telemetry_event, @clamp_event, _m, _meta}
-        end
+        assert conn.status == 200
+        {w, h} = dimensions(conn)
+        assert w <= 8000 and h <= 8000
+        assert w * h <= 4_000_000
 
-        test "downscales on the host pixel cap with dims within the per-axis caps" do
-          attach_clamp_telemetry()
-
-          # ~5000x5000 = 25M px. Per-axis caps slack (8000), pixel cap 4M -> clamp on pixels.
-          conn =
-            call_imgproxy(
-              "/_/el:1/rs:force:5000:5000/f:jpeg/plain/images/beach.jpg",
-              Keyword.merge(@host_default_opts,
-                max_result_width: 8000,
-                max_result_height: 8000,
-                max_result_pixels: 4_000_000
-              )
-            )
-
-          assert conn.status == 200
-          {w, h} = dimensions(conn)
-          assert w <= 8000 and h <= 8000
-          assert w * h <= 4_000_000
-
+        if @stack == :framework do
           assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
           assert scale < 1.0
         end
+      end
 
-        test "does not clamp or emit when the result is within all default caps" do
-          attach_clamp_telemetry()
+      test "does not clamp or emit when the result is within all default caps" do
+        attach_clamp_telemetry()
 
-          conn = call_imgproxy("/_/w:300/f:jpeg/plain/images/beach.jpg", @host_default_opts)
+        conn = call_imgproxy("/_/w:300/f:jpeg/plain/images/beach.jpg", @host_default_opts)
 
-          assert conn.status == 200
-          {w, _h} = dimensions(conn)
-          assert w == 300
-          refute_received {:telemetry_event, @clamp_event, _m, _meta}
-        end
+        assert conn.status == 200
+        {w, _h} = dimensions(conn)
+        assert w == 300
+        refute_received {:telemetry_event, @clamp_event, _m, _meta}
       end
     end
 

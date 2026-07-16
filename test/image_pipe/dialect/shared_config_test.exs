@@ -15,7 +15,10 @@ defmodule ImagePipe.Dialect.SharedConfigTest do
                :auto_webp,
                :auto_jpeg_xl,
                :format_order,
-               :output_capabilities
+               :output_capabilities,
+               :max_result_width,
+               :max_result_height,
+               :max_result_pixels
              ])
   end
 
