@@ -62,6 +62,43 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "request: options"
   end
 
+  test "escalates a request-stage source/plan/parser error to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    for result <- [:source_error, :plan_error, :parser_error] do
+      log =
+        capture_log(fn ->
+          :telemetry.execute(
+            [:image_pipe, :request, :stop],
+            %{duration: 1000},
+            %{result: result, status: 500, error: :boom}
+          )
+        end)
+
+      assert log =~ "[warning]", "expected #{inspect(result)} to escalate to warning"
+    end
+  end
+
+  # Deliberate exclusion, documented on `encode_failure?/2`: `:processing_error`
+  # at `[:request]` (and `[:send]`/`[:deliver]`) also carries ordinary
+  # streaming/connection outcomes such as a client disconnect, so it stays at
+  # the base level there — unlike the same result at `[:encode]`, which is
+  # always a genuine server-side compute failure (see the test above).
+  test "does not escalate a request-stage processing error to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :request, :stop],
+          %{duration: 1000},
+          %{result: :processing_error, status: 500, error: :boom}
+        )
+      end)
+
+    refute log =~ "[warning]"
+  end
+
   test "escalates an encode processing error to warning" do
     Telemetry.attach_default_logger(level: :info)
 

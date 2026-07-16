@@ -128,6 +128,23 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       end
     end
 
+    # A source whose `resolve/3` fails BEFORE any fetch — the pre-delivery
+    # error scenario below's failure trigger. Distinct from `StableSource`
+    # only in `resolve/3`'s return.
+    defmodule ResolveFailingSource do
+      @moduledoc false
+      @behaviour ImagePipe.Source
+
+      @impl true
+      def validate_options(opts), do: {:ok, opts}
+
+      @impl true
+      def resolve(_source, _opts, _runtime_opts), do: {:error, {:source, :connect_error}}
+
+      @impl true
+      def fetch(_resolved, _opts, _runtime_opts), do: {:error, {:source, :connect_error}}
+    end
+
     # `image_module` seam: one real chunk, then a raise — an encode failure
     # discovered only after the chunked 200 is already committed.
     defmodule RaisingAfterFirstChunkImage do
@@ -435,6 +452,35 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         # (`Response.Sender`), which is exactly why the dialect gets it: see the
         # stage-set test below for the pre-delivery error stages it does not.
         assert result_of(events, [:deliver], :stop) == :processing_error
+      end
+    end
+
+    # ── scenario 5b: pre-delivery error ─────────────────────────────────────
+    #
+    # Scenario 5 above pins the POST-delivery half (a failure surfacing through
+    # `[:deliver]`, after `Delivery.stream/5` already returned `{:ok, _}`). This
+    # pins the PRE-delivery half: a source resolve failure, discovered before
+    # `route_image/2`'s `with` ever reaches `serve/7`, so `[:deliver]` never
+    # opens at all. Both halves must still stamp `:result` on `[:request,
+    # :stop]` — the bug this scenario guards is `call/2`'s span carrying only
+    # `:status`, which renders every failing request as `ok` under the default
+    # Logger's `outcome/1` (AGENTS.md, telemetry guidelines).
+
+    describe "pre-delivery error" do
+      test "the request stage carries the failure as :result", %{prefix: prefix} do
+        opts = [
+          telemetry_prefix: prefix,
+          cache: {CacheProbe, []},
+          sources: [path: {ResolveFailingSource, []}]
+        ]
+
+        conn = call(@image_path, opts)
+        assert conn.status == 404
+
+        events = captured(prefix)
+
+        refute [:deliver] in stage_set(events)
+        assert result_of(events, [:request], :stop) == :source_error
       end
     end
 

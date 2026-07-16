@@ -135,8 +135,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
   @impl Plug
   def call(%Plug.Conn{} = conn, config) when is_list(config) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
-      conn = route(conn, config)
-      {conn, %{status: conn.status}}
+      {conn, metadata} = route(conn, config)
+      {conn, Map.put(metadata, :status, conn.status)}
     end)
   end
 
@@ -146,6 +146,39 @@ defmodule ImagePipe.Dialect.Imgproxy do
       :image -> route_image(conn, config)
     end
   end
+
+  # The `[:request]` span's `:result` vocabulary [AGENTS.md, telemetry
+  # guidelines]. `:ok`/`:not_modified` pass straight through; every `{:error,
+  # reason}` this chain produces gets classified via `outcome_result/1` below.
+  defp request_metadata(:ok), do: %{result: :ok}
+  defp request_metadata(:not_modified), do: %{result: :not_modified}
+
+  defp request_metadata({:error, reason}),
+    do: %{result: outcome_result(reason), error: Error.tag(reason)}
+
+  # This dialect's own client-reject reasons — the signature and `exp` gates,
+  # both pre-fetch and pre-option-parse — get the framework's client-error
+  # atom directly, the same way `ImagePipe.Plug`'s parser errors always render
+  # `:parser_error` regardless of the underlying reason. `Assembly.operations/1`'s
+  # geometry rejection is the one exception: `{:missing_dimensions, _}` is a
+  # plan-shape failure (mirrors the framework's `PlanBuilder`-time geometry
+  # check), not a syntax one, so it gets `:plan_error` even though `Errors.send/4`
+  # answers it with the same 400 as every other parse reject.
+  #
+  # Everything else — Options/Path/Source translate rejects (`:unknown_option`,
+  # `:invalid_option_segment`, `:invalid_source_url`, …), and the core-stage
+  # reasons (`:source`, `:decode`, `:input_limit`, `:unsupported_output_format`,
+  # `:encode`, `:session`, `:transform`) — defers to the shared classifier,
+  # `ImagePipe.Telemetry.request_result/1`. That classifier already resolves
+  # `{:source, _}` to `:source_error` for free; everything it does not
+  # specifically recognize (including the long, open-ended tail of Options/Path
+  # rejects) lands at its `:processing_error` default.
+  defp outcome_result(:invalid_signature), do: :parser_error
+  defp outcome_result({:invalid_signature_encoding, _signature}), do: :parser_error
+  defp outcome_result({:unsupported_signature, _signature}), do: :parser_error
+  defp outcome_result({:expired_request, _expires}), do: :parser_error
+  defp outcome_result({:missing_dimensions, _resizing_type}), do: :plan_error
+  defp outcome_result(reason), do: Telemetry.request_result({:error, reason})
 
   # The `/info` terminal [spec §The /info cache path]. Skips three of the image
   # chain's steps because the framework arm's own info plan does
@@ -175,12 +208,15 @@ defmodule ImagePipe.Dialect.Imgproxy do
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
-        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        {conn, request_metadata(:not_modified)}
       else
         serve_info(conn, resolved, representation, config)
       end
     else
-      {:error, reason} -> Errors.send(conn, reason, config)
+      {:error, reason} ->
+        conn = Errors.send(conn, reason, config)
+        {conn, request_metadata({:error, reason})}
     end
   end
 
@@ -200,12 +236,15 @@ defmodule ImagePipe.Dialect.Imgproxy do
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
-        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        {conn, request_metadata(:not_modified)}
       else
         serve(conn, request, resolved, negotiation, representation, response_meta, config)
       end
     else
-      {:error, reason} -> Errors.send(conn, reason, config)
+      {:error, reason} ->
+        conn = Errors.send(conn, reason, config)
+        {conn, request_metadata({:error, reason})}
     end
   end
 
@@ -442,15 +481,19 @@ defmodule ImagePipe.Dialect.Imgproxy do
          config
        ) do
     if Conditional.if_none_match_wildcard?(conn) do
-      Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      {conn, request_metadata(:not_modified)}
     else
       hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
 
-      Sender.send_result(
-        conn,
-        {:ok, {:cache_entry, entry, response_meta, cache_headers(representation), hit_debug}},
-        config
-      )
+      conn =
+        Sender.send_result(
+          conn,
+          {:ok, {:cache_entry, entry, response_meta, cache_headers(representation), hit_debug}},
+          config
+        )
+
+      {conn, request_metadata(:ok)}
     end
   end
 
@@ -470,18 +513,22 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
     case Delivery.stream(self(), build_fun, cache_key, response_meta, config) do
       {:ok, prepared} ->
-        Sender.send_result(
-          conn,
-          {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
-          config
-        )
+        conn =
+          Sender.send_result(
+            conn,
+            {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
+            config
+          )
+
+        {conn, request_metadata(:ok)}
 
       # The negotiated policy's headers ride the failure, as they do on the
       # framework's own delivery errors (`Runner.process_prepared_stream/6` tags
       # `policy.headers` onto every `Delivery.stream/5` error): this response was
       # Accept-negotiated even though it failed.
       {:error, reason} ->
-        Errors.send(conn, reason, config, negotiation.policy.headers)
+        conn = Errors.send(conn, reason, config, negotiation.policy.headers)
+        {conn, request_metadata({:error, reason})}
     end
   end
 
@@ -535,9 +582,11 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # exists for this key, so it is the only place `If-None-Match: *` is honored.
   defp deliver_info_hit(conn, content_type, body, %Representation{} = representation, config) do
     if Conditional.if_none_match_wildcard?(conn) do
-      Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      {conn, request_metadata(:not_modified)}
     else
-      send_complete_body(conn, content_type, body, representation)
+      conn = send_complete_body(conn, content_type, body, representation)
+      {conn, request_metadata(:ok)}
     end
   end
 
@@ -551,10 +600,12 @@ defmodule ImagePipe.Dialect.Imgproxy do
         {content_type, body} = InfoRenderer.render(info)
         cost_us = System.monotonic_time(:microsecond) - started_at
         write_complete_body_cache(cache_key, content_type, body, cost_us, config)
-        send_complete_body(conn, content_type, body, representation)
+        conn = send_complete_body(conn, content_type, body, representation)
+        {conn, request_metadata(:ok)}
 
       {:error, reason} ->
-        Errors.send(conn, reason, config)
+        conn = Errors.send(conn, reason, config)
+        {conn, request_metadata({:error, reason})}
     end
   end
 

@@ -71,6 +71,7 @@ defmodule ImagePipe.Dialect.Native do
   alias ImagePipe.Dialect.Native.Request
   alias ImagePipe.Dialect.Native.Signature
   alias ImagePipe.Dialect.Native.Source, as: NativeSource
+  alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
@@ -112,8 +113,8 @@ defmodule ImagePipe.Dialect.Native do
   @impl Plug
   def call(%Plug.Conn{} = conn, config) when is_list(config) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
-      conn = route(conn, config)
-      {conn, %{status: conn.status}}
+      {conn, metadata} = route(conn, config)
+      {conn, Map.put(metadata, :status, conn.status)}
     end)
   end
 
@@ -133,14 +134,49 @@ defmodule ImagePipe.Dialect.Native do
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
-        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        {conn, request_metadata(:not_modified)}
       else
         serve(conn, request, resolved, negotiation, representation, config)
       end
     else
-      {:error, reason} -> Errors.send(conn, reason, config)
+      {:error, reason} ->
+        conn = Errors.send(conn, reason, config)
+        {conn, request_metadata({:error, reason})}
     end
   end
+
+  # The `[:request]` span's `:result` vocabulary [AGENTS.md, telemetry
+  # guidelines]. `:ok`/`:not_modified` pass straight through; every `{:error,
+  # reason}` this chain produces gets classified via `outcome_result/1` below.
+  defp request_metadata(:ok), do: %{result: :ok}
+  defp request_metadata(:not_modified), do: %{result: :not_modified}
+
+  defp request_metadata({:error, reason}),
+    do: %{result: outcome_result(reason), error: Error.tag(reason)}
+
+  # This dialect's own client-reject reasons get the framework's client-error
+  # atom directly, the same way `ImagePipe.Plug`'s parser errors always render
+  # `:parser_error` regardless of the underlying reason: the signature gate
+  # (`:missing_signature`/`:invalid_signature`/`:signature_without_keys`), the
+  # `expires` gate (`:expired`), and `Parser.parse/2`'s whole parse-failure
+  # bucket, which always wraps as the single `{:invalid_request, _diagnostics}`
+  # tag (`ImagePipe.Dialect.Native.Parser`).
+  #
+  # Everything else — `NativeSource.translate/2`'s `{:invalid_source, _}` and
+  # the core-stage reasons (`:source`, `:decode`, `:input_limit`,
+  # `:unsupported_output_format`, `:encode`, `:session`, `:transform`) — defers
+  # to the shared classifier, `ImagePipe.Telemetry.request_result/1`. That
+  # classifier already resolves `{:source, _}` to `:source_error` for free;
+  # everything it does not specifically recognize (including
+  # `{:invalid_source, _}`) lands at its `:processing_error` default.
+  defp outcome_result(reason)
+       when reason in [:missing_signature, :invalid_signature, :signature_without_keys],
+       do: :parser_error
+
+  defp outcome_result({:invalid_request, _diagnostics}), do: :parser_error
+  defp outcome_result(:expired), do: :parser_error
+  defp outcome_result(reason), do: Telemetry.request_result({:error, reason})
 
   # -- verify → lex → parse, one telemetry span -----------------------------
 
@@ -243,7 +279,8 @@ defmodule ImagePipe.Dialect.Native do
          config
        ) do
     if Conditional.if_none_match_wildcard?(conn) do
-      Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      {conn, request_metadata(:not_modified)}
     else
       deliver_hit_entry(conn, entry, representation, cache_serve_us, config)
     end
@@ -261,20 +298,26 @@ defmodule ImagePipe.Dialect.Native do
          _cache_serve_us,
          _config
        ) do
-    conn
-    |> put_resp_headers(Representation.response_headers(representation))
-    |> put_resp_content_type(content_type, nil)
-    |> send_resp(200, entry.body)
+    conn =
+      conn
+      |> put_resp_headers(Representation.response_headers(representation))
+      |> put_resp_content_type(content_type, nil)
+      |> send_resp(200, entry.body)
+
+    {conn, request_metadata(:ok)}
   end
 
   defp deliver_hit_entry(conn, %Cache.Entry{} = entry, representation, cache_serve_us, config) do
     hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
 
-    Sender.send_result(
-      conn,
-      {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
-      config
-    )
+    conn =
+      Sender.send_result(
+        conn,
+        {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
+        config
+      )
+
+    {conn, request_metadata(:ok)}
   end
 
   defp generate(
@@ -290,14 +333,18 @@ defmodule ImagePipe.Dialect.Native do
 
     case Delivery.stream(self(), build_fun, representation.cache_key, response_meta, config) do
       {:ok, prepared} ->
-        Sender.send_result(
-          conn,
-          {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
-          config
-        )
+        conn =
+          Sender.send_result(
+            conn,
+            {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
+            config
+          )
+
+        {conn, request_metadata(:ok)}
 
       {:error, reason} ->
-        Errors.send(conn, reason, config)
+        conn = Errors.send(conn, reason, config)
+        {conn, request_metadata({:error, reason})}
     end
   end
 
@@ -320,10 +367,12 @@ defmodule ImagePipe.Dialect.Native do
       {:ok, hash} ->
         cost_us = System.monotonic_time(:microsecond) - fetch_started_at
         write_complete_body_cache(representation, hash, cost_us, config)
-        send_complete_body(conn, hash, representation)
+        conn = send_complete_body(conn, hash, representation)
+        {conn, request_metadata(:ok)}
 
       {:error, reason} ->
-        Errors.send(conn, reason, config)
+        conn = Errors.send(conn, reason, config)
+        {conn, request_metadata({:error, reason})}
     end
   end
 

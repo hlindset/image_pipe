@@ -167,7 +167,13 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp stage_warning?(suffix, metadata) do
     List.last(suffix) == :exception or
-      metadata[:result] in [:cache_error, :materialize_error] or
+      metadata[:result] in [
+        :cache_error,
+        :materialize_error,
+        :source_error,
+        :plan_error,
+        :parser_error
+      ] or
       encode_failure?(suffix, metadata) or
       color_management_failure?(suffix, metadata) or
       detect_fallback_warning?(suffix, metadata) or

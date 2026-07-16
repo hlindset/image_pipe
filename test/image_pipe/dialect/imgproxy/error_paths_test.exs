@@ -266,6 +266,49 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
       assert conn.resp_body == "upstream responded 503"
       refute_received {:cache_open_sink, _key, _metadata}
     end
+
+    # A pre-delivery failure (a fetch error, discovered before `Delivery.stream/5`
+    # is ever called) must still stamp `:result` on the `[:request]` span's stop
+    # metadata — the bug this test guards is `Imgproxy.call/2`'s span carrying
+    # only `:status`, which renders every failing request as `ok` under the
+    # default Logger's `outcome/1` (AGENTS.md, telemetry guidelines).
+    test "stamps :source_error as :result on the [:request] stop span" do
+      test_pid = self()
+      prefix = [:"imgproxy_error_paths_#{System.unique_integer([:positive])}"]
+
+      config =
+        opts(
+          telemetry_prefix: prefix,
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {Origin503, test_pid: test_pid}]}
+          ],
+          cache: {ObservingCacheProbe, test_pid: test_pid}
+        )
+
+      handler_id = "imgproxy-error-paths-#{inspect(prefix)}"
+
+      :telemetry.attach(
+        handler_id,
+        prefix ++ [:request, :stop],
+        fn _event, _measurements, metadata, test_pid ->
+          send(test_pid, {:request_stop, metadata})
+        end,
+        test_pid
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      conn = get("/unsafe/rs:fit:64:64/plain/images/beach.jpg", config)
+      assert conn.status == 502
+
+      assert_received {:request_stop, metadata}
+      assert metadata[:result] == :source_error
+      assert metadata[:error] == :source
+      assert metadata[:status] == 502
+    end
   end
 
   # ── row 2: client disconnect during the producer's work ─────────────────

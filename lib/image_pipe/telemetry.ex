@@ -178,6 +178,27 @@ defmodule ImagePipe.Telemetry do
     :ok
   end
 
+  @doc """
+  Maps a request outcome to the `:result` telemetry vocabulary shared by the
+  framework Plug and the dialect Plugs. Callers stamp this on the `[:request]`
+  span's stop metadata (with `:status`, and `:error` on failures).
+  """
+  @spec request_result(:ok | :not_modified | {:error, term()}) :: atom()
+  def request_result(:ok), do: :ok
+  def request_result(:not_modified), do: :not_modified
+  def request_result({:error, {:source, _}}), do: :source_error
+  def request_result({:error, {:cache_write, _}}), do: :cache_error
+
+  def request_result({:error, tag}) when tag in [:invalid_output_plan, :invalid_pipeline_plan],
+    do: :plan_error
+
+  def request_result({:error, {tag, _}})
+      when tag in [:invalid_output_plan, :invalid_pipeline_plan],
+      do: :plan_error
+
+  def request_result({:error, :empty_pipeline_plan}), do: :plan_error
+  def request_result({:error, _reason}), do: :processing_error
+
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
   def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
     do_span(telemetry_opts, stage, start_metadata, fn start_metadata ->

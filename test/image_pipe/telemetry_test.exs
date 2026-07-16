@@ -772,6 +772,46 @@ defmodule ImagePipe.TelemetryTest do
     end
   end
 
+  describe "request_result/1" do
+    # The shared classifier the dialect Plugs stamp on their [:request] span's
+    # :result. It must exactly mirror ImagePipe.Plug's own private
+    # processing_result/1 (plug.ex) so both arms speak the same vocabulary.
+    test "maps :ok and :not_modified straight through" do
+      assert ImagePipe.Telemetry.request_result(:ok) == :ok
+      assert ImagePipe.Telemetry.request_result(:not_modified) == :not_modified
+    end
+
+    test "maps a source error" do
+      assert ImagePipe.Telemetry.request_result({:error, {:source, :connect_error}}) ==
+               :source_error
+    end
+
+    test "maps a cache-write error" do
+      assert ImagePipe.Telemetry.request_result({:error, {:cache_write, :boom}}) == :cache_error
+    end
+
+    test "maps output/pipeline plan validation errors, bare and wrapped" do
+      assert ImagePipe.Telemetry.request_result({:error, :invalid_output_plan}) == :plan_error
+      assert ImagePipe.Telemetry.request_result({:error, :invalid_pipeline_plan}) == :plan_error
+
+      assert ImagePipe.Telemetry.request_result({:error, {:invalid_output_plan, :reason}}) ==
+               :plan_error
+
+      assert ImagePipe.Telemetry.request_result({:error, {:invalid_pipeline_plan, :reason}}) ==
+               :plan_error
+
+      assert ImagePipe.Telemetry.request_result({:error, :empty_pipeline_plan}) == :plan_error
+    end
+
+    test "everything else falls back to processing_error" do
+      assert ImagePipe.Telemetry.request_result({:error, {:transform, :boom}}) ==
+               :processing_error
+
+      assert ImagePipe.Telemetry.request_result({:error, {:decode, :boom}}) == :processing_error
+      assert ImagePipe.Telemetry.request_result({:error, :some_other_reason}) == :processing_error
+    end
+  end
+
   defp base_opts(overrides \\ []) do
     init_opts(overrides)
   end
