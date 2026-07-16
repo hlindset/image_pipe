@@ -1,8 +1,9 @@
 # imgproxy dialect inversion — phase 2 backlog
 
 Phase 1 (PR #458) built `ImagePipe.Dialect.Imgproxy` as a self-contained inverted
-Plug alongside the frozen framework stack, with the wire (263 × 2) and
-differential (162 × 2) suites dual-running both arms at zero divergence. It
+Plug alongside the frozen framework stack, with the differential suite (162
+constellations × 2 arms) and the wire suite (270 cases — 120 shared × 2 arms,
+plus 30 framework-only) dual-running both arms at zero divergence. It
 deferred a set of items — deliberately, each recorded where it was found. This
 is the single entry point that consolidates them; the authoritative detail for
 each lives in the linked committed doc.

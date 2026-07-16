@@ -10,8 +10,8 @@ and how it was closed, not smoothed over. The one remaining gap is the
 telemetry **stage-set** difference under #10 (the dialect emits 7 fewer stages
 + no `[:output, :clamp]`) — out of scope for phase 1 and owned by a phase-2
 plan. None of this blocks phase 1's premise: the dialect serves imgproxy URLs
-with zero pixel divergence across 162 × 2 differential constellations and
-263 × 2 wire cases.
+with zero pixel divergence across 162 × 2 differential constellations and the
+wire suite's 120 shared cases × 2 arms (270 total, 30 of them framework-only).
 
 A criterion marked ✅ means its evidence was run or read at this commit. Where
 a criterion is partly satisfied it is marked ⚠️ and its unsatisfied half is
