@@ -14,7 +14,8 @@ defmodule ImagePipe.Dialect.SharedConfigTest do
                :auto_avif,
                :auto_webp,
                :auto_jpeg_xl,
-               :format_order
+               :format_order,
+               :output_capabilities
              ])
   end
 

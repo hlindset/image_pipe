@@ -44,7 +44,8 @@ defmodule ImagePipe.Dialect.SharedConfig do
     :auto_avif,
     :auto_webp,
     :auto_jpeg_xl,
-    :format_order
+    :format_order,
+    :output_capabilities
   ]
 
   @validated_option_keys [
@@ -54,7 +55,8 @@ defmodule ImagePipe.Dialect.SharedConfig do
     :auto_avif,
     :auto_webp,
     :auto_jpeg_xl,
-    :format_order
+    :format_order,
+    :output_capabilities
   ]
 
   @options_schema NimbleOptions.new!(
@@ -84,6 +86,10 @@ defmodule ImagePipe.Dialect.SharedConfig do
                     ],
                     format_order: [
                       type: {:custom, __MODULE__, :validate_format_order, []}
+                    ],
+                    output_capabilities: [
+                      type: {:map, :atom, :boolean},
+                      required: false
                     ]
                   )
 
