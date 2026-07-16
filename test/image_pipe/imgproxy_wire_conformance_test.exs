@@ -1882,6 +1882,42 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       end
     end
 
+    test "injecting debug:1 into a correctly signed URL invalidates the signature" do
+      signed_opts =
+        Keyword.merge(@default_opts,
+          imgproxy: [
+            signature: [
+              keys: ["746573742d6b6579"],
+              salts: ["746573742d73616c74"]
+            ]
+          ]
+        )
+
+      # Sign a path WITHOUT debug:1, then inject it. debug:1 rides in the signed
+      # processing-options segment (before /plain/), so the path HMAC no longer
+      # matches — a distinct tamper vector from the option/source segments.
+      signed_path = "/rs:fit:400:300/f:jpeg/plain/images/beach.jpg"
+      tampered = String.replace(signed_request_path(signed_path), "/plain/", "/debug:1/plain/")
+
+      conn =
+        call_imgproxy(
+          tampered,
+          Keyword.merge(signed_opts,
+            cache: {CacheProbe, []},
+            sources: [
+              path:
+                {RootHTTPAdapter,
+                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+            ]
+          )
+        )
+
+      assert conn.status == 403
+      refute_received :cache_lookup
+      refute_received :cache_put
+      refute_received :origin_fetch
+    end
+
     test "malformed encoded source stops before cache lookup and origin fetch" do
       telemetry_prefix = [:image_pipe_wire_safety]
       source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
