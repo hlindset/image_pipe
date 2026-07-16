@@ -13,7 +13,9 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output.JpegOptions
+  alias ImagePipe.Plan.Output.QualitySearch.Butteraugli
   alias ImagePipe.Plan.Output.QualitySearch.Size, as: SizeSearch
+  alias ImagePipe.Plan.Output.QualitySearch.Ssimulacra2
   alias ImagePipe.Representation
 
   defp request(overrides \\ []) do
@@ -276,6 +278,38 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
 
       assert is_binary(representation.etag)
       assert is_binary(representation.cache_key.hash)
+    end
+
+    test "two metrics with identical field values do not collide on key or ETag" do
+      # Ssimulacra2 and Butteraugli carry the SAME nine fields, so the struct
+      # module is their only discriminator. Both are URL-settable
+      # (`autoquality:ssimulacra2:…` / `autoquality:butteraugli:…`) and their
+      # target ranges overlap on 0..25, so equal field values are reachable from
+      # two ordinary URLs that encode to different bytes. A canonicalizer that
+      # drops `__struct__` gives them one cache key and one ETag — the first
+      # request's image is served for the second, and a conditional GET 304s
+      # against it. The frozen framework injects a `metric:` discriminator for
+      # exactly this pair (`cache/key.ex`'s `quality_metric_key/2`).
+      #
+      # The sibling test above cannot see this: it asserts only that the digest
+      # is a binary, and exercises one variant whose field set is distinct.
+      fields = [target: 20, min_quality: 70, max_quality: 80, allowed_error: 0.5]
+
+      built =
+        for search <- [struct!(Ssimulacra2, fields), struct!(Butteraugli, fields)] do
+          req =
+            request(
+              pipelines: [%PipelineRequest{width: 300}],
+              output: Request.output_request(quality_search: search)
+            )
+
+          Representation.build(source_identity(), material(req, negotiation()))
+        end
+
+      [ssimulacra2, butteraugli] = built
+
+      refute ssimulacra2.cache_key.hash == butteraugli.cache_key.hash
+      refute ssimulacra2.etag == butteraugli.etag
     end
   end
 end

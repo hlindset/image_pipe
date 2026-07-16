@@ -130,17 +130,30 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
 
   defp canonical_output(output), do: canonical(output)
 
-  # Recursively strips every struct down to a plain map (dropping
-  # `__struct__`) before the data reaches `ImagePipe.MaterialDigest`, which
-  # raises on any struct value: `MaterialDigest.canonicalize/1` pattern-matches
-  # `is_map/1` (true for structs) and then calls `Enum.map/2` on it, but a
-  # plain struct does not implement the Enumerable protocol.
-  # `%PipelineRequest{}` carries several nested struct fields this way
-  # (`effects`, `orientation`, `crop`, `background_color`), and a resolved
-  # `quality_search` struct / per-format `encoder_options` structs can appear
-  # inside `output` too — so this walks the whole term rather than
-  # enumerating fields by hand.
-  defp canonical(%_{} = struct), do: struct |> Map.from_struct() |> canonical()
+  # Recursively rewrites every struct as `{module, plain_map}` before the data
+  # reaches `ImagePipe.MaterialDigest`, which raises on any struct value:
+  # `MaterialDigest.canonicalize/1` pattern-matches `is_map/1` (true for
+  # structs) and then calls `Enum.map/2` on it, but a plain struct does not
+  # implement the Enumerable protocol. `%PipelineRequest{}` carries several
+  # nested struct fields this way (`effects`, `orientation`, `crop`,
+  # `background_color`), and a resolved `quality_search` struct / per-format
+  # `encoder_options` structs can appear inside `output` too — so this walks
+  # the whole term rather than enumerating fields by hand.
+  #
+  # The module is part of the canonical term, not stripped: two structs can
+  # share a field set, and then the module is their ONLY discriminator.
+  # `%QualitySearch.Ssimulacra2{}` and `%QualitySearch.Butteraugli{}` are
+  # exactly that pair — same nine fields, both URL-settable
+  # (`autoquality:ssimulacra2:…` / `autoquality:butteraugli:…`), with
+  # overlapping target ranges — so dropping it gives two requests that encode
+  # to different bytes one cache key and one ETag. The frozen framework injects
+  # a `metric:` discriminator for this reason (`cache/key.ex`'s
+  # `quality_metric_key/2`); carrying the module generalizes it to every struct.
+  # Do NOT re-insert `__struct__` into the map instead: `Enum.map/2` on
+  # `%{__struct__: Foo}` still dispatches `Enumerable.Foo` and raises.
+  defp canonical(%mod{} = struct),
+    do: {mod, struct |> Map.from_struct() |> canonical()}
+
   defp canonical(%{} = map), do: Map.new(map, fn {key, value} -> {key, canonical(value)} end)
   defp canonical(list) when is_list(list), do: Enum.map(list, &canonical/1)
 
