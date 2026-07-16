@@ -4276,45 +4276,26 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       # The scp:1 counter-assertion verifies the re-embed is scp-driven, not unconditional:
       # scp:1 must either drop the profile or differ in body (if libvips tags CMYK-JPEG
       # output regardless, scp:0 carries the original CMYK profile bytes and scp:1 does not).
-      # FRAMEWORK-ONLY — DIVERGENCE D5, a pixel/metadata divergence.
-      #   GET /_/scp:0/f:jpeg/plain/images/cmyk.jpg   (CmykOriginImage)
-      #     framework: 200, output carries "icc-profile-data" (source CMYK
-      #                profile re-embedded)
-      #     dialect:   200, "icc-profile-data" ABSENT from the header fields
-      # Deterministic (reproduced on repeated isolated runs), and the two
-      # sibling tests in this describe pass on both arms.
-      #
-      # NOT root-caused, and deliberately not guessed at: the parse side is
-      # provably identical (`Dialect.Imgproxy.Options` is a verbatim copy of
-      # `Parser.Imgproxy.Options` — same code at the same line numbers — and
-      # `Identity.color_profile_policy/2` is a verbatim copy of `PlanBuilder`'s),
-      # so the fault is downstream of the plan, in how the dialect's pipeline or
-      # encode path carries the import preamble's private `imagepipe-icc-*`
-      # header fields that `Output.Encoder.color_result/2` (encoder.ex:345)
-      # reads to decide the re-embed. Someone should trace it; it is the one
-      # divergence here whose blast radius on other color paths is unknown.
-      if @stack == :framework do
-        test "scp:0 on a CMYK source re-embeds the source profile when the format supports it" do
-          scp0_conn =
-            call_imgproxy("/_/scp:0/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
+      test "scp:0 on a CMYK source re-embeds the source profile when the format supports it" do
+        scp0_conn =
+          call_imgproxy("/_/scp:0/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
 
-          scp1_conn =
-            call_imgproxy("/_/scp:1/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
+        scp1_conn =
+          call_imgproxy("/_/scp:1/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
 
-          assert scp0_conn.status == 200
-          assert scp1_conn.status == 200
+        assert scp0_conn.status == 200
+        assert scp1_conn.status == 200
 
-          {_image, scp0_fields} = response_metadata(scp0_conn)
+        {_image, scp0_fields} = response_metadata(scp0_conn)
 
-          assert "icc-profile-data" in scp0_fields,
-                 "scp:0 on CMYK: icc-profile-data must be present (format supports color profiles)"
+        assert "icc-profile-data" in scp0_fields,
+               "scp:0 on CMYK: icc-profile-data must be present (format supports color profiles)"
 
-          # Counter-assertion: scp:0 vs scp:1 outputs must differ, proving the re-embed
-          # is scp-driven. Whether scp:1 carries its own minimal profile tag or none,
-          # the bodies differ because scp:0 embeds the original CMYK profile data.
-          refute scp0_conn.resp_body == scp1_conn.resp_body,
-                 "scp:0 and scp:1 CMYK outputs must differ (re-embed is scp-driven, not unconditional)"
-        end
+        # Counter-assertion: scp:0 vs scp:1 outputs must differ, proving the re-embed
+        # is scp-driven. Whether scp:1 carries its own minimal profile tag or none,
+        # the bodies differ because scp:0 embeds the original CMYK profile data.
+        refute scp0_conn.resp_body == scp1_conn.resp_body,
+               "scp:0 and scp:1 CMYK outputs must differ (re-embed is scp-driven, not unconditional)"
       end
 
       # Linear-light (scRGB) branch: InputColorManagement drops the embedded profile
