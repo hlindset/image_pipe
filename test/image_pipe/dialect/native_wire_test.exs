@@ -501,6 +501,25 @@ defmodule ImagePipe.Dialect.NativeWireTest do
     end
   end
 
+  # ── CORS: Access-Control-Allow-Origin via Response.CORS.maybe_register/2 ──
+
+  describe "CORS" do
+    test "image response carries Access-Control-Allow-Origin when allow_origin set" do
+      config = opts(allow_origin: "https://cdn.test")
+      conn = get("/w=64/src/images/cat.jpg", config)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+
+    test "no Access-Control-Allow-Origin header when allow_origin is not configured" do
+      conn = get("/w=64/src/images/cat.jpg", opts())
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "access-control-allow-origin") == []
+    end
+  end
+
   # ── delivery lifecycle: monitor direction + bracket containment ────────
   #
   # These exercise ImagePipe.Delivery.Coordinator/Producer

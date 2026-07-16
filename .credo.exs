@@ -64,6 +64,13 @@
         # lib/image_pipe/response/conditional.ex and the Task 16 report.
         # Ignored for the same reason as the pairs above.
         #
+        # ImagePipe.Dialect.SharedConfig.validate_allow_origin/1 deliberately
+        # duplicates ImagePipe.Request.Options.validate_allow_origin/1 (three
+        # clauses, same messages) so both dialects validate `allow_origin` the
+        # same way the framework does without depending on the Request
+        # boundary (Options is framework-frozen). Ignored for the same reason
+        # as the pairs above.
+        #
         # The ImagePipe.Dialect.Imgproxy.* leaf request structs and grammar
         # modules are near-verbatim phase-1 copies of their
         # ImagePipe.Parser.Imgproxy.* originals: the inverted dialect owns its
@@ -184,6 +191,7 @@
            "lib/image_pipe/dialect/imgproxy/source_encryption.ex",
            "lib/image_pipe/dialect/imgproxy/source_scheme.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
+           "lib/image_pipe/dialect/shared_config.ex",
            "lib/image_pipe/response/conditional.ex"
          ]}
       ]

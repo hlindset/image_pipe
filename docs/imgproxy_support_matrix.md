@@ -196,16 +196,17 @@ save. ImagePipe realizes these at request and output boundaries:
 axes above **for every case both arms run** — and that is substantial: the
 differential suite renders all **162 constellations on both arms** (no case is
 framework-only) and asserts byte-for-byte equality against imgproxy-baked
-fixtures, and **134 of the 150 wire cases run on both arms**, asserting status,
+fixtures, and **138 of the 153 wire cases run on both arms**, asserting status,
 headers, content type, decoded pixels, and cache/source access order.
 
 The carve-out is precise, not a hedge:
 
-- **16 wire cases are framework-only**, each with a stated reason in the suite —
-  every one a config seam the dialect has no key for (`detector:`,
-  `allow_origin:`, …), not a case the dialect fails.
+- **15 wire cases are framework-only**, each with a stated reason in the suite —
+  every one either a config seam the dialect has no key for (`detector:`, …) or
+  the `OPTIONS`/method-layer preflight the dialect doesn't have yet, not a case
+  the dialect fails.
 - **Object detection is accepted but never honored.** See the `g:obj` row below.
-- **The § below lists real divergences** (CORS, `OPTIONS`,
+- **The § below lists real divergences** (`OPTIONS`/method layer,
   telemetry stage-set) that hold on every request, not just the untested ones.
 
 None of these is an imgproxy-conformance gap; all are ImagePipe-side, and a host
@@ -231,17 +232,19 @@ imgproxy dialect did not introduce it.
   same way. The general "cache keys and ETags differ across the two stacks"
   (below) is unaffected: that is about the ETag *value* for a strong source, not
   whether one is emitted.
-- **`OPTIONS /…` is 400, not 204 + `Allow`, and CORS is framework-only.** The
-  dialect has no method layer (`ImagePipe.Plug` has one), and it has no CORS
-  handling of any kind: `Access-Control-Allow-Origin` is stamped on **every**
-  framework response when `allow_origin` is set, but the dialect stacks emit it
-  on **no** response — they never route through `ImagePipe.Plug`'s
-  `CORS.maybe_register/2` and expose no `allow_origin` config key. A host that
-  serves cross-origin requests on the framework stack loses that on the dialect
-  stack and must add CORS in its own router. **Shared with `Dialect.Native`.**
-  The CORS *feature* on the dialect is a phase-2 deferral (see the
-  [CORS response headers](#cors-response-headers) section and
-  `.superpowers/sdd/phase1-exit-criteria.md`); this row records the gap.
+- **`OPTIONS /…` is 400, not 204 + `Allow`.** `Access-Control-Allow-Origin`
+  itself is now dialect-neutral: both dialects expose an `allow_origin` config
+  key (`ImagePipe.Dialect.SharedConfig`) and stamp the header on every exit
+  path (image, `/info`, 304, and 4xx errors) via the same
+  `Response.CORS.maybe_register/2` before-send hook the framework uses. What
+  remains framework-only is the *method layer* `OPTIONS`/preflight rides on:
+  the dialects have no method layer at all (`ImagePipe.Plug` has one), so
+  `OPTIONS /_/anything` is parsed as an image request and rejected 400 instead
+  of answered `204 No Content` + `Allow` (+ `Access-Control-Allow-Methods` when
+  `allow_origin` is set), and a non-GET/HEAD method gets no `405` either.
+  **Shared with `Dialect.Native`.** The method layer itself is a phase-2
+  deferral (see the [CORS response headers](#cors-response-headers) section
+  and `.superpowers/sdd/phase1-exit-criteria.md`); this row records the gap.
 - **`g:obj:*`/`g:objw:*` are accepted but never honored — every object-detect
   request falls back to attention cropping.** The dialect's grammar parses the
   tokens (it is a verbatim copy of the framework's), but the dialect carries no
@@ -498,19 +501,25 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 
 ### CORS response headers
 
-`ImagePipe.Plug` exposes a dialect-neutral `allow_origin` mount option (default
-off). When set, the plug stamps `Access-Control-Allow-Origin: <value>` verbatim
-on every response (image, errors, redirect, 304) via a `register_before_send/2`
-hook and answers `OPTIONS` as a CORS preflight. It works for any parser mounted
-through `ImagePipe.Plug`, not just IIIF.
+`allow_origin` is a dialect-neutral runtime option (default off) shared by all
+three stacks: `ImagePipe.Plug` (any mounted parser, not just IIIF),
+`ImagePipe.Dialect.Imgproxy`, and `ImagePipe.Dialect.Native`
+(`ImagePipe.Dialect.SharedConfig` validates and carries the key for both
+dialects). When set, `ImagePipe.Response.CORS.maybe_register/2` registers a
+`register_before_send/2` hook — the same hook on all three stacks — that
+stamps `Access-Control-Allow-Origin: <value>` verbatim on **every** exit path:
+image, `/info`, 304, and 4xx errors.
 
-**This is a framework-`Plug`-only feature.** The inverted dialect stacks
-(`ImagePipe.Dialect.Imgproxy`, `ImagePipe.Dialect.Native`) mount directly and
-never route through `ImagePipe.Plug`, so they have **no** CORS handling at all —
-no `allow_origin` config key, no `Response.CORS`, no preflight. A host that
-needs CORS on the dialect stack must add it in its own router. See
-[Dialect-stack divergences](#dialect-stack-divergences); this is the same
-framework-only-gate shape as `detector:`.
+**The `OPTIONS` preflight method layer remains framework-`Plug`-only.**
+`ImagePipe.Plug` answers `OPTIONS` with `204 No Content` + `Allow` (+
+`Access-Control-Allow-Methods` when `allow_origin` is set) and any non-GET/HEAD
+method with `405`. Neither dialect has a method layer at all — an `OPTIONS`
+request is parsed as an image request and rejected 400, and there is no `405`
+path. A host that needs `OPTIONS` preflight or method gating on a dialect stack
+must add it in its own router. See
+[Dialect-stack divergences](#dialect-stack-divergences); this is a phase-2
+deferral, unlike the `Access-Control-Allow-Origin` stamping above, which now
+works identically across all three stacks.
 
 - ✅ `IMGPROXY_ALLOW_ORIGIN` → `allow_origin` (configuration default; verbatim
   origin value, off when unset — same semantics as imgproxy's empty default).

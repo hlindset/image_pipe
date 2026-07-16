@@ -95,6 +95,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.Conditional
+  alias ImagePipe.Response.CORS
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
@@ -126,6 +127,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   @impl Plug
   def call(%Plug.Conn{} = conn, config) when is_list(config) do
     Telemetry.Trace.maybe_extract_inbound(conn)
+    conn = CORS.maybe_register(conn, config)
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {conn, metadata} = route(conn, config)

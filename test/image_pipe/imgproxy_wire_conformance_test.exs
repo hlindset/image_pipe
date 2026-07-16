@@ -1007,36 +1007,100 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       assert byte_size(conn.resp_body) > 0
     end
 
-    # FRAMEWORK-ONLY — and the loudest gap this dual-run found. The phase-1
-    # dialect has NO method/CORS layer at all: `Dialect.Imgproxy.call/2` routes
-    # straight to `:info`/`:image` (imgproxy.ex `route/2`), so there is no
-    # `allow_origin` config key, no `OPTIONS` preflight, and no 405.
-    #
-    # Two DIFFERENT failures hide here, and only the first is a missing key:
-    #   * the three `allow_origin:` tests raise `unknown option` out of
-    #     `Config.validate!/1` — they cannot be configured on the dialect at all;
-    #   * `OPTIONS -> 204 + Allow` needs NO config key, so it DOES reach the
-    #     dialect — and returns **400**, not 204: the dialect parses `OPTIONS
-    #     /_/anything` as an image request and rejects the path. That is a live
-    #     behavioral divergence, not just an unbuilt seam (divergence D1 in
-    #     .superpowers/sdd/task-19-report.md).
-    # Gating this describe parks BOTH. Re-arm it when the dialect grows a method
-    # layer; until then D1 is a known, reported, unfixed divergence.
+    describe "CORS (dialect-neutral, through the imgproxy parser)" do
+      test "image response carries Access-Control-Allow-Origin when allow_origin set" do
+        encoded = encoded_source("images/beach.jpg")
+
+        conn =
+          call_imgproxy(
+            "/_/rt:force/w:120/h:90/f:jpeg/#{encoded}",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
+
+        assert conn.status == 200
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
+
+      # The `Response.CORS` before-send hook is registered once, ahead of the
+      # whole request chain (imgproxy.ex/native.ex `call/2`), so it must stamp
+      # every exit path — not just the 200 image body proven above. These three
+      # cover the other exits reachable without a method layer: a 304 from the
+      # pre-fetch conditional-GET gate, a pre-fetch 4xx image error, and the
+      # `/info` terminal.
+      test "a 304 Not Modified response carries Access-Control-Allow-Origin when allow_origin set" do
+        base_opts =
+          Keyword.merge(@default_opts,
+            allow_origin: "https://cdn.test",
+            sources: [
+              path:
+                {RootHTTPAdapter,
+                 root_url: "http://origin.test",
+                 byte_identity: :strong,
+                 req_options: [plug: OriginImage]}
+            ]
+          )
+
+        # `http_cache: [mode: :enabled]` is a framework-only opt-in
+        # (`Request.Options`, default `:disabled`) gating ETag emission — the
+        # dialects have no such gate and emit an ETag unconditionally whenever
+        # the source has a strong byte identity.
+        opts =
+          if @stack == :framework do
+            Keyword.put(base_opts, :http_cache, mode: :enabled)
+          else
+            base_opts
+          end
+
+        path = "/_/w:120/plain/images/beach.jpg"
+
+        first = call_imgproxy(path, opts)
+        [etag] = get_resp_header(first, "etag")
+
+        conn =
+          :get
+          |> conn(path)
+          |> put_req_header("if-none-match", etag)
+          |> call_imgproxy_conn(opts)
+
+        assert conn.status == 304
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
+
+      test "a 4xx image error carries Access-Control-Allow-Origin when allow_origin set" do
+        conn =
+          call_imgproxy(
+            "/_/w:-1/plain/images/beach.jpg",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
+
+        assert conn.status == 400
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
+
+      test "an /info response carries Access-Control-Allow-Origin when allow_origin set" do
+        conn =
+          call_imgproxy(
+            "/info/unsafe/plain/images/beach.jpg",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
+
+        assert conn.status == 200
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
+    end
+
+    # FRAMEWORK-ONLY. The dialect still has no method layer:
+    # `Dialect.Imgproxy.call/2` routes straight to `:info`/`:image`
+    # (imgproxy.ex `route/2`), with no `OPTIONS` preflight and no 405 — that
+    # layer is Task 4. `allow_origin` itself IS a dialect config key now (see
+    # the describe above), so `OPTIONS -> 204 + Allow` still reaches the
+    # dialect and still returns **400**, not 204: the dialect parses `OPTIONS
+    # /_/anything` as an image request and rejects the path. That is a live
+    # behavioral divergence, not just an unbuilt seam (divergence D1 in
+    # .superpowers/sdd/task-19-report.md). Gating this describe parks it;
+    # re-arm when the dialect grows a method layer.
     if @stack == :framework do
-      describe "CORS (dialect-neutral, through the imgproxy parser)" do
-        test "image response carries Access-Control-Allow-Origin when allow_origin set" do
-          encoded = encoded_source("images/beach.jpg")
-
-          conn =
-            call_imgproxy(
-              "/_/rt:force/w:120/h:90/f:jpeg/#{encoded}",
-              [allow_origin: "https://cdn.test"] ++ @default_opts
-            )
-
-          assert conn.status == 200
-          assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-        end
-
+      describe "CORS OPTIONS/method layer (framework-only until the dialect grows one)" do
         test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
           conn =
             call_imgproxy_method(
