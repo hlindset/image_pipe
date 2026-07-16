@@ -52,7 +52,7 @@ output_capabilities: [
 ]
 ```
 
-No default. (If NimbleOptions in this tree doesn't support `{:map, k, v}`, use `type: {:custom, __MODULE__, :validate_output_capabilities, []}` with a validator accepting `%{atom => boolean}` — check `mix deps | grep nimble_options` version first.)
+No default. (nimble_options 1.1.1 supports `{:map, k, v}`; precedent in this repo at `lib/image_pipe/config.ex:25`.)
 
 - [ ] **Step 4: Run the un-gated cases to verify GREEN on both arms.**
 
@@ -80,7 +80,7 @@ git commit -m "B6: output_capabilities config seam for both dialects"
 - Produces: `SharedConfig` validates `max_result_width`/`max_result_height`/`max_result_pixels` (`:pos_integer`, defaults `8_192`/`8_192`/`40_000_000` — the framework's exact defaults, `Request.Options` options.ex:11-13).
 - Produces: `Dialect.Imgproxy.result_limits/2` — `(format, config) :: %{max_width: pos_integer, max_height: pos_integer, max_pixels: pos_integer}`; `Dialect.Native` equivalent reads config **and gains the encoder-min it lacks today**.
 
-- [ ] **Step 1: Un-gate the clamp/result-cap blocks** at :3663 (the `@clamp_opts` attribute), :3700 (3 cases), :3769 (5 cases). **Contingency:** if any of these cases asserts the `[:output, :clamp]` telemetry event (grep the blocks for `clamp` + `assert_receive`), leave *only those telemetry assertions* commented with a `# un-gated in B3 clamp task` marker — the dialect emits that event in Task 7, not here. Status/pixel assertions run now.
+- [ ] **Step 1: Un-gate the clamp/result-cap blocks** at :3663 (the `@clamp_opts` attribute), :3700 (3 cases), :3769 (5 cases). **Clamp-telemetry deferral:** five of these cases `assert_received` the `[:output, :clamp]` event (:3714, :3738, :3800, :3827, :3868), each binding `scale`/`meta` consumed by a group of follow-up assertions — the dialect emits that event in Task 7, not here. Wrap each `assert_received` **plus its dependent assertion group** in a runtime `if @stack == :framework do … end` inside the test body (NOT comment-out markers — this keeps the framework's only clamp-emission pins live through the Task 2→7 window, and Task 12's `@stack == :framework` grep is the mechanical backstop against forgetting them). The three `refute_received` clamp cases (:3757, :3846, :3880) need no gating — vacuously correct on the dialect arm until Task 7, still meaningful on the framework arm. Status/pixel assertions run on both arms now.
 
 - [ ] **Step 2: Verify RED** (dialect arm: `unknown … option(s): [:max_result_width, …]`).
 
@@ -166,18 +166,18 @@ def validate_allow_origin(other),
   do: {:error, "expected a non-empty binary, got: #{inspect(other)}"}
 ```
 
-(Check `Request.Options.validate_allow_origin/1`'s exact messages/shape first and mirror them.) In `dialect/imgproxy.ex` `call/2`, before the telemetry span:
+(The sketch above is two-clause; the mirror target `Request.Options.validate_allow_origin/1` at options.ex:194-208 has **three** clauses with distinct messages — mirror the real shape, not this sketch.) In `dialect/imgproxy.ex` `call/2`, before the telemetry span, matching the framework's extract-then-register order (plug.ex:44-45):
 
 ```elixir
 def call(%Plug.Conn{} = conn, config) when is_list(config) do
-  conn = CORS.maybe_register(conn, config)
   Telemetry.Trace.maybe_extract_inbound(conn)
+  conn = CORS.maybe_register(conn, config)
   ...
 ```
 
 (add `alias ImagePipe.Response.CORS`). Mirror in `dialect/native.ex` `call/2`.
 
-- [ ] **Step 4: Verify GREEN**; add the native focused test (init with `allow_origin: "https://example.com"`, GET an image, assert `get_resp_header(conn, "access-control-allow-origin") == ["https://example.com"]`; and a no-config refutation asserting `== []`). Run the wire suite + native tests.
+- [ ] **Step 4: Verify GREEN + every-exit-path coverage** (spec exit criterion 3 says "every dialect exit path"; the un-gated block covers only image-200 — 304/error//info stamping is framework-only today, in `cdn_http_cache_wire_test.exs:389-436`). Add dual-run (or dialect-focused) cases asserting `access-control-allow-origin` on: a **304** response (conditional GET with `allow_origin` set), a **4xx image error**, and an **`/info`** response. Add the native focused test (init with `allow_origin: "https://example.com"`, GET an image, assert `get_resp_header(conn, "access-control-allow-origin") == ["https://example.com"]`; and a no-config refutation asserting `== []`). Run the wire suite + native tests.
 
 - [ ] **Step 5: Sync docs + commit.** Matrix: rewrite § CORS response headers (:505-517 — the "dialect stacks have no CORS handling at all" paragraph is now false) and narrow the divergences-section CORS row to Task 4's remaining method-layer piece.
 
@@ -209,11 +209,11 @@ git commit -m "B2: allow_origin CORS stamping on both dialects via Response.CORS
 
 ```elixir
 defp route(%Plug.Conn{method: "OPTIONS"} = conn, config) do
-  {CORS.send_options(conn, config), %{result: :ok}}
+  {CORS.send_options(conn, config), %{result: :options}}
 end
 
 defp route(%Plug.Conn{method: method} = conn, _config) when method not in ["GET", "HEAD"] do
-  {Sender.send_method_not_allowed(conn), %{result: :ok}}
+  {Sender.send_method_not_allowed(conn), %{result: :method_not_allowed}}
 end
 
 defp route(%Plug.Conn{} = conn, config) do
@@ -224,7 +224,7 @@ defp route(%Plug.Conn{} = conn, config) do
 end
 ```
 
-(Verify the `%{result: :ok}` metadata against what the framework's `[:request]` span reports for OPTIONS/405 — trust the real code; if the framework reports something else, mirror it and note it in the commit message.) Mirror the same heads in `dialect/native.ex`'s `route/2`.
+(The `:options`/`:method_not_allowed` result values are the framework's own — plug.ex:59, :68.) Mirror the same heads in `dialect/native.ex`'s `route/2`.
 
 - [ ] **Step 4: Verify GREEN** on both arms + native focused tests (OPTIONS 204 with/without CORS config; PUT 405 + Allow).
 
@@ -248,7 +248,7 @@ git commit -m "B5: OPTIONS 204 + method 405 layer on both dialects"
 **Interfaces:**
 - Produces: `Config` accepts `detector` — schema mirroring `Request.Options` options.ex:109-112: `type: {:or, [{:in, [:default, nil]}, :atom]}, default: :default` (spec P5; `:default` resolves to `Transform.Detector.Composite`, exactly the framework default). **Native does NOT take this key** (no object-detect surface — spec B1).
 - Produces: `Pipeline.run/4` seeds `state.detector`/`state.detector_required` from opts (dialect config flows in via `pipeline_opts/4`, imgproxy.ex:772-778) before `condition_color`, mirroring the fields `Transform.Executor.execute` sets at executor.ex:62-67. `state.telemetry_opts` is already seeded by `Decode.with_image` (decode.ex:136-141) — do not re-seed.
-- Produces: `detect_classes(operations) :: [String.t()] | nil` helper (in `dialect/imgproxy.ex`, private) mirroring `ImagePipe.Plan.detect_classes/1` (plan.ex:119-143) over the dialect operations' `{:detect, {spec, weights}}` guides — Task 6 reuses it.
+- Produces: `detect_classes(operations) :: :all | nonempty_list(String.t()) | nil` helper (in `dialect/imgproxy.ex`, private) mirroring `ImagePipe.Plan.detect_classes/1`'s exact return contract (plan.ex:119-135 — bare `obj`/`"all"` guides yield `:all`, assembly.ex:750-752) over the dialect operations' `{:detect, {spec, weights}}` guides, plus a `face_assist?(operations)` sibling mirroring `Plan.face_assist?/1` over `{:smart, :face_assist}` guides (the dialect produces them — assembly.ex:703, :719) — Task 6 reuses both.
 - Modifies: `check_detector/2` mirrors `ImagePipe.Plug.validate_detector_capability/2` (plug.ex:179-192): under `detector_required: true` with detection requested, reject **only when** `Transform.detector_available?(config[:detector], opts_with_classes)` is false — availability is class-dependent (the gate-triad wire case has a Composite whose face child is available and object child is not: `g:obj:face` → 200, `g:obj:car` → 422).
 
 - [ ] **Step 1: Un-gate** the object-detection block (:3042, 8 cases) and the objw-overflow case (:3440). **Expected-GREEN carve-outs** (gate was opts-plumbing, not behavior — do not escalate): "no-geometry g:obj:car returns 200" (:3059), "no-geometry g:objw returns 200" (:3163), and the objw-overflow 4xx case (:3440) may pass immediately once the config accepts `detector:`; the pixel-bias, weight, class-filter, and gate-triad cases MUST be RED first.
@@ -337,11 +337,11 @@ git commit -m "B1a: detector seam, state seeding, availability gate in the imgpr
 **Interfaces:**
 - Consumes: Task 5's `detect_classes(operations)` helper.
 - Produces: `Identity.material(request, negotiation, conn, config, detector_identity)` — 5-arity, `detector_identity :: term() | nil`. The term goes into the **`representation`** list (`[detector: detector_identity]` appended alongside `output_policy`), NOT `storage_only` — that placement feeds both the ETag and the cache key (representation.ex:92-100), matching the framework where detector identity is ETag material (`etag_material/4` drops only `:cache`, http_cache.ex:59-77). Always include the key (nil when no detection), mirroring `cache/key.ex:58`'s unconditional `detector:` entry.
-- Produces: `route_image` computes the identity once, pre-`Representation.build`, mirroring `Runner.with_detector_identity/2` (runner.ex:194-207): when `detect_classes(operations)` is non-nil, `Transform.detector_identity(Keyword.get(config, :detector, :default), Keyword.put(config, :classes, classes))`, else `nil`. One resolution feeds ETag + key (the framework resolves before `HTTPCache.prepare`, plug.ex:94). `route_info` passes `nil` (info requests carry no pipelines).
+- Produces: `route_image` computes the identity once, pre-`Representation.build`, mirroring `Runner.with_detector_identity/2` (runner.ex:194-207) **fully — including the face-assist leg**: identity is resolved when `detect_classes(operations) != nil` **or** `face_assist?(operations)` (the dialect produces `{:smart, :face_assist}` guides via the neutral `smart_crop_face_detection` config key, which its config accepts through the three-way split), with the framework's `["face"]` classes fallback. Otherwise `nil`. One resolution feeds ETag + key (the framework resolves before `HTTPCache.prepare`, plug.ex:94). `route_info` passes `nil` (info requests carry no pipelines).
 
-- [ ] **Step 1: Collapse `@detector_gate_opts`** (:1833-1835) to the same opts on both arms (`[detector: UnavailableDetector, detector_required: true]`) and un-gate the 3 detector-model-identity cache-key cases (:3577-3638) with their helper defps.
+- [ ] **Step 1: Restructure the identity tests' fakes for the dialect's closed config surface, then un-gate.** The gated tests (:3577-3638) inject `face_ver:`/`object_ver:` **top-level DI keys** read by the fakes' `identity/1` (:3590-3592, :609, :626). The framework's option surface is deliberately open to such extension keys (options.ex:59-63); the dialect's `Config.validate!/1` raises on any unknown key (config.ex:81-86) **by design — do not widen it**. Restructure: replace the version-DI mechanism with distinct versioned detector modules (e.g. `FaceVerFakeV1`/`FaceVerFakeV2` whose `identity/1` is constant per module, composed into per-version composites) selected via the `detector:` key both arms now accept, so `ver_opts/1` builds `[detector: composite_for(face_ver, object_ver), detector_required: false]` with no extension keys. Then collapse `@detector_gate_opts` (:1833-1835) to the same opts on both arms (`[detector: UnavailableDetector, detector_required: true]`) and un-gate the 3 cases with their helper defps.
 
-- [ ] **Step 2: Verify RED**: the identity cases fail on the dialect arm — two requests differing only in detector model version produce the SAME cache key (collision). Confirm the failure mode is the collision, not a config error.
+- [ ] **Step 2: Verify RED — on the inequality assertion only.** Pre-fix, the dialect key carries no detector term, so the **mixed** case (:3616-3636, asserts keys *differ* across model versions) is the collision RED. The two *independence* cases (:3594-3613) assert key **equality** and pass vacuously pre-fix — expected-GREEN, for that stated reason (they become meaningful only post-fix, as regression guards against over-keying). For breadth, add one more inequality case (face-only request, face model v1 vs v2 → keys differ) so RED evidence isn't a single assertion.
 
 - [ ] **Step 3: Implement** the 5-arity `material` (update both call sites in the same edit; no default-arg 4-arity — real callers are exactly two):
 
@@ -368,22 +368,24 @@ detector_identity = detector_identity(operations, config)
 
 ```elixir
 defp detector_identity(operations, config) do
-  case detect_classes(operations) do
-    nil ->
-      nil
+  detect_classes = detect_classes(operations)
 
-    classes ->
-      Transform.detector_identity(
-        Keyword.get(config, :detector, :default),
-        Keyword.put(config, :classes, classes)
-      )
+  if detect_classes != nil or face_assist?(operations) do
+    Transform.detector_identity(
+      Keyword.get(config, :detector, :default),
+      Keyword.put(config, :classes, detect_classes || ["face"])
+    )
+  else
+    nil
   end
 end
 ```
 
+(the exact shape of runner.ex:194-207, including the `["face"]` fallback and the nil-identity pass-through — `Transform.detector_identity/2` returning nil leaves the material's `detector:` entry nil, same as no detection)
+
 and thread it: `Identity.material(request, negotiation, conn, config, detector_identity)`. `route_info`: `Identity.material(request, @info_negotiation, conn, config, nil)`.
 
-- [ ] **Step 4: Verify GREEN** on both arms; run the dialect identity unit tests and update their expected material shapes (the `detector: nil` entry now appears — greenfield reshape, no epoch bump).
+- [ ] **Step 4: Verify GREEN + add the ETag half.** Every un-gated assertion is cache-key-only (`lookup_key` via `CacheProbe`); spec exit criterion 2 names the **ETag** too, and key-equality cannot detect a `storage_only` misplacement (storage_only busts the key but not the ETag). Add: (i) unit — `identity_test.exs`: `material/5` with differing `detector_identity` values yields differing `representation` (hence differing built ETag), and nil vs present differ; (ii) wire — extend the identity cases to also capture `get_resp_header(conn, "etag")` and assert it varies with the relevant model and is invariant to the irrelevant one. Run the dialect identity unit tests and update their expected material shapes (the `detector: nil` entry now appears — greenfield reshape, no epoch bump).
 
 - [ ] **Step 5: Sync docs + commit.** Matrix: the `g:obj` row's detector-identity caveat closes; B1 is fully closed.
 
@@ -399,14 +401,14 @@ git commit -m "B1b: detector model identity feeds the dialect cache key and ETag
 **Files:**
 - Modify: `lib/image_pipe/output/clamp.ex` (emission + format/telemetry threading; revise the "knows nothing about formats" moduledoc note)
 - Modify: `lib/image_pipe/request/delivery_build.ex:75, 170-186` (framework emit site delegates/deletes)
-- Modify: `test/image_pipe/imgproxy_wire_conformance_test.exs` (restore any clamp-telemetry assertions deferred in Task 2)
-- Test: framework pins stay green (`test/image_pipe/telemetry_test.exs`, the wire suite's `@clamp_telemetry_prefix` tests)
+- Modify: `test/image_pipe/imgproxy_wire_conformance_test.exs` (delete Task 2's runtime `if @stack == :framework` wrappers around the clamp `assert_received` groups)
+- Test: framework pins stay green (`test/image_pipe/telemetry_test.exs`, `test/image_pipe/request/delivery_build_test.exs` — the edited module's unit tests, `test/image_pipe/telemetry/logger_test.exs` — clamp one-shot rendering :385-405, and the wire suite's `@clamp_telemetry_prefix` tests)
 
 **Interfaces:**
 - Produces: the `[:output, :clamp]` one-shot (`Telemetry.execute`) fires from the clamp seam whenever clamping occurred, on all three stacks. Framework event metadata stays **key-for-key identical**: measurements `%{scale:}`, metadata `%{format:, source_dimensions:, dimensions:, limits:}` (delivery_build.ex:172-186).
 - Shape: `Clamp.clamp/3` (clamp.ex:33) never receives the format, and its moduledoc pins "knows nothing about formats". Thread the format + telemetry opts to the emission — either extend the clamp call (`Clamp.clamp(image, limits, format, opts)`) or add a thin `Clamp.clamp_with_telemetry/4` wrapper the three stacks call while `clamp/3` stays pure — **decide by reading the module and choosing the smaller diff**; both dialects already pass `config` at the call site (imgproxy.ex:755, native.ex:479), the framework passes its opts at delivery_build.ex:75-80. Revise the moduledoc note to match.
 
-- [ ] **Step 1: Write the RED evidence** — a dual-run wire assertion (or restore Task 2's deferred ones): request an above-cap image with a private `telemetry_prefix`, `assert_receive` the prefixed `[:output, :clamp]` event on both arms. Verify it fails on the dialect arm (event never emitted) and passes on the framework arm.
+- [ ] **Step 1: Write the RED evidence** — delete the runtime `if @stack == :framework` wrappers Task 2 placed around the five clamp `assert_received` groups (:3714, :3738, :3800, :3827, :3868), so those assertions run on both arms. Verify they fail on the dialect arm (event never emitted) and stay green on the framework arm.
 
 - [ ] **Step 2: Implement the move.** Emission lives with the clamp seam; `DeliveryBuild.emit_clamp_telemetry/3` is deleted and `prepare_stream`'s call site passes what the seam needs. Framework behavior byte-stable: same event name, same measurement/metadata keys and values.
 
@@ -434,7 +436,7 @@ git commit -m "B3: [:output, :clamp] emitted from the shared clamp seam on all s
 - Modify: `test/image_pipe/imgproxy_telemetry_contract_test.exs` (stage-set `@framework_only` shrinks by these two; `@shared_stages` grows)
 
 **Interfaces:**
-- Produces: one shared negotiate function enclosing **both legs** — `Policy.resolve/2` AND the `:needs_final_image_alpha` second resolution (delivery_build.ex:335-346) — inside a single `[:output, :negotiate]` span with start `%{output_mode:}` and stop metadata built from the **final** resolved output (`%{result:, output_format:}`, delivery_build.ex:348-357). Signature sketch: `negotiate_output(policy, source_format, alpha_fun, telemetry_opts) :: {:ok, resolved} | {:error, reason}` where `alpha_fun :: (-> boolean)` defers the `Image.has_alpha?` probe to the caller (framework and dialects have different image handles at that point). Read all three current `resolve_output` implementations before fixing the signature — they must all collapse onto it without behavior change.
+- Produces: one shared negotiate function enclosing **both legs** — `Policy.resolve/2` AND the `:needs_final_image_alpha` second resolution (delivery_build.ex:335-346) — inside a single `[:output, :negotiate]` span with start `%{output_mode:}` and stop metadata built from the **final** resolved output (`%{result:, output_format:}`, delivery_build.ex:348-357). Signature sketch: `negotiate_output(policy, source_format, alpha_fun, telemetry_opts) :: {:ok, resolved} | {:error, reason}` where `alpha_fun :: (-> boolean)` defers the `Image.has_alpha?` probe to the caller (framework and dialects have different image handles at that point). Error-shape ownership (the three implementations differ): the helper returns `{:error, reason}` **unwrapped**; the framework's call site keeps its `{:error, {:output, reason}}` wrap (delivery_build.ex:344) and the dialects keep their unwrapped pass-through (imgproxy.ex:788-790) — each stack's observable error shape is unchanged. Read all three current `resolve_output` implementations before fixing the signature — they must all collapse onto it without behavior change.
 - Produces: `InputColorManagement.condition/2` emits the `[:transform, :input_color_management]` span itself via `state.telemetry_opts`, with stop `%{result:, working_space:, imported?:}` (executor.ex:104-112 shapes); `Executor.seed_color_management/2` stops wrapping.
 - **Framework byte-stability guard:** `telemetry_test.exs:209-213` (negotiate) and `:724-757` (ICM) must pass UNCHANGED.
 
@@ -442,7 +444,7 @@ git commit -m "B3: [:output, :clamp] emitted from the shared clamp seam on all s
 
 - [ ] **Step 2: Implement** the negotiate helper + rewire three call sites; move the ICM span. `condition/2` is idempotent via `color_imported?` — ensure the span fires only when conditioning actually runs, matching the framework's per-request-once semantics (the framework gates via `seed_orientation`; the dialect calls once per request from `condition_color`).
 
-- [ ] **Step 3: Verify GREEN**: contract test both arms; `telemetry_test.exs` unchanged-green; full dialect + wire suites.
+- [ ] **Step 3: Verify GREEN — including the framework blast radius.** This task has wave 1's widest framework surface (it rewires `delivery_build.ex` and `executor.ex` serving IIIF/TwicPics too). Run: contract test both arms; `telemetry_test.exs` unchanged-green; `test/image_pipe/request/delivery_build_test.exs`; `test/image_pipe/delivery/trace_parentage_test.exs` + `test/image_pipe/telemetry/delivery_span_parentage_baseline_test.exs` (span relocation changes emission context → OTel parentage); `test/image_pipe/telemetry/trace/capture_test.exs`; `test/image_pipe/telemetry/logger_test.exs`; `test/parser/iiif_wire_test.exs` and the TwicPics suite (`test/parser/twic_pics*`) — the rewired `resolve_output` serves them; full dialect + wire suites.
 
 - [ ] **Step 4: Commit.**
 
@@ -463,9 +465,9 @@ git commit -m "B3: negotiate + input-color-management spans emitted from shared 
 - Produces: both dialects run the framework's materialize-for-delivery backstop equivalent (`Request.Processor.materialize_for_delivery/2`, processor.ex:300-316 — read it first; the dialect's `Pipeline.run` tail already does the `stamp_carry` half, pipeline.ex:264) at the same relative position as the framework: after clamp, before encode (delivery_build.ex:76-80). The span comes for free — `Transform.Materializer` already emits it (materializer.ex:37, 83).
 - Guard: the color-carry parity tests (`ImagePipe.Dialect.ColorCarryParityTest`) and the differential suite must stay green — materialization must not perturb pixels or the carry stamp.
 
-- [ ] **Step 1: RED evidence** — add `[:transform, :materialize]` to `@shared_stages` / remove from `@framework_only`; dialect arm fails.
-- [ ] **Step 2: Implement** the backstop in both dialects' build paths (likely `Materializer.flush/1` or the exact call `materialize_for_delivery` makes — mirror it, do not invent).
-- [ ] **Step 3: Verify GREEN** + differential suite + color-carry tests; `git status` differential dir clean.
+- [ ] **Step 1: RED evidence** — add `[:transform, :materialize]` to `@shared_stages` / remove from `@framework_only`; dialect arm fails. Also add **position** assertions to the contract test's cache-miss scenario (provenance is already pinned — a plain fit-resize has no materializing op, so the span can only be the backstop — but position isn't: the framework comparison is a sorted set, and the dialect≡native sequence check can't catch a same-wrong-position landing in both dialects in one commit): assert `[:transform, :operation] :stop` precedes materialize `:start`, and materialize `:stop` precedes `[:deliver] :start` — both already hold on the framework arm, so the assertions are dual-run-safe and RED on the dialect arm now.
+- [ ] **Step 2: Implement** the backstop in both dialects' build paths (likely `Materializer.flush/1` or the exact call `materialize_for_delivery` makes — mirror it, do not invent; note processor.ex:299-312 skips when `state.materialized?`).
+- [ ] **Step 3: Verify GREEN** + differential suite + color-carry tests + `test/image_pipe/telemetry/trace/materialize_span_test.exs`; `git status` differential dir clean.
 - [ ] **Step 4: Commit** (`git add lib/image_pipe/dialect/ test/ && git commit -m "B3: materialize delivery backstop (and span) on both dialect build paths"`).
 
 ---
@@ -479,14 +481,14 @@ git commit -m "B3: negotiate + input-color-management spans emitted from shared 
 - Test: `test/image_pipe/dialect/imgproxy/error_paths_test.exs`, `test/image_pipe/dialect/byte_identity_cache_headers_test.exs`, full wire suite
 
 **Interfaces:**
-- `[:send]`: wrap each dialect's terminal send (`Sender.send_result` / `Errors.send` / info `send_resp`) in a span with start `%{result:}` and stop `%{result:, status:}` mirroring `Plug.send_response/4` + `send_stop_metadata/2` (plug.ex:163-170, 211-216). Structure this as ONE private `send_with_span(conn, config, result_meta, fun)` helper per dialect rather than eight inline spans. `[:deliver]` (shared `Response.Sender`) nests inside it — no ordering hazard (both run in the connection-owner process).
+- `[:send]`: wrap each dialect's terminal send (`Sender.send_result` / `Errors.send` / info `send_resp` — **and Task 4's OPTIONS 204 + method 405 heads**, which the framework wraps in `[:send]` via `send_response`, plug.ex:53-69; the stage-set test's plain-GET scenario will not catch their omission) in a span with start `%{result:}` and stop `%{result:, status:}` mirroring `Plug.send_response/4` + `send_stop_metadata/2` (plug.ex:163-170, 211-216). Structure this as ONE private `send_with_span(conn, config, result_meta, fun)` helper per dialect rather than inline spans at every site. `[:deliver]` (shared `Response.Sender`) nests inside it — no ordering hazard (both run in the connection-owner process).
 - `[:source, :fetch_decode]`: wrap the `Decode.with_image` call inside `build_fun` (imgproxy.ex:729-740) with the framework's start/stop shapes (`Processor.fetch_decode_validate_source_with_source_format/3`, processor.ex:60-68 + `fetch_decode_stop_metadata/1` — read for the exact keys).
 - `[:transform, :execute]`: wrap the `Pipeline.run/4` call in `build_and_pump` with start `%{operations:, operation_count:}` (processor.ex:159-167 shapes — read `transform_stop_metadata/1` for stop keys). Note the dialect's operations are per-request assembled; derive the list the same way the `[:transform, :operation]` spans already see them.
 - `[:encode]`: wrap `Encoder.stream_output` AND force the first chunk inside the span, mirroring `DeliveryBuild.encode_first_chunk/3` + `first_chunk/1` (delivery_build.ex:103-150 — read both before writing). **This changes when encode errors surface on the dialect path: pre-header 500 instead of mid-stream abort — the conformant direction (framework and upstream both surface pre-header).** If an error-path test pinned the mid-stream behavior for encode failures, update it deliberately in this commit with that rationale.
 
 - [ ] **Step 1: RED** — move the four stages from `@framework_only` into `@shared_stages`; dialect arm fails on all four.
 - [ ] **Step 2: Implement** in `dialect/imgproxy.ex`; verify the imgproxy arm green; then mirror in `dialect/native.ex` (the stage-set test's dialect≡native sequence equality is the cross-check — it fails if the two dialects' emission order diverges).
-- [ ] **Step 3: Verify GREEN**: contract test `@framework_only == []`; stage-set sequence equality; error-path suites; full wire + differential.
+- [ ] **Step 3: Verify GREEN**: contract test `@framework_only == []`; stage-set sequence equality; error-path suites; `test/image_pipe/telemetry/trace/encode_span_test.exs`; full wire + differential.
 - [ ] **Step 4: Commit** (`git add lib/image_pipe/dialect/ test/ && git commit -m "B3: dialect-emitted send/fetch_decode/execute/encode spans; encode forces first chunk"`).
 
 ---
