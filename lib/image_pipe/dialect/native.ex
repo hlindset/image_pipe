@@ -112,6 +112,8 @@ defmodule ImagePipe.Dialect.Native do
 
   @impl Plug
   def call(%Plug.Conn{} = conn, config) when is_list(config) do
+    Telemetry.Trace.maybe_extract_inbound(conn)
+
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {conn, metadata} = route(conn, config)
       {conn, Map.put(metadata, :status, conn.status)}
