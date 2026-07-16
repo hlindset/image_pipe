@@ -122,6 +122,11 @@
         # two classes are recorded separately. Do not read this entry as "nothing
         # in this file is extractable".
         #
+        # Tracked: hlindset/image_pipe#457 — promote the extractable helpers and
+        # settle the ExDNA-visibility strategy as one boundary-graph ADR during
+        # the TwicPics inversion (the visibility goal is unreachable at N=2: the
+        # ignore is file-level and the structural mirrors below cannot be shared).
+        #
         # (a) NOT shareable as the graph stands. cache_headers/1 + vary_headers/1
         #     build a %CacheHeaders{} (ImagePipe.Response) from a
         #     %Representation{}, and ImagePipe.Response does not depend on
