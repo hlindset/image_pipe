@@ -46,7 +46,24 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/transform.ex",
     "lib/image_pipe/transform/**/*.ex"
   ]
-  @dialect_forbidden_globs @parser_forbidden_globs ++ @transform_globs ++ @parser_globs
+  # The core modules this dialect-inversion run extracted out of the framework
+  # (delivery/decode/representation/config). They are core — a dialect must be
+  # removable without editing them — so they belong in the "core must not name a
+  # dialect" grep alongside plug/request/source/response/cache/output/plan/
+  # transform/parser. The Boundary compiler already enforces the real dep graph;
+  # this closes the grep's blind spot over exactly the surface the run added.
+  @core_extraction_globs [
+    "lib/image_pipe/delivery.ex",
+    "lib/image_pipe/delivery/**/*.ex",
+    "lib/image_pipe/decode.ex",
+    "lib/image_pipe/decode/**/*.ex",
+    "lib/image_pipe/representation.ex",
+    "lib/image_pipe/representation/**/*.ex",
+    "lib/image_pipe/config.ex",
+    "lib/image_pipe/config/**/*.ex"
+  ]
+  @dialect_forbidden_globs @parser_forbidden_globs ++
+                             @transform_globs ++ @parser_globs ++ @core_extraction_globs
   @resolver_strategy_globs [
     "lib/image_pipe/parser/**/resolver.ex",
     "lib/image_pipe/parser/**/point_flow.ex"
@@ -59,6 +76,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
+    ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
     ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
@@ -291,6 +309,35 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(decode, [])
+  end
+
+  test "delivery boundary declaration depends only on core streaming/cache facades" do
+    delivery = boundary_declaration(ImagePipe.Delivery)
+
+    # `ImagePipe.Output` is a pinned-but-currently-unused declared dep (a known
+    # dead entry left by the extraction); this pins the declared list as-is.
+    assert_boundary_deps(delivery, [
+      ImagePipe.Cache,
+      ImagePipe.Debug,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Response,
+      ImagePipe.Source,
+      ImagePipe.Telemetry
+    ])
+
+    # The shared delivery primitive must not reach into the framework's
+    # request/parser/resolver/renderer/config stack, and must never name a
+    # concrete dialect.
+    refute_boundary_deps(delivery, [
+      ImagePipe.Config,
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver
+    ])
+
+    assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
   end
 
   test "core, transform, and parser code does not name a dialect" do
