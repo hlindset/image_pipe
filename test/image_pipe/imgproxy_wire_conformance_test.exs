@@ -2261,47 +2261,37 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       assert source_order() == [:resolve, :cache_lookup, :fetch, :cache_put]
     end
 
-    # FRAMEWORK-ONLY — DIVERGENCE D4, and the most serious one this dual-run
-    # found. Same request, both arms reach the stack, and the cache access order
-    # (via `source_order/0`, observed) is:
-    #   framework: [:resolve, :fetch]
-    #   dialect:   [:resolve, :cache_lookup, :fetch, :cache_put]
+    # A source declaring `internal_cache: :disabled` ("do not store my bytes")
+    # must be honored by BOTH arms: no lookup, no write. The framework does it in
+    # `Runner.run_with_cache_config/5` (runner.ex:72) by pattern-matching
+    # `%Source.Resolved{internal_cache: :disabled}` and handing
+    # `process_prepared_stream/6` a `nil` cache key; the dialect does it in
+    # `serve/7` by the same dispatch.
     #
-    # The source adapter declares `internal_cache: :disabled` — "do not cache my
-    # bytes". The framework honors it: `Runner.run_with_cache_config/5`
-    # (runner.ex:72) pattern-matches `%Source.Resolved{internal_cache:
-    # :disabled}` and hands `process_prepared_stream/6` a `nil` cache, skipping
-    # lookup AND write. The dialect NEVER READS `resolved.internal_cache`:
-    # `serve/7` (imgproxy.ex:342) calls `Cache.lookup_entry/2` unconditionally,
-    # and `generate/7` passes `representation.cache_key` straight to
-    # `Delivery.stream/5`, which opens a sink and writes.
-    #
-    # This is not a missing config key and not an observability nit: the dialect
-    # STORES bytes a source explicitly opted out of caching. Fix belongs in the
-    # dialect's serve/generate (thread `internal_cache` the way the framework
-    # does), not here.
-    if @stack == :framework do
-      test "cache skip fetches custom source without cache lookup or write" do
-        opts = [
-          parser: ImagePipe.Parser.Imgproxy,
-          imgproxy: [
-            source_schemes: %{"foobar" => {FoobarTranslator, []}}
-          ],
-          sources: [
-            foobar: {PlugCustomAdapter, adapter: :foobar, internal_cache: :disabled}
-          ],
-          cache: {CacheProbe, result: :miss}
-        ]
+    # Was DIVERGENCE D4 — the dialect read `resolved.internal_cache` nowhere and
+    # stored bytes the source had opted out of caching. Note the status is 200 on
+    # both arms either way: `source_order/0` is what discriminates here, not the
+    # status.
+    test "cache skip fetches custom source without cache lookup or write" do
+      opts = [
+        parser: ImagePipe.Parser.Imgproxy,
+        imgproxy: [
+          source_schemes: %{"foobar" => {FoobarTranslator, []}}
+        ],
+        sources: [
+          foobar: {PlugCustomAdapter, adapter: :foobar, internal_cache: :disabled}
+        ],
+        cache: {CacheProbe, result: :miss}
+      ]
 
-        conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
+      conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
 
-        assert conn.status == 200
-        assert_received {:custom_resolve, _source}
-        assert_received {:custom_fetch, :cat}
-        refute_received {:cache_lookup, _key}
-        refute_received {:cache_put, _key, _entry}
-        assert source_order() == [:resolve, :fetch]
-      end
+      assert conn.status == 200
+      assert_received {:custom_resolve, _source}
+      assert_received {:custom_fetch, :cat}
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _entry}
+      assert source_order() == [:resolve, :fetch]
     end
 
     test "S3 cache hit resolves identity without asking credential providers" do

@@ -339,7 +339,37 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   # -- cache lookup + hit delivery / miss generate -----------------------------
 
-  defp serve(conn, request, resolved, negotiation, representation, response_meta, config) do
+  # A source that resolved `internal_cache: :disabled` has declared its bytes
+  # must not be stored, so this skips the lookup AND the write — mirroring
+  # `ImagePipe.Request.Runner.run_with_cache_config/5`, which pattern-matches the
+  # same field and hands its `process_prepared_stream/6` a `nil` cache key.
+  # `Delivery.stream/5` already documents `nil` as "no cache for this request".
+  #
+  # It is not only an opt-out to respect: `:disabled` is also what
+  # `internal_cache: :auto` resolves to for a source whose bytes have no stable
+  # identity, and keying a stored entry to bytes that cannot be identified is
+  # unsound regardless of intent.
+  defp serve(
+         conn,
+         request,
+         %ImageSource.Resolved{internal_cache: :disabled} = resolved,
+         negotiation,
+         representation,
+         response_meta,
+         config
+       ) do
+    generate(conn, request, resolved, negotiation, representation, response_meta, nil, config)
+  end
+
+  defp serve(
+         conn,
+         request,
+         %ImageSource.Resolved{internal_cache: :enabled} = resolved,
+         negotiation,
+         representation,
+         response_meta,
+         config
+       ) do
     start = System.monotonic_time(:microsecond)
     lookup_result = Cache.lookup_entry(representation.cache_key, config)
     cache_serve_us = System.monotonic_time(:microsecond) - start
@@ -349,7 +379,16 @@ defmodule ImagePipe.Dialect.Imgproxy do
         deliver_hit(conn, entry, representation, response_meta, cache_serve_us, config)
 
       _miss_or_disabled ->
-        generate(conn, request, resolved, negotiation, representation, response_meta, config)
+        generate(
+          conn,
+          request,
+          resolved,
+          negotiation,
+          representation,
+          response_meta,
+          representation.cache_key,
+          config
+        )
     end
   end
 
@@ -377,6 +416,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end
   end
 
+  # `cache_key` is `nil` when the resolved source disabled the internal cache —
+  # `Delivery.stream/5` then produces the response without opening a sink.
   defp generate(
          conn,
          request,
@@ -384,11 +425,12 @@ defmodule ImagePipe.Dialect.Imgproxy do
          %Negotiation{selected: {:image, _selected_format}} = negotiation,
          %Representation{} = representation,
          %PlanResponse{} = response_meta,
+         cache_key,
          config
        ) do
     build_fun = build_fun(resolved, request, negotiation, config)
 
-    case Delivery.stream(self(), build_fun, representation.cache_key, response_meta, config) do
+    case Delivery.stream(self(), build_fun, cache_key, response_meta, config) do
       {:ok, prepared} ->
         Sender.send_result(
           conn,
@@ -411,7 +453,28 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # delivery content types and errors on anything else). So both the hit and
   # the miss path stay a dialect-owned send.
 
-  defp serve_info(conn, resolved, %Representation{} = representation, config) do
+  # As on the image path, a source that disabled the internal cache is neither
+  # read from nor written to. The framework arm never caches /info at all (its
+  # `Runner.run/5` render head returns before any cache access), so this
+  # dialect-owned cache has no parity source to mirror — but the reason the
+  # image path honors the flag holds here unchanged: the stored JSON reports this
+  # source's format/dimensions/orientation, so serving a stale one for bytes that
+  # carry no stable identity is the same unsoundness, one indirection later.
+  defp serve_info(
+         conn,
+         %ImageSource.Resolved{internal_cache: :disabled} = resolved,
+         %Representation{} = representation,
+         config
+       ) do
+    generate_info(conn, resolved, representation, nil, config)
+  end
+
+  defp serve_info(
+         conn,
+         %ImageSource.Resolved{internal_cache: :enabled} = resolved,
+         %Representation{} = representation,
+         config
+       ) do
     case Cache.lookup_entry(representation.cache_key, config) do
       {:hit, %Cache.Entry{representation: {:complete_body, content_type}} = entry} ->
         deliver_info_hit(conn, content_type, entry.body, representation, config)
@@ -422,7 +485,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
       # from an image entry, and sending one here would answer /info with image
       # bytes.
       _miss_or_untagged ->
-        generate_info(conn, resolved, representation, config)
+        generate_info(conn, resolved, representation, representation.cache_key, config)
     end
   end
 
@@ -436,14 +499,16 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end
   end
 
-  defp generate_info(conn, resolved, %Representation{} = representation, config) do
+  # `cache_key` is `nil` when the resolved source disabled the internal cache, and
+  # then the rendered body is sent without being stored.
+  defp generate_info(conn, resolved, %Representation{} = representation, cache_key, config) do
     started_at = System.monotonic_time(:microsecond)
 
     case source_info(resolved, config) do
       {:ok, %SourceInfo{} = info} ->
         {content_type, body} = InfoRenderer.render(info)
         cost_us = System.monotonic_time(:microsecond) - started_at
-        write_complete_body_cache(representation, content_type, body, cost_us, config)
+        write_complete_body_cache(cache_key, content_type, body, cost_us, config)
         send_complete_body(conn, content_type, body, representation)
 
       {:error, reason} ->
@@ -480,17 +545,14 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end
   end
 
+  defp write_complete_body_cache(nil = _cache_disabled, _content_type, _body, _cost_us, _config),
+    do: :ok
+
   # Fail-open, like every cache write: the sink's own error handling aborts the
   # adapter sink synchronously on a failed write, after which further writes and
   # the commit no-op — so the pipe chain needs no error branch of its own.
-  defp write_complete_body_cache(
-         %Representation{} = representation,
-         content_type,
-         body,
-         cost_us,
-         config
-       ) do
-    representation.cache_key
+  defp write_complete_body_cache(%Cache.Key{} = cache_key, content_type, body, cost_us, config) do
+    cache_key
     |> Cache.open_sink({:complete_body, content_type}, Keyword.put(config, :cost_us, cost_us))
     |> Cache.write_chunk(IO.iodata_to_binary(body), config)
     |> Cache.commit_sink(config)

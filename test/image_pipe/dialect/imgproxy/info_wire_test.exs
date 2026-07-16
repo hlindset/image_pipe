@@ -249,6 +249,32 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
       assert metadata.cost_us > 0
     end
 
+    # The image path's `internal_cache: :disabled` contract, on the /info
+    # terminal. The status is 200 whether or not the flag is honored, so the
+    # cache-access messages are the whole assertion.
+    test "a source that disabled the internal cache is neither read from nor written to" do
+      config =
+        opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {CountingOriginImage, test_pid: self()}],
+               internal_cache: :disabled}
+          ],
+          cache: stateful_cache_probe()
+        )
+
+      conn = get("/info/unsafe/plain/images/beach.jpg", config)
+
+      assert conn.status == 200
+      assert JSON.decode!(conn.resp_body)["format"] == "jpeg"
+      assert_received :origin_fetch
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received {:source_order, :cache_put}
+    end
+
     test "a matching If-None-Match is 304 before any cache lookup or source fetch" do
       warm = get("/info/unsafe/plain/images/beach.jpg", opts())
       assert [etag] = get_resp_header(warm, "etag")
