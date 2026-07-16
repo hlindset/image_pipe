@@ -166,7 +166,7 @@ save. ImagePipe realizes these at request and output boundaries:
 | --- | --- | --- | --- |
 | Initial load + source-resolution gate (`MaxSrcResolution`) | decode + `max_input_pixels` (hard error) | ✅ | The image-bomb gate is a hard error, not a downscale — matches imgproxy. `max_body_bytes` caps the fetched body. |
 | Output format determination | `lib/image_pipe/output/negotiation.ex`, `lib/image_pipe/output/policy.ex` | ✅ | `Accept` negotiation for JPEG XL/AVIF/WebP with `Vary: Accept` (server preference **AVIF > JPEG XL > WebP**, host-reorderable via the core `format_order` option; each format gated by `auto_jpeg_xl`/`auto_avif`/`auto_webp`, default on). **Diverges (stage/order, deliberate):** imgproxy's documented preference is **JPEG XL > AVIF > WebP** (`processing.go` checks `PreferJxl` before `PreferAvif`); ImagePipe leads with AVIF because at the ssim2 web-delivery quality target AVIF is both smaller and sharper than JPEG XL (JXL only pulls ahead near visual-losslessness). A host can restore imgproxy-parity order with `format_order: [:jpeg_xl, :avif, :webp]`. Explicit `@extension`/`.extension` (incl. `jxl`) bypasses negotiation. A modern format is negotiated only from its **explicit mime** (`image/jxl`/`image/avif`/`image/webp`); the `image/*` wildcard is **not** a modern-format signal — parity with imgproxy's explicit-mime detection (`clientfeatures/detector.go` substring-matches `image/jxl`/`image/avif`/`image/webp` only), and necessary because real Chrome/Firefox `<img>` requests send `image/*` while unable to decode JPEG XL. `enforce_*`, `preferred_formats` missing. |
-| Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/output/clamp.ex` via the producer (`min(host max_result_*, encoder_limit)`) | ✅ | imgproxy downscales the result to fit `max_result_*`; ImagePipe matches for the common no-padding/no-extend request (#165), reusing the #150 `Output.Clamp` — byte-intent identical to `limitScale`'s linear `downScale = maxResultDim/max(outW,outH)` (`prepare.go:247`) when caps are equal and a dimension binds. **Diverges (superset):** ImagePipe honors independent `max_result_width`/`max_result_height` and a result `max_result_pixels` cap (sqrt), where imgproxy's `limitScale` has a single `MaxResultDimension` and no result-pixel cap. **Diverges (composition):** ImagePipe clamps the **composited** final image, whereas imgproxy folds the downscale into the resize scale and re-applies padding/extend at the reduced scale (`prepare.go:233-263`) — both land ≤ cap, but padded/extended requests differ in the **content-to-padding ratio of the final frame**. ImagePipe mirrors imgproxy's per-axis sub-1px floor (`prepare.go:252-258`) via `max(scale, 1/dim)`; in the extreme-aspect 1px regime the realized pixels can still differ for the same composited-vs-fold-back reason. **Stage/order (#164, approach A):** on the plain (non-oriented) path the clamp runs on the lazy composite *before* the delivery materialization, so libvips fuses resize→clamp (also crop→clamp and embed→clamp — verified across fit, cover, and canvas/padding by the #164 benchmark probes) and avoids forming the full oversized intermediate. Served output is unchanged (pixels, dims, content-type, status, cache key, ETag) and the `[:output, :clamp]` event's metadata is identical — an internal memory optimization. (One ordering nuance: the clamp event now fires *before* the delivery materialize, so it can precede a rare materialize-failure 415 where it previously would not — it never changes served output.) The oriented mid-chain flush still materializes pre-clamp (deferred). |
+| Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/output/clamp.ex` via the producer (`min(max_result_width/max_result_height/max_result_pixels, encoder_limit)`, both dialects, `SharedConfig`-validated) | ✅ | imgproxy downscales the result to fit `max_result_*`; ImagePipe matches for the common no-padding/no-extend request (#165), reusing the #150 `Output.Clamp` — byte-intent identical to `limitScale`'s linear `downScale = maxResultDim/max(outW,outH)` (`prepare.go:247`) when caps are equal and a dimension binds. **Diverges (superset):** ImagePipe honors independent `max_result_width`/`max_result_height` and a result `max_result_pixels` cap (sqrt), where imgproxy's `limitScale` has a single `MaxResultDimension` and no result-pixel cap. **Diverges (composition):** ImagePipe clamps the **composited** final image, whereas imgproxy folds the downscale into the resize scale and re-applies padding/extend at the reduced scale (`prepare.go:233-263`) — both land ≤ cap, but padded/extended requests differ in the **content-to-padding ratio of the final frame**. ImagePipe mirrors imgproxy's per-axis sub-1px floor (`prepare.go:252-258`) via `max(scale, 1/dim)`; in the extreme-aspect 1px regime the realized pixels can still differ for the same composited-vs-fold-back reason. **Stage/order (#164, approach A):** on the plain (non-oriented) path the clamp runs on the lazy composite *before* the delivery materialization, so libvips fuses resize→clamp (also crop→clamp and embed→clamp — verified across fit, cover, and canvas/padding by the #164 benchmark probes) and avoids forming the full oversized intermediate. Served output is unchanged (pixels, dims, content-type, status, cache key, ETag) and the `[:output, :clamp]` event's metadata is identical — an internal memory optimization. (One ordering nuance: the clamp event now fires *before* the delivery materialize, so it can precede a rare materialize-failure 415 where it previously would not — it never changes served output.) The oriented mid-chain flush still materializes pre-clamp (deferred). |
 | Save / encode | `lib/image_pipe/output/encoder.ex` | ✅ | Streams the encoded result. **JPEG XL** is the exception: it is encoded through Vix directly to a seekable memory **buffer** (the `image` wrapper rejects the `.jxl` suffix and `jxlsave` cannot write a non-seekable delivery pipe) and delivered buffered, not streamed; its quality maps to libjxl's `Q`, and a butteraugli `distance` mapping is **implemented** for the native-JXL autoquality path (below). With no explicit quality, JPEG XL now encodes at the configured default `Q77` (see "Default output quality"), matching imgproxy's `FORMAT_QUALITY` JXL value — the previous default-*quality* divergence for AVIF/WebP/JXL is closed. **Diverges (behavioral) — `jxl_effort` default 7 vs imgproxy 4:** JXL `effort` is now host-tunable via the neutral `jxl_options` config key (`Plan.Output.JxlOptions{effort: 1..9}`; no URL form — imgproxy's `effort` is env-only too). ImagePipe's neutral default is **7** — libvips `jxlsave`'s own current default, so an unset effort is byte-identical to an explicit `effort=7` (re-checkable against the pinned libvips version) — whereas imgproxy's `IMGPROXY_JXL_EFFORT` defaults to **4** (`vips/config.go`). The imgproxy parity overlay is **empty today**, so ImagePipe ships effort 7 and imgproxy 4: their JXL output bytes differ. Setting the overlay's `jxl_options: %JxlOptions{effort: 4}` is the documented byte-parity lever. The `autoquality`/`max_bytes` quality search (`lib/image_pipe/output/encode_search.ex`) is an output/encode-stage **re-encode loop** — a binary search over encoder quality — with no per-option knob for the loop mechanics themselves (analogous to the other config-less internal stages above); it gates on `Format.supports_quality?` (jpeg/webp/avif/jpeg-xl). **Native-JXL butteraugli single-encode path (stage/order + behavioral):** when the autoquality metric is `butteraugli` **and** the output format is JPEG XL, the search does **not** run the band loop — it drives libvips' native `distance` knob (`.jxl[distance=…]`, libjxl's own *"Target butteraugli distance"*) directly in a **single encode** (`iterations: 0`, `outcome: :native`). The `[min_quality, max_quality]` Q-bracket is clamped into distance space via libjxl's Q→distance formula (`lib/image_pipe/output/jxl_distance.ex`, pinned byte-identical to `.jxl[Q=…]` by a drift-guard test) so an explicit max_quality is never exceeded; if `max_bytes` is set the path **self-caps** by raising `distance` geometrically from the clamped target until the bytes fit or it saturates at libvips' `distance` ceiling (25.0, `outcome: :best_effort`, `limiting_factor: :max_bytes`). No external metric NIF runs on this path (`distance` *is* butteraugli distance). butteraugli on non-JXL formats keeps the external-measure band search. **Crop-scored `:ssim2` above a ~6 MP crossover (stage/order, #354):** above an internal ~6 MP crossover the `:ssim2` objective scores K=16 native-resolution p10-tiles of the full-res encode per probe (a flat ~4.2 MP metric sample regardless of source size) — a **calibrated approximation** of the full-frame pick within a bounded residual (~±2 q), tightened by one full-frame confirm + bounded bump on the winner; below the crossover the full-frame search is unchanged. The crossover is **internal** (it only selects the scorer, not a user knob); `autoquality_max_resolution` is unchanged and still *disables* the search above the host cap (it is strictly above the crossover in precedence). No imgproxy wire oracle exists (autoquality is Pro/closed and ImagePipe uses SSIMULACRA2, not DSSIM), so the chosen-quality behavior is validated against ImagePipe's own full-frame search via the benchmark (`docs/autoquality_benchmark.md`), not against imgproxy. Advanced/codec-specific encoder knobs are now supported via the libvips-native per-format encoder options (see "Advanced encoder options" and the `*_options` rows under "Output and encoding"). |
 
 ### Key takeaways
@@ -196,19 +196,12 @@ save. ImagePipe realizes these at request and output boundaries:
 axes above **for every case both arms run** — and that is substantial: the
 differential suite renders all **162 constellations on both arms** (no case is
 framework-only) and asserts byte-for-byte equality against imgproxy-baked
-fixtures, and **120 of the 150 wire cases run on both arms**, asserting status,
-headers, content type, decoded pixels, and cache/source access order.
+fixtures, and **all 156 wire cases run on both arms** (no case is framework-only),
+asserting status, headers, content type, decoded pixels, and cache/source access
+order.
 
-The carve-out is precise, not a hedge:
-
-- **30 wire cases are framework-only**, each with a stated reason in the suite —
-  every one a config seam the dialect has no key for (`detector:`,
-  `allow_origin:`, `max_result_*`, …), not a case the dialect fails.
-- **Object detection is accepted but never honored.** See the `g:obj` row below.
-- **The § below lists real divergences** (CORS, `OPTIONS`, `max_result_*`,
-  telemetry stage-set) that hold on every request, not just the untested ones.
-
-None of these is an imgproxy-conformance gap; all are ImagePipe-side, and a host
+The § below lists the remaining dialect-stack divergences that hold on every
+request. None is an imgproxy-conformance gap; all are ImagePipe-side, and a host
 that mounts the dialect should read them.
 
 Where a row says "shared with `Dialect.Native`", the behavior is a property of
@@ -217,49 +210,6 @@ imgproxy dialect did not introduce it.
 
 ### Behavioral
 
-- **`ETag`/`Cache-Control` byte-identity gate — aligned (was a divergence).**
-  A source that resolves `cache_semantics.byte_identity: :none` (an ETag is a
-  *strong byte-identity validator*, and such a source has none) now gets **no**
-  `ETag` and `Cache-Control: no-store` on **all three** stacks. The framework
-  does this in `Request.HttpCache`; the dialects reach the identical decision
-  through `ImagePipe.Representation.build/3` /
-  `Representation.response_headers/1`, the one seam both stacks call. Before this
-  landed, both dialects (and shipped `Dialect.Native`) emitted a strong `ETag` +
-  `must-revalidate` regardless, so a conditional GET 304'd against changed
-  content and shared caches stored bytes the framework marks `no-store` — the
-  same unreachable-core shape as the stage-4 colour-carry stamp, resolved the
-  same way. The general "cache keys and ETags differ across the two stacks"
-  (below) is unaffected: that is about the ETag *value* for a strong source, not
-  whether one is emitted.
-- **`OPTIONS /…` is 400, not 204 + `Allow`, and CORS is framework-only.** The
-  dialect has no method layer (`ImagePipe.Plug` has one), and it has no CORS
-  handling of any kind: `Access-Control-Allow-Origin` is stamped on **every**
-  framework response when `allow_origin` is set, but the dialect stacks emit it
-  on **no** response — they never route through `ImagePipe.Plug`'s
-  `CORS.maybe_register/2` and expose no `allow_origin` config key. A host that
-  serves cross-origin requests on the framework stack loses that on the dialect
-  stack and must add CORS in its own router. **Shared with `Dialect.Native`.**
-  The CORS *feature* on the dialect is a phase-2 deferral (see the
-  [CORS response headers](#cors-response-headers) section and
-  `.superpowers/sdd/phase1-exit-criteria.md`); this row records the gap.
-- **`g:obj:*`/`g:objw:*` are accepted but never honored — every object-detect
-  request falls back to attention cropping.** The dialect's grammar parses the
-  tokens (it is a verbatim copy of the framework's), but the dialect carries no
-  detector and exposes no `detector:` config key to supply one, so the
-  `{:detect, _}` guide can never be satisfied. Note the framework does the same
-  **by default**: it only rejects when the host sets `detector_required: true`,
-  and otherwise degrades to attention with
-  `[:transform, :detect, :skipped]` telemetry (`result: :no_detector`). So on
-  stock config the two stacks agree; they diverge only for a host that
-  configured a real detector on the framework stack, which then silently loses
-  detection-guided crops on the dialect. `detector_required: true` **is**
-  honored by the dialect: an object-detect request is rejected 422 before any
-  source fetch or cache access, exactly as `ImagePipe.Plug` does with no
-  detector configured. Detector *support* is a phase-2 deferral (backlog B1).
-- **Host `max_result_width`/`max_result_height`/`max_result_pixels` are ignored.**
-  The dialect's config has no such keys, so `Output.Clamp` runs against the
-  framework's *defaults* (8192/8192/40 MP) hard-coded in `Dialect.Imgproxy`. A
-  host that lowered these on the framework stack does not get them on the dialect.
 - **`/info` is cached; the framework never caches it.** A dialect-owned complete-
   body cache entry, honoring `internal_cache: :disabled`. No parity source exists
   (the framework's render path returns before any cache access).
@@ -269,41 +219,30 @@ imgproxy dialect did not introduce it.
 
 ### Observability
 
-- **The dialect emits 7 fewer telemetry stages** (`[:send]`,
-  `[:source, :fetch_decode]`, `[:transform, :execute]`,
-  `[:transform, :input_color_management]`, `[:transform, :materialize]`,
-  `[:output, :negotiate]`, `[:encode]`). Six are owned by framework-only modules
-  the dialect does not route through. It emits `[:request]`, `[:parse]`,
-  `[:source, :resolve]`, `[:cache, :lookup]`, `[:source, :fetch]`,
-  `[:transform, :operation]`, and `[:deliver]` — no stage the framework does not,
-  and the exact sequence `Dialect.Native` emits. Measured and pinned by
-  `ImagePipe.ImgproxyTelemetryStageSetTest`. **Shared with `Dialect.Native`.**
-- **A pre-delivery failure now carries a `:result` on `[:request, :stop]`**
-  (resolved; was a divergence). Both dialects stamp the framework's own result
-  vocabulary — `:ok` / `:not_modified` / `:parser_error` / `:plan_error` /
-  `:source_error` / `:cache_error` / `:processing_error`, plus an `:error` tag —
-  via the shared `ImagePipe.Telemetry.request_result/1` classifier, so
-  `Telemetry.Logger`'s `outcome/1` and `level_for/3` see and escalate a failed
-  dialect request as the framework does. A 502 is now `[:request, :stop] =
-  :source_error`. `:processing_error` intentionally does not escalate at
-  `[:request]`/`[:send]`/`[:deliver]` on either stack (it also carries normal
-  client disconnects). Pinned by the "pre-delivery error" scenario in
-  `imgproxy_telemetry_contract_test.exs`. **Shared with `Dialect.Native`.**
-- **`[:output, :clamp]` is not emitted** even when the clamp fires.
+The dialect stacks emit the framework's full stage set — the **eight**
+relocated/new stages `[:send]`, `[:source, :fetch_decode]`, `[:transform,
+:execute]`, `[:transform, :input_color_management]`, `[:transform,
+:materialize]`, `[:output, :negotiate]`, `[:output, :clamp]`, `[:encode]` carry
+**identical start/stop metadata** to the framework, pinned by
+`ImagePipe.ImgproxyTelemetryStageSetTest` (`@framework_only == []`, dialect ≡
+native sequence equality); emission sites are documented in
+`docs/telemetry.md`. The two enclosing spans, `[:request]` and `[:parse]`,
+still differ:
+
+- **`[:request]`'s metadata differs on both ends.** *(start)* The framework's
+  `[:request]` start metadata carries `parser:` and `request_method:`
+  (`ImagePipe.Plug.request_metadata/2`); the dialects open the span with `%{}`.
+  *(stop)* On a mid-stream failure the framework merges the
+  `image_pipe_send_result` send-time override into `[:request, :stop]`'s
+  `:result` (`request_stop_metadata/2` `Map.merge`es the `[:send]` metadata),
+  so the request result reflects what the send actually did; the dialects
+  compute their `[:request]` result pre-send from `request_metadata/1` and only
+  stamp `:status` after, so a mid-stream abort keeps the pre-send `:result`.
 - **`[:parse, :stop]`'s `:result` means different things.** The framework's
   `[:parse]` span encloses `PlanBuilder.to_plan/2`, so a geometry rejection
   (`rs:fill` with no dimensions) is `:error`; the dialect's `check_geometry/1`
   runs after the span closes, so the same request reports `:ok` and then 400s.
   Both reject pre-fetch.
-
-### Unverified
-
-- **Object detection (`g:obj:*`) is unverified on the dialect stack.** The
-  grammar accepts the URL; no dual-run case covers it, and two of the uncovered
-  cases are request-*safety* tests.
-- **~30 wire-conformance cases run framework-only**, gated on config keys the
-  dialect has no equivalent for yet (each gated `if @stack == :framework` with a
-  stated reason).
 
 ## Differential conformance
 
@@ -502,30 +441,59 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 
 ### CORS response headers
 
-`ImagePipe.Plug` exposes a dialect-neutral `allow_origin` mount option (default
-off). When set, the plug stamps `Access-Control-Allow-Origin: <value>` verbatim
-on every response (image, errors, redirect, 304) via a `register_before_send/2`
-hook and answers `OPTIONS` as a CORS preflight. It works for any parser mounted
-through `ImagePipe.Plug`, not just IIIF.
+`allow_origin` is a dialect-neutral runtime option (default off) shared by all
+three stacks: `ImagePipe.Plug` (any mounted parser, not just IIIF),
+`ImagePipe.Dialect.Imgproxy`, and `ImagePipe.Dialect.Native`
+(`ImagePipe.Dialect.SharedConfig` validates and carries the key for both
+dialects). When set, `ImagePipe.Response.CORS.maybe_register/2` registers a
+`register_before_send/2` hook — the same hook on all three stacks — that
+stamps `Access-Control-Allow-Origin: <value>` verbatim on **every** exit path:
+image, `/info`, 304, and 4xx errors.
 
-**This is a framework-`Plug`-only feature.** The inverted dialect stacks
-(`ImagePipe.Dialect.Imgproxy`, `ImagePipe.Dialect.Native`) mount directly and
-never route through `ImagePipe.Plug`, so they have **no** CORS handling at all —
-no `allow_origin` config key, no `Response.CORS`, no preflight. A host that
-needs CORS on the dialect stack must add it in its own router. See
-[Dialect-stack divergences](#dialect-stack-divergences); this is the same
-framework-only-gate shape as the host `max_result_*` clamps.
+**The `OPTIONS`/method layer is shared by all three stacks.** `ImagePipe.Plug`,
+`ImagePipe.Dialect.Imgproxy`, and `ImagePipe.Dialect.Native` all answer `OPTIONS`
+with `204 No Content` + `Allow: GET, HEAD` (+ `Access-Control-Allow-Methods` when
+`allow_origin` is set, via `Response.CORS.send_options/2`) and any other
+non-GET/HEAD method with `405` + `Allow: GET, HEAD` (`Response.Sender.send_method_not_allowed/1`).
+Both dialects route these ahead of the endpoint/pipeline split (`route/2` in
+`imgproxy.ex`/`native.ex`), inside the same `[:request]` telemetry span the
+framework uses, so the before-send CORS hook stamps these exits identically to
+every other one.
 
 - ✅ `IMGPROXY_ALLOW_ORIGIN` → `allow_origin` (configuration default; verbatim
   origin value, off when unset — same semantics as imgproxy's empty default).
 
-**Diverges (behavioral):** the neutral core answers `OPTIONS` with `204 No Content`
-(imgproxy: `200`), advertises `Access-Control-Allow-Methods: GET, HEAD, OPTIONS`
-(imgproxy: `GET, OPTIONS` — ImagePipe also serves `HEAD`), and emits
-`Access-Control-Allow-Methods` **only on the preflight** response (imgproxy stamps
-it on every CORS response). `Access-Control-Allow-Origin` itself — the load-bearing
-header — matches imgproxy on every response. The divergences are preflight-only
-and behaviorally inert (the methods header is consulted only during preflight).
+**Diverges (behavioral) from upstream imgproxy on all three stacks:**
+
+- **Non-GET/HEAD method: `405` + `Allow: GET, HEAD` vs imgproxy's `404`, no
+  `Allow`.** imgproxy's router matches routes by exact method
+  (`route.isMatch`, `server/router.go`); `/*` is only registered for `GET`,
+  `HEAD`, and `OPTIONS`, so any other method never matches a route and falls
+  through to the router's default `NotFoundHandler` (`server/router.go:145-158`)
+  — a bare `404`, `text/plain`, no `Allow` header. ImagePipe treats this as a
+  real method-not-allowed case instead.
+- **`OPTIONS`: `204` + `Allow` (+ `Access-Control-Allow-Methods` when
+  `allow_origin` is set) vs imgproxy's blank `200`, no `Allow`.** imgproxy
+  routes `OPTIONS "/*"` to its generic `OkHandler` (`imgproxy.go`), which
+  writes a bare `200 text/plain` (a single space byte) with no `Allow` header
+  at all; `Access-Control-Allow-Methods: GET, OPTIONS` is present only because
+  the route is separately wrapped in `WithCORS`, and only when
+  `IMGPROXY_ALLOW_ORIGIN` is set. ImagePipe advertises
+  `Access-Control-Allow-Methods: GET, HEAD, OPTIONS` (it also serves `HEAD`)
+  and emits it only on the `OPTIONS` preflight response — imgproxy's
+  `WithCORS` wraps `GET`, `HEAD`, and `OPTIONS` alike, so it stamps
+  `Access-Control-Allow-Methods` on every CORS-configured response, not just
+  preflight (the pre-existing, still-live divergence on that axis).
+- **`HEAD`: processed like `GET` vs imgproxy's blank `200`.** imgproxy routes
+  `HEAD "/*"` to the same `OkHandler` as `OPTIONS` — a fixed blank response
+  that never touches the processing pipeline. ImagePipe's `HEAD` is not a
+  method-layer case at all: it proceeds through the same `route/2` fallthrough
+  as `GET` and is fully processed (source fetch, transform, encode, cache),
+  matching `ImagePipe.Plug`'s existing behavior.
+
+None of these are conformance gaps against a documented option — they are the
+router-level shape of the method layer itself, deliberately diverging from
+imgproxy's minimal exact-method-routing/fixed-handler design.
 
 ### Routing prefix
 
@@ -1155,7 +1123,7 @@ transforms or output encoding.
 | `gravity:sm` | `g:sm` | Supported | Smart gravity via libvips attention smart crop (`VIPS_INTERESTING_ATTENTION`). |
 | `gravity:obj:face` | `g:obj:face` | Supported | Single `face` class via optional `image_vision` YuNet face detection; falls back to libvips attention when the detector is unavailable. |
 | `gravity:obj` / `g:obj:all` | | Supported | All detected objects — union of face (YuNet) and COCO-80 object (RT-DETR) detectors; falls back to libvips attention when the detector is unavailable. |
-| `gravity:obj:%c1:…:%cN` | | Supported | Multi-class object gravity using the COCO-80 vocabulary (underscore spelling, e.g. `g:obj:car:traffic_light`). Unknown classes are silently dropped (best-effort). Class-aware cache identity: only the detector children routed by the requested class set contribute to the cache key. |
+| `gravity:obj:%c1:…:%cN` | | Supported | Multi-class object gravity using the COCO-80 vocabulary (underscore spelling, e.g. `g:obj:car:traffic_light`). Unknown classes are silently dropped (best-effort). Class-aware cache identity: only the detector children routed by the requested class set contribute to the cache key and `ETag`, so swapping a detector model version invalidates exactly the variants that model produced. |
 | `gravity:objw` | | Supported | Pro per-class object-detection gravity weights. `g:objw:%c1:%w1:…:%cN:%wN` — positional class/weight pairs, weights are positive decimals (`≤ 0` rejected). Named classes form the detection spec (filter), exactly like `obj`; `all` is the pseudo-class that broadens detection to every class and sets the baseline default weight (e.g. `objw:all:2:face:3` = "detect everything, weight 2 by default, faces weight 3"). `objw:face:3` filters to faces (spec `["face"]`); `objw:all:1:face:3` detects all with face boost (spec `:all`) — they are NOT equivalent. Supported in both `g:` and `c:W:H:` forms. Falls back to libvips attention smart crop when the detector is unavailable. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, smart gravity (`c:W:H:sm`), object gravity (`c:W:H:obj:face`, `c:W:H:obj:car:dog`, `c:W:H:obj`, `c:W:H:obj:all`), and per-class weighted object gravity (`c:W:H:objw:%c1:%w1:…`); smart gravity runs libvips attention smart crop, and object gravity uses optional `image_vision` detection with attention fallback. |

@@ -84,31 +84,23 @@ defmodule ImagePipe.Transform.Executor do
 
   # Input color management is a data-determined preamble seeded once on the real-
   # execution path (the same gate as EXIF orientation), not a Plan operation. It
-  # imports the embedded profile into a working space before any operation. A
-  # failure is a decode failure (corrupt/unsupported profile), surfaced as
-  # {:decode, _} to stay consistent with the materialization contract.
-  defp seed_color_management(%State{telemetry_opts: telemetry_opts} = state, opts) do
+  # imports the embedded profile into a working space before any operation. The
+  # `[:transform, :input_color_management]` span is emitted by
+  # `InputColorManagement.condition/2` itself (via `state.telemetry_opts`), the
+  # shared seam every stack runs; this gate only decides whether the preamble
+  # runs at all (planning skips it). A failure is a decode failure
+  # (corrupt/unsupported profile), surfaced as {:decode, _} to stay consistent
+  # with the materialization contract.
+  defp seed_color_management(%State{} = state, opts) do
     if Keyword.get(opts, :seed_orientation, false) do
-      Telemetry.span(telemetry_opts, [:transform, :input_color_management], %{}, fn ->
-        run_color_management(state, opts)
-      end)
+      hdr? = Keyword.get(opts, :supports_hdr?, false)
+
+      case InputColorManagement.condition(state, supports_hdr?: hdr?) do
+        {:ok, %State{} = new_state} -> {:ok, new_state}
+        {:error, {InputColorManagement, reason}} -> {:error, {:decode, reason}}
+      end
     else
       {:ok, state}
-    end
-  end
-
-  defp run_color_management(%State{image: image} = state, opts) do
-    hdr? = Keyword.get(opts, :supports_hdr?, false)
-    working_space = InputColorManagement.working_space(VipsImage.interpretation(image), hdr?)
-
-    case InputColorManagement.condition(state, supports_hdr?: hdr?) do
-      {:ok, %State{} = new_state} ->
-        {{:ok, new_state},
-         %{result: :ok, working_space: working_space, imported?: new_state.color_imported?}}
-
-      {:error, {InputColorManagement, reason}} ->
-        {{:error, {:decode, reason}},
-         %{result: :processing_error, working_space: working_space, imported?: false}}
     end
   end
 

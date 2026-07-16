@@ -61,6 +61,7 @@ defmodule ImagePipe.Dialect.Native do
   alias ImagePipe.Cache
   alias ImagePipe.Decode
   alias ImagePipe.Delivery
+  alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Dialect.Native.Config
   alias ImagePipe.Dialect.Native.Errors
   alias ImagePipe.Dialect.Native.Identity
@@ -74,15 +75,20 @@ defmodule ImagePipe.Dialect.Native do
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
+  alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
+  alias ImagePipe.Output.Resolved, as: ResolvedOutput
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.Conditional
+  alias ImagePipe.Response.CORS
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Materializer
+  alias ImagePipe.Transform.State
 
   # The BlurHash terminal's delivery content type. Fixed — `format`/`q` with
   # a non-image `output` are Tier-2 parse rejects (Task 5), so no negotiation
@@ -99,25 +105,32 @@ defmodule ImagePipe.Dialect.Native do
   # core primitive").
   @auto_rotate? true
 
-  # Effective result-dimension/pixel caps for Output.Clamp. The framework's
-  # equivalent (ImagePipe.Request.Options) exposes these as host-configurable
-  # options; the probe subset does not (Native.Config has no max_result_*
-  # keys yet), so they're fixed here at the framework's own defaults.
-  @default_max_result_width 8_192
-  @default_max_result_height 8_192
-  @default_max_result_pixels 40_000_000
-
   @impl Plug
   def init(opts), do: Config.validate!(opts)
 
   @impl Plug
   def call(%Plug.Conn{} = conn, config) when is_list(config) do
     Telemetry.Trace.maybe_extract_inbound(conn)
+    conn = CORS.maybe_register(conn, config)
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {conn, metadata} = route(conn, config)
       {conn, Map.put(metadata, :status, conn.status)}
     end)
+  end
+
+  defp route(%Plug.Conn{method: "OPTIONS"} = conn, config) do
+    conn = send_with_span(conn, config, :options, fn -> CORS.send_options(conn, config) end)
+    {conn, %{result: :options}}
+  end
+
+  defp route(%Plug.Conn{method: method} = conn, config) when method not in ["GET", "HEAD"] do
+    conn =
+      send_with_span(conn, config, :method_not_allowed, fn ->
+        Sender.send_method_not_allowed(conn)
+      end)
+
+    {conn, %{result: :method_not_allowed}}
   end
 
   defp route(%Plug.Conn{} = conn, config) do
@@ -136,16 +149,59 @@ defmodule ImagePipe.Dialect.Native do
         )
 
       if Conditional.not_modified?(conn, representation.etag) do
-        conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
-        {conn, request_metadata(:not_modified)}
+        send_not_modified(conn, representation, config)
       else
         serve(conn, request, resolved, negotiation, representation, config)
       end
     else
       {:error, reason} ->
-        conn = Errors.send(conn, reason, config)
-        {conn, request_metadata({:error, reason})}
+        send_error(conn, reason, config)
     end
+  end
+
+  # The `[:send]` span, wrapping every terminal send this dialect performs —
+  # `Sender.send_result/3`, `Errors.send/3`, the complete-body `send_resp/3`
+  # sends (blurhash and its cache hit), and the OPTIONS-204/method-405 heads —
+  # mirroring `ImagePipe.Plug.send_response/4` + `send_stop_metadata/2`.
+  # `[:deliver]` (the shared `Response.Sender` streaming span) nests inside it;
+  # both run in the connection-owner process.
+  defp send_with_span(%Plug.Conn{}, config, result, fun) do
+    Telemetry.span(Telemetry.telemetry_opts(config), [:send], %{result: result}, fn ->
+      sent_conn = fun.()
+      {sent_conn, send_stop_metadata(sent_conn, result)}
+    end)
+  end
+
+  defp send_stop_metadata(%Plug.Conn{} = conn, result) do
+    %{
+      result: Map.get(conn.private, :image_pipe_send_result, result),
+      status: conn.status
+    }
+  end
+
+  # The three send shapes every branch of this chain reduces to, each one a
+  # `[:send]`-wrapped terminal paired with its `[:request]`-stop metadata.
+
+  defp send_not_modified(conn, %Representation{} = representation, config) do
+    metadata = request_metadata(:not_modified)
+
+    conn =
+      send_with_span(conn, config, metadata.result, fn ->
+        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+      end)
+
+    {conn, metadata}
+  end
+
+  defp send_error(conn, reason, config) do
+    metadata = request_metadata({:error, reason})
+
+    conn =
+      send_with_span(conn, config, metadata.result, fn ->
+        Errors.send(conn, reason, config)
+      end)
+
+    {conn, metadata}
   end
 
   # The `[:request]` span's `:result` vocabulary [AGENTS.md, telemetry
@@ -281,8 +337,7 @@ defmodule ImagePipe.Dialect.Native do
          config
        ) do
     if Conditional.if_none_match_wildcard?(conn) do
-      conn = Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
-      {conn, request_metadata(:not_modified)}
+      send_not_modified(conn, representation, config)
     else
       deliver_hit_entry(conn, entry, representation, cache_serve_us, config)
     end
@@ -298,28 +353,35 @@ defmodule ImagePipe.Dialect.Native do
          %Cache.Entry{representation: {:complete_body, content_type}} = entry,
          %Representation{} = representation,
          _cache_serve_us,
-         _config
+         config
        ) do
-    conn =
-      conn
-      |> put_resp_headers(Representation.response_headers(representation))
-      |> put_resp_content_type(content_type, nil)
-      |> send_resp(200, entry.body)
+    metadata = request_metadata(:ok)
 
-    {conn, request_metadata(:ok)}
+    conn =
+      send_with_span(conn, config, metadata.result, fn ->
+        conn
+        |> put_resp_headers(Representation.response_headers(representation))
+        |> put_resp_content_type(content_type, nil)
+        |> send_resp(200, entry.body)
+      end)
+
+    {conn, metadata}
   end
 
   defp deliver_hit_entry(conn, %Cache.Entry{} = entry, representation, cache_serve_us, config) do
     hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
+    metadata = request_metadata(:ok)
 
     conn =
-      Sender.send_result(
-        conn,
-        {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
-        config
-      )
+      send_with_span(conn, config, metadata.result, fn ->
+        Sender.send_result(
+          conn,
+          {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
+          config
+        )
+      end)
 
-    {conn, request_metadata(:ok)}
+    {conn, metadata}
   end
 
   defp generate(
@@ -335,18 +397,21 @@ defmodule ImagePipe.Dialect.Native do
 
     case Delivery.stream(self(), build_fun, representation.cache_key, response_meta, config) do
       {:ok, prepared} ->
-        conn =
-          Sender.send_result(
-            conn,
-            {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
-            config
-          )
+        metadata = request_metadata(:ok)
 
-        {conn, request_metadata(:ok)}
+        conn =
+          send_with_span(conn, config, metadata.result, fn ->
+            Sender.send_result(
+              conn,
+              {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
+              config
+            )
+          end)
+
+        {conn, metadata}
 
       {:error, reason} ->
-        conn = Errors.send(conn, reason, config)
-        {conn, request_metadata({:error, reason})}
+        send_error(conn, reason, config)
     end
   end
 
@@ -369,12 +434,17 @@ defmodule ImagePipe.Dialect.Native do
       {:ok, hash} ->
         cost_us = System.monotonic_time(:microsecond) - fetch_started_at
         write_complete_body_cache(representation, hash, cost_us, config)
-        conn = send_complete_body(conn, hash, representation)
-        {conn, request_metadata(:ok)}
+        metadata = request_metadata(:ok)
+
+        conn =
+          send_with_span(conn, config, metadata.result, fn ->
+            send_complete_body(conn, hash, representation)
+          end)
+
+        {conn, metadata}
 
       {:error, reason} ->
-        conn = Errors.send(conn, reason, config)
-        {conn, request_metadata({:error, reason})}
+        send_error(conn, reason, config)
     end
   end
 
@@ -467,24 +537,116 @@ defmodule ImagePipe.Dialect.Native do
   end
 
   defp build_and_pump(state, geometry, request, negotiation, config, pump) do
-    with {:ok, state} <-
-           Pipeline.run(
-             state,
-             geometry,
-             request,
-             pipeline_opts(negotiation, request, geometry, config)
-           ),
+    with {:ok, %State{} = state} <- run_transform(state, geometry, request, negotiation, config),
          {:ok, resolved_output} <-
-           resolve_output(negotiation.policy, geometry.source_format, state.image),
-         {:ok, clamped, _clamp_info} <- Clamp.clamp(state.image, result_limits(), config),
-         {:ok, stream, content_type, _search_meta} <-
-           Encoder.stream_output(clamped, resolved_output, config) do
-      pump.(stream, content_type, resolved_output, @debug_info)
+           resolve_output(negotiation.policy, geometry.source_format, state.image, config),
+         {:ok, clamped, _clamp_info} <-
+           Clamp.clamp_with_telemetry(
+             state.image,
+             result_limits(resolved_output.format, config),
+             resolved_output.format,
+             config
+           ),
+         {:ok, %State{image: image}} <-
+           materialize_for_delivery(%State{state | image: clamped}, config),
+         {:ok, chunk, content_type, stream_state, _search_meta} <-
+           encode_first_chunk(image, resolved_output, config) do
+      pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, @debug_info)
+    else
+      :empty -> {:error, {:encode, :empty_stream}}
+      {:error, _reason} = error -> error
     end
   rescue
     exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
   catch
     kind, reason -> {:error, {:transform, {kind, reason}}}
+  end
+
+  # The `[:transform, :execute]` span, wrapping the full pipeline run with the
+  # framework's own start/stop shapes (`Request.Processor.process_decoded_source/3`
+  # + `transform_stop_metadata/1`): start carries the aggregate semantic-plan
+  # view (`operations`/`operation_count`), stop the `:result`.
+  defp run_transform(state, geometry, %Request{} = request, negotiation, config) do
+    operations = Pipeline.operation_names(request)
+
+    Telemetry.span(
+      Telemetry.telemetry_opts(config),
+      [:transform, :execute],
+      %{operations: operations, operation_count: length(operations)},
+      fn ->
+        result =
+          Pipeline.run(
+            state,
+            geometry,
+            request,
+            pipeline_opts(negotiation, request, geometry, config)
+          )
+
+        {result, transform_stop_metadata(result)}
+      end
+    )
+  end
+
+  defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
+
+  defp transform_stop_metadata({:error, error}),
+    do: %{result: :processing_error, error: Error.tag(error)}
+
+  # The `[:encode]` span, mirroring the framework's honest forced-encode span
+  # (`Request.DeliveryBuild.encode_first_chunk/3` + `first_chunk/1`):
+  # `Encoder.stream_output/3` only builds the lazy encoder pipeline, so the
+  # first chunk is pulled HERE, inside the span and inside the producer — not
+  # later in the delivery pump, which would leave the span timing only encoder
+  # construction. `StreamPull.resume/2` then hands `pump` an enumerable that
+  # replays it. This is also what surfaces a first-chunk encode failure as a
+  # pre-header 500 (the framework's behavior) instead of a mid-stream abort of
+  # an already-committed 200.
+  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(config),
+      [:encode],
+      %{output_format: resolved_output.format},
+      fn ->
+        result =
+          with {:ok, stream, content_type, search_meta} <-
+                 Encoder.stream_output(image, resolved_output, config),
+               {:ok, chunk, stream_state} <- first_chunk(stream) do
+            {:ok, chunk, content_type, stream_state, search_meta}
+          end
+
+        {result, encode_stop_metadata(result, resolved_output.format)}
+      end
+    )
+  end
+
+  defp first_chunk(stream) do
+    StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
+  end
+
+  defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state, _search_meta}, format),
+    do: %{result: :ok, output_format: format}
+
+  defp encode_stop_metadata(:empty, format),
+    do: %{result: :processing_error, output_format: format, error: :empty_stream}
+
+  defp encode_stop_metadata({:error, reason}, format),
+    do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
+
+  # Delivery backstop, mirroring the framework's post-clamp barrier
+  # (`ImagePipe.Request.Processor.materialize_for_delivery/2`): the build path has
+  # no discretionary op that forces a mid-pipeline materialize, so a lazy vips
+  # pipeline can reach the encoder unmaterialized. Copy to RAM once before encode
+  # unless an op already did, mapping a copy failure to a decode error (→ 415) via
+  # `Materializer.materialize/2`. The `[:transform, :materialize]` span comes for
+  # free from `Materializer`. The carry stamp is NOT re-applied — `Pipeline.run/4`'s
+  # tail already stamped it, so this half of the framework barrier is not duplicated.
+  defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
+
+  defp materialize_for_delivery(%State{} = state, config) do
+    case Materializer.materialize(state, config) do
+      {:ok, %State{} = materialized} -> {:ok, materialized}
+      {:error, reason} -> {:error, {:decode, reason}}
+    end
   end
 
   # `Pipeline.run/4`'s input-color-management preamble needs to know whether the
@@ -502,24 +664,30 @@ defmodule ImagePipe.Dialect.Native do
     )
   end
 
-  defp resolve_output(policy, source_format, image) do
-    case Policy.resolve(policy, source_format) do
-      {:ok, resolved_output} ->
-        {:ok, resolved_output}
-
-      {:needs_final_image_alpha, :source} ->
-        {:ok, Policy.resolve_final_image_alpha(policy, Image.has_alpha?(image))}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+  # Negotiation runs through the shared `Output.Negotiate` seam (the
+  # `[:output, :negotiate]` span emitter). The helper's unwrapped `{:error,
+  # reason}` is passed straight through, preserving this dialect's error shape.
+  defp resolve_output(policy, source_format, image, config) do
+    Negotiate.negotiate_output(
+      policy,
+      source_format,
+      fn -> Image.has_alpha?(image) end,
+      Telemetry.telemetry_opts(config)
+    )
   end
 
-  defp result_limits do
+  defp result_limits(format, config) do
+    %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
+      Encoder.encoder_limit(format)
+
     %{
-      max_width: @default_max_result_width,
-      max_height: @default_max_result_height,
-      max_pixels: @default_max_result_pixels
+      max_width: min_limit(Keyword.fetch!(config, :max_result_width), encoder_dimension),
+      max_height: min_limit(Keyword.fetch!(config, :max_result_height), encoder_dimension),
+      max_pixels: min_limit(Keyword.fetch!(config, :max_result_pixels), encoder_pixels)
     }
   end
+
+  # Only the encoder limit can be `:infinity` ("no limit from the encoder").
+  defp min_limit(host_limit, :infinity), do: host_limit
+  defp min_limit(host_limit, encoder_limit), do: min(host_limit, encoder_limit)
 end

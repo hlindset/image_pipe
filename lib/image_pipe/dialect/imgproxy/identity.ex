@@ -3,17 +3,21 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   Composes the imgproxy dialect's representation identity material and the
   pre-negotiation output intent.
 
-  `material/4` builds an `ImagePipe.Representation.IdentityMaterial` from the
+  `material/5` builds an `ImagePipe.Representation.IdentityMaterial` from the
   canonical `%Request{}` plus the negotiation outcome (Task 17's
-  `negotiate/3`) — never from raw `conn` state beyond configured
-  `storage_inputs`, and never from `signature`, `expires`, `source_path`, or
-  ANY of `request.response` (`filename`/`disposition`/`debug?` — those select
-  delivery presentation, not response bytes):
+  `negotiate/3`) and the resolved detector identity — never from raw `conn`
+  state beyond configured `storage_inputs`, and never from `signature`,
+  `expires`, `source_path`, or ANY of `request.response`
+  (`filename`/`disposition`/`debug?` — those select delivery presentation, not
+  response bytes):
 
     * `representation` — the canonical pipelines, `auto_rotate`, the
       negotiated selection outcome (the `/info` terminal or the image
-      terminal's format selection), the canonical output intent, and the
-      effective output policy material (`negotiation.policy_material`).
+      terminal's format selection), the canonical output intent, the
+      effective output policy material (`negotiation.policy_material`), and —
+      only for a detection request — the resolved detector identity, so a
+      detector/model swap yields a different cache key and ETag instead of
+      colliding.
     * `storage_only` — the cachebuster plus configured `storage_inputs`
       values (`ImagePipe.Representation.storage_inputs/2`); `conn`
       contributes to identity only through this.
@@ -40,10 +44,18 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   @doc """
   Builds the pre-fetch identity material for `request`, given the negotiation
   outcome, the incoming `conn` (consulted only for configured
-  `storage_inputs`), and dialect `config`.
+  `storage_inputs`), dialect `config`, and the resolved `detector_identity`
+  (`nil` for a non-detection request, or when detection is disabled).
   """
-  @spec material(Request.t(), Negotiation.t(), Plug.Conn.t(), keyword()) :: IdentityMaterial.t()
-  def material(%Request{} = request, %Negotiation{} = negotiation, %Plug.Conn{} = conn, config)
+  @spec material(Request.t(), Negotiation.t(), Plug.Conn.t(), keyword(), term() | nil) ::
+          IdentityMaterial.t()
+  def material(
+        %Request{} = request,
+        %Negotiation{} = negotiation,
+        %Plug.Conn{} = conn,
+        config,
+        detector_identity
+      )
       when is_list(config) do
     {configured_storage_only, storage_vary_names} =
       Representation.storage_inputs(conn, Keyword.get(config, :storage_inputs, []))
@@ -53,7 +65,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
     representation =
       [pipelines: canonical_pipelines(request.pipelines), auto_rotate: request.auto_rotate] ++
         selection_material(negotiation.selected) ++
-        [output: canonical_output(request.output), output_policy: negotiation.policy_material]
+        [output: canonical_output(request.output), output_policy: negotiation.policy_material] ++
+        detector_material(detector_identity)
 
     vary_header_names =
       if negotiation.vary? do
@@ -125,6 +138,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   defp selection_material({:terminal, :info}) do
     [terminal: :info]
   end
+
+  # Appended ONLY for a detection request. `Representation.build/3` hashes the
+  # material as-is (no nil-dropping), so an always-present `detector: nil` entry
+  # would churn every non-detection cache key and ETag — the entry must be
+  # absent, not nil, when there is no detector identity.
+  defp detector_material(nil), do: []
+  defp detector_material(identity), do: [detector: identity]
 
   defp canonical_pipelines(pipelines), do: canonical(pipelines)
 

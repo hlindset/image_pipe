@@ -84,6 +84,14 @@ as one span. By deliberate design it also folds in the two input guards that run
 during decode — input-pixel-count validation and source body-size limiting —
 rather than emitting separate spans for them.
 
+It has two emission sites with mirrored metadata: the framework's
+`Request.Processor` (its own fetch+decode+validate step), and the dialect-shared
+`ImagePipe.Decode.with_image/4` bracket, which both in-tree dialects route
+through. The dialect-side span closes immediately after the decoded state is
+built, *before* the dialect's transform/encode continuation runs (even though
+that continuation stays inside the source bracket), so a transform or encode
+failure is never misattributed to fetch/decode.
+
 This fold is intentional. libvips is lazy: a standalone `[:decode]` span would
 time loader *construction*, not pixel work (real decode cost is realized later,
 during transform materialization and encode). A separate timing span for it
@@ -129,8 +137,10 @@ Failure stop metadata (one of two shapes, by failure mode):
 
 ### Transform execute span (`[:transform, :execute]`)
 
-The `[:image_pipe, :transform, :execute]` span wraps the full transform chain.
-Its start metadata carries the aggregate plan view:
+The `[:image_pipe, :transform, :execute]` span wraps the full transform chain —
+`Request.Processor.process_decoded_source/3` on the framework stack, the
+dialect pipeline run (`Pipeline.run/4`) on each dialect stack, all with the
+same start/stop shapes. Its start metadata carries the aggregate plan view:
 
 - `:operation_count` — number of **plan** operations.
 - `:operations` — the ordered list of **plan** (semantic) operation-name atoms.
@@ -150,10 +160,14 @@ Stop metadata: `:result` (`:ok` or `:processing_error`).
 ### Input color management span (`[:transform, :input_color_management]`)
 
 The `[:image_pipe, :transform, :input_color_management]` span wraps the
-data-determined input-color preamble (`ImagePipe.Transform.InputColorManagement`),
-which runs once at the start of transform execution to condition the decoded image
-into a working colorspace before any plan operation. It is emitted nested inside
-`[:transform, :execute]`.
+data-determined input-color preamble, which runs once at the start of transform
+execution to condition the decoded image into a working colorspace before any plan
+operation. It is emitted from the shared seam
+`ImagePipe.Transform.InputColorManagement.condition/2` itself (via
+`State.telemetry_opts`), so every stack that runs the preamble — the framework
+`Executor` and both in-tree dialects — emits it with identical metadata, nested
+inside `[:transform, :execute]` on every stack (the dialect pipeline run
+includes the preamble).
 
 Stop metadata:
 
@@ -236,14 +250,40 @@ Parenting depends on where the materialization happens — there are three cases
   boundary): nested under that `Flush` op's `[:transform, :operation]` span,
   inside `[:transform, :execute]`;
 - **delivery backstop**, when a chain streamed through without ever materializing
-  and the late delivery copy runs after `[:transform, :execute]` has closed:
-  nested under the request root.
+  and the late delivery copy runs after the transform pipeline has closed
+  (after `[:transform, :execute]` on the framework): nested under the request root.
 
-Every request that decodes and runs the transform pipeline (a cache miss)
+The delivery backstop runs on every stack — the framework delivery build
+(`ImagePipe.Request.Processor.materialize_for_delivery/2`) and both in-tree
+dialects, which run the same post-clamp, pre-encode `Materializer.materialize/2`
+barrier — so all three emit the backstop span with identical metadata. Every
+request that decodes and runs the transform pipeline (a cache miss)
 materializes at least once: a chain that never materializes mid-pipeline hits the
 delivery backstop. Requests served from cache (cache hits, conditional `304`s) skip
 decode and transform entirely, so they emit no `[:transform, :materialize]` span
 (nor any other transform span).
+
+### Output negotiate span (`[:output, :negotiate]`)
+
+The `[:image_pipe, :output, :negotiate]` span wraps output-format negotiation —
+resolving the request's `Output.Policy` against the decoded source format into a
+concrete `Output.Resolved`. It is emitted from the shared seam
+`ImagePipe.Output.Negotiate.negotiate_output/4`, which every stack (the framework
+delivery build and both in-tree dialects) calls, so all three emit it with
+identical metadata. The single span encloses **both** resolution legs —
+`Policy.resolve/2` and, when the format depends on the final image's alpha, the
+second `resolve_final_image_alpha` pass — so exactly one span is emitted per
+request regardless of which legs run.
+
+Start metadata: `:output_mode` — `:explicit` when the request pinned a format, or
+`:automatic` when the format is `Accept`-negotiated from the source.
+
+Stop metadata:
+
+- `:result` — `:ok`, or `:output_error` when negotiation fails (e.g. a
+  source-only format with no acceptable target).
+- `:output_format` — the negotiated output format atom, on success.
+- `:error` — a stable error category (`ImagePipe.Error.tag/1`), on failure.
 
 ### Output encode span (`[:encode]`)
 
@@ -256,6 +296,11 @@ the work happens here when the first chunk is pulled.
 
 It is emitted from the **producer** process and parents to the request root
 (sibling of the delivery-backstop `[:transform, :materialize]`), not to `[:send]`.
+Every stack emits it from its own build path — the framework's
+`Request.DeliveryBuild` and each dialect's producer-side build — and each one
+forces the first chunk *inside* the span, so a first-chunk encode failure
+surfaces before any response header is written (a pre-header 500), never as a
+mid-stream abort of an already-committed 200.
 
 Start metadata: `:output_format` — the negotiated output format atom.
 
@@ -453,12 +498,27 @@ Both surfaces subscribe to it: the default Logger renders one line
 (`image_pipe encode search chosen: q64 12345b (objective score 90.42)`, base
 level), and the OTel exporter folds it onto the search span.
 
+### Send span (`[:send]`)
+
+The `[:image_pipe, :send]` span wraps the terminal response send — every path a
+request can exit through: the streamed/cached image sends, error responses,
+rendered/complete bodies (`/info`, blurhash), 304s, the OPTIONS 204, and the
+method-405 reject. The framework emits it from `ImagePipe.Plug` and each
+dialect from its own Plug module, all with the same shapes. It runs in the
+connection-owner process.
+
+Start metadata: `:result` — the request's classified result (same vocabulary as
+`[:request]`'s stop `:result`).
+
+Stop metadata: `:result` (re-read after the send, so a mid-stream delivery
+failure surfaces as `:processing_error`) and `:status` — the sent HTTP status.
+
 ### Delivery streaming span (`[:deliver]`)
 
 The `[:image_pipe, :deliver]` span wraps streaming the already-produced encoded
 chunks back over the connection. It measures connection delivery, **not**
 encoding. It is emitted from the request process (`ImagePipe.Response.Sender`),
-nested under `[:send]`.
+nested under `[:send]` on every stack.
 
 Stop metadata:
 
@@ -762,6 +822,12 @@ Metadata:
 
 This metadata is product-neutral and non-sensitive (no URLs, secrets, or PII).
 
+The event is emitted from a single site — the shared clamp seam
+`ImagePipe.Output.Clamp.clamp_with_telemetry/4` — which every stack (the
+framework delivery build and both the imgproxy and native dialects) calls, so all
+three arms produce identical `[:output, :clamp]` metadata. It fires only when the
+clamp actually downscaled the image; a within-caps result is a silent no-op.
+
 The opt-in default Logger attaches to this event and renders it at `:warning`,
 matching imgproxy's `slog.Warn` for the same condition, e.g.:
 
@@ -988,3 +1054,9 @@ tracer (start the SDK). See `docs/cookbook/opentelemetry-jaeger.md`.
 sampled flag set — trace-level correlation requires every span to reach the SDK.
 Host-side `trace_flags` sampling does not apply on this path; do sampling in your
 downstream OTel collector instead.
+
+**Span attributes:** the `[:output, :clamp]` one-shot's `source_dimensions` /
+`dimensions` / `limits` and the `[:transform, :input_color_management]` span's
+`working_space` / `imported?` are on the capture allowlist, so they surface as
+OTel span attributes on every stack — the framework and both dialects alike (all
+product-neutral geometry, a colorspace atom, and a boolean; no secrets).

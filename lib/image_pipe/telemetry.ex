@@ -207,6 +207,83 @@ defmodule ImagePipe.Telemetry do
     end)
   end
 
+  @typedoc "Handle for a manually bracketed span. See `start_span/3`."
+  @opaque span_handle() :: %{
+            event: [atom()],
+            start_time: integer(),
+            start_metadata: map(),
+            closed: :atomics.atomics_ref()
+          }
+
+  @doc """
+  Opens a manual span bracket for the one case `span/4` cannot express: a span
+  whose close site is not a function boundary (`ImagePipe.Decode.with_image/4`'s
+  `[:source, :fetch_decode]` span must close *inside* the source bracket,
+  after decode but before the caller's build continuation runs).
+
+  Mirrors `:telemetry.span/3`'s event names, measurement keys (`:monotonic_time`
+  + `:system_time` on `:start`; `:duration` + `:monotonic_time` on
+  `:stop`/`:exception`), and metadata semantics (start metadata merged into the
+  stop metadata, `telemetry_span_context` on every phase, matching `span/4`).
+
+  `stop_span/2` and `exception_span/4` are single-shot: the first close wins and
+  later calls no-op, so a surrounding catch-all may emit `exception_span/4`
+  unconditionally without re-closing a span that already stopped.
+  """
+  @spec start_span(keyword(), [atom()], map() | keyword()) :: span_handle()
+  def start_span(telemetry_opts, stage, start_metadata) when is_list(stage) do
+    event = event_prefix(telemetry_opts, stage)
+
+    start_metadata =
+      start_metadata
+      |> clean_metadata()
+      |> Map.put_new(:telemetry_span_context, make_ref())
+
+    start_time = System.monotonic_time()
+
+    :telemetry.execute(
+      event ++ [:start],
+      %{monotonic_time: start_time, system_time: System.system_time()},
+      start_metadata
+    )
+
+    %{
+      event: event,
+      start_time: start_time,
+      start_metadata: start_metadata,
+      closed: :atomics.new(1, signed: false)
+    }
+  end
+
+  @doc "Closes a `start_span/3` bracket with a `:stop` event. Single-shot."
+  @spec stop_span(span_handle(), map() | keyword()) :: :ok
+  def stop_span(handle, stop_metadata) do
+    close_span(handle, :stop, merge_metadata(handle.start_metadata, stop_metadata))
+  end
+
+  @doc "Closes a `start_span/3` bracket with an `:exception` event. Single-shot."
+  @spec exception_span(span_handle(), Exception.kind(), term(), Exception.stacktrace()) :: :ok
+  def exception_span(handle, kind, reason, stacktrace) do
+    metadata =
+      Map.merge(handle.start_metadata, %{kind: kind, reason: reason, stacktrace: stacktrace})
+
+    close_span(handle, :exception, metadata)
+  end
+
+  defp close_span(handle, phase, metadata) do
+    if :atomics.compare_exchange(handle.closed, 1, 0, 1) == :ok do
+      stop_time = System.monotonic_time()
+
+      :telemetry.execute(
+        handle.event ++ [phase],
+        %{duration: stop_time - handle.start_time, monotonic_time: stop_time},
+        metadata
+      )
+    end
+
+    :ok
+  end
+
   @spec execute(keyword(), [atom()], map() | keyword(), map() | keyword()) :: :ok
   def execute(telemetry_opts, stage, measurements, metadata) when is_list(stage) do
     telemetry_opts

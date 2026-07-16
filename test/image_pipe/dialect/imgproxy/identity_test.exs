@@ -52,8 +52,14 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
     struct!(Negotiation, Keyword.merge(base, overrides))
   end
 
-  defp material(request, negotiation, conn \\ conn(:get, "/"), config \\ []) do
-    Identity.material(request, negotiation, conn, config)
+  defp material(
+         request,
+         negotiation,
+         conn \\ conn(:get, "/"),
+         config \\ [],
+         detector_identity \\ nil
+       ) do
+    Identity.material(request, negotiation, conn, config, detector_identity)
   end
 
   defp source_identity,
@@ -218,6 +224,30 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
       mat = material(request(), neg)
 
       assert Keyword.fetch!(mat.representation, :selection) == {:image, :avif}
+    end
+  end
+
+  describe "detector identity (B1b)" do
+    test "differing detector identity yields differing representation and ETag" do
+      a = material(request(), negotiation(), conn(:get, "/"), [], {:face_model, :v1})
+      b = material(request(), negotiation(), conn(:get, "/"), [], {:face_model, :v2})
+
+      refute a.representation == b.representation
+      refute build(source_identity(), a).etag == build(source_identity(), b).etag
+    end
+
+    test "present vs nil detector identity differ in representation and ETag" do
+      present = material(request(), negotiation(), conn(:get, "/"), [], {:face_model, :v1})
+      absent = material(request(), negotiation(), conn(:get, "/"), [], nil)
+
+      refute present.representation == absent.representation
+      refute build(source_identity(), present).etag == build(source_identity(), absent).etag
+    end
+
+    test "nil detector identity yields a representation with no :detector key (no churn)" do
+      mat = material(request(), negotiation(), conn(:get, "/"), [], nil)
+
+      refute Keyword.has_key?(mat.representation, :detector)
     end
   end
 

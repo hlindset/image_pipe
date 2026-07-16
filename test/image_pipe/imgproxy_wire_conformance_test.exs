@@ -15,9 +15,11 @@
 # names — green while proving nothing. `FrameworkParser` below is the ONE
 # deliberately unparameterized reference, and it is a URL builder, not a stack.
 #
-# Framework-only tests are gated `if @stack == :framework` with a stated reason
-# (a request option the phase-1 dialect config has no key for). They are the
-# places a parity gap can still hide; see the report for the full list.
+# Every test case runs on both arms. The only per-arm differences left are
+# opts splits for `http_cache:` — a framework-only `Request.Options` opt-in
+# gating ETag emission, which the dialect config (correctly) raises on and
+# whose behavior the dialects realize unconditionally — each commented at its
+# call site.
 for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
   defmodule Module.concat(ImagePipe.ImgproxyWireConformanceTest, suffix) do
     use ExUnit.Case, async: true
@@ -595,57 +597,120 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       def identity(_opts), do: {__MODULE__, :unavailable}
     end
 
-    defmodule FaceVerFake do
+    # Versioned detector fakes for the detector-model-identity cache-key/ETag
+    # block. Each carries a CONSTANT identity per module, so a "model version
+    # change" is a swap to a different module — the DI-key mechanism the block
+    # once used (`face_ver:`/`object_ver:` top-level keys) is gone, because the
+    # dialect's `Config.validate!/1` raises on any key outside its closed set.
+    # Face and object leaves keep DISTINCT `supported_classes`, so a composite
+    # routes an object-only request past the face leaf entirely (and vice
+    # versa) — the property the independence cases assert.
+    defmodule FaceVerFakeV1 do
       @moduledoc false
       @behaviour ImagePipe.Transform.Detector
 
       @impl true
       def supported_classes(_), do: ["face"]
-
       @impl true
       def available?(_), do: true
-
       @impl true
-      def identity(opts), do: {__MODULE__, Keyword.get(opts, :face_ver, :v1)}
-
+      def identity(_), do: {__MODULE__, :v1}
       @impl true
       def detect(_, _), do: {:ok, []}
     end
 
-    defmodule ObjectVerFake do
+    defmodule FaceVerFakeV2 do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      @impl true
+      def supported_classes(_), do: ["face"]
+      @impl true
+      def available?(_), do: true
+      @impl true
+      def identity(_), do: {__MODULE__, :v2}
+      @impl true
+      def detect(_, _), do: {:ok, []}
+    end
+
+    defmodule ObjectVerFakeV1 do
       @moduledoc false
       @behaviour ImagePipe.Transform.Detector
 
       @impl true
       def supported_classes(_), do: ["car", "dog"]
-
       @impl true
       def available?(_), do: true
-
       @impl true
-      def identity(opts), do: {__MODULE__, Keyword.get(opts, :object_ver, :v1)}
-
+      def identity(_), do: {__MODULE__, :v1}
       @impl true
       def detect(_, _), do: {:ok, []}
     end
 
-    defmodule VerComposite do
+    defmodule ObjectVerFakeV2 do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      @impl true
+      def supported_classes(_), do: ["car", "dog"]
+      @impl true
+      def available?(_), do: true
+      @impl true
+      def identity(_), do: {__MODULE__, :v2}
+      @impl true
+      def detect(_, _), do: {:ok, []}
+    end
+
+    defmodule VerCompositeV1V1 do
       @moduledoc false
       @behaviour ImagePipe.Transform.Detector
 
       alias ImagePipe.Transform.Detector.Composite
 
-      defp c, do: Composite.new([FaceVerFake, ObjectVerFake])
+      defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV1])
 
       @impl true
       def supported_classes(_o), do: Composite.supported_classes(c())
-
       @impl true
       def detect(i, o), do: Composite.detect(c(), i, o)
-
       @impl true
       def available?(o), do: Composite.available?(c(), o)
+      @impl true
+      def identity(o), do: Composite.identity(c(), o)
+    end
 
+    defmodule VerCompositeV2V1 do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      alias ImagePipe.Transform.Detector.Composite
+
+      defp c, do: Composite.new([FaceVerFakeV2, ObjectVerFakeV1])
+
+      @impl true
+      def supported_classes(_o), do: Composite.supported_classes(c())
+      @impl true
+      def detect(i, o), do: Composite.detect(c(), i, o)
+      @impl true
+      def available?(o), do: Composite.available?(c(), o)
+      @impl true
+      def identity(o), do: Composite.identity(c(), o)
+    end
+
+    defmodule VerCompositeV1V2 do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      alias ImagePipe.Transform.Detector.Composite
+
+      defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV2])
+
+      @impl true
+      def supported_classes(_o), do: Composite.supported_classes(c())
+      @impl true
+      def detect(i, o), do: Composite.detect(c(), i, o)
+      @impl true
+      def available?(o), do: Composite.available?(c(), o)
       @impl true
       def identity(o), do: Composite.identity(c(), o)
     end
@@ -1007,72 +1072,125 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       assert byte_size(conn.resp_body) > 0
     end
 
-    # FRAMEWORK-ONLY — and the loudest gap this dual-run found. The phase-1
-    # dialect has NO method/CORS layer at all: `Dialect.Imgproxy.call/2` routes
-    # straight to `:info`/`:image` (imgproxy.ex `route/2`), so there is no
-    # `allow_origin` config key, no `OPTIONS` preflight, and no 405.
-    #
-    # Two DIFFERENT failures hide here, and only the first is a missing key:
-    #   * the three `allow_origin:` tests raise `unknown option` out of
-    #     `Config.validate!/1` — they cannot be configured on the dialect at all;
-    #   * `OPTIONS -> 204 + Allow` needs NO config key, so it DOES reach the
-    #     dialect — and returns **400**, not 204: the dialect parses `OPTIONS
-    #     /_/anything` as an image request and rejects the path. That is a live
-    #     behavioral divergence, not just an unbuilt seam (divergence D1 in
-    #     .superpowers/sdd/task-19-report.md).
-    # Gating this describe parks BOTH. Re-arm it when the dialect grows a method
-    # layer; until then D1 is a known, reported, unfixed divergence.
-    if @stack == :framework do
-      describe "CORS (dialect-neutral, through the imgproxy parser)" do
-        test "image response carries Access-Control-Allow-Origin when allow_origin set" do
-          encoded = encoded_source("images/beach.jpg")
+    describe "CORS (dialect-neutral, through the imgproxy parser)" do
+      test "image response carries Access-Control-Allow-Origin when allow_origin set" do
+        encoded = encoded_source("images/beach.jpg")
 
-          conn =
-            call_imgproxy(
-              "/_/rt:force/w:120/h:90/f:jpeg/#{encoded}",
-              [allow_origin: "https://cdn.test"] ++ @default_opts
-            )
+        conn =
+          call_imgproxy(
+            "/_/rt:force/w:120/h:90/f:jpeg/#{encoded}",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
 
-          assert conn.status == 200
-          assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-        end
+        assert conn.status == 200
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
 
-        test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
-          conn =
-            call_imgproxy_method(
-              :options,
-              "/_/anything",
-              [allow_origin: "https://cdn.test"] ++ @default_opts
-            )
+      # The `Response.CORS` before-send hook is registered once, ahead of the
+      # whole request chain (imgproxy.ex/native.ex `call/2`), so it must stamp
+      # every exit path — not just the 200 image body proven above. These three
+      # cover the other exits reachable without a method layer: a 304 from the
+      # pre-fetch conditional-GET gate, a pre-fetch 4xx image error, and the
+      # `/info` terminal.
+      test "a 304 Not Modified response carries Access-Control-Allow-Origin when allow_origin set" do
+        base_opts =
+          Keyword.merge(@default_opts,
+            allow_origin: "https://cdn.test",
+            sources: [
+              path:
+                {RootHTTPAdapter,
+                 root_url: "http://origin.test",
+                 byte_identity: :strong,
+                 req_options: [plug: OriginImage]}
+            ]
+          )
 
-          assert conn.status == 204
-          assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-          assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
-          assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-        end
+        # `http_cache: [mode: :enabled]` is a framework-only opt-in
+        # (`Request.Options`, default `:disabled`) gating ETag emission — the
+        # dialects have no such gate and emit an ETag unconditionally whenever
+        # the source has a strong byte identity.
+        opts =
+          if @stack == :framework do
+            Keyword.put(base_opts, :http_cache, mode: :enabled)
+          else
+            base_opts
+          end
 
-        test "OPTIONS → 204 + Allow, no CORS headers when allow_origin unset" do
-          conn = call_imgproxy_method(:options, "/_/anything", @default_opts)
+        path = "/_/w:120/plain/images/beach.jpg"
 
-          assert conn.status == 204
-          assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-          assert get_resp_header(conn, "access-control-allow-methods") == []
-          assert get_resp_header(conn, "access-control-allow-origin") == []
-        end
+        first = call_imgproxy(path, opts)
+        [etag] = get_resp_header(first, "etag")
 
-        test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
-          conn =
-            call_imgproxy_method(
-              :put,
-              "/_/anything",
-              [allow_origin: "https://cdn.test"] ++ @default_opts
-            )
+        conn =
+          :get
+          |> conn(path)
+          |> put_req_header("if-none-match", etag)
+          |> call_imgproxy_conn(opts)
 
-          assert conn.status == 405
-          assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-          # Proves the before-send hook is not 200-only: it fires on the 405 too.
-          assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-        end
+        assert conn.status == 304
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
+
+      test "a 4xx image error carries Access-Control-Allow-Origin when allow_origin set" do
+        conn =
+          call_imgproxy(
+            "/_/w:-1/plain/images/beach.jpg",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
+
+        assert conn.status == 400
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
+
+      test "an /info response carries Access-Control-Allow-Origin when allow_origin set" do
+        conn =
+          call_imgproxy(
+            "/info/unsafe/plain/images/beach.jpg",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
+
+        assert conn.status == 200
+        assert content_type(conn) == ["application/json; charset=utf-8"]
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
+    end
+
+    describe "CORS OPTIONS/method layer" do
+      test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
+        conn =
+          call_imgproxy_method(
+            :options,
+            "/_/anything",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
+
+        assert conn.status == 204
+        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+        assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+      end
+
+      test "OPTIONS → 204 + Allow, no CORS headers when allow_origin unset" do
+        conn = call_imgproxy_method(:options, "/_/anything", @default_opts)
+
+        assert conn.status == 204
+        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+        assert get_resp_header(conn, "access-control-allow-methods") == []
+        assert get_resp_header(conn, "access-control-allow-origin") == []
+      end
+
+      test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
+        conn =
+          call_imgproxy_method(
+            :put,
+            "/_/anything",
+            [allow_origin: "https://cdn.test"] ++ @default_opts
+          )
+
+        assert conn.status == 405
+        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+        # Proves the before-send hook is not 200-only: it fires on the 405 too.
+        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
       end
     end
 
@@ -1821,18 +1939,10 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     end
 
     # `detector_required: true` + a detection request the stack cannot honor must
-    # reject BEFORE source and cache access, on both arms.
-    #
-    # The two arms reach "cannot honor" differently, which is why the opts are
-    # `@stack`-conditional. The framework HAS a detector seam, so an unavailable
-    # detector has to be injected (`detector: UnavailableDetector`). The dialect
-    # has NO detector at all (`detector:` is not one of its config keys), so any
-    # object-detection request is unconditionally unavailable — the same outcome
-    # the framework reaches with no detector configured. The observable contract
-    # asserted below is identical for both.
-    @detector_gate_opts if @stack == :framework,
-                          do: [detector: UnavailableDetector, detector_required: true],
-                          else: [detector_required: true]
+    # reject BEFORE source and cache access, on both arms. Both arms carry a
+    # `:detector` config key (the dialect gained it in B1a), so both inject the
+    # same unavailable detector explicitly — identical opts, identical contract.
+    @detector_gate_opts [detector: UnavailableDetector, detector_required: true]
 
     test "detector_required + unavailable detector rejects before source AND cache access" do
       telemetry_prefix = [:image_pipe_wire_safety]
@@ -1873,6 +1983,55 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
 
       assert conn.status == 200
       assert dimensions(conn) == {80, 80}
+    end
+
+    # Face-assist is deliberately NOT part of the strict detector gate: the
+    # framework's `validate_detector_capability/2` keys the gate on
+    # `Plan.detect_classes/1` alone (a `{:detect, _}` guide), while a face-assist
+    # smart crop carries a `{:smart, :face_assist}` guide that is not one of the
+    # gated detect classes. So even under `detector_required: true` with an
+    # UNAVAILABLE face detector, a `g:sm` + face-detection request must DEGRADE to
+    # attention (200), not reject (422). Both arms genuinely produce the
+    # `{:smart, :face_assist}` guide here — the dialect stamps the flag onto its
+    # PipelineRequest just as the framework does — so pinning this on BOTH arms
+    # keeps the dialect's gate from turning an active face-assist request into a
+    # divergence the framework does not have.
+    @face_assist_gate_opts [
+      detector: UnavailableDetector,
+      detector_required: true,
+      imgproxy: [smart_crop_face_detection: true]
+    ]
+
+    test "face-assist smart crop under detector_required + unavailable detector degrades to 200" do
+      opts = Keyword.merge(@default_opts, @face_assist_gate_opts)
+
+      conn = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert conn.status == 200
+      assert dimensions(conn) == {50, 50}
+    end
+
+    # With a face detector available, `g:sm` + `smart_crop_face_detection: true`
+    # carries a `{:smart, :face_assist}` guide that biases the fill-crop toward the
+    # detected face box, rendering DIFFERENT pixels than a plain `g:sm` attention
+    # crop with the flag off. WeightedSceneDetector's face box ({1400,600,400,400})
+    # sits left-of-center on beach.jpg (4000×2667), pulling the crop window
+    # measurably. Both the framework and the dialect read the flag (framework off
+    # `:imgproxy`, dialect off its flat config), so both arms must render the shift.
+    test "g:sm face-assist smart crop biases the rendered crop vs plain g:sm" do
+      base = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+      assisted = Keyword.merge(base, imgproxy: [smart_crop_face_detection: true])
+
+      plain =
+        call_imgproxy("/_/rs:fill:2000:2000/g:sm/f:jpeg/plain/images/beach.jpg", base)
+
+      faced =
+        call_imgproxy("/_/rs:fill:2000:2000/g:sm/f:jpeg/plain/images/beach.jpg", assisted)
+
+      assert plain.status == 200
+      assert faced.status == 200
+      assert dimensions(faced) == {2000, 2000}
+      refute faced.resp_body == plain.resp_body
     end
 
     test "encrypted unsupported decoded source scheme stops before cache lookup and origin fetch" do
@@ -2878,53 +3037,45 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     end
 
     describe "output capability handling" do
-      # FRAMEWORK-ONLY: `:output_capabilities` is the framework's seam for
-      # faking the libvips build's encoder support; the dialect config has no
-      # such key, so a test that must simulate an avif-less build cannot be
-      # expressed against it. The two capability-agnostic tests in this describe
-      # ("opaque padding … stays JPEG", "jpeg source … passes through") stay
-      # dual-run.
-      if @stack == :framework do
-        test "automatic negotiation drops avif when the build cannot write it" do
-          opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false, webp: true})
+      test "automatic negotiation drops avif when the build cannot write it" do
+        opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false, webp: true})
 
-          conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
+        conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/webp"]
-          assert get_resp_header(conn, "vary") == ["Accept"]
-        end
+        assert conn.status == 200
+        assert content_type(conn) == ["image/webp"]
+        assert get_resp_header(conn, "vary") == ["Accept"]
+      end
 
-        test "automatic negotiation keeps avif when the build supports it" do
-          opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true, webp: true})
+      test "automatic negotiation keeps avif when the build supports it" do
+        opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true, webp: true})
 
-          conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
+        conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/avif"]
-        end
+        assert conn.status == 200
+        assert content_type(conn) == ["image/avif"]
+      end
 
-        test "an avif source with a jpeg-only Accept transcodes to raster regardless of capability" do
-          base = [
-            parser: ImagePipe.Parser.Imgproxy,
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: AvifOriginImage]}
-            ]
+      test "an avif source with a jpeg-only Accept transcodes to raster regardless of capability" do
+        base = [
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: AvifOriginImage]}
           ]
+        ]
 
-          for capability <- [%{avif: true}, %{avif: false}] do
-            opts = Keyword.put(base, :output_capabilities, capability)
+        for capability <- [%{avif: true}, %{avif: false}] do
+          opts = Keyword.put(base, :output_capabilities, capability)
 
-            conn = call_imgproxy("/_/plain/images/cat.avif", opts, "image/jpeg")
+          conn = call_imgproxy("/_/plain/images/cat.avif", opts, "image/jpeg")
 
-            assert conn.status == 200
-            # 64x64 solid red has no alpha -> JPEG, never AVIF, for either build.
-            assert content_type(conn) == ["image/jpeg"]
-            # Decode confirms valid raster output at the source dimensions.
-            assert dimensions(conn) == {64, 64}
-          end
+          assert conn.status == 200
+          # 64x64 solid red has no alpha -> JPEG, never AVIF, for either build.
+          assert content_type(conn) == ["image/jpeg"]
+          # Decode confirms valid raster output at the source dimensions.
+          assert dimensions(conn) == {64, 64}
         end
       end
 
@@ -2952,36 +3103,33 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         assert dimensions(conn) == {84, 84}
       end
 
-      # FRAMEWORK-ONLY: `:output_capabilities` (see the note above).
-      if @stack == :framework do
-        test "an avif-capable and avif-less build caches distinct variants for the same Accept" do
-          {base, cache_root} = cached_opts()
+      test "an avif-capable and avif-less build caches distinct variants for the same Accept" do
+        {base, cache_root} = cached_opts()
 
-          try do
-            capable = Keyword.put(base, :output_capabilities, %{avif: true, webp: true})
-            incapable = Keyword.put(base, :output_capabilities, %{avif: false, webp: true})
-            accept = "image/avif,image/webp"
-            path = "/_/plain/images/beach.jpg"
+        try do
+          capable = Keyword.put(base, :output_capabilities, %{avif: true, webp: true})
+          incapable = Keyword.put(base, :output_capabilities, %{avif: false, webp: true})
+          accept = "image/avif,image/webp"
+          path = "/_/plain/images/beach.jpg"
 
-            capable_conn = call_imgproxy(path, capable, accept)
-            assert content_type(capable_conn) == ["image/avif"]
-            assert_received :origin_fetch
+          capable_conn = call_imgproxy(path, capable, accept)
+          assert content_type(capable_conn) == ["image/avif"]
+          assert_received :origin_fetch
 
-            incapable_conn = call_imgproxy(path, incapable, accept)
-            assert content_type(incapable_conn) == ["image/webp"]
-            # Distinct filtered candidate list -> distinct key -> a second origin fetch.
-            assert_received :origin_fetch
+          incapable_conn = call_imgproxy(path, incapable, accept)
+          assert content_type(incapable_conn) == ["image/webp"]
+          # Distinct filtered candidate list -> distinct key -> a second origin fetch.
+          assert_received :origin_fetch
 
-            # A repeat under the capable profile is served from cache without
-            # re-fetching the origin, proving the filtered candidate list keys the two
-            # variants apart (no cross-contamination from the webp entry).
-            repeat_capable = call_imgproxy(path, capable, accept)
-            assert content_type(repeat_capable) == ["image/avif"]
-            assert repeat_capable.resp_body == capable_conn.resp_body
-            refute_received :origin_fetch
-          after
-            File.rm_rf!(cache_root)
-          end
+          # A repeat under the capable profile is served from cache without
+          # re-fetching the origin, proving the filtered candidate list keys the two
+          # variants apart (no cross-contamination from the webp entry).
+          repeat_capable = call_imgproxy(path, capable, accept)
+          assert content_type(repeat_capable) == ["image/avif"]
+          assert repeat_capable.resp_body == capable_conn.resp_body
+          refute_received :origin_fetch
+        after
+          File.rm_rf!(cache_root)
         end
       end
 
@@ -2992,221 +3140,208 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         assert content_type(conn) == ["image/jpeg"]
       end
 
-      # FRAMEWORK-ONLY: `:output_capabilities` (see the note above).
-      if @stack == :framework do
-        test "explicit avif is rejected before source fetch on an avif-less build" do
-          opts = [
-            parser: ImagePipe.Parser.Imgproxy,
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-            ],
-            output_capabilities: %{avif: false}
-          ]
+      test "explicit avif is rejected before source fetch on an avif-less build" do
+        opts = [
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ],
+          output_capabilities: %{avif: false}
+        ]
 
-          conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
+        conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
 
-          assert conn.status == 501
-          # OriginShouldNotFetch flunks/raises if the source is fetched; reaching 501
-          # without that proves the rejection happened pre-fetch.
-        end
+        assert conn.status == 501
+        # OriginShouldNotFetch flunks/raises if the source is fetched; reaching 501
+        # without that proves the rejection happened pre-fetch.
+      end
 
-        test "explicit avif succeeds on a capable build" do
-          opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true})
+      test "explicit avif succeeds on a capable build" do
+        opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true})
 
-          conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
+        conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/avif"]
-          assert get_resp_header(conn, "vary") == []
-        end
+        assert conn.status == 200
+        assert content_type(conn) == ["image/avif"]
+        assert get_resp_header(conn, "vary") == []
       end
     end
 
-    # FRAMEWORK-ONLY (the whole object-detection block below, through the
-    # "g:objw:face:3 filters to face class" test): every one of these injects a
-    # fake detector via `detector:`, and the dialect config has no `:detector`
-    # seam — it carries no detector at all, so it cannot honor `g:obj:*` /
-    # `g:objw:*` and always falls back to attention cropping. Detector SUPPORT
-    # is phase-2 backlog B1.
+    # Object-detection block, dual-run on both arms: the dialect gained a
+    # `:detector` config seam in B1a (mirroring the framework's), so an injected
+    # fake detector reaches the crop path on both stacks and object-guided crops,
+    # class filtering, objw weights, and the class-aware strict gate are now
+    # verified against the dialect too. Detector model identity in the cache key
+    # remains a framework-only bit until the cache-identity task.
     #
-    # The `detector_required` half is NOT part of this hole: the dialect has the
-    # key, and its pre-fetch 422 is dual-run above ("detector_required +
-    # unavailable detector rejects before source AND cache access"), with the
-    # `detector_required: false` no-divergence guard beside it.
+    # Task 10: Pixel divergence — g:obj:car crop biases toward the detected corner
+    # object, distinct from both center gravity and attention (smart) gravity.
+    test "g:obj:car crop biases toward the detected object, differing from center and attention" do
+      opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+
+      obj = call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", opts)
+      centered = call_imgproxy("/_/rs:fill:50:50/g:ce/f:jpeg/plain/images/beach.jpg", opts)
+      attention = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert obj.status == 200
+      assert dimensions(obj) == {50, 50}
+      refute obj.resp_body == centered.resp_body
+      refute obj.resp_body == attention.resp_body
+    end
+
+    # Task 10: No-geometry — g:obj:car without resize/crop must return 200.
+    test "no-geometry g:obj:car returns 200 without a resize or crop" do
+      opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+
+      conn = call_imgproxy("/_/g:obj:car/plain/images/beach.jpg", opts)
+
+      assert conn.status == 200
+    end
+
+    # Task 10: Gate triad — class-aware strict gate with PartialDetector.
+    # Face child: available, owns ["face"]. Object child: unavailable, owns ["car"].
+    test "detector_required gate triad: face->200, unicorn->200(degrade), car->422 pre-fetch" do
+      opts = Keyword.merge(@default_opts, detector: PartialDetector, detector_required: true)
+
+      # face child available -> routes and succeeds
+      face_conn =
+        call_imgproxy("/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert face_conn.status == 200
+
+      # unknown class routes to no child -> available? vacuously true -> degrades to 200
+      unicorn_conn =
+        call_imgproxy("/_/rs:fill:50:50/g:obj:unicorn/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert unicorn_conn.status == 200
+
+      # object child unavailable -> 422 BEFORE any source fetch or cache access.
+      # Copy the exact setup from "detector_required + unavailable detector" test (~line 599).
+      telemetry_prefix = [:image_pipe_wire_gate_triad]
+      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+      attach_source_resolve_telemetry(telemetry_prefix)
+
+      gate_opts =
+        Keyword.merge(opts,
+          telemetry_prefix: telemetry_prefix,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        )
+
+      car_conn =
+        call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
+
+      assert car_conn.status == 422
+      refute_received {:telemetry_event, ^source_resolve_start, _, _}
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _entry}
+      refute_received :origin_fetch
+    end
+
+    # Slice 2: a face weight measurably changes the crop end-to-end. Exact focal
+    # math is pinned in FocalTest; here we only prove the weight reaches pixels.
+    # rs:fill:2000:2000 on beach.jpg (4000×2667) scales to 3000×2000, large enough
+    # that the WeightedSceneDetector boxes ({2000,800,800,1000} and {1400,600,400,400})
+    # both fit and the uniform vs boosted centroids land at different crop positions.
+    test "objw face weight changes the rendered crop vs uniform" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+      uniform =
+        call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+      boosted =
+        call_imgproxy(
+          "/_/rs:fill:2000:2000/g:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg",
+          opts
+        )
+
+      assert uniform.status == 200
+      assert boosted.status == 200
+      assert dimensions(boosted) == {2000, 2000}
+      refute boosted.resp_body == uniform.resp_body
+    end
+
+    # Slice 2: uniform-weight objw canonicalizes to obj:all (the weight scalar
+    # cancels in the centroid), so it renders identically. (Cache-key identity is a
+    # separate question, covered in the cache task — not asserted here.)
+    test "objw with all-equal weights renders identically to obj:all" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+      objw =
+        call_imgproxy("/_/rs:fill:2000:2000/g:objw:all:2/f:jpeg/plain/images/beach.jpg", opts)
+
+      obj = call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert objw.resp_body == obj.resp_body
+    end
+
+    # Slice 2: the c:W:H:objw crop form reaches the crop path and applies the weight.
+    test "c:W:H:objw crop form applies the weight" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+      weighted =
+        call_imgproxy("/_/c:2000:2000:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg", opts)
+
+      uniform = call_imgproxy("/_/c:2000:2000:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert weighted.status == 200
+      refute weighted.resp_body == uniform.resp_body
+    end
+
+    # Slice 2: no-geometry objw returns 200.
+    test "no-geometry g:objw returns 200 without a resize or crop" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+      conn = call_imgproxy("/_/g:objw:all:1:face:3/plain/images/beach.jpg", opts)
+      assert conn.status == 200
+    end
+
+    # Filtering: objw:face:3 must gate detection to the face class only (not all),
+    # so its crop matches obj:face (face box only) and DIFFERS from obj:all (both boxes).
+    # WeightedSceneDetector returns a person box (large, right-of-center) and a face box
+    # (small, left-of-center), filtered by opts[:classes].
     #
-    # What remains unverified against the dialect: object-guided crop pixels, the
-    # class filter, objw weights, and detector model identity in the cache key —
-    # none of which the dialect can produce without a detector.
-    if @stack == :framework do
-      # Task 10: Pixel divergence — g:obj:car crop biases toward the detected corner
-      # object, distinct from both center gravity and attention (smart) gravity.
-      test "g:obj:car crop biases toward the detected object, differing from center and attention" do
-        opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+    # Beach.jpg is 4000x2667. WeightedSceneDetector boxes:
+    #   person: {2000,800,800,1000} center_x=2400 (60% across) — right side
+    #   face:   {1400,600,400,400}  center_x=1600 (40% across) — left side
+    # rs:fill:2000:2000 scales to 3000×2000, crops 1000px horizontally:
+    #   face-only focal_x_scaled ≈ 1200 → crop_x=200
+    #   obj:all focal_x_scaled ≈ 1614 → crop_x=614
+    # These are 414px apart in a 1000px-crop range, reliably different bytes.
+    test "g:objw:face:3 filters to face class — matches obj:face, differs from obj:all" do
+      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
 
-        obj = call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", opts)
-        centered = call_imgproxy("/_/rs:fill:50:50/g:ce/f:jpeg/plain/images/beach.jpg", opts)
-        attention = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+      # objw:face:3 — spec is ["face"], detects only face box (single class → weight inert)
+      objw_face =
+        call_imgproxy(
+          "/_/rs:fill:2000:2000/g:objw:face:3/f:jpeg/plain/images/beach.jpg",
+          opts
+        )
 
-        assert obj.status == 200
-        assert dimensions(obj) == {50, 50}
-        refute obj.resp_body == centered.resp_body
-        refute obj.resp_body == attention.resp_body
-      end
+      # obj:face — spec is ["face"], same face-only detection
+      obj_face =
+        call_imgproxy("/_/rs:fill:2000:2000/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
 
-      # Task 10: No-geometry — g:obj:car without resize/crop must return 200.
-      test "no-geometry g:obj:car returns 200 without a resize or crop" do
-        opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+      # obj:all — spec is :all, both person and face boxes counted (person dominates due to size)
+      obj_all =
+        call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
 
-        conn = call_imgproxy("/_/g:obj:car/plain/images/beach.jpg", opts)
+      assert objw_face.status == 200
+      assert obj_face.status == 200
+      assert obj_all.status == 200
 
-        assert conn.status == 200
-      end
+      # objw:face:3 detects only face -> same crop focus as obj:face
+      assert objw_face.resp_body == obj_face.resp_body
 
-      # Task 10: Gate triad — class-aware strict gate with PartialDetector.
-      # Face child: available, owns ["face"]. Object child: unavailable, owns ["car"].
-      test "detector_required gate triad: face->200, unicorn->200(degrade), car->422 pre-fetch" do
-        opts = Keyword.merge(@default_opts, detector: PartialDetector, detector_required: true)
-
-        # face child available -> routes and succeeds
-        face_conn =
-          call_imgproxy("/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert face_conn.status == 200
-
-        # unknown class routes to no child -> available? vacuously true -> degrades to 200
-        unicorn_conn =
-          call_imgproxy("/_/rs:fill:50:50/g:obj:unicorn/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert unicorn_conn.status == 200
-
-        # object child unavailable -> 422 BEFORE any source fetch or cache access.
-        # Copy the exact setup from "detector_required + unavailable detector" test (~line 599).
-        telemetry_prefix = [:image_pipe_wire_gate_triad]
-        source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-        attach_source_resolve_telemetry(telemetry_prefix)
-
-        gate_opts =
-          Keyword.merge(opts,
-            telemetry_prefix: telemetry_prefix,
-            cache: {CacheProbe, []},
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-            ]
-          )
-
-        car_conn =
-          call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
-
-        assert car_conn.status == 422
-        refute_received {:telemetry_event, ^source_resolve_start, _, _}
-        refute_received {:cache_lookup, _key}
-        refute_received {:cache_put, _key, _entry}
-        refute_received :origin_fetch
-      end
-
-      # Slice 2: a face weight measurably changes the crop end-to-end. Exact focal
-      # math is pinned in FocalTest; here we only prove the weight reaches pixels.
-      # rs:fill:2000:2000 on beach.jpg (4000×2667) scales to 3000×2000, large enough
-      # that the WeightedSceneDetector boxes ({2000,800,800,1000} and {1400,600,400,400})
-      # both fit and the uniform vs boosted centroids land at different crop positions.
-      test "objw face weight changes the rendered crop vs uniform" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-        uniform =
-          call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-        boosted =
-          call_imgproxy(
-            "/_/rs:fill:2000:2000/g:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg",
-            opts
-          )
-
-        assert uniform.status == 200
-        assert boosted.status == 200
-        assert dimensions(boosted) == {2000, 2000}
-        refute boosted.resp_body == uniform.resp_body
-      end
-
-      # Slice 2: uniform-weight objw canonicalizes to obj:all (the weight scalar
-      # cancels in the centroid), so it renders identically. (Cache-key identity is a
-      # separate question, covered in the cache task — not asserted here.)
-      test "objw with all-equal weights renders identically to obj:all" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-        objw =
-          call_imgproxy("/_/rs:fill:2000:2000/g:objw:all:2/f:jpeg/plain/images/beach.jpg", opts)
-
-        obj = call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert objw.resp_body == obj.resp_body
-      end
-
-      # Slice 2: the c:W:H:objw crop form reaches the crop path and applies the weight.
-      test "c:W:H:objw crop form applies the weight" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-        weighted =
-          call_imgproxy("/_/c:2000:2000:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg", opts)
-
-        uniform = call_imgproxy("/_/c:2000:2000:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert weighted.status == 200
-        refute weighted.resp_body == uniform.resp_body
-      end
-
-      # Slice 2: no-geometry objw returns 200.
-      test "no-geometry g:objw returns 200 without a resize or crop" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-        conn = call_imgproxy("/_/g:objw:all:1:face:3/plain/images/beach.jpg", opts)
-        assert conn.status == 200
-      end
-
-      # Filtering: objw:face:3 must gate detection to the face class only (not all),
-      # so its crop matches obj:face (face box only) and DIFFERS from obj:all (both boxes).
-      # WeightedSceneDetector returns a person box (large, right-of-center) and a face box
-      # (small, left-of-center), filtered by opts[:classes].
-      #
-      # Beach.jpg is 4000x2667. WeightedSceneDetector boxes:
-      #   person: {2000,800,800,1000} center_x=2400 (60% across) — right side
-      #   face:   {1400,600,400,400}  center_x=1600 (40% across) — left side
-      # rs:fill:2000:2000 scales to 3000×2000, crops 1000px horizontally:
-      #   face-only focal_x_scaled ≈ 1200 → crop_x=200
-      #   obj:all focal_x_scaled ≈ 1614 → crop_x=614
-      # These are 414px apart in a 1000px-crop range, reliably different bytes.
-      test "g:objw:face:3 filters to face class — matches obj:face, differs from obj:all" do
-        opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-        # objw:face:3 — spec is ["face"], detects only face box (single class → weight inert)
-        objw_face =
-          call_imgproxy(
-            "/_/rs:fill:2000:2000/g:objw:face:3/f:jpeg/plain/images/beach.jpg",
-            opts
-          )
-
-        # obj:face — spec is ["face"], same face-only detection
-        obj_face =
-          call_imgproxy("/_/rs:fill:2000:2000/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
-
-        # obj:all — spec is :all, both person and face boxes counted (person dominates due to size)
-        obj_all =
-          call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert objw_face.status == 200
-        assert obj_face.status == 200
-        assert obj_all.status == 200
-
-        # objw:face:3 detects only face -> same crop focus as obj:face
-        assert objw_face.resp_body == obj_face.resp_body
-
-        # objw:face:3 differs from obj:all because detection set differs (face-only vs all)
-        # The face (left-of-center, crop_x≈200) vs all-classes (crop_x≈614) produces different crops.
-        refute objw_face.resp_body == obj_all.resp_body
-      end
+      # objw:face:3 differs from obj:all because detection set differs (face-only vs all)
+      # The face (left-of-center, crop_x≈200) vs all-classes (crop_x≈614) produces different crops.
+      refute objw_face.resp_body == obj_all.resp_body
     end
 
     # Task 19: autoquality + max_bytes wire-level acceptance.
@@ -3432,33 +3567,29 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     # WeightedSceneDetector returns face and person boxes in a large region of beach.jpg
     # (4000x2667), so rs:fill:2000:2000 keeps them in-bounds after resize; without the
     # fix, weighted_centroid raises ArithmeticError with a 1e308 face weight. With the
-    # fix, the weight is rejected at parse time and the source is never fetched.
-    # FRAMEWORK-ONLY: `detector:` — no dialect config seam (see the
-    # object-detection block note). Another safety test lost on the dialect arm:
-    # this one pins that a near-max-float objw weight is a clean 4xx, not a 500
-    # from an ArithmeticError in the centroid math.
-    if @stack == :framework do
-      test "objw weight at 1e308 is rejected with 4xx before any source fetch" do
-        opts =
-          Keyword.merge(@default_opts,
-            detector: WeightedSceneDetector,
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test",
-                 req_options: [plug: {CountingOriginImage, test_pid: self()}]}
-            ]
-          )
+    # fix, the weight is rejected at parse time and the source is never fetched. Dual-run
+    # since B1a: the dialect's `:detector` seam feeds WeightedSceneDetector, so the parse-
+    # time weight rejection is exercised on both arms.
+    test "objw weight at 1e308 is rejected with 4xx before any source fetch" do
+      opts =
+        Keyword.merge(@default_opts,
+          detector: WeightedSceneDetector,
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+          ]
+        )
 
-        conn =
-          call_imgproxy(
-            "/_/rs:fill:2000:2000/g:objw:face:1e308/f:jpeg/plain/images/beach.jpg",
-            opts
-          )
+      conn =
+        call_imgproxy(
+          "/_/rs:fill:2000:2000/g:objw:face:1e308/f:jpeg/plain/images/beach.jpg",
+          opts
+        )
 
-        assert conn.status in 400..499
-        refute_received :origin_fetch
-      end
+      assert conn.status in 400..499
+      refute_received :origin_fetch
     end
 
     # Layer 4 — wire conformance for now-sequential chains
@@ -3562,86 +3693,140 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       assert r > 250 and g > 250 and b > 250
     end
 
-    # FRAMEWORK-ONLY (the detector-model-identity cache-key block below, plus its
-    # three private helpers, which have no other callers): `ver_opts/1` injects
-    # `detector: VerComposite` and the per-model `face_ver:`/`object_ver:` DI
-    # keys, none of which the dialect config has (see the object-detection block
-    # note). The helpers are gated with the tests so the dialect arm compiles
-    # without unused-function warnings.
+    # Detector-model-identity cache-key + ETag conformance, run on BOTH arms since
+    # Task 6 (B1b): the dialect now folds the resolved detector identity into its
+    # representation, exactly as the framework's `Runner.with_detector_identity/2`
+    # does, so a key AND an ETag change when — and only when — a model swap can
+    # change the pixels. R7 found and fixed a REAL cache-key collision in
+    # `Dialect.Imgproxy.Identity` (a dropped `__struct__` gave two different
+    # encodes one key); these are the wire-level version of that hazard.
     #
-    # What this leaves unproven on the dialect arm is pointed: R7 found and fixed
-    # a REAL cache-key collision in `Dialect.Imgproxy.Identity` (a dropped
-    # `__struct__` gave two different encodes one key). These tests are the wire-
-    # level version of exactly that hazard — that a model identity participates
-    # in the key when, and only when, it can change the pixels.
-    if @stack == :framework do
-      # Capture the cache key the plug looked up for one request. Uses the file's
-      # existing CacheProbe (it sends {:cache_lookup, key}) and call_imgproxy/2.
-      defp lookup_key(path, opts) do
-        call_imgproxy(path, opts)
-        assert_received {:cache_lookup, key}
-        key
+    # "Model version change" = a swap to a different versioned composite module
+    # (`composite_for/2`), not a DI key — the dialect's closed config forbids the
+    # `face_ver:`/`object_ver:` extension keys the block once used.
+
+    # The cache key AND the response ETag the stack produced for one request.
+    defp key_and_etag(path, opts) do
+      conn = call_imgproxy(path, opts)
+      assert_received {:cache_lookup, key}
+      {key, single_etag(conn)}
+    end
+
+    defp single_etag(conn) do
+      assert [etag] = get_resp_header(conn, "etag")
+      etag
+    end
+
+    # A strong source byte identity is what makes the stack emit an ETag at all
+    # (a `:none` source gets `no-store` and no ETag on every arm); the framework
+    # additionally gates ETag emission behind `http_cache: [mode: :enabled]`,
+    # which the dialects have no equivalent of. Both are set here so the ETag
+    # half of these cases has a header to assert on.
+    defp probe_opts do
+      base =
+        Keyword.merge(@default_opts,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               byte_identity: :strong,
+               req_options: [plug: OriginImage]}
+          ]
+        )
+
+      if @stack == :framework do
+        Keyword.put(base, :http_cache, mode: :enabled)
+      else
+        base
       end
+    end
 
-      defp probe_opts do
-        Keyword.merge(@default_opts, cache: {CacheProbe, []})
-      end
+    # A composite whose face leaf is `face_ver` and object leaf is `object_ver`,
+    # selected through the `detector:` key both arms accept. Defaults are `:v1`.
+    defp ver_opts(extra) do
+      face_ver = Keyword.get(extra, :face_ver, :v1)
+      object_ver = Keyword.get(extra, :object_ver, :v1)
 
-      defp ver_opts(extra) do
-        Keyword.merge(probe_opts(), [detector: VerComposite] ++ extra)
-      end
+      Keyword.merge(probe_opts(),
+        detector: composite_for(face_ver, object_ver),
+        detector_required: false
+      )
+    end
 
-      test "object-only request key is independent of the face model identity" do
-        assert lookup_key(
-                 "/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg",
-                 ver_opts(face_ver: :v1)
-               ) ==
-                 lookup_key(
-                   "/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg",
-                   ver_opts(face_ver: :v2)
-                 )
-      end
+    defp composite_for(:v1, :v1), do: VerCompositeV1V1
+    defp composite_for(:v2, :v1), do: VerCompositeV2V1
+    defp composite_for(:v1, :v2), do: VerCompositeV1V2
 
-      test "face-only request key is independent of the object model identity" do
-        assert lookup_key(
-                 "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
-                 ver_opts(object_ver: :v1)
-               ) ==
-                 lookup_key(
-                   "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
-                   ver_opts(object_ver: :v2)
-                 )
-      end
+    test "object-only request key and ETag are independent of the face model identity" do
+      {key_v1, etag_v1} =
+        key_and_etag("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v1))
 
-      test "mixed request key changes when either model identity changes" do
-        base =
-          lookup_key(
-            "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
-            ver_opts(face_ver: :v1, object_ver: :v1)
-          )
+      {key_v2, etag_v2} =
+        key_and_etag("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v2))
 
-        diff_face =
-          lookup_key(
-            "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
-            ver_opts(face_ver: :v2, object_ver: :v1)
-          )
+      assert key_v1 == key_v2
+      assert etag_v1 == etag_v2
+    end
 
-        diff_obj =
-          lookup_key(
-            "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
-            ver_opts(face_ver: :v1, object_ver: :v2)
-          )
+    test "face-only request key and ETag are independent of the object model identity" do
+      {key_v1, etag_v1} =
+        key_and_etag(
+          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+          ver_opts(object_ver: :v1)
+        )
 
-        assert base != diff_face
-        assert base != diff_obj
-      end
+      {key_v2, etag_v2} =
+        key_and_etag(
+          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+          ver_opts(object_ver: :v2)
+        )
+
+      assert key_v1 == key_v2
+      assert etag_v1 == etag_v2
+    end
+
+    test "face-only request key and ETag change when the face model identity changes" do
+      {key_v1, etag_v1} =
+        key_and_etag(
+          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+          ver_opts(face_ver: :v1)
+        )
+
+      {key_v2, etag_v2} =
+        key_and_etag(
+          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+          ver_opts(face_ver: :v2)
+        )
+
+      assert key_v1 != key_v2
+      assert etag_v1 != etag_v2
+    end
+
+    test "mixed request key and ETag change when either model identity changes" do
+      path = "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg"
+
+      {base_key, base_etag} = key_and_etag(path, ver_opts(face_ver: :v1, object_ver: :v1))
+
+      {diff_face_key, diff_face_etag} =
+        key_and_etag(path, ver_opts(face_ver: :v2, object_ver: :v1))
+
+      {diff_obj_key, diff_obj_etag} = key_and_etag(path, ver_opts(face_ver: :v1, object_ver: :v2))
+
+      assert base_key != diff_face_key
+      assert base_key != diff_obj_key
+      assert base_etag != diff_face_etag
+      assert base_etag != diff_obj_etag
     end
 
     # Scope the clamp tests' telemetry to a private prefix so a concurrently
     # running async module emitting the default-prefix output clamp event cannot
     # leak into these tests' mailboxes (which would flake the refute_received
     # assertions). The clamp request opts below set this same prefix.
-    @clamp_telemetry_prefix [:image_pipe_clamp_test]
+    # Stack-suffixed: both generated arm modules run async and telemetry
+    # handlers are VM-global, so a shared prefix would leak one arm's clamp
+    # emissions into the sibling module's mailbox.
+    @clamp_telemetry_prefix [:"image_pipe_clamp_test_#{stack}"]
     @clamp_event @clamp_telemetry_prefix ++ [:output, :clamp]
 
     describe "output encoder dimension clamp (#150)" do
@@ -3658,22 +3843,18 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         on_exit(fn -> :telemetry.detach(handler_id) end)
       end
 
-      # Framework-only, like its three callers below: `max_result_*` and
-      # `:output_capabilities` are not dialect config keys.
-      if @stack == :framework do
-        @clamp_opts [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
-          ],
-          max_result_width: 40_000,
-          max_result_height: 40_000,
-          max_result_pixels: 2_000_000_000,
-          output_capabilities: %{avif: true, webp: true},
-          telemetry_prefix: @clamp_telemetry_prefix
-        ]
-      end
+      @clamp_opts [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+        ],
+        max_result_width: 40_000,
+        max_result_height: 40_000,
+        max_result_pixels: 2_000_000_000,
+        output_capabilities: %{avif: true, webp: true},
+        telemetry_prefix: @clamp_telemetry_prefix
+      ]
 
       test "clamp telemetry is isolated from concurrent foreign emissions" do
         attach_clamp_telemetry()
@@ -3693,192 +3874,177 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         refute_received {:telemetry_event, _event, _measurements, _meta}
       end
 
-      # FRAMEWORK-ONLY (the three `@clamp_opts` tests below): `@clamp_opts` sets
-      # `:output_capabilities` and `:max_result_*`, and the dialect config has
-      # neither key. The sibling "clamp telemetry is isolated" test makes no
-      # stack call and stays dual-run.
-      if @stack == :framework do
-        test "downscales a WebP result above the 16383 encoder limit and serves it" do
-          attach_clamp_telemetry()
+      test "downscales a WebP result above the 16383 encoder limit and serves it" do
+        attach_clamp_telemetry()
 
-          conn =
-            call_imgproxy("/_/el:1/rs:force:18000:200/f:webp/plain/images/beach.jpg", @clamp_opts)
+        conn =
+          call_imgproxy("/_/el:1/rs:force:18000:200/f:webp/plain/images/beach.jpg", @clamp_opts)
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/webp"]
+        assert conn.status == 200
+        assert content_type(conn) == ["image/webp"]
 
-          {w, h} = dimensions(conn)
-          assert max(w, h) <= 16_383
-          assert max(w, h) > 8_192
+        {w, h} = dimensions(conn)
+        assert max(w, h) <= 16_383
+        assert max(w, h) > 8_192
 
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
 
-          assert scale < 1.0
-          assert meta.format == :webp
-          assert meta.limits.max_width == 16_383
-          assert meta.limits.max_height == 16_383
-          assert meta.dimensions == {w, h}
-          {sw, sh} = meta.source_dimensions
-          assert max(sw, sh) > 16_383
-        end
+        assert scale < 1.0
+        assert meta.format == :webp
+        assert meta.limits.max_width == 16_383
+        assert meta.limits.max_height == 16_383
+        assert meta.dimensions == {w, h}
+        {sw, sh} = meta.source_dimensions
+        assert max(sw, sh) > 16_383
+      end
 
-        test "downscales an AVIF result above the 16384 encoder limit and serves it" do
-          attach_clamp_telemetry()
+      test "downscales an AVIF result above the 16384 encoder limit and serves it" do
+        attach_clamp_telemetry()
 
-          conn =
-            call_imgproxy("/_/el:1/rs:force:18000:200/f:avif/plain/images/beach.jpg", @clamp_opts)
+        conn =
+          call_imgproxy("/_/el:1/rs:force:18000:200/f:avif/plain/images/beach.jpg", @clamp_opts)
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/avif"]
+        assert conn.status == 200
+        assert content_type(conn) == ["image/avif"]
 
-          {w, h} = dimensions(conn)
-          assert max(w, h) <= 16_384
-          assert max(w, h) > 8_192
+        {w, h} = dimensions(conn)
+        assert max(w, h) <= 16_384
+        assert max(w, h) > 8_192
 
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
 
-          assert scale < 1.0
-          assert meta.format == :avif
-          assert meta.limits.max_width == 16_384
-          assert meta.limits.max_height == 16_384
-          assert meta.dimensions == {w, h}
-        end
+        assert scale < 1.0
+        assert meta.format == :avif
+        assert meta.limits.max_width == 16_384
+        assert meta.limits.max_height == 16_384
+        assert meta.dimensions == {w, h}
+      end
 
-        test "does not clamp or emit when a WebP result is within the encoder limit" do
-          attach_clamp_telemetry()
+      test "does not clamp or emit when a WebP result is within the encoder limit" do
+        attach_clamp_telemetry()
 
-          conn = call_imgproxy("/_/w:120/f:webp/plain/images/beach.jpg", @clamp_opts)
+        conn = call_imgproxy("/_/w:120/f:webp/plain/images/beach.jpg", @clamp_opts)
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/webp"]
-          {w, _h} = dimensions(conn)
-          assert w == 120
+        assert conn.status == 200
+        assert content_type(conn) == ["image/webp"]
+        {w, _h} = dimensions(conn)
+        assert w == 120
 
-          refute_received {:telemetry_event, @clamp_event, _measurements, _meta}
-        end
+        refute_received {:telemetry_event, @clamp_event, _measurements, _meta}
       end
     end
 
-    # FRAMEWORK-ONLY: `:output_capabilities` + `:max_result_*`. Neither is a
-    # dialect config key. The result caps are *hardcoded* to the framework's own
-    # defaults in the dialect (imgproxy.ex `@default_max_result_{width,height,
-    # pixels}`, whose comment states the gap), so the dialect clamps at the same
-    # numbers but gives the host no way to move them — these tests move them.
-    # The clamp behavior AT the default caps is consequently unverified on the
-    # dialect arm; see the report's coverage-gap note.
-    if @stack == :framework do
-      describe "host result cap downscale (#165, limitScale parity)" do
-        # Default host caps: max_result_width/height = 8192, max_result_pixels = 40M.
-        @host_default_opts [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
-          ],
-          output_capabilities: %{avif: true, webp: true},
-          telemetry_prefix: @clamp_telemetry_prefix
-        ]
+    describe "host result cap downscale (#165, limitScale parity)" do
+      # Default host caps: max_result_width/height = 8192, max_result_pixels = 40M.
+      @host_default_opts [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+        ],
+        output_capabilities: %{avif: true, webp: true},
+        telemetry_prefix: @clamp_telemetry_prefix
+      ]
 
-        test "downscales a result above the default 8192 host cap and serves 200" do
-          attach_clamp_telemetry()
+      test "downscales a result above the default 8192 host cap and serves 200" do
+        attach_clamp_telemetry()
 
-          conn =
-            call_imgproxy(
-              "/_/el:1/rs:force:12000:200/f:jpeg/plain/images/beach.jpg",
-              @host_default_opts
+        conn =
+          call_imgproxy(
+            "/_/el:1/rs:force:12000:200/f:jpeg/plain/images/beach.jpg",
+            @host_default_opts
+          )
+
+        assert conn.status == 200
+        assert content_type(conn) == ["image/jpeg"]
+
+        {w, h} = dimensions(conn)
+        # Parity, not just safety: when the width cap binds on a non-degenerate
+        # aspect, the long axis lands EXACTLY on 8192 — byte-intent identical to
+        # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
+        assert w == 8192
+
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+        assert scale < 1.0
+        assert meta.limits.max_width == 8192
+        assert meta.limits.max_height == 8192
+        assert meta.dimensions == {w, h}
+        {sw, _sh} = meta.source_dimensions
+        assert sw > 8192
+      end
+
+      # The one place ImagePipe and imgproxy observably diverge: a PADDED request
+      # whose composited frame exceeds the cap. imgproxy folds the downscale into
+      # the resize scale before re-applying padding (prepare.go:233-263); ImagePipe
+      # clamps the already-composited frame. Both land <= cap; the framing differs.
+      # This test pins ImagePipe's contract (status 200, composite <= cap, clamp
+      # fired) so a future change to the clamp point can't silently alter padded
+      # behavior with a green suite.
+      test "clamps a padded result whose composited frame exceeds the host cap" do
+        attach_clamp_telemetry()
+
+        # w:100 then pad 5000px each side -> composited width ~10100 > 8192.
+        conn =
+          call_imgproxy("/_/w:100/pd:5000/f:jpeg/plain/images/beach.jpg", @host_default_opts)
+
+        assert conn.status == 200
+        {w, h} = dimensions(conn)
+        assert max(w, h) <= 8192
+
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
+        assert scale < 1.0
+      end
+
+      test "honors asymmetric per-axis caps without over-shrinking" do
+        attach_clamp_telemetry()
+
+        # Realize ~6000x200, raise width cap above it, keep height cap slack:
+        # both axes within caps -> NO clamp, served at full requested size.
+        conn =
+          call_imgproxy(
+            "/_/el:1/rs:force:6000:200/f:jpeg/plain/images/beach.jpg",
+            Keyword.merge(@host_default_opts, max_result_width: 10_000, max_result_height: 8192)
+          )
+
+        assert conn.status == 200
+        {w, h} = dimensions(conn)
+        assert w == 6000
+        assert h == 200
+        refute_received {:telemetry_event, @clamp_event, _m, _meta}
+      end
+
+      test "downscales on the host pixel cap with dims within the per-axis caps" do
+        attach_clamp_telemetry()
+
+        # ~5000x5000 = 25M px. Per-axis caps slack (8000), pixel cap 4M -> clamp on pixels.
+        conn =
+          call_imgproxy(
+            "/_/el:1/rs:force:5000:5000/f:jpeg/plain/images/beach.jpg",
+            Keyword.merge(@host_default_opts,
+              max_result_width: 8000,
+              max_result_height: 8000,
+              max_result_pixels: 4_000_000
             )
+          )
 
-          assert conn.status == 200
-          assert content_type(conn) == ["image/jpeg"]
+        assert conn.status == 200
+        {w, h} = dimensions(conn)
+        assert w <= 8000 and h <= 8000
+        assert w * h <= 4_000_000
 
-          {w, h} = dimensions(conn)
-          # Parity, not just safety: when the width cap binds on a non-degenerate
-          # aspect, the long axis lands EXACTLY on 8192 — byte-intent identical to
-          # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
-          assert w == 8192
+        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
+        assert scale < 1.0
+      end
 
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
-          assert scale < 1.0
-          assert meta.limits.max_width == 8192
-          assert meta.limits.max_height == 8192
-          assert meta.dimensions == {w, h}
-          {sw, _sh} = meta.source_dimensions
-          assert sw > 8192
-        end
+      test "does not clamp or emit when the result is within all default caps" do
+        attach_clamp_telemetry()
 
-        # The one place ImagePipe and imgproxy observably diverge: a PADDED request
-        # whose composited frame exceeds the cap. imgproxy folds the downscale into
-        # the resize scale before re-applying padding (prepare.go:233-263); ImagePipe
-        # clamps the already-composited frame. Both land <= cap; the framing differs.
-        # This test pins ImagePipe's contract (status 200, composite <= cap, clamp
-        # fired) so a future change to the clamp point can't silently alter padded
-        # behavior with a green suite.
-        test "clamps a padded result whose composited frame exceeds the host cap" do
-          attach_clamp_telemetry()
+        conn = call_imgproxy("/_/w:300/f:jpeg/plain/images/beach.jpg", @host_default_opts)
 
-          # w:100 then pad 5000px each side -> composited width ~10100 > 8192.
-          conn =
-            call_imgproxy("/_/w:100/pd:5000/f:jpeg/plain/images/beach.jpg", @host_default_opts)
-
-          assert conn.status == 200
-          {w, h} = dimensions(conn)
-          assert max(w, h) <= 8192
-
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
-          assert scale < 1.0
-        end
-
-        test "honors asymmetric per-axis caps without over-shrinking" do
-          attach_clamp_telemetry()
-
-          # Realize ~6000x200, raise width cap above it, keep height cap slack:
-          # both axes within caps -> NO clamp, served at full requested size.
-          conn =
-            call_imgproxy(
-              "/_/el:1/rs:force:6000:200/f:jpeg/plain/images/beach.jpg",
-              Keyword.merge(@host_default_opts, max_result_width: 10_000, max_result_height: 8192)
-            )
-
-          assert conn.status == 200
-          {w, h} = dimensions(conn)
-          assert w == 6000
-          assert h == 200
-          refute_received {:telemetry_event, @clamp_event, _m, _meta}
-        end
-
-        test "downscales on the host pixel cap with dims within the per-axis caps" do
-          attach_clamp_telemetry()
-
-          # ~5000x5000 = 25M px. Per-axis caps slack (8000), pixel cap 4M -> clamp on pixels.
-          conn =
-            call_imgproxy(
-              "/_/el:1/rs:force:5000:5000/f:jpeg/plain/images/beach.jpg",
-              Keyword.merge(@host_default_opts,
-                max_result_width: 8000,
-                max_result_height: 8000,
-                max_result_pixels: 4_000_000
-              )
-            )
-
-          assert conn.status == 200
-          {w, h} = dimensions(conn)
-          assert w <= 8000 and h <= 8000
-          assert w * h <= 4_000_000
-
-          assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
-          assert scale < 1.0
-        end
-
-        test "does not clamp or emit when the result is within all default caps" do
-          attach_clamp_telemetry()
-
-          conn = call_imgproxy("/_/w:300/f:jpeg/plain/images/beach.jpg", @host_default_opts)
-
-          assert conn.status == 200
-          {w, _h} = dimensions(conn)
-          assert w == 300
-          refute_received {:telemetry_event, @clamp_event, _m, _meta}
-        end
+        assert conn.status == 200
+        {w, _h} = dimensions(conn)
+        assert w == 300
+        refute_received {:telemetry_event, @clamp_event, _m, _meta}
       end
     end
 
@@ -4512,15 +4678,11 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
     end
 
     # The non-GET siblings (method gating, CORS preflight) need the method, not
-    # an Accept header. Framework-only for the same reason its only callers are
-    # (the CORS describe): the dialect has no method layer to exercise, so on
-    # the dialect arm this would be an unused function.
-    if @stack == :framework do
-      defp call_imgproxy_method(method, path, opts) do
-        method
-        |> conn(path)
-        |> call_imgproxy_conn(opts)
-      end
+    # an Accept header.
+    defp call_imgproxy_method(method, path, opts) do
+      method
+      |> conn(path)
+      |> call_imgproxy_conn(opts)
     end
 
     # The single stack-invocation site: every wire request in this file reaches
@@ -4551,8 +4713,8 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         # Deliberately NOT filtering: an option the dialect has no key for must
         # raise out of `Config.validate!/1`, loudly, at the arm that lacks it —
         # never be silently dropped into a test that then passes while exercising
-        # different semantics. Tests carrying such options are gated
-        # `if @stack == :framework` at the call site instead.
+        # different semantics. Tests carrying such an option (today only
+        # `http_cache:`) select per-arm opts at the call site instead.
         defp translate_opts(opts) do
           {imgproxy, rest} = Keyword.pop(opts, :imgproxy, [])
 

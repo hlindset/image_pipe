@@ -3,11 +3,18 @@ defmodule ImagePipe.Output do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Config, ImagePipe.Format, ImagePipe.Plan, ImagePipe.Telemetry],
+    deps: [
+      ImagePipe.Config,
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Plan,
+      ImagePipe.Telemetry
+    ],
     exports: [
       Capabilities,
       Clamp,
       Encoder,
+      Negotiate,
       Negotiation,
       Policy,
       Resolved,

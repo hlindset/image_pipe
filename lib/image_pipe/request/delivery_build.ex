@@ -13,6 +13,7 @@ defmodule ImagePipe.Request.DeliveryBuild do
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
+  alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan
@@ -70,9 +71,13 @@ defmodule ImagePipe.Request.DeliveryBuild do
                request.opts
              ),
            limits = effective_limits(resolved_output.format, request.opts),
-           {:ok, clamped, clamp_info} <-
-             Clamp.clamp(final_state.image, limits, request.opts),
-           :ok <- emit_clamp_telemetry(clamp_info, resolved_output.format, request.opts),
+           {:ok, clamped, _clamp_info} <-
+             Clamp.clamp_with_telemetry(
+               final_state.image,
+               limits,
+               resolved_output.format,
+               request.opts
+             ),
            {:ok, %State{image: image}} <-
              Processor.materialize_for_delivery(
                %State{final_state | image: clamped},
@@ -93,7 +98,6 @@ defmodule ImagePipe.Request.DeliveryBuild do
         {:ok, StreamPull.resume(chunk, stream_state), content_type, resolved_output, debug}
       else
         {:empty, _us} -> :empty
-        :empty -> :empty
         {{:error, reason}, _us} -> {:error, reason}
         {:error, reason} -> {:error, reason}
       end
@@ -166,24 +170,6 @@ defmodule ImagePipe.Request.DeliveryBuild do
   # the encoder limit (`b`) can be `:infinity` ("no limit from the encoder").
   defp min_limit(a, :infinity), do: a
   defp min_limit(a, b), do: min(a, b)
-
-  defp emit_clamp_telemetry(nil, _format, _opts), do: :ok
-
-  defp emit_clamp_telemetry(%{} = info, format, opts) do
-    Telemetry.execute(
-      Telemetry.telemetry_opts(opts),
-      [:output, :clamp],
-      %{scale: info.scale},
-      %{
-        format: format,
-        source_dimensions: info.source_dimensions,
-        dimensions: info.dimensions,
-        limits: info.limits
-      }
-    )
-
-    :ok
-  end
 
   defp measure_decode(plan, resolved_source, opts),
     do:
@@ -320,43 +306,19 @@ defmodule ImagePipe.Request.DeliveryBuild do
   defp operation_name(%module{}),
     do: module |> Module.split() |> List.last() |> Macro.underscore()
 
+  # Negotiation runs through the shared `Output.Negotiate` seam, which owns the
+  # `[:output, :negotiate]` span. The helper returns `{:error, reason}`
+  # unwrapped; this call site keeps the framework's `{:error, {:output, reason}}`
+  # wrap so the delivery path's observable error shape is unchanged.
   defp resolve_output(%Policy{} = policy, source_format, image, opts) do
-    Telemetry.span(
-      Telemetry.telemetry_opts(opts),
-      [:output, :negotiate],
-      output_negotiate_metadata(policy),
-      fn ->
-        result = do_resolve_output(policy, source_format, image)
-        {result, output_negotiate_stop_metadata(result)}
-      end
-    )
-  end
-
-  defp do_resolve_output(%Policy{} = policy, source_format, image) do
-    case Policy.resolve(policy, source_format) do
-      {:ok, %Resolved{} = resolved_output} ->
-        {:ok, resolved_output}
-
-      {:needs_final_image_alpha, :source} ->
-        {:ok, Policy.resolve_final_image_alpha(policy, Image.has_alpha?(image))}
-
-      {:error, reason} ->
-        {:error, {:output, reason}}
+    case Negotiate.negotiate_output(
+           policy,
+           source_format,
+           fn -> Image.has_alpha?(image) end,
+           Telemetry.telemetry_opts(opts)
+         ) do
+      {:ok, %Resolved{} = resolved_output} -> {:ok, resolved_output}
+      {:error, reason} -> {:error, {:output, reason}}
     end
-  end
-
-  defp output_negotiate_metadata(%Policy{} = policy) do
-    %{output_mode: output_mode(policy)}
-  end
-
-  defp output_mode(%Policy{mode: {:explicit, _format}}), do: :explicit
-  defp output_mode(%Policy{mode: :source}), do: :automatic
-
-  defp output_negotiate_stop_metadata({:ok, %Resolved{format: format}}) do
-    %{result: :ok, output_format: format}
-  end
-
-  defp output_negotiate_stop_metadata({:error, reason}) do
-    %{result: :output_error, error: Error.tag(reason)}
   end
 end

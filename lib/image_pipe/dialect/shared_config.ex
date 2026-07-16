@@ -44,7 +44,12 @@ defmodule ImagePipe.Dialect.SharedConfig do
     :auto_avif,
     :auto_webp,
     :auto_jpeg_xl,
-    :format_order
+    :format_order,
+    :output_capabilities,
+    :max_result_width,
+    :max_result_height,
+    :max_result_pixels,
+    :allow_origin
   ]
 
   @validated_option_keys [
@@ -54,7 +59,12 @@ defmodule ImagePipe.Dialect.SharedConfig do
     :auto_avif,
     :auto_webp,
     :auto_jpeg_xl,
-    :format_order
+    :format_order,
+    :output_capabilities,
+    :max_result_width,
+    :max_result_height,
+    :max_result_pixels,
+    :allow_origin
   ]
 
   @options_schema NimbleOptions.new!(
@@ -84,6 +94,26 @@ defmodule ImagePipe.Dialect.SharedConfig do
                     ],
                     format_order: [
                       type: {:custom, __MODULE__, :validate_format_order, []}
+                    ],
+                    output_capabilities: [
+                      type: {:map, :atom, :boolean},
+                      required: false
+                    ],
+                    max_result_width: [
+                      type: :pos_integer,
+                      default: 8_192
+                    ],
+                    max_result_height: [
+                      type: :pos_integer,
+                      default: 8_192
+                    ],
+                    max_result_pixels: [
+                      type: :pos_integer,
+                      default: 40_000_000
+                    ],
+                    allow_origin: [
+                      type: {:custom, __MODULE__, :validate_allow_origin, []},
+                      required: false
                     ]
                   )
 
@@ -166,6 +196,22 @@ defmodule ImagePipe.Dialect.SharedConfig do
       {:error, "expected formats from #{inspect(modern_formats)}, got: #{inspect(order)}"}
     end
   end
+
+  @doc false
+  def validate_allow_origin(value) when is_binary(value) and value != "" do
+    # Reject control characters at init: emitted verbatim into the
+    # Access-Control-Allow-Origin header, a stray CR/LF/NUL would otherwise raise
+    # Plug.Conn.InvalidHeaderError per-request (a 500) instead of failing fast here.
+    if String.match?(value, ~r/[[:cntrl:]]/),
+      do: {:error, "must not contain control characters"},
+      else: {:ok, value}
+  end
+
+  def validate_allow_origin(""),
+    do: {:error, "expected a non-empty string (omit allow_origin to disable CORS)"}
+
+  def validate_allow_origin(_value),
+    do: {:error, "expected a string"}
 
   defp validate_known_opts!(opts) do
     known_opts = Keyword.take(opts, @validated_option_keys)

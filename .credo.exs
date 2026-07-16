@@ -64,6 +64,13 @@
         # lib/image_pipe/response/conditional.ex and the Task 16 report.
         # Ignored for the same reason as the pairs above.
         #
+        # ImagePipe.Dialect.SharedConfig.validate_allow_origin/1 deliberately
+        # duplicates ImagePipe.Request.Options.validate_allow_origin/1 (three
+        # clauses, same messages) so both dialects validate `allow_origin` the
+        # same way the framework does without depending on the Request
+        # boundary (Options is framework-frozen). Ignored for the same reason
+        # as the pairs above.
+        #
         # The ImagePipe.Dialect.Imgproxy.* leaf request structs and grammar
         # modules are near-verbatim phase-1 copies of their
         # ImagePipe.Parser.Imgproxy.* originals: the inverted dialect owns its
@@ -156,6 +163,16 @@
         # is chain shape between two separate top-level dialect boundaries,
         # NEITHER of which may name the other (a product dialect never depends on
         # another product dialect) — that genuinely cannot be shared by reference.
+        #
+        # ImagePipe.Dialect.Native (the Plug chain itself) deliberately mirrors
+        # the framework's span helpers for the B3 dialect-emitted spans:
+        # encode_first_chunk/3 + first_chunk/1 + encode_stop_metadata/2 off
+        # Request.DeliveryBuild, and transform_stop_metadata/1 off
+        # Request.Processor. Both framework originals are private helpers of
+        # framework-frozen Request-boundary modules a dialect cannot depend on —
+        # the same reason as the Imgproxy entry above, whose own copies of the
+        # same helpers that entry already silences. Tracked with the rest under
+        # hlindset/image_pipe#457.
         {ExDNA.Credo,
          excluded_macros: [:alias],
          ignore: [
@@ -183,7 +200,9 @@
            "lib/image_pipe/dialect/imgproxy/source.ex",
            "lib/image_pipe/dialect/imgproxy/source_encryption.ex",
            "lib/image_pipe/dialect/imgproxy/source_scheme.ex",
+           "lib/image_pipe/dialect/native.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
+           "lib/image_pipe/dialect/shared_config.ex",
            "lib/image_pipe/response/conditional.ex"
          ]}
       ]

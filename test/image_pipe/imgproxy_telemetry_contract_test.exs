@@ -18,14 +18,12 @@
 # concurrent emission leak into its mailbox, silently satisfying an assertion
 # or flaking a refutation [AGENTS.md, test guidelines].
 #
-# ## The stage sets are NOT equal across the arms, and that is measured here
+# ## The stage sets ARE equal across the arms, and that is measured here
 #
-# The two arms emit DIFFERENT stage sets. `ImgproxyTelemetryStageSetTest` at the
-# bottom of this file measures and states the difference rather than leaving it
-# to be discovered: the dialect emits a strict subset, byte-identical to what the
-# already-shipped `ImagePipe.Dialect.Native` emits. So the shared subset asserted
-# by the dual-run tests above is the honest contract — "both arms emit the same
-# stages" is not true, and this file does not claim it.
+# `ImgproxyTelemetryStageSetTest` at the bottom of this file measures the stage
+# sets rather than assuming them: the dialect emits the framework's full stage
+# set (stage-set parity — no framework-only stage remains), in the exact
+# sequence the already-shipped `ImagePipe.Dialect.Native` emits.
 for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
   defmodule Module.concat(ImagePipe.ImgproxyTelemetryContractTest, suffix) do
     use ExUnit.Case, async: true
@@ -185,14 +183,22 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
 
     # The stages BOTH arms emit for a plain image cache miss. Everything the
     # dual-run scenarios below assert positively is drawn from this set; see
-    # `ImgproxyTelemetryStageSetTest` for what is outside it and why.
+    # `ImgproxyTelemetryStageSetTest`, which measures that the set is now the
+    # full framework stage set (stage-set parity).
     @shared_stages [
       [:request],
       [:parse],
+      [:send],
       [:source, :resolve],
       [:cache, :lookup],
       [:source, :fetch],
+      [:source, :fetch_decode],
+      [:transform, :execute],
+      [:transform, :input_color_management],
       [:transform, :operation],
+      [:output, :negotiate],
+      [:transform, :materialize],
+      [:encode],
       [:deliver]
     ]
 
@@ -242,9 +248,28 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       Enum.find_index(events, fn {s, p, _meta} -> s == stage and p == phase end)
     end
 
+    # The LAST occurrence's index. `[:transform, :operation]` spans emit once per
+    # operation, so a plain fit-resize produces several; the delivery-backstop
+    # position assertion must anchor on the last operation `:stop`, not the first,
+    # or it would pass with materialization landing between two operations.
+    defp last_index_of(events, stage, phase) do
+      events
+      |> Enum.with_index()
+      |> Enum.reduce(nil, fn {{s, p, _meta}, i}, acc ->
+        if s == stage and p == phase, do: i, else: acc
+      end)
+    end
+
     defp result_of(events, stage, phase) do
       Enum.find_value(events, fn
         {^stage, ^phase, meta} -> Map.get(meta, :result, :__absent__)
+        _other -> nil
+      end)
+    end
+
+    defp metadata_of(events, stage, phase) do
+      Enum.find_value(events, fn
+        {^stage, ^phase, meta} -> meta
         _other -> nil
       end)
     end
@@ -279,10 +304,11 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
       |> call_conn(opts)
     end
 
-    # `image_module` is `Output.Encoder`'s test-injection seam, which neither
-    # arm's `init/1` accepts as a known option — appended after validation, the
-    # convention both wire suites already use.
-    @test_only_seam_keys [:image_module]
+    # `image_module` is `Output.Encoder`'s test-injection seam, `chain` the
+    # dialect `Pipeline.run/4`'s — neither arm's `init/1` accepts them as known
+    # options, so they are appended after validation, the convention both wire
+    # suites already use.
+    @test_only_seam_keys [:image_module, :chain]
 
     # The single stack-invocation site: the ONLY difference between the arms.
     case @stack do
@@ -350,6 +376,41 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
 
         assert index_of(events, [:transform, :operation], :stop) <
                  index_of(events, [:deliver], :start)
+
+        # The delivery backstop materializes the lazy vips pipeline AFTER the last
+        # transform operation closes and BEFORE delivery opens — the same
+        # post-clamp, pre-encode position the framework runs it at. A plain
+        # fit-resize has no materializing op, so the span can only be the backstop.
+        assert last_index_of(events, [:transform, :operation], :stop) <
+                 index_of(events, [:transform, :materialize], :start)
+
+        assert index_of(events, [:transform, :materialize], :stop) <
+                 index_of(events, [:deliver], :start)
+
+        # `[:source, :fetch_decode]` encloses the fetch (`[:source, :fetch]`
+        # nests inside it) and closes after decode, BEFORE the transform opens
+        # — the span brackets fetch+decode only, never the build.
+        assert index_of(events, [:source, :fetch_decode], :start) <
+                 index_of(events, [:source, :fetch], :start)
+
+        assert index_of(events, [:source, :fetch], :stop) <
+                 index_of(events, [:source, :fetch_decode], :stop)
+
+        assert index_of(events, [:source, :fetch_decode], :stop) <
+                 index_of(events, [:transform, :execute], :start)
+
+        # The transform closes before the forced encode opens, and the encode
+        # (which pulls the first chunk) closes before delivery streams.
+        assert index_of(events, [:transform, :execute], :stop) <
+                 index_of(events, [:encode], :start)
+
+        assert index_of(events, [:encode], :stop) < index_of(events, [:deliver], :start)
+
+        # `[:deliver]` nests inside `[:send]` on the streamed path, and the
+        # send stop carries the result/status pair.
+        assert index_of(events, [:send], :start) < index_of(events, [:deliver], :start)
+        assert index_of(events, [:deliver], :stop) < index_of(events, [:send], :stop)
+        assert %{result: :ok, status: 200} = metadata_of(events, [:send], :stop)
       end
     end
 
@@ -426,9 +487,12 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         assert index_of(events, [:parse], :stop) < index_of(events, [:source, :resolve], :start)
 
         # /info reads the header and renders JSON: no operation runs, and no
-        # image body is streamed.
+        # image body is streamed — so `[:send]` wraps the complete-body send
+        # with no `[:deliver]` nested inside it.
         refute [:transform, :operation] in stage_set(events)
         refute [:encode] in stage_set(events)
+        refute [:deliver] in stage_set(events)
+        assert %{result: :ok, status: 200} = metadata_of(events, [:send], :stop)
       end
     end
 
@@ -448,10 +512,96 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
 
         events = captured(prefix)
 
-        # `[:deliver]` is the one error stage BOTH arms emit. It is core-owned
-        # (`Response.Sender`), which is exactly why the dialect gets it: see the
-        # stage-set test below for the pre-delivery error stages it does not.
+        # The failure is the encoder's, discovered mid-stream, AFTER the first
+        # chunk: `[:deliver]` carries it, and the earlier stages that already
+        # closed `:ok` keep their result — a fetch_decode `:result` flipping
+        # here would be misattribution.
         assert result_of(events, [:deliver], :stop) == :processing_error
+        assert result_of(events, [:source, :fetch_decode], :stop) == :ok
+        assert result_of(events, [:encode], :stop) == :ok
+      end
+    end
+
+    # ── scenario 5c: transform failure attribution ─────────────────────────
+    #
+    # Dialect-arm only: the `:chain` seam is `Dialect.Imgproxy.Pipeline.run/4`'s
+    # own injectable — the framework has no counterpart, and its fetch_decode /
+    # execute attribution is pinned by its own processor tests. This is the
+    # scenario that would fail if the dialect's `[:source, :fetch_decode]` span
+    # enclosed the build continuation: the forced transform failure would land
+    # on fetch_decode's stop instead of the execute span's.
+    if @stack == :dialect do
+      describe "transform failure attribution" do
+        test "a transform failure lands on [:transform, :execute], leaving fetch_decode :ok", %{
+          prefix: prefix
+        } do
+          chain = fn _state, _ops, _chain_opts -> {:error, :forced_transform_failure} end
+
+          opts =
+            base_opts(telemetry_prefix: prefix, cache: {CacheProbe, []}) ++ [chain: chain]
+
+          conn = call(@image_path, opts)
+          assert conn.status == 422
+
+          events = captured(prefix)
+          assert_well_formed!(events)
+
+          assert index_of(events, [:source, :fetch_decode], :stop) <
+                   index_of(events, [:transform, :execute], :start)
+
+          assert result_of(events, [:source, :fetch_decode], :stop) == :ok
+          assert result_of(events, [:transform, :execute], :stop) == :processing_error
+          refute [:encode] in stage_set(events)
+        end
+      end
+    end
+
+    # ── scenario 5d: the send span wraps every terminal ────────────────────
+    #
+    # The plain-GET stage-set scenario cannot prove all terminal sites are
+    # wrapped: the OPTIONS-204 and method-405 heads, the error sends, and the
+    # /info complete-body send (scenario 4) each exit through a different
+    # terminal. One assertion per remaining terminal, on both arms.
+
+    describe "send span terminals" do
+      test "an error response is sent inside [:send] with the failure result", %{prefix: prefix} do
+        opts = [
+          telemetry_prefix: prefix,
+          cache: {CacheProbe, []},
+          sources: [path: {ResolveFailingSource, []}]
+        ]
+
+        conn = call(@image_path, opts)
+        assert conn.status == 404
+
+        events = captured(prefix)
+        assert_well_formed!(events)
+        assert %{result: :source_error, status: 404} = metadata_of(events, [:send], :stop)
+        refute [:deliver] in stage_set(events)
+      end
+
+      test "OPTIONS is answered inside [:send]", %{prefix: prefix} do
+        opts = base_opts(telemetry_prefix: prefix, cache: {CacheProbe, []})
+
+        conn = :options |> conn(@image_path) |> call_conn(opts)
+        assert conn.status == 204
+
+        events = captured(prefix)
+        assert_well_formed!(events)
+        assert %{result: :options, status: 204} = metadata_of(events, [:send], :stop)
+      end
+
+      test "a disallowed method is answered inside [:send]", %{prefix: prefix} do
+        opts = base_opts(telemetry_prefix: prefix, cache: {CacheProbe, []})
+
+        conn = :post |> conn(@image_path) |> call_conn(opts)
+        assert conn.status == 405
+
+        events = captured(prefix)
+        assert_well_formed!(events)
+
+        assert %{result: :method_not_allowed, status: 405} =
+                 metadata_of(events, [:send], :stop)
       end
     end
 
@@ -523,28 +673,21 @@ end
 defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
   @moduledoc """
   Measures the stage sets the three stacks actually emit for one plain image
-  cache miss, and states the difference.
+  cache miss, and states the difference — which is now **empty**: stage-set
+  parity is reached.
 
-  This exists because the design spec asserts "the dialect emits the same
-  standard stage names as native (`[:request]`, `[:parse]`, …), so no Logger or
-  `Trace.Capture` list changes are expected — **asserted by the telemetry
-  contract test above, not assumed**". That claim is TRUE and this file is where
-  it is checked. But the neighbouring claim a reader is likely to infer — that
-  the dialect arm and the FRAMEWORK arm are telemetry-equivalent — is FALSE, and
-  it would be dishonest to leave the dual-run tests' green to imply it.
+  The dialects used to emit a strict subset of the framework's stages, the gap
+  being stages owned by framework-only modules (`ImagePipe.Plug`,
+  `Request.Processor`, `Request.DeliveryBuild`) that no dialect routes through.
+  That gap closed in stages, ending with `[:send]`, `[:source, :fetch_decode]`,
+  `[:transform, :execute]`, and `[:encode]`, so `@framework_only` below is
+  pinned empty: a future framework-only stage must be recorded there
+  deliberately rather than opening a silent gap. The parity is recorded in
+  `docs/imgproxy_support_matrix.md` (§Observability).
 
-  The framework emits seven stages neither dialect does. Six of them are owned by
-  framework-only modules (`ImagePipe.Plug`, `Request.Processor`,
-  `Request.DeliveryBuild`), which no dialect routes through; the dialects reach
-  the core toolkit directly. The observable consequence is recorded in
-  `docs/imgproxy_support_matrix.md` and in the phase-1 exit criteria: a request
-  that fails BEFORE delivery emits no `:result` on any stage on a dialect arm,
-  so `ImagePipe.Telemetry.Logger`'s `outcome/1` renders it `:ok` and
-  `level_for/3` never escalates it.
-
-  This is NOT a regression introduced by the imgproxy dialect: it asserts, by
-  measurement, that `Dialect.Imgproxy` matches the already-shipped
-  `Dialect.Native` exactly.
+  The dialect≡dialect assertion is unchanged and still load-bearing: it pins,
+  by measurement, that `Dialect.Imgproxy` and `Dialect.Native` emit the exact
+  same stage sequence.
   """
 
   use ExUnit.Case, async: true
@@ -578,15 +721,10 @@ defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
     [:encode]
   ]
 
-  @framework_only [
-    [:send],
-    [:source, :fetch_decode],
-    [:transform, :execute],
-    [:transform, :input_color_management],
-    [:transform, :materialize],
-    [:output, :negotiate],
-    [:encode]
-  ]
+  # Stage-set parity is reached: no stage is framework-only anymore. Kept as a
+  # pinned (empty) list so a future framework-only stage must be recorded here
+  # deliberately rather than opening a silent gap.
+  @framework_only []
 
   @doc false
   def handle_event(name, _measurements, _metadata, test_pid) do
@@ -665,16 +803,16 @@ defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
     assert stage_set_for(:imgproxy_dialect) == stage_set_for(:native_dialect)
   end
 
-  test "the framework emits seven stages no dialect does, and no dialect emits a stage it does not" do
+  test "the framework and the dialect emit the same stage set (stage-set parity)" do
     framework = stage_set_for(:framework)
     dialect = stage_set_for(:imgproxy_dialect)
 
-    # The dialect's stages are a strict subset: it invents nothing.
+    # The dialect invents no stage of its own.
     assert dialect -- framework == []
 
-    # And the difference is exactly this pinned list. A future change that
-    # closes any of these gaps must update this list — which is the point: the
-    # gap is a documented contract, not a silent hole.
+    # And the framework-only remainder is exactly this pinned list — empty. A
+    # future change that reopens a gap must record it there deliberately: the
+    # gap is a documented contract, never a silent hole.
     assert Enum.sort(framework -- dialect) == Enum.sort(@framework_only)
   end
 end
