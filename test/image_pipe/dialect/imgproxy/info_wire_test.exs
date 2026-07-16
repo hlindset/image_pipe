@@ -119,39 +119,24 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
     Imgproxy.call(conn, config)
   end
 
-  # The framework arm's answer for the same request — the info-parity oracle.
-  defp framework_get(path, sources) do
-    framework_opts = [parser: ImagePipe.Parser.Imgproxy, sources: sources]
-    ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(framework_opts))
-  end
-
-  # ── parity with the framework arm ───────────────────────────────────────
+  # ── the /info body contract ─────────────────────────────────────────────
 
   describe "GET /info/unsafe/plain/images/beach.jpg" do
-    test "200 application/json whose decoded body equals the framework arm's, for the same request" do
+    test "200 application/json whose decoded body matches the committed golden (baked from the framework arm pre-retirement)" do
       path = "/info/unsafe/plain/images/beach.jpg"
 
       dialect = get(path, opts())
-      framework = framework_get(path, @default_sources)
 
       assert dialect.status == 200
-      assert framework.status == 200
       assert get_resp_header(dialect, "content-type") == ["application/json; charset=utf-8"]
 
-      assert get_resp_header(dialect, "content-type") ==
-               get_resp_header(framework, "content-type")
-
-      json = JSON.decode!(dialect.resp_body)
-      assert json == JSON.decode!(framework.resp_body)
-
-      # Named explicitly, so the parity assertion above cannot pass on two
-      # equally-empty documents.
-      assert json["format"] == "jpeg"
-      assert json["mime_type"] == "image/jpeg"
-      assert is_integer(json["width"]) and json["width"] > 0
-      assert is_integer(json["height"]) and json["height"] > 0
-      assert json["orientation"] in 1..8
-      refute Map.has_key?(json, "size")
+      assert JSON.decode!(dialect.resp_body) == %{
+               "format" => "jpeg",
+               "mime_type" => "image/jpeg",
+               "width" => 4000,
+               "height" => 2667,
+               "orientation" => 1
+             }
     end
 
     test "carries an ETag and does not vary by Accept" do
@@ -162,7 +147,7 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
       assert get_resp_header(conn, "vary") == []
     end
 
-    test "reports the swapped display dimensions for a quarter-turn EXIF source, as the framework does" do
+    test "reports the swapped display dimensions for a quarter-turn EXIF source" do
       sources = [
         path:
           {RootHTTPAdapter,
@@ -174,14 +159,14 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
       path = "/info/unsafe/plain/images/oriented.jpg"
 
       dialect = get(path, opts(sources: sources))
-      framework = framework_get(path, sources)
 
-      json = JSON.decode!(dialect.resp_body)
-
-      assert json == JSON.decode!(framework.resp_body)
-      assert json["orientation"] == 6
-      assert json["width"] == 80
-      assert json["height"] == 40
+      assert JSON.decode!(dialect.resp_body) == %{
+               "format" => "jpeg",
+               "mime_type" => "image/jpeg",
+               "width" => 80,
+               "height" => 40,
+               "orientation" => 6
+             }
     end
   end
 
@@ -410,7 +395,7 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
   # ── the /info decode taxonomy ───────────────────────────────────────────
 
   describe "a non-image source" do
-    test "is 415, as it is on the framework arm" do
+    test "is 415" do
       sources = [
         path:
           {RootHTTPAdapter,
@@ -422,11 +407,8 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
       path = "/info/unsafe/plain/images/whatever.jpg"
 
       dialect = get(path, opts(sources: sources))
-      framework = framework_get(path, sources)
 
       assert dialect.status == 415
-      assert framework.status == 415
-      assert dialect.resp_body == framework.resp_body
     end
   end
 end
