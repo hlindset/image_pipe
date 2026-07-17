@@ -707,9 +707,8 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   end
 
   # Localized from ImagePipe.Parser.parse_boolean/1 — the dialect must not
-  # depend on the Parser boundary (acid test). Copy of that function's exact
-  # clauses so the framework and dialect arms accept identical boolean
-  # spellings; the dual-run grammar tests pin the equivalence.
+  # depend on the Parser boundary (acid test). Same clauses, so every stack
+  # accepts identical boolean spellings.
   @spec parse_boolean(String.t()) :: {:ok, boolean()} | {:error, {:invalid_boolean, String.t()}}
   defp parse_boolean(value) when value in ["1", "t", "true"], do: {:ok, true}
   defp parse_boolean(value) when value in ["0", "f", "false"], do: {:ok, false}
