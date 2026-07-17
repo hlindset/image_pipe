@@ -1004,7 +1004,7 @@ default.)
 ### 1. Ship a non-zero `autoquality_max_resolution` default
 
 Today
-[`autoquality_max_resolution` defaults to `0`](../lib/image_pipe/parser/imgproxy.ex)
+[`autoquality_max_resolution` defaults to `0`](../lib/image_pipe/config.ex)
 — i.e. **unbounded**: the ssim2 search runs at any resolution. Part A shows that
 is unsafe (16 MP ≈ 4.7 s, 36 MP ≈ 20 s of CPU per request). Pick the cap from the
 host's per-request latency budget against the cost curve above, remembering the

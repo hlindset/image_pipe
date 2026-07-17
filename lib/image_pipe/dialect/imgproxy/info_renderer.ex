@@ -1,19 +1,18 @@
 defmodule ImagePipe.Dialect.Imgproxy.InfoRenderer do
   @moduledoc """
-  Serializes `ImagePipe.Plan.SourceInfo` into imgproxy's /info JSON (Phase-1 header
+  Serializes `ImagePipe.Plan.SourceInfo` into imgproxy's /info JSON (header
   field set: format, mime_type, width, height, orientation, size). Owns imgproxy's
   wire spellings (per imgproxy `imagetype/defs.go`): HEIC is `"heic"`/`image/heif`,
   JPEG-XL is `"jxl"`/`image/jxl`; imgproxy has no `"heif"`/`"jpeg2000"` types. JP2 is
   a deliberate divergence (ImagePipe decodes it; imgproxy cannot). `width`/`height`
   are orientation-adjusted (swapped for EXIF 5-8).
 
-  A phase-1 copy of the frozen `ImagePipe.Parser.Imgproxy.InfoRenderer`, minus
-  the `ImagePipe.Renderer` behaviour: the inverted dialect owns its whole
-  request chain and may not depend on the `Renderer` boundary, and rendering
-  /info is not a neutral pluggable render here but this dialect's own terminal.
-  So there is no `requires/1` (the chain's decode is the dialect's own), no
-  `RenderContext` (the chain hands the `%SourceInfo{}` straight over), and no
-  `{:ok, _}` wrapper — this cannot fail.
+  Renders directly rather than through the `ImagePipe.Renderer` behaviour: the
+  dialect owns its whole request chain, and rendering /info is not a neutral
+  pluggable render here but this dialect's own terminal. So there is no
+  `requires/1` (the chain's decode is the dialect's own), no `RenderContext`
+  (the chain hands the `%SourceInfo{}` straight over), and no `{:ok, _}`
+  wrapper — this cannot fail.
   """
 
   alias ImagePipe.Plan.SourceInfo

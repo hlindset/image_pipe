@@ -10,11 +10,11 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
   dialect inherits imgproxy's mount-prefix handling rather than native's
   `script_name` byte-prefix approach.
 
-  `ImgproxyPathTest.Dialect` (`test/parser/imgproxy/path_test.exs`) already
-  dual-runs `extract/1`'s `script_name` handling at the unit level against
-  both copies. This file is the wire-level half: a real `Plug.Router.forward/2`
-  mount, so the prefix is set by Plug itself rather than by a hand-built conn,
-  and the assertions are on the served response.
+  `ImagePipe.Dialect.Imgproxy.PathTest` (`path_test.exs`, same dir) already
+  covers `extract/1`'s `script_name` handling at the unit level. This file is
+  the wire-level half: a real `Plug.Router.forward/2` mount, so the prefix is
+  set by Plug itself rather than by a hand-built conn, and the assertions are
+  on the served response.
   """
 
   use ExUnit.Case, async: true

@@ -5,20 +5,18 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   # `PipelineRequest` into the `Plan.Operation` list its pipeline runs, and
   # derives the padding/canvas mode that list implies.
   #
-  # A phase-1 copy of the frozen `ImagePipe.Parser.Imgproxy.PlanBuilder`'s
-  # geometry half — the inverted dialect owns its whole request chain and may
-  # not depend on the Parser boundary, while both arms run side by side. Split
-  # out of `ImagePipe.Dialect.Imgproxy.Pipeline` so the port lives apart from
-  # the resolve-loop driver and the carry math it feeds, mirroring the split
-  # the framework already has between `PlanBuilder` and `Executor`/`Resolver`.
+  # The dialect owns its whole request chain rather than depending on the
+  # `ImagePipe.Parser`/`Resolver` boundary the framework parsers (IIIF,
+  # TwicPics) use. This module is the geometry half of that chain, split out
+  # of `ImagePipe.Dialect.Imgproxy.Pipeline` so it lives apart from the
+  # resolve-loop driver and the carry math it feeds.
   #
-  # `operations/1` is a COMPLETE port of `plan_geometry/1` (`plan_builder.ex:
-  # 254-290`) and every private helper it reaches: the five `missing_dimensions/1`
-  # guard clauses, then all eight stages (trim -> orientation -> crop -> resize
-  # -> effects -> canvas -> padding -> background). Ported clause-for-clause,
-  # including the parts that look redundant — clause ORDER is load-bearing in
-  # three places, each marked below. `pipeline_ctx/1` ports
-  # `effective_padding_pixel_ratio/1`'s mode half (`plan_builder.ex:677-686`).
+  # `operations/1` runs the five `missing_dimensions/1` guard clauses, then
+  # all eight geometry stages (trim -> orientation -> crop -> resize ->
+  # effects -> canvas -> padding -> background), including clauses that look
+  # redundant — clause ORDER is load-bearing in three places, each marked
+  # below. `pipeline_ctx/1` derives the padding/canvas pixel-ratio mode from
+  # the same request.
   #
   # Padding is emitted with a concrete `pixel_ratio: dpr_ratio(preq)`: the
   # dialect owns both emit and run, so the padding/canvas mode lives in
@@ -26,13 +24,15 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   #
   # Three deliberate narrowings, not gaps — the request grammar cannot produce
   # the dropped inputs, so porting them would add unreachable surface:
-  #   * `resize_dimension/1`/`canvas_dimension/1` omit plan_builder's
-  #     `{:scale, _}` and `:auto` clauses: `PipelineRequest`'s width/height/min_*
-  #     are `ImagePipe.imgp_pixels() | nil`, i.e. `{:pixels, non_neg_integer()}`.
-  #     `crop_dimension/1` keeps both — `CropRequest.dimension()` is `:auto |
-  #     {:scale, number()} | imgp_pixels()`, and `:auto` is its own default.
-  #   * `canvas_placement/1` omits plan_builder's `{:fp, _, _}` clause: the
-  #     grammar parses extend gravity with `parse_gravity_anchor/1` only, so
+  #   * `resize_dimension/1`/`canvas_dimension/1` omit the `{:scale, _}` and
+  #     `:auto` clauses the general dimension type allows: `PipelineRequest`'s
+  #     width/height/min_* are `ImagePipe.imgp_pixels() | nil`, i.e.
+  #     `{:pixels, non_neg_integer()}`. `crop_dimension/1` keeps both —
+  #     `CropRequest.dimension()` is `:auto | {:scale, number()} |
+  #     imgp_pixels()`, and `:auto` is its own default.
+  #   * `canvas_placement/1` omits the `{:fp, _, _}` clause the general
+  #     gravity type allows: the grammar parses extend gravity with
+  #     `parse_gravity_anchor/1` only, so
   #     `extend_gravity`/`extend_aspect_ratio_gravity` are anchors or nil.
   #     `tagged_gravity/2` (crop) keeps every clause — a crop's gravity, and the
   #     top-level gravity a bare crop inherits, span the full `gravity()` type.

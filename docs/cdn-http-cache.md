@@ -8,7 +8,7 @@ level, and a source adapter can override it.
 forward "/images",
   to: ImagePipe.Plug,
   init_opts: [
-    parser: ImagePipe.Parser.Imgproxy,
+    parser: ImagePipe.Parser.TwicPics,
     sources: [
       path:
         {ImagePipe.Source.File,

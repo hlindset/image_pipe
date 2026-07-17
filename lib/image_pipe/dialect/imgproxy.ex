@@ -336,15 +336,15 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   # -- extract → verify → split → parse, one telemetry span ------------------
 
-  # Ports `ImagePipe.Parser.Imgproxy.parse_image_request/2` + the output-format
-  # merge of its `parsed_request/4`, reading the dialect's FLAT config where
-  # the framework reads its `:imgproxy`-nested keyword.
+  # Extracts the signature, verifies it, splits off the source path, parses
+  # the option segments, then merges the resolved output format from an
+  # explicit source-path extension. Reads the dialect's FLAT config — no
+  # `:imgproxy`-nested keyword.
   #
   # No `sig_key_index` stop metadata (native's `[:parse]` span carries one):
   # imgproxy's signature grammar has no key index to carry. `Signature.verify/3`
   # returns a bare `:ok` — it tries every configured key/salt pair with
-  # `Enum.any?/2` and never reports which one matched, in this dialect's copy
-  # and in the frozen framework original alike.
+  # `Enum.any?/2` and never reports which one matched.
   defp parse(%Plug.Conn{} = conn, config, endpoint) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:parse], %{}, fn ->
       result = parse_request(conn, config, endpoint)
@@ -388,16 +388,15 @@ defmodule ImagePipe.Dialect.Imgproxy do
     }
   end
 
-  # Ports `ImagePipe.Parser.Imgproxy.parse_info_request/2`'s struct: `info?`
-  # set, `auto_rotate` forced off (the reported orientation is the source's own
-  # header, so the decode must not consume it), and the output untouched by the
-  # discarded source format.
+  # The `/info` request struct: `info?` set, `auto_rotate` forced off (the
+  # reported orientation is the source's own header, so the decode must not
+  # consume it), and the output untouched by the discarded source format.
   #
-  # The parsed `pipelines` and `output` are DROPPED, mirroring
-  # `PlanBuilder.to_plan/2`'s `info?: true` head (`pipelines: []`, `output:
-  # nil`). /info never runs a pipeline and never encodes — `serve_info/4` goes
-  # straight to `source_info/2` with `@info_decode_request` — so nothing on this
-  # path reads either field except `Identity.material/5`. Carrying them meant
+  # The parsed `pipelines` and `output` are DROPPED — `pipelines: []`, and
+  # `output` reset to its no-intent default below. /info never runs a
+  # pipeline and never encodes — `serve_info/4` goes straight to
+  # `source_info/2` with `@info_decode_request` — so nothing on this path
+  # reads either field except `Identity.material/5`. Carrying them would mean
   # `/info/rs:fill:100:100/…` and `/info/…` got different cache keys and
   # different ETags for byte-identical bodies, forcing a client to re-download
   # identical content: exactly what the ETag's narrowness exists to prevent
@@ -406,8 +405,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # will execute — an identity that folds in only what the struct carries cannot
   # regrow this bug when a field is added.
   #
-  # `output` is not nilable on this struct (unlike the framework's `Plan`), so
-  # the defaults — no format, no quality, no encoder options — are the spelling
+  # `output` is not nilable on this struct (unlike `ImagePipe.Plan`), so the
+  # defaults — no format, no quality, no encoder options — are the spelling
   # of "no output intent".
   defp request(:info, signature, source_path, _source_format, request_options) do
     %Request{

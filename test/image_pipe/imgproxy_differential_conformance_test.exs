@@ -146,8 +146,8 @@ end
 
 defmodule ImagePipe.ImgproxyDifferentialFixtureIntegrityTest do
   @moduledoc """
-  Fixture-side guards: they check the committed inputs, not a rendering stack, so they
-  deliberately do NOT dual-run — there is no arm for them to be parameterized by.
+  Fixture-side guards: they check the committed inputs, not a rendering stack,
+  so they run once — there is no dialect to render against here.
   """
   use ExUnit.Case, async: true
 

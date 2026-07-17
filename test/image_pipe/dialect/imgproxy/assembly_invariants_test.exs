@@ -7,10 +7,7 @@ defmodule ImagePipe.Dialect.Imgproxy.AssemblyInvariantsTest do
   # The wire/differential suites already pin the PIXEL behavior of each of these
   # requests. These pin the structural facts a pixel comparison cannot see: which
   # product-neutral guide TERM a gravity maps to, how objw weights canonicalize,
-  # and the fixed operation-module ORDER — invariants formerly last-covered by
-  # the framework parser's white-box `PlanBuilder` tests
-  # (`test/parser/imgproxy/plan_builder_test.exs`) and the cross-arm
-  # `pipeline_assembly_test.exs` (which retires with the framework arm).
+  # and the fixed operation-module ORDER.
   #
   # `Assembly.operations/1` takes a `PipelineRequest.t()` and returns
   # `{:ok, [Operation.semantic_operation()]}`. The request is built the same way

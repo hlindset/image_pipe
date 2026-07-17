@@ -1,8 +1,7 @@
 defmodule ImagePipe.Dialect.Imgproxy.PresetsTest do
   @moduledoc """
-  Preset-expansion *internals* for the imgproxy dialect, ported from the
-  framework parser's `test/parser/imgproxy_test.exs` (:1652–1907). Expansion
-  has no standalone entry point on `Dialect.Imgproxy.Presets` (unlike native's
+  Preset-expansion *internals* for the imgproxy dialect. Expansion has no
+  standalone entry point on `Dialect.Imgproxy.Presets` (unlike native's
   `expand/4`); the dialect expands presets *inside* `Options.parse/3`, so these
   drive the `Presets` + `Options` seam directly and assert on the expanded
   request's `pipelines`/`output`.

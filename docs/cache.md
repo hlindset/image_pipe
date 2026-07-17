@@ -4,9 +4,8 @@ ImagePipe can cache complete encoded responses after successful processing:
 
 ```elixir
 forward "/",
-  to: ImagePipe.Plug,
+  to: ImagePipe.Dialect.Imgproxy,
   init_opts: [
-    parser: ImagePipe.Parser.Imgproxy,
     sources: [
       path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ],

@@ -7,11 +7,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
       `"invalid image request: \#{inspect(reason)}"` where `reason` is the
       BARE atom (`:invalid_signature`, `:invalid_signature_encoding`,
       `:unsupported_signature`) — never the caught tuple this dialect's own
-      `Signature.verify/3` returns for the latter two, matching the
-      framework's own `send_signature_error/2`
-      (`ImagePipe.Parser.Imgproxy.handle_error/2` inspects the bare atom
-      even though it pattern-matched `{:invalid_signature_encoding, sig}` /
-      `{:unsupported_signature, sig}`).
+      `Signature.verify/3` returns for the latter two.
     * `expires` elapsed (`{:expired_request, n}`) -> **400**, via the generic
       parse-failure clause below — `inspect({:expired_request, n})` already
       produces the framework's exact pinned body. Upstream imgproxy

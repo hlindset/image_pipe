@@ -4,11 +4,14 @@ defmodule ImagePipe.Transform.NeutralResolver do
   strategies.
 
   Implements `ImagePipe.Resolver` with the product-neutral deferred-
-  orientation execution policy. A dialect-specific carried strategy (e.g. an
-  imgproxy or TwicPics resolver under `parser/*`) composes its own lowering
-  with this module's `display_frame_advance/2` and `plain_advance/2` to reuse
-  the neutral flush policy instead of re-deriving it, and delegates the tags
-  this module emits back to its `continue/4` at the measure seam.
+  orientation execution policy. A dialect-specific carried strategy (e.g. the
+  TwicPics resolver under `parser/*`) composes its own lowering with this
+  module's `display_frame_advance/2` and `plain_advance/2` to reuse the
+  neutral flush policy instead of re-deriving it, and delegates the tags this
+  module emits back to its `continue/4` at the measure seam. A dialect that
+  assembles its own chain directly (rather than through the `ImagePipe.Parser`/
+  `Resolver` boundary) may call those same helpers without implementing
+  `ImagePipe.Resolver` at all.
 
   The source-dependent `%Operation.Resize{mode: :auto}` fill-vs-fit rule is
   product-neutral and lives here (`resolve_mode/2`; imgproxy `ResizeAuto`

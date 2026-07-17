@@ -16,33 +16,59 @@ and the phase-1 exit-criteria cross-check
 
 ---
 
-## A. The phase-2 deliverable proper — retire `Parser.Imgproxy`
+## A. The phase-2 deliverable proper — retire the framework imgproxy parser — CLOSED (phase-2 wave 2)
 
 Spec decision **D1**: phase 1 *copies* the imgproxy grammar into the dialect and
 runs both arms; phase 2 *deletes the framework originals* so the dialect copies
 become the sole implementation.
 
-Scope:
-- Delete `lib/image_pipe/parser/imgproxy/**` (the framework parser + its
-  grammar), and `ImagePipe.Plug`'s imgproxy wiring if it has no other consumer.
-- Drop the **framework arm** from every dual-run test (grammar tests under
-  `test/parser/imgproxy/`, the wire suite, the differential suite). Spec D2: "the
-  dual-run harness drops the framework arm for free" — the dialect arm stays and
-  becomes the sole assertion.
-- Remove the now-obsolete ExDNA copy-ignores for the phase-1 copies from
-  `.credo.exs` **and** `mise.toml` (the leaf structs, grammar modules, `Assembly`,
-  `Config` source-schemes, `Identity` helpers). Keep only the ignores for
-  duplication that genuinely survives (see item F / #457).
-- Update `SourceInventory` consumers and any `@moduledoc` prose that names the
-  retired modules.
-
 Reversibility note: this is the one-way step D1 was structured to defer. Land it
 only once the dialect has been running in production or is otherwise trusted.
-**That precondition is met** (phase-2 wave 1, spec P1/P2): every §B gap is
-closed, all 156 wire cases and 162 differential constellations dual-run with
-zero framework-only gates, and telemetry stage-set parity holds — the dual-run
-suites at full coverage are the trust evidence. §A is unblocked and gets its
-own implementation plan (wave 2).
+**That precondition was met** at the end of phase-2 wave 1 (spec P1/P2): every
+§B gap closed, all 156 wire cases and 162 differential constellations dual-run
+with zero framework-only gates, and telemetry stage-set parity held — the
+dual-run suites at full coverage were the trust evidence.
+
+**Closed.** `lib/image_pipe/parser/imgproxy/**` (19 files, ~4,900 lines — the
+grammar, `PlanBuilder`, `Resolver`, `Source`, `Signature`, presets, and the
+rest) is deleted; `ImagePipe.Plug` survives serving `IIIF` and `TwicPics`
+(a6a7c783). The framework arm was dropped from every dual-run suite ahead of
+the deletion, per spec D2 ("the dual-run harness drops the framework arm for
+free"): grammar tests relocated single-arm onto the dialect tree (e4480e88),
+the wire conformance suite runs the dialect as the sole imgproxy stack
+(679ff6ea), the differential/telemetry suites went single-arm with
+`gen_fixtures` validating by dialect render (55068289), and the
+framework↔dialect parity pins were deleted once the transition completed
+(855639fb). A residual set of framework-owned suites — cache-key units,
+request-safety ordering, the generic Plug/telemetry/trace contracts,
+color-carry parity, `resize:auto`, canonicalization properties,
+preset-expansion internals, structural invariants, and the `/info` golden —
+were individually repointed at `IIIF`/`TwicPics` or ported onto the dialect
+ahead of the deletion (b40cfd42, 0505317c, 60fb470f, e62d116f, b62ce882,
+886f016f, da5498af, 719621e5, dabea528, f9ee5282, b5b80d49, 12956360,
+f91a1127, 10275188, 3cbf5de7, bf067e8f, 847b53f9, 10c8e8af).
+
+The ExDNA copy-ignores for the phase-1 copies were re-audited: the phase-1-copy
+justified entries are removed from `.credo.exs` **and** `mise.toml` in lockstep,
+keeping only the entries whose duplication survives for a different reason
+(item F / #457) (8fe4a196).
+
+The public `encrypt_source_url/3` facade — previously reachable only through
+the framework parser — is re-homed onto `Dialect.Imgproxy` directly
+(c9443009, d9a0c8e7).
+
+The `{:effective, …}` padding marker — the marker-accretion example this
+backlog tracked — is retired now that the dialect is the sole imgproxy
+implementation reading it (7f6eb183, cec3d7d4).
+
+The fiddle demo's imgproxy mount now serves through `Dialect.Imgproxy`
+(78838a1a).
+
+`@moduledoc`/comment prose naming the retired modules is reworded throughout
+`lib/` and `test/`, and the support matrix's two-stack framing collapses to
+one stack: "Two stacks serve imgproxy URLs" is now how imgproxy URLs are
+served, and § Dialect-stack divergences drops the rows whose premise (a
+second internal imgproxy stack) no longer holds — this docs sweep (task 27).
 
 ---
 
@@ -152,9 +178,9 @@ It was kept for parity fidelity in phase 1.
 
 - Recorded: `phase1-exit-criteria.md` (simplification candidate); the design spec's
   D5 discussion.
-- Fix shape: once `Parser.Imgproxy` is retired (A), simplify the carry so the two
-  fallbacks are a single 1.0, and correct the spec/docs that describe a
-  distinction that does not exist.
+- Fix shape: with §A closed and the dialect the sole imgproxy implementation,
+  simplify the carry so the two fallbacks are a single 1.0, and correct the
+  spec/docs that describe a distinction that does not exist.
 
 ### C2. `{:session, :timeout}` prepare-timeout has no RED-able test through `stream/5`
 

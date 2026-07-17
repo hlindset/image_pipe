@@ -446,8 +446,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
        do: s || fb
 
   # ── no-enlarge padding/DPR scale (#237) ───────────────────────────────────
-  # Copied VERBATIM from `lib/image_pipe/parser/imgproxy/resolver.ex:87-174` —
-  # parity-critical arithmetic reproducing imgproxy's unconditional `!Enlarge()`
+  # Parity-critical arithmetic reproducing imgproxy's unconditional `!Enlarge()`
   # `DprScale = min(DPR, min(wshrink, hshrink))` block (prepare.go calcScale ->
   # padding.go/extend.go). Do not "improve" it.
   defp padding_scale(

@@ -92,9 +92,9 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
     #     ({199, 149}) at its :measure, standing in for the ±1 float-rounding
     #     skew that real libvips can produce and that we cannot force otherwise.
     #
-    # The reference "recorded_realized" is the committed golden's plain fit
-    # resize into 200x150 over high_freq.jpg (resolved_plan_expected.exs:
-    # {:op_stop, :resize, 0, {200, 150}, :ok}). We inject {199, 149}.
+    # The reference "recorded_realized" is a plain fit resize into 200x150 over
+    # high_freq.jpg — the realized dims a resize op reports at its
+    # `{:op_stop, :resize, 0, {200, 150}, :ok}` measure. We inject {199, 149}.
     #
     # imgproxy crop-size math (ground truth, /Users/hlindset/src/imgproxy):
     #   * prepare.go:56-65  CalcCropSize(orig, crop): for 0<crop<1 returns

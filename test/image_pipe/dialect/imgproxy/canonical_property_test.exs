@@ -5,8 +5,7 @@ defmodule ImagePipe.Dialect.Imgproxy.CanonicalPropertyTest do
   alias ImagePipe.Dialect.Imgproxy.Options
   alias ImagePipe.Dialect.Imgproxy.Presets
 
-  # Mirror the framework baseline (test/parser/imgproxy_property_test.exs): pin
-  # the two host-config knobs that otherwise fold into the request during
+  # Pin the two host-config knobs that otherwise fold into the request during
   # defaults resolution, so the properties observe grammar folding alone.
   @defaults [auto_rotate: false, strip_color_profile: false]
 

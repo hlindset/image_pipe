@@ -4,18 +4,17 @@ defmodule ImagePipe.Dialect.Imgproxy.ResponseMeta do
   # The `%ImagePipe.Plan.Response{}` one imgproxy request delivers with — its
   # `Content-Disposition` filename, disposition, and the `debug?` opt-in.
   #
-  # A phase-1 copy of the frozen `ImagePipe.Parser.Imgproxy.PlanBuilder`'s
-  # `response_plan/2` and the `source_filename/1` family it reaches
-  # (`plan_builder.ex:203-252`): the inverted dialect owns its whole request
-  # chain and may not depend on the Parser boundary, while both arms run side
-  # by side. Split out of `ImagePipe.Dialect.Imgproxy` so the chain module
-  # itself carries no copied code — the same split `Assembly` already makes
+  # The dialect owns its whole request chain rather than depending on the
+  # `ImagePipe.Parser` boundary the framework parsers (IIIF, TwicPics) use.
+  # Split out of `ImagePipe.Dialect.Imgproxy` so the chain module itself
+  # carries none of this derivation logic — the same split `Assembly` makes
   # for the geometry half.
   #
-  # The `fn:`-less fallback is the reason this is a port rather than a field
-  # read: imgproxy names the delivered file after the SOURCE's basename when
-  # the request does not, so every response carries a filename. Building the
-  # struct straight from `request.response` would drop that on every request.
+  # The `fn:`-less fallback is the reason this derives a struct rather than
+  # reading a field: imgproxy names the delivered file after the SOURCE's
+  # basename when the request does not, so every response carries a filename.
+  # Building the struct straight from `request.response` would drop that on
+  # every request.
 
   alias ImagePipe.Dialect.Imgproxy.Request
   alias ImagePipe.Plan.Response
