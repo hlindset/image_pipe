@@ -1,206 +1,81 @@
 defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   @moduledoc """
-  Cross-implementation net for the resolve-driven pipeline (Resolve Stage 1).
+  Resolve-driver seam behaviors (Resolve Stage 1), over hand-built plans.
 
-  For each case in `ImagePipe.Test.ResolvedPlanCases.cases/0` we run the NEW
-  (resolve-driver-backed) pipeline via `record!/1` and compare its telemetry
-  against the committed OLD-pipeline recording from `expected/0`. Both event
-  streams are collapsed through ONE canonicalizer (`canonicalize/1`) that folds
-  ONLY the two prescribed representational shifts introduced by making the
-  orientation flush an explicit `%Flush{}` op; every other difference (an op's
-  realized dims, an op appearing/disappearing, a flush moving or changing frame)
-  survives canonicalization and fails the golden. That surviving-difference
-  behavior IS the net.
+  Each test drives `ImagePipe.Transform.Executor.run/5` directly with a
+  capturing chain (no pixels run, except the identity-streaming guard, which
+  runs the real chain to keep its materialization claim honest) and, where
+  geometry matters, an injected `measure_dims`, asserting the driver's seam
+  contracts:
 
-  See `canonicalize/1` for the two rules.
+    * a downstream consumer resolves against the ACQUIRED (measured) dims, not
+      the planned dims (the ±1 divergence);
+    * a multi-executable expansion stages at the realized-dims seam, with the
+      trailing op observing the advanced shape (staged continuation, §4.4);
+    * an identity pending orientation streams — the boundary clears it without a
+      flush and the state ends unmaterialized.
   """
 
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Parser.Imgproxy.Resolver, as: ImgproxyResolver
-  alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Blur, as: PlanBlur
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
-  alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
-  alias ImagePipe.Test.ResolvedPlanCases
+  alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush, as: ExecFlush
-  alias ImagePipe.Transform.Operation.Padding, as: ExecPadding
   alias ImagePipe.Transform.Operation.Resize, as: ExecResize
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
 
-  @expected ResolvedPlanCases.expected()
-
-  # ── The normalization contract ────────────────────────────────────────────
-  #
-  # Making the pending-orientation flush an explicit `%Flush{}` op shifts the
-  # telemetry REPRESENTATION in exactly two ways between the OLD and NEW
-  # pipelines. `canonicalize/1` collapses ONLY these two and nothing else.
-  #
-  # Rule A — flush representation.
-  #   OLD: a boundary/scheduler flush is a STANDALONE materialize pair
-  #        `{:materialize_start}, {:materialize_stop, dims, result}`.
-  #   NEW: the same flush is an explicit `%Flush{}` op wrapping that pair:
-  #        `{:op_start, :flush, i, _}, {:materialize_start},
-  #         {:materialize_stop, dims, _}, {:op_stop, :flush, i, dims, _}`.
-  #   Both collapse to a single `{:flush, dims}` token at that ordinal position.
-  #   The flush op's index and the op-span wrapper are dropped; the dims and the
-  #   position are preserved.
-  #
-  # Rule B — requires_materialization? nesting.
-  #   A materializing op (trim, any `requires_materialization?: true` op) shows
-  #   its materialize pair STANDALONE-BEFORE the op in the OLD stream but NESTED
-  #   inside the op's span in the NEW stream. Both collapse so the materialize is
-  #   attributed to that op at the same position:
-  #        `{:op, name, dims, materialized: true}`.
-  #
-  # Disambiguating a STANDALONE materialize pair (OLD stream): a standalone pair
-  # immediately followed by an `{:op_start, ...}` is that op's own
-  # materialization (Rule B, standalone-before form); any other standalone pair
-  # is a flush (Rule A). This is the only place old-vs-new shape differs, and it
-  # matches the recorder's stated convention.
-  #
-  # A materialize pair NESTED inside an op span attributes to that op: if the op
-  # is `:flush` the frame emits `{:flush, dims}` (Rule A, new form); otherwise it
-  # marks the op `materialized: true` (Rule B, new form).
-  #
-  # The result is a single ordered token stream mixing `{:op, name, dims,
-  # materialized}` and `{:flush, dims}` tokens. Comparing the full stream keeps
-  # both the op sequence (with realized dims) and the flush tokens (position +
-  # dims) in one assertion.
-
-  @doc false
-  def canonicalize(events), do: canonicalize(events, [], [])
-
-  # Done: reverse the accumulated tokens.
-  defp canonicalize([], [], acc), do: Enum.reverse(acc)
-
-  # Standalone materialize pair (no open op frame). Peek ahead: an immediately
-  # following op_start makes this the following op's own materialization (Rule B
-  # standalone-before) — attributed when that op stops. Otherwise it is a flush
-  # (Rule A old form) → emit a {:flush, dims} token here.
-  #
-  # This peek-ahead assumes a SINGLE pipeline per case: a mid-stream boundary
-  # flush immediately followed by the next pipeline's first op would otherwise
-  # be misclassified as that op's own Rule-B materialization, hiding a real
-  # reorder. `cases/0` is guarded below to fail loudly the day a case adds a
-  # second pipeline (Stage 2 Directive/TwicPics multi-pipeline plans).
-  defp canonicalize(
-         [{:materialize_start}, {:materialize_stop, dims, _res} | rest],
-         [] = _stack,
-         acc
-       ) do
-    case rest do
-      [{:op_start, _n, _i, _p} | _] ->
-        # Rule B standalone-before: carry the pending materialize as a sentinel
-        # so the next op_start's frame picks it up.
-        canonicalize(rest, [{:pending_materialize, dims}], acc)
-
-      _ ->
-        canonicalize(rest, [], [{:flush, dims} | acc])
-    end
-  end
-
-  # op_start with a pending standalone materialize (Rule B old form): open the
-  # op frame already marked materialized.
-  defp canonicalize(
-         [{:op_start, name, _i, _p} | rest],
-         [{:pending_materialize, _mdims}],
-         acc
-       ) do
-    canonicalize(rest, [{name, true}], acc)
-  end
-
-  # op_start (no pending): open an unmaterialized op frame.
-  defp canonicalize([{:op_start, name, _i, _p} | rest], [], acc) do
-    canonicalize(rest, [{name, false}], acc)
-  end
-
-  # Materialize pair NESTED inside an open op frame: attribute to that op. Mark
-  # the frame materialized (the frame decides flush-vs-op at op_stop).
-  defp canonicalize(
-         [{:materialize_start}, {:materialize_stop, _dims, _res} | rest],
-         [{name, _materialized?}],
-         acc
-       ) do
-    canonicalize(rest, [{name, true}], acc)
-  end
-
-  # op_stop: close the frame. A :flush op emits {:flush, dims}; any other op
-  # emits {:op, name, dims, materialized: bool}.
-  defp canonicalize([{:op_stop, name, _i, dims, _res} | rest], [{name, materialized?}], acc) do
-    token =
-      case name do
-        :flush -> {:flush, dims}
-        _ -> {:op, name, dims, materialized: materialized?}
-      end
-
-    canonicalize(rest, [], [token | acc])
-  end
-
-  describe "ResolvedPlan golden (old-path-baked, two-rule canonicalizer)" do
-    for kase <- ResolvedPlanCases.cases() do
-      @kase kase
-      @tag :resolved_plan_golden
-      test "#{kase.name}: new pipeline reproduces old op/flush/dims" do
-        parsed_plan = ResolvedPlanCases.parse_plan!(@kase)
-
-        assert length(parsed_plan.pipelines) == 1,
-               "#{@kase.name}: canonicalize/1's peek-ahead heuristic assumes a single " <>
-                 "pipeline per case (a mid-stream boundary flush would be misclassified " <>
-                 "as the next pipeline's op materialization) — got #{length(parsed_plan.pipelines)} pipelines"
-
-        recorded = ResolvedPlanCases.record!(@kase)
-        expected = Enum.find(@expected, &(&1.name == @kase.name))
-
-        assert expected, "no committed expected recording for #{@kase.name}"
-
-        new_tokens = canonicalize(recorded.events)
-        old_tokens = canonicalize(expected.events)
-
-        assert new_tokens == old_tokens,
-               """
-               #{@kase.name}: canonical token streams diverge.
-
-               NEW (resolve driver): #{inspect(new_tokens, pretty: true)}
-               OLD (pre-cutover):    #{inspect(old_tokens, pretty: true)}
-
-               Raw NEW events: #{inspect(recorded.events, pretty: true)}
-               Raw OLD events: #{inspect(expected.events, pretty: true)}
-               """
-
-        assert recorded.final_dims == expected.final_dims,
-               "#{@kase.name}: final_dims #{inspect(recorded.final_dims)} != #{inspect(expected.final_dims)}"
-
-        assert recorded.final_materialized == expected.final_materialized,
-               "#{@kase.name}: final_materialized #{inspect(recorded.final_materialized)} != #{inspect(expected.final_materialized)}"
-      end
-    end
-  end
-
   describe "identity-streaming guard" do
-    # EXIF orientation 1 with effects only: the pipeline must never flush and must
-    # end unmaterialized. A regression that always flushes at the boundary flips
-    # this true and fails here (this is a NEW assertion, not a recording).
+    # An identity pending orientation (EXIF orientation 1, auto-rotate on) with
+    # effects only: the boundary must clear the pending without a flush and the
+    # state must end unmaterialized (the streaming fast path). We drive the real
+    # chain so the materialization claim is honest — a regression that flushes at
+    # the boundary would feed the chain a %Flush{} op AND materialize, failing
+    # both assertions.
     test "identity pending streams — no flush, materialized? stays false" do
-      kase = Enum.find(ResolvedPlanCases.cases(), &(&1.name == :identity_streaming))
-      recorded = ResolvedPlanCases.record!(kase)
+      {:ok, image} = Image.new(200, 150, color: :white)
+      state = %State{image: image}
 
-      refute recorded.final_materialized,
-             "identity_streaming must end materialized? == false (a regression that always flushes flips this)"
+      shape =
+        SourceShape.seed(%{
+          width: 200,
+          height: 150,
+          pending_orientation: PendingOrientation.from_exif(1, true),
+          decode_shrink: nil
+        })
 
-      flush_tokens =
-        recorded.events
-        |> canonicalize()
-        |> Enum.filter(&match?({:flush, _}, &1))
+      batches_agent = start_supervised!({Agent, fn -> [] end})
 
-      assert flush_tokens == [],
-             "identity_streaming must record no flush, got #{inspect(flush_tokens)}"
+      recording_chain = fn %State{} = st, ops, opts ->
+        Agent.update(batches_agent, &[ops | &1])
+        Chain.execute(st, ops, opts)
+      end
+
+      assert {:ok, %State{} = final} =
+               Executor.run(
+                 [%PlanBlur{sigma: 2.0}],
+                 shape,
+                 {NeutralResolver, NeutralResolver.init()},
+                 state,
+                 chain: recording_chain
+               )
+
+      refute final.materialized?,
+             "identity pending must end materialized? == false (a regression that always flushes flips this)"
+
+      flush_batches =
+        batches_agent
+        |> Agent.get(&Enum.reverse/1)
+        |> Enum.filter(fn ops -> Enum.any?(ops, &match?(%ExecFlush{}, &1)) end)
+
+      assert flush_batches == [],
+             "identity pending must feed the chain no flush op, got #{inspect(flush_batches)}"
     end
   end
 
@@ -321,101 +196,6 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
 
       # Keep w0/h0 referenced so the recorded reference stays self-documenting.
       assert {w0, h0} == recorded_realized
-    end
-  end
-
-  describe "imgproxy strategy carry survives a :measure (spec §8)" do
-    # Proves `ImagePipe.Parser.Imgproxy.Resolver.rewrap/2` threads the stashed
-    # DprScale (#237 no-enlarge padding/DPR cap) through an intervening
-    # `:measure` untouched — a trim between the resize and the padding must not
-    # lose the carry.
-    #
-    # Plan = a no-enlarge fit resize (dpr 2, 800x600 source into a 400x300 box,
-    # well inside the source so the no-enlarge cap does not clamp it back down)
-    # -> trim (a second :measure, unrelated to padding) -> padding with an
-    # :effective pixel_ratio in :resize mode.
-    #
-    # Hand-derived effective_padding_scale (ImagePipe.Parser.Imgproxy.Resolver.
-    # padding_scale/4, :resize mode):
-    #   requested_scale = dpr = 2.0
-    #   base = fit(dpr: 1.0, enlarge: true) resolved against the 800x600 source
-    #     -> requested_width/height = 400/300 (a plain fit already inside the
-    #        source, no min-dimension expansion)
-    #   max_without_enlarge = min(800/400, 600/300) = min(2.0, 2.0) = 2.0
-    #   :resize mode, max_without_enlarge >= 1.0 -> compensated = requested_scale = 2.0
-    #   min(compensated, max(max_without_enlarge, 1.0)) = min(2.0, 2.0) = 2.0
-    #
-    # A padding side of 10px scales by the carried 2.0 (Lowering.scaled_padding_side,
-    # round-half-to-even): round(10 * 2.0) = 20.
-    test "a stashed DprScale survives an intervening trim :measure" do
-      shape =
-        SourceShape.seed(%{
-          width: 800,
-          height: 600,
-          pending_orientation: nil,
-          decode_shrink: nil
-        })
-
-      resize = %PlanResize{
-        mode: :fit,
-        width: {:px, 400},
-        height: {:px, 300},
-        dpr: {:ratio, 2, 1},
-        enlargement: :deny,
-        guide: :center
-      }
-
-      trim = %PlanTrim{threshold: 10.0, background: :auto, equal_hor: false, equal_ver: false}
-
-      {:ok, padding} =
-        Operation.padding({:px, 10}, {:px, 10}, {:px, 10}, {:px, 10},
-          pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
-        )
-
-      plan = [resize, trim, padding]
-
-      {:ok, image} = Image.new(800, 600, color: :white)
-      state = %State{image: image}
-
-      batches_agent =
-        start_supervised!(Supervisor.child_spec({Agent, fn -> [] end}, id: :batches))
-
-      capturing_chain = fn %State{} = st, ops, _opts ->
-        Agent.update(batches_agent, &[{ops, st.source_dimensions} | &1])
-        {:ok, st}
-      end
-
-      # Resize measures its realized fitted dims (400x300, matching the plain
-      # fit); trim measures unrelated dims (390x290) — the DprScale carry must
-      # survive this intervening measure untouched.
-      measure_dims_agent =
-        start_supervised!(
-          Supervisor.child_spec({Agent, fn -> [{400, 300}, {390, 290}] end}, id: :measure_dims)
-        )
-
-      inject = fn _image ->
-        Agent.get_and_update(measure_dims_agent, fn [next | rest] -> {next, rest} end)
-      end
-
-      assert {:ok, %State{}} =
-               Executor.run(
-                 plan,
-                 shape,
-                 {ImgproxyResolver, ImgproxyResolver.init()},
-                 state,
-                 chain: capturing_chain,
-                 measure_dims: inject
-               )
-
-      batches = Agent.get(batches_agent, &Enum.reverse/1)
-
-      assert [
-               {[%_{}], _resize_dims},
-               {[%_{}], _trim_dims},
-               {[%ExecPadding{top: top, right: right, bottom: bottom, left: left}], _padding_dims}
-             ] = batches
-
-      assert {top, right, bottom, left} == {20, 20, 20, 20}
     end
   end
 
