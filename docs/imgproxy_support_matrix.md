@@ -191,7 +191,7 @@ save. ImagePipe realizes these at request and output boundaries:
 `ImagePipe.Dialect.Imgproxy` is conformant with imgproxy on all three axes
 above — and that is substantial: the differential suite renders all **162
 constellations** and asserts byte-for-byte equality against imgproxy-baked
-fixtures, and **all 156 wire cases** assert status, headers, content type,
+fixtures, and **all 157 wire cases** assert status, headers, content type,
 decoded pixels, and cache/source access order.
 
 Two ImagePipe-side implementation facts hold on every request. Neither is an

@@ -8,8 +8,7 @@ defmodule ImagePipe.Dialect.Imgproxy.ShrinkLeakWireTest do
   gets divided by the stale factor.
 
   Multi-pipeline `/-/` is imgproxy-dialect syntax with no IIIF equivalent, so
-  this coverage lives on the dialect surface (ported from the framework
-  `ImagePipe.ShrinkOnLoadTest` `/-/` cases as the framework parser is retired).
+  this coverage lives on the dialect surface.
   These drive full requests through `ImagePipe.Dialect.Imgproxy.init/1` +
   `call/2` over `beach.jpg` (4000×2667, JPEG-shrink-eligible) and assert the
   decoded output dimensions.
