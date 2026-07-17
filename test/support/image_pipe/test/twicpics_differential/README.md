@@ -91,16 +91,30 @@ Sources are hosted on catbox and served to the live oracle through the
 hosted bytes**: TwicPics renders the hosted file, not the local one, so a mismatch
 means ImagePipe and TwicPics are rendering different inputs.
 
-The bake verifies this automatically: for each source it downloads the bytes from the
-`source_bytes_url` recorded in `SourceInventory` and compares their SHA-256 to the
-committed file. If they differ it raises before fetching any oracle output.
+The bake verifies this automatically before selecting a fixture: for each source it
+downloads the bytes from the `source_bytes_url` recorded in `SourceInventory` and
+compares their SHA-256 to the committed file. It then requests the recorded
+`hosted_url` with `?twic=v1/output=png`, decodes that TwicPics identity render, and
+requires its dimensions, bands, and pixels to equal the decoded committed source. An
+encoded-byte comparison would be wrong here because the committed source can be WebP
+while the identity response is pinned PNG.
 
 The seed source (`grid_4x4.png`) is a 400x400 RGBA colour grid from the #321 focus
 probe, uploaded to catbox and served via
-`https://imagepipe.twic.pics/b7g72c.png`. When adding a new source, upload it to
-catbox and record its `source_bytes_url` in `SourceInventory`. The bake's
-`resolve_sources/1` handles the upload automatically for entries without a recorded
-`hosted_url`.
+`https://imagepipe.twic.pics/b7g72c.png`.
+
+Adding a source is a fail-closed two-run handshake:
+
+1. Add the source file and an inventory entry with both `source_bytes_url` and
+   `hosted_url` set to `nil`, then run the bake. It uploads once, prints both exact
+   values, and aborts before any fixture request or write.
+2. Record both values in `SourceInventory` and run the bake again. The second run
+   verifies the direct Catbox bytes and the TwicPics identity render before the first
+   fixture transformation.
+
+An entry with only one URL is invalid, and a URL remembered by an older manifest never
+completes inventory metadata. Any direct-byte or identity-render mismatch stops the
+bake before fixture writes, report generation, or orphan pruning.
 
 ## Incremental bake
 
