@@ -53,14 +53,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
           {:missing_dimensions, PipelineRequest.resizing_type()} | Operation.error()
 
   @doc """
-  The `Plan.Operation` list one imgproxy pipeline runs, in plan_builder's fixed
-  stage order, or the request-level rejection its geometry implies.
+  The `Plan.Operation` list one imgproxy pipeline runs, in the fixed stage
+  order, or the request-level rejection its geometry implies.
 
-  The error tuples are byte-identical to the framework arm's, which raises them
-  from `PlanBuilder.to_plan/2` at PARSE time — before any source fetch. This
-  function is a pure function of the request, so the dialect's Plug chain calls
-  it over every pipeline ahead of the fetch purely for that rejection
-  (`ImagePipe.Dialect.Imgproxy.check_geometry/1`), preserving the ordering.
+  This function is a pure function of the request, so the dialect's Plug
+  chain calls it over every pipeline ahead of the fetch purely for that
+  rejection (`ImagePipe.Dialect.Imgproxy.check_geometry/1`) — a geometry
+  reject returns before any source fetch or cache access.
   `ImagePipe.Dialect.Imgproxy.Pipeline` calls it again at run time — that is
   the call that produces the operations, against the per-pipeline shape they
   are assembled for.
@@ -69,10 +68,10 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
           {:ok, [Operation.semantic_operation()]} | {:error, error()}
   def operations(request)
 
-  # Ports `plan_geometry/1`'s five guard clauses (`plan_builder.ex:254-269`)
-  # verbatim, ORDER included: they precede every stage, so a request rejected
-  # here never reaches the trim/orientation/crop assembly below. `{:pixels, 0}`
-  # is "auto", not "unset" — these key off `nil` only.
+  # The five missing-dimensions guard clauses, ORDER included: they precede
+  # every stage, so a request rejected here never reaches the
+  # trim/orientation/crop assembly below. `{:pixels, 0}` is "auto", not
+  # "unset" — these key off `nil` only.
   def operations(%PipelineRequest{resizing_type: :fill, width: nil, height: nil}),
     do: missing_dimensions(:fill)
 
@@ -117,8 +116,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   The padding/canvas decision context `operations/1`'s list implies.
 
   The padding/canvas mode is parse-time-decidable request data: nothing here
-  consults runtime geometry. Ports `plan_builder.ex:677-686` and the whole
-  predicate closure it reaches — including `resize_target_ratio/1`, which
+  consults runtime geometry — including `resize_target_ratio/1`, which
   reads width/height rather than any `extend*` field.
   """
   @spec pipeline_ctx(PipelineRequest.t()) :: %{
@@ -227,26 +225,23 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
 
   # ── stage 4: resize ──────────────────────────────────────────────────────
   #
-  # Ports `plan_builder.ex:363-388`'s `resize_operations/1` clause-for-clause.
   # Two ordering facts, both load-bearing:
   #
   #   * The two dimensionless clauses sit BEFORE the `resizing_type: :auto`
   #     clause, so a ruleless `rt:auto/w:0/h:0` emits nothing. Promoting the
   #     `:auto` clause — the more specific match, a tempting reorder — would
-  #     route it to `resize_operation/1` and emit a resize the framework does
-  #     not.
+  #     route it to `resize_operation/1` and emit a resize where none belongs.
   #   * The fit/fill/fill_down/force clause goes through `resize_from_rule/1`,
   #     which MAPS the dimensions before `resize_operations_for/3`'s
   #     `{:auto, :auto, false}` guard can see them. A catch-all that skips the
-  #     mapping can never reach that guard, and emits where the framework
-  #     emits nothing.
+  #     mapping can never reach that guard, and emits where nothing should be
+  #     emitted.
   #
   # The `:auto` clause's own route to `resize_operation/1` skips that guard, but
   # unobservably: reaching `{:auto, :auto}` needs both dimensions nil or both
   # `{:pixels, 0}`, and for `:auto` the former is rejected by the
   # `missing_dimensions/1` guards above and the latter is claimed by the second
-  # clause here. Ported as written regardless — the frozen arm's shape is the
-  # contract, not our reachability analysis of it.
+  # clause here.
 
   defp resize_operations(%PipelineRequest{width: nil, height: nil} = request) do
     if resize_rule_requested?(request) do
@@ -305,7 +300,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
       not is_nil(request.dpr)
   end
 
-  # Ports `plan_builder.ex:627-661`'s FULL opt list. Every one of these fields is
+  # The FULL opt list matters. Every one of these fields is
   # read back by the carry math: `padding_scale/4` runs the emitted op through
   # `ResizePlanning.resize_from/2` + `Resize.resolve_dimensions/2`, so an opt
   # dropped here silently changes the padding scale. A dropped `zoom_*` is the
@@ -348,7 +343,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
 
   defp resize_opts(%PipelineRequest{}, opts), do: opts
 
-  # `plan_builder.ex:830-832`. The `:fill_down` clause comes FIRST and overrides
+  # The `:fill_down` clause comes FIRST and overrides
   # `enlarge: true` — imgproxy's fill-down never enlarges, whatever `el` says.
   defp enlargement(%PipelineRequest{resizing_type: :fill_down}), do: :deny
   defp enlargement(%PipelineRequest{enlarge: true}), do: :allow
@@ -363,8 +358,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   # ── stage 5: effects ─────────────────────────────────────────────────────
   #
   # Each per-effect identity point (`blur=0`, `pixelate<=1`, `contrast=1.0`, a
-  # zero intensity/opacity ratio, …) is its own guard clause; each suppresses an
-  # operation the framework arm would not emit.
+  # zero intensity/opacity ratio, …) is its own guard clause; each suppresses a
+  # no-op operation that would otherwise be emitted.
 
   defp effect_operations(%PipelineRequest{effects: %Effects{} = effects}) do
     [
@@ -479,10 +474,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
 
   # ── stage 6: canvas ──────────────────────────────────────────────────────
   #
-  # Ports `plan_builder.ex:417-475`'s `canvas_operations/1` — BOTH canvases, in
-  # order. `pipeline_ctx/1` already flips the pipeline to `:canvas_preserving`
-  # when either would emit, so omitting one would leave the mode answering for an
-  # operation that never runs.
+  # BOTH canvases, in order. `pipeline_ctx/1` already flips the pipeline to
+  # `:canvas_preserving` when either would emit, so omitting one would leave
+  # the mode answering for an operation that never runs.
 
   defp canvas_operations(%PipelineRequest{} = request) do
     [
@@ -616,10 +610,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   `:positive_float`, so a dpr that rounds to zero at the seventh decimal
   (`dpr:0.00000001`) parses but has no rational, and `operations/1` rejects the
   request with the same `{:invalid_operation, :resize, _}` its resize stage
-  raises — byte-identical to the framework arm's own rejection of the same
-  request. A dpr-carrying request always reaches the resize stage
-  (`resize_rule_requested?/1` reads `dpr`), and that stage precedes padding on
-  both arms, so the two arms reject at the same point with the same tag.
+  raises. A dpr-carrying request always reaches the resize stage
+  (`resize_rule_requested?/1` reads `dpr`), and that stage precedes padding,
+  so the padding stage never sees a dpr it cannot rationalize.
   """
   @spec dpr_ratio(PipelineRequest.t()) ::
           {:ok, {:ratio, pos_integer(), pos_integer()}} | {:error, Operation.error()}
@@ -681,8 +674,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   defp canvas_dimension({:pixels, value}) when is_integer(value) and value > 0,
     do: {:ok, {:px, value}}
 
-  # `mw:0`/`mh:0` mean "no minimum on this axis" (`:auto`), NOT "unset" (`nil`) —
-  # `plan_builder.ex:716-718`.
+  # `mw:0`/`mh:0` mean "no minimum on this axis" (`:auto`), NOT "unset" (`nil`).
   defp optional_resize_dimension(nil), do: {:ok, nil}
   defp optional_resize_dimension({:pixels, 0}), do: {:ok, :auto}
   defp optional_resize_dimension(dimension), do: resize_dimension(dimension)

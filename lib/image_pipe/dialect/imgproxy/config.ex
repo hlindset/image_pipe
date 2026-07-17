@@ -1,7 +1,8 @@
 defmodule ImagePipe.Dialect.Imgproxy.Config do
   @moduledoc """
   The dialect's `Plug.init/1` validator — a three-way split of a FLAT
-  keyword list (unlike the framework's `:imgproxy`-nested shape) into:
+  keyword list (no parser-named sublist, unlike `ImagePipe.Plug`'s
+  `iiif:`/`twicpics:` nesting) into:
 
     * shared runtime keys (`ImagePipe.Dialect.SharedConfig`) — source
       fetching, caching, request-safety limits;

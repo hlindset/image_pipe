@@ -76,11 +76,11 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   Decode happens once, before any pipeline runs, so only the first pipeline's
   trim/crop/resize/rotate can safely inform it — a later `-` pipeline runs
-  against whatever the first already produced. This reproduces the framework
-  arm's own "only the first pipeline" shrink-on-load scoping.
+  against whatever the first already produced, so only the first pipeline may
+  drive shrink-on-load.
 
   Every field is derived to agree with what `DecodePlanner.open_options/5`
-  computes from the equivalent op chain — the framework arm's path. The two
+  computes from the equivalent op chain. The two
   paths *converge* rather than approximate each other: this function resolves
   the same per-axis extents `resize_load_shrink/3` resolves, and both then hand
   them to the planner's own `ratio_from_targets/4`. What that leaves this
@@ -192,7 +192,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # `resize_load_shrink/3` calls — then takes that axis's ratio alone, exactly as
   # the chain does. A derived partner axis would instead bind its `min/2` tighter
   # whenever the frame is not exactly proportional, shrinking less and decoding
-  # more pixels than the framework arm.
+  # more pixels than the chain path for the same request.
   #
   # The extents are NOT rounded, for the same reason: `resize_load_shrink/3`
   # divides by the fractional dpr/zoom-inflated target directly, so rounding here
@@ -248,8 +248,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   `NeutralResolver.continue/4` respectively. Real callers never set these.
 
   A pipeline whose geometry `Assembly.operations/1` rejects (`rs:fill` with no
-  dimensions, say) halts the reduce with that rejection, unwrapped and
-  byte-identical to the framework arm's own parse-time error.
+  dimensions, say) halts the reduce with that rejection, unwrapped — the same
+  tuple `check_geometry/1` raises for the request at parse time.
 
   Runs the input color-management preamble before the first pipeline; a failure
   there is a decode failure, `{:error, {:decode, reason}}`.

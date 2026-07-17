@@ -26,8 +26,7 @@ defmodule ImagePipe.Dialect.Imgproxy.ResponseMeta do
   @doc """
   The delivery metadata for `request` against its translated `plan_source`.
 
-  Rejects an unusable `fn:` stem with `{:error, {:invalid_filename, stem}}`
-  — byte-identical to the framework arm's own parse-time rejection, and
+  Rejects an unusable `fn:` stem with `{:error, {:invalid_filename, stem}}`,
   reached before any source fetch by the dialect's chain.
   """
   @spec build(Request.t(), ImagePipe.Plan.Source.t()) ::

@@ -24,8 +24,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
   `ImagePipe.Dialect.Imgproxy.Assembly.operations/1`, which
   `ImagePipe.Dialect.Imgproxy.Pipeline` reaches at run time — after the
   fetch and the decode. `check_geometry/1` therefore runs the same pure
-  function over every pipeline ahead of the fetch, restoring the ordering
-  the framework arm gets for free by assembling at parse time. The run-time
+  function over every pipeline ahead of the fetch, so an unassemblable
+  request rejects before any source fetch or cache access. The run-time
   call stays: it is the one that produces the operations, and re-running a
   pure function over a parsed request costs nothing next to a fetch.
 
@@ -216,15 +216,15 @@ defmodule ImagePipe.Dialect.Imgproxy do
     do: %{result: outcome_result(reason), error: Error.tag(reason)}
 
   # This dialect's own client-reject reasons — the signature and `exp` gates,
-  # both pre-fetch and pre-option-parse — get the framework's client-error
-  # atom directly, the same way `ImagePipe.Plug`'s parser errors always render
-  # `:parser_error` regardless of the underlying reason. Two pre-fetch gates are
-  # the exception, both plan-shape failures rather than syntax ones, and both
-  # `:plan_error` to match the framework: `Assembly.operations/1`'s geometry
-  # rejection (`{:missing_dimensions, _}`, mirroring the framework's
-  # `PlanBuilder`-time check — `Errors.send/4` still answers it with the same 400
-  # as every other parse reject), and `check_detector/2`'s `{:detector,
-  # :unavailable}` (mirroring `ImagePipe.Plug`'s own `:plan_error` for it).
+  # both pre-fetch and pre-option-parse — get the client-error atom directly,
+  # the same way `ImagePipe.Plug`'s parser errors always render
+  # `:parser_error` regardless of the underlying reason. Two pre-fetch gates
+  # are the exception, both plan-shape failures rather than syntax ones, and
+  # both `:plan_error`: `Assembly.operations/1`'s geometry rejection
+  # (`{:missing_dimensions, _}` — `Errors.send/4` still answers it with the
+  # same 400 as every other parse reject), and `check_detector/2`'s
+  # `{:detector, :unavailable}` (mirroring `ImagePipe.Plug`'s own
+  # `:plan_error` for it).
   #
   # Everything else — Options/Path/Source translate rejects (`:unknown_option`,
   # `:invalid_option_segment`, `:invalid_source_url`, …), and the core-stage
@@ -243,12 +243,10 @@ defmodule ImagePipe.Dialect.Imgproxy do
   defp outcome_result(reason), do: Telemetry.request_result({:error, reason})
 
   # The `/info` terminal [spec §The /info cache path]. Skips three of the image
-  # chain's steps because the framework arm's own info plan does
-  # (`PlanBuilder.to_plan/2`'s `info?: true` head builds `pipelines: []`,
-  # `output: nil`, `response: %Response{}`): the geometry check has no
-  # operations to reject, negotiation has no format to select, and there is no
-  # image body to attach a `Content-Disposition` to. The `exp` gate and the
-  # signature still apply.
+  # chain's steps because none applies to an info request: the geometry check
+  # has no operations to reject, negotiation has no format to select, and
+  # there is no image body to attach a `Content-Disposition` to. The `exp`
+  # gate and the signature still apply.
   #
   # `request/5`'s `:info` head drops the parsed pipelines and output for the same
   # reason, so none of the three can reach this terminal's identity.
@@ -430,15 +428,13 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # runtime observability contract (AGENTS.md) and `Error.tag/1` output is a
   # product-neutral, non-sensitive atom, so there is no reason to withhold it.
   #
-  # This deliberately does NOT reproduce the framework's value, which is the
-  # constant `:error` for every parse failure it can have: `ImagePipe.Plug`'s
-  # `wrap_parser_error/1` re-wraps `{:error, reason}` as `{:error, {:parser,
-  # {:error, reason}}}`, so `result_metadata/1`'s `Error.tag(error)` reads the
-  # tag of `{:error, reason}` — the atom `:error` — and never reaches `reason`.
-  # Observed on the framework arm for three unrelated failures (a missing
-  # dimension, an invalid format, an unknown option): `%{error: :error}` each
-  # time. Matching that would carry the quirk into a chain that does not share
-  # the double-wrap, to emit a constant conveying nothing.
+  # This deliberately does NOT reproduce `ImagePipe.Plug`'s value, which is
+  # the constant `:error` for every parse failure: its `wrap_parser_error/1`
+  # re-wraps `{:error, reason}` as `{:error, {:parser, {:error, reason}}}`, so
+  # `result_metadata/1`'s `Error.tag(error)` reads the tag of `{:error,
+  # reason}` — the atom `:error` — and never reaches `reason`. Matching that
+  # would carry the quirk into a chain that does not share the double-wrap,
+  # to emit a constant conveying nothing.
   defp parse_stop_metadata({:error, reason}), do: %{result: :error, error: Error.tag(reason)}
 
   # -- pre-fetch gates --------------------------------------------------------
@@ -464,11 +460,11 @@ defmodule ImagePipe.Dialect.Imgproxy do
     |> then(&DateTime.to_unix(&1.()))
   end
 
-  # The geometry half of the framework arm's parse-time plan build, run here
-  # for its rejection only — see the moduledoc. The operations themselves are
-  # produced (again) by `Pipeline.run/4`, which owns the per-pipeline shape
-  # the operations are assembled against. They are handed back here so
-  # `check_detector/2` can read their guides without a third assembly pass.
+  # Pre-fetch geometry assembly, run here for its rejection only — see the
+  # moduledoc. The operations themselves are produced (again) by
+  # `Pipeline.run/4`, which owns the per-pipeline shape the operations are
+  # assembled against. They are handed back here so `check_detector/2` can
+  # read their guides without a third assembly pass.
   defp check_geometry(%Request{pipelines: pipelines}) do
     Enum.reduce_while(pipelines, {:ok, []}, fn pipeline_request, {:ok, acc} ->
       case Assembly.operations(pipeline_request) do
@@ -719,11 +715,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # the miss path stay a dialect-owned send.
 
   # As on the image path, a source that disabled the internal cache is neither
-  # read from nor written to. The framework arm never caches /info at all (its
-  # `Runner.run/5` render head returns before any cache access), so this
-  # dialect-owned cache has no parity source to mirror — but the reason the
-  # image path honors the flag holds here unchanged: the stored JSON reports this
-  # source's format/dimensions/orientation, so serving a stale one for bytes that
+  # read from nor written to. The reason the image path honors the flag holds
+  # here unchanged: the stored JSON reports this source's
+  # format/dimensions/orientation, so serving a stale one for bytes that
   # carry no stable identity is the same unsoundness, one indirection later.
   defp serve_info(
          conn,
