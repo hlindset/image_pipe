@@ -109,12 +109,12 @@ Sign production encrypted URLs. Signature verification happens before
 decryption, so a tampered encrypted segment or SEO filename fails before padding
 checks when callers enable signing.
 
-Use `ImagePipe.Parser.Imgproxy.encrypt_source_url/3` to generate only the
+Use `ImagePipe.Dialect.Imgproxy.encrypt_source_url/3` to generate only the
 encrypted source segment:
 
 ```elixir
 {:ok, segment} =
-  ImagePipe.Parser.Imgproxy.encrypt_source_url(
+  ImagePipe.Dialect.Imgproxy.encrypt_source_url(
     "images/cat.jpg",
     "000102030405060708090a0b0c0d0e0f"
   )

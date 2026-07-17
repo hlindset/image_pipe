@@ -87,6 +87,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Dialect.Imgproxy.ResponseMeta
   alias ImagePipe.Dialect.Imgproxy.Signature
   alias ImagePipe.Dialect.Imgproxy.Source, as: ImgproxySource
+  alias ImagePipe.Dialect.Imgproxy.SourceEncryption
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
@@ -127,6 +128,28 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # no shrink at all: every field of a bare request is already the "no
   # preflight" answer.
   @info_decode_request %DecodePlanner.Request{}
+
+  @doc """
+  Encrypts a source URL into the segment used after imgproxy's `/enc/` marker.
+
+  The helper returns only the encrypted source segment. It doesn't add the
+  `/enc/` marker, processing options, output suffixes, or signatures.
+
+  The key must be a hex string that decodes to a 16, 24, or 32 byte AES key.
+  By default the helper uses a random 16 byte IV. Pass
+  `iv: <<...::binary-size(16)>>` when the caller needs a deterministic segment.
+
+  Returns `{:error, :invalid_source_url}` when the source URL isn't a binary,
+  `{:error, :invalid_key}` when the key isn't valid hex AES key material,
+  `{:error, :invalid_iv}` when `:iv` isn't 16 bytes, and
+  `{:error, :invalid_options}` for non-keyword or unknown options.
+  """
+  @spec encrypt_source_url(binary(), binary(), keyword()) ::
+          {:ok, binary()}
+          | {:error, :invalid_source_url | :invalid_key | :invalid_iv | :invalid_options}
+  def encrypt_source_url(source_url, hex_key, opts \\ []) do
+    SourceEncryption.encrypt_source_url(source_url, hex_key, opts)
+  end
 
   @impl Plug
   def init(opts), do: Config.validate!(opts)
