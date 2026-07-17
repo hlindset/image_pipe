@@ -418,6 +418,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Representation,
       ImagePipe.Telemetry
     ])
 
@@ -710,6 +711,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     representation = boundary_declaration(ImagePipe.Representation)
 
     assert_boundary_deps(representation, [ImagePipe.Cache, ImagePipe.MaterialDigest])
+    refute_boundary_deps(representation, [ImagePipe.Response])
 
     assert_boundary_exports(representation, [
       ImagePipe.Representation.IdentityMaterial

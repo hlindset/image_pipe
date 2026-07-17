@@ -187,7 +187,11 @@ defmodule ImagePipe.Dialect.Native do
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
-        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        Sender.send_result(
+          conn,
+          {:not_modified, CacheHeaders.from_representation(representation)},
+          config
+        )
       end)
 
     {conn, metadata}
@@ -359,10 +363,7 @@ defmodule ImagePipe.Dialect.Native do
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
-        conn
-        |> put_resp_headers(Representation.response_headers(representation))
-        |> put_resp_content_type(content_type, nil)
-        |> send_resp(200, entry.body)
+        send_complete_body(conn, content_type, entry.body, representation)
       end)
 
     {conn, metadata}
@@ -376,7 +377,9 @@ defmodule ImagePipe.Dialect.Native do
       send_with_span(conn, config, metadata.result, fn ->
         Sender.send_result(
           conn,
-          {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
+          {:ok,
+           {:cache_entry, entry, %PlanResponse{},
+            CacheHeaders.from_representation(representation), hit_debug}},
           config
         )
       end)
@@ -403,7 +406,9 @@ defmodule ImagePipe.Dialect.Native do
           send_with_span(conn, config, metadata.result, fn ->
             Sender.send_result(
               conn,
-              {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
+              {:ok,
+               {:prepared_stream, prepared, response_meta,
+                CacheHeaders.from_representation(representation)}},
               config
             )
           end)
@@ -438,7 +443,7 @@ defmodule ImagePipe.Dialect.Native do
 
         conn =
           send_with_span(conn, config, metadata.result, fn ->
-            send_complete_body(conn, hash, representation)
+            send_complete_body(conn, @blurhash_content_type, hash, representation)
           end)
 
         {conn, metadata}
@@ -479,11 +484,14 @@ defmodule ImagePipe.Dialect.Native do
     kind, reason -> {:error, {:transform, {kind, reason}}}
   end
 
-  defp send_complete_body(conn, hash, %Representation{} = representation) do
+  defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
+    cache_headers = CacheHeaders.from_representation(representation)
+
     conn
-    |> put_resp_headers(Representation.response_headers(representation))
-    |> put_resp_content_type(@blurhash_content_type, nil)
-    |> send_resp(200, hash)
+    |> put_resp_headers(cache_headers.representation_headers)
+    |> put_resp_headers(cache_headers.headers)
+    |> put_resp_content_type(content_type, nil)
+    |> send_resp(200, body)
   end
 
   defp write_complete_body_cache(%Representation{} = representation, hash, cost_us, config) do
@@ -498,19 +506,8 @@ defmodule ImagePipe.Dialect.Native do
     :ok
   end
 
-  defp vary_headers([]), do: []
-  defp vary_headers(names) when is_list(names), do: [{"vary", Enum.join(names, ", ")}]
-
   defp put_resp_headers(conn, headers) do
     Enum.reduce(headers, conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
-  end
-
-  defp cache_headers(%Representation{} = representation) do
-    %CacheHeaders{
-      etag: representation.etag,
-      representation_headers: vary_headers(representation.vary),
-      headers: Representation.response_headers(representation)
-    }
   end
 
   # -- build_fun: fetch → decode → transform → encode, run INSIDE the ----------

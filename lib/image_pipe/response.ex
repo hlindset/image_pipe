@@ -9,6 +9,7 @@ defmodule ImagePipe.Response do
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Representation,
       ImagePipe.Telemetry
     ],
     exports: [
