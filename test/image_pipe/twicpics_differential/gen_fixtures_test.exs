@@ -40,8 +40,8 @@ defmodule ImagePipe.TwicpicsDifferential.GenFixturesTest do
         [
           %{
             file: "grid_4x4.png",
-            hosted_url: "https://imagepipe.twic.pics/prior-must-not-help.png",
-            source_bytes_url: nil
+            hosted_url: nil,
+            source_bytes_url: "https://files.catbox.moe/b7g72c.png"
           }
         ],
         tmp_dir,

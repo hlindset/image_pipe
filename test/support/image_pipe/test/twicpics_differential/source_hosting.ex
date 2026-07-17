@@ -66,7 +66,28 @@ defmodule ImagePipe.Test.TwicpicsDifferential.SourceHosting do
     %{sha256: committed_sha256, hosted_url: hosted_url}
   end
 
-  defp validate_url_pair!(source_bytes_url, hosted_url)
+  @doc false
+  @spec catbox_urls!(term()) :: {String.t(), String.t()}
+  def catbox_urls!(body) when is_binary(body) do
+    source_bytes_url = String.trim(body)
+    hosted_url = catbox_projection(source_bytes_url)
+
+    case valid_url_pair?(source_bytes_url, hosted_url) do
+      true -> {source_bytes_url, hosted_url}
+      false -> Mix.raise("invalid catbox upload response")
+    end
+  end
+
+  def catbox_urls!(_body), do: Mix.raise("invalid catbox upload response")
+
+  defp validate_url_pair!(source_bytes_url, hosted_url) do
+    case valid_url_pair?(source_bytes_url, hosted_url) do
+      true -> :ok
+      false -> Mix.raise("invalid source-hosting URL pair")
+    end
+  end
+
+  defp valid_url_pair?(source_bytes_url, hosted_url)
        when is_binary(source_bytes_url) and is_binary(hosted_url) do
     direct = URI.parse(source_bytes_url)
     hosted = URI.parse(hosted_url)
@@ -74,13 +95,22 @@ defmodule ImagePipe.Test.TwicpicsDifferential.SourceHosting do
     hosted_basename = valid_url_basename(hosted, @hosted_host)
 
     case {direct_basename, hosted_basename} do
-      {basename, basename} when is_binary(basename) -> :ok
-      _ -> Mix.raise("invalid source-hosting URL pair")
+      {basename, basename} when is_binary(basename) -> true
+      _ -> false
     end
   end
 
-  defp validate_url_pair!(_source_bytes_url, _hosted_url),
-    do: Mix.raise("invalid source-hosting URL pair")
+  defp valid_url_pair?(_source_bytes_url, _hosted_url), do: false
+
+  defp catbox_projection(source_bytes_url) do
+    case URI.parse(source_bytes_url) do
+      %URI{path: path} when is_binary(path) ->
+        "https://imagepipe.twic.pics/#{Path.basename(path)}"
+
+      _ ->
+        ""
+    end
+  end
 
   defp valid_url_basename(
          %URI{

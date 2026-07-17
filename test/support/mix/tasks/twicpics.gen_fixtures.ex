@@ -214,9 +214,11 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     ]
 
     case Req.post(@catbox, form_multipart: form, decode_body: false) do
-      {:ok, %{status: 200, body: body}} ->
-        id = body |> String.trim() |> Path.basename()
-        {"https://files.catbox.moe/#{id}", "https://imagepipe.twic.pics/#{id}"}
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        SourceHosting.catbox_urls!(body)
+
+      {:ok, %{status: 200}} ->
+        Mix.raise("catbox upload failed for #{entry.file}: response body is not binary")
 
       other ->
         Mix.raise("catbox upload failed for #{entry.file}: #{inspect(other)}")

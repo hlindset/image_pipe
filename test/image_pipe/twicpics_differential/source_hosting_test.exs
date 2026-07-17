@@ -44,6 +44,23 @@ defmodule ImagePipe.TwicpicsDifferential.SourceHostingTest do
     refute_receive {:fetch, _}
   end
 
+  test "converts a Catbox response without changing its direct URL" do
+    direct_url = "https://files.catbox.moe/uploaded-object.png"
+
+    assert SourceHosting.catbox_urls!("  #{direct_url}\n") == {
+             direct_url,
+             "https://imagepipe.twic.pics/uploaded-object.png"
+           }
+  end
+
+  test "rejects invalid Catbox upload response bodies" do
+    for body <- ["https://uploads.example/uploaded-object.png", :not_a_binary] do
+      assert_raise Mix.Error, ~r/invalid catbox upload response/, fn ->
+        SourceHosting.catbox_urls!(body)
+      end
+    end
+  end
+
   test "rejects a half-complete inventory before upload or fetch", context do
     for incomplete <- [
           entry(source_bytes_url: nil),
