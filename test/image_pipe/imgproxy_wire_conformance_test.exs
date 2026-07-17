@@ -13,6 +13,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Entry
+  alias ImagePipe.Dialect.Imgproxy, as: DialectImgproxy
   alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
   alias ImagePipe.SourceTest.CredentialProvider
   alias ImagePipe.SourceTest.FoobarTranslator
@@ -4148,7 +4149,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     iv = Keyword.get(opts, :iv, @source_url_encryption_iv)
 
     {:ok, segment} =
-      ImagePipe.Dialect.Imgproxy.encrypt_source_url(source, @source_url_encryption_key, iv: iv)
+      DialectImgproxy.encrypt_source_url(source, @source_url_encryption_key, iv: iv)
 
     segment
   end
@@ -4601,10 +4602,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   # plug and takes one flat keyword (`Dialect.Imgproxy.Config` splits it three
   # ways itself), so there is nothing to translate at the boundary.
   defp call_imgproxy_conn(%Plug.Conn{} = conn, opts) do
-    ImagePipe.Dialect.Imgproxy.call(
-      conn,
-      ImagePipe.Dialect.Imgproxy.init(opts)
-    )
+    DialectImgproxy.call(conn, DialectImgproxy.init(opts))
   end
 
   defp put_accept(conn, nil), do: conn

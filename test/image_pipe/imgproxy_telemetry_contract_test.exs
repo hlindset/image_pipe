@@ -28,6 +28,7 @@ defmodule ImagePipe.ImgproxyTelemetryContractTest do
 
   @stack :dialect
 
+  alias ImagePipe.Dialect.Imgproxy, as: DialectImgproxy
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -311,10 +312,7 @@ defmodule ImagePipe.ImgproxyTelemetryContractTest do
   defp call_conn(%Plug.Conn{} = conn, opts) do
     {seams, known} = Keyword.split(opts, @test_only_seam_keys)
 
-    ImagePipe.Dialect.Imgproxy.call(
-      conn,
-      Keyword.merge(ImagePipe.Dialect.Imgproxy.init(known), seams)
-    )
+    DialectImgproxy.call(conn, Keyword.merge(DialectImgproxy.init(known), seams))
   end
 
   # ── scenario 1: image cache miss ──────────────────────────────────────
