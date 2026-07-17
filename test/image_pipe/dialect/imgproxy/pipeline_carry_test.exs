@@ -1,10 +1,9 @@
 defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
   use ExUnit.Case, async: true
 
-  # Pins the imgproxy padding/canvas carry [spec D5]: the no-enlarge DprScale
-  # cap is computed once at the resize and reused by later padding/canvas ops in
-  # the SAME pipeline, as a pipeline-local variable rather than resolver state —
-  # and the `{:effective, fallback, mode}` marker is never constructed.
+  # Pins the imgproxy padding/canvas carry: the no-enlarge DprScale cap is
+  # computed once at the resize and reused by later padding/canvas ops in the
+  # SAME pipeline, as a pipeline-local variable rather than resolver state.
   #
   # Every expected scale below is computed by hand from
   # `Lowering.scaled_padding_side/2` (round_half_to_even(side * scale)) and

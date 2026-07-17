@@ -20,12 +20,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   # three places, each marked below. `pipeline_ctx/1` ports
   # `effective_padding_pixel_ratio/1`'s mode half (`plan_builder.ex:677-686`).
   #
-  # ONE deliberate divergence [spec D5]: padding is emitted with a concrete
-  # `pixel_ratio: dpr_ratio(preq)` instead of the framework's `{:effective,
-  # fallback, mode}` marker — the dialect owns both emit and run, so the mode
-  # lives in `pipeline_ctx/1` and the marker is never constructed. The
-  # correspondence between the two spellings is pinned by
-  # `pipeline_assembly_test.exs`, which compares both arms row for row.
+  # Padding is emitted with a concrete `pixel_ratio: dpr_ratio(preq)`: the
+  # dialect owns both emit and run, so the padding/canvas mode lives in
+  # `pipeline_ctx/1` rather than on the operation itself.
   #
   # Three deliberate narrowings, not gaps — the request grammar cannot produce
   # the dropped inputs, so porting them would add unreachable surface:
@@ -119,12 +116,10 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   @doc """
   The padding/canvas decision context `operations/1`'s list implies.
 
-  The padding/canvas mode is parse-time-decidable request data [spec D5]:
-  nothing here consults runtime geometry, which is exactly why the framework's
-  `{:effective, fallback, mode}` marker is pure redundancy once one module owns
-  both emit and run. Ports `plan_builder.ex:677-686` and the whole predicate
-  closure it reaches — including `resize_target_ratio/1`, which reads
-  width/height rather than any `extend*` field.
+  The padding/canvas mode is parse-time-decidable request data: nothing here
+  consults runtime geometry. Ports `plan_builder.ex:677-686` and the whole
+  predicate closure it reaches — including `resize_target_ratio/1`, which
+  reads width/height rather than any `extend*` field.
   """
   @spec pipeline_ctx(PipelineRequest.t()) :: %{
           mode: :resize | :canvas_preserving,
@@ -566,8 +561,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
 
   # ── stage 7: padding ─────────────────────────────────────────────────────
 
-  # The `{:effective, fallback, mode}` marker is NEVER constructed [spec D5]:
-  # the dialect owns both emit and run, so the mode lives in `pipeline_ctx/1`
+  # The dialect owns both emit and run, so the mode lives in `pipeline_ctx/1`
   # and the scale is handed to `Lowering.padding_executables/2` as an argument.
   # `pixel_ratio` is inert here — `padding_executables/2` reads only the sides
   # and the fill — but it is emitted as the request's own concrete ratio rather

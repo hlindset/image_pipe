@@ -184,18 +184,6 @@ defmodule ImagePipe.PlanTest do
       assert {:ok, _} = Plan.validate_shape(%{plan | resolver: SomeStrategy})
     end
 
-    test "rejects an {:effective, …} padding scale without a resolver" do
-      assert {:ok, operation} =
-               Operation.padding({:px, 4}, {:px, 4}, {:px, 4}, {:px, 4},
-                 pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
-               )
-
-      plan = plan(pipelines: [%Pipeline{operations: [operation]}])
-
-      assert {:error, {:strategy_required, ^operation}} = Plan.validate_shape(plan)
-      assert {:ok, _} = Plan.validate_shape(%{plan | resolver: SomeStrategy})
-    end
-
     test "accepts neutral-resolvable guides without a resolver" do
       assert {:ok, smart} = Operation.crop_guided({:px, 100}, :full_axis, :smart)
 

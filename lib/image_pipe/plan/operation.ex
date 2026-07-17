@@ -65,7 +65,6 @@ defmodule ImagePipe.Plan.Operation do
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
   @padding_keys [:pixel_ratio, :fill]
   @trim_keys [:threshold, :background, :equal_hor, :equal_ver]
-  @effective_padding_modes [:resize, :canvas_preserving]
   @brightness_range -255..255
   @type resize_operation :: Resize.t()
 
@@ -738,14 +737,6 @@ defmodule ImagePipe.Plan.Operation do
   defp tagged_padding_pixel_ratio({:ratio, _numerator, _denominator} = ratio) do
     case tagged_dpr_ratio(ratio) do
       :ok -> {:ok, ratio}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp tagged_padding_pixel_ratio({:effective, fallback, mode})
-       when mode in @effective_padding_modes do
-    case tagged_dpr_ratio(fallback) do
-      :ok -> {:ok, {:effective, fallback, mode}}
       {:error, reason} -> {:error, reason}
     end
   end
