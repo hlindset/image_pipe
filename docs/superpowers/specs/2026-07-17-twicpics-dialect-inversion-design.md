@@ -87,6 +87,13 @@ TwicPics' 340×340. The support matrix currently calls static chain collapse an
 optimization rather than correctness. The inversion baseline must record this
 as a behavioral divergence and close it under the live two-arm net.
 
+The no-enlarge policy isn't itself a known divergence. A live probe against
+the committed 400×400 grid source returned 400×400 for both `resize=600` and
+`resize-min=600`, while `resize=200` returned 200×200. The existence of the
+conditional `resize-min` transformation isn't evidence that plain `resize`
+enlarges. The oracle prerequisite adds the supported `resize=600` case so this
+observed behavior stops being an untested assumption.
+
 The compatibility reviewer must check the design and later implementation
 against those upstream sources and live behavior. Agreement with
 `Parser.TwicPics` alone is insufficient when the parser and TwicPics disagree.
@@ -155,11 +162,18 @@ The phase-1 architecture passes only if both statements hold:
 
 The dialect may depend on product-neutral core boundaries such as `Cache`,
 `Config`, `Decode`, `Delivery`, `Error`, `Output`, `Plan`, `Representation`,
-`Response`, `Source`, `Telemetry`, and `Transform`. It may reuse a neutral Plan
-operation struct as a semantic input. It
-doesn't construct a `%Plan{}` or use the Plan strategy vocabulary.
+`Response`, `Source`, `Telemetry`, `Transform`, and `Format`, plus the
+product-neutral `ImagePipe.Dialect.SharedConfig` helper. It may reuse a neutral
+Plan operation struct as a semantic input. It doesn't construct a `%Plan{}` or
+use the Plan strategy vocabulary.
 
-An architecture test enforces the dependency direction before phase 1 exits.
+Boundary tests enforce the declared dependency direction before phase 1 exits.
+Because the Plan boundary root remains reachable when the dialect uses Plan
+operation structs, a syntax-aware rule in
+`test/image_pipe/architecture_boundary_test.exs` separately rejects Plan struct
+construction under `lib/image_pipe/dialect/twic_pics/**`. The rule resolves
+aliases and recognizes both `%Plan{}` and `%ImagePipe.Plan{}` forms; the Boundary
+declaration alone can't enforce this clause.
 
 ## Decisions
 
@@ -545,8 +559,9 @@ Phase 1:
 4. Keeps every other definition visible to ExDNA.
 5. Keeps `.credo.exs` and `mise.toml` exactly synchronized.
 
-The four unrelated whole-file exclusions remain until their own boundary
-rationales are revisited.
+The four remaining whole-file exclusions retain their existing boundary
+rationales until each is revisited; this inversion doesn't relabel them as
+unrelated debt.
 
 ### No generic runner
 
@@ -617,19 +632,27 @@ across arms.
 - A new constellation or source lands as a separately reviewed oracle
   prerequisite that establishes a new phase base. It never shares a commit
   with the dialect copy or a parity fix.
-- A new source updates `SourceInventory` in the same change. Every inventory
-  entry eligible for baking must have non-empty `hosted_url` and
-  `source_bytes_url`, and
-  the bake must verify the direct hosted bytes before fetching oracle output.
-- The bake tooling gains a test proving missing handshake metadata aborts
-  before any fixture request. Its current nil-URL success path is insufficient.
+- A new source updates `SourceInventory` in the same change. Source bootstrap is
+  a two-run workflow: `mise run twic:bake` may upload an entry whose two URLs are
+  absent, but it then prints the returned `source_bytes_url` and derived
+  `hosted_url` and aborts before any fixture-oracle request or manifest write.
+  The engineer records both URLs in `SourceInventory` and reruns the bake.
+- Every inventory entry eligible for oracle fetching must have non-empty
+  `hosted_url` and `source_bytes_url`. The second bake verifies the bytes at the
+  direct `source_bytes_url` against the committed source before fetching oracle
+  output.
+- The bake tooling gains tests proving both a missing-metadata bootstrap and an
+  incomplete recorded handshake stop before any fixture request. Its current
+  nil-URL success path is insufficient. The differential README documents the
+  same two-run workflow.
 - The incremental oracle signature remains `{chain, output suffix,
   source-byte identity}`.
 - Every fixture pins `output=png`.
 - `group`, `tol`, `verdict`, or `divergence` changes use
   `mix twicpics.reauthor`; they don't fetch new fixture output. `triage` needs
   no manifest refresh. Chain, source, suffix, or byte changes require a bake
-  and a new reviewed baseline.
+  through `mise run twic:bake` (`mix twicpics.gen_fixtures`) and a new reviewed
+  baseline.
 - An implementation failure is fixed in code, not by re-baking.
 - `:diverges` is reserved for an understood, accepted, monitored difference.
 - `:triage` is reserved for an active investigation and carries a tracking
@@ -644,18 +667,27 @@ triage aids. They don't replace the asserted pixel verdict.
 
 Before the dialect copy begins:
 
-1. Add a live-SaaS constellation for
-   `resize=50p/resize=340`, using the existing grid source.
-2. Confirm its committed output equals direct `resize=340` and differs from
-   the current two-resize local result.
-3. Quarantine it with `:triage` and a tracking issue while both local arms are
-   knowingly wrong. Phase 1 still runs it explicitly for exact cross-arm
-   evidence; the default SaaS lane excludes it until phase 2 removes the gate.
+1. Add live-SaaS constellations for `resize=50p/resize=340` and `resize=600`,
+   using the existing grid source.
+2. Confirm the shadowing output equals direct `resize=340` and differs from the
+   current two-resize local result. Confirm `resize=600` stays 400×400 and is an
+   ordinary `:equal` case against the current parser arm.
+3. Quarantine only the shadowing case with `:triage` and a tracking issue while
+   the current parser arm is knowingly wrong. Once copied, the dialect retains
+   the same defect for exact cross-arm evidence. The default SaaS lane excludes
+   this case until phase 2 removes the gate.
 4. Update the support matrix's static-chain-collapse row from “optimization”
-   to a behavioral divergence awaiting phase-2 correction.
-5. Fix the hosted-source handshake gate and add its pre-oracle failure test,
-   even though the shadowing case reuses an existing source.
-6. Record the resulting commit as `<twicpics-phase-base>`.
+   to a behavioral divergence awaiting phase-2 correction. Record the plain
+   resize no-enlarge characterization without claiming coverage for rejected
+   conditional resize variants.
+5. Correct the current differential census in both the README and support
+   matrix. The matrix must name all five monitored `:diverges` cases, add the
+   invisible-RGB-under-alpha note to the `inside=W:H` ratio row for its three
+   canvas-under-shrink constellations, and record TwicPics' 404 versus
+   ImagePipe's 400 for negative-coordinate focus.
+6. Fix the hosted-source handshake gate and add its pre-oracle failure tests,
+   even though both new constellations reuse an existing source.
+7. Record the resulting commit as `<twicpics-phase-base>`.
 
 From that point through phase-1 copy and phase-2 parity fixes, this command
 must stay clean:
@@ -672,7 +704,8 @@ git diff --exit-code <twicpics-phase-base> -- \
 
 Phase 1 adds the inverted dialect without changing which stack serves users.
 `Parser.TwicPics` remains frozen except for harness seams required to select
-the two arms.
+the two arms. This freeze ends with phase 1; phase-2 parity fixes may change both
+arms under the live comparison net.
 
 ### Grammar-copy evidence
 
@@ -731,8 +764,9 @@ Plan/Directive/Resolver language to the dialect's ordered local pipeline while
 keeping behavior rows unchanged. It records any real surface, stage/order, or
 pixel change in the same commit that makes the change.
 
-Phase 1 corrects the stale census in the differential README without
-re-baking.
+The oracle prerequisite corrects the stale census and divergence descriptions
+in both conformance documents. Phase 1 keeps them synchronized with the frozen
+baseline without re-baking.
 
 ## Phase 2, wave 1: Close gaps under the live net
 
@@ -823,6 +857,12 @@ is classified before deletion:
 - **Delete with citation** completed-transition parity tests and tests whose
   surviving dialect coverage proves the same behavior.
 
+The inventory explicitly includes the cache-key tests and source comment that
+pin resolver tags to `NeutralResolver.behavior_version/0`. After strategy
+retirement, replace them with a canonical-material assertion that the removed
+resolver field is absent; don't silently delete the drift assertion as an
+unnoticed side effect of removing the callback.
+
 Ported tests must demonstrate that they can fail through pre-port RED or a
 temporary mutation of production behavior that the test targets. Changing only
 the assertion isn't evidence. Record the failing command and output, revert the
@@ -850,8 +890,11 @@ Parser deletion waits until every live consumer has moved:
 After the fixed neutral driver and all live-consumer migrations pass, cut the
 TwicPics request surface to the dialect and delete the
 `ImagePipe.Parser.TwicPics` tree, parser selection, docs grouping, and obsolete
-test helpers. The TwicPics wire and differential suites become dialect-only.
-The hosted SaaS fixtures remain the external behavioral oracle.
+test helpers. First port any lasting harness assertion to the dialect-only
+suite. Then delete the legacy-arm selector, exact cross-arm comparator, and
+parity-only tests. Only after those two-arm callers are gone may the shared
+harness structures collapse to a single local arm. The hosted SaaS fixtures
+remain the external behavioral oracle.
 
 ### Strategy SDK retirement
 
@@ -895,6 +938,14 @@ it must not depend on private dialect modules, `Transform.Lowering`,
   inverted Plug;
 - use IIIF only for the framework features it actually demonstrates.
 
+The retirement documentation scope also includes:
+
+- `docs/execution_flow.md`, whose resolver dispatch, continuation wrapping,
+  `:deferred`, and TwicPics strategy sections need a substantive rewrite around
+  the fixed neutral driver and dialect-local pipeline;
+- `docs/debug_headers.md` and `docs/cdn-http-cache.md`, whose TwicPics mount
+  examples move from `parser: ImagePipe.Parser.TwicPics` to the dialect Plug.
+
 AGENTS.md's marker-accretion guidance is updated cleanly once the last live
 marker disappears. Any retained general rule must not claim a live in-tree
 example that no longer exists.
@@ -902,7 +953,9 @@ example that no longer exists.
 ### Retirement exit gate
 
 - This negative live-surface gate passes; historical `docs/superpowers/**`
-  records are excluded:
+  records are excluded. This is a one-time manual exit check, not a committed
+  source-scanning test; persistent enforcement belongs in the syntax-aware
+  architecture-boundary tests:
 
   ```shell
   if rg -n \
