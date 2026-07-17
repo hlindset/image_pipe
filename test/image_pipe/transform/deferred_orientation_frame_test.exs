@@ -64,17 +64,15 @@ defmodule ImagePipe.Transform.DeferredOrientationFrameTest do
 
   # ── Pipeline runners ─────────────────────────────────────────────────────────
 
-  # `rt:auto` and effective-DPR padding are imgproxy strategy vocabulary
-  # (#434); this module's frame-parity oracle is imgproxy-shaped throughout
-  # ("rt:auto", imgproxy's mainPipeline stage order), so every case runs
-  # through the imgproxy resolver.
+  # `:auto` resize mode's fill-vs-fit branch is product-neutral (#448) and
+  # resolves through the neutral resolver, which owns the same display-frame
+  # classification imgproxy's mainPipeline stage order pins here.
   defp run(ops, image, auto_rotate? \\ true) do
     plan = %Plan{
       source: nil,
       output: nil,
       auto_rotate: auto_rotate?,
-      pipelines: [%Plan.Pipeline{operations: ops}],
-      resolver: ImagePipe.Parser.Imgproxy.Resolver
+      pipelines: [%Plan.Pipeline{operations: ops}]
     }
 
     {:ok, %State{} = s} =
@@ -156,25 +154,6 @@ defmodule ImagePipe.Transform.DeferredOrientationFrameTest do
   test "rt:auto + portrait target classifies in the display frame (matches baked twin)" do
     {:ok, resize} = Operation.resize(:auto, {:px, 50}, {:px, 100}, enlargement: :allow)
     assert_branch_parity([resize], "rt:auto portrait target")
-  end
-
-  # ── 1b. Effective-DPR padding-scale cap (resize present) ─────────────────────
-
-  test "no-enlarge effective-DPR padding cap uses the display-frame source dims" do
-    # The no-enlarge padding-scale cap (`max_padding_scale_without_enlarge`) sizes
-    # the requested box against the source. Under a pending quarter turn it must
-    # use the DISPLAY-frame source dims, else the effective-DPR padding width is
-    # computed on transposed axes (#182). Geometry chosen so the storage-frame cap
-    # (0.8 → scale 1.0) and display-frame cap (1.333 → scale 1.333) diverge, making
-    # the padding border — and thus the OUTPUT DIMENSIONS — frame-sensitive.
-    {:ok, resize} = Operation.resize(:fit, {:px, 50}, {:px, 30}, dpr: 2)
-
-    {:ok, padding} =
-      Operation.padding({:px, 10}, {:px, 10}, {:px, 10}, {:px, 10},
-        pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
-      )
-
-    assert_branch_parity([resize, padding], "effective-DPR padding cap")
   end
 
   # ── 2a. Asymmetric padding without resize ────────────────────────────────────

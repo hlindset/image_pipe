@@ -149,13 +149,8 @@ defmodule ImagePipe.Transform.ExecutorTest do
                    enlargement: :deny
                  )
 
-        fixture_plan =
-          if mode == :auto,
-            do: imgproxy_plan([operation]),
-            else: plan([operation])
-
         assert {:ok, %State{} = state} =
-                 Transform.execute_plan(fixture_plan, state_with_image({1600, 1200}), [])
+                 Transform.execute_plan(plan([operation]), state_with_image({1600, 1200}), [])
 
         assert dimensions(state.image) == {200, 200},
                "#{mode}: result-crop should trim to the requested 200×200, " <>
@@ -320,75 +315,6 @@ defmodule ImagePipe.Transform.ExecutorTest do
                Transform.execute_plan(plan([resize, padding]), state_with_image(100, 50), [])
 
       assert dimensions(state.image) == {100, 70}
-    end
-
-    test "effective padding after no-enlarge resize uses effective DPR" do
-      assert {:ok, resize} =
-               Operation.resize(:fit, {:px, 1000}, :auto, dpr: 2.0, enlargement: :deny)
-
-      assert {:ok, padding} =
-               Operation.padding({:px, 10}, {:px, 0}, {:px, 0}, {:px, 0},
-                 pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
-               )
-
-      assert {:ok, %State{} = state} =
-               Transform.execute_plan(
-                 imgproxy_plan([resize, padding]),
-                 state_with_image(100, 50),
-                 []
-               )
-
-      assert dimensions(state.image) == {100, 60}
-    end
-
-    test "effective padding with a geometry-less dpr resize caps the DPR scale to 1 (#237)" do
-      # No w/h — only dpr. imgproxy's calcScale gives wshrink=hshrink=1, so the
-      # no-enlarge cap is DprScale=min(dpr,1)=1 and the padding stays unscaled,
-      # even though a (no-op) auto/auto resize op is present.
-      assert {:ok, resize} = Operation.resize(:fit, :auto, :auto, dpr: 2.0, enlargement: :deny)
-
-      assert {:ok, padding} =
-               Operation.padding({:px, 10}, {:px, 4}, {:px, 2}, {:px, 8},
-                 pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
-               )
-
-      assert {:ok, %State{} = state} =
-               Transform.execute_plan(
-                 imgproxy_plan([resize, padding]),
-                 state_with_image(300, 400),
-                 []
-               )
-
-      # Cap 1.0 → padding unscaled: width +8+4=12 → 312, height +10+2=12 → 412.
-      assert dimensions(state.image) == {312, 412}
-    end
-
-    test "canvas-preserving effective padding skips no-enlarge DPR compensation" do
-      assert {:ok, resize} =
-               Operation.resize(:fit, {:px, 200}, {:px, 100},
-                 dpr: 0.5,
-                 enlargement: :deny
-               )
-
-      assert {:ok, canvas} = Operation.canvas({:px, 200}, {:px, 100}, :center)
-
-      assert {:ok, padding} =
-               Operation.padding({:px, 10}, {:px, 0}, {:px, 0}, {:px, 0},
-                 pixel_ratio: {:effective, {:ratio, 1, 2}, :canvas_preserving}
-               )
-
-      assert {:ok, %State{} = state} =
-               Transform.execute_plan(
-                 imgproxy_plan([resize, canvas, padding]),
-                 state_with_image(100, 50),
-                 []
-               )
-
-      # The extend canvas box dpr-scales with the same canvas-preserving scale
-      # (TargetWidth = Scale(200, 0.5) = 100, like imgproxy), then the padding adds
-      # round_half_to_even(10 * 0.5) = 5 to the height — NOT 10, which the compensated
-      # :resize scale (0.5 / 0.5 = 1.0) would have produced.
-      assert dimensions(state.image) == {100, 55}
     end
 
     test "padding without a preceding resize uses requested pixel ratio" do
@@ -658,7 +584,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
     state = state_with_image(1600, 900)
 
     assert {:ok, %State{} = state} =
-             Transform.execute_plan(imgproxy_plan([operation]), state, [])
+             Transform.execute_plan(plan([operation]), state, [])
 
     assert dimensions(state.image) == {300, 200}
   end
@@ -685,7 +611,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
 
       assert {:ok, %State{} = state} =
                Transform.execute_plan(
-                 imgproxy_plan([operation]),
+                 plan([operation]),
                  state_with_resize_auto_source(source),
                  []
                )
@@ -722,7 +648,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
 
     assert {:ok, %State{} = state} =
              Transform.execute_plan(
-               imgproxy_plan([crop, resize]),
+               plan([crop, resize]),
                state_with_image(600, 400),
                []
              )
@@ -740,7 +666,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
 
     assert {:ok, %State{} = state} =
              Transform.execute_plan(
-               imgproxy_plan([operation]),
+               plan([operation]),
                state_with_wide_offset_image(),
                []
              )
@@ -800,21 +726,13 @@ defmodule ImagePipe.Transform.ExecutorTest do
     end
   end
 
-  defp plan(operations, opts \\ []) do
+  defp plan(operations) do
     %Plan{
       source: %Source.Path{segments: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: operations}],
-      output: %ImagePipe.Plan.Output{mode: {:explicit, :jpeg}},
-      resolver: Keyword.get(opts, :resolver)
+      output: %ImagePipe.Plan.Output{mode: {:explicit, :jpeg}}
     }
   end
-
-  # `:auto` resize mode and `:effective` padding pixel ratios are imgproxy
-  # strategy vocabulary (#434): a plan exercising either must carry the
-  # imgproxy resolver, mirroring how ImagePipe.Parser.Imgproxy.PlanBuilder
-  # stamps every imgproxy plan.
-  defp imgproxy_plan(operations),
-    do: plan(operations, resolver: ImagePipe.Parser.Imgproxy.Resolver)
 
   defp state_with_image({width, height}), do: state_with_image(width, height)
 

@@ -206,14 +206,6 @@ defmodule ImagePipe.Plan.KeyData do
     ratio_data(numerator, denominator)
   end
 
-  def data({:effective, fallback, mode}) when mode in [:resize, :canvas_preserving] do
-    [
-      unit: :effective_resize_pixel_ratio,
-      fallback: data(fallback),
-      mode: mode
-    ]
-  end
-
   defp optional_data(nil), do: nil
   defp optional_data(value), do: data(value)
 

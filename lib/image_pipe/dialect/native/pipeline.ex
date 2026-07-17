@@ -97,7 +97,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # the chain path does. Synthesizing the missing axis from the aspect ratio
   # instead binds that function's `min/2` tighter than the chain path whenever
   # the source is not exactly proportional to the requested box, shrinking less
-  # and decoding more pixels than the framework arm for the same request.
+  # and decoding more pixels than the chain path for the same request.
   # A resize with NO targeted axis normalizes to `nil`, not `{nil, nil}`: the
   # planner's precedence reads `resize_target`'s presence, so an empty box would
   # shadow `terminal_reduction` and cost the blurhash terminal its load shrink.

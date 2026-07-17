@@ -41,7 +41,7 @@ defmodule ImagePipe.SourceTest do
 
     assert {:ok, opts} =
              Source.validate_config(
-               parser: ImagePipe.Parser.Imgproxy,
+               parser: ImagePipe.Parser.IIIF,
                sources: [path: {MissingSemanticsSource, []}]
              )
 
@@ -77,7 +77,7 @@ defmodule ImagePipe.SourceTest do
 
     assert {:ok, opts} =
              Source.validate_config(
-               parser: ImagePipe.Parser.Imgproxy,
+               parser: ImagePipe.Parser.IIIF,
                sources: [path: {ContradictorySemanticsSource, []}]
              )
 

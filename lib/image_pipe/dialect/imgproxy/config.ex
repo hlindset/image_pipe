@@ -1,7 +1,8 @@
 defmodule ImagePipe.Dialect.Imgproxy.Config do
   @moduledoc """
   The dialect's `Plug.init/1` validator — a three-way split of a FLAT
-  keyword list (unlike the framework's `:imgproxy`-nested shape) into:
+  keyword list (no parser-named sublist, unlike `ImagePipe.Plug`'s
+  `iiif:`/`twicpics:` nesting) into:
 
     * shared runtime keys (`ImagePipe.Dialect.SharedConfig`) — source
       fetching, caching, request-safety limits;
@@ -84,8 +85,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
   @spec validate!(keyword()) :: keyword()
   def validate!(opts) when is_list(opts) do
     # ImagePipe.Config.keys/0 is an established public interface — config.ex:97,
-    # already consumed exactly this way by the framework parser
-    # (parser/imgproxy.ex:101, 260). No new core widening here.
+    # already consumed exactly this way by `ImagePipe.Parser.IIIF` and
+    # `ImagePipe.Parser.TwicPics`. No new core widening here.
     {shared, rest} = Keyword.split(opts, SharedConfig.keys())
     {neutral, rest} = Keyword.split(rest, ImagePipe.Config.keys())
     {dialect, unknown} = Keyword.split(rest, @dialect_keys)
@@ -101,8 +102,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
   end
 
   # Sparse parity overrides applied on top of the neutral defaults. EMPTY today
-  # ("imgproxy parity == neutral defaults"), mirroring
-  # `ImagePipe.Parser.Imgproxy.imgproxy_overlay/0`.
+  # ("imgproxy parity == neutral defaults") — the seam a future byte-parity
+  # lever (e.g. `jxl_options`) would use.
   defp imgproxy_overlay, do: []
 
   defp validate_dialect!(dialect) do

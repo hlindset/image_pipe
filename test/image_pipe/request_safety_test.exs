@@ -2,10 +2,20 @@ defmodule ImagePipe.RequestSafetyTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
+  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.RequestSafetyTest.InvalidPipelinePlanParser
   alias ImagePipe.RequestSafetyTest.InvalidPlanParser
   alias ImagePipe.SourceTest.ValidAdapter
+
+  # A static IIIF resolver mapping the opaque identifier "img" to a source path.
+  # The mock source adapters below (ValidAdapter, DenyingSourceAdapter, etc.)
+  # ignore the resolved source entirely, so the mapped path is a placeholder —
+  # only the identifier needs to classify successfully.
+  defp iiif_resolver do
+    {StaticResolver, map: %{"img" => %SourcePath{segments: ["images", "cat.jpg"]}}}
+  end
 
   defmodule DenyingSourceAdapter do
     @behaviour ImagePipe.Source
@@ -144,8 +154,9 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "parser validation failures return before source fetch" do
     conn =
-      ImagePipe.Plug.call(conn(:get, "/_/raw/plain/images/cat.jpg"),
-        parser: ImagePipe.Parser.Imgproxy,
+      ImagePipe.Plug.call(conn(:get, "/img/full/max/370/default.jpg"),
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {ValidAdapter, []}]
       )
 
@@ -154,13 +165,14 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid composition parser failures return before source identity, cache lookup, and origin" do
     for path <- [
-          "/_/pd:-1/plain/images/cat.jpg",
-          "/_/bg:256:0:0/plain/images/cat.jpg",
-          "/_/bga:1.1/plain/images/cat.jpg"
+          "/images/cat.jpg?twic=v1/zoom=2",
+          "/images/cat.jpg?twic=v1/focus=-50x-50/cover=100x100",
+          "/images/cat.jpg?twic=v1/crop=0x100"
         ] do
       conn =
         ImagePipe.Plug.call(conn(:get, path),
-          parser: ImagePipe.Parser.Imgproxy,
+          parser: ImagePipe.Parser.TwicPics,
+          twicpics: [],
           sources: [path: {ValidAdapter, []}],
           cache: {CacheProbe, []}
         )
@@ -171,15 +183,16 @@ defmodule ImagePipe.RequestSafetyTest do
     end
   end
 
-  test "invalid imgproxy color effect values return before source identity cache lookup and origin" do
+  test "invalid iiif grammar tokens return before source identity cache lookup and origin" do
     for path <- [
-          "/_/br:256/plain/images/cat.jpg",
-          "/_/co:0/plain/images/cat.jpg",
-          "/_/sa:-1/plain/images/cat.jpg"
+          "/img/full/max/0/default.tif",
+          "/img/full/max/0/notaquality.jpg",
+          "/img/0,0,0,100/max/0/default.jpg"
         ] do
       conn =
         ImagePipe.Plug.call(conn(:get, path),
-          parser: ImagePipe.Parser.Imgproxy,
+          parser: ImagePipe.Parser.IIIF,
+          iiif: [resolver: iiif_resolver()],
           sources: [path: {DenyingSourceAdapter, []}],
           cache: {CacheProbe, []}
         )
@@ -191,83 +204,18 @@ defmodule ImagePipe.RequestSafetyTest do
     end
   end
 
-  test "expired imgproxy requests return before source identity and cache work" do
+  test "invalid iiif size requests return before source identity and cache work" do
     conn =
-      ImagePipe.Plug.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),
-        parser: ImagePipe.Parser.Imgproxy,
+      ImagePipe.Plug.call(conn(:get, "/img/full/0,/0/default.jpg"),
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {ValidAdapter, []}],
-        clock: fn -> DateTime.from_unix!(101) end,
         cache: {CacheProbe, []}
       )
 
     assert conn.status == 400
-    assert conn.resp_body =~ "expired_request"
     refute_received :cache_lookup
     refute_received :cache_put
-  end
-
-  test "invalid imgproxy signatures return before source identity, cache lookup, and origin" do
-    conn =
-      ImagePipe.Plug.call(
-        conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
-        ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [path: {ValidAdapter, []}],
-          imgproxy: [
-            signature: [
-              keys: ["746573742d6b6579"],
-              salts: ["746573742d73616c74"]
-            ]
-          ],
-          cache: {CacheProbe, []}
-        )
-      )
-
-    assert conn.status == 403
-    assert conn.resp_body =~ "invalid_signature"
-    refute_received :cache_lookup
-    refute_received :cache_put
-  end
-
-  test "invalid imgproxy signatures return before source fetch with a valid root URL" do
-    conn =
-      ImagePipe.Plug.call(
-        conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
-        ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [path: {ValidAdapter, []}],
-          imgproxy: [
-            signature: [
-              keys: ["746573742d6b6579"],
-              salts: ["746573742d73616c74"]
-            ]
-          ]
-        )
-      )
-
-    assert conn.status == 403
-    assert conn.resp_body =~ "invalid_signature"
-  end
-
-  test "invalid imgproxy signatures return before option parsing at the plug boundary" do
-    conn =
-      ImagePipe.Plug.call(
-        conn(:get, "/invalid/raw/plain/images/cat.jpg"),
-        ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [path: {ValidAdapter, []}],
-          imgproxy: [
-            signature: [
-              keys: ["746573742d6b6579"],
-              salts: ["746573742d73616c74"]
-            ]
-          ]
-        )
-      )
-
-    assert conn.status == 403
-    assert conn.resp_body =~ "invalid_signature"
-    refute conn.resp_body =~ "unsupported_option"
   end
 
   test "invalid pipeline plans return before source resolution" do
@@ -291,12 +239,13 @@ defmodule ImagePipe.RequestSafetyTest do
   test "source resolution failures return before cache lookup and fetch" do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {DenyingSourceAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"
@@ -309,7 +258,8 @@ defmodule ImagePipe.RequestSafetyTest do
   test "source runtime options pass body limits and runtime metadata without parser or cache config" do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {ValidAdapter, []}],
         cache: {CacheProbe, []},
         max_body_bytes: 1_000_000,
@@ -318,7 +268,7 @@ defmodule ImagePipe.RequestSafetyTest do
         request_id: "req-1"
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
 
     assert conn.status == 200
     assert_received {:source_resolve_runtime_opts, resolve_runtime_opts}
@@ -338,12 +288,13 @@ defmodule ImagePipe.RequestSafetyTest do
   test "source fetch errors return source response errors" do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {FetchErrorSourceAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/missing.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"
@@ -353,12 +304,13 @@ defmodule ImagePipe.RequestSafetyTest do
   test "deferred source stream errors return source response errors" do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StreamErrorSourceAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/stream-fails.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "incomplete source response"
@@ -368,12 +320,13 @@ defmodule ImagePipe.RequestSafetyTest do
   test "cache miss does not write after deferred source stream errors" do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {CacheableStreamErrorSourceAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/cacheable-stream-fails.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "incomplete source response"

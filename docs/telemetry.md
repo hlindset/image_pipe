@@ -13,9 +13,8 @@ Set the telemetry prefix as a Plug option:
 
 ```elixir
 forward "/",
-  to: ImagePipe.Plug,
+  to: ImagePipe.Dialect.Imgproxy,
   init_opts: [
-    parser: ImagePipe.Parser.Imgproxy,
     sources: [
       path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ],
@@ -538,7 +537,7 @@ encoded image.
 
 Start metadata:
 
-- `:renderer` — the renderer module (e.g. `ImagePipe.Parser.Imgproxy.InfoRenderer`).
+- `:renderer` — the renderer module (e.g. `ImagePipe.Parser.IIIF.InfoRenderer`).
   The response content-type is not known until the renderer runs; it is reported
   in the stop metadata.
 

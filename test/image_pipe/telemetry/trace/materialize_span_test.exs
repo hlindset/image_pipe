@@ -76,7 +76,12 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
   defp beach_opts do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [
+        resolver:
+          {ImagePipe.Parser.IIIF.Resolver.Static,
+           map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
+      ],
       sources: [
         path:
           {RootHTTPAdapter,
@@ -88,7 +93,12 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
   defp exif6_opts do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [
+        resolver:
+          {ImagePipe.Parser.IIIF.Resolver.Static,
+           map: %{"oriented" => %ImagePipe.Plan.Source.Path{segments: ["images", "oriented.jpg"]}}}
+      ],
       sources: [
         path:
           {RootHTTPAdapter,
@@ -98,9 +108,10 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   end
 
   test "mid-chain materializing op yields a materialize span nested under an operation" do
-    # A smart (attention) crop needs random pixel access, so the chain materializes
-    # mid-pipeline immediately before the crop operation, inside its operation span.
-    conn = call("/_/rs:fill:80:80/g:sm/f:jpeg/plain/images/beach.jpg", beach_opts())
+    # An arbitrary (non-quarter-turn) rotation needs random pixel access, so the chain
+    # materializes mid-pipeline immediately before the rotate operation, inside its
+    # operation span.
+    conn = call("/beach/full/120,/45/default.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()
@@ -118,7 +129,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     # flushed at the pipeline boundary as an explicit Flush operation, so the
     # materialize span nests under that Flush operation's [:transform, :operation]
     # span, which itself sits inside the execute span.
-    conn = call("/_/f:jpeg/plain/images/oriented.jpg", exif6_opts())
+    conn = call("/oriented/full/max/0/default.jpg", exif6_opts())
     assert conn.status == 200
 
     spans = collect_spans()
@@ -137,7 +148,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     # Resize-only on an orientation-1 source streams through the whole chain without
     # materializing, so the only flush is the delivery backstop, AFTER the execute span
     # closes — the materialize span parents to a request-level root span.
-    conn = call("/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg", beach_opts())
+    conn = call("/beach/full/!120,90/0/default.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()

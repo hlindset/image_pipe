@@ -68,6 +68,43 @@ defmodule ImagePipe.TelemetryTest do
     def handle_error(conn, _error), do: conn
   end
 
+  # Automatic output negotiation is a framework capability that no config-only
+  # parser (IIIF) triggers, so — like the empty-pipeline and unsupported-source
+  # cases above — the tests that exercise it drive a parser-agnostic plan with
+  # `output: :automatic` through a test-local parser rather than a real dialect.
+  defmodule AutomaticBeachParser do
+    @behaviour ImagePipe.Parser
+
+    @impl ImagePipe.Parser
+    def parse(_conn, _opts) do
+      {:ok,
+       ImagePipe.TelemetryTest.plan(
+         pipelines: [%ImagePipe.Plan.Pipeline{operations: []}],
+         output: %ImagePipe.Plan.Output{mode: :automatic}
+       )}
+    end
+
+    @impl ImagePipe.Parser
+    def handle_error(conn, _error), do: conn
+  end
+
+  defmodule AutomaticTiffParser do
+    @behaviour ImagePipe.Parser
+
+    @impl ImagePipe.Parser
+    def parse(_conn, _opts) do
+      {:ok,
+       ImagePipe.TelemetryTest.plan(
+         source: %ImagePipe.Plan.Source.Path{segments: ["images", "source.tiff"]},
+         pipelines: [%ImagePipe.Plan.Pipeline{operations: []}],
+         output: %ImagePipe.Plan.Output{mode: :automatic}
+       )}
+    end
+
+    @impl ImagePipe.Parser
+    def handle_error(conn, _error), do: conn
+  end
+
   defmodule CacheReadFailure do
     @behaviour ImagePipe.Cache
 
@@ -186,7 +223,7 @@ defmodule ImagePipe.TelemetryTest do
   test "emits request and representative stage spans for successful requests" do
     conn =
       :get
-      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> conn("/beach/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -194,7 +231,7 @@ defmodule ImagePipe.TelemetryTest do
 
     assert_event(events, [:image_pipe, :request, :start], fn measurements, metadata ->
       assert is_integer(measurements.system_time)
-      assert metadata.parser == ImagePipe.Parser.Imgproxy
+      assert metadata.parser == ImagePipe.Parser.IIIF
       assert metadata.request_method == "GET"
     end)
 
@@ -202,7 +239,7 @@ defmodule ImagePipe.TelemetryTest do
       assert is_integer(measurements.duration)
       assert metadata.result == :ok
       assert metadata.status == 200
-      assert metadata.parser == ImagePipe.Parser.Imgproxy
+      assert metadata.parser == ImagePipe.Parser.IIIF
       assert metadata.request_method == "GET"
     end)
 
@@ -241,7 +278,7 @@ defmodule ImagePipe.TelemetryTest do
   test "source resolve and fetch spans use safe low-cardinality metadata" do
     conn =
       :get
-      |> conn("/_/plain/images/beach.jpg")
+      |> conn("/beach/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -289,14 +326,14 @@ defmodule ImagePipe.TelemetryTest do
   test "uses configurable telemetry prefix" do
     conn =
       :get
-      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> conn("/beach/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(Keyword.put(base_opts(), :telemetry_prefix, [:custom, :image]))
 
     assert conn.status == 200
     events = telemetry_events()
 
     assert_event(events, [:custom, :image, :request, :start], fn _measurements, metadata ->
-      assert metadata.parser == ImagePipe.Parser.Imgproxy
+      assert metadata.parser == ImagePipe.Parser.IIIF
     end)
 
     assert_event(events, [:custom, :image, :request, :stop], fn _measurements, metadata ->
@@ -323,7 +360,7 @@ defmodule ImagePipe.TelemetryTest do
     {conn, log} =
       with_log(fn ->
         :get
-        |> conn("/_/f:jpeg/plain/images/beach.jpg")
+        |> conn("/beach/full/max/0/default.jpg")
         |> ImagePipe.Plug.call(base_opts(image_module: RaisingAfterFirstChunkImage))
       end)
 
@@ -363,7 +400,7 @@ defmodule ImagePipe.TelemetryTest do
     {conn, log} =
       with_log(fn ->
         :get
-        |> conn("/_/f:jpeg/plain/images/beach.jpg")
+        |> conn("/beach/full/max/0/default.jpg")
         |> ImagePipe.Plug.call(base_opts(image_module: RaisingBeforeFirstChunkImage))
       end)
 
@@ -398,8 +435,8 @@ defmodule ImagePipe.TelemetryTest do
   test "automatic source format fallback does not emit failed output negotiation telemetry" do
     conn =
       :get
-      |> conn("/_/plain/images/beach.jpg")
-      |> ImagePipe.Plug.call(base_opts())
+      |> conn("/automatic")
+      |> ImagePipe.Plug.call(init_opts(parser: AutomaticBeachParser))
 
     assert conn.status == 200
     events = telemetry_events()
@@ -426,8 +463,13 @@ defmodule ImagePipe.TelemetryTest do
 
     conn =
       :get
-      |> conn("/_/plain/images/source.tiff")
-      |> ImagePipe.Plug.call(base_opts(sources: [path: {SourceBytes, body: tiff_body(:white)}]))
+      |> conn("/automatic")
+      |> ImagePipe.Plug.call(
+        init_opts(
+          parser: AutomaticTiffParser,
+          sources: [path: {SourceBytes, body: tiff_body(:white)}]
+        )
+      )
 
     assert conn.status == 200
     events = telemetry_events()
@@ -452,7 +494,7 @@ defmodule ImagePipe.TelemetryTest do
   test "fail-open cache read errors are reported on cache lookup telemetry" do
     conn =
       :get
-      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> conn("/beach/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(base_opts(cache: {FailOpenCacheReadFailure, []}))
 
     assert conn.status == 200
@@ -473,7 +515,7 @@ defmodule ImagePipe.TelemetryTest do
   test "invalid cache entries are reported on cache lookup telemetry" do
     conn =
       :get
-      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> conn("/beach/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(base_opts(cache: {InvalidCacheHit, []}))
 
     assert conn.status == 200
@@ -494,7 +536,7 @@ defmodule ImagePipe.TelemetryTest do
   test "fail-open cache staging write errors are reported on cache stage telemetry" do
     conn =
       :get
-      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> conn("/beach/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(base_opts(cache: {FailOpenCacheWriteFailure, []}))
 
     assert conn.status == 200
@@ -515,7 +557,7 @@ defmodule ImagePipe.TelemetryTest do
   test "emits request stop metadata for failures that return responses" do
     cases = [
       parser: {
-        conn(:get, "/_/w:300"),
+        conn(:get, "/beach/full/max/370/default.jpg"),
         base_opts(),
         :parser_error,
         400
@@ -527,13 +569,13 @@ defmodule ImagePipe.TelemetryTest do
         422
       },
       source: {
-        conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
+        conn(:get, "/beach/full/max/0/default.jpg"),
         init_opts(sources: []),
         :source_error,
         500
       },
       processing: {
-        conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
+        conn(:get, "/beach/full/max/0/default.jpg"),
         init_opts(sources: [path: {InvalidSourceAdapter, []}]),
         :processing_error,
         415
@@ -664,7 +706,7 @@ defmodule ImagePipe.TelemetryTest do
   test "transform execute span carries operation count and names" do
     conn =
       :get
-      |> conn("/_/rs:fit:100:0/f:jpeg/plain/images/beach.jpg")
+      |> conn("/beach/full/100,/0/default.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -690,7 +732,7 @@ defmodule ImagePipe.TelemetryTest do
     # SourceBytes returns `big_body` regardless of this path; the path only has to parse.
     conn =
       :get
-      |> conn("/_/plain/images/source.tiff")
+      |> conn("/srctiff/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 422
@@ -708,7 +750,7 @@ defmodule ImagePipe.TelemetryTest do
 
     conn =
       :get
-      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> conn("/beach/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 413
@@ -740,7 +782,7 @@ defmodule ImagePipe.TelemetryTest do
 
     conn =
       :get
-      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> conn("/beach/full/max/0/default.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -823,7 +865,15 @@ defmodule ImagePipe.TelemetryTest do
   defp opts(overrides) do
     Keyword.merge(
       [
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [
+          resolver:
+            {ImagePipe.Parser.IIIF.Resolver.Static,
+             map: %{
+               "beach" => %Source.Path{segments: ["images", "beach.jpg"]},
+               "srctiff" => %Source.Path{segments: ["images", "source.tiff"]}
+             }}
+        ],
         sources: [
           path: {ImagePipe.Source.File, root: "priv/static", root_id: "static", stable: :trusted}
         ]

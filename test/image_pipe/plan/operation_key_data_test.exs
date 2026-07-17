@@ -128,7 +128,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                Operation.crop_guided(
                  {:px, 300},
                  :full_axis,
-                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}},
+                 {:anchor, :left, :top},
                  x_offset: {:pixels, 4},
                  y_offset: {:scale, 0.25}
                )
@@ -137,11 +137,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                op: :crop_guided,
                width: [unit: :logical_px, value: 300],
                height: [unit: :full_axis],
-               guide: [
-                 type: :focal,
-                 x: [unit: :ratio, numerator: 1, denominator: 3],
-                 y: [unit: :ratio, numerator: 2, denominator: 3]
-               ],
+               guide: [type: :anchor, x: :left, y: :top],
                x_offset: {:pixels, 4},
                y_offset: {:scale, 0.25},
                aspect_ratio: nil,
@@ -168,6 +164,21 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       refute Keyword.has_key?(data, :coordinate_space)
     end
 
+    test "returns key data for a focal-guided crop" do
+      assert {:ok, operation} =
+               Operation.crop_guided(
+                 {:px, 300},
+                 :full_axis,
+                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}}
+               )
+
+      assert KeyData.data(operation)[:guide] == [
+               type: :focal,
+               x: [unit: :ratio, numerator: 1, denominator: 3],
+               y: [unit: :ratio, numerator: 2, denominator: 3]
+             ]
+    end
+
     test "crop_guided key data includes aspect_ratio and enlarge" do
       {:ok, op} =
         Operation.crop_guided({:px, 300}, {:px, 200}, :center,
@@ -187,7 +198,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                Operation.canvas(
                  {:ratio, 16, 9},
                  {:ratio, 1, 1},
-                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}},
+                 :top_left,
                  x_offset: 5.0,
                  y_offset: -3.0
                )
@@ -196,15 +207,26 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                op: :canvas,
                width: [unit: :ratio, numerator: 16, denominator: 9],
                height: [unit: :ratio, numerator: 1, denominator: 1],
-               placement: [
-                 type: :focal,
-                 x: [unit: :ratio, numerator: 1, denominator: 3],
-                 y: [unit: :ratio, numerator: 2, denominator: 3]
-               ],
+               placement: :top_left,
                fill: :transparent,
                overflow: :reject,
                x_offset: 5.0,
                y_offset: -3.0
+             ]
+    end
+
+    test "returns key data for a focal canvas placement" do
+      assert {:ok, operation} =
+               Operation.canvas(
+                 {:ratio, 16, 9},
+                 {:ratio, 1, 1},
+                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}}
+               )
+
+      assert KeyData.data(operation)[:placement] == [
+               type: :focal,
+               x: [unit: :ratio, numerator: 1, denominator: 3],
+               y: [unit: :ratio, numerator: 2, denominator: 3]
              ]
     end
   end

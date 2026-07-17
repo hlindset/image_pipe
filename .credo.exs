@@ -48,12 +48,14 @@
         # untouched (framework-frozen), so the pair can only be silenced by
         # excluding the Decode-side files from the corpus entirely.
         #
-        # ImagePipe.Dialect.Native.Pipeline also deliberately mirrors two small
-        # private helpers off ImagePipe.Transform.Executor (`overlay/2` and
+        # ImagePipe.Dialect.Native.Pipeline and ImagePipe.Dialect.Imgproxy.Pipeline
+        # each deliberately mirror two small private helpers off
+        # ImagePipe.Transform.Executor (`overlay/2` and
         # `boundary_source_dimensions/1`) — Executor is not exported from the
-        # Transform boundary and is core-frozen for this task, so the dialect's
-        # own resolve-loop driver cannot call it; see the module doc in
-        # lib/image_pipe/dialect/native/pipeline.ex and the Task 14 report.
+        # Transform boundary and is core-frozen, so a dialect's own resolve-loop
+        # driver cannot call it; see the module docs in
+        # lib/image_pipe/dialect/native/pipeline.ex and
+        # lib/image_pipe/dialect/imgproxy/pipeline.ex, and the Task 14 report.
         #
         # ImagePipe.Response.Conditional deliberately duplicates the private
         # If-None-Match parsing/matching helpers in
@@ -71,63 +73,28 @@
         # boundary (Options is framework-frozen). Ignored for the same reason
         # as the pairs above.
         #
-        # The ImagePipe.Dialect.Imgproxy.* leaf request structs and grammar
-        # modules are near-verbatim phase-1 copies of their
-        # ImagePipe.Parser.Imgproxy.* originals: the inverted dialect owns its
-        # whole request chain and grammar and may not depend on the Parser
-        # boundary, and the framework originals stay frozen while both arms run
-        # side by side. Unlike the blessed mirrors above this duplication is
-        # TRANSIENT — the originals are deleted in phase 2, at which point these
-        # entries go with them (phase-1 dialect copy, retired in phase 2 per spec
-        # 2026-07-15).
+        # ImagePipe.Dialect.Imgproxy and ImagePipe.Dialect.Native are each a
+        # top-level dialect's Plug chain, and structurally mirror each other:
+        # init/call, OPTIONS/method-not-allowed routing, send_with_span/1 +
+        # request_metadata/1, negotiate/3's policy branch, build_and_pump/6,
+        # materialize_for_delivery/2, pipeline_opts/4, send_not_modified/3, and
+        # the transform-execute/encode/send telemetry spans. Neither may name
+        # the other (a product dialect never depends on another product
+        # dialect), so this cannot be shared by reference.
         #
-        # ImagePipe.Dialect.Imgproxy.Pipeline mirrors Transform.Executor's private
-        # overlay/2 and boundary_source_dimensions/1 for the same blessed reason
-        # Native.Pipeline does (Executor is not exported from the Transform
-        # boundary and is core-frozen, so a dialect's own resolve-loop driver
-        # cannot call it), and carries the verbatim copy of
-        # Parser.Imgproxy.Resolver's padding/DPR carry arithmetic.
+        # ImagePipe.Dialect.Imgproxy.Pipeline and ImagePipe.Dialect.Native.Pipeline
+        # mirror each other the same way one level down: follow/5,
+        # condition_color/2, and build_ctx/1 implement the same resolve-loop
+        # driver shape in both dialects' Pipeline modules, for the same
+        # neither-dialect-may-depend-on-the-other reason.
         #
-        # ImagePipe.Dialect.Imgproxy.Assembly is the phase-1 copy of frozen
-        # Parser.Imgproxy.PlanBuilder's geometry half (plan_geometry/1 and every
-        # private helper it reaches). Transient like the leaf structs: retired in
-        # phase 2 when the framework original is deleted.
-        #
-        # ImagePipe.Dialect.Imgproxy.Config's source_schemes validation
-        # (validate_source_schemes/1, valid_source_scheme_entry?/1,
-        # valid_source_scheme_translator?/1) is the same transient phase-1 copy
-        # of frozen Parser.Imgproxy's equivalent private helpers (the dialect
-        # cannot depend on the Parser boundary). The Config module's own
-        # `storage_inputs` validator is NOT duplicated — it delegates to the
-        # newly-shared ImagePipe.Dialect.SharedConfig.validate_storage_input/1,
-        # which ImagePipe.Dialect.Native.Config now also delegates to instead of
-        # carrying its own copy.
-        #
-        # ImagePipe.Dialect.Imgproxy.Identity.color_profile_policy/2 and
-        # hdr_policy/1 are verbatim copies of the frozen
-        # Parser.Imgproxy.PlanBuilder's private helpers of the same name (not
-        # exported, and the dialect cannot depend on the Parser boundary).
-        # Transient like the other phase-1 copies above.
-        #
-        # ImagePipe.Dialect.Imgproxy.ResponseMeta is the phase-1 copy of frozen
-        # Parser.Imgproxy.PlanBuilder's response_plan/2 and the
-        # source_filename/1 family it reaches. Transient like the other
-        # phase-1 copies: retired in phase 2 with the framework original.
-        #
-        # ImagePipe.Dialect.Imgproxy.InfoRenderer is the phase-1 copy of frozen
-        # Parser.Imgproxy.InfoRenderer (the /info wire table and JSON doc),
-        # minus the ImagePipe.Renderer behaviour the dialect cannot depend on.
-        # Transient like the other phase-1 copies.
-        #
-        # ImagePipe.Dialect.Imgproxy is the dialect's Plug chain, and mirrors
-        # ImagePipe.Dialect.Native's chain shape (negotiate/3's policy branch,
-        # generate's Delivery.stream case, resolve_output/3, cache_headers/1 +
-        # vary_headers/1, the result-limit defaults).
-        #
-        # The mirrored pairs here are NOT all blessed for the same reason, and
-        # this entry silences a ~650-line module that is still growing — so the
-        # two classes are recorded separately. Do not read this entry as "nothing
-        # in this file is extractable".
+        # ImagePipe.Dialect.Imgproxy.detect_classes/1 mirrors
+        # ImagePipe.Plan.detect_classes/1's exact return contract
+        # (`:all | nonempty_list(String.t()) | nil`) over the dialect's own
+        # `{:detect, {spec, weights}}` operation guides — the dialect never
+        # builds a %Plan{}, so it cannot call the framework function directly,
+        # and Plan is framework-frozen. See the doc on
+        # ImagePipe.Dialect.Imgproxy.detect_classes/1.
         #
         # Tracked: hlindset/image_pipe#457 — promote the extractable helpers and
         # settle the ExDNA-visibility strategy as one boundary-graph ADR during
@@ -159,19 +126,13 @@
         #       all. Only the three @default_max_result_* constants are shared
         #       with Native.
         #
-        # The rest (negotiate/3's policy branch, generate's Delivery.stream case)
-        # is chain shape between two separate top-level dialect boundaries,
-        # NEITHER of which may name the other (a product dialect never depends on
-        # another product dialect) — that genuinely cannot be shared by reference.
-        #
-        # ImagePipe.Dialect.Native (the Plug chain itself) deliberately mirrors
-        # the framework's span helpers for the B3 dialect-emitted spans:
-        # encode_first_chunk/3 + first_chunk/1 + encode_stop_metadata/2 off
-        # Request.DeliveryBuild, and transform_stop_metadata/1 off
-        # Request.Processor. Both framework originals are private helpers of
-        # framework-frozen Request-boundary modules a dialect cannot depend on —
-        # the same reason as the Imgproxy entry above, whose own copies of the
-        # same helpers that entry already silences. Tracked with the rest under
+        # ImagePipe.Dialect.Native and ImagePipe.Dialect.Imgproxy each also
+        # deliberately mirror the framework's span helpers for the B3
+        # dialect-emitted spans: encode_first_chunk/3 + first_chunk/1 +
+        # encode_stop_metadata/2 off Request.DeliveryBuild, and
+        # transform_stop_metadata/1 off Request.Processor. Both framework
+        # originals are private helpers of framework-frozen Request-boundary
+        # modules a dialect cannot depend on. Tracked with the rest under
         # hlindset/image_pipe#457.
         {ExDNA.Credo,
          excluded_macros: [:alias],
@@ -179,27 +140,7 @@
            "lib/image_pipe/decode.ex",
            "lib/image_pipe/decode/source_format.ex",
            "lib/image_pipe/dialect/imgproxy.ex",
-           "lib/image_pipe/dialect/imgproxy/assembly.ex",
-           "lib/image_pipe/dialect/imgproxy/config.ex",
-           "lib/image_pipe/dialect/imgproxy/crop_request.ex",
-           "lib/image_pipe/dialect/imgproxy/effects.ex",
-           "lib/image_pipe/dialect/imgproxy/format.ex",
-           "lib/image_pipe/dialect/imgproxy/identity.ex",
-           "lib/image_pipe/dialect/imgproxy/info_renderer.ex",
-           "lib/image_pipe/dialect/imgproxy/option_grammar.ex",
-           "lib/image_pipe/dialect/imgproxy/options.ex",
-           "lib/image_pipe/dialect/imgproxy/orientation.ex",
-           "lib/image_pipe/dialect/imgproxy/path.ex",
-           "lib/image_pipe/dialect/imgproxy/percent_encoding.ex",
            "lib/image_pipe/dialect/imgproxy/pipeline.ex",
-           "lib/image_pipe/dialect/imgproxy/pipeline_request.ex",
-           "lib/image_pipe/dialect/imgproxy/presets.ex",
-           "lib/image_pipe/dialect/imgproxy/request.ex",
-           "lib/image_pipe/dialect/imgproxy/response_meta.ex",
-           "lib/image_pipe/dialect/imgproxy/signature.ex",
-           "lib/image_pipe/dialect/imgproxy/source.ex",
-           "lib/image_pipe/dialect/imgproxy/source_encryption.ex",
-           "lib/image_pipe/dialect/imgproxy/source_scheme.ex",
            "lib/image_pipe/dialect/native.ex",
            "lib/image_pipe/dialect/native/pipeline.ex",
            "lib/image_pipe/dialect/shared_config.ex",

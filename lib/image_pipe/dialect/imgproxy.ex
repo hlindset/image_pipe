@@ -24,8 +24,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
   `ImagePipe.Dialect.Imgproxy.Assembly.operations/1`, which
   `ImagePipe.Dialect.Imgproxy.Pipeline` reaches at run time — after the
   fetch and the decode. `check_geometry/1` therefore runs the same pure
-  function over every pipeline ahead of the fetch, restoring the ordering
-  the framework arm gets for free by assembling at parse time. The run-time
+  function over every pipeline ahead of the fetch, so an unassemblable
+  request rejects before any source fetch or cache access. The run-time
   call stays: it is the one that produces the operations, and re-running a
   pure function over a parsed request costs nothing next to a fetch.
 
@@ -87,6 +87,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Dialect.Imgproxy.ResponseMeta
   alias ImagePipe.Dialect.Imgproxy.Signature
   alias ImagePipe.Dialect.Imgproxy.Source, as: ImgproxySource
+  alias ImagePipe.Dialect.Imgproxy.SourceEncryption
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
@@ -127,6 +128,28 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # no shrink at all: every field of a bare request is already the "no
   # preflight" answer.
   @info_decode_request %DecodePlanner.Request{}
+
+  @doc """
+  Encrypts a source URL into the segment used after imgproxy's `/enc/` marker.
+
+  The helper returns only the encrypted source segment. It doesn't add the
+  `/enc/` marker, processing options, output suffixes, or signatures.
+
+  The key must be a hex string that decodes to a 16, 24, or 32 byte AES key.
+  By default the helper uses a random 16 byte IV. Pass
+  `iv: <<...::binary-size(16)>>` when the caller needs a deterministic segment.
+
+  Returns `{:error, :invalid_source_url}` when the source URL isn't a binary,
+  `{:error, :invalid_key}` when the key isn't valid hex AES key material,
+  `{:error, :invalid_iv}` when `:iv` isn't 16 bytes, and
+  `{:error, :invalid_options}` for non-keyword or unknown options.
+  """
+  @spec encrypt_source_url(binary(), binary(), keyword()) ::
+          {:ok, binary()}
+          | {:error, :invalid_source_url | :invalid_key | :invalid_iv | :invalid_options}
+  def encrypt_source_url(source_url, hex_key, opts \\ []) do
+    SourceEncryption.encrypt_source_url(source_url, hex_key, opts)
+  end
 
   @impl Plug
   def init(opts), do: Config.validate!(opts)
@@ -193,15 +216,15 @@ defmodule ImagePipe.Dialect.Imgproxy do
     do: %{result: outcome_result(reason), error: Error.tag(reason)}
 
   # This dialect's own client-reject reasons — the signature and `exp` gates,
-  # both pre-fetch and pre-option-parse — get the framework's client-error
-  # atom directly, the same way `ImagePipe.Plug`'s parser errors always render
-  # `:parser_error` regardless of the underlying reason. Two pre-fetch gates are
-  # the exception, both plan-shape failures rather than syntax ones, and both
-  # `:plan_error` to match the framework: `Assembly.operations/1`'s geometry
-  # rejection (`{:missing_dimensions, _}`, mirroring the framework's
-  # `PlanBuilder`-time check — `Errors.send/4` still answers it with the same 400
-  # as every other parse reject), and `check_detector/2`'s `{:detector,
-  # :unavailable}` (mirroring `ImagePipe.Plug`'s own `:plan_error` for it).
+  # both pre-fetch and pre-option-parse — get the client-error atom directly,
+  # the same way `ImagePipe.Plug`'s parser errors always render
+  # `:parser_error` regardless of the underlying reason. Two pre-fetch gates
+  # are the exception, both plan-shape failures rather than syntax ones, and
+  # both `:plan_error`: `Assembly.operations/1`'s geometry rejection
+  # (`{:missing_dimensions, _}` — `Errors.send/4` still answers it with the
+  # same 400 as every other parse reject), and `check_detector/2`'s
+  # `{:detector, :unavailable}` (mirroring `ImagePipe.Plug`'s own
+  # `:plan_error` for it).
   #
   # Everything else — Options/Path/Source translate rejects (`:unknown_option`,
   # `:invalid_option_segment`, `:invalid_source_url`, …), and the core-stage
@@ -220,12 +243,10 @@ defmodule ImagePipe.Dialect.Imgproxy do
   defp outcome_result(reason), do: Telemetry.request_result({:error, reason})
 
   # The `/info` terminal [spec §The /info cache path]. Skips three of the image
-  # chain's steps because the framework arm's own info plan does
-  # (`PlanBuilder.to_plan/2`'s `info?: true` head builds `pipelines: []`,
-  # `output: nil`, `response: %Response{}`): the geometry check has no
-  # operations to reject, negotiation has no format to select, and there is no
-  # image body to attach a `Content-Disposition` to. The `exp` gate and the
-  # signature still apply.
+  # chain's steps because none applies to an info request: the geometry check
+  # has no operations to reject, negotiation has no format to select, and
+  # there is no image body to attach a `Content-Disposition` to. The `exp`
+  # gate and the signature still apply.
   #
   # `request/5`'s `:info` head drops the parsed pipelines and output for the same
   # reason, so none of the three can reach this terminal's identity.
@@ -313,15 +334,15 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   # -- extract → verify → split → parse, one telemetry span ------------------
 
-  # Ports `ImagePipe.Parser.Imgproxy.parse_image_request/2` + the output-format
-  # merge of its `parsed_request/4`, reading the dialect's FLAT config where
-  # the framework reads its `:imgproxy`-nested keyword.
+  # Extracts the signature, verifies it, splits off the source path, parses
+  # the option segments, then merges the resolved output format from an
+  # explicit source-path extension. Reads the dialect's FLAT config — no
+  # `:imgproxy`-nested keyword.
   #
   # No `sig_key_index` stop metadata (native's `[:parse]` span carries one):
   # imgproxy's signature grammar has no key index to carry. `Signature.verify/3`
   # returns a bare `:ok` — it tries every configured key/salt pair with
-  # `Enum.any?/2` and never reports which one matched, in this dialect's copy
-  # and in the frozen framework original alike.
+  # `Enum.any?/2` and never reports which one matched.
   defp parse(%Plug.Conn{} = conn, config, endpoint) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:parse], %{}, fn ->
       result = parse_request(conn, config, endpoint)
@@ -365,16 +386,15 @@ defmodule ImagePipe.Dialect.Imgproxy do
     }
   end
 
-  # Ports `ImagePipe.Parser.Imgproxy.parse_info_request/2`'s struct: `info?`
-  # set, `auto_rotate` forced off (the reported orientation is the source's own
-  # header, so the decode must not consume it), and the output untouched by the
-  # discarded source format.
+  # The `/info` request struct: `info?` set, `auto_rotate` forced off (the
+  # reported orientation is the source's own header, so the decode must not
+  # consume it), and the output untouched by the discarded source format.
   #
-  # The parsed `pipelines` and `output` are DROPPED, mirroring
-  # `PlanBuilder.to_plan/2`'s `info?: true` head (`pipelines: []`, `output:
-  # nil`). /info never runs a pipeline and never encodes — `serve_info/4` goes
-  # straight to `source_info/2` with `@info_decode_request` — so nothing on this
-  # path reads either field except `Identity.material/5`. Carrying them meant
+  # The parsed `pipelines` and `output` are DROPPED — `pipelines: []`, and
+  # `output` reset to its no-intent default below. /info never runs a
+  # pipeline and never encodes — `serve_info/4` goes straight to
+  # `source_info/2` with `@info_decode_request` — so nothing on this path
+  # reads either field except `Identity.material/5`. Carrying them would mean
   # `/info/rs:fill:100:100/…` and `/info/…` got different cache keys and
   # different ETags for byte-identical bodies, forcing a client to re-download
   # identical content: exactly what the ETag's narrowness exists to prevent
@@ -383,8 +403,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # will execute — an identity that folds in only what the struct carries cannot
   # regrow this bug when a field is added.
   #
-  # `output` is not nilable on this struct (unlike the framework's `Plan`), so
-  # the defaults — no format, no quality, no encoder options — are the spelling
+  # `output` is not nilable on this struct (unlike `ImagePipe.Plan`), so the
+  # defaults — no format, no quality, no encoder options — are the spelling
   # of "no output intent".
   defp request(:info, signature, source_path, _source_format, request_options) do
     %Request{
@@ -408,15 +428,13 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # runtime observability contract (AGENTS.md) and `Error.tag/1` output is a
   # product-neutral, non-sensitive atom, so there is no reason to withhold it.
   #
-  # This deliberately does NOT reproduce the framework's value, which is the
-  # constant `:error` for every parse failure it can have: `ImagePipe.Plug`'s
-  # `wrap_parser_error/1` re-wraps `{:error, reason}` as `{:error, {:parser,
-  # {:error, reason}}}`, so `result_metadata/1`'s `Error.tag(error)` reads the
-  # tag of `{:error, reason}` — the atom `:error` — and never reaches `reason`.
-  # Observed on the framework arm for three unrelated failures (a missing
-  # dimension, an invalid format, an unknown option): `%{error: :error}` each
-  # time. Matching that would carry the quirk into a chain that does not share
-  # the double-wrap, to emit a constant conveying nothing.
+  # This deliberately does NOT reproduce `ImagePipe.Plug`'s value, which is
+  # the constant `:error` for every parse failure: its `wrap_parser_error/1`
+  # re-wraps `{:error, reason}` as `{:error, {:parser, {:error, reason}}}`, so
+  # `result_metadata/1`'s `Error.tag(error)` reads the tag of `{:error,
+  # reason}` — the atom `:error` — and never reaches `reason`. Matching that
+  # would carry the quirk into a chain that does not share the double-wrap,
+  # to emit a constant conveying nothing.
   defp parse_stop_metadata({:error, reason}), do: %{result: :error, error: Error.tag(reason)}
 
   # -- pre-fetch gates --------------------------------------------------------
@@ -442,11 +460,11 @@ defmodule ImagePipe.Dialect.Imgproxy do
     |> then(&DateTime.to_unix(&1.()))
   end
 
-  # The geometry half of the framework arm's parse-time plan build, run here
-  # for its rejection only — see the moduledoc. The operations themselves are
-  # produced (again) by `Pipeline.run/4`, which owns the per-pipeline shape
-  # the operations are assembled against. They are handed back here so
-  # `check_detector/2` can read their guides without a third assembly pass.
+  # Pre-fetch geometry assembly, run here for its rejection only — see the
+  # moduledoc. The operations themselves are produced (again) by
+  # `Pipeline.run/4`, which owns the per-pipeline shape the operations are
+  # assembled against. They are handed back here so `check_detector/2` can
+  # read their guides without a third assembly pass.
   defp check_geometry(%Request{pipelines: pipelines}) do
     Enum.reduce_while(pipelines, {:ok, []}, fn pipeline_request, {:ok, acc} ->
       case Assembly.operations(pipeline_request) do
@@ -697,11 +715,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # the miss path stay a dialect-owned send.
 
   # As on the image path, a source that disabled the internal cache is neither
-  # read from nor written to. The framework arm never caches /info at all (its
-  # `Runner.run/5` render head returns before any cache access), so this
-  # dialect-owned cache has no parity source to mirror — but the reason the
-  # image path honors the flag holds here unchanged: the stored JSON reports this
-  # source's format/dimensions/orientation, so serving a stale one for bytes that
+  # read from nor written to. The reason the image path honors the flag holds
+  # here unchanged: the stored JSON reports this source's
+  # format/dimensions/orientation, so serving a stale one for bytes that
   # carry no stable identity is the same unsoundness, one indirection later.
   defp serve_info(
          conn,

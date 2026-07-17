@@ -17,16 +17,19 @@ from the minimum viable module to the advanced extension points:
   such as metadata JSON (optional)
 - error rendering, redirects, testing, and repo conventions
 
-The three in-tree parsers are worked examples at increasing levels of
+The two in-tree parsers are worked examples at increasing levels of
 sophistication:
 
 | Parser | Dialect shape | Uses |
 |---|---|---|
 | `ImagePipe.Parser.TwicPics` | `?twic=v1/…` query chain | Custom resolver with carried state (focus point), directives |
 | `ImagePipe.Parser.IIIF` | positional path grammar | Host-pluggable id resolution, 303 redirects, custom `info.json` renderer |
-| `ImagePipe.Parser.Imgproxy` | signed path options | Signature validation, source-URL encryption, custom resolver, custom info renderer, presets |
 
-When in doubt about a pattern, read the closest of these.
+When in doubt about a pattern, read the closest of these. For signed path
+options, source-URL encryption, and presets, `ImagePipe.Dialect.Imgproxy` is
+the worked example — it assembles its own request chain directly rather than
+going through a parser/resolver, so read it as a self-contained Plug rather
+than as an `ImagePipe.Parser` implementation.
 
 ## The big picture
 
@@ -100,7 +103,7 @@ mount time, so **raise** on invalid configuration rather than returning error
 tuples. The convention:
 
 1. Own exactly one top-level key, named after your dialect (`:iiif`,
-   `:imgproxy`, `:twicpics`).
+   `:twicpics`).
 2. Split the options under that key into *neutral* keys (shared output/config
    surface — `ImagePipe.Config.keys/0`) and *dialect* keys (yours).
 3. Validate dialect keys (NimbleOptions works well; see
@@ -110,8 +113,9 @@ tuples. The convention:
    `parse/2` then reads pre-validated, fully-resolved config on every request.
 
 `ImagePipe.Parser.TwicPics.validate_options!/1` is the minimal version of this
-shape (no dialect keys at all); `ImagePipe.Parser.Imgproxy` shows a dialect
-with real keys (signature secrets, source encryption, presets).
+shape (no dialect keys at all); `ImagePipe.Parser.IIIF` shows a dialect with
+real keys (id resolver, supported formats/qualities, tile size, max
+dimensions).
 
 If a dialect deliberately supports only part of the neutral config surface,
 declare the supported subset with `ImagePipe.Config.reject_unsupported!/3` so
@@ -121,10 +125,12 @@ unsupported host config fails at boot instead of being silently ignored.
 
 When `parse/2` returns `{:error, reason}`, the plug hands the *same tuple* to
 your `handle_error(conn, {:error, reason})`, and your parser owns the response
-— status, content type, body. This is where dialect conventions live: imgproxy
-returns `403` for signature failures and `400` for grammar errors; IIIF maps
-`:not_found` to `404`. Keep bodies terse and non-reflective (don't echo
-secrets or full URLs).
+— status, content type, body. This is where dialect conventions live: IIIF
+maps `:not_found` to `404`. (`ImagePipe.Dialect.Imgproxy`, which assembles its
+own request chain rather than implementing `ImagePipe.Parser`, uses an
+analogous convention in `Dialect.Imgproxy.Errors` — 403 for signature
+failures, 400 for grammar errors.) Keep bodies terse and non-reflective (don't
+echo secrets or full URLs).
 
 Only *parser* errors flow through `handle_error/2`. If a parser hands the plug
 a structurally invalid Plan, the plug's own plan validation rejects it and
@@ -178,7 +184,7 @@ If the dialect needs to resolve opaque identifiers to sources (IIIF's
 does: a small behaviour the host implements, configured through your option
 namespace, returning a `Plan.Source` struct. If the dialect has its own source
 URI scheme vocabulary (imgproxy's `s3://`, `local://`), follow
-`ImagePipe.Parser.Imgproxy.Source`, which dispatches by scheme and supports
+`ImagePipe.Dialect.Imgproxy.Source`, which dispatches by scheme and supports
 host-registered translators.
 
 ### Pipelines and operations
@@ -512,23 +518,23 @@ never sees. The pieces available:
 - **`Operation.Directive`** — a no-pixel message positioned in the operation
   stream, consumed by your strategy (`:set_focus` above). Emitting a
   `Directive` your resolver has no clause for is a programmer error.
-- **Dialect-specific field markers** — e.g. `Operation.Padding`
-  `pixel_ratio: {:effective, ratio, mode}` exists for the imgproxy strategy,
-  which resolves it to a concrete value *before* delegating; the neutral
-  resolver never sees it. If your dialect needs a new marker of this kind, it
-  is a core change — the marker lives on a shared Plan struct — so keep the
-  pairing rule in mind: every marker a parser can emit must have exactly one
-  strategy that resolves it. A marker only earns its place when the decision is
-  runtime-geometry-dependent, per-operation/positional, *and* has no
-  product-neutral specification; if it has one (like the `:auto` resize rule,
-  which the neutral resolver now owns), promote it instead of carrying a
-  marker.
+- **Dialect-specific field markers** — a field value on a shared Plan struct
+  that only your strategy understands (the `:deferred` guide above is the
+  live example: TwicPics' strategy substitutes it with a concrete point
+  before emission). If your dialect needs
+  a new marker of this kind, it is a core change — the marker lives on a
+  shared Plan struct — so keep the pairing rule in mind: every marker a
+  parser can emit must have exactly one strategy that resolves it. A marker
+  only earns its place when the decision is runtime-geometry-dependent,
+  per-operation/positional, *and* has no product-neutral specification; if it
+  has one (like the `:auto` resize rule, which the neutral resolver owns),
+  promote it instead of carrying a marker.
 
 Plan validation enforces the resolver half of that pairing: a plan carrying
-any strategy-requiring vocabulary (a `:deferred` guide, a `Directive`, an
-`{:effective, …}` padding scale) with `resolver: nil` is rejected at the plan
-boundary as `{:strategy_required, operation}` instead
-of erroring deep in the transform stage.
+any strategy-requiring vocabulary (a `:deferred` guide, a `Directive`) with
+`resolver: nil` is rejected at the plan boundary as
+`{:strategy_required, operation}` instead of erroring deep in the transform
+stage.
 
 ### The strategy SDK
 
@@ -553,8 +559,8 @@ SDK" tier of the Transform boundary's exports:
 
 `ImagePipe.Transform.Lowering` and `ImagePipe.Transform.ResizePlanning` are
 **not** part of this contract: they are internal lowering seams, exported only
-for the in-tree imgproxy strategy, and may change without notice. A strategy
-outside this repository should not build on them.
+for the in-tree dialect pipeline drivers, and may change without notice. A
+strategy outside this repository should not build on them.
 
 ### `behavior_version/0` and caching
 

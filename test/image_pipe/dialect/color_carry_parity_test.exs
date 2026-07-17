@@ -8,9 +8,9 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
   # imported — which double-converts (strip) or skips the re-export (preserve).
   #
   # THE TRAP this file exists to close: both mistakes leave the OUTPUT PROFILE
-  # HEADER identical to the framework's, so every header/field assertion passes
-  # while the pixels are wrong. These tests therefore compare decoded PIXELS
-  # against the framework arm and never a header.
+  # HEADER identical to the sibling dialect's, so every header/field assertion
+  # passes while the pixels are wrong. These tests therefore compare decoded
+  # PIXELS across the two dialects and never a header.
   #
   # The source is the committed wide-gamut fixture (`profile?: true` in
   # `SourceInventory`); nearly every other fixture is profile-less, which is
@@ -48,11 +48,6 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
       path:
         {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: WideGamutOrigin]}
     ]
-  end
-
-  defp framework_imgproxy(path) do
-    opts = [parser: ImagePipe.Parser.Imgproxy, sources: sources()]
-    ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(opts))
   end
 
   defp dialect_imgproxy(path) do
@@ -99,18 +94,18 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
     |> Enum.max_by(fn {delta, _point, _a, _b} -> delta end)
   end
 
-  defp assert_pixel_parity(framework_conn, dialect_conn) do
-    assert framework_conn.status == 200
-    assert dialect_conn.status == 200
+  defp assert_pixel_parity(oracle_conn, subject_conn) do
+    assert oracle_conn.status == 200
+    assert subject_conn.status == 200
 
-    {delta, point, framework_pixel, dialect_pixel} =
-      max_channel_delta(pixels(framework_conn), pixels(dialect_conn))
+    {delta, point, oracle_pixel, subject_pixel} =
+      max_channel_delta(pixels(oracle_conn), pixels(subject_conn))
 
     assert delta == 0,
            """
-           dialect pixels diverge from the framework arm (max channel delta #{delta} at #{inspect(point)})
-             framework: #{inspect(framework_pixel)}
-             dialect:   #{inspect(dialect_pixel)}
+           subject pixels diverge from the oracle arm (max channel delta #{delta} at #{inspect(point)})
+             oracle:  #{inspect(oracle_pixel)}
+             subject: #{inspect(subject_pixel)}
            """
   end
 
@@ -123,39 +118,14 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
     assert is_binary(profile) and byte_size(profile) > 0
   end
 
-  describe "imgproxy dialect vs framework arm, same URL" do
-    test "default (scp on → strip): the imported working-space image is not re-converted" do
-      assert_pixel_parity(
-        framework_imgproxy("/_/f:png/plain/images/icc_p3.png"),
-        dialect_imgproxy("/_/f:png/plain/images/icc_p3.png")
-      )
-    end
-
-    test "scp:0 (preserve source profile): the source profile is re-exported, not skipped" do
-      assert_pixel_parity(
-        framework_imgproxy("/_/scp:0/f:png/plain/images/icc_p3.png"),
-        dialect_imgproxy("/_/scp:0/f:png/plain/images/icc_p3.png")
-      )
-    end
-
-    test "a plain resize is enough — no color option required" do
-      assert_pixel_parity(
-        framework_imgproxy("/_/rs:fit:64:64/f:png/plain/images/icc_p3.png"),
-        dialect_imgproxy("/_/rs:fit:64:64/f:png/plain/images/icc_p3.png")
-      )
-    end
-  end
-
   describe "native dialect" do
-    # `Dialect.Native` has no framework twin (there is no
-    # `ImagePipe.Parser.Native` — the native parser is dialect-owned), so the
-    # oracle is the framework imgproxy arm asked for the SAME thing: this source,
-    # no geometry, PNG out, default (strip) color policy. Both stacks share
-    # Decode/Transform/Output, so the only thing that can separate them here is
-    # the carry.
-    test "no geometry, PNG out: pixels match the framework's equivalent request" do
+    # The oracle is the imgproxy dialect arm asked for the SAME thing: this
+    # source, no geometry, PNG out, default (strip) color policy. Both dialects
+    # share Decode/Transform/Output, so the only thing that can separate them
+    # here is the carry.
+    test "no geometry, PNG out: pixels match the imgproxy dialect's equivalent request" do
       assert_pixel_parity(
-        framework_imgproxy("/_/f:png/plain/images/icc_p3.png"),
+        dialect_imgproxy("/_/f:png/plain/images/icc_p3.png"),
         dialect_native("/format=png/src/images/icc_p3.png")
       )
     end

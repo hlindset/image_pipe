@@ -69,12 +69,10 @@ degrading, see [`detector_required`](#options) below.
 
 ## Options
 
-Both options are passed to the plug at mount time (alongside `parser:`,
-`sources:`, etc.):
+Both options are passed to the plug at mount time (alongside `sources:`, etc.):
 
 ```elixir
-plug ImagePipe,
-  parser: ImagePipe.Parser.Imgproxy,
+plug ImagePipe.Dialect.Imgproxy,
   # ...
   detector: :default,        # default
   detector_required: false   # default

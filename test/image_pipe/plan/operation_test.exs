@@ -370,24 +370,6 @@ defmodule ImagePipe.Plan.OperationTest do
                )
     end
 
-    test "padding can request effective resize pixel ratio semantics" do
-      assert {:ok,
-              %Operation.Padding{
-                pixel_ratio: {:effective, {:ratio, 3, 2}, :resize}
-              }} =
-               Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0},
-                 pixel_ratio: {:effective, {:ratio, 3, 2}, :resize}
-               )
-
-      assert {:ok,
-              %Operation.Padding{
-                pixel_ratio: {:effective, {:ratio, 1, 2}, :canvas_preserving}
-              }} =
-               Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0},
-                 pixel_ratio: {:effective, {:ratio, 1, 2}, :canvas_preserving}
-               )
-    end
-
     test "padding rejects all-zero and malformed sides" do
       assert Operation.padding({:px, 0}, {:px, 0}, {:px, 0}, {:px, 0}) ==
                {:error,
@@ -396,19 +378,6 @@ defmodule ImagePipe.Plan.OperationTest do
       assert Operation.padding({:px, -1}, {:px, 0}, {:px, 0}, {:px, 0}) ==
                {:error,
                 {:invalid_operation, :padding, [{:px, -1}, {:px, 0}, {:px, 0}, {:px, 0}, []]}}
-
-      assert Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0},
-               pixel_ratio: {:effective, {:ratio, 1, 1}, :unknown}
-             ) ==
-               {:error,
-                {:invalid_operation, :padding,
-                 [
-                   {:px, 1},
-                   {:px, 0},
-                   {:px, 0},
-                   {:px, 0},
-                   [pixel_ratio: {:effective, {:ratio, 1, 1}, :unknown}]
-                 ]}}
     end
 
     test "background stores canonical alpha-capable color" do

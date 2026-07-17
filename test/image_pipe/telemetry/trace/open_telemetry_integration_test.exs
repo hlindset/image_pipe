@@ -85,9 +85,15 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
   end
 
+  defp iiif_beach_resolver do
+    {ImagePipe.Parser.IIIF.Resolver.Static,
+     map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
+  end
+
   defp miss_opts do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: iiif_beach_resolver()],
       sources: [
         path:
           {RootHTTPAdapter,
@@ -100,7 +106,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   defp signed_miss_opts do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: iiif_beach_resolver()],
       sources: [
         path:
           {SignedRootHTTPAdapter,
@@ -110,7 +117,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     ]
   end
 
-  defp request_path, do: "/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg"
+  defp request_path, do: "/beach/full/!120,90/0/default.jpg"
 
   # Drain all {:span, rec} OTel records delivered to this process.
   defp drain_spans(timeout \\ 500) do

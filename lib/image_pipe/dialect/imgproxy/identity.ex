@@ -84,17 +84,14 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   end
 
   @doc """
-  Builds the requested output intent from `request.output`, mirroring the
-  "valid format" branches of the frozen framework's own
-  `ImagePipe.Parser.Imgproxy.PlanBuilder.output_plan/1` (`mode` from
+  Builds the requested output intent from `request.output`: `mode` from
   `format` presence, `color_profile`/`hdr` resolved from the raw
   `color_profile`/`strip_color_profile`/`preserve_hdr` request fields, every
-  other field a direct pass-through). Unlike `output_plan/1`, this never
-  errors on `format: :best` — `Task 17`'s `negotiate/3` rejects an
-  unsupported explicit format via `Output.Policy.ensure_capable/2`
-  (`Capabilities.supports?/2` returns `false` for `:best`, the same
-  `{:unsupported_output_format, :best}` framework outcome, reached through
-  negotiation instead of plan-building). Task 17's `negotiate/3` builds its
+  other field a direct pass-through. Never errors on `format: :best` — `Task
+  17`'s `negotiate/3` rejects an unsupported explicit format via
+  `Output.Policy.ensure_capable/2` (`Capabilities.supports?/2` returns
+  `false` for `:best`, reaching `{:unsupported_output_format, :best}` through
+  negotiation instead of here). Task 17's `negotiate/3` builds its
   `%ImagePipe.Output.Policy{}` from this.
   """
   @spec plan_output(Request.t()) :: Output.t()
@@ -116,17 +113,14 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
     }
   end
 
-  # Ported verbatim from the frozen
-  # ImagePipe.Parser.Imgproxy.PlanBuilder.color_profile_policy/2: a present
-  # cp/icc target wins over scp (imgproxy: cp-embedded profiles are not
-  # stripped by strip_color_profile). scp only decides strip vs preserve when
-  # no target is set.
+  # A present cp/icc target wins over scp (imgproxy: cp-embedded profiles are
+  # not stripped by strip_color_profile). scp only decides strip vs preserve
+  # when no target is set.
   defp color_profile_policy(target, _strip) when not is_nil(target), do: {:convert, target}
   defp color_profile_policy(nil, true), do: :strip
   defp color_profile_policy(nil, false), do: :preserve_source
   defp color_profile_policy(nil, nil), do: :strip
 
-  # Ported verbatim from the frozen ImagePipe.Parser.Imgproxy.PlanBuilder.hdr_policy/1.
   defp hdr_policy(true), do: :preserve
   defp hdr_policy(false), do: :tone_map
   defp hdr_policy(nil), do: :tone_map
@@ -166,8 +160,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   # exactly that pair — same nine fields, both URL-settable
   # (`autoquality:ssimulacra2:…` / `autoquality:butteraugli:…`), with
   # overlapping target ranges — so dropping it gives two requests that encode
-  # to different bytes one cache key and one ETag. The frozen framework injects
-  # a `metric:` discriminator for this reason (`cache/key.ex`'s
+  # to different bytes one cache key and one ETag. `ImagePipe.Cache.Key`
+  # injects a `metric:` discriminator for this reason (`cache/key.ex`'s
   # `quality_metric_key/2`); carrying the module generalizes it to every struct.
   # Do NOT re-insert `__struct__` into the map instead: `Enum.map/2` on
   # `%{__struct__: Foo}` still dispatches `Enumerable.Foo` and raises.

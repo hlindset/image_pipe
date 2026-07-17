@@ -44,8 +44,8 @@ There are two different kinds of "operation", and the resolver strategy is the
 translator between them:
 
 - **`ImagePipe.Plan.Operation.*`** — what parsers emit. Declarative, possibly
-  deferred (`:auto` dims, `:deferred` guides, `{:effective, …}` scales). These
-  structs **never execute**.
+  deferred (`:auto` dims, `:deferred` guides). These structs **never
+  execute**.
 - **`ImagePipe.Transform.Operation.*`** — executable: fully parameterized,
   every dimension concrete, every gravity a real point. These are what
   `Chain` runs, and one plan op may lower into several of them (a cover =
@@ -111,11 +111,11 @@ targets:
 
 | # | Call site | What it dispatches to | How to navigate |
 |---|---|---|---|
-| ① | `parser.parse(conn, opts)` in `ImagePipe.Plug` | The mount's `:parser` module | Three in-tree parsers: `ImagePipe.Parser.Imgproxy`, `.IIIF`, `.TwicPics` — each ends in a `PlanBuilder` that constructs the `%Plan{}` |
-| ② | `Resolver.resolve(strategy, …)` facade | `plan.resolver`, defaulting to `NeutralResolver` in `Executor` | Three implementations: `ImagePipe.Transform.NeutralResolver` (all shared geometry — when in doubt, the answer is here), `ImagePipe.Parser.Imgproxy.Resolver` and `ImagePipe.Parser.TwicPics.Resolver` (thin dialect wrappers that delegate to Neutral) |
+| ① | `parser.parse(conn, opts)` in `ImagePipe.Plug` | The mount's `:parser` module | Two in-tree parsers: `ImagePipe.Parser.IIIF`, `.TwicPics` — each ends in a `PlanBuilder` that constructs the `%Plan{}`. `ImagePipe.Dialect.Imgproxy` mounts as its own Plug and does not go through this dispatch point |
+| ② | `Resolver.resolve(strategy, …)` facade | `plan.resolver`, defaulting to `NeutralResolver` in `Executor` | Two implementations: `ImagePipe.Transform.NeutralResolver` (all shared geometry — when in doubt, the answer is here) and `ImagePipe.Parser.TwicPics.Resolver` (a thin dialect wrapper that delegates to Neutral). `ImagePipe.Dialect.Imgproxy.Pipeline` calls `NeutralResolver`'s functions directly without implementing this behaviour |
 | ③ | `chain.(state, ops, opts)` in `Executor` | Injected function; always `Chain.execute/3` in production | Test seam only. Inside `Chain`, `Transform.execute(op, state)` dispatches to the op struct's own module — struct name = module name (`%Operation.Crop{}` → `transform/operation/crop.ex`) |
 | ④ | `Resolver.continue(strategy, tag, …)` in `Executor` | The strategy's `continue/4` — one named clause per tag | Tags are data: grep the tag atom (e.g. `:resize_flush_tail`) to land on both the emitting resolve row and the continue clause. Neutral tags live in `NeutralResolver.continue/4`; dialect strategies delegate the tag and re-attach their carry |
-| — | `render: {:custom, module, params}` | The plan's renderer module via `ImagePipe.Renderer` | Two in-tree renderers: the imgproxy and IIIF info renderers |
+| — | `render: {:custom, module, params}` | The plan's renderer module via `ImagePipe.Renderer` | One in-tree renderer: IIIF's info renderer. `ImagePipe.Dialect.Imgproxy.InfoRenderer` renders its `/info` terminal directly, outside this dispatch point |
 | — | `Telemetry.span(…, fn -> … end)` wrappers | n/a | Nearly every layer wraps its real call in a span closure; when lost, skip to the closure body |
 
 Also note `render: :image` vs custom renders fork early: a custom render

@@ -30,6 +30,12 @@ defmodule ImagePipe.Dialect.Imgproxy.ConfigTest do
     end
   end
 
+  test "rejects an explicit nil signature config" do
+    assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
+      Config.validate!(signature: nil)
+    end
+  end
+
   test "normalizes a signature config into a Signature struct" do
     validated =
       Config.validate!(

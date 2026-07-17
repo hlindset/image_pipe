@@ -4,6 +4,8 @@ defmodule ImagePipe.DebugHeadersWireTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
   # ---------------------------------------------------------------------------
@@ -108,54 +110,83 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # Harness helpers
   # ---------------------------------------------------------------------------
 
+  # Every id this file's IIIF requests resolve, shared across the opts builders
+  # below (a single static map keeps each builder's iiif: base minimal).
+  defp iiif_resolver do
+    {StaticResolver,
+     map: %{
+       "beach" => %SourcePath{segments: ["images", "beach.jpg"]},
+       "stable" => %SourcePath{segments: ["beach.jpg"]},
+       "large" => %SourcePath{segments: ["images", "large.jpg"]}
+     }}
+  end
+
+  # Merges `overrides` into `base`, deep-merging the `:iiif` key so a caller
+  # can override an individual iiif: sub-option (e.g. autoquality_method)
+  # without having to restate the resolver.
+  defp merge_opts(base, overrides) do
+    {iiif_override, overrides} = Keyword.pop(overrides, :iiif, [])
+
+    base
+    |> Keyword.update(:iiif, iiif_override, &Keyword.merge(&1, iiif_override))
+    |> Keyword.merge(overrides)
+  end
+
   # Base mount options using RootHTTPAdapter. Mirrors @default_opts +
   # origin_opts/1 from imgproxy_wire_conformance_test.exs.
   defp base_opts(overrides) do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: iiif_resolver()],
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ]
     ]
-    |> Keyword.merge(overrides)
+    |> merge_opts(overrides)
   end
 
   # Mount options using StableOrigin so the HTTP cache generates an ETag
   # (requires byte-identity in the resolved source). Used by G2 tests.
   defp stable_opts(overrides) do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: iiif_resolver()],
       sources: [path: {StableOrigin, []}],
       http_cache: [mode: :enabled]
     ]
-    |> Keyword.merge(overrides)
+    |> merge_opts(overrides)
   end
 
   # Mount options pointing at the large SSIM2 origin for G3.
   defp large_ssim2_opts(overrides) do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: iiif_resolver()],
       sources: [
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
       ]
     ]
-    |> Keyword.merge(overrides)
+    |> merge_opts(overrides)
   end
 
-  # An imgproxy URL that resizes beach.jpg to 400×300. Produces a non-trivial
-  # pipeline (rs:fit) so x-imagepipe-pipeline is populated.
-  defp request_path, do: "/_/rs:fit:400:300/f:jpeg/plain/images/beach.jpg"
+  # An IIIF path that resizes beach.jpg to fit within 400×300 (confined size
+  # `!400,300`). Produces a non-trivial pipeline so x-imagepipe-pipeline is
+  # populated.
+  defp request_path, do: "/beach/full/!400,300/0/default.jpg"
 
-  # An imgproxy URL for the stable source — plain (no resize) so the path
-  # works with StableOrigin's path-only fetch.
-  defp stable_request_path, do: "/_/rs:fit:400:300/f:jpeg/plain/beach.jpg"
+  # An IIIF path for the stable source — resized to fit within 400×300 (confined
+  # size `!400,300`) so the request works with StableOrigin's path-only fetch.
+  defp stable_request_path, do: "/stable/full/!400,300/0/default.jpg"
 
-  # An imgproxy URL that triggers an ssim2 quality search (autoquality:ssim2).
-  # Mirrors the "autoquality:ssim2 yields a decodable JPEG" test from the
-  # conformance suite. No resize so the full >6 MP frame goes to the encoder.
-  defp autoquality_path, do: "/_/f:jpeg/autoquality:ssim2:85:50:95/plain/images/large.jpg"
+  # An IIIF path over the large >6 MP origin. autoquality is entirely
+  # config-driven (autoquality_method/autoquality_target on the iiif: mount
+  # opts) — the IIIF grammar has no URL-level autoquality slot, unlike
+  # imgproxy's autoquality: processing option. No resize so the full frame
+  # goes to the encoder, mirroring the "autoquality:ssim2 yields a decodable
+  # JPEG" test from the conformance suite.
+  defp autoquality_path, do: "/large/full/max/0/default.jpg"
 
   # Mount options with a filesystem cache + a counting origin, so a second
   # request hits the stored entry. Returns {opts, cache_root} for cleanup.
@@ -171,7 +202,8 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
     opts =
       [
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [
           path:
             {RootHTTPAdapter,
@@ -186,7 +218,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
            key_headers: [],
            key_cookies: []}
       ]
-      |> Keyword.merge(overrides)
+      |> merge_opts(overrides)
 
     {opts, cache_root}
   end
@@ -200,25 +232,15 @@ defmodule ImagePipe.DebugHeadersWireTest do
     conn |> get_resp_header(name) |> List.first()
   end
 
-  # Injects the `debug:1` processing option into an imgproxy path. The option
-  # rides in the signed processing-options segment (before `/plain/`), so it is
-  # covered by the path HMAC — unlike the old `?_debug=1` query param.
-  defp with_debug(path), do: String.replace(path, "/plain/", "/debug:1/plain/")
+  # Appends IIIF's `?debug=1` trigger. Unlike imgproxy's debug:1 (which rides
+  # in the signed processing-options segment), this is an out-of-band query
+  # param — IIIF has no request signing, so it is unprotected by design (see
+  # docs/iiif_3_support_matrix.md).
+  defp with_debug(path), do: path <> "?debug=1"
 
-  # Hex-encoded "test-key" / "test-salt", matching the signed mount config below.
-  @sig_keys ["746573742d6b6579"]
-  @sig_salts ["746573742d73616c74"]
-
-  defp signed_request_path(signed_path) do
-    key = Base.decode16!(hd(@sig_keys), case: :lower)
-    salt = Base.decode16!(hd(@sig_salts), case: :lower)
-
-    signature =
-      :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
-      |> Base.url_encode64(padding: false)
-
-    "/" <> signature <> signed_path
-  end
+  # Any non-"1"/"true" value is read leniently as "off" (never a 400) — see
+  # debug_requested?/1 in lib/image_pipe/parser/iiif.ex.
+  defp with_non_triggering_debug(path), do: path <> "?debug=0"
 
   # ---------------------------------------------------------------------------
   # G1 — wire-level miss-path gate tests
@@ -233,8 +255,8 @@ defmodule ImagePipe.DebugHeadersWireTest do
     assert header(conn, "server-timing") == nil
   end
 
-  test "the _debug=1 query param is no longer a trigger (replaced by debug:1)" do
-    conn = call(request_path() <> "?_debug=1", base_opts(allow_debug_headers: true))
+  test "debug=0 is not a trigger (only 1/true enable it)" do
+    conn = call(with_non_triggering_debug(request_path()), base_opts(allow_debug_headers: true))
 
     assert conn.status == 200
     assert header(conn, "x-imagepipe-output-format") == nil
@@ -242,7 +264,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
     assert header(conn, "server-timing") == nil
   end
 
-  test "no debug headers with debug:1 when allow_debug_headers: false (default)" do
+  test "no debug headers with ?debug=1 when allow_debug_headers: false (default)" do
     conn = call(with_debug(request_path()), base_opts(allow_debug_headers: false))
 
     assert conn.status == 200
@@ -250,7 +272,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
     assert header(conn, "x-imagepipe-cache") == nil
   end
 
-  test "debug headers present with debug:1 when allow_debug_headers: true (cache miss)" do
+  test "debug headers present with ?debug=1 when allow_debug_headers: true (cache miss)" do
     conn = call(with_debug(request_path()), base_opts(allow_debug_headers: true))
 
     assert conn.status == 200
@@ -285,7 +307,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # ---------------------------------------------------------------------------
 
   describe "cache identity invariance" do
-    test "debug:1 does not change the generated ETag" do
+    test "?debug=1 does not change the generated ETag" do
       opts = stable_opts(allow_debug_headers: true)
 
       plain = call(stable_request_path(), opts)
@@ -297,10 +319,10 @@ defmodule ImagePipe.DebugHeadersWireTest do
       assert is_binary(plain_etag), "expected plain request to carry an ETag"
 
       assert plain_etag == debug_etag,
-             "expected debug:1 not to change ETag; got plain=#{inspect(plain_etag)} debug=#{inspect(debug_etag)}"
+             "expected ?debug=1 not to change ETag; got plain=#{inspect(plain_etag)} debug=#{inspect(debug_etag)}"
     end
 
-    test "conditional GET with debug:1 still 304s against the plain ETag" do
+    test "conditional GET with ?debug=1 still 304s against the plain ETag" do
       opts = stable_opts(allow_debug_headers: true)
       plain = call(stable_request_path(), opts)
       etag = header(plain, "etag")
@@ -313,39 +335,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
         |> ImagePipe.Plug.call(ImagePipe.Plug.init(opts))
 
       assert conn.status == 304,
-             "expected conditional GET with debug:1 to 304; got #{conn.status}"
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Signature coverage (issue #398) — debug:1 rides in the signed path, so
-  # imgproxy's path HMAC protects it. An attacker cannot append it to an
-  # otherwise-valid signed URL.
-  # ---------------------------------------------------------------------------
-
-  describe "signature coverage" do
-    defp signed_opts(overrides) do
-      base_opts(overrides)
-      |> Keyword.put(:imgproxy, signature: [keys: @sig_keys, salts: @sig_salts])
-    end
-
-    test "a correctly signed URL carrying debug:1 renders debug headers" do
-      signed_path = "/rs:fit:400:300/f:jpeg/debug:1/plain/images/beach.jpg"
-      conn = call(signed_request_path(signed_path), signed_opts(allow_debug_headers: true))
-
-      assert conn.status == 200
-      assert header(conn, "x-imagepipe-cache") == "miss"
-      assert header(conn, "x-imagepipe-source-format") == "jpeg"
-    end
-
-    test "injecting debug:1 into an otherwise-valid signed URL invalidates the signature" do
-      # Sign a path WITHOUT debug:1, then inject it — the HMAC no longer matches.
-      signed_path = "/rs:fit:400:300/f:jpeg/plain/images/beach.jpg"
-      tampered = with_debug(signed_request_path(signed_path))
-
-      conn = call(tampered, signed_opts(allow_debug_headers: true))
-
-      assert conn.status == 403
+             "expected conditional GET with ?debug=1 to 304; got #{conn.status}"
     end
   end
 
@@ -357,11 +347,11 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # path; on oversubscribed CI cores it can approach the source-session backstop,
   # so give ExUnit headroom above the default 60s.
   @tag timeout: 180_000
-  test "autoquality ssim2 request emits AQ-* headers with debug:1" do
+  test "autoquality ssim2 request emits AQ-* headers with ?debug=1" do
     opts =
       large_ssim2_opts(
         allow_debug_headers: true,
-        imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 85}]
+        iiif: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 85}]
       )
 
     conn = call(with_debug(autoquality_path()), opts)
@@ -441,7 +431,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
       end
     end
 
-    test "debug:1 and a plain request share one cache entry; a plain hit emits no debug headers" do
+    test "?debug=1 and a plain request share one cache entry; a plain hit emits no debug headers" do
       {opts, cache_root} = cached_opts(allow_debug_headers: true)
 
       try do
@@ -449,7 +439,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
         assert first.status == 200
         assert_received :origin_fetch
 
-        # Plain request (no debug:1): hits the same entry, identical bytes, and
+        # Plain request (no ?debug=1): hits the same entry, identical bytes, and
         # renders NO debug headers despite the stored facts. (A different cache
         # key would miss and re-fetch — so this also proves key invariance.)
         plain = call(request_path(), opts)

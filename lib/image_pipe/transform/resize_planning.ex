@@ -6,16 +6,15 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # stretch modes. The `:auto` fill-vs-fit bucketing is resolved to a concrete
   # mode upstream by the neutral resolver (NeutralResolver.resolve_mode/2)
   # before lowering, so this module never sees `:auto`. The no-enlarge padding-
-  # scale cap lives in the imgproxy strategy (ImagePipe.Parser.Imgproxy.
-  # Resolver), which calls back into this module's public `resize_from/2` for
-  # the mechanical Plan->executable translation. The gravity for any result-
-  # crop is threaded in as a parameter (translated by Lowering) so this module
-  # stays a leaf — it never calls back into Lowering.
+  # scale cap lives in the imgproxy dialect's own pipeline driver, which calls
+  # back into this module's public `resize_from/2` for the mechanical
+  # Plan->executable translation. The gravity for any result-crop is threaded
+  # in as a parameter (translated by Lowering) so this module stays a leaf —
+  # it never calls back into Lowering.
   #
   # Internal lowering seam: exported from the Transform boundary for the
-  # in-tree imgproxy consumers (the framework strategy and the inverted
-  # dialect), not part of the strategy SDK and subject to change without
-  # notice — see the export-list tiers in ImagePipe.Transform.
+  # in-tree imgproxy dialect, not part of the strategy SDK and subject to
+  # change without notice — see the export-list tiers in ImagePipe.Transform.
 
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Transform.Operation.Crop

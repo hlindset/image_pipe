@@ -5,7 +5,7 @@ defmodule ImagePipe.RequestOptionsTest do
   alias ImagePipe.SourceTest.CustomAdapter
 
   @base_opts [
-    parser: ImagePipe.Parser.Imgproxy,
+    parser: ImagePipe.Parser.IIIF,
     sources: [
       path: {CustomAdapter, adapter: :path}
     ]
@@ -215,7 +215,7 @@ defmodule ImagePipe.RequestOptionsTest do
   test "request options accept sources without root_url" do
     assert opts =
              Options.validate!(
-               parser: ImagePipe.Parser.Imgproxy,
+               parser: ImagePipe.Parser.IIIF,
                sources: [
                  path: {CustomAdapter, adapter: :path}
                ]
@@ -228,7 +228,7 @@ defmodule ImagePipe.RequestOptionsTest do
   test "request options reject invalid source adapter config during init" do
     assert_raise ArgumentError, fn ->
       Options.validate!(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
         sources: [path: {CustomAdapter, :not_options}]
       )
     end
@@ -237,7 +237,7 @@ defmodule ImagePipe.RequestOptionsTest do
   test "request options reject stale origin configuration after source integration" do
     assert_raise ArgumentError, fn ->
       Options.validate!(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
         sources: [path: {CustomAdapter, adapter: :path}],
         root_url: "https://origin.example"
       )
@@ -245,7 +245,7 @@ defmodule ImagePipe.RequestOptionsTest do
 
     assert_raise ArgumentError, fn ->
       Options.validate!(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.IIIF,
         sources: [path: {CustomAdapter, adapter: :path}],
         origin_req_options: [plug: OriginImage]
       )

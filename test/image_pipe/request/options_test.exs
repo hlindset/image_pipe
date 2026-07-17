@@ -4,40 +4,40 @@ defmodule ImagePipe.Request.OptionsTest do
   alias ImagePipe.Request.Options
 
   test "allow_debug_headers defaults to false" do
-    opts = Options.validate!(parser: ImagePipe.Parser.Imgproxy)
+    opts = Options.validate!(parser: ImagePipe.Parser.IIIF)
     assert Keyword.fetch!(opts, :allow_debug_headers) == false
   end
 
   test "allow_debug_headers can be enabled" do
-    opts = Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_debug_headers: true)
+    opts = Options.validate!(parser: ImagePipe.Parser.IIIF, allow_debug_headers: true)
     assert Keyword.fetch!(opts, :allow_debug_headers) == true
   end
 
   test "allow_debug_headers rejects non-boolean" do
     assert_raise ArgumentError, fn ->
-      Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_debug_headers: "yes")
+      Options.validate!(parser: ImagePipe.Parser.IIIF, allow_debug_headers: "yes")
     end
   end
 
   test "allow_origin is absent by default (CORS off)" do
-    opts = Options.validate!(parser: ImagePipe.Parser.Imgproxy)
+    opts = Options.validate!(parser: ImagePipe.Parser.IIIF)
     refute Keyword.has_key?(opts, :allow_origin)
   end
 
   test "allow_origin accepts a non-empty string" do
-    opts = Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_origin: "*")
+    opts = Options.validate!(parser: ImagePipe.Parser.IIIF, allow_origin: "*")
     assert Keyword.fetch!(opts, :allow_origin) == "*"
   end
 
   test "allow_origin rejects an empty string" do
     assert_raise ArgumentError, ~r/allow_origin/, fn ->
-      Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_origin: "")
+      Options.validate!(parser: ImagePipe.Parser.IIIF, allow_origin: "")
     end
   end
 
   test "allow_origin rejects control characters (fails at init, not per-request)" do
     assert_raise ArgumentError, ~r/allow_origin/, fn ->
-      Options.validate!(parser: ImagePipe.Parser.Imgproxy, allow_origin: "*\r\nSet-Cookie: x=1")
+      Options.validate!(parser: ImagePipe.Parser.IIIF, allow_origin: "*\r\nSet-Cookie: x=1")
     end
   end
 end

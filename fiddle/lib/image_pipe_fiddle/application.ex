@@ -85,20 +85,19 @@ defmodule ImagePipeFiddle.Application do
     imgproxy = Application.fetch_env!(:image_pipe_fiddle, :imgproxy)
 
     [
-      parser: ImagePipe.Parser.Imgproxy,
       sources: imgproxy_source_mounts(),
-      imgproxy: imgproxy,
       # Graceful fallback: detection failures degrade to attention crop (200) rather
       # than erroring; the default Logger surfaces any detection fallback.
-      detector_required: false,
-      # Demo deployment: emit the opt-in X-ImagePipe-* / Server-Timing debug headers.
-      # The fiddle injects each dialect's debug trigger into its preview requests
-      # (imgproxy `debug:1`, TwicPics `debug=1`, IIIF `?debug=1`) so the panel
-      # populates on every mount.
-      allow_debug_headers: true
+      detector_required: false
     ]
+    # The dialect takes one flat keyword list; the :imgproxy env sublist
+    # (signature, smart_crop_face_detection) merges in at the top level.
+    # The dialect serves no X-ImagePipe-* debug headers, so this mount has no
+    # allow_debug_headers switch; the fiddle's debug panel stays empty here
+    # (the `debug:1` option still parses and is covered by the signature).
+    |> Keyword.merge(imgproxy)
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Plug.init()
+    |> ImagePipe.Dialect.Imgproxy.init()
   end
 
   defp build_iiif_opts do

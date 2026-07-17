@@ -11,43 +11,34 @@ For a feature-by-feature comparison with Imgproxy's processing URL surface, see
 
 ## Mounting
 
-Two stacks serve the path API described here, and this document's URL surface is
-identical on both:
+`ImagePipe.Dialect.Imgproxy` is the plug — mount it directly:
 
 ```elixir
-# framework stack: ImagePipe.Plug selects its dialect with `parser:`, and
-# namespaces that dialect's own keys under `:imgproxy`.
-plug ImagePipe.Plug,
-  parser: ImagePipe.Parser.Imgproxy,
-  sources: [...],
-  imgproxy: [source_url_encryption_key: "..."]
-
-# dialect stack: the dialect IS the plug. One flat keyword — no `parser:`, and
-# no `:imgproxy` sublist, because there is nothing to namespace against.
 plug ImagePipe.Dialect.Imgproxy,
   sources: [...],
   source_url_encryption_key: "..."
 ```
 
-The config shapes differ; the URLs do not. Examples below that pass
-`imgproxy: [...]` to `ImagePipe.Plug.init/1` are framework-stack spellings —
-on the dialect, hoist those keys to the top level.
+Configuration is one flat keyword list — no `parser:`, and no `:imgproxy`
+sublist, because there is nothing to namespace against.
 
-The dialect's config validates strictly: a key it has no equivalent for raises
-out of `init/1` rather than being ignored, so a framework option the dialect does
-not implement fails loudly at boot. See
+The dialect's config validates strictly: an unknown key raises out of `init/1`
+rather than being ignored, so a typo or an unsupported option fails loudly at
+boot. See
 [Dialect-stack divergences](imgproxy_support_matrix.md#dialect-stack-divergences)
-for what those are.
+for the (small) set of ImagePipe-side implementation facts a host mounting the
+dialect should know.
 
 ### Mount point
 
-Both stacks read the request path the same way, and both may be mounted at the
-root or below a prefix (`Plug.Router.forward/2`, or any mount that sets
-`script_name`). The mount prefix is stripped before the signature segment is
-read, so it is **not** part of the signed material: one signed path verifies at
-`/` and under `/img` alike. The same holds for the `/info` prefix, which is
-stripped before the signature is checked (matching upstream). Query strings are
-excluded from the signed material and from the response's identity.
+The dialect reads the request path the same way regardless of mount point: it
+may be mounted at the root or below a prefix (`Plug.Router.forward/2`, or any
+mount that sets `script_name`). The mount prefix is stripped before the
+signature segment is read, so it is **not** part of the signed material: one
+signed path verifies at `/` and under `/img` alike. The same holds for the
+`/info` prefix, which is stripped before the signature is checked (matching
+upstream). Query strings are excluded from the signed material and from the
+response's identity.
 
 ## Path shape
 
@@ -77,12 +68,11 @@ same source translation used by plain sources. A decoded `images/cat.jpg`,
 configured custom scheme produces the same `ImagePipe.Plan` source as the
 matching plain request.
 
-`enc` starts an encrypted source URL. Configure it through `ImagePipe.Plug.init/1`:
+`enc` starts an encrypted source URL. Configure it through
+`ImagePipe.Dialect.Imgproxy.init/1`:
 
 ```elixir
-imgproxy: [
-  source_url_encryption_key: "000102030405060708090a0b0c0d0e0f"
-]
+source_url_encryption_key: "000102030405060708090a0b0c0d0e0f"
 ```
 
 The encrypted value is `base64url(iv <> aes-cbc-pkcs7(source_url))`. The key
@@ -109,12 +99,12 @@ Sign production encrypted URLs. Signature verification happens before
 decryption, so a tampered encrypted segment or SEO filename fails before padding
 checks when callers enable signing.
 
-Use `ImagePipe.Parser.Imgproxy.encrypt_source_url/3` to generate only the
+Use `ImagePipe.Dialect.Imgproxy.encrypt_source_url/3` to generate only the
 encrypted source segment:
 
 ```elixir
 {:ok, segment} =
-  ImagePipe.Parser.Imgproxy.encrypt_source_url(
+  ImagePipe.Dialect.Imgproxy.encrypt_source_url(
     "images/cat.jpg",
     "000102030405060708090a0b0c0d0e0f"
   )
@@ -205,19 +195,16 @@ Generic quality and format-specific quality are separate canonical fields.
 
 Normal processing URLs support configured Imgproxy presets:
 
-    ImagePipe.Plug.init(
-      parser: ImagePipe.Parser.Imgproxy,
+    ImagePipe.Dialect.Imgproxy.init(
       sources: [
         path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
       ],
-      imgproxy: [
-        presets: %{
-          "default" => "rt:fill/el:1",
-          "thumb" => "rs:fit:120:120",
-          "sharp-thumb" => "pr:thumb/q:82",
-          "responsive" => "w:900/-/w:450"
-        }
-      ]
+      presets: %{
+        "default" => "rt:fill/el:1",
+        "thumb" => "rs:fit:120:120",
+        "sharp-thumb" => "pr:thumb/q:82",
+        "responsive" => "w:900/-/w:450"
+      }
     )
 
 `preset` and `pr` accept one or more preset names in a single option segment:
@@ -225,7 +212,7 @@ Normal processing URLs support configured Imgproxy presets:
     /_/preset:thumb/plain/images/cat.jpg
     /_/pr:thumb:sharp-thumb/plain/images/cat.jpg
 
-`ImagePipe.Parser.Imgproxy` expands presets before plan construction, source
+`ImagePipe.Dialect.Imgproxy` expands presets before plan construction, source
 identity resolution, cache lookup, or source fetch. Preset names aren't stored
 in `ImagePipe.Plan`, runtime state, output negotiation, transform state, or
 cache data. A request using `pr:thumb` and a request spelling out the same
@@ -361,9 +348,9 @@ Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 
 - `ar:true` applies embedded orientation metadata, such as EXIF orientation.
   `ar:false` disables it.
-- `imgproxy: [auto_rotate: true]` applies EXIF autorotation when the URL doesn't
-  specify `auto_rotate`/`ar`. The default config value is `true`, matching
-  Imgproxy's `IMGPROXY_AUTO_ROTATE` default.
+- `auto_rotate: true` in the dialect config applies EXIF autorotation when the
+  URL doesn't specify `auto_rotate`/`ar`. The default config value is `true`,
+  matching Imgproxy's `IMGPROXY_AUTO_ROTATE` default.
 - URL `ar:true` and `ar:false` resolve as request-scoped EXIF decode policy,
   not as pipeline-local pixel operations. If more than one URL group contains
   `ar`, the last `ar` in path order wins.
