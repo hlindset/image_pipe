@@ -7,7 +7,7 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.KeyTest.ForwardingProbe
   alias ImagePipe.MaterialDigest
-  alias ImagePipe.Parser.Imgproxy
+  alias ImagePipe.Parser.TwicPics
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation
@@ -50,25 +50,16 @@ defmodule ImagePipe.Cache.KeyTest do
     key
   end
 
-  defp encoded_source(source) do
-    Base.url_encode64(source, padding: false)
-  end
-
-  defp encrypted_source(source, opts \\ []) do
-    iv =
-      Keyword.get(
-        opts,
-        :iv,
-        <<16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31>>
+  defp twic_plan!(chain) do
+    {:ok, plan} =
+      TwicPics.PlanBuilder.to_plan(
+        %Source.Path{segments: ["images", "cat.jpg"]},
+        chain,
+        ImagePipe.Config.resolve!([])
       )
 
-    {:ok, segment} =
-      Imgproxy.encrypt_source_url(source, source_url_encryption_key(), iv: iv)
-
-    segment
+    plan
   end
-
-  defp source_url_encryption_key, do: "000102030405060708090a0b0c0d0e0f"
 
   defp plan_with_resize_auto do
     plan(pipelines: [%Pipeline{operations: [resize_auto_operation(300, 200)]}])
@@ -163,11 +154,6 @@ defmodule ImagePipe.Cache.KeyTest do
   defp tagged_dimension(pixels), do: {:px, pixels}
   defp tagged_resize_dimension(:auto), do: :auto
   defp tagged_resize_dimension(pixels), do: {:px, pixels}
-
-  defp imgproxy_plan!(path) do
-    assert {:ok, plan} = Imgproxy.parse(conn(:get, path), [])
-    plan
-  end
 
   test "builds stable hash and key data from canonical plan fields and source identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
@@ -359,75 +345,6 @@ defmodule ImagePipe.Cache.KeyTest do
 
     assert key_one.data[:source_identity] == source_identity()
     assert key_one.hash == key_two.hash
-  end
-
-  test "imgproxy encoded source spelling does not enter cache key data" do
-    encoded = encoded_source("images/cat.jpg")
-
-    plain_conn = conn(:get, "/_/plain/images/cat.jpg")
-    encoded_conn = conn(:get, "/_/#{encoded}")
-
-    assert {:ok, plain_plan} = Imgproxy.parse(plain_conn, [])
-    assert {:ok, encoded_plan} = Imgproxy.parse(encoded_conn, [])
-
-    identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
-
-    plain_key = build_key!(plain_conn, plain_plan, identity)
-    encoded_key = build_key!(encoded_conn, encoded_plan, identity)
-
-    assert plain_plan == encoded_plan
-    assert plain_key.hash == encoded_key.hash
-    assert plain_key.data == encoded_key.data
-    refute inspect(encoded_key.data) =~ encoded
-  end
-
-  test "imgproxy encrypted source spelling and SEO filename do not enter cache key data" do
-    encoded = encoded_source("images/cat.jpg")
-    encrypted = encrypted_source("images/cat.jpg")
-    alternate_encrypted = encrypted_source("images/cat.jpg", iv: :binary.copy(<<1>>, 16))
-
-    plain_conn = conn(:get, "/_/plain/images/cat.jpg")
-    encoded_conn = conn(:get, "/_/#{encoded}/puppy.jpg")
-    encrypted_conn = conn(:get, "/_/enc/#{encrypted}/puppy.jpg")
-    alternate_encrypted_conn = conn(:get, "/_/enc/#{alternate_encrypted}/kitten.jpg")
-
-    opts =
-      Imgproxy.validate_options!(
-        imgproxy: [
-          source_url_encryption_key: source_url_encryption_key(),
-          base64_url_includes_filename: true
-        ]
-      )
-
-    assert {:ok, plain_plan} = Imgproxy.parse(plain_conn, opts)
-    assert {:ok, encoded_plan} = Imgproxy.parse(encoded_conn, opts)
-    assert {:ok, encrypted_plan} = Imgproxy.parse(encrypted_conn, opts)
-    assert {:ok, alternate_encrypted_plan} = Imgproxy.parse(alternate_encrypted_conn, opts)
-
-    identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
-
-    plain_key = build_key!(plain_conn, plain_plan, identity)
-    encoded_key = build_key!(encoded_conn, encoded_plan, identity)
-    encrypted_key = build_key!(encrypted_conn, encrypted_plan, identity)
-
-    alternate_encrypted_key =
-      build_key!(alternate_encrypted_conn, alternate_encrypted_plan, identity)
-
-    assert plain_plan == encoded_plan
-    assert plain_plan == encrypted_plan
-    assert plain_plan == alternate_encrypted_plan
-    assert plain_key.data == encoded_key.data
-    assert plain_key.data == encrypted_key.data
-    assert plain_key.data == alternate_encrypted_key.data
-    assert plain_key.hash == encoded_key.hash
-    assert plain_key.hash == encrypted_key.hash
-    assert plain_key.hash == alternate_encrypted_key.hash
-
-    key_data = inspect(encrypted_key.data)
-    refute key_data =~ encrypted
-    refute key_data =~ alternate_encrypted
-    refute key_data =~ "puppy.jpg"
-    refute key_data =~ "kitten.jpg"
   end
 
   test "resolved source identity, not raw plan source spelling, drives source cache material" do
@@ -761,29 +678,27 @@ defmodule ImagePipe.Cache.KeyTest do
            ]
   end
 
-  test "equivalent imgproxy aliases and color spellings produce identical cache keys" do
-    conn_a = conn(:get, "/_/bg:f00/pd:10/plain/images/cat.jpg")
-    conn_b = conn(:get, "/_/background:255:0:0/padding:10/plain/images/cat.jpg")
+  test "dimension spellings that fold to the same canonical plan produce identical cache keys" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
 
-    assert {:ok, plan_a} = Imgproxy.parse(conn_a, [])
-    assert {:ok, plan_b} = Imgproxy.parse(conn_b, [])
+    plan_a = twic_plan!([{"resize", "100x100"}])
+    plan_b = twic_plan!([{"resize", "(50*2)x100"}])
 
-    key_a = build_key!(conn_a, plan_a, source_identity())
-    key_b = build_key!(conn_b, plan_b, source_identity())
+    key_a = build_key!(conn, plan_a, source_identity())
+    key_b = build_key!(conn, plan_b, source_identity())
 
     assert key_a.data[:pipelines] == key_b.data[:pipelines]
     assert key_a.hash == key_b.hash
   end
 
-  test "equivalent imgproxy composition options in different URL order produce identical cache keys" do
-    conn_a = conn(:get, "/_/bg:f00/pd:10/w:100/plain/images/cat.jpg")
-    conn_b = conn(:get, "/_/pd:10/w:100/bg:f00/plain/images/cat.jpg")
+  test "ratio spellings that reduce to the same canonical plan produce identical cache keys" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
 
-    assert {:ok, plan_a} = Imgproxy.parse(conn_a, [])
-    assert {:ok, plan_b} = Imgproxy.parse(conn_b, [])
+    plan_a = twic_plan!([{"cover", "1:1"}])
+    plan_b = twic_plan!([{"cover", "2:2"}])
 
-    key_a = build_key!(conn_a, plan_a, source_identity())
-    key_b = build_key!(conn_b, plan_b, source_identity())
+    key_a = build_key!(conn, plan_a, source_identity())
+    key_b = build_key!(conn, plan_b, source_identity())
 
     assert key_a.data[:pipelines] == key_b.data[:pipelines]
     assert key_a.hash == key_b.hash
@@ -1313,97 +1228,7 @@ defmodule ImagePipe.Cache.KeyTest do
     refute inspect(key.data) =~ "ignored_cookie"
   end
 
-  test "cache key excludes imgproxy signature authorization proof" do
-    signed_opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ]
-        ]
-      )
-
-    trusted_opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"],
-            trusted_signatures: ["local-dev!"]
-          ]
-        ]
-      )
-
-    assert {:ok, signed_plan} =
-             Imgproxy.parse(
-               conn(
-                 :get,
-                 "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"
-               ),
-               signed_opts
-             )
-
-    assert {:ok, trusted_plan} =
-             Imgproxy.parse(
-               conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
-               trusted_opts
-             )
-
-    signed_key =
-      build_key!(
-        conn(:get, "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"),
-        signed_plan,
-        source_identity()
-      )
-
-    trusted_key =
-      build_key!(
-        conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
-        trusted_plan,
-        source_identity()
-      )
-
-    assert signed_plan == trusted_plan
-    assert signed_key.hash == trusted_key.hash
-    refute inspect(signed_key.data) =~ "NSbxuO5fQqTgDkui"
-    refute inspect(trusted_key.data) =~ "local-dev"
-  end
-
-  test "imgproxy preset and equivalent expanded options produce identical cache keys" do
-    conn = conn(:get, "/_/pr:thumb/plain/images/cat.jpg")
-    expanded_conn = conn(:get, "/_/rt:fill/w:120/h:90/q:82/plain/images/cat.jpg")
-
-    opts =
-      Imgproxy.validate_options!(imgproxy: [presets: %{"thumb" => "rt:fill/w:120/h:90/q:82"}])
-
-    assert {:ok, preset_plan} = Imgproxy.parse(conn, opts)
-    assert {:ok, expanded_plan} = Imgproxy.parse(expanded_conn, [])
-
-    preset_key = build_key!(conn, preset_plan, source_identity())
-    expanded_key = build_key!(expanded_conn, expanded_plan, source_identity())
-
-    assert preset_key.data == expanded_key.data
-    assert preset_key.hash == expanded_key.hash
-    refute inspect(preset_key.data) =~ "thumb"
-  end
-
   describe "TwicPics carried focus (#321)" do
-    alias ImagePipe.Parser.TwicPics.PlanBuilder
-
-    defp twic_plan!(chain) do
-      {:ok, plan} =
-        PlanBuilder.to_plan(
-          %Source.Path{segments: ["images", "cat.jpg"]},
-          chain,
-          ImagePipe.Config.resolve!([])
-        )
-
-      plan
-    end
-
     # The cache-key / ETag fast path (Key.plan_material -> KeyData.data per op) must
     # handle the :deferred guide and %Directive{} ops the TwicPics parser now emits.
     # The default guide is :deferred, so even a focus-less cover exercises it.
@@ -1422,62 +1247,6 @@ defmodule ImagePipe.Cache.KeyTest do
       {:ok, a} = Key.plan_material(twic_plan!([{"focus", "20x10"}, {"crop", "12x12"}]), [])
       {:ok, b} = Key.plan_material(twic_plan!([{"focus", "30x10"}, {"crop", "12x12"}]), [])
       refute a == b
-    end
-  end
-
-  # KeyData.data/1 and guide_data/1 are clause-based with no fallback: a missing
-  # clause for a gravity-derived guide shape raises FunctionClauseError on the
-  # cache-key / ETag fast path (only reached under a strong byte-identity origin),
-  # 500ing the request while staying green in CI. Pin plan_material for every
-  # guide shape the imgproxy parser emits so a future missing clause fails fast at
-  # the cache-key boundary rather than in production (#328, the dialect-agnostic
-  # twin of the TwicPics block above).
-  describe "imgproxy guide-bearing ops (#328)" do
-    test "focal-point resize gravity keys cleanly" do
-      assert {:ok, material} =
-               Key.plan_material(
-                 imgproxy_plan!("/_/rt:fill/w:200/h:100/g:fp:0.3:0.7/plain/images/cat.jpg"),
-                 []
-               )
-
-      assert inspect(material) =~ "focal"
-    end
-
-    test "smart resize gravity keys cleanly" do
-      assert {:ok, material} =
-               Key.plan_material(
-                 imgproxy_plan!("/_/rt:fill/w:200/h:100/g:sm/plain/images/cat.jpg"),
-                 []
-               )
-
-      assert inspect(material) =~ "smart"
-    end
-
-    test "object-detect resize gravity keys cleanly" do
-      assert {:ok, material} =
-               Key.plan_material(
-                 imgproxy_plan!("/_/rt:fill/w:200/h:100/g:obj:face/plain/images/cat.jpg"),
-                 []
-               )
-
-      assert inspect(material) =~ "detect"
-    end
-
-    test "raw-anchor resize gravity keys cleanly" do
-      assert {:ok, material} =
-               Key.plan_material(
-                 imgproxy_plan!("/_/rt:fill/w:200/h:100/g:noea/plain/images/cat.jpg"),
-                 []
-               )
-
-      assert inspect(material) =~ "anchor"
-    end
-
-    test "anchor crop gravity keys cleanly" do
-      assert {:ok, material} =
-               Key.plan_material(imgproxy_plan!("/_/c:100:50:noea/plain/images/cat.jpg"), [])
-
-      assert inspect(material) =~ "top_right"
     end
   end
 
@@ -1582,13 +1351,13 @@ defmodule ImagePipe.Cache.KeyTest do
              ]
     end
 
-    test "an imgproxy-carrying plan tags the imgproxy strategy and its behavioral version" do
-      plan = %{plan() | resolver: Imgproxy.Resolver}
+    test "a dialect-carrying plan tags that strategy and its behavioral version" do
+      plan = %{plan() | resolver: TwicPics.Resolver}
       {:ok, material} = Key.plan_material(plan, [])
 
       assert material[:resolver] == [
-               strategy: Imgproxy.Resolver,
-               version: Imgproxy.Resolver.behavior_version()
+               strategy: TwicPics.Resolver,
+               version: TwicPics.Resolver.behavior_version()
              ]
     end
   end
