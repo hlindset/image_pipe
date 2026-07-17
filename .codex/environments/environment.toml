@@ -5,5 +5,4 @@ name = "image_plug"
 [setup]
 script = '''
 mise trust
-mise exec -- mix deps.get
-'''
+mise run setup'''
