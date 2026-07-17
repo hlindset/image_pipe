@@ -873,7 +873,7 @@ defmodule ImagePipe.Request.RunnerTest do
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
                plan(
                  pipelines: [%Pipeline{operations: [operation]}],
-                 resolver: ImagePipe.Parser.Imgproxy.Resolver
+                 resolver: ImagePipe.Transform.NeutralResolver
                ),
                resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},

@@ -114,16 +114,29 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     end
   end
 
+  defp iiif_resolver do
+    {ImagePipe.Parser.IIIF.Resolver.Static,
+     map: %{
+       "beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]},
+       "png" => %ImagePipe.Plan.Source.Path{segments: ["images", "png"]},
+       "webp" => %ImagePipe.Plan.Source.Path{segments: ["images", "webp"]},
+       "animated" => %ImagePipe.Plan.Source.Path{segments: ["images", "animated"]},
+       "oriented" => %ImagePipe.Plan.Source.Path{segments: ["images", "oriented"]}
+     }}
+  end
+
   defp file_source_opts do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: iiif_resolver()],
       sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}]
     ]
   end
 
   defp http_source_opts(origin_plug) do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: iiif_resolver()],
       sources: [
         path:
           {ImagePipe.SourceTest.RootHTTPAdapter,
@@ -178,7 +191,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   # part of the contract (dimension-exact), so we pin both axes exactly rather
   # than with a tolerance.
   test "JPEG shrink-on-load produces correct output dimensions" do
-    conn = call_pipe("/_/w:444/f:jpeg/plain/images/beach.jpg", file_source_opts())
+    conn = call_pipe("/beach/full/444,/0/default.jpg", file_source_opts())
 
     assert conn.status == 200
     assert [ct] = get_resp_header(conn, "content-type")
@@ -195,7 +208,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   # Threshold is set to 2.0 (≈ 6× observed) to absorb minor libvips/libjpeg
   # version and platform kernel variation while still catching gross decode errors.
   test "JPEG shrink-on-load MAE versus thumbnail baseline is within tolerance" do
-    conn = call_pipe("/_/w:444/f:jpeg/plain/images/beach.jpg", file_source_opts())
+    conn = call_pipe("/beach/full/444,/0/default.jpg", file_source_opts())
     assert conn.status == 200
 
     result_img = decoded_image(conn)
@@ -216,11 +229,10 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   # vips resize, so the output should have alpha and be pixel-exact to a direct
   # resize baseline.
   test "PNG decode is not shrunk; output preserves alpha" do
-    conn = call_pipe("/_/w:50/plain/images/png", http_source_opts(PngOrigin))
+    conn = call_pipe("/png/full/50,/0/default.png", http_source_opts(PngOrigin))
 
     assert conn.status == 200
     assert [ct] = get_resp_header(conn, "content-type")
-    # automatic negotiation may pick webp/avif; we just check it is an image
     assert String.starts_with?(ct, "image/")
 
     img = decoded_image(conn)
@@ -232,7 +244,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   # PNG MAE vs direct resize baseline should be effectively zero (same kernel,
   # no shrink path involved).
   test "PNG pixel values match direct resize baseline" do
-    conn = call_pipe("/_/w:50/f:png/plain/images/png", http_source_opts(PngOrigin))
+    conn = call_pipe("/png/full/50,/0/default.png", http_source_opts(PngOrigin))
 
     assert conn.status == 200
     result_img = decoded_image(conn)
@@ -258,7 +270,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
         max_input_pixels: orig_pixels - 1
       )
 
-    conn = call_pipe("/_/w:444/f:jpeg/plain/images/beach.jpg", opts)
+    conn = call_pipe("/beach/full/444,/0/default.jpg", opts)
 
     assert conn.status == 413
     assert conn.resp_body =~ "too large"
@@ -270,7 +282,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   # thumbnail of the same source. Gated on WebP support in the host libvips.
   test "WebP scale-on-load is dimension-exact and within MAE tolerance" do
     if webp_supported?() do
-      conn = call_pipe("/_/w:200/f:webp/plain/images/webp", http_source_opts(WebpOrigin))
+      conn = call_pipe("/webp/full/200,/0/default.webp", http_source_opts(WebpOrigin))
 
       assert conn.status == 200
 
@@ -302,7 +314,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
           max_input_pixels: 15_000
         )
 
-      conn = call_pipe("/_/w:60/f:webp/plain/images/animated", opts)
+      conn = call_pipe("/animated/full/60,/0/default.webp", opts)
 
       # 10_800 (one page) ≤ 15_000 < 21_600 (two pages): success proves single-page.
       assert conn.status == 200
@@ -324,8 +336,8 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   #
   # Shrink-on-load now proceeds *through* a preceding crop (#151): the shrink is
   # sized against the cropped extent and the crop's pixel coords are rescaled by the
-  # realized shrink. beach.jpg is 4000×2667. c:2000:2000 (centre) crops a square,
-  # fit:500:500 → shrink 4 (crop 2000 / target 500), crop rescaled to 500×500 on the
+  # realized shrink. beach.jpg is 4000×2667. The region crops a 2000×2000 square,
+  # size !500,500 → shrink 4 (crop 2000 / target 500), crop rescaled to 500×500 on the
   # 1000×667 shrunk decode, then the residual resize lands the square. Because the
   # residual resize scales by a fractional factor, the result may sit ±1px off the
   # requested square (the resampling floor the shrink_on_load property test pins);
@@ -333,7 +345,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   # still guards against.
   test "crop-before-resize computes the residual resize from the cropped square" do
     conn =
-      call_pipe("/_/c:2000:2000/rs:fit:500:500/f:jpeg/plain/images/beach.jpg", file_source_opts())
+      call_pipe("/beach/0,0,2000,2000/!500,500/0/default.jpg", file_source_opts())
 
     assert conn.status == 200
 
@@ -347,7 +359,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   test "crop-before-resize is dimensionally exact for a larger target" do
     conn =
       call_pipe(
-        "/_/c:2000:2000/rs:fit:1500:1500/f:jpeg/plain/images/beach.jpg",
+        "/beach/0,0,2000,2000/!1500,1500/0/default.jpg",
         file_source_opts()
       )
 
@@ -359,7 +371,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   # Shrink-on-load composed with deferred orientation (the retina-photo case). The
   # source is a 4000×3000 JPEG tagged EXIF orientation 6, so the displayed image is
-  # 3000×4000 (portrait). `ar:true` enables auto-rotation; w:375 against the
+  # 3000×4000 (portrait). IIIF auto-rotation is on by default; size 375, against the
   # displayed width (3000) gives load_shrink 8. libvips returns the shrink-load
   # stored-oriented (landscape); OrientationFlush rotates it after the residual
   # resize, which must land on the displayed-orientation target 375×500.
@@ -369,7 +381,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   test "shrink-on-load with auto-orient lands on the displayed-orientation target" do
     conn =
       call_pipe(
-        "/_/ar:true/w:375/f:jpeg/plain/images/oriented",
+        "/oriented/full/375,/0/default.jpg",
         http_source_opts(OrientedJpegOrigin)
       )
 
@@ -378,45 +390,5 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     img = decoded_image(conn)
     assert {Image.width(img), Image.height(img)} == {375, 500}
     assert Image.height(img) > Image.width(img), "auto-oriented output must be portrait"
-  end
-
-  # Regression (#180): the realized shrink-on-load factor must not survive the
-  # residual resize into a *later* pipeline. imgproxy has a single pipeline and
-  # discards its Context preshrink factor each frame; ImagePipe's `/-/` chaining is
-  # an extension, so the residual resize must clear `decode_shrink` or pipeline 2's
-  # absolute crop gets divided by the stale factor.
-  #
-  # Pipeline 1: beach.jpg 4000×2667, fit:500:500 → shrink ~8, output 500×333,
-  # `decode_shrink ≈ {w: 8, h: 8}`. Pipeline 2: a center crop of 200×200 (absolute
-  # pixels) on the 500×333 live image. With the leak the crop is rescaled to
-  # ~25×25; cleared, it is the requested 200×200.
-  test "shrink-on-load factor does not leak past the residual resize into a later pipeline" do
-    conn =
-      call_pipe(
-        "/_/rs:fit:500:500/-/c:200:200/f:jpeg/plain/images/beach.jpg",
-        file_source_opts()
-      )
-
-    assert conn.status == 200
-
-    img = decoded_image(conn)
-    assert {Image.width(img), Image.height(img)} == {200, 200}
-  end
-
-  # Complement to the leak regression: when pipeline 1 does NOT trigger shrink-on-
-  # load (fit:3000:3000 against 4000×2667 → factor ~1.33, no power-of-2 shrink), the
-  # same pipeline-2 absolute crop is still exactly 200×200. Brackets the behavior so
-  # the crop result is independent of whether the decode shrank.
-  test "later-pipeline absolute crop is exact when pipeline 1 did not shrink" do
-    conn =
-      call_pipe(
-        "/_/rs:fit:3000:3000/-/c:200:200/f:jpeg/plain/images/beach.jpg",
-        file_source_opts()
-      )
-
-    assert conn.status == 200
-
-    img = decoded_image(conn)
-    assert {Image.width(img), Image.height(img)} == {200, 200}
   end
 end

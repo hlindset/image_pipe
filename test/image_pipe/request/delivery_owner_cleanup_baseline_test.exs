@@ -93,7 +93,12 @@ defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
     opts = [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [
+        resolver:
+          {ImagePipe.Parser.IIIF.Resolver.Static,
+           map: %{"cat" => %ImagePipe.Plan.Source.Path{segments: ["images", "cat.jpg"]}}}
+      ],
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ],
@@ -104,7 +109,7 @@ defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
 
     owner =
       spawn(fn ->
-        conn = Plug.Test.conn(:get, "/unsafe/rs:fit:64:64/plain/images/cat.jpg")
+        conn = Plug.Test.conn(:get, "/cat/full/!64,64/0/default.jpg")
         ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
       end)
 

@@ -23,7 +23,12 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
 
   defp build_opts do
     [
-      parser: ImagePipe.Parser.Imgproxy,
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [
+        resolver:
+          {ImagePipe.Parser.IIIF.Resolver.Static,
+           map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
+      ],
       sources: [
         path:
           {RootHTTPAdapter,
@@ -33,7 +38,7 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
     ]
   end
 
-  defp valid_request_path, do: "/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg"
+  defp valid_request_path, do: "/beach/full/!120,90/0/default.jpg"
 
   defp call(path, headers, opts) do
     conn =
