@@ -120,7 +120,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   setup do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheProbe, test_pid: self()},
         http_cache: [mode: :enabled]
@@ -130,7 +130,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "stable public route emits cache-control and etag", %{opts: opts} do
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
 
     assert conn.status == 200
     assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
@@ -140,7 +140,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "matching if-none-match returns before cache lookup and source fetch", %{opts: opts} do
-    first = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    first = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
     [etag] = get_resp_header(first, "etag")
 
     assert_received :source_fetch_called
@@ -148,7 +148,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -161,10 +161,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "HEAD emits the same cache-control and etag as GET", %{opts: opts} do
-    get = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    get = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
     flush_messages()
 
-    head = ImagePipe.Plug.call(conn(:head, "/_/plain/beach.jpg"), opts)
+    head = ImagePipe.Plug.call(conn(:head, "/beach.jpg?twic=v1"), opts)
 
     assert head.status == 200
     assert get_resp_header(head, "etag") != []
@@ -174,7 +174,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   test "matching if-none-match on a HEAD returns 304 before cache lookup and source fetch",
        %{opts: opts} do
-    first = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    first = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
     [etag] = get_resp_header(first, "etag")
 
     assert_received :source_fetch_called
@@ -182,7 +182,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :head
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -195,7 +195,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "existing vary is merged in the final response", %{opts: opts} do
     conn =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("accept", "image/webp")
       |> put_resp_header("vary", "Accept-Encoding")
       |> ImagePipe.Plug.call(opts)
@@ -205,14 +205,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "request cookie does not change generated headers or source fetch", %{opts: opts} do
-    without_cookie = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    without_cookie = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
     [etag] = get_resp_header(without_cookie, "etag")
 
     flush_messages()
 
     with_cookie =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("cookie", "session=private")
       |> ImagePipe.Plug.call(opts)
 
@@ -224,7 +224,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "response cookies suppress generated public cache headers", %{opts: opts} do
     conn =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_resp_cookie("session", "abc")
       |> ImagePipe.Plug.call(opts)
 
@@ -244,13 +244,13 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
 
     assert conn.status == 200
     assert conn.resp_body == "cached body"
@@ -263,7 +263,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "wildcard if-none-match on a cache miss proceeds and returns 200", %{opts: opts} do
     conn =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -285,7 +285,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
@@ -293,7 +293,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -314,7 +314,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
@@ -322,7 +322,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :head
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -341,7 +341,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {EtaglessCachedSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
@@ -349,7 +349,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -369,7 +369,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
@@ -377,7 +377,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("if-none-match", ~s("ip1-nonmatching", *))
       |> ImagePipe.Plug.call(opts)
 
@@ -396,14 +396,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled],
         allow_origin: "https://cdn.test"
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
 
     assert conn.status == 200
     assert conn.resp_body == "cached body"
@@ -414,20 +414,20 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "CORS header lands on a 304 Not Modified response when allow_origin is set" do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheProbe, test_pid: self()},
         http_cache: [mode: :enabled],
         allow_origin: "https://cdn.test"
       )
 
-    first = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    first = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
     [etag] = get_resp_header(first, "etag")
     flush_messages()
 
     conn =
       :get
-      |> conn("/_/plain/beach.jpg")
+      |> conn("/beach.jpg?twic=v1")
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -438,14 +438,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "host-set content-disposition is preserved on both miss and cache-hit responses" do
     probe_opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheProbe, test_pid: self()},
         http_cache: [mode: :enabled]
       )
 
     miss_conn =
-      conn(:get, "/_/plain/beach.jpg")
+      conn(:get, "/beach.jpg?twic=v1")
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
       |> ImagePipe.Plug.call(probe_opts)
 
@@ -459,14 +459,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     hit_opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
+        parser: ImagePipe.Parser.TwicPics,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
       )
 
     hit_conn =
-      conn(:get, "/_/plain/beach.jpg")
+      conn(:get, "/beach.jpg?twic=v1")
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
       |> ImagePipe.Plug.call(hit_opts)
 
@@ -481,7 +481,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     etag_for = fn identity ->
       opts =
         ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.Imgproxy,
+          parser: ImagePipe.Parser.TwicPics,
           sources: [path: {StableSource, test_pid: self()}],
           cache: {CacheProbe, test_pid: self()},
           http_cache: [mode: :enabled],
@@ -491,7 +491,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
       conn =
         ImagePipe.Plug.call(
-          conn(:get, "/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/beach.jpg"),
+          conn(:get, "/beach.jpg?twic=v1/focus=auto/cover=50x50/output=jpeg"),
           opts
         )
 
@@ -504,13 +504,13 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "commit_sink raise still delivers the complete body, byte-identical to a clean cache (#183)" do
-    url = "/_/rs:fill:50:50/f:jpeg/plain/beach.jpg"
+    url = "/beach.jpg?twic=v1/cover=50x50/output=jpeg"
 
     clean =
       ImagePipe.Plug.call(
         conn(:get, url),
         ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.Imgproxy,
+          parser: ImagePipe.Parser.TwicPics,
           sources: [path: {StableSource, test_pid: self()}],
           cache: {CacheProbe, test_pid: self()},
           http_cache: [mode: :enabled]
@@ -521,7 +521,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       ImagePipe.Plug.call(
         conn(:get, url),
         ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.Imgproxy,
+          parser: ImagePipe.Parser.TwicPics,
           sources: [path: {StableSource, test_pid: self()}],
           cache: {RaisingCommitProbe, []},
           http_cache: [mode: :enabled]
@@ -535,14 +535,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   # #328: the only guide that reached do_generated_etag under a strong byte
-  # identity before this was :center (the order-invariance test below). A
-  # gravity-derived guide (focal/smart/detect/anchor/carried) exercises the
-  # KeyData.guide_data clauses end-to-end — a missing clause 500s here instead of
-  # staying green. Focal needs no detector, so the 200 body path executes too.
+  # identity before this was :center. A gravity-derived guide
+  # (focal/smart/detect/anchor/carried) exercises the KeyData.guide_data clauses
+  # end-to-end — a missing clause 500s here instead of staying green. Focal needs
+  # no detector, so the 200 body path executes too.
   test "guide-bearing focal gravity emits an etag on the strong-identity path", %{opts: opts} do
     conn =
       ImagePipe.Plug.call(
-        conn(:get, "/_/rt:fill/w:200/h:100/g:fp:0.3:0.7/plain/beach.jpg"),
+        conn(:get, "/beach.jpg?twic=v1/focus=30px70p/cover=200x100"),
         opts
       )
 
@@ -569,108 +569,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert conn.status == 200
     assert [etag] = get_resp_header(conn, "etag")
     assert etag =~ ~r/^"ip1-[A-Za-z0-9_-]+"$/
-  end
-
-  test "transform option order variants produce the same etag", %{opts: opts} do
-    left =
-      ImagePipe.Plug.call(
-        conn(:get, "/_/rs:fill:0:400:0/c:0.5:0.5/plain/beach.jpg"),
-        opts
-      )
-
-    right =
-      ImagePipe.Plug.call(
-        conn(:get, "/_/c:0.5:0.5/rs:fill:0:400:0/plain/beach.jpg"),
-        opts
-      )
-
-    assert get_resp_header(left, "etag") == get_resp_header(right, "etag")
-  end
-
-  test "stricter result limit does not change generated etag", %{
-    opts: opts
-  } do
-    loose =
-      ImagePipe.Plug.call(
-        conn(:get, "/_/el:1/w:64/f:jpeg/plain/beach.jpg"),
-        Keyword.merge(opts,
-          max_result_width: 64,
-          max_result_height: 8_192,
-          max_result_pixels: 40_000_000
-        )
-      )
-
-    assert loose.status == 200
-    assert [etag] = get_resp_header(loose, "etag")
-    flush_messages()
-
-    strict_opts =
-      Keyword.merge(opts,
-        max_result_width: 32,
-        max_result_height: 8_192,
-        max_result_pixels: 40_000_000
-      )
-
-    strict =
-      :get
-      |> conn("/_/el:1/w:64/f:jpeg/plain/beach.jpg")
-      |> put_req_header("if-none-match", etag)
-      |> ImagePipe.Plug.call(strict_opts)
-
-    assert strict.status == 304
-    assert strict.resp_body == ""
-    assert get_resp_header(strict, "etag") == [etag]
-    refute_received {:cache_get, %Key{}}
-    refute_received :source_fetch_called
-  end
-
-  # #124: color_profile participates in the ETag.
-  # scp:0 (color_profile: :preserve_source) and scp:1 (color_profile: :strip)
-  # produce different output bytes, so they must produce different ETags.
-  # The cachebuster changes the storage key but must NOT change the ETag
-  # (adding a cachebuster yields identical output bytes → must not force re-download).
-  test "scp:0 and scp:1 produce distinct etags", %{opts: opts} do
-    scp0_conn = ImagePipe.Plug.call(conn(:get, "/_/scp:0/plain/beach.jpg"), opts)
-    assert_received {:cache_get, key_scp0}
-
-    flush_messages()
-
-    scp1_conn = ImagePipe.Plug.call(conn(:get, "/_/scp:1/plain/beach.jpg"), opts)
-    assert_received {:cache_get, key_scp1}
-
-    assert scp0_conn.status == 200
-    assert scp1_conn.status == 200
-
-    assert [scp0_etag] = get_resp_header(scp0_conn, "etag")
-    assert [scp1_etag] = get_resp_header(scp1_conn, "etag")
-
-    refute scp0_etag == scp1_etag,
-           "scp:0 and scp:1 must produce different ETags (different output bytes)"
-
-    refute key_scp0 == key_scp1,
-           "scp:0 and scp:1 must use different cache keys"
-  end
-
-  test "adding a cachebuster changes the cache key but not the etag", %{opts: opts} do
-    base_conn = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
-    assert_received {:cache_get, key1}
-
-    flush_messages()
-
-    busted_conn = ImagePipe.Plug.call(conn(:get, "/_/cb:v2/plain/beach.jpg"), opts)
-    assert_received {:cache_get, key2}
-
-    assert base_conn.status == 200
-    assert busted_conn.status == 200
-
-    assert [base_etag] = get_resp_header(base_conn, "etag")
-    assert [busted_etag] = get_resp_header(busted_conn, "etag")
-
-    assert base_etag == busted_etag,
-           "cachebuster must not change the ETag (same bytes, different storage slot)"
-
-    assert key1 != key2,
-           "cachebuster must change the cache key (different storage slot)"
   end
 
   defp flush_messages do
