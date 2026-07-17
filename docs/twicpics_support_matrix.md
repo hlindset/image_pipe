@@ -60,7 +60,7 @@ Source index: <https://www.twicpics.com/llms.txt>
 | `?twic=v1/<chain>` query parameter | ✅ Supported | Required `v1/` prefix; chain is an ordered `/`-separated list of `name=args`. `twic` may appear anywhere in the query string. |
 | Ordered chaining | ✅ Supported | Transformations apply in order; later transforms see earlier results. Modeled as an ordered `Plan` pipeline executed sequentially. |
 | Running-dimension relative units (`p`, `s`) | ✅ Supported | Resolved against the running image at execution time, not statically at parse. Requires an additive `Plan.Operation.Resize` dimension widening. |
-| Static chain collapse / shadowing | ⭕ Missing | TwicPics collapses redundant transforms (`resize=340/resize=50p` → `resize=170`). Deferred optimization, **not** correctness: v1 runs each op and resolves relative units at runtime. Collapse is sound only when operands are literal *and* the intermediate dimension is provably fixed. Buys perf + sharpness (avoids double resampling). |
+| Static chain collapse / shadowing | ⭕ Missing | **Behavioral divergence:** TwicPics discards an earlier relative resize when a later absolute resize fully shadows it (`resize=50p/resize=340` → `resize=340`). On the 400×400 differential source, TwicPics returns 340×340; ImagePipe executes both resizes and returns 200×200 because plain resize doesn't enlarge. The suite quarantines the live fixture under [#464](https://github.com/hlindset/image_pipe/issues/464) until the upstream-proven rewrite lands. This isn't a general last-wins rule; chain order remains observable outside a proven shadow. |
 | Path → source resolution | ✅ Supported | `conn.path_info` resolves to a `Plan.Source` reusing the imgproxy path-source origin mechanism. |
 | Multi-origin [path configuration](https://www.twicpics.com/docs/essentials/path-configuration.md) | ⭕ Missing | Prefix → origin mapping. Out of scope for v1; single configured origin only. |
 | [Domain configuration](https://www.twicpics.com/docs/essentials/domain-configuration.md) | 🧩 Host-owned | Dashboard domain setup has no ImagePipe equivalent; the host router/Plug owns mounting. |
@@ -72,7 +72,7 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 
 | TwicPics transform | Status | Notes / Plan mapping |
 | --- | --- | --- |
-| `resize=W` | ✅ Supported | Single dim → `Resize(:fit, W, :auto)`, preserves aspect. |
+| `resize=W` | ✅ Supported | Single dim → `Resize(:fit, W, :auto)`, preserves aspect and doesn't enlarge. The live `resize=600` fixture stays 400×400 on a 400×400 source. This characterizes plain resize only; the conditional `resize-min` surface remains rejected below. |
 | `resize=WxH` | ✅ Supported | Exact dims, may distort → `Resize(:stretch, …)` (= imgproxy `force`). |
 | `resize=W:H` (ratio) | 🚫 Rejected | Surface-preserving resize-to-ratio has no clean mapping to an existing op; deferred with its own operation design. |
 | `resize-max` / `resize-min` | 🚫 Rejected | Conditional variants deferred; recognized and rejected. |
@@ -82,12 +82,12 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | `contain=WxH` | ✅ Supported | `Resize(:fit, …)` — fits inside, may be smaller, no letterbox. |
 | `contain-max` / `contain-min` (aliases `max` / `min`) | 🚫 Rejected | Conditional variants deferred. |
 | `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). **Pixel dimensions only** in v1 (relative units deferred). |
-| `inside=W:H` (ratio) | ✅ Supported | `Canvas({:ratio, w, 1}, {:ratio, h, 1}, placement: center, fill: transparent)` — pads/letterboxes the whole image into a box of this aspect ratio with transparent borders (expands the image's canvas on the needed axis; never crops). Single op, no resize. Integer and decimal ratios (e.g. `4:3`, `1.5:2`) both supported. (`cover=W:H` crops to the ratio; `inside=W:H` pads to it.) **Transparent fill only**; user-specified `background` deferred. Non-alpha output flattens the letterbox. |
+| `inside=W:H` (ratio) | ✅ Supported | `Canvas({:ratio, w, 1}, {:ratio, h, 1}, placement: center, fill: transparent)` — pads/letterboxes the whole image into a box of this aspect ratio with transparent borders (expands the image's canvas on the needed axis; never crops). Single op, no resize. Integer and decimal ratios (e.g. `4:3`, `1.5:2`) both supported. (`cover=W:H` crops to the ratio; `inside=W:H` pads to it.) **Transparent fill only**; user-specified `background` deferred. Non-alpha output flattens the letterbox. **Diverges (behavioral/pixel) under shrink:** when a later cover triggers 2× WebP shrink-on-load, ImagePipe and TwicPics resample the invisible RGB beneath the transparent letterbox differently; opaque pixels match. The three `inside_ratio_*_cover_shrink` cases monitor this accepted difference under [#434](https://github.com/hlindset/image_pipe/issues/434). |
 | `crop=WxH` | ✅ Supported | `CropGuided(W, H, guide: :deferred)` — reads the carried point. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. Pixel **and** relative (`p` / `s` → `{:ratio}`) dimensions, resolved against the running image at execution time. |
 | `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; **carries** the point through the crop (translated into the new frame; clamped only when the next `cover`/`crop` consumes it), like every other geometry op — it does **not** reset it to the crop-result centre. The official docs claim a reset; live TwicPics disagrees ([#331](https://github.com/hlindset/image_pipe/issues/331), confirmed by differential probe). Both axes must be explicit (an omitted axis is rejected). Pixel **and** relative dimensions/coordinates; zero-based coordinates (`@0x0`) supported. |
 | `focus=<anchor>` | ✅ Supported | One of the eight anchors, resolved at its chain position to a concrete point and carried for the following `cover` / `crop`; emits a positional `set_focus` `Directive` (no pixel operation). |
 | `focus=<coords>` (relative `p` / `s`) | ✅ Supported | A relative coordinate resolves against the running frame at its chain position into a carried point; emits a positional `set_focus` `Directive` (no pixel operation). An **out-of-range** relative focus (a ratio > 1, e.g. `150p`) is **clamped to the far edge** at resolution — matching live TwicPics — not rejected. A ratio of exactly 1 (`100p`) is the edge/corner. |
-| `focus=<coords>` (bare pixel) | ✅ Supported | Pixel-coordinate focus ([#321](https://github.com/hlindset/image_pipe/issues/321)) resolves against the running frame at its chain position (rescaled by any shrink-on-load) into a carried point; emits a positional `set_focus` `Directive` (no pixel operation). Mixed-unit pairs (`100x50p`) are supported. Positive out-of-bounds clamps to the far edge; negative coordinates are rejected before any source fetch. |
+| `focus=<coords>` (bare pixel) | ✅ Supported | Pixel-coordinate focus ([#321](https://github.com/hlindset/image_pipe/issues/321)) resolves against the running frame at its chain position (rescaled by any shrink-on-load) into a carried point; emits a positional `set_focus` `Directive` (no pixel operation). Mixed-unit pairs (`100x50p`) are supported. Positive out-of-bounds clamps to the far edge. Negative coordinates are rejected before any source fetch; live TwicPics returns 404 for the same invalid value, while ImagePipe returns 400. |
 | `focus=auto` | ✅ Supported | Content-aware subject focus → the `{:smart, :face_assist}` guide for the next `cover` / `crop`; emits no operation. **Diverges (behavioral):** TwicPics leaves `auto` unspecified ("chosen automagically" — no documented algorithm; its explicit object detection lives in the separate `refit*` family). ImagePipe approximates it with libvips attention saliency blended toward detected faces (~0.7), the same engine as imgproxy `g:sm` with face detection. Falls back to plain attention (`VIPS_INTERESTING_ATTENTION`) when no detector is configured, so detector-less hosts get pure saliency. |
 | `focus=center` | ✅ Supported | Resolves to the centre point (= the default carried point). The documented `anchor` parameter list omits `center` (it lists eight literals), but **live TwicPics accepts `focus=center`** (verified: returns `200`, whereas a bogus `focus=middle` returns `404`), so supporting it matches observed behavior. |
 | `zoom=N` | 🚫 Rejected | Deferred; `Resize` already has `zoom_x` / `zoom_y` so a fast follow is cheap. |
@@ -217,7 +217,9 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 `test/image_pipe/twicpics_differential_conformance_test.exs` verifies ImagePipe's
 geometry/placement against committed reference output baked from the live hosted
 TwicPics Image API (`mise run twic:bake`). It is the **behavioral/placement**
-enforcement of this matrix.
+enforcement of this matrix. The suite contains 39 committed fixtures: five accepted
+divergences remain on the default lane inside two-sided bands, and the suite quarantines
+one unresolved shadowing case.
 
 The suite decodes both TwicPics' committed output and ImagePipe's live output and
 **compares pixels** (`PixelCompare.outliers ≤ tol.budget`), because **TwicPics is
@@ -229,16 +231,18 @@ access.
   tolerance budget (minor cross-version resampling skew absorbed).
 - **`:diverges`** cases stay on the default lane but assert an *accepted, monitored*
   divergence sits inside an expected two-sided band — failing if it grows (regression)
-  or shrinks toward a match (promote signal). The two `cover=2:3` fractional-area cases
-  (`cover_ratio_tall`, `focus_bottomright_cover_ratio`) are `:diverges`, tracked under
-  [#331](https://github.com/hlindset/image_pipe/issues/331): the divergence above is
-  real, understood, and permanent, so it is monitored within a band rather than excluded.
+  or shrinks toward a match (promote signal). There are five: `cover_ratio_tall` and
+  `focus_bottomright_cover_ratio` monitor fractional `cover=2:3` resampling under
+  [#331](https://github.com/hlindset/image_pipe/issues/331);
+  `inside_ratio_cover_shrink`, `inside_ratio_focus_anchor_cover_shrink`, and
+  `inside_ratio_focus_px_cover_shrink` monitor invisible RGB-under-alpha differences
+  in transparent letterboxes under [#434](https://github.com/hlindset/image_pipe/issues/434).
 - Quarantined cases (`@tag :twicpics_triage`) are excluded by default; they record a
   divergence under active investigation with a reason (+ tracking issue) while keeping
-  the case exercised and its fixture baked. There are currently **0** — the `cover=2:3`
-  cases moved to `:diverges` (monitored), and the third prior quarantine
-  (`crop=WxH@XxY` focus-carry) was a real bug, fixed to match live TwicPics — see the
-  `crop=WxH@XxY` row.
+  the case exercised and its fixture baked. There is one:
+  `resize_shadow_relative_then_absolute`, tracked by
+  [#464](https://github.com/hlindset/image_pipe/issues/464). Its committed TwicPics
+  result is 340×340; the current parser arm returns 200×200.
 
 Any placement divergence surfaced by the suite and deliberately modelled as a
 permanent difference should be documented here with a "Diverges" note in the relevant

@@ -1,6 +1,6 @@
 %{
   twicpics_api: "v1",
-  baked_at: "2026-07-02T10:21:25.021962Z",
+  baked_at: "2026-07-17T22:22:49.533870Z",
   twicpics_version: "1.8.2",
   pipe_libvips_at_gen: "8.18.2",
   sources: %{
@@ -235,6 +235,18 @@
       fixture_filename: "number_round_half_up.png",
       fixture_sha256: "b4029456b781bc6336db5843f03e0932d31848514276d3b871cc906dd0e81ea8",
       oracle_signature: "c2d927adcd42750147a94f30139b4348d1991034089371aab0bd77dcee661d90"
+    },
+    "resize_no_enlarge" => %{
+      authored_sha256: "d4d173f016ddfab92b66db49a3ed46e0807a56140979a339a80c57a1760aab8b",
+      fixture_filename: "resize_no_enlarge.png",
+      fixture_sha256: "55126a6101003e186da96f28b3e94d0684d5da13d1a8c050b06ecc409a17769c",
+      oracle_signature: "58fc4e5bbdc057e00cbe108ef863bea26c31aaa80de741cf36110b1827d431e2"
+    },
+    "resize_shadow_relative_then_absolute" => %{
+      authored_sha256: "ecb7a77e33b1a33c6426a38fe57737f43d05fdd814a19680721adbc67ed586d1",
+      fixture_filename: "resize_shadow_relative_then_absolute.png",
+      fixture_sha256: "91aa686153071847c20bdefd70b3466eabb32dcbd62829ee0daba7db63bf7044",
+      oracle_signature: "262b62846580c82a8cc58c745c40e03fa2bc64307eab1ba37a4d9f3320781aba"
     }
   }
 }
