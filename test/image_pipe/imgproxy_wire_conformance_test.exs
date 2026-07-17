@@ -1,863 +1,3434 @@
-# Wire-level imgproxy conformance, run against BOTH stacks: the framework arm
-# (`ImagePipe.Plug` + `ImagePipe.Parser.Imgproxy`) and the inverted dialect arm
-# (`ImagePipe.Dialect.Imgproxy`, which owns its whole request chain). Every test
-# body below is written once and compiled twice; the only thing that differs is
-# `call_imgproxy_conn/2`'s dispatch on `@stack`.
+# Wire-level imgproxy conformance for the sole imgproxy stack: the dialect
+# (`ImagePipe.Dialect.Imgproxy`), which owns its whole request chain. Every
+# request in this file reaches that stack through `call_imgproxy_conn/2`.
 #
-# This is the project's black-box parity net. A divergence on any user-visible
-# contract — status, headers, content type, decoded pixels, cache/source access
-# order — surfaces here as exactly one red arm.
-#
-# TRAP, and the reason every module reference in this file is either shared
-# support or `@stack`-parameterized: an `alias`/`import` naming one arm's
-# implementation would pin BOTH arms to that module. The suite would compile,
-# the count would double, and the framework arm would run twice under both
-# names — green while proving nothing. `FrameworkParser` below is the ONE
-# deliberately unparameterized reference, and it is a URL builder, not a stack.
-#
-# Every test case runs on both arms. The only per-arm differences left are
-# opts splits for `http_cache:` — a framework-only `Request.Options` opt-in
-# gating ETag emission, which the dialect config (correctly) raises on and
-# whose behavior the dialects realize unconditionally — each commented at its
-# call site.
-for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
-  defmodule Module.concat(ImagePipe.ImgproxyWireConformanceTest, suffix) do
-    use ExUnit.Case, async: true
+# This is the project's black-box conformance net, pinning the imgproxy
+# implementation against upstream-derived expectations. A divergence on any
+# user-visible contract — status, headers, content type, decoded pixels,
+# cache/source access order — surfaces here as a red case.
+defmodule ImagePipe.ImgproxyWireConformanceTest do
+  use ExUnit.Case, async: true
 
-    import Plug.Conn
-    import Plug.Test
+  import Plug.Conn
+  import Plug.Test
 
-    @stack stack
+  alias ImagePipe.Cache.Entry
+  alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
+  alias ImagePipe.SourceTest.CredentialProvider
+  alias ImagePipe.SourceTest.FoobarTranslator
+  alias ImagePipe.SourceTest.PlugCustomAdapter
+  alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Orientation1TwinOrigin
+  alias ImagePipe.Test.OrientedFrameOrigin
+  alias ImgproxyWireConformanceTest.CacheProbe
+  alias ImgproxyWireConformanceTest.CountingOriginImage
+  alias ImgproxyWireConformanceTest.OriginImage
+  alias ImgproxyWireConformanceTest.OriginShouldNotFetch
+  alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
-    alias ImagePipe.Cache.Entry
-    alias ImagePipe.Output.Metric.Ssimulacra2, as: Ssim2Metric
-    # A test-side URL *builder*, not a stack under test: it mints the encrypted
-    # source segment the request carries. It stays framework-owned in phase 1 —
-    # the dialect needs no URL-building helper — so it is deliberately NOT
-    # parameterized per arm. Feeding both arms the same framework-minted segment
-    # is the stronger test: it proves the dialect's SourceEncryption copy decrypts
-    # what the framework encrypts.
-    alias ImagePipe.Parser.Imgproxy, as: FrameworkParser
-    alias ImagePipe.SourceTest.CredentialProvider
-    alias ImagePipe.SourceTest.FoobarTranslator
-    alias ImagePipe.SourceTest.PlugCustomAdapter
-    alias ImagePipe.SourceTest.RootHTTPAdapter
-    alias ImagePipe.Test.Orientation1TwinOrigin
-    alias ImagePipe.Test.OrientedFrameOrigin
-    alias ImgproxyWireConformanceTest.CacheProbe
-    alias ImgproxyWireConformanceTest.CountingOriginImage
-    alias ImgproxyWireConformanceTest.OriginImage
-    alias ImgproxyWireConformanceTest.OriginShouldNotFetch
-    alias Vix.Vips.Image, as: VipsImage
+  @source_url_encryption_key "000102030405060708090a0b0c0d0e0f"
+  @source_url_encryption_iv <<16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31>>
+  @alternate_source_url_encryption_iv <<31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18,
+                                        17, 16>>
+
+  defmodule SvgOriginImage do
+    @moduledoc false
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      opts
+      |> Keyword.fetch!(:test_pid)
+      |> send(:origin_fetch)
+
+      body = """
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <rect width="20" height="20" fill="red"/>
+      </svg>
+      """
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/svg+xml")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule ExifOrientationOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      body =
+        40
+        |> Image.new!(80, color: :white)
+        |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
+        |> Image.set_orientation!(6)
+        |> Image.write!(:memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  # A >6 MP source so the autoquality `:ssim2` search crosses the crop crossover
+  # (`CropScore.crossover_megapixels/0`) and runs in crop-scoring mode. A
+  # high-frequency zone plate gives the search real detail to score (a flat image
+  # would clear the band at the floor in one probe). 2800² ≈ 7.84 MP. Served as
+  # JPEG so the body stays under the default 10 MB source `max_body_bytes` (an
+  # incompressible zone-plate PNG exceeds it); the decoded source is still 7.84 MP.
+  defmodule LargeSsim2OriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      side = 2800
+      {:ok, z} = Operation.zone(side, side)
+      {:ok, scaled} = Operation.linear(z, [127.5], [127.5])
+      {:ok, uchar} = Operation.cast(scaled, :VIPS_FORMAT_UCHAR)
+      {:ok, gray} = Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
+      {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
+      {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+      body = Image.write!(srgb, :memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  # A >6 MP white field overlaid with a fine black line grid: a dense line-art /
+  # text surrogate the content classifier reads as :graphic (two luminance values →
+  # low palette entropy; all-hard edges → low mid-band gradient). Above the crop
+  # crossover this is the cell whose crop estimate overshoots full-frame, so
+  # {avif, :graphic} draws the big offset (#380). 2480² ≈ 6.15 MP, just over the
+  # crossover (keeps AVIF encode cost down). Served JPEG to stay under the default
+  # 10 MB source max_body_bytes.
+  defmodule LargeGraphicOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      side = 2480
+      base = Image.new!(side, side, color: :white)
+
+      drawn =
+        Enum.reduce(0..(side - 1)//16, base, fn x, acc ->
+          acc
+          |> Image.Draw.rect!(x, 0, 1, side, color: :black)
+          |> Image.Draw.rect!(0, x, side, 1, color: :black)
+        end)
+
+      body = drawn |> Image.to_colorspace!(:srgb) |> Image.write!(:memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  # A >6 MP continuous-tone field: a full-range luminance ramp (high palette
+  # entropy) plus softly-blurred noise (high mid-band gradient) → :photo. The
+  # no-inflation control: avif × :photo must keep the lean 2.4 offset (#380).
+  defmodule LargePhotoOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      side = 2480
+      {:ok, xyz} = Operation.xyz(side, side)
+      {:ok, x} = Operation.extract_band(xyz, 0)
+      {:ok, ramp} = Operation.linear(x, [255.0 / (side - 1)], [0.0])
+      {:ok, noise} = Operation.gaussnoise(side, side, sigma: 35, mean: 0, seed: 1)
+      {:ok, blurred} = Operation.gaussblur(noise, 1.2)
+      {:ok, sum} = Operation.add(ramp, blurred)
+      {:ok, uchar} = Operation.cast(sum, :VIPS_FORMAT_UCHAR)
+      {:ok, gray} = Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
+      {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
+      {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+      body = Image.write!(srgb, :memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  # Deferred-orientation gate (#146) origins. Both serve the SAME displayed
+  # pixels: `OrientedFrameOrigin` tags a stored image with an EXIF orientation
+  # (so the pipeline must autorotate it), while `Orientation1TwinOrigin` decodes
+  # that same tagged image, applies the autorotate in pixels, strips the tag, and
+  # serves the result as a lossless orientation-1 PNG. Running an identical
+  # imgproxy request against both is the wire-vs-orientation-1 oracle: the same
+  # operators run on the same displayed content, so the decoded outputs match.
+  #
+  # The base content is a 120×200 portrait with sharp solid quadrants and a
+  # corner marker; large enough that a ±1px affine-resize seam shift never reaches
+  # the interior flat-region samples the oracle compares.
+  defmodule OrientationFixture do
+    @moduledoc false
+
+    def base do
+      120
+      |> Image.new!(200, color: :green)
+      |> Image.Draw.rect!(0, 0, 120, 100, color: :red)
+      |> Image.Draw.rect!(0, 0, 30, 30, color: :blue)
+    end
+
+    # Lossless base bytes fed to the shared `ImagePipe.Test.OrientedFrameOrigin` /
+    # `ImagePipe.Test.Orientation1TwinOrigin`, which tag/autorotate them per
+    # orientation. PNG keeps the base pixels exact so the oracle compares identical
+    # displayed content across both legs.
+    def base_png, do: Image.write!(base(), :memory, suffix: ".png")
+  end
+
+  # A LOSSLESS oracle for fixed-coordinate / non-center / offset crops, where the
+  # JPEG twin + flat-region sampling above is too insensitive to catch a 1px
+  # placement error (#146 Bugs 2 & 3). The source is a sharp-feature 120×200 PNG;
+  # the oriented leg tags it with an EXIF orientation (PNG carries the tag, the
+  # pipeline must autorotate), and the eager-flush-first twin autorotates the same
+  # tagged PNG into display pixels and stores it untagged. Both legs are lossless
+  # PNG end-to-end, so an identical request that selects different content per
+  # orientation still produces byte-comparable interiors — every pixel is asserted
+  # within a tiny tolerance, so a 1px shift fails loudly.
+  defmodule SharpOrientationFixture do
+    @moduledoc false
+
+    # 120×200 with distinct sharp features in every region: solid quadrants plus a
+    # vertical and a horizontal white line at known storage coordinates so that any
+    # placement error moves a feature relative to the comparison.
+    def base do
+      120
+      |> Image.new!(200, color: :green)
+      |> Image.Draw.rect!(0, 0, 60, 100, color: :red)
+      |> Image.Draw.rect!(60, 0, 60, 100, color: :blue)
+      |> Image.Draw.rect!(0, 100, 60, 100, color: :yellow)
+      |> Image.Draw.rect!(61, 0, 1, 200, color: :white)
+      |> Image.Draw.rect!(0, 131, 120, 1, color: :white)
+    end
+
+    def oriented_png(orientation) do
+      base() |> Image.set_orientation!(orientation) |> Image.write!(:memory, suffix: ".png")
+    end
+
+    def twin_png(orientation) do
+      reopened = Image.open!(oriented_png(orientation), access: :random)
+      {:ok, {displayed, _flags}} = Image.autorotate(reopened)
+      displayed |> Image.set_orientation!(1) |> Image.write!(:memory, suffix: ".png")
+    end
+  end
+
+  defmodule SharpOrientedOrigin do
+    @moduledoc false
+
+    def init(orientation), do: orientation
+
+    def call(conn, orientation) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, SharpOrientationFixture.oriented_png(orientation))
+    end
+  end
+
+  defmodule SharpTwinOrigin do
+    @moduledoc false
+
+    def init(orientation), do: orientation
+
+    def call(conn, orientation) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, SharpOrientationFixture.twin_png(orientation))
+    end
+  end
+
+  defmodule LineOrigin do
+    @moduledoc false
+    # 120×200 black PNG with a single white row at storage y=150, for asserting the
+    # exact vertical placement of a south-offset crop (#146 Bug 3 baseline).
+    def init(_), do: nil
+
+    def call(conn, _) do
+      body =
+        120
+        |> Image.new!(200, color: :black)
+        |> Image.Draw.rect!(0, 150, 120, 1, color: :white)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule MetadataOriginImage do
+    @moduledoc false
+
+    alias Vix.Vips.Image, as: VixImage
+    alias Vix.Vips.MutableImage, as: VixMutableImage
+
+    # Generates a JPEG carrying EXIF (Copyright + ImageDescription) and XMP so
+    # wire tests can assert that sm/kcr strip or retain them as expected.
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      if pid = Keyword.get(List.wrap(opts), :test_pid), do: send(pid, :origin_fetch)
+
+      img = Image.new!(100, 100, color: :white)
+
+      {:ok, with_metadata} =
+        VixImage.mutate(img, fn mut ->
+          VixMutableImage.set(mut, "exif-ifd0-Copyright", :gchararray, "(c) ACME")
+          VixMutableImage.set(mut, "exif-ifd0-ImageDescription", :gchararray, "A test image")
+          VixMutableImage.set(mut, "xmp-data", :VipsBlob, "<x:xmpmeta/>")
+          :ok
+        end)
+
+      body = Image.write!(with_metadata, :memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule ColorCharOriginImage do
+    @moduledoc false
+
+    alias Vix.Vips.Image, as: VixImage
+    alias Vix.Vips.MutableImage, as: VixMutableImage
+
+    # Generates a JPEG carrying the three EXIF color-characterization tags that
+    # imgproxy's `vips_icc_remove` strips when it drops the profile, plus a
+    # non-color EXIF field (ImageDescription) as a control so a wire test can
+    # show the profile-drop path — not general metadata stripping — removes them.
+    def call(conn, _opts) do
+      img = Image.new!(64, 64, color: [10, 200, 30])
+
+      {:ok, tagged} =
+        VixImage.mutate(img, fn mut ->
+          VixMutableImage.set(mut, "exif-ifd0-WhitePoint", :gchararray, "0.3127 0.329")
+
+          VixMutableImage.set(
+            mut,
+            "exif-ifd0-PrimaryChromaticities",
+            :gchararray,
+            "0.64 0.33 0.3 0.6 0.15 0.06"
+          )
+
+          VixMutableImage.set(mut, "exif-ifd2-ColorSpace", :gchararray, "65535")
+          VixMutableImage.set(mut, "exif-ifd0-ImageDescription", :gchararray, "A test image")
+          :ok
+        end)
+
+      body = Image.write!(tagged, :memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule WideGamutOriginImage do
+    @moduledoc false
+
+    # Generates a P3 wide-gamut PNG carrying an embedded ICC profile.
+    # `Image.to_colorspace(_, :p3, [])` attaches a P3 ICC profile to the
+    # in-memory image, and libvips embeds it in the PNG stream on write.
+    # Re-opening the PNG bytes confirms "icc-profile-data" is present.
+    def call(conn, _opts) do
+      {:ok, base} = Image.new(40, 40, color: [200, 50, 50])
+      {:ok, p3_img} = Image.to_colorspace(base, :p3, [])
+      body = Image.write!(p3_img, :memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule EffectOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      body =
+        64
+        |> Image.new!(64, color: :black)
+        |> Image.Draw.rect!(0, 0, 32, 64, color: :white)
+        |> Image.Draw.rect!(16, 0, 16, 64, color: :red)
+        |> Image.Draw.rect!(32, 0, 16, 64, color: :green)
+        |> Image.Draw.rect!(48, 0, 16, 64, color: :blue)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule AvifOriginImage do
+    @moduledoc false
+
+    # Serves a committed 64x64 AVIF fixture rather than encoding at request
+    # time, so the source is available even on libvips builds without AVIF
+    # *write* support (decoding an AVIF source needs only AVIF read).
+    def call(conn, _opts) do
+      body = File.read!("test/support/image_pipe/imgproxy_wire_conformance_test/cat.avif")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/avif")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule AlphaOriginImage do
+    @moduledoc false
+
+    # Serves a 20×20 fully-transparent RGBA PNG. Used to verify that bl: + bg:
+    # on an alpha source flattens the output (no alpha channel in response).
+    def call(conn, _opts) do
+      body =
+        Image.new!(20, 20, color: [0, 0, 0, 0], bands: 4)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule TrimOriginImage do
+    @moduledoc false
+    # 64x64 black border with a white 40x44 inner block at (12, 10).
+    def call(conn, _opts) do
+      body =
+        64
+        |> Image.new!(64, color: :black)
+        |> Image.Draw.rect!(12, 10, 40, 44, color: :white)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule UniformOriginImage do
+    @moduledoc false
+    # Solid 64x64 black — nothing to trim.
+    def call(conn, _opts) do
+      body = Image.new!(64, 64, color: :black) |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule WideGamutTrimOriginImage do
+    @moduledoc false
+    # 64x64 Display-P3 PNG with a 10px black border and a 44x44 colored inner block.
+    # trim:10 = threshold 10; the solid-black border is within tolerance, so trim crops to the inner block.
+    def call(conn, _opts) do
+      {:ok, base} = Image.new(64, 64, color: [0, 0, 0])
+      {:ok, p3_base} = Image.to_colorspace(base, :p3, [])
+      {:ok, inner} = Image.new(44, 44, color: [200, 50, 50])
+      {:ok, p3_inner} = Image.to_colorspace(inner, :p3, [])
+
+      body =
+        Image.Draw.image!(p3_base, p3_inner, 10, 10) |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule GreyscaleTrimOriginImage do
+    @moduledoc false
     alias Vix.Vips.Operation
 
-    @source_url_encryption_key "000102030405060708090a0b0c0d0e0f"
-    @source_url_encryption_iv <<16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31>>
-    @alternate_source_url_encryption_iv <<31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18,
-                                          17, 16>>
+    # 64x64 B_W (greyscale) PNG with a white border and a black 40x44 inner block at (12, 10).
+    # Mirrors TrimOriginImage geometry but as a single-band greyscale source so the
+    # trim pipeline exercises the B_W working space.
+    def call(conn, _opts) do
+      {:ok, rgb_base} = Image.new(64, 64, color: :white)
+      {:ok, grey_base} = Operation.colourspace(rgb_base, :VIPS_INTERPRETATION_B_W)
+      {:ok, rgb_inner} = Image.new(40, 44, color: :black)
+      {:ok, grey_inner} = Operation.colourspace(rgb_inner, :VIPS_INTERPRETATION_B_W)
 
-    defmodule SvgOriginImage do
-      @moduledoc false
+      body =
+        Image.Draw.image!(grey_base, grey_inner, 12, 10)
+        |> Image.write!(:memory, suffix: ".png")
 
-      def init(opts), do: opts
-
-      def call(conn, opts) do
-        opts
-        |> Keyword.fetch!(:test_pid)
-        |> send(:origin_fetch)
-
-        body = """
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
-          <rect width="20" height="20" fill="red"/>
-        </svg>
-        """
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/svg+xml")
-        |> Plug.Conn.send_resp(200, body)
-      end
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
     end
+  end
 
-    defmodule ExifOrientationOriginImage do
-      @moduledoc false
+  defmodule CmykOriginImage do
+    @moduledoc false
+    # Serves the committed CMYK JPEG fixture which carries an embedded CMYK ICC profile.
+    def call(conn, _opts) do
+      body = File.read!("test/support/image_pipe/test/imgproxy_differential/sources/cmyk.jpg")
 
-      def call(conn, _opts) do
-        body =
-          40
-          |> Image.new!(80, color: :white)
-          |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
-          |> Image.set_orientation!(6)
-          |> Image.write!(:memory, suffix: ".jpg")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_resp(200, body)
-      end
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
     end
+  end
 
-    # A >6 MP source so the autoquality `:ssim2` search crosses the crop crossover
-    # (`CropScore.crossover_megapixels/0`) and runs in crop-scoring mode. A
-    # high-frequency zone plate gives the search real detail to score (a flat image
-    # would clear the band at the floor in one probe). 2800² ≈ 7.84 MP. Served as
-    # JPEG so the body stays under the default 10 MB source `max_body_bytes` (an
-    # incompressible zone-plate PNG exceeds it); the decoded source is still 7.84 MP.
-    defmodule LargeSsim2OriginImage do
-      @moduledoc false
+  defmodule Hdr16OriginImage do
+    @moduledoc false
+    # Serves the committed genuine-16-bit RGB PNG fixture (interpretation RGB16).
+    def call(conn, _opts) do
+      body = File.read!("test/support/image_pipe/test/imgproxy_differential/sources/rgb16.png")
 
-      def call(conn, _opts) do
-        side = 2800
-        {:ok, z} = Operation.zone(side, side)
-        {:ok, scaled} = Operation.linear(z, [127.5], [127.5])
-        {:ok, uchar} = Operation.cast(scaled, :VIPS_FORMAT_UCHAR)
-        {:ok, gray} = Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
-        {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
-        {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
-        body = Image.write!(srgb, :memory, suffix: ".jpg")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_resp(200, body)
-      end
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
     end
+  end
 
-    # A >6 MP white field overlaid with a fine black line grid: a dense line-art /
-    # text surrogate the content classifier reads as :graphic (two luminance values →
-    # low palette entropy; all-hard edges → low mid-band gradient). Above the crop
-    # crossover this is the cell whose crop estimate overshoots full-frame, so
-    # {avif, :graphic} draws the big offset (#380). 2480² ≈ 6.15 MP, just over the
-    # crossover (keeps AVIF encode cost down). Served JPEG to stay under the default
-    # 10 MB source max_body_bytes.
-    defmodule LargeGraphicOriginImage do
-      @moduledoc false
+  defmodule LinearLightOriginImage do
+    @moduledoc false
+    alias Vix.Vips.Operation
 
-      def call(conn, _opts) do
-        side = 2480
-        base = Image.new!(side, side, color: :white)
+    # Serves a small scRGB (linear-light) PNG. libvips creates an scRGB image via
+    # colourspace conversion from sRGB; the interpretation is :VIPS_INTERPRETATION_scRGB.
+    # InputColorManagement treats this as a "linear-light" branch: it drops the profile
+    # (no backup recorded) and converts to the working space.
+    def call(conn, _opts) do
+      {:ok, base} = Image.new(20, 20, color: [180, 60, 60])
+      {:ok, linear} = Operation.colourspace(base, :VIPS_INTERPRETATION_scRGB)
+      body = Image.write!(linear, :memory, suffix: ".png")
 
-        drawn =
-          Enum.reduce(0..(side - 1)//16, base, fn x, acc ->
-            acc
-            |> Image.Draw.rect!(x, 0, 1, side, color: :black)
-            |> Image.Draw.rect!(0, x, side, 1, color: :black)
-          end)
-
-        body = drawn |> Image.to_colorspace!(:srgb) |> Image.write!(:memory, suffix: ".jpg")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_resp(200, body)
-      end
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
     end
+  end
 
-    # A >6 MP continuous-tone field: a full-range luminance ramp (high palette
-    # entropy) plus softly-blurred noise (high mid-band gradient) → :photo. The
-    # no-inflation control: avif × :photo must keep the lean 2.4 offset (#380).
-    defmodule LargePhotoOriginImage do
-      @moduledoc false
-
-      def call(conn, _opts) do
-        side = 2480
-        {:ok, xyz} = Operation.xyz(side, side)
-        {:ok, x} = Operation.extract_band(xyz, 0)
-        {:ok, ramp} = Operation.linear(x, [255.0 / (side - 1)], [0.0])
-        {:ok, noise} = Operation.gaussnoise(side, side, sigma: 35, mean: 0, seed: 1)
-        {:ok, blurred} = Operation.gaussblur(noise, 1.2)
-        {:ok, sum} = Operation.add(ramp, blurred)
-        {:ok, uchar} = Operation.cast(sum, :VIPS_FORMAT_UCHAR)
-        {:ok, gray} = Operation.copy(uchar, interpretation: :VIPS_INTERPRETATION_B_W)
-        {:ok, rgb} = Operation.bandjoin([gray, gray, gray])
-        {:ok, srgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
-        body = Image.write!(srgb, :memory, suffix: ".jpg")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_resp(200, body)
-      end
+  defmodule CorruptSourceOriginImage do
+    @moduledoc false
+    # Returns a response with content-type image/png but a body that is not a
+    # valid image. The pipeline decode step must surface {:decode, _} -> 415.
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, "not a valid image \xFF\xFE\x00")
     end
+  end
 
-    # Deferred-orientation gate (#146) origins. Both serve the SAME displayed
-    # pixels: `OrientedFrameOrigin` tags a stored image with an EXIF orientation
-    # (so the pipeline must autorotate it), while `Orientation1TwinOrigin` decodes
-    # that same tagged image, applies the autorotate in pixels, strips the tag, and
-    # serves the result as a lossless orientation-1 PNG. Running an identical
-    # imgproxy request against both is the wire-vs-orientation-1 oracle: the same
-    # operators run on the same displayed content, so the decoded outputs match.
-    #
-    # The base content is a 120×200 portrait with sharp solid quadrants and a
-    # corner marker; large enough that a ±1px affine-resize seam shift never reaches
-    # the interior flat-region samples the oracle compares.
-    defmodule OrientationFixture do
-      @moduledoc false
+  defmodule Origin503 do
+    @moduledoc false
+    def call(conn, _opts), do: Plug.Conn.send_resp(conn, 503, "origin 503")
+  end
 
-      def base do
-        120
-        |> Image.new!(200, color: :green)
-        |> Image.Draw.rect!(0, 0, 120, 100, color: :red)
-        |> Image.Draw.rect!(0, 0, 30, 30, color: :blue)
-      end
+  defmodule Origin451 do
+    @moduledoc false
+    def call(conn, _opts), do: Plug.Conn.send_resp(conn, 451, "origin 451")
+  end
 
-      # Lossless base bytes fed to the shared `ImagePipe.Test.OrientedFrameOrigin` /
-      # `ImagePipe.Test.Orientation1TwinOrigin`, which tag/autorotate them per
-      # orientation. PNG keeps the base pixels exact so the oracle compares identical
-      # displayed content across both legs.
-      def base_png, do: Image.write!(base(), :memory, suffix: ".png")
+  defmodule ResolveDeniedSource do
+    @moduledoc false
+    # Minimal Source adapter whose resolve/3 fails BEFORE any fetch — exercises
+    # the resolve-time send_source_error path (plug.ex), distinct from streaming.
+    @behaviour ImagePipe.Source
+    @impl true
+    def validate_options(opts), do: {:ok, opts}
+    @impl true
+    def resolve(_source, _opts, _runtime_opts), do: {:error, {:source, :connect_error}}
+    @impl true
+    def fetch(_resolved, _opts, _runtime_opts), do: {:error, {:source, :connect_error}}
+  end
+
+  defmodule SolidWideOrigin do
+    @moduledoc false
+    # Solid 400x300 (4:3) opaque red — larger than the extend targets below, so the
+    # fit shrink keeps imgproxy's DprScale at the requested dpr (a source smaller than
+    # the target collapses DprScale to 1.0 under enlarge-off). Opaque, so the
+    # transparent extend background is detectable by the output alpha channel.
+    def call(conn, _opts) do
+      body = Image.new!(400, 300, color: [255, 0, 0]) |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
     end
+  end
 
-    # A LOSSLESS oracle for fixed-coordinate / non-center / offset crops, where the
-    # JPEG twin + flat-region sampling above is too insensitive to catch a 1px
-    # placement error (#146 Bugs 2 & 3). The source is a sharp-feature 120×200 PNG;
-    # the oriented leg tags it with an EXIF orientation (PNG carries the tag, the
-    # pipeline must autorotate), and the eager-flush-first twin autorotates the same
-    # tagged PNG into display pixels and stores it untagged. Both legs are lossless
-    # PNG end-to-end, so an identical request that selects different content per
-    # orientation still produces byte-comparable interiors — every pixel is asserted
-    # within a tiny tolerance, so a 1px shift fails loudly.
-    defmodule SharpOrientationFixture do
-      @moduledoc false
+  defmodule UnavailableDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
 
-      # 120×200 with distinct sharp features in every region: solid quadrants plus a
-      # vertical and a horizontal white line at known storage coordinates so that any
-      # placement error moves a feature relative to the comparison.
-      def base do
-        120
-        |> Image.new!(200, color: :green)
-        |> Image.Draw.rect!(0, 0, 60, 100, color: :red)
-        |> Image.Draw.rect!(60, 0, 60, 100, color: :blue)
-        |> Image.Draw.rect!(0, 100, 60, 100, color: :yellow)
-        |> Image.Draw.rect!(61, 0, 1, 200, color: :white)
-        |> Image.Draw.rect!(0, 131, 120, 1, color: :white)
-      end
+    @impl true
+    def supported_classes(_opts), do: ["face"]
 
-      def oriented_png(orientation) do
-        base() |> Image.set_orientation!(orientation) |> Image.write!(:memory, suffix: ".png")
-      end
+    @impl true
+    def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
 
-      def twin_png(orientation) do
-        reopened = Image.open!(oriented_png(orientation), access: :random)
-        {:ok, {displayed, _flags}} = Image.autorotate(reopened)
-        displayed |> Image.set_orientation!(1) |> Image.write!(:memory, suffix: ".png")
-      end
+    @impl true
+    def available?(_opts), do: false
+
+    @impl true
+    def identity(_opts), do: {__MODULE__, :unavailable}
+  end
+
+  # Versioned detector fakes for the detector-model-identity cache-key/ETag
+  # block. Each carries a CONSTANT identity per module, so a "model version
+  # change" is a swap to a different module — the DI-key mechanism the block
+  # once used (`face_ver:`/`object_ver:` top-level keys) is gone, because the
+  # dialect's `Config.validate!/1` raises on any key outside its closed set.
+  # Face and object leaves keep DISTINCT `supported_classes`, so a composite
+  # routes an object-only request past the face leaf entirely (and vice
+  # versa) — the property the independence cases assert.
+  defmodule FaceVerFakeV1 do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["face"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :v1}
+    @impl true
+    def detect(_, _), do: {:ok, []}
+  end
+
+  defmodule FaceVerFakeV2 do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["face"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :v2}
+    @impl true
+    def detect(_, _), do: {:ok, []}
+  end
+
+  defmodule ObjectVerFakeV1 do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["car", "dog"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :v1}
+    @impl true
+    def detect(_, _), do: {:ok, []}
+  end
+
+  defmodule ObjectVerFakeV2 do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["car", "dog"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :v2}
+    @impl true
+    def detect(_, _), do: {:ok, []}
+  end
+
+  defmodule VerCompositeV1V1 do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    alias ImagePipe.Transform.Detector.Composite
+
+    defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV1])
+
+    @impl true
+    def supported_classes(_o), do: Composite.supported_classes(c())
+    @impl true
+    def detect(i, o), do: Composite.detect(c(), i, o)
+    @impl true
+    def available?(o), do: Composite.available?(c(), o)
+    @impl true
+    def identity(o), do: Composite.identity(c(), o)
+  end
+
+  defmodule VerCompositeV2V1 do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    alias ImagePipe.Transform.Detector.Composite
+
+    defp c, do: Composite.new([FaceVerFakeV2, ObjectVerFakeV1])
+
+    @impl true
+    def supported_classes(_o), do: Composite.supported_classes(c())
+    @impl true
+    def detect(i, o), do: Composite.detect(c(), i, o)
+    @impl true
+    def available?(o), do: Composite.available?(c(), o)
+    @impl true
+    def identity(o), do: Composite.identity(c(), o)
+  end
+
+  defmodule VerCompositeV1V2 do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    alias ImagePipe.Transform.Detector.Composite
+
+    defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV2])
+
+    @impl true
+    def supported_classes(_o), do: Composite.supported_classes(c())
+    @impl true
+    def detect(i, o), do: Composite.detect(c(), i, o)
+    @impl true
+    def available?(o), do: Composite.available?(c(), o)
+    @impl true
+    def identity(o), do: Composite.identity(c(), o)
+  end
+
+  # Task 10: CornerObjectDetector — places a small box near the top-left so a
+  # fill-crop biases up-left, distinct from center and attention saliency.
+  defmodule CornerObjectDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["car", "dog", "face", "person"]
+
+    @impl true
+    def available?(opts), do: Keyword.get(opts, :available?, true)
+
+    @impl true
+    def identity(_), do: {__MODULE__, :v1}
+
+    @impl true
+    def detect(_image, opts) do
+      classes = Keyword.get(opts, :classes, :all)
+      label = if classes == :all, do: "car", else: List.first(List.wrap(classes))
+      {:ok, [%{label: label, score: 0.95, box: {2, 2, 20, 20}}]}
     end
-
-    defmodule SharpOrientedOrigin do
-      @moduledoc false
-
-      def init(orientation), do: orientation
-
-      def call(conn, orientation) do
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, SharpOrientationFixture.oriented_png(orientation))
-      end
-    end
-
-    defmodule SharpTwinOrigin do
-      @moduledoc false
-
-      def init(orientation), do: orientation
-
-      def call(conn, orientation) do
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, SharpOrientationFixture.twin_png(orientation))
-      end
-    end
-
-    defmodule LineOrigin do
-      @moduledoc false
-      # 120×200 black PNG with a single white row at storage y=150, for asserting the
-      # exact vertical placement of a south-offset crop (#146 Bug 3 baseline).
-      def init(_), do: nil
-
-      def call(conn, _) do
-        body =
-          120
-          |> Image.new!(200, color: :black)
-          |> Image.Draw.rect!(0, 150, 120, 1, color: :white)
-          |> Image.write!(:memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule MetadataOriginImage do
-      @moduledoc false
-
-      alias Vix.Vips.Image, as: VixImage
-      alias Vix.Vips.MutableImage, as: VixMutableImage
-
-      # Generates a JPEG carrying EXIF (Copyright + ImageDescription) and XMP so
-      # wire tests can assert that sm/kcr strip or retain them as expected.
-      def init(opts), do: opts
-
-      def call(conn, opts) do
-        if pid = Keyword.get(List.wrap(opts), :test_pid), do: send(pid, :origin_fetch)
-
-        img = Image.new!(100, 100, color: :white)
-
-        {:ok, with_metadata} =
-          VixImage.mutate(img, fn mut ->
-            VixMutableImage.set(mut, "exif-ifd0-Copyright", :gchararray, "(c) ACME")
-            VixMutableImage.set(mut, "exif-ifd0-ImageDescription", :gchararray, "A test image")
-            VixMutableImage.set(mut, "xmp-data", :VipsBlob, "<x:xmpmeta/>")
-            :ok
-          end)
-
-        body = Image.write!(with_metadata, :memory, suffix: ".jpg")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule ColorCharOriginImage do
-      @moduledoc false
-
-      alias Vix.Vips.Image, as: VixImage
-      alias Vix.Vips.MutableImage, as: VixMutableImage
-
-      # Generates a JPEG carrying the three EXIF color-characterization tags that
-      # imgproxy's `vips_icc_remove` strips when it drops the profile, plus a
-      # non-color EXIF field (ImageDescription) as a control so a wire test can
-      # show the profile-drop path — not general metadata stripping — removes them.
-      def call(conn, _opts) do
-        img = Image.new!(64, 64, color: [10, 200, 30])
-
-        {:ok, tagged} =
-          VixImage.mutate(img, fn mut ->
-            VixMutableImage.set(mut, "exif-ifd0-WhitePoint", :gchararray, "0.3127 0.329")
-
-            VixMutableImage.set(
-              mut,
-              "exif-ifd0-PrimaryChromaticities",
-              :gchararray,
-              "0.64 0.33 0.3 0.6 0.15 0.06"
-            )
-
-            VixMutableImage.set(mut, "exif-ifd2-ColorSpace", :gchararray, "65535")
-            VixMutableImage.set(mut, "exif-ifd0-ImageDescription", :gchararray, "A test image")
-            :ok
-          end)
-
-        body = Image.write!(tagged, :memory, suffix: ".jpg")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule WideGamutOriginImage do
-      @moduledoc false
-
-      # Generates a P3 wide-gamut PNG carrying an embedded ICC profile.
-      # `Image.to_colorspace(_, :p3, [])` attaches a P3 ICC profile to the
-      # in-memory image, and libvips embeds it in the PNG stream on write.
-      # Re-opening the PNG bytes confirms "icc-profile-data" is present.
-      def call(conn, _opts) do
-        {:ok, base} = Image.new(40, 40, color: [200, 50, 50])
-        {:ok, p3_img} = Image.to_colorspace(base, :p3, [])
-        body = Image.write!(p3_img, :memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule EffectOriginImage do
-      @moduledoc false
-
-      def call(conn, _opts) do
-        body =
-          64
-          |> Image.new!(64, color: :black)
-          |> Image.Draw.rect!(0, 0, 32, 64, color: :white)
-          |> Image.Draw.rect!(16, 0, 16, 64, color: :red)
-          |> Image.Draw.rect!(32, 0, 16, 64, color: :green)
-          |> Image.Draw.rect!(48, 0, 16, 64, color: :blue)
-          |> Image.write!(:memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule AvifOriginImage do
-      @moduledoc false
-
-      # Serves a committed 64x64 AVIF fixture rather than encoding at request
-      # time, so the source is available even on libvips builds without AVIF
-      # *write* support (decoding an AVIF source needs only AVIF read).
-      def call(conn, _opts) do
-        body = File.read!("test/support/image_pipe/imgproxy_wire_conformance_test/cat.avif")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/avif")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule AlphaOriginImage do
-      @moduledoc false
-
-      # Serves a 20×20 fully-transparent RGBA PNG. Used to verify that bl: + bg:
-      # on an alpha source flattens the output (no alpha channel in response).
-      def call(conn, _opts) do
-        body =
-          Image.new!(20, 20, color: [0, 0, 0, 0], bands: 4)
-          |> Image.write!(:memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule TrimOriginImage do
-      @moduledoc false
-      # 64x64 black border with a white 40x44 inner block at (12, 10).
-      def call(conn, _opts) do
-        body =
-          64
-          |> Image.new!(64, color: :black)
-          |> Image.Draw.rect!(12, 10, 40, 44, color: :white)
-          |> Image.write!(:memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule UniformOriginImage do
-      @moduledoc false
-      # Solid 64x64 black — nothing to trim.
-      def call(conn, _opts) do
-        body = Image.new!(64, 64, color: :black) |> Image.write!(:memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule WideGamutTrimOriginImage do
-      @moduledoc false
-      # 64x64 Display-P3 PNG with a 10px black border and a 44x44 colored inner block.
-      # trim:10 = threshold 10; the solid-black border is within tolerance, so trim crops to the inner block.
-      def call(conn, _opts) do
-        {:ok, base} = Image.new(64, 64, color: [0, 0, 0])
-        {:ok, p3_base} = Image.to_colorspace(base, :p3, [])
-        {:ok, inner} = Image.new(44, 44, color: [200, 50, 50])
-        {:ok, p3_inner} = Image.to_colorspace(inner, :p3, [])
-
-        body =
-          Image.Draw.image!(p3_base, p3_inner, 10, 10) |> Image.write!(:memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule GreyscaleTrimOriginImage do
-      @moduledoc false
-      alias Vix.Vips.Operation
-
-      # 64x64 B_W (greyscale) PNG with a white border and a black 40x44 inner block at (12, 10).
-      # Mirrors TrimOriginImage geometry but as a single-band greyscale source so the
-      # trim pipeline exercises the B_W working space.
-      def call(conn, _opts) do
-        {:ok, rgb_base} = Image.new(64, 64, color: :white)
-        {:ok, grey_base} = Operation.colourspace(rgb_base, :VIPS_INTERPRETATION_B_W)
-        {:ok, rgb_inner} = Image.new(40, 44, color: :black)
-        {:ok, grey_inner} = Operation.colourspace(rgb_inner, :VIPS_INTERPRETATION_B_W)
-
-        body =
-          Image.Draw.image!(grey_base, grey_inner, 12, 10)
-          |> Image.write!(:memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule CmykOriginImage do
-      @moduledoc false
-      # Serves the committed CMYK JPEG fixture which carries an embedded CMYK ICC profile.
-      def call(conn, _opts) do
-        body = File.read!("test/support/image_pipe/test/imgproxy_differential/sources/cmyk.jpg")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule Hdr16OriginImage do
-      @moduledoc false
-      # Serves the committed genuine-16-bit RGB PNG fixture (interpretation RGB16).
-      def call(conn, _opts) do
-        body = File.read!("test/support/image_pipe/test/imgproxy_differential/sources/rgb16.png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule LinearLightOriginImage do
-      @moduledoc false
-      alias Vix.Vips.Operation
-
-      # Serves a small scRGB (linear-light) PNG. libvips creates an scRGB image via
-      # colourspace conversion from sRGB; the interpretation is :VIPS_INTERPRETATION_scRGB.
-      # InputColorManagement treats this as a "linear-light" branch: it drops the profile
-      # (no backup recorded) and converts to the working space.
-      def call(conn, _opts) do
-        {:ok, base} = Image.new(20, 20, color: [180, 60, 60])
-        {:ok, linear} = Operation.colourspace(base, :VIPS_INTERPRETATION_scRGB)
-        body = Image.write!(linear, :memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule CorruptSourceOriginImage do
-      @moduledoc false
-      # Returns a response with content-type image/png but a body that is not a
-      # valid image. The pipeline decode step must surface {:decode, _} -> 415.
-      def call(conn, _opts) do
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, "not a valid image \xFF\xFE\x00")
-      end
-    end
-
-    defmodule Origin503 do
-      @moduledoc false
-      def call(conn, _opts), do: Plug.Conn.send_resp(conn, 503, "origin 503")
-    end
-
-    defmodule Origin451 do
-      @moduledoc false
-      def call(conn, _opts), do: Plug.Conn.send_resp(conn, 451, "origin 451")
-    end
-
-    defmodule ResolveDeniedSource do
-      @moduledoc false
-      # Minimal Source adapter whose resolve/3 fails BEFORE any fetch — exercises
-      # the resolve-time send_source_error path (plug.ex), distinct from streaming.
-      @behaviour ImagePipe.Source
-      @impl true
-      def validate_options(opts), do: {:ok, opts}
-      @impl true
-      def resolve(_source, _opts, _runtime_opts), do: {:error, {:source, :connect_error}}
-      @impl true
-      def fetch(_resolved, _opts, _runtime_opts), do: {:error, {:source, :connect_error}}
-    end
-
-    defmodule SolidWideOrigin do
-      @moduledoc false
-      # Solid 400x300 (4:3) opaque red — larger than the extend targets below, so the
-      # fit shrink keeps imgproxy's DprScale at the requested dpr (a source smaller than
-      # the target collapses DprScale to 1.0 under enlarge-off). Opaque, so the
-      # transparent extend background is detectable by the output alpha channel.
-      def call(conn, _opts) do
-        body = Image.new!(400, 300, color: [255, 0, 0]) |> Image.write!(:memory, suffix: ".png")
-
-        conn
-        |> Plug.Conn.put_resp_content_type("image/png")
-        |> Plug.Conn.send_resp(200, body)
-      end
-    end
-
-    defmodule UnavailableDetector do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @impl true
-      def supported_classes(_opts), do: ["face"]
-
-      @impl true
-      def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
-
-      @impl true
-      def available?(_opts), do: false
-
-      @impl true
-      def identity(_opts), do: {__MODULE__, :unavailable}
-    end
-
-    # Versioned detector fakes for the detector-model-identity cache-key/ETag
-    # block. Each carries a CONSTANT identity per module, so a "model version
-    # change" is a swap to a different module — the DI-key mechanism the block
-    # once used (`face_ver:`/`object_ver:` top-level keys) is gone, because the
-    # dialect's `Config.validate!/1` raises on any key outside its closed set.
-    # Face and object leaves keep DISTINCT `supported_classes`, so a composite
-    # routes an object-only request past the face leaf entirely (and vice
-    # versa) — the property the independence cases assert.
-    defmodule FaceVerFakeV1 do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @impl true
-      def supported_classes(_), do: ["face"]
-      @impl true
-      def available?(_), do: true
-      @impl true
-      def identity(_), do: {__MODULE__, :v1}
-      @impl true
-      def detect(_, _), do: {:ok, []}
-    end
-
-    defmodule FaceVerFakeV2 do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @impl true
-      def supported_classes(_), do: ["face"]
-      @impl true
-      def available?(_), do: true
-      @impl true
-      def identity(_), do: {__MODULE__, :v2}
-      @impl true
-      def detect(_, _), do: {:ok, []}
-    end
-
-    defmodule ObjectVerFakeV1 do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @impl true
-      def supported_classes(_), do: ["car", "dog"]
-      @impl true
-      def available?(_), do: true
-      @impl true
-      def identity(_), do: {__MODULE__, :v1}
-      @impl true
-      def detect(_, _), do: {:ok, []}
-    end
-
-    defmodule ObjectVerFakeV2 do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @impl true
-      def supported_classes(_), do: ["car", "dog"]
-      @impl true
-      def available?(_), do: true
-      @impl true
-      def identity(_), do: {__MODULE__, :v2}
-      @impl true
-      def detect(_, _), do: {:ok, []}
-    end
-
-    defmodule VerCompositeV1V1 do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      alias ImagePipe.Transform.Detector.Composite
-
-      defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV1])
-
-      @impl true
-      def supported_classes(_o), do: Composite.supported_classes(c())
-      @impl true
-      def detect(i, o), do: Composite.detect(c(), i, o)
-      @impl true
-      def available?(o), do: Composite.available?(c(), o)
-      @impl true
-      def identity(o), do: Composite.identity(c(), o)
-    end
-
-    defmodule VerCompositeV2V1 do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      alias ImagePipe.Transform.Detector.Composite
-
-      defp c, do: Composite.new([FaceVerFakeV2, ObjectVerFakeV1])
-
-      @impl true
-      def supported_classes(_o), do: Composite.supported_classes(c())
-      @impl true
-      def detect(i, o), do: Composite.detect(c(), i, o)
-      @impl true
-      def available?(o), do: Composite.available?(c(), o)
-      @impl true
-      def identity(o), do: Composite.identity(c(), o)
-    end
-
-    defmodule VerCompositeV1V2 do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      alias ImagePipe.Transform.Detector.Composite
-
-      defp c, do: Composite.new([FaceVerFakeV1, ObjectVerFakeV2])
-
-      @impl true
-      def supported_classes(_o), do: Composite.supported_classes(c())
-      @impl true
-      def detect(i, o), do: Composite.detect(c(), i, o)
-      @impl true
-      def available?(o), do: Composite.available?(c(), o)
-      @impl true
-      def identity(o), do: Composite.identity(c(), o)
-    end
-
-    # Task 10: CornerObjectDetector — places a small box near the top-left so a
-    # fill-crop biases up-left, distinct from center and attention saliency.
-    defmodule CornerObjectDetector do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @impl true
-      def supported_classes(_), do: ["car", "dog", "face", "person"]
-
-      @impl true
-      def available?(opts), do: Keyword.get(opts, :available?, true)
-
-      @impl true
-      def identity(_), do: {__MODULE__, :v1}
-
-      @impl true
-      def detect(_image, opts) do
-        classes = Keyword.get(opts, :classes, :all)
-        label = if classes == :all, do: "car", else: List.first(List.wrap(classes))
-        {:ok, [%{label: label, score: 0.95, box: {2, 2, 20, 20}}]}
-      end
-    end
-
-    # Slice 2: a large "person" box and a small "face" box, class-aware so obj:person
-    # / obj:face filter to one box. Sized as large fractions of beach.jpg (4000×2667)
-    # so the fill-crop window actually moves between weightings.
-    defmodule WeightedSceneDetector do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @boxes [
-        %{label: "person", score: 0.95, box: {2000, 800, 800, 1000}},
-        %{label: "face", score: 0.95, box: {1400, 600, 400, 400}}
-      ]
-
-      @impl true
-      def supported_classes(_), do: ["face", "person"]
-
-      @impl true
-      def available?(opts), do: Keyword.get(opts, :available?, true)
-
-      @impl true
-      def identity(_), do: {__MODULE__, :v1}
-
-      @impl true
-      def detect(_image, opts) do
-        case Keyword.get(opts, :classes, :all) do
-          :all -> {:ok, @boxes}
-          classes -> {:ok, Enum.filter(@boxes, &(&1.label in List.wrap(classes)))}
-        end
-      end
-    end
-
-    # Task 10: PartialDetector — Composite with FaceFake (available) and
-    # UnavailableObjectFake (available?=false), used for the gate triad.
-    defmodule GateTriadFaceFake do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @impl true
-      def supported_classes(_), do: ["face"]
-
-      @impl true
-      def available?(_), do: true
-
-      @impl true
-      def identity(_), do: {__MODULE__, :face_v1}
-
-      @impl true
-      def detect(_image, opts) do
-        {:ok, [%{label: "face", score: 0.9, box: {0, 0, 50, 50}}]}
-        |> filter_classes(Keyword.get(opts, :classes, :all))
-      end
-
-      defp filter_classes({:ok, regions}, :all), do: {:ok, regions}
-
-      defp filter_classes({:ok, regions}, classes) when is_list(classes) do
-        wanted = MapSet.new(classes)
-        {:ok, Enum.filter(regions, fn %{label: l} -> MapSet.member?(wanted, l) end)}
-      end
-    end
-
-    defmodule GateTriadUnavailableObjectFake do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      @impl true
-      def supported_classes(_), do: ["car"]
-
-      @impl true
-      def available?(_), do: false
-
-      @impl true
-      def identity(_), do: {__MODULE__, :unavailable}
-
-      @impl true
-      def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
-    end
-
-    defmodule PartialDetector do
-      @moduledoc false
-      @behaviour ImagePipe.Transform.Detector
-
-      alias ImagePipe.Transform.Detector.Composite
-
-      defp c, do: Composite.new([GateTriadFaceFake, GateTriadUnavailableObjectFake])
-
-      @impl true
-      def supported_classes(_o), do: Composite.supported_classes(c())
-
-      @impl true
-      def detect(i, o), do: Composite.detect(c(), i, o)
-
-      @impl true
-      def available?(o), do: Composite.available?(c(), o)
-
-      @impl true
-      def identity(o), do: Composite.identity(c(), o)
-    end
-
-    @default_opts [
-      parser: ImagePipe.Parser.Imgproxy,
-      sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
-      ]
+  end
+
+  # Slice 2: a large "person" box and a small "face" box, class-aware so obj:person
+  # / obj:face filter to one box. Sized as large fractions of beach.jpg (4000×2667)
+  # so the fill-crop window actually moves between weightings.
+  defmodule WeightedSceneDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @boxes [
+      %{label: "person", score: 0.95, box: {2000, 800, 800, 1000}},
+      %{label: "face", score: 0.95, box: {1400, 600, 400, 400}}
     ]
 
-    @hdr_opts [
-      parser: ImagePipe.Parser.Imgproxy,
+    @impl true
+    def supported_classes(_), do: ["face", "person"]
+
+    @impl true
+    def available?(opts), do: Keyword.get(opts, :available?, true)
+
+    @impl true
+    def identity(_), do: {__MODULE__, :v1}
+
+    @impl true
+    def detect(_image, opts) do
+      case Keyword.get(opts, :classes, :all) do
+        :all -> {:ok, @boxes}
+        classes -> {:ok, Enum.filter(@boxes, &(&1.label in List.wrap(classes)))}
+      end
+    end
+  end
+
+  # Task 10: PartialDetector — Composite with FaceFake (available) and
+  # UnavailableObjectFake (available?=false), used for the gate triad.
+  defmodule GateTriadFaceFake do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["face"]
+
+    @impl true
+    def available?(_), do: true
+
+    @impl true
+    def identity(_), do: {__MODULE__, :face_v1}
+
+    @impl true
+    def detect(_image, opts) do
+      {:ok, [%{label: "face", score: 0.9, box: {0, 0, 50, 50}}]}
+      |> filter_classes(Keyword.get(opts, :classes, :all))
+    end
+
+    defp filter_classes({:ok, regions}, :all), do: {:ok, regions}
+
+    defp filter_classes({:ok, regions}, classes) when is_list(classes) do
+      wanted = MapSet.new(classes)
+      {:ok, Enum.filter(regions, fn %{label: l} -> MapSet.member?(wanted, l) end)}
+    end
+  end
+
+  defmodule GateTriadUnavailableObjectFake do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["car"]
+
+    @impl true
+    def available?(_), do: false
+
+    @impl true
+    def identity(_), do: {__MODULE__, :unavailable}
+
+    @impl true
+    def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
+  end
+
+  defmodule PartialDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    alias ImagePipe.Transform.Detector.Composite
+
+    defp c, do: Composite.new([GateTriadFaceFake, GateTriadUnavailableObjectFake])
+
+    @impl true
+    def supported_classes(_o), do: Composite.supported_classes(c())
+
+    @impl true
+    def detect(i, o), do: Composite.detect(c(), i, o)
+
+    @impl true
+    def available?(o), do: Composite.available?(c(), o)
+
+    @impl true
+    def identity(o), do: Composite.identity(c(), o)
+  end
+
+  @default_opts [
+    sources: [
+      path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    ]
+  ]
+
+  @hdr_opts [
+    sources: [
+      path:
+        {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: Hdr16OriginImage]}
+    ]
+  ]
+
+  test "autoquality :ssim2 on a >6 MP source ships the crop verdict with no full-frame confirm (#369)" do
+    # Above the crop crossover the search must ship the crop objective winner with
+    # NO full-frame confirm/bump — the O(pixels) cost that risked the request
+    # deadline. Capture the encode-search verdict through a real Plug request.
+    telemetry_prefix = [:"ip_aq_crop_wire_#{System.unique_integer([:positive])}"]
+    search_stop = telemetry_prefix ++ [:encode, :search, :stop]
+    test_pid = self()
+    handler_id = "aq-crop-wire-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      search_stop,
+      fn _event, _measurements, meta, _config -> send(test_pid, {:search_stop, meta}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    opts = [
       sources: [
         path:
-          {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: Hdr16OriginImage]}
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
+      ],
+      autoquality_method: :ssimulacra2,
+      autoquality_target: %{ssimulacra2: 70},
+      telemetry_prefix: telemetry_prefix
+    ]
+
+    # No resize: the full >6 MP frame is finalized, so the ladder selects crop mode.
+    conn = call_imgproxy("/_/f:jpeg/plain/images/large.jpg", opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+    # A valid, decodable result — the search did not time out or error mid-confirm.
+    assert {2800, 2800} = dimensions(conn)
+
+    assert_receive {:search_stop, meta}
+    assert meta.scorer == :crop
+    assert meta.confirm_passes == 0
+    assert meta.result == :ok
+  end
+
+  test "large graphic AVIF above the crossover selects the {avif, graphic} offset (#380)" do
+    # End-to-end contract: a large graphic AVIF render classifies :graphic and
+    # draws the big {avif, :graphic} offset on the crop path. NOT an "achieves
+    # target" assertion — on the crop path the search lands its offset-corrected
+    # estimate in-band by construction at any offset (that would be vacuous); the
+    # 6.0 magnitude's correctness is owned by `mix autoquality.bench --part m`.
+    telemetry_prefix = [:"ip_aq_graphic_#{System.unique_integer([:positive])}"]
+    test_pid = self()
+    handler_id = "aq-graphic-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach_many(
+      handler_id,
+      [
+        telemetry_prefix ++ [:encode, :classify, :stop],
+        telemetry_prefix ++ [:encode, :search, :stop]
+      ],
+      fn event, _measurements, meta, _config -> send(test_pid, {:stop, event, meta}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    opts = [
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: LargeGraphicOriginImage]}
+      ],
+      autoquality_method: :ssimulacra2,
+      autoquality_target: %{ssimulacra2: 70},
+      telemetry_prefix: telemetry_prefix
+    ]
+
+    # Explicit AVIF, no resize: the full >6 MP frame is finalized → crop scorer fires.
+    conn = call_imgproxy("/_/f:avif/plain/images/large.jpg", opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/avif"]
+
+    classify_stop = telemetry_prefix ++ [:encode, :classify, :stop]
+    search_stop = telemetry_prefix ++ [:encode, :search, :stop]
+
+    assert_receive {:stop, ^classify_stop, %{content_class: :graphic, applied_offset: 6.0}}
+    assert_receive {:stop, ^search_stop, %{scorer: :crop}}
+  end
+
+  test "large photo AVIF above the crossover keeps the lean 2.4 offset (#380 no-inflation)" do
+    telemetry_prefix = [:"ip_aq_photo_#{System.unique_integer([:positive])}"]
+    test_pid = self()
+    handler_id = "aq-photo-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      telemetry_prefix ++ [:encode, :classify, :stop],
+      fn _event, _measurements, meta, _config -> send(test_pid, {:classify, meta}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    opts = [
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
+      ],
+      autoquality_method: :ssimulacra2,
+      autoquality_target: %{ssimulacra2: 70},
+      telemetry_prefix: telemetry_prefix
+    ]
+
+    conn = call_imgproxy("/_/f:avif/plain/images/large.jpg", opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/avif"]
+    # avif × :photo keeps the prior global 2.4 → no byte inflation vs today.
+    assert_receive {:classify, %{content_class: :photo, applied_offset: 2.4}}
+  end
+
+  test "equivalent imgproxy option order shares filesystem cache through real Plug requests" do
+    {opts, cache_root} = cached_opts()
+
+    try do
+      first_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert first_conn.status == 200
+      assert content_type(first_conn) == ["image/jpeg"]
+      assert dimensions(first_conn) == {120, 90}
+      assert_received :origin_fetch
+
+      second_conn = call_imgproxy("/_/f:jpeg/h:90/rt:force/w:120/plain/images/beach.jpg", opts)
+
+      assert second_conn.status == 200
+      assert content_type(second_conn) == ["image/jpeg"]
+      assert dimensions(second_conn) == {120, 90}
+      assert second_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
+
+  test "configured default format quality is applied to output (byte-identical to explicit q)" do
+    # Proves the new host-config default quality is actually applied, not merely
+    # that *some* quality is used: a default request with format_quality webp:50
+    # must produce byte-identical output to an explicit q:50 (both resolve the
+    # webp encode to Q50). If the config default were ignored, the default
+    # request would fall to libvips' own webp default and the bytes would differ.
+    source = [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
+    ]
+
+    default_opts = [
+      sources: source,
+      format_quality: %{webp: 50}
+    ]
+
+    q50_opts = [sources: source]
+
+    default_conn =
+      call_imgproxy("/_/rs:fit:300:300/plain/images/photo.jpg", default_opts, "image/webp")
+
+    q50_conn =
+      call_imgproxy("/_/q:50/rs:fit:300:300/plain/images/photo.jpg", q50_opts, "image/webp")
+
+    assert content_type(default_conn) == ["image/webp"]
+    assert content_type(q50_conn) == ["image/webp"]
+    assert default_conn.resp_body == q50_conn.resp_body
+  end
+
+  test "URL autoquality min/max override the per-format config bracket (avif)" do
+    # Config bounds the avif autoquality search to Q60..65; a URL autoquality with
+    # min:max 80:90 must win, forcing a higher Q floor and therefore a larger file.
+    source = [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
+    ]
+
+    opts = [
+      sources: source,
+      autoquality_method: :ssimulacra2,
+      autoquality_target: %{ssimulacra2: 90},
+      autoquality_format_min_quality: %{avif: 60},
+      autoquality_format_max_quality: %{avif: 65}
+    ]
+
+    config_conn =
+      call_imgproxy("/_/rs:fit:300:300/plain/images/photo.jpg", opts, "image/avif")
+
+    url_conn =
+      call_imgproxy(
+        "/_/autoquality:ssim2:90:80:90/rs:fit:300:300/plain/images/photo.jpg",
+        opts,
+        "image/avif"
+      )
+
+    assert content_type(config_conn) == ["image/avif"]
+    assert content_type(url_conn) == ["image/avif"]
+    assert byte_size(url_conn.resp_body) > byte_size(config_conn.resp_body)
+  end
+
+  test "encoded path source succeeds through a real Plug request" do
+    encoded = encoded_source("images/beach.jpg")
+
+    conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}", @default_opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+    assert dimensions(conn) == {120, 90}
+    assert byte_size(conn.resp_body) > 0
+  end
+
+  describe "CORS (dialect-neutral, through the imgproxy parser)" do
+    test "image response carries Access-Control-Allow-Origin when allow_origin set" do
+      encoded = encoded_source("images/beach.jpg")
+
+      conn =
+        call_imgproxy(
+          "/_/rt:force/w:120/h:90/f:jpeg/#{encoded}",
+          [allow_origin: "https://cdn.test"] ++ @default_opts
+        )
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+
+    # The `Response.CORS` before-send hook is registered once, ahead of the
+    # whole request chain (imgproxy.ex/native.ex `call/2`), so it must stamp
+    # every exit path — not just the 200 image body proven above. These three
+    # cover the other exits reachable without a method layer: a 304 from the
+    # pre-fetch conditional-GET gate, a pre-fetch 4xx image error, and the
+    # `/info` terminal.
+    test "a 304 Not Modified response carries Access-Control-Allow-Origin when allow_origin set" do
+      base_opts =
+        Keyword.merge(@default_opts,
+          allow_origin: "https://cdn.test",
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               byte_identity: :strong,
+               req_options: [plug: OriginImage]}
+          ]
+        )
+
+      # The dialect emits an ETag unconditionally whenever the source has a
+      # strong byte identity.
+      opts = base_opts
+
+      path = "/_/w:120/plain/images/beach.jpg"
+
+      first = call_imgproxy(path, opts)
+      [etag] = get_resp_header(first, "etag")
+
+      conn =
+        :get
+        |> conn(path)
+        |> put_req_header("if-none-match", etag)
+        |> call_imgproxy_conn(opts)
+
+      assert conn.status == 304
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+
+    test "a 4xx image error carries Access-Control-Allow-Origin when allow_origin set" do
+      conn =
+        call_imgproxy(
+          "/_/w:-1/plain/images/beach.jpg",
+          [allow_origin: "https://cdn.test"] ++ @default_opts
+        )
+
+      assert conn.status == 400
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+
+    test "an /info response carries Access-Control-Allow-Origin when allow_origin set" do
+      conn =
+        call_imgproxy(
+          "/info/unsafe/plain/images/beach.jpg",
+          [allow_origin: "https://cdn.test"] ++ @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["application/json; charset=utf-8"]
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+  end
+
+  describe "CORS OPTIONS/method layer" do
+    test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
+      conn =
+        call_imgproxy_method(
+          :options,
+          "/_/anything",
+          [allow_origin: "https://cdn.test"] ++ @default_opts
+        )
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+
+    test "OPTIONS → 204 + Allow, no CORS headers when allow_origin unset" do
+      conn = call_imgproxy_method(:options, "/_/anything", @default_opts)
+
+      assert conn.status == 204
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      assert get_resp_header(conn, "access-control-allow-methods") == []
+      assert get_resp_header(conn, "access-control-allow-origin") == []
+    end
+
+    test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
+      conn =
+        call_imgproxy_method(
+          :put,
+          "/_/anything",
+          [allow_origin: "https://cdn.test"] ++ @default_opts
+        )
+
+      assert conn.status == 405
+      assert get_resp_header(conn, "allow") == ["GET, HEAD"]
+      # Proves the before-send hook is not 200-only: it fires on the 405 too.
+      assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
+    end
+  end
+
+  test "automatic output negotiates modern formats from Accept and sets Vary" do
+    cases = [
+      {"image/avif,image/webp", "image/avif"},
+      {"image/webp", "image/webp"},
+      # A real Chrome/Firefox `<img>` Accept: AVIF wins from its explicit mime;
+      # the trailing `image/*` does not promote JPEG XL (which browsers can't decode).
+      {"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", "image/avif"}
+    ]
+
+    for {accept, expected_content_type} <- cases do
+      conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(@default_opts, accept)
+
+      assert conn.status == 200
+      assert content_type(conn) == [expected_content_type]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert byte_size(conn.resp_body) > 0
+    end
+  end
+
+  # Both fall back to source here. Bare `image/*` is **parity** (imgproxy has no
+  # explicit jxl/avif/webp substring either, so it too falls back). The `q=0` case
+  # **diverges** (documented in docs/imgproxy_support_matrix.md): imgproxy ignores
+  # `q` and would serve AVIF on its `image/avif` substring, while ImagePipe honors
+  # the in-range `q=0` exclusion. Neither target ever serves JPEG XL on `image/*`.
+  test "image/* wildcard and an exact q=0 fall back to source, not a modern format" do
+    cases = [
+      "image/avif;q=0,image/*;q=1",
+      "image/*"
+    ]
+
+    for accept <- cases do
+      conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(@default_opts, accept)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert byte_size(conn.resp_body) > 0
+    end
+  end
+
+  test "automatic output prefers AVIF over JPEG XL by default when both are accepted" do
+    accepts = [
+      "image/jxl,image/avif,image/webp",
+      "image/avif,image/webp,image/jxl"
+    ]
+
+    for accept <- accepts do
+      conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(@default_opts, accept)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/avif"]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+    end
+  end
+
+  test "automatic output serves JPEG XL when it is the only accepted modern format" do
+    conn =
+      "/_/plain/images/beach.jpg"
+      |> call_imgproxy(@default_opts, "image/jxl")
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jxl"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+  end
+
+  test "format_order: [:jpeg_xl] makes automatic output prefer JPEG XL over AVIF" do
+    conn =
+      "/_/plain/images/beach.jpg"
+      |> call_imgproxy(
+        [format_order: [:jpeg_xl]] ++ @default_opts,
+        "image/avif,image/webp,image/jxl"
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jxl"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+  end
+
+  test "explicit JPEG XL output bypasses Accept and does not set Vary" do
+    cases = [
+      "/_/f:jxl/plain/images/beach.jpg",
+      "/_/plain/images/beach.jpg@jxl"
+    ]
+
+    for path <- cases do
+      conn = call_imgproxy(path, @default_opts, "image/avif,image/webp")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jxl"]
+      assert get_resp_header(conn, "vary") == []
+      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+    end
+  end
+
+  test "automatic output treats missing empty and wildcard-only Accept as source fallback" do
+    cases = [
+      nil,
+      "",
+      "*/*",
+      "*/*;q=1",
+      "application/json,*/*;q=1"
+    ]
+
+    for accept <- cases do
+      conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(@default_opts, accept)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert byte_size(conn.resp_body) > 0
+    end
+  end
+
+  test "explicit output formats bypass Accept and do not set Vary" do
+    cases = [
+      {"/_/f:webp/plain/images/beach.jpg", "image/webp"},
+      {"/_/f:jpeg/plain/images/beach.jpg", "image/jpeg"},
+      {"/_/plain/images/beach.jpg@webp", "image/webp"}
+    ]
+
+    for {path, expected_content_type} <- cases do
+      conn = call_imgproxy(path, @default_opts, "image/avif,image/webp")
+
+      assert conn.status == 200
+      assert content_type(conn) == [expected_content_type]
+      assert get_resp_header(conn, "vary") == []
+      assert byte_size(conn.resp_body) > 0
+    end
+  end
+
+  test "encoded output suffix bypasses Accept negotiation and does not set Vary" do
+    encoded = encoded_source("images/beach.jpg")
+
+    conn = call_imgproxy("/_/f:jpeg/#{encoded}.webp", @default_opts, "image/avif,image/webp")
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/webp"]
+    assert get_resp_header(conn, "vary") == []
+    assert byte_size(conn.resp_body) > 0
+  end
+
+  test "encrypted path source succeeds through a real Plug request" do
+    encrypted = encrypted_source("images/beach.jpg")
+
+    conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}", encrypted_opts())
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+    assert dimensions(conn) == {120, 90}
+    assert byte_size(conn.resp_body) > 0
+  end
+
+  test "encrypted output suffix bypasses Accept negotiation and does not set Vary" do
+    encrypted = encrypted_source("images/beach.jpg")
+
+    conn =
+      call_imgproxy(
+        "/_/f:jpeg/enc/#{encrypted}.webp",
+        encrypted_opts(),
+        "image/avif,image/webp"
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/webp"]
+    assert get_resp_header(conn, "vary") == []
+    assert byte_size(conn.resp_body) > 0
+  end
+
+  # An Accept-negotiated response must carry `Vary: Accept` even when it fails,
+  # or a shared cache may serve this 415 to a client whose Accept would have
+  # negotiated a different (working) outcome. The dialect threads the negotiation
+  # headers through `Errors.send/4`.
+  #
+  # The sibling test below — explicit `f:png`, where `Vary: []` IS correct — is
+  # what proves the header is negotiation-derived rather than stamped
+  # unconditionally.
+  test "automatic output rejects decoded SVG source responses as unsupported images" do
+    if svg_supported?() do
+      conn =
+        "/_/plain/images/vector.svg"
+        |> call_imgproxy(svg_origin_opts(), "image/avif,image/webp")
+
+      assert conn.status == 415
+      assert conn.resp_body == "source response is not a supported image"
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert_received {:cache_lookup, _key}
+      assert_received :origin_fetch
+      refute_received {:cache_put, _key, _entry}
+    end
+  end
+
+  test "explicit output rejects decoded SVG source responses without Vary" do
+    if svg_supported?() do
+      for path <- ["/_/f:png/plain/images/vector.svg", "/_/plain/images/vector.svg@png"] do
+        conn = call_imgproxy(path, svg_origin_opts(), "image/avif,image/webp")
+
+        assert conn.status == 415
+        assert conn.resp_body == "source response is not a supported image"
+        assert get_resp_header(conn, "vary") == []
+        assert_received {:cache_lookup, _key}
+        assert_received :origin_fetch
+        refute_received {:cache_put, _key, _entry}
+      end
+    end
+  end
+
+  test "representative geometry options produce expected decoded dimensions" do
+    cases = [
+      {"/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg", {120, 80}},
+      {"/_/rs:fill:120:90/g:ce/f:jpeg/plain/images/beach.jpg", {120, 90}},
+      {"/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", {120, 90}},
+      {"/_/c:120:90/f:jpeg/plain/images/beach.jpg", {120, 90}},
+      {"/_/g:soea/rs:fill:120:90/f:jpeg/plain/images/beach.jpg", {120, 90}}
+    ]
+
+    for {path, expected_dimensions} <- cases do
+      conn = call_imgproxy(path, @default_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert dimensions(conn) == expected_dimensions
+    end
+  end
+
+  test "g:sm smart gravity returns a smart-cropped image of the requested size" do
+    conn = call_imgproxy("/_/rs:fill:80:80/g:sm/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+    assert dimensions(conn) == {80, 80}
+
+    # A silent fallback to center gravity would make smart and center crops
+    # identical; assert the smart crop genuinely picks a different region.
+    centered =
+      call_imgproxy("/_/rs:fill:80:80/g:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert centered.status == 200
+    refute conn.resp_body == centered.resp_body
+  end
+
+  test "exar:1 under fit extends the canvas to the resize aspect ratio" do
+    # beach.jpg is 4000x2667 (landscape). rs:fit:300:300 scales it to 300x200 (width
+    # is the binding axis). exar:1 extends the canvas to the 1:1 requested ratio,
+    # padding the deficient axis: height grows from 200 to 300, giving a 300x300 output.
+    conn =
+      call_imgproxy("/_/rs:fit:300:300/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {300, 300}
+  end
+
+  test "exar:1 under force is a no-op when the image already matches the requested ratio" do
+    # beach.jpg is 4000x2667. rs:force:300:200 hard-scales it to exactly 300x200.
+    # exar:1 would extend to the requested 300:200 (3:2) ratio, but the canvas is
+    # already 3:2, so no padding is added and output dimensions are identical.
+    base = call_imgproxy("/_/rs:force:300:200/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    with_exar =
+      call_imgproxy("/_/rs:force:300:200/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert base.status == 200
+    assert with_exar.status == 200
+    assert dimensions(base) == {300, 200}
+    assert dimensions(with_exar) == {300, 200}
+    # A true no-op must produce byte-identical output, not merely the same size.
+    assert with_exar.resp_body == base.resp_body
+  end
+
+  test "effect options change decoded response pixels without geometry options" do
+    baseline =
+      "/_/f:png/plain/images/effects.png"
+      |> call_imgproxy(effect_origin_opts())
+      |> decoded_image()
+
+    cases = [
+      "/_/bl:4/f:png/plain/images/effects.png",
+      "/_/sh:10/f:png/plain/images/effects.png",
+      # pix:7 (not a divisor of the 16px stripes) so a block straddles each stripe
+      # edge and the box mean visibly shifts those pixels. A block-aligned size (e.g.
+      # pix:8) would be a true no-op on this striped source — imgproxy's box-mean
+      # pixelate cannot change a block that lies within a single uniform stripe (#238).
+      "/_/pix:7/f:png/plain/images/effects.png",
+      "/_/mc:1:ffcc00/f:png/plain/images/effects.png",
+      "/_/dt:1:112233:ffeecc/f:png/plain/images/effects.png",
+      "/_/br:25/f:png/plain/images/effects.png",
+      "/_/co:1.5/f:png/plain/images/effects.png",
+      "/_/sa:0.4/f:png/plain/images/effects.png"
+    ]
+
+    for path <- cases do
+      image =
+        path
+        |> call_imgproxy(effect_origin_opts())
+        |> decoded_image()
+
+      assert dimensions(image) == dimensions(baseline)
+      assert sampled_pixels(image) != sampled_pixels(baseline)
+    end
+  end
+
+  test "colorize/gradient/adjust change decoded pixels without geometry" do
+    baseline =
+      "/_/f:png/plain/images/effects.png"
+      |> call_imgproxy(effect_origin_opts())
+      |> decoded_image()
+
+    for path <- [
+          "/_/col:0.5:ff0000/f:png/plain/images/effects.png",
+          "/_/gr:0.6:000000:down/f:png/plain/images/effects.png",
+          "/_/a:40:1.4:0.7/f:png/plain/images/effects.png"
+        ] do
+      image = path |> call_imgproxy(effect_origin_opts()) |> decoded_image()
+      assert dimensions(image) == dimensions(baseline)
+      assert sampled_pixels(image) != sampled_pixels(baseline)
+    end
+  end
+
+  test "adjust produces the same bytes as the equivalent br/co/sa" do
+    via_adjust =
+      "/_/a:40:1.4:0.7/f:png/plain/images/effects.png" |> call_imgproxy(effect_origin_opts())
+
+    via_long =
+      "/_/br:40/co:1.4/sa:0.7/f:png/plain/images/effects.png"
+      |> call_imgproxy(effect_origin_opts())
+
+    assert via_adjust.resp_body == via_long.resp_body
+  end
+
+  test "imgproxy auto_rotate config and URL options control EXIF autorotation" do
+    default_conn =
+      "/_/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts())
+
+    assert default_conn.status == 200
+    assert content_type(default_conn) == ["image/jpeg"]
+    assert dimensions(default_conn) == {80, 40}
+
+    configured_disabled_conn =
+      "/_/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(auto_rotate: false))
+
+    assert configured_disabled_conn.status == 200
+    assert dimensions(configured_disabled_conn) == {40, 80}
+
+    url_enabled_conn =
+      "/_/ar:true/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(auto_rotate: false))
+
+    assert url_enabled_conn.status == 200
+    assert dimensions(url_enabled_conn) == {80, 40}
+
+    url_disabled_conn =
+      "/_/ar:false/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(auto_rotate: true))
+
+    assert url_disabled_conn.status == 200
+    assert dimensions(url_disabled_conn) == {40, 80}
+  end
+
+  test "ar:0 + EXIF-6 + user rot:90 applies only the user rotation (regression guard)" do
+    conn =
+      "/_/ar:false/rot:90/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(auto_rotate: true))
+
+    assert conn.status == 200
+    # ar:0 ignores the EXIF tag; user rot:90 on the STORED 40x80 -> 80x40.
+    assert dimensions(conn) == {80, 40}
+    assert_oriented_pixels_match(decoded_image(conn), reference_user_rot90_storage())
+  end
+
+  test "no-geometry: rot:90 on EXIF-6 (ar:1) = 180 deg net" do
+    conn =
+      "/_/rot:90/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(auto_rotate: true))
+
+    assert conn.status == 200
+    # EXIF-6 (90 deg) THEN user 90 deg = 180 deg net on the stored 40x80 -> stays 40x80.
+    assert dimensions(conn) == {40, 80}
+    assert_oriented_pixels_match(decoded_image(conn), reference_180_of_stored())
+  end
+
+  # ── Deferred-orientation Slice A gates (#146) ────────────────────────────────
+
+  # Regression guard for the deferred-orientation cutover: an EXIF-oriented source
+  # combined with a gravity / region / focus-point / cover crop must SUCCEED.
+  # Before the offset-unit fix in NeutralResolver.compensate_crop/2, the executable
+  # crop's tagged offset ({:pixels, 0.0}) reached Orientation's bare-float
+  # arithmetic and raised, turning every EXIF-2..7 + crop request into a 500.
+  test "EXIF-oriented source with a gravity/region/fp/cover crop succeeds (no compensation crash)" do
+    paths = [
+      "/_/rs:fill:90:90/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:60/g:ce/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no:5:6/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/g:so:0:8/f:png/plain/images/x.jpg",
+      "/_/g:fp:0.25:0.75/rs:fill:80:80/f:png/plain/images/x.jpg",
+      "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      conn = call_imgproxy(path, oriented_frame_opts(orientation))
+
+      assert conn.status == 200,
+             "EXIF-#{orientation} #{path} returned #{conn.status} (expected 200)"
+    end
+  end
+
+  # The wire-vs-orientation-1 oracle. For each EXIF orientation 1..8 (including the
+  # mirrors 2/4/5/7 and the axis-swapping quarter turns 5/6/7/8), the SAME imgproxy
+  # request is run against the EXIF-oriented source and against the orientation-1
+  # twin carrying the same displayed pixels. Identical operators on both legs ⇒ the
+  # decoded interior pixels match (lossless PNG twin; the oriented leg is JPEG, so
+  # a small interior tolerance absorbs decode noise — direction is still pinned).
+  #
+  # Covered geometry forms (the orientation-1 twin is an exact equivalence):
+  # center / non-center anchor crop, focus-point crop, smart crop, explicit region
+  # crop, cover/fill result crop with center AND non-center gravity, fit / force
+  # including coprime (91×61) source-divergent targets, min-dimension (mw/mh) under
+  # a quarter turn (cover resolved in the display frame — #146 Bug 2), and the FP
+  # crop whose separate offset rotates as a vector (#146 Bug 3).
+  test "crop/resize matrix matches the orientation-1 twin across EXIF 1..8" do
+    paths = [
+      # anchor crops: center + non-center
+      "/_/c:60:40:ce/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no/f:png/plain/images/x.jpg",
+      "/_/c:50:60:we/f:png/plain/images/x.jpg",
+      # focus-point crop (center-ish and off-center) — exercises the FP offset
+      # (zero) transforming as a vector under quarter turns (#146 Bug 3)
+      "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg",
+      # smart crop (attention saliency on the displayed pixels)
+      "/_/rs:fill:80:80/g:sm/f:png/plain/images/x.jpg",
+      # cover/fill result crop: center + non-center gravity
+      "/_/rs:fill:90:90/g:ce/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:60/g:so/f:png/plain/images/x.jpg",
+      # fp-guided cover
+      "/_/g:fp:0.25:0.75/rs:fill:80:80/f:png/plain/images/x.jpg",
+      # rounding-sensitive coprime targets: fit / force / fill
+      "/_/rs:fit:91:61/f:png/plain/images/x.jpg",
+      "/_/rs:force:91:61/f:png/plain/images/x.jpg",
+      "/_/rs:fill:91:61/g:ce/f:png/plain/images/x.jpg",
+      # cover + min-dimension under a quarter turn: the cross-axis min-dim
+      # coupling must resolve in the display frame (#146 Bug 2)
+      "/_/rs:fill:91:61/mw:140/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/mh:130/g:ce/f:png/plain/images/x.jpg",
+      # fit + min-dimension under a quarter turn (#194): mw/mh force a uniform
+      # upscale past the requested box, so the new fit result-crop fires; its box
+      # and the cross-axis coupling must land in the display frame too. Both crop in
+      # portrait (mw binds) and landscape (mh binds) display orientations.
+      "/_/rs:fit:80:80/mw:70/mh:70/f:png/plain/images/x.jpg",
+      "/_/rs:fit:91:61/mh:130/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, oriented_frame_opts(orientation))
+      twin = call_imgproxy(path, orientation1_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_twin_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # #146 Bug 2 regression: cover + min-dimension under a quarter turn. The
+  # cross-axis min-dim coupling (prepare.go:146-158) must close over the DISPLAY
+  # axes, so this is resolved in the display frame and the resolved dims swapped
+  # back to storage. The mw:140 min-dimension drives the cover scale past the
+  # requested box, and the universal cropToResult trims back to the literal
+  # requested 91×61 (#236); a coupling bug would shift which pixels land in that
+  # window, which the twin pixel match still catches.
+  test "cover + min-dimension under a quarter turn matches the twin (display-frame resolve)" do
+    path = "/_/rs:fill:91:61/mw:140/f:png/plain/images/x.jpg"
+
+    oriented = call_imgproxy(path, oriented_frame_opts(6))
+    twin = call_imgproxy(path, orientation1_twin_opts(6))
+
+    assert oriented.status == 200 and twin.status == 200
+    assert dimensions(oriented) == {91, 61}
+    assert_twin_oracle_match(decoded_image(oriented), decoded_image(twin), "EXIF-6 #{path}")
+  end
+
+  # #146 Bug 3 regression: an FP crop carries the focus in the gravity tuple AND a
+  # separate (zero) crop offset. The separate offset must rotate as a displacement
+  # vector, not via the FP `1 - x` fraction rule — otherwise the zero offset
+  # became {:pixels, 1.0} at 90/270, a 1px divergence. The twin pins maxdiff 0
+  # (lossless on both legs for this exact-dim center crop).
+  test "FP crop under a quarter turn matches the twin exactly (no spurious 1px offset)" do
+    path = "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg"
+
+    for orientation <- [6, 7] do
+      oriented = call_imgproxy(path, oriented_frame_opts(orientation))
+      twin = call_imgproxy(path, orientation1_twin_opts(orientation))
+
+      assert oriented.status == 200 and twin.status == 200
+      assert dimensions(oriented) == dimensions(twin)
+
+      assert_twin_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # Embedded EXIF orientation tag in the OUTPUT, asserted only under sm:0
+  # (strip_metadata=false). The default sm:1 strips the tag regardless of ar, so
+  # the ar:0-keeps-the-tag case below holds only because sm:0 disables stripping
+  # — it does NOT generalize. imgproxy's autorotate consumes and removes the tag;
+  # ar:0 leaves the bytes (and tag) untouched.
+  test "ar/sm control the residual output orientation tag (sm:0)" do
+    # (a) ar:1 + tagged source: tag absent (autorotate stripped it), pixels rotated.
+    rotated = call_imgproxy("/_/sm:0/f:png/plain/images/x.jpg", oriented_frame_opts(6))
+    assert rotated.status == 200
+    assert output_orientation_tag(rotated) in [nil, 1]
+    # EXIF-6 displays the 120×200 portrait as 200×120 landscape.
+    assert dimensions(rotated) == {200, 120}
+
+    # (b) ar:0 + tagged source under sm:0: tag PRESENT, pixels unrotated (stored).
+    unrotated =
+      call_imgproxy(
+        "/_/ar:0/sm:0/f:png/plain/images/x.jpg",
+        oriented_frame_opts(6, auto_rotate: true)
+      )
+
+    assert unrotated.status == 200
+    assert output_orientation_tag(unrotated) == 6
+    assert dimensions(unrotated) == {120, 200}
+
+    # (c) ar:1 + orientation-1 source: nothing to rotate, no tag introduced.
+    twin = call_imgproxy("/_/sm:0/f:png/plain/images/x.jpg", orientation1_twin_opts(6))
+    assert twin.status == 200
+    assert output_orientation_tag(twin) in [nil, 1]
+    assert dimensions(twin) == {200, 120}
+  end
+
+  # #146 Bug 3: a positive gravity offset moves the crop window INWARD from the
+  # named edge, so on the far edges (:right/:bottom) imgproxy SUBTRACTS the offset
+  # (calc_position.go:45,49) where ImagePipe used to add it unconditionally. The
+  # baseline (non-oriented) case: c:60:40:so:0:15 on a 120×200 source must place
+  # the crop at top = 200 - 40 - 15 = 145 (was 175 → clamped to 160). Asserted by
+  # the displayed position of a white line drawn at storage row 150 (local row 5).
+  test "Bug 3 baseline: south offset crop subtracts from the far edge (top=145)" do
+    # White horizontal line at storage row 150; c:60:40:so:0:15 -> top 145 -> local 5.
+    opts = [
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: {LineOrigin, nil}]}
       ]
     ]
 
-    test "autoquality :ssim2 on a >6 MP source ships the crop verdict with no full-frame confirm (#369)" do
-      # Above the crop crossover the search must ship the crop objective winner with
-      # NO full-frame confirm/bump — the O(pixels) cost that risked the request
-      # deadline. Capture the encode-search verdict through a real Plug request.
-      telemetry_prefix = [:"ip_aq_crop_wire_#{System.unique_integer([:positive])}"]
+    conn = call_imgproxy("/_/c:60:40:so:0:15/f:png/plain/images/x.jpg", opts)
+    assert conn.status == 200
+    image = decoded_image(conn)
+    assert dimensions(image) == {60, 40}
+
+    white_rows =
+      Enum.filter(0..39, fn y -> image |> Image.get_pixel!(30, y) |> hd() > 180 end)
+
+    # top = 145 puts storage row 150 at local row 5; the old add-then-clamp (top=160)
+    # would push storage row 150 off the bottom of the crop entirely.
+    assert white_rows == [5],
+           "expected white line at local row 5 (top=145), got rows #{inspect(white_rows)}"
+  end
+
+  # #146 Bug 3 under orientation: explicit c: and gravity g: crops with NON-ZERO
+  # offsets on south/east/corner anchors, EXIF 1..8. compensate_gravity_for remaps
+  # the anchor (e.g. North→South under EXIF-3) and vector-transforms the offset
+  # BEFORE the executable applies the per-axis sign, so the executable sees the
+  # post-remap anchor and uses ITS edge. The lossless sharp oracle catches any 1px
+  # divergence that the flat-region JPEG twin would miss.
+  test "Bug 3: non-zero offset crops on so/ea/corner anchors match the eager oracle (EXIF 1-8)" do
+    paths = [
+      # explicit coordinate-style gravity crops with offsets
+      "/_/c:60:40:so:0:15/f:png/plain/images/x.jpg",
+      "/_/c:50:60:ea:12:0/f:png/plain/images/x.jpg",
+      "/_/c:60:60:soea:10:8/f:png/plain/images/x.jpg",
+      "/_/c:60:60:noea:6:6/f:png/plain/images/x.jpg",
+      "/_/c:60:60:nowe:8:8/f:png/plain/images/x.jpg",
+      # cover/fill result crops with offsets on the far edges
+      "/_/rs:fill:90:60:0/g:so:0:10/f:png/plain/images/x.jpg",
+      "/_/rs:fill:60:90:0/g:ea:10:0/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, sharp_oriented_opts(orientation))
+      twin = call_imgproxy(path, sharp_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_sharp_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "Bug3 EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # #146 Bug 2: a centered crop with an odd extent difference on BOTH axes discards
+  # one extra pixel; the storage-frame near-side rounding lands on the wrong display
+  # side under a net 180/270 turn (and under mirror orientations that reverse a
+  # storage axis). center_discard_sides flips the per-axis rounding so the kept
+  # pixel matches imgproxy's display-frame placement. Verified 1px-exact against the
+  # lossless eager oracle for EXIF 1..8 with odd discards on both axes.
+  test "Bug 2: center crop/cover with odd discard on both axes matches the eager oracle (EXIF 1-8)" do
+    paths = [
+      # center crop, odd storage discards on both axes (120-61=59, 200-39=161)
+      "/_/c:61:39:ce/f:png/plain/images/x.jpg",
+      "/_/c:39:61:ce/f:png/plain/images/x.jpg",
+      # center cover result crops with odd discards
+      "/_/rs:fill:91:39/g:ce/f:png/plain/images/x.jpg",
+      "/_/rs:fill:39:91/g:ce/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, sharp_oriented_opts(orientation))
+      twin = call_imgproxy(path, sharp_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_sharp_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "Bug2 EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  test "invalid signatures, paths, options, and expiry stop before cache and origin access" do
+    signed_opts =
+      Keyword.merge(@default_opts,
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ]
+      )
+
+    cases = [
+      {"/invalid/w:120/plain/images/beach.jpg", 403, signed_opts},
+      {"/", 400, @default_opts},
+      {"/_/w:-1/plain/images/beach.jpg", 400, @default_opts},
+      {"/_/exp:100/plain/images/beach.jpg", 400,
+       Keyword.put(@default_opts, :clock, fn -> DateTime.from_unix!(101) end)}
+    ]
+
+    for {path, expected_status, opts} <- cases do
+      conn =
+        call_imgproxy(
+          path,
+          Keyword.merge(opts,
+            cache: {CacheProbe, []},
+            sources: [
+              path:
+                {RootHTTPAdapter,
+                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+            ]
+          )
+        )
+
+      assert conn.status == expected_status
+      refute_received :cache_lookup
+      refute_received :cache_put
+      refute_received :origin_fetch
+    end
+  end
+
+  test "injecting debug:1 into a correctly signed URL invalidates the signature" do
+    signed_opts =
+      Keyword.merge(@default_opts,
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ]
+      )
+
+    # Sign a path WITHOUT debug:1, then inject it. debug:1 rides in the signed
+    # processing-options segment (before /plain/), so the path HMAC no longer
+    # matches — a distinct tamper vector from the option/source segments.
+    signed_path = "/rs:fit:400:300/f:jpeg/plain/images/beach.jpg"
+    tampered = String.replace(signed_request_path(signed_path), "/plain/", "/debug:1/plain/")
+
+    conn =
+      call_imgproxy(
+        tampered,
+        Keyword.merge(signed_opts,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        )
+      )
+
+    assert conn.status == 403
+    refute_received :cache_lookup
+    refute_received :cache_put
+    refute_received :origin_fetch
+  end
+
+  test "malformed encoded source stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_pipe_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    for path <- ["/_/not+base64", "/_/#{Base.url_encode64(<<255>>, padding: false)}"] do
+      conn = call_imgproxy(path, opts)
+
+      assert conn.status == 400
+      refute_received {:telemetry_event, ^source_resolve_start, _, _}
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _entry}
+      refute_received :origin_fetch
+    end
+  end
+
+  test "unsupported decoded source scheme stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_pipe_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    encoded = encoded_source("ftp://example.com/cat.jpg")
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy("/_/#{encoded}", opts)
+
+    assert conn.status == 400
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  # `detector_required: true` + a detection request the stack cannot honor must
+  # reject BEFORE source and cache access. The `:detector` config key injects the
+  # unavailable detector explicitly.
+  @detector_gate_opts [detector: UnavailableDetector, detector_required: true]
+
+  test "detector_required + unavailable detector rejects before source AND cache access" do
+    telemetry_prefix = [:image_pipe_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    opts =
+      @default_opts
+      |> Keyword.merge(@detector_gate_opts)
+      |> Keyword.merge(
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy("/_/rs:fill:80:80/g:obj:face/plain/images/beach.jpg", opts)
+
+    assert conn.status == 422
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  # The no-new-divergence guard for the gate above: with `detector_required`
+  # left at its default (false), `g:obj:*` must still succeed. The dialect cannot
+  # honor the detection and falls back to attention cropping when no detector is
+  # configured. A 4xx here would be a new always-on divergence from upstream.
+  test "g:obj without detector_required still returns 200 (no new divergence)" do
+    conn =
+      call_imgproxy("/_/rs:fill:80:80/g:obj:face/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {80, 80}
+  end
+
+  # Face-assist is deliberately NOT part of the strict detector gate: the
+  # detector gate keys on `Plan.detect_classes/1` alone (a `{:detect, _}`
+  # guide), while a face-assist smart crop carries a `{:smart, :face_assist}`
+  # guide that is not one of the gated detect classes. So even under
+  # `detector_required: true` with an UNAVAILABLE face detector, a `g:sm` +
+  # face-detection request must DEGRADE to attention (200), not reject (422).
+  # The dialect genuinely produces the `{:smart, :face_assist}` guide here — it
+  # stamps the flag onto its PipelineRequest — so its gate must not turn an
+  # active face-assist request into a rejection.
+  @face_assist_gate_opts [
+    detector: UnavailableDetector,
+    detector_required: true,
+    smart_crop_face_detection: true
+  ]
+
+  test "face-assist smart crop under detector_required + unavailable detector degrades to 200" do
+    opts = Keyword.merge(@default_opts, @face_assist_gate_opts)
+
+    conn = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {50, 50}
+  end
+
+  # With a face detector available, `g:sm` + `smart_crop_face_detection: true`
+  # carries a `{:smart, :face_assist}` guide that biases the fill-crop toward the
+  # detected face box, rendering DIFFERENT pixels than a plain `g:sm` attention
+  # crop with the flag off. WeightedSceneDetector's face box ({1400,600,400,400})
+  # sits left-of-center on beach.jpg (4000×2667), pulling the crop window
+  # measurably. The dialect reads the flag off its flat config, so the crop
+  # must render the shift.
+  test "g:sm face-assist smart crop biases the rendered crop vs plain g:sm" do
+    base = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+    assisted = Keyword.merge(base, smart_crop_face_detection: true)
+
+    plain =
+      call_imgproxy("/_/rs:fill:2000:2000/g:sm/f:jpeg/plain/images/beach.jpg", base)
+
+    faced =
+      call_imgproxy("/_/rs:fill:2000:2000/g:sm/f:jpeg/plain/images/beach.jpg", assisted)
+
+    assert plain.status == 200
+    assert faced.status == 200
+    assert dimensions(faced) == {2000, 2000}
+    refute faced.resp_body == plain.resp_body
+  end
+
+  test "encrypted unsupported decoded source scheme stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_pipe_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    encrypted = encrypted_source("ftp://example.com/cat.jpg")
+
+    opts =
+      encrypted_opts(
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy("/_/enc/#{encrypted}", opts)
+
+    assert conn.status == 400
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "encrypted source marker without configured key stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_pipe_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy("/_/enc/payload", opts)
+
+    assert conn.status == 400
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  # The dialect's chain reports the real parse-failure tag on `[:parse, :stop]`
+  # metadata — `Error.tag({:error, :invalid_encrypted_source})`.
+  @parse_error_tag :invalid_encrypted_source
+
+  test "malformed encrypted source collapses parser errors and stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_pipe_wire_encrypted_safety]
+    parse_stop = telemetry_prefix ++ [:parse, :stop]
+    parse_exception = telemetry_prefix ++ [:parse, :exception]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_safety_telemetry(telemetry_prefix)
+
+    opts =
+      encrypted_opts(
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    malformed_paths = [
+      "/_/enc/not+base64",
+      "/_/enc/#{Base.url_encode64(String.duplicate("x", 31), padding: false)}",
+      "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 17), padding: false)}",
+      "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 16), padding: false)}"
+    ]
+
+    expected_tag = @parse_error_tag
+
+    bodies =
+      for path <- malformed_paths do
+        conn = call_imgproxy(path, opts)
+
+        assert conn.status == 400
+
+        assert_received {:telemetry_event, ^parse_stop, _measurements,
+                         %{result: :error, error: ^expected_tag}}
+
+        conn.resp_body
+      end
+
+    assert Enum.uniq(bodies) == ["invalid image request: :invalid_encrypted_source"]
+    refute_received {:telemetry_event, ^parse_exception, _, _}
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "filesystem cache reuses normalized automatic Accept candidates" do
+    {opts, cache_root} = cached_opts()
+
+    try do
+      first_conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(opts, "image/webp;q=1,image/avif;q=0.1")
+
+      assert first_conn.status == 200
+      assert content_type(first_conn) == ["image/avif"]
+      assert get_resp_header(first_conn, "vary") == ["Accept"]
+      assert_received :origin_fetch
+
+      second_conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(opts, "image/avif,image/webp")
+
+      assert second_conn.status == 200
+      assert content_type(second_conn) == ["image/avif"]
+      assert get_resp_header(second_conn, "vary") == ["Accept"]
+      assert second_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
+
+  test "plain and matching encoded source requests share the same filesystem cache entry" do
+    {opts, cache_root} = cached_opts()
+
+    try do
+      plain_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert plain_conn.status == 200
+      assert_received :origin_fetch
+
+      encoded = encoded_source("images/beach.jpg")
+      encoded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}", opts)
+
+      assert encoded_conn.status == 200
+      assert encoded_conn.resp_body == plain_conn.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
+
+  test "plain encoded encrypted and SEO filename spellings share the same filesystem cache entry" do
+    {opts, cache_root} =
+      cached_opts(
+        source_url_encryption_key: @source_url_encryption_key,
+        base64_url_includes_filename: true
+      )
+
+    try do
+      first_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert first_conn.status == 200
+      assert_received :origin_fetch
+
+      encoded = encoded_source("images/beach.jpg")
+      encoded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}/puppy.jpg", opts)
+
+      assert encoded_conn.status == 200
+      assert encoded_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+
+      encrypted = encrypted_source("images/beach.jpg")
+
+      encrypted_conn =
+        call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}/kitten.jpg", opts)
+
+      assert encrypted_conn.status == 200
+      assert encrypted_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+
+      alternate_encrypted =
+        encrypted_source("images/beach.jpg", iv: @alternate_source_url_encryption_iv)
+
+      alternate_conn =
+        call_imgproxy(
+          "/_/rt:force/w:120/h:90/f:jpeg/enc/#{alternate_encrypted}/puppy.jpg",
+          opts
+        )
+
+      assert alternate_conn.status == 200
+      assert alternate_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
+
+  test "signed encrypted URLs verify the SEO filename before decrypting the source" do
+    telemetry_prefix = [:image_pipe_signed_encrypted_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    encrypted = encrypted_source("images/beach.jpg")
+    signed_path = "/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}.webp/puppy.jpg"
+
+    imgproxy =
+      [
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ],
+        source_url_encryption_key: @source_url_encryption_key,
+        base64_url_includes_filename: true
+      ]
+
+    assert call_imgproxy(
+             signed_request_path(signed_path),
+             Keyword.merge(@default_opts, imgproxy)
+           ).status ==
+             200
+
+    opts =
+      encrypted_opts(
+        [
+          telemetry_prefix: telemetry_prefix,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        ] ++ imgproxy
+      )
+
+    tampered_path =
+      signed_path
+      |> signed_request_path()
+      |> String.replace_suffix("puppy.jpg", "kitten.jpg")
+
+    conn = call_imgproxy(tampered_path, opts)
+
+    assert conn.status == 403
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "signed encrypted URLs reject invalid signatures before malformed source decryption" do
+    telemetry_prefix = [:image_pipe_signed_malformed_encrypted_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    imgproxy =
+      [
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ],
+        source_url_encryption_key: @source_url_encryption_key,
+        base64_url_includes_filename: true
+      ]
+
+    opts =
+      encrypted_opts(
+        [
+          telemetry_prefix: telemetry_prefix,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        ] ++ imgproxy
+      )
+
+    conn =
+      call_imgproxy(
+        "/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/rt:force/w:120/h:90/f:jpeg/enc/not+base64.webp/puppy.jpg",
+        opts
+      )
+
+    assert conn.status == 403
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "whole chunked and padded encoded source spellings share the same filesystem cache entry" do
+    {opts, cache_root} = cached_opts()
+
+    try do
+      whole = encoded_source("images/beach.jpg")
+      chunked = chunked_encoded_source("images/beach.jpg")
+      padded = encoded_source("images/beach.jpg", padding: true)
+
+      first_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{whole}", opts)
+
+      assert first_conn.status == 200
+      assert_received :origin_fetch
+
+      chunked_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{chunked}", opts)
+
+      assert chunked_conn.status == 200
+      assert chunked_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+
+      padded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{padded}", opts)
+
+      assert padded_conn.status == 200
+      assert padded_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
+
+  test "custom imgproxy scheme translator and custom source adapter fetch only on cache miss" do
+    opts = [
+      source_schemes: %{
+        "foobar" => {FoobarTranslator, []}
+      },
+      sources: [
+        foobar: {PlugCustomAdapter, adapter: :foobar}
+      ],
+      cache: {CacheProbe, []}
+    ]
+
+    conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
+
+    assert conn.status == 200
+    assert_received {:foobar_translate, "foobar://asset/cat.jpg"}
+    assert_received {:custom_resolve, _source}
+    assert_received {:custom_fetch, :cat}
+  end
+
+  test "cache hit resolves custom source but does not fetch" do
+    opts = [
+      source_schemes: %{"foobar" => {FoobarTranslator, []}},
+      sources: [foobar: {PlugCustomAdapter, adapter: :foobar}],
+      cache: {CacheProbe, result: {:hit, cache_entry()}}
+    ]
+
+    conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
+
+    assert conn.status == 200
+    assert_received {:custom_resolve, _source}
+    assert_received {:cache_lookup, _key}
+    refute_received {:custom_fetch, _fetch}
+    refute_received {:cache_put, _key, _entry}
+    assert source_order() == [:resolve, :cache_lookup]
+  end
+
+  test "cache miss fetches custom source and writes successful encoded response" do
+    opts = [
+      source_schemes: %{"foobar" => {FoobarTranslator, []}},
+      sources: [foobar: {PlugCustomAdapter, adapter: :foobar}],
+      cache: {CacheProbe, result: :miss}
+    ]
+
+    conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
+
+    assert conn.status == 200
+    assert_received {:custom_resolve, _source}
+    assert_received {:cache_lookup, _key}
+    assert_received {:custom_fetch, :cat}
+    assert_received {:cache_open_sink, _key, %{cost_us: cost_us}}
+    assert cost_us > 0
+    assert_received {:cache_put, _key, _entry}
+    assert source_order() == [:resolve, :cache_lookup, :fetch, :cache_put]
+  end
+
+  # A source declaring `internal_cache: :disabled` ("do not store my bytes")
+  # must be honored: no lookup, no write. The dialect does it in `serve/7` by
+  # pattern-matching `%Source.Resolved{internal_cache: :disabled}` and handing
+  # the prepared stream a `nil` cache key. The status is 200 either way:
+  # `source_order/0` is what discriminates here, not the status.
+  test "cache skip fetches custom source without cache lookup or write" do
+    opts = [
+      source_schemes: %{"foobar" => {FoobarTranslator, []}},
+      sources: [
+        foobar: {PlugCustomAdapter, adapter: :foobar, internal_cache: :disabled}
+      ],
+      cache: {CacheProbe, result: :miss}
+    ]
+
+    conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
+
+    assert conn.status == 200
+    assert_received {:custom_resolve, _source}
+    assert_received {:custom_fetch, :cat}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    assert source_order() == [:resolve, :fetch]
+  end
+
+  test "S3 cache hit resolves identity without asking credential providers" do
+    opts = [
+      sources: [
+        s3:
+          {ImagePipe.Source.S3,
+           default: [
+             endpoint: "https://minio.test",
+             region: "eu-west-1",
+             credentials: {:provider, CredentialProvider, []}
+           ],
+           buckets: %{
+             "tenant-a" => [
+               credentials: {:provider, CredentialProvider, []}
+             ]
+           }}
+      ],
+      cache: {CacheProbe, result: {:hit, cache_entry()}}
+    ]
+
+    conn = call_imgproxy("/_/plain/s3://tenant-a/images/cat.jpg%3Fabc", opts)
+
+    assert conn.status == 200
+    assert_received {:cache_lookup, _key}
+    refute_received {:fetch_credentials, _, _, _}
+  end
+
+  test "car corrects the crop area aspect ratio (enlarge)" do
+    # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region (centered).
+    # car:1:1 (ratio=1, enlarge) grows the short axis: 100 -> 200, giving 200x200.
+    # Because gravity is unchanged, the corrected crop must sample the same region
+    # as a direct 200x200 centered crop, so the decoded bytes are identical.
+    conn = call_imgproxy("/_/c:100:200:ce/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+    direct = call_imgproxy("/_/c:200:200:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {200, 200}
+    assert conn.resp_body == direct.resp_body
+  end
+
+  test "car works without a resize (no-geometry-resize case)" do
+    # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region.
+    # car:1 (ratio=1, default reduce) shrinks the long axis: 200 -> 100, giving 100x100.
+    # The corrected crop must equal a direct 100x100 centered crop, pixel for pixel.
+    conn = call_imgproxy("/_/c:100:200:ce/car:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+    direct = call_imgproxy("/_/c:100:100:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {100, 100}
+    assert conn.resp_body == direct.resp_body
+  end
+
+  test "car leaves gravity placement unchanged" do
+    # c:200:400:no + car:1:1 (enlarge) grows short axis: 200 -> 400, giving 400x400 anchored north.
+    # c:400:400:no directly crops 400x400 anchored north. The decoded bytes must be
+    # identical, proving the correction changed only the size and kept the gravity region.
+    via_car =
+      call_imgproxy("/_/c:200:400:no/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    direct = call_imgproxy("/_/c:400:400:no/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert via_car.status == 200
+    assert direct.status == 200
+    assert dimensions(via_car) == dimensions(direct)
+    assert via_car.resp_body == direct.resp_body
+  end
+
+  test "S3 cache miss asks only the selected bucket credential provider before fetch" do
+    plug = fn conn ->
+      Plug.Conn.send_resp(conn, 200, File.read!("priv/static/images/beach.jpg"))
+    end
+
+    # unique bucket names: the credential RefreshCache is application-global and
+    # this suite is async, so a shared scope could let another test warm the
+    # entry and make these assert/refute_received calls pass tautologically.
+    tenant_a = "tenant-a-#{System.unique_integer([:positive])}"
+    tenant_b = "tenant-b-#{System.unique_integer([:positive])}"
+
+    opts = [
+      sources: [
+        s3:
+          {ImagePipe.Source.S3,
+           default: [
+             endpoint: "https://minio.test",
+             region: "eu-west-1",
+             credentials: {:provider, CredentialProvider, role: "default", report_to: self()},
+             req_options: [plug: plug]
+           ],
+           buckets: %{
+             tenant_a => [
+               credentials: {:provider, CredentialProvider, role: "tenant-a", report_to: self()}
+             ],
+             tenant_b => [
+               credentials: {:provider, CredentialProvider, role: "tenant-b", report_to: self()}
+             ]
+           }}
+      ],
+      cache: {CacheProbe, result: :miss}
+    ]
+
+    conn = call_imgproxy("/_/plain/s3://#{tenant_a}/images/cat.jpg%3Fabc", opts)
+
+    assert conn.status == 200
+    assert_received {:fetch_credentials, ^tenant_a, [role: "tenant-a"], []}
+    refute_received {:fetch_credentials, ^tenant_a, [role: "default"], _runtime_opts}
+    refute_received {:fetch_credentials, ^tenant_b, [role: "tenant-b"], _runtime_opts}
+  end
+
+  describe "sm/kcr metadata stripping" do
+    # Note on libvips JPEG behavior: libvips always writes a minimal EXIF block
+    # on JPEG encode (with image dimensions, color space, etc.) regardless of
+    # metadata stripping. Therefore "exif-data present" is always true after JPEG
+    # encode and cannot be used to assert stripping. The meaningful assertions are
+    # on specific EXIF field values (e.g. copyright, image_description) and on
+    # xmp-data, which is only present when the source carried it.
+
+    test "sm:0 retains EXIF copyright, ImageDescription, and XMP; default (sm on) strips them" do
+      # Establish the sm:0 baseline first: if the fixture itself lacks metadata,
+      # these assertions will fail loudly rather than letting the default-strips
+      # assertions pass as false negatives.
+      kept_conn =
+        call_imgproxy(
+          "/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert kept_conn.status == 200
+
+      {kept_image, kept_fields} = response_metadata(kept_conn)
+      {:ok, kept_exif} = Image.exif(kept_image)
+
+      assert Map.get(kept_exif, :copyright) == "(c) ACME",
+             "sm:0 baseline: copyright must be present; fixture is missing EXIF copyright"
+
+      assert Map.get(kept_exif, :image_description) == "A test image",
+             "sm:0 baseline: ImageDescription must be present; fixture is missing EXIF ImageDescription"
+
+      assert "xmp-data" in kept_fields,
+             "sm:0 baseline: xmp-data must be present; fixture is missing XMP metadata"
+
+      # Default request (sm on, kcr on): XMP and non-copyright EXIF fields must
+      # be stripped. Copyright is preserved by kcr:1 (the default).
+      default_conn =
+        call_imgproxy(
+          "/_/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert default_conn.status == 200
+
+      {default_image, default_fields} = response_metadata(default_conn)
+      {:ok, default_exif} = Image.exif(default_image)
+
+      refute "xmp-data" in default_fields,
+             "default (sm on): xmp-data must be stripped from the response"
+
+      refute Map.has_key?(default_exif, :image_description),
+             "default (sm on): non-copyright EXIF field (ImageDescription) must be stripped"
+
+      assert Map.get(default_exif, :copyright) == "(c) ACME",
+             "default (kcr on): copyright must be retained"
+    end
+
+    test "sm:1/kcr:0 strips copyright along with other EXIF and XMP" do
+      # Baseline: the fixture carries copyright, so the refute below is meaningful
+      # even when this test runs in isolation.
+      baseline =
+        call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
+
+      {baseline_image, _baseline_fields} = response_metadata(baseline)
+      {:ok, baseline_exif} = Image.exif(baseline_image)
+      assert Map.get(baseline_exif, :copyright) == "(c) ACME"
+
+      conn =
+        call_imgproxy(
+          "/_/sm:1/kcr:0/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert conn.status == 200
+
+      {image, field_names} = response_metadata(conn)
+      {:ok, exif} = Image.exif(image)
+
+      refute Map.has_key?(exif, :copyright),
+             "kcr:0: copyright must be stripped along with other metadata"
+
+      refute "xmp-data" in field_names,
+             "kcr:0: xmp-data must be stripped"
+    end
+
+    test "sm:1/kcr:1 keeps EXIF copyright while stripping non-copyright EXIF and XMP" do
+      # Baseline: confirm the fixture actually carries the non-copyright EXIF
+      # field, so the "stripped" refute below cannot pass vacuously even when
+      # this test runs in isolation.
+      baseline =
+        call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
+
+      {baseline_image, _baseline_fields} = response_metadata(baseline)
+      {:ok, baseline_exif} = Image.exif(baseline_image)
+      assert Map.get(baseline_exif, :image_description) == "A test image"
+
+      conn =
+        call_imgproxy(
+          "/_/sm:1/kcr:1/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert conn.status == 200
+
+      {image, field_names} = response_metadata(conn)
+      {:ok, exif} = Image.exif(image)
+
+      # Copyright must be retained.
+      assert Map.get(exif, :copyright) == "(c) ACME",
+             "kcr:1: copyright must equal the original value"
+
+      # Non-copyright EXIF field (ImageDescription) must be gone.
+      refute Map.has_key?(exif, :image_description),
+             "kcr:1: non-copyright EXIF field (ImageDescription) must be stripped"
+
+      # XMP must be stripped.
+      refute "xmp-data" in field_names,
+             "kcr:1: xmp-data must be stripped"
+    end
+
+    test "sm flag produces an isolated filesystem-cache variant" do
+      {opts, cache_root} =
+        cached_opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {MetadataOriginImage, test_pid: self()}]}
+          ]
+        )
+
+      try do
+        # Default (sm on): cache miss, EXIF stripped.
+        stripped = call_imgproxy("/_/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert stripped.status == 200
+        assert_received :origin_fetch
+
+        # sm:0: distinct cache key -> cache miss, EXIF retained, different bytes.
+        kept = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert kept.status == 200
+        assert_received :origin_fetch
+        refute kept.resp_body == stripped.resp_body
+
+        # Re-request sm:0: cache hit (no origin fetch), identical bytes — the
+        # variant was cached separately, not cross-served from the default entry.
+        kept_again = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert kept_again.status == 200
+        refute_received :origin_fetch
+        assert kept_again.resp_body == kept.resp_body
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+  end
+
+  describe "scp color-profile normalization" do
+    # Note: `Image.to_colorspace(img, :p3, [])` attaches a P3 ICC profile to the
+    # in-memory image, which libvips embeds in PNG output. Re-opening the PNG bytes
+    # confirms "icc-profile-data" is present, so the scp:0 baseline assertion will
+    # fail loudly if the source generation ever loses the profile, preventing the
+    # scp:1 "dropped" assertion from passing as a false negative.
+    #
+    # Unlike EXIF (which libvips regenerates minimally on JPEG encode), libvips does
+    # NOT synthesize an ICC profile — it embeds one only when the image carries it.
+    # Therefore "icc-profile-data" presence/absence is a meaningful scp assertion.
+
+    test "scp:0 retains the embedded ICC profile; scp:1 (default) drops it and outputs sRGB" do
+      # Establish the scp:0 baseline first: if the source lost its ICC profile,
+      # these assertions fail loudly and prevent the scp:1 refute from passing
+      # vacuously against a profile-less output.
+      scp0_conn =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert scp0_conn.status == 200
+
+      {_scp0_image, scp0_fields} = response_metadata(scp0_conn)
+
+      assert "icc-profile-data" in scp0_fields,
+             "scp:0 baseline: icc-profile-data must be present; source lost its ICC profile"
+
+      # scp:1 → color_profile: :strip: the finalize colorspace-to-result transforms
+      # pixels to the standard sRGB space and drops the icc-profile-data header.
+      scp1_conn =
+        call_imgproxy(
+          "/_/scp:1/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert scp1_conn.status == 200
+
+      {scp1_image, scp1_fields} = response_metadata(scp1_conn)
+
+      refute "icc-profile-data" in scp1_fields,
+             "scp:1: icc-profile-data must be absent from the response"
+
+      assert Image.colorspace(scp1_image) == :srgb,
+             "scp:1: output colorspace header must be sRGB (pixels are proven by ColorCarryParityTest)"
+    end
+
+    test "default request (no scp in URL) drops the ICC profile" do
+      # Same as scp:1 but exercises the default plan: color_profile is :strip
+      # by default in Plan.Output, so no explicit scp option is needed.
+      default_conn =
+        call_imgproxy(
+          "/_/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert default_conn.status == 200
+
+      {_default_image, default_fields} = response_metadata(default_conn)
+
+      refute "icc-profile-data" in default_fields,
+             "default (scp on): icc-profile-data must be absent from the response"
+    end
+
+    test "scp:1 + sm:0 also strips the EXIF color-characterization tags (vips_icc_remove)" do
+      # imgproxy's `vips_icc_remove` (called by colorspaceToResult when the profile
+      # is dropped) removes three EXIF color tags alongside the ICC blob — and does
+      # so independent of StripMetadata. So with scp:1 (default) + sm:0 (keep
+      # metadata), the profile-drop path must strip them even though sm:0 keeps
+      # everything else.
+      #
+      # sm:0/scp:0 baseline first: keeping the profile (scp:0) must leave the color
+      # tags in place, so the scp:1 refute below cannot pass against a tag-less
+      # source. WhitePoint and PrimaryChromaticities are the observable tags;
+      # ImageDescription is the control proving sm:0 itself strips nothing.
+      kept_conn =
+        call_imgproxy("/_/scp:0/sm:0/f:jpeg/plain/images/char.jpg", color_char_origin_opts())
+
+      assert kept_conn.status == 200
+
+      {_kept_image, kept_fields} = response_metadata(kept_conn)
+
+      assert "exif-ifd0-WhitePoint" in kept_fields,
+             "sm:0/scp:0 baseline: WhitePoint must be present; source is missing the tag"
+
+      assert "exif-ifd0-PrimaryChromaticities" in kept_fields,
+             "sm:0/scp:0 baseline: PrimaryChromaticities must be present; source is missing the tag"
+
+      # scp:1 (default) + sm:0: the profile-drop path runs vips_icc_remove's field
+      # list. WhitePoint and PrimaryChromaticities are removed; ImageDescription
+      # stays (sm:0 strips nothing). exif-ifd2-ColorSpace is on the removal list
+      # too, but is NOT asserted here: libvips reconstructs it from the encoded
+      # image's color interpretation on JPEG write, so it reappears on imgproxy
+      # output identically — it is not an output-observable divergence.
+      stripped_conn =
+        call_imgproxy("/_/sm:0/f:jpeg/plain/images/char.jpg", color_char_origin_opts())
+
+      assert stripped_conn.status == 200
+
+      {_stripped_image, stripped_fields} = response_metadata(stripped_conn)
+
+      refute "exif-ifd0-WhitePoint" in stripped_fields,
+             "scp:1 + sm:0: WhitePoint must be stripped by the profile-drop path"
+
+      refute "exif-ifd0-PrimaryChromaticities" in stripped_fields,
+             "scp:1 + sm:0: PrimaryChromaticities must be stripped by the profile-drop path"
+
+      assert "exif-ifd0-ImageDescription" in stripped_fields,
+             "scp:1 + sm:0: ImageDescription must survive (sm:0 strips no general metadata)"
+    end
+
+    test "scp:0 option-order equivalence: same output regardless of URL position" do
+      # scp:0 in different URL positions must parse to the same plan (order-insensitive)
+      # and therefore produce byte-identical output.
+      first =
+        call_imgproxy(
+          "/_/scp:0/rs:fit:80:80/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      second =
+        call_imgproxy(
+          "/_/rs:fit:80:80/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert first.status == 200
+      assert second.status == 200
+      assert first.resp_body == second.resp_body
+    end
+
+    test "scp:0 filesystem cache reuses the same entry for semantically-equivalent requests" do
+      {opts, cache_root} =
+        cached_opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+          ]
+        )
+
+      try do
+        first =
+          call_imgproxy(
+            "/_/scp:0/rs:fit:80:80/f:jpeg/plain/images/beach.jpg",
+            opts
+          )
+
+        assert first.status == 200
+        assert_received :origin_fetch
+
+        # Same plan, different URL option order -> same cache key -> cache hit.
+        second =
+          call_imgproxy(
+            "/_/rs:fit:80:80/scp:0/f:jpeg/plain/images/beach.jpg",
+            opts
+          )
+
+        assert second.status == 200
+        assert second.resp_body == first.resp_body
+        refute_received :origin_fetch
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+  end
+
+  # #124: request-boundary pixel tests for input color management.
+  #
+  # The behavioral contract for scp:0 on a wide-gamut (Display-P3) source:
+  # - The input is color-managed to the working space (sRGB) before any
+  #   processing step (`colorspaceToProcessing` preamble).
+  # - With scp:0 the source ICC profile is re-embedded in the finalized output.
+  # - With scp:1 (default) the profile is dropped and pixels are mapped to sRGB.
+  #
+  # These tests assert on the decoded response body, not just headers.
+  describe "scp:0 pixel behavior (#124)" do
+    test "resize-only scp:0 on a wide-gamut source: profile present, correct dimensions" do
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:200:200/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert conn.status == 200
+
+      {image, fields} = response_metadata(conn)
+
+      # The re-embedded profile must be present in the decoded output.
+      assert "icc-profile-data" in fields,
+             "scp:0 + resize: icc-profile-data must be present in the decoded output"
+
+      # Dimensions: rs:fit:200:200 on a 40×40 source without el (no-enlarge) leaves it
+      # at 40×40 (source is already within the fit box).
+      assert dimensions(image) == {40, 40}
+    end
+
+    test "scp:0 output differs from scp:1 (working-space round-trip visible in pixels)" do
+      # The working-space import transforms out-of-gamut P3 reds: scp:0 re-embeds
+      # the P3 profile (so the pixels stay in P3 representation), while scp:1 maps
+      # to sRGB (clipping out-of-gamut values). The two outputs must differ.
+      scp0 =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      scp1 =
+        call_imgproxy(
+          "/_/scp:1/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert scp0.status == 200
+      assert scp1.status == 200
+
+      refute scp0.resp_body == scp1.resp_body,
+             "scp:0 and scp:1 outputs must differ (working-space round-trip is observable)"
+    end
+  end
+
+  describe "cp/icc target color profile (wire)" do
+    test "cp:display-p3 embeds the target and changes pixels vs strip" do
+      # The 40×40 P3 source: cp:display-p3 keeps the wide gamut and re-embeds a
+      # target ICC profile, while scp:1 maps to sRGB and drops the profile. The
+      # two encoded outputs must differ (embedded profile + remapped pixels).
+      p3_conn =
+        call_imgproxy("/_/cp:display-p3/f:png/plain/images/wide.png", wide_gamut_origin_opts())
+
+      strip_conn =
+        call_imgproxy("/_/scp:1/f:png/plain/images/wide.png", wide_gamut_origin_opts())
+
+      {_p3_img, p3_fields} = response_metadata(p3_conn)
+      {_strip_img, strip_fields} = response_metadata(strip_conn)
+
+      assert "icc-profile-data" in p3_fields
+
+      refute "icc-profile-data" in strip_fields,
+             "scp:1 baseline: icc-profile-data must be absent so the diff is not tautological"
+
+      refute p3_conn.resp_body == strip_conn.resp_body,
+             "cp:display-p3 and scp:1 outputs must differ (target profile + remapped pixels)"
+    end
+
+    test "cp works without geometry (no-geometry form)" do
+      {_img, fields} =
+        response_metadata(
+          call_imgproxy("/_/cp:adobe-rgb/f:png/plain/images/wide.png", wide_gamut_origin_opts())
+        )
+
+      assert "icc-profile-data" in fields
+    end
+
+    test "cp overrides scp: target embedded, not stripped" do
+      {_img, fields} =
+        response_metadata(
+          call_imgproxy("/_/cp:p3/scp:1/f:png/plain/images/wide.png", wide_gamut_origin_opts())
+        )
+
+      assert "icc-profile-data" in fields
+    end
+
+    test "EXIF/XMP still stripped under a cp target (target does not suppress metadata strip)" do
+      # default strip_metadata; keep_copyright defaults true, so assert a NON-copyright
+      # EXIF field + XMP are gone while the cp target ICC is present.
+      {_img, fields} =
+        response_metadata(
+          call_imgproxy("/_/cp:display-p3/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
+        )
+
+      assert "icc-profile-data" in fields
+      refute "exif-ifd0-ImageDescription" in fields
+      refute "xmp-data" in fields
+    end
+
+    test "equal cp requests reuse the filesystem cache (different option order)" do
+      {opts, cache_root} =
+        cached_opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+          ]
+        )
+
+      try do
+        first = call_imgproxy("/_/cp:p3/rs:fit:80:80/f:jpeg/plain/images/beach.jpg", opts)
+        assert first.status == 200
+        assert_received :origin_fetch
+
+        second = call_imgproxy("/_/rs:fit:80:80/cp:p3/f:jpeg/plain/images/beach.jpg", opts)
+        assert second.status == 200
+        assert second.resp_body == first.resp_body
+        refute_received :origin_fetch
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+  end
+
+  describe "output capability handling" do
+    test "automatic negotiation drops avif when the build cannot write it" do
+      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false, webp: true})
+
+      conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/webp"]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+    end
+
+    test "automatic negotiation keeps avif when the build supports it" do
+      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true, webp: true})
+
+      conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/avif"]
+    end
+
+    test "an avif source with a jpeg-only Accept transcodes to raster regardless of capability" do
+      base = [
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: AvifOriginImage]}
+        ]
+      ]
+
+      for capability <- [%{avif: true}, %{avif: false}] do
+        opts = Keyword.put(base, :output_capabilities, capability)
+
+        conn = call_imgproxy("/_/plain/images/cat.avif", opts, "image/jpeg")
+
+        assert conn.status == 200
+        # 64x64 solid red has no alpha -> JPEG, never AVIF, for either build.
+        assert content_type(conn) == ["image/jpeg"]
+        # Decode confirms valid raster output at the source dimensions.
+        assert dimensions(conn) == {64, 64}
+      end
+    end
+
+    test "automatic format is state-driven: opaque padding on a non-passthrough source stays JPEG (#235)" do
+      base = [
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: AvifOriginImage]}
+        ]
+      ]
+
+      # cat.avif is 64×64 solid red (opaque). An opaque padding fill keeps the result
+      # opaque, so ImagePipe's automatic format — resolved from the *final* image's
+      # `has_alpha?` — picks JPEG. imgproxy is request-driven: the mere presence of
+      # padding makes `determineOutputFormat` expect transparency (`PaddingEnabled()`,
+      # processing.go), so it would emit PNG here. ImagePipe deliberately diverges,
+      # serving the smaller opaque container; this pins that choice (a documented
+      # surface divergence — docs/imgproxy_support_matrix.md, #235).
+      conn = call_imgproxy("/_/pd:10/bg:255:0:0/plain/images/cat.avif", base, "image/jpeg")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert dimensions(conn) == {84, 84}
+    end
+
+    test "an avif-capable and avif-less build caches distinct variants for the same Accept" do
+      {base, cache_root} = cached_opts()
+
+      try do
+        capable = Keyword.put(base, :output_capabilities, %{avif: true, webp: true})
+        incapable = Keyword.put(base, :output_capabilities, %{avif: false, webp: true})
+        accept = "image/avif,image/webp"
+        path = "/_/plain/images/beach.jpg"
+
+        capable_conn = call_imgproxy(path, capable, accept)
+        assert content_type(capable_conn) == ["image/avif"]
+        assert_received :origin_fetch
+
+        incapable_conn = call_imgproxy(path, incapable, accept)
+        assert content_type(incapable_conn) == ["image/webp"]
+        # Distinct filtered candidate list -> distinct key -> a second origin fetch.
+        assert_received :origin_fetch
+
+        # A repeat under the capable profile is served from cache without
+        # re-fetching the origin, proving the filtered candidate list keys the two
+        # variants apart (no cross-contamination from the webp entry).
+        repeat_capable = call_imgproxy(path, capable, accept)
+        assert content_type(repeat_capable) == ["image/avif"]
+        assert repeat_capable.resp_body == capable_conn.resp_body
+        refute_received :origin_fetch
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+
+    test "a jpeg source with a jpeg-only Accept passes through as jpeg" do
+      conn = call_imgproxy("/_/plain/images/beach.jpg", @default_opts, "image/jpeg")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+    end
+
+    test "explicit avif is rejected before source fetch on an avif-less build" do
+      opts = [
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ],
+        output_capabilities: %{avif: false}
+      ]
+
+      conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
+
+      assert conn.status == 501
+      # OriginShouldNotFetch flunks/raises if the source is fetched; reaching 501
+      # without that proves the rejection happened pre-fetch.
+    end
+
+    test "explicit avif succeeds on a capable build" do
+      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true})
+
+      conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/avif"]
+      assert get_resp_header(conn, "vary") == []
+    end
+  end
+
+  # Object-detection block: the dialect's `:detector` config seam lets an
+  # injected fake detector reach the crop path, so object-guided crops, class
+  # filtering, objw weights, and the class-aware strict gate are all verified
+  # against the dialect.
+  #
+  # Task 10: Pixel divergence — g:obj:car crop biases toward the detected corner
+  # object, distinct from both center gravity and attention (smart) gravity.
+  test "g:obj:car crop biases toward the detected object, differing from center and attention" do
+    opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+
+    obj = call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", opts)
+    centered = call_imgproxy("/_/rs:fill:50:50/g:ce/f:jpeg/plain/images/beach.jpg", opts)
+    attention = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert obj.status == 200
+    assert dimensions(obj) == {50, 50}
+    refute obj.resp_body == centered.resp_body
+    refute obj.resp_body == attention.resp_body
+  end
+
+  # Task 10: No-geometry — g:obj:car without resize/crop must return 200.
+  test "no-geometry g:obj:car returns 200 without a resize or crop" do
+    opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+
+    conn = call_imgproxy("/_/g:obj:car/plain/images/beach.jpg", opts)
+
+    assert conn.status == 200
+  end
+
+  # Task 10: Gate triad — class-aware strict gate with PartialDetector.
+  # Face child: available, owns ["face"]. Object child: unavailable, owns ["car"].
+  test "detector_required gate triad: face->200, unicorn->200(degrade), car->422 pre-fetch" do
+    opts = Keyword.merge(@default_opts, detector: PartialDetector, detector_required: true)
+
+    # face child available -> routes and succeeds
+    face_conn =
+      call_imgproxy("/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert face_conn.status == 200
+
+    # unknown class routes to no child -> available? vacuously true -> degrades to 200
+    unicorn_conn =
+      call_imgproxy("/_/rs:fill:50:50/g:obj:unicorn/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert unicorn_conn.status == 200
+
+    # object child unavailable -> 422 BEFORE any source fetch or cache access.
+    # Copy the exact setup from "detector_required + unavailable detector" test (~line 599).
+    telemetry_prefix = [:image_pipe_wire_gate_triad]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    gate_opts =
+      Keyword.merge(opts,
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    car_conn =
+      call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
+
+    assert car_conn.status == 422
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  # Slice 2: a face weight measurably changes the crop end-to-end. Exact focal
+  # math is pinned in FocalTest; here we only prove the weight reaches pixels.
+  # rs:fill:2000:2000 on beach.jpg (4000×2667) scales to 3000×2000, large enough
+  # that the WeightedSceneDetector boxes ({2000,800,800,1000} and {1400,600,400,400})
+  # both fit and the uniform vs boosted centroids land at different crop positions.
+  test "objw face weight changes the rendered crop vs uniform" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+    uniform =
+      call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+    boosted =
+      call_imgproxy(
+        "/_/rs:fill:2000:2000/g:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg",
+        opts
+      )
+
+    assert uniform.status == 200
+    assert boosted.status == 200
+    assert dimensions(boosted) == {2000, 2000}
+    refute boosted.resp_body == uniform.resp_body
+  end
+
+  # Slice 2: uniform-weight objw canonicalizes to obj:all (the weight scalar
+  # cancels in the centroid), so it renders identically. (Cache-key identity is a
+  # separate question, covered in the cache task — not asserted here.)
+  test "objw with all-equal weights renders identically to obj:all" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+    objw =
+      call_imgproxy("/_/rs:fill:2000:2000/g:objw:all:2/f:jpeg/plain/images/beach.jpg", opts)
+
+    obj = call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert objw.resp_body == obj.resp_body
+  end
+
+  # Slice 2: the c:W:H:objw crop form reaches the crop path and applies the weight.
+  test "c:W:H:objw crop form applies the weight" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+    weighted =
+      call_imgproxy("/_/c:2000:2000:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg", opts)
+
+    uniform = call_imgproxy("/_/c:2000:2000:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert weighted.status == 200
+    refute weighted.resp_body == uniform.resp_body
+  end
+
+  # Slice 2: no-geometry objw returns 200.
+  test "no-geometry g:objw returns 200 without a resize or crop" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+    conn = call_imgproxy("/_/g:objw:all:1:face:3/plain/images/beach.jpg", opts)
+    assert conn.status == 200
+  end
+
+  # Filtering: objw:face:3 must gate detection to the face class only (not all),
+  # so its crop matches obj:face (face box only) and DIFFERS from obj:all (both boxes).
+  # WeightedSceneDetector returns a person box (large, right-of-center) and a face box
+  # (small, left-of-center), filtered by opts[:classes].
+  #
+  # Beach.jpg is 4000x2667. WeightedSceneDetector boxes:
+  #   person: {2000,800,800,1000} center_x=2400 (60% across) — right side
+  #   face:   {1400,600,400,400}  center_x=1600 (40% across) — left side
+  # rs:fill:2000:2000 scales to 3000×2000, crops 1000px horizontally:
+  #   face-only focal_x_scaled ≈ 1200 → crop_x=200
+  #   obj:all focal_x_scaled ≈ 1614 → crop_x=614
+  # These are 414px apart in a 1000px-crop range, reliably different bytes.
+  test "g:objw:face:3 filters to face class — matches obj:face, differs from obj:all" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+    # objw:face:3 — spec is ["face"], detects only face box (single class → weight inert)
+    objw_face =
+      call_imgproxy(
+        "/_/rs:fill:2000:2000/g:objw:face:3/f:jpeg/plain/images/beach.jpg",
+        opts
+      )
+
+    # obj:face — spec is ["face"], same face-only detection
+    obj_face =
+      call_imgproxy("/_/rs:fill:2000:2000/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
+
+    # obj:all — spec is :all, both person and face boxes counted (person dominates due to size)
+    obj_all =
+      call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert objw_face.status == 200
+    assert obj_face.status == 200
+    assert obj_all.status == 200
+
+    # objw:face:3 detects only face -> same crop focus as obj:face
+    assert objw_face.resp_body == obj_face.resp_body
+
+    # objw:face:3 differs from obj:all because detection set differs (face-only vs all)
+    # The face (left-of-center, crop_x≈200) vs all-classes (crop_x≈614) produces different crops.
+    refute objw_face.resp_body == obj_all.resp_body
+  end
+
+  # Task 19: autoquality + max_bytes wire-level acceptance.
+  #
+  # All sizes below were probed against the real beach.jpg origin through this
+  # harness at `rs:fit:400:400` (a 400×267 JPEG): floor q=1 ≈ 2.7 KB, the default
+  # (no-autoquality) encode ≈ 11.9 KB, max q=100 ≈ 102 KB. The chosen byte budgets
+  # sit between the floor and default encodes so each descent/hit is real, not
+  # vacuously satisfied. Grammar, the binary search, and the precise metric are
+  # unit-tested (encode_search*_test.exs, ssim2_metric_test.exs); these tests only
+  # assert the user-visible wire contract: status, content-type, byte budget, that
+  # the body decodes, and that rejected methods stop before any source fetch.
+  describe "autoquality + max_bytes (wire)" do
+    test "mb:N reduces a JPEG response below the byte budget" do
+      # mb:8000 sits below the ~11.9 KB default encode, so the search must descend.
+      conn =
+        call_imgproxy("/_/rs:fit:400:400/mb:8000/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert byte_size(conn.resp_body) <= 8000
+      assert {:ok, _} = Image.from_binary(conn.resp_body)
+    end
+
+    test "autoquality:size keeps the response within the target byte budget" do
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:size:15000:60:90/f:jpeg/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert byte_size(conn.resp_body) <= 15_000
+      assert {:ok, _} = Image.from_binary(conn.resp_body)
+    end
+
+    test "autoquality:ssim2 yields a decodable JPEG perceptually close to a high-quality baseline" do
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:ssim2:85:50:95/f:jpeg/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert {:ok, body_image} = Image.from_binary(conn.resp_body)
+
+      # Robust perceptual check: compare the search output against a high-quality
+      # (q:95) encode of the same pipeline. The exact target-vs-score relationship
+      # is unit-tested; here we only prove the path runs and yields a sane image
+      # (a comfortably high similarity to a near-lossless reference).
+      baseline =
+        call_imgproxy("/_/rs:fit:400:400/q:95/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+      {:ok, baseline_image} = Image.from_binary(baseline.resp_body)
+      {:ok, reference} = Ssim2Metric.reference(baseline_image)
+      {:ok, score} = Ssim2Metric.score(reference, body_image)
+
+      assert score > 50
+    end
+
+    test "autoquality:ssim2 walk-to-target delivers near the target, not the band floor" do
+      # A lossless PNG of the same finalized pipeline is the EXACT reference the search
+      # scores against (PNG decode is pixel-identical to the pre-encode frame), so the
+      # SSIMULACRA2 measured here is the search's own metric — not the q:95-baseline
+      # proxy used by the perceptual sanity test above.
+      png = call_imgproxy("/_/rs:fit:400:400/f:png/plain/images/beach.jpg", @default_opts)
+      {:ok, png_image} = Image.from_binary(png.resp_body)
+      {:ok, reference} = Ssim2Metric.reference(png_image)
+
+      # target 80, allowed_error 3 → symmetric band [77, 83]. The old lowest-satisfying
+      # search walked DOWN to the floor (lowest quality scoring ≥ 77, i.e. ~77.x);
+      # walk-to-target converges toward the target and stops in-band, delivering at or
+      # above the target (≈ 82.7 on the pinned stack) — well above the floor.
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:ssim2:80:50:95:3/f:jpeg/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      {:ok, body_image} = Image.from_binary(conn.resp_body)
+      {:ok, score} = Ssim2Metric.score(reference, body_image)
+
+      # Tracks the target (80), clearly above the band floor (77). Floor-walking would
+      # ship ~77; a margin to 79 separates the two semantics without pinning an exact
+      # encoder-dependent value.
+      assert score >= 79.0
+    end
+
+    test "autoquality:ssim2 with no target (URL or config) succeeds via the ssim2 default" do
+      # No inline target and no config target: the :ssim2 objective falls back to
+      # its shipped default rather than failing with a missing-target 4xx.
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:ssim2/f:jpeg/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert {:ok, _} = Image.from_binary(conn.resp_body)
+    end
+
+    test "aq:butteraugli produces a smaller-but-valid WebP vs max quality" do
+      # Phase-1 end-to-end exercise of the butteraugli external-measure path on a
+      # non-JXL format. A max-quality (q:100) WebP baseline is larger than the
+      # autoquality encode, which walks the quality knob to a butteraugli distance
+      # of ~1.0 (visually lossless). Decoded dimensions must match — only the byte
+      # budget differs.
+      baseline =
+        call_imgproxy("/_/rs:fit:400:400/q:100/f:webp/plain/images/beach.jpg", @default_opts)
+
+      auto =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:butteraugli:1.0:1:100:0.1/f:webp/plain/images/beach.jpg",
+          @default_opts
+        )
+
+      assert auto.status == 200
+      assert content_type(auto) == ["image/webp"]
+      assert byte_size(auto.resp_body) < byte_size(baseline.resp_body)
+
+      assert {:ok, auto_image} = Image.from_binary(auto.resp_body)
+      assert {:ok, baseline_image} = Image.from_binary(baseline.resp_body)
+
+      assert {Image.width(auto_image), Image.height(auto_image)} ==
+               {Image.width(baseline_image), Image.height(baseline_image)}
+    end
+
+    @tag :jxl
+    test "aq:butteraugli on JXL takes the native single-encode path" do
+      # Phase-2 contract: butteraugli + JPEG XL resolves to NativeJxlButteraugli,
+      # which drives libvips' `distance` directly — a single encode, no band loop
+      # and no external NIF. Observe the verdict through the prefixed encode-search
+      # span: outcome :native, iterations 0.
+      telemetry_prefix = [:"ip_aq_native_jxl_#{System.unique_integer([:positive])}"]
       search_stop = telemetry_prefix ++ [:encode, :search, :stop]
       test_pid = self()
-      handler_id = "aq-crop-wire-#{System.unique_integer([:positive])}"
+      handler_id = "aq-native-jxl-#{System.unique_integer([:positive])}"
 
       :telemetry.attach(
         handler_id,
@@ -868,4114 +3439,1389 @@ for {stack, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
 
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          path:
-            {RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
-        ],
-        imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 70}],
-        telemetry_prefix: telemetry_prefix
-      ]
+      opts = Keyword.put(@default_opts, :telemetry_prefix, telemetry_prefix)
 
-      # No resize: the full >6 MP frame is finalized, so the ladder selects crop mode.
-      conn = call_imgproxy("/_/f:jpeg/plain/images/large.jpg", opts)
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:400:400/autoquality:butteraugli:1.0:1:100:0.1/f:jxl/plain/images/beach.jpg",
+          opts
+        )
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jxl"]
+      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
+
+      assert_receive {:search_stop, meta}
+      assert meta.result == :ok
+      assert meta.outcome == :native
+      assert meta.iterations == 0
+    end
+
+    test "best-effort: an mb: below the floor-quality encode still returns 200" do
+      # mb:1000 is below even the floor (q=1 ≈ 2.7 KB) encode, so the target can't
+      # be met. The search must return the floor result (best-effort), never error.
+      conn =
+        call_imgproxy("/_/rs:fit:400:400/mb:1000/f:jpeg/plain/images/beach.jpg", @default_opts)
 
       assert conn.status == 200
       assert content_type(conn) == ["image/jpeg"]
-      # A valid, decodable result — the search did not time out or error mid-confirm.
-      assert {2800, 2800} = dimensions(conn)
-
-      assert_receive {:search_stop, meta}
-      assert meta.scorer == :crop
-      assert meta.confirm_passes == 0
-      assert meta.result == :ok
+      assert byte_size(conn.resp_body) > 0
+      assert {:ok, _} = Image.from_binary(conn.resp_body)
     end
 
-    test "large graphic AVIF above the crossover selects the {avif, graphic} offset (#380)" do
-      # End-to-end contract: a large graphic AVIF render classifies :graphic and
-      # draws the big {avif, :graphic} offset on the crop path. NOT an "achieves
-      # target" assertion — on the crop path the search lands its offset-corrected
-      # estimate in-band by construction at any offset (that would be vacuous); the
-      # 6.0 magnitude's correctness is owned by `mix autoquality.bench --part m`.
-      telemetry_prefix = [:"ip_aq_graphic_#{System.unique_integer([:positive])}"]
-      test_pid = self()
-      handler_id = "aq-graphic-#{System.unique_integer([:positive])}"
-
-      :telemetry.attach_many(
-        handler_id,
-        [
-          telemetry_prefix ++ [:encode, :classify, :stop],
-          telemetry_prefix ++ [:encode, :search, :stop]
-        ],
-        fn event, _measurements, meta, _config -> send(test_pid, {:stop, event, meta}) end,
-        nil
+    test "autoquality:ml (unknown method) is rejected with 4xx before any source fetch" do
+      assert_rejected_before_fetch(
+        "/_/autoquality:ml:0.02:70:80/f:jpeg/plain/images/beach.jpg",
+        [:image_pipe_wire_autoquality_ml]
       )
+    end
 
-      on_exit(fn -> :telemetry.detach(handler_id) end)
+    test "autoquality:dssim with inline args is rejected with 4xx before any source fetch" do
+      assert_rejected_before_fetch(
+        "/_/autoquality:dssim:0.02/f:jpeg/plain/images/beach.jpg",
+        [:image_pipe_wire_autoquality_dssim]
+      )
+    end
+  end
 
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
+  # Asserts a request fails with a 4xx parser rejection and never touches the
+  # origin: OriginShouldNotFetch raises if fetched, and the source-resolve span is
+  # refuted under a unique telemetry prefix as belt-and-suspenders.
+  defp assert_rejected_before_fetch(path, telemetry_prefix) do
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
         sources: [
           path:
             {RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: LargeGraphicOriginImage]}
-        ],
-        imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 70}],
-        telemetry_prefix: telemetry_prefix
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy(path, opts)
+
+    assert conn.status in 400..499
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received :origin_fetch
+  end
+
+  # Security: near-max-float objw weight must be rejected cleanly (4xx), not crash (500).
+  # WeightedSceneDetector returns face and person boxes in a large region of beach.jpg
+  # (4000x2667), so rs:fill:2000:2000 keeps them in-bounds after resize; without the
+  # fix, weighted_centroid raises ArithmeticError with a 1e308 face weight. With the
+  # fix, the weight is rejected at parse time and the source is never fetched. The
+  # dialect's `:detector` seam feeds WeightedSceneDetector, so the parse-time
+  # weight rejection is exercised against the dialect.
+  test "objw weight at 1e308 is rejected with 4xx before any source fetch" do
+    opts =
+      Keyword.merge(@default_opts,
+        detector: WeightedSceneDetector,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+        ]
+      )
+
+    conn =
+      call_imgproxy(
+        "/_/rs:fill:2000:2000/g:objw:face:1e308/f:jpeg/plain/images/beach.jpg",
+        opts
+      )
+
+    assert conn.status in 400..499
+    refute_received :origin_fetch
+  end
+
+  # Layer 4 — wire conformance for now-sequential chains
+
+  # Anchor crop + blur: c:40:30:no (north gravity) + bl:4 were previously forced to
+  # random access by the blur; they are now fully sequential. Assert the crop
+  # dimensions are preserved and the body decodes cleanly.
+  test "anchor crop + blur produces the requested crop dimensions and decodes" do
+    conn =
+      call_imgproxy(
+        "/_/c:40:30:no/bl:4/f:png/plain/images/effects.png",
+        effect_origin_opts()
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/png"]
+    assert dimensions(conn) == {40, 30}
+  end
+
+  # Resize fill + padding + background: rs:fill:100:100/g:ce + pd:10 + bg:ffffff.
+  # Each pd:10 side adds 10px → final canvas is 120×120. The corner pixel (0,0)
+  # sits in the padding region and must match the background color (white).
+  test "resize fill + padding + background produces padded dimensions with background fill" do
+    conn =
+      call_imgproxy(
+        "/_/rs:fill:100:100/g:ce/pd:10/bg:ffffff/f:png/plain/images/beach.jpg",
+        @default_opts
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/png"]
+    assert dimensions(conn) == {120, 120}
+
+    image = decoded_image(conn)
+
+    # Corner (0,0) is in the padding region → must be the background white.
+    assert Image.get_pixel!(image, 0, 0) == [255, 255, 255]
+  end
+
+  # Transparent source + blur + background: a fully-transparent RGBA source with
+  # bl:2 + bg:ff0000 must produce an opaque output (no alpha channel) whose pixels
+  # are the background red (the transparent source contributes 0 color, so
+  # flatten fills with the background color).
+  test "transparent source + blur + background flattens to background color" do
+    alpha_opts = [
+      sources: [
+        path:
+          {ImagePipe.SourceTest.RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: AlphaOriginImage]}
       ]
+    ]
 
-      # Explicit AVIF, no resize: the full >6 MP frame is finalized → crop scorer fires.
-      conn = call_imgproxy("/_/f:avif/plain/images/large.jpg", opts)
+    conn =
+      call_imgproxy(
+        "/_/bl:2/bg:ff0000/f:png/plain/images/alpha.png",
+        alpha_opts
+      )
 
-      assert conn.status == 200
-      assert content_type(conn) == ["image/avif"]
+    assert conn.status == 200
+    assert content_type(conn) == ["image/png"]
 
-      classify_stop = telemetry_prefix ++ [:encode, :classify, :stop]
-      search_stop = telemetry_prefix ++ [:encode, :search, :stop]
+    image = decoded_image(conn)
 
-      assert_receive {:stop, ^classify_stop, %{content_class: :graphic, applied_offset: 6.0}}
-      assert_receive {:stop, ^search_stop, %{scorer: :crop}}
-    end
+    assert Image.has_alpha?(image) == false
+    # Fully transparent source + red background → all pixels must be red.
+    assert Image.get_pixel!(image, 0, 0) == [255, 0, 0]
+    assert Image.get_pixel!(image, 10, 10) == [255, 0, 0]
+  end
 
-    test "large photo AVIF above the crossover keeps the lean 2.4 offset (#380 no-inflation)" do
-      telemetry_prefix = [:"ip_aq_photo_#{System.unique_integer([:positive])}"]
-      test_pid = self()
-      handler_id = "aq-photo-#{System.unique_integer([:positive])}"
+  # Explicit non-alpha output format (f:jpg) on an alpha-bearing source with NO
+  # bg: option must flatten onto the imgproxy-default white background and emit a
+  # valid JPEG, not 500 (#268). imgproxy's `flatten` step composites onto
+  # `po.Background()`, which defaults to `color.White`, whenever the result
+  # format can't carry alpha. Covers the no-geometry form: only an explicit
+  # format on an RGBA image, no resize/crop/padding/background.
+  test "explicit non-alpha format on an alpha source flattens to the default white background" do
+    alpha_opts = [
+      sources: [
+        path:
+          {ImagePipe.SourceTest.RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: AlphaOriginImage]}
+      ]
+    ]
+
+    conn =
+      call_imgproxy(
+        "/_/f:jpg/plain/images/alpha.png",
+        alpha_opts
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+
+    image = decoded_image(conn)
+
+    assert Image.has_alpha?(image) == false
+    # Default white flatten; JPEG is lossy, so allow a small tolerance around 255.
+    assert [r, g, b] = Image.get_pixel!(image, 10, 10)
+    assert r > 250 and g > 250 and b > 250
+  end
+
+  # Detector-model-identity cache-key + ETag conformance: the dialect folds the
+  # resolved detector identity into its representation, so a key AND an ETag
+  # change when — and only when — a model swap can change the pixels. R7 found
+  # and fixed a REAL cache-key collision in
+  # `Dialect.Imgproxy.Identity` (a dropped `__struct__` gave two different
+  # encodes one key); these are the wire-level version of that hazard.
+  #
+  # "Model version change" = a swap to a different versioned composite module
+  # (`composite_for/2`), not a DI key — the dialect's closed config forbids the
+  # `face_ver:`/`object_ver:` extension keys the block once used.
+
+  # The cache key AND the response ETag the stack produced for one request.
+  defp key_and_etag(path, opts) do
+    conn = call_imgproxy(path, opts)
+    assert_received {:cache_lookup, key}
+    {key, single_etag(conn)}
+  end
+
+  defp single_etag(conn) do
+    assert [etag] = get_resp_header(conn, "etag")
+    etag
+  end
+
+  # A strong source byte identity is what makes the dialect emit an ETag at all
+  # (a `:none` source gets `no-store` and no ETag); it is set here so the ETag
+  # half of these cases has a header to assert on.
+  defp probe_opts do
+    Keyword.merge(@default_opts,
+      cache: {CacheProbe, []},
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test",
+           byte_identity: :strong,
+           req_options: [plug: OriginImage]}
+      ]
+    )
+  end
+
+  # A composite whose face leaf is `face_ver` and object leaf is `object_ver`,
+  # selected through the `detector:` key. Defaults are `:v1`.
+  defp ver_opts(extra) do
+    face_ver = Keyword.get(extra, :face_ver, :v1)
+    object_ver = Keyword.get(extra, :object_ver, :v1)
+
+    Keyword.merge(probe_opts(),
+      detector: composite_for(face_ver, object_ver),
+      detector_required: false
+    )
+  end
+
+  defp composite_for(:v1, :v1), do: VerCompositeV1V1
+  defp composite_for(:v2, :v1), do: VerCompositeV2V1
+  defp composite_for(:v1, :v2), do: VerCompositeV1V2
+
+  test "object-only request key and ETag are independent of the face model identity" do
+    {key_v1, etag_v1} =
+      key_and_etag("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v1))
+
+    {key_v2, etag_v2} =
+      key_and_etag("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v2))
+
+    assert key_v1 == key_v2
+    assert etag_v1 == etag_v2
+  end
+
+  test "face-only request key and ETag are independent of the object model identity" do
+    {key_v1, etag_v1} =
+      key_and_etag(
+        "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+        ver_opts(object_ver: :v1)
+      )
+
+    {key_v2, etag_v2} =
+      key_and_etag(
+        "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+        ver_opts(object_ver: :v2)
+      )
+
+    assert key_v1 == key_v2
+    assert etag_v1 == etag_v2
+  end
+
+  test "face-only request key and ETag change when the face model identity changes" do
+    {key_v1, etag_v1} =
+      key_and_etag(
+        "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+        ver_opts(face_ver: :v1)
+      )
+
+    {key_v2, etag_v2} =
+      key_and_etag(
+        "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+        ver_opts(face_ver: :v2)
+      )
+
+    assert key_v1 != key_v2
+    assert etag_v1 != etag_v2
+  end
+
+  test "mixed request key and ETag change when either model identity changes" do
+    path = "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg"
+
+    {base_key, base_etag} = key_and_etag(path, ver_opts(face_ver: :v1, object_ver: :v1))
+
+    {diff_face_key, diff_face_etag} =
+      key_and_etag(path, ver_opts(face_ver: :v2, object_ver: :v1))
+
+    {diff_obj_key, diff_obj_etag} = key_and_etag(path, ver_opts(face_ver: :v1, object_ver: :v2))
+
+    assert base_key != diff_face_key
+    assert base_key != diff_obj_key
+    assert base_etag != diff_face_etag
+    assert base_etag != diff_obj_etag
+  end
+
+  # Scope the clamp tests' telemetry to a private prefix so a concurrently
+  # running async module emitting the default-prefix output clamp event cannot
+  # leak into these tests' mailboxes (which would flake the refute_received
+  # assertions). The clamp request opts below set this same prefix.
+  @clamp_telemetry_prefix [:image_pipe_clamp_test]
+  @clamp_event @clamp_telemetry_prefix ++ [:output, :clamp]
+
+  describe "output encoder dimension clamp (#150)" do
+    defp attach_clamp_telemetry do
+      handler_id = {__MODULE__, self(), :output_clamp}
 
       :telemetry.attach(
         handler_id,
-        telemetry_prefix ++ [:encode, :classify, :stop],
-        fn _event, _measurements, meta, _config -> send(test_pid, {:classify, meta}) end,
-        nil
+        @clamp_event,
+        &__MODULE__.handle_telemetry_event/4,
+        self()
       )
 
       on_exit(fn -> :telemetry.detach(handler_id) end)
+    end
 
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          path:
-            {RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
-        ],
-        imgproxy: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 70}],
-        telemetry_prefix: telemetry_prefix
-      ]
+    @clamp_opts [
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+      ],
+      max_result_width: 40_000,
+      max_result_height: 40_000,
+      max_result_pixels: 2_000_000_000,
+      output_capabilities: %{avif: true, webp: true},
+      telemetry_prefix: @clamp_telemetry_prefix
+    ]
 
-      conn = call_imgproxy("/_/f:avif/plain/images/large.jpg", opts)
+    test "clamp telemetry is isolated from concurrent foreign emissions" do
+      attach_clamp_telemetry()
+
+      # A concurrently-running async module (e.g. the TwicPics wire suite, which
+      # legitimately clamps an oversized result) emits the output clamp event
+      # while this module's refute_received clamp tests are in flight. A global
+      # handler keyed on the shared event name would receive that foreign event
+      # and flake the refute. The handler must be scoped so it never does.
+      # Regression for CI run 27481152591.
+      :telemetry.execute(
+        [:image_pipe, :output, :clamp],
+        %{scale: 0.306},
+        %{format: :jpeg, dimensions: {1224, 816}, source_dimensions: {4000, 2667}, limits: %{}}
+      )
+
+      refute_received {:telemetry_event, _event, _measurements, _meta}
+    end
+
+    test "downscales a WebP result above the 16383 encoder limit and serves it" do
+      attach_clamp_telemetry()
+
+      conn =
+        call_imgproxy("/_/el:1/rs:force:18000:200/f:webp/plain/images/beach.jpg", @clamp_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/webp"]
+
+      {w, h} = dimensions(conn)
+      assert max(w, h) <= 16_383
+      assert max(w, h) > 8_192
+
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+
+      assert scale < 1.0
+      assert meta.format == :webp
+      assert meta.limits.max_width == 16_383
+      assert meta.limits.max_height == 16_383
+      assert meta.dimensions == {w, h}
+      {sw, sh} = meta.source_dimensions
+      assert max(sw, sh) > 16_383
+    end
+
+    test "downscales an AVIF result above the 16384 encoder limit and serves it" do
+      attach_clamp_telemetry()
+
+      conn =
+        call_imgproxy("/_/el:1/rs:force:18000:200/f:avif/plain/images/beach.jpg", @clamp_opts)
 
       assert conn.status == 200
       assert content_type(conn) == ["image/avif"]
-      # avif × :photo keeps the prior global 2.4 → no byte inflation vs today.
-      assert_receive {:classify, %{content_class: :photo, applied_offset: 2.4}}
+
+      {w, h} = dimensions(conn)
+      assert max(w, h) <= 16_384
+      assert max(w, h) > 8_192
+
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+
+      assert scale < 1.0
+      assert meta.format == :avif
+      assert meta.limits.max_width == 16_384
+      assert meta.limits.max_height == 16_384
+      assert meta.dimensions == {w, h}
     end
 
-    test "equivalent imgproxy option order shares filesystem cache through real Plug requests" do
-      {opts, cache_root} = cached_opts()
+    test "does not clamp or emit when a WebP result is within the encoder limit" do
+      attach_clamp_telemetry()
 
-      try do
-        first_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert first_conn.status == 200
-        assert content_type(first_conn) == ["image/jpeg"]
-        assert dimensions(first_conn) == {120, 90}
-        assert_received :origin_fetch
-
-        second_conn = call_imgproxy("/_/f:jpeg/h:90/rt:force/w:120/plain/images/beach.jpg", opts)
-
-        assert second_conn.status == 200
-        assert content_type(second_conn) == ["image/jpeg"]
-        assert dimensions(second_conn) == {120, 90}
-        assert second_conn.resp_body == first_conn.resp_body
-        refute_received :origin_fetch
-      after
-        File.rm_rf!(cache_root)
-      end
-    end
-
-    test "configured default format quality is applied to output (byte-identical to explicit q)" do
-      # Proves the new host-config default quality is actually applied, not merely
-      # that *some* quality is used: a default request with format_quality webp:50
-      # must produce byte-identical output to an explicit q:50 (both resolve the
-      # webp encode to Q50). If the config default were ignored, the default
-      # request would fall to libvips' own webp default and the bytes would differ.
-      source = [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
-      ]
-
-      default_opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: source,
-        imgproxy: [format_quality: %{webp: 50}]
-      ]
-
-      q50_opts = [parser: ImagePipe.Parser.Imgproxy, sources: source]
-
-      default_conn =
-        call_imgproxy("/_/rs:fit:300:300/plain/images/photo.jpg", default_opts, "image/webp")
-
-      q50_conn =
-        call_imgproxy("/_/q:50/rs:fit:300:300/plain/images/photo.jpg", q50_opts, "image/webp")
-
-      assert content_type(default_conn) == ["image/webp"]
-      assert content_type(q50_conn) == ["image/webp"]
-      assert default_conn.resp_body == q50_conn.resp_body
-    end
-
-    test "URL autoquality min/max override the per-format config bracket (avif)" do
-      # Config bounds the avif autoquality search to Q60..65; a URL autoquality with
-      # min:max 80:90 must win, forcing a higher Q floor and therefore a larger file.
-      source = [
-        path:
-          {RootHTTPAdapter,
-           root_url: "http://origin.test", req_options: [plug: LargePhotoOriginImage]}
-      ]
-
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: source,
-        imgproxy: [
-          autoquality_method: :ssimulacra2,
-          autoquality_target: %{ssimulacra2: 90},
-          autoquality_format_min_quality: %{avif: 60},
-          autoquality_format_max_quality: %{avif: 65}
-        ]
-      ]
-
-      config_conn =
-        call_imgproxy("/_/rs:fit:300:300/plain/images/photo.jpg", opts, "image/avif")
-
-      url_conn =
-        call_imgproxy(
-          "/_/autoquality:ssim2:90:80:90/rs:fit:300:300/plain/images/photo.jpg",
-          opts,
-          "image/avif"
-        )
-
-      assert content_type(config_conn) == ["image/avif"]
-      assert content_type(url_conn) == ["image/avif"]
-      assert byte_size(url_conn.resp_body) > byte_size(config_conn.resp_body)
-    end
-
-    test "encoded path source succeeds through a real Plug request" do
-      encoded = encoded_source("images/beach.jpg")
-
-      conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}", @default_opts)
-
-      assert conn.status == 200
-      assert content_type(conn) == ["image/jpeg"]
-      assert dimensions(conn) == {120, 90}
-      assert byte_size(conn.resp_body) > 0
-    end
-
-    describe "CORS (dialect-neutral, through the imgproxy parser)" do
-      test "image response carries Access-Control-Allow-Origin when allow_origin set" do
-        encoded = encoded_source("images/beach.jpg")
-
-        conn =
-          call_imgproxy(
-            "/_/rt:force/w:120/h:90/f:jpeg/#{encoded}",
-            [allow_origin: "https://cdn.test"] ++ @default_opts
-          )
-
-        assert conn.status == 200
-        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-      end
-
-      # The `Response.CORS` before-send hook is registered once, ahead of the
-      # whole request chain (imgproxy.ex/native.ex `call/2`), so it must stamp
-      # every exit path — not just the 200 image body proven above. These three
-      # cover the other exits reachable without a method layer: a 304 from the
-      # pre-fetch conditional-GET gate, a pre-fetch 4xx image error, and the
-      # `/info` terminal.
-      test "a 304 Not Modified response carries Access-Control-Allow-Origin when allow_origin set" do
-        base_opts =
-          Keyword.merge(@default_opts,
-            allow_origin: "https://cdn.test",
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test",
-                 byte_identity: :strong,
-                 req_options: [plug: OriginImage]}
-            ]
-          )
-
-        # `http_cache: [mode: :enabled]` is a framework-only opt-in
-        # (`Request.Options`, default `:disabled`) gating ETag emission — the
-        # dialects have no such gate and emit an ETag unconditionally whenever
-        # the source has a strong byte identity.
-        opts =
-          if @stack == :framework do
-            Keyword.put(base_opts, :http_cache, mode: :enabled)
-          else
-            base_opts
-          end
-
-        path = "/_/w:120/plain/images/beach.jpg"
-
-        first = call_imgproxy(path, opts)
-        [etag] = get_resp_header(first, "etag")
-
-        conn =
-          :get
-          |> conn(path)
-          |> put_req_header("if-none-match", etag)
-          |> call_imgproxy_conn(opts)
-
-        assert conn.status == 304
-        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-      end
-
-      test "a 4xx image error carries Access-Control-Allow-Origin when allow_origin set" do
-        conn =
-          call_imgproxy(
-            "/_/w:-1/plain/images/beach.jpg",
-            [allow_origin: "https://cdn.test"] ++ @default_opts
-          )
-
-        assert conn.status == 400
-        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-      end
-
-      test "an /info response carries Access-Control-Allow-Origin when allow_origin set" do
-        conn =
-          call_imgproxy(
-            "/info/unsafe/plain/images/beach.jpg",
-            [allow_origin: "https://cdn.test"] ++ @default_opts
-          )
-
-        assert conn.status == 200
-        assert content_type(conn) == ["application/json; charset=utf-8"]
-        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-      end
-    end
-
-    describe "CORS OPTIONS/method layer" do
-      test "OPTIONS → 204 + Allow + CORS headers when allow_origin set" do
-        conn =
-          call_imgproxy_method(
-            :options,
-            "/_/anything",
-            [allow_origin: "https://cdn.test"] ++ @default_opts
-          )
-
-        assert conn.status == 204
-        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-        assert get_resp_header(conn, "access-control-allow-methods") == ["GET, HEAD, OPTIONS"]
-        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-      end
-
-      test "OPTIONS → 204 + Allow, no CORS headers when allow_origin unset" do
-        conn = call_imgproxy_method(:options, "/_/anything", @default_opts)
-
-        assert conn.status == 204
-        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-        assert get_resp_header(conn, "access-control-allow-methods") == []
-        assert get_resp_header(conn, "access-control-allow-origin") == []
-      end
-
-      test "PUT → 405 + Allow, and the before-send hook still stamps CORS on a non-2xx outcome" do
-        conn =
-          call_imgproxy_method(
-            :put,
-            "/_/anything",
-            [allow_origin: "https://cdn.test"] ++ @default_opts
-          )
-
-        assert conn.status == 405
-        assert get_resp_header(conn, "allow") == ["GET, HEAD"]
-        # Proves the before-send hook is not 200-only: it fires on the 405 too.
-        assert get_resp_header(conn, "access-control-allow-origin") == ["https://cdn.test"]
-      end
-    end
-
-    test "automatic output negotiates modern formats from Accept and sets Vary" do
-      cases = [
-        {"image/avif,image/webp", "image/avif"},
-        {"image/webp", "image/webp"},
-        # A real Chrome/Firefox `<img>` Accept: AVIF wins from its explicit mime;
-        # the trailing `image/*` does not promote JPEG XL (which browsers can't decode).
-        {"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", "image/avif"}
-      ]
-
-      for {accept, expected_content_type} <- cases do
-        conn =
-          "/_/plain/images/beach.jpg"
-          |> call_imgproxy(@default_opts, accept)
-
-        assert conn.status == 200
-        assert content_type(conn) == [expected_content_type]
-        assert get_resp_header(conn, "vary") == ["Accept"]
-        assert byte_size(conn.resp_body) > 0
-      end
-    end
-
-    # Both fall back to source here. Bare `image/*` is **parity** (imgproxy has no
-    # explicit jxl/avif/webp substring either, so it too falls back). The `q=0` case
-    # **diverges** (documented in docs/imgproxy_support_matrix.md): imgproxy ignores
-    # `q` and would serve AVIF on its `image/avif` substring, while ImagePipe honors
-    # the in-range `q=0` exclusion. Neither target ever serves JPEG XL on `image/*`.
-    test "image/* wildcard and an exact q=0 fall back to source, not a modern format" do
-      cases = [
-        "image/avif;q=0,image/*;q=1",
-        "image/*"
-      ]
-
-      for accept <- cases do
-        conn =
-          "/_/plain/images/beach.jpg"
-          |> call_imgproxy(@default_opts, accept)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert get_resp_header(conn, "vary") == ["Accept"]
-        assert byte_size(conn.resp_body) > 0
-      end
-    end
-
-    test "automatic output prefers AVIF over JPEG XL by default when both are accepted" do
-      accepts = [
-        "image/jxl,image/avif,image/webp",
-        "image/avif,image/webp,image/jxl"
-      ]
-
-      for accept <- accepts do
-        conn =
-          "/_/plain/images/beach.jpg"
-          |> call_imgproxy(@default_opts, accept)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/avif"]
-        assert get_resp_header(conn, "vary") == ["Accept"]
-        assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
-      end
-    end
-
-    test "automatic output serves JPEG XL when it is the only accepted modern format" do
-      conn =
-        "/_/plain/images/beach.jpg"
-        |> call_imgproxy(@default_opts, "image/jxl")
-
-      assert conn.status == 200
-      assert content_type(conn) == ["image/jxl"]
-      assert get_resp_header(conn, "vary") == ["Accept"]
-      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
-    end
-
-    test "format_order: [:jpeg_xl] makes automatic output prefer JPEG XL over AVIF" do
-      conn =
-        "/_/plain/images/beach.jpg"
-        |> call_imgproxy(
-          [format_order: [:jpeg_xl]] ++ @default_opts,
-          "image/avif,image/webp,image/jxl"
-        )
-
-      assert conn.status == 200
-      assert content_type(conn) == ["image/jxl"]
-      assert get_resp_header(conn, "vary") == ["Accept"]
-      assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
-    end
-
-    test "explicit JPEG XL output bypasses Accept and does not set Vary" do
-      cases = [
-        "/_/f:jxl/plain/images/beach.jpg",
-        "/_/plain/images/beach.jpg@jxl"
-      ]
-
-      for path <- cases do
-        conn = call_imgproxy(path, @default_opts, "image/avif,image/webp")
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jxl"]
-        assert get_resp_header(conn, "vary") == []
-        assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
-      end
-    end
-
-    test "automatic output treats missing empty and wildcard-only Accept as source fallback" do
-      cases = [
-        nil,
-        "",
-        "*/*",
-        "*/*;q=1",
-        "application/json,*/*;q=1"
-      ]
-
-      for accept <- cases do
-        conn =
-          "/_/plain/images/beach.jpg"
-          |> call_imgproxy(@default_opts, accept)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert get_resp_header(conn, "vary") == ["Accept"]
-        assert byte_size(conn.resp_body) > 0
-      end
-    end
-
-    test "explicit output formats bypass Accept and do not set Vary" do
-      cases = [
-        {"/_/f:webp/plain/images/beach.jpg", "image/webp"},
-        {"/_/f:jpeg/plain/images/beach.jpg", "image/jpeg"},
-        {"/_/plain/images/beach.jpg@webp", "image/webp"}
-      ]
-
-      for {path, expected_content_type} <- cases do
-        conn = call_imgproxy(path, @default_opts, "image/avif,image/webp")
-
-        assert conn.status == 200
-        assert content_type(conn) == [expected_content_type]
-        assert get_resp_header(conn, "vary") == []
-        assert byte_size(conn.resp_body) > 0
-      end
-    end
-
-    test "encoded output suffix bypasses Accept negotiation and does not set Vary" do
-      encoded = encoded_source("images/beach.jpg")
-
-      conn = call_imgproxy("/_/f:jpeg/#{encoded}.webp", @default_opts, "image/avif,image/webp")
+      conn = call_imgproxy("/_/w:120/f:webp/plain/images/beach.jpg", @clamp_opts)
 
       assert conn.status == 200
       assert content_type(conn) == ["image/webp"]
-      assert get_resp_header(conn, "vary") == []
-      assert byte_size(conn.resp_body) > 0
+      {w, _h} = dimensions(conn)
+      assert w == 120
+
+      refute_received {:telemetry_event, @clamp_event, _measurements, _meta}
     end
+  end
 
-    test "encrypted path source succeeds through a real Plug request" do
-      encrypted = encrypted_source("images/beach.jpg")
+  describe "host result cap downscale (#165, limitScale parity)" do
+    # Default host caps: max_result_width/height = 8192, max_result_pixels = 40M.
+    @host_default_opts [
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+      ],
+      output_capabilities: %{avif: true, webp: true},
+      telemetry_prefix: @clamp_telemetry_prefix
+    ]
 
-      conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}", encrypted_opts())
+    test "downscales a result above the default 8192 host cap and serves 200" do
+      attach_clamp_telemetry()
+
+      conn =
+        call_imgproxy(
+          "/_/el:1/rs:force:12000:200/f:jpeg/plain/images/beach.jpg",
+          @host_default_opts
+        )
 
       assert conn.status == 200
       assert content_type(conn) == ["image/jpeg"]
-      assert dimensions(conn) == {120, 90}
-      assert byte_size(conn.resp_body) > 0
+
+      {w, h} = dimensions(conn)
+      # Parity, not just safety: when the width cap binds on a non-degenerate
+      # aspect, the long axis lands EXACTLY on 8192 — byte-intent identical to
+      # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
+      assert w == 8192
+
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
+      assert scale < 1.0
+      assert meta.limits.max_width == 8192
+      assert meta.limits.max_height == 8192
+      assert meta.dimensions == {w, h}
+      {sw, _sh} = meta.source_dimensions
+      assert sw > 8192
     end
 
-    test "encrypted output suffix bypasses Accept negotiation and does not set Vary" do
-      encrypted = encrypted_source("images/beach.jpg")
+    # The one place ImagePipe and imgproxy observably diverge: a PADDED request
+    # whose composited frame exceeds the cap. imgproxy folds the downscale into
+    # the resize scale before re-applying padding (prepare.go:233-263); ImagePipe
+    # clamps the already-composited frame. Both land <= cap; the framing differs.
+    # This test pins ImagePipe's contract (status 200, composite <= cap, clamp
+    # fired) so a future change to the clamp point can't silently alter padded
+    # behavior with a green suite.
+    test "clamps a padded result whose composited frame exceeds the host cap" do
+      attach_clamp_telemetry()
 
+      # w:100 then pad 5000px each side -> composited width ~10100 > 8192.
+      conn =
+        call_imgproxy("/_/w:100/pd:5000/f:jpeg/plain/images/beach.jpg", @host_default_opts)
+
+      assert conn.status == 200
+      {w, h} = dimensions(conn)
+      assert max(w, h) <= 8192
+
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
+      assert scale < 1.0
+    end
+
+    test "honors asymmetric per-axis caps without over-shrinking" do
+      attach_clamp_telemetry()
+
+      # Realize ~6000x200, raise width cap above it, keep height cap slack:
+      # both axes within caps -> NO clamp, served at full requested size.
       conn =
         call_imgproxy(
-          "/_/f:jpeg/enc/#{encrypted}.webp",
-          encrypted_opts(),
-          "image/avif,image/webp"
+          "/_/el:1/rs:force:6000:200/f:jpeg/plain/images/beach.jpg",
+          Keyword.merge(@host_default_opts, max_result_width: 10_000, max_result_height: 8192)
         )
 
       assert conn.status == 200
-      assert content_type(conn) == ["image/webp"]
-      assert get_resp_header(conn, "vary") == []
-      assert byte_size(conn.resp_body) > 0
+      {w, h} = dimensions(conn)
+      assert w == 6000
+      assert h == 200
+      refute_received {:telemetry_event, @clamp_event, _m, _meta}
     end
 
-    # An Accept-negotiated response must carry `Vary: Accept` even when it fails,
-    # or a shared cache may serve this 415 to a client whose Accept would have
-    # negotiated a different (working) outcome. The framework attaches
-    # `policy.headers` to every processing error (`Runner.process_prepared_stream/6`);
-    # the dialect threads the same negotiation headers through `Errors.send/4`.
-    #
-    # Was DIVERGENCE D2 (dialect: 415 with no Vary). The sibling test below —
-    # explicit `f:png`, where `Vary: []` IS correct — is what proves the header is
-    # negotiation-derived rather than stamped unconditionally.
-    test "automatic output rejects decoded SVG source responses as unsupported images" do
-      if svg_supported?() do
-        conn =
-          "/_/plain/images/vector.svg"
-          |> call_imgproxy(svg_origin_opts(), "image/avif,image/webp")
+    test "downscales on the host pixel cap with dims within the per-axis caps" do
+      attach_clamp_telemetry()
 
-        assert conn.status == 415
-        assert conn.resp_body == "source response is not a supported image"
-        assert get_resp_header(conn, "vary") == ["Accept"]
-        assert_received {:cache_lookup, _key}
-        assert_received :origin_fetch
-        refute_received {:cache_put, _key, _entry}
-      end
-    end
-
-    test "explicit output rejects decoded SVG source responses without Vary" do
-      if svg_supported?() do
-        for path <- ["/_/f:png/plain/images/vector.svg", "/_/plain/images/vector.svg@png"] do
-          conn = call_imgproxy(path, svg_origin_opts(), "image/avif,image/webp")
-
-          assert conn.status == 415
-          assert conn.resp_body == "source response is not a supported image"
-          assert get_resp_header(conn, "vary") == []
-          assert_received {:cache_lookup, _key}
-          assert_received :origin_fetch
-          refute_received {:cache_put, _key, _entry}
-        end
-      end
-    end
-
-    test "representative geometry options produce expected decoded dimensions" do
-      cases = [
-        {"/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg", {120, 80}},
-        {"/_/rs:fill:120:90/g:ce/f:jpeg/plain/images/beach.jpg", {120, 90}},
-        {"/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", {120, 90}},
-        {"/_/c:120:90/f:jpeg/plain/images/beach.jpg", {120, 90}},
-        {"/_/g:soea/rs:fill:120:90/f:jpeg/plain/images/beach.jpg", {120, 90}}
-      ]
-
-      for {path, expected_dimensions} <- cases do
-        conn = call_imgproxy(path, @default_opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert dimensions(conn) == expected_dimensions
-      end
-    end
-
-    test "g:sm smart gravity returns a smart-cropped image of the requested size" do
-      conn = call_imgproxy("/_/rs:fill:80:80/g:sm/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      assert conn.status == 200
-      assert content_type(conn) == ["image/jpeg"]
-      assert dimensions(conn) == {80, 80}
-
-      # A silent fallback to center gravity would make smart and center crops
-      # identical; assert the smart crop genuinely picks a different region.
-      centered =
-        call_imgproxy("/_/rs:fill:80:80/g:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      assert centered.status == 200
-      refute conn.resp_body == centered.resp_body
-    end
-
-    test "exar:1 under fit extends the canvas to the resize aspect ratio" do
-      # beach.jpg is 4000x2667 (landscape). rs:fit:300:300 scales it to 300x200 (width
-      # is the binding axis). exar:1 extends the canvas to the 1:1 requested ratio,
-      # padding the deficient axis: height grows from 200 to 300, giving a 300x300 output.
-      conn =
-        call_imgproxy("/_/rs:fit:300:300/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      assert conn.status == 200
-      assert dimensions(conn) == {300, 300}
-    end
-
-    test "exar:1 under force is a no-op when the image already matches the requested ratio" do
-      # beach.jpg is 4000x2667. rs:force:300:200 hard-scales it to exactly 300x200.
-      # exar:1 would extend to the requested 300:200 (3:2) ratio, but the canvas is
-      # already 3:2, so no padding is added and output dimensions are identical.
-      base = call_imgproxy("/_/rs:force:300:200/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      with_exar =
-        call_imgproxy("/_/rs:force:300:200/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      assert base.status == 200
-      assert with_exar.status == 200
-      assert dimensions(base) == {300, 200}
-      assert dimensions(with_exar) == {300, 200}
-      # A true no-op must produce byte-identical output, not merely the same size.
-      assert with_exar.resp_body == base.resp_body
-    end
-
-    test "effect options change decoded response pixels without geometry options" do
-      baseline =
-        "/_/f:png/plain/images/effects.png"
-        |> call_imgproxy(effect_origin_opts())
-        |> decoded_image()
-
-      cases = [
-        "/_/bl:4/f:png/plain/images/effects.png",
-        "/_/sh:10/f:png/plain/images/effects.png",
-        # pix:7 (not a divisor of the 16px stripes) so a block straddles each stripe
-        # edge and the box mean visibly shifts those pixels. A block-aligned size (e.g.
-        # pix:8) would be a true no-op on this striped source — imgproxy's box-mean
-        # pixelate cannot change a block that lies within a single uniform stripe (#238).
-        "/_/pix:7/f:png/plain/images/effects.png",
-        "/_/mc:1:ffcc00/f:png/plain/images/effects.png",
-        "/_/dt:1:112233:ffeecc/f:png/plain/images/effects.png",
-        "/_/br:25/f:png/plain/images/effects.png",
-        "/_/co:1.5/f:png/plain/images/effects.png",
-        "/_/sa:0.4/f:png/plain/images/effects.png"
-      ]
-
-      for path <- cases do
-        image =
-          path
-          |> call_imgproxy(effect_origin_opts())
-          |> decoded_image()
-
-        assert dimensions(image) == dimensions(baseline)
-        assert sampled_pixels(image) != sampled_pixels(baseline)
-      end
-    end
-
-    test "colorize/gradient/adjust change decoded pixels without geometry" do
-      baseline =
-        "/_/f:png/plain/images/effects.png"
-        |> call_imgproxy(effect_origin_opts())
-        |> decoded_image()
-
-      for path <- [
-            "/_/col:0.5:ff0000/f:png/plain/images/effects.png",
-            "/_/gr:0.6:000000:down/f:png/plain/images/effects.png",
-            "/_/a:40:1.4:0.7/f:png/plain/images/effects.png"
-          ] do
-        image = path |> call_imgproxy(effect_origin_opts()) |> decoded_image()
-        assert dimensions(image) == dimensions(baseline)
-        assert sampled_pixels(image) != sampled_pixels(baseline)
-      end
-    end
-
-    test "adjust produces the same bytes as the equivalent br/co/sa" do
-      via_adjust =
-        "/_/a:40:1.4:0.7/f:png/plain/images/effects.png" |> call_imgproxy(effect_origin_opts())
-
-      via_long =
-        "/_/br:40/co:1.4/sa:0.7/f:png/plain/images/effects.png"
-        |> call_imgproxy(effect_origin_opts())
-
-      assert via_adjust.resp_body == via_long.resp_body
-    end
-
-    test "imgproxy auto_rotate config and URL options control EXIF autorotation" do
-      default_conn =
-        "/_/f:jpeg/plain/images/oriented.jpg"
-        |> call_imgproxy(exif_orientation_origin_opts())
-
-      assert default_conn.status == 200
-      assert content_type(default_conn) == ["image/jpeg"]
-      assert dimensions(default_conn) == {80, 40}
-
-      configured_disabled_conn =
-        "/_/f:jpeg/plain/images/oriented.jpg"
-        |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: false]))
-
-      assert configured_disabled_conn.status == 200
-      assert dimensions(configured_disabled_conn) == {40, 80}
-
-      url_enabled_conn =
-        "/_/ar:true/f:jpeg/plain/images/oriented.jpg"
-        |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: false]))
-
-      assert url_enabled_conn.status == 200
-      assert dimensions(url_enabled_conn) == {80, 40}
-
-      url_disabled_conn =
-        "/_/ar:false/f:jpeg/plain/images/oriented.jpg"
-        |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
-
-      assert url_disabled_conn.status == 200
-      assert dimensions(url_disabled_conn) == {40, 80}
-    end
-
-    test "ar:0 + EXIF-6 + user rot:90 applies only the user rotation (regression guard)" do
-      conn =
-        "/_/ar:false/rot:90/f:jpeg/plain/images/oriented.jpg"
-        |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
-
-      assert conn.status == 200
-      # ar:0 ignores the EXIF tag; user rot:90 on the STORED 40x80 -> 80x40.
-      assert dimensions(conn) == {80, 40}
-      assert_oriented_pixels_match(decoded_image(conn), reference_user_rot90_storage())
-    end
-
-    test "no-geometry: rot:90 on EXIF-6 (ar:1) = 180 deg net" do
-      conn =
-        "/_/rot:90/f:jpeg/plain/images/oriented.jpg"
-        |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
-
-      assert conn.status == 200
-      # EXIF-6 (90 deg) THEN user 90 deg = 180 deg net on the stored 40x80 -> stays 40x80.
-      assert dimensions(conn) == {40, 80}
-      assert_oriented_pixels_match(decoded_image(conn), reference_180_of_stored())
-    end
-
-    # ── Deferred-orientation Slice A gates (#146) ────────────────────────────────
-
-    # Regression guard for the deferred-orientation cutover: an EXIF-oriented source
-    # combined with a gravity / region / focus-point / cover crop must SUCCEED.
-    # Before the offset-unit fix in NeutralResolver.compensate_crop/2, the executable
-    # crop's tagged offset ({:pixels, 0.0}) reached Orientation's bare-float
-    # arithmetic and raised, turning every EXIF-2..7 + crop request into a 500.
-    test "EXIF-oriented source with a gravity/region/fp/cover crop succeeds (no compensation crash)" do
-      paths = [
-        "/_/rs:fill:90:90/g:no/f:png/plain/images/x.jpg",
-        "/_/rs:fill:90:60/g:ce/f:png/plain/images/x.jpg",
-        "/_/c:60:40:no/f:png/plain/images/x.jpg",
-        "/_/c:60:40:no:5:6/f:png/plain/images/x.jpg",
-        "/_/rs:fill:90:90/g:so:0:8/f:png/plain/images/x.jpg",
-        "/_/g:fp:0.25:0.75/rs:fill:80:80/f:png/plain/images/x.jpg",
-        "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg"
-      ]
-
-      for orientation <- 1..8, path <- paths do
-        conn = call_imgproxy(path, oriented_frame_opts(orientation))
-
-        assert conn.status == 200,
-               "EXIF-#{orientation} #{path} returned #{conn.status} (expected 200)"
-      end
-    end
-
-    # The wire-vs-orientation-1 oracle. For each EXIF orientation 1..8 (including the
-    # mirrors 2/4/5/7 and the axis-swapping quarter turns 5/6/7/8), the SAME imgproxy
-    # request is run against the EXIF-oriented source and against the orientation-1
-    # twin carrying the same displayed pixels. Identical operators on both legs ⇒ the
-    # decoded interior pixels match (lossless PNG twin; the oriented leg is JPEG, so
-    # a small interior tolerance absorbs decode noise — direction is still pinned).
-    #
-    # Covered geometry forms (the orientation-1 twin is an exact equivalence):
-    # center / non-center anchor crop, focus-point crop, smart crop, explicit region
-    # crop, cover/fill result crop with center AND non-center gravity, fit / force
-    # including coprime (91×61) source-divergent targets, min-dimension (mw/mh) under
-    # a quarter turn (cover resolved in the display frame — #146 Bug 2), and the FP
-    # crop whose separate offset rotates as a vector (#146 Bug 3).
-    test "crop/resize matrix matches the orientation-1 twin across EXIF 1..8" do
-      paths = [
-        # anchor crops: center + non-center
-        "/_/c:60:40:ce/f:png/plain/images/x.jpg",
-        "/_/c:60:40:no/f:png/plain/images/x.jpg",
-        "/_/c:50:60:we/f:png/plain/images/x.jpg",
-        # focus-point crop (center-ish and off-center) — exercises the FP offset
-        # (zero) transforming as a vector under quarter turns (#146 Bug 3)
-        "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg",
-        # smart crop (attention saliency on the displayed pixels)
-        "/_/rs:fill:80:80/g:sm/f:png/plain/images/x.jpg",
-        # cover/fill result crop: center + non-center gravity
-        "/_/rs:fill:90:90/g:ce/f:png/plain/images/x.jpg",
-        "/_/rs:fill:90:90/g:no/f:png/plain/images/x.jpg",
-        "/_/rs:fill:90:60/g:so/f:png/plain/images/x.jpg",
-        # fp-guided cover
-        "/_/g:fp:0.25:0.75/rs:fill:80:80/f:png/plain/images/x.jpg",
-        # rounding-sensitive coprime targets: fit / force / fill
-        "/_/rs:fit:91:61/f:png/plain/images/x.jpg",
-        "/_/rs:force:91:61/f:png/plain/images/x.jpg",
-        "/_/rs:fill:91:61/g:ce/f:png/plain/images/x.jpg",
-        # cover + min-dimension under a quarter turn: the cross-axis min-dim
-        # coupling must resolve in the display frame (#146 Bug 2)
-        "/_/rs:fill:91:61/mw:140/g:no/f:png/plain/images/x.jpg",
-        "/_/rs:fill:90:90/mh:130/g:ce/f:png/plain/images/x.jpg",
-        # fit + min-dimension under a quarter turn (#194): mw/mh force a uniform
-        # upscale past the requested box, so the new fit result-crop fires; its box
-        # and the cross-axis coupling must land in the display frame too. Both crop in
-        # portrait (mw binds) and landscape (mh binds) display orientations.
-        "/_/rs:fit:80:80/mw:70/mh:70/f:png/plain/images/x.jpg",
-        "/_/rs:fit:91:61/mh:130/f:png/plain/images/x.jpg"
-      ]
-
-      for orientation <- 1..8, path <- paths do
-        oriented = call_imgproxy(path, oriented_frame_opts(orientation))
-        twin = call_imgproxy(path, orientation1_twin_opts(orientation))
-
-        assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
-        assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
-
-        assert_twin_oracle_match(
-          decoded_image(oriented),
-          decoded_image(twin),
-          "EXIF-#{orientation} #{path}"
-        )
-      end
-    end
-
-    # #146 Bug 2 regression: cover + min-dimension under a quarter turn. The
-    # cross-axis min-dim coupling (prepare.go:146-158) must close over the DISPLAY
-    # axes, so this is resolved in the display frame and the resolved dims swapped
-    # back to storage. The mw:140 min-dimension drives the cover scale past the
-    # requested box, and the universal cropToResult trims back to the literal
-    # requested 91×61 (#236); a coupling bug would shift which pixels land in that
-    # window, which the twin pixel match still catches.
-    test "cover + min-dimension under a quarter turn matches the twin (display-frame resolve)" do
-      path = "/_/rs:fill:91:61/mw:140/f:png/plain/images/x.jpg"
-
-      oriented = call_imgproxy(path, oriented_frame_opts(6))
-      twin = call_imgproxy(path, orientation1_twin_opts(6))
-
-      assert oriented.status == 200 and twin.status == 200
-      assert dimensions(oriented) == {91, 61}
-      assert_twin_oracle_match(decoded_image(oriented), decoded_image(twin), "EXIF-6 #{path}")
-    end
-
-    # #146 Bug 3 regression: an FP crop carries the focus in the gravity tuple AND a
-    # separate (zero) crop offset. The separate offset must rotate as a displacement
-    # vector, not via the FP `1 - x` fraction rule — otherwise the zero offset
-    # became {:pixels, 1.0} at 90/270, a 1px divergence. The twin pins maxdiff 0
-    # (lossless on both legs for this exact-dim center crop).
-    test "FP crop under a quarter turn matches the twin exactly (no spurious 1px offset)" do
-      path = "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg"
-
-      for orientation <- [6, 7] do
-        oriented = call_imgproxy(path, oriented_frame_opts(orientation))
-        twin = call_imgproxy(path, orientation1_twin_opts(orientation))
-
-        assert oriented.status == 200 and twin.status == 200
-        assert dimensions(oriented) == dimensions(twin)
-
-        assert_twin_oracle_match(
-          decoded_image(oriented),
-          decoded_image(twin),
-          "EXIF-#{orientation} #{path}"
-        )
-      end
-    end
-
-    # Embedded EXIF orientation tag in the OUTPUT, asserted only under sm:0
-    # (strip_metadata=false). The default sm:1 strips the tag regardless of ar, so
-    # the ar:0-keeps-the-tag case below holds only because sm:0 disables stripping
-    # — it does NOT generalize. imgproxy's autorotate consumes and removes the tag;
-    # ar:0 leaves the bytes (and tag) untouched.
-    test "ar/sm control the residual output orientation tag (sm:0)" do
-      # (a) ar:1 + tagged source: tag absent (autorotate stripped it), pixels rotated.
-      rotated = call_imgproxy("/_/sm:0/f:png/plain/images/x.jpg", oriented_frame_opts(6))
-      assert rotated.status == 200
-      assert output_orientation_tag(rotated) in [nil, 1]
-      # EXIF-6 displays the 120×200 portrait as 200×120 landscape.
-      assert dimensions(rotated) == {200, 120}
-
-      # (b) ar:0 + tagged source under sm:0: tag PRESENT, pixels unrotated (stored).
-      unrotated =
-        call_imgproxy(
-          "/_/ar:0/sm:0/f:png/plain/images/x.jpg",
-          oriented_frame_opts(6, imgproxy: [auto_rotate: true])
-        )
-
-      assert unrotated.status == 200
-      assert output_orientation_tag(unrotated) == 6
-      assert dimensions(unrotated) == {120, 200}
-
-      # (c) ar:1 + orientation-1 source: nothing to rotate, no tag introduced.
-      twin = call_imgproxy("/_/sm:0/f:png/plain/images/x.jpg", orientation1_twin_opts(6))
-      assert twin.status == 200
-      assert output_orientation_tag(twin) in [nil, 1]
-      assert dimensions(twin) == {200, 120}
-    end
-
-    # #146 Bug 3: a positive gravity offset moves the crop window INWARD from the
-    # named edge, so on the far edges (:right/:bottom) imgproxy SUBTRACTS the offset
-    # (calc_position.go:45,49) where ImagePipe used to add it unconditionally. The
-    # baseline (non-oriented) case: c:60:40:so:0:15 on a 120×200 source must place
-    # the crop at top = 200 - 40 - 15 = 145 (was 175 → clamped to 160). Asserted by
-    # the displayed position of a white line drawn at storage row 150 (local row 5).
-    test "Bug 3 baseline: south offset crop subtracts from the far edge (top=145)" do
-      # White horizontal line at storage row 150; c:60:40:so:0:15 -> top 145 -> local 5.
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          path:
-            {RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: {LineOrigin, nil}]}
-        ]
-      ]
-
-      conn = call_imgproxy("/_/c:60:40:so:0:15/f:png/plain/images/x.jpg", opts)
-      assert conn.status == 200
-      image = decoded_image(conn)
-      assert dimensions(image) == {60, 40}
-
-      white_rows =
-        Enum.filter(0..39, fn y -> image |> Image.get_pixel!(30, y) |> hd() > 180 end)
-
-      # top = 145 puts storage row 150 at local row 5; the old add-then-clamp (top=160)
-      # would push storage row 150 off the bottom of the crop entirely.
-      assert white_rows == [5],
-             "expected white line at local row 5 (top=145), got rows #{inspect(white_rows)}"
-    end
-
-    # #146 Bug 3 under orientation: explicit c: and gravity g: crops with NON-ZERO
-    # offsets on south/east/corner anchors, EXIF 1..8. compensate_gravity_for remaps
-    # the anchor (e.g. North→South under EXIF-3) and vector-transforms the offset
-    # BEFORE the executable applies the per-axis sign, so the executable sees the
-    # post-remap anchor and uses ITS edge. The lossless sharp oracle catches any 1px
-    # divergence that the flat-region JPEG twin would miss.
-    test "Bug 3: non-zero offset crops on so/ea/corner anchors match the eager oracle (EXIF 1-8)" do
-      paths = [
-        # explicit coordinate-style gravity crops with offsets
-        "/_/c:60:40:so:0:15/f:png/plain/images/x.jpg",
-        "/_/c:50:60:ea:12:0/f:png/plain/images/x.jpg",
-        "/_/c:60:60:soea:10:8/f:png/plain/images/x.jpg",
-        "/_/c:60:60:noea:6:6/f:png/plain/images/x.jpg",
-        "/_/c:60:60:nowe:8:8/f:png/plain/images/x.jpg",
-        # cover/fill result crops with offsets on the far edges
-        "/_/rs:fill:90:60:0/g:so:0:10/f:png/plain/images/x.jpg",
-        "/_/rs:fill:60:90:0/g:ea:10:0/f:png/plain/images/x.jpg"
-      ]
-
-      for orientation <- 1..8, path <- paths do
-        oriented = call_imgproxy(path, sharp_oriented_opts(orientation))
-        twin = call_imgproxy(path, sharp_twin_opts(orientation))
-
-        assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
-        assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
-
-        assert_sharp_oracle_match(
-          decoded_image(oriented),
-          decoded_image(twin),
-          "Bug3 EXIF-#{orientation} #{path}"
-        )
-      end
-    end
-
-    # #146 Bug 2: a centered crop with an odd extent difference on BOTH axes discards
-    # one extra pixel; the storage-frame near-side rounding lands on the wrong display
-    # side under a net 180/270 turn (and under mirror orientations that reverse a
-    # storage axis). center_discard_sides flips the per-axis rounding so the kept
-    # pixel matches imgproxy's display-frame placement. Verified 1px-exact against the
-    # lossless eager oracle for EXIF 1..8 with odd discards on both axes.
-    test "Bug 2: center crop/cover with odd discard on both axes matches the eager oracle (EXIF 1-8)" do
-      paths = [
-        # center crop, odd storage discards on both axes (120-61=59, 200-39=161)
-        "/_/c:61:39:ce/f:png/plain/images/x.jpg",
-        "/_/c:39:61:ce/f:png/plain/images/x.jpg",
-        # center cover result crops with odd discards
-        "/_/rs:fill:91:39/g:ce/f:png/plain/images/x.jpg",
-        "/_/rs:fill:39:91/g:ce/f:png/plain/images/x.jpg"
-      ]
-
-      for orientation <- 1..8, path <- paths do
-        oriented = call_imgproxy(path, sharp_oriented_opts(orientation))
-        twin = call_imgproxy(path, sharp_twin_opts(orientation))
-
-        assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
-        assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
-
-        assert_sharp_oracle_match(
-          decoded_image(oriented),
-          decoded_image(twin),
-          "Bug2 EXIF-#{orientation} #{path}"
-        )
-      end
-    end
-
-    test "invalid signatures, paths, options, and expiry stop before cache and origin access" do
-      signed_opts =
-        Keyword.merge(@default_opts,
-          imgproxy: [
-            signature: [
-              keys: ["746573742d6b6579"],
-              salts: ["746573742d73616c74"]
-            ]
-          ]
-        )
-
-      cases = [
-        {"/invalid/w:120/plain/images/beach.jpg", 403, signed_opts},
-        {"/", 400, @default_opts},
-        {"/_/w:-1/plain/images/beach.jpg", 400, @default_opts},
-        {"/_/exp:100/plain/images/beach.jpg", 400,
-         Keyword.put(@default_opts, :clock, fn -> DateTime.from_unix!(101) end)}
-      ]
-
-      for {path, expected_status, opts} <- cases do
-        conn =
-          call_imgproxy(
-            path,
-            Keyword.merge(opts,
-              cache: {CacheProbe, []},
-              sources: [
-                path:
-                  {RootHTTPAdapter,
-                   root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-              ]
-            )
-          )
-
-        assert conn.status == expected_status
-        refute_received :cache_lookup
-        refute_received :cache_put
-        refute_received :origin_fetch
-      end
-    end
-
-    test "injecting debug:1 into a correctly signed URL invalidates the signature" do
-      signed_opts =
-        Keyword.merge(@default_opts,
-          imgproxy: [
-            signature: [
-              keys: ["746573742d6b6579"],
-              salts: ["746573742d73616c74"]
-            ]
-          ]
-        )
-
-      # Sign a path WITHOUT debug:1, then inject it. debug:1 rides in the signed
-      # processing-options segment (before /plain/), so the path HMAC no longer
-      # matches — a distinct tamper vector from the option/source segments.
-      signed_path = "/rs:fit:400:300/f:jpeg/plain/images/beach.jpg"
-      tampered = String.replace(signed_request_path(signed_path), "/plain/", "/debug:1/plain/")
-
+      # ~5000x5000 = 25M px. Per-axis caps slack (8000), pixel cap 4M -> clamp on pixels.
       conn =
         call_imgproxy(
-          tampered,
-          Keyword.merge(signed_opts,
-            cache: {CacheProbe, []},
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-            ]
+          "/_/el:1/rs:force:5000:5000/f:jpeg/plain/images/beach.jpg",
+          Keyword.merge(@host_default_opts,
+            max_result_width: 8000,
+            max_result_height: 8000,
+            max_result_pixels: 4_000_000
           )
         )
 
-      assert conn.status == 403
+      assert conn.status == 200
+      {w, h} = dimensions(conn)
+      assert w <= 8000 and h <= 8000
+      assert w * h <= 4_000_000
+
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
+      assert scale < 1.0
+    end
+
+    test "does not clamp or emit when the result is within all default caps" do
+      attach_clamp_telemetry()
+
+      conn = call_imgproxy("/_/w:300/f:jpeg/plain/images/beach.jpg", @host_default_opts)
+
+      assert conn.status == 200
+      {w, _h} = dimensions(conn)
+      assert w == 300
+      refute_received {:telemetry_event, @clamp_event, _m, _meta}
+    end
+  end
+
+  describe "trim (wire)" do
+    test "trims a uniform border to the inner block, no resize" do
+      conn = call_imgproxy("/_/trim:10/f:png/plain/images/trim.png", trim_origin_opts())
+      assert conn.status == 200
+      assert dimensions(conn) == {40, 44}
+    end
+
+    test "uniform image returns unchanged (no-op), no geometry options" do
+      conn = call_imgproxy("/_/trim:10/f:png/plain/images/uniform.png", uniform_origin_opts())
+      assert conn.status == 200
+      assert dimensions(conn) == {64, 64}
+    end
+
+    test "malformed trim threshold is rejected before cache lookup and origin fetch" do
+      opts =
+        Keyword.merge(@default_opts,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        )
+
+      conn = call_imgproxy("/_/trim:nope/plain/images/beach.jpg", opts)
+
+      assert conn.status == 400
       refute_received :cache_lookup
       refute_received :cache_put
       refute_received :origin_fetch
     end
 
-    test "malformed encoded source stops before cache lookup and origin fetch" do
-      telemetry_prefix = [:image_pipe_wire_safety]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      opts =
-        Keyword.merge(@default_opts,
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ]
-        )
-
-      for path <- ["/_/not+base64", "/_/#{Base.url_encode64(<<255>>, padding: false)}"] do
-        conn = call_imgproxy(path, opts)
-
-        assert conn.status == 400
-        refute_received {:telemetry_event, ^source_resolve_start, _, _}
-        refute_received {:cache_lookup, _key}
-        refute_received {:cache_put, _key, _entry}
-        refute_received :origin_fetch
-      end
-    end
-
-    test "unsupported decoded source scheme stops before cache lookup and origin fetch" do
-      telemetry_prefix = [:image_pipe_wire_safety]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      encoded = encoded_source("ftp://example.com/cat.jpg")
-
-      opts =
-        Keyword.merge(@default_opts,
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ]
-        )
-
-      conn = call_imgproxy("/_/#{encoded}", opts)
-
-      assert conn.status == 400
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      refute_received :origin_fetch
-    end
-
-    # `detector_required: true` + a detection request the stack cannot honor must
-    # reject BEFORE source and cache access, on both arms. Both arms carry a
-    # `:detector` config key (the dialect gained it in B1a), so both inject the
-    # same unavailable detector explicitly — identical opts, identical contract.
-    @detector_gate_opts [detector: UnavailableDetector, detector_required: true]
-
-    test "detector_required + unavailable detector rejects before source AND cache access" do
-      telemetry_prefix = [:image_pipe_wire_safety]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      opts =
-        @default_opts
-        |> Keyword.merge(@detector_gate_opts)
-        |> Keyword.merge(
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ]
-        )
-
-      conn = call_imgproxy("/_/rs:fill:80:80/g:obj:face/plain/images/beach.jpg", opts)
-
-      assert conn.status == 422
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      refute_received :origin_fetch
-    end
-
-    # The no-new-divergence guard for the gate above: with `detector_required`
-    # left at its default (false), `g:obj:*` must still succeed on BOTH arms.
-    # The dialect cannot honor the detection and falls back to attention
-    # cropping — which is exactly what the framework does when no detector is
-    # configured. A 4xx here would be a new always-on divergence.
-    test "g:obj without detector_required still returns 200 (no new divergence)" do
-      conn =
-        call_imgproxy("/_/rs:fill:80:80/g:obj:face/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      assert conn.status == 200
-      assert dimensions(conn) == {80, 80}
-    end
-
-    # Face-assist is deliberately NOT part of the strict detector gate: the
-    # framework's `validate_detector_capability/2` keys the gate on
-    # `Plan.detect_classes/1` alone (a `{:detect, _}` guide), while a face-assist
-    # smart crop carries a `{:smart, :face_assist}` guide that is not one of the
-    # gated detect classes. So even under `detector_required: true` with an
-    # UNAVAILABLE face detector, a `g:sm` + face-detection request must DEGRADE to
-    # attention (200), not reject (422). Both arms genuinely produce the
-    # `{:smart, :face_assist}` guide here — the dialect stamps the flag onto its
-    # PipelineRequest just as the framework does — so pinning this on BOTH arms
-    # keeps the dialect's gate from turning an active face-assist request into a
-    # divergence the framework does not have.
-    @face_assist_gate_opts [
-      detector: UnavailableDetector,
-      detector_required: true,
-      imgproxy: [smart_crop_face_detection: true]
-    ]
-
-    test "face-assist smart crop under detector_required + unavailable detector degrades to 200" do
-      opts = Keyword.merge(@default_opts, @face_assist_gate_opts)
-
-      conn = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
-
-      assert conn.status == 200
-      assert dimensions(conn) == {50, 50}
-    end
-
-    # With a face detector available, `g:sm` + `smart_crop_face_detection: true`
-    # carries a `{:smart, :face_assist}` guide that biases the fill-crop toward the
-    # detected face box, rendering DIFFERENT pixels than a plain `g:sm` attention
-    # crop with the flag off. WeightedSceneDetector's face box ({1400,600,400,400})
-    # sits left-of-center on beach.jpg (4000×2667), pulling the crop window
-    # measurably. Both the framework and the dialect read the flag (framework off
-    # `:imgproxy`, dialect off its flat config), so both arms must render the shift.
-    test "g:sm face-assist smart crop biases the rendered crop vs plain g:sm" do
-      base = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-      assisted = Keyword.merge(base, imgproxy: [smart_crop_face_detection: true])
-
-      plain =
-        call_imgproxy("/_/rs:fill:2000:2000/g:sm/f:jpeg/plain/images/beach.jpg", base)
-
-      faced =
-        call_imgproxy("/_/rs:fill:2000:2000/g:sm/f:jpeg/plain/images/beach.jpg", assisted)
-
-      assert plain.status == 200
-      assert faced.status == 200
-      assert dimensions(faced) == {2000, 2000}
-      refute faced.resp_body == plain.resp_body
-    end
-
-    test "encrypted unsupported decoded source scheme stops before cache lookup and origin fetch" do
-      telemetry_prefix = [:image_pipe_wire_safety]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      encrypted = encrypted_source("ftp://example.com/cat.jpg")
-
-      opts =
-        encrypted_opts(
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ]
-        )
-
-      conn = call_imgproxy("/_/enc/#{encrypted}", opts)
-
-      assert conn.status == 400
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      refute_received :origin_fetch
-    end
-
-    test "encrypted source marker without configured key stops before cache lookup and origin fetch" do
-      telemetry_prefix = [:image_pipe_wire_safety]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      opts =
-        Keyword.merge(@default_opts,
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ]
-        )
-
-      conn = call_imgproxy("/_/enc/payload", opts)
-
-      assert conn.status == 400
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      refute_received :origin_fetch
-    end
-
-    # Everything user-visible matches on both arms (400, the collapsed
-    # "invalid image request: :invalid_encrypted_source" body, and every
-    # pre-fetch refute). The arms part on ONE piece of `[:parse, :stop]`
-    # metadata, the `error:` tag, and they are asserted per-arm rather than
-    # gated — gating parked the pre-fetch SAFETY half (the valuable half, which
-    # passed on the dialect all along) to hold a telemetry nit.
-    #
-    # The two values differ because the framework's is a CONSTANT, not a tag.
-    # `ImagePipe.Plug.wrap_parser_error/1` re-wraps `{:error, reason}` as
-    # `{:error, {:parser, {:error, reason}}}`, so `result_metadata/1`'s
-    # `Error.tag(error)` reads the tag of `{:error, reason}` — the atom `:error`
-    # — and never reaches `reason`. Probed on the framework arm, three unrelated
-    # parse failures all report `%{error: :error}`:
-    #     /_/rs:fill/…  /_/f:nope/…  /_/zz:1/…   ->  %{error: :error, result: :error}
-    # The dialect's chain has no such double-wrap and reports the real tag. This
-    # is the dialect being strictly more informative, not drifting: reproducing
-    # `:error` would import a quirk to emit a constant conveying nothing.
-    @parse_error_tag (case @stack do
-                        # `Error.tag({:error, :invalid_encrypted_source})`
-                        :framework -> :error
-                        :dialect -> :invalid_encrypted_source
-                      end)
-
-    test "malformed encrypted source collapses parser errors and stops before cache lookup and origin fetch" do
-      telemetry_prefix = [:image_pipe_wire_encrypted_safety]
-      parse_stop = telemetry_prefix ++ [:parse, :stop]
-      parse_exception = telemetry_prefix ++ [:parse, :exception]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_safety_telemetry(telemetry_prefix)
-
-      opts =
-        encrypted_opts(
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ]
-        )
-
-      malformed_paths = [
-        "/_/enc/not+base64",
-        "/_/enc/#{Base.url_encode64(String.duplicate("x", 31), padding: false)}",
-        "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 17), padding: false)}",
-        "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 16), padding: false)}"
-      ]
-
-      expected_tag = @parse_error_tag
-
-      bodies =
-        for path <- malformed_paths do
-          conn = call_imgproxy(path, opts)
-
-          assert conn.status == 400
-
-          assert_received {:telemetry_event, ^parse_stop, _measurements,
-                           %{result: :error, error: ^expected_tag}}
-
-          conn.resp_body
-        end
-
-      assert Enum.uniq(bodies) == ["invalid image request: :invalid_encrypted_source"]
-      refute_received {:telemetry_event, ^parse_exception, _, _}
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      refute_received :origin_fetch
-    end
-
-    test "filesystem cache reuses normalized automatic Accept candidates" do
-      {opts, cache_root} = cached_opts()
-
-      try do
-        first_conn =
-          "/_/plain/images/beach.jpg"
-          |> call_imgproxy(opts, "image/webp;q=1,image/avif;q=0.1")
-
-        assert first_conn.status == 200
-        assert content_type(first_conn) == ["image/avif"]
-        assert get_resp_header(first_conn, "vary") == ["Accept"]
-        assert_received :origin_fetch
-
-        second_conn =
-          "/_/plain/images/beach.jpg"
-          |> call_imgproxy(opts, "image/avif,image/webp")
-
-        assert second_conn.status == 200
-        assert content_type(second_conn) == ["image/avif"]
-        assert get_resp_header(second_conn, "vary") == ["Accept"]
-        assert second_conn.resp_body == first_conn.resp_body
-        refute_received :origin_fetch
-      after
-        File.rm_rf!(cache_root)
-      end
-    end
-
-    test "plain and matching encoded source requests share the same filesystem cache entry" do
-      {opts, cache_root} = cached_opts()
-
-      try do
-        plain_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert plain_conn.status == 200
-        assert_received :origin_fetch
-
-        encoded = encoded_source("images/beach.jpg")
-        encoded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}", opts)
-
-        assert encoded_conn.status == 200
-        assert encoded_conn.resp_body == plain_conn.resp_body
-        refute_received :origin_fetch
-      after
-        File.rm_rf!(cache_root)
-      end
-    end
-
-    test "plain encoded encrypted and SEO filename spellings share the same filesystem cache entry" do
-      {opts, cache_root} =
-        cached_opts(
-          imgproxy: [
-            source_url_encryption_key: @source_url_encryption_key,
-            base64_url_includes_filename: true
-          ]
-        )
-
-      try do
-        first_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", opts)
-
-        assert first_conn.status == 200
-        assert_received :origin_fetch
-
-        encoded = encoded_source("images/beach.jpg")
-        encoded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}/puppy.jpg", opts)
-
-        assert encoded_conn.status == 200
-        assert encoded_conn.resp_body == first_conn.resp_body
-        refute_received :origin_fetch
-
-        encrypted = encrypted_source("images/beach.jpg")
-
-        encrypted_conn =
-          call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}/kitten.jpg", opts)
-
-        assert encrypted_conn.status == 200
-        assert encrypted_conn.resp_body == first_conn.resp_body
-        refute_received :origin_fetch
-
-        alternate_encrypted =
-          encrypted_source("images/beach.jpg", iv: @alternate_source_url_encryption_iv)
-
-        alternate_conn =
-          call_imgproxy(
-            "/_/rt:force/w:120/h:90/f:jpeg/enc/#{alternate_encrypted}/puppy.jpg",
-            opts
-          )
-
-        assert alternate_conn.status == 200
-        assert alternate_conn.resp_body == first_conn.resp_body
-        refute_received :origin_fetch
-      after
-        File.rm_rf!(cache_root)
-      end
-    end
-
-    test "signed encrypted URLs verify the SEO filename before decrypting the source" do
-      telemetry_prefix = [:image_pipe_signed_encrypted_safety]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      encrypted = encrypted_source("images/beach.jpg")
-      signed_path = "/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}.webp/puppy.jpg"
-
-      imgproxy =
-        [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ],
-          source_url_encryption_key: @source_url_encryption_key,
-          base64_url_includes_filename: true
-        ]
-
-      assert call_imgproxy(
-               signed_request_path(signed_path),
-               Keyword.put(@default_opts, :imgproxy, imgproxy)
-             ).status ==
-               200
-
-      opts =
-        encrypted_opts(
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ],
-          imgproxy: imgproxy
-        )
-
-      tampered_path =
-        signed_path
-        |> signed_request_path()
-        |> String.replace_suffix("puppy.jpg", "kitten.jpg")
-
-      conn = call_imgproxy(tampered_path, opts)
-
-      assert conn.status == 403
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      refute_received :origin_fetch
-    end
-
-    test "signed encrypted URLs reject invalid signatures before malformed source decryption" do
-      telemetry_prefix = [:image_pipe_signed_malformed_encrypted_safety]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      imgproxy =
-        [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ],
-          source_url_encryption_key: @source_url_encryption_key,
-          base64_url_includes_filename: true
-        ]
-
-      opts =
-        encrypted_opts(
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ],
-          imgproxy: imgproxy
-        )
-
+    # #124: trim on a wide-gamut (Display-P3) source. After the color-management
+    # preamble the image is in the sRGB working space, so trim detects against those
+    # pixels. The border here is pure black (identical in P3 and sRGB) so the trim
+    # box is stable and the inner 44×44 block is always detected.
+    test "trim on a wide-gamut (P3) source detects the border after color management" do
       conn =
         call_imgproxy(
-          "/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/rt:force/w:120/h:90/f:jpeg/enc/not+base64.webp/puppy.jpg",
-          opts
+          "/_/trim:10/f:png/plain/images/wide.png",
+          origin_opts(WideGamutTrimOriginImage)
         )
 
-      assert conn.status == 403
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      refute_received :origin_fetch
-    end
-
-    test "whole chunked and padded encoded source spellings share the same filesystem cache entry" do
-      {opts, cache_root} = cached_opts()
-
-      try do
-        whole = encoded_source("images/beach.jpg")
-        chunked = chunked_encoded_source("images/beach.jpg")
-        padded = encoded_source("images/beach.jpg", padding: true)
-
-        first_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{whole}", opts)
-
-        assert first_conn.status == 200
-        assert_received :origin_fetch
-
-        chunked_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{chunked}", opts)
-
-        assert chunked_conn.status == 200
-        assert chunked_conn.resp_body == first_conn.resp_body
-        refute_received :origin_fetch
-
-        padded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{padded}", opts)
-
-        assert padded_conn.status == 200
-        assert padded_conn.resp_body == first_conn.resp_body
-        refute_received :origin_fetch
-      after
-        File.rm_rf!(cache_root)
-      end
-    end
-
-    test "custom imgproxy scheme translator and custom source adapter fetch only on cache miss" do
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        imgproxy: [
-          source_schemes: %{
-            "foobar" => {FoobarTranslator, []}
-          }
-        ],
-        sources: [
-          foobar: {PlugCustomAdapter, adapter: :foobar}
-        ],
-        cache: {CacheProbe, []}
-      ]
-
-      conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
-
       assert conn.status == 200
-      assert_received {:foobar_translate, "foobar://asset/cat.jpg"}
-      assert_received {:custom_resolve, _source}
-      assert_received {:custom_fetch, :cat}
+      # The inner block is 44×44; trim must crop down to it.
+      assert dimensions(conn) == {44, 44}
     end
 
-    test "cache hit resolves custom source but does not fetch" do
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        imgproxy: [
-          source_schemes: %{"foobar" => {FoobarTranslator, []}}
-        ],
-        sources: [foobar: {PlugCustomAdapter, adapter: :foobar}],
-        cache: {CacheProbe, result: {:hit, cache_entry()}}
-      ]
-
-      conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
-
-      assert conn.status == 200
-      assert_received {:custom_resolve, _source}
-      assert_received {:cache_lookup, _key}
-      refute_received {:custom_fetch, _fetch}
-      refute_received {:cache_put, _key, _entry}
-      assert source_order() == [:resolve, :cache_lookup]
-    end
-
-    test "cache miss fetches custom source and writes successful encoded response" do
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        imgproxy: [
-          source_schemes: %{"foobar" => {FoobarTranslator, []}}
-        ],
-        sources: [foobar: {PlugCustomAdapter, adapter: :foobar}],
-        cache: {CacheProbe, result: :miss}
-      ]
-
-      conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
-
-      assert conn.status == 200
-      assert_received {:custom_resolve, _source}
-      assert_received {:cache_lookup, _key}
-      assert_received {:custom_fetch, :cat}
-      assert_received {:cache_open_sink, _key, %{cost_us: cost_us}}
-      assert cost_us > 0
-      assert_received {:cache_put, _key, _entry}
-      assert source_order() == [:resolve, :cache_lookup, :fetch, :cache_put]
-    end
-
-    # A source declaring `internal_cache: :disabled` ("do not store my bytes")
-    # must be honored by BOTH arms: no lookup, no write. The framework does it in
-    # `Runner.run_with_cache_config/5` (runner.ex:72) by pattern-matching
-    # `%Source.Resolved{internal_cache: :disabled}` and handing
-    # `process_prepared_stream/6` a `nil` cache key; the dialect does it in
-    # `serve/7` by the same dispatch.
-    #
-    # Was DIVERGENCE D4 — the dialect read `resolved.internal_cache` nowhere and
-    # stored bytes the source had opted out of caching. Note the status is 200 on
-    # both arms either way: `source_order/0` is what discriminates here, not the
-    # status.
-    test "cache skip fetches custom source without cache lookup or write" do
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        imgproxy: [
-          source_schemes: %{"foobar" => {FoobarTranslator, []}}
-        ],
-        sources: [
-          foobar: {PlugCustomAdapter, adapter: :foobar, internal_cache: :disabled}
-        ],
-        cache: {CacheProbe, result: :miss}
-      ]
-
-      conn = call_imgproxy("/_/plain/foobar://asset/cat.jpg", opts)
-
-      assert conn.status == 200
-      assert_received {:custom_resolve, _source}
-      assert_received {:custom_fetch, :cat}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      assert source_order() == [:resolve, :fetch]
-    end
-
-    test "S3 cache hit resolves identity without asking credential providers" do
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          s3:
-            {ImagePipe.Source.S3,
-             default: [
-               endpoint: "https://minio.test",
-               region: "eu-west-1",
-               credentials: {:provider, CredentialProvider, []}
-             ],
-             buckets: %{
-               "tenant-a" => [
-                 credentials: {:provider, CredentialProvider, []}
-               ]
-             }}
-        ],
-        cache: {CacheProbe, result: {:hit, cache_entry()}}
-      ]
-
-      conn = call_imgproxy("/_/plain/s3://tenant-a/images/cat.jpg%3Fabc", opts)
-
-      assert conn.status == 200
-      assert_received {:cache_lookup, _key}
-      refute_received {:fetch_credentials, _, _, _}
-    end
-
-    test "car corrects the crop area aspect ratio (enlarge)" do
-      # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region (centered).
-      # car:1:1 (ratio=1, enlarge) grows the short axis: 100 -> 200, giving 200x200.
-      # Because gravity is unchanged, the corrected crop must sample the same region
-      # as a direct 200x200 centered crop, so the decoded bytes are identical.
-      conn = call_imgproxy("/_/c:100:200:ce/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
-      direct = call_imgproxy("/_/c:200:200:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      assert conn.status == 200
-      assert dimensions(conn) == {200, 200}
-      assert conn.resp_body == direct.resp_body
-    end
-
-    test "car works without a resize (no-geometry-resize case)" do
-      # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region.
-      # car:1 (ratio=1, default reduce) shrinks the long axis: 200 -> 100, giving 100x100.
-      # The corrected crop must equal a direct 100x100 centered crop, pixel for pixel.
-      conn = call_imgproxy("/_/c:100:200:ce/car:1/f:jpeg/plain/images/beach.jpg", @default_opts)
-      direct = call_imgproxy("/_/c:100:100:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      assert conn.status == 200
-      assert dimensions(conn) == {100, 100}
-      assert conn.resp_body == direct.resp_body
-    end
-
-    test "car leaves gravity placement unchanged" do
-      # c:200:400:no + car:1:1 (enlarge) grows short axis: 200 -> 400, giving 400x400 anchored north.
-      # c:400:400:no directly crops 400x400 anchored north. The decoded bytes must be
-      # identical, proving the correction changed only the size and kept the gravity region.
-      via_car =
-        call_imgproxy("/_/c:200:400:no/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      direct = call_imgproxy("/_/c:400:400:no/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-      assert via_car.status == 200
-      assert direct.status == 200
-      assert dimensions(via_car) == dimensions(direct)
-      assert via_car.resp_body == direct.resp_body
-    end
-
-    test "S3 cache miss asks only the selected bucket credential provider before fetch" do
-      plug = fn conn ->
-        Plug.Conn.send_resp(conn, 200, File.read!("priv/static/images/beach.jpg"))
-      end
-
-      # unique bucket names: the credential RefreshCache is application-global and
-      # this suite is async, so a shared scope could let another test warm the
-      # entry and make these assert/refute_received calls pass tautologically.
-      tenant_a = "tenant-a-#{System.unique_integer([:positive])}"
-      tenant_b = "tenant-b-#{System.unique_integer([:positive])}"
-
-      opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          s3:
-            {ImagePipe.Source.S3,
-             default: [
-               endpoint: "https://minio.test",
-               region: "eu-west-1",
-               credentials: {:provider, CredentialProvider, role: "default", report_to: self()},
-               req_options: [plug: plug]
-             ],
-             buckets: %{
-               tenant_a => [
-                 credentials: {:provider, CredentialProvider, role: "tenant-a", report_to: self()}
-               ],
-               tenant_b => [
-                 credentials: {:provider, CredentialProvider, role: "tenant-b", report_to: self()}
-               ]
-             }}
-        ],
-        cache: {CacheProbe, result: :miss}
-      ]
-
-      conn = call_imgproxy("/_/plain/s3://#{tenant_a}/images/cat.jpg%3Fabc", opts)
-
-      assert conn.status == 200
-      assert_received {:fetch_credentials, ^tenant_a, [role: "tenant-a"], []}
-      refute_received {:fetch_credentials, ^tenant_a, [role: "default"], _runtime_opts}
-      refute_received {:fetch_credentials, ^tenant_b, [role: "tenant-b"], _runtime_opts}
-    end
-
-    describe "sm/kcr metadata stripping" do
-      # Note on libvips JPEG behavior: libvips always writes a minimal EXIF block
-      # on JPEG encode (with image dimensions, color space, etc.) regardless of
-      # metadata stripping. Therefore "exif-data present" is always true after JPEG
-      # encode and cannot be used to assert stripping. The meaningful assertions are
-      # on specific EXIF field values (e.g. copyright, image_description) and on
-      # xmp-data, which is only present when the source carried it.
-
-      test "sm:0 retains EXIF copyright, ImageDescription, and XMP; default (sm on) strips them" do
-        # Establish the sm:0 baseline first: if the fixture itself lacks metadata,
-        # these assertions will fail loudly rather than letting the default-strips
-        # assertions pass as false negatives.
-        kept_conn =
-          call_imgproxy(
-            "/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg",
-            metadata_origin_opts()
-          )
-
-        assert kept_conn.status == 200
-
-        {kept_image, kept_fields} = response_metadata(kept_conn)
-        {:ok, kept_exif} = Image.exif(kept_image)
-
-        assert Map.get(kept_exif, :copyright) == "(c) ACME",
-               "sm:0 baseline: copyright must be present; fixture is missing EXIF copyright"
-
-        assert Map.get(kept_exif, :image_description) == "A test image",
-               "sm:0 baseline: ImageDescription must be present; fixture is missing EXIF ImageDescription"
-
-        assert "xmp-data" in kept_fields,
-               "sm:0 baseline: xmp-data must be present; fixture is missing XMP metadata"
-
-        # Default request (sm on, kcr on): XMP and non-copyright EXIF fields must
-        # be stripped. Copyright is preserved by kcr:1 (the default).
-        default_conn =
-          call_imgproxy(
-            "/_/scp:0/f:jpeg/plain/images/meta.jpg",
-            metadata_origin_opts()
-          )
-
-        assert default_conn.status == 200
-
-        {default_image, default_fields} = response_metadata(default_conn)
-        {:ok, default_exif} = Image.exif(default_image)
-
-        refute "xmp-data" in default_fields,
-               "default (sm on): xmp-data must be stripped from the response"
-
-        refute Map.has_key?(default_exif, :image_description),
-               "default (sm on): non-copyright EXIF field (ImageDescription) must be stripped"
-
-        assert Map.get(default_exif, :copyright) == "(c) ACME",
-               "default (kcr on): copyright must be retained"
-      end
-
-      test "sm:1/kcr:0 strips copyright along with other EXIF and XMP" do
-        # Baseline: the fixture carries copyright, so the refute below is meaningful
-        # even when this test runs in isolation.
-        baseline =
-          call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
-
-        {baseline_image, _baseline_fields} = response_metadata(baseline)
-        {:ok, baseline_exif} = Image.exif(baseline_image)
-        assert Map.get(baseline_exif, :copyright) == "(c) ACME"
-
-        conn =
-          call_imgproxy(
-            "/_/sm:1/kcr:0/scp:0/f:jpeg/plain/images/meta.jpg",
-            metadata_origin_opts()
-          )
-
-        assert conn.status == 200
-
-        {image, field_names} = response_metadata(conn)
-        {:ok, exif} = Image.exif(image)
-
-        refute Map.has_key?(exif, :copyright),
-               "kcr:0: copyright must be stripped along with other metadata"
-
-        refute "xmp-data" in field_names,
-               "kcr:0: xmp-data must be stripped"
-      end
-
-      test "sm:1/kcr:1 keeps EXIF copyright while stripping non-copyright EXIF and XMP" do
-        # Baseline: confirm the fixture actually carries the non-copyright EXIF
-        # field, so the "stripped" refute below cannot pass vacuously even when
-        # this test runs in isolation.
-        baseline =
-          call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
-
-        {baseline_image, _baseline_fields} = response_metadata(baseline)
-        {:ok, baseline_exif} = Image.exif(baseline_image)
-        assert Map.get(baseline_exif, :image_description) == "A test image"
-
-        conn =
-          call_imgproxy(
-            "/_/sm:1/kcr:1/scp:0/f:jpeg/plain/images/meta.jpg",
-            metadata_origin_opts()
-          )
-
-        assert conn.status == 200
-
-        {image, field_names} = response_metadata(conn)
-        {:ok, exif} = Image.exif(image)
-
-        # Copyright must be retained.
-        assert Map.get(exif, :copyright) == "(c) ACME",
-               "kcr:1: copyright must equal the original value"
-
-        # Non-copyright EXIF field (ImageDescription) must be gone.
-        refute Map.has_key?(exif, :image_description),
-               "kcr:1: non-copyright EXIF field (ImageDescription) must be stripped"
-
-        # XMP must be stripped.
-        refute "xmp-data" in field_names,
-               "kcr:1: xmp-data must be stripped"
-      end
-
-      test "sm flag produces an isolated filesystem-cache variant" do
-        {opts, cache_root} =
-          cached_opts(
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test",
-                 req_options: [plug: {MetadataOriginImage, test_pid: self()}]}
-            ]
-          )
-
-        try do
-          # Default (sm on): cache miss, EXIF stripped.
-          stripped = call_imgproxy("/_/scp:0/f:jpeg/plain/images/meta.jpg", opts)
-          assert stripped.status == 200
-          assert_received :origin_fetch
-
-          # sm:0: distinct cache key -> cache miss, EXIF retained, different bytes.
-          kept = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", opts)
-          assert kept.status == 200
-          assert_received :origin_fetch
-          refute kept.resp_body == stripped.resp_body
-
-          # Re-request sm:0: cache hit (no origin fetch), identical bytes — the
-          # variant was cached separately, not cross-served from the default entry.
-          kept_again = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", opts)
-          assert kept_again.status == 200
-          refute_received :origin_fetch
-          assert kept_again.resp_body == kept.resp_body
-        after
-          File.rm_rf!(cache_root)
-        end
-      end
-    end
-
-    describe "scp color-profile normalization" do
-      # Note: `Image.to_colorspace(img, :p3, [])` attaches a P3 ICC profile to the
-      # in-memory image, which libvips embeds in PNG output. Re-opening the PNG bytes
-      # confirms "icc-profile-data" is present, so the scp:0 baseline assertion will
-      # fail loudly if the source generation ever loses the profile, preventing the
-      # scp:1 "dropped" assertion from passing as a false negative.
-      #
-      # Unlike EXIF (which libvips regenerates minimally on JPEG encode), libvips does
-      # NOT synthesize an ICC profile — it embeds one only when the image carries it.
-      # Therefore "icc-profile-data" presence/absence is a meaningful scp assertion.
-
-      test "scp:0 retains the embedded ICC profile; scp:1 (default) drops it and outputs sRGB" do
-        # Establish the scp:0 baseline first: if the source lost its ICC profile,
-        # these assertions fail loudly and prevent the scp:1 refute from passing
-        # vacuously against a profile-less output.
-        scp0_conn =
-          call_imgproxy(
-            "/_/scp:0/f:png/plain/images/wide.png",
-            wide_gamut_origin_opts()
-          )
-
-        assert scp0_conn.status == 200
-
-        {_scp0_image, scp0_fields} = response_metadata(scp0_conn)
-
-        assert "icc-profile-data" in scp0_fields,
-               "scp:0 baseline: icc-profile-data must be present; source lost its ICC profile"
-
-        # scp:1 → color_profile: :strip: the finalize colorspace-to-result transforms
-        # pixels to the standard sRGB space and drops the icc-profile-data header.
-        scp1_conn =
-          call_imgproxy(
-            "/_/scp:1/f:png/plain/images/wide.png",
-            wide_gamut_origin_opts()
-          )
-
-        assert scp1_conn.status == 200
-
-        {scp1_image, scp1_fields} = response_metadata(scp1_conn)
-
-        refute "icc-profile-data" in scp1_fields,
-               "scp:1: icc-profile-data must be absent from the response"
-
-        assert Image.colorspace(scp1_image) == :srgb,
-               "scp:1: output colorspace header must be sRGB (pixels are proven by ColorCarryParityTest)"
-      end
-
-      test "default request (no scp in URL) drops the ICC profile" do
-        # Same as scp:1 but exercises the default plan: color_profile is :strip
-        # by default in Plan.Output, so no explicit scp option is needed.
-        default_conn =
-          call_imgproxy(
-            "/_/f:png/plain/images/wide.png",
-            wide_gamut_origin_opts()
-          )
-
-        assert default_conn.status == 200
-
-        {_default_image, default_fields} = response_metadata(default_conn)
-
-        refute "icc-profile-data" in default_fields,
-               "default (scp on): icc-profile-data must be absent from the response"
-      end
-
-      test "scp:1 + sm:0 also strips the EXIF color-characterization tags (vips_icc_remove)" do
-        # imgproxy's `vips_icc_remove` (called by colorspaceToResult when the profile
-        # is dropped) removes three EXIF color tags alongside the ICC blob — and does
-        # so independent of StripMetadata. So with scp:1 (default) + sm:0 (keep
-        # metadata), the profile-drop path must strip them even though sm:0 keeps
-        # everything else.
-        #
-        # sm:0/scp:0 baseline first: keeping the profile (scp:0) must leave the color
-        # tags in place, so the scp:1 refute below cannot pass against a tag-less
-        # source. WhitePoint and PrimaryChromaticities are the observable tags;
-        # ImageDescription is the control proving sm:0 itself strips nothing.
-        kept_conn =
-          call_imgproxy("/_/scp:0/sm:0/f:jpeg/plain/images/char.jpg", color_char_origin_opts())
-
-        assert kept_conn.status == 200
-
-        {_kept_image, kept_fields} = response_metadata(kept_conn)
-
-        assert "exif-ifd0-WhitePoint" in kept_fields,
-               "sm:0/scp:0 baseline: WhitePoint must be present; source is missing the tag"
-
-        assert "exif-ifd0-PrimaryChromaticities" in kept_fields,
-               "sm:0/scp:0 baseline: PrimaryChromaticities must be present; source is missing the tag"
-
-        # scp:1 (default) + sm:0: the profile-drop path runs vips_icc_remove's field
-        # list. WhitePoint and PrimaryChromaticities are removed; ImageDescription
-        # stays (sm:0 strips nothing). exif-ifd2-ColorSpace is on the removal list
-        # too, but is NOT asserted here: libvips reconstructs it from the encoded
-        # image's color interpretation on JPEG write, so it reappears on imgproxy
-        # output identically — it is not an output-observable divergence.
-        stripped_conn =
-          call_imgproxy("/_/sm:0/f:jpeg/plain/images/char.jpg", color_char_origin_opts())
-
-        assert stripped_conn.status == 200
-
-        {_stripped_image, stripped_fields} = response_metadata(stripped_conn)
-
-        refute "exif-ifd0-WhitePoint" in stripped_fields,
-               "scp:1 + sm:0: WhitePoint must be stripped by the profile-drop path"
-
-        refute "exif-ifd0-PrimaryChromaticities" in stripped_fields,
-               "scp:1 + sm:0: PrimaryChromaticities must be stripped by the profile-drop path"
-
-        assert "exif-ifd0-ImageDescription" in stripped_fields,
-               "scp:1 + sm:0: ImageDescription must survive (sm:0 strips no general metadata)"
-      end
-
-      test "scp:0 option-order equivalence: same output regardless of URL position" do
-        # scp:0 in different URL positions must parse to the same plan (order-insensitive)
-        # and therefore produce byte-identical output.
-        first =
-          call_imgproxy(
-            "/_/scp:0/rs:fit:80:80/f:png/plain/images/wide.png",
-            wide_gamut_origin_opts()
-          )
-
-        second =
-          call_imgproxy(
-            "/_/rs:fit:80:80/scp:0/f:png/plain/images/wide.png",
-            wide_gamut_origin_opts()
-          )
-
-        assert first.status == 200
-        assert second.status == 200
-        assert first.resp_body == second.resp_body
-      end
-
-      test "scp:0 filesystem cache reuses the same entry for semantically-equivalent requests" do
-        {opts, cache_root} =
-          cached_opts(
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test",
-                 req_options: [plug: {CountingOriginImage, test_pid: self()}]}
-            ]
-          )
-
-        try do
-          first =
-            call_imgproxy(
-              "/_/scp:0/rs:fit:80:80/f:jpeg/plain/images/beach.jpg",
-              opts
-            )
-
-          assert first.status == 200
-          assert_received :origin_fetch
-
-          # Same plan, different URL option order -> same cache key -> cache hit.
-          second =
-            call_imgproxy(
-              "/_/rs:fit:80:80/scp:0/f:jpeg/plain/images/beach.jpg",
-              opts
-            )
-
-          assert second.status == 200
-          assert second.resp_body == first.resp_body
-          refute_received :origin_fetch
-        after
-          File.rm_rf!(cache_root)
-        end
-      end
-    end
-
-    # #124: request-boundary pixel tests for input color management.
-    #
-    # The behavioral contract for scp:0 on a wide-gamut (Display-P3) source:
-    # - The input is color-managed to the working space (sRGB) before any
-    #   processing step (`colorspaceToProcessing` preamble).
-    # - With scp:0 the source ICC profile is re-embedded in the finalized output.
-    # - With scp:1 (default) the profile is dropped and pixels are mapped to sRGB.
-    #
-    # These tests assert on the decoded response body, not just headers.
-    describe "scp:0 pixel behavior (#124)" do
-      test "resize-only scp:0 on a wide-gamut source: profile present, correct dimensions" do
-        conn =
-          call_imgproxy(
-            "/_/rs:fit:200:200/scp:0/f:png/plain/images/wide.png",
-            wide_gamut_origin_opts()
-          )
-
-        assert conn.status == 200
-
-        {image, fields} = response_metadata(conn)
-
-        # The re-embedded profile must be present in the decoded output.
-        assert "icc-profile-data" in fields,
-               "scp:0 + resize: icc-profile-data must be present in the decoded output"
-
-        # Dimensions: rs:fit:200:200 on a 40×40 source without el (no-enlarge) leaves it
-        # at 40×40 (source is already within the fit box).
-        assert dimensions(image) == {40, 40}
-      end
-
-      test "scp:0 output differs from scp:1 (working-space round-trip visible in pixels)" do
-        # The working-space import transforms out-of-gamut P3 reds: scp:0 re-embeds
-        # the P3 profile (so the pixels stay in P3 representation), while scp:1 maps
-        # to sRGB (clipping out-of-gamut values). The two outputs must differ.
-        scp0 =
-          call_imgproxy(
-            "/_/scp:0/f:png/plain/images/wide.png",
-            wide_gamut_origin_opts()
-          )
-
-        scp1 =
-          call_imgproxy(
-            "/_/scp:1/f:png/plain/images/wide.png",
-            wide_gamut_origin_opts()
-          )
-
-        assert scp0.status == 200
-        assert scp1.status == 200
-
-        refute scp0.resp_body == scp1.resp_body,
-               "scp:0 and scp:1 outputs must differ (working-space round-trip is observable)"
-      end
-    end
-
-    describe "cp/icc target color profile (wire)" do
-      test "cp:display-p3 embeds the target and changes pixels vs strip" do
-        # The 40×40 P3 source: cp:display-p3 keeps the wide gamut and re-embeds a
-        # target ICC profile, while scp:1 maps to sRGB and drops the profile. The
-        # two encoded outputs must differ (embedded profile + remapped pixels).
-        p3_conn =
-          call_imgproxy("/_/cp:display-p3/f:png/plain/images/wide.png", wide_gamut_origin_opts())
-
-        strip_conn =
-          call_imgproxy("/_/scp:1/f:png/plain/images/wide.png", wide_gamut_origin_opts())
-
-        {_p3_img, p3_fields} = response_metadata(p3_conn)
-        {_strip_img, strip_fields} = response_metadata(strip_conn)
-
-        assert "icc-profile-data" in p3_fields
-
-        refute "icc-profile-data" in strip_fields,
-               "scp:1 baseline: icc-profile-data must be absent so the diff is not tautological"
-
-        refute p3_conn.resp_body == strip_conn.resp_body,
-               "cp:display-p3 and scp:1 outputs must differ (target profile + remapped pixels)"
-      end
-
-      test "cp works without geometry (no-geometry form)" do
-        {_img, fields} =
-          response_metadata(
-            call_imgproxy("/_/cp:adobe-rgb/f:png/plain/images/wide.png", wide_gamut_origin_opts())
-          )
-
-        assert "icc-profile-data" in fields
-      end
-
-      test "cp overrides scp: target embedded, not stripped" do
-        {_img, fields} =
-          response_metadata(
-            call_imgproxy("/_/cp:p3/scp:1/f:png/plain/images/wide.png", wide_gamut_origin_opts())
-          )
-
-        assert "icc-profile-data" in fields
-      end
-
-      test "EXIF/XMP still stripped under a cp target (target does not suppress metadata strip)" do
-        # default strip_metadata; keep_copyright defaults true, so assert a NON-copyright
-        # EXIF field + XMP are gone while the cp target ICC is present.
-        {_img, fields} =
-          response_metadata(
-            call_imgproxy("/_/cp:display-p3/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
-          )
-
-        assert "icc-profile-data" in fields
-        refute "exif-ifd0-ImageDescription" in fields
-        refute "xmp-data" in fields
-      end
-
-      test "equal cp requests reuse the filesystem cache (different option order)" do
-        {opts, cache_root} =
-          cached_opts(
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test",
-                 req_options: [plug: {CountingOriginImage, test_pid: self()}]}
-            ]
-          )
-
-        try do
-          first = call_imgproxy("/_/cp:p3/rs:fit:80:80/f:jpeg/plain/images/beach.jpg", opts)
-          assert first.status == 200
-          assert_received :origin_fetch
-
-          second = call_imgproxy("/_/rs:fit:80:80/cp:p3/f:jpeg/plain/images/beach.jpg", opts)
-          assert second.status == 200
-          assert second.resp_body == first.resp_body
-          refute_received :origin_fetch
-        after
-          File.rm_rf!(cache_root)
-        end
-      end
-    end
-
-    describe "output capability handling" do
-      test "automatic negotiation drops avif when the build cannot write it" do
-        opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false, webp: true})
-
-        conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/webp"]
-        assert get_resp_header(conn, "vary") == ["Accept"]
-      end
-
-      test "automatic negotiation keeps avif when the build supports it" do
-        opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true, webp: true})
-
-        conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/avif"]
-      end
-
-      test "an avif source with a jpeg-only Accept transcodes to raster regardless of capability" do
-        base = [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: AvifOriginImage]}
-          ]
-        ]
-
-        for capability <- [%{avif: true}, %{avif: false}] do
-          opts = Keyword.put(base, :output_capabilities, capability)
-
-          conn = call_imgproxy("/_/plain/images/cat.avif", opts, "image/jpeg")
-
-          assert conn.status == 200
-          # 64x64 solid red has no alpha -> JPEG, never AVIF, for either build.
-          assert content_type(conn) == ["image/jpeg"]
-          # Decode confirms valid raster output at the source dimensions.
-          assert dimensions(conn) == {64, 64}
-        end
-      end
-
-      test "automatic format is state-driven: opaque padding on a non-passthrough source stays JPEG (#235)" do
-        base = [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: AvifOriginImage]}
-          ]
-        ]
-
-        # cat.avif is 64×64 solid red (opaque). An opaque padding fill keeps the result
-        # opaque, so ImagePipe's automatic format — resolved from the *final* image's
-        # `has_alpha?` — picks JPEG. imgproxy is request-driven: the mere presence of
-        # padding makes `determineOutputFormat` expect transparency (`PaddingEnabled()`,
-        # processing.go), so it would emit PNG here. ImagePipe deliberately diverges,
-        # serving the smaller opaque container; this pins that choice (a documented
-        # surface divergence — docs/imgproxy_support_matrix.md, #235).
-        conn = call_imgproxy("/_/pd:10/bg:255:0:0/plain/images/cat.avif", base, "image/jpeg")
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert dimensions(conn) == {84, 84}
-      end
-
-      test "an avif-capable and avif-less build caches distinct variants for the same Accept" do
-        {base, cache_root} = cached_opts()
-
-        try do
-          capable = Keyword.put(base, :output_capabilities, %{avif: true, webp: true})
-          incapable = Keyword.put(base, :output_capabilities, %{avif: false, webp: true})
-          accept = "image/avif,image/webp"
-          path = "/_/plain/images/beach.jpg"
-
-          capable_conn = call_imgproxy(path, capable, accept)
-          assert content_type(capable_conn) == ["image/avif"]
-          assert_received :origin_fetch
-
-          incapable_conn = call_imgproxy(path, incapable, accept)
-          assert content_type(incapable_conn) == ["image/webp"]
-          # Distinct filtered candidate list -> distinct key -> a second origin fetch.
-          assert_received :origin_fetch
-
-          # A repeat under the capable profile is served from cache without
-          # re-fetching the origin, proving the filtered candidate list keys the two
-          # variants apart (no cross-contamination from the webp entry).
-          repeat_capable = call_imgproxy(path, capable, accept)
-          assert content_type(repeat_capable) == ["image/avif"]
-          assert repeat_capable.resp_body == capable_conn.resp_body
-          refute_received :origin_fetch
-        after
-          File.rm_rf!(cache_root)
-        end
-      end
-
-      test "a jpeg source with a jpeg-only Accept passes through as jpeg" do
-        conn = call_imgproxy("/_/plain/images/beach.jpg", @default_opts, "image/jpeg")
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-      end
-
-      test "explicit avif is rejected before source fetch on an avif-less build" do
-        opts = [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ],
-          output_capabilities: %{avif: false}
-        ]
-
-        conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
-
-        assert conn.status == 501
-        # OriginShouldNotFetch flunks/raises if the source is fetched; reaching 501
-        # without that proves the rejection happened pre-fetch.
-      end
-
-      test "explicit avif succeeds on a capable build" do
-        opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true})
-
-        conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/avif"]
-        assert get_resp_header(conn, "vary") == []
-      end
-    end
-
-    # Object-detection block, dual-run on both arms: the dialect gained a
-    # `:detector` config seam in B1a (mirroring the framework's), so an injected
-    # fake detector reaches the crop path on both stacks and object-guided crops,
-    # class filtering, objw weights, and the class-aware strict gate are now
-    # verified against the dialect too. Detector model identity in the cache key
-    # remains a framework-only bit until the cache-identity task.
-    #
-    # Task 10: Pixel divergence — g:obj:car crop biases toward the detected corner
-    # object, distinct from both center gravity and attention (smart) gravity.
-    test "g:obj:car crop biases toward the detected object, differing from center and attention" do
-      opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
-
-      obj = call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", opts)
-      centered = call_imgproxy("/_/rs:fill:50:50/g:ce/f:jpeg/plain/images/beach.jpg", opts)
-      attention = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
-
-      assert obj.status == 200
-      assert dimensions(obj) == {50, 50}
-      refute obj.resp_body == centered.resp_body
-      refute obj.resp_body == attention.resp_body
-    end
-
-    # Task 10: No-geometry — g:obj:car without resize/crop must return 200.
-    test "no-geometry g:obj:car returns 200 without a resize or crop" do
-      opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
-
-      conn = call_imgproxy("/_/g:obj:car/plain/images/beach.jpg", opts)
-
-      assert conn.status == 200
-    end
-
-    # Task 10: Gate triad — class-aware strict gate with PartialDetector.
-    # Face child: available, owns ["face"]. Object child: unavailable, owns ["car"].
-    test "detector_required gate triad: face->200, unicorn->200(degrade), car->422 pre-fetch" do
-      opts = Keyword.merge(@default_opts, detector: PartialDetector, detector_required: true)
-
-      # face child available -> routes and succeeds
-      face_conn =
-        call_imgproxy("/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
-
-      assert face_conn.status == 200
-
-      # unknown class routes to no child -> available? vacuously true -> degrades to 200
-      unicorn_conn =
-        call_imgproxy("/_/rs:fill:50:50/g:obj:unicorn/f:jpeg/plain/images/beach.jpg", opts)
-
-      assert unicorn_conn.status == 200
-
-      # object child unavailable -> 422 BEFORE any source fetch or cache access.
-      # Copy the exact setup from "detector_required + unavailable detector" test (~line 599).
-      telemetry_prefix = [:image_pipe_wire_gate_triad]
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      gate_opts =
-        Keyword.merge(opts,
-          telemetry_prefix: telemetry_prefix,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ]
-        )
-
-      car_conn =
-        call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
-
-      assert car_conn.status == 422
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received {:cache_lookup, _key}
-      refute_received {:cache_put, _key, _entry}
-      refute_received :origin_fetch
-    end
-
-    # Slice 2: a face weight measurably changes the crop end-to-end. Exact focal
-    # math is pinned in FocalTest; here we only prove the weight reaches pixels.
-    # rs:fill:2000:2000 on beach.jpg (4000×2667) scales to 3000×2000, large enough
-    # that the WeightedSceneDetector boxes ({2000,800,800,1000} and {1400,600,400,400})
-    # both fit and the uniform vs boosted centroids land at different crop positions.
-    test "objw face weight changes the rendered crop vs uniform" do
-      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-      uniform =
-        call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-      boosted =
-        call_imgproxy(
-          "/_/rs:fill:2000:2000/g:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg",
-          opts
-        )
-
-      assert uniform.status == 200
-      assert boosted.status == 200
-      assert dimensions(boosted) == {2000, 2000}
-      refute boosted.resp_body == uniform.resp_body
-    end
-
-    # Slice 2: uniform-weight objw canonicalizes to obj:all (the weight scalar
-    # cancels in the centroid), so it renders identically. (Cache-key identity is a
-    # separate question, covered in the cache task — not asserted here.)
-    test "objw with all-equal weights renders identically to obj:all" do
-      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-      objw =
-        call_imgproxy("/_/rs:fill:2000:2000/g:objw:all:2/f:jpeg/plain/images/beach.jpg", opts)
-
-      obj = call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-      assert objw.resp_body == obj.resp_body
-    end
-
-    # Slice 2: the c:W:H:objw crop form reaches the crop path and applies the weight.
-    test "c:W:H:objw crop form applies the weight" do
-      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-      weighted =
-        call_imgproxy("/_/c:2000:2000:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg", opts)
-
-      uniform = call_imgproxy("/_/c:2000:2000:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-      assert weighted.status == 200
-      refute weighted.resp_body == uniform.resp_body
-    end
-
-    # Slice 2: no-geometry objw returns 200.
-    test "no-geometry g:objw returns 200 without a resize or crop" do
-      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-      conn = call_imgproxy("/_/g:objw:all:1:face:3/plain/images/beach.jpg", opts)
-      assert conn.status == 200
-    end
-
-    # Filtering: objw:face:3 must gate detection to the face class only (not all),
-    # so its crop matches obj:face (face box only) and DIFFERS from obj:all (both boxes).
-    # WeightedSceneDetector returns a person box (large, right-of-center) and a face box
-    # (small, left-of-center), filtered by opts[:classes].
-    #
-    # Beach.jpg is 4000x2667. WeightedSceneDetector boxes:
-    #   person: {2000,800,800,1000} center_x=2400 (60% across) — right side
-    #   face:   {1400,600,400,400}  center_x=1600 (40% across) — left side
-    # rs:fill:2000:2000 scales to 3000×2000, crops 1000px horizontally:
-    #   face-only focal_x_scaled ≈ 1200 → crop_x=200
-    #   obj:all focal_x_scaled ≈ 1614 → crop_x=614
-    # These are 414px apart in a 1000px-crop range, reliably different bytes.
-    test "g:objw:face:3 filters to face class — matches obj:face, differs from obj:all" do
-      opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
-
-      # objw:face:3 — spec is ["face"], detects only face box (single class → weight inert)
-      objw_face =
-        call_imgproxy(
-          "/_/rs:fill:2000:2000/g:objw:face:3/f:jpeg/plain/images/beach.jpg",
-          opts
-        )
-
-      # obj:face — spec is ["face"], same face-only detection
-      obj_face =
-        call_imgproxy("/_/rs:fill:2000:2000/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
-
-      # obj:all — spec is :all, both person and face boxes counted (person dominates due to size)
-      obj_all =
-        call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
-
-      assert objw_face.status == 200
-      assert obj_face.status == 200
-      assert obj_all.status == 200
-
-      # objw:face:3 detects only face -> same crop focus as obj:face
-      assert objw_face.resp_body == obj_face.resp_body
-
-      # objw:face:3 differs from obj:all because detection set differs (face-only vs all)
-      # The face (left-of-center, crop_x≈200) vs all-classes (crop_x≈614) produces different crops.
-      refute objw_face.resp_body == obj_all.resp_body
-    end
-
-    # Task 19: autoquality + max_bytes wire-level acceptance.
-    #
-    # All sizes below were probed against the real beach.jpg origin through this
-    # harness at `rs:fit:400:400` (a 400×267 JPEG): floor q=1 ≈ 2.7 KB, the default
-    # (no-autoquality) encode ≈ 11.9 KB, max q=100 ≈ 102 KB. The chosen byte budgets
-    # sit between the floor and default encodes so each descent/hit is real, not
-    # vacuously satisfied. Grammar, the binary search, and the precise metric are
-    # unit-tested (encode_search*_test.exs, ssim2_metric_test.exs); these tests only
-    # assert the user-visible wire contract: status, content-type, byte budget, that
-    # the body decodes, and that rejected methods stop before any source fetch.
-    describe "autoquality + max_bytes (wire)" do
-      test "mb:N reduces a JPEG response below the byte budget" do
-        # mb:8000 sits below the ~11.9 KB default encode, so the search must descend.
-        conn =
-          call_imgproxy("/_/rs:fit:400:400/mb:8000/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert byte_size(conn.resp_body) <= 8000
-        assert {:ok, _} = Image.from_binary(conn.resp_body)
-      end
-
-      test "autoquality:size keeps the response within the target byte budget" do
-        conn =
-          call_imgproxy(
-            "/_/rs:fit:400:400/autoquality:size:15000:60:90/f:jpeg/plain/images/beach.jpg",
-            @default_opts
-          )
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert byte_size(conn.resp_body) <= 15_000
-        assert {:ok, _} = Image.from_binary(conn.resp_body)
-      end
-
-      test "autoquality:ssim2 yields a decodable JPEG perceptually close to a high-quality baseline" do
-        conn =
-          call_imgproxy(
-            "/_/rs:fit:400:400/autoquality:ssim2:85:50:95/f:jpeg/plain/images/beach.jpg",
-            @default_opts
-          )
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert {:ok, body_image} = Image.from_binary(conn.resp_body)
-
-        # Robust perceptual check: compare the search output against a high-quality
-        # (q:95) encode of the same pipeline. The exact target-vs-score relationship
-        # is unit-tested; here we only prove the path runs and yields a sane image
-        # (a comfortably high similarity to a near-lossless reference).
-        baseline =
-          call_imgproxy("/_/rs:fit:400:400/q:95/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-        {:ok, baseline_image} = Image.from_binary(baseline.resp_body)
-        {:ok, reference} = Ssim2Metric.reference(baseline_image)
-        {:ok, score} = Ssim2Metric.score(reference, body_image)
-
-        assert score > 50
-      end
-
-      test "autoquality:ssim2 walk-to-target delivers near the target, not the band floor" do
-        # A lossless PNG of the same finalized pipeline is the EXACT reference the search
-        # scores against (PNG decode is pixel-identical to the pre-encode frame), so the
-        # SSIMULACRA2 measured here is the search's own metric — not the q:95-baseline
-        # proxy used by the perceptual sanity test above.
-        png = call_imgproxy("/_/rs:fit:400:400/f:png/plain/images/beach.jpg", @default_opts)
-        {:ok, png_image} = Image.from_binary(png.resp_body)
-        {:ok, reference} = Ssim2Metric.reference(png_image)
-
-        # target 80, allowed_error 3 → symmetric band [77, 83]. The old lowest-satisfying
-        # search walked DOWN to the floor (lowest quality scoring ≥ 77, i.e. ~77.x);
-        # walk-to-target converges toward the target and stops in-band, delivering at or
-        # above the target (≈ 82.7 on the pinned stack) — well above the floor.
-        conn =
-          call_imgproxy(
-            "/_/rs:fit:400:400/autoquality:ssim2:80:50:95:3/f:jpeg/plain/images/beach.jpg",
-            @default_opts
-          )
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        {:ok, body_image} = Image.from_binary(conn.resp_body)
-        {:ok, score} = Ssim2Metric.score(reference, body_image)
-
-        # Tracks the target (80), clearly above the band floor (77). Floor-walking would
-        # ship ~77; a margin to 79 separates the two semantics without pinning an exact
-        # encoder-dependent value.
-        assert score >= 79.0
-      end
-
-      test "autoquality:ssim2 with no target (URL or config) succeeds via the ssim2 default" do
-        # No inline target and no config target: the :ssim2 objective falls back to
-        # its shipped default rather than failing with a missing-target 4xx.
-        conn =
-          call_imgproxy(
-            "/_/rs:fit:400:400/autoquality:ssim2/f:jpeg/plain/images/beach.jpg",
-            @default_opts
-          )
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert {:ok, _} = Image.from_binary(conn.resp_body)
-      end
-
-      test "aq:butteraugli produces a smaller-but-valid WebP vs max quality" do
-        # Phase-1 end-to-end exercise of the butteraugli external-measure path on a
-        # non-JXL format. A max-quality (q:100) WebP baseline is larger than the
-        # autoquality encode, which walks the quality knob to a butteraugli distance
-        # of ~1.0 (visually lossless). Decoded dimensions must match — only the byte
-        # budget differs.
-        baseline =
-          call_imgproxy("/_/rs:fit:400:400/q:100/f:webp/plain/images/beach.jpg", @default_opts)
-
-        auto =
-          call_imgproxy(
-            "/_/rs:fit:400:400/autoquality:butteraugli:1.0:1:100:0.1/f:webp/plain/images/beach.jpg",
-            @default_opts
-          )
-
-        assert auto.status == 200
-        assert content_type(auto) == ["image/webp"]
-        assert byte_size(auto.resp_body) < byte_size(baseline.resp_body)
-
-        assert {:ok, auto_image} = Image.from_binary(auto.resp_body)
-        assert {:ok, baseline_image} = Image.from_binary(baseline.resp_body)
-
-        assert {Image.width(auto_image), Image.height(auto_image)} ==
-                 {Image.width(baseline_image), Image.height(baseline_image)}
-      end
-
-      @tag :jxl
-      test "aq:butteraugli on JXL takes the native single-encode path" do
-        # Phase-2 contract: butteraugli + JPEG XL resolves to NativeJxlButteraugli,
-        # which drives libvips' `distance` directly — a single encode, no band loop
-        # and no external NIF. Observe the verdict through the prefixed encode-search
-        # span: outcome :native, iterations 0.
-        telemetry_prefix = [:"ip_aq_native_jxl_#{System.unique_integer([:positive])}"]
-        search_stop = telemetry_prefix ++ [:encode, :search, :stop]
-        test_pid = self()
-        handler_id = "aq-native-jxl-#{System.unique_integer([:positive])}"
-
-        :telemetry.attach(
-          handler_id,
-          search_stop,
-          fn _event, _measurements, meta, _config -> send(test_pid, {:search_stop, meta}) end,
-          nil
-        )
-
-        on_exit(fn -> :telemetry.detach(handler_id) end)
-
-        opts = Keyword.put(@default_opts, :telemetry_prefix, telemetry_prefix)
-
-        conn =
-          call_imgproxy(
-            "/_/rs:fit:400:400/autoquality:butteraugli:1.0:1:100:0.1/f:jxl/plain/images/beach.jpg",
-            opts
-          )
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jxl"]
-        assert {:ok, _decoded} = Image.from_binary(conn.resp_body)
-
-        assert_receive {:search_stop, meta}
-        assert meta.result == :ok
-        assert meta.outcome == :native
-        assert meta.iterations == 0
-      end
-
-      test "best-effort: an mb: below the floor-quality encode still returns 200" do
-        # mb:1000 is below even the floor (q=1 ≈ 2.7 KB) encode, so the target can't
-        # be met. The search must return the floor result (best-effort), never error.
-        conn =
-          call_imgproxy("/_/rs:fit:400:400/mb:1000/f:jpeg/plain/images/beach.jpg", @default_opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert byte_size(conn.resp_body) > 0
-        assert {:ok, _} = Image.from_binary(conn.resp_body)
-      end
-
-      test "autoquality:ml (unknown method) is rejected with 4xx before any source fetch" do
-        assert_rejected_before_fetch(
-          "/_/autoquality:ml:0.02:70:80/f:jpeg/plain/images/beach.jpg",
-          [:image_pipe_wire_autoquality_ml]
-        )
-      end
-
-      test "autoquality:dssim with inline args is rejected with 4xx before any source fetch" do
-        assert_rejected_before_fetch(
-          "/_/autoquality:dssim:0.02/f:jpeg/plain/images/beach.jpg",
-          [:image_pipe_wire_autoquality_dssim]
-        )
-      end
-    end
-
-    # Asserts a request fails with a 4xx parser rejection and never touches the
-    # origin: OriginShouldNotFetch raises if fetched, and the source-resolve span is
-    # refuted under a unique telemetry prefix as belt-and-suspenders.
-    defp assert_rejected_before_fetch(path, telemetry_prefix) do
-      source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
-      attach_source_resolve_telemetry(telemetry_prefix)
-
-      opts =
-        Keyword.merge(@default_opts,
-          telemetry_prefix: telemetry_prefix,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-          ]
-        )
-
-      conn = call_imgproxy(path, opts)
-
-      assert conn.status in 400..499
-      refute_received {:telemetry_event, ^source_resolve_start, _, _}
-      refute_received :origin_fetch
-    end
-
-    # Security: near-max-float objw weight must be rejected cleanly (4xx), not crash (500).
-    # WeightedSceneDetector returns face and person boxes in a large region of beach.jpg
-    # (4000x2667), so rs:fill:2000:2000 keeps them in-bounds after resize; without the
-    # fix, weighted_centroid raises ArithmeticError with a 1e308 face weight. With the
-    # fix, the weight is rejected at parse time and the source is never fetched. Dual-run
-    # since B1a: the dialect's `:detector` seam feeds WeightedSceneDetector, so the parse-
-    # time weight rejection is exercised on both arms.
-    test "objw weight at 1e308 is rejected with 4xx before any source fetch" do
-      opts =
-        Keyword.merge(@default_opts,
-          detector: WeightedSceneDetector,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               req_options: [plug: {CountingOriginImage, test_pid: self()}]}
-          ]
-        )
-
+    # #124: trim on a greyscale (B_W working-space) source. The color-management
+    # preamble converts to the B_W working space, then trim detects against single-band
+    # pixels. The border is white and the inner block is black (high contrast), so
+    # the standard trim threshold detects the box reliably.
+    test "trim on a greyscale source detects the border in the B_W working space" do
       conn =
         call_imgproxy(
-          "/_/rs:fill:2000:2000/g:objw:face:1e308/f:jpeg/plain/images/beach.jpg",
-          opts
-        )
-
-      assert conn.status in 400..499
-      refute_received :origin_fetch
-    end
-
-    # Layer 4 — wire conformance for now-sequential chains
-
-    # Anchor crop + blur: c:40:30:no (north gravity) + bl:4 were previously forced to
-    # random access by the blur; they are now fully sequential. Assert the crop
-    # dimensions are preserved and the body decodes cleanly.
-    test "anchor crop + blur produces the requested crop dimensions and decodes" do
-      conn =
-        call_imgproxy(
-          "/_/c:40:30:no/bl:4/f:png/plain/images/effects.png",
-          effect_origin_opts()
+          "/_/trim:10/f:png/plain/images/grey.png",
+          origin_opts(GreyscaleTrimOriginImage)
         )
 
       assert conn.status == 200
-      assert content_type(conn) == ["image/png"]
-      assert dimensions(conn) == {40, 30}
+      # GreyscaleTrimOriginImage geometry: 40×44 inner block at (12, 10).
+      assert dimensions(conn) == {40, 44}
     end
+  end
 
-    # Resize fill + padding + background: rs:fill:100:100/g:ce + pd:10 + bg:ffffff.
-    # Each pd:10 side adds 10px → final canvas is 120×120. The corner pixel (0,0)
-    # sits in the padding region and must match the background color (white).
-    test "resize fill + padding + background produces padded dimensions with background fill" do
-      conn =
-        call_imgproxy(
-          "/_/rs:fill:100:100/g:ce/pd:10/bg:ffffff/f:png/plain/images/beach.jpg",
-          @default_opts
-        )
-
-      assert conn.status == 200
-      assert content_type(conn) == ["image/png"]
-      assert dimensions(conn) == {120, 120}
-
-      image = decoded_image(conn)
-
-      # Corner (0,0) is in the padding region → must be the background white.
-      assert Image.get_pixel!(image, 0, 0) == [255, 255, 255]
-    end
-
-    # Transparent source + blur + background: a fully-transparent RGBA source with
-    # bl:2 + bg:ff0000 must produce an opaque output (no alpha channel) whose pixels
-    # are the background red (the transparent source contributes 0 color, so
-    # flatten fills with the background color).
-    test "transparent source + blur + background flattens to background color" do
-      alpha_opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          path:
-            {ImagePipe.SourceTest.RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: AlphaOriginImage]}
-        ]
-      ]
-
-      conn =
-        call_imgproxy(
-          "/_/bl:2/bg:ff0000/f:png/plain/images/alpha.png",
-          alpha_opts
-        )
-
-      assert conn.status == 200
-      assert content_type(conn) == ["image/png"]
-
-      image = decoded_image(conn)
-
-      assert Image.has_alpha?(image) == false
-      # Fully transparent source + red background → all pixels must be red.
-      assert Image.get_pixel!(image, 0, 0) == [255, 0, 0]
-      assert Image.get_pixel!(image, 10, 10) == [255, 0, 0]
-    end
-
-    # Explicit non-alpha output format (f:jpg) on an alpha-bearing source with NO
-    # bg: option must flatten onto the imgproxy-default white background and emit a
-    # valid JPEG, not 500 (#268). imgproxy's `flatten` step composites onto
-    # `po.Background()`, which defaults to `color.White`, whenever the result
-    # format can't carry alpha. Covers the no-geometry form: only an explicit
-    # format on an RGBA image, no resize/crop/padding/background.
-    test "explicit non-alpha format on an alpha source flattens to the default white background" do
-      alpha_opts = [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          path:
-            {ImagePipe.SourceTest.RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: AlphaOriginImage]}
-        ]
-      ]
-
-      conn =
-        call_imgproxy(
-          "/_/f:jpg/plain/images/alpha.png",
-          alpha_opts
-        )
-
-      assert conn.status == 200
-      assert content_type(conn) == ["image/jpeg"]
-
-      image = decoded_image(conn)
-
-      assert Image.has_alpha?(image) == false
-      # Default white flatten; JPEG is lossy, so allow a small tolerance around 255.
-      assert [r, g, b] = Image.get_pixel!(image, 10, 10)
-      assert r > 250 and g > 250 and b > 250
-    end
-
-    # Detector-model-identity cache-key + ETag conformance, run on BOTH arms since
-    # Task 6 (B1b): the dialect now folds the resolved detector identity into its
-    # representation, exactly as the framework's `Runner.with_detector_identity/2`
-    # does, so a key AND an ETag change when — and only when — a model swap can
-    # change the pixels. R7 found and fixed a REAL cache-key collision in
-    # `Dialect.Imgproxy.Identity` (a dropped `__struct__` gave two different
-    # encodes one key); these are the wire-level version of that hazard.
-    #
-    # "Model version change" = a swap to a different versioned composite module
-    # (`composite_for/2`), not a DI key — the dialect's closed config forbids the
-    # `face_ver:`/`object_ver:` extension keys the block once used.
-
-    # The cache key AND the response ETag the stack produced for one request.
-    defp key_and_etag(path, opts) do
-      conn = call_imgproxy(path, opts)
-      assert_received {:cache_lookup, key}
-      {key, single_etag(conn)}
-    end
-
-    defp single_etag(conn) do
-      assert [etag] = get_resp_header(conn, "etag")
-      etag
-    end
-
-    # A strong source byte identity is what makes the stack emit an ETag at all
-    # (a `:none` source gets `no-store` and no ETag on every arm); the framework
-    # additionally gates ETag emission behind `http_cache: [mode: :enabled]`,
-    # which the dialects have no equivalent of. Both are set here so the ETag
-    # half of these cases has a header to assert on.
-    defp probe_opts do
+  describe "extend dpr (wire)" do
+    # imgproxy dpr-scales BOTH the extend target box (TargetWidth = Scale(w, dpr),
+    # prepare.go) and the absolute extend offset (RoundToEven(offset * dpr),
+    # calc_position.go), keeping the composition dpr-stable. West gravity on a
+    # horizontally-letterboxed image (4:3 source into a 2:1 box) gives the x-offset
+    # real horizontal play, so both effects are observable at the response boundary.
+    test "dpr scales the extend canvas box and the absolute offset together" do
       base =
-        Keyword.merge(@default_opts,
-          cache: {CacheProbe, []},
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               byte_identity: :strong,
-               req_options: [plug: OriginImage]}
-          ]
+        call_imgproxy("/_/rs:fit:100:50/ex:1:we:5:0/plain/images/wide.png", solid_wide_opts())
+
+      dpr2 =
+        call_imgproxy(
+          "/_/rs:fit:100:50/ex:1:we:5:0/dpr:2/plain/images/wide.png",
+          solid_wide_opts()
         )
 
-      if @stack == :framework do
-        Keyword.put(base, :http_cache, mode: :enabled)
-      else
-        base
-      end
+      assert base.status == 200
+      assert dpr2.status == 200
+
+      # The extend canvas box scales by dpr: 100×50 → Scale(100,2)×Scale(50,2).
+      assert dimensions(base) == {100, 50}
+      assert dimensions(dpr2) == {200, 100}
+
+      # The absolute west offset scales by dpr: image left edge 5 → RoundToEven(5×2).
+      assert image_left(base) == 5
+      assert image_left(dpr2) == 10
     end
+  end
 
-    # A composite whose face leaf is `face_ver` and object leaf is `object_ver`,
-    # selected through the `detector:` key both arms accept. Defaults are `:v1`.
-    defp ver_opts(extra) do
-      face_ver = Keyword.get(extra, :face_ver, :v1)
-      object_ver = Keyword.get(extra, :object_ver, :v1)
+  defp trim_origin_opts, do: origin_opts(TrimOriginImage)
+  defp uniform_origin_opts, do: origin_opts(UniformOriginImage)
+  defp solid_wide_opts, do: origin_opts(SolidWideOrigin)
 
-      Keyword.merge(probe_opts(),
-        detector: composite_for(face_ver, object_ver),
-        detector_required: false
+  # First column at mid-height whose pixel is opaque — the left edge of the embedded
+  # image inside the transparent extend canvas.
+  defp image_left(%Plug.Conn{} = conn) do
+    image = decoded_image(conn)
+    {width, height} = dimensions(image)
+    row = div(height, 2)
+
+    Enum.find(0..(width - 1), fn x -> opaque_pixel?(Image.get_pixel!(image, x, row)) end)
+  end
+
+  defp opaque_pixel?([_red, _green, _blue, alpha]), do: alpha > 0
+  defp opaque_pixel?([_red, _green, _blue]), do: true
+
+  defp origin_opts(plug) do
+    [
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: plug]}
+      ]
+    ]
+  end
+
+  defp cached_opts(overrides \\ []) do
+    cache_root =
+      Path.join(
+        System.tmp_dir!(),
+        "image_pipe_imgproxy_wire_cache_#{System.unique_integer([:positive])}"
       )
-    end
 
-    defp composite_for(:v1, :v1), do: VerCompositeV1V1
-    defp composite_for(:v2, :v1), do: VerCompositeV2V1
-    defp composite_for(:v1, :v2), do: VerCompositeV1V2
+    File.rm_rf!(cache_root)
+    File.mkdir_p!(cache_root)
 
-    test "object-only request key and ETag are independent of the face model identity" do
-      {key_v1, etag_v1} =
-        key_and_etag("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v1))
-
-      {key_v2, etag_v2} =
-        key_and_etag("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v2))
-
-      assert key_v1 == key_v2
-      assert etag_v1 == etag_v2
-    end
-
-    test "face-only request key and ETag are independent of the object model identity" do
-      {key_v1, etag_v1} =
-        key_and_etag(
-          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
-          ver_opts(object_ver: :v1)
-        )
-
-      {key_v2, etag_v2} =
-        key_and_etag(
-          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
-          ver_opts(object_ver: :v2)
-        )
-
-      assert key_v1 == key_v2
-      assert etag_v1 == etag_v2
-    end
-
-    test "face-only request key and ETag change when the face model identity changes" do
-      {key_v1, etag_v1} =
-        key_and_etag(
-          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
-          ver_opts(face_ver: :v1)
-        )
-
-      {key_v2, etag_v2} =
-        key_and_etag(
-          "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
-          ver_opts(face_ver: :v2)
-        )
-
-      assert key_v1 != key_v2
-      assert etag_v1 != etag_v2
-    end
-
-    test "mixed request key and ETag change when either model identity changes" do
-      path = "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg"
-
-      {base_key, base_etag} = key_and_etag(path, ver_opts(face_ver: :v1, object_ver: :v1))
-
-      {diff_face_key, diff_face_etag} =
-        key_and_etag(path, ver_opts(face_ver: :v2, object_ver: :v1))
-
-      {diff_obj_key, diff_obj_etag} = key_and_etag(path, ver_opts(face_ver: :v1, object_ver: :v2))
-
-      assert base_key != diff_face_key
-      assert base_key != diff_obj_key
-      assert base_etag != diff_face_etag
-      assert base_etag != diff_obj_etag
-    end
-
-    # Scope the clamp tests' telemetry to a private prefix so a concurrently
-    # running async module emitting the default-prefix output clamp event cannot
-    # leak into these tests' mailboxes (which would flake the refute_received
-    # assertions). The clamp request opts below set this same prefix.
-    # Stack-suffixed: both generated arm modules run async and telemetry
-    # handlers are VM-global, so a shared prefix would leak one arm's clamp
-    # emissions into the sibling module's mailbox.
-    @clamp_telemetry_prefix [:"image_pipe_clamp_test_#{stack}"]
-    @clamp_event @clamp_telemetry_prefix ++ [:output, :clamp]
-
-    describe "output encoder dimension clamp (#150)" do
-      defp attach_clamp_telemetry do
-        handler_id = {__MODULE__, self(), :output_clamp}
-
-        :telemetry.attach(
-          handler_id,
-          @clamp_event,
-          &__MODULE__.handle_telemetry_event/4,
-          self()
-        )
-
-        on_exit(fn -> :telemetry.detach(handler_id) end)
-      end
-
-      @clamp_opts [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          path:
-            {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
-        ],
-        max_result_width: 40_000,
-        max_result_height: 40_000,
-        max_result_pixels: 2_000_000_000,
-        output_capabilities: %{avif: true, webp: true},
-        telemetry_prefix: @clamp_telemetry_prefix
-      ]
-
-      test "clamp telemetry is isolated from concurrent foreign emissions" do
-        attach_clamp_telemetry()
-
-        # A concurrently-running async module (e.g. the TwicPics wire suite, which
-        # legitimately clamps an oversized result) emits the output clamp event
-        # while this module's refute_received clamp tests are in flight. A global
-        # handler keyed on the shared event name would receive that foreign event
-        # and flake the refute. The handler must be scoped so it never does.
-        # Regression for CI run 27481152591.
-        :telemetry.execute(
-          [:image_pipe, :output, :clamp],
-          %{scale: 0.306},
-          %{format: :jpeg, dimensions: {1224, 816}, source_dimensions: {4000, 2667}, limits: %{}}
-        )
-
-        refute_received {:telemetry_event, _event, _measurements, _meta}
-      end
-
-      test "downscales a WebP result above the 16383 encoder limit and serves it" do
-        attach_clamp_telemetry()
-
-        conn =
-          call_imgproxy("/_/el:1/rs:force:18000:200/f:webp/plain/images/beach.jpg", @clamp_opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/webp"]
-
-        {w, h} = dimensions(conn)
-        assert max(w, h) <= 16_383
-        assert max(w, h) > 8_192
-
-        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
-
-        assert scale < 1.0
-        assert meta.format == :webp
-        assert meta.limits.max_width == 16_383
-        assert meta.limits.max_height == 16_383
-        assert meta.dimensions == {w, h}
-        {sw, sh} = meta.source_dimensions
-        assert max(sw, sh) > 16_383
-      end
-
-      test "downscales an AVIF result above the 16384 encoder limit and serves it" do
-        attach_clamp_telemetry()
-
-        conn =
-          call_imgproxy("/_/el:1/rs:force:18000:200/f:avif/plain/images/beach.jpg", @clamp_opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/avif"]
-
-        {w, h} = dimensions(conn)
-        assert max(w, h) <= 16_384
-        assert max(w, h) > 8_192
-
-        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
-
-        assert scale < 1.0
-        assert meta.format == :avif
-        assert meta.limits.max_width == 16_384
-        assert meta.limits.max_height == 16_384
-        assert meta.dimensions == {w, h}
-      end
-
-      test "does not clamp or emit when a WebP result is within the encoder limit" do
-        attach_clamp_telemetry()
-
-        conn = call_imgproxy("/_/w:120/f:webp/plain/images/beach.jpg", @clamp_opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/webp"]
-        {w, _h} = dimensions(conn)
-        assert w == 120
-
-        refute_received {:telemetry_event, @clamp_event, _measurements, _meta}
-      end
-    end
-
-    describe "host result cap downscale (#165, limitScale parity)" do
-      # Default host caps: max_result_width/height = 8192, max_result_pixels = 40M.
-      @host_default_opts [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          path:
-            {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
-        ],
-        output_capabilities: %{avif: true, webp: true},
-        telemetry_prefix: @clamp_telemetry_prefix
-      ]
-
-      test "downscales a result above the default 8192 host cap and serves 200" do
-        attach_clamp_telemetry()
-
-        conn =
-          call_imgproxy(
-            "/_/el:1/rs:force:12000:200/f:jpeg/plain/images/beach.jpg",
-            @host_default_opts
-          )
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-
-        {w, h} = dimensions(conn)
-        # Parity, not just safety: when the width cap binds on a non-degenerate
-        # aspect, the long axis lands EXACTLY on 8192 — byte-intent identical to
-        # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
-        assert w == 8192
-
-        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
-        assert scale < 1.0
-        assert meta.limits.max_width == 8192
-        assert meta.limits.max_height == 8192
-        assert meta.dimensions == {w, h}
-        {sw, _sh} = meta.source_dimensions
-        assert sw > 8192
-      end
-
-      # The one place ImagePipe and imgproxy observably diverge: a PADDED request
-      # whose composited frame exceeds the cap. imgproxy folds the downscale into
-      # the resize scale before re-applying padding (prepare.go:233-263); ImagePipe
-      # clamps the already-composited frame. Both land <= cap; the framing differs.
-      # This test pins ImagePipe's contract (status 200, composite <= cap, clamp
-      # fired) so a future change to the clamp point can't silently alter padded
-      # behavior with a green suite.
-      test "clamps a padded result whose composited frame exceeds the host cap" do
-        attach_clamp_telemetry()
-
-        # w:100 then pad 5000px each side -> composited width ~10100 > 8192.
-        conn =
-          call_imgproxy("/_/w:100/pd:5000/f:jpeg/plain/images/beach.jpg", @host_default_opts)
-
-        assert conn.status == 200
-        {w, h} = dimensions(conn)
-        assert max(w, h) <= 8192
-
-        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
-        assert scale < 1.0
-      end
-
-      test "honors asymmetric per-axis caps without over-shrinking" do
-        attach_clamp_telemetry()
-
-        # Realize ~6000x200, raise width cap above it, keep height cap slack:
-        # both axes within caps -> NO clamp, served at full requested size.
-        conn =
-          call_imgproxy(
-            "/_/el:1/rs:force:6000:200/f:jpeg/plain/images/beach.jpg",
-            Keyword.merge(@host_default_opts, max_result_width: 10_000, max_result_height: 8192)
-          )
-
-        assert conn.status == 200
-        {w, h} = dimensions(conn)
-        assert w == 6000
-        assert h == 200
-        refute_received {:telemetry_event, @clamp_event, _m, _meta}
-      end
-
-      test "downscales on the host pixel cap with dims within the per-axis caps" do
-        attach_clamp_telemetry()
-
-        # ~5000x5000 = 25M px. Per-axis caps slack (8000), pixel cap 4M -> clamp on pixels.
-        conn =
-          call_imgproxy(
-            "/_/el:1/rs:force:5000:5000/f:jpeg/plain/images/beach.jpg",
-            Keyword.merge(@host_default_opts,
-              max_result_width: 8000,
-              max_result_height: 8000,
-              max_result_pixels: 4_000_000
-            )
-          )
-
-        assert conn.status == 200
-        {w, h} = dimensions(conn)
-        assert w <= 8000 and h <= 8000
-        assert w * h <= 4_000_000
-
-        assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
-        assert scale < 1.0
-      end
-
-      test "does not clamp or emit when the result is within all default caps" do
-        attach_clamp_telemetry()
-
-        conn = call_imgproxy("/_/w:300/f:jpeg/plain/images/beach.jpg", @host_default_opts)
-
-        assert conn.status == 200
-        {w, _h} = dimensions(conn)
-        assert w == 300
-        refute_received {:telemetry_event, @clamp_event, _m, _meta}
-      end
-    end
-
-    describe "trim (wire)" do
-      test "trims a uniform border to the inner block, no resize" do
-        conn = call_imgproxy("/_/trim:10/f:png/plain/images/trim.png", trim_origin_opts())
-        assert conn.status == 200
-        assert dimensions(conn) == {40, 44}
-      end
-
-      test "uniform image returns unchanged (no-op), no geometry options" do
-        conn = call_imgproxy("/_/trim:10/f:png/plain/images/uniform.png", uniform_origin_opts())
-        assert conn.status == 200
-        assert dimensions(conn) == {64, 64}
-      end
-
-      test "malformed trim threshold is rejected before cache lookup and origin fetch" do
-        opts =
-          Keyword.merge(@default_opts,
-            cache: {CacheProbe, []},
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-            ]
-          )
-
-        conn = call_imgproxy("/_/trim:nope/plain/images/beach.jpg", opts)
-
-        assert conn.status == 400
-        refute_received :cache_lookup
-        refute_received :cache_put
-        refute_received :origin_fetch
-      end
-
-      # #124: trim on a wide-gamut (Display-P3) source. After the color-management
-      # preamble the image is in the sRGB working space, so trim detects against those
-      # pixels. The border here is pure black (identical in P3 and sRGB) so the trim
-      # box is stable and the inner 44×44 block is always detected.
-      test "trim on a wide-gamut (P3) source detects the border after color management" do
-        conn =
-          call_imgproxy(
-            "/_/trim:10/f:png/plain/images/wide.png",
-            origin_opts(WideGamutTrimOriginImage)
-          )
-
-        assert conn.status == 200
-        # The inner block is 44×44; trim must crop down to it.
-        assert dimensions(conn) == {44, 44}
-      end
-
-      # #124: trim on a greyscale (B_W working-space) source. The color-management
-      # preamble converts to the B_W working space, then trim detects against single-band
-      # pixels. The border is white and the inner block is black (high contrast), so
-      # the standard trim threshold detects the box reliably.
-      test "trim on a greyscale source detects the border in the B_W working space" do
-        conn =
-          call_imgproxy(
-            "/_/trim:10/f:png/plain/images/grey.png",
-            origin_opts(GreyscaleTrimOriginImage)
-          )
-
-        assert conn.status == 200
-        # GreyscaleTrimOriginImage geometry: 40×44 inner block at (12, 10).
-        assert dimensions(conn) == {40, 44}
-      end
-    end
-
-    describe "extend dpr (wire)" do
-      # imgproxy dpr-scales BOTH the extend target box (TargetWidth = Scale(w, dpr),
-      # prepare.go) and the absolute extend offset (RoundToEven(offset * dpr),
-      # calc_position.go), keeping the composition dpr-stable. West gravity on a
-      # horizontally-letterboxed image (4:3 source into a 2:1 box) gives the x-offset
-      # real horizontal play, so both effects are observable at the response boundary.
-      test "dpr scales the extend canvas box and the absolute offset together" do
-        base =
-          call_imgproxy("/_/rs:fit:100:50/ex:1:we:5:0/plain/images/wide.png", solid_wide_opts())
-
-        dpr2 =
-          call_imgproxy(
-            "/_/rs:fit:100:50/ex:1:we:5:0/dpr:2/plain/images/wide.png",
-            solid_wide_opts()
-          )
-
-        assert base.status == 200
-        assert dpr2.status == 200
-
-        # The extend canvas box scales by dpr: 100×50 → Scale(100,2)×Scale(50,2).
-        assert dimensions(base) == {100, 50}
-        assert dimensions(dpr2) == {200, 100}
-
-        # The absolute west offset scales by dpr: image left edge 5 → RoundToEven(5×2).
-        assert image_left(base) == 5
-        assert image_left(dpr2) == 10
-      end
-    end
-
-    defp trim_origin_opts, do: origin_opts(TrimOriginImage)
-    defp uniform_origin_opts, do: origin_opts(UniformOriginImage)
-    defp solid_wide_opts, do: origin_opts(SolidWideOrigin)
-
-    # First column at mid-height whose pixel is opaque — the left edge of the embedded
-    # image inside the transparent extend canvas.
-    defp image_left(%Plug.Conn{} = conn) do
-      image = decoded_image(conn)
-      {width, height} = dimensions(image)
-      row = div(height, 2)
-
-      Enum.find(0..(width - 1), fn x -> opaque_pixel?(Image.get_pixel!(image, x, row)) end)
-    end
-
-    defp opaque_pixel?([_red, _green, _blue, alpha]), do: alpha > 0
-    defp opaque_pixel?([_red, _green, _blue]), do: true
-
-    defp origin_opts(plug) do
-      [
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: plug]}
-        ]
-      ]
-    end
-
-    defp cached_opts(overrides \\ []) do
-      cache_root =
-        Path.join(
-          System.tmp_dir!(),
-          "image_pipe_imgproxy_wire_cache_#{System.unique_integer([:positive])}"
-        )
-
-      File.rm_rf!(cache_root)
-      File.mkdir_p!(cache_root)
-
-      opts =
-        @default_opts
-        |> Keyword.merge(
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               req_options: [plug: {CountingOriginImage, test_pid: self()}]}
-          ],
-          cache:
-            {ImagePipe.Cache.FileSystem,
-             root: cache_root,
-             path_prefix: "processed",
-             max_body_bytes: 10_000_000,
-             key_headers: [],
-             key_cookies: []}
-        )
-        |> Keyword.merge(overrides)
-
-      {opts, cache_root}
-    end
-
-    defp encrypted_opts(overrides \\ []) do
+    opts =
       @default_opts
-      |> Keyword.merge(imgproxy: [source_url_encryption_key: @source_url_encryption_key])
-      |> Keyword.merge(overrides)
-    end
-
-    defp encoded_source(source, opts \\ []) do
-      padding = Keyword.get(opts, :padding, false)
-      Base.url_encode64(source, padding: padding)
-    end
-
-    defp chunked_encoded_source(source) do
-      encoded = encoded_source(source)
-      first_size = div(byte_size(encoded), 2)
-      first = binary_part(encoded, 0, first_size)
-      second = binary_part(encoded, first_size, byte_size(encoded) - first_size)
-      first <> "/" <> second
-    end
-
-    defp encrypted_source(source, opts \\ []) do
-      iv = Keyword.get(opts, :iv, @source_url_encryption_iv)
-
-      {:ok, segment} =
-        FrameworkParser.encrypt_source_url(source, @source_url_encryption_key, iv: iv)
-
-      segment
-    end
-
-    def handle_telemetry_event(event, measurements, metadata, test_pid) do
-      send(test_pid, {:telemetry_event, event, measurements, metadata})
-    end
-
-    defp attach_source_resolve_telemetry(telemetry_prefix) do
-      handler_id = {__MODULE__, self(), :source_resolve}
-
-      :telemetry.attach_many(
-        handler_id,
-        [
-          telemetry_prefix ++ [:source, :resolve, :start],
-          telemetry_prefix ++ [:source, :resolve, :stop],
-          telemetry_prefix ++ [:source, :resolve, :exception]
-        ],
-        &__MODULE__.handle_telemetry_event/4,
-        self()
-      )
-
-      on_exit(fn -> :telemetry.detach(handler_id) end)
-    end
-
-    defp attach_safety_telemetry(telemetry_prefix) do
-      handler_id = {__MODULE__, self(), :safety}
-
-      :telemetry.attach_many(
-        handler_id,
-        [
-          telemetry_prefix ++ [:parse, :stop],
-          telemetry_prefix ++ [:parse, :exception],
-          telemetry_prefix ++ [:source, :resolve, :start],
-          telemetry_prefix ++ [:source, :resolve, :stop],
-          telemetry_prefix ++ [:source, :resolve, :exception]
-        ],
-        &__MODULE__.handle_telemetry_event/4,
-        self()
-      )
-
-      on_exit(fn -> :telemetry.detach(handler_id) end)
-    end
-
-    defp signed_request_path(signed_path) do
-      key = Base.decode16!("746573742d6b6579", case: :lower)
-      salt = Base.decode16!("746573742d73616c74", case: :lower)
-
-      signature =
-        :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
-        |> Base.url_encode64(padding: false)
-
-      "/" <> signature <> signed_path
-    end
-
-    defp svg_origin_opts do
-      Keyword.merge(@default_opts,
-        cache: {CacheProbe, result: :miss},
+      |> Keyword.merge(
         sources: [
           path:
             {RootHTTPAdapter,
              root_url: "http://origin.test",
-             req_options: [plug: {SvgOriginImage, test_pid: self()}]}
-        ]
-      )
-    end
-
-    defp exif_orientation_origin_opts(overrides \\ []) do
-      Keyword.merge(
-        [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: ExifOrientationOriginImage]}
-          ]
+             req_options: [plug: {CountingOriginImage, test_pid: self()}]}
         ],
-        overrides
+        cache:
+          {ImagePipe.Cache.FileSystem,
+           root: cache_root,
+           path_prefix: "processed",
+           max_body_bytes: 10_000_000,
+           key_headers: [],
+           key_cookies: []}
       )
-    end
+      |> Keyword.merge(overrides)
 
-    defp oriented_frame_opts(orientation, overrides \\ []) do
-      Keyword.merge(
-        [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               req_options: [
-                 plug: {OrientedFrameOrigin, {OrientationFixture.base_png(), orientation}}
-               ]}
-          ]
-        ],
-        overrides
-      )
-    end
+    {opts, cache_root}
+  end
 
-    defp orientation1_twin_opts(orientation, overrides \\ []) do
-      Keyword.merge(
-        [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               req_options: [
-                 plug: {Orientation1TwinOrigin, {OrientationFixture.base_png(), orientation}}
-               ]}
-          ]
-        ],
-        overrides
-      )
-    end
+  defp encrypted_opts(overrides \\ []) do
+    @default_opts
+    |> Keyword.merge(source_url_encryption_key: @source_url_encryption_key)
+    |> Keyword.merge(overrides)
+  end
 
-    defp sharp_oriented_opts(orientation, overrides \\ []) do
-      Keyword.merge(
-        [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test",
-               req_options: [plug: {SharpOrientedOrigin, orientation}]}
-          ]
-        ],
-        overrides
-      )
-    end
+  defp encoded_source(source, opts \\ []) do
+    padding = Keyword.get(opts, :padding, false)
+    Base.url_encode64(source, padding: padding)
+  end
 
-    defp sharp_twin_opts(orientation, overrides \\ []) do
-      Keyword.merge(
-        [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: {SharpTwinOrigin, orientation}]}
-          ]
-        ],
-        overrides
-      )
-    end
+  defp chunked_encoded_source(source) do
+    encoded = encoded_source(source)
+    first_size = div(byte_size(encoded), 2)
+    first = binary_part(encoded, 0, first_size)
+    second = binary_part(encoded, first_size, byte_size(encoded) - first_size)
+    first <> "/" <> second
+  end
 
-    # Strict full-frame oracle for the lossless sharp fixture: identical dims and
-    # every pixel within a tiny tolerance (both legs are lossless PNG; the small
-    # tolerance only absorbs an affine-resize sub-pixel seam, never a 1px placement
-    # shift, which moves whole flat regions). Counts far-off pixels so a placement
-    # bug fails with a concrete count.
-    defp assert_sharp_oracle_match(oriented, twin, label) do
-      w = Image.width(oriented)
-      h = Image.height(oriented)
+  defp encrypted_source(source, opts \\ []) do
+    iv = Keyword.get(opts, :iv, @source_url_encryption_iv)
 
-      assert {w, h} == {Image.width(twin), Image.height(twin)},
-             "#{label}: dims #{inspect({w, h})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
+    {:ok, segment} =
+      ImagePipe.Dialect.Imgproxy.encrypt_source_url(source, @source_url_encryption_key, iv: iv)
 
-      # Read each frame to a raw row-major band buffer ONCE, then index it in BEAM.
-      # The per-pixel Image.get_pixel!/3 path crosses the libvips FFI boundary on
-      # every sample; across the EXIF 1..8 × multi-path matrix that is ~150k calls
-      # and ~20s of CPU, which tips this async test past the 60s per-test timeout
-      # under CI contention. Two write_to_binary/1 calls per leg collapse that to a
-      # pair of buffer reads with identical sampling and tolerance semantics.
-      {:ok, ob} = VipsImage.write_to_binary(oriented)
-      {:ok, tb} = VipsImage.write_to_binary(twin)
+    segment
+  end
 
-      assert byte_size(ob) == byte_size(tb),
-             "#{label}: band layout mismatch #{byte_size(ob)} != twin #{byte_size(tb)}"
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:telemetry_event, event, measurements, metadata})
+  end
 
-      bands = div(byte_size(ob), w * h)
+  defp attach_source_resolve_telemetry(telemetry_prefix) do
+    handler_id = {__MODULE__, self(), :source_resolve}
 
-      # Sample a dense grid (every 2px) rather than every pixel — far finer than any
-      # sharp feature (1px lines, quadrant seams), so a 1px placement shift still
-      # moves many sampled points and the far-diverging count blows past the
-      # thin-seam budget.
-      xs = Enum.take_every(0..(w - 1), 2)
-      ys = Enum.take_every(0..(h - 1), 2)
-
-      far =
-        Enum.reduce(for(x <- xs, y <- ys, do: {x, y}), 0, fn {x, y}, acc ->
-          offset = (y * w + x) * bands
-          op = :binary.part(ob, offset, bands)
-          tp = :binary.part(tb, offset, bands)
-          if pixel_diverges?(op, tp), do: acc + 1, else: acc
-        end)
-
-      # Allow a thin seam (≤ one edge's worth of sampled points) for affine-resize
-      # cases; a 1px placement shift moves whole flat regions and far exceeds this.
-      assert far <= div(max(w, h), 2),
-             "#{label}: #{far} far-diverging sampled pixels — placement mismatch"
-    end
-
-    # Two same-length band slices "diverge" when any band differs by more than the
-    # lossless tolerance — the per-pixel form of the old get_pixel! band compare.
-    defp pixel_diverges?(<<a, arest::binary>>, <<b, brest::binary>>),
-      do: abs(a - b) > 24 or pixel_diverges?(arest, brest)
-
-    defp pixel_diverges?(<<>>, <<>>), do: false
-
-    defp output_orientation_tag(%Plug.Conn{} = conn) do
-      image = decoded_image(conn)
-
-      case VipsImage.header_value(image, "orientation") do
-        {:ok, value} -> value
-        {:error, _} -> nil
-      end
-    end
-
-    # Wire-vs-orientation-1 oracle assertion: same dimensions, and interior flat-region
-    # pixels match within a small tolerance (the oriented leg round-trips through JPEG;
-    # the twin is lossless PNG). Sampling at 1/8 and 7/8 stays inside the solid
-    # quadrants, away from the red/green seam where a ±1px affine shift would ring.
-    defp assert_twin_oracle_match(oriented, twin, label) do
-      assert {Image.width(oriented), Image.height(oriented)} ==
-               {Image.width(twin), Image.height(twin)},
-             "#{label}: dims #{inspect({Image.width(oriented), Image.height(oriented)})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
-
-      xs = bounded_samples(Image.width(oriented))
-      ys = bounded_samples(Image.height(oriented))
-
-      for x <- xs, y <- ys do
-        op = Image.get_pixel!(oriented, x, y)
-        tp = Image.get_pixel!(twin, x, y)
-
-        assert pixels_close?(op, tp),
-               "#{label}: pixel mismatch at (#{x},#{y}): #{inspect(op)} vs twin #{inspect(tp)}"
-      end
-    end
-
-    # #124 edge cases: CMYK, linear-light, and corrupt-source handling.
-    describe "scp edge cases (#124)" do
-      # CMYK → sRGB working space: scp:0 re-embeds the source profile in formats that
-      # support color profiles. JPEG is used here because PNG forces sRGB on write and
-      # drops any CMYK profile; JPEG preserves the CMYK interpretation. The cmyk.jpg
-      # fixture carries an embedded CMYK ICC profile; after color management to the sRGB
-      # working space, scp:0 restores the original CMYK profile into the JPEG output.
-      # The scp:1 counter-assertion verifies the re-embed is scp-driven, not unconditional:
-      # scp:1 must either drop the profile or differ in body (if libvips tags CMYK-JPEG
-      # output regardless, scp:0 carries the original CMYK profile bytes and scp:1 does not).
-      test "scp:0 on a CMYK source re-embeds the source profile when the format supports it" do
-        scp0_conn =
-          call_imgproxy("/_/scp:0/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
-
-        scp1_conn =
-          call_imgproxy("/_/scp:1/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
-
-        assert scp0_conn.status == 200
-        assert scp1_conn.status == 200
-
-        {_image, scp0_fields} = response_metadata(scp0_conn)
-
-        assert "icc-profile-data" in scp0_fields,
-               "scp:0 on CMYK: icc-profile-data must be present (format supports color profiles)"
-
-        # Counter-assertion: scp:0 vs scp:1 outputs must differ, proving the re-embed
-        # is scp-driven. Whether scp:1 carries its own minimal profile tag or none,
-        # the bodies differ because scp:0 embeds the original CMYK profile data.
-        refute scp0_conn.resp_body == scp1_conn.resp_body,
-               "scp:0 and scp:1 CMYK outputs must differ (re-embed is scp-driven, not unconditional)"
-      end
-
-      # Linear-light (scRGB) branch: InputColorManagement drops the embedded profile
-      # for scRGB sources (no backup recorded, color_imported? stays false), then
-      # converts to the working space. With scp:0 there is no source profile to
-      # re-embed, so the output must NOT carry icc-profile-data.
-      test "scp:0 on a linear-light (scRGB) source does not embed a profile in the output" do
-        conn =
-          call_imgproxy(
-            "/_/scp:0/f:png/plain/images/linear.png",
-            origin_opts(LinearLightOriginImage)
-          )
-
-        assert conn.status == 200
-
-        {_image, fields} = response_metadata(conn)
-
-        refute "icc-profile-data" in fields,
-               "scp:0 on linear-light: no source profile was imported, so none should be re-embedded"
-      end
-
-      # Corrupt/undecodable source must surface as HTTP 415 at the wire boundary.
-      # The decode failure propagates as {:decode, _} and the plug maps it to 415.
-      test "corrupt source body is rejected with 415 at the wire boundary" do
-        conn =
-          call_imgproxy(
-            "/_/scp:0/f:png/plain/images/bad.png",
-            origin_opts(CorruptSourceOriginImage)
-          )
-
-        assert conn.status == 415
-      end
-    end
-
-    describe "preserve_hdr (ph)" do
-      # The 512×512 source is downscaled, so the 16-bit working space must survive
-      # the resize/scale (and shrink-on-load) stages, not just decode→encode.
-      test "PNG output preserves 16-bit through resize with ph:1 and tone-maps with ph:0" do
-        preserved =
-          call_imgproxy("/_/rs:fill:200:200/g:ce/ph:1/f:png/plain/images/rgb16.png", @hdr_opts)
-
-        tonemapped =
-          call_imgproxy("/_/rs:fill:200:200/g:ce/ph:0/f:png/plain/images/rgb16.png", @hdr_opts)
-
-        assert preserved.status == 200
-        assert tonemapped.status == 200
-        assert dimensions(preserved) == {200, 200}
-        assert dimensions(tonemapped) == {200, 200}
-        assert band_format(preserved) == :VIPS_FORMAT_USHORT
-        assert band_format(tonemapped) == :VIPS_FORMAT_UCHAR
-      end
-
-      test "ph:1 preserves 16-bit with no geometry option" do
-        conn = call_imgproxy("/_/ph:1/f:png/plain/images/rgb16.png", @hdr_opts)
-
-        assert conn.status == 200
-        assert band_format(conn) == :VIPS_FORMAT_USHORT
-      end
-
-      test "JPEG output tone-maps even with ph:1 (per-format fallback)" do
-        conn = call_imgproxy("/_/ph:1/f:jpeg/plain/images/rgb16.png", @hdr_opts)
-
-        assert conn.status == 200
-        assert band_format(conn) == :VIPS_FORMAT_UCHAR
-      end
-    end
-
-    defp effect_origin_opts do
+    :telemetry.attach_many(
+      handler_id,
       [
-        parser: ImagePipe.Parser.Imgproxy,
+        telemetry_prefix ++ [:source, :resolve, :start],
+        telemetry_prefix ++ [:source, :resolve, :stop],
+        telemetry_prefix ++ [:source, :resolve, :exception]
+      ],
+      &__MODULE__.handle_telemetry_event/4,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  defp attach_safety_telemetry(telemetry_prefix) do
+    handler_id = {__MODULE__, self(), :safety}
+
+    :telemetry.attach_many(
+      handler_id,
+      [
+        telemetry_prefix ++ [:parse, :stop],
+        telemetry_prefix ++ [:parse, :exception],
+        telemetry_prefix ++ [:source, :resolve, :start],
+        telemetry_prefix ++ [:source, :resolve, :stop],
+        telemetry_prefix ++ [:source, :resolve, :exception]
+      ],
+      &__MODULE__.handle_telemetry_event/4,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  defp signed_request_path(signed_path) do
+    key = Base.decode16!("746573742d6b6579", case: :lower)
+    salt = Base.decode16!("746573742d73616c74", case: :lower)
+
+    signature =
+      :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
+      |> Base.url_encode64(padding: false)
+
+    "/" <> signature <> signed_path
+  end
+
+  defp svg_origin_opts do
+    Keyword.merge(@default_opts,
+      cache: {CacheProbe, result: :miss},
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: {SvgOriginImage, test_pid: self()}]}
+      ]
+    )
+  end
+
+  defp exif_orientation_origin_opts(overrides \\ []) do
+    Keyword.merge(
+      [
         sources: [
           path:
             {RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: EffectOriginImage]}
+             root_url: "http://origin.test", req_options: [plug: ExifOrientationOriginImage]}
         ]
-      ]
+      ],
+      overrides
+    )
+  end
+
+  defp oriented_frame_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [
+               plug: {OrientedFrameOrigin, {OrientationFixture.base_png(), orientation}}
+             ]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp orientation1_twin_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [
+               plug: {Orientation1TwinOrigin, {OrientationFixture.base_png(), orientation}}
+             ]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp sharp_oriented_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {SharpOrientedOrigin, orientation}]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp sharp_twin_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: {SharpTwinOrigin, orientation}]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  # Strict full-frame oracle for the lossless sharp fixture: identical dims and
+  # every pixel within a tiny tolerance (both legs are lossless PNG; the small
+  # tolerance only absorbs an affine-resize sub-pixel seam, never a 1px placement
+  # shift, which moves whole flat regions). Counts far-off pixels so a placement
+  # bug fails with a concrete count.
+  defp assert_sharp_oracle_match(oriented, twin, label) do
+    w = Image.width(oriented)
+    h = Image.height(oriented)
+
+    assert {w, h} == {Image.width(twin), Image.height(twin)},
+           "#{label}: dims #{inspect({w, h})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
+
+    # Read each frame to a raw row-major band buffer ONCE, then index it in BEAM.
+    # The per-pixel Image.get_pixel!/3 path crosses the libvips FFI boundary on
+    # every sample; across the EXIF 1..8 × multi-path matrix that is ~150k calls
+    # and ~20s of CPU, which tips this async test past the 60s per-test timeout
+    # under CI contention. Two write_to_binary/1 calls per leg collapse that to a
+    # pair of buffer reads with identical sampling and tolerance semantics.
+    {:ok, ob} = VipsImage.write_to_binary(oriented)
+    {:ok, tb} = VipsImage.write_to_binary(twin)
+
+    assert byte_size(ob) == byte_size(tb),
+           "#{label}: band layout mismatch #{byte_size(ob)} != twin #{byte_size(tb)}"
+
+    bands = div(byte_size(ob), w * h)
+
+    # Sample a dense grid (every 2px) rather than every pixel — far finer than any
+    # sharp feature (1px lines, quadrant seams), so a 1px placement shift still
+    # moves many sampled points and the far-diverging count blows past the
+    # thin-seam budget.
+    xs = Enum.take_every(0..(w - 1), 2)
+    ys = Enum.take_every(0..(h - 1), 2)
+
+    far =
+      Enum.reduce(for(x <- xs, y <- ys, do: {x, y}), 0, fn {x, y}, acc ->
+        offset = (y * w + x) * bands
+        op = :binary.part(ob, offset, bands)
+        tp = :binary.part(tb, offset, bands)
+        if pixel_diverges?(op, tp), do: acc + 1, else: acc
+      end)
+
+    # Allow a thin seam (≤ one edge's worth of sampled points) for affine-resize
+    # cases; a 1px placement shift moves whole flat regions and far exceeds this.
+    assert far <= div(max(w, h), 2),
+           "#{label}: #{far} far-diverging sampled pixels — placement mismatch"
+  end
+
+  # Two same-length band slices "diverge" when any band differs by more than the
+  # lossless tolerance — the per-pixel form of the old get_pixel! band compare.
+  defp pixel_diverges?(<<a, arest::binary>>, <<b, brest::binary>>),
+    do: abs(a - b) > 24 or pixel_diverges?(arest, brest)
+
+  defp pixel_diverges?(<<>>, <<>>), do: false
+
+  defp output_orientation_tag(%Plug.Conn{} = conn) do
+    image = decoded_image(conn)
+
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, value} -> value
+      {:error, _} -> nil
+    end
+  end
+
+  # Wire-vs-orientation-1 oracle assertion: same dimensions, and interior flat-region
+  # pixels match within a small tolerance (the oriented leg round-trips through JPEG;
+  # the twin is lossless PNG). Sampling at 1/8 and 7/8 stays inside the solid
+  # quadrants, away from the red/green seam where a ±1px affine shift would ring.
+  defp assert_twin_oracle_match(oriented, twin, label) do
+    assert {Image.width(oriented), Image.height(oriented)} ==
+             {Image.width(twin), Image.height(twin)},
+           "#{label}: dims #{inspect({Image.width(oriented), Image.height(oriented)})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
+
+    xs = bounded_samples(Image.width(oriented))
+    ys = bounded_samples(Image.height(oriented))
+
+    for x <- xs, y <- ys do
+      op = Image.get_pixel!(oriented, x, y)
+      tp = Image.get_pixel!(twin, x, y)
+
+      assert pixels_close?(op, tp),
+             "#{label}: pixel mismatch at (#{x},#{y}): #{inspect(op)} vs twin #{inspect(tp)}"
+    end
+  end
+
+  # #124 edge cases: CMYK, linear-light, and corrupt-source handling.
+  describe "scp edge cases (#124)" do
+    # CMYK → sRGB working space: scp:0 re-embeds the source profile in formats that
+    # support color profiles. JPEG is used here because PNG forces sRGB on write and
+    # drops any CMYK profile; JPEG preserves the CMYK interpretation. The cmyk.jpg
+    # fixture carries an embedded CMYK ICC profile; after color management to the sRGB
+    # working space, scp:0 restores the original CMYK profile into the JPEG output.
+    # The scp:1 counter-assertion verifies the re-embed is scp-driven, not unconditional:
+    # scp:1 must either drop the profile or differ in body (if libvips tags CMYK-JPEG
+    # output regardless, scp:0 carries the original CMYK profile bytes and scp:1 does not).
+    test "scp:0 on a CMYK source re-embeds the source profile when the format supports it" do
+      scp0_conn =
+        call_imgproxy("/_/scp:0/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
+
+      scp1_conn =
+        call_imgproxy("/_/scp:1/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
+
+      assert scp0_conn.status == 200
+      assert scp1_conn.status == 200
+
+      {_image, scp0_fields} = response_metadata(scp0_conn)
+
+      assert "icc-profile-data" in scp0_fields,
+             "scp:0 on CMYK: icc-profile-data must be present (format supports color profiles)"
+
+      # Counter-assertion: scp:0 vs scp:1 outputs must differ, proving the re-embed
+      # is scp-driven. Whether scp:1 carries its own minimal profile tag or none,
+      # the bodies differ because scp:0 embeds the original CMYK profile data.
+      refute scp0_conn.resp_body == scp1_conn.resp_body,
+             "scp:0 and scp:1 CMYK outputs must differ (re-embed is scp-driven, not unconditional)"
     end
 
-    defp metadata_origin_opts do
-      [
-        parser: ImagePipe.Parser.Imgproxy,
+    # Linear-light (scRGB) branch: InputColorManagement drops the embedded profile
+    # for scRGB sources (no backup recorded, color_imported? stays false), then
+    # converts to the working space. With scp:0 there is no source profile to
+    # re-embed, so the output must NOT carry icc-profile-data.
+    test "scp:0 on a linear-light (scRGB) source does not embed a profile in the output" do
+      conn =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/linear.png",
+          origin_opts(LinearLightOriginImage)
+        )
+
+      assert conn.status == 200
+
+      {_image, fields} = response_metadata(conn)
+
+      refute "icc-profile-data" in fields,
+             "scp:0 on linear-light: no source profile was imported, so none should be re-embedded"
+    end
+
+    # Corrupt/undecodable source must surface as HTTP 415 at the wire boundary.
+    # The decode failure propagates as {:decode, _} and the plug maps it to 415.
+    test "corrupt source body is rejected with 415 at the wire boundary" do
+      conn =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/bad.png",
+          origin_opts(CorruptSourceOriginImage)
+        )
+
+      assert conn.status == 415
+    end
+  end
+
+  describe "preserve_hdr (ph)" do
+    # The 512×512 source is downscaled, so the 16-bit working space must survive
+    # the resize/scale (and shrink-on-load) stages, not just decode→encode.
+    test "PNG output preserves 16-bit through resize with ph:1 and tone-maps with ph:0" do
+      preserved =
+        call_imgproxy("/_/rs:fill:200:200/g:ce/ph:1/f:png/plain/images/rgb16.png", @hdr_opts)
+
+      tonemapped =
+        call_imgproxy("/_/rs:fill:200:200/g:ce/ph:0/f:png/plain/images/rgb16.png", @hdr_opts)
+
+      assert preserved.status == 200
+      assert tonemapped.status == 200
+      assert dimensions(preserved) == {200, 200}
+      assert dimensions(tonemapped) == {200, 200}
+      assert band_format(preserved) == :VIPS_FORMAT_USHORT
+      assert band_format(tonemapped) == :VIPS_FORMAT_UCHAR
+    end
+
+    test "ph:1 preserves 16-bit with no geometry option" do
+      conn = call_imgproxy("/_/ph:1/f:png/plain/images/rgb16.png", @hdr_opts)
+
+      assert conn.status == 200
+      assert band_format(conn) == :VIPS_FORMAT_USHORT
+    end
+
+    test "JPEG output tone-maps even with ph:1 (per-format fallback)" do
+      conn = call_imgproxy("/_/ph:1/f:jpeg/plain/images/rgb16.png", @hdr_opts)
+
+      assert conn.status == 200
+      assert band_format(conn) == :VIPS_FORMAT_UCHAR
+    end
+  end
+
+  defp effect_origin_opts do
+    [
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: EffectOriginImage]}
+      ]
+    ]
+  end
+
+  defp metadata_origin_opts do
+    [
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+      ]
+    ]
+  end
+
+  defp color_char_origin_opts do
+    [
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: ColorCharOriginImage]}
+      ]
+    ]
+  end
+
+  defp wide_gamut_origin_opts do
+    [
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: WideGamutOriginImage]}
+      ]
+    ]
+  end
+
+  describe "codec encoder options" do
+    test "jpgo:1 yields a progressive (decodable) JPEG" do
+      opts = [
         sources: [
           path:
             {RootHTTPAdapter,
              root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
         ]
       ]
+
+      conn = call_imgproxy("/_/f:jpeg/jpgo:1/plain/images/x.jpg", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      # progressive JPEG carries the SOF2 marker (0xFFC2)
+      assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
+      assert {100, 100} = dimensions(conn)
     end
 
-    defp color_char_origin_opts do
-      [
-        parser: ImagePipe.Parser.Imgproxy,
+    test "pngo::1:16 yields a decodable palette PNG" do
+      opts = [
         sources: [
           path:
             {RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: ColorCharOriginImage]}
+             root_url: "http://origin.test", req_options: [plug: UniformOriginImage]}
         ]
       ]
+
+      conn = call_imgproxy("/_/f:png/pngo::1:16/plain/images/x.png", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/png"]
+      assert {64, 64} = dimensions(conn)
     end
 
-    defp wide_gamut_origin_opts do
-      [
-        parser: ImagePipe.Parser.Imgproxy,
+    test "webpo:lossless yields a decodable WebP via the Vix-encoded path" do
+      # webp/avif encode through the Vix-direct suffix path (not the `image`
+      # wrapper jpg/png path), so exercise it end-to-end through the wire.
+      opts = [
         sources: [
           path:
             {RootHTTPAdapter,
-             root_url: "http://origin.test", req_options: [plug: WideGamutOriginImage]}
+             root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
         ]
       ]
+
+      conn = call_imgproxy("/_/f:webp/webpo:lossless:1:photo/plain/images/x.jpg", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/webp"]
+      assert {100, 100} = dimensions(conn)
     end
 
-    describe "codec encoder options" do
-      test "jpgo:1 yields a progressive (decodable) JPEG" do
-        opts = [
-          parser: ImagePipe.Parser.Imgproxy,
+    test "jpgo:::::1 keeps a host-configured interlace true (omit-vs-false)" do
+      # Host config sets interlace; the URL token sets only optimize_scans (pos 5),
+      # leaving the progressive position empty — the config default must survive.
+      opts = [
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+        ],
+        jpeg_options: %ImagePipe.Plan.Output.JpegOptions{interlace: true}
+      ]
+
+      conn = call_imgproxy("/_/f:jpeg/jpgo:::::1/plain/images/x.jpg", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
+    end
+  end
+
+  defp call_imgproxy(path, opts, accept \\ nil) do
+    :get
+    |> conn(path)
+    |> put_accept(accept)
+    |> call_imgproxy_conn(opts)
+  end
+
+  # The non-GET siblings (method gating, CORS preflight) need the method, not
+  # an Accept header.
+  defp call_imgproxy_method(method, path, opts) do
+    method
+    |> conn(path)
+    |> call_imgproxy_conn(opts)
+  end
+
+  # The single stack-invocation site: every wire request in this file reaches
+  # the dialect through here. Opts are flat dialect config — the dialect IS the
+  # plug and takes one flat keyword (`Dialect.Imgproxy.Config` splits it three
+  # ways itself), so there is nothing to translate at the boundary.
+  defp call_imgproxy_conn(%Plug.Conn{} = conn, opts) do
+    ImagePipe.Dialect.Imgproxy.call(
+      conn,
+      ImagePipe.Dialect.Imgproxy.init(opts)
+    )
+  end
+
+  defp put_accept(conn, nil), do: conn
+  defp put_accept(conn, accept), do: put_req_header(conn, "accept", accept)
+
+  defp content_type(conn), do: get_resp_header(conn, "content-type")
+
+  defp svg_supported? do
+    case VipsImage.supported_loader_suffixes() do
+      {:ok, suffixes} -> ".svg" in suffixes
+      {:error, _reason} -> false
+    end
+  end
+
+  defp dimensions(%Plug.Conn{} = conn) do
+    conn
+    |> decoded_image()
+    |> dimensions()
+  end
+
+  defp dimensions(%VipsImage{} = image) do
+    {Image.width(image), Image.height(image)}
+  end
+
+  defp decoded_image(%Plug.Conn{} = conn) do
+    Image.open!(conn.resp_body, access: :random, fail_on: :error)
+  end
+
+  defp band_format(%Plug.Conn{} = conn) do
+    {:ok, format} = VipsImage.header_value(decoded_image(conn), "format")
+    format
+  end
+
+  defp response_metadata(%Plug.Conn{} = conn) do
+    image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
+    {:ok, field_names} = VipsImage.header_field_names(image)
+    {image, field_names}
+  end
+
+  defp sampled_pixels(image) do
+    for x <- [8, 16, 24, 32, 40, 48, 56],
+        y <- [8, 24, 40, 56] do
+      Image.get_pixel!(image, x, y)
+    end
+  end
+
+  # The oriented.jpg fixture's STORED pixels (40w x 80h, red 40x40 at top), with NO
+  # EXIF orientation tag so reference primitives never autorotate.
+  defp oriented_fixture_storage do
+    40
+    |> Image.new!(80, color: :white)
+    |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
+  end
+
+  defp reference_user_rot90_storage,
+    do: oriented_fixture_storage() |> Image.rotate!(90) |> jpeg_roundtrip()
+
+  defp reference_180_of_stored,
+    do: oriented_fixture_storage() |> Image.rotate!(180) |> jpeg_roundtrip()
+
+  # Round-trip through JPEG so the reference carries the same lossy artifacts as the
+  # pipeline output; direction is pinned by the flat-region comparison.
+  defp jpeg_roundtrip(image) do
+    image
+    |> Image.write!(:memory, suffix: ".jpg")
+    |> Image.open!(access: :random, fail_on: :error)
+  end
+
+  # Sample within the (possibly small) bounds shared by both images.
+  defp assert_oriented_pixels_match(actual, reference) do
+    assert dimensions(actual) == dimensions(reference)
+
+    {w, h} = dimensions(actual)
+    xs = bounded_samples(w)
+    ys = bounded_samples(h)
+
+    for x <- xs, y <- ys do
+      actual_px = Image.get_pixel!(actual, x, y)
+      reference_px = Image.get_pixel!(reference, x, y)
+
+      assert pixels_close?(actual_px, reference_px),
+             "pixel mismatch at (#{x},#{y}): #{inspect(actual_px)} vs #{inspect(reference_px)}"
+    end
+  end
+
+  # The pipeline output is JPEG-encoded then decoded, so allow small lossy deltas;
+  # direction (which corner is red vs white) is still pinned by the flat-region match.
+  defp pixels_close?(a, b) when length(a) == length(b) do
+    a
+    |> Enum.zip(b)
+    |> Enum.all?(fn {av, bv} -> abs(av - bv) <= 12 end)
+  end
+
+  # Sample deep inside each half of the image, avoiding both the outer edges (libvips
+  # rotate can leave sub-pixel artifacts there) and the geometric mid-seam between the
+  # fixture's red block and white fill (JPEG ringing). 1/8 and 7/8 sit firmly in the
+  # flat fill regions, so direction is still pinned without straddling a boundary.
+  defp bounded_samples(size) do
+    last = max(size - 1, 0)
+    Enum.uniq([div(last, 8), div(last * 7, 8)])
+  end
+
+  defp cache_entry do
+    %Entry{
+      body: File.read!("priv/static/images/beach.jpg"),
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp source_order, do: receive_source_order([])
+
+  defp receive_source_order(events) do
+    receive do
+      {:source_order, event} -> receive_source_order([event | events])
+    after
+      0 -> Enum.reverse(events)
+    end
+  end
+
+  describe "/info endpoint" do
+    test "returns 200 application/json with the header field set" do
+      conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["application/json; charset=utf-8"]
+
+      json = JSON.decode!(conn.resp_body)
+      assert json["format"] == "jpeg"
+      assert json["mime_type"] == "image/jpeg"
+      assert is_integer(json["width"]) and json["width"] > 0
+      assert is_integer(json["height"]) and json["height"] > 0
+      assert json["orientation"] in 1..8
+    end
+
+    test "omits size when not cheaply available (Phase 1)" do
+      conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
+      json = JSON.decode!(conn.resp_body)
+      refute Map.has_key?(json, "size")
+    end
+
+    test "does not emit Vary: Accept" do
+      conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
+      vary = Plug.Conn.get_resp_header(conn, "vary")
+      refute Enum.any?(vary, &String.contains?(String.downcase(&1), "accept"))
+    end
+
+    test "reports orientation-adjusted (swapped) dimensions for a quarter-turn EXIF source" do
+      conn =
+        call_imgproxy("/info/unsafe/plain/images/oriented.jpg", exif_orientation_origin_opts())
+
+      json = JSON.decode!(conn.resp_body)
+      # ExifOrientationOriginImage creates a 40x80 image with EXIF orientation 6
+      # (90-degree clockwise). /info reports the display (swapped) dimensions.
+      assert json["orientation"] == 6
+      assert json["width"] == 80
+      assert json["height"] == 40
+    end
+
+    test "a bad signature is rejected (403) before any source fetch" do
+      signed_opts =
+        Keyword.merge(@default_opts,
+          signature: [keys: ["746573742d6b6579"], salts: ["746573742d73616c74"]],
           sources: [
             path:
               {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
           ]
-        ]
+        )
 
-        conn = call_imgproxy("/_/f:jpeg/jpgo:1/plain/images/x.jpg", opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        # progressive JPEG carries the SOF2 marker (0xFFC2)
-        assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
-        assert {100, 100} = dimensions(conn)
-      end
-
-      test "pngo::1:16 yields a decodable palette PNG" do
-        opts = [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: UniformOriginImage]}
-          ]
-        ]
-
-        conn = call_imgproxy("/_/f:png/pngo::1:16/plain/images/x.png", opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/png"]
-        assert {64, 64} = dimensions(conn)
-      end
-
-      test "webpo:lossless yields a decodable WebP via the Vix-encoded path" do
-        # webp/avif encode through the Vix-direct suffix path (not the `image`
-        # wrapper jpg/png path), so exercise it end-to-end through the wire.
-        opts = [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
-          ]
-        ]
-
-        conn = call_imgproxy("/_/f:webp/webpo:lossless:1:photo/plain/images/x.jpg", opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/webp"]
-        assert {100, 100} = dimensions(conn)
-      end
-
-      test "jpgo:::::1 keeps a host-configured interlace true (omit-vs-false)" do
-        # Host config sets interlace; the URL token sets only optimize_scans (pos 5),
-        # leaving the progressive position empty — the config default must survive.
-        opts = [
-          parser: ImagePipe.Parser.Imgproxy,
-          sources: [
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
-          ],
-          imgproxy: [jpeg_options: %ImagePipe.Plan.Output.JpegOptions{interlace: true}]
-        ]
-
-        conn = call_imgproxy("/_/f:jpeg/jpgo:::::1/plain/images/x.jpg", opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["image/jpeg"]
-        assert :binary.match(conn.resp_body, <<0xFF, 0xC2>>) != :nomatch
-      end
+      conn = call_imgproxy("/info/invalidsig/plain/images/beach.jpg", signed_opts)
+      assert conn.status == 403
     end
 
-    defp call_imgproxy(path, opts, accept \\ nil) do
-      :get
-      |> conn(path)
-      |> put_accept(accept)
-      |> call_imgproxy_conn(opts)
+    test "an expired /info URL returns 400" do
+      opts = Keyword.put(@default_opts, :clock, fn -> DateTime.from_unix!(101) end)
+      conn = call_imgproxy("/info/unsafe/exp:100/plain/images/beach.jpg", opts)
+      assert conn.status == 400
     end
 
-    # The non-GET siblings (method gating, CORS preflight) need the method, not
-    # an Accept header.
-    defp call_imgproxy_method(method, path, opts) do
-      method
-      |> conn(path)
-      |> call_imgproxy_conn(opts)
+    test "a non-image source returns 415" do
+      opts =
+        Keyword.put(@default_opts, :sources,
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: CorruptSourceOriginImage]}
+        )
+
+      conn = call_imgproxy("/info/unsafe/plain/images/whatever.jpg", opts)
+      assert conn.status == 415
+    end
+  end
+
+  describe "source-fetch failures map to imgproxy-shaped statuses (#160)" do
+    test "upstream 5xx -> 502 bad gateway, and does NOT cache the failure" do
+      opts = Keyword.merge(origin_opts(Origin503), cache: {CacheProbe, []})
+      conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", opts)
+
+      assert conn.status == 502
+      assert ["text/plain" <> _] = get_resp_header(conn, "content-type")
+      assert conn.resp_body == "upstream responded 503"
+      refute_received {:cache_put, _key, _entry}
     end
 
-    # The single stack-invocation site: every wire request in this file reaches
-    # the stack through here, and this dispatch is the ONLY difference between
-    # the two arms.
-    case @stack do
-      :framework ->
-        defp call_imgproxy_conn(%Plug.Conn{} = conn, opts) do
-          ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
-        end
-
-      :dialect ->
-        defp call_imgproxy_conn(%Plug.Conn{} = conn, opts) do
-          ImagePipe.Dialect.Imgproxy.call(
-            conn,
-            ImagePipe.Dialect.Imgproxy.init(translate_opts(opts))
-          )
-        end
-
-        # The framework's option shape -> the dialect's. The framework selects its
-        # dialect with `parser:` and namespaces that dialect's keys under
-        # `:imgproxy`; the dialect IS the plug and takes one flat keyword
-        # (Dialect.Imgproxy.Config splits it three ways itself). So: drop
-        # `:parser`, hoist the `:imgproxy` sublist to the top level, pass
-        # everything else (`sources`, `cache`, `clock`, `telemetry_prefix`,
-        # `max_body_bytes`, …) through untouched.
-        #
-        # Deliberately NOT filtering: an option the dialect has no key for must
-        # raise out of `Config.validate!/1`, loudly, at the arm that lacks it —
-        # never be silently dropped into a test that then passes while exercising
-        # different semantics. Tests carrying such an option (today only
-        # `http_cache:`) select per-arm opts at the call site instead.
-        defp translate_opts(opts) do
-          {imgproxy, rest} = Keyword.pop(opts, :imgproxy, [])
-
-          rest
-          |> Keyword.delete(:parser)
-          |> Keyword.merge(imgproxy)
-        end
+    test "upstream 4xx passes through (arbitrary code)" do
+      conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", origin_opts(Origin451))
+      assert conn.status == 451
+      assert conn.resp_body == "upstream responded 451"
     end
 
-    defp put_accept(conn, nil), do: conn
-    defp put_accept(conn, accept), do: put_req_header(conn, "accept", accept)
+    test "resolve-time source error renders via send_source_error (connect_error -> 404)" do
+      opts = Keyword.merge(@default_opts, sources: [path: {ResolveDeniedSource, []}])
+      conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", opts)
 
-    defp content_type(conn), do: get_resp_header(conn, "content-type")
-
-    defp svg_supported? do
-      case VipsImage.supported_loader_suffixes() do
-        {:ok, suffixes} -> ".svg" in suffixes
-        {:error, _reason} -> false
-      end
-    end
-
-    defp dimensions(%Plug.Conn{} = conn) do
-      conn
-      |> decoded_image()
-      |> dimensions()
-    end
-
-    defp dimensions(%VipsImage{} = image) do
-      {Image.width(image), Image.height(image)}
-    end
-
-    defp decoded_image(%Plug.Conn{} = conn) do
-      Image.open!(conn.resp_body, access: :random, fail_on: :error)
-    end
-
-    defp band_format(%Plug.Conn{} = conn) do
-      {:ok, format} = VipsImage.header_value(decoded_image(conn), "format")
-      format
-    end
-
-    defp response_metadata(%Plug.Conn{} = conn) do
-      image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
-      {:ok, field_names} = VipsImage.header_field_names(image)
-      {image, field_names}
-    end
-
-    defp sampled_pixels(image) do
-      for x <- [8, 16, 24, 32, 40, 48, 56],
-          y <- [8, 24, 40, 56] do
-        Image.get_pixel!(image, x, y)
-      end
-    end
-
-    # The oriented.jpg fixture's STORED pixels (40w x 80h, red 40x40 at top), with NO
-    # EXIF orientation tag so reference primitives never autorotate.
-    defp oriented_fixture_storage do
-      40
-      |> Image.new!(80, color: :white)
-      |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
-    end
-
-    defp reference_user_rot90_storage,
-      do: oriented_fixture_storage() |> Image.rotate!(90) |> jpeg_roundtrip()
-
-    defp reference_180_of_stored,
-      do: oriented_fixture_storage() |> Image.rotate!(180) |> jpeg_roundtrip()
-
-    # Round-trip through JPEG so the reference carries the same lossy artifacts as the
-    # pipeline output; direction is pinned by the flat-region comparison.
-    defp jpeg_roundtrip(image) do
-      image
-      |> Image.write!(:memory, suffix: ".jpg")
-      |> Image.open!(access: :random, fail_on: :error)
-    end
-
-    # Sample within the (possibly small) bounds shared by both images.
-    defp assert_oriented_pixels_match(actual, reference) do
-      assert dimensions(actual) == dimensions(reference)
-
-      {w, h} = dimensions(actual)
-      xs = bounded_samples(w)
-      ys = bounded_samples(h)
-
-      for x <- xs, y <- ys do
-        actual_px = Image.get_pixel!(actual, x, y)
-        reference_px = Image.get_pixel!(reference, x, y)
-
-        assert pixels_close?(actual_px, reference_px),
-               "pixel mismatch at (#{x},#{y}): #{inspect(actual_px)} vs #{inspect(reference_px)}"
-      end
-    end
-
-    # The pipeline output is JPEG-encoded then decoded, so allow small lossy deltas;
-    # direction (which corner is red vs white) is still pinned by the flat-region match.
-    defp pixels_close?(a, b) when length(a) == length(b) do
-      a
-      |> Enum.zip(b)
-      |> Enum.all?(fn {av, bv} -> abs(av - bv) <= 12 end)
-    end
-
-    # Sample deep inside each half of the image, avoiding both the outer edges (libvips
-    # rotate can leave sub-pixel artifacts there) and the geometric mid-seam between the
-    # fixture's red block and white fill (JPEG ringing). 1/8 and 7/8 sit firmly in the
-    # flat fill regions, so direction is still pinned without straddling a boundary.
-    defp bounded_samples(size) do
-      last = max(size - 1, 0)
-      Enum.uniq([div(last, 8), div(last * 7, 8)])
-    end
-
-    defp cache_entry do
-      %Entry{
-        body: File.read!("priv/static/images/beach.jpg"),
-        content_type: "image/jpeg",
-        headers: [],
-        created_at: DateTime.utc_now()
-      }
-    end
-
-    defp source_order, do: receive_source_order([])
-
-    defp receive_source_order(events) do
-      receive do
-        {:source_order, event} -> receive_source_order([event | events])
-      after
-        0 -> Enum.reverse(events)
-      end
-    end
-
-    describe "/info endpoint" do
-      test "returns 200 application/json with the header field set" do
-        conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
-
-        assert conn.status == 200
-        assert content_type(conn) == ["application/json; charset=utf-8"]
-
-        json = JSON.decode!(conn.resp_body)
-        assert json["format"] == "jpeg"
-        assert json["mime_type"] == "image/jpeg"
-        assert is_integer(json["width"]) and json["width"] > 0
-        assert is_integer(json["height"]) and json["height"] > 0
-        assert json["orientation"] in 1..8
-      end
-
-      test "omits size when not cheaply available (Phase 1)" do
-        conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
-        json = JSON.decode!(conn.resp_body)
-        refute Map.has_key?(json, "size")
-      end
-
-      test "does not emit Vary: Accept" do
-        conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
-        vary = Plug.Conn.get_resp_header(conn, "vary")
-        refute Enum.any?(vary, &String.contains?(String.downcase(&1), "accept"))
-      end
-
-      test "reports orientation-adjusted (swapped) dimensions for a quarter-turn EXIF source" do
-        conn =
-          call_imgproxy("/info/unsafe/plain/images/oriented.jpg", exif_orientation_origin_opts())
-
-        json = JSON.decode!(conn.resp_body)
-        # ExifOrientationOriginImage creates a 40x80 image with EXIF orientation 6
-        # (90-degree clockwise). /info reports the display (swapped) dimensions.
-        assert json["orientation"] == 6
-        assert json["width"] == 80
-        assert json["height"] == 40
-      end
-
-      test "a bad signature is rejected (403) before any source fetch" do
-        signed_opts =
-          Keyword.merge(@default_opts,
-            imgproxy: [signature: [keys: ["746573742d6b6579"], salts: ["746573742d73616c74"]]],
-            sources: [
-              path:
-                {RootHTTPAdapter,
-                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
-            ]
-          )
-
-        conn = call_imgproxy("/info/invalidsig/plain/images/beach.jpg", signed_opts)
-        assert conn.status == 403
-      end
-
-      test "an expired /info URL returns 400" do
-        opts = Keyword.put(@default_opts, :clock, fn -> DateTime.from_unix!(101) end)
-        conn = call_imgproxy("/info/unsafe/exp:100/plain/images/beach.jpg", opts)
-        assert conn.status == 400
-      end
-
-      test "a non-image source returns 415" do
-        opts =
-          Keyword.put(@default_opts, :sources,
-            path:
-              {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: CorruptSourceOriginImage]}
-          )
-
-        conn = call_imgproxy("/info/unsafe/plain/images/whatever.jpg", opts)
-        assert conn.status == 415
-      end
-    end
-
-    describe "source-fetch failures map to imgproxy-shaped statuses (#160)" do
-      test "upstream 5xx -> 502 bad gateway, and does NOT cache the failure" do
-        opts = Keyword.merge(origin_opts(Origin503), cache: {CacheProbe, []})
-        conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", opts)
-
-        assert conn.status == 502
-        assert ["text/plain" <> _] = get_resp_header(conn, "content-type")
-        assert conn.resp_body == "upstream responded 503"
-        refute_received {:cache_put, _key, _entry}
-      end
-
-      test "upstream 4xx passes through (arbitrary code)" do
-        conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", origin_opts(Origin451))
-        assert conn.status == 451
-        assert conn.resp_body == "upstream responded 451"
-      end
-
-      test "resolve-time source error renders via send_source_error (connect_error -> 404)" do
-        opts = Keyword.merge(@default_opts, sources: [path: {ResolveDeniedSource, []}])
-        conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", opts)
-
-        assert conn.status == 404
-        assert conn.resp_body == "source unreachable"
-      end
+      assert conn.status == 404
+      assert conn.resp_body == "source unreachable"
     end
   end
 end
