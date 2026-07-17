@@ -119,17 +119,14 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   consults runtime geometry — including `resize_target_ratio/1`, which
   reads width/height rather than any `extend*` field.
   """
-  @spec pipeline_ctx(PipelineRequest.t()) :: %{
-          mode: :resize | :canvas_preserving,
-          dpr_fallback: float()
-        }
+  @spec pipeline_ctx(PipelineRequest.t()) :: %{mode: :resize | :canvas_preserving}
   def pipeline_ctx(%PipelineRequest{} = request) do
     mode =
       if extend_operation_requested?(request) or extend_aspect_ratio_emits?(request),
         do: :canvas_preserving,
         else: :resize
 
-    %{mode: mode, dpr_fallback: request.dpr || 1.0}
+    %{mode: mode}
   end
 
   defp reduce_results(results) do

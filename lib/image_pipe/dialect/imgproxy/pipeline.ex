@@ -434,16 +434,14 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   end
 
   # ── carry consumption ─────────────────────────────────────────────────────
-  # The two fallbacks are DIFFERENT (`resolver.ex:151-168`): padding falls back
-  # to the request dpr, canvas (below, in its `run_op/6` clause) to 1.0.
-  defp padding_scale_for(%{mode: :resize, dpr_fallback: fb}, %{effective_padding_scale: s}),
-    do: s || fb
+  # The 1.0 fallback fires only when the pipeline emitted no resize: a set dpr
+  # always emits one (`resize_rule_requested?/1` reads `dpr`), which fills the
+  # slot — so a nil slot implies a nil dpr.
+  defp padding_scale_for(%{mode: :resize}, %{effective_padding_scale: s}),
+    do: s || 1.0
 
-  defp padding_scale_for(
-         %{mode: :canvas_preserving, dpr_fallback: fb},
-         %{canvas_preserving_padding_scale: s}
-       ),
-       do: s || fb
+  defp padding_scale_for(%{mode: :canvas_preserving}, %{canvas_preserving_padding_scale: s}),
+    do: s || 1.0
 
   # ── no-enlarge padding/DPR scale (#237) ───────────────────────────────────
   # Parity-critical arithmetic reproducing imgproxy's unconditional `!Enlarge()`

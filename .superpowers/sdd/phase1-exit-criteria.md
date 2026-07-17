@@ -317,8 +317,8 @@ request dpr; canvas falls back to 1.0"). Controller-verified: the distinction is
 never nil, and the `{:effective, fb, _}` fallback clause is reachable *only* when
 dpr is nil — where both fall back to 1.0. True of the framework arm too
 (`resolver.ex:151-168`); not a port bug. The parity structure was kept for phase
-1 (simplifying during a parity port is how subtle divergence ships), and is a
-phase-2 simplification candidate.
+1 (simplifying during a parity port is how subtle divergence ships), and was
+collapsed to a single 1.0 fallback in phase-2 wave 2 (backlog §C1, closed).
 
 ## Not covered by any criterion, recorded so it is not lost
 

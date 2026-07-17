@@ -384,16 +384,27 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
     end
 
     test "an effect between the resize and the padding does not lose the carry" do
-      # The capped setup: carry 1.0, but dpr_fallback 2.0. The blur resolves
-      # through the neutral delegation clause; if that clause dropped the carry,
-      # the padding would fall back to the dpr and scale by 2.0 -> 20.
+      # Carry 2.0: an 800x600 source into 400x300 with dpr 2.0 leaves
+      # max_without_enlarge = 2.0, so the :resize slot carries 2.0. The blur
+      # resolves through the neutral delegation clause; if that clause dropped
+      # the carry, the padding would fall back to 1.0 -> top 10.
       ops =
         executables(
-          state_for(400, 300),
-          req([capped(dpr: 2.0, padding_top: 10, effects: %Effects{blur: 2.0})])
+          state_for(800, 600),
+          req([
+            preq(
+              width: {:pixels, 400},
+              height: {:pixels, 300},
+              resizing_type: :force,
+              enlarge: false,
+              dpr: 2.0,
+              padding_top: 10,
+              effects: %Effects{blur: 2.0}
+            )
+          ])
         )
 
-      assert [%Padding{top: 10}] = paddings(ops)
+      assert [%Padding{top: 20}] = paddings(ops)
     end
   end
 end

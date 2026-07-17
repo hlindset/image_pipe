@@ -168,19 +168,18 @@ where upstream answers blank) is recorded in the matrix.
 
 ## C. Deferred design-simplification / test-coverage candidates
 
-### C1. Collapse the unobservable two-fallback padding/canvas distinction
+### C1. Collapse the unobservable two-fallback padding/canvas distinction — CLOSED (phase-2 wave 2)
 
-Phase 1 established (and both reviewers confirmed) that the "padding falls back to
-request dpr / canvas falls back to 1.0" distinction is **unobservable**:
-`resize_rule_requested?` includes `not is_nil(dpr)`, so the fallback clause only
-fires when dpr is nil, where both fall back to 1.0. True of the framework arm too.
-It was kept for parity fidelity in phase 1.
-
-- Recorded: `phase1-exit-criteria.md` (simplification candidate); the design spec's
-  D5 discussion.
-- Fix shape: with §A closed and the dialect the sole imgproxy implementation,
-  simplify the carry so the two fallbacks are a single 1.0, and correct the
-  spec/docs that describe a distinction that does not exist.
+**Closed.** The carry's padding/canvas fallback is a single 1.0:
+`Assembly.resize_rule_requested?/1` includes `not is_nil(dpr)`, so a set dpr
+always emits a resize and fills the carry slot — the fallback fires only when
+dpr is nil, where 1.0 is the only value it can take. `pipeline_ctx/1` carries
+only the mode; `padding_scale_for/2` reads the slot `|| 1.0`. Mutation-verified:
+poisoning the fallback to 1.5 turned the dpr-nil padding differential
+constellation (`exif_182_padding_no_resize`) and the #235 opaque-padding wire
+case red; the carry-preservation sentinel in `pipeline_carry_test.exs` was
+reworked onto a carried 2.0 scale so a dropped carry (→ 1.0) stays
+distinguishable after the collapse.
 
 ### C2. `{:session, :timeout}` prepare-timeout has no RED-able test through `stream/5`
 
