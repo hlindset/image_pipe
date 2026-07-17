@@ -13,8 +13,7 @@ if Code.ensure_loaded?(Testcontainers) do
 
     import Plug.Test, only: [conn: 2]
 
-    alias ImagePipe.Parser.Imgproxy
-    alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest}
+    alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Harness, Manifest}
 
     @image "darthsim/imgproxy@sha256:9ed8f87b34d55c7844951ff65bcf6605de54ba6670f64951c7215f9b125a482e"
     @base "test/support/image_pipe/test/imgproxy_differential"
@@ -28,9 +27,9 @@ if Code.ensure_loaded?(Testcontainers) do
       {:ok, _} = Application.ensure_all_started(:image_pipe)
       {:ok, _} = Application.ensure_all_started(:req)
 
-      # Fail fast: a constellation whose opts don't parse must abort before the
+      # Fail fast: a constellation that doesn't render a 200 must abort before the
       # (expensive) container start, not after baking a wrong/missing fixture.
-      validate_parses!()
+      validate_renders!()
 
       # Start testcontainers' app deps (hackney/tesla) AND its GenServer (which the
       # app does not auto-start).
@@ -93,29 +92,29 @@ if Code.ensure_loaded?(Testcontainers) do
       Mix.shell().info("Wrote #{map_size(entries)} fixtures + manifest + report under #{@base}")
     end
 
-    # Parse every constellation's path through the real parser before baking, so a
+    # Render every constellation's path through the dialect before baking, so a
     # typo'd or unsupported option aborts the run (with the offending ids) instead of
     # spinning the container and producing a wrong/absent fixture. Quarantined
-    # (`:triage`) cases are skipped: a known parser gap (a combo imgproxy accepts but
-    # ImagePipe's parser does not yet) can sit in the suite, tracked, without blocking
+    # (`:triage`) cases are skipped: a known dialect gap (a combo imgproxy accepts but
+    # ImagePipe's dialect does not yet) can sit in the suite, tracked, without blocking
     # the bake — its fixture still bakes from imgproxy, and the conformance lane excludes
     # it until the `:triage` is dropped.
-    defp validate_parses! do
+    defp validate_renders! do
+      {plug, plug_opts} = Harness.plug_opts()
+
       failures =
         Constellations.all()
         |> Enum.reject(& &1[:triage])
         |> Enum.flat_map(fn c ->
-          case Imgproxy.parse(conn(:get, Constellations.imgproxy_path(c))) do
-            {:ok, _plan} -> []
-            other -> [{c.id, other}]
-          end
+          conn = plug.call(conn(:get, Constellations.imgproxy_path(c)), plug_opts)
+          if conn.status == 200, do: [], else: [{c.id, conn.status}]
         end)
 
       unless failures == [] do
-        detail = Enum.map_join(failures, "\n", fn {id, err} -> "  #{id}: #{inspect(err)}" end)
+        detail = Enum.map_join(failures, "\n", fn {id, status} -> "  #{id}: #{status}" end)
 
         Mix.raise(
-          "gen_fixtures: #{length(failures)} constellation(s) failed to parse before bake:\n#{detail}"
+          "gen_fixtures: #{length(failures)} constellation(s) failed to render a 200 before bake:\n#{detail}"
         )
       end
     end
