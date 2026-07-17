@@ -24,5 +24,14 @@ defmodule ImagePipe.Dialect.Imgproxy.EncryptFacadeTest do
 
     assert D.encrypt_source_url(@source_url, @aes128_key, unknown: true) ==
              {:error, :invalid_options}
+
+    assert D.encrypt_source_url(@source_url, @aes128_key, iv: :not_binary) ==
+             {:error, :invalid_iv}
+
+    assert D.encrypt_source_url(@source_url, @aes128_key, iv: :binary.copy("x", 15)) ==
+             {:error, :invalid_iv}
+
+    assert D.encrypt_source_url(@source_url, @aes128_key, iv: :binary.copy("x", 17)) ==
+             {:error, :invalid_iv}
   end
 end
