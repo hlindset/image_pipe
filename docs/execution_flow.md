@@ -44,8 +44,8 @@ There are two different kinds of "operation", and the resolver strategy is the
 translator between them:
 
 - **`ImagePipe.Plan.Operation.*`** — what parsers emit. Declarative, possibly
-  deferred (`:auto` dims, `:deferred` guides, `{:effective, …}` scales). These
-  structs **never execute**.
+  deferred (`:auto` dims, `:deferred` guides). These structs **never
+  execute**.
 - **`ImagePipe.Transform.Operation.*`** — executable: fully parameterized,
   every dimension concrete, every gravity a real point. These are what
   `Chain` runs, and one plan op may lower into several of them (a cover =

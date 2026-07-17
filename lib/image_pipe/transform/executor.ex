@@ -34,8 +34,8 @@ defmodule ImagePipe.Transform.Executor do
   # flush — through the resolver-advanced shape; the resolve-time reads (Lowering,
   # ResizePlanning) take the shape directly.
   #
-  # The strategy's own per-pipeline state (e.g. the imgproxy resolver's stashed
-  # padding scales) is threaded through `strategy`, carried forward via the
+  # The strategy's own per-pipeline state (e.g. the TwicPics resolver's carried
+  # focus point) is threaded through `strategy`, carried forward via the
   # continuation the strategy returns — the driver never reads or computes
   # strategy-specific state itself.
 

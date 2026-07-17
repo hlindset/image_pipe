@@ -164,6 +164,21 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       refute Keyword.has_key?(data, :coordinate_space)
     end
 
+    test "returns key data for a focal-guided crop" do
+      assert {:ok, operation} =
+               Operation.crop_guided(
+                 {:px, 300},
+                 :full_axis,
+                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}}
+               )
+
+      assert KeyData.data(operation)[:guide] == [
+               type: :focal,
+               x: [unit: :ratio, numerator: 1, denominator: 3],
+               y: [unit: :ratio, numerator: 2, denominator: 3]
+             ]
+    end
+
     test "crop_guided key data includes aspect_ratio and enlarge" do
       {:ok, op} =
         Operation.crop_guided({:px, 300}, {:px, 200}, :center,
@@ -197,6 +212,21 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                overflow: :reject,
                x_offset: 5.0,
                y_offset: -3.0
+             ]
+    end
+
+    test "returns key data for a focal canvas placement" do
+      assert {:ok, operation} =
+               Operation.canvas(
+                 {:ratio, 16, 9},
+                 {:ratio, 1, 1},
+                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}}
+               )
+
+      assert KeyData.data(operation)[:placement] == [
+               type: :focal,
+               x: [unit: :ratio, numerator: 1, denominator: 3],
+               y: [unit: :ratio, numerator: 2, denominator: 3]
              ]
     end
   end
@@ -336,7 +366,9 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       end
     end
 
-    test "the content-aware guides serialize distinctly" do
+    test "the three content-aware guides serialize distinctly" do
+      smart = KeyData.data(%CropGuided{width: {:px, 10}, height: {:px, 10}, guide: :smart})
+
       assist =
         KeyData.data(%CropGuided{
           width: {:px, 10},
@@ -351,7 +383,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
           guide: {:detect, {["face"], %{}}}
         })
 
-      guides = Enum.map([assist, detect], &Keyword.fetch!(&1, :guide))
+      guides = Enum.map([smart, assist, detect], &Keyword.fetch!(&1, :guide))
       assert guides == Enum.uniq(guides)
     end
 

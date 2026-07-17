@@ -227,6 +227,10 @@ defmodule ImagePipe.Plan.KeyData do
 
   defp guide_data({:anchor, x, y}), do: [type: :anchor, x: x, y: y]
 
+  defp guide_data({:focal, x, y}), do: [type: :focal, x: data(x), y: data(y)]
+
+  defp guide_data(:smart), do: [type: :smart]
+
   defp guide_data({:smart, :face_assist}), do: [type: :smart, assist: :face]
 
   defp guide_data({:detect, {:all, weights}}) when is_map(weights),
