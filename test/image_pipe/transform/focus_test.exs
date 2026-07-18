@@ -195,9 +195,13 @@ defmodule ImagePipe.Transform.FocusTest do
     # A fine, per-pixel-distinct pattern so a 1px discard difference is visible
     # (the 100px-cell grid above would hide it).
     defp fine_pattern(w, h) do
-      for x <- 0..(w - 1), y <- 0..(h - 1), reduce: Image.new!(w, h, color: [0, 0, 0]) do
-        acc -> Image.Draw.rect!(acc, x, y, 1, 1, color: [rem(x * 6, 256), rem(y * 3, 256), 200])
-      end
+      pixels =
+        for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
+          <<rem(x * 6, 256), rem(y * 3, 256), 200>>
+        end
+
+      {:ok, image} = VipsImage.new_from_binary(pixels, w, h, 3, :VIPS_FORMAT_UCHAR)
+      image
     end
 
     defp guided_crop_image(image, orient, guide, {w, h}) do
