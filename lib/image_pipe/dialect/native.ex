@@ -681,7 +681,6 @@ defmodule ImagePipe.Dialect.Native do
   # Negotiation runs through the shared `Output.Negotiate` seam (the
   # `[:output, :negotiate]` span emitter). The helper's unwrapped `{:error,
   # reason}` is passed straight through, preserving this dialect's error shape.
-  # ex_dna:disable-for-next-line
   defp resolve_output(policy, source_format, image, config) do
     Negotiate.negotiate_output(
       policy,
