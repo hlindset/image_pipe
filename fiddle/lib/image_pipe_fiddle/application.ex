@@ -146,14 +146,13 @@ defmodule ImagePipeFiddle.Application do
     static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
 
     [
-      parser: ImagePipe.Parser.TwicPics,
       sources: [
         path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
       ],
       allow_debug_headers: true
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Plug.init()
+    |> ImagePipe.Dialect.TwicPics.init()
   end
 
   defp maybe_put_cache(opts, nil), do: opts

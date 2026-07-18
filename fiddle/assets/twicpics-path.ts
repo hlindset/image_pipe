@@ -285,8 +285,8 @@ export function stepSummary(step: TransformStep): string {
   }
 }
 
-// --- parsing (mirror lib/image_pipe/parser/twic_pics; pixel-only subset matching
-// the UI surface — see the design spec) ---
+// --- parsing (mirror lib/image_pipe/dialect/twic_pics request grammar; pixel-only
+// subset matching the UI surface — see the design spec) ---
 
 const anchorSet = new Set<string>(twicAnchors);
 
