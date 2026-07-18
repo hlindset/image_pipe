@@ -165,14 +165,14 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid composition parser failures return before source identity, cache lookup, and origin" do
     for path <- [
-          "/images/cat.jpg?twic=v1/zoom=2",
-          "/images/cat.jpg?twic=v1/focus=-50x-50/cover=100x100",
-          "/images/cat.jpg?twic=v1/crop=0x100"
+          "/img/full/bad/0/default.jpg",
+          "/img/full/max/370/default.jpg",
+          "/img/0,0,0,100/max/0/default.jpg"
         ] do
       conn =
         ImagePipe.Plug.call(conn(:get, path),
-          parser: ImagePipe.Parser.TwicPics,
-          twicpics: [],
+          parser: ImagePipe.Parser.IIIF,
+          iiif: [resolver: iiif_resolver()],
           sources: [path: {ValidAdapter, []}],
           cache: {CacheProbe, []}
         )

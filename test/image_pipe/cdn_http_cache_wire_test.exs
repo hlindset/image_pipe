@@ -6,9 +6,19 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Plan
+  alias ImagePipe.Plan.Operation.CropGuided
+  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+  alias ImagePipe.Test.AutomaticIIIFParser
+  alias ImagePipe.Test.GuidedIIIFParser
+
+  defp iiif_resolver do
+    {StaticResolver, map: %{"img" => %SourcePath{segments: ["beach.jpg"]}}}
+  end
 
   defmodule StableSource do
     @behaviour ImagePipe.Source
@@ -117,20 +127,60 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     end
   end
 
+  test "guided IIIF test parser rewrites one real crop to the selected product-neutral guide" do
+    opts = GuidedIIIFParser.validate_options!(iiif: [resolver: iiif_resolver()])
+
+    focal_request = conn(:get, "/img/square/max/0/default.jpg?guide=focal")
+    face_request = conn(:get, "/img/square/max/0/default.jpg?guide=face_assist")
+
+    assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = baseline | _]}]}} =
+             ImagePipe.Parser.IIIF.parse(focal_request, opts)
+
+    assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = focal | _]}]}} =
+             GuidedIIIFParser.parse(focal_request, opts)
+
+    assert focal == %CropGuided{
+             baseline
+             | guide: {:focal, {:ratio, 3, 10}, {:ratio, 7, 10}}
+           }
+
+    assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = face | _]}]}} =
+             GuidedIIIFParser.parse(face_request, opts)
+
+    assert face == %CropGuided{baseline | guide: {:smart, :face_assist}}
+  end
+
+  test "guided IIIF test parser delegates invalid input unchanged" do
+    opts = GuidedIIIFParser.validate_options!(iiif: [resolver: iiif_resolver()])
+    request = conn(:get, "/img/full/bad/0/default.jpg?guide=focal")
+
+    assert GuidedIIIFParser.parse(request, opts) == ImagePipe.Parser.IIIF.parse(request, opts)
+  end
+
   setup do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheProbe, test_pid: self()},
         http_cache: [mode: :enabled]
       )
 
-    [opts: opts]
+    automatic_opts =
+      ImagePipe.Plug.init(
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheProbe, test_pid: self()},
+        http_cache: [mode: :enabled]
+      )
+
+    [opts: opts, automatic_opts: automatic_opts]
   end
 
   test "stable public route emits cache-control and etag", %{opts: opts} do
-    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
 
     assert conn.status == 200
     assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
@@ -140,7 +190,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "matching if-none-match returns before cache lookup and source fetch", %{opts: opts} do
-    first = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
+    first = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
     [etag] = get_resp_header(first, "etag")
 
     assert_received :source_fetch_called
@@ -148,7 +198,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -161,10 +211,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "HEAD emits the same cache-control and etag as GET", %{opts: opts} do
-    get = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
+    get = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
     flush_messages()
 
-    head = ImagePipe.Plug.call(conn(:head, "/beach.jpg?twic=v1"), opts)
+    head = ImagePipe.Plug.call(conn(:head, "/img/full/max/0/default.jpg"), opts)
 
     assert head.status == 200
     assert get_resp_header(head, "etag") != []
@@ -174,7 +224,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   test "matching if-none-match on a HEAD returns 304 before cache lookup and source fetch",
        %{opts: opts} do
-    first = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
+    first = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
     [etag] = get_resp_header(first, "etag")
 
     assert_received :source_fetch_called
@@ -182,7 +232,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :head
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -192,10 +242,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
-  test "existing vary is merged in the final response", %{opts: opts} do
+  test "existing vary is merged in the final response", %{automatic_opts: opts} do
     conn =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/webp")
       |> put_resp_header("vary", "Accept-Encoding")
       |> ImagePipe.Plug.call(opts)
@@ -205,14 +255,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "request cookie does not change generated headers or source fetch", %{opts: opts} do
-    without_cookie = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
+    without_cookie = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
     [etag] = get_resp_header(without_cookie, "etag")
 
     flush_messages()
 
     with_cookie =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("cookie", "session=private")
       |> ImagePipe.Plug.call(opts)
 
@@ -224,7 +274,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "response cookies suppress generated public cache headers", %{opts: opts} do
     conn =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_resp_cookie("session", "abc")
       |> ImagePipe.Plug.call(opts)
 
@@ -244,13 +294,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
 
     assert conn.status == 200
     assert conn.resp_body == "cached body"
@@ -263,7 +314,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "wildcard if-none-match on a cache miss proceeds and returns 200", %{opts: opts} do
     conn =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -285,7 +336,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
@@ -293,7 +345,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -314,7 +366,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
@@ -322,7 +375,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :head
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -341,7 +394,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {EtaglessCachedSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
@@ -349,7 +403,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -369,7 +423,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
@@ -377,7 +432,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("if-none-match", ~s("ip1-nonmatching", *))
       |> ImagePipe.Plug.call(opts)
 
@@ -396,14 +451,15 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled],
         allow_origin: "https://cdn.test"
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
 
     assert conn.status == 200
     assert conn.resp_body == "cached body"
@@ -414,20 +470,21 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "CORS header lands on a 304 Not Modified response when allow_origin is set" do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheProbe, test_pid: self()},
         http_cache: [mode: :enabled],
         allow_origin: "https://cdn.test"
       )
 
-    first = ImagePipe.Plug.call(conn(:get, "/beach.jpg?twic=v1"), opts)
+    first = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
     [etag] = get_resp_header(first, "etag")
     flush_messages()
 
     conn =
       :get
-      |> conn("/beach.jpg?twic=v1")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -438,14 +495,15 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "host-set content-disposition is preserved on both miss and cache-hit responses" do
     probe_opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheProbe, test_pid: self()},
         http_cache: [mode: :enabled]
       )
 
     miss_conn =
-      conn(:get, "/beach.jpg?twic=v1")
+      conn(:get, "/img/full/max/0/default.jpg")
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
       |> ImagePipe.Plug.call(probe_opts)
 
@@ -459,14 +517,15 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     hit_opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
         http_cache: [mode: :enabled]
       )
 
     hit_conn =
-      conn(:get, "/beach.jpg?twic=v1")
+      conn(:get, "/img/full/max/0/default.jpg")
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
       |> ImagePipe.Plug.call(hit_opts)
 
@@ -481,7 +540,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     etag_for = fn identity ->
       opts =
         ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.TwicPics,
+          parser: GuidedIIIFParser,
+          iiif: [resolver: iiif_resolver()],
           sources: [path: {StableSource, test_pid: self()}],
           cache: {CacheProbe, test_pid: self()},
           http_cache: [mode: :enabled],
@@ -491,7 +551,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
       conn =
         ImagePipe.Plug.call(
-          conn(:get, "/beach.jpg?twic=v1/focus=auto/cover=50x50/output=jpeg"),
+          conn(:get, "/img/square/50,50/0/default.jpg?guide=face_assist"),
           opts
         )
 
@@ -504,13 +564,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "commit_sink raise still delivers the complete body, byte-identical to a clean cache (#183)" do
-    url = "/beach.jpg?twic=v1/cover=50x50/output=jpeg"
+    url = "/img/full/50,50/0/default.jpg"
 
     clean =
       ImagePipe.Plug.call(
         conn(:get, url),
         ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.TwicPics,
+          parser: ImagePipe.Parser.IIIF,
+          iiif: [resolver: iiif_resolver()],
           sources: [path: {StableSource, test_pid: self()}],
           cache: {CacheProbe, test_pid: self()},
           http_cache: [mode: :enabled]
@@ -521,7 +582,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       ImagePipe.Plug.call(
         conn(:get, url),
         ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.TwicPics,
+          parser: ImagePipe.Parser.IIIF,
+          iiif: [resolver: iiif_resolver()],
           sources: [path: {StableSource, test_pid: self()}],
           cache: {RaisingCommitProbe, []},
           http_cache: [mode: :enabled]
@@ -536,25 +598,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   # #328: the only guide that reached do_generated_etag under a strong byte
   # identity before this was :center. A gravity-derived guide
-  # (focal/smart/detect/anchor/carried) exercises the KeyData.guide_data clauses
+  # (focal/smart/detect/anchor) exercises the KeyData.guide_data clauses
   # end-to-end — a missing clause 500s here instead of staying green. Focal needs
   # no detector, so the 200 body path executes too.
-  test "guide-bearing focal gravity emits an etag on the strong-identity path", %{opts: opts} do
-    conn =
-      ImagePipe.Plug.call(
-        conn(:get, "/beach.jpg?twic=v1/focus=30px70p/cover=200x100"),
-        opts
-      )
-
-    assert conn.status == 200
-    assert [etag] = get_resp_header(conn, "etag")
-    assert etag =~ ~r/^"ip1-[A-Za-z0-9_-]+"$/
-  end
-
-  test "TwicPics carried-focus cover emits an etag on the strong-identity path" do
+  test "guide-bearing focal gravity emits an etag on the strong-identity path" do
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.TwicPics,
+        parser: GuidedIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheProbe, test_pid: self()},
         http_cache: [mode: :enabled]
@@ -562,7 +613,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       ImagePipe.Plug.call(
-        conn(:get, "/beach.jpg?twic=v1/focus=20x10/cover=100x100"),
+        conn(:get, "/img/square/200,100/0/default.jpg?guide=focal"),
         opts
       )
 
