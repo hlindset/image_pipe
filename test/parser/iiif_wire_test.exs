@@ -222,6 +222,15 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     assert elem(dimensions(conn), 0) == 100
   end
 
+  test "normal image requests retain their wire result through the fixed neutral driver" do
+    conn = call_iiif("/img/full/100,/0/default.png", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/png"]
+    assert dimensions(conn) == {100, 150}
+    assert Image.get_pixel!(decoded_image(conn), 50, 75) == [100, 150, 200]
+  end
+
   # ---------------------------------------------------------------------------
   # Contract 2: gray quality on opaque source → desaturated pixels
   # ---------------------------------------------------------------------------

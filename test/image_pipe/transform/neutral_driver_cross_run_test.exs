@@ -1,7 +1,10 @@
 defmodule ImagePipe.Transform.NeutralDriverCrossRunTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Parser.IIIF.PlanBuilder
+  alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.NeutralResolver
@@ -13,6 +16,15 @@ defmodule ImagePipe.Transform.NeutralDriverCrossRunTest do
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
+
+  @source %SourcePath{segments: ["images", "source.jpg"]}
+  @high_freq "test/support/image_pipe/test/imgproxy_differential/sources/high_freq.jpg"
+  @exif6 "test/support/image_pipe/test/imgproxy_differential/sources/exif_6.jpg"
+  @p3 "test/support/image_pipe/test/imgproxy_differential/sources/icc_p3.png"
+  @telemetry_prefix [:neutral_driver_cross_run]
+  @preamble_start @telemetry_prefix ++ [:transform, :input_color_management, :start]
+  @preamble_stop @telemetry_prefix ++ [:transform, :input_color_management, :stop]
 
   describe "run_neutral/4" do
     test "matches the injected neutral strategy across neutral operation and boundary classes" do
@@ -115,6 +127,114 @@ defmodule ImagePipe.Transform.NeutralDriverCrossRunTest do
     end
   end
 
+  describe "execute_neutral/3" do
+    test "matches the injected neutral strategy for representative IIIF Plans and pixels" do
+      cases = [
+        {"no geometry", tokens()},
+        {"pixel region", tokens(region: {:px, 100, 75, 800, 600})},
+        {"percent region",
+         tokens(region: {:pct, {:ratio, 1, 10}, {:ratio, 1, 10}, {:ratio, 3, 4}, {:ratio, 2, 3}})},
+        {"bounded max", tokens(), [max_width: 600]},
+        {"width only", tokens(size: {:w, 500, false})},
+        {"height only", tokens(size: {:h, 400, false})},
+        {"confined", tokens(size: {:confined, 500, 350, false})},
+        {"percent scale", tokens(size: {:pct, {:ratio, 1, 2}, false})},
+        {"mirror", tokens(rotation: {true, 0})},
+        {"right-angle rotate", tokens(rotation: {false, 90})},
+        {"arbitrary rotate", tokens(rotation: {false, 17})},
+        {"gray", tokens(quality: :gray)},
+        {"bitonal", tokens(quality: :bitonal)}
+      ]
+
+      Enum.each(cases, fn case_data ->
+        {name, tokens, extra_opts} = normalize_case(case_data)
+        plan = plan!(tokens, extra_opts)
+        {dynamic, fixed} = execute_pair(plan, @high_freq)
+
+        assert_success_parity(dynamic, fixed, name)
+      end)
+    end
+
+    test "matches emitted stage boundaries and measurement calls" do
+      plan =
+        plan!(
+          tokens(
+            region: {:px, 100, 75, 800, 600},
+            size: {:confined, 300, 300, false},
+            rotation: {false, 17},
+            quality: :gray
+          )
+        )
+
+      dynamic = execute_recording(plan, @high_freq, :dynamic)
+      fixed = execute_recording(plan, @high_freq, :fixed)
+
+      assert fixed == dynamic
+      assert length(fixed.measurements) == 2
+      assert Enum.count(fixed.batches, &(&1.operations == [Resize])) == 1
+      assert Enum.count(fixed.batches, &(&1.operations == [Rotate])) == 1
+    end
+
+    test "preserves transform and decode error tags from the shared chain" do
+      plan = plan!(tokens(size: {:w, 500, false}))
+
+      Enum.each([{:transform, :stage_probe}, {:decode, :stage_probe}], fn reason ->
+        error_chain = fn _state, _operations, _opts -> {:error, reason} end
+
+        dynamic =
+          Executor.execute(%Plan{plan | resolver: NeutralResolver}, state(@high_freq),
+            chain: error_chain
+          )
+
+        fixed =
+          Executor.execute_neutral(%Plan{plan | resolver: nil}, state(@high_freq),
+            chain: error_chain
+          )
+
+        assert dynamic == {:error, reason}
+        assert fixed == dynamic
+      end)
+    end
+
+    test "seeds EXIF orientation and embedded-profile color management once per arm" do
+      handler_id = {__MODULE__, :neutral_driver_preamble, make_ref()}
+
+      :ok =
+        :telemetry.attach_many(
+          handler_id,
+          [
+            @preamble_start,
+            @preamble_stop
+          ],
+          &__MODULE__.handle_telemetry_event/4,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      plan = plan!(tokens())
+      execution_opts = [seed_orientation: true, telemetry_prefix: @telemetry_prefix]
+      {dynamic_exif, fixed_exif} = execute_pair(plan, @exif6, execution_opts)
+      assert_success_parity(dynamic_exif, fixed_exif, "EXIF preamble")
+      assert {:ok, %State{} = exif_state} = fixed_exif
+      assert exif_state.pending_orientation == nil
+      assert dimensions(exif_state.image) == {300, 400}
+      assert_one_preamble_per_arm(false)
+
+      {dynamic_p3, fixed_p3} = execute_pair(plan, @p3, execution_opts)
+      assert_success_parity(dynamic_p3, fixed_p3, "color preamble")
+      assert {:ok, %State{} = p3_state} = fixed_p3
+      assert p3_state.color_imported?
+      assert is_binary(p3_state.source_color_profile)
+      assert_one_preamble_per_arm(true)
+    end
+  end
+
+  @doc false
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:preamble_event, event, measurements, metadata})
+  end
+
   defp run(case_data, driver, opts \\ []) do
     {:ok, image} = Image.new(320, 240, color: :white)
 
@@ -211,6 +331,125 @@ defmodule ImagePipe.Transform.NeutralDriverCrossRunTest do
   end
 
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
+
+  defp tokens(overrides \\ []) do
+    [
+      region: :full,
+      size: {:max, false},
+      rotation: {false, 0},
+      quality: :default,
+      format: :png
+    ]
+    |> Keyword.merge(overrides)
+    |> Map.new()
+  end
+
+  defp plan!(tokens, extra_opts \\ []) do
+    opts =
+      ImagePipe.Config.resolve!([])
+      |> Keyword.merge(extra_opts)
+      |> Keyword.put(:auto_rotate, true)
+
+    {:ok, plan} = PlanBuilder.image_plan(@source, tokens, opts)
+    plan
+  end
+
+  defp normalize_case({name, tokens}), do: {name, tokens, []}
+  defp normalize_case({name, tokens, opts}), do: {name, tokens, opts}
+
+  defp execute_pair(%Plan{} = plan, path, opts \\ []) do
+    dynamic =
+      Executor.execute(%Plan{plan | resolver: NeutralResolver}, state(path), opts)
+
+    fixed =
+      Executor.execute_neutral(%Plan{plan | resolver: nil}, state(path), opts)
+
+    {dynamic, fixed}
+  end
+
+  defp execute_recording(%Plan{} = plan, path, driver) do
+    events =
+      start_supervised!({Agent, fn -> %{batches: [], measurements: []} end}, id: make_ref())
+
+    chain = fn %State{} = state, operations, opts ->
+      result = Chain.execute(state, operations, opts)
+
+      batch = %{
+        operations: Enum.map(operations, & &1.__struct__),
+        source_dimensions: state.source_dimensions,
+        result: normalize_result(result)
+      }
+
+      Agent.update(events, &update_in(&1.batches, fn values -> [batch | values] end))
+      result
+    end
+
+    measure_dims = fn image ->
+      measured = dimensions(image)
+      Agent.update(events, &update_in(&1.measurements, fn values -> [measured | values] end))
+      measured
+    end
+
+    result =
+      case driver do
+        :dynamic ->
+          Executor.execute(%Plan{plan | resolver: NeutralResolver}, state(path),
+            chain: chain,
+            measure_dims: measure_dims
+          )
+
+        :fixed ->
+          Executor.execute_neutral(%Plan{plan | resolver: nil}, state(path),
+            chain: chain,
+            measure_dims: measure_dims
+          )
+      end
+
+    recorded = Agent.get(events, & &1)
+
+    %{
+      result: normalize_result(result),
+      batches: Enum.reverse(recorded.batches),
+      measurements: Enum.reverse(recorded.measurements)
+    }
+  end
+
+  defp state(path), do: %State{image: Image.open!(path, access: :random, fail_on: :error)}
+
+  defp assert_success_parity({:ok, dynamic}, {:ok, fixed}, context) do
+    assert state_snapshot(fixed) == state_snapshot(dynamic), context
+    assert image_snapshot(fixed.image) == image_snapshot(dynamic.image), context
+  end
+
+  defp assert_success_parity(dynamic, fixed, context) do
+    flunk(
+      "#{context}: expected two successful arms, got #{inspect(dynamic)} and #{inspect(fixed)}"
+    )
+  end
+
+  defp image_snapshot(image) do
+    {:ok, pixels} = VipsImage.write_to_binary(image)
+
+    %{
+      dimensions: dimensions(image),
+      bands: VipsImage.bands(image),
+      format: VipsImage.format(image),
+      interpretation: VipsImage.interpretation(image),
+      pixels: pixels
+    }
+  end
+
+  defp assert_one_preamble_per_arm(imported?) do
+    for _ <- 1..2 do
+      assert_receive {:preamble_event, @preamble_start, _, _}
+    end
+
+    for _ <- 1..2 do
+      assert_receive {:preamble_event, @preamble_stop, _, %{result: :ok, imported?: ^imported?}}
+    end
+
+    refute_receive {:preamble_event, _, _, _}, 10
+  end
 
   defp operation!(name, arguments) do
     {:ok, operation} = apply(Operation, name, arguments)

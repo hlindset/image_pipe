@@ -67,6 +67,34 @@ defmodule ImagePipe.Transform.ExecutorTest do
     end
   end
 
+  describe "plan driver routing" do
+    test "a nil-resolver Plan executes through the neutral driver" do
+      assert {:ok, blur} = Operation.blur(1.0)
+
+      assert {:ok, %State{} = state} =
+               Executor.execute(plan([blur]), state_with_image(30, 20), [])
+
+      assert dimensions(state.image) == {30, 20}
+    end
+
+    test "an explicit resolver Plan keeps the injected strategy path" do
+      test_pid = self()
+
+      chain = fn %State{} = state, [], _opts ->
+        send(test_pid, {:probe_source_dimensions, state.source_dimensions})
+        {:ok, state}
+      end
+
+      explicit_plan = %Plan{plan([:pure, :pure]) | resolver: Probe}
+
+      assert {:ok, %State{}} =
+               Executor.execute(explicit_plan, state_with_image(10, 10), chain: chain)
+
+      assert_received {:probe_source_dimensions, {10, 10}}
+      assert_received {:probe_source_dimensions, {11, 10}}
+    end
+  end
+
   describe "resize execution" do
     test "resize fit, cover, and stretch execute through existing visible behavior" do
       cases = [

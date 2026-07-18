@@ -4,9 +4,9 @@ defmodule ImagePipe.Transform.Executor do
   # Orchestrates plan execution: seeds the data-determined preamble (EXIF
   # orientation into State.pending_orientation and input color management, both
   # on the seed_orientation gate), then drives each pipeline through the
-  # per-pipeline resolve loop below with the Plan-carried resolution strategy
-  # (plan.resolver, defaulting to ImagePipe.Transform.NeutralResolver when nil),
-  # which owns the pending-orientation policy and compensation and emits
+  # per-pipeline resolve loop below. A nil Plan resolver selects the fixed
+  # neutral driver; a module selects the injected strategy driver. The selected
+  # resolver owns the pending-orientation policy and compensation and emits
   # explicit Flush ops. Resize expansion/scale arithmetic lives in
   # ImagePipe.Transform.ResizePlanning.
   #
@@ -55,17 +55,37 @@ defmodule ImagePipe.Transform.Executor do
 
   @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
+  def execute(%Plan{resolver: nil} = plan, %State{} = state, opts) do
+    execute_neutral(plan, state, opts)
+  end
+
   def execute(
-        %Plan{pipelines: pipelines, auto_rotate: auto_rotate, resolver: resolver},
+        %Plan{pipelines: pipelines, resolver: resolver} = plan,
         %State{} = state,
         opts
       ) do
-    state = %{
-      state
-      | detector: ImagePipe.Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
-        detector_required: Keyword.get(opts, :detector_required, false),
-        telemetry_opts: Telemetry.telemetry_opts(opts)
-    }
+    with {:ok, state} <- seed_execution_state(plan, state, opts) do
+      execute_pipelines(pipelines, {:strategy, resolver}, state, opts)
+    end
+  end
+
+  @doc false
+  @spec execute_neutral(Plan.t(), State.t(), keyword()) ::
+          {:ok, State.t()} | {:error, term()}
+  def execute_neutral(%Plan{pipelines: pipelines} = plan, %State{} = state, opts) do
+    with {:ok, state} <- seed_execution_state(plan, state, opts) do
+      execute_pipelines(pipelines, :neutral, state, opts)
+    end
+  end
+
+  defp seed_execution_state(%Plan{auto_rotate: auto_rotate}, state, opts) do
+    %State{} =
+      state = %{
+        state
+        | detector: ImagePipe.Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
+          detector_required: Keyword.get(opts, :detector_required, false),
+          telemetry_opts: Telemetry.telemetry_opts(opts)
+      }
 
     state =
       if Keyword.get(opts, :seed_orientation, false) do
@@ -78,9 +98,7 @@ defmodule ImagePipe.Transform.Executor do
         state
       end
 
-    with {:ok, state} <- seed_color_management(state, opts) do
-      execute_pipelines(pipelines, resolver || NeutralResolver, state, opts)
-    end
+    seed_color_management(state, opts)
   end
 
   # Input color management is a data-determined preamble seeded once on the real-
@@ -112,9 +130,9 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
-  defp execute_pipelines(pipelines, resolver, %State{} = state, opts) do
+  defp execute_pipelines(pipelines, driver, %State{} = state, opts) do
     Enum.reduce_while(pipelines, {:ok, state}, fn pipeline, {:ok, state} ->
-      case execute_pipeline(pipeline, resolver, state, opts) do
+      case execute_pipeline(pipeline, driver, state, opts) do
         {:ok, %State{} = state} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -129,7 +147,7 @@ defmodule ImagePipe.Transform.Executor do
   # pipeline's input, so each pipeline must end in the display frame; an
   # identity pending is cleared without materializing — the streaming fast
   # path).
-  defp execute_pipeline(%Pipeline{operations: operations}, resolver, %State{} = state, opts) do
+  defp execute_pipeline(%Pipeline{operations: operations}, driver, %State{} = state, opts) do
     {w, h} = State.effective_source_dims(state)
 
     shape =
@@ -140,7 +158,10 @@ defmodule ImagePipe.Transform.Executor do
         decode_shrink: state.decode_shrink
       })
 
-    run(operations, shape, {resolver, resolver.init()}, state, opts)
+    case driver do
+      {:strategy, resolver} -> run(operations, shape, {resolver, resolver.init()}, state, opts)
+      :neutral -> run_neutral(operations, shape, state, opts)
+    end
   end
 
   @doc false
