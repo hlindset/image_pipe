@@ -86,6 +86,36 @@ defmodule ImagePipe.Transform.NeutralResolver do
     do_resolve(operation, shape)
   end
 
+  @doc false
+  @spec resolve_late_bound_guide(SourceShape.t(), CropGuided.t() | PlanResize.t()) ::
+          {[struct()], ImagePipe.Resolver.continuation()}
+  def resolve_late_bound_guide(%SourceShape{} = shape, %CropGuided{} = operation) do
+    case pending_class(shape) do
+      :pending ->
+        preflush_guided_crop(operation, shape, &compensate_late_bound_crop/2)
+
+      _none_or_identity ->
+        do_resolve(operation, shape)
+    end
+  end
+
+  def resolve_late_bound_guide(%SourceShape{} = shape, %PlanResize{} = operation) do
+    operation = %PlanResize{operation | mode: resolve_mode(operation, shape)}
+
+    if operation.mode != :cover do
+      raise ArgumentError,
+            "late-bound guide resolution supports only cover resize operations, got: " <>
+              inspect(operation)
+    end
+
+    resolve_guided_resize(operation, shape, &compensate_late_bound_crop/2)
+  end
+
+  def resolve_late_bound_guide(%SourceShape{}, operation) do
+    raise ArgumentError,
+          "late-bound guide resolution does not support #{inspect(operation.__struct__)}"
+  end
+
   # ── continue: the named post-measure clauses (issue #446) ─────────────────
   # One clause per tag; `shape` is the pre-op shape resolve/3 saw (the driver
   # threads it), so each clause reconstructs its result from the tag, the
@@ -246,23 +276,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
         # decode_shrink is storage-frame; the crop dims are display-frame and
         # compensate_crop swaps their axes for the quarter turn AFTER the
         # rescale, so the per-axis factors are pre-swapped (#185).
-        po = shape.pending_orientation
-
-        lowering_shape = %SourceShape{
-          shape
-          | decode_shrink: orient_decode_shrink(shape.decode_shrink, po)
-        }
-
-        [crop] =
-          ops =
-          operation
-          |> Lowering.executable_operations(lowering_shape)
-          |> Enum.map(&compensate_crop(&1, po))
-
-        {live_w, live_h} = SourceShape.live_dims(shape)
-        {box_w, box_h} = Crop.resolved_box_dims(crop, live_w, live_h)
-
-        {ops, advance(%{shape | width: box_w, height: box_h, decode_shrink: nil})}
+        preflush_guided_crop(operation, shape, &compensate_crop/2)
 
       true ->
         # No pending, or identity pending: the crop runs literally in the live
@@ -305,17 +319,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   defp do_resolve(%PlanResize{} = operation, %SourceShape{} = shape) do
     operation = %PlanResize{operation | mode: resolve_mode(operation, shape)}
 
-    case pending_class(shape) do
-      :pending ->
-        po = shape.pending_orientation
-        [resize | tail] = pending_resize_ops(operation, po, shape)
-        {[resize], measure({:resize_flush_tail, tail})}
-
-      _none_or_identity ->
-        # An identity pending is kept (this row is not a flush site); the
-        # pipeline boundary clears it without pixels.
-        plain_resize_stage(Lowering.executable_operations(operation, shape))
-    end
+    resolve_guided_resize(operation, shape, &compensate_crop/2)
   end
 
   # ── padding / pixelate / gradient ─────────────────────────────────────────
@@ -435,10 +439,43 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # therefore resolves in the display frame and only its result-crop is
   # compensated; every other branch swaps the resize request and compensates a
   # trailing crop like a gravity crop.
+  defp preflush_guided_crop(%CropGuided{} = operation, %SourceShape{} = shape, compensate) do
+    po = shape.pending_orientation
+
+    lowering_shape = %SourceShape{
+      shape
+      | decode_shrink: orient_decode_shrink(shape.decode_shrink, po)
+    }
+
+    [crop] =
+      ops =
+      operation
+      |> Lowering.executable_operations(lowering_shape)
+      |> Enum.map(&compensate.(&1, po))
+
+    {live_w, live_h} = SourceShape.live_dims(shape)
+    {box_w, box_h} = Crop.resolved_box_dims(crop, live_w, live_h)
+
+    {ops, advance(%{shape | width: box_w, height: box_h, decode_shrink: nil})}
+  end
+
+  defp resolve_guided_resize(%PlanResize{} = operation, %SourceShape{} = shape, compensate) do
+    case pending_class(shape) do
+      :pending ->
+        po = shape.pending_orientation
+        [resize | tail] = pending_resize_ops(operation, po, shape, compensate)
+        {[resize], measure({:resize_flush_tail, tail})}
+
+      _none_or_identity ->
+        plain_resize_stage(Lowering.executable_operations(operation, shape))
+    end
+  end
+
   defp pending_resize_ops(
          %PlanResize{} = operation,
          %PendingOrientation{} = po,
-         %SourceShape{} = shape
+         %SourceShape{} = shape,
+         compensate_crop
        ) do
     if PendingOrientation.quarter_turn?(po) and
          ResizePlanning.cover_resize?(operation, shape) do
@@ -448,13 +485,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
         Lowering.tagged_executable_gravity(operation.guide)
       )
       |> Enum.map(fn
-        %Crop{} = crop -> compensate_crop(crop, po)
+        %Crop{} = crop -> compensate_crop.(crop, po)
         other -> other
       end)
     else
       operation
       |> Lowering.executable_operations(shape)
-      |> compensate_resize(po)
+      |> compensate_resize(po, compensate_crop)
     end
   end
 
@@ -599,6 +636,17 @@ defmodule ImagePipe.Transform.NeutralResolver do
 
   defp compensate_crop(%Crop{} = crop, %PendingOrientation{}), do: crop
 
+  defp compensate_late_bound_crop(
+         %Crop{crop_from: :gravity} = crop,
+         %PendingOrientation{} = po
+       ) do
+    crop
+    |> put_center_bias(po)
+    |> swap_box_for_quarter_turn(po)
+  end
+
+  defp compensate_late_bound_crop(%Crop{} = crop, %PendingOrientation{}), do: crop
+
   # The executable crop carries offsets in their tagged unit form.
   # Orientation.compensate_gravity_for/2 ports imgproxy's RotateAndFlip, which
   # operates on the bare float offset: unwrap to the magnitude, compensate, then
@@ -648,13 +696,13 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # on a quarter turn, and any trailing cover result-crop is compensated like a
   # gravity crop. The whole expansion runs pre-flush; the emitted %Flush{}
   # follows, leaving the tail post-flush/literal.
-  defp compensate_resize(operations, %PendingOrientation{} = po) do
+  defp compensate_resize(operations, %PendingOrientation{} = po, compensate_crop) do
     Enum.map(operations, fn
       %Resize{} = resize ->
         if PendingOrientation.quarter_turn?(po), do: Orientation.swap_resize(resize), else: resize
 
       %Crop{} = crop ->
-        compensate_crop(crop, po)
+        compensate_crop.(crop, po)
 
       other ->
         other

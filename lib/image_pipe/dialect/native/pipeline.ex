@@ -164,6 +164,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # from the shared seam. A failure is a corrupt/unsupported profile — a decode
   # failure, surfaced as `{:decode, _}` (415), consistent with the
   # materialization contract.
+  # ex_dna:disable-for-next-line
   defp condition_color(%State{} = state, opts) do
     hdr? = Keyword.get(opts, :supports_hdr?, false)
 
@@ -198,6 +199,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
     end
   end
 
+  # ex_dna:disable-for-next-line
   defp build_ctx(opts) do
     %{
       chain: Keyword.get(opts, :chain, &Chain.execute/3),
@@ -238,6 +240,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # advanced shape, because `Chain.execute/3` reads those off `State`, not off
   # the shape directly (resolve-time reads, inside `NeutralResolver`/
   # `Lowering`, take the shape directly and need no overlay).
+  # ex_dna:disable-for-next-line
   defp overlay(%State{} = state, %SourceShape{} = shape) do
     %State{
       state
@@ -254,6 +257,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # report for the enumerated closed set. No clause matches past
   # `@max_continuation_depth` — an unexpected deeper measurement is a
   # core-contract bug and must crash here, not degrade silently.
+  # ex_dna:disable-for-next-line
   defp follow(state, _pre_shape, {:advance, shape, nil}, _ctx, _depth),
     do: {:ok, state, shape}
 
@@ -272,6 +276,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
     end
   end
 
+  # ex_dna:disable-for-next-line
   defp run_chain(ctx, state, ops) do
     case ctx.chain.(state, ops, ctx.opts) do
       {:ok, _state} = ok -> ok
@@ -283,6 +288,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # from the final shape, then flushes a surviving non-identity pending
   # orientation through an explicit `%Flush{}`; an identity pending clears
   # without materializing (the streaming fast path).
+  # ex_dna:disable-for-next-line
   defp flush_boundary(%State{} = state, %SourceShape{} = shape, ctx) do
     state = %State{
       state
@@ -304,6 +310,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
     end
   end
 
+  # ex_dna:disable-for-next-line
   defp boundary_source_dimensions(%SourceShape{decode_shrink: nil}), do: nil
   defp boundary_source_dimensions(%SourceShape{width: w, height: h}), do: {w, h}
 

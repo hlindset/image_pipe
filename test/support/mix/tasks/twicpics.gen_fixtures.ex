@@ -3,15 +3,16 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   @moduledoc """
   Incremental bake against live hosted TwicPics. For each constellation, fetches
   the oracle output ONLY when new / signature-changed / PNG missing-or-corrupt;
-  unchanged cases are skipped with zero requests. Uploads any source lacking a
-  recorded hosted URL to catbox. Prunes orphaned entries + PNGs. Writes
+  unchanged cases are skipped with zero requests. A source with neither hosting
+  URL uploads once and aborts so both values can be committed before the next
+  run. Complete entries verify both the direct object and TwicPics identity
+  render before any fixture request. Prunes orphaned entries + PNGs. Writes
   `manifest.exs`, reference PNGs, and `REPORT.md`. Requires network; never on the
   default test lane.
 
-  When a new source is uploaded to catbox, its `source_bytes_url` (the catbox
-  direct-download URL) must be added to the corresponding `SourceInventory` entry
-  so that future `verify_remote!` runs can confirm the hosted bytes still match the
-  committed source file.
+  When a new source is uploaded to catbox, both its `source_bytes_url` (the
+  Catbox direct-download URL) and `hosted_url` (the TwicPics projection) must be
+  added to the corresponding `SourceInventory` entry before rerunning.
 
       mise run twic:bake                 # incremental
       mix twicpics.gen_fixtures --force  # re-bake all
@@ -25,6 +26,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   alias ImagePipe.Test.TwicpicsDifferential.{
     Constellations,
     Manifest,
+    SourceHosting,
     SourceInventory
   }
 
@@ -35,7 +37,10 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   @catbox "https://catbox.moe/user/api.php"
 
   @impl Mix.Task
-  def run(args) do
+  def run(args), do: run_with(args, production_env())
+
+  @doc false
+  def run_with(args, env) do
     {opts, _, _} = OptionParser.parse(args, strict: [force: :boolean, only: :string])
     {:ok, _} = Application.ensure_all_started(:image_pipe)
     File.mkdir_p!(@fixtures_dir)
@@ -50,7 +55,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     prior =
       if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: empty_manifest()
 
-    sources = resolve_sources(prior.sources)
+    sources = resolve_sources(env)
     # Bake EVERY case, including triaged ones (imgproxy discipline): a triaged case
     # still has valid oracle output, and keeping its fixture lets the report show it and
     # lets un-triaging light it up without a re-bake. The parse gate (above) skips
@@ -60,12 +65,12 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     {entries, baked_count, server_header} =
       Enum.reduce(cases, {%{}, 0, nil}, fn c, {acc, n, server} ->
         {entry, baked?, case_server} =
-          bake_case(c, sources, prior.entries[c.id], opts[:force], only)
+          bake_case(c, sources, prior.entries[c.id], opts[:force], only, env)
 
         {Map.put(acc, c.id, entry), n + if(baked?, do: 1, else: 0), case_server || server}
       end)
 
-    prune_orphans!(entries)
+    env.prune_orphans.(entries)
 
     # Keep a no-op re-bake idempotent: only stamp a new `baked_at` when something was
     # actually fetched. Otherwise the timestamp (and REPORT) would churn git on every
@@ -88,8 +93,8 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
       entries: entries
     }
 
-    Manifest.write!(@manifest_path, manifest)
-    write_report!(manifest)
+    env.write_manifest.(@manifest_path, manifest)
+    env.write_report.(manifest)
     Mix.shell().info("Baked #{baked_count}/#{map_size(entries)} cases (#{@manifest_path}).")
   end
 
@@ -119,7 +124,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   end
 
   # --- per-case ---
-  defp bake_case(c, sources, prior, force, only) do
+  defp bake_case(c, sources, prior, force, only, env) do
     src = sources[Constellations.source_file(c)]
 
     sig =
@@ -140,8 +145,8 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
 
       :bake ->
         Mix.shell().info("bake  #{c.id}")
-        {body, server_header} = fetch_oracle!(c, sources)
-        File.write!(path, body)
+        {body, server_header} = env.fetch_oracle.(c, sources)
+        :ok = env.write_fixture.(path, body)
 
         {%{
            authored_sha256: Manifest.authored_sha256(c),
@@ -194,45 +199,14 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     end
   end
 
-  # --- sources: reuse recorded hosted URL + verify remote matches committed bytes;
-  # upload to catbox only when no hosted URL is recorded. ---
-  defp resolve_sources(prior) do
-    Map.new(SourceInventory.all(), fn entry ->
-      path = Path.join(@sources_dir, entry.file)
-      committed = Manifest.file_sha256(path)
-      # Prefer the inventory's pinned URL; else reuse a URL recorded by a prior bake
-      # (so an uploaded source isn't re-uploaded each run); else upload once.
-      recorded_url = get_in(prior, [entry.file, :hosted_url])
-      hosted_url = entry.hosted_url || recorded_url || upload_catbox!(path, entry)
-      verify_remote!(entry, committed)
-      {entry.file, %{sha256: committed, hosted_url: hosted_url}}
+  defp resolve_sources(env) do
+    Map.new(env.source_entries.(), fn entry ->
+      source_path = Path.join(env.source_root, entry.file)
+      {entry.file, SourceHosting.resolve!(entry, source_path, env.source_hosting)}
     end)
   end
 
-  defp verify_remote!(%{source_bytes_url: nil}, _committed), do: :ok
-
-  defp verify_remote!(%{source_bytes_url: url} = entry, committed) do
-    case Req.get(url, decode_body: false, retry: :transient) do
-      {:ok, %{status: 200, body: body}} ->
-        remote = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
-
-        if remote != committed do
-          Mix.raise(
-            "source #{entry.file}: hosted bytes (#{url}) differ from committed — re-upload or re-download."
-          )
-        end
-
-      {:ok, %{status: s}} ->
-        Mix.raise("source #{entry.file}: hosted bytes returned HTTP #{s} (#{url}).")
-
-      {:error, e} ->
-        Mix.raise(
-          "source #{entry.file}: could not fetch hosted bytes — #{Exception.message(e)} (#{url})."
-        )
-    end
-  end
-
-  # Anonymous catbox upload → returns the file URL as plain text.
+  # Anonymous catbox upload → returns the direct object and TwicPics projection.
   defp upload_catbox!(path, entry) do
     form = [
       reqtype: "fileupload",
@@ -240,9 +214,11 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     ]
 
     case Req.post(@catbox, form_multipart: form, decode_body: false) do
-      {:ok, %{status: 200, body: body}} ->
-        id = body |> String.trim() |> Path.basename()
-        "https://imagepipe.twic.pics/#{id}"
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        SourceHosting.catbox_urls!(body)
+
+      {:ok, %{status: 200}} ->
+        Mix.raise("catbox upload failed for #{entry.file}: response body is not binary")
 
       other ->
         Mix.raise("catbox upload failed for #{entry.file}: #{inspect(other)}")
@@ -273,6 +249,31 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
     }
 
   defp write_report!(manifest), do: File.write!("#{@base}/REPORT.md", report_md(manifest))
+
+  defp production_env do
+    %{
+      source_entries: &SourceInventory.all/0,
+      source_root: @sources_dir,
+      source_hosting: %{
+        upload: &upload_catbox!/2,
+        fetch: &fetch_source!/1,
+        info: fn message -> Mix.shell().info(message) end
+      },
+      fetch_oracle: &fetch_oracle!/2,
+      write_fixture: &File.write!/2,
+      write_manifest: &Manifest.write!/2,
+      write_report: &write_report!/1,
+      prune_orphans: &prune_orphans!/1
+    }
+  end
+
+  defp fetch_source!(url) do
+    case Req.get(url, decode_body: false, retry: :transient, max_retries: 3) do
+      {:ok, %{status: 200, body: body}} -> {:ok, body}
+      {:ok, %{status: status}} -> {:error, {:http_status, status}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp report_md(m) do
     rows =

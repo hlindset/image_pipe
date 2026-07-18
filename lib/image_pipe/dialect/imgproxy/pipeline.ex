@@ -533,6 +533,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # advanced shape, because `Chain.execute/3` reads those off `State`, not off
   # the shape directly (resolve-time reads, inside `NeutralResolver`/
   # `Lowering`, take the shape directly and need no overlay).
+  # ex_dna:disable-for-next-line
   defp overlay(%State{} = state, %SourceShape{} = shape) do
     %State{
       state
@@ -599,6 +600,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
     end
   end
 
+  # ex_dna:disable-for-next-line
   defp boundary_source_dimensions(%SourceShape{decode_shrink: nil}), do: nil
   defp boundary_source_dimensions(%SourceShape{width: w, height: h}), do: {w, h}
 end

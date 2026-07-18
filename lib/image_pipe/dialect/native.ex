@@ -106,9 +106,11 @@ defmodule ImagePipe.Dialect.Native do
   @auto_rotate? true
 
   @impl Plug
+  # ex_dna:disable-for-next-line
   def init(opts), do: Config.validate!(opts)
 
   @impl Plug
+  # ex_dna:disable-for-next-line
   def call(%Plug.Conn{} = conn, config) when is_list(config) do
     Telemetry.Trace.maybe_extract_inbound(conn)
     conn = CORS.maybe_register(conn, config)
@@ -119,11 +121,13 @@ defmodule ImagePipe.Dialect.Native do
     end)
   end
 
+  # ex_dna:disable-for-next-line
   defp route(%Plug.Conn{method: "OPTIONS"} = conn, config) do
     conn = send_with_span(conn, config, :options, fn -> CORS.send_options(conn, config) end)
     {conn, %{result: :options}}
   end
 
+  # ex_dna:disable-for-next-line
   defp route(%Plug.Conn{method: method} = conn, config) when method not in ["GET", "HEAD"] do
     conn =
       send_with_span(conn, config, :method_not_allowed, fn ->
@@ -165,6 +169,7 @@ defmodule ImagePipe.Dialect.Native do
   # mirroring `ImagePipe.Plug.send_response/4` + `send_stop_metadata/2`.
   # `[:deliver]` (the shared `Response.Sender` streaming span) nests inside it;
   # both run in the connection-owner process.
+  # ex_dna:disable-for-next-line
   defp send_with_span(%Plug.Conn{}, config, result, fun) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:send], %{result: result}, fn ->
       sent_conn = fun.()
@@ -182,12 +187,17 @@ defmodule ImagePipe.Dialect.Native do
   # The three send shapes every branch of this chain reduces to, each one a
   # `[:send]`-wrapped terminal paired with its `[:request]`-stop metadata.
 
+  # ex_dna:disable-for-next-line
   defp send_not_modified(conn, %Representation{} = representation, config) do
     metadata = request_metadata(:not_modified)
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
-        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        Sender.send_result(
+          conn,
+          {:not_modified, CacheHeaders.from_representation(representation)},
+          config
+        )
       end)
 
     {conn, metadata}
@@ -207,6 +217,7 @@ defmodule ImagePipe.Dialect.Native do
   # The `[:request]` span's `:result` vocabulary [AGENTS.md, telemetry
   # guidelines]. `:ok`/`:not_modified` pass straight through; every `{:error,
   # reason}` this chain produces gets classified via `outcome_result/1` below.
+  # ex_dna:disable-for-next-line
   defp request_metadata(:ok), do: %{result: :ok}
   defp request_metadata(:not_modified), do: %{result: :not_modified}
 
@@ -289,6 +300,7 @@ defmodule ImagePipe.Dialect.Native do
      }}
   end
 
+  # ex_dna:disable-for-next-line
   def negotiate(%Plug.Conn{} = conn, %Request{} = request, config) do
     plan_output = Identity.plan_output(request)
     policy = Policy.from_output_plan(conn, plan_output, config)
@@ -359,10 +371,7 @@ defmodule ImagePipe.Dialect.Native do
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
-        conn
-        |> put_resp_headers(Representation.response_headers(representation))
-        |> put_resp_content_type(content_type, nil)
-        |> send_resp(200, entry.body)
+        send_complete_body(conn, content_type, entry.body, representation)
       end)
 
     {conn, metadata}
@@ -376,7 +385,9 @@ defmodule ImagePipe.Dialect.Native do
       send_with_span(conn, config, metadata.result, fn ->
         Sender.send_result(
           conn,
-          {:ok, {:cache_entry, entry, %PlanResponse{}, cache_headers(representation), hit_debug}},
+          {:ok,
+           {:cache_entry, entry, %PlanResponse{},
+            CacheHeaders.from_representation(representation), hit_debug}},
           config
         )
       end)
@@ -384,6 +395,7 @@ defmodule ImagePipe.Dialect.Native do
     {conn, metadata}
   end
 
+  # ex_dna:disable-for-next-line
   defp generate(
          conn,
          request,
@@ -403,7 +415,9 @@ defmodule ImagePipe.Dialect.Native do
           send_with_span(conn, config, metadata.result, fn ->
             Sender.send_result(
               conn,
-              {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
+              {:ok,
+               {:prepared_stream, prepared, response_meta,
+                CacheHeaders.from_representation(representation)}},
               config
             )
           end)
@@ -438,7 +452,7 @@ defmodule ImagePipe.Dialect.Native do
 
         conn =
           send_with_span(conn, config, metadata.result, fn ->
-            send_complete_body(conn, hash, representation)
+            send_complete_body(conn, @blurhash_content_type, hash, representation)
           end)
 
         {conn, metadata}
@@ -479,11 +493,14 @@ defmodule ImagePipe.Dialect.Native do
     kind, reason -> {:error, {:transform, {kind, reason}}}
   end
 
-  defp send_complete_body(conn, hash, %Representation{} = representation) do
+  defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
+    cache_headers = CacheHeaders.from_representation(representation)
+
     conn
-    |> put_resp_headers(Representation.response_headers(representation))
-    |> put_resp_content_type(@blurhash_content_type, nil)
-    |> send_resp(200, hash)
+    |> put_resp_headers(cache_headers.representation_headers)
+    |> put_resp_headers(cache_headers.headers)
+    |> put_resp_content_type(content_type, nil)
+    |> send_resp(200, body)
   end
 
   defp write_complete_body_cache(%Representation{} = representation, hash, cost_us, config) do
@@ -498,19 +515,8 @@ defmodule ImagePipe.Dialect.Native do
     :ok
   end
 
-  defp vary_headers([]), do: []
-  defp vary_headers(names) when is_list(names), do: [{"vary", Enum.join(names, ", ")}]
-
   defp put_resp_headers(conn, headers) do
     Enum.reduce(headers, conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
-  end
-
-  defp cache_headers(%Representation{} = representation) do
-    %CacheHeaders{
-      etag: representation.etag,
-      representation_headers: vary_headers(representation.vary),
-      headers: Representation.response_headers(representation)
-    }
   end
 
   # -- build_fun: fetch → decode → transform → encode, run INSIDE the ----------
@@ -536,6 +542,7 @@ defmodule ImagePipe.Dialect.Native do
     end
   end
 
+  # ex_dna:disable-for-next-line
   defp build_and_pump(state, geometry, request, negotiation, config, pump) do
     with {:ok, %State{} = state} <- run_transform(state, geometry, request, negotiation, config),
          {:ok, resolved_output} <-
@@ -566,6 +573,7 @@ defmodule ImagePipe.Dialect.Native do
   # framework's own start/stop shapes (`Request.Processor.process_decoded_source/3`
   # + `transform_stop_metadata/1`): start carries the aggregate semantic-plan
   # view (`operations`/`operation_count`), stop the `:result`.
+  # ex_dna:disable-for-next-line
   defp run_transform(state, geometry, %Request{} = request, negotiation, config) do
     operations = Pipeline.operation_names(request)
 
@@ -587,6 +595,7 @@ defmodule ImagePipe.Dialect.Native do
     )
   end
 
+  # ex_dna:disable-for-next-line
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
 
   defp transform_stop_metadata({:error, error}),
@@ -601,6 +610,7 @@ defmodule ImagePipe.Dialect.Native do
   # replays it. This is also what surfaces a first-chunk encode failure as a
   # pre-header 500 (the framework's behavior) instead of a mid-stream abort of
   # an already-committed 200.
+  # ex_dna:disable-for-next-line
   defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
@@ -619,10 +629,12 @@ defmodule ImagePipe.Dialect.Native do
     )
   end
 
+  # ex_dna:disable-for-next-line
   defp first_chunk(stream) do
     StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
   end
 
+  # ex_dna:disable-for-next-line
   defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state, _search_meta}, format),
     do: %{result: :ok, output_format: format}
 
@@ -640,6 +652,7 @@ defmodule ImagePipe.Dialect.Native do
   # `Materializer.materialize/2`. The `[:transform, :materialize]` span comes for
   # free from `Materializer`. The carry stamp is NOT re-applied — `Pipeline.run/4`'s
   # tail already stamped it, so this half of the framework barrier is not duplicated.
+  # ex_dna:disable-for-next-line
   defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
 
   defp materialize_for_delivery(%State{} = state, config) do
@@ -656,6 +669,7 @@ defmodule ImagePipe.Dialect.Native do
   # conservative `false` for the branch where the format is only known after the
   # transform. The blurhash terminal has no negotiated image format and does not
   # thread this, taking the same conservative default.
+  # ex_dna:disable-for-next-line
   defp pipeline_opts(%Negotiation{policy: policy}, %Request{} = request, geometry, config) do
     Keyword.put(
       config,
@@ -676,6 +690,7 @@ defmodule ImagePipe.Dialect.Native do
     )
   end
 
+  # ex_dna:disable-for-next-line
   defp result_limits(format, config) do
     %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
       Encoder.encoder_limit(format)

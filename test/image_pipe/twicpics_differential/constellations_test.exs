@@ -8,6 +8,33 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
     assert ids == Enum.uniq(ids)
   end
 
+  test "authored verdict and quarantine census is explicit" do
+    constellations = Constellations.all()
+
+    assert length(constellations) == 39
+    assert Enum.count(constellations, &(&1.verdict == :equal)) == 34
+    assert Enum.count(constellations, &(&1.verdict == :diverges)) == 5
+
+    assert [
+             %{
+               id: "resize_shadow_relative_then_absolute",
+               triage: %{reason: reason, issue: issue}
+             }
+           ] = Enum.filter(constellations, &Map.has_key?(&1, :triage))
+
+    assert is_binary(reason) and String.trim(reason) != ""
+    assert issue == 464
+    assert issue > 0
+
+    for constellation <- constellations, constellation.verdict == :diverges do
+      assert %{max_delta: max_delta, outliers: outliers} = constellation.divergence
+      assert %Range{first: max_first, last: max_last} = max_delta
+      assert %Range{first: outlier_first, last: outlier_last} = outliers
+      assert max_first < max_last
+      assert outlier_first < outlier_last
+    end
+  end
+
   # Lives here (not in the source-inventory drift test) because it needs Constellations.
   test "every constellation source is inventoried" do
     inv = SourceInventory.all() |> Enum.map(& &1.file) |> MapSet.new()

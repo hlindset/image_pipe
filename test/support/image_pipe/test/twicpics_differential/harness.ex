@@ -9,7 +9,12 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Harness do
   @sources_dir "#{@base}/sources"
   @fixtures_dir "#{@base}/fixtures"
 
-  def plug_opts, do: Shared.plug_opts(ImagePipe.Parser.TwicPics, @sources_dir)
+  def plug_opts, do: plug_opts(:framework)
+
+  def plug_opts(:framework), do: Shared.plug_opts(ImagePipe.Parser.TwicPics, @sources_dir)
+
+  def plug_opts(:dialect),
+    do: Shared.dialect_plug_opts(ImagePipe.Dialect.TwicPics, @sources_dir)
 
   def render(constellation, plug_opts \\ plug_opts()),
     do: Shared.render(Constellations.twicpics_path(constellation), plug_opts)

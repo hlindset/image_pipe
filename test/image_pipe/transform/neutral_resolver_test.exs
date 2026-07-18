@@ -24,8 +24,10 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
   alias ImagePipe.Plan.Operation.Sharpen
   alias ImagePipe.Plan.Operation.Trim
   alias ImagePipe.Transform.NeutralResolver
+  alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Resize, as: ExecResize
+  alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceShape
 
@@ -197,6 +199,109 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
     assert shape2.frame == :display
     assert shape2.decode_shrink == nil
     assert {shape2.width, shape2.height} == {30, 20}
+  end
+
+  describe "resolve_late_bound_guide/2" do
+    test "a guided crop matches the deferred oracle without emitting a marker" do
+      for pending <- [
+            nil,
+            PendingOrientation.from_exif(3, true),
+            PendingOrientation.from_exif(6, true)
+          ] do
+        shape =
+          SourceShape.seed(%{
+            width: 101,
+            height: 80,
+            pending_orientation: pending,
+            decode_shrink: nil
+          })
+
+        operation = %CropGuided{width: {:px, 31}, height: {:px, 20}, guide: :center}
+
+        assert {[%Crop{} = late_crop], late_continuation} =
+                 NeutralResolver.resolve_late_bound_guide(shape, operation)
+
+        assert {[%Crop{} = oracle_crop], oracle_continuation} =
+                 NeutralResolver.resolve(shape, nil, %CropGuided{operation | guide: :deferred})
+
+        refute late_crop.gravity == :deferred
+        assert %Crop{late_crop | gravity: :deferred} == oracle_crop
+        assert late_continuation == oracle_continuation
+
+        if pending do
+          assert late_crop.center_bias == Orientation.center_discard_sides(pending)
+        end
+
+        for gravity <- [{:anchor, :center, :center}, {:fp, 0.2, 0.8}] do
+          late_crop = %Crop{late_crop | gravity: gravity}
+          oracle_crop = %Crop{oracle_crop | gravity: gravity}
+
+          assert Crop.resolved_rect(late_crop, 101, 80) ==
+                   Crop.resolved_rect(oracle_crop, 101, 80)
+        end
+      end
+    end
+
+    test "a cover resize preserves staged parity and odd-pixel bias" do
+      operation = %PlanResize{
+        mode: :cover,
+        width: {:px, 31},
+        height: {:px, 20},
+        dpr: {:ratio, 1, 1},
+        enlargement: :forbid,
+        guide: :center
+      }
+
+      for pending <- [
+            nil,
+            PendingOrientation.from_exif(3, true),
+            PendingOrientation.from_exif(6, true)
+          ] do
+        shape =
+          SourceShape.seed(%{
+            width: 101,
+            height: 80,
+            pending_orientation: pending,
+            decode_shrink: nil
+          })
+
+        assert {[late_resize], {:measure, late_tag, nil}} =
+                 NeutralResolver.resolve_late_bound_guide(shape, operation)
+
+        assert {[oracle_resize], {:measure, oracle_tag, nil}} =
+                 NeutralResolver.resolve(shape, nil, %PlanResize{operation | guide: :deferred})
+
+        assert late_resize == oracle_resize
+
+        assert {late_tail, late_continuation} =
+                 NeutralResolver.continue(late_tag, {33, 27}, shape, nil)
+
+        assert {oracle_tail, oracle_continuation} =
+                 NeutralResolver.continue(oracle_tag, {33, 27}, shape, nil)
+
+        assert normalize_late_bound_tail(late_tail) == oracle_tail
+        assert late_continuation == oracle_continuation
+
+        for gravity <- [{:anchor, :center, :center}, {:fp, 0.2, 0.8}] do
+          assert realized_tail_rect(late_tail, gravity, {33, 27}) ==
+                   realized_tail_rect(oracle_tail, gravity, {33, 27})
+        end
+      end
+    end
+  end
+
+  defp normalize_late_bound_tail(ops) do
+    Enum.map(ops, fn
+      %Crop{} = crop -> %Crop{crop | gravity: :deferred}
+      other -> other
+    end)
+  end
+
+  defp realized_tail_rect(ops, gravity, {width, height}) do
+    case Enum.find(ops, &match?(%Crop{}, &1)) do
+      nil -> nil
+      %Crop{} = crop -> Crop.resolved_rect(%Crop{crop | gravity: gravity}, width, height)
+    end
   end
 
   # ── :auto fill-vs-fit bucketing (imgproxy ResizeAuto parity, #182/#233) ─────

@@ -1,6 +1,6 @@
 # TwicPics differential — bake report
 
-Baked: 2026-07-02T10:21:25.021962Z · TwicPics: 1.8.2 · libvips (at gen): 8.18.2
+Baked: 2026-07-17T22:22:49.533870Z · TwicPics: 1.8.2 · libvips (at gen): 8.18.2
 
 | case | fixture | sha256 |
 |---|---|---|
@@ -41,3 +41,5 @@ Baked: 2026-07-02T10:21:25.021962Z · TwicPics: 1.8.2 · libvips (at gen): 8.18.
 | `number_fold_asymmetric` | number_fold_asymmetric.png | 9c7e0da699f3 |
 | `number_nested_chain_safe` | number_nested_chain_safe.png | 16c5ad014914 |
 | `number_round_half_up` | number_round_half_up.png | b4029456b781 |
+| `resize_no_enlarge` | resize_no_enlarge.png | 55126a610100 |
+| `resize_shadow_relative_then_absolute` | resize_shadow_relative_then_absolute.png | 91aa68615307 |

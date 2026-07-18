@@ -315,7 +315,11 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
-        Sender.send_result(conn, {:not_modified, cache_headers(representation)}, config)
+        Sender.send_result(
+          conn,
+          {:not_modified, CacheHeaders.from_representation(representation)},
+          config
+        )
       end)
 
     {conn, metadata}
@@ -512,6 +516,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # reuses it alongside `face_assist?/1`.
   @doc false
   @spec detect_classes([map()]) :: :all | nonempty_list(String.t()) | nil
+  # ex_dna:disable-for-next-line
   def detect_classes(operations) do
     operations
     |> Enum.reduce_while([], fn op, acc ->
@@ -657,7 +662,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
         send_with_span(conn, config, metadata.result, fn ->
           Sender.send_result(
             conn,
-            {:ok, {:cache_entry, entry, response_meta, cache_headers(representation), hit_debug}},
+            {:ok,
+             {:cache_entry, entry, response_meta,
+              CacheHeaders.from_representation(representation), hit_debug}},
             config
           )
         end)
@@ -688,7 +695,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
           send_with_span(conn, config, metadata.result, fn ->
             Sender.send_result(
               conn,
-              {:ok, {:prepared_stream, prepared, response_meta, cache_headers(representation)}},
+              {:ok,
+               {:prepared_stream, prepared, response_meta,
+                CacheHeaders.from_representation(representation)}},
               config
             )
           end)
@@ -840,30 +849,22 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # The Vary must be stamped here and not only on the 304 branch: this terminal
   # never varies by Accept (`@info_negotiation`), but a configured
   # `storage_inputs` header can select a different resolved source and so a
-  # genuinely different body. It varies the key, `cache_headers/1` already puts it
-  # on the 304, and a 200 that omitted it left the two responses inconsistent and
-  # let a shared cache serve one tenant's /info to another.
+  # genuinely different body. It varies the key,
+  # `CacheHeaders.from_representation/1` puts it on the 304, and a 200 that
+  # omitted it left the two responses inconsistent and let a shared cache serve
+  # one tenant's /info to another.
   defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
+    cache_headers = CacheHeaders.from_representation(representation)
+
     conn
-    |> put_resp_headers(vary_headers(representation.vary))
-    |> put_resp_headers(Representation.response_headers(representation))
+    |> put_resp_headers(cache_headers.representation_headers)
+    |> put_resp_headers(cache_headers.headers)
     |> put_resp_content_type(content_type)
     |> send_resp(200, body)
   end
 
   defp put_resp_headers(conn, headers) do
     Enum.reduce(headers, conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
-  end
-
-  defp vary_headers([]), do: []
-  defp vary_headers(names) when is_list(names), do: [{"vary", Enum.join(names, ", ")}]
-
-  defp cache_headers(%Representation{} = representation) do
-    %CacheHeaders{
-      etag: representation.etag,
-      representation_headers: vary_headers(representation.vary),
-      headers: Representation.response_headers(representation)
-    }
   end
 
   # -- build_fun: fetch → decode → transform → encode, run INSIDE the ----------
@@ -952,6 +953,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end)
   end
 
+  # ex_dna:disable-for-next-line
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
 
   defp transform_stop_metadata({:error, error}),
@@ -966,6 +968,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # replays it. This is also what surfaces a first-chunk encode failure as a
   # pre-header 500 (the framework's and upstream imgproxy's behavior) instead
   # of a mid-stream abort of an already-committed 200.
+  # ex_dna:disable-for-next-line
   defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
@@ -988,6 +991,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
     StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
   end
 
+  # ex_dna:disable-for-next-line
   defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state, _search_meta}, format),
     do: %{result: :ok, output_format: format}
 

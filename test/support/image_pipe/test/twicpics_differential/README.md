@@ -7,13 +7,11 @@ TwicPics' committed output and ImagePipe's live output and compares pixels.
 
 TwicPics is **libvips-based** — the same engine ImagePipe renders with — so per-pixel
 comparison is the right, stricter gate, not the foreign-engine mismatch the suite
-originally assumed. This was discovered empirically: of the 30 committed fixtures 20 are
-byte-identical to ImagePipe's libvips output, 8 show only low resampling skew (maxΔ=12,
-absorbed by per-case tolerance), and 2 are a `:diverges` (monitored) accepted behavioral
-divergence kept on the default lane inside an expected band (the `cover=2:3`
-fractional-area resampling — see *Verdicts* below). The third originally-surfaced
-divergence (`crop=WxH@XxY` focus-carry) was a real ImagePipe bug, now fixed to match live
-TwicPics ([#331](https://github.com/hlindset/image_pipe/issues/331)).
+originally assumed. The initial 30-fixture spike found 19 byte-identical outputs. The
+suite now contains 39 fixtures: five accepted divergences remain on the default lane
+inside two-sided bands, and the suite quarantines one unresolved shadowing case. The five
+monitored cases are the two fractional `cover=2:3` renders and the three transparent
+letterbox-under-shrink renders listed under *Verdicts*.
 
 ## Bake (requires network)
 
@@ -91,16 +89,30 @@ Sources are hosted on catbox and served to the live oracle through the
 hosted bytes**: TwicPics renders the hosted file, not the local one, so a mismatch
 means ImagePipe and TwicPics are rendering different inputs.
 
-The bake verifies this automatically: for each source it downloads the bytes from the
-`source_bytes_url` recorded in `SourceInventory` and compares their SHA-256 to the
-committed file. If they differ it raises before fetching any oracle output.
+The bake verifies this automatically before selecting a fixture: for each source it
+downloads the bytes from the `source_bytes_url` recorded in `SourceInventory` and
+compares their SHA-256 to the committed file. It then requests the recorded
+`hosted_url` with `?twic=v1/output=png`, decodes that TwicPics identity render, and
+requires its dimensions, bands, and pixels to equal the decoded committed source. An
+encoded-byte comparison would be wrong here because the committed source can be WebP
+while the identity response is pinned PNG.
 
 The seed source (`grid_4x4.png`) is a 400x400 RGBA colour grid from the #321 focus
 probe, uploaded to catbox and served via
-`https://imagepipe.twic.pics/b7g72c.png`. When adding a new source, upload it to
-catbox and record its `source_bytes_url` in `SourceInventory`. The bake's
-`resolve_sources/1` handles the upload automatically for entries without a recorded
-`hosted_url`.
+`https://imagepipe.twic.pics/b7g72c.png`.
+
+Adding a source is a fail-closed two-run handshake:
+
+1. Add the source file and an inventory entry with both `source_bytes_url` and
+   `hosted_url` set to `nil`, then run the bake. It uploads once, prints both exact
+   values, and aborts before any fixture request or write.
+2. Record both values in `SourceInventory` and run the bake again. The second run
+   verifies the direct Catbox bytes and the TwicPics identity render before the first
+   fixture transformation.
+
+An entry with only one URL is invalid, and a URL remembered by an older manifest never
+completes inventory metadata. Any direct-byte or identity-render mismatch stops the
+bake before fixture writes, report generation, or orphan pruning.
 
 ## Incremental bake
 
@@ -186,9 +198,13 @@ test (it has tuning knobs: `radius`, `value_tol`, `overshoot`).
   issue}`, evaluated by `PixelCompare.classify_divergence/3`). Stays **on the lane** — it
   fails if the divergence *grows* (regression, above the ceiling) or *shrinks/vanishes*
   (promote signal, below the floor → consider returning the case to `:equal`). Use it for
-  a real, understood, permanent difference (the `cover=2:3` fractional-area cases), not
-  one under active investigation. `:divergence` is an authored field, so editing a band
-  needs `mix twicpics.reauthor` (no re-bake — bands don't change pixels).
+  a real, understood, permanent difference, not one under active investigation. The five
+  current cases are `cover_ratio_tall` and `focus_bottomright_cover_ratio` for fractional
+  `cover=2:3` resampling, plus `inside_ratio_cover_shrink`,
+  `inside_ratio_focus_anchor_cover_shrink`, and `inside_ratio_focus_px_cover_shrink` for
+  invisible RGB-under-alpha differences in transparent letterboxes during shrink-on-load.
+  `:divergence` is an authored field, so editing a band needs `mix twicpics.reauthor` (no
+  re-bake — bands don't change pixels).
 - **`:triage`** → a divergence *under investigation*: `@tag :twicpics_triage`, **excluded**
   from the default lane (see *Quarantine mechanism*).
 
@@ -218,13 +234,21 @@ require a manifest reauthor. The bake still fetches oracle output for triaged ca
 (the parse gate skips them, but the bake runs them — only the conformance comparison
 is quarantined).
 
-**Current quarantined cases (0).** The two `cover=2:3` fractional-area cases are no
-longer quarantined — they moved to `verdict: :diverges` (monitored on the lane, see
-*Verdicts* above), tracked under
-[#331](https://github.com/hlindset/image_pipe/issues/331):
+**Current quarantined cases (1).**
+
+- [#464](https://github.com/hlindset/image_pipe/issues/464) tracks
+  `resize_shadow_relative_then_absolute` (`resize=50p/resize=340`). TwicPics discards the
+  shadowed relative resize and returns the same 340×340 bytes as direct `resize=340`;
+  the current parser executes both steps and returns 200×200 because plain resize
+  doesn't enlarge. Phase 2 removes the quarantine after both local arms implement the
+  upstream-proven shadow rewrite and must reuse this fixture.
+
+**Current monitored divergences (5).**
 
 - `cover_ratio_tall` (`cover=2:3`) and `focus_bottomright_cover_ratio`
-  (`focus=bottom-right/cover=2:3`) — the largest 2:3 area on the 400×400 source is
+  (`focus=bottom-right/cover=2:3`) are tracked by
+  [#331](https://github.com/hlindset/image_pipe/issues/331). The largest 2:3 area on the
+  400×400 source is
   266.667-wide (fractional). TwicPics sub-pixel-resamples that float area to the rounded
   267-wide output, antialiasing the cropped-axis cell edges; ImagePipe does a sharp
   integer crop. Placement matches to sub-pixel — only the boundary lines differ
@@ -235,6 +259,14 @@ longer quarantined — they moved to `verdict: :diverges` (monitored on the lane
   rejects both a growing shift and a now-byte-identical match. The integer-area direction
   (`cover=16:9` → `cover_ratio_wide`) stays a live `:equal` case and is byte-identical.
   See the `cover=W:H` "Diverges" note in `docs/twicpics_support_matrix.md`.
+
+- [#434](https://github.com/hlindset/image_pipe/issues/434) tracks
+  `inside_ratio_cover_shrink`, `inside_ratio_focus_anchor_cover_shrink`, and
+  `inside_ratio_focus_px_cover_shrink`. A later cover triggers 2×
+  WebP shrink-on-load through the transparent `inside=<ratio>` letterbox. TwicPics and
+  ImagePipe resample the RGB stored beneath alpha=0 differently; the difference is
+  invisible, and opaque content matches. The two-sided band still catches a placement
+  shift because that would dirty the opaque gradient rather than only transparent pixels.
 
 The third originally-quarantined case, `crop_region_reset`, was a real ImagePipe bug,
 not a sub-pixel skew: `crop=WxH@XxY` was **resetting** the carried focus to the

@@ -1,7 +1,11 @@
 defmodule ImagePipe.Dialect.NativeTest do
   use ExUnit.Case, async: true
 
+  import Plug.Conn
+  import Plug.Test
+
   alias ImagePipe.Dialect.Native
+  alias ImagePipe.SourceTest.RootHTTPAdapter
 
   describe "init/1" do
     test "returns validated config for an empty option list" do
@@ -73,6 +77,37 @@ defmodule ImagePipe.Dialect.NativeTest do
       assert_raise ArgumentError, fn ->
         Native.init(presets: %{"bad" => 123})
       end
+    end
+  end
+
+  describe "complete-body response headers" do
+    test "BlurHash includes Vary for configured storage-header identity" do
+      body = 16 |> Image.new!(12, color: [90, 100, 110]) |> Image.write!(:memory, suffix: ".jpg")
+
+      origin = fn conn ->
+        conn
+        |> put_resp_content_type("image/jpeg")
+        |> send_resp(200, body)
+      end
+
+      config =
+        Native.init(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: origin]}
+          ],
+          storage_inputs: [{:header, "X-Tenant"}]
+        )
+
+      conn =
+        :get
+        |> conn("/output=blurhash/src/images/cat.jpg")
+        |> put_req_header("x-tenant", "acme")
+        |> Native.call(config)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "vary") == ["x-tenant"]
     end
   end
 
