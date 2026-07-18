@@ -79,6 +79,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
     ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
+    ImagePipe.Dialect.TwicPics => "lib/image_pipe/dialect/twic_pics.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
@@ -261,6 +262,39 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(dialect_imgproxy, [ImagePipe.Dialect.Imgproxy.SourceScheme])
   end
 
+  test "dialect TwicPics boundary declaration depends only on core toolkit facades" do
+    dialect_twicpics = boundary_declaration(ImagePipe.Dialect.TwicPics)
+
+    assert_boundary_deps(dialect_twicpics, [
+      ImagePipe.Cache,
+      ImagePipe.Config,
+      ImagePipe.Debug,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect.SharedConfig,
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Representation,
+      ImagePipe.Response,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    refute_boundary_deps(dialect_twicpics, [
+      ImagePipe.Dialect.Imgproxy,
+      ImagePipe.Dialect.Native,
+      ImagePipe.Parser,
+      ImagePipe.Renderer,
+      ImagePipe.Request,
+      ImagePipe.Resolver
+    ])
+
+    assert_boundary_exports(dialect_twicpics, [])
+  end
+
   test "decode boundary declaration depends only on the core fetch/decode toolkit" do
     decode = boundary_declaration(ImagePipe.Decode)
 
@@ -327,6 +361,18 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           violation <- dialect_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; " <>
           "a dialect must be removable without changing the core"
+      end
+
+    assert violations == []
+  end
+
+  test "core, transform, and parser code does not name the TwicPics dialect" do
+    violations =
+      for file <- dialect_forbidden_files(),
+          {line, number} <- File.read!(file) |> String.split("\n") |> Enum.with_index(1),
+          String.contains?(line, "ImagePipe.Dialect.TwicPics") do
+        "#{file}:#{number} must not name ImagePipe.Dialect.TwicPics; " <>
+          "the TwicPics dialect must be removable without changing the core"
       end
 
     assert violations == []
