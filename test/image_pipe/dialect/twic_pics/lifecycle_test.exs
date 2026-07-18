@@ -39,6 +39,32 @@ defmodule ImagePipe.Dialect.TwicPics.LifecycleTest do
     end
   end
 
+  defmodule ResolveTrackingSource do
+    @moduledoc false
+    @behaviour ImagePipe.Source
+
+    alias ImagePipe.SourceTest.RootHTTPAdapter
+
+    @impl true
+    def validate_options(opts) do
+      with {:ok, validated} <- RootHTTPAdapter.validate_options(opts),
+           {:ok, test_pid} <- Keyword.fetch(opts, :test_pid) do
+        {:ok, Keyword.put(validated, :test_pid, test_pid)}
+      end
+    end
+
+    @impl true
+    def resolve(source, opts, runtime_opts) do
+      send(Keyword.fetch!(opts, :test_pid), :source_resolve)
+      RootHTTPAdapter.resolve(source, opts, runtime_opts)
+    end
+
+    @impl true
+    def fetch(resolved, opts, runtime_opts) do
+      RootHTTPAdapter.fetch(resolved, opts, runtime_opts)
+    end
+  end
+
   defmodule RaisingBeforeFirstChunkImage do
     @moduledoc false
 
@@ -178,6 +204,17 @@ defmodule ImagePipe.Dialect.TwicPics.LifecycleTest do
     ]
   end
 
+  defp resolve_tracking_sources do
+    [
+      path:
+        {ResolveTrackingSource,
+         root_url: "http://origin.test",
+         byte_identity: :strong,
+         test_pid: self(),
+         req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+    ]
+  end
+
   defp stateful_cache do
     table = :ets.new(:twic_pics_lifecycle_cache, [:set, :public])
     {TrackingCache, store: table}
@@ -245,7 +282,7 @@ defmodule ImagePipe.Dialect.TwicPics.LifecycleTest do
     end
 
     test "OPTIONS and unsupported methods terminate before source and cache" do
-      config = opts(sources: counting_sources(), cache: {TrackingCache, []})
+      config = opts(sources: resolve_tracking_sources(), cache: {TrackingCache, []})
 
       options = request(:options, "/images/beach.jpg?twic=v1/resize=64", config)
       put = request(:put, "/images/beach.jpg?twic=v1/resize=64", config)
@@ -254,15 +291,17 @@ defmodule ImagePipe.Dialect.TwicPics.LifecycleTest do
       assert get_resp_header(options, "allow") == ["GET, HEAD"]
       assert put.status == 405
       assert get_resp_header(put, "allow") == ["GET, HEAD"]
+      refute_received :source_resolve
       refute_received :origin_fetch
       refute_received {:cache_get, _key}
     end
 
     test "parse failures happen before source resolution, cache lookup, and fetch" do
-      config = opts(sources: counting_sources(), cache: {TrackingCache, []})
+      config = opts(sources: resolve_tracking_sources(), cache: {TrackingCache, []})
       conn = get("/images/beach.jpg?twic=v1/unknown=1", config)
 
       assert conn.status == 400
+      refute_received :source_resolve
       refute_received :origin_fetch
       refute_received {:cache_get, _key}
     end
@@ -448,6 +487,31 @@ defmodule ImagePipe.Dialect.TwicPics.LifecycleTest do
       assert source_error.status == 502
       assert decode_error.status == 415
       assert input_error.status == 413
+    end
+
+    test "an automatic-output generation failure preserves Vary: Accept" do
+      config =
+        opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               byte_identity: :strong,
+               req_options: [plug: {CorruptOrigin, test_pid: self()}]}
+          ]
+        )
+
+      conn =
+        get(
+          "/images/beach.jpg?twic=v1/resize=64",
+          config,
+          [{"accept", "image/webp,image/*"}]
+        )
+
+      assert conn.status == 415
+      assert conn.resp_body == "source response is not a supported image"
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert_received :origin_fetch
     end
 
     test "result dimensions clamp to the tighter host cap" do
