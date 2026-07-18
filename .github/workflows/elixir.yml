@@ -67,6 +67,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential meson ninja-build pkg-config \
+            gdb \
             libglib2.0-dev libexpat1-dev libjpeg-turbo8-dev libpng-dev \
             libwebp-dev libtiff-dev libgif-dev libheif-dev librsvg2-dev \
             liborc-0.4-dev liblcms2-dev libjxl-dev libcgif-dev libexif-dev \
@@ -111,10 +112,22 @@ jobs:
         run: mise exec -- mix compile --warnings-as-errors
         env:
           MIX_ENV: test
-      # The dual-run suites create and finalize Vix resources from many test
-      # processes. Serializing ExUnit modules avoids a native crash in that
-      # cross-process load while retaining libvips' normal internal concurrency.
+      # Keep test order deterministic while collecting the native crash trace.
       - name: Run tests serially
-        run: mise exec -- mix test --no-compile --max-cases 1
+        run: |
+          sudo sysctl -w kernel.core_pattern="${GITHUB_WORKSPACE}/core.%e.%p"
+          ulimit -c unlimited
+          mise exec -- mix test --no-compile --max-cases 1
         env:
           MIX_ENV: test
+      - name: Print native crash backtrace
+        if: failure()
+        run: |
+          shopt -s nullglob
+          cores=("${GITHUB_WORKSPACE}"/core.*)
+          if (( ${#cores[@]} == 0 )); then
+            echo "No core file found; kernel pattern is: $(cat /proc/sys/kernel/core_pattern)"
+            exit 0
+          fi
+          beam=$(find "$(mise where erlang)" -path '*/bin/beam.smp' -print -quit)
+          gdb --batch -ex "thread apply all bt" "${beam}" "${cores[0]}"
