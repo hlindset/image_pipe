@@ -34,26 +34,17 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
 
   defp asymmetric_state_for(width, height) do
     image =
-      for col <- 0..7, row <- 0..5, reduce: Image.new!(width, height, color: [0, 0, 0]) do
-        acc ->
-          color = [rem(col * 41 + row * 13, 256), rem(col * 17 + row * 47, 256), 255 - col * 19]
-
-          Image.compose!(
-            acc,
-            Image.new!(div(width, 8), div(height, 6), color: color),
-            x: col * div(width, 8),
-            y: row * div(height, 6)
-          )
+      for row <- 0..5, col <- 0..7 do
+        color = [rem(col * 41 + row * 13, 256), rem(col * 17 + row * 47, 256), 255 - col * 19]
+        Image.new!(div(width, 8), div(height, 6), color: color)
       end
+      |> Image.join!(across: 8)
 
     detail =
-      for col <- 0..5, row <- 0..5, reduce: Image.new!(96, 96, color: [0, 0, 0]) do
-        acc ->
-          Image.compose!(acc, Image.new!(16, 16, color: checker_color(col + row)),
-            x: col * 16,
-            y: row * 16
-          )
+      for row <- 0..5, col <- 0..5 do
+        Image.new!(16, 16, color: checker_color(col + row))
       end
+      |> Image.join!(across: 6)
 
     %State{image: Image.compose!(image, detail, x: 120, y: 120)}
   end
