@@ -10,12 +10,21 @@ defmodule ImagePipe.Dialect.TwicPics.RequestTest do
   alias ImagePipe.Plan.Source.Path
 
   test "enforces exactly the canonical request fields" do
-    required_fields =
-      Request.__info__(:struct)
-      |> Enum.filter(& &1.required)
-      |> Enum.map(& &1.field)
+    canonical_fields = [:source, :steps, :output, :response, :auto_rotate]
 
-    assert required_fields == [:source, :steps, :output, :response, :auto_rotate]
+    request_fields =
+      Request
+      |> struct()
+      |> Map.from_struct()
+      |> Map.keys()
+
+    assert MapSet.new(request_fields) == MapSet.new(canonical_fields)
+
+    attrs = Map.new(canonical_fields, &{&1, nil})
+
+    Enum.each(canonical_fields, fn field ->
+      assert_raise ArgumentError, fn -> struct!(Request, Map.delete(attrs, field)) end
+    end)
   end
 
   test "constructs every ordered semantic step form" do
