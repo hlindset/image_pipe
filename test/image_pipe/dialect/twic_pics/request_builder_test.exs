@@ -59,6 +59,16 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilderTest do
             }} = build([{"resize", "340"}, {"resize", "50p"}])
   end
 
+  test "quarantined relative resize shadow chain remains two literal ordered steps" do
+    assert {:ok,
+            %Request{
+              steps: [
+                {:operation, %Operation.Resize{width: {:ratio, 1, 2}}},
+                {:operation, %Operation.Resize{width: {:px, 340}}}
+              ]
+            }} = build([{"resize", "50p"}, {"resize", "340"}])
+  end
+
   test "legacy: focus anchor emits a positional set_focus directive and a carried cover (#321)" do
     assert {:ok,
             %Request{
@@ -359,30 +369,40 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilderTest do
     assert match?([{:reference, _}], forbidden_terms(%{nested: [make_ref()]}))
   end
 
-  test "focus before and after resize produce different complete ordered request terms" do
-    assert {:ok, %Request{} = focus_before_resize} =
-             build([{"focus", "top"}, {"resize", "200"}, {"cover", "100x100"}])
+  test "absolute coordinate focus retains its running-frame position around resize" do
+    assert {:ok, %Request{} = resize_before_focus} =
+             build([{"resize", "50p"}, {"focus", "50x50"}, {"crop", "40x40"}])
 
-    assert {:ok, %Request{} = focus_after_resize} =
-             build([{"resize", "200"}, {"focus", "top"}, {"cover", "100x100"}])
+    assert {:ok, %Request{} = focus_before_resize} =
+             build([{"focus", "50x50"}, {"resize", "50p"}, {"crop", "40x40"}])
+
+    refute resize_before_focus == focus_before_resize
 
     assert %Request{
              steps: [
-               {:set_focus, {:anchor, :center, :top}},
-               {:operation, %Operation.Resize{mode: :fit, width: {:px, 200}}},
-               {:focused, %Operation.Resize{mode: :cover, width: {:px, 100}}}
+               {:operation, %Operation.Resize{mode: :fit, width: {:ratio, 1, 2}}},
+               {:set_focus, {:coord, {:px, 50}, {:px, 50}}},
+               {:focused,
+                %Operation.CropGuided{
+                  width: {:px, 40},
+                  height: {:px, 40},
+                  guide: :center
+                }}
+             ]
+           } = resize_before_focus
+
+    assert %Request{
+             steps: [
+               {:set_focus, {:coord, {:px, 50}, {:px, 50}}},
+               {:operation, %Operation.Resize{mode: :fit, width: {:ratio, 1, 2}}},
+               {:focused,
+                %Operation.CropGuided{
+                  width: {:px, 40},
+                  height: {:px, 40},
+                  guide: :center
+                }}
              ]
            } = focus_before_resize
-
-    assert %Request{
-             steps: [
-               {:operation, %Operation.Resize{mode: :fit, width: {:px, 200}}},
-               {:set_focus, {:anchor, :center, :top}},
-               {:focused, %Operation.Resize{mode: :cover, width: {:px, 100}}}
-             ]
-           } = focus_after_resize
-
-    refute focus_before_resize == focus_after_resize
   end
 
   defp forbidden_terms(term), do: do_forbidden_terms(term, [])
