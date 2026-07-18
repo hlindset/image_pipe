@@ -9,7 +9,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Harness do
   @sources_dir "#{@base}/sources"
   @fixtures_dir "#{@base}/fixtures"
 
-  def plug_opts, do: plug_opts(:framework)
+  def plug_opts, do: plug_opts(:dialect)
 
   def plug_opts(:framework), do: Shared.plug_opts(ImagePipe.Parser.TwicPics, @sources_dir)
 
