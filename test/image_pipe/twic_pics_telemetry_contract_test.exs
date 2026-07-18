@@ -159,6 +159,13 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
     assert stop_result(framework, [:deliver]) == :processing_error
     assert stop_error(framework, [:deliver]) == :encode
     assert stop_result(framework, [:encode]) == :ok
+
+    assert stop_metadata(framework, [:request]) ==
+             %{result: :processing_error, status: 200}
+
+    assert stop_metadata(dialect, [:request]) ==
+             %{result: :processing_error, status: 200}
+
     assert framework == dialect
   end
 
@@ -170,6 +177,46 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
     refute event?(framework, [:request], :stop)
     refute event?(framework, [:deliver], :stop)
     assert framework == dialect
+  end
+
+  test "semantic normalization collapses only immediately repeated callbacks" do
+    duplicate = %{stage: [:output, :negotiate], phase: :start, metadata: %{}}
+    boundary = %{stage: [:transform, :materialize], phase: :start, metadata: %{}}
+
+    assert collapse_adjacent_topology_duplicates([duplicate, duplicate, boundary]) ==
+             [duplicate, boundary]
+  end
+
+  test "semantic normalization preserves separated repetitions and operation order" do
+    operation = %{
+      stage: [:transform, :operation],
+      phase: :start,
+      metadata: %{operation: :resize, index: 1}
+    }
+
+    materialize = %{stage: [:transform, :materialize], phase: :start, metadata: %{}}
+    trace = [operation, materialize, operation]
+
+    assert collapse_adjacent_topology_duplicates(trace) == trace
+    refute collapse_adjacent_topology_duplicates([operation, operation, materialize]) == trace
+  end
+
+  test "semantic trace retains operation names and indices" do
+    prefix = [:semantic_trace_fixture]
+
+    events = [
+      {prefix ++ [:transform, :operation, :start], %{operation: :resize, index: 0}},
+      {prefix ++ [:transform, :operation, :stop], %{operation: :resize, index: 0, result: :ok}},
+      {prefix ++ [:transform, :operation, :start], %{operation: :resize, index: 1}},
+      {prefix ++ [:transform, :operation, :stop], %{operation: :resize, index: 1, result: :ok}}
+    ]
+
+    assert Enum.map(semantic_trace(events, prefix), & &1.metadata) == [
+             %{operation: :resize, index: 0},
+             %{operation: :resize, index: 0, result: :ok},
+             %{operation: :resize, index: 1},
+             %{operation: :resize, index: 1, result: :ok}
+           ]
   end
 
   defp run(arm, :cache_miss) do
@@ -301,39 +348,27 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
   end
 
   defp semantic_trace(events, prefix) do
-    trace =
-      Enum.map(events, fn {name, metadata} ->
-        suffix = Enum.drop(name, length(prefix))
-        {stage, [phase]} = Enum.split(suffix, -1)
+    Enum.map(events, fn {name, metadata} ->
+      suffix = Enum.drop(name, length(prefix))
+      {stage, [phase]} = Enum.split(suffix, -1)
 
-        %{
-          stage: stage,
-          phase: phase,
-          metadata: Map.take(metadata, [:result, :error, :status])
-        }
-      end)
-
-    send_stop_metadata =
-      Enum.find_value(Enum.reverse(trace), %{}, fn
-        %{stage: [:send], phase: :stop, metadata: metadata} -> metadata
-        _event -> nil
-      end)
-
-    trace
-    |> Enum.map(&normalize_semantic_metadata(&1, send_stop_metadata))
-    |> Enum.uniq()
+      normalize_parser_error(%{
+        stage: stage,
+        phase: phase,
+        metadata: Map.take(metadata, [:result, :error, :status, :operation, :index])
+      })
+    end)
+    |> collapse_adjacent_topology_duplicates()
   end
 
-  defp normalize_semantic_metadata(
-         %{stage: [:request], phase: :stop, metadata: metadata} = event,
-         send_stop_metadata
-       ) do
-    metadata = Map.merge(metadata, Map.take(send_stop_metadata, [:result, :status]))
-    normalize_parser_error(%{event | metadata: metadata})
+  defp collapse_adjacent_topology_duplicates(events) do
+    events
+    |> Enum.reduce([], fn
+      event, [previous | _rest] = acc when event == previous -> acc
+      event, acc -> [event | acc]
+    end)
+    |> Enum.reverse()
   end
-
-  defp normalize_semantic_metadata(event, _send_stop_metadata),
-    do: normalize_parser_error(event)
 
   defp normalize_parser_error(%{stage: [:parse], metadata: %{result: :error}} = event),
     do: put_in(event, [:metadata, :error], :parser_error)

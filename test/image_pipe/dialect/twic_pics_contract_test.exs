@@ -41,11 +41,18 @@ defmodule ImagePipe.Dialect.TwicPicsContractTest do
 
   @impl ImagePipe.ContractKit.CacheKey
   def storage_only_case(base_opts) do
-    opts = Keyword.put(base_opts, :storage_inputs, [{:header, "x-tenant"}])
+    opts =
+      Keyword.put(
+        base_opts,
+        :storage_inputs,
+        [{:header, "x-tenant"}, {:cookie, "region"}]
+      )
 
     variants = [
       {:header, "x-tenant", "team-a"},
-      {:header, "x-tenant", "team-b"}
+      {:header, "x-tenant", "team-b"},
+      {:cookie, "region", "eu"},
+      {:cookie, "region", "us"}
     ]
 
     {"/images/cat.jpg?twic=v1/resize=64/output=png", opts, variants}

@@ -85,8 +85,14 @@ defmodule ImagePipe.Dialect.TwicPics do
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {conn, metadata} = route(conn, config)
-      {conn, Map.put(metadata, :status, conn.status)}
+      {conn, request_stop_metadata(conn, metadata)}
     end)
+  end
+
+  defp request_stop_metadata(%Plug.Conn{} = conn, metadata) do
+    metadata
+    |> Map.put(:result, Map.get(conn.private, :image_pipe_send_result, metadata.result))
+    |> Map.put(:status, conn.status)
   end
 
   # ex_dna:disable-for-next-line

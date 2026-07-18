@@ -161,6 +161,11 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
   ]
   @test_seams [:image_module, :on_bracket_exit, :chain]
 
+  @doc false
+  def handle_request_stop(_name, _measurements, metadata, target) do
+    send(target, {:request_stop, metadata})
+  end
+
   defp opts(extra) do
     {seams, validated} = Keyword.split(extra, @test_seams)
 
@@ -203,9 +208,22 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
   describe "row 1: origin 5xx" do
     test "maps 503 to 502 without opening a cache sink or cleanup bracket" do
       test_pid = self()
+      prefix = [:"twic_pics_error_paths_#{System.unique_integer([:positive])}"]
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          prefix ++ [:request, :stop],
+          &__MODULE__.handle_request_stop/4,
+          test_pid
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
 
       config =
         opts(
+          telemetry_prefix: prefix,
           sources: [
             path:
               {RootHTTPAdapter,
@@ -222,6 +240,7 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
       assert_received :origin_fetch
       assert conn.status == 502
       assert conn.resp_body == "upstream responded 503"
+      assert_received {:request_stop, %{result: :source_error, error: :source, status: 502}}
       refute_received {:cache_open_sink, _key, _metadata}
       refute_received :bracket_cleanup
     end
