@@ -198,7 +198,7 @@ retirement.
 Request, local PointFlow, and dialect Pipeline. It labels the framework arm as
 temporary phase-1 comparison coverage. It retains the Task 2 facts: 39 hosted
 fixtures, five monitored divergences, and the quarantined shadow case under
-#464. It doesn't claim shadowing fixed.
+issue #464. It doesn't claim shadowing fixed.
 
 The matrix also records that both temporary local arms return 200×200 for the
 shadow quarantine, removes the unsupported claim that `focus=center` equals an

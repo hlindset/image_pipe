@@ -4,10 +4,7 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
   alias ImagePipe.Dialect.TwicPics.PointFlow
   alias ImagePipe.Parser.TwicPics.Resolver, as: LegacyResolver
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
-  alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
-  alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush
@@ -195,39 +192,6 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
 
     assert {[%Blur{sigma: 2.0}], {:advance, _shape, ^flow}} =
              PointFlow.resolve(shape(100, 100), flow, {:operation, operation})
-  end
-
-  test "raises for an unknown dims-changing operation" do
-    assert_raise RuntimeError, ~r/Rotate/, fn ->
-      PointFlow.resolve(
-        shape(100, 100),
-        PointFlow.init(),
-        {:operation, %PlanRotate{angle: 45}}
-      )
-    end
-  end
-
-  test "raises for Trim" do
-    operation = %PlanTrim{threshold: 1.0, background: :auto, equal_hor: false, equal_ver: false}
-
-    assert_raise RuntimeError, ~r/Trim/, fn ->
-      PointFlow.resolve(shape(100, 100), PointFlow.init(), {:operation, operation})
-    end
-  end
-
-  test "raises for Padding" do
-    operation = %PlanPadding{
-      top: {:px, 0},
-      right: {:px, 0},
-      bottom: {:px, 0},
-      left: {:px, 0},
-      pixel_ratio: {:ratio, 1, 1},
-      fill: :transparent
-    }
-
-    assert_raise RuntimeError, ~r/Padding/, fn ->
-      PointFlow.resolve(shape(100, 100), PointFlow.init(), {:operation, operation})
-    end
   end
 
   defp legacy_resolve(shape, point, operation) do

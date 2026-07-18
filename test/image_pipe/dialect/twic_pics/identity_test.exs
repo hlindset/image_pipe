@@ -16,7 +16,9 @@ defmodule ImagePipe.Dialect.TwicPics.IdentityTest do
   alias ImagePipe.Representation
 
   defp request!(chain) do
-    {:ok, request} = RequestBuilder.build(%Path{segments: ["images", "cat.jpg"]}, chain, config())
+    {:ok, %Request{} = request} =
+      RequestBuilder.build(%Path{segments: ["images", "cat.jpg"]}, chain, config())
+
     request
   end
 

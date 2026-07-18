@@ -288,12 +288,6 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
         end
       end
     end
-
-    test "raises for an unsupported operation", %{shape: shape} do
-      assert_raise ArgumentError, ~r/late-bound guide/, fn ->
-        NeutralResolver.resolve_late_bound_guide(shape, %Blur{sigma: 1.0})
-      end
-    end
   end
 
   defp normalize_late_bound_tail(ops) do

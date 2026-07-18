@@ -3,6 +3,12 @@ defmodule ImagePipe.MixProject do
 
   @version "0.1.0"
   @source_url "https://github.com/hlindset/image_pipe"
+  @ex_dna_ignores [
+    "lib/image_pipe/decode.ex",
+    "lib/image_pipe/decode/source_format.ex",
+    "lib/image_pipe/dialect/shared_config.ex",
+    "lib/image_pipe/response/conditional.ex"
+  ]
 
   def project do
     [
@@ -66,6 +72,10 @@ defmodule ImagePipe.MixProject do
       mod: {ImagePipe.Application, []},
       extra_applications: [:logger]
     ]
+  end
+
+  def ex_dna_options do
+    [excluded_macros: [:alias], ignore: @ex_dna_ignores]
   end
 
   def cli do
@@ -197,8 +207,20 @@ defmodule ImagePipe.MixProject do
 
   defp aliases do
     [
+      "image_pipe.ex_dna": &run_ex_dna/1,
       setup: ["deps.get"],
       test: ["test"]
     ]
+  end
+
+  defp run_ex_dna(args) do
+    options = ex_dna_options()
+
+    excluded_macros =
+      Enum.flat_map(options[:excluded_macros], &["--exclude-macro", Atom.to_string(&1)])
+
+    ignores = Enum.flat_map(options[:ignore], &["--ignore", &1])
+
+    Mix.Task.run("ex_dna", excluded_macros ++ ignores ++ args)
   end
 end

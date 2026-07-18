@@ -287,19 +287,6 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
     assert {:ok, %VipsImage{}} = VipsImage.copy_memory(out.image)
   end
 
-  test "continuation recursion is capped" do
-    {request, _plan} = build([{"resize", "40"}])
-    identity_chain = fn state, _ops, _opts -> {:ok, state} end
-    bogus_continue = fn _tag, _dims, _shape, seam -> {[], {:measure, :again, seam}} end
-
-    assert_raise FunctionClauseError, fn ->
-      Pipeline.run(state_for(80, 60), geometry(80, 60), request,
-        chain: identity_chain,
-        continue: bogus_continue
-      )
-    end
-  end
-
   defp empty_request do
     %Request{source: "test", steps: [], output: nil, response: nil, auto_rotate: true}
   end

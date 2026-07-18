@@ -53,13 +53,9 @@ run = [
   "mix compile --warnings-as-errors",
   "mix credo --strict",
   "mix dialyzer",
-  # --exclude-macro alias: runs of `alias`/`as:` declarations (which AliasOrder
-  # forces into a fixed order and which sibling modules in one namespace
-  # legitimately overlap) are declarations, not logic clones. Mirrors the
-  # excluded_macros: [:alias] set on the ExDNA.Credo plugin in .credo.exs.
-  # --ignore: mirrors the four whole-file exclusions in .credo.exs. They cover
-  # core boundary mirrors that cannot share code without a boundary change.
-  "mix ex_dna --exclude-macro alias --ignore lib/image_pipe/decode.ex --ignore lib/image_pipe/decode/source_format.ex --ignore lib/image_pipe/dialect/shared_config.ex --ignore lib/image_pipe/response/conditional.ex",
+  # Both this standalone gate and ExDNA.Credo consume the authoritative options
+  # from ImagePipe.MixProject.ex_dna_options/0.
+  "mix image_pipe.ex_dna",
   "mix test",
 ]
 

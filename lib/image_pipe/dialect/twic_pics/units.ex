@@ -38,8 +38,8 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
   defp parse_length(value, sign) when is_binary(value) do
     {expr, unit_denominator} =
       cond do
-        String.ends_with?(value, "p") -> {String.trim_trailing(value, "p"), 100}
-        String.ends_with?(value, "s") -> {String.trim_trailing(value, "s"), 1}
+        String.ends_with?(value, "p") -> {String.replace_suffix(value, "p", ""), 100}
+        String.ends_with?(value, "s") -> {String.replace_suffix(value, "s", ""), 1}
         true -> {value, nil}
       end
 

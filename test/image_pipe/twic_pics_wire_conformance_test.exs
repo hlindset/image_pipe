@@ -932,7 +932,7 @@ for {arm, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
            key_cookies: []}
         )
 
-      first = call("/images/beach.jpg?twic=v1/resize=200/output=jpeg", opts)
+      first = call("/images/beach.jpg?twic=v1/resize=(400/2)/output=jpeg", opts)
       assert first.status == 200
       assert_received :origin_fetch
 
@@ -1312,27 +1312,22 @@ for {arm, suffix} <- [{:framework, Framework}, {:dialect, Dialect}] do
         refute average(focal) == average(other)
       end
 
-      # The nil-point centred fallback under EXIF with an odd extent difference:
-      # compensate_crop's :deferred clause sets center_bias so the discarded pixel
-      # lands on the intended display side (#146 Bug 2). Pin the current decoded-
-      # pixel relation between the no-focus fallback and an explicit centre focus
-      # (the fp path ignores center_bias, so these may legitimately differ by one
-      # pixel row/column — record whichever relation currently holds and pin it).
-      test "nil-point centred fallback under EXIF quarter turn (odd cover box)" do
+      test "implicit centre under EXIF quarter turn places the odd cover pixel" do
         fallback = call("/images/oriented.jpg?twic=v1/cover=15x15/output=png", exif_opts())
 
-        explicit =
-          call("/images/oriented.jpg?twic=v1/focus=center/cover=15x15/output=png", exif_opts())
-
         assert dimensions(fallback) == {15, 15}
-        assert dimensions(explicit) == {15, 15}
-        # Observed relation (current code): the decoded pixels differ by one pixel
-        # row/column — the legitimate center_bias divergence called out above (the
-        # fp path taken by an explicit focus=center ignores center_bias, while the
-        # nil-point :deferred fallback sets it). Pin that divergence via decoded
-        # pixels, not encoded bytes (encode-time byte nondeterminism makes raw body
-        # comparison unreliable, as noted elsewhere in this file).
-        refute average(fallback) == average(explicit)
+        image = Image.open!(fallback.resp_body, access: :random, fail_on: :error)
+
+        # The synthetic source displays as an 80×40 frame with white on the left
+        # and red on the right. TwicPics' implicit-centre crop gives the odd output
+        # column to the red half: seven white columns followed by eight red columns.
+        middle_row =
+          for x <- 0..14 do
+            [_red, green, _blue] = Image.get_pixel!(image, x, 7)
+            if green > 128, do: :white, else: :red
+          end
+
+        assert middle_row == List.duplicate(:white, 7) ++ List.duplicate(:red, 8)
       end
 
       # Canvas-embed translate: the focus is set BEFORE an inside letterbox, so

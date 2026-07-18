@@ -264,7 +264,7 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
         end
       end
 
-      owner = spawn(fn -> receive do: (:stop -> :ok) end)
+      owner = start_supervised!({Task, fn -> receive do: (:stop -> :ok) end})
 
       config = [cache: {ObservingCache, test_pid: test_pid}]
       {:ok, coordinator} = Coordinator.start(build_fun, owner, fake_cache_key(), nil, config)

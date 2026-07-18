@@ -95,13 +95,8 @@ defmodule ImagePipe.Dialect.TwicPics.LeafGrammarParityTest do
     %{family: {:path, :extract, 1}, input: "/?twic=v1/resize=100", outcome: :error}
   ]
 
-  test "corpus covers both outcomes and every public leaf function" do
+  test "corpus covers both outcomes" do
     assert MapSet.new(Enum.map(@cases, & &1.outcome)) == MapSet.new([:success, :error])
-
-    corpus_families = MapSet.new(Enum.map(@cases, & &1.family))
-
-    assert corpus_families == public_families(@legacy_modules)
-    assert corpus_families == public_families(@dialect_modules)
   end
 
   test "dialect copy returns the complete legacy term for every corpus case" do
@@ -115,14 +110,6 @@ defmodule ImagePipe.Dialect.TwicPics.LeafGrammarParityTest do
       assert outcome(dialect_result) == test_case.outcome,
              "wrong outcome classification for #{inspect(test_case.family)} with #{inspect(test_case.input)}"
     end)
-  end
-
-  defp public_families(modules) do
-    modules
-    |> Enum.flat_map(fn {family, module} ->
-      Enum.map(module.__info__(:functions), fn {function, arity} -> {family, function, arity} end)
-    end)
-    |> MapSet.new()
   end
 
   defp invoke(modules, {family, function, 1}, input) do

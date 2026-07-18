@@ -14,13 +14,17 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
     assert length(constellations) == 39
     assert Enum.count(constellations, &(&1.verdict == :equal)) == 34
     assert Enum.count(constellations, &(&1.verdict == :diverges)) == 5
-    assert Enum.count(constellations, &Map.has_key?(&1, :triage)) == 1
 
-    for constellation <- constellations, triage = constellation[:triage] do
-      assert %{reason: reason, issue: issue} = triage
-      assert is_binary(reason) and String.trim(reason) != ""
-      assert is_integer(issue) and issue > 0
-    end
+    assert [
+             %{
+               id: "resize_shadow_relative_then_absolute",
+               triage: %{reason: reason, issue: issue}
+             }
+           ] = Enum.filter(constellations, &Map.has_key?(&1, :triage))
+
+    assert is_binary(reason) and String.trim(reason) != ""
+    assert issue == 464
+    assert issue > 0
 
     for constellation <- constellations, constellation.verdict == :diverges do
       assert %{max_delta: max_delta, outliers: outliers} = constellation.divergence

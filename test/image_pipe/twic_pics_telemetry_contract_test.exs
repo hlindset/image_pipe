@@ -314,16 +314,19 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
 
     observe(arm, :owner_cancellation, fn prefix ->
       owner =
-        spawn(fn ->
-          call(
-            arm,
-            @image_path,
-            parser: ImagePipe.Parser.TwicPics,
-            sources: [path: {ParkingSource, test_pid: test_pid}],
-            telemetry_prefix: prefix,
-            cache: {CacheProbe, []}
-          )
-        end)
+        start_supervised!(
+          {Task,
+           fn ->
+             call(
+               arm,
+               @image_path,
+               parser: ImagePipe.Parser.TwicPics,
+               sources: [path: {ParkingSource, test_pid: test_pid}],
+               telemetry_prefix: prefix,
+               cache: {CacheProbe, []}
+             )
+           end}
+        )
 
       owner_ref = Process.monitor(owner)
       assert_receive {:fetch_parked, producer}

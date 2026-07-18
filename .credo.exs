@@ -1,3 +1,5 @@
+ex_dna_options = ImagePipe.MixProject.ex_dna_options()
+
 # Credo configuration. Modeled on VibeKit's minimal template: rely on Credo's
 # default check set plus plugin-provided checks, and list only overrides here.
 #
@@ -42,13 +44,7 @@
         # Request.Processor / Request.SourceFormat, SharedConfig mirrors
         # Request.Options, and Response.Conditional mirrors Request.HTTPCache.
         {ExDNA.Credo,
-         excluded_macros: [:alias],
-         ignore: [
-           "lib/image_pipe/decode.ex",
-           "lib/image_pipe/decode/source_format.ex",
-           "lib/image_pipe/dialect/shared_config.ex",
-           "lib/image_pipe/response/conditional.ex"
-         ]}
+         excluded_macros: ex_dna_options[:excluded_macros], ignore: ex_dna_options[:ignore]}
       ]
     }
   ]

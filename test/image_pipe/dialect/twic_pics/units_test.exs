@@ -26,6 +26,8 @@ defmodule ImagePipe.Dialect.TwicPics.UnitsTest do
     test "rejects malformed" do
       assert {:error, _} = Units.dimension_length("abc")
       assert {:error, _} = Units.dimension_length("-3")
+      assert {:error, _} = Units.dimension_length("50pp")
+      assert {:error, _} = Units.dimension_length("0.5ss")
     end
   end
 
