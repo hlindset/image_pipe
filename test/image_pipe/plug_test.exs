@@ -13,6 +13,7 @@ defmodule ImagePipe.PlugTest do
   # facet for a default-config automatic request (imgproxy parity values).
   @default_format_qualities %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}}
 
+  alias ImagePipe.Parser.IIIF
   alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
@@ -597,7 +598,7 @@ defmodule ImagePipe.PlugTest do
     request = conn(:get, "/img/full/max/0/default.jpg")
 
     assert {:ok, %Plan{output: %Output{} = output} = iiif_plan} =
-             ImagePipe.Parser.IIIF.parse(request, opts)
+             IIIF.parse(request, opts)
 
     assert {:ok, %Plan{} = automatic_plan} = AutomaticIIIFParser.parse(request, opts)
 
@@ -610,7 +611,7 @@ defmodule ImagePipe.PlugTest do
     opts = AutomaticIIIFParser.validate_options!(iiif: [resolver: iiif_resolver()])
     request = conn(:get, "/img/full/bad/0/default.jpg")
 
-    assert AutomaticIIIFParser.parse(request, opts) == ImagePipe.Parser.IIIF.parse(request, opts)
+    assert AutomaticIIIFParser.parse(request, opts) == IIIF.parse(request, opts)
   end
 
   test "init normalizes parser option" do

@@ -6,6 +6,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Parser.IIIF
   alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation.CropGuided
@@ -134,7 +135,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     face_request = conn(:get, "/img/square/max/0/default.jpg?guide=face_assist")
 
     assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = baseline | _]}]}} =
-             ImagePipe.Parser.IIIF.parse(focal_request, opts)
+             IIIF.parse(focal_request, opts)
 
     assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = focal | _]}]}} =
              GuidedIIIFParser.parse(focal_request, opts)
@@ -154,7 +155,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     opts = GuidedIIIFParser.validate_options!(iiif: [resolver: iiif_resolver()])
     request = conn(:get, "/img/full/bad/0/default.jpg?guide=focal")
 
-    assert GuidedIIIFParser.parse(request, opts) == ImagePipe.Parser.IIIF.parse(request, opts)
+    assert GuidedIIIFParser.parse(request, opts) == IIIF.parse(request, opts)
   end
 
   setup do
