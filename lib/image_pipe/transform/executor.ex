@@ -10,12 +10,13 @@ defmodule ImagePipe.Transform.Executor do
   # explicit Flush ops. Resize expansion/scale arithmetic lives in
   # ImagePipe.Transform.ResizePlanning.
   #
-  # The resolve loop (run/5): for each plan operation, overlay the
+  # The shared resolve loop (`run/5` for an injected strategy and
+  # `run_neutral/4` for the fixed neutral path): for each plan operation, overlay the
   # resolver-advanced shape onto State (THE one shape→State sync site), resolve
   # the op through the strategy, execute the emitted executable ops through the
   # chain, then advance the shape — purely for an `:advance` continuation, or,
   # for a `{:measure, tag, state}` continuation, from the measured post-
-  # execution dims via the strategy's `continue/4` (injectable via
+  # execution dims via the selected driver's `continue/4` (injectable via
   # `opts[:measure_dims]` so tests can drive the geometry without pixels). A
   # single resolve may execute in several STAGES (spec §4.4 Stage 3):
   # `continue/4` can return a further `{ops, continuation}` stage — a
@@ -146,26 +147,43 @@ defmodule ImagePipe.Transform.Executor do
   @spec run([struct()], SourceShape.t(), Resolver.strategy(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def run(pipeline, %SourceShape{} = shape, strategy, %State{} = state, opts \\ []) do
+    run_driver(pipeline, shape, {:strategy, strategy}, state, opts)
+  end
+
+  @doc false
+  @spec run_neutral([struct()], SourceShape.t(), State.t(), keyword()) ::
+          {:ok, State.t()} | {:error, term()}
+  def run_neutral(pipeline, %SourceShape{} = shape, %State{} = state, opts \\ []) do
+    run_driver(pipeline, shape, {:neutral, nil}, state, opts)
+  end
+
+  defp run_driver(pipeline, shape, driver, state, opts) do
     measure_dims = Keyword.get(opts, :measure_dims, &default_measure_dims/1)
     chain = Keyword.get(opts, :chain, &Chain.execute/3)
 
     pipeline
-    |> Enum.reduce_while({:ok, shape, strategy, state}, fn operation, acc ->
-      {:ok, shape, strategy, state} = acc
+    |> Enum.reduce_while({:ok, shape, driver, state}, fn operation, acc ->
+      {:ok, shape, driver, state} = acc
       state = overlay(state, shape)
 
-      {ops, continuation} = Resolver.resolve(strategy, shape, operation)
+      {ops, continuation} = resolve(driver, shape, operation)
 
-      case execute_stages(ops, continuation, shape, strategy, state, chain, measure_dims, opts) do
-        {:ok, shape, strategy, state} -> {:cont, {:ok, shape, strategy, state}}
+      case execute_stages(ops, continuation, shape, driver, state, chain, measure_dims, opts) do
+        {:ok, shape, driver, state} -> {:cont, {:ok, shape, driver, state}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
     |> case do
-      {:ok, shape, _strategy, state} -> flush_boundary(state, shape, chain, opts)
+      {:ok, shape, _driver, state} -> flush_boundary(state, shape, chain, opts)
       {:error, _reason} = error -> error
     end
   end
+
+  defp resolve({:strategy, strategy}, shape, operation),
+    do: Resolver.resolve(strategy, shape, operation)
+
+  defp resolve({:neutral, nil}, shape, operation),
+    do: NeutralResolver.resolve(shape, nil, operation)
 
   # THE sync rule, one site: the shape is authoritative for the source frame.
   # Exists solely to feed the executables' execute-time State reads (resolve-time
@@ -189,7 +207,7 @@ defmodule ImagePipe.Transform.Executor do
          ops,
          continuation,
          resolve_shape,
-         strategy,
+         driver,
          state,
          chain,
          measure_dims,
@@ -197,7 +215,7 @@ defmodule ImagePipe.Transform.Executor do
        ) do
     case chain.(state, ops, opts) do
       {:ok, %State{} = state} ->
-        continue(continuation, resolve_shape, strategy, state, chain, measure_dims, opts)
+        continue(continuation, resolve_shape, driver, state, chain, measure_dims, opts)
 
       {:error, _reason} = error ->
         error
@@ -205,41 +223,35 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp continue(
-         {:advance, %SourceShape{} = shape, strategy_state},
+         {:advance, %SourceShape{} = shape, resolver_state},
          _resolve_shape,
-         {module, _},
+         driver,
          state,
          _chain,
          _measure_dims,
          _opts
        ),
-       do: {:ok, shape, {module, strategy_state}, state}
+       do: {:ok, shape, advance(driver, resolver_state), state}
 
   defp continue(
-         {:measure, tag, strategy_state},
+         {:measure, tag, resolver_state},
          resolve_shape,
-         {module, _} = strategy,
+         driver,
          state,
          chain,
          measure_dims,
          opts
        ) do
-    case Resolver.continue(
-           strategy,
-           tag,
-           measure_dims.(state.image),
-           resolve_shape,
-           strategy_state
-         ) do
-      {%SourceShape{} = shape, strategy_state} ->
-        {:ok, shape, {module, strategy_state}, state}
+    case continue(driver, tag, measure_dims.(state.image), resolve_shape, resolver_state) do
+      {%SourceShape{} = shape, resolver_state} ->
+        {:ok, shape, advance(driver, resolver_state), state}
 
       {ops, continuation} when is_list(ops) ->
         execute_stages(
           ops,
           continuation,
           resolve_shape,
-          strategy,
+          driver,
           state,
           chain,
           measure_dims,
@@ -247,6 +259,17 @@ defmodule ImagePipe.Transform.Executor do
         )
     end
   end
+
+  defp continue({:strategy, strategy}, tag, measured_dims, shape, resolver_state),
+    do: Resolver.continue(strategy, tag, measured_dims, shape, resolver_state)
+
+  defp continue({:neutral, _}, tag, measured_dims, shape, neutral_state),
+    do: NeutralResolver.continue(tag, measured_dims, shape, neutral_state)
+
+  defp advance({:strategy, {module, _}}, resolver_state),
+    do: {:strategy, {module, resolver_state}}
+
+  defp advance({:neutral, _}, neutral_state), do: {:neutral, neutral_state}
 
   defp default_measure_dims(image), do: {Image.width(image), Image.height(image)}
 
