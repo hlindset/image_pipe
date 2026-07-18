@@ -153,6 +153,14 @@ defmodule ImagePipe.Differential.PixelCompareTest do
       assert PixelCompare.structural_outliers(a, a) == 0
     end
 
+    test "clips the neighborhood to a one-pixel image" do
+      reference = img(1, 1, [10, 20, 30])
+      candidate = img(1, 1, [30, 40, 50])
+
+      assert PixelCompare.structural_outliers(reference, reference) == 0
+      assert PixelCompare.structural_outliers(candidate, reference) == 3
+    end
+
     test "a haloed (antialiased) edge is neighborhood-explainable → ~0" do
       # reference: sharp vertical edge between col 3 and 4 (50 | 200)
       ref = columns([{4, 50}, {4, 200}], 8)

@@ -175,7 +175,8 @@ defmodule ImagePipe.Test.Differential.PixelCompare do
 
   `radius` *defines* "negligible geometry difference": a ≤`radius`-px hard shift is
   spatially indistinguishable from sub-pixel resampling, so keep it small (1–2) — a
-  ≥2px shift then reads as non-zero, sub-pixel/phase skew as ≈0.
+  ≥2px shift then reads as non-zero, sub-pixel/phase skew as ≈0. When an image axis
+  is smaller than the requested window, the neighborhood clips to that axis.
 
   Opts: `radius` (default `1`), `value_tol` (default `2` levels), `overshoot`
   (default `8` levels). Raises on dimension/band-layout mismatch.
@@ -191,9 +192,12 @@ defmodule ImagePipe.Test.Differential.PixelCompare do
     overshoot = Keyword.get(opts, :overshoot, @default_overshoot)
     format = VipsImage.format(a)
 
-    win = 2 * radius + 1
-    lo_img = Operation.rank!(b, win, win, 0)
-    hi_img = Operation.rank!(b, win, win, win * win - 1)
+    requested_window = 2 * radius + 1
+    window_width = min(requested_window, Image.width(b))
+    window_height = min(requested_window, Image.height(b))
+    window_samples = window_width * window_height
+    lo_img = Operation.rank!(b, window_width, window_height, 0)
+    hi_img = Operation.rank!(b, window_width, window_height, window_samples - 1)
 
     {:ok, ab} = VipsImage.write_to_binary(a)
     {:ok, bb} = VipsImage.write_to_binary(b)
