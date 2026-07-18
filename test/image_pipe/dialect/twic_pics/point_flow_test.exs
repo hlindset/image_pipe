@@ -2,9 +2,9 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Dialect.TwicPics.PointFlow
-  alias ImagePipe.Parser.TwicPics.Resolver, as: LegacyResolver
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
+  alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush
@@ -63,15 +63,18 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
            }
   end
 
-  test "an ordinary neutral operation matches the legacy resolver" do
+  test "an ordinary neutral operation delegates to the neutral resolver" do
     {:ok, op} = Operation.blur(2.0)
     shape = shape(800, 600)
 
-    assert PointFlow.resolve(shape, PointFlow.init(), {:operation, op}) ==
-             legacy_resolve(shape, nil, op)
+    assert {neutral_ops, {:advance, neutral_shape, nil}} =
+             NeutralResolver.resolve(shape, nil, op)
+
+    assert {^neutral_ops, {:advance, ^neutral_shape, %PointFlow{guide: :point, point: nil}}} =
+             PointFlow.resolve(shape, PointFlow.init(), {:operation, op})
   end
 
-  test "a staged cover binds a concrete point and translates the carry like legacy" do
+  test "a staged cover binds a concrete point and advances its measured shape" do
     point = {{:ratio, 100, 1}, {:ratio, 100, 1}}
     flow = %PointFlow{guide: :point, point: point}
     shape = shape(400, 400)
@@ -79,19 +82,19 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
     {[%ExecResize{}], {:measure, tag, seam}} =
       PointFlow.resolve(shape, flow, {:focused, resize()})
 
-    {[%Crop{gravity: gravity}], {:advance, _shape, carried_flow}} =
+    {[%Crop{gravity: gravity}], {:advance, advanced, carried_flow}} =
       PointFlow.continue(tag, {200, 200}, shape, seam)
 
     assert gravity == {:fp, 0.25, 0.25}
     assert carried_flow.point == {{:ratio, 50, 1}, {:ratio, 50, 1}}
 
-    assert {[%ExecResize{}], {:measure, legacy_tag, legacy_seam}} =
-             LegacyResolver.resolve(shape, point, resize(:deferred))
-
-    assert {[%Crop{gravity: ^gravity}], {:advance, _shape, carried_point}} =
-             LegacyResolver.continue(legacy_tag, {200, 200}, shape, legacy_seam)
-
-    assert carried_flow.point == carried_point
+    assert advanced == %SourceShape{
+             width: 200,
+             height: 100,
+             frame: :storage,
+             pending_orientation: nil,
+             decode_shrink: nil
+           }
   end
 
   test "a nil point binds the centred anchor" do
@@ -105,7 +108,7 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
              PointFlow.continue(tag, {200, 200}, shape, seam)
   end
 
-  test "a pending-orientation cover binds in storage and folds reflect_rotate like legacy" do
+  test "a pending-orientation cover binds in storage and folds reflect_rotate" do
     po = PendingOrientation.from_exif(6, true)
     point = {{:ratio, 20, 1}, {:ratio, 36, 1}}
     flow = %PointFlow{guide: :point, point: point}
@@ -121,18 +124,14 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
 
     assert gravity == {:fp, 0.5, 0.45}
     assert carried_flow.point == {{:ratio, 10, 1}, {:ratio, 10, 1}}
-    assert {advanced.width, advanced.height} == {20, 20}
-    assert advanced.pending_orientation == nil
 
-    {[%ExecResize{}], {:measure, legacy_tag, legacy_seam}} =
-      LegacyResolver.resolve(shape, point, %PlanResize{resize | guide: :deferred})
-
-    assert {legacy_ops, {:advance, legacy_shape, legacy_point}} =
-             LegacyResolver.continue(legacy_tag, {20, 40}, shape, legacy_seam)
-
-    assert [%Crop{gravity: ^gravity}, %Flush{}] = legacy_ops
-    assert advanced == legacy_shape
-    assert carried_flow.point == legacy_point
+    assert advanced == %SourceShape{
+             width: 20,
+             height: 20,
+             frame: :display,
+             pending_orientation: nil,
+             decode_shrink: nil
+           }
   end
 
   test "the flush fold moves an off-centre carry" do
@@ -192,15 +191,5 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
 
     assert {[%Blur{sigma: 2.0}], {:advance, _shape, ^flow}} =
              PointFlow.resolve(shape(100, 100), flow, {:operation, operation})
-  end
-
-  defp legacy_resolve(shape, point, operation) do
-    case LegacyResolver.resolve(shape, point, operation) do
-      {ops, {:advance, next_shape, next_point}} ->
-        {ops, {:advance, next_shape, %PointFlow{guide: :point, point: next_point}}}
-
-      {ops, {:measure, tag, seam}} ->
-        {ops, {:measure, tag, seam}}
-    end
   end
 end
