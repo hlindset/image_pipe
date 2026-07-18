@@ -9,6 +9,7 @@ defmodule ImagePipe.Dialect.TwicPics.IdentityTest do
   alias ImagePipe.Dialect.TwicPics.Request
   alias ImagePipe.Dialect.TwicPics.RequestBuilder
   alias ImagePipe.Output.Policy
+  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output.QualitySearch.Butteraugli
   alias ImagePipe.Plan.Output.QualitySearch.Ssimulacra2
   alias ImagePipe.Plan.Source.Path
@@ -152,6 +153,28 @@ defmodule ImagePipe.Dialect.TwicPics.IdentityTest do
   end
 
   describe "positional face-assist identity" do
+    test "active detector identity recursively canonicalizes nested structs" do
+      active = request!([{"focus", "auto"}, {"cover", "100x100"}])
+      detector_module = ImagePipe.Transform.Detector.Composite
+      detector_a = {detector_module, [%{model: Color.white()}]}
+
+      {:ok, black} = Color.rgb(0, 0, 0)
+      detector_b = {detector_module, [%{model: black}]}
+
+      material_a = material(active, negotiation(), conn(:get, "/"), config(), detector_a)
+      material_b = material(active, negotiation(), conn(:get, "/"), config(), detector_b)
+      representation_a = representation(material_a)
+      representation_b = representation(material_b)
+
+      assert {^detector_module, [%{model: {Color, color_data}}]} =
+               Keyword.fetch!(material_a.representation, :detector)
+
+      assert color_data == %{space: :srgb, channels: {255, 255, 255}, alpha: {:ratio, 1, 1}}
+
+      refute representation_a.cache_key.hash == representation_b.cache_key.hash
+      refute representation_a.etag == representation_b.etag
+    end
+
     test "detector identity enters only when auto focus reaches a focused consumer" do
       active = request!([{"focus", "auto"}, {"cover", "100x100"}])
       detector_a = material(active, negotiation(), conn(:get, "/"), config(), {:face, :v1})

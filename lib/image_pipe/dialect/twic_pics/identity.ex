@@ -41,7 +41,7 @@ defmodule ImagePipe.Dialect.TwicPics.Identity do
 
   defp detector_material(%Request{} = request, detector_identity) do
     case face_assist?(request.steps) and not is_nil(detector_identity) do
-      true -> [detector: detector_identity]
+      true -> [detector: canonical(detector_identity)]
       false -> []
     end
   end
