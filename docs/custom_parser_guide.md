@@ -175,9 +175,10 @@ If the dialect needs to resolve opaque identifiers to sources (IIIF's
 `{identifier}`), make that pluggable the way `ImagePipe.Parser.IIIF.Resolver`
 does: a small behaviour the host implements, configured through your option
 namespace, returning a `Plan.Source` struct. If the dialect has its own source
-URI scheme vocabulary (imgproxy's `s3://`, `local://`), follow
-`ImagePipe.Dialect.Imgproxy.Source`, which dispatches by scheme and supports
-host-registered translators.
+URI scheme vocabulary, keep that translation in the parser and expose a
+host-facing translator behaviour. `ImagePipe.Dialect.Imgproxy.SourceScheme`
+shows the public callback: `translate(String.t(), keyword())` returns
+`{:ok, Plan.Source.t()} | {:error, term()}`.
 
 ### Pipelines and operations
 
