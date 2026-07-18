@@ -48,9 +48,6 @@ jobs:
     env:
       MISE_ERLANG_VERSION: ${{ matrix.erlang }}
       MISE_ELIXIR_VERSION: ${{ matrix.elixir }}
-      # The dual-run suites can otherwise drive parallel Vix evaluations into
-      # the sporadic native crash tracked in akash-akya/vix#111.
-      VIPS_CONCURRENCY: "1"
       VIX_COMPILATION_MODE: PLATFORM_PROVIDED_LIBVIPS
       VIPS_VERSION: "8.18.2"
       # Upstream SHA256 of vips-${VIPS_VERSION}.tar.xz (release .sha256sum asset).
@@ -114,7 +111,10 @@ jobs:
         run: mise exec -- mix compile --warnings-as-errors
         env:
           MIX_ENV: test
-      - name: Run tests
-        run: mise exec -- mix test --no-compile
+      # The dual-run suites create and finalize Vix resources from many test
+      # processes. Serializing ExUnit modules avoids a native crash in that
+      # cross-process load while retaining libvips' normal internal concurrency.
+      - name: Run tests serially
+        run: mise exec -- mix test --no-compile --max-cases 1
         env:
           MIX_ENV: test
