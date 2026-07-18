@@ -19,12 +19,6 @@ The TwicPics dialect is **order-dependent**: transformations apply in chain orde
 those steps sequentially, and PointFlow carries focus through each realized
 geometry stage.
 
-> **Phase-1 comparison arm.** The framework mount (`ImagePipe.Plug` with
-> `ImagePipe.Parser.TwicPics`) remains temporarily so the wire, hosted-SaaS, and
-> exact local suites can execute both implementations. This is comparison
-> coverage, not the serving architecture after parser retirement. Phase 2 does
-> not start until the recorded dual-run gates pass.
-
 ## Reference documentation
 
 Source index: <https://www.twicpics.com/llms.txt>
@@ -69,7 +63,7 @@ Source index: <https://www.twicpics.com/llms.txt>
 | `?twic=v1/<chain>` query parameter | ✅ Supported | Required `v1/` prefix; chain is an ordered `/`-separated list of `name=args`. `twic` may appear anywhere in the query string. |
 | Ordered chaining | ✅ Supported | Transformations apply in order; later transforms see earlier results. Stored as literal `Request.steps` and executed sequentially by `Dialect.TwicPics.Pipeline`. |
 | Running-dimension relative units (`p`, `s`) | ✅ Supported | Each unit uses the running image at execution time, not a static parse-time size. The dialect reuses neutral dimension terms and measures each realized resize stage before continuing. |
-| Static chain collapse / shadowing | ⭕ Missing | **Behavioral divergence:** TwicPics discards an earlier relative resize when a later absolute resize fully shadows it (`resize=50p/resize=340` → `resize=340`). On the 400×400 differential source, TwicPics returns 340×340. Both temporary local comparison arms execute both resizes and return 200×200 because plain resize doesn't enlarge. The suite quarantines the live fixture under [#464](https://github.com/hlindset/image_pipe/issues/464) until the upstream-proven rewrite lands. This isn't a general last-wins rule; chain order remains observable outside a proven shadow. |
+| Static chain collapse / shadowing | ⭕ Missing | **Behavioral divergence:** TwicPics discards an earlier relative resize when a later absolute resize fully shadows it (`resize=50p/resize=340` → `resize=340`). On the 400×400 differential source, TwicPics returns 340×340. The dialect executes both resizes and returns 200×200 because plain resize doesn't enlarge. The suite quarantines the live fixture under [#464](https://github.com/hlindset/image_pipe/issues/464) until the upstream-proven rewrite lands. This isn't a general last-wins rule; chain order remains observable outside a proven shadow. |
 | Path → source resolution | ✅ Supported | `conn.path_info` resolves to a product-neutral `Plan.Source.Path` stored on the dialect Request. |
 | Multi-origin [path configuration](https://www.twicpics.com/docs/essentials/path-configuration.md) | ⭕ Missing | Prefix → origin mapping. Out of scope for v1; single configured origin only. |
 | [Domain configuration](https://www.twicpics.com/docs/essentials/domain-configuration.md) | 🧩 Host-owned | Dashboard domain setup has no ImagePipe equivalent; the host router/Plug owns mounting. |
@@ -158,9 +152,9 @@ Mapped to [API Parameters](https://www.twicpics.com/docs/reference/parameters.md
 <!-- vale off -->
 | TwicPics feature | Status | Notes |
 | --- | --- | --- |
-| `output=auto` | ⚠️ Partial (v1) | The Request's `Plan.Output` is `:automatic`, and local negotiation emits `Vary: Accept`. For the reviewed Chrome `Accept` header, hosted TwicPics selected WebP while ImagePipe's configurable, Accept-only default selected AVIF. Phase 2 must preserve negotiation and decide this compatibility gap from live evidence. |
+| `output=auto` | ⚠️ Partial (v1) | The Request's `Plan.Output` is `:automatic`, and local negotiation emits `Vary: Accept`. For the reviewed Chrome `Accept` header, hosted TwicPics selected WebP while ImagePipe's configurable, Accept-only default selected AVIF. Phase 2B owns this compatibility gap. |
 | `output=avif\|webp\|jpeg\|png` | ✅ Supported | Explicit `{:explicit, format}`, bypasses negotiation. |
-| `output=heif` | 🚫 Rejected | Not in the v1 explicit-format set (`avif`/`webp`/`jpeg`/`png`); the parser rejects it with `{:unsupported_output, "heif"}` before side effects. |
+| `output=heif` | 🚫 Rejected | Not in the v1 explicit-format set (`avif`/`webp`/`jpeg`/`png`); the dialect rejects it with `{:unsupported_output, "heif"}` before side effects. |
 | `output=blurhash\|preview\|maincolor\|meancolor\|blank` | 🚫 Rejected | Non-image preview outputs; deferred. |
 | `output=h264\|h265\|vp9` | 🛑 Out of scope | Video output codecs. |
 | `quality=1..100` | ✅ Supported | URL quality on the Request's `Plan.Output` has **top precedence**. When the URL omits `quality`, the configured host default (neutral default `80`; per-format `webp 79 / avif 63 / jpeg_xl 77`) applies as the base. |
@@ -234,14 +228,15 @@ The transformations consume the value grammars from
 ## Differential conformance
 
 `test/image_pipe/twicpics_differential_conformance_test.exs` verifies the
-temporary framework comparison arm and the dialect. It compares their geometry
-and placement with committed output from the hosted TwicPics Image API
+live dialect's geometry and placement with committed output from the hosted
+TwicPics Image API
 (`mise run twic:bake`). This enforces the behavioral and placement claims in
 this matrix. The suite contains 39 fixtures. Five accepted divergences remain
 on the default lane inside two-sided bands. The suite quarantines one unresolved
 shadowing case.
 
-The suite decodes the committed TwicPics output and each local arm's live output.
+The suite decodes the committed TwicPics output and the local dialect's live
+output.
 It performs pixel comparison with `PixelCompare.outliers ≤ tol.budget`. TwicPics and
 ImagePipe both use libvips, so per-pixel comparison provides the stricter gate.
 This runs on the default `mix test` lane without network access.
@@ -262,7 +257,7 @@ This runs on the default `mix test` lane without network access.
   the case exercised and its fixture baked. There is one:
   `resize_shadow_relative_then_absolute`, tracked by
   [#464](https://github.com/hlindset/image_pipe/issues/464). Its committed TwicPics
-  result is 340×340; both temporary local arms return 200×200.
+  result is 340×340; the local dialect returns 200×200.
 <!-- vale on -->
 
 If the suite exposes a permanent placement difference, add a "Diverges" note

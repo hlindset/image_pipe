@@ -17,19 +17,16 @@ from the minimum viable module to the advanced extension points:
   such as metadata JSON (optional)
 - error rendering, redirects, testing, and repo conventions
 
-The two in-tree parsers are worked examples at increasing levels of
-sophistication:
+The in-tree framework parser is the primary worked example:
 
 | Parser | Dialect shape | Uses |
 |---|---|---|
-| `ImagePipe.Parser.TwicPics` | `?twic=v1/…` query chain | Custom resolver with carried state (focus point), directives |
 | `ImagePipe.Parser.IIIF` | positional path grammar | Host-pluggable id resolution, 303 redirects, custom `info.json` renderer |
 
-When in doubt about a pattern, read the closest of these. For signed path
-options, source-URL encryption, and presets, `ImagePipe.Dialect.Imgproxy` is
-the worked example — it assembles its own request chain directly rather than
-going through a parser/resolver, so read it as a self-contained Plug rather
-than as an `ImagePipe.Parser` implementation.
+For signed path options, source-URL encryption, presets, or syntax whose order
+is itself the execution model, use a self-contained dialect Plug as the
+architectural reference. `ImagePipe.Dialect.Imgproxy` and
+`ImagePipe.Dialect.TwicPics` don't implement `ImagePipe.Parser`.
 
 ## The big picture
 
@@ -53,11 +50,9 @@ Two properties of this flow shape everything a parser does:
   way: a parser must not perform I/O.
 - **URL option order must not define processing order.** The Plan is
   declarative; the transform layer owns operation semantics and a resolver
-  strategy owns geometry decisions. A dialect whose syntax is order-sensitive
-  (TwicPics) preserves order *within* its translation; a dialect whose syntax
-  is order-insensitive (imgproxy) canonicalizes to a fixed operation order in
-  its plan builder. Either way, the ordering decision is made once, at parse
-  time, and recorded in the Plan.
+  strategy owns geometry decisions. Map matching URL spellings into the same
+  Plan. If the syntax requires a positional command stream that can't
+  be stated as a declarative Plan, it belongs in a self-contained dialect Plug.
 
 ## The parser behaviour
 
@@ -102,8 +97,7 @@ dispatches to your `validate_options!/1` if you export it. It runs once at
 mount time, so **raise** on invalid configuration rather than returning error
 tuples. The convention:
 
-1. Own exactly one top-level key, named after your dialect (`:iiif`,
-   `:twicpics`).
+1. Own exactly one top-level key, named after your parser (`:iiif`, `:simple`).
 2. Split the options under that key into *neutral* keys (shared output/config
    surface — `ImagePipe.Config.keys/0`) and *dialect* keys (yours).
 3. Validate dialect keys (NimbleOptions works well; see
@@ -112,10 +106,8 @@ tuples. The convention:
 4. Return the full option list with your namespace normalized in place —
    `parse/2` then reads pre-validated, fully-resolved config on every request.
 
-`ImagePipe.Parser.TwicPics.validate_options!/1` is the minimal version of this
-shape (no dialect keys at all); `ImagePipe.Parser.IIIF` shows a dialect with
-real keys (id resolver, supported formats/qualities, tile size, max
-dimensions).
+`ImagePipe.Parser.IIIF` shows the complete shape: an id resolver, supported
+formats and qualities, tile size, and maximum dimensions.
 
 If a dialect deliberately supports only part of the neutral config surface,
 declare the supported subset with `ImagePipe.Config.reject_unsupported!/3` so
@@ -235,9 +227,9 @@ quirks must not leak product-specific semantics into the shared vocabulary.
 One special operation exists purely for parsers with custom resolvers:
 `Operation.directive(name, payload)` builds a `Plan.Operation.Directive`,
 which performs **no pixel work**. It is a positional message to the plan's
-resolver strategy (e.g. TwicPics' `:set_focus`). The payload is hashed into
-the cache key as-is, so it must be canonical: the same request must always
-produce the same term.
+resolver strategy (for example, a host parser's `:remember_anchor`). The
+payload is hashed into the cache key as-is, so it must be canonical: the same
+request must always produce the same term.
 
 ### Output
 
@@ -263,8 +255,8 @@ profile policy, HDR handling, default qualities, autoquality search, encoder
 options) from the resolved neutral config, so URL-level decisions and host
 policy stay cleanly layered. Dialects that expose per-request autoquality
 controls build the search with `ImagePipe.Plan.Output.QualitySearch.build/3`;
-config-only dialects use `from_config/1` (and should probe it at boot in
-`validate_options!/1`, as TwicPics does, so a bad host config fails at mount).
+config-only parsers use `from_config/1` and should probe it at boot in
+`validate_options!/1` so a bad host config fails at mount.
 
 For a custom (non-image) terminal, `output` must be `nil` — see
 [Custom renderers](#custom-renderers-non-image-terminals).
@@ -387,15 +379,13 @@ everything.
 Some dialect semantics depend on the **source image's geometry**, which the
 parser cannot know (parsing happens before any fetch). Product-neutral cases
 (e.g. the `:auto` fill-vs-fit resize rule) are handled by the built-in neutral
-resolver and need no custom strategy; a custom resolver is for the
-dialect-specific ones. Examples:
+resolver and need no custom strategy; a custom resolver is for parser-specific
+decisions. Examples:
 
-- imgproxy's no-enlarge rule caps the DPR/padding scale by how much the
-  source can actually shrink — computed at the resize, but *consumed* by
-  later padding/canvas operations.
-- TwicPics' `focus` sets a point that steers *subsequent* crops, and the
-  point must be re-mapped through every geometry change between where it was
-  set and where it is used.
+- a no-enlarge rule that computes a source-dependent scale at resize time and
+  consumes it in later padding or canvas operations
+- an anchor directive that sets a point for subsequent crops and remaps that
+  point through intervening geometry changes
 
 A resolver strategy is a per-pipeline state machine that makes exactly these
 runtime-geometry decisions. The parser selects it by setting `resolver:` on
@@ -442,9 +432,9 @@ call. State is created fresh per pipeline and dies with it.
 
 Because most geometry math is shared, custom strategies **delegate** to
 `ImagePipe.Transform.NeutralResolver` (whose strategy state is `nil`) and
-layer their dialect decisions around it. Two in-tree patterns:
+layer their decisions around it. Two useful patterns:
 
-**Re-wrap the continuation** (imgproxy — carry computed values forward). The
+**Re-wrap the continuation** (carry computed values forward). The
 strategy computes its cap once at the resize, stashes it in the carry, and
 re-wraps every continuation the neutral resolver returns with
 `ImagePipe.Resolver.rewrap/2`, which substitutes the carry into the stateless
@@ -478,8 +468,8 @@ Always route delegation through `rewrap/2`: a continuation returned unmodified
 carries the neutral resolver's `nil` state, which would replace your carry at
 the first `:advance`.
 
-**Advance a carried point through emitted ops** (TwicPics — state that must
-track geometry). The focus point set by a `Directive` must stay meaningful as
+**Advance a carried point through emitted ops** (state that must track
+geometry). The point set by a `Directive` must stay meaningful as
 crops and resizes change the coordinate space, so the strategy walks the
 emitted executable ops and re-maps the point through each one:
 
@@ -488,7 +478,7 @@ emitted executable ops and re-maps the point through each one:
 def init, do: nil
 
 @impl ImagePipe.Resolver
-def resolve(%SourceShape{} = shape, _point, %Directive{name: :set_focus, payload: operand}) do
+def resolve(%SourceShape{} = shape, _point, %Directive{name: :set_anchor, payload: operand}) do
   resolved = Focus.resolve(operand, ..., shape.pending_orientation)
   {[], {:advance, shape, resolved}}       # emit nothing; update the carry
 end
@@ -503,9 +493,9 @@ def continue(tag, measured, %SourceShape{} = shape, seam_state),
   do: PointFlow.continue(tag, measured, shape, seam_state)
 ```
 
-`ImagePipe.Parser.TwicPics.Resolver` (with its `PointFlow` helper) is the
-cleanest full example of a carried-state strategy and the best template to
-start from.
+Keep the point-flow helper under the host parser module and test it with the
+exact operations the parser emits. No in-tree carried-state parser exists to
+copy.
 
 ### Dialect vocabulary: deferred markers and directives
 
@@ -516,12 +506,11 @@ never sees. The pieces available:
   accept `guide: :deferred`, meaning "a point-carrying resolver strategy will
   substitute a concrete point before emission".
 - **`Operation.Directive`** — a no-pixel message positioned in the operation
-  stream, consumed by your strategy (`:set_focus` above). Emitting a
+  stream, consumed by your strategy (`:set_anchor` above). Emitting a
   `Directive` your resolver has no clause for is a programmer error.
-- **Dialect-specific field markers** — a field value on a shared Plan struct
-  that only your strategy understands (the `:deferred` guide above is the
-  live example: TwicPics' strategy substitutes it with a concrete point
-  before emission). If your dialect needs
+- **Parser-specific field markers** — a field value on a shared Plan struct
+  that only your strategy understands. A `:deferred` guide can be substituted
+  with a concrete point before emission. If your parser needs
   a new marker of this kind, it is a core change — the marker lives on a
   shared Plan struct — so keep the pairing rule in mind: every marker a
   parser can emit must have exactly one strategy that resolves it. A marker

@@ -3,7 +3,8 @@
 Reference fixtures generated from the live hosted TwicPics Image API. The
 comparison test (`test/image_pipe/twicpics_differential_conformance_test.exs`) reads
 them on the default `mix test` lane — no network in the hot path. It decodes both
-TwicPics' committed output and ImagePipe's live output and compares pixels.
+TwicPics' committed output and one live `ImagePipe.Dialect.TwicPics` render per
+constellation, then compares pixels.
 
 TwicPics is **libvips-based** — the same engine ImagePipe renders with — so per-pixel
 comparison is the right, stricter gate, not the foreign-engine mismatch the suite
@@ -48,8 +49,8 @@ prefix needed; the network bake goes through `mise run twic:bake`.)
 
 Every constellation pins `output=png`. `dpr` is intentionally omitted: the live
 TwicPics default DPR is already 1x — verified byte-identical output with and without
-`dpr=1` — and ImagePipe's TwicPics parser does not implement `dpr`, so pinning it
-would break the shared render path with no determinism gain. No path-default
+`dpr=1` — and the ImagePipe dialect does not implement `dpr`, so pinning it
+would break the local render path with no determinism gain. No path-default
 manipulation.
 
 ## libvips provenance — record both, compare anyway
@@ -239,9 +240,9 @@ is quarantined).
 - [#464](https://github.com/hlindset/image_pipe/issues/464) tracks
   `resize_shadow_relative_then_absolute` (`resize=50p/resize=340`). TwicPics discards the
   shadowed relative resize and returns the same 340×340 bytes as direct `resize=340`;
-  the current parser executes both steps and returns 200×200 because plain resize
-  doesn't enlarge. Phase 2 removes the quarantine after both local arms implement the
-  upstream-proven shadow rewrite and must reuse this fixture.
+  the local dialect executes both steps and returns 200×200 because plain resize
+  doesn't enlarge. Phase 2B owns the upstream-proven shadow rewrite and must reuse
+  this fixture.
 
 **Current monitored divergences (5).**
 
@@ -300,5 +301,5 @@ unexplored and out of scope for this suite.
 
 TwicPics 404s on negative-coordinate focus (`focus=-1x-1`); ImagePipe 400s. There is
 no usable output to decode from either response, so this contract cannot be exercised
-by the differential suite. It is covered by the TwicPics parser unit/wire tests
+by the differential suite. It is covered by the dialect error and wire tests
 (`test/image_pipe/twic_pics_wire_conformance_test.exs`).

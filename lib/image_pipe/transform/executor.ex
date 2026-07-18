@@ -35,10 +35,9 @@ defmodule ImagePipe.Transform.Executor do
   # flush — through the resolver-advanced shape; the resolve-time reads (Lowering,
   # ResizePlanning) take the shape directly.
   #
-  # The strategy's own per-pipeline state (e.g. the TwicPics resolver's carried
-  # focus point) is threaded through `strategy`, carried forward via the
-  # continuation the strategy returns — the driver never reads or computes
-  # strategy-specific state itself.
+  # The strategy's own per-pipeline state is threaded through `strategy` and
+  # carried forward via the continuation it returns. The driver never reads or
+  # computes strategy-specific state itself.
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Pipeline
@@ -302,9 +301,8 @@ defmodule ImagePipe.Transform.Executor do
   # answers effective_source_dims, otherwise the live image speaks for itself —
   # including after the boundary flush swaps the displayed axes.
   #
-  # This flush never touches a strategy's carried point: nothing consumes a
-  # point after the pipeline boundary (TwicPics plans are single-pipeline), so
-  # the omission is unobservable for every parser-reachable pipeline.
+  # This flush never touches a strategy's carried point. Strategy state dies at
+  # the pipeline boundary, so no later operation can consume it.
   defp flush_boundary(%State{} = state, %SourceShape{} = shape, chain, opts) do
     state = %State{
       state

@@ -31,7 +31,7 @@ defmodule ImagePipe.Plan.Operation.Resize do
   @type weights :: %{optional(:default) => number(), optional(String.t()) => number()}
   @type guide ::
           :center
-          # requires a point-carrying resolver strategy (e.g. the TwicPics parser's)
+          # requires a point-carrying resolver strategy
           | :deferred
           | {:anchor, anchor(), anchor()}
           | {:focal, ratio(), ratio()}

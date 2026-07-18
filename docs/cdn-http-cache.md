@@ -6,9 +6,8 @@ level, and a source adapter can override it.
 
 ```elixir
 forward "/images",
-  to: ImagePipe.Plug,
+  to: ImagePipe.Dialect.TwicPics,
   init_opts: [
-    parser: ImagePipe.Parser.TwicPics,
     sources: [
       path:
         {ImagePipe.Source.File,
@@ -16,16 +15,16 @@ forward "/images",
          root_id: "primary",
          stable: :trusted,
          http_cache: :enabled}
-    ],
-    http_cache: [mode: :enabled]
+    ]
   ]
 ```
 
-`http_cache: [mode: :enabled]` on the Plug turns on generated shared-cache
-headers. `http_cache: :enabled` on a source forces that source to use the HTTP
-cache path even when the Plug option uses `mode: :disabled`. `http_cache:
-:disabled` on a source suppresses generated cache headers even when the Plug
-option uses `mode: :enabled`.
+On the TwicPics dialect mount, `http_cache: :enabled` on the source enables the
+generated HTTP cache path. On an `ImagePipe.Plug` framework mount,
+`http_cache: [mode: :enabled]` enables it at the Plug level. A source-level
+setting overrides the framework mount: `:enabled` forces the path even when the
+Plug uses `mode: :disabled`, while `:disabled` suppresses generated cache
+headers when the Plug uses `mode: :enabled`.
 
 Source-level `http_cache: :enabled` doesn't force an ETag. The resolved source
 still needs strong byte identity.

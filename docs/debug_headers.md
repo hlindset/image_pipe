@@ -13,17 +13,15 @@ Two independent controls must both be satisfied for any header to be emitted:
    deployment-level switch. When `false`, no debug headers are ever rendered.
 
    ```elixir
-   plug ImagePipe.Plug,
-     parser: ImagePipe.Parser.TwicPics,
+   plug ImagePipe.Dialect.TwicPics,
      sources: [...],
      allow_debug_headers: true
    ```
 
-   Debug headers are an `ImagePipe.Plug` feature. The imgproxy stack
-   (`ImagePipe.Dialect.Imgproxy`) parses the `debug:1` processing option —
-   it rides in the signed processing-options path, so the path signature
-   covers it — but collects no debug facts and emits no debug headers, and
-   its config has no `allow_debug_headers` switch.
+   Debug headers are available on `ImagePipe.Plug` and
+   `ImagePipe.Dialect.TwicPics`. The imgproxy stack parses the `debug:1`
+   processing option in its signed path. It collects no debug facts, emits no
+   debug headers, and has no `allow_debug_headers` switch.
 
 2. **Per-request trigger** — opts a single request into debug headers. Honored
    only when `allow_debug_headers: true`; otherwise ignored. The trigger is
@@ -150,7 +148,7 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 ## Demo (fiddle)
 
 The bundled demo (`fiddle/`) configures its TwicPics and IIIF mounts with
-`allow_debug_headers: true` and injects each parser's debug trigger into its
+`allow_debug_headers: true` and injects each stack's debug trigger into its
 preview requests (TwicPics `debug=1`, IIIF `?debug=1`). Its service worker reads
 these headers off the fetched response and surfaces them in a **Debug headers**
 panel under the preview, including the derived output size and compression
