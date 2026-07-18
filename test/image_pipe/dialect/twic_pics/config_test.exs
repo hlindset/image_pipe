@@ -3,7 +3,6 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
 
   alias ImagePipe.Dialect.TwicPics
   alias ImagePipe.Dialect.TwicPics.Config
-  alias ImagePipe.Dialect.TwicPics.NotImplementedError
   alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.SourceTest.CustomAdapter
 
@@ -25,7 +24,9 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
   end
 
   test "call is an explicit stub until the dialect lifecycle lands" do
-    assert_raise NotImplementedError, fn -> TwicPics.call(%Plug.Conn{}, Config.validate!([])) end
+    assert_raise RuntimeError, "TwicPics request execution is not implemented", fn ->
+      TwicPics.call(%Plug.Conn{}, Config.validate!([]))
+    end
   end
 
   test "a neutral quality override resolves through ImagePipe.Config" do

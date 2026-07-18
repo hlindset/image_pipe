@@ -367,10 +367,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   test "core, transform, and parser code does not name the TwicPics dialect" do
+    assert twicpics_dialect_reference?("ImagePipe.Dialect.TwicPics.call(conn, opts)")
+    assert twicpics_dialect_reference?("Dialect.TwicPics.call(conn, opts)")
+
     violations =
       for file <- dialect_forbidden_files(),
           {line, number} <- File.read!(file) |> String.split("\n") |> Enum.with_index(1),
-          String.contains?(line, "ImagePipe.Dialect.TwicPics") do
+          twicpics_dialect_reference?(line) do
         "#{file}:#{number} must not name ImagePipe.Dialect.TwicPics; " <>
           "the TwicPics dialect must be removable without changing the core"
       end
@@ -989,6 +992,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.filter(fn {line, _number} -> String.contains?(line, "ImagePipe.Dialect") end)
     |> Enum.map(fn {_line, number} -> %{line: number, module: "ImagePipe.Dialect"} end)
   end
+
+  defp twicpics_dialect_reference?(line), do: String.contains?(line, "Dialect.TwicPics")
 
   defp resolver_strategy_files do
     @resolver_strategy_globs
