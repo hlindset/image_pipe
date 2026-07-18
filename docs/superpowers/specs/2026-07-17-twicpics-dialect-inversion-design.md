@@ -2,7 +2,8 @@
 
 **Date:** 2026-07-17
 
-**Status:** Approved design. Implementation planning hasn't started.
+**Status:** Phase 1 implemented. Phase 2 sequence revised 2026-07-18;
+implementation planning hasn't started.
 
 **Precedent:**
 [`2026-07-15-imgproxy-dialect-inversion-design.md`](2026-07-15-imgproxy-dialect-inversion-design.md),
@@ -13,8 +14,9 @@
 Build `ImagePipe.Dialect.TwicPics` as a self-contained Plug assembled from
 ImagePipe's core toolkit. It first runs beside the frozen
 `ImagePipe.Parser.TwicPics` framework stack under a dual-run conformance net.
-After recorded gaps close under that net, the dialect becomes the sole
-TwicPics stack and the parser-specific framework path is removed.
+After that net proves an exact copy, the dialect becomes the sole TwicPics
+stack. Supported-surface gaps then close once in the dialect against the
+committed SaaS oracle. The parser-specific strategy SDK retires last.
 
 This inversion applies the imgproxy direction to an order-sensitive product.
 TwicPics transformations are positional: each manipulation sees the result of
@@ -36,8 +38,9 @@ remain the upstream oracle.
 - Dual-running the frozen parser arm and the new dialect arm.
 - Reusing the committed TwicPics SaaS fixtures without re-baking them for the
   inversion.
-- Closing recorded stack divergences and defects in the currently supported
-  TwicPics surface while both arms remain live.
+- Retiring the comparison arm while it remains exactly equal to the dialect.
+- Closing recorded defects in the currently supported TwicPics surface once in
+  the sole dialect against committed SaaS evidence.
 - Making the dialect the sole TwicPics stack.
 - Removing `ImagePipe.Parser.TwicPics` and its parser-owned helpers.
 - Removing the geometry strategy SDK after its last product consumer retires:
@@ -83,9 +86,9 @@ Three upstream rules constrain the architecture:
 
 The third rule exposes a current ImagePipe defect: the parser executes both
 resizes, and its no-enlarge behavior leaves the example at 200×200 instead of
-TwicPics' 340×340. The support matrix currently calls static chain collapse an
-optimization rather than correctness. The inversion baseline must record this
-as a behavioral divergence and close it under the live two-arm net.
+TwicPics' 340×340. The inversion baseline records this as a behavioral
+divergence under both local arms. Phase 2 closes it once in the sole dialect
+against the committed hosted fixture.
 
 The no-enlarge policy isn't itself a known divergence. A live probe against
 the committed 400×400 grid source returned 400×400 for both `resize=600` and
@@ -111,10 +114,10 @@ against those upstream sources and live behavior. Agreement with
 - `test/support/image_pipe/test/twicpics_differential/source_inventory.ex`
   owns the committed source inventory and hosted-source identity.
 
-The current authored constellation set contains 37 fixtures, five monitored
-`:diverges` cases, and no `:triage` quarantines. The differential README still
-contains an older 30-fixture/two-divergence census. Phase 1 corrects that drift
-and makes the census assertion-backed or generated where practical.
+The phase-1 authored constellation set contains 40 fixtures: 34 `:equal`, five
+monitored `:diverges`, and one `:triage` quarantine for the shadowing defect.
+The differential README and exit evidence record that census. Tests derive the
+default-lane and quarantine counts from the constellation catalog.
 
 ## Current architecture
 
@@ -183,7 +186,7 @@ declaration alone can't enforce this clause.
 | T2 | The dialect request contains an ordered semantic step stream. | TwicPics meaning depends on manipulation position; a declarative option bag would erase behavior. |
 | T3 | Focus carry is pipeline-local. | Runtime positional state doesn't belong in shared Plan markers. |
 | T4 | The framework strategy SDK retires after the one-way transition. | With all product-specific runtime pipelines inverted, host parsers return only product-neutral declarative Plans. |
-| T5 | Phase 1 uses frozen SaaS fixtures plus an exact cross-arm comparison. | SaaS tolerance must not hide a regression introduced by the dialect copy. |
+| T5 | Phase 1 uses frozen SaaS fixtures plus an exact cross-arm comparison; Phase 2 retires the comparison arm before changing product behavior. | Exact cross-arm evidence proves the copy. Once that evidence is frozen, the legacy implementation is redundant rather than an upstream oracle. |
 | T6 | Gap closure covers recorded stack gaps and supported-surface defects, not the complete TwicPics API. | Retirement is an architectural transition, not an unbounded compatibility program. |
 | T7 | Issue #457 uses the existing output negotiation seam, a new Response→Representation header seam, and definition-level ExDNA suppression. | The neutral decisions move to core while irreducible product chains remain visible. |
 | T8 | No generic dialect runner is introduced. | Native, imgproxy, and TwicPics share lifecycle nouns but not one observable control-flow contract. |
@@ -193,6 +196,7 @@ declaration alone can't enforce this clause.
 | T12 | A fixed neutral execution driver lands and is cross-checked before strategy injection disappears. | Neutral measured stages still need continuations after product carry retires. |
 | T13 | ImagePipe doesn't replace the strategy SDK with a public dialect-pipeline SDK. | Host parsers end at neutral Plans; product-specific ordered Plugs own their orchestration without relying on dialect internals. |
 | T14 | The inversion records a frozen oracle baseline commit before the dialect copy. | Fixture bytes, sources, manifest, and report stay byte-identical throughout copy and parity fixes. |
+| T15 | Phase 2 runs in three ordered waves: comparison-arm retirement, dialect-only gap closure, then strategy-SDK retirement. | Fixing known defects in both local arms would create disposable legacy work. Keeping SDK deletion separate limits the first retirement wave to behavior-preserving consumer migration and parser deletion. |
 
 ## Dialect structure
 
@@ -420,8 +424,9 @@ can't conceal an ordering regression.
 TwicPics syntax and request-shape failures preserve the current 400 text
 response contract unless the support matrix records a sourced upstream error
 mapping. Negative-coordinate focus is one known error-surface divergence: live
-TwicPics answers 404 while ImagePipe currently answers 400. Phase 2 either maps
-that case to 404 in both arms or retains 400 as an explicit accepted divergence.
+TwicPics answers 404 while ImagePipe answers 400. This remains an explicit
+accepted error-surface divergence; it doesn't block the architectural
+retirement.
 Shared source, decode, input-limit, transform, output, encode, and delivery
 failures use the existing core status and telemetry classification. The dialect
 owns translation from its private parse errors to that observable response;
@@ -768,64 +773,26 @@ The oracle prerequisite corrects the stale census and divergence descriptions
 in both conformance documents. Phase 1 keeps them synchronized with the frozen
 baseline without re-baking.
 
-## Phase 2, wave 1: Close gaps under the live net
+## Phase 2A: Retire the comparison arm at exact parity
 
-Gap closure means:
+Phase 1 established the transition invariant:
 
-- every recorded framework-vs-dialect divergence;
-- every supported-surface defect exposed by the live wire or SaaS nets;
-- every config, identity, delivery, safety, or telemetry seam required for a
-  host to move from the parser arm without observable regression.
+```text
+Dialect.TwicPics == Parser.TwicPics for every local observable
+Dialect.TwicPics ~= hosted TwicPics under each authored SaaS verdict
+```
 
-It doesn't mean implementing every rejected or missing TwicPics feature.
+The parser arm is a copy baseline, not the compatibility target. After the
+exact local equality is recorded in the phase-1 exit evidence, changing both
+implementations to close an upstream gap would add work to code scheduled for
+deletion. Phase 2A therefore retires the parser while both arms still implement
+the same known behavior, including the explicitly quarantined shadowing defect
+and the documented `output=auto` gap.
 
-Each gap follows this evidence sequence:
+This wave is behavior-preserving. It doesn't remove a fixture quarantine, change an
+authored verdict, add a TwicPics manipulation, or alter output selection.
 
-1. Remove its framework-only gate or otherwise enable the dialect assertion.
-2. Run the focused test and record RED on the dialect arm.
-3. Implement the fix without changing fixtures.
-4. Run both arms GREEN.
-5. Update the support matrix on the affected conformance axis.
-6. Run the full dual-run suites before the batch commits.
-
-The first compatibility gap is the quarantined shadowing constellation.
-Remove its `:triage` gate, record RED on both local arms against the committed
-SaaS fixture, implement the upstream-proven shadow rewrite in both arms, then
-run it GREEN and leave it as an ordinary `:equal` case. Removing `:triage`
-doesn't refresh or re-bake the manifest.
-
-The following accepted upstream differences aren't retirement blockers by
-default:
-
-- fractional-area `cover=W:H` `resampling`;
-- invisible RGB beneath transparent letterboxing under shrink;
-- `focus=auto`'s unspecified upstream algorithm;
-- extreme exact-rational versus IEEE-754 range behavior.
-
-The fractional-cover and transparent-letterbox differences have pixel fixtures
-with two-sided monitored bands. `focus=auto` and extreme-number range behavior
-are documented divergences without equivalent pixel-lane monitoring; the
-support matrix and focused wire/parser coverage own those claims. A review
-must not describe an unmonitored difference as monitored.
-
-### Wave-1 exit gate
-
-- No framework-only TwicPics wire gates remain.
-- Both arms pass every wire case.
-- Both arms pass every SaaS constellation verdict.
-- Exact cross-arm comparison is clean.
-- The support matrix contains no stale stack-divergence statement.
-- Differential fixtures remain unchanged.
-- A full `mise run precommit` passes.
-
-This unreleased library has no soak pause. The full live dual-run net is the
-trust evidence for the one-way transition.
-
-## Phase 2, wave 2: One-way retirement
-
-Wave 2 removes the comparison arm only after wave 1's exit gate passes.
-
-### Fixed neutral driver before transition
+### Fixed neutral driver before parser retirement
 
 The current `Transform.Executor` sends neutral Plans through the same dynamic
 `ImagePipe.Resolver` dispatch and measured-stage continuation protocol used by
@@ -843,8 +810,10 @@ Before removing the TwicPics parser arm:
    `Parser.TwicPics` continues through its custom strategy.
 4. Run the full framework, IIIF, and TwicPics dual-run nets before proceeding.
 
-Only dynamic host-strategy selection, product carry, carry wrapping, and the
-custom strategy callback contract retire. Neutral staged execution remains.
+Phase 2A doesn't remove the injected-strategy path. It proves and activates the
+fixed neutral path for `resolver: nil` Plans and IIIF, while the parser arm
+continues to exercise its custom strategy until deletion. Strategy injection
+retires only in Phase 2C. Neutral staged execution remains throughout.
 
 ### Coverage migration
 
@@ -858,10 +827,10 @@ is classified before deletion:
   surviving dialect coverage proves the same behavior.
 
 The inventory explicitly includes the cache-key tests and source comment that
-pin resolver tags to `NeutralResolver.behavior_version/0`. After strategy
-retirement, replace them with a canonical-material assertion that the removed
-resolver field is absent; don't silently delete the drift assertion as an
-unnoticed side effect of removing the callback.
+pin resolver tags to `NeutralResolver.behavior_version/0`. Phase 2A leaves
+those strategy-vocabulary rows classified for Phase 2C. Parser-owned product
+tests and live consumers migrate now; cache-key and neutral-driver assertions
+that depend on SDK removal migrate in Phase 2C.
 
 Ported tests must demonstrate that they can fail through pre-port RED or a
 temporary mutation of production behavior that the test targets. Changing only
@@ -885,7 +854,7 @@ Parser deletion waits until every live consumer has moved:
 - bake, diagnose, report, inventory, and manifest tests contain no live parser
   dependency.
 
-### Parser retirement
+### Parser retirement and net collapse
 
 After the fixed neutral driver and all live-consumer migrations pass, cut the
 TwicPics request surface to the dialect and delete the
@@ -896,9 +865,102 @@ parity-only tests. Only after those two-arm callers are gone may the shared
 harness structures collapse to a single local arm. The hosted SaaS fixtures
 remain the external behavioral oracle.
 
-### Strategy SDK retirement
+The dialect-only differential harness retains the same authored verdicts,
+tolerances, fixture hashes, source inventory, and quarantine metadata. The
+exact cross-arm comparator and copy-parity-only tests retire because their
+transition purpose is complete.
 
-After the parser arm is gone, remove:
+### Phase-2A exit gate
+
+- The fixed neutral driver matches the dynamic neutral path over IIIF and the
+  product-neutral operation corpus before transition.
+- IIIF and all `resolver: nil` Plans use the fixed neutral driver.
+- Every live TwicPics mount, fixture tool, and test harness uses
+  `ImagePipe.Dialect.TwicPics`.
+- The phase-1 inventory's parser-owned `PORT`, `REPOINT`, and `DELETE`
+  dispositions are complete, with failure evidence for every port or caller move
+  and surviving-coverage citations for deletions.
+- `ImagePipe.Parser.TwicPics` and the two-arm harness machinery are absent from
+  live code and tests.
+- The dialect-only wire suite preserves the phase-1 observable answers.
+- The dialect-only SaaS suite preserves all authored verdicts, including the
+  shadowing quarantine. Fixture bytes and manifest authorship stay unchanged.
+- The strategy SDK remains live only for its later, separately reviewed
+  retirement; Phase 2A doesn't mix product-behavior fixes with that cleanup.
+- The support matrix describes the dialect as the sole TwicPics stack while
+  retaining every known compatibility gap.
+- `mise run precommit` and, because the fiddle moves, `mise run
+  precommit:fiddle` pass. `fiddle/mix.lock` isn't committed.
+
+The phase-1 exact comparison and this behavior-preserving exit gate are the
+trust evidence for one-way parser deletion. This unreleased library has no soak
+pause.
+
+## Phase 2B: Close upstream gaps in the sole dialect
+
+Gap closure means:
+
+- every supported-surface defect exposed by the wire or SaaS nets;
+- every config, identity, delivery, safety, or telemetry seam required for the
+  dialect to match its documented surface;
+- every recorded compatibility question that the support matrix marks as a
+  blocker for this inversion.
+
+It doesn't mean implementing every rejected or missing TwicPics feature.
+
+Each gap follows this evidence sequence:
+
+1. Enable or add the dialect-only assertion against committed SaaS evidence.
+2. Run the focused test and record RED through the sole dialect entry point.
+3. Implement the fix without changing fixtures.
+4. Run the focused wire and SaaS cases GREEN.
+5. Update the support matrix on the affected conformance axis.
+6. Run the full dialect-only suites before the batch commits.
+
+The first compatibility gap is the quarantined shadowing constellation. Remove
+its `:triage` gate, record the dialect's 200×200 RED against the committed
+340×340 SaaS fixture, implement the upstream-proven shadow rewrite once in the
+dialect, then run it GREEN as an ordinary `:equal` case. Removing `:triage`
+doesn't refresh or re-bake the manifest.
+
+The `output=auto` gap follows as a separate evidence batch. Record the reviewed
+hosted response selection for representative `Accept` headers, add a focused
+dialect assertion that distinguishes WebP from the current AVIF default, and
+either match the hosted selection or document a deliberate divergence. The
+choice must not change the product-neutral output policy for Native, imgproxy,
+or IIIF.
+
+The following accepted upstream differences aren't Phase-2B blockers by
+default:
+
+- fractional-area `cover=W:H` sampling;
+- invisible RGB beneath transparent letterboxing under shrink;
+- `focus=auto`'s unspecified upstream algorithm;
+- extreme exact-rational versus IEEE-754 range behavior.
+
+The fractional-cover and transparent-letterbox differences have pixel fixtures
+with two-sided monitored bands. `focus=auto` and extreme-number range behavior
+are documented divergences without equivalent pixel-lane monitoring; the
+support matrix and focused wire/grammar coverage own those claims. A review
+must not describe an unmonitored difference as monitored.
+
+### Phase-2B exit gate
+
+- The shadowing case is an ordinary asserted constellation and matches its
+  committed SaaS fixture without a re-bake.
+- `output=auto` has a sourced, executable compatibility decision and no stale
+  partial-surface prose.
+- The dialect-only wire suite passes every supported case.
+- The dialect-only SaaS suite passes every non-quarantined verdict.
+- The support matrix contains no stale parser-arm or unresolved blocking-gap
+  statement.
+- Differential fixtures remain unchanged except for separately approved new
+  evidence; a behavior fix never rewrites an existing oracle.
+- `mise run precommit` passes.
+
+## Phase 2C: Retire the strategy SDK
+
+After the parser arm is gone and dialect-only gap closure is green, remove:
 
 - `ImagePipe.Resolver` behaviour and wrapper;
 - `ImagePipe.Plan.resolver` and its validation;
@@ -915,6 +977,11 @@ After the parser arm is gone, remove:
 implementation details where runtime geometry needs neutral lowering. The
 fixed driver retains measured-stage continuation. Retirement removes host
 strategy injection, not neutral runtime geometry.
+
+The phase-1 retirement inventory's SDK rows apply here. In particular, replace
+the resolver-version cache-key pin with a canonical-material assertion that the
+removed resolver field is absent; don't silently lose the drift assertion while
+removing the callback.
 
 The cleanup is one-way. Don't add a compatibility adapter that reconstructs
 the deleted strategy vocabulary around the dialect.
@@ -950,7 +1017,7 @@ AGENTS.md's marker-accretion guidance is updated cleanly once the last live
 marker disappears. Any retained general rule must not claim a live in-tree
 example that no longer exists.
 
-### Retirement exit gate
+### Phase-2C exit gate
 
 - This negative live-surface gate passes; historical `docs/superpowers/**`
   records are excluded. This is a one-time manual exit check, not a committed
@@ -1012,7 +1079,7 @@ Implementation work follows these rules:
     MIX_ENV=test mix deps.get && \
     MIX_ENV=test VIX_COMPILATION_MODE=PLATFORM_PROVIDED_LIBVIPS mix deps.compile vix
   ```
-- Un-gate RED before implementing a parity fix.
+- Record focused dialect RED before implementing a compatibility fix.
 - Prove ported tests can fail.
 - Cite surviving coverage for deletions.
 - Don't re-bake differential fixtures as a fix.
@@ -1036,7 +1103,15 @@ sourced shadow rewrites and include a non-shadowing counterexample.
 ### SaaS tolerance hides a copy regression
 
 **Control:** exact local arm-to-arm comparison is independent of the SaaS
-verdict.
+verdict and is frozen in the phase-1 exit evidence before parser deletion.
+
+### Parser retirement removes the local reference before gap closure
+
+**Control:** the parser is only a copy baseline. Phase 2A changes no TwicPics
+behavior, preserves every hosted verdict and quarantine, and cites surviving
+coverage for every deletion. Phase 2B drives changes from committed hosted
+fixtures and focused dialect RED rather than treating the known-wrong parser
+as an oracle.
 
 ### Focus carry drifts from executed geometry
 
@@ -1073,20 +1148,22 @@ manifest, and report byte-identical. Any new constellation or authored verdict
 change establishes a separately reviewed baseline rather than sharing a parity
 fix commit.
 
-## Design completion criteria
+## Phase-2 revision completion criteria
 
-This design is ready for implementation planning when:
+This revision is ready for implementation planning when:
 
-- the decisions table is approved;
-- a compatibility reviewer has checked order, coordinate, unit, focus, and
-  fixture claims against real TwicPics sources;
-- an architecture reviewer has checked the dependency inversion gate, Boundary direction,
-  host-parser contraction, and strategy-SDK retirement;
-- a verification reviewer has checked dual-run, bake, RED-before-fix,
-  coverage-port, and one-way-retirement evidence;
+- the three-wave order in T15 is approved;
+- a compatibility reviewer confirms that parser deletion doesn't discard an
+  upstream oracle and that the dialect-only gap evidence still targets hosted
+  TwicPics;
+- an architecture reviewer checks the fixed-driver transition, parser deletion,
+  host-parser contraction, and later strategy-SDK retirement as separate
+  boundaries;
+- a verification reviewer checks the preserved phase-1 evidence, fixture
+  freeze, port/delete discipline, dialect-only RED, and one-way gates;
 - accepted review findings are incorporated;
 - Vale and repository documentation checks pass;
-- the reviewed specification is committed.
+- the reviewed revision is committed.
 
-Implementation planning starts only after explicit user approval in a later
-session.
+Phase 2 implementation planning starts after explicit user approval of this
+revision.
