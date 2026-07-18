@@ -117,7 +117,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
           cache: {ImgproxyWireConformanceTest.CacheProbe, []}
         )
 
-      call_arm(arm, :get, path, opts, [{"if-none-match", etag}])
+      {first, call_arm(arm, :get, path, opts, [{"if-none-match", etag}])}
     end)
     |> List.to_tuple()
   end
@@ -146,7 +146,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
     |> List.to_tuple()
   end
 
-  defp assert_observable_parity(framework, dialect) do
+  defp assert_observable_parity(framework, dialect, expected_etag_kind) do
     assert framework.status == dialect.status
 
     for name <- ["content-type", "vary"] do
@@ -155,7 +155,12 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
 
     assert header(framework, "cache-control") == @host_cache_control
     assert header(dialect, "cache-control") == @host_cache_control
-    assert etag_kind(framework) == etag_kind(dialect)
+    assert_etag_kinds(framework, dialect, expected_etag_kind)
+  end
+
+  defp assert_etag_kinds(framework, dialect, expected_kind) do
+    assert etag_kind(framework) == expected_kind
+    assert etag_kind(dialect) == expected_kind
   end
 
   defp etag_kind(conn) do
@@ -163,10 +168,25 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
       nil ->
         :absent
 
-      etag when is_binary(etag) ->
-        {:strong, String.starts_with?(etag, "\"") and String.ends_with?(etag, "\"")}
+      "W/" <> opaque_tag ->
+        if valid_opaque_tag?(opaque_tag), do: :weak, else: :malformed
+
+      opaque_tag ->
+        if valid_opaque_tag?(opaque_tag), do: :strong, else: :malformed
     end
   end
+
+  defp valid_opaque_tag?(<<"\"", rest::binary>>) do
+    case :binary.split(rest, "\"", [:global]) do
+      [opaque, ""] -> Enum.all?(:binary.bin_to_list(opaque), &etag_character?/1)
+      _malformed -> false
+    end
+  end
+
+  defp valid_opaque_tag?(_etag), do: false
+
+  defp etag_character?(character),
+    do: character == 0x21 or character in 0x23..0x7E or character >= 0x80
 
   defp assert_decoded_parity(framework, dialect) do
     assert decoded_material(framework) == decoded_material(dialect)
@@ -199,11 +219,27 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
     end
   end
 
+  test "ETag classification distinguishes strong, weak, malformed, and absent values" do
+    assert etag_kind(conn(:get, "/")) == :absent
+
+    assert etag_kind(conn(:get, "/") |> Plug.Conn.put_resp_header("etag", "\"strong\"")) ==
+             :strong
+
+    assert etag_kind(conn(:get, "/") |> Plug.Conn.put_resp_header("etag", "W/\"weak\"")) ==
+             :weak
+
+    assert etag_kind(conn(:get, "/") |> Plug.Conn.put_resp_header("etag", "unquoted")) ==
+             :malformed
+
+    assert etag_kind(conn(:get, "/") |> Plug.Conn.put_resp_header("etag", "\"unterminated")) ==
+             :malformed
+  end
+
   test "explicit PNG has exact cross-arm bytes, decoded pixels, and stable headers" do
     {framework, dialect} =
       call_both("/images/beach.jpg?twic=v1/resize=64/output=png", strong_opts())
 
-    assert_observable_parity(framework, dialect)
+    assert_observable_parity(framework, dialect, :strong)
     assert_decoded_parity(framework, dialect)
     assert framework.resp_body == dialect.resp_body
   end
@@ -212,7 +248,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
     {framework, dialect} =
       call_both("/images/beach.jpg?twic=v1/cover=80x60/output=jpeg", strong_opts())
 
-    assert_observable_parity(framework, dialect)
+    assert_observable_parity(framework, dialect, :strong)
     assert_decoded_parity(framework, dialect)
   end
 
@@ -224,7 +260,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
         [{"accept", "image/webp"}]
       )
 
-    assert_observable_parity(framework, dialect)
+    assert_observable_parity(framework, dialect, :strong)
     assert_decoded_parity(framework, dialect)
     assert header(framework, "content-type") == "image/webp"
     assert "accept" in vary_names(framework)
@@ -235,16 +271,21 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
       call_both("/images/beach.jpg?twic=v1/unknown=1", strong_opts())
 
     assert framework.status == 400
-    assert_observable_parity(framework, dialect)
+    assert_observable_parity(framework, dialect, :absent)
   end
 
   test "strong conditional requests have cross-arm 304 observables" do
-    {framework, dialect} = conditional_pair()
+    {{framework_origin, framework}, {dialect_origin, dialect}} = conditional_pair()
 
+    assert framework_origin.status == 200
+    assert dialect_origin.status == 200
+    assert_etag_kinds(framework_origin, dialect_origin, :strong)
     assert framework.status == 304
     assert framework.resp_body == ""
     assert dialect.resp_body == ""
-    assert_observable_parity(framework, dialect)
+    assert header(framework, "etag") == header(framework_origin, "etag")
+    assert header(dialect, "etag") == header(dialect_origin, "etag")
+    assert_observable_parity(framework, dialect, :strong)
   end
 
   test "HEAD has cross-arm GET metadata and no body" do
@@ -259,13 +300,13 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
     assert framework.status == 200
     assert framework.resp_body == ""
     assert dialect.resp_body == ""
-    assert_observable_parity(framework, dialect)
+    assert_observable_parity(framework, dialect, :strong)
   end
 
   test "cache hits have cross-arm decoded pixels and stable headers" do
     {framework, dialect} = cache_hit_pair()
 
-    assert_observable_parity(framework, dialect)
+    assert_observable_parity(framework, dialect, :strong)
     assert_decoded_parity(framework, dialect)
   end
 
@@ -276,7 +317,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest.CrossArm do
         strong_opts(allow_debug_headers: true)
       )
 
-    assert_observable_parity(framework, dialect)
+    assert_observable_parity(framework, dialect, :strong)
     assert_decoded_parity(framework, dialect)
 
     for name <- @stable_debug_headers do
