@@ -165,6 +165,29 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
              PointFlow.resolve(shape(400, 400), flow, {:focused, op})
   end
 
+  test "a region crop resets auto to point mode and translates the carried point" do
+    flow =
+      PointFlow.init()
+      |> then(&PointFlow.set_focus(shape(640, 480), &1, {:coord, {:px, 300}, {:px, 200}}))
+      |> PointFlow.set_auto()
+
+    {:ok, operation} =
+      Operation.crop_region({:px, 100}, {:px, 100}, {:px, 500}, {:px, 300})
+
+    assert {[
+              %Crop{
+                width: {:pixels, 500},
+                height: {:pixels, 300},
+                crop_from: %{left: {:pixels, 100}, top: {:pixels, 100}}
+              }
+            ],
+            {:advance, _shape,
+             %PointFlow{
+               guide: :point,
+               point: {{:ratio, 200, 1}, {:ratio, 100, 1}}
+             }}} = PointFlow.resolve(shape(640, 480), flow, {:operation, operation})
+  end
+
   test "a known point- and dims-neutral effect passes the carry unchanged" do
     point = {{:ratio, 10, 1}, {:ratio, 20, 1}}
     flow = %PointFlow{guide: :point, point: point}

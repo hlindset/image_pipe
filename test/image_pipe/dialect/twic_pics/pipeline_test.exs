@@ -20,6 +20,7 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
 
   @beach "priv/static/images/beach.jpg"
   @p3 "test/support/image_pipe/test/imgproxy_differential/sources/icc_p3.png"
+  @detect_telemetry_prefix [:image_pipe_twic_pics_pipeline_detect_test]
 
   defp state_for(width, height, opts \\ []) do
     {:ok, image} = Image.new(width, height, color: [120, 80, 40])
@@ -30,6 +31,35 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
       decode_shrink: Keyword.get(opts, :decode_shrink)
     }
   end
+
+  defp asymmetric_state_for(width, height) do
+    image =
+      for col <- 0..7, row <- 0..5, reduce: Image.new!(width, height, color: [0, 0, 0]) do
+        acc ->
+          color = [rem(col * 41 + row * 13, 256), rem(col * 17 + row * 47, 256), 255 - col * 19]
+
+          Image.compose!(
+            acc,
+            Image.new!(div(width, 8), div(height, 6), color: color),
+            x: col * div(width, 8),
+            y: row * div(height, 6)
+          )
+      end
+
+    detail =
+      for col <- 0..5, row <- 0..5, reduce: Image.new!(96, 96, color: [0, 0, 0]) do
+        acc ->
+          Image.compose!(acc, Image.new!(16, 16, color: checker_color(col + row)),
+            x: col * 16,
+            y: row * 16
+          )
+      end
+
+    %State{image: Image.compose!(image, detail, x: 120, y: 120)}
+  end
+
+  defp checker_color(value) when rem(value, 2) == 0, do: [255, 255, 255]
+  defp checker_color(_value), do: [0, 0, 0]
 
   defp exif_state_for(width, height, orientation) do
     body =
@@ -88,13 +118,23 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
 
     for chain <- cases do
       {request, plan} = build(chain)
-      state = state_for(640, 480)
+      state = asymmetric_state_for(640, 480)
 
       assert {:ok, local} = Pipeline.run(state, geometry(640, 480), request, [])
       assert {:ok, legacy} = Transform.execute_plan(plan, state, [])
 
       assert png(local.image) == png(legacy.image), "pixel mismatch for #{inspect(chain)}"
     end
+  end
+
+  test "auto focus followed by a region crop resets before the next focused crop" do
+    chain = [{"focus", "auto"}, {"crop", "500x300@100x100"}, {"crop", "160x100"}]
+    {request, plan} = build(chain)
+    state = asymmetric_state_for(640, 480)
+
+    assert {:ok, local} = Pipeline.run(state, geometry(640, 480), request, [])
+    assert {:ok, legacy} = Transform.execute_plan(plan, state, [])
+    assert png(local.image) == png(legacy.image)
   end
 
   test "region crops and canvases advance the running frame seen by later operations" do
@@ -208,19 +248,29 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
     chain = [{"focus", "auto"}, {"crop", "40x40"}]
     {request, plan} = build(chain)
 
-    for {label, opts, expected_event} <- [
-          {:configured, [detector: FakeDetector], [:image_pipe, :transform, :detect, :stop]},
-          {:disabled, [detector: nil], [:image_pipe, :transform, :detect, :skipped]},
+    for {label, detector_opts, expected_suffix} <- [
+          {:configured, [detector: FakeDetector], [:transform, :detect, :stop]},
+          {:disabled, [detector: nil], [:transform, :detect, :skipped]},
           {:required_missing, [detector: nil, detector_required: true],
-           [:image_pipe, :transform, :detect, :skipped]}
+           [:transform, :detect, :skipped]}
         ] do
-      state = state_for(80, 60)
+      state = %State{
+        state_for(80, 60)
+        | telemetry_opts: [telemetry_prefix: @detect_telemetry_prefix]
+      }
+
+      opts = Keyword.put(detector_opts, :telemetry_prefix, @detect_telemetry_prefix)
+      expected_event = @detect_telemetry_prefix ++ expected_suffix
 
       {local, local_events} =
-        capture_detect_events(fn -> Pipeline.run(state, geometry(80, 60), request, opts) end)
+        capture_detect_events(@detect_telemetry_prefix, fn ->
+          Pipeline.run(state, geometry(80, 60), request, opts)
+        end)
 
       {legacy, legacy_events} =
-        capture_detect_events(fn -> Transform.execute_plan(plan, state, opts) end)
+        capture_detect_events(@detect_telemetry_prefix, fn ->
+          Transform.execute_plan(plan, state, opts)
+        end)
 
       assert {:ok, local_state} = local
       assert {:ok, legacy_state} = legacy
@@ -273,14 +323,18 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
     end
   end
 
-  defp capture_detect_events(fun) do
+  defp capture_detect_events(prefix, fun) do
     ref = make_ref()
 
-    events = [
-      [:image_pipe, :transform, :detect, :stop],
-      [:image_pipe, :transform, :detect, :skipped],
-      [:image_pipe, :transform, :detect, :blend]
-    ]
+    events =
+      Enum.map(
+        [
+          [:transform, :detect, :stop],
+          [:transform, :detect, :skipped],
+          [:transform, :detect, :blend]
+        ],
+        &(prefix ++ &1)
+      )
 
     :ok =
       :telemetry.attach_many(

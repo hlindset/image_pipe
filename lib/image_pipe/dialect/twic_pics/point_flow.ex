@@ -2,6 +2,7 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlow do
   @moduledoc false
 
   alias ImagePipe.Plan.Operation.CropGuided
+  alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Transform.Focus
   alias ImagePipe.Transform.NeutralResolver
@@ -74,17 +75,16 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlow do
     do: %__MODULE__{flow | guide: {:smart, :face_assist}}
 
   @spec resolve(SourceShape.t(), t(), step()) :: {[struct()], continuation()}
-  def resolve(%SourceShape{} = shape, %__MODULE__{} = flow, {:operation, operation}) do
-    {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
+  def resolve(
+        %SourceShape{} = shape,
+        %__MODULE__{} = flow,
+        {:operation, %CropRegion{} = operation}
+      ) do
+    resolve_operation(shape, %__MODULE__{flow | guide: :point}, operation)
+  end
 
-    walk_stage(
-      ops,
-      continuation,
-      flow,
-      SourceShape.live_dims(shape),
-      shape.pending_orientation,
-      false
-    )
+  def resolve(%SourceShape{} = shape, %__MODULE__{} = flow, {:operation, operation}) do
+    resolve_operation(shape, flow, operation)
   end
 
   def resolve(
@@ -110,6 +110,19 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlow do
         {:focused, operation}
       ) do
     operation = put_guide(operation, {:smart, :face_assist})
+    {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
+
+    walk_stage(
+      ops,
+      continuation,
+      flow,
+      SourceShape.live_dims(shape),
+      shape.pending_orientation,
+      false
+    )
+  end
+
+  defp resolve_operation(%SourceShape{} = shape, %__MODULE__{} = flow, operation) do
     {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
 
     walk_stage(
