@@ -79,6 +79,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
     ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
+    ImagePipe.Dialect.SharedConfig => "lib/image_pipe/dialect/shared_config.ex",
     ImagePipe.Dialect.TwicPics => "lib/image_pipe/dialect/twic_pics.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
@@ -297,6 +298,34 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(dialect_twicpics, [])
+  end
+
+  test "dialect SharedConfig boundary declaration stays product-neutral" do
+    shared_config = boundary_declaration(ImagePipe.Dialect.SharedConfig)
+
+    assert_boundary_deps(shared_config, [
+      ImagePipe.Cache,
+      ImagePipe.Format,
+      ImagePipe.Source,
+      ImagePipe.Telemetry
+    ])
+
+    assert_boundary_exports(shared_config, [])
+  end
+
+  test "shared dialect config does not name the TwicPics product dialect" do
+    refute shared_config_twicpics_reference?("defmodule ImagePipe.Dialect.SharedConfig do")
+
+    assert shared_config_twicpics_reference?("ImagePipe.Dialect.TwicPics.Config.validate!(opts)")
+
+    violations =
+      "lib/image_pipe/dialect/shared_config.ex"
+      |> File.read!()
+      |> String.split("\n")
+      |> Enum.with_index(1)
+      |> Enum.filter(fn {line, _number} -> shared_config_twicpics_reference?(line) end)
+
+    assert violations == []
   end
 
   test "TwicPics dialect code never constructs the framework Plan root struct" do
@@ -1083,6 +1112,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   defp twicpics_dialect_reference?(line), do: String.contains?(line, "Dialect.TwicPics")
+
+  defp shared_config_twicpics_reference?(line),
+    do: String.contains?(line, "ImagePipe.Dialect.TwicPics")
 
   defp twicpics_dialect_files do
     @twicpics_dialect_globs

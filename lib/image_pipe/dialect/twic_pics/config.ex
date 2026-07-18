@@ -3,6 +3,7 @@ defmodule ImagePipe.Dialect.TwicPics.Config do
 
   alias ImagePipe.Config, as: NeutralConfig
   alias ImagePipe.Dialect.SharedConfig
+  alias ImagePipe.Plan.Output.QualitySearch
 
   @dialect_keys [
     :storage_inputs,
@@ -39,9 +40,14 @@ defmodule ImagePipe.Dialect.TwicPics.Config do
 
     reject_unknown!(unknown)
 
-    SharedConfig.validate_runtime!(shared)
-    |> Keyword.merge(NeutralConfig.resolve!(neutral, []))
-    |> Keyword.merge(validate_dialect!(dialect))
+    resolved =
+      shared
+      |> SharedConfig.validate_runtime!()
+      |> Keyword.merge(NeutralConfig.resolve!(neutral, []))
+      |> Keyword.merge(validate_dialect!(dialect))
+
+    validate_autoquality!(resolved)
+    resolved
   end
 
   defp reject_unknown!([]), do: :ok
@@ -59,6 +65,17 @@ defmodule ImagePipe.Dialect.TwicPics.Config do
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError,
               "invalid ImagePipe.Dialect.TwicPics options: #{Exception.message(error)}"
+    end
+  end
+
+  defp validate_autoquality!(config) do
+    case QualitySearch.from_config(config) do
+      {:ok, _quality_search} ->
+        :ok
+
+      {:error, reason} ->
+        raise ArgumentError,
+              "invalid ImagePipe.Dialect.TwicPics autoquality config: #{inspect(reason)}"
     end
   end
 end

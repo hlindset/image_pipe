@@ -27,6 +27,14 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
     assert Config.validate!(quality: 42)[:quality] == 42
   end
 
+  test "rejects size autoquality without a byte target at mount time" do
+    assert_raise ArgumentError,
+                 ~r/invalid ImagePipe\.Dialect\.TwicPics autoquality config.*missing_target/,
+                 fn ->
+                   Config.validate!(autoquality_method: :size)
+                 end
+  end
+
   test "accepts every shared runtime key through SharedConfig" do
     validated =
       Config.validate!(

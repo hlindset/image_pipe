@@ -219,6 +219,37 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
            ]
   end
 
+  test "parser-error normalization accepts only the two known wrapper tags" do
+    for {stage, result, error} <- [
+          {[:parse], :error, :error},
+          {[:parse], :error, :unsupported_transform},
+          {[:request], :parser_error, :error},
+          {[:request], :parser_error, :unsupported_transform}
+        ] do
+      event = %{stage: stage, phase: :stop, metadata: %{result: result, error: error}}
+
+      assert normalize_parser_error(event).metadata.error == :parser_error
+    end
+  end
+
+  test "a wrong dialect parser error remains visible to the semantic comparison" do
+    framework = %{
+      stage: [:parse],
+      phase: :stop,
+      metadata: %{result: :error, error: :error}
+    }
+
+    wrong_dialect = %{
+      stage: [:parse],
+      phase: :stop,
+      metadata: %{result: :error, error: :decode}
+    }
+
+    assert normalize_parser_error(framework).metadata.error == :parser_error
+    assert normalize_parser_error(wrong_dialect).metadata.error == :decode
+    refute normalize_parser_error(framework) == normalize_parser_error(wrong_dialect)
+  end
+
   defp run(arm, :cache_miss) do
     observe(arm, :cache_miss, fn prefix ->
       call(arm, @image_path, opts(prefix, cache: {CacheProbe, []}))
@@ -370,11 +401,17 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
     |> Enum.reverse()
   end
 
-  defp normalize_parser_error(%{stage: [:parse], metadata: %{result: :error}} = event),
-    do: put_in(event, [:metadata, :error], :parser_error)
+  defp normalize_parser_error(
+         %{stage: [:parse], metadata: %{result: :error, error: error}} = event
+       )
+       when error in [:error, :unsupported_transform],
+       do: put_in(event, [:metadata, :error], :parser_error)
 
-  defp normalize_parser_error(%{stage: [:request], metadata: %{result: :parser_error}} = event),
-    do: put_in(event, [:metadata, :error], :parser_error)
+  defp normalize_parser_error(
+         %{stage: [:request], metadata: %{result: :parser_error, error: error}} = event
+       )
+       when error in [:error, :unsupported_transform],
+       do: put_in(event, [:metadata, :error], :parser_error)
 
   defp normalize_parser_error(event), do: event
 
