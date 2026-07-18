@@ -23,12 +23,6 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
     assert TwicPics.init(opts) == Config.validate!(opts)
   end
 
-  test "call is an explicit stub until the dialect lifecycle lands" do
-    assert_raise RuntimeError, "TwicPics request execution is not implemented", fn ->
-      TwicPics.call(%Plug.Conn{}, Config.validate!([]))
-    end
-  end
-
   test "a neutral quality override resolves through ImagePipe.Config" do
     assert Config.validate!(quality: 42)[:quality] == 42
   end
