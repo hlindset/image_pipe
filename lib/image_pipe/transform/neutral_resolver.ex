@@ -4,9 +4,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   strategies.
 
   Implements `ImagePipe.Resolver` with the product-neutral deferred-
-  orientation execution policy. A dialect-specific carried strategy (e.g. the
-  TwicPics resolver under `parser/*`) composes its own lowering with this
-  module's `display_frame_advance/2` and `plain_advance/2` to reuse the
+  orientation execution policy. A carried strategy composes its own lowering
+  with this module's `display_frame_advance/2` and `plain_advance/2` to reuse the
   neutral flush policy instead of re-deriving it, and delegates the tags this
   module emits back to its `continue/4` at the measure seam. A dialect that
   assembles its own chain directly (rather than through the `ImagePipe.Parser`/
@@ -41,9 +40,8 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # in the pre-op materialize, a pipeline with both a trim and an arbitrary
   # rotate would rotate un-oriented pixels (trim's materialize marks the state
   # materialized, so the rotate's materialize is skipped). No parser can produce
-  # that pipeline (imgproxy `rot` is right-angle-only, IIIF has no trim,
-  # TwicPics has no arbitrary-angle rotate), so this row always flushes first;
-  # every parser-reachable pipeline is pixel-identical.
+  # that pipeline, so this row always flushes first; every parser-reachable
+  # pipeline is pixel-identical.
 
   @behaviour ImagePipe.Resolver
 

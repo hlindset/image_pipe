@@ -87,7 +87,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Plan => "lib/image_pipe/plan.ex",
     ImagePipe.Parser => "lib/image_pipe/parser.ex",
     ImagePipe.Parser.IIIF => "lib/image_pipe/parser/iiif.ex",
-    ImagePipe.Parser.TwicPics => "lib/image_pipe/parser/twic_pics.ex",
     ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Request => "lib/image_pipe/request.ex",
@@ -139,7 +138,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "parser boundary declarations stay limited to format, plan, renderer, and parser APIs" do
     parser = boundary_declaration(ImagePipe.Parser)
     iiif = boundary_declaration(ImagePipe.Parser.IIIF)
-    twicpics = boundary_declaration(ImagePipe.Parser.TwicPics)
 
     assert_boundary_deps(parser, [
       ImagePipe.Config,
@@ -164,15 +162,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(iiif, [])
 
-    assert_boundary_deps(twicpics, [
-      ImagePipe.Parser,
-      ImagePipe.Plan,
-      ImagePipe.Resolver,
-      ImagePipe.Transform
-    ])
-
-    assert_boundary_exports(twicpics, [])
-
     assert_allowed_deps(parser, [
       ImagePipe.Config,
       ImagePipe.Format,
@@ -187,13 +176,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Parser,
       ImagePipe.Plan,
       ImagePipe.Renderer
-    ])
-
-    assert_allowed_deps(twicpics, [
-      ImagePipe.Parser,
-      ImagePipe.Plan,
-      ImagePipe.Resolver,
-      ImagePipe.Transform
     ])
   end
 

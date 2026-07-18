@@ -1,8 +1,7 @@
 defmodule ImagePipe.Dialect.Imgproxy.Config do
   @moduledoc """
   The dialect's `Plug.init/1` validator — a three-way split of a FLAT
-  keyword list (no parser-named sublist, unlike `ImagePipe.Plug`'s
-  `iiif:`/`twicpics:` nesting) into:
+  keyword list (no parser-named sublist, unlike `ImagePipe.Plug`) into:
 
     * shared runtime keys (`ImagePipe.Dialect.SharedConfig`) — source
       fetching, caching, request-safety limits;
@@ -85,8 +84,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
   @spec validate!(keyword()) :: keyword()
   def validate!(opts) when is_list(opts) do
     # ImagePipe.Config.keys/0 is an established public interface — config.ex:97,
-    # already consumed exactly this way by `ImagePipe.Parser.IIIF` and
-    # `ImagePipe.Parser.TwicPics`. No new core widening here.
+    # already consumed exactly this way by `ImagePipe.Parser.IIIF`. No new core
+    # widening here.
     {shared, rest} = Keyword.split(opts, SharedConfig.keys())
     {neutral, rest} = Keyword.split(rest, ImagePipe.Config.keys())
     {dialect, unknown} = Keyword.split(rest, @dialect_keys)
