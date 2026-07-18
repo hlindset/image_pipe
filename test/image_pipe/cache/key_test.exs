@@ -7,7 +7,6 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.KeyTest.ForwardingProbe
   alias ImagePipe.MaterialDigest
-  alias ImagePipe.Parser.TwicPics
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation
@@ -15,6 +14,7 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
+  alias ImagePipe.Test.ResolverVersionProbe
   alias ImagePipe.Transform.NeutralResolver
 
   defp source_identity(overrides \\ []) do
@@ -48,17 +48,6 @@ defmodule ImagePipe.Cache.KeyTest do
   defp build_key!(conn, plan, source_identity, opts \\ []) do
     assert {:ok, key} = Key.build(conn, plan, source_identity, opts)
     key
-  end
-
-  defp twic_plan!(chain) do
-    {:ok, plan} =
-      TwicPics.PlanBuilder.to_plan(
-        %Source.Path{segments: ["images", "cat.jpg"]},
-        chain,
-        ImagePipe.Config.resolve!([])
-      )
-
-    plan
   end
 
   defp plan_with_resize_auto do
@@ -678,32 +667,6 @@ defmodule ImagePipe.Cache.KeyTest do
            ]
   end
 
-  test "dimension spellings that fold to the same canonical plan produce identical cache keys" do
-    conn = conn(:get, "/_/plain/images/cat.jpg")
-
-    plan_a = twic_plan!([{"resize", "100x100"}])
-    plan_b = twic_plan!([{"resize", "(50*2)x100"}])
-
-    key_a = build_key!(conn, plan_a, source_identity())
-    key_b = build_key!(conn, plan_b, source_identity())
-
-    assert key_a.data[:pipelines] == key_b.data[:pipelines]
-    assert key_a.hash == key_b.hash
-  end
-
-  test "ratio spellings that reduce to the same canonical plan produce identical cache keys" do
-    conn = conn(:get, "/_/plain/images/cat.jpg")
-
-    plan_a = twic_plan!([{"cover", "1:1"}])
-    plan_b = twic_plan!([{"cover", "2:2"}])
-
-    key_a = build_key!(conn, plan_a, source_identity())
-    key_b = build_key!(conn, plan_b, source_identity())
-
-    assert key_a.data[:pipelines] == key_b.data[:pipelines]
-    assert key_a.hash == key_b.hash
-  end
-
   test "detect plans key differently per detector identity" do
     conn = conn(:get, "/_/g:obj:face/w:200/h:100/plain/images/cat.jpg")
     plan = detect_plan()
@@ -1228,28 +1191,6 @@ defmodule ImagePipe.Cache.KeyTest do
     refute inspect(key.data) =~ "ignored_cookie"
   end
 
-  describe "TwicPics carried focus (#321)" do
-    # The cache-key / ETag fast path (Key.plan_material -> KeyData.data per op) must
-    # handle the :deferred guide and %Directive{} ops the TwicPics parser now emits.
-    # The default guide is :deferred, so even a focus-less cover exercises it.
-    test "plan_material handles a carried cover with no focus segment" do
-      assert {:ok, _material} = Key.plan_material(twic_plan!([{"cover", "100x100"}]), [])
-    end
-
-    test "plan_material keys the set_focus directive payload in a coordinate-focus plan" do
-      assert {:ok, material} =
-               Key.plan_material(twic_plan!([{"focus", "20x10"}, {"crop", "12x12"}]), [])
-
-      assert inspect(material) =~ "name: :set_focus"
-    end
-
-    test "distinct focus points produce distinct key material" do
-      {:ok, a} = Key.plan_material(twic_plan!([{"focus", "20x10"}, {"crop", "12x12"}]), [])
-      {:ok, b} = Key.plan_material(twic_plan!([{"focus", "30x10"}, {"crop", "12x12"}]), [])
-      refute a == b
-    end
-  end
-
   describe "quality_search / max_bytes in the cache key (#344)" do
     defp qs_output(overrides) do
       struct!(%Output{mode: :automatic}, overrides)
@@ -1351,13 +1292,13 @@ defmodule ImagePipe.Cache.KeyTest do
              ]
     end
 
-    test "a dialect-carrying plan tags that strategy and its behavioral version" do
-      plan = %{plan() | resolver: TwicPics.Resolver}
+    test "another strategy-carrying plan tags that strategy and its behavioral version" do
+      plan = %{plan() | resolver: ResolverVersionProbe}
       {:ok, material} = Key.plan_material(plan, [])
 
       assert material[:resolver] == [
-               strategy: TwicPics.Resolver,
-               version: TwicPics.Resolver.behavior_version()
+               strategy: ResolverVersionProbe,
+               version: ResolverVersionProbe.behavior_version()
              ]
     end
   end
