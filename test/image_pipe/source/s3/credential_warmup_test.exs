@@ -1,12 +1,13 @@
 defmodule ImagePipe.Source.S3.CredentialWarmupTest do
   # async: false reduces suite contention so the supervised worker isn't starved
   # before it warms (issue #414). But the post-warm teardown — the gap between the
-  # provider running and the worker's :normal stop DOWN — is a separate wall-clock
+  # provider running and the worker's stop DOWN — is a separate wall-clock
   # wait that runner-wide scheduler steal can still push past the global 2s budget
   # even with async: false (issue #425). That DOWN is a guaranteed-arrival message
   # (the worker always returns {:stop, :normal, ...}); the passing path delivers it
   # near-instantly, so the explicit slack on it below is only a ceiling for a slow
-  # runner, never a cost on success.
+  # runner, never a cost on success. If the worker stops before the monitor is
+  # installed, Process.monitor/1 reports :noproc instead of the earlier :normal.
   use ExUnit.Case, async: false
 
   alias ImagePipe.Source.S3.Credentials
@@ -33,7 +34,8 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     assert_receive {:warmed, ^scope}
     # the worker warms once then stops :normal; give the teardown DOWN generous
     # slack so a slow runner doesn't flake it (issue #425).
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 5_000
+    assert reason in [:normal, :noproc]
 
     # cache is warm: fetching does not invoke the provider again
     assert {:ok, _} = Credentials.fetch(scope, {:provider, OnceProvider, opts}, [])
