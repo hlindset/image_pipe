@@ -41,6 +41,7 @@ defmodule ImagePipe.Dialect.TwicPics.LeafGrammarParityTest do
     %{family: {:manipulation, :parse, 1}, input: "v1/resize", outcome: :error},
     %{family: {:units, :dimension_length, 1}, input: "(100/(4/2))", outcome: :success},
     %{family: {:units, :dimension_length, 1}, input: "(1/3)p", outcome: :success},
+    %{family: {:units, :dimension_length, 1}, input: "(1/3)s", outcome: :success},
     %{family: {:units, :dimension_length, 1}, input: "1e1000", outcome: :success},
     %{family: {:units, :dimension_length, 1}, input: "1e-1000", outcome: :success},
     %{family: {:units, :dimension_length, 1}, input: "(1/0)", outcome: :error},
