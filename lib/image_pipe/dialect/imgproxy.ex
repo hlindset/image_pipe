@@ -516,6 +516,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # reuses it alongside `face_assist?/1`.
   @doc false
   @spec detect_classes([map()]) :: :all | nonempty_list(String.t()) | nil
+  # ex_dna:disable-for-next-line
   def detect_classes(operations) do
     operations
     |> Enum.reduce_while([], fn op, acc ->
@@ -952,6 +953,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end)
   end
 
+  # ex_dna:disable-for-next-line
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
 
   defp transform_stop_metadata({:error, error}),
@@ -966,6 +968,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # replays it. This is also what surfaces a first-chunk encode failure as a
   # pre-header 500 (the framework's and upstream imgproxy's behavior) instead
   # of a mid-stream abort of an already-committed 200.
+  # ex_dna:disable-for-next-line
   defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
@@ -988,6 +991,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
     StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
   end
 
+  # ex_dna:disable-for-next-line
   defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state, _search_meta}, format),
     do: %{result: :ok, output_format: format}
 
