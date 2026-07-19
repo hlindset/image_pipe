@@ -69,8 +69,7 @@ defmodule ImagePipe.Plan do
                 cachebuster: nil,
                 response: %Response{},
                 auto_rotate: false,
-                render: :image,
-                resolver: nil
+                render: :image
               ]
 
   @type t :: %__MODULE__{
@@ -81,8 +80,7 @@ defmodule ImagePipe.Plan do
           cachebuster: String.t() | nil,
           response: Response.t(),
           auto_rotate: boolean(),
-          render: :image | {:custom, module(), map()},
-          resolver: module() | nil
+          render: :image | {:custom, module(), map()}
         }
 
   @type pipeline_error() ::
@@ -98,8 +96,6 @@ defmodule ImagePipe.Plan do
           | {:invalid_response_plan, term()}
           | {:invalid_auto_rotate, term()}
           | {:invalid_render_plan, term()}
-          | {:invalid_resolver_plan, term()}
-          | {:strategy_required, term()}
 
   @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
   def validate_shape(%__MODULE__{} = plan) do
@@ -108,9 +104,7 @@ defmodule ImagePipe.Plan do
          :ok <- validate_expires(plan.expires),
          :ok <- validate_cachebuster(plan.cachebuster),
          :ok <- validate_response(plan.response),
-         :ok <- validate_auto_rotate(plan.auto_rotate),
-         :ok <- validate_resolver(plan.resolver),
-         :ok <- validate_strategy_requirements(plan) do
+         :ok <- validate_auto_rotate(plan.auto_rotate) do
       {:ok, plan}
     end
   end
@@ -350,47 +344,6 @@ defmodule ImagePipe.Plan do
 
   defp validate_auto_rotate(value) when is_boolean(value), do: :ok
   defp validate_auto_rotate(value), do: {:error, {:invalid_auto_rotate, value}}
-
-  # The geometry-resolution strategy carried by the plan (spec §4.2): a module
-  # implementing ImagePipe.Resolver, selected by the parser; nil = the neutral
-  # resolver. Parsers are host-implementable, so the shape is validated like
-  # render:.
-  defp validate_resolver(nil), do: :ok
-  defp validate_resolver(module) when is_atom(module), do: :ok
-  defp validate_resolver(other), do: {:error, {:invalid_resolver_plan, other}}
-
-  # Strategy-requiring vocabulary — a :deferred guide, a Directive — is only
-  # resolvable by a carried resolver strategy; the neutral resolver never sees
-  # it. Without this gate such a plan passes shape validation and errors deep
-  # in the transform stage. Parsers are host-implementable, so the pairing is
-  # validated at the plan boundary rather than trusted. Only well-formed
-  # pipelines are walked; malformed ones are validated_pipelines/1's to
-  # report.
-  defp validate_strategy_requirements(%__MODULE__{resolver: nil} = plan) do
-    case find_strategy_requiring_operation(plan.pipelines) do
-      nil -> :ok
-      operation -> {:error, {:strategy_required, operation}}
-    end
-  end
-
-  defp validate_strategy_requirements(%__MODULE__{}), do: :ok
-
-  defp find_strategy_requiring_operation(pipelines) when is_list(pipelines) do
-    Enum.find_value(pipelines, fn
-      %Pipeline{operations: operations} when is_list(operations) ->
-        Enum.find(operations, &requires_strategy?/1)
-
-      _pipeline ->
-        nil
-    end)
-  end
-
-  defp find_strategy_requiring_operation(_pipelines), do: nil
-
-  defp requires_strategy?(%Operation.Resize{guide: :deferred}), do: true
-  defp requires_strategy?(%Operation.CropGuided{guide: :deferred}), do: true
-  defp requires_strategy?(%Operation.Directive{}), do: true
-  defp requires_strategy?(_operation), do: false
 
   # The terminal pairs the render selector with the output config: only the
   # built-in `:image` terminal carries an image `%Output{}`; a custom renderer

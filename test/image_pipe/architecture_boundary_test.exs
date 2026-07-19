@@ -356,6 +356,54 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
              """)
   end
 
+  # The strategy SDK is retired: the root ImagePipe.Plan has no resolver field.
+  # This syntax-aware gate replaces the removed non-module-resolver plan-shape
+  # rejection — a reintroduced %Plan{resolver: ...} construction or update fails
+  # here rather than silently changing cache identity.
+  test "no lib code constructs a root ImagePipe.Plan with a :resolver field" do
+    violations =
+      for file <- Path.wildcard("lib/**/*.ex"),
+          violation <- file |> File.read!() |> plan_resolver_field_violations() do
+        "#{file}:#{violation.line} constructs #{violation.module} with a :resolver field; " <>
+          "the strategy SDK is retired and the root Plan has no resolver"
+      end
+
+    assert violations == []
+  end
+
+  test "the root-Plan resolver-field checker resolves aliases and ignores unrelated resolvers" do
+    assert [%{module: "%Plan{}"}] =
+             plan_resolver_field_violations("""
+             alias ImagePipe.Plan
+             %Plan{resolver: nil}
+             """)
+
+    assert [%{module: "%ImagePipe.Plan{}"}] =
+             plan_resolver_field_violations("%ImagePipe.Plan{source: s, resolver: mod}")
+
+    # Update syntax is flagged too.
+    assert [%{module: "%Plan{}"}] =
+             plan_resolver_field_violations("""
+             alias ImagePipe.Plan
+             %Plan{base | resolver: mod}
+             """)
+
+    # A root Plan with no resolver field is fine.
+    assert plan_resolver_field_violations("""
+           alias ImagePipe.Plan
+           %Plan{source: s, pipelines: p, output: o}
+           """) == []
+
+    # Unrelated resolver option groups (IIIF id resolver, HTTP address_resolver,
+    # keyword options, non-root structs) are never flagged.
+    assert plan_resolver_field_violations("""
+           alias ImagePipe.Parser.IIIF
+           %IIIF.Config{resolver: SomeResolver}
+           mount(iiif: [resolver: MyResolver])
+           %{opts | address_resolver: r}
+           """) == []
+  end
+
   test "TwicPics dialect code does not reach into the framework stack or another dialect" do
     violations =
       for file <- twicpics_dialect_files(),
@@ -1195,6 +1243,73 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   defp resolve_plan_alias([], _aliases), do: []
+
+  # Root-Plan resolver-field checker: flags a `%ImagePipe.Plan{...}` construction
+  # or update whose field map carries a `:resolver` key, reusing the same lexical
+  # alias resolution as the Plan-construction checker above.
+  defp plan_resolver_field_violations(source) do
+    source
+    |> Code.string_to_quoted!()
+    |> plan_root_expressions()
+    |> scan_resolver_sequence(%{})
+    |> elem(0)
+  end
+
+  defp scan_resolver_sequence(expressions, aliases) do
+    Enum.reduce(expressions, {[], aliases}, fn expression, {violations, aliases} ->
+      case expression do
+        {:alias, _meta, _arguments} = alias_ast ->
+          {violations, bind_plan_aliases(alias_ast, aliases)}
+
+        expression ->
+          {violations ++ scan_resolver_expression(expression, aliases), aliases}
+      end
+    end)
+  end
+
+  defp scan_resolver_expression({:__block__, _meta, expressions}, aliases) do
+    expressions
+    |> scan_resolver_sequence(aliases)
+    |> elem(0)
+  end
+
+  defp scan_resolver_expression(
+         {:%, meta, [{:__aliases__, _alias_meta, parts}, fields]},
+         aliases
+       ) do
+    nested = scan_resolver_expression(fields, aliases)
+
+    with [:ImagePipe, :Plan] <- resolve_plan_alias(parts, aliases),
+         true <- plan_fields_have_resolver?(fields) do
+      [%{line: Keyword.get(meta, :line, 0), module: "%#{Enum.join(parts, ".")}{}"} | nested]
+    else
+      _other -> nested
+    end
+  end
+
+  defp scan_resolver_expression({:alias, _meta, _arguments}, _aliases), do: []
+
+  defp scan_resolver_expression(tuple, aliases) when is_tuple(tuple) do
+    tuple
+    |> Tuple.to_list()
+    |> Enum.flat_map(&scan_resolver_expression(&1, aliases))
+  end
+
+  defp scan_resolver_expression(list, aliases) when is_list(list),
+    do: Enum.flat_map(list, &scan_resolver_expression(&1, aliases))
+
+  defp scan_resolver_expression(_literal, _aliases), do: []
+
+  # Struct fields are a `{:%{}, _, kwlist}` node for construction and
+  # `{:%{}, _, [{:|, _, [_base, kwlist]}]}` for an update.
+  defp plan_fields_have_resolver?({:%{}, _meta, [{:|, _pipe_meta, [_base, kwlist]}]})
+       when is_list(kwlist),
+       do: Keyword.keyword?(kwlist) and Keyword.has_key?(kwlist, :resolver)
+
+  defp plan_fields_have_resolver?({:%{}, _meta, kwlist}) when is_list(kwlist),
+    do: Keyword.keyword?(kwlist) and Keyword.has_key?(kwlist, :resolver)
+
+  defp plan_fields_have_resolver?(_fields), do: false
 
   defp twicpics_forbidden_reference_violations(source) do
     source

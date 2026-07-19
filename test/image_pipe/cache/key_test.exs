@@ -14,8 +14,6 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Test.ResolverVersionProbe
-  alias ImagePipe.Transform.NeutralResolver
 
   defp source_identity(overrides \\ []) do
     Keyword.merge(
@@ -192,7 +190,6 @@ defmodule ImagePipe.Cache.KeyTest do
                ]
              ],
              transform: [key_data_version: 1],
-             resolver: [strategy: :neutral, version: 1],
              detector: nil,
              output: [
                mode: :explicit,
@@ -1272,34 +1269,11 @@ defmodule ImagePipe.Cache.KeyTest do
     end
   end
 
-  describe "plan_material resolver tag" do
-    test "a nil-resolver plan tags the neutral strategy" do
+  describe "plan_material resolver absence (strategy SDK retired)" do
+    test "canonical plan material carries no resolver field" do
       {:ok, material} = Key.plan_material(plan(), [])
 
-      assert material[:resolver] == [
-               strategy: :neutral,
-               version: NeutralResolver.behavior_version()
-             ]
-    end
-
-    test "a strategy-carrying plan tags the module and its behavioral version" do
-      plan = %{plan() | resolver: NeutralResolver}
-      {:ok, material} = Key.plan_material(plan, [])
-
-      assert material[:resolver] == [
-               strategy: NeutralResolver,
-               version: NeutralResolver.behavior_version()
-             ]
-    end
-
-    test "another strategy-carrying plan tags that strategy and its behavioral version" do
-      plan = %{plan() | resolver: ResolverVersionProbe}
-      {:ok, material} = Key.plan_material(plan, [])
-
-      assert material[:resolver] == [
-               strategy: ResolverVersionProbe,
-               version: ResolverVersionProbe.behavior_version()
-             ]
+      refute Keyword.has_key?(material, :resolver)
     end
   end
 end

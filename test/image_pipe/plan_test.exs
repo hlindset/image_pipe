@@ -159,32 +159,8 @@ defmodule ImagePipe.PlanTest do
     assert {:error, {:invalid_output_plan, _}} = Plan.validate_shape(%{plan | output: unknown})
   end
 
-  describe "validate_shape strategy-requiring vocabulary" do
-    test "rejects a :deferred resize guide without a resolver" do
-      assert {:ok, operation} = Operation.resize(:cover, {:px, 100}, {:px, 100}, guide: :deferred)
-      plan = plan(pipelines: [%Pipeline{operations: [operation]}])
-
-      assert {:error, {:strategy_required, ^operation}} = Plan.validate_shape(plan)
-      assert {:ok, _} = Plan.validate_shape(%{plan | resolver: SomeStrategy})
-    end
-
-    test "rejects a :deferred crop guide without a resolver" do
-      assert {:ok, operation} = Operation.crop_guided({:px, 100}, :full_axis, :deferred)
-      plan = plan(pipelines: [%Pipeline{operations: [operation]}])
-
-      assert {:error, {:strategy_required, ^operation}} = Plan.validate_shape(plan)
-      assert {:ok, _} = Plan.validate_shape(%{plan | resolver: SomeStrategy})
-    end
-
-    test "rejects a directive without a resolver" do
-      assert {:ok, operation} = Operation.directive(:set_focus, {:anchor, :center, :center})
-      plan = plan(pipelines: [%Pipeline{operations: [operation]}])
-
-      assert {:error, {:strategy_required, ^operation}} = Plan.validate_shape(plan)
-      assert {:ok, _} = Plan.validate_shape(%{plan | resolver: SomeStrategy})
-    end
-
-    test "accepts neutral-resolvable guides without a resolver" do
+  describe "validate_shape neutral guide acceptance" do
+    test "accepts smart and detect guides" do
       assert {:ok, smart} = Operation.crop_guided({:px, 100}, :full_axis, :smart)
 
       assert {:ok, detect} =
@@ -195,25 +171,13 @@ defmodule ImagePipe.PlanTest do
     end
 
     # The :auto resize mode is product-neutral (the neutral resolver owns the
-    # fill-vs-fit bucketing, #448), so any dialect may emit it with no resolver.
-    test "accepts an :auto resize mode without a resolver" do
+    # fill-vs-fit bucketing, #448).
+    test "accepts an :auto resize mode" do
       assert {:ok, operation} = Operation.resize(:auto, {:px, 100}, {:px, 50})
       plan = plan(pipelines: [%Pipeline{operations: [operation]}])
 
       assert {:ok, _} = Plan.validate_shape(plan)
     end
-  end
-
-  test "validate_shape rejects a non-module resolver" do
-    plan = %{plan() | resolver: "imgproxy"}
-    assert {:error, {:invalid_resolver_plan, "imgproxy"}} = Plan.validate_shape(plan)
-  end
-
-  test "validate_shape accepts a nil and a module resolver" do
-    assert {:ok, _} = Plan.validate_shape(plan())
-
-    assert {:ok, _} =
-             Plan.validate_shape(%{plan() | resolver: ImagePipe.Transform.NeutralResolver})
   end
 
   describe "operation_names/1" do
