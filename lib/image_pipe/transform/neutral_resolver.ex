@@ -66,14 +66,6 @@ defmodule ImagePipe.Transform.NeutralResolver do
   alias ImagePipe.Transform.SourceShape
 
   @doc false
-  def init, do: nil
-
-  @doc false
-  # Behavioral version of the neutral resolution algorithms, retained until the
-  # cache-key resolver material is removed (Phase 2C Task 4).
-  def behavior_version, do: 1
-
-  @doc false
   def resolve(%SourceShape{} = shape, nil, operation) do
     do_resolve(operation, shape)
   end

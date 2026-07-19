@@ -1269,7 +1269,7 @@ defmodule ImagePipe.Cache.KeyTest do
     end
   end
 
-  describe "plan_material resolver absence (strategy SDK retired)" do
+  describe "plan_material resolver absence" do
     test "canonical plan material carries no resolver field" do
       {:ok, material} = Key.plan_material(plan(), [])
 

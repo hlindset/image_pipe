@@ -7,10 +7,9 @@ defmodule ImagePipe.Transform.Lowering do
   # ImagePipe.Transform.ResizePlanning (this module threads the translated crop
   # gravity into it as a parameter, keeping ResizePlanning a leaf).
   #
-  # Internal lowering seam: exported from the Transform boundary for the
-  # in-tree imgproxy consumers (the framework strategy and the inverted
-  # dialect), not part of the strategy SDK and subject to change without
-  # notice — see the export-list tiers in ImagePipe.Transform.
+  # Internal lowering seam: exported from the Transform boundary only for the
+  # in-tree dialect Pipelines, and subject to change without notice — see the
+  # export-list tiers in ImagePipe.Transform.
 
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground

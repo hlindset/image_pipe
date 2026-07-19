@@ -12,7 +12,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   `Plan.Operation` structs, `SourceShape`, the `{ops, continuation}`
   vocabulary, and `ImagePipe.Transform.NeutralResolver` as a stateless
   geometry compiler (`resolve/3` + `continue/4` + `resolve_mode/2`, called
-  directly with `nil` state — no `ImagePipe.Resolver` strategy involved).
+  directly with `nil` state — no injected strategy dispatch involved).
   This module therefore demonstrates dialect-owned *request orchestration*
   over a retained neutral geometry compiler; it does not yet demonstrate that
   the operation mirror or the continuation vocabulary can die. See
@@ -224,7 +224,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
 
   # `resolve/3` and `continue/4` are called as stateless toolkit functions —
   # `nil` carried state throughout, mirroring the neutral resolver's own
-  # contract (no `ImagePipe.Resolver` strategy dispatch here).
+  # contract (no injected strategy dispatch here).
   defp run_op(state, shape, plan_op, ctx) do
     state = overlay(state, shape)
     {ops, continuation} = NeutralResolver.resolve(shape, nil, plan_op)

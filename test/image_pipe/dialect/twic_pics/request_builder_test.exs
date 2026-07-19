@@ -352,7 +352,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilderTest do
 
     assert match?([{:plan, _}], forbidden_terms(%{nested: [plan]}))
     assert forbidden_terms(%{nested: [ImagePipe.Plan]}) == [{:plan, ImagePipe.Plan}]
-    assert forbidden_terms(%{nested: [:deferred]}) == [:deferred]
     assert match?([{:raw_pair, _}], forbidden_terms(%{nested: [{"resize", "40x30"}]}))
     assert match?([{:conn, _}], forbidden_terms(%{nested: [%Plug.Conn{}]}))
     assert match?([{:pid, _}], forbidden_terms(%{nested: [self()]}))
@@ -409,7 +408,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilderTest do
   defp do_forbidden_terms(term, violations) when is_reference(term),
     do: [{:reference, term} | violations]
 
-  defp do_forbidden_terms(:deferred, violations), do: [:deferred | violations]
   defp do_forbidden_terms(ImagePipe.Plan, violations), do: [{:plan, ImagePipe.Plan} | violations]
 
   defp do_forbidden_terms(module, violations) when is_atom(module) do

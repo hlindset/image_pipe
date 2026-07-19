@@ -61,7 +61,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestTest do
 
   test "forbidden-vocabulary scan descends recursively and recognizes every rejected form" do
     assert match?([{:raw_pair, _}], forbidden_terms(%{nested: [{"resize", "40x30"}]}))
-    assert forbidden_terms(%{nested: [:deferred]}) == [:deferred]
     assert match?([{:conn, _}], forbidden_terms(%Plug.Conn{}))
     assert match?([{:pid, _}], forbidden_terms(self()))
     assert match?([{:reference, _}], forbidden_terms(make_ref()))
@@ -87,8 +86,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestTest do
 
   defp do_forbidden_terms(term, violations) when is_reference(term),
     do: [{:reference, term} | violations]
-
-  defp do_forbidden_terms(:deferred, violations), do: [:deferred | violations]
 
   defp do_forbidden_terms(module, violations) when is_atom(module) do
     case module |> Atom.to_string() |> String.contains?("Resolver") do

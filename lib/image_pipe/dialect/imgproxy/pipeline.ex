@@ -369,9 +369,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   # The imgproxy decision column. Everything else delegates to the neutral
   # column below. `resolve/3` and `continue/4` are called as stateless toolkit
-  # functions (`nil` carried state throughout): no `ImagePipe.Resolver` strategy
-  # dispatch is involved, and the carry is this module's own pipeline-local
-  # variable, not resolver state.
+  # functions (`nil` carried state throughout): no injected strategy dispatch is
+  # involved, and the carry is this module's own pipeline-local variable.
 
   # The carry is computed HERE, from the PRE-resolve shape, before any
   # continuation is followed — reproducing `resolver.ex:37-49` exactly. It is

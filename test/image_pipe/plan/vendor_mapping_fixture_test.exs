@@ -27,8 +27,8 @@ defmodule ImagePipe.Plan.VendorMappingFixtureTest do
       vendor: :twicpics,
       input: "focus=auto/crop=300x200",
       classification: :representable_not_executable,
-      semantic_shape: [:crop_guided, :strategy_guide],
-      notes: "strategy guide is future-facing and not first-slice execution"
+      semantic_shape: [:crop_guided, {:smart, :face_assist}],
+      notes: "focus=auto maps to a face-assisted smart crop guide"
     },
     %{
       vendor: :twicpics,
@@ -48,8 +48,8 @@ defmodule ImagePipe.Plan.VendorMappingFixtureTest do
       vendor: :cloudinary,
       input: "c_fill,g_auto,w_300,h_200",
       classification: :representable_not_executable,
-      semantic_shape: [{:resize, :cover}, :strategy_guide],
-      notes: "smart crop can map to guided cover once strategy guides exist"
+      semantic_shape: [{:resize, :cover}, {:smart, :face_assist}],
+      notes: "smart crop maps to a guided cover with a face-assisted smart guide"
     }
   ]
 
@@ -100,5 +100,6 @@ defmodule ImagePipe.Plan.VendorMappingFixtureTest do
 
   defp semantic_shape?(shape) when is_atom(shape), do: true
   defp semantic_shape?({:resize, mode}) when mode in [:fit, :cover, :stretch, :auto], do: true
+  defp semantic_shape?({:smart, :face_assist}), do: true
   defp semantic_shape?(_shape), do: false
 end

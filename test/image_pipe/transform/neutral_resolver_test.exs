@@ -221,8 +221,9 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
         assert {[%Crop{} = late_crop], late_continuation} =
                  NeutralResolver.resolve_late_bound_guide(shape, operation)
 
-        # A concrete crop is emitted; no deferred marker gravity survives.
-        refute late_crop.gravity == :deferred
+        # A concrete crop is emitted (a real anchor/focal-point gravity).
+        assert late_crop.gravity in [{:anchor, :center, :center}, :center] or
+                 match?({:fp, _, _}, late_crop.gravity)
 
         if pending do
           # The orientation compensation is folded into the crop's center bias.
@@ -282,7 +283,10 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
         # The tail carries the result crop (and a %Flush{} when a pending
         # orientation must flush after the storage-frame crop).
         assert %Crop{} = tail_crop = Enum.find(late_tail, &match?(%Crop{}, &1))
-        refute tail_crop.gravity == :deferred
+
+        assert tail_crop.gravity in [{:anchor, :center, :center}, :center] or
+                 match?({:fp, _, _}, tail_crop.gravity)
+
         assert match?({:advance, %SourceShape{}, nil}, late_continuation)
 
         if pending do
