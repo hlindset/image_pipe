@@ -74,7 +74,7 @@ File-level ExDNA suppression (the exact concern of issue #457) hid the drift.
 | U10 | The framework stack — `ImagePipe.Request.{Runner, Processor, HTTPCache, DeliveryBuild, Options}` — is deleted after IIIF migrates. | Zero users remain; keeping it would preserve the second model this design exists to remove. |
 | U11 | `ImagePipe.Renderer` survives as the declarative base's non-image-terminal contract: `render: {:custom, mod, params}` becomes a `{:render, %RenderTerminal{}}` terminal carrying the render fun, the content-type `offers`, and cacheability (`cache: :none` for IIIF — preserving its per-request ld+json Accept negotiation, `Vary`, and no-internal-cache behavior via `Sender`'s `{:rendered, …}` delivery; `cache: :complete_body` for imgproxy `/info` and Native blurhash). | IIIF `info.json` needs offers negotiation and is uncached today; the ordered dialects' render terminals cache complete bodies. Presentation is never stored. |
 | U12 | Per-dialect wire, differential, and telemetry suites gate every phase; no fixture, verdict, or tolerance changes. Deliberate deltas are exactly the enumerated observable-deltas list below — nothing else may differ. | The inversion's own evidence discipline, reused. |
-| U13 | Debug-header restoration (#462) rides the unification: the runner owns a **default neutral `Debug.Info` builder** fed from `DebugContext` (timings, `Decode`-collected source facts, negotiation/output facts, `Resolved.operations`, cache hit/miss debug), and `allow_debug_headers` moves to `SharedConfig`. imgproxy's already-parsed `debug?` flag rides `Resolved.debug?` and its `X-ImagePipe-*`/`Server-Timing` headers return in Phase B, closing #462. The default builder runs unconditionally and its `Debug.Info` is stored with the cache entry (today's hit-replay contract). The `debug_info` hook demotes to an optional enrichment override; TwicPics ports onto the runner default, which means its debug responses GAIN the six source-fact headers its current tests pin as absent — a deliberate enumerated delta (see observable delta 5), with the per-dialect opt-out (a `Resolved` value) as the fallback if uniform facts are rejected at review. | The inversion lost the threading because each chain had to hand-thread it; restoring pre-unification is disposable work, post-unification is a double port. Every TwicPics debug fact is neutral, so one runner builder replaces per-dialect threading. The flag stays identity-excluded (never moves key/ETag). |
+| U13 | Debug-header restoration (#462) rides the unification: the runner owns a **default neutral `Debug.Info` builder** fed from `DebugContext` (timings, `Decode`-collected source facts, negotiation/output facts, `Resolved.operations`, cache hit/miss debug), and `allow_debug_headers` moves to `SharedConfig`. imgproxy's already-parsed `debug?` flag rides `Resolved.debug?` and its `X-ImagePipe-*`/`Server-Timing` headers return in Phase B, closing #462. The default builder runs unconditionally and its `Debug.Info` is stored with the cache entry (today's hit-replay contract). The `debug_info` hook demotes to an optional enrichment override; TwicPics ports onto the runner default, which means its debug responses gain the source-fact headers — a deliberate enumerated delta (see observable delta 5). | The inversion lost the threading because each chain had to hand-thread it; restoring pre-unification is disposable work, post-unification is a double port. Every TwicPics debug fact is neutral, so one runner builder replaces per-dialect threading. The flag stays identity-excluded (never moves key/ETag). |
 
 ## The contract
 
@@ -151,15 +151,23 @@ callbacks:
 %Resolved{
   request: term(),                # opaque; threaded to decode_request/execute
   source: source_ref,             # a Plan source reference; runner calls Source.resolve
-  negotiation: {:ok, %Dialect.Negotiation{}} | {:error, term()},
-                                  # DEFERRED result: prepare never fails on
-                                  # negotiation; the runner unwraps it AFTER
-                                  # Source.resolve, preserving today's error
-                                  # precedence (all three ordered dialects
-                                  # resolve the source first, then negotiate —
-                                  # a bad source must keep beating an
-                                  # incapable output format)
-  identity_material: material,    # dialect-ordered identity material
+  negotiation:
+    {:ok, %Dialect.Negotiation{}, %Representation.IdentityMaterial{}}
+    | {:error, term()},
+                                  # DEFERRED, COUPLED result. Identity
+                                  # material cannot exist without a
+                                  # successful negotiation (all three
+                                  # dialect identity builders consume the
+                                  # struct), so the pair succeeds or fails
+                                  # together — no placeholder material is
+                                  # representable. prepare never fails on
+                                  # negotiation; the runner unwraps the
+                                  # result AFTER Source.resolve, preserving
+                                  # today's error precedence (all three
+                                  # ordered dialects resolve the source
+                                  # first, then negotiate — a bad source
+                                  # must keep beating an incapable output
+                                  # format)
   response_meta: %Plan.Response{},# delivery presentation; rides the request, never the cache entry
   operations: [atom()],           # semantic names for the [:transform, :execute] span start
   auto_rotate?: boolean(),
@@ -223,8 +231,8 @@ call:
   │    {:redirect, status, location} → Sender.send_redirect
   ├─ dialect.prepare → %Resolved{}
   ├─ Source.resolve(resolved.source, config, config)     (identity only, no bytes)
-  ├─ unwrap resolved.negotiation                          (a negotiation error
-  │                                                        surfaces HERE — after
+  ├─ unwrap resolved.negotiation →                        (a negotiation error
+  │    {negotiation, identity_material}                    surfaces HERE — after
   │                                                        source resolve, as in
   │                                                        all three dialects)
   ├─ Representation.build(source.identity, identity_material, byte_identity)
@@ -472,11 +480,15 @@ or tolerance changes.
    out-of-band `?debug=1` like IIIF's, or a grammar option) is a
    dialect-surface decision tracked as a follow-up issue, not part of this
    work. IIIF debug headers are reproduced exactly (gated). TwicPics debug
-   responses GAIN the six source-fact headers (`source-size`, `color-space`,
-   `icc`, bit depth, alpha, orientation) that its current tests pin as
-   absent — the uniform default builder is the point of U13, so those pins
-   update as part of the port; every other TwicPics debug header is
-   reproduced exactly.
+   responses gain the source-fact headers the uniform default builder
+   collects (`source-size`, `color-space`, `icc`, bit depth, alpha,
+   orientation). Six facts are collected, but a nil fact renders no header
+   (`Debug.Headers` rejects nils — e.g. an image without an EXIF
+   orientation header adds no `source-orientation`), so the added-header
+   count is per-image: the `beach.jpg` fixture gains five. The current
+   TwicPics test pins three of these as absent; those pins flip to
+   presence assertions as part of the port. Every other TwicPics debug
+   header is reproduced exactly.
 6. **Negotiation-capability check timing (declarative path only).** The
    framework runs `Policy.ensure_capable` only after a cache miss
    (`Runner.process_prepared_stream`); the unified runner surfaces a
@@ -510,11 +522,9 @@ Three items need deliberate handling:
    `Decode.with_image` collects none of them today, and no ordered dialect
    populates those six fields. Fix: the collection moves into
    `Decode.with_image` (which holds the header image and input at the right
-   moment) and is *offered* via `DebugContext`; the Declarative base's
-   default debug builder includes the facts, so IIIF's `?debug=1` headers
-   are preserved field-for-field, while the ordered dialects' own debug
-   builders are unchanged (TwicPics may opt into the facts later as a
-   deliberate change).
+   moment) and feeds the runner's uniform default debug builder (U13):
+   IIIF's `?debug=1` headers are preserved field-for-field, and TwicPics
+   debug responses gain the source-fact headers (observable delta 5).
 2. **The `[:render]` span.** Emitted today by `Request.RenderRunner` only.
    Fix: the span emission moves into the `ImagePipe.Renderer.run` facade, so
    the Declarative render bridge keeps it for IIIF `info.json`; imgproxy
@@ -558,7 +568,8 @@ double-wrap reduces every parse failure's `error:` tag to the constant
   ResponseMeta; debug headers return via the runner default builder, closing
   #462 — fiddle mount and `docs/debug_headers.md` updated in the same change)
   and TwicPics (ports onto the runner's default debug builder; its debug wire
-  tests gate exact reproduction).
+  tests gate exact reproduction apart from the delta-5 source-fact
+  additions, whose absence pins flip to presence assertions).
 - **Phase C**: `Declarative` base, `Dialect.IIIF`, delete
   `ImagePipe.Request.*` and `ImagePipe.Parser`, telemetry surface sync
   (Logger + Capture + docs), docs rewrite.
