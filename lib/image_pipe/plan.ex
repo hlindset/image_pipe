@@ -41,7 +41,6 @@ defmodule ImagePipe.Plan do
       Operation.Contrast,
       Operation.CropGuided,
       Operation.CropRegion,
-      Operation.Directive,
       Operation.Duotone,
       Operation.Flip,
       Operation.Gradient,

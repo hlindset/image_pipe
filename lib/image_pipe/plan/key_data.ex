@@ -16,7 +16,6 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
-  alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Gradient
@@ -141,13 +140,6 @@ defmodule ImagePipe.Plan.KeyData do
 
   def data(%Rotate{angle: angle, mirror: mirror}), do: [op: :rotate, angle: angle, mirror: mirror]
   def data(%Flip{axis: axis}), do: [op: :flip, axis: axis]
-
-  # A directive carries no pixel op itself, but the strategy decision it commits
-  # (e.g. the focal point the next cover/crop consumes) changes the stored
-  # bytes — so it contributes to the cache key (and, via the same material, the
-  # ETag). Hashed generically; payload canonicality is a parser contract.
-  def data(%Directive{name: name, payload: payload}),
-    do: [op: :directive, name: name, payload: payload]
 
   def data(%Blur{sigma: sigma}), do: [op: :blur, sigma: sigma]
   def data(%Sharpen{sigma: sigma}), do: [op: :sharpen, sigma: sigma]

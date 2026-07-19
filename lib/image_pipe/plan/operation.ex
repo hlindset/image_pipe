@@ -14,7 +14,6 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
-  alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Gradient
@@ -82,8 +81,6 @@ defmodule ImagePipe.Plan.Operation do
           Rotate.t()
           | Flip.t()
 
-  @type focus_operation :: Directive.t()
-
   @type effect_operation ::
           Bitonal.t()
           | Blur.t()
@@ -106,7 +103,6 @@ defmodule ImagePipe.Plan.Operation do
           | padding_operation()
           | background_operation()
           | orientation_operation()
-          | focus_operation()
           | effect_operation()
           | trim_operation()
 
@@ -306,12 +302,6 @@ defmodule ImagePipe.Plan.Operation do
         invalid(:crop_region, [x, y, width, height, opts])
     end
   end
-
-  @spec directive(atom(), term()) :: {:ok, Directive.t()} | {:error, error()}
-  def directive(name, payload) when is_atom(name) and not is_nil(name),
-    do: {:ok, %Directive{name: name, payload: payload}}
-
-  def directive(name, _payload), do: invalid(:directive, [name])
 
   @spec canvas(term(), term(), term(), keyword()) :: {:ok, Canvas.t()} | {:error, error()}
   def canvas(width, height, placement, opts \\ [])
@@ -540,7 +530,6 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
   def semantic?(%Bitonal{}), do: true
   def semantic?(%Gray{}), do: true
-  def semantic?(%Directive{name: name}) when is_atom(name), do: true
   def semantic?(_operation), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}

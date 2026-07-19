@@ -7,7 +7,6 @@ defmodule ImagePipe.Plan.OperationTest do
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Colorize
   alias ImagePipe.Plan.Operation.Contrast
-  alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Monochrome
@@ -16,13 +15,6 @@ defmodule ImagePipe.Plan.OperationTest do
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
-
-  describe "directive/2 constructor (#438)" do
-    test "directive/2 wraps a strategy-addressed pipeline entry" do
-      assert {:ok, %Directive{name: :set_focus, payload: {:coord, {:px, 1}, {:px, 2}}}} =
-               Operation.directive(:set_focus, {:coord, {:px, 1}, {:px, 2}})
-    end
-  end
 
   describe "resize constructors" do
     test "build unified resize operations through exported constructor" do
