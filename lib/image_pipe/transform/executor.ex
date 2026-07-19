@@ -54,8 +54,10 @@ defmodule ImagePipe.Transform.Executor do
 
   @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def execute(%Plan{resolver: nil} = plan, %State{} = state, opts) do
-    execute_neutral(plan, state, opts)
+  def execute(%Plan{pipelines: pipelines, resolver: nil} = plan, %State{} = state, opts) do
+    with {:ok, state} <- seed_execution_state(plan, state, opts) do
+      execute_pipelines(pipelines, :neutral, state, opts)
+    end
   end
 
   def execute(
@@ -65,15 +67,6 @@ defmodule ImagePipe.Transform.Executor do
       ) do
     with {:ok, state} <- seed_execution_state(plan, state, opts) do
       execute_pipelines(pipelines, {:strategy, resolver}, state, opts)
-    end
-  end
-
-  @doc false
-  @spec execute_neutral(Plan.t(), State.t(), keyword()) ::
-          {:ok, State.t()} | {:error, term()}
-  def execute_neutral(%Plan{pipelines: pipelines} = plan, %State{} = state, opts) do
-    with {:ok, state} <- seed_execution_state(plan, state, opts) do
-      execute_pipelines(pipelines, :neutral, state, opts)
     end
   end
 
@@ -170,10 +163,7 @@ defmodule ImagePipe.Transform.Executor do
     run_driver(pipeline, shape, {:strategy, strategy}, state, opts)
   end
 
-  @doc false
-  @spec run_neutral([struct()], SourceShape.t(), State.t(), keyword()) ::
-          {:ok, State.t()} | {:error, term()}
-  def run_neutral(pipeline, %SourceShape{} = shape, %State{} = state, opts \\ []) do
+  defp run_neutral(pipeline, %SourceShape{} = shape, %State{} = state, opts) do
     run_driver(pipeline, shape, {:neutral, nil}, state, opts)
   end
 

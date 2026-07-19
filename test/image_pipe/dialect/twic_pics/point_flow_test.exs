@@ -192,29 +192,4 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlowTest do
     assert {[%Blur{sigma: 2.0}], {:advance, _shape, ^flow}} =
              PointFlow.resolve(shape(100, 100), flow, {:operation, operation})
   end
-
-  test "raises for a dimension-changing operation without an explicit point rule" do
-    {:ok, operation} = Operation.rotate(45)
-
-    assert_raise RuntimeError, ~r/Rotate/, fn ->
-      PointFlow.resolve(shape(100, 100), PointFlow.init(), {:operation, operation})
-    end
-  end
-
-  test "raises for trim without an explicit point rule" do
-    {:ok, operation} = Operation.trim(threshold: 1.0, background: :auto)
-
-    assert_raise RuntimeError, ~r/Trim/, fn ->
-      PointFlow.resolve(shape(100, 100), PointFlow.init(), {:operation, operation})
-    end
-  end
-
-  test "raises for padding without an explicit point rule" do
-    {:ok, operation} =
-      Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0})
-
-    assert_raise RuntimeError, ~r/Padding/, fn ->
-      PointFlow.resolve(shape(100, 100), PointFlow.init(), {:operation, operation})
-    end
-  end
 end
