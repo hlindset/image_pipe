@@ -507,19 +507,83 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     assert conn.status == 400
   end
 
-  test "explicit output bypasses negotiation; auto sets Vary: Accept" do
-    explicit = call("/images/beach.jpg?twic=v1/resize=100/output=avif")
-    assert Plug.Conn.get_resp_header(explicit, "content-type") == ["image/avif"]
+  # Hosted imagepipe.twic.pics output=auto probes (2026-07-19): a Chrome Accept
+  # selects WebP; Accept: image/avif alone falls back to the source format (never
+  # AVIF); explicit output=avif serves AVIF regardless of Accept; auto emits
+  # Vary: Accept. The dialect matches this with WebP-preferred, AVIF-off auto.
+  describe "output=auto matches hosted TwicPics format selection" do
+    @chrome_accept "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
 
-    auto =
-      call(
-        "/images/beach.jpg?twic=v1/resize=100/output=auto",
-        @opts,
-        [{"accept", "image/webp"}]
-      )
+    test "a Chrome Accept (avif+webp) selects WebP, not AVIF" do
+      conn =
+        call("/images/beach.jpg?twic=v1/resize=100/output=auto", @opts, [
+          {"accept", @chrome_accept}
+        ])
 
-    vary = auto |> Plug.Conn.get_resp_header("vary") |> Enum.flat_map(&String.split(&1, ", "))
-    assert Enum.any?(vary, &(String.downcase(&1) == "accept"))
+      assert conn.status == 200
+      assert header(conn, "content-type") == "image/webp"
+
+      vary = conn |> Plug.Conn.get_resp_header("vary") |> Enum.flat_map(&String.split(&1, ", "))
+      assert Enum.any?(vary, &(String.downcase(&1) == "accept"))
+    end
+
+    test "Accept: image/webp selects WebP" do
+      conn =
+        call("/images/beach.jpg?twic=v1/resize=100/output=auto", @opts, [{"accept", "image/webp"}])
+
+      assert header(conn, "content-type") == "image/webp"
+    end
+
+    test "an AVIF-only Accept falls back to the source format (auto never serves AVIF)" do
+      conn =
+        call("/images/beach.jpg?twic=v1/resize=100/output=auto", @opts, [{"accept", "image/avif"}])
+
+      assert conn.status == 200
+      # beach.jpg is opaque -> JPEG universal fallback; never AVIF under auto.
+      assert header(conn, "content-type") == "image/jpeg"
+    end
+
+    test "a legacy Accept falls back to the source format" do
+      conn =
+        call("/images/beach.jpg?twic=v1/resize=100/output=auto", @opts, [
+          {"accept", "image/png,*/*;q=0.8"}
+        ])
+
+      assert header(conn, "content-type") == "image/jpeg"
+    end
+
+    test "explicit output=avif bypasses auto and serves AVIF" do
+      conn =
+        call("/images/beach.jpg?twic=v1/resize=100/output=avif", @opts, [{"accept", "image/webp"}])
+
+      assert header(conn, "content-type") == "image/avif"
+
+      vary = conn |> Plug.Conn.get_resp_header("vary") |> Enum.flat_map(&String.split(&1, ", "))
+      refute Enum.any?(vary, &(String.downcase(&1) == "accept"))
+    end
+
+    test "disabling WebP capability drops it from auto and falls back to source" do
+      opts = Keyword.put(@opts, :output_capabilities, %{webp: false})
+
+      conn =
+        call("/images/beach.jpg?twic=v1/resize=100/output=auto", opts, [
+          {"accept", @chrome_accept}
+        ])
+
+      assert conn.status == 200
+      assert header(conn, "content-type") == "image/jpeg"
+    end
+
+    test "a host may re-enable AVIF auto negotiation" do
+      opts = Keyword.put(@opts, :auto_avif, true)
+
+      conn =
+        call("/images/beach.jpg?twic=v1/resize=100/output=auto", opts, [
+          {"accept", @chrome_accept}
+        ])
+
+      assert header(conn, "content-type") == "image/avif"
+    end
   end
 
   test "oversized chained upscale is clamped to the result limit after fetch" do

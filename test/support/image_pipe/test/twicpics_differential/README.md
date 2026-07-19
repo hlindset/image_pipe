@@ -9,8 +9,8 @@ constellation, then compares pixels.
 TwicPics is **libvips-based** — the same engine ImagePipe renders with — so per-pixel
 comparison is the right, stricter gate, not the foreign-engine mismatch the suite
 originally assumed. The initial 30-fixture spike found 19 byte-identical outputs. The
-suite now contains 39 fixtures: five accepted divergences remain on the default lane
-inside two-sided bands, and the suite quarantines one unresolved shadowing case. The five
+suite now contains 39 fixtures, all on the default lane: five accepted divergences
+remain inside two-sided bands and the other 34 are asserted `:equal`. The five
 monitored cases are the two fractional `cover=2:3` renders and the three transparent
 letterbox-under-shrink renders listed under *Verdicts*.
 
@@ -235,14 +235,13 @@ require a manifest reauthor. The bake still fetches oracle output for triaged ca
 (the parse gate skips them, but the bake runs them — only the conformance comparison
 is quarantined).
 
-**Current quarantined cases (1).**
+**Current quarantined cases (0).**
 
-- [#464](https://github.com/hlindset/image_pipe/issues/464) tracks
-  `resize_shadow_relative_then_absolute` (`resize=50p/resize=340`). TwicPics discards the
-  shadowed relative resize and returns the same 340×340 bytes as direct `resize=340`;
-  the local dialect executes both steps and returns 200×200 because plain resize
-  doesn't enlarge. Phase 2B owns the upstream-proven shadow rewrite and must reuse
-  this fixture.
+Phase 2B closed the last one: [#464](https://github.com/hlindset/image_pipe/issues/464)
+(`resize_shadow_relative_then_absolute`, `resize=50p/resize=340`). TwicPics discards the
+shadowed relative resize and returns the same 340×340 bytes as direct `resize=340`;
+`ImagePipe.Dialect.TwicPics.Shadow` now reproduces that, so the case is an asserted
+`:equal` case against the unchanged committed fixture rather than a quarantine.
 
 **Current monitored divergences (5).**
 

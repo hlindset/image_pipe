@@ -5,6 +5,7 @@ defmodule ImagePipe.Dialect.TwicPics.DecodePreflightTest do
   alias ImagePipe.Dialect.TwicPics.Pipeline
   alias ImagePipe.Dialect.TwicPics.Request
   alias ImagePipe.Dialect.TwicPics.RequestBuilder
+  alias ImagePipe.Dialect.TwicPics.Shadow
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Transform.DecodePlanner
@@ -31,8 +32,12 @@ defmodule ImagePipe.Dialect.TwicPics.DecodePreflightTest do
     }
   end
 
+  # The reference runtime op-chain is the shadow-collapsed execution stream, the
+  # same stream Pipeline.run assembles; preflight must converge with it.
   defp operation_chain(%Request{steps: steps}) do
-    Enum.flat_map(steps, fn
+    steps
+    |> Shadow.execution_steps()
+    |> Enum.flat_map(fn
       {:operation, operation} -> [operation]
       {:focused, operation} -> [operation]
       {:set_focus, _operand} -> []
@@ -84,19 +89,18 @@ defmodule ImagePipe.Dialect.TwicPics.DecodePreflightTest do
     end
   end
 
-  test "the first relative resize stops preflight and normalizes its empty target to nil" do
+  test "an absolute resize shadows the preceding relative resize in preflight (#464)" do
     request = build([{"resize", "50p"}, {"resize", "340"}])
     preflight = Pipeline.decode_request(request, geometry({4000, 2667}))
 
-    assert preflight.resize_target == nil
+    # The 50p is shadowed, so preflight targets the absolute 340 directly and
+    # plans the same shrink-on-load as a bare resize=340 would.
+    assert preflight.resize_target == {340.0, nil}
+
+    {:ok, direct} = Operation.resize(:fit, {:px, 340}, :auto)
 
     assert DecodePlanner.open_options_for(preflight, :jpeg, {4000, 2667}, false, true) ==
-             [access: :sequential, fail_on: :error]
-
-    {:ok, later} = Operation.resize(:fit, {:px, 340}, :auto)
-
-    assert DecodePlanner.open_options([later], :jpeg, {4000, 2667}, false, true) ==
-             [access: :sequential, fail_on: :error, shrink: 8]
+             DecodePlanner.open_options([direct], :jpeg, {4000, 2667}, false, true)
   end
 
   test "preceding crop extent is derived and focus-only steps are ignored" do
@@ -110,31 +114,23 @@ defmodule ImagePipe.Dialect.TwicPics.DecodePreflightTest do
              )
   end
 
-  property "a relative first resize can never be shadowed by a later pixel resize" do
+  property "an adjacent later pixel resize shadows a relative first resize (#464)" do
     check all width <- integer(800..5000),
               height <- integer(800..5000),
               percent <- integer(1..100),
               later <- integer(1..700),
               format <- member_of([:jpeg, :webp]),
               max_runs: 60 do
-      {:ok, first} = Operation.resize(:fit, {:ratio, percent, 100}, :auto)
-      {:ok, second} = Operation.resize(:fit, {:px, later}, :auto)
-
-      request = %Request{
-        source: "test",
-        steps: [{:operation, first}, {:operation, second}],
-        output: nil,
-        response: nil,
-        auto_rotate: true
-      }
+      request = build([{"resize", "#{percent}p"}, {"resize", "#{later}"}])
+      {:ok, direct} = Operation.resize(:fit, {:px, later}, :auto)
 
       preflight =
         Pipeline.decode_request(request, geometry({width, height}, %PendingOrientation{}, format))
 
-      assert preflight.resize_target == nil
-
+      # The relative first resize is shadowed, so preflight converges with a bare
+      # resize=<later> against the source frame.
       assert DecodePlanner.open_options_for(preflight, format, {width, height}, false, true) ==
-               DecodePlanner.open_options([first, second], format, {width, height}, false, true)
+               DecodePlanner.open_options([direct], format, {width, height}, false, true)
     end
   end
 end

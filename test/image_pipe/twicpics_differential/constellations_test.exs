@@ -15,16 +15,9 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
     assert Enum.count(constellations, &(&1.verdict == :equal)) == 34
     assert Enum.count(constellations, &(&1.verdict == :diverges)) == 5
 
-    assert [
-             %{
-               id: "resize_shadow_relative_then_absolute",
-               triage: %{reason: reason, issue: issue}
-             }
-           ] = Enum.filter(constellations, &Map.has_key?(&1, :triage))
-
-    assert is_binary(reason) and String.trim(reason) != ""
-    assert issue == 464
-    assert issue > 0
+    # #464 closed in Phase 2B: the shadow case is now an ordinary :equal lane case
+    # matching its committed 340x340 fixture, so no constellation is quarantined.
+    assert [] = Enum.filter(constellations, &Map.has_key?(&1, :triage))
 
     for constellation <- constellations, constellation.verdict == :diverges do
       assert %{max_delta: max_delta, outliers: outliers} = constellation.divergence

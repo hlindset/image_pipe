@@ -25,10 +25,13 @@ defmodule ImagePipe.Dialect.TwicPicsContractTest do
     %{
       same_selection: [
         {"/images/cat.jpg?twic=v1/resize=64/output=auto", "image/jpeg", nil},
-        {"/images/cat.jpg?twic=v1/resize=64/output=auto", "image/avif", "image/avif,image/webp"}
+        # Both accept WebP; the dialect's auto negotiation selects WebP (AVIF is
+        # off by default, matching hosted TwicPics), so both share one entry.
+        {"/images/cat.jpg?twic=v1/resize=64/output=auto", "image/webp", "image/avif,image/webp"}
       ],
       different_selection: [
-        {"/images/cat.jpg?twic=v1/resize=64/output=auto", "image/avif", nil}
+        # WebP-accepting -> WebP; no Accept -> source-negotiated. Distinct entries.
+        {"/images/cat.jpg?twic=v1/resize=64/output=auto", "image/webp", nil}
       ],
       explicit_format: [
         {"/images/cat.jpg?twic=v1/resize=64/output=webp", "image/avif"}
