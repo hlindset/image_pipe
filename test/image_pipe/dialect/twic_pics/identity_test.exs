@@ -118,6 +118,25 @@ defmodule ImagePipe.Dialect.TwicPics.IdentityTest do
       refute representation(shadowed_material).etag == representation(direct_material).etag
     end
 
+    test "the auto-negotiated selected format is part of representation identity" do
+      # output=auto renders different bytes per negotiated format, so the selected
+      # format must feed the cache key and ETag; two Accept headers that resolve to
+      # the same format share one entry, and different formats split.
+      request = request!([{"output", "auto"}])
+
+      webp = material(request, negotiation(selected: {:image, :webp}))
+      source = material(request, negotiation(selected: {:image, :source_negotiated}))
+      webp_again = material(request, negotiation(selected: {:image, :webp}))
+
+      refute webp.representation == source.representation
+
+      refute representation(webp).cache_key.hash == representation(source).cache_key.hash
+      refute representation(webp).etag == representation(source).etag
+
+      assert representation(webp).cache_key.hash == representation(webp_again).cache_key.hash
+      assert representation(webp).etag == representation(webp_again).etag
+    end
+
     test "normalized equivalent ratios and arithmetic produce the same identity" do
       ratio_a = request!([{"cover", "1.5:2"}, {"resize", "(700/2)"}])
       ratio_b = request!([{"cover", "3:4"}, {"resize", "350"}])

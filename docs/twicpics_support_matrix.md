@@ -152,7 +152,7 @@ Mapped to [API Parameters](https://www.twicpics.com/docs/reference/parameters.md
 <!-- vale off -->
 | TwicPics feature | Status | Notes |
 | --- | --- | --- |
-| `output=auto` | ⚠️ Partial (v1) | The Request's `Plan.Output` is `:automatic`, and local negotiation emits `Vary: Accept`. For the reviewed Chrome `Accept` header, hosted TwicPics selected WebP while ImagePipe's configurable, Accept-only default selected AVIF. Phase 2B owns this compatibility gap. |
+| `output=auto` | ✅ Supported | The Request's `Plan.Output` is `:automatic`, local negotiation emits `Vary: Accept`, and the selected format matches hosted TwicPics. Probed against `imagepipe.twic.pics` (2026-07-19): `output=auto` selects **WebP** when the client accepts it and **never AVIF** — `Accept: image/avif` alone falls back to the source format (PNG for the alpha grid, JPEG for the opaque gradient). The dialect matches this by defaulting `auto_avif`/`auto_jpeg_xl` off, so its Accept-driven auto negotiation prefers WebP and falls back to the alpha-aware universal format. This is a **dialect-local default**, not a change to the neutral output policy; Native, imgproxy, and IIIF keep the shared AVIF-first default. Explicit `output=avif` still bypasses negotiation and serves AVIF, and a host may pass `auto_avif: true` to re-enable auto AVIF. |
 | `output=avif\|webp\|jpeg\|png` | ✅ Supported | Explicit `{:explicit, format}`, bypasses negotiation. |
 | `output=heif` | 🚫 Rejected | Not in the v1 explicit-format set (`avif`/`webp`/`jpeg`/`png`); the dialect rejects it with `{:unsupported_output, "heif"}` before side effects. |
 | `output=blurhash\|preview\|maincolor\|meancolor\|blank` | 🚫 Rejected | Non-image preview outputs; deferred. |

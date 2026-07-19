@@ -12,6 +12,15 @@ defmodule ImagePipe.Dialect.TwicPics.Config do
     :allow_debug_headers
   ]
 
+  # Hosted TwicPics `output=auto` selects WebP for browsers that accept it and
+  # never auto-selects AVIF or JPEG XL (verified against imagepipe.twic.pics: a
+  # Chrome Accept returns WebP; `Accept: image/avif` alone falls back to the
+  # source format). The dialect matches that by defaulting AVIF/JXL auto
+  # negotiation off — a dialect-local default only, not a change to the neutral
+  # output policy or the other dialects. Explicit `output=avif` still bypasses
+  # negotiation, and a host may re-enable auto AVIF/JXL by passing the flag.
+  @auto_format_defaults [auto_avif: false, auto_jpeg_xl: false]
+
   @dialect_schema NimbleOptions.new!(
                     storage_inputs: [
                       type: {:list, {:custom, SharedConfig, :validate_storage_input, []}},
@@ -41,7 +50,8 @@ defmodule ImagePipe.Dialect.TwicPics.Config do
     reject_unknown!(unknown)
 
     resolved =
-      shared
+      @auto_format_defaults
+      |> Keyword.merge(shared)
       |> SharedConfig.validate_runtime!()
       |> Keyword.merge(NeutralConfig.resolve!(neutral, []))
       |> Keyword.merge(validate_dialect!(dialect))
