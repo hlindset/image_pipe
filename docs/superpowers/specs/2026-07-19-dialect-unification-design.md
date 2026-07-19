@@ -201,10 +201,12 @@ call:
   │    Delivery.stream(build_fun, cache_key, response_meta) where build_fun =
   │      Decode.with_image(resolved_source, auto_rotate?,
   │                        dialect.decode_request, fn state, geometry →
-  │        [:transform, :execute] span → dialect.execute
-  │        → Output.Negotiate.negotiate_output → Clamp.clamp_with_telemetry
-  │        → materialize_for_delivery
-  │        → [:encode] span, first-chunk pull → pump)
+  │        produce_stream/…:                    (runs in Delivery.Producer;
+  │          [:transform, :execute] span → dialect.execute      the name
+  │          → Output.Negotiate.negotiate_output                replaces the
+  │          → Clamp.clamp_with_telemetry                       dialects'
+  │          → materialize_for_delivery                         build_and_pump)
+  │          → [:encode] span, first-chunk pull → hand off to delivery)
   │      (on_bracket_exit test seam preserved; rescue/catch → {:transform, _})
   ├─ terminal {:render, fun} → shared complete-body path:
   │    {:complete_body, ct} cache hit (wildcard-INM checked) → send
@@ -360,7 +362,7 @@ as the survivor of each pair.
 | `Runner` custom-render dispatch + `RenderRunner` | runner `{:render, fun}` terminal (consolidated from the imgproxy `/info` / Native blurhash mirrors); `Declarative`'s render_fun bridges to `ImagePipe.Renderer`, whose `run` gains RenderRunner's `[:render]` span | consolidation + bridge |
 | `HTTPCache` identity mechanics (`etag_material`, `evaluate_conditional`) | existing `Representation.build` + `Response.Conditional` + `CacheHeaders.from_representation`; NEW: the Declarative base's Plan→identity-material derivation (the analogue of each dialect's `Identity.material`) | mechanism swap — the source of accepted delta U8 |
 | `HTTPCache` header-generation policy (generated `Cache-Control`, suppression rules, `http_cache:` mode + per-source `:inherit`, the four `[:http_cache, :*]` events) | promoted to a core policy module applied by the runner under `Resolved.http_cache == :generated` (U8b) | move, not deletion — IIIF's headers and events preserved; ordered dialects unaffected |
-| `DeliveryBuild` (`build_fun`, `resolve_output`, `encode_first_chunk`, `effective_limits`) | runner `build_fun` — the verbatim `build_and_pump` the dialects share; `Output.Negotiate.negotiate_output` (existing core); the dialects' `result_limits` (the more complete version — clamps against per-format encoder limits) | consolidation |
+| `DeliveryBuild` (`build_fun`, `resolve_output`, `encode_first_chunk`, `effective_limits`) | the runner's `produce_stream` (the verbatim `build_and_pump` chain the dialects share, renamed — it produces the response stream inside `Delivery.Producer`); `Output.Negotiate.negotiate_output` (existing core); the dialects' `result_limits` (the more complete version — clamps against per-format encoder limits) | consolidation |
 | `Options` | existing `SharedConfig.validate_runtime!` + per-dialect `validate_config!`; framework-only keys IIIF keeps (e.g. `allow_debug_headers`) move into `Dialect.IIIF`'s schema | consolidation |
 | `SourceFormat` | `Decode.SourceFormat`, its existing twin | pick the surviving twin |
 
