@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Run every mix command through `mise exec -- …` (fresh worktree: `mise trust` + `mise run setup` first).
-- Per-dialect observables are gated: the Native wire/contract/telemetry suites must pass unchanged except the deltas this plan enumerates (U9 disabled-cache fix; cache entries now storing a `Debug.Info` — internal, never rendered since Native has no debug trigger).
+- Per-dialect observables are gated: the Native wire/contract/telemetry suites must pass unchanged except the deltas this plan enumerates: (a) the U9 disabled-cache fix; (b) cache entries now store a `Debug.Info` — mandated by U13's unconditional build-and-store, internal, never rendered since Native has no debug trigger; (c) `[:debug, :collect, :error]` (failure-only) and the per-request fact collection become reachable on the imgproxy/TwicPics decode paths through shared `Decode` — the Logger/Capture already subscribe to the event name and no suite gates it.
 - U4 anti-leak rule: the runner branches only on `%Resolved{}` fields and neutral core structs — never on dialect identity, never via dialect-specific flags. Every new runner branch must cite the `Resolved` field it dispatches on.
 - No changes under `lib/image_pipe/dialect/imgproxy/**`, `lib/image_pipe/dialect/twic_pics/**`, `lib/image_pipe/parser/**`, `lib/image_pipe/request/**` in Phase A (except none — the framework path coexists untouched).
 - No differential fixture, verdict, or tolerance changes.
@@ -39,7 +39,6 @@ test/image_pipe/plug_dialect_runner_test.exs   NEW  runner wire tests (the contr
 test/image_pipe/decode_facts_test.exs          NEW
 test/image_pipe/dialect/negotiation_test.exs   NEW
 test/image_pipe/dialect/native_wire_test.exs   MOD  mount helpers → ImagePipe.Plug + U9 test
-fiddle/lib/image_pipe_fiddle/application.ex    MOD  Native mount → ImagePipe.Plug dialect mode
 ```
 
 ---
@@ -138,7 +137,6 @@ defmodule ImagePipe.Dialect do
     top_level?: true,
     deps: [
       ImagePipe.Debug,
-      ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Representation,
@@ -291,6 +289,10 @@ defmodule ImagePipe.Dialect.Resolved do
   the struct), so the pair succeeds or fails together. The runner unwraps
   it AFTER `ImagePipe.Source.resolve/3`, preserving the dialects'
   source-before-negotiation error precedence.
+
+  `http_cache: :generated` is representable but inert until Phase C lands
+  the promoted header-policy module (spec U8b); both Phase A implementors
+  set `:dialect_owned`.
   """
 
   alias ImagePipe.Dialect.Negotiation
@@ -364,7 +366,10 @@ defmodule ImagePipe.Dialect.DebugContext do
   @moduledoc """
   Everything the runner's default neutral debug builder (and the optional
   `c:ImagePipe.Dialect.debug_info/1` override) may draw on. Source facts
-  ride `geometry.debug_facts` (collected by `ImagePipe.Decode`).
+  ride `geometry.debug_facts` (collected by `ImagePipe.Decode`). Cache
+  hit/miss debug (spec U13's "cache hit/miss" input) is NOT carried here:
+  it rides the delivery-time `hit_debug` map exactly as today, because it
+  is only known at serve time, after generation built this context.
   """
 
   alias ImagePipe.Dialect.Negotiation
@@ -432,8 +437,8 @@ defmodule ImagePipe.DecodeFactsTest do
   alias ImagePipe.Decode
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Source
-  alias ImagePipe.Test.OriginImage
-  alias ImagePipe.Test.RootHTTPAdapter
+  alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImgproxyWireConformanceTest.OriginImage
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.SourceGeometry
 
@@ -467,7 +472,7 @@ defmodule ImagePipe.DecodeFactsTest do
 end
 ```
 
-(If `OriginImage`/`RootHTTPAdapter` live under different aliases, copy the exact aliases from the top of `native_wire_test.exs` — do not invent new fixtures.)
+(Module names verified against `native_wire_test.exs:14-18`: `RootHTTPAdapter` is `ImagePipe.SourceTest.RootHTTPAdapter`; `OriginImage`, `CountingOriginImage`, `OriginShouldNotFetch`, and `CacheProbe` live under `ImgproxyWireConformanceTest`.)
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -538,6 +543,13 @@ git commit -m "Collect debug source facts in Decode.with_image (Phase A task 2)"
 ```elixir
 defmodule ImagePipe.Test.RunnerFixtureDialect do
   @moduledoc false
+
+  # The :boundary compiler runs in all envs; without a declaration this
+  # module would fall into the ImagePipe root boundary and violate its deps.
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePipe.Dialect, ImagePipe.Plan, ImagePipe.Representation, ImagePipe.Transform]
+
   @behaviour ImagePipe.Dialect
 
   import Plug.Conn, only: [send_resp: 3, fetch_query_params: 1]
@@ -643,8 +655,8 @@ defmodule ImagePipe.PlugDialectRunnerTest do
   import Plug.Test
   import Plug.Conn
 
-  alias ImagePipe.Test.OriginImage
-  alias ImagePipe.Test.RootHTTPAdapter
+  alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImgproxyWireConformanceTest.OriginImage
   alias ImagePipe.Test.RunnerFixtureDialect
 
   @sources [
@@ -726,6 +738,11 @@ In `lib/image_pipe/plug.ex`:
 ```
 
 Rename the existing `call/2` body to `defp legacy_call(conn, opts)` (body unchanged from `plug.ex:42-51`).
+
+(Known failure-mode change, init-time only: a host typo passing `:dialect`
+with a non-dialect module now fails with an `UndefinedFunctionError` from
+`validate_config!/1` instead of `Options.validate!`'s `ArgumentError`. No
+gated suite observes init errors; acceptable.)
 
 3. Create `lib/image_pipe/plug/dialect_runner.ex`. The chain is `dialect/native.ex`'s, generalized through the contract — copy the referenced native functions and apply exactly the listed changes:
 
@@ -918,7 +935,11 @@ defmodule ImagePipe.Plug.DialectRunner do
         {conn, %{result: :ok}}
 
       {:error, reason} ->
-        send_error(conn, dialect, reason, config, negotiation.policy.headers)
+        # Phase B note: imgproxy/TwicPics ride negotiation.policy.headers on
+        # delivery errors (their Errors.send/4); Native's Errors.send/3 takes
+        # none, so Phase A's contract carries no headers here — see the plan's
+        # exit notes for the Phase B design question.
+        send_error(conn, dialect, reason, config)
     end
   end
 
@@ -1100,7 +1121,7 @@ defmodule ImagePipe.Plug.DialectRunner do
     {conn, %{result: :not_modified}}
   end
 
-  defp send_error(conn, dialect, reason, config, _headers \\ []) do
+  defp send_error(conn, dialect, reason, config) do
     metadata = %{result: classify(dialect, reason), error: Error.tag(reason)}
 
     conn =
@@ -1280,11 +1301,11 @@ git commit -m "Pin deferred-negotiation precedence and error classification (Pha
 **Files:**
 - Create: `lib/image_pipe/plug/debug_builder.ex`
 - Modify: `lib/image_pipe/plug/dialect_runner.ex` (timings + builder wiring in `build_fun`/`produce_stream`)
-- Modify: `.credo.exs` and `mise.toml` (ExDNA ignore for `lib/image_pipe/plug/debug_builder.ex` — the TwicPics copy coexists until Phase B deletes it)
+- Modify: `mix.exs` (`@ex_dna_ignores`, `mix.exs:6-11` — add `lib/image_pipe/plug/debug_builder.ex`; that module attribute is the single authoritative ExDNA ignore list, consumed by both the credo integration and the standalone task. The TwicPics copy coexists until Phase B deletes it)
 - Test: `test/image_pipe/plug_dialect_runner_test.exs`
 
 **Interfaces:**
-- Consumes: Task 1's `DebugContext`; Task 2's `geometry.debug_facts`; TwicPics' neutral fact logic (`dialect/twic_pics.ex:536-633`) as the source to copy.
+- Consumes: Task 1's `DebugContext`; Task 2's `geometry.debug_facts`; TwicPics' neutral fact logic (`dialect/twic_pics.ex:536-627`) as the source to copy.
 - Produces: `ImagePipe.Plug.DebugBuilder.build(dialect :: module(), DebugContext.t()) :: ImagePipe.Debug.Info.t()` — calls `dialect.debug_info(ctx)` when exported and non-nil-returning, else the default neutral build.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1404,7 +1425,7 @@ In `DialectRunner`: alias `ImagePipe.Debug.Timing` and `ImagePipe.Dialect.DebugC
 
 (capture `shrink = state.decode_shrink` before the transform, as TwicPics does) and pass `debug` instead of `nil` to `pump`. `search_meta` stops being discarded: change the encode-chunk pattern to bind it.
 
-Add `lib/image_pipe/plug/debug_builder.ex` to the ExDNA `ignore:` lists in `.credo.exs` and `mise.toml` (keep the two files exactly synchronized), with a comment: deliberate copy of the TwicPics debug build until Phase B deletes the dialect's copy.
+Add `lib/image_pipe/plug/debug_builder.ex` to `@ex_dna_ignores` in `mix.exs` (the single authoritative list), with a comment: deliberate copy of the TwicPics debug build until Phase B deletes the dialect's copy.
 
 - [ ] **Step 4: Run the tests**
 
@@ -1414,7 +1435,7 @@ Expected: PASS; credo clean (ExDNA ignore in place).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/image_pipe/plug/debug_builder.ex lib/image_pipe/plug/dialect_runner.ex test/image_pipe/plug_dialect_runner_test.exs .credo.exs mise.toml
+git add lib/image_pipe/plug/debug_builder.ex lib/image_pipe/plug/dialect_runner.ex test/image_pipe/plug_dialect_runner_test.exs mix.exs
 git commit -m "Add the runner's default neutral debug builder (Phase A task 6, U13)"
 ```
 
@@ -1584,7 +1605,6 @@ git commit -m "Add the complete-body render terminal to the runner (Phase A task
 - Delete: `lib/image_pipe/dialect/native/negotiation.ex`
 - Modify: `lib/image_pipe/dialect/native/identity.ex` (alias swap)
 - Modify: `test/image_pipe/dialect/native_wire_test.exs`, `native_test.exs`, `native_contract_test.exs`, `native_error_paths_test.exs`, `native_result_limits_test.exs`, and any `test/image_pipe/dialect/native/*` file calling `Native.call/2` or aliasing `Native.Negotiation` (grep first: `grep -rln "Native.call\|Native.init\|Native.Negotiation" test/`)
-- Modify: `fiddle/lib/image_pipe_fiddle/application.ex` (Native mount)
 
 **Interfaces:**
 - Consumes: everything Tasks 1–7 produced.
@@ -1631,6 +1651,8 @@ The new public surface:
 
   @impl ImagePipe.Dialect
   def prepare(%Plug.Conn{} = conn, %Request{} = request, config) do
+    # The clock read moves from route-entry (pre-parse) to here (post-parse):
+    # only a sub-second expiry edge differs and nothing pins it.
     with :ok <- check_expires(request, System.os_time(:second)),
          {:ok, plan_source} <- NativeSource.translate(request.source, config) do
       {:ok,
@@ -1723,19 +1745,36 @@ In `native_wire_test.exs` change only the two helpers (`native_wire_test.exs:60-
 
 Apply the same `init`/`call` swap in every other native test file the Step-0 grep found (including `Native.call(config)`-piped forms like `native_wire_test.exs:528`). The one-`%Policy{}` continuity test that called `Native.negotiate/3` directly now calls `ImagePipe.Dialect.Negotiation.negotiate(conn, Identity.plan_output(request), config)` — same assertion, promoted seam.
 
-- [ ] **Step 4: Update the fiddle mount**
+- [ ] **Step 4: Update the remaining referencing tests (outside the native-named files)**
 
-In `fiddle/lib/image_pipe_fiddle/application.ex`, change the Native mount from `{ImagePipe.Dialect.Native, <config>}` to `{ImagePipe.Plug, [dialect: ImagePipe.Dialect.Native] ++ <same config>}` (keep every config key identical; the exact current shape is visible at the mount site — only the module and the added `dialect:` key change).
+The Step-3 grep spans all of `test/`; four hits sit outside the native-named
+set and MUST get the same `init`/`call` swap — do not skip them:
+
+- `test/image_pipe/imgproxy_telemetry_contract_test.exs:732-734` (the
+  Imgproxy-vs-Native stage-sequence gate)
+- `test/image_pipe/telemetry/native_delivery_span_parentage_test.exs:65-73`
+- `test/image_pipe/dialect/byte_identity_cache_headers_test.exs:40`
+- `test/image_pipe/dialect/color_carry_parity_test.exs:58`
+
+One test needs more than a mount swap:
+`test/image_pipe/dialect/native/identity_test.exs:47` builds negotiations
+via `struct!(Negotiation, …)`; the promoted struct enforces all five keys
+(the old one enforced three), so add `policy: nil, plan_output: nil` to the
+test's base keyword. This is a listed mechanical edit, not an assertion
+change.
+
+(The fiddle mounts only imgproxy/IIIF/TwicPics — no Native mount exists, so
+no fiddle edit in Phase A; `mise run precommit:fiddle` still gates Task 10.)
 
 - [ ] **Step 5: Run the native suites**
 
 Run: `mise exec -- mix test test/image_pipe/dialect/ test/image_pipe/plug_dialect_runner_test.exs test/image_pipe/telemetry_test.exs && mise exec -- mix compile --warnings-as-errors`
-Expected: PASS with **zero** assertion changes beyond the mount-helper edits. Telemetry shapes (parse `sig_key_index`, error-tag omission, `[:request]` results) are pinned by the existing suites — any failure here is a runner parity bug, not a test to update.
+Expected: PASS with **zero** assertion changes beyond the enumerated mechanical edits (mount helpers, the four Step-4 files, `identity_test`'s enforce-keys base, the negotiate-seam swap). Telemetry shapes (parse `sig_key_index`, error-tag omission, `[:request]` results) are pinned by the existing suites — any failure here is a runner parity bug, not a test to update.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A lib/image_pipe/dialect/native.ex lib/image_pipe/dialect/native/ test/ fiddle/lib/image_pipe_fiddle/application.ex
+git add -A lib/image_pipe/dialect/native.ex lib/image_pipe/dialect/native/ test/
 git commit -m "Port Dialect.Native onto the ImagePipe.Dialect contract (Phase A task 8)"
 ```
 
@@ -1751,16 +1790,28 @@ git commit -m "Port Dialect.Native onto the ImagePipe.Dialect contract (Phase A 
 
 - [ ] **Step 1: Write the test**
 
-Add a source config whose adapter resolves `internal_cache: :disabled` (mirror how `RootHTTPAdapter` passes `byte_identity:`; if the adapter lacks an `internal_cache:` passthrough, use the same option the imgproxy/TwicPics disabled-cache wire tests use — grep `internal_cache` under `test/` and copy that arrangement):
+Add a source config whose adapter resolves `internal_cache: :disabled` — copy the existing arrangement at `test/image_pipe/imgproxy_wire_conformance_test.exs:2404-2419` (`PlugCustomAdapter`). The test must prove BOTH halves of U9 — no cache write AND no cache read — so alongside the empty-probe assertion, attach a scoped telemetry handler (unique `telemetry_prefix`, per the AGENTS.md rule) on `[:cache, :lookup, :start]` and refute it ever fires:
 
 ```elixir
   test "a source resolving internal_cache: :disabled is neither read from nor written to the cache" do
     table = :ets.new(:native_disabled_cache_probe, [:set, :public])
+    prefix = [:native_disabled_cache]
+    handler = "native-disabled-cache-#{inspect(self())}"
+
+    :telemetry.attach(
+      handler,
+      prefix ++ [:cache, :lookup, :start],
+      fn _event, _measurements, _metadata, pid -> send(pid, :cache_lookup) end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
 
     config =
       opts(
         cache: {CacheProbe, store: table},
-        sources: disabled_cache_sources()
+        sources: disabled_cache_sources(),
+        telemetry_prefix: prefix
       )
 
     first = get(signed_path_for("images/beach.jpg", "rs=100x100"), config)
@@ -1769,7 +1820,9 @@ Add a source config whose adapter resolves `internal_cache: :disabled` (mirror h
     second = get(signed_path_for("images/beach.jpg", "rs=100x100"), config)
     assert second.status == 200
 
-    # No entry was ever stored: the probe's table stays empty.
+    # No read: the runner's :disabled head never called Cache.lookup_entry.
+    refute_received :cache_lookup
+    # No write: the probe's table stays empty across both requests.
     assert :ets.tab2list(table) == []
   end
 ```
@@ -1793,7 +1846,7 @@ git commit -m "Pin Native internal_cache: :disabled behavior (Phase A task 9, U9
 ### Task 10: Cleanup, boundaries, gates
 
 **Files:**
-- Modify: `.credo.exs` + `mise.toml` (remove `lib/image_pipe/dialect/native.ex` — and, if listed, `lib/image_pipe/dialect/native/pipeline.ex` — from the ExDNA ignore lists; the chain mirror it excused is gone)
+- Modify: `lib/image_pipe/dialect/native.ex` ExDNA annotations (native.ex was never on the file-level ignore list — `@ex_dna_ignores` in `mix.exs:6-11` holds only decode.ex, decode/source_format.ex, shared_config.ex, response/conditional.ex. Its suppression is the inline `# ex_dna:disable-for-next-line` annotations; Task 8's chain deletion removed most — audit `native.ex` and `native/pipeline.ex` and delete any now-orphaned annotations whose mirrored counterpart died)
 - Modify: `test/image_pipe/architecture_boundary_test.exs` (deps pins: `ImagePipe.Plug` → `ImagePipe.Dialect` allowed; `ImagePipe.Dialect.Native` must not depend on `ImagePipe.Plug`, `ImagePipe.Request`, `ImagePipe.Cache`, `ImagePipe.Delivery`; adjust the existing native deps pin to its pruned list)
 - Modify: `docs/` mount examples that show `plug ImagePipe.Dialect.Native` (grep: `grep -rln "Dialect.Native" docs/`) — update to the `ImagePipe.Plug, dialect:` form; leave imgproxy/TwicPics/IIIF examples untouched (Phases B/C)
 
