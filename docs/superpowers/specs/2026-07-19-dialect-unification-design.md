@@ -345,11 +345,11 @@ as the survivor of each pair.
 
 | Deleted | Replaced by | Nature |
 | --- | --- | --- |
-| `Processor` (fetch → peek → format gate → header open → pixel limit → shrink-planned sequential open) | `ImagePipe.Decode.with_image/4` — existing core, a recorded line-for-line duplicate of this flow (same reject families, error taxonomy, `[:source, :fetch_decode]` span) | pick the surviving twin |
+| `Processor` (fetch → peek → format gate → header open → pixel limit → shrink-planned sequential open) | `ImagePipe.Decode.with_image/4` — existing core, a recorded line-for-line duplicate of this flow (same reject families, error taxonomy, `[:source, :fetch_decode]` span). NEW: `source_debug_facts` collection (and its `[:debug, :collect, :error]` one-shot) moves here — see the observability audit | pick the surviving twin |
 | `Processor` (`process_decoded_source`, `materialize_for_delivery`) | runner build phase (span + materialize backstop, consolidated from the three identical dialect copies) + `Declarative.execute` = `Transform.execute_plan` | consolidation |
 | `Runner` (cache dispatch, timed lookup, wildcard-INM on hit, `Delivery.stream`, policy headers on failure) | runner serve phase, built from the dialect chains' shared `serve`/`deliver_hit`/`generate` (the fourth copy) | consolidation |
 | `Runner.with_detector_identity/2` | `Declarative.prepare` (Plan-derived detector identity folded into identity material, mirroring imgproxy/TwicPics) | move into the base |
-| `Runner` custom-render dispatch + `RenderRunner` | runner `{:render, fun}` terminal (consolidated from the imgproxy `/info` / Native blurhash mirrors); `Declarative`'s render_fun bridges to `ImagePipe.Renderer` | consolidation + bridge |
+| `Runner` custom-render dispatch + `RenderRunner` | runner `{:render, fun}` terminal (consolidated from the imgproxy `/info` / Native blurhash mirrors); `Declarative`'s render_fun bridges to `ImagePipe.Renderer`, whose `run` gains RenderRunner's `[:render]` span | consolidation + bridge |
 | `HTTPCache` identity mechanics (`etag_material`, `evaluate_conditional`) | existing `Representation.build` + `Response.Conditional` + `CacheHeaders.from_representation`; NEW: the Declarative base's Plan→identity-material derivation (the analogue of each dialect's `Identity.material`) | mechanism swap — the source of accepted delta U8 |
 | `HTTPCache` header-generation policy (generated `Cache-Control`, suppression rules, `http_cache:` mode + per-source `:inherit`, the four `[:http_cache, :*]` events) | promoted to a core policy module applied by the runner under `Resolved.http_cache == :generated` (U8b) | move, not deletion — IIIF's headers and events preserved; ordered dialects unaffected |
 | `DeliveryBuild` (`build_fun`, `resolve_output`, `encode_first_chunk`, `effective_limits`) | runner `build_fun` — the verbatim `build_and_pump` the dialects share; `Output.Negotiate.negotiate_output` (existing core); the dialects' `result_limits` (the more complete version — clamps against per-format encoder limits) | consolidation |
@@ -388,6 +388,49 @@ or tolerance changes.
    tests.
 4. **IIIF mount config.** `parser: ImagePipe.Parser.IIIF, iiif: [...]`
    becomes `dialect: ImagePipe.Dialect.IIIF` with flat keys.
+
+### Observability audit (framework path vs. unified runner)
+
+A full diff of the framework path's emission surface against the runner's,
+so nothing is lost silently. **No loss** — shared or mirrored emitters cover:
+`[:source, :resolve]` / `[:source, :fetch]` (Source), `[:source,
+:fetch_decode]` (`Decode.with_image` mirrors Processor's span and metadata),
+`[:cache, :lookup]` (`Cache.lookup_entry` emits it with the same shapes as
+`Request.Runner`'s private copy) plus all cache write/admission events,
+`[:transform, :execute]` (runner) / `[:transform, :operation]` (shared
+`Chain`) / `[:transform, :materialize]` / input-color-management / detect
+events, `[:output, :negotiate]` / `[:output, :clamp]`, `[:encode]` and the
+encode-search events, `[:deliver]`, `[:send]`, and `[:http_cache, :*]`
+(U8b).
+
+Three items need deliberate handling:
+
+1. **Debug-header source facts.** `Processor.source_debug_facts/3` collects
+   six facts (`source_bytes`, `source_color_space`, `source_icc?`,
+   `source_bit_depth`, `source_alpha?`, `source_orientation`) that
+   `DeliveryBuild` puts on `Debug.Info` → `X-ImagePipe-*` headers.
+   `Decode.with_image` collects none of them today, and no ordered dialect
+   populates those six fields. Fix: the collection moves into
+   `Decode.with_image` (which holds the header image and input at the right
+   moment) and is *offered* via `DebugContext`; the Declarative base's
+   default debug builder includes the facts, so IIIF's `?debug=1` headers
+   are preserved field-for-field, while the ordered dialects' own debug
+   builders are unchanged (TwicPics may opt into the facts later as a
+   deliberate change).
+2. **The `[:render]` span.** Emitted today by `Request.RenderRunner` only.
+   Fix: the span emission moves into the `ImagePipe.Renderer.run` facade, so
+   the Declarative render bridge keeps it for IIIF `info.json`; imgproxy
+   `/info` and Native blurhash don't use the facade and keep their current
+   (span-free) render surface.
+3. **`[:debug, :collect, :error]`** (best-effort fact-collection failure
+   one-shot) moves to `Decode` with the collection in item 1.
+
+The remaining IIIF-only shape deltas under delta 3, enumerated precisely:
+the `[:request]` and `[:parse]` span start metadata lose the framework's
+`parser:`/`request_method` keys (the dialect shape is `%{}`), and the parse
+error stop metadata becomes *richer* — the framework's `wrap_parser_error`
+double-wrap reduces every parse failure's `error:` tag to the constant
+`:error`, a quirk the dialect chains deliberately did not copy.
 
 ## Testing
 
