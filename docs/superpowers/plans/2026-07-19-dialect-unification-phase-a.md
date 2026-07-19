@@ -58,7 +58,7 @@ test/image_pipe/dialect/native_wire_test.exs   MOD  mount helpers → ImagePipe.
   - `ImagePipe.Dialect` behaviour: `validate_config!(keyword) :: keyword`; `parse(Plug.Conn.t(), keyword) :: {parse_result, map}` with `parse_result :: {:ok, term} | {:redirect, pos_integer, String.t} | {:error, term}`; `prepare(Plug.Conn.t(), term, keyword) :: {:ok, Resolved.t()} | {:error, term}`; `decode_request(term, SourceGeometry.t()) :: DecodePlanner.Request.t()`; `execute(State.t(), SourceGeometry.t(), term, keyword) :: {:ok, State.t()} | {:error, term}`; `render_error(Plug.Conn.t(), term, keyword) :: Plug.Conn.t()`; optional `classify_error(term) :: atom`; optional `debug_info(DebugContext.t()) :: Info.t() | nil`.
   - `ImagePipe.Dialect.Negotiation.negotiate/3`, `terminal/1`, struct fields `selected/vary?/policy_material/policy/plan_output`.
   - `ImagePipe.Dialect.Resolved` struct as coded below (coupled `negotiation` result).
-  - `ImagePipe.Dialect.RenderTerminal` struct `fun/offers/cache`.
+  - `ImagePipe.Dialect.RenderTerminal` struct (`fun` only in Phase A; Phase C widens with `cache`/`offers` per spec U11).
   - `ImagePipe.Dialect.DebugContext` struct as coded below.
 
 - [ ] **Step 1: Write the failing negotiation test**
@@ -290,9 +290,11 @@ defmodule ImagePipe.Dialect.Resolved do
   it AFTER `ImagePipe.Source.resolve/3`, preserving the dialects'
   source-before-negotiation error precedence.
 
-  `http_cache: :generated` is representable but inert until Phase C lands
-  the promoted header-policy module (spec U8b); both Phase A implementors
-  set `:dialect_owned`.
+  The spec's `http_cache: :generated | :dialect_owned` field is deliberately
+  ABSENT in Phase A: the promoted header-policy module it dispatches to is
+  Phase C work, and a representable-but-inert value would advertise
+  unsupported semantics. Phase C adds the field together with the policy
+  module; until then every dialect gets today's dialect-owned behavior.
   """
 
   alias ImagePipe.Dialect.Negotiation
@@ -308,7 +310,6 @@ defmodule ImagePipe.Dialect.Resolved do
     :operations,
     :auto_rotate?,
     :debug?,
-    :http_cache,
     :terminal
   ]
   defstruct @enforce_keys
@@ -324,7 +325,6 @@ defmodule ImagePipe.Dialect.Resolved do
           operations: [atom()],
           auto_rotate?: boolean(),
           debug?: boolean(),
-          http_cache: :generated | :dialect_owned,
           terminal: :image | {:render, RenderTerminal.t()}
         }
 end
@@ -335,27 +335,24 @@ end
 ```elixir
 defmodule ImagePipe.Dialect.RenderTerminal do
   @moduledoc """
-  A non-image terminal, values only. `cache: :complete_body` runs the shared
-  complete-body lifecycle (cache-tagged entries, wildcard-INM on hit,
-  fail-open write). `cache: :none` (with `offers`) is reserved for the
-  Phase C declarative path (`Sender`'s `{:rendered, …}` delivery) and has
-  no Phase A implementor.
+  A non-image terminal, values only. Phase A supports exactly one delivery:
+  the shared complete-body lifecycle (cache-tagged entries, wildcard-INM on
+  hit, fail-open write). The spec's `cache: :none` + `offers` variant
+  (`Sender`'s `{:rendered, …}` delivery, for the declarative path) is a
+  Phase C WIDENING of this struct — deliberately not represented here so the
+  Phase A type cannot advertise semantics the runner does not implement.
   """
 
   alias ImagePipe.Source
 
-  @enforce_keys [:fun, :cache]
-  defstruct [:fun, :cache, offers: []]
+  @enforce_keys [:fun]
+  defstruct [:fun]
 
   @type render_fun ::
           (Source.Resolved.t(), keyword() ->
              {:ok, content_type :: String.t(), iodata()} | {:error, term()})
 
-  @type t :: %__MODULE__{
-          fun: render_fun(),
-          offers: [{String.t(), [String.t()]}],
-          cache: :complete_body | :none
-        }
+  @type t :: %__MODULE__{fun: render_fun()}
 end
 ```
 
@@ -449,7 +446,9 @@ defmodule ImagePipe.DecodeFactsTest do
   ]
 
   test "with_image geometry carries the six source debug facts" do
-    config = [sources: @sources, max_body_bytes: 10_000_000, max_input_pixels: 40_000_000]
+    # validate_runtime! converts :sources into the map Source.resolve expects
+    # and supplies the max_body_bytes/max_input_pixels defaults decode reads.
+    config = ImagePipe.Dialect.SharedConfig.validate_runtime!(sources: @sources)
     source = %Path{segments: ["images", "beach.jpg"]}
     {:ok, resolved} = Source.resolve(source, config, config)
 
@@ -548,7 +547,13 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   # module would fall into the ImagePipe root boundary and violate its deps.
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Dialect, ImagePipe.Plan, ImagePipe.Representation, ImagePipe.Transform]
+    deps: [
+      ImagePipe.Dialect,
+      ImagePipe.Dialect.SharedConfig,
+      ImagePipe.Plan,
+      ImagePipe.Representation,
+      ImagePipe.Transform
+    ]
 
   @behaviour ImagePipe.Dialect
 
@@ -564,7 +569,14 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   alias ImagePipe.Transform.DecodePlanner
 
   @impl ImagePipe.Dialect
-  def validate_config!(opts), do: opts
+  # SharedConfig converts :sources/:cache into the shapes Source.resolve and
+  # Cache expect (a raw keyword `sources:` fails with {:source,
+  # :missing_adapter} — Source.fetch_adapter_config pattern-matches a map)
+  # and supplies the max_result_*/max_body_bytes/max_input_pixels defaults
+  # the runner fetches with Keyword.fetch!. Unknown keys such as the
+  # fixture-only :allow_debug_headers pass through untouched
+  # (validate_known_opts! merges the validated subset back).
+  def validate_config!(opts), do: ImagePipe.Dialect.SharedConfig.validate_runtime!(opts)
 
   @impl ImagePipe.Dialect
   def parse(%Plug.Conn{path_info: ["fix" | segments]} = conn, _config) do
@@ -611,7 +623,6 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
        operations: [],
        auto_rotate?: true,
        debug?: request.debug?,
-       http_cache: :dialect_owned,
        terminal: :image
      }}
   end
@@ -1257,8 +1268,13 @@ Append (telemetry-scoped per the AGENTS.md rule — unique `telemetry_prefix`, h
     conn = get("/fix/images/beach.jpg?format=bmp", opts())
     assert conn.status == 415
 
-    # unknown source + incapable format -> the SOURCE error wins (404)
-    conn = get("/fix/images/missing.jpg?format=bmp", opts())
+    # A config with NO adapter for the :path source kind makes Source.resolve
+    # itself fail ({:source, :missing_adapter}) — a genuine resolve-time
+    # error, needing no custom adapter. With the incapable format on the
+    # same request, the SOURCE error must win (the runner unwraps the
+    # deferred negotiation only after resolve succeeds): 404 via the
+    # fixture's {:source, _} render_error clause, not 415.
+    conn = get("/fix/images/beach.jpg?format=bmp", opts(sources: []))
     assert conn.status == 404
   end
 
@@ -1280,7 +1296,12 @@ Append (telemetry-scoped per the AGENTS.md rule — unique `telemetry_prefix`, h
   end
 ```
 
-(The 404-wins case requires the fixture's unknown-source path to fail at `Source.resolve` — `%Path{segments: ["images", "missing.jpg"]}` against `RootHTTPAdapter` fails at fetch, not resolve, so if `resolve/3` succeeds for any path the both-fail assertion instead pins that negotiation's 415 does NOT preempt the resolve step: adjust the second assertion to whatever `Source.resolve` actually returns for the adapter, keeping the ordering assertion — the error surfaced must be the one produced by the earlier lifecycle stage. Document the chosen shape in the test comment.)
+(Why `sources: []`: a `%Path{}` source against `RootHTTPAdapter` resolves
+successfully and fails only at FETCH — inside the producer, after the
+negotiation unwrap — so a missing *file* cannot pin resolve-time precedence.
+An empty sources map fails inside `Source.resolve/3` itself
+(`fetch_adapter_config` → `{:source, :missing_adapter}`), which is exactly
+the pre-negotiation stage the contract orders first.)
 
 - [ ] **Step 3: Run, fix, run**
 
@@ -1364,6 +1385,8 @@ defmodule ImagePipe.Plug.DebugBuilder do
 
   alias ImagePipe.Debug.Info
   alias ImagePipe.Dialect.DebugContext
+  alias ImagePipe.Output.Policy
+  alias ImagePipe.Output.Resolved, as: ResolvedOutput
 
   @spec build(module(), DebugContext.t()) :: Info.t()
   def build(dialect, %DebugContext{} = ctx) do
@@ -1403,7 +1426,67 @@ defmodule ImagePipe.Plug.DebugBuilder do
     }
   end
 
-  # …copied private helpers from dialect/twic_pics.ex:567-627, verbatim…
+  defp negotiated?(%Policy{mode: {:explicit, _format}}), do: false
+  defp negotiated?(%Policy{mode: :source}), do: true
+
+  defp output_quality(%ResolvedOutput{}, %{quality: quality})
+       when is_integer(quality) and quality > 0,
+       do: quality
+
+  defp output_quality(%ResolvedOutput{quality: {:quality, quality}}, _search_meta), do: quality
+  defp output_quality(%ResolvedOutput{quality: :default}, _search_meta), do: :default
+
+  defp output_distance(%ResolvedOutput{quality_search: :none}), do: nil
+
+  defp output_distance(%ResolvedOutput{quality_search: %module{target: target}})
+       when is_number(target) do
+    case native_jxl_search?(module) do
+      true -> target
+      false -> nil
+    end
+  end
+
+  defp output_distance(%ResolvedOutput{}), do: nil
+
+  defp aq_from_meta(_resolved_output, nil), do: nil
+  defp aq_from_meta(%ResolvedOutput{quality_search: :none}, _search_meta), do: nil
+
+  defp aq_from_meta(%ResolvedOutput{quality_search: %module{} = search}, %{} = metadata) do
+    metric = quality_search_metric(module)
+
+    %{
+      metric: metric,
+      score: quality_search_score(module, metadata),
+      target: Map.get(search, :target),
+      min: Map.get(search, :min_quality),
+      max: Map.get(search, :max_quality),
+      iterations: Map.get(metadata, :iterations),
+      outcome: Map.get(metadata, :outcome),
+      limiting_factor: Map.get(metadata, :limiting_factor),
+      scorer: Map.get(metadata, :scorer),
+      tiles: Map.get(metadata, :tiles_scored)
+    }
+  end
+
+  defp quality_search_score(module, metadata) do
+    case native_jxl_search?(module) do
+      true -> nil
+      false -> Map.get(metadata, :score)
+    end
+  end
+
+  defp quality_search_metric(module) do
+    case module |> Module.split() |> List.last() do
+      "Ssimulacra2" -> :ssimulacra2
+      "Butteraugli" -> :butteraugli
+      "NativeJxlButteraugli" -> :butteraugli
+      "Size" -> :size
+      _other -> nil
+    end
+  end
+
+  defp native_jxl_search?(module),
+    do: module |> Module.split() |> List.last() == "NativeJxlButteraugli"
 end
 ```
 
@@ -1450,7 +1533,7 @@ git commit -m "Add the runner's default neutral debug builder (Phase A task 6, U
 
 **Interfaces:**
 - Consumes: Task 1's `RenderTerminal`; `Cache.{lookup_entry, open_sink, write_chunk, commit_sink}`; `Conditional.if_none_match_wildcard?/1`.
-- Produces: the runner's `generate/8` head for `%Resolved{terminal: {:render, %RenderTerminal{cache: :complete_body}}}` plus `serve_render` cache path — consolidating `dialect/native.ex:437-516` (blurhash) / `dialect/imgproxy.ex:731-843` (`/info`). Task 8's blurhash port relies on it.
+- Produces: the runner's render-terminal heads for `%Resolved{terminal: {:render, %RenderTerminal{}}}` (Phase A's sole render delivery is the complete-body lifecycle) — consolidating `dialect/native.ex:437-516` (blurhash) / `dialect/imgproxy.ex:731-843` (`/info`). Task 8's blurhash port relies on it.
 
 - [ ] **Step 1: Extend the fixture**
 
@@ -1459,7 +1542,6 @@ In `RunnerFixtureDialect.prepare/3`, when `request` has `render?: true` (set in 
 ```elixir
   defp render_terminal do
     %ImagePipe.Dialect.RenderTerminal{
-      cache: :complete_body,
       fun: fn _resolved_source, _config -> {:ok, "text/plain; charset=utf-8", "fixture-body"} end
     }
   end
@@ -1493,8 +1575,9 @@ Run: `mise exec -- mix test test/image_pipe/plug_dialect_runner_test.exs` — ex
 Implement in `DialectRunner`, mirroring the imgproxy `/info` shape (`imgproxy.ex:731-843`):
 
 ```elixir
-  # -- render terminal (:complete_body): consolidated from imgproxy /info +
-  # -- Native blurhash. cache: :none is Phase C (declarative) — no head here.
+  # -- render terminal: consolidated from imgproxy /info + Native blurhash.
+  # -- Phase A's sole render delivery is the complete-body lifecycle; the
+  # -- spec's cache-:none/offers variant arrives with Phase C's widening.
 
   defp serve(conn, dialect, %Resolved{terminal: {:render, terminal}} = resolved, source, negotiation, representation, config) do
 ```
@@ -1612,7 +1695,7 @@ git commit -m "Add the complete-body render terminal to the runner (Phase A task
 
 - [ ] **Step 1: Rewrite `lib/image_pipe/dialect/native.ex`**
 
-Keep: the moduledoc (rewrite its first paragraph to describe the contract implementation; keep the mount-prefix caveat), the Boundary declaration (add `ImagePipe.Dialect` to `deps:`; drop `Cache` and `Delivery` — the runner owns them now; **keep `Decode`** — `compute_blurhash/3` still calls `Decode.with_image/4`; for the rest, let the compiler/Boundary report exact leftovers and prune to what compiles), `@blurhash_content_type`, `@auto_rotate?`, `compute_blurhash/3` + `run_blurhash/4` (unchanged, `native.ex:465-494`), `check_expires/2`, `normalize_lex_error/1`, and the `outcome_result/1` clauses (renamed into `classify_error/1`).
+Keep: the moduledoc (rewrite its first paragraph to describe the contract implementation; keep the mount-prefix caveat), the Boundary declaration — the final `deps:` list is the current one (`native.ex:38-55`) minus `ImagePipe.Cache` and `ImagePipe.Delivery` (the runner owns both now) plus `ImagePipe.Dialect`, i.e. `[ImagePipe.Decode, ImagePipe.Dialect, ImagePipe.Dialect.SharedConfig, ImagePipe.Error, ImagePipe.Format, ImagePipe.Output, ImagePipe.Plan, ImagePipe.Representation, ImagePipe.Response, ImagePipe.Source, ImagePipe.Telemetry, ImagePipe.Transform]` (`Decode` stays for `compute_blurhash/3`; `Output` stays for `Output.Terminal.Blurhash`; `Response` stays for `Errors`' `ErrorStatus`), `@blurhash_content_type`, `@auto_rotate?`, `compute_blurhash/3` + `run_blurhash/4` (unchanged, `native.ex:465-494`), `check_expires/2`, `normalize_lex_error/1`, and the `outcome_result/1` clauses (renamed into `classify_error/1`).
 
 Delete: `call/2`, `route/2` (all heads), `send_with_span/4`, `send_stop_metadata/2`, `send_not_modified/3`, `send_error/3`, `request_metadata/1`, `parse/2` (the span version), `unwrap_parse_result/1`, `parse_stop_metadata/1`, `negotiate/3` + `normalize_selection/1`, `serve/6`, `deliver_hit/5`, `deliver_hit_entry/5`, `generate/6` (both heads), `send_complete_body/4`, `write_complete_body_cache/4`, `put_resp_headers/2`, `build_fun/4`, `build_and_pump/6`, `run_transform/5`, `transform_stop_metadata/1`, `encode_first_chunk/3`, `first_chunk/1`, `encode_stop_metadata/2`, `materialize_for_delivery/2`, `pipeline_opts/4`, `resolve_output/4`, `result_limits/2`, `min_limit/2`, `@debug_info`, and the `@behaviour Plug` + `init/1`.
 
@@ -1664,7 +1747,6 @@ The new public surface:
          operations: Pipeline.operation_names(request),
          auto_rotate?: @auto_rotate?,
          debug?: false,
-         http_cache: :dialect_owned,
          terminal: terminal(request, config)
        }}
     end
@@ -1685,7 +1767,6 @@ The new public surface:
   defp terminal(%Request{output: %Request.Output{terminal: :blurhash}} = request, _config) do
     {:render,
      %RenderTerminal{
-       cache: :complete_body,
        fun: fn resolved_source, config ->
          case compute_blurhash(resolved_source, request, config) do
            {:ok, hash} -> {:ok, @blurhash_content_type, hash}
@@ -1790,44 +1871,43 @@ git commit -m "Port Dialect.Native onto the ImagePipe.Dialect contract (Phase A 
 
 - [ ] **Step 1: Write the test**
 
-Add a source config whose adapter resolves `internal_cache: :disabled` — copy the existing arrangement at `test/image_pipe/imgproxy_wire_conformance_test.exs:2404-2419` (`PlugCustomAdapter`). The test must prove BOTH halves of U9 — no cache write AND no cache read — so alongside the empty-probe assertion, attach a scoped telemetry handler (unique `telemetry_prefix`, per the AGENTS.md rule) on `[:cache, :lookup, :start]` and refute it ever fires:
+Copy the existing arrangement at `test/image_pipe/dialect/imgproxy/info_wire_test.exs:328-350`: `RootHTTPAdapter` accepts `internal_cache: :disabled` directly in its adapter opts, and `CacheProbe` already messages the test pid on every cache operation (`{:cache_lookup, key}`, `{:cache_open_sink, key, metadata}`, `{:source_order, :cache_put}`), so both halves of U9 — no read AND no write — are plain `refute_received` assertions:
 
 ```elixir
   test "a source resolving internal_cache: :disabled is neither read from nor written to the cache" do
-    table = :ets.new(:native_disabled_cache_probe, [:set, :public])
-    prefix = [:native_disabled_cache]
-    handler = "native-disabled-cache-#{inspect(self())}"
-
-    :telemetry.attach(
-      handler,
-      prefix ++ [:cache, :lookup, :start],
-      fn _event, _measurements, _metadata, pid -> send(pid, :cache_lookup) end,
-      self()
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
-
     config =
       opts(
-        cache: {CacheProbe, store: table},
-        sources: disabled_cache_sources(),
-        telemetry_prefix: prefix
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             byte_identity: :strong,
+             req_options: [plug: {CountingOriginImage, test_pid: self()}],
+             internal_cache: :disabled}
+        ],
+        cache: stateful_cache_probe()
       )
 
-    first = get(signed_path_for("images/beach.jpg", "rs=100x100"), config)
+    # Two identical requests: both must regenerate from the origin, and the
+    # cache must never be consulted or written between them.
+    first = get(valid_image_path(), config)
     assert first.status == 200
+    assert_received :origin_fetch
 
-    second = get(signed_path_for("images/beach.jpg", "rs=100x100"), config)
+    second = get(valid_image_path(), config)
     assert second.status == 200
+    assert_received :origin_fetch
 
-    # No read: the runner's :disabled head never called Cache.lookup_entry.
-    refute_received :cache_lookup
-    # No write: the probe's table stays empty across both requests.
-    assert :ets.tab2list(table) == []
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_open_sink, _key, _metadata}
+    refute_received {:source_order, :cache_put}
   end
 ```
 
-(Use the file's existing path/signing helpers for the request path — copy the exact call shape from a neighboring test rather than inventing one; the assertion that matters is the empty probe table across two requests.)
+(`valid_image_path/0` stands for whatever helper the surrounding tests use
+to build a signed, valid image request path — copy the exact call shape from
+the nearest 200-asserting test in the same file; the cache-message refutes
+are the whole assertion.)
 
 - [ ] **Step 2: Run it**
 
@@ -1849,10 +1929,20 @@ git commit -m "Pin Native internal_cache: :disabled behavior (Phase A task 9, U9
 - Modify: `lib/image_pipe/dialect/native.ex` ExDNA annotations (native.ex was never on the file-level ignore list — `@ex_dna_ignores` in `mix.exs:6-11` holds only decode.ex, decode/source_format.ex, shared_config.ex, response/conditional.ex. Its suppression is the inline `# ex_dna:disable-for-next-line` annotations; Task 8's chain deletion removed most — audit `native.ex` and `native/pipeline.ex` and delete any now-orphaned annotations whose mirrored counterpart died)
 - Modify: `test/image_pipe/architecture_boundary_test.exs` (deps pins: `ImagePipe.Plug` → `ImagePipe.Dialect` allowed; `ImagePipe.Dialect.Native` must not depend on `ImagePipe.Plug`, `ImagePipe.Request`, `ImagePipe.Cache`, `ImagePipe.Delivery`; adjust the existing native deps pin to its pruned list)
 - Modify: `docs/` mount examples that show `plug ImagePipe.Dialect.Native` (grep: `grep -rln "Dialect.Native" docs/`) — update to the `ImagePipe.Plug, dialect:` form; leave imgproxy/TwicPics/IIIF examples untouched (Phases B/C)
+- Modify: `docs/custom_parser_guide.md` — the "When a parser isn't enough" section (`custom_parser_guide.md:369-397`) states ordered dialects are directly-mounted self-contained Plugs and that ImagePipe ships "**no public SDK** for building such a Plug". Phase A makes both false for Native. Minimal truthful update (the full two-tier rewrite is Phase C): replace the "no public SDK" paragraph with 3–5 sentences saying ordered dialects implement the public `ImagePipe.Dialect` behaviour and mount through `ImagePipe.Plug, dialect: …`; that `ImagePipe.Dialect.Native` is the first ported example while imgproxy/TwicPics still mount directly during the transition; and keep the existing warning that in-tree implementation helpers (`Transform.Lowering`, `Transform.ResizePlanning`) remain private.
+- Modify: `mix.exs` `groups_for_modules` (`mix.exs:46-60`) — add a `"Dialect API": [ImagePipe.Dialect, ~r/ImagePipe\.Dialect\..*/]` group ABOVE the "Runtime Internals" group so the new public contract modules don't land ungrouped (the regex also covers the existing `Dialect.SharedConfig`/dialect modules, which is correct — they are public mount surface).
 
 - [ ] **Step 1: Apply the edits above**
 
 For the architecture test, read the existing deps-pin blocks and update the Native entry to the Task 8 Boundary list; add one pin asserting `lib/image_pipe/plug/dialect_runner.ex` contains no reference matching `~r/Dialect\.(Native|Imgproxy|TwicPics|IIIF)\b/` (the U4 rule, enforced the same way the file already enforces no-concrete-transform-modules).
+
+Run Vale over the changed docs explicitly — `.vale.ini` exists but no mise
+task runs it, so it is not part of `precommit`:
+
+Run: `vale docs/custom_parser_guide.md`
+Expected: no errors (warnings at parity with the file's pre-edit state). If
+the `vale` binary is unavailable locally, note that in the task report
+rather than skipping silently.
 
 - [ ] **Step 2: Full gates**
 
