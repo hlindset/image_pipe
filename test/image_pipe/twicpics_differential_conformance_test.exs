@@ -47,7 +47,7 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
 
   test "default render census covers each authored non-triaged constellation once" do
     assert length(@default_render_census) == 39
-    assert length(@triage_render_census) == 0
+    assert @triage_render_census == []
     assert length(@default_render_census ++ @triage_render_census) == length(@constellations)
   end
 
