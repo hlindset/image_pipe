@@ -163,7 +163,11 @@ defmodule ImagePipe.Transform.Executor do
     run_driver(pipeline, shape, {:strategy, strategy}, state, opts)
   end
 
-  defp run_neutral(pipeline, %SourceShape{} = shape, %State{} = state, opts) do
+  @doc false
+  # Fixed neutral execution driver: lowers each plan op through NeutralResolver
+  # directly and keeps neutral staged measurement/continuation. Public only as an
+  # internal test seam for resolved_plan_golden_test.exs.
+  def run_neutral(pipeline, %SourceShape{} = shape, %State{} = state, opts \\ []) do
     run_driver(pipeline, shape, {:neutral, nil}, state, opts)
   end
 
