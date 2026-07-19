@@ -66,6 +66,22 @@ defmodule ImagePipe.Dialect.TwicPics.IdentityTest do
   end
 
   describe "ordered canonical request" do
+    test "distinct coordinate-focus operands change the representation, key, and ETag" do
+      first = request!([{"focus", "20x10"}, {"crop", "12x12"}])
+      second = request!([{"focus", "30x10"}, {"crop", "12x12"}])
+      negotiation = negotiation()
+
+      first_material = material(first, negotiation)
+      second_material = material(second, negotiation)
+
+      refute first_material.representation == second_material.representation
+
+      refute representation(first_material).cache_key.hash ==
+               representation(second_material).cache_key.hash
+
+      refute representation(first_material).etag == representation(second_material).etag
+    end
+
     test "reordering positional steps changes the representation, key, and ETag" do
       first = request!([{"cover", "120x80"}, {"contain", "60x40"}])
       reordered = request!([{"contain", "60x40"}, {"cover", "120x80"}])

@@ -21,29 +21,39 @@ ImagePipe.Plug.call
       └─ ImagePipe.Transform.execute_plan
          └─ ImagePipe.Transform.Executor.execute
             ├─ seed EXIF orientation (pending, deferred) + input color management
-            └─ per pipeline: seed ImagePipe.Transform.SourceShape, fresh strategy state
-               └─ Executor.run — the resolve loop               ← the heart
-                  loop over PLAN operations:
+            └─ select by plan.resolver
+               ├─ nil → Executor.run_neutral → NeutralResolver directly
+               └─ module → Executor.run → ImagePipe.Resolver facade ②
+                  shared loop over PLAN operations:
                   ├─ overlay shape → State                       (the one sync site)
-                  ├─ ImagePipe.Resolver.resolve    ②             → {executable_ops, continuation}
+                  ├─ resolve → {executable_ops, continuation}
                   ├─ ImagePipe.Transform.Chain.execute  ③        (materialize-if-needed + op.execute)
                   └─ continuation                  ④
                        {:advance, shape, state}  → next plan op
-                       {:measure, tag, state}    → measure dims → strategy continue(tag, …), maybe more stages
+                       {:measure, tag, state}    → measure dims → continue(tag, …), maybe more stages
    └─ encode (lazy) → Producer/PreparedStream: chunked streaming,
       cancellable on disconnect, incremental cache write → Response.Sender
+
+ImagePipe.Dialect.TwicPics.call
+└─ parse → ordered ImagePipe.Dialect.TwicPics.Request
+└─ source identity, conditional request, and cache lookup
+└─ fetch → decode → Dialect.TwicPics.Pipeline.run
+   └─ literal Request.steps + pipeline-local PointFlow
+└─ negotiate → encode → deliver
 ```
 
-Everything above `Runner.run` is request plumbing; everything below
-`execute_plan` is pixel geometry. The step most readers get lost in is the
-resolve loop, so the rest of this page is mostly about that.
+The framework path serves IIIF and host-supplied parsers. TwicPics is a
+self-contained Plug and never enters parser dispatch or constructs a root
+`ImagePipe.Plan`. Its Pipeline and PointFlow own positional execution. The
+framework step most readers get lost in is the resolve loop, so the rest of
+this page is mostly about that path.
 
 ## The two operation vocabularies
 
 There are two different kinds of "operation", and the resolver strategy is the
 translator between them:
 
-- **`ImagePipe.Plan.Operation.*`** — what parsers emit. Declarative, possibly
+- **`ImagePipe.Plan.Operation.*`** — what framework parsers emit. Declarative, possibly
   deferred (`:auto` dims, `:deferred` guides). These structs **never
   execute**.
 - **`ImagePipe.Transform.Operation.*`** — executable: fully parameterized,
@@ -52,21 +62,24 @@ translator between them:
   a resize *then* a result crop).
 
 When you are reading a `%Plan.Operation.Resize{}` and wondering "where do the
-pixels happen" — they don't, until a strategy lowers it inside
-`Executor.run`'s loop.
+pixels happen" — they don't, until the selected executor driver lowers it.
+TwicPics also reuses these semantic structs inside its ordered Request, but its
+local Pipeline lowers them without passing through `Executor`.
 
 ## The resolve loop and continuations
 
 For each pipeline, `Executor.execute` seeds a `SourceShape` — a pure geometry
-value (dims, which frame they describe, pending orientation, decode shrink) —
-and fresh strategy state from the strategy's `init/0`. `Executor.run`
-then walks the plan operations:
+value (dims, which frame they describe, pending orientation, decode shrink).
+A nil resolver selects `run_neutral/4`, which calls `NeutralResolver.resolve/3`
+and `continue/4` directly. An explicit resolver module selects `run/5`, creates
+fresh strategy state with `init/0`, and dispatches through `ImagePipe.Resolver`.
+The two drivers share the operation loop:
 
 1. **Overlay.** The resolver-advanced shape is written onto `State`
    (`pending_orientation`, `decode_shrink`, `source_dimensions`) — the single
    place shape and State sync.
-2. **Resolve.** `Resolver.resolve(strategy, shape, plan_op)` returns the
-   executable ops for this plan op plus a *continuation*.
+2. **Resolve.** The selected neutral or injected resolver returns the executable
+   ops for this plan op plus a *continuation*.
 3. **Execute.** The ops run through `Chain.execute` (which materializes to RAM
    first if an op requires random pixel access).
 4. **Continue.** The continuation is plain data saying how to learn the
@@ -88,7 +101,7 @@ then walks the plan operations:
 
 Two rules make the state story followable:
 
-- **The continuation is the only strategy-state channel.** The driver never
+- **The continuation is the only injected strategy-state channel.** The driver never
   inspects strategy state; it threads whatever the strategy returned into the
   next `resolve/3` call. State is per-pipeline and dies with it.
 - **Delegation re-wraps.** Custom strategies delegate shared geometry to
@@ -111,10 +124,10 @@ targets:
 
 | # | Call site | What it dispatches to | How to navigate |
 |---|---|---|---|
-| ① | `parser.parse(conn, opts)` in `ImagePipe.Plug` | The mount's `:parser` module | Two in-tree parsers: `ImagePipe.Parser.IIIF`, `.TwicPics` — each ends in a `PlanBuilder` that constructs the `%Plan{}`. `ImagePipe.Dialect.Imgproxy` mounts as its own Plug and does not go through this dispatch point |
-| ② | `Resolver.resolve(strategy, …)` facade | `plan.resolver`, defaulting to `NeutralResolver` in `Executor` | Two implementations: `ImagePipe.Transform.NeutralResolver` (all shared geometry — when in doubt, the answer is here) and `ImagePipe.Parser.TwicPics.Resolver` (a thin dialect wrapper that delegates to Neutral). `ImagePipe.Dialect.Imgproxy.Pipeline` calls `NeutralResolver`'s functions directly without implementing this behaviour |
+| ① | `parser.parse(conn, opts)` in `ImagePipe.Plug` | The mount's `:parser` module | The in-tree parser is `ImagePipe.Parser.IIIF`; hosts may supply another `ImagePipe.Parser`. TwicPics and imgproxy mount as dialect Plugs and don't pass through this point |
+| ② | `Resolver.resolve(strategy, …)` dispatch | An explicit `plan.resolver` module | Nil-resolver Plans bypass this layer and call `NeutralResolver` directly through `run_neutral/4`. Host strategies keep dynamic dispatch through `run/5` until Phase 2C |
 | ③ | `chain.(state, ops, opts)` in `Executor` | Injected function; always `Chain.execute/3` in production | Test seam only. Inside `Chain`, `Transform.execute(op, state)` dispatches to the op struct's own module — struct name = module name (`%Operation.Crop{}` → `transform/operation/crop.ex`) |
-| ④ | `Resolver.continue(strategy, tag, …)` in `Executor` | The strategy's `continue/4` — one named clause per tag | Tags are data: grep the tag atom (e.g. `:resize_flush_tail`) to land on both the emitting resolve row and the continue clause. Neutral tags live in `NeutralResolver.continue/4`; dialect strategies delegate the tag and re-attach their carry |
+| ④ | `continue(tag, …)` in `Executor` | `NeutralResolver.continue/4` directly or an explicit strategy through `Resolver.continue/5` | Tags are data: grep the tag atom (e.g. `:resize_flush_tail`) to land on both the emitting resolve row and the continue clause |
 | — | `render: {:custom, module, params}` | The plan's renderer module via `ImagePipe.Renderer` | One in-tree renderer: IIIF's info renderer. `ImagePipe.Dialect.Imgproxy.InfoRenderer` renders its `/info` terminal directly, outside this dispatch point |
 | — | `Telemetry.span(…, fn -> … end)` wrappers | n/a | Nearly every layer wraps its real call in a span closure; when lost, skip to the closure body |
 
@@ -126,10 +139,13 @@ renderer with header facts only.
 
 1. `ImagePipe.Plug.do_call_with_plan/4` — the request skeleton and error fan-out.
 2. `ImagePipe.Request.Processor.process_decoded_source/4` — decode → transform → encode hand-offs.
-3. `ImagePipe.Transform.Executor.execute_pipeline/4` — shape seeding, strategy selection.
-4. `ImagePipe.Transform.Executor.run/5` — the loop everything above was
-   leading to; internalize its four steps and the rest of the transform layer
-   reads linearly.
+3. `ImagePipe.Transform.Executor.execute_pipeline/4` — shape seeding and fixed
+   versus injected driver selection.
+4. `ImagePipe.Transform.Executor.run_driver/5` — the shared loop behind
+   `run_neutral/4` and `run/5`; internalize its four steps and the rest of the
+   transform layer reads linearly.
 5. `ImagePipe.Transform.NeutralResolver` — per-op lowering and the deferred-
    orientation policy, one `do_resolve/2` clause per plan op and one
    `continue/4` clause per measure tag.
+6. `lib/image_pipe/dialect/twic_pics/pipeline.ex` and `point_flow.ex` — the
+   separate ordered compatibility path.

@@ -102,81 +102,62 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
     send(test_pid, {:telemetry_event, prefix, name, metadata})
   end
 
-  test "cache miss has equivalent semantic stage order and result metadata" do
-    {framework_conn, framework} = run(:framework, :cache_miss)
-    {dialect_conn, dialect} = run(:dialect, :cache_miss)
+  test "cache miss preserves semantic stage order and result metadata" do
+    {conn, trace} = run(:cache_miss)
 
-    assert framework_conn.status == 200
-    assert dialect_conn.status == 200
-    assert outer_request?(framework)
-    assert outer_request?(dialect)
-
-    assert framework == dialect
+    assert conn.status == 200
+    assert outer_request?(trace)
+    assert_trace(:cache_miss, trace)
   end
 
-  test "cache hit has equivalent cache-only generation stage semantics" do
-    {framework_conn, framework} = run(:framework, :cache_hit)
-    {dialect_conn, dialect} = run(:dialect, :cache_hit)
+  test "cache hit preserves cache-only generation stage semantics" do
+    {conn, trace} = run(:cache_hit)
 
-    assert framework_conn.status == 200
-    assert dialect_conn.status == 200
-    assert stage?(framework, [:cache, :lookup])
-    refute stage?(framework, [:source, :fetch])
-    refute stage?(framework, [:transform, :execute])
-    assert framework == dialect
+    assert conn.status == 200
+    assert stage?(trace, [:cache, :lookup])
+    refute stage?(trace, [:source, :fetch])
+    refute stage?(trace, [:transform, :execute])
+    assert_trace(:cache_hit, trace)
   end
 
-  test "conditional 304 has equivalent pre-fetch stage semantics" do
-    {framework_conn, framework} = run(:framework, :not_modified)
-    {dialect_conn, dialect} = run(:dialect, :not_modified)
+  test "conditional 304 preserves pre-fetch stage semantics" do
+    {conn, trace} = run(:not_modified)
 
-    assert framework_conn.status == 304
-    assert dialect_conn.status == 304
-    refute stage?(framework, [:cache, :lookup])
-    refute stage?(framework, [:source, :fetch])
-    assert stop_result(framework, [:request]) == :not_modified
-    assert framework == dialect
+    assert conn.status == 304
+    refute stage?(trace, [:cache, :lookup])
+    refute stage?(trace, [:source, :fetch])
+    assert stop_result(trace, [:request]) == :not_modified
+    assert_trace(:not_modified, trace)
   end
 
-  test "parse error has equivalent stage semantics and error attribution" do
-    {framework_conn, framework} = run(:framework, :parse_error)
-    {dialect_conn, dialect} = run(:dialect, :parse_error)
+  test "parse error preserves stage semantics and error attribution" do
+    {conn, trace} = run(:parse_error)
 
-    assert framework_conn.status == 400
-    assert dialect_conn.status == 400
-    assert stop_result(framework, [:parse]) == :error
-    assert stop_error(framework, [:parse]) == :parser_error
-    refute stage?(framework, [:source, :resolve])
-    assert framework == dialect
+    assert conn.status == 400
+    assert stop_result(trace, [:parse]) == :error
+    assert stop_error(trace, [:parse]) == :parser_error
+    refute stage?(trace, [:source, :resolve])
+    assert_trace(:parse_error, trace)
   end
 
-  test "streamed failure after prepare has equivalent delivery error attribution" do
-    {framework_conn, framework} = run(:framework, :streamed_error)
-    {dialect_conn, dialect} = run(:dialect, :streamed_error)
+  test "streamed failure after prepare preserves delivery error attribution" do
+    {conn, trace} = run(:streamed_error)
 
-    assert framework_conn.status == 200
-    assert dialect_conn.status == 200
-    assert stop_result(framework, [:deliver]) == :processing_error
-    assert stop_error(framework, [:deliver]) == :encode
-    assert stop_result(framework, [:encode]) == :ok
-
-    assert stop_metadata(framework, [:request]) ==
-             %{result: :processing_error, status: 200}
-
-    assert stop_metadata(dialect, [:request]) ==
-             %{result: :processing_error, status: 200}
-
-    assert framework == dialect
+    assert conn.status == 200
+    assert stop_result(trace, [:deliver]) == :processing_error
+    assert stop_error(trace, [:deliver]) == :encode
+    assert stop_result(trace, [:encode]) == :ok
+    assert stop_metadata(trace, [:request]) == %{result: :processing_error, status: 200}
+    assert_trace(:streamed_error, trace)
   end
 
-  test "owner cancellation has equivalent incomplete stage semantics" do
-    {:killed, framework} = run(:framework, :owner_cancellation)
-    {:killed, dialect} = run(:dialect, :owner_cancellation)
+  test "owner cancellation preserves incomplete stage semantics" do
+    {:killed, trace} = run(:owner_cancellation)
 
-    assert event?(framework, [:request], :start)
-    refute event?(framework, [:request], :stop)
-    refute event?(framework, [:deliver], :stop)
-    assert framework == dialect
+    assert event?(trace, [:request], :start)
+    refute event?(trace, [:request], :stop)
+    refute event?(trace, [:deliver], :stop)
+    assert_trace(:owner_cancellation, trace)
   end
 
   test "semantic normalization collapses only immediately repeated callbacks" do
@@ -219,84 +200,51 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
            ]
   end
 
-  test "parser-error normalization accepts only the two known wrapper tags" do
-    for {stage, result, error} <- [
-          {[:parse], :error, :error},
-          {[:parse], :error, :unsupported_transform},
-          {[:request], :parser_error, :error},
-          {[:request], :parser_error, :unsupported_transform}
-        ] do
-      event = %{stage: stage, phase: :stop, metadata: %{result: result, error: error}}
-
-      assert normalize_parser_error(event).metadata.error == :parser_error
-    end
-  end
-
-  test "a wrong dialect parser error remains visible to the semantic comparison" do
-    framework = %{
-      stage: [:parse],
-      phase: :stop,
-      metadata: %{result: :error, error: :error}
-    }
-
-    wrong_dialect = %{
-      stage: [:parse],
-      phase: :stop,
-      metadata: %{result: :error, error: :decode}
-    }
-
-    assert normalize_parser_error(framework).metadata.error == :parser_error
-    assert normalize_parser_error(wrong_dialect).metadata.error == :decode
-    refute normalize_parser_error(framework) == normalize_parser_error(wrong_dialect)
-  end
-
-  defp run(arm, :cache_miss) do
-    observe(arm, :cache_miss, fn prefix ->
-      call(arm, @image_path, opts(prefix, cache: {CacheProbe, []}))
+  defp run(:cache_miss) do
+    observe(:cache_miss, fn prefix ->
+      call(@image_path, opts(prefix, cache: {CacheProbe, []}))
     end)
   end
 
-  defp run(arm, :cache_hit) do
+  defp run(:cache_hit) do
     table = :ets.new(:twicpics_telemetry_contract_hit, [:set, :public])
     cache = {CacheProbe, store: table}
     warm_opts = base_opts(cache: cache)
-    assert call(arm, @image_path, warm_opts).status == 200
+    assert call(@image_path, warm_opts).status == 200
 
-    observe(arm, :cache_hit, fn prefix ->
-      call(arm, @image_path, opts(prefix, cache: cache))
+    observe(:cache_hit, fn prefix ->
+      call(@image_path, opts(prefix, cache: cache))
     end)
   end
 
-  defp run(arm, :not_modified) do
-    warm = call(arm, @image_path, base_opts(cache: {CacheProbe, []}))
+  defp run(:not_modified) do
+    warm = call(@image_path, base_opts(cache: {CacheProbe, []}))
     assert warm.status == 200
     assert [etag] = get_resp_header(warm, "etag")
 
-    observe(arm, :not_modified, fn prefix ->
-      call(arm, @image_path, opts(prefix, cache: {CacheProbe, []}), [
+    observe(:not_modified, fn prefix ->
+      call(@image_path, opts(prefix, cache: {CacheProbe, []}), [
         {"if-none-match", etag}
       ])
     end)
   end
 
-  defp run(arm, :parse_error) do
-    observe(arm, :parse_error, fn prefix ->
+  defp run(:parse_error) do
+    observe(:parse_error, fn prefix ->
       call(
-        arm,
         "/images/cat.jpg?twic=v1/unknown=1",
         opts(prefix, cache: {CacheProbe, []})
       )
     end)
   end
 
-  defp run(arm, :streamed_error) do
+  defp run(:streamed_error) do
     test_pid = self()
 
-    observe(arm, :streamed_error, fn prefix ->
+    observe(:streamed_error, fn prefix ->
       ExUnit.CaptureLog.capture_log(fn ->
         conn =
           call(
-            arm,
             @image_path,
             opts(prefix, cache: {CacheProbe, []}, image_module: RaisingAfterFirstChunkImage)
           )
@@ -309,18 +257,16 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
     end)
   end
 
-  defp run(arm, :owner_cancellation) do
+  defp run(:owner_cancellation) do
     test_pid = self()
 
-    observe(arm, :owner_cancellation, fn prefix ->
+    observe(:owner_cancellation, fn prefix ->
       owner =
         start_supervised!(
           {Task,
            fn ->
              call(
-               arm,
                @image_path,
-               parser: ImagePipe.Parser.TwicPics,
                sources: [path: {ParkingSource, test_pid: test_pid}],
                telemetry_prefix: prefix,
                cache: {CacheProbe, []}
@@ -340,9 +286,9 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
     end)
   end
 
-  defp observe(arm, scenario, fun) do
+  defp observe(scenario, fun) do
     prefix = [
-      :"twicpics_telemetry_#{arm}_#{scenario}_#{System.unique_integer([:positive])}"
+      :"twicpics_telemetry_dialect_#{scenario}_#{System.unique_integer([:positive])}"
     ]
 
     events =
@@ -354,7 +300,7 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
         ]
       end)
 
-    handler_id = {__MODULE__, arm, scenario, make_ref()}
+    handler_id = {__MODULE__, scenario, make_ref()}
 
     :ok =
       :telemetry.attach_many(
@@ -418,13 +364,138 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
 
   defp normalize_parser_error(event), do: event
 
+  defp assert_trace(scenario, trace) do
+    assert Enum.map(trace, &{&1.stage, &1.phase, &1.metadata}) == expected_trace(scenario)
+  end
+
+  defp expected_trace(:cache_miss) do
+    [
+      {[:request], :start, %{}},
+      {[:parse], :start, %{}},
+      {[:parse], :stop, %{result: :ok}},
+      {[:source, :resolve], :start, %{}},
+      {[:source, :resolve], :stop, %{result: :ok}},
+      {[:cache, :lookup], :start, %{}},
+      {[:cache, :lookup], :stop, %{result: :ok}},
+      {[:source, :fetch_decode], :start, %{}},
+      {[:source, :fetch], :start, %{}},
+      {[:source, :fetch], :stop, %{result: :ok}},
+      {[:source, :fetch_decode], :stop, %{result: :ok}},
+      {[:transform, :execute], :start, %{}},
+      {[:transform, :input_color_management], :start, %{}},
+      {[:transform, :input_color_management], :stop, %{result: :ok}},
+      {[:transform, :operation], :start, %{index: 0, operation: :resize}},
+      {[:transform, :operation], :stop, %{index: 0, operation: :resize, result: :ok}},
+      {[:transform, :execute], :stop, %{result: :ok}},
+      {[:output, :negotiate], :start, %{}},
+      {[:output, :negotiate], :stop, %{result: :ok}},
+      {[:transform, :materialize], :start, %{}},
+      {[:transform, :materialize], :stop, %{result: :ok}},
+      {[:encode], :start, %{}},
+      {[:encode], :stop, %{result: :ok}},
+      {[:send], :start, %{result: :ok}},
+      {[:deliver], :start, %{}},
+      {[:cache, :write], :start, %{}},
+      {[:cache, :write], :stop, %{result: :ok}},
+      {[:deliver], :stop, %{result: :ok, status: 200}},
+      {[:send], :stop, %{result: :ok, status: 200}},
+      {[:request], :stop, %{result: :ok, status: 200}}
+    ]
+  end
+
+  defp expected_trace(:cache_hit) do
+    [
+      {[:request], :start, %{}},
+      {[:parse], :start, %{}},
+      {[:parse], :stop, %{result: :ok}},
+      {[:source, :resolve], :start, %{}},
+      {[:source, :resolve], :stop, %{result: :ok}},
+      {[:cache, :lookup], :start, %{}},
+      {[:cache, :lookup], :stop, %{result: :ok}},
+      {[:send], :start, %{result: :ok}},
+      {[:send], :stop, %{result: :ok, status: 200}},
+      {[:request], :stop, %{result: :ok, status: 200}}
+    ]
+  end
+
+  defp expected_trace(:not_modified) do
+    [
+      {[:request], :start, %{}},
+      {[:parse], :start, %{}},
+      {[:parse], :stop, %{result: :ok}},
+      {[:source, :resolve], :start, %{}},
+      {[:source, :resolve], :stop, %{result: :ok}},
+      {[:send], :start, %{result: :not_modified}},
+      {[:send], :stop, %{result: :not_modified, status: 304}},
+      {[:request], :stop, %{result: :not_modified, status: 304}}
+    ]
+  end
+
+  defp expected_trace(:parse_error) do
+    [
+      {[:request], :start, %{}},
+      {[:parse], :start, %{}},
+      {[:parse], :stop, %{error: :parser_error, result: :error}},
+      {[:send], :start, %{result: :parser_error}},
+      {[:send], :stop, %{result: :parser_error, status: 400}},
+      {[:request], :stop, %{error: :parser_error, result: :parser_error, status: 400}}
+    ]
+  end
+
+  defp expected_trace(:streamed_error) do
+    [
+      {[:request], :start, %{}},
+      {[:parse], :start, %{}},
+      {[:parse], :stop, %{result: :ok}},
+      {[:source, :resolve], :start, %{}},
+      {[:source, :resolve], :stop, %{result: :ok}},
+      {[:cache, :lookup], :start, %{}},
+      {[:cache, :lookup], :stop, %{result: :ok}},
+      {[:source, :fetch_decode], :start, %{}},
+      {[:source, :fetch], :start, %{}},
+      {[:source, :fetch], :stop, %{result: :ok}},
+      {[:source, :fetch_decode], :stop, %{result: :ok}},
+      {[:transform, :execute], :start, %{}},
+      {[:transform, :input_color_management], :start, %{}},
+      {[:transform, :input_color_management], :stop, %{result: :ok}},
+      {[:transform, :operation], :start, %{index: 0, operation: :resize}},
+      {[:transform, :operation], :stop, %{index: 0, operation: :resize, result: :ok}},
+      {[:transform, :execute], :stop, %{result: :ok}},
+      {[:output, :negotiate], :start, %{}},
+      {[:output, :negotiate], :stop, %{result: :ok}},
+      {[:transform, :materialize], :start, %{}},
+      {[:transform, :materialize], :stop, %{result: :ok}},
+      {[:encode], :start, %{}},
+      {[:encode], :stop, %{result: :ok}},
+      {[:send], :start, %{result: :ok}},
+      {[:deliver], :start, %{}},
+      {[:deliver], :stop, %{error: :encode, result: :processing_error, status: 200}},
+      {[:send], :stop, %{result: :processing_error, status: 200}},
+      {[:request], :stop, %{result: :processing_error, status: 200}}
+    ]
+  end
+
+  defp expected_trace(:owner_cancellation) do
+    [
+      {[:request], :start, %{}},
+      {[:parse], :start, %{}},
+      {[:parse], :stop, %{result: :ok}},
+      {[:source, :resolve], :start, %{}},
+      {[:source, :resolve], :stop, %{result: :ok}},
+      {[:cache, :lookup], :start, %{}},
+      {[:cache, :lookup], :stop, %{result: :ok}},
+      {[:source, :fetch_decode], :start, %{}},
+      {[:source, :fetch], :start, %{}},
+      {[:source, :fetch], :stop, %{result: :ok}},
+      {[:source, :fetch_decode], :stop, %{error: :decode, result: :processing_error}}
+    ]
+  end
+
   defp opts(prefix, extra), do: base_opts(Keyword.put(extra, :telemetry_prefix, prefix))
 
   defp base_opts(extra) do
     Keyword.merge(
       [
-        parser: ImagePipe.Parser.TwicPics,
-        http_cache: [mode: :enabled],
         sources: [
           path:
             {RootHTTPAdapter,
@@ -437,28 +508,13 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
     )
   end
 
-  defp call(arm, path, opts, headers \\ []) do
+  defp call(path, opts, headers \\ []) do
     conn =
       Enum.reduce(headers, conn(:get, path), fn {name, value}, conn ->
         put_req_header(conn, name, value)
       end)
 
-    call_arm(arm, conn, opts)
-  end
-
-  defp call_arm(:framework, conn, opts) do
     {seams, known} = Keyword.split(opts, @test_seams)
-    ImagePipe.Plug.call(conn, Keyword.merge(ImagePipe.Plug.init(known), seams))
-  end
-
-  defp call_arm(:dialect, conn, opts) do
-    {seams, known} = Keyword.split(opts, @test_seams)
-
-    known =
-      known
-      |> Keyword.delete(:parser)
-      |> Keyword.delete(:http_cache)
-
     TwicPics.call(conn, Keyword.merge(TwicPics.init(known), seams))
   end
 

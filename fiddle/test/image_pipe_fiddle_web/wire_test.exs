@@ -69,6 +69,32 @@ defmodule ImagePipeFiddleWeb.WireTest do
     assert html_response(conn, 200) =~ ~s(id="fiddle-app")
   end
 
+  test "GET /twic processes a TwicPics cover request", %{conn: conn} do
+    conn = get(conn, twic_path())
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") |> hd() =~ "image/jpeg"
+
+    image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
+    assert {Image.width(image), Image.height(image)} == {200, 200}
+    assert get_resp_header(conn, "x-imagepipe-output-format") == []
+  end
+
+  test "GET /twic keeps debug headers opt-in on the TwicPics chain", %{conn: conn} do
+    conn = get(conn, twic_path() <> "/debug=1")
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") |> hd() =~ "image/jpeg"
+
+    image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
+    assert {Image.width(image), Image.height(image)} == {200, 200}
+    assert get_resp_header(conn, "x-imagepipe-output-format") == ["jpeg"]
+    assert get_resp_header(conn, "x-imagepipe-output-width") == ["200"]
+  end
+
+  defp twic_path,
+    do: "/twic/images/dog.jpg?twic=v1/cover=200x200/output=jpeg"
+
   defp sign(signed_path, key_hex, salt_hex) do
     key = Base.decode16!(key_hex, case: :lower)
     salt = Base.decode16!(salt_hex, case: :lower)

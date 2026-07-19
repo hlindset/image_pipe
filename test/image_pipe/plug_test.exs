@@ -13,6 +13,7 @@ defmodule ImagePipe.PlugTest do
   # facet for a default-config automatic request (imgproxy parity values).
   @default_format_qualities %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}}
 
+  alias ImagePipe.Parser.IIIF
   alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
@@ -23,6 +24,7 @@ defmodule ImagePipe.PlugTest do
   alias ImagePipe.PlugTest.ConsumeSourceThenDecodeErrorImage
   alias ImagePipe.PlugTest.LargeBodyOrigin
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.AutomaticIIIFParser
 
   defmodule CacheProbe do
     @behaviour ImagePipe.Cache
@@ -591,6 +593,27 @@ defmodule ImagePipe.PlugTest do
     end
   end
 
+  test "automatic IIIF test parser changes only a valid image Plan's output mode" do
+    opts = AutomaticIIIFParser.validate_options!(iiif: [resolver: iiif_resolver()])
+    request = conn(:get, "/img/full/max/0/default.jpg")
+
+    assert {:ok, %Plan{output: %Output{} = output} = iiif_plan} =
+             IIIF.parse(request, opts)
+
+    assert {:ok, %Plan{} = automatic_plan} = AutomaticIIIFParser.parse(request, opts)
+
+    expected = %Plan{iiif_plan | output: %Output{output | mode: :automatic}}
+    assert automatic_plan == expected
+    assert automatic_plan.resolver == nil
+  end
+
+  test "automatic IIIF test parser delegates invalid input unchanged" do
+    opts = AutomaticIIIFParser.validate_options!(iiif: [resolver: iiif_resolver()])
+    request = conn(:get, "/img/full/bad/0/default.jpg")
+
+    assert AutomaticIIIFParser.parse(request, opts) == IIIF.parse(request, opts)
+  end
+
   test "init normalizes parser option" do
     opts =
       init_image_pipe(
@@ -805,7 +828,7 @@ defmodule ImagePipe.PlugTest do
   test "automatic source-format output does not require encoder overrides before streaming" do
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/jpeg")
 
     test_pid = self()
@@ -814,7 +837,8 @@ defmodule ImagePipe.PlugTest do
       call_image_pipe(conn,
         root_url: "http://origin.test",
         image_module: StreamingOnlyImage,
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         origin_req_options: [
           plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
         ]
@@ -893,12 +917,13 @@ defmodule ImagePipe.PlugTest do
       created_at: DateTime.utc_now()
     }
 
-    conn = conn(:get, "/images/beach.jpg?twic=v1/output=auto")
+    conn = conn(:get, "/img/full/max/0/default.jpg")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -955,13 +980,14 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/jpeg")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [
           plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
@@ -989,11 +1015,12 @@ defmodule ImagePipe.PlugTest do
 
     first_conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1007,11 +1034,12 @@ defmodule ImagePipe.PlugTest do
 
     second_conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1054,11 +1082,12 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/jpeg")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         image_module: FailingStreamBeforeHeaderImage,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe}
@@ -1135,13 +1164,14 @@ defmodule ImagePipe.PlugTest do
   test "auto output negotiates content type from Accept and sets Vary" do
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/jpeg")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1152,11 +1182,11 @@ defmodule ImagePipe.PlugTest do
 
   test "auto output uses source format for missing empty and wildcard-only Accept" do
     cases = [
-      conn(:get, "/images/beach.jpg?twic=v1/output=auto"),
-      conn(:get, "/images/beach.jpg?twic=v1/output=auto") |> put_req_header("accept", ""),
-      conn(:get, "/images/beach.jpg?twic=v1/output=auto") |> put_req_header("accept", "*/*"),
-      conn(:get, "/images/beach.jpg?twic=v1/output=auto") |> put_req_header("accept", "*/*;q=1"),
-      conn(:get, "/images/beach.jpg?twic=v1/output=auto")
+      conn(:get, "/img/full/max/0/default.jpg"),
+      conn(:get, "/img/full/max/0/default.jpg") |> put_req_header("accept", ""),
+      conn(:get, "/img/full/max/0/default.jpg") |> put_req_header("accept", "*/*"),
+      conn(:get, "/img/full/max/0/default.jpg") |> put_req_header("accept", "*/*;q=1"),
+      conn(:get, "/img/full/max/0/default.jpg")
       |> put_req_header("accept", "application/json,*/*;q=1")
     ]
 
@@ -1164,7 +1194,8 @@ defmodule ImagePipe.PlugTest do
       conn =
         call_image_pipe(conn,
           root_url: "http://origin.test",
-          parser: ImagePipe.Parser.TwicPics,
+          parser: AutomaticIIIFParser,
+          iiif: [resolver: iiif_resolver()],
           origin_req_options: [plug: OriginImage]
         )
 
@@ -1186,13 +1217,14 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/cat.png?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.png")
       |> put_req_header("accept", "image/png")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         origin_req_options: [plug: origin]
       )
 
@@ -1235,13 +1267,14 @@ defmodule ImagePipe.PlugTest do
   test "automatic output uses server preference over relative q-values" do
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1253,13 +1286,14 @@ defmodule ImagePipe.PlugTest do
   test "image/* wildcard does not rescue a format excluded by an exact q=0" do
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/avif;q=0,image/*;q=1")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1282,13 +1316,14 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1334,7 +1369,7 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/jpeg")
 
     get_result_fun = fn key ->
@@ -1370,7 +1405,8 @@ defmodule ImagePipe.PlugTest do
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1416,7 +1452,7 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/avif")
 
     get_result_fun = fn key ->
@@ -1452,7 +1488,8 @@ defmodule ImagePipe.PlugTest do
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         auto_avif: false,
         auto_webp: false,
         auto_jpeg_xl: false,
@@ -1501,7 +1538,7 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/*")
 
     get_result_fun = fn key ->
@@ -1537,7 +1574,8 @@ defmodule ImagePipe.PlugTest do
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         auto_avif: false,
         auto_webp: false,
         auto_jpeg_xl: false,
@@ -1575,12 +1613,13 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "disabled automatic modern formats still set Vary for negotiated source output" do
-    conn = conn(:get, "/images/beach.jpg?twic=v1/output=auto")
+    conn = conn(:get, "/img/full/max/0/default.jpg")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         auto_avif: false,
         auto_webp: false,
         origin_req_options: [plug: OriginImage]
@@ -1593,13 +1632,14 @@ defmodule ImagePipe.PlugTest do
   test "disabled automatic modern formats use source output despite baseline Accept exclusions" do
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/jpeg;q=0")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         auto_avif: false,
         auto_webp: false,
         origin_req_options: [plug: OriginImage]
@@ -1613,13 +1653,14 @@ defmodule ImagePipe.PlugTest do
   test "source-format automatic negotiation ignores baseline Accept and uses decoded source format" do
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/png")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         auto_avif: false,
         auto_webp: false,
         origin_req_options: [plug: OriginImage]
@@ -1637,11 +1678,12 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/slow.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/png")
       |> call_image_pipe(
         root_url: root_url,
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         auto_avif: false,
         auto_webp: false
       )
@@ -1688,13 +1730,14 @@ defmodule ImagePipe.PlugTest do
   test "auto output uses source format when Accept excludes baseline formats" do
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/*;q=0")
 
     conn =
       call_image_pipe(conn,
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1745,11 +1788,12 @@ defmodule ImagePipe.PlugTest do
 
   test "sequential materialization failure without origin error returns decode error" do
     conn =
-      conn(:get, "/images/beach.jpg?twic=v1/resize=100/output=auto")
+      conn(:get, "/img/full/100,/0/default.jpg")
       |> call_image_pipe(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         image_materializer: FailingMaterializer,
         origin_req_options: [plug: OriginImage]
       )
@@ -1770,12 +1814,13 @@ defmodule ImagePipe.PlugTest do
   test "deferred automatic sequential materialization failure returns decode error" do
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/resize=100/output=auto")
+      |> conn("/img/full/100,/0/default.jpg")
       |> put_req_header("accept", "image/jpeg")
       |> call_image_pipe(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         image_materializer: FailingMaterializer,
         origin_req_options: [plug: OriginImage]
       )
@@ -2173,11 +2218,12 @@ defmodule ImagePipe.PlugTest do
 
     conn =
       :get
-      |> conn("/images/beach.jpg?twic=v1/output=auto")
+      |> conn("/img/full/max/0/default.jpg")
       |> put_req_header("accept", "image/jpeg")
       |> call_image_pipe(
         root_url: "http://origin.test",
-        parser: ImagePipe.Parser.TwicPics,
+        parser: AutomaticIIIFParser,
+        iiif: [resolver: iiif_resolver()],
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe, put_result: {:error, :write_failed}}
       )

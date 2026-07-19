@@ -4,7 +4,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestTest do
   alias ImagePipe.Dialect.TwicPics.Request
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.CropGuided
-  alias ImagePipe.Plan.Operation.Directive
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source.Path
@@ -62,14 +61,7 @@ defmodule ImagePipe.Dialect.TwicPics.RequestTest do
 
   test "forbidden-vocabulary scan descends recursively and recognizes every rejected form" do
     assert match?([{:raw_pair, _}], forbidden_terms(%{nested: [{"resize", "40x30"}]}))
-    assert match?([{:directive, _}], forbidden_terms(%Directive{name: :focus, payload: nil}))
     assert forbidden_terms(%{nested: [:deferred]}) == [:deferred]
-
-    assert match?(
-             [{:resolver, ImagePipe.Parser.TwicPics.Resolver}],
-             forbidden_terms(ImagePipe.Parser.TwicPics.Resolver)
-           )
-
     assert match?([{:conn, _}], forbidden_terms(%Plug.Conn{}))
     assert match?([{:pid, _}], forbidden_terms(self()))
     assert match?([{:reference, _}], forbidden_terms(make_ref()))
@@ -89,9 +81,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestTest do
 
   defp do_forbidden_terms(%Plug.Conn{} = conn, violations),
     do: [{:conn, conn} | violations]
-
-  defp do_forbidden_terms(%ImagePipe.Plan.Operation.Directive{} = directive, violations),
-    do: [{:directive, directive} | violations]
 
   defp do_forbidden_terms(term, violations) when is_pid(term),
     do: [{:pid, term} | violations]

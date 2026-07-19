@@ -227,13 +227,6 @@ defmodule ImagePipe.Dialect.TwicPics.PointFlow do
        when module in @point_dims_neutral_ops,
        do: {operation, acc}
 
-  defp step(operation, _acc, _pending, _bind?) do
-    raise "ImagePipe.Dialect.TwicPics.PointFlow has no rule for advancing the carried " <>
-            "focus point through #{inspect(operation.__struct__)} — add an explicit step/4 " <>
-            "clause (or list it in @point_dims_neutral_ops if it never affects the point " <>
-            "or dims)"
-  end
-
   defp put_guide(%CropGuided{} = operation, guide), do: %CropGuided{operation | guide: guide}
   defp put_guide(%PlanResize{} = operation, guide), do: %PlanResize{operation | guide: guide}
 

@@ -5,9 +5,8 @@ defmodule ImagePipe.Transform.Focus do
   # op's realized affine. The only float conversion is `to_fp/1`, at the libvips
   # boundary. Every function is a no-op when the carried point is `nil` (a
   # strategy may not carry a point), so point-free plans are unaffected. The
-  # carried point is TwicPics-strategy state advanced by
-  # `ImagePipe.Parser.TwicPics.PointFlow`; this module is the neutral point math
-  # it (and any future point-carrying strategy) uses.
+  # carried point belongs to a strategy that advances it after each operation;
+  # this module is the neutral point math any point-carrying strategy uses.
   #
   # The numerator is integer() (matching ImagePipe.Plan.Measure): a crop
   # translate can transiently negate it (focus left/above the crop window); a

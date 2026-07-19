@@ -101,8 +101,7 @@ defmodule ImagePipe.Resolver do
   misuse crashes instead.
 
   A strategy whose state must be *transformed* per emitted op (not carried
-  unchanged) walks the emission itself; see
-  `ImagePipe.Parser.TwicPics.PointFlow`.
+  unchanged) walks the emission itself.
   """
   @spec rewrap(continuation(), strategy_state()) :: continuation()
   def rewrap({:advance, shape, nil}, strategy_state), do: {:advance, shape, strategy_state}

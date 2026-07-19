@@ -350,19 +350,9 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilderTest do
       output: %Output{mode: :automatic}
     }
 
-    directive = %Operation.Directive{name: :set_focus, payload: {:anchor, :left, :top}}
-
     assert match?([{:plan, _}], forbidden_terms(%{nested: [plan]}))
     assert forbidden_terms(%{nested: [ImagePipe.Plan]}) == [{:plan, ImagePipe.Plan}]
-    assert match?([{:directive, _}], forbidden_terms(%{nested: [directive]}))
     assert forbidden_terms(%{nested: [:deferred]}) == [:deferred]
-
-    assert match?(
-             [{:resolver, ImagePipe.Parser.TwicPics.Resolver}],
-             forbidden_terms(%{nested: [ImagePipe.Parser.TwicPics.Resolver]})
-           )
-
-    assert forbidden_terms(%{nested: [%{resolver: nil}]}) == [{:resolver_field, nil}]
     assert match?([{:raw_pair, _}], forbidden_terms(%{nested: [{"resize", "40x30"}]}))
     assert match?([{:conn, _}], forbidden_terms(%{nested: [%Plug.Conn{}]}))
     assert match?([{:pid, _}], forbidden_terms(%{nested: [self()]}))
@@ -413,9 +403,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilderTest do
   defp do_forbidden_terms(%ImagePipe.Plan{} = plan, violations),
     do: [{:plan, plan} | violations]
 
-  defp do_forbidden_terms(%Operation.Directive{} = directive, violations),
-    do: [{:directive, directive} | violations]
-
   defp do_forbidden_terms(term, violations) when is_pid(term),
     do: [{:pid, term} | violations]
 
@@ -440,9 +427,8 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilderTest do
     do: do_forbidden_terms(Map.from_struct(struct), violations)
 
   defp do_forbidden_terms(map, violations) when is_map(map) do
-    Enum.reduce(map, violations, fn
-      {:resolver, value}, acc -> [{:resolver_field, value} | acc]
-      {key, value}, acc -> do_forbidden_terms(value, do_forbidden_terms(key, acc))
+    Enum.reduce(map, violations, fn {key, value}, acc ->
+      do_forbidden_terms(value, do_forbidden_terms(key, acc))
     end)
   end
 

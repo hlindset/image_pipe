@@ -7,36 +7,26 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
   @base "test/support/image_pipe/test/twicpics_differential"
   @sources_dir "#{@base}/sources"
   @manifest_path "#{@base}/manifest.exs"
-  @arms [:framework, :dialect]
   @constellations Constellations.all()
-  @default_render_census for arm <- @arms,
-                             constellation <- @constellations,
-                             is_nil(constellation[:triage]),
-                             do: {arm, constellation}
-  @triage_render_census for arm <- @arms,
-                            constellation <- @constellations,
-                            not is_nil(constellation[:triage]),
-                            do: {arm, constellation}
+  @default_render_census Enum.filter(@constellations, &is_nil(&1[:triage]))
+  @triage_render_census Enum.reject(@constellations, &is_nil(&1[:triage]))
 
   setup_all do
     unless File.exists?(@manifest_path) do
       raise "No fixtures: missing #{@manifest_path}. Bootstrap: mise run twic:bake"
     end
 
-    {:ok,
-     manifest: Manifest.load!(@manifest_path),
-     plug_opts: Map.new(@arms, &{&1, Harness.plug_opts(&1)})}
+    {:ok, manifest: Manifest.load!(@manifest_path), plug_opts: Harness.plug_opts()}
   end
 
-  for {arm, constellation} <- @default_render_census ++ @triage_render_census do
-    @arm arm
+  for constellation <- @default_render_census ++ @triage_render_census do
     @c constellation
     # Recorded-but-unresolved TwicPics divergences are quarantined: excluded by
     # default, runnable via `--include twicpics_triage` (see the constellation's
     # `:triage` reason + tracking issue).
     if constellation[:triage], do: @tag(:twicpics_triage)
 
-    test "#{@arm}: #{@c.id} (#{@c.verdict}/#{@c.group})", %{
+    test "#{@c.id} (#{@c.verdict}/#{@c.group})", %{
       manifest: manifest,
       plug_opts: plug_opts
     } do
@@ -45,7 +35,7 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
       assert entry.authored_sha256 == Manifest.authored_sha256(@c),
              "#{@c.id}: authored fields changed — run `mix twicpics.reauthor` (tol/verdict) or re-bake."
 
-      out = Harness.render_image(@c, Map.fetch!(plug_opts, @arm))
+      out = Harness.render_image(@c, plug_opts)
       fixture = fixture_image(@c, entry)
 
       assert PixelCompare.same_dims?(out, fixture),
@@ -55,11 +45,10 @@ defmodule ImagePipe.TwicpicsDifferentialConformanceTest do
     end
   end
 
-  test "default render census covers each authored non-triaged constellation on both arms" do
-    expected_per_arm = Enum.count(@constellations, &is_nil(&1[:triage]))
-
-    assert Enum.frequencies_by(@default_render_census, &elem(&1, 0)) ==
-             Map.new(@arms, &{&1, expected_per_arm})
+  test "default render census covers each authored non-triaged constellation once" do
+    assert length(@default_render_census) == 38
+    assert length(@triage_render_census) == 1
+    assert length(@default_render_census ++ @triage_render_census) == length(@constellations)
   end
 
   # Dispatch on verdict: `:equal` asserts a per-band tolerance budget; `:diverges`

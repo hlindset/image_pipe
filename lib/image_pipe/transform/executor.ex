@@ -4,18 +4,19 @@ defmodule ImagePipe.Transform.Executor do
   # Orchestrates plan execution: seeds the data-determined preamble (EXIF
   # orientation into State.pending_orientation and input color management, both
   # on the seed_orientation gate), then drives each pipeline through the
-  # per-pipeline resolve loop below with the Plan-carried resolution strategy
-  # (plan.resolver, defaulting to ImagePipe.Transform.NeutralResolver when nil),
-  # which owns the pending-orientation policy and compensation and emits
+  # per-pipeline resolve loop below. A nil Plan resolver selects the fixed
+  # neutral driver; a module selects the injected strategy driver. The selected
+  # resolver owns the pending-orientation policy and compensation and emits
   # explicit Flush ops. Resize expansion/scale arithmetic lives in
   # ImagePipe.Transform.ResizePlanning.
   #
-  # The resolve loop (run/5): for each plan operation, overlay the
+  # The shared resolve loop (`run/5` for an injected strategy and
+  # `run_neutral/4` for the fixed neutral path): for each plan operation, overlay the
   # resolver-advanced shape onto State (THE one shape→State sync site), resolve
   # the op through the strategy, execute the emitted executable ops through the
   # chain, then advance the shape — purely for an `:advance` continuation, or,
   # for a `{:measure, tag, state}` continuation, from the measured post-
-  # execution dims via the strategy's `continue/4` (injectable via
+  # execution dims via the selected driver's `continue/4` (injectable via
   # `opts[:measure_dims]` so tests can drive the geometry without pixels). A
   # single resolve may execute in several STAGES (spec §4.4 Stage 3):
   # `continue/4` can return a further `{ops, continuation}` stage — a
@@ -34,10 +35,9 @@ defmodule ImagePipe.Transform.Executor do
   # flush — through the resolver-advanced shape; the resolve-time reads (Lowering,
   # ResizePlanning) take the shape directly.
   #
-  # The strategy's own per-pipeline state (e.g. the TwicPics resolver's carried
-  # focus point) is threaded through `strategy`, carried forward via the
-  # continuation the strategy returns — the driver never reads or computes
-  # strategy-specific state itself.
+  # The strategy's own per-pipeline state is threaded through `strategy` and
+  # carried forward via the continuation it returns. The driver never reads or
+  # computes strategy-specific state itself.
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Pipeline
@@ -54,17 +54,30 @@ defmodule ImagePipe.Transform.Executor do
 
   @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
+  def execute(%Plan{pipelines: pipelines, resolver: nil} = plan, %State{} = state, opts) do
+    with {:ok, state} <- seed_execution_state(plan, state, opts) do
+      execute_pipelines(pipelines, :neutral, state, opts)
+    end
+  end
+
   def execute(
-        %Plan{pipelines: pipelines, auto_rotate: auto_rotate, resolver: resolver},
+        %Plan{pipelines: pipelines, resolver: resolver} = plan,
         %State{} = state,
         opts
       ) do
-    state = %{
-      state
-      | detector: ImagePipe.Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
-        detector_required: Keyword.get(opts, :detector_required, false),
-        telemetry_opts: Telemetry.telemetry_opts(opts)
-    }
+    with {:ok, state} <- seed_execution_state(plan, state, opts) do
+      execute_pipelines(pipelines, {:strategy, resolver}, state, opts)
+    end
+  end
+
+  defp seed_execution_state(%Plan{auto_rotate: auto_rotate}, state, opts) do
+    %State{} =
+      state = %{
+        state
+        | detector: ImagePipe.Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
+          detector_required: Keyword.get(opts, :detector_required, false),
+          telemetry_opts: Telemetry.telemetry_opts(opts)
+      }
 
     state =
       if Keyword.get(opts, :seed_orientation, false) do
@@ -77,9 +90,7 @@ defmodule ImagePipe.Transform.Executor do
         state
       end
 
-    with {:ok, state} <- seed_color_management(state, opts) do
-      execute_pipelines(pipelines, resolver || NeutralResolver, state, opts)
-    end
+    seed_color_management(state, opts)
   end
 
   # Input color management is a data-determined preamble seeded once on the real-
@@ -111,9 +122,9 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
-  defp execute_pipelines(pipelines, resolver, %State{} = state, opts) do
+  defp execute_pipelines(pipelines, driver, %State{} = state, opts) do
     Enum.reduce_while(pipelines, {:ok, state}, fn pipeline, {:ok, state} ->
-      case execute_pipeline(pipeline, resolver, state, opts) do
+      case execute_pipeline(pipeline, driver, state, opts) do
         {:ok, %State{} = state} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -128,7 +139,7 @@ defmodule ImagePipe.Transform.Executor do
   # pipeline's input, so each pipeline must end in the display frame; an
   # identity pending is cleared without materializing — the streaming fast
   # path).
-  defp execute_pipeline(%Pipeline{operations: operations}, resolver, %State{} = state, opts) do
+  defp execute_pipeline(%Pipeline{operations: operations}, driver, %State{} = state, opts) do
     {w, h} = State.effective_source_dims(state)
 
     shape =
@@ -139,33 +150,50 @@ defmodule ImagePipe.Transform.Executor do
         decode_shrink: state.decode_shrink
       })
 
-    run(operations, shape, {resolver, resolver.init()}, state, opts)
+    case driver do
+      {:strategy, resolver} -> run(operations, shape, {resolver, resolver.init()}, state, opts)
+      :neutral -> run_neutral(operations, shape, state, opts)
+    end
   end
 
   @doc false
   @spec run([struct()], SourceShape.t(), Resolver.strategy(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def run(pipeline, %SourceShape{} = shape, strategy, %State{} = state, opts \\ []) do
+    run_driver(pipeline, shape, {:strategy, strategy}, state, opts)
+  end
+
+  defp run_neutral(pipeline, %SourceShape{} = shape, %State{} = state, opts) do
+    run_driver(pipeline, shape, {:neutral, nil}, state, opts)
+  end
+
+  defp run_driver(pipeline, shape, driver, state, opts) do
     measure_dims = Keyword.get(opts, :measure_dims, &default_measure_dims/1)
     chain = Keyword.get(opts, :chain, &Chain.execute/3)
 
     pipeline
-    |> Enum.reduce_while({:ok, shape, strategy, state}, fn operation, acc ->
-      {:ok, shape, strategy, state} = acc
+    |> Enum.reduce_while({:ok, shape, driver, state}, fn operation, acc ->
+      {:ok, shape, driver, state} = acc
       state = overlay(state, shape)
 
-      {ops, continuation} = Resolver.resolve(strategy, shape, operation)
+      {ops, continuation} = resolve(driver, shape, operation)
 
-      case execute_stages(ops, continuation, shape, strategy, state, chain, measure_dims, opts) do
-        {:ok, shape, strategy, state} -> {:cont, {:ok, shape, strategy, state}}
+      case execute_stages(ops, continuation, shape, driver, state, chain, measure_dims, opts) do
+        {:ok, shape, driver, state} -> {:cont, {:ok, shape, driver, state}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
     |> case do
-      {:ok, shape, _strategy, state} -> flush_boundary(state, shape, chain, opts)
+      {:ok, shape, _driver, state} -> flush_boundary(state, shape, chain, opts)
       {:error, _reason} = error -> error
     end
   end
+
+  defp resolve({:strategy, strategy}, shape, operation),
+    do: Resolver.resolve(strategy, shape, operation)
+
+  defp resolve({:neutral, nil}, shape, operation),
+    do: NeutralResolver.resolve(shape, nil, operation)
 
   # THE sync rule, one site: the shape is authoritative for the source frame.
   # Exists solely to feed the executables' execute-time State reads (resolve-time
@@ -189,7 +217,7 @@ defmodule ImagePipe.Transform.Executor do
          ops,
          continuation,
          resolve_shape,
-         strategy,
+         driver,
          state,
          chain,
          measure_dims,
@@ -197,7 +225,7 @@ defmodule ImagePipe.Transform.Executor do
        ) do
     case chain.(state, ops, opts) do
       {:ok, %State{} = state} ->
-        continue(continuation, resolve_shape, strategy, state, chain, measure_dims, opts)
+        continue(continuation, resolve_shape, driver, state, chain, measure_dims, opts)
 
       {:error, _reason} = error ->
         error
@@ -205,41 +233,35 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp continue(
-         {:advance, %SourceShape{} = shape, strategy_state},
+         {:advance, %SourceShape{} = shape, resolver_state},
          _resolve_shape,
-         {module, _},
+         driver,
          state,
          _chain,
          _measure_dims,
          _opts
        ),
-       do: {:ok, shape, {module, strategy_state}, state}
+       do: {:ok, shape, advance(driver, resolver_state), state}
 
   defp continue(
-         {:measure, tag, strategy_state},
+         {:measure, tag, resolver_state},
          resolve_shape,
-         {module, _} = strategy,
+         driver,
          state,
          chain,
          measure_dims,
          opts
        ) do
-    case Resolver.continue(
-           strategy,
-           tag,
-           measure_dims.(state.image),
-           resolve_shape,
-           strategy_state
-         ) do
-      {%SourceShape{} = shape, strategy_state} ->
-        {:ok, shape, {module, strategy_state}, state}
+    case continue(driver, tag, measure_dims.(state.image), resolve_shape, resolver_state) do
+      {%SourceShape{} = shape, resolver_state} ->
+        {:ok, shape, advance(driver, resolver_state), state}
 
       {ops, continuation} when is_list(ops) ->
         execute_stages(
           ops,
           continuation,
           resolve_shape,
-          strategy,
+          driver,
           state,
           chain,
           measure_dims,
@@ -247,6 +269,17 @@ defmodule ImagePipe.Transform.Executor do
         )
     end
   end
+
+  defp continue({:strategy, strategy}, tag, measured_dims, shape, resolver_state),
+    do: Resolver.continue(strategy, tag, measured_dims, shape, resolver_state)
+
+  defp continue({:neutral, _}, tag, measured_dims, shape, neutral_state),
+    do: NeutralResolver.continue(tag, measured_dims, shape, neutral_state)
+
+  defp advance({:strategy, {module, _}}, resolver_state),
+    do: {:strategy, {module, resolver_state}}
+
+  defp advance({:neutral, _}, neutral_state), do: {:neutral, neutral_state}
 
   defp default_measure_dims(image), do: {Image.width(image), Image.height(image)}
 
@@ -258,9 +291,8 @@ defmodule ImagePipe.Transform.Executor do
   # answers effective_source_dims, otherwise the live image speaks for itself —
   # including after the boundary flush swaps the displayed axes.
   #
-  # This flush never touches a strategy's carried point: nothing consumes a
-  # point after the pipeline boundary (TwicPics plans are single-pipeline), so
-  # the omission is unobservable for every parser-reachable pipeline.
+  # This flush never touches a strategy's carried point. Strategy state dies at
+  # the pipeline boundary, so no later operation can consume it.
   defp flush_boundary(%State{} = state, %SourceShape{} = shape, chain, opts) do
     state = %State{
       state

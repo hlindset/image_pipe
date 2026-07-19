@@ -21,7 +21,7 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
-  alias ImagePipe.Parser.TwicPics
+  alias ImagePipe.Dialect.TwicPics
 
   alias ImagePipe.Test.TwicpicsDifferential.{
     Constellations,
@@ -43,12 +43,12 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   def run_with(args, env) do
     {opts, _, _} = OptionParser.parse(args, strict: [force: :boolean, only: :string])
     {:ok, _} = Application.ensure_all_started(:image_pipe)
-    File.mkdir_p!(@fixtures_dir)
 
     # Fail fast: a chain that doesn't parse must abort BEFORE any live oracle call
     # (network is the expensive/rate-limited resource here) — imgproxy's pre-bake
     # parse gate, adapted. Triaged cases (known parser gaps) are skipped.
     validate_parses!()
+    File.mkdir_p!(@fixtures_dir)
 
     only = opts[:only] && String.split(opts[:only], ",", trim: true) |> MapSet.new()
 
@@ -101,13 +101,13 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   defp validate_parses! do
     import Plug.Test, only: [conn: 2]
 
-    parser_opts = TwicPics.validate_options!([])
+    dialect_opts = TwicPics.init([])
 
     failures =
       Constellations.all()
       |> Enum.reject(& &1[:triage])
       |> Enum.flat_map(fn c ->
-        case TwicPics.parse(conn(:get, Constellations.twicpics_path(c)), parser_opts) do
+        case TwicPics.parse(conn(:get, Constellations.twicpics_path(c)), dialect_opts) do
           {:ok, _} -> []
           other -> [{c.id, c.chain, other}]
         end

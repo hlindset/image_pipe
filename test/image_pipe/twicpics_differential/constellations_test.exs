@@ -1,6 +1,6 @@
 defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
   use ExUnit.Case, async: true
-  alias ImagePipe.Parser.TwicPics
+  alias ImagePipe.Dialect.TwicPics
   alias ImagePipe.Test.TwicpicsDifferential.{Constellations, SourceInventory}
 
   test "ids are unique" do
@@ -50,15 +50,15 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
     assert Constellations.twicpics_path(c) == "/grid_4x4.png?twic=v1/cover=200x100/output=png"
   end
 
-  test "every non-triaged chain parses via ImagePipe.Parser.TwicPics" do
+  test "every non-triaged chain parses via ImagePipe.Dialect.TwicPics" do
+    dialect_opts = TwicPics.init([])
+
     for c <- Constellations.all(), is_nil(c[:triage]) do
-      assert {:ok, _plan} = parse(Constellations.twicpics_path(c)),
+      assert {:ok, _request} = parse(Constellations.twicpics_path(c), dialect_opts),
              "chain failed to parse: #{c.id} (#{c.chain})"
     end
   end
 
-  # `ImagePipe.Parser.TwicPics.parse/2` takes (%Plug.Conn{}, opts); `Plug.Test.conn/2`
-  # already populates path_info + the `twic` query param the parser reads. The opts
-  # must carry the resolved `:twicpics` config (parse/2 reads it for output defaults).
-  defp parse(path), do: TwicPics.parse(Plug.Test.conn(:get, path), TwicPics.validate_options!([]))
+  defp parse(path, dialect_opts),
+    do: TwicPics.parse(Plug.Test.conn(:get, path), dialect_opts)
 end
