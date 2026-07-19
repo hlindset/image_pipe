@@ -82,7 +82,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
     #
     # Plan = a plain fit resize (measures its realized dims) followed by a
     # 1/3 gravity crop (a downstream consumer that resolves against the measured
-    # frame). We run Executor.run/5 directly with:
+    # frame). We run Executor.run_neutral/4 directly with:
     #   * opts[:chain] — a capturing chain: it records each op batch and the
     #     source_dimensions the driver overlaid onto State before that batch, and
     #     returns State unchanged (no pixels ever run).

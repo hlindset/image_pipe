@@ -11,8 +11,8 @@ defmodule ImagePipe.Transform.ExecutorTest do
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
 
-  describe "plan driver routing" do
-    test "a nil-resolver Plan executes through the neutral driver" do
+  describe "fixed neutral execution" do
+    test "a Plan executes through the fixed neutral driver" do
       assert {:ok, blur} = Operation.blur(1.0)
 
       assert {:ok, %State{} = state} =

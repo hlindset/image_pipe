@@ -243,7 +243,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   `opts` accepts the same runtime options threaded to `Chain.execute/3`
   (telemetry, etc). It also accepts three test-only overrides — `:chain`,
-  `:measure_dims`, `:continue` — mirroring `Executor.run/5`'s own injectable
+  `:measure_dims`, `:continue` — mirroring `Executor.run_neutral/4`'s own injectable
   seams, defaulting to the real `Chain.execute/3`, a live Vix header read, and
   `NeutralResolver.continue/4` respectively. Real callers never set these.
 
