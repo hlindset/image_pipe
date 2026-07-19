@@ -604,7 +604,6 @@ defmodule ImagePipe.PlugTest do
 
     expected = %Plan{iiif_plan | output: %Output{output | mode: :automatic}}
     assert automatic_plan == expected
-    assert automatic_plan.resolver == nil
   end
 
   test "automatic IIIF test parser delegates invalid input unchanged" do
