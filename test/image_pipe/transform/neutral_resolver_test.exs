@@ -202,7 +202,7 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
   end
 
   describe "resolve_late_bound_guide/2" do
-    test "a guided crop matches the deferred oracle without emitting a marker" do
+    test "a guided crop resolves late to a concrete crop, never a marker" do
       for pending <- [
             nil,
             PendingOrientation.from_exif(3, true),
@@ -221,28 +221,35 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
         assert {[%Crop{} = late_crop], late_continuation} =
                  NeutralResolver.resolve_late_bound_guide(shape, operation)
 
-        assert {[%Crop{} = oracle_crop], oracle_continuation} =
-                 NeutralResolver.resolve(shape, nil, %CropGuided{operation | guide: :deferred})
-
+        # A concrete crop is emitted; no deferred marker gravity survives.
         refute late_crop.gravity == :deferred
-        assert %Crop{late_crop | gravity: :deferred} == oracle_crop
-        assert late_continuation == oracle_continuation
 
         if pending do
+          # The orientation compensation is folded into the crop's center bias.
           assert late_crop.center_bias == Orientation.center_discard_sides(pending)
+        else
+          # With no pending orientation the late-bound path is exactly the
+          # neutral resolution of the concrete-guide crop.
+          assert {[%Crop{} = plain_crop], plain_continuation} =
+                   NeutralResolver.resolve(shape, nil, operation)
+
+          assert late_crop == plain_crop
+          assert late_continuation == plain_continuation
         end
 
+        # The crop resolves to the requested 31×20 extent for a concrete gravity
+        # ({20, 31} when a quarter-turn pending swaps the storage-frame axes).
         for gravity <- [{:anchor, :center, :center}, {:fp, 0.2, 0.8}] do
-          late_crop = %Crop{late_crop | gravity: gravity}
-          oracle_crop = %Crop{oracle_crop | gravity: gravity}
+          assert {:ok, %{left: left, top: top, width: w, height: h}} =
+                   Crop.resolved_rect(%Crop{late_crop | gravity: gravity}, 101, 80)
 
-          assert Crop.resolved_rect(late_crop, 101, 80) ==
-                   Crop.resolved_rect(oracle_crop, 101, 80)
+          assert is_integer(left) and is_integer(top)
+          assert {w, h} in [{31, 20}, {20, 31}]
         end
       end
     end
 
-    test "a cover resize preserves staged parity and odd-pixel bias" do
+    test "a cover resize resolves late through a staged measure with odd-pixel bias" do
       operation = %PlanResize{
         mode: :cover,
         width: {:px, 31},
@@ -265,36 +272,34 @@ defmodule ImagePipe.Transform.NeutralResolverTest do
             decode_shrink: nil
           })
 
-        assert {[late_resize], {:measure, late_tag, nil}} =
+        # The cover stages: a forcing resize now, its result crop after measure.
+        assert {[%ExecResize{}], {:measure, late_tag, nil}} =
                  NeutralResolver.resolve_late_bound_guide(shape, operation)
-
-        assert {[oracle_resize], {:measure, oracle_tag, nil}} =
-                 NeutralResolver.resolve(shape, nil, %PlanResize{operation | guide: :deferred})
-
-        assert late_resize == oracle_resize
 
         assert {late_tail, late_continuation} =
                  NeutralResolver.continue(late_tag, {33, 27}, shape, nil)
 
-        assert {oracle_tail, oracle_continuation} =
-                 NeutralResolver.continue(oracle_tag, {33, 27}, shape, nil)
+        # The tail carries the result crop (and a %Flush{} when a pending
+        # orientation must flush after the storage-frame crop).
+        assert %Crop{} = tail_crop = Enum.find(late_tail, &match?(%Crop{}, &1))
+        refute tail_crop.gravity == :deferred
+        assert match?({:advance, %SourceShape{}, nil}, late_continuation)
 
-        assert normalize_late_bound_tail(late_tail) == oracle_tail
-        assert late_continuation == oracle_continuation
+        if pending do
+          assert tail_crop.center_bias == Orientation.center_discard_sides(pending)
+        end
 
+        # The result crop resolves to a well-formed rectangle against the
+        # measured seam frame for a concrete gravity.
         for gravity <- [{:anchor, :center, :center}, {:fp, 0.2, 0.8}] do
-          assert realized_tail_rect(late_tail, gravity, {33, 27}) ==
-                   realized_tail_rect(oracle_tail, gravity, {33, 27})
+          assert {:ok, %{left: left, top: top, width: w, height: h}} =
+                   realized_tail_rect(late_tail, gravity, {33, 27})
+
+          assert is_integer(left) and is_integer(top)
+          assert is_integer(w) and is_integer(h)
         end
       end
     end
-  end
-
-  defp normalize_late_bound_tail(ops) do
-    Enum.map(ops, fn
-      %Crop{} = crop -> %Crop{crop | gravity: :deferred}
-      other -> other
-    end)
   end
 
   defp realized_tail_rect(ops, gravity, {width, height}) do

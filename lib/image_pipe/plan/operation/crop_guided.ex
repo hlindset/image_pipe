@@ -26,8 +26,6 @@ defmodule ImagePipe.Plan.Operation.CropGuided do
   @type weights :: %{optional(:default) => number(), optional(String.t()) => number()}
   @type guide ::
           anchor()
-          # requires a point-carrying resolver strategy
-          | :deferred
           | {:anchor, :left | :center | :right, :top | :center | :bottom}
           | {:focal, {:ratio, non_neg_integer(), pos_integer()},
              {:ratio, non_neg_integer(), pos_integer()}}

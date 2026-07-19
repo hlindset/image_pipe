@@ -789,7 +789,6 @@ defmodule ImagePipe.Plan.Operation do
   defp canonical_dpr_ratio(_numerator, _denominator), do: {:error, :dpr}
 
   defp resize_guide(:center), do: {:ok, :center}
-  defp resize_guide(:deferred), do: {:ok, :deferred}
 
   defp resize_guide({:anchor, x, y} = guide) when x in @x_anchors and y in @y_anchors,
     do: {:ok, guide}
@@ -843,7 +842,6 @@ defmodule ImagePipe.Plan.Operation do
 
   defp tagged_crop_region_dimension(dimension), do: Measure.dimension(dimension)
 
-  defp tagged_crop_guide(:deferred), do: {:ok, :deferred}
   defp tagged_crop_guide(guide) when guide in @crop_anchor_guides, do: {:ok, guide}
 
   defp tagged_crop_guide({:anchor, x, y} = guide) when x in @x_anchors and y in @y_anchors,

@@ -24,16 +24,6 @@ defmodule ImagePipe.Plan.OperationTest do
     end
   end
 
-  describe "carried guide (#321)" do
-    test "carried is a valid crop and cover guide" do
-      assert {:ok, %Operation.CropGuided{guide: :deferred}} =
-               Operation.crop_guided({:px, 100}, {:px, 100}, :deferred)
-
-      assert {:ok, %Operation.Resize{guide: :deferred}} =
-               Operation.resize(:cover, {:px, 100}, {:px, 100}, guide: :deferred)
-    end
-  end
-
   describe "resize constructors" do
     test "build unified resize operations through exported constructor" do
       default_offset = {:pixels, 0.0}
