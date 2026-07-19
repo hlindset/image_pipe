@@ -53,8 +53,18 @@ defmodule ImagePipe.Dialect.TwicPics.Shadow do
 
   defp aspect_preserving_relative_resize?(_step), do: false
 
-  defp absolute_resize?({:operation, %Resize{mode: mode} = resize}) when mode in [:fit, :stretch],
-    do: not relative_axis?(resize.width) and not relative_axis?(resize.height)
+  # An absolute resize fully determines its output frame independent of the
+  # running dimensions. Only two shapes qualify, and both are emitted solely by
+  # the plain `resize` transform: a dual-axis `:stretch` (`resize=WxH`, output is
+  # exactly W×H) and a single-axis `:fit` (`resize=W`, output is W × the running
+  # aspect — unchanged by an aspect-preserving earlier resize). A dual-axis `:fit`
+  # is a *conditional* fit whose output depends on the input frame (min-scale +
+  # no-enlarge); it is emitted only by `contain=WxH`/`inside=WxH`, has no upstream
+  # shadow proof, and is deliberately excluded so those chains stay literal.
+  defp absolute_resize?({:operation, %Resize{mode: mode, width: width, height: height}}) do
+    not relative_axis?(width) and not relative_axis?(height) and
+      (mode == :stretch or width == :auto or height == :auto)
+  end
 
   defp absolute_resize?(_step), do: false
 

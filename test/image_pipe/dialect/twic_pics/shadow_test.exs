@@ -69,6 +69,23 @@ defmodule ImagePipe.Dialect.TwicPics.ShadowTest do
              ] = exec([{"resize", "50p"}, {"cover", "340x340"}])
     end
 
+    test "a dual-axis contain (conditional fit) never shadows a preceding resize" do
+      # contain=WxH lowers to a dual-axis :fit whose output depends on the input
+      # frame (min-scale + no-enlarge), so it is not absolute and cannot shadow.
+      assert [
+               {:operation, %Resize{width: {:ratio, 1, 4}}},
+               {:operation, %Resize{mode: :fit, width: {:px, 340}, height: {:px, 200}}}
+             ] = exec([{"resize", "25p"}, {"contain", "340x200"}])
+    end
+
+    test "inside (fit + letterbox) never shadows a preceding resize" do
+      # inside=WxH pushes the same dual-axis :fit (plus a canvas), so the earlier
+      # relative resize stays observable through it.
+      result = exec([{"resize", "50p"}, {"inside", "340x200"}])
+      assert [{:operation, %Resize{mode: :fit, width: {:ratio, 1, 2}}} | _rest] = result
+      assert length(result) == 3
+    end
+
     test "an aspect-changing absolute earlier resize is not shadowed" do
       # resize=200x300 changes the aspect ratio, so the later single-axis fit
       # resize is not proven independent of it upstream; the pair stays literal.
