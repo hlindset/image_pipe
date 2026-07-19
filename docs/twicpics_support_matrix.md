@@ -63,7 +63,7 @@ Source index: <https://www.twicpics.com/llms.txt>
 | `?twic=v1/<chain>` query parameter | ✅ Supported | Required `v1/` prefix; chain is an ordered `/`-separated list of `name=args`. `twic` may appear anywhere in the query string. |
 | Ordered chaining | ✅ Supported | Transformations apply in order; later transforms see earlier results. Stored as literal `Request.steps` and executed sequentially by `Dialect.TwicPics.Pipeline`. |
 | Running-dimension relative units (`p`, `s`) | ✅ Supported | Each unit uses the running image at execution time, not a static parse-time size. The dialect reuses neutral dimension terms and measures each realized resize stage before continuing. |
-| Static chain collapse / shadowing | ⭕ Missing | **Behavioral divergence:** TwicPics discards an earlier relative resize when a later absolute resize fully shadows it (`resize=50p/resize=340` → `resize=340`). On the 400×400 differential source, TwicPics returns 340×340. The dialect executes both resizes and returns 200×200 because plain resize doesn't enlarge. The suite quarantines the live fixture under [#464](https://github.com/hlindset/image_pipe/issues/464) until the upstream-proven rewrite lands. This isn't a general last-wins rule; chain order remains observable outside a proven shadow. |
+| Static chain collapse / shadowing | ✅ Supported | The [transformations reference](https://www.twicpics.com/docs/reference/transformations) documents that a later resize may shadow an earlier one: "`resize=50p/resize=340` will result in an image that is 340 pixel-wide: TwicPics will simply ignore the first resize." `ImagePipe.Dialect.TwicPics.Shadow` reproduces exactly this class — an *absolute* resize (no relative axis) drops an immediately-preceding *aspect-preserving relative* resize, deriving an execution stream consumed by both decode preflight and runtime assembly. On the 400×400 differential source the dialect now returns 340×340, matching the committed fixture ([#464](https://github.com/hlindset/image_pipe/issues/464)). This is **not** a general last-wins rule: a later *relative* resize composes (`resize=340/resize=50p` → 170), an intervening manipulation keeps the earlier resize observable, and a cover/crop/canvas step never shadows. Identity retains the literal steps, so shadow-equivalent chains keep distinct cache entries. |
 | Path → source resolution | ✅ Supported | `conn.path_info` resolves to a product-neutral `Plan.Source.Path` stored on the dialect Request. |
 | Multi-origin [path configuration](https://www.twicpics.com/docs/essentials/path-configuration.md) | ⭕ Missing | Prefix → origin mapping. Out of scope for v1; single configured origin only. |
 | [Domain configuration](https://www.twicpics.com/docs/essentials/domain-configuration.md) | 🧩 Host-owned | Dashboard domain setup has no ImagePipe equivalent; the host router/Plug owns mounting. |
@@ -231,9 +231,10 @@ The transformations consume the value grammars from
 live dialect's geometry and placement with committed output from the hosted
 TwicPics Image API
 (`mise run twic:bake`). This enforces the behavioral and placement claims in
-this matrix. The suite contains 39 fixtures. Five accepted divergences remain
-on the default lane inside two-sided bands. The suite quarantines one unresolved
-shadowing case.
+this matrix. The suite contains 39 fixtures, all on the default lane. Five
+accepted divergences remain inside two-sided bands; the remaining 34 are
+asserted `:equal`, including the `resize=50p/resize=340` shadow case closed by
+[#464](https://github.com/hlindset/image_pipe/issues/464).
 
 The suite decodes the committed TwicPics output and the local dialect's live
 output.
@@ -252,12 +253,10 @@ This runs on the default `mix test` lane without network access.
   `inside_ratio_cover_shrink`, `inside_ratio_focus_anchor_cover_shrink`, and
   `inside_ratio_focus_px_cover_shrink` monitor invisible RGB-under-alpha differences
   in transparent letterboxes under [#434](https://github.com/hlindset/image_pipe/issues/434).
-- Quarantined cases (`@tag :twicpics_triage`) are excluded by default; they record a
-  divergence under active investigation with a reason (+ tracking issue) while keeping
-  the case exercised and its fixture baked. There is one:
-  `resize_shadow_relative_then_absolute`, tracked by
-  [#464](https://github.com/hlindset/image_pipe/issues/464). Its committed TwicPics
-  result is 340×340; the local dialect returns 200×200.
+- No cases are quarantined. The `@tag :twicpics_triage` mechanism remains available
+  for a future divergence under active investigation, but Phase 2B closed the last one:
+  `resize_shadow_relative_then_absolute` is now an asserted `:equal` case matching its
+  committed 340×340 fixture ([#464](https://github.com/hlindset/image_pipe/issues/464)).
 <!-- vale on -->
 
 If the suite exposes a permanent placement difference, add a "Diverges" note

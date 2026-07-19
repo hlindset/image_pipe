@@ -86,13 +86,15 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
   end
 
   test "executes ordered relative resizes as two measured semantic steps" do
-    request = build([{"resize", "50p"}, {"resize", "340"}])
+    # Two relative resizes both execute — a later relative resize composes against
+    # the running frame (50% of 50% of 800 = 200), so neither is shadowed.
+    request = build([{"resize", "50p"}, {"resize", "50p"}])
     state = state_for(800, 600)
 
     assert {:ok, %State{} = out} =
              Pipeline.run(state, geometry(800, 600), request, chain: recording_chain(self()))
 
-    assert Image.width(out.image) == 340
+    assert Image.width(out.image) == 200
     assert_received {:ops, [%Resize{}], {800, 600}}
     assert_received {:ops, [%Resize{}], {400, 300}}
   end
@@ -283,17 +285,23 @@ defmodule ImagePipe.Dialect.TwicPics.PipelineTest do
            ]
   end
 
-  test "the quarantined relative-then-absolute resize remains uncollapsed locally" do
-    # TwicPics documents resize chaining at
-    # https://www.twicpics.com/docs/reference/transformations. The hosted target
-    # shadows the first resize; #464 keeps that gap quarantined during Phase 2A.
+  test "an absolute resize shadows the preceding relative resize (executes once)" do
+    # TwicPics transformations reference: "a transformation may shadow what came
+    # before it. resize=50p/resize=340 will result in an image that is 340
+    # pixel-wide: TwicPics will simply ignore the first resize." Dropping the 50p
+    # means resize=340 applies to the 400x400 source -> 340x340, executed as a
+    # single semantic step. Closes #464.
     {:ok, image} = Image.open(@twicpics_grid)
     request = build([{"resize", "50p"}, {"resize", "340"}])
 
     assert {:ok, out} =
-             Pipeline.run(%State{image: image}, geometry(400, 400), request, [])
+             Pipeline.run(%State{image: image}, geometry(400, 400), request,
+               chain: recording_chain(self())
+             )
 
-    assert {Image.width(out.image), Image.height(out.image)} == {200, 200}
+    assert {Image.width(out.image), Image.height(out.image)} == {340, 340}
+    assert_received {:ops, [%Resize{}], {400, 400}}
+    refute_received {:ops, _ops, _dims}
   end
 
   test "nil-focus crops preserve exact pixels across pending orientation center biases" do

@@ -3,6 +3,7 @@ defmodule ImagePipe.Dialect.TwicPics.Pipeline do
 
   alias ImagePipe.Dialect.TwicPics.PointFlow
   alias ImagePipe.Dialect.TwicPics.Request
+  alias ImagePipe.Dialect.TwicPics.Shadow
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
@@ -21,7 +22,7 @@ defmodule ImagePipe.Dialect.TwicPics.Pipeline do
   @spec decode_request(Request.t(), SourceGeometry.t()) :: DecodePlanner.Request.t()
   def decode_request(%Request{} = request, %SourceGeometry{} = geometry) do
     planning_dims = SourceGeometry.planning_frame(geometry, request.auto_rotate)
-    {resize, crop_extent} = first_resize(request.steps, planning_dims)
+    {resize, crop_extent} = first_resize(Shadow.execution_steps(request.steps), planning_dims)
 
     %DecodePlanner.Request{
       resize_target: resize_target(resize),
@@ -39,7 +40,7 @@ defmodule ImagePipe.Dialect.TwicPics.Pipeline do
     state = seed_detector(state, opts)
 
     with {:ok, %State{} = state} <- condition_color(state, opts),
-         {:ok, %State{} = state} <- run_steps(state, request.steps, opts) do
+         {:ok, %State{} = state} <- run_steps(state, Shadow.execution_steps(request.steps), opts) do
       {:ok, InputColorManagement.stamp_carry(state)}
     end
   end

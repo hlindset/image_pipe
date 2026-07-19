@@ -160,16 +160,11 @@ defmodule ImagePipe.Test.TwicpicsDifferential.Constellations do
       c("number_round_half_up", "resize=(7/2)", :number),
       c("number_clamp_to_one", "resize=(1/4)", :number),
       # A later absolute resize fully shadows the earlier relative resize in
-      # TwicPics. The current parser executes both steps and stops at 200x200
-      # because plain resize does not enlarge; phase 2 closes #464 under the
-      # committed live fixture.
-      c("resize_shadow_relative_then_absolute", "resize=50p/resize=340", :resize,
-        triage: %{
-          reason:
-            "TwicPics discards the shadowed relative resize and returns 340x340; the current parser executes both resizes and returns 200x200.",
-          issue: 464
-        }
-      ),
+      # TwicPics (transformations reference: "resize=50p/resize=340 ... TwicPics
+      # will simply ignore the first resize"). The dialect drops the shadowed
+      # relative resize and renders 340x340, matching the committed hosted
+      # fixture. Closes #464.
+      c("resize_shadow_relative_then_absolute", "resize=50p/resize=340", :resize),
       c("resize_no_enlarge", "resize=600", :resize),
       # --- canvas-under-shrink pins (#434 Stage-2 gate; large WebP source) ---
       # On the 600×600 gradient_large source a px cover=300x100 target triggers a
