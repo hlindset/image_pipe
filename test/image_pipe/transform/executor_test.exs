@@ -8,90 +8,17 @@ defmodule ImagePipe.Transform.ExecutorTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
   alias ImagePipe.Transform
-  alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Executor
-  alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
 
-  defmodule Probe do
-    @behaviour ImagePipe.Resolver
-
-    @impl true
-    def init, do: nil
-
-    @impl true
-    def behavior_version, do: 1
-
-    @impl true
-    def resolve(%SourceShape{} = shape, agent, :pure) do
-      {[], {:advance, %{shape | width: shape.width + 1}, agent}}
-    end
-
-    def resolve(%SourceShape{}, agent, :opaque) do
-      {[], {:measure, :probe, agent}}
-    end
-
-    @impl true
-    def continue(:probe, {w, h}, %SourceShape{} = shape, agent) do
-      Agent.update(agent, &[{:measured, w, h} | &1])
-      {%{shape | width: w, height: h}, agent}
-    end
-  end
-
-  describe "run/5 (pipeline loop)" do
-    test "measure uses injected dims; advance is pure; overlay feeds State from the shape" do
-      {:ok, img} = Image.new(10, 10)
-      agent = start_supervised!({Agent, fn -> [] end})
-
-      shape =
-        SourceShape.seed(%{width: 10, height: 10, pending_orientation: nil, decode_shrink: nil})
-
-      chain = fn %State{} = state, ops, opts ->
-        Agent.update(agent, &[{:overlaid_dims, state.source_dimensions} | &1])
-        Chain.execute(state, ops, opts)
-      end
-
-      {:ok, %State{}} =
-        Executor.run([:pure, :opaque, :pure], shape, {Probe, agent}, %State{image: img},
-          measure_dims: fn _ -> {77, 66} end,
-          chain: chain
-        )
-
-      assert Agent.get(agent, &Enum.reverse/1) ==
-               [
-                 {:overlaid_dims, {10, 10}},
-                 {:overlaid_dims, {11, 10}},
-                 {:measured, 77, 66},
-                 {:overlaid_dims, {77, 66}}
-               ]
-    end
-  end
-
-  describe "plan driver routing" do
-    test "a nil-resolver Plan executes through the neutral driver" do
+  describe "fixed neutral execution" do
+    test "a Plan executes through the fixed neutral driver" do
       assert {:ok, blur} = Operation.blur(1.0)
 
       assert {:ok, %State{} = state} =
                Executor.execute(plan([blur]), state_with_image(30, 20), [])
 
       assert dimensions(state.image) == {30, 20}
-    end
-
-    test "an explicit resolver Plan keeps the injected strategy path" do
-      test_pid = self()
-
-      chain = fn %State{} = state, [], _opts ->
-        send(test_pid, {:probe_source_dimensions, state.source_dimensions})
-        {:ok, state}
-      end
-
-      explicit_plan = %Plan{plan([:pure, :pure]) | resolver: Probe}
-
-      assert {:ok, %State{}} =
-               Executor.execute(explicit_plan, state_with_image(10, 10), chain: chain)
-
-      assert_received {:probe_source_dimensions, {10, 10}}
-      assert_received {:probe_source_dimensions, {11, 10}}
     end
   end
 

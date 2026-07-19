@@ -243,7 +243,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   `opts` accepts the same runtime options threaded to `Chain.execute/3`
   (telemetry, etc). It also accepts three test-only overrides — `:chain`,
-  `:measure_dims`, `:continue` — mirroring `Executor.run/5`'s own injectable
+  `:measure_dims`, `:continue` — mirroring `Executor.run_neutral/4`'s own injectable
   seams, defaulting to the real `Chain.execute/3`, a live Vix header read, and
   `NeutralResolver.continue/4` respectively. Real callers never set these.
 
@@ -369,9 +369,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   # The imgproxy decision column. Everything else delegates to the neutral
   # column below. `resolve/3` and `continue/4` are called as stateless toolkit
-  # functions (`nil` carried state throughout): no `ImagePipe.Resolver` strategy
-  # dispatch is involved, and the carry is this module's own pipeline-local
-  # variable, not resolver state.
+  # functions (`nil` carried state throughout): no injected strategy dispatch is
+  # involved, and the carry is this module's own pipeline-local variable.
 
   # The carry is computed HERE, from the PRE-resolve shape, before any
   # continuation is followed — reproducing `resolver.ex:37-49` exactly. It is

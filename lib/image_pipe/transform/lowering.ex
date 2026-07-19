@@ -7,10 +7,9 @@ defmodule ImagePipe.Transform.Lowering do
   # ImagePipe.Transform.ResizePlanning (this module threads the translated crop
   # gravity into it as a parameter, keeping ResizePlanning a leaf).
   #
-  # Internal lowering seam: exported from the Transform boundary for the
-  # in-tree imgproxy consumers (the framework strategy and the inverted
-  # dialect), not part of the strategy SDK and subject to change without
-  # notice — see the export-list tiers in ImagePipe.Transform.
+  # Internal lowering seam: exported from the Transform boundary only for the
+  # in-tree dialect Pipelines, and subject to change without notice — see the
+  # export-list tiers in ImagePipe.Transform.
 
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground
@@ -342,12 +341,6 @@ defmodule ImagePipe.Transform.Lowering do
   def tagged_executable_gravity(:bottom), do: {:anchor, :center, :bottom}
   def tagged_executable_gravity(:bottom_right), do: {:anchor, :right, :bottom}
   def tagged_executable_gravity({:anchor, x, y}), do: {:anchor, x, y}
-
-  # Deferred gravity passes through unresolved; the plan's point-carrying
-  # resolver strategy substitutes it with a concrete focal point before
-  # emission (a strategy-less :deferred is unsupported and errors at
-  # Crop.execute).
-  def tagged_executable_gravity(:deferred), do: :deferred
 
   def tagged_executable_gravity({:focal, x, y}),
     do: {:fp, tagged_ratio_to_float(x), tagged_ratio_to_float(y)}

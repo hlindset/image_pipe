@@ -64,11 +64,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   ]
   @dialect_forbidden_globs @parser_forbidden_globs ++
                              @transform_globs ++ @parser_globs ++ @core_extraction_globs
-  @resolver_strategy_globs [
-    "lib/image_pipe/parser/**/resolver.ex",
-    "lib/image_pipe/parser/**/point_flow.ex"
-  ]
-  @resolver_strategy_forbidden_transform_names [:Chain, :State, :Materializer, :DecodePlanner]
   @cache_key_files ["lib/image_pipe/cache/key.ex"]
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
@@ -100,7 +95,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Canvas,
     :CropGuided,
     :CropRegion,
-    :Directive,
     :Flip,
     :Padding,
     :Rotate,
@@ -144,7 +138,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Renderer,
-      ImagePipe.Resolver,
       ImagePipe.Transform
     ])
 
@@ -167,7 +160,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Renderer,
-      ImagePipe.Resolver,
       ImagePipe.Transform
     ])
 
@@ -204,8 +196,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Config,
       ImagePipe.Parser,
       ImagePipe.Renderer,
-      ImagePipe.Request,
-      ImagePipe.Resolver
+      ImagePipe.Request
     ])
 
     assert_boundary_exports(dialect_native, [])
@@ -239,8 +230,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(dialect_imgproxy, [
       ImagePipe.Parser,
       ImagePipe.Renderer,
-      ImagePipe.Request,
-      ImagePipe.Resolver
+      ImagePipe.Request
     ])
 
     # `SourceScheme` is the one export: a host implements it to translate a
@@ -275,8 +265,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Dialect.Native,
       ImagePipe.Parser,
       ImagePipe.Renderer,
-      ImagePipe.Request,
-      ImagePipe.Resolver
+      ImagePipe.Request
     ])
 
     assert_boundary_exports(dialect_twicpics, [])
@@ -361,6 +350,55 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
              """)
   end
 
+  # The geometry-resolution SDK is retired: the root ImagePipe.Plan has no
+  # resolver field. This syntax-aware gate replaces the removed
+  # non-module-resolver plan-shape rejection — a reintroduced
+  # %Plan{resolver: ...} construction or update fails here rather than silently
+  # changing cache identity.
+  test "no lib code constructs a root ImagePipe.Plan with a :resolver field" do
+    violations =
+      for file <- Path.wildcard("lib/**/*.ex"),
+          violation <- file |> File.read!() |> plan_resolver_field_violations() do
+        "#{file}:#{violation.line} constructs #{violation.module} with a :resolver field; " <>
+          "the geometry-resolution SDK is retired and the root Plan has no resolver"
+      end
+
+    assert violations == []
+  end
+
+  test "the root-Plan resolver-field checker resolves aliases and ignores unrelated resolvers" do
+    assert [%{module: "%Plan{}"}] =
+             plan_resolver_field_violations("""
+             alias ImagePipe.Plan
+             %Plan{resolver: nil}
+             """)
+
+    assert [%{module: "%ImagePipe.Plan{}"}] =
+             plan_resolver_field_violations("%ImagePipe.Plan{source: s, resolver: mod}")
+
+    # Update syntax is flagged too.
+    assert [%{module: "%Plan{}"}] =
+             plan_resolver_field_violations("""
+             alias ImagePipe.Plan
+             %Plan{base | resolver: mod}
+             """)
+
+    # A root Plan with no resolver field is fine.
+    assert plan_resolver_field_violations("""
+           alias ImagePipe.Plan
+           %Plan{source: s, pipelines: p, output: o}
+           """) == []
+
+    # Unrelated resolver option groups (IIIF id resolver, HTTP address_resolver,
+    # keyword options, non-root structs) are never flagged.
+    assert plan_resolver_field_violations("""
+           alias ImagePipe.Parser.IIIF
+           %IIIF.Config{resolver: SomeResolver}
+           mount(iiif: [resolver: MyResolver])
+           %{opts | address_resolver: r}
+           """) == []
+  end
+
   test "TwicPics dialect code does not reach into the framework stack or another dialect" do
     violations =
       for file <- twicpics_dialect_files(),
@@ -381,7 +419,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     for {source, forbidden} <- [
           {"alias ImagePipe.Request\nRequest.run(conn)", "ImagePipe.Request"},
           {"ImagePipe.Parser.parse(conn)", "ImagePipe.Parser"},
-          {"alias ImagePipe.Resolver\nResolver.resolve(plan)", "ImagePipe.Resolver"},
           {"ImagePipe.Renderer.run(spec)", "ImagePipe.Renderer"},
           {"ImagePipe.Dialect.Native.call(conn, opts)", "ImagePipe.Dialect.Native"},
           {"alias ImagePipe.Dialect.Imgproxy\nImgproxy.call(conn, opts)",
@@ -416,7 +453,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Parser,
       ImagePipe.Renderer,
       ImagePipe.Request,
-      ImagePipe.Resolver,
       ImagePipe.Response
     ])
 
@@ -445,8 +481,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Config,
       ImagePipe.Parser,
       ImagePipe.Renderer,
-      ImagePipe.Request,
-      ImagePipe.Resolver
+      ImagePipe.Request
     ])
 
     assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
@@ -897,7 +932,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "transform boundary declaration depends on plan and not higher layers" do
     transform = boundary_declaration(ImagePipe.Transform)
 
-    assert_boundary_deps(transform, [ImagePipe.Plan, ImagePipe.Resolver, ImagePipe.Telemetry])
+    assert_boundary_deps(transform, [ImagePipe.Plan, ImagePipe.Telemetry])
 
     refute_boundary_deps(transform, [
       ImagePipe.Parser,
@@ -974,7 +1009,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation.Contrast,
       ImagePipe.Plan.Operation.CropGuided,
       ImagePipe.Plan.Operation.CropRegion,
-      ImagePipe.Plan.Operation.Directive,
       ImagePipe.Plan.Operation.Duotone,
       ImagePipe.Plan.Operation.Flip,
       ImagePipe.Plan.Operation.Gradient,
@@ -1016,35 +1050,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   test "parser code does not depend on executable transform operation modules" do
-    # A parser's ImagePipe.Resolver strategy (e.g. imgproxy's :auto/no-enlarge
-    # geometry-resolution column, #434) is a distinct concern from request
-    # parsing/planning: it translates a semantic Plan operation into executable
-    # transform operations, so it legitimately names concrete transform
-    # modules — the Boundary deps (`parser` -> `Resolver, Transform`) already
-    # permit this. Parser output — what PlanBuilder/Path/Options emit — must
-    # still stay semantic-only, which is what this rule polices.
-    resolver_strategy_files = MapSet.new(resolver_strategy_files())
-
+    # Parser output — what PlanBuilder/Path/Options emit — must stay semantic
+    # Plan operations only, never concrete executable transform modules.
     violations =
       for file <- parser_files(),
-          not MapSet.member?(resolver_strategy_files, file),
           violation <- concrete_transform_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; parser output is semantic Plan operations"
-      end
-
-    assert violations == []
-  end
-
-  test "a carried resolver strategy never touches execution state or pixel access" do
-    # A Plan-carried resolver strategy (#434) resolves geometry only: it
-    # translates a semantic Plan operation into executable transform ops and
-    # threads strategy-local carry state. It must not reach into transform
-    # execution state or pixel access — those stay owned by Chain/Executor.
-    violations =
-      for file <- resolver_strategy_files(),
-          violation <- resolver_strategy_forbidden_transform_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; " <>
-          "a resolver strategy resolves geometry and never touches execution state or pixel access"
       end
 
     assert violations == []
@@ -1204,6 +1215,73 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp resolve_plan_alias([], _aliases), do: []
 
+  # Root-Plan resolver-field checker: flags a `%ImagePipe.Plan{...}` construction
+  # or update whose field map carries a `:resolver` key, reusing the same lexical
+  # alias resolution as the Plan-construction checker above.
+  defp plan_resolver_field_violations(source) do
+    source
+    |> Code.string_to_quoted!()
+    |> plan_root_expressions()
+    |> scan_resolver_sequence(%{})
+    |> elem(0)
+  end
+
+  defp scan_resolver_sequence(expressions, aliases) do
+    Enum.reduce(expressions, {[], aliases}, fn expression, {violations, aliases} ->
+      case expression do
+        {:alias, _meta, _arguments} = alias_ast ->
+          {violations, bind_plan_aliases(alias_ast, aliases)}
+
+        expression ->
+          {violations ++ scan_resolver_expression(expression, aliases), aliases}
+      end
+    end)
+  end
+
+  defp scan_resolver_expression({:__block__, _meta, expressions}, aliases) do
+    expressions
+    |> scan_resolver_sequence(aliases)
+    |> elem(0)
+  end
+
+  defp scan_resolver_expression(
+         {:%, meta, [{:__aliases__, _alias_meta, parts}, fields]},
+         aliases
+       ) do
+    nested = scan_resolver_expression(fields, aliases)
+
+    with [:ImagePipe, :Plan] <- resolve_plan_alias(parts, aliases),
+         true <- plan_fields_have_resolver?(fields) do
+      [%{line: Keyword.get(meta, :line, 0), module: "%#{Enum.join(parts, ".")}{}"} | nested]
+    else
+      _other -> nested
+    end
+  end
+
+  defp scan_resolver_expression({:alias, _meta, _arguments}, _aliases), do: []
+
+  defp scan_resolver_expression(tuple, aliases) when is_tuple(tuple) do
+    tuple
+    |> Tuple.to_list()
+    |> Enum.flat_map(&scan_resolver_expression(&1, aliases))
+  end
+
+  defp scan_resolver_expression(list, aliases) when is_list(list),
+    do: Enum.flat_map(list, &scan_resolver_expression(&1, aliases))
+
+  defp scan_resolver_expression(_literal, _aliases), do: []
+
+  # Struct fields are a `{:%{}, _, kwlist}` node for construction and
+  # `{:%{}, _, [{:|, _, [_base, kwlist]}]}` for an update.
+  defp plan_fields_have_resolver?({:%{}, _meta, [{:|, _pipe_meta, [_base, kwlist]}]})
+       when is_list(kwlist),
+       do: Keyword.keyword?(kwlist) and Keyword.has_key?(kwlist, :resolver)
+
+  defp plan_fields_have_resolver?({:%{}, _meta, kwlist}) when is_list(kwlist),
+    do: Keyword.keyword?(kwlist) and Keyword.has_key?(kwlist, :resolver)
+
+  defp plan_fields_have_resolver?(_fields), do: false
+
   defp twicpics_forbidden_reference_violations(source) do
     source
     |> Code.string_to_quoted!()
@@ -1267,7 +1345,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp twicpics_forbidden_module([:ImagePipe, :Parser | _rest]), do: "ImagePipe.Parser"
   defp twicpics_forbidden_module([:ImagePipe, :Request | _rest]), do: "ImagePipe.Request"
-  defp twicpics_forbidden_module([:ImagePipe, :Resolver | _rest]), do: "ImagePipe.Resolver"
   defp twicpics_forbidden_module([:ImagePipe, :Renderer | _rest]), do: "ImagePipe.Renderer"
 
   defp twicpics_forbidden_module([:ImagePipe, :Dialect, :TwicPics | _rest]), do: nil
@@ -1277,13 +1354,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     do: "ImagePipe.Dialect.#{dialect}"
 
   defp twicpics_forbidden_module(_parts), do: nil
-
-  defp resolver_strategy_files do
-    @resolver_strategy_globs
-    |> Enum.flat_map(&Path.wildcard/1)
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
 
   defp boundary_declaration(module) do
     file = Map.fetch!(@boundary_files, module)
@@ -1600,51 +1670,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.reverse()
     |> Enum.uniq()
   end
-
-  defp resolver_strategy_forbidden_transform_references(file) do
-    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
-
-    {_ast, violations} =
-      Macro.prewalk(ast, [], fn
-        {tag, meta,
-         [
-           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePipe, :Transform]}, :{}]},
-            _call_meta, grouped_aliases}
-         ]} = node,
-        violations
-        when tag in [:alias, :import] ->
-          grouped_aliases
-          |> Enum.map(&resolver_strategy_forbidden_transform_alias/1)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.map(&violation(meta, &1))
-          |> then(&{node, &1 ++ violations})
-
-        {:__aliases__, meta, [:ImagePipe, :Transform, module | _rest]} = node, violations
-        when module in @resolver_strategy_forbidden_transform_names ->
-          {node, [violation(meta, "ImagePipe.Transform.#{module}") | violations]}
-
-        {:__aliases__, meta, [:Transform, module | _rest]} = node, violations
-        when module in @resolver_strategy_forbidden_transform_names ->
-          {node, [violation(meta, "Transform.#{module}") | violations]}
-
-        node, violations ->
-          {node, violations}
-      end)
-
-    violations
-    |> Enum.reverse()
-    |> Enum.uniq()
-  end
-
-  defp resolver_strategy_forbidden_transform_alias({:__aliases__, _meta, [module]})
-       when module in @resolver_strategy_forbidden_transform_names,
-       do: "ImagePipe.Transform.#{module}"
-
-  defp resolver_strategy_forbidden_transform_alias({:__aliases__, _meta, [module | _rest]})
-       when module in @resolver_strategy_forbidden_transform_names,
-       do: "ImagePipe.Transform.#{module}"
-
-  defp resolver_strategy_forbidden_transform_alias(_alias), do: nil
 
   defp concrete_detector_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()

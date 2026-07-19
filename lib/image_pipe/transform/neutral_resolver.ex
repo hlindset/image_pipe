@@ -1,24 +1,21 @@
 defmodule ImagePipe.Transform.NeutralResolver do
   @moduledoc """
-  The neutral default resolver strategy and the delegation target for carried
-  strategies.
+  The fixed neutral geometry resolver: the product-neutral runtime-geometry
+  lowering the transform executor and every in-tree dialect Pipeline run.
 
-  Implements `ImagePipe.Resolver` with the product-neutral deferred-
-  orientation execution policy. A carried strategy composes its own lowering
-  with this module's `display_frame_advance/2` and `plain_advance/2` to reuse the
-  neutral flush policy instead of re-deriving it, and delegates the tags this
-  module emits back to its `continue/4` at the measure seam. A dialect that
-  assembles its own chain directly (rather than through the `ImagePipe.Parser`/
-  `Resolver` boundary) may call those same helpers without implementing
-  `ImagePipe.Resolver` at all.
+  It owns the product-neutral deferred-orientation execution policy. A dialect
+  that assembles its own chain composes its lowering with this module's
+  `display_frame_advance/2` and `plain_advance/2` to reuse the neutral flush
+  policy instead of re-deriving it, calling `resolve/3` and `continue/4`
+  directly.
 
   The source-dependent `%Operation.Resize{mode: :auto}` fill-vs-fit rule is
   product-neutral and lives here (`resolve_mode/2`; imgproxy `ResizeAuto`
-  parity, #182/#448) — any dialect may emit it with no resolver.
+  parity, #182/#448) — any dialect may emit it.
   """
 
   # Neutral geometry resolver: owns the deferred-orientation execution policy
-  # (#146/#182/#185/#211) under the ImagePipe.Resolver contract. For each plan
+  # (#146/#182/#185/#211). For each plan
   # operation it emits the executable ops to run — with every orientation flush
   # (including the pre-materialize flush that smart/detect crops and
   # arbitrary/mirrored rotates need) made explicit as %Operation.Flush{}, and
@@ -43,7 +40,9 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # that pipeline, so this row always flushes first; every parser-reachable
   # pipeline is pixel-identical.
 
-  @behaviour ImagePipe.Resolver
+  @typedoc false
+  @type continuation ::
+          {:advance, ImagePipe.Transform.SourceShape.t(), nil} | {:measure, term(), nil}
 
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.CropGuided
@@ -66,27 +65,14 @@ defmodule ImagePipe.Transform.NeutralResolver do
   alias ImagePipe.Transform.ResizePlanning
   alias ImagePipe.Transform.SourceShape
 
-  @impl ImagePipe.Resolver
-  def init, do: nil
-
-  @doc """
-  Behavioral version of the neutral resolution algorithms. The neutral column
-  now owns the `:auto` fill-vs-fit bucketing (`resolve_mode/2`, #448) in
-  addition to the deferred-orientation execution policy, so a change to that
-  rule bumps here — see `ImagePipe.Resolver.behavior_version/0` for the ETag
-  implications.
-  """
-  @impl ImagePipe.Resolver
-  def behavior_version, do: 1
-
-  @impl ImagePipe.Resolver
+  @doc false
   def resolve(%SourceShape{} = shape, nil, operation) do
     do_resolve(operation, shape)
   end
 
   @doc false
   @spec resolve_late_bound_guide(SourceShape.t(), CropGuided.t() | PlanResize.t()) ::
-          {[struct()], ImagePipe.Resolver.continuation()}
+          {[struct()], continuation()}
   def resolve_late_bound_guide(%SourceShape{} = shape, %CropGuided{} = operation) do
     case pending_class(shape) do
       :pending ->
@@ -119,7 +105,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   # threads it), so each clause reconstructs its result from the tag, the
   # pre-op shape, and the measured dims alone.
 
-  @impl ImagePipe.Resolver
+  @doc false
   def continue(:rotate, {w, h}, %SourceShape{} = shape, nil),
     do: {%{shape | width: w, height: h, frame: :display, pending_orientation: nil}, nil}
 
@@ -527,11 +513,10 @@ defmodule ImagePipe.Transform.NeutralResolver do
   Advance for an op that must decide in the DISPLAY frame (imgproxy order:
   after rotateAndFlip): with a non-identity pending the flush fires first, an
   identity pending clears without a flush (streaming fast path). Public so a
-  carried strategy can compose its own lowering with the neutral flush
-  policy.
+  dialect Pipeline can compose its own lowering with the neutral flush policy.
   """
   @spec display_frame_advance([struct()], SourceShape.t()) ::
-          {[struct()], ImagePipe.Resolver.continuation()}
+          {[struct()], continuation()}
   def display_frame_advance(ops, %SourceShape{} = shape) do
     case pending_class(shape) do
       :pending ->
@@ -558,7 +543,7 @@ defmodule ImagePipe.Transform.NeutralResolver do
   canvas geometry advances the shape, everything else is dimension-neutral.
   """
   @spec plain_advance([struct()], SourceShape.t()) ::
-          {[struct()], ImagePipe.Resolver.continuation()}
+          {[struct()], continuation()}
   def plain_advance(ops, %SourceShape{} = shape),
     do: {ops, advance(plain_ops_advance(ops, shape))}
 

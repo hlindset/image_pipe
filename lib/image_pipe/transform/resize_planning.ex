@@ -12,9 +12,9 @@ defmodule ImagePipe.Transform.ResizePlanning do
   # in as a parameter (translated by Lowering) so this module stays a leaf —
   # it never calls back into Lowering.
   #
-  # Internal lowering seam: exported from the Transform boundary for the
-  # in-tree imgproxy dialect, not part of the strategy SDK and subject to
-  # change without notice — see the export-list tiers in ImagePipe.Transform.
+  # Internal lowering seam: exported from the Transform boundary only for the
+  # in-tree dialect Pipelines, and subject to change without notice — see the
+  # export-list tiers in ImagePipe.Transform.
 
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Transform.Operation.Crop

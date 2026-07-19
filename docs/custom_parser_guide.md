@@ -11,11 +11,15 @@ from the minimum viable module to the advanced extension points:
 
 - the `ImagePipe.Parser` behaviour and mounting (required)
 - building Plans: sources, pipelines, operations, output (required)
-- a geometry-resolution strategy via `ImagePipe.Resolver`, including custom
-  carried state (optional)
 - a custom terminal renderer via `ImagePipe.Renderer`, for non-image responses
   such as metadata JSON (optional)
 - error rendering, redirects, testing, and repo conventions
+
+A host `ImagePipe.Parser` produces only product-neutral declarative Plans. If a
+dialect's meaning depends on the *order* of its operations or on running-image
+geometry it carries across steps (positional focus, running-dimension units),
+it is not a declarative parser: it owns a self-contained Plug and its own
+pipeline. See [When a parser isn't enough](#when-a-parser-isnt-enough).
 
 The in-tree framework parser is the primary worked example:
 
@@ -49,10 +53,10 @@ Two properties of this flow shape everything a parser does:
   signature, expired request) is rejected without side effects. Keep it that
   way: a parser must not perform I/O.
 - **URL option order must not define processing order.** The Plan is
-  declarative; the transform layer owns operation semantics and a resolver
-  strategy owns geometry decisions. Map matching URL spellings into the same
-  Plan. If the syntax requires a positional command stream that can't
-  be stated as a declarative Plan, it belongs in a self-contained dialect Plug.
+  declarative; the transform layer owns operation semantics and neutral
+  runtime-geometry lowering. Map matching URL spellings into the same Plan. If
+  the syntax requires a positional command stream that can't be stated as a
+  declarative Plan, it belongs in a self-contained dialect Plug.
 
 ## The parser behaviour
 
@@ -147,8 +151,7 @@ bare-identifier path (`/{id}` → `/{id}/info.json`), as the IIIF spec requires.
   expires: 0,           # unix-epoch request deadline; 0 = none
   cachebuster: nil,     # opaque token folded into the cache key
   auto_rotate: false,   # EXIF auto-orientation
-  render: :image,       # terminal: :image | {:custom, module, params}
-  resolver: nil         # geometry-resolution strategy; nil = neutral
+  render: :image        # terminal: :image | {:custom, module, params}
 }
 ```
 
@@ -213,24 +216,19 @@ The shared vocabulary you'll use everywhere:
 - **Guides** — cropping/resizing operations take a `guide` describing where
   the crop gravitates: `:center`, nine anchor atoms, `{:anchor, h, v}`,
   `{:focal, x_ratio, y_ratio}`, `:smart` / `{:smart, :face_assist}`
-  (saliency/face detection), `{:detect, {classes, weights}}` (object
-  detection), or `:deferred` (resolved later by a custom resolver strategy —
-  see below).
+  (saliency/face detection), or `{:detect, {classes, weights}}` (object
+  detection). Runtime-geometry guides like `:smart`/`{:detect, …}` are resolved
+  by the neutral runtime-geometry lowering; a parser just names the guide.
 
 The operation vocabulary (resize, crop, canvas, padding, rotate/flip, trim,
 color/effect ops, …) is documented in `docs/transform_operations.md`. The set
 is **closed** from a parser's point of view: a parser maps its dialect onto
 the existing semantic operations. If dialect syntax has no clean neutral
-equivalent, your options are (a) a `Directive` consumed by your own resolver
-strategy (below), or (b) proposing a new neutral operation in core — dialect
-quirks must not leak product-specific semantics into the shared vocabulary.
-
-One special operation exists purely for parsers with custom resolvers:
-`Operation.directive(name, payload)` builds a `Plan.Operation.Directive`,
-which performs **no pixel work**. It is a positional message to the plan's
-resolver strategy (for example, a host parser's `:remember_anchor`). The
-payload is hashed into the cache key as-is, so it must be canonical: the same
-request must always produce the same term.
+equivalent, propose a new neutral operation in core — dialect quirks must not
+leak product-specific semantics into the shared vocabulary. If the quirk is an
+*ordered* runtime-geometry behavior that has no product-neutral statement, it
+belongs in a self-contained dialect Plug, not the declarative Plan (see
+[When a parser isn't enough](#when-a-parser-isnt-enough)).
 
 ### Output
 
@@ -368,197 +366,35 @@ In-tree parsers additionally split the work into submodules by concern —
 `PlanBuilder` (tokens → Plan) — all `@moduledoc false` except the top-level
 parser module. Follow that layout once a parser grows past one file.
 
-## Geometry resolution: custom resolver strategies
+## When a parser isn't enough
 
-This is the deepest extension point. Skip it entirely if your dialect's
-geometry is fully decidable at parse time — leave `resolver: nil` and the
-built-in neutral strategy (`ImagePipe.Transform.NeutralResolver`) resolves
-everything.
+`ImagePipe.Parser` produces a **product-neutral declarative Plan**. That is the
+whole contract: which source, which semantic operations, what output policy.
+Everything runtime-geometry-dependent — the `:auto` fill-vs-fit resize rule, a
+`:smart`/`{:detect, …}` crop window, the deferred EXIF-orientation flush — is
+resolved by the core's fixed neutral runtime-geometry lowering
+(`ImagePipe.Transform.NeutralResolver`), which every Plan runs through. A parser
+never carries a geometry-resolution strategy and never sees executable
+transform operations.
 
-### Why resolvers exist
+Some dialects can't be expressed this way. When a dialect's meaning depends on
+the **order** of its operations, or it carries state across operations against
+the **running image geometry** — positional focus that later crops consume,
+relative units (`p`/`s`) resolved against the dimensions produced by preceding
+operations — a declarative option bag would erase the behavior. Those dialects
+are **not** host parsers: they are self-contained Plugs that own their ordered
+request model and their own pipeline. `ImagePipe.Dialect.Imgproxy`,
+`ImagePipe.Dialect.Native`, and `ImagePipe.Dialect.TwicPics` are the in-tree
+examples; they don't implement `ImagePipe.Parser` and don't construct a root
+`ImagePipe.Plan`.
 
-Some dialect semantics depend on the **source image's geometry**, which the
-parser cannot know (parsing happens before any fetch). Product-neutral cases
-(e.g. the `:auto` fill-vs-fit resize rule) are handled by the built-in neutral
-resolver and need no custom strategy; a custom resolver is for parser-specific
-decisions. Examples:
-
-- a no-enlarge rule that computes a source-dependent scale at resize time and
-  consumes it in later padding or canvas operations
-- an anchor directive that sets a point for subsequent crops and remaps that
-  point through intervening geometry changes
-
-A resolver strategy is a per-pipeline state machine that makes exactly these
-runtime-geometry decisions. The parser selects it by setting `resolver:` on
-the plan to a module implementing `ImagePipe.Resolver`:
-
-```elixir
-@callback init() :: strategy_state
-@callback resolve(SourceShape.t(), strategy_state, plan_op :: struct()) ::
-            {[executable_op :: struct()], continuation}
-@callback continue(tag, measured_dims :: {pos_integer, pos_integer}, SourceShape.t(), strategy_state) ::
-            {[executable_op :: struct()], continuation} | {SourceShape.t(), strategy_state}
-@callback behavior_version() :: pos_integer()
-```
-
-### The execution model
-
-For each pipeline, the transform executor seeds an
-`ImagePipe.Transform.SourceShape` — a pure geometry value (`width`, `height`,
-which `frame` those dims describe, `pending_orientation`, `decode_shrink`) —
-and creates fresh strategy state with `init/0`. The resolve driver then walks
-the pipeline's plan operations one at a time:
-
-1. It calls `resolve(shape, state, plan_op)`. Your strategy returns the
-   **executable** transform operations to run for this plan op (lowered,
-   fully-parameterized `ImagePipe.Transform.Operation.*` structs — every
-   dimension concrete, every gravity a real point) plus a *continuation*.
-2. The driver executes those ops, then follows the continuation:
-   - `{:advance, new_shape, new_state}` — you computed the post-op geometry
-     yourself (pure math); the driver moves on.
-   - `{:measure, tag, state}` — you can't know the post-op geometry without
-     measuring (e.g. after a trim). The driver measures the realized
-     dimensions of the live image and calls your `continue(tag, {w, h},
-     shape, state)` with the pre-op shape your `resolve/3` saw; it returns
-     either the final `{shape, state}` or *another* `{ops, continuation}`
-     stage to execute — a staged expansion for multi-step lowering. The tag
-     is your private vocabulary: plain data naming what happens after the
-     measure, never inspected by the driver.
-
-**The continuation is the only channel for strategy state.** The driver never
-inspects your state; it threads whatever you return into the next `resolve/3`
-call. State is created fresh per pipeline and dies with it.
-
-### Carried state, two patterns
-
-Because most geometry math is shared, custom strategies **delegate** to
-`ImagePipe.Transform.NeutralResolver` (whose strategy state is `nil`) and
-layer their decisions around it. Two useful patterns:
-
-**Re-wrap the continuation** (carry computed values forward). The
-strategy computes its cap once at the resize, stashes it in the carry, and
-re-wraps every continuation the neutral resolver returns with
-`ImagePipe.Resolver.rewrap/2`, which substitutes the carry into the stateless
-`:advance`/`:measure` data:
-
-```elixir
-defp delegate(operation, shape, carry) do
-  {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
-  {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
-end
-```
-
-Delegation has two halves: `resolve/3` re-wraps the returned continuation,
-and `continue/4` delegates the tag to the neutral resolver and re-attaches
-the carry (re-wrapping any staged expansion it returns):
-
-```elixir
-@impl ImagePipe.Resolver
-def continue(tag, dims, %SourceShape{} = shape, carry) do
-  case NeutralResolver.continue(tag, dims, shape, nil) do
-    {%SourceShape{} = final, nil} ->
-      {final, carry}
-
-    {ops, continuation} when is_list(ops) ->
-      {ops, ImagePipe.Resolver.rewrap(continuation, carry)}
-  end
-end
-```
-
-Always route delegation through `rewrap/2`: a continuation returned unmodified
-carries the neutral resolver's `nil` state, which would replace your carry at
-the first `:advance`.
-
-**Advance a carried point through emitted ops** (state that must track
-geometry). The point set by a `Directive` must stay meaningful as
-crops and resizes change the coordinate space, so the strategy walks the
-emitted executable ops and re-maps the point through each one:
-
-```elixir
-@impl ImagePipe.Resolver
-def init, do: nil
-
-@impl ImagePipe.Resolver
-def resolve(%SourceShape{} = shape, _point, %Directive{name: :set_anchor, payload: operand}) do
-  resolved = Focus.resolve(operand, ..., shape.pending_orientation)
-  {[], {:advance, shape, resolved}}       # emit nothing; update the carry
-end
-
-def resolve(%SourceShape{} = shape, point, operation) do
-  {ops, continuation} = NeutralResolver.resolve(shape, nil, operation)
-  PointFlow.advance(ops, continuation, point, shape)
-end
-
-@impl ImagePipe.Resolver
-def continue(tag, measured, %SourceShape{} = shape, seam_state),
-  do: PointFlow.continue(tag, measured, shape, seam_state)
-```
-
-Keep the point-flow helper under the host parser module and test it with the
-exact operations the parser emits. No in-tree carried-state parser exists to
-copy.
-
-### Dialect vocabulary: deferred markers and directives
-
-A strategy and its parser share a private vocabulary that the neutral column
-never sees. The pieces available:
-
-- **`:deferred` guides** — `Operation.Resize` and `Operation.CropGuided`
-  accept `guide: :deferred`, meaning "a point-carrying resolver strategy will
-  substitute a concrete point before emission".
-- **`Operation.Directive`** — a no-pixel message positioned in the operation
-  stream, consumed by your strategy (`:set_anchor` above). Emitting a
-  `Directive` your resolver has no clause for is a programmer error.
-- **Parser-specific field markers** — a field value on a shared Plan struct
-  that only your strategy understands. A `:deferred` guide can be substituted
-  with a concrete point before emission. If your parser needs
-  a new marker of this kind, it is a core change — the marker lives on a
-  shared Plan struct — so keep the pairing rule in mind: every marker a
-  parser can emit must have exactly one strategy that resolves it. A marker
-  only earns its place when the decision is runtime-geometry-dependent,
-  per-operation/positional, *and* has no product-neutral specification; if it
-  has one (like the `:auto` resize rule, which the neutral resolver owns),
-  promote it instead of carrying a marker.
-
-Plan validation enforces the resolver half of that pairing: a plan carrying
-any strategy-requiring vocabulary (a `:deferred` guide, a `Directive`) with
-`resolver: nil` is rejected at the plan boundary as
-`{:strategy_required, operation}` instead of erroring deep in the transform
-stage.
-
-### The strategy SDK
-
-A strategy builds against a deliberately small, stable surface — the "strategy
-SDK" tier of the Transform boundary's exports:
-
-- `ImagePipe.Resolver` — the behaviour (including `continue/4`), plus
-  `rewrap/2` for carry-preserving delegation.
-- `ImagePipe.Transform.SourceShape` — the shape value and its pure helpers
-  (`seed/1`, `live_dims/1`, `quarter_turn?/1`).
-- `ImagePipe.Transform.NeutralResolver` — the delegate (`resolve/3` and
-  `continue/4`), its two advance helpers (`display_frame_advance/2`,
-  `plain_advance/2`) for composing your own lowering with the neutral
-  orientation-flush policy, and `resolve_mode/2` for reading the concrete
-  `:fit`/`:cover`/`:stretch` branch of an `:auto` resize before delegation.
-- `ImagePipe.Transform.Focus` and `ImagePipe.Transform.PendingOrientation` —
-  point and orientation geometry for carried-point strategies.
-- The executable `ImagePipe.Transform.Operation.*` structs a strategy emits,
-  including their pure geometry helpers (`Crop.resolved_rect/3`,
-  `ExtendCanvas.resolved_canvas_dims/3`, `Resize.resolve_dimensions/2`) —
-  advance a carried value with these rather than re-deriving geometry.
-
-`ImagePipe.Transform.Lowering` and `ImagePipe.Transform.ResizePlanning` are
-**not** part of this contract: they are internal lowering seams, exported only
-for the in-tree dialect pipeline drivers, and may change without notice. A
-strategy outside this repository should not build on them.
-
-### `behavior_version/0` and caching
-
-The strategy module and its `behavior_version/0` enter the cache key and ETag
-material. Whenever you change a resolution rule your strategy owns — anything
-that could produce different bytes for the same plan — bump
-`behavior_version/0`. Otherwise clients holding an old ETag can revalidate
-stale, differently-resolved bytes forever.
+ImagePipe ships **no public SDK** for building such a Plug. A dialect Plug reuses
+neutral core boundaries (`Cache`, `Config`, `Decode`, `Output`, `Source`,
+`Transform`, …) and reuses neutral Plan operation structs as semantic inputs,
+but it must not depend on private in-tree implementation helpers such as
+`ImagePipe.Transform.Lowering` or `ImagePipe.Transform.ResizePlanning` — those
+are internal seams for the in-tree dialect Pipelines and may change without
+notice. If you need this, you own the orchestration end to end.
 
 ## Custom renderers (non-image terminals)
 
@@ -603,13 +439,8 @@ Follow the two-tier layout the in-tree parsers use:
   status codes, content types, decoded output dimensions, `Vary`/negotiation,
   error statuses from `handle_error/2`, and that request-safety failures
   (bad grammar, bad signature) return **before** any source or cache access.
-  See `test/image_pipe/twic_pics_wire_conformance_test.exs` for shape and
-  scale — keep combinatorial grammar coverage in the unit tier.
-- **Resolver tests** in `test/image_pipe/parser/<dialect>/resolver_test.exs`
-  if you ship a strategy — drive `resolve/3` and `continue/4` directly with
-  `SourceShape` values and assert emitted executables, continuation tags, and
-  carry survival across `:measure` — tags are plain data, so assert on them
-  directly.
+  See `test/parser/iiif_wire_test.exs` for shape and scale — keep combinatorial
+  grammar coverage in the unit tier.
 
 ## Conventions checklist
 
@@ -617,9 +448,8 @@ Beyond the code itself, a new in-tree parser should:
 
 - **Declare its boundary.** `use Boundary` on the top-level parser module;
   parsers may depend on `ImagePipe.Parser`, `ImagePipe.Plan`,
-  `ImagePipe.Renderer`, `ImagePipe.Resolver`, and `ImagePipe.Transform`.
-  Export nothing unless the host must call it (imgproxy exports its
-  source-scheme behaviour).
+  `ImagePipe.Renderer`, and `ImagePipe.Transform`. Export nothing unless the
+  host must implement a callback the parser calls (e.g. an id resolver).
 - **Ship a conformance doc.** Each compatibility target gets
   `docs/<target>_support_matrix.md` documenting the supported surface,
   processing-stage mapping, and deliberate divergences — and that doc must be

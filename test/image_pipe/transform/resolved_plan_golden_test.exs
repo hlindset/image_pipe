@@ -2,7 +2,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   @moduledoc """
   Resolve-driver seam behaviors (Resolve Stage 1), over hand-built plans.
 
-  Each test drives `ImagePipe.Transform.Executor.run/5` directly with a
+  Each test drives `ImagePipe.Transform.Executor.run_neutral/4` directly with a
   capturing chain (no pixels run, except the identity-streaming guard, which
   runs the real chain to keep its materialization claim honest) and, where
   geometry matters, an injected `measure_dims`, asserting the driver's seam
@@ -23,7 +23,6 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Executor
-  alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush, as: ExecFlush
   alias ImagePipe.Transform.Operation.Resize, as: ExecResize
@@ -58,10 +57,9 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       end
 
       assert {:ok, %State{} = final} =
-               Executor.run(
+               Executor.run_neutral(
                  [%PlanBlur{sigma: 2.0}],
                  shape,
-                 {NeutralResolver, NeutralResolver.init()},
                  state,
                  chain: recording_chain
                )
@@ -84,7 +82,7 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
     #
     # Plan = a plain fit resize (measures its realized dims) followed by a
     # 1/3 gravity crop (a downstream consumer that resolves against the measured
-    # frame). We run Executor.run/5 directly with:
+    # frame). We run Executor.run_neutral/4 directly with:
     #   * opts[:chain] — a capturing chain: it records each op batch and the
     #     source_dimensions the driver overlaid onto State before that batch, and
     #     returns State unchanged (no pixels ever run).
@@ -161,10 +159,9 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       inject = fn _image -> injected end
 
       assert {:ok, %State{}} =
-               Executor.run(
+               Executor.run_neutral(
                  plan,
                  shape,
-                 {NeutralResolver, NeutralResolver.init()},
                  state,
                  chain: capturing_chain,
                  measure_dims: inject
@@ -237,10 +234,9 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       inject = fn _image -> {133, 99} end
 
       assert {:ok, %State{}} =
-               Executor.run(
+               Executor.run_neutral(
                  plan,
                  shape,
-                 {NeutralResolver, NeutralResolver.init()},
                  state,
                  chain: capturing_chain,
                  measure_dims: inject
@@ -298,10 +294,9 @@ defmodule ImagePipe.Transform.ResolvedPlanGoldenTest do
       inject = fn _image -> {20, 40} end
 
       assert {:ok, %State{}} =
-               Executor.run(
+               Executor.run_neutral(
                  plan,
                  shape,
-                 {NeutralResolver, NeutralResolver.init()},
                  state,
                  chain: capturing_chain,
                  measure_dims: inject

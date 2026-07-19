@@ -21,16 +21,14 @@ ImagePipe.Plug.call
       └─ ImagePipe.Transform.execute_plan
          └─ ImagePipe.Transform.Executor.execute
             ├─ seed EXIF orientation (pending, deferred) + input color management
-            └─ select by plan.resolver
-               ├─ nil → Executor.run_neutral → NeutralResolver directly
-               └─ module → Executor.run → ImagePipe.Resolver facade ②
-                  shared loop over PLAN operations:
-                  ├─ overlay shape → State                       (the one sync site)
-                  ├─ resolve → {executable_ops, continuation}
-                  ├─ ImagePipe.Transform.Chain.execute  ③        (materialize-if-needed + op.execute)
-                  └─ continuation                  ④
-                       {:advance, shape, state}  → next plan op
-                       {:measure, tag, state}    → measure dims → continue(tag, …), maybe more stages
+            └─ Executor.run_neutral → NeutralResolver directly
+               fixed neutral loop over PLAN operations:
+               ├─ overlay shape → State                       (the one sync site)
+               ├─ NeutralResolver.resolve → {executable_ops, continuation}
+               ├─ ImagePipe.Transform.Chain.execute  ③        (materialize-if-needed + op.execute)
+               └─ continuation                  ④
+                    {:advance, shape, nil}  → next plan op
+                    {:measure, tag, nil}    → measure dims → continue(tag, …), maybe more stages
    └─ encode (lazy) → Producer/PreparedStream: chunked streaming,
       cancellable on disconnect, incremental cache write → Response.Sender
 
@@ -50,12 +48,12 @@ this page is mostly about that path.
 
 ## The two operation vocabularies
 
-There are two different kinds of "operation", and the resolver strategy is the
-translator between them:
+There are two different kinds of "operation", and the neutral runtime-geometry
+lowering (`NeutralResolver`) is the translator between them:
 
-- **`ImagePipe.Plan.Operation.*`** — what framework parsers emit. Declarative, possibly
-  deferred (`:auto` dims, `:deferred` guides). These structs **never
-  execute**.
+- **`ImagePipe.Plan.Operation.*`** — what framework parsers emit. Declarative,
+  possibly deferred (`:auto` dims resolved against the source at runtime). These
+  structs **never execute**.
 - **`ImagePipe.Transform.Operation.*`** — executable: fully parameterized,
   every dimension concrete, every gravity a real point. These are what
   `Chain` runs, and one plan op may lower into several of them (a cover =
@@ -69,48 +67,40 @@ local Pipeline lowers them without passing through `Executor`.
 ## The resolve loop and continuations
 
 For each pipeline, `Executor.execute` seeds a `SourceShape` — a pure geometry
-value (dims, which frame they describe, pending orientation, decode shrink).
-A nil resolver selects `run_neutral/4`, which calls `NeutralResolver.resolve/3`
-and `continue/4` directly. An explicit resolver module selects `run/5`, creates
-fresh strategy state with `init/0`, and dispatches through `ImagePipe.Resolver`.
-The two drivers share the operation loop:
+value (dims, which frame they describe, pending orientation, decode shrink) —
+and runs the fixed neutral driver `run_neutral/4`, which calls
+`NeutralResolver.resolve/3` and `continue/4` directly. The loop:
 
-1. **Overlay.** The resolver-advanced shape is written onto `State`
+1. **Overlay.** The neutral-advanced shape is written onto `State`
    (`pending_orientation`, `decode_shrink`, `source_dimensions`) — the single
    place shape and State sync.
-2. **Resolve.** The selected neutral or injected resolver returns the executable
-   ops for this plan op plus a *continuation*.
+2. **Resolve.** `NeutralResolver.resolve/3` returns the executable ops for this
+   plan op plus a *continuation*.
 3. **Execute.** The ops run through `Chain.execute` (which materializes to RAM
    first if an op requires random pixel access).
 4. **Continue.** The continuation is plain data saying how to learn the
    post-op geometry:
-   - `{:advance, new_shape, new_state}` — the strategy computed it purely;
-     move to the next plan op.
-   - `{:measure, tag, state}` — it can't be known without looking (after a
+   - `{:advance, new_shape, nil}` — the lowering computed it purely; move to
+     the next plan op.
+   - `{:measure, tag, nil}` — it can't be known without looking (after a
      trim; after a resize whose realized dims may round ±1). The driver
-     measures the live image's dimensions and calls the strategy's
-     `continue(tag, {w, h}, shape, state)` — `shape` being the pre-op shape
-     the strategy resolved against — which returns either the final
-     `{shape, state}` or **another** `{ops, continuation}` stage to execute —
+     measures the live image's dimensions and calls
+     `NeutralResolver.continue(tag, {w, h}, shape, nil)` — `shape` being the
+     pre-op shape the lowering resolved against — which returns either the final
+     `{shape, nil}` or **another** `{ops, continuation}` stage to execute —
      that is how a cover emits its result crop parameterized against the
      *measured* post-resize dims. Recursion depth equals the emission's stage
      count (2 for a cover), never unbounded. Every tag is a named clause in
-     the strategy — grep `NeutralResolver.continue` for the full vocabulary
+     `NeutralResolver.continue` — grep it for the full vocabulary
      (`:rotate`, `:trim`, `:resize`, `{:resize_tail, …}`,
      `{:resize_flush_tail, …}`).
 
-Two rules make the state story followable:
-
-- **The continuation is the only injected strategy-state channel.** The driver never
-  inspects strategy state; it threads whatever the strategy returned into the
-  next `resolve/3` call. State is per-pipeline and dies with it.
-- **Delegation re-wraps.** Custom strategies delegate shared geometry to
-  `ImagePipe.Transform.NeutralResolver` (a stateless strategy) and must
-  substitute their carry into its stateless continuations via
-  `ImagePipe.Resolver.rewrap/2` (plain data threading); at a measure seam,
-  their `continue/4` delegates the tag to `NeutralResolver.continue/4` and
-  re-attaches the carry — see the
-  [custom parser guide](custom_parser_guide.md#geometry-resolution-custom-resolver-strategies).
+The continuation is the only state channel: it is always `nil`-stated (the
+neutral lowering carries no per-pipeline state), and the driver threads it into
+the next resolve. A dialect that assembles its own ordered chain (imgproxy,
+Native, TwicPics) calls these same `NeutralResolver` functions directly and
+carries its own pipeline-local state — see the
+[custom parser guide](custom_parser_guide.md#when-a-parser-isnt-enough).
 
 At the pipeline boundary the driver flushes any surviving non-identity pending
 orientation through an explicit `%Flush{}` (an identity pending is cleared
@@ -125,9 +115,8 @@ targets:
 | # | Call site | What it dispatches to | How to navigate |
 |---|---|---|---|
 | ① | `parser.parse(conn, opts)` in `ImagePipe.Plug` | The mount's `:parser` module | The in-tree parser is `ImagePipe.Parser.IIIF`; hosts may supply another `ImagePipe.Parser`. TwicPics and imgproxy mount as dialect Plugs and don't pass through this point |
-| ② | `Resolver.resolve(strategy, …)` dispatch | An explicit `plan.resolver` module | Nil-resolver Plans bypass this layer and call `NeutralResolver` directly through `run_neutral/4`. Host strategies keep dynamic dispatch through `run/5` until Phase 2C |
 | ③ | `chain.(state, ops, opts)` in `Executor` | Injected function; always `Chain.execute/3` in production | Test seam only. Inside `Chain`, `Transform.execute(op, state)` dispatches to the op struct's own module — struct name = module name (`%Operation.Crop{}` → `transform/operation/crop.ex`) |
-| ④ | `continue(tag, …)` in `Executor` | `NeutralResolver.continue/4` directly or an explicit strategy through `Resolver.continue/5` | Tags are data: grep the tag atom (e.g. `:resize_flush_tail`) to land on both the emitting resolve row and the continue clause |
+| ④ | `continue(tag, …)` in `Executor` | `NeutralResolver.continue/4` | Tags are data: grep the tag atom (e.g. `:resize_flush_tail`) to land on both the emitting resolve row and the continue clause |
 | — | `render: {:custom, module, params}` | The plan's renderer module via `ImagePipe.Renderer` | One in-tree renderer: IIIF's info renderer. `ImagePipe.Dialect.Imgproxy.InfoRenderer` renders its `/info` terminal directly, outside this dispatch point |
 | — | `Telemetry.span(…, fn -> … end)` wrappers | n/a | Nearly every layer wraps its real call in a span closure; when lost, skip to the closure body |
 
@@ -139,11 +128,11 @@ renderer with header facts only.
 
 1. `ImagePipe.Plug.do_call_with_plan/4` — the request skeleton and error fan-out.
 2. `ImagePipe.Request.Processor.process_decoded_source/4` — decode → transform → encode hand-offs.
-3. `ImagePipe.Transform.Executor.execute_pipeline/4` — shape seeding and fixed
-   versus injected driver selection.
-4. `ImagePipe.Transform.Executor.run_driver/5` — the shared loop behind
-   `run_neutral/4` and `run/5`; internalize its four steps and the rest of the
-   transform layer reads linearly.
+3. `ImagePipe.Transform.Executor.execute_pipeline/3` — shape seeding and the
+   fixed neutral driver.
+4. `ImagePipe.Transform.Executor.run_neutral/4` — the fixed neutral loop;
+   internalize its four steps and the rest of the transform layer reads
+   linearly.
 5. `ImagePipe.Transform.NeutralResolver` — per-op lowering and the deferred-
    orientation policy, one `do_resolve/2` clause per plan op and one
    `continue/4` clause per measure tag.
