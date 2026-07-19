@@ -308,8 +308,9 @@ implementing `Plug`.
 
 ## Deletions
 
-- `ImagePipe.Request.{Runner, Processor, HTTPCache, DeliveryBuild, Options}`
-  and the `ImagePipe.Request` boundary.
+- `ImagePipe.Request.{Runner, Processor, HTTPCache, DeliveryBuild, Options,
+  RenderRunner, SourceFormat}` and the `ImagePipe.Request` boundary. See the
+  replacement map below.
 - `ImagePipe.Parser` behaviour, dispatch, and `Parser.IIIF`'s parser shape
   (reborn as `Dialect.IIIF`).
 - The lifecycle mirrors in `dialect/{imgproxy,native,twic_pics}.ex` (each
@@ -320,7 +321,34 @@ implementing `Plug`.
 - The whole-file ExDNA ignores for `dialect/imgproxy.ex` and
   `dialect/native.ex` (and pipeline files where the mirror moved into the
   runner) — restoring the visibility issue #457 asked for. Remaining
-  definition-level suppressions are re-audited; most disappear.
+  definition-level suppressions are re-audited; most disappear. `decode.ex`'s
+  file-level ExDNA disable and its "deliberate duplication of Processor"
+  annotation are removed — the duplication ends because the Request copy dies.
+
+### Replacement map for `ImagePipe.Request.*`
+
+Almost nothing is written from scratch: the dialect inversion already built
+the replacements as *recorded* parallel copies in core (`decode.ex`'s header
+comment says so explicitly), and the unification picks the dialect-path copy
+as the survivor of each pair.
+
+| Deleted | Replaced by | Nature |
+| --- | --- | --- |
+| `Processor` (fetch → peek → format gate → header open → pixel limit → shrink-planned sequential open) | `ImagePipe.Decode.with_image/4` — existing core, a recorded line-for-line duplicate of this flow (same reject families, error taxonomy, `[:source, :fetch_decode]` span) | pick the surviving twin |
+| `Processor` (`process_decoded_source`, `materialize_for_delivery`) | runner build phase (span + materialize backstop, consolidated from the three identical dialect copies) + `Declarative.execute` = `Transform.execute_plan` | consolidation |
+| `Runner` (cache dispatch, timed lookup, wildcard-INM on hit, `Delivery.stream`, policy headers on failure) | runner serve phase, built from the dialect chains' shared `serve`/`deliver_hit`/`generate` (the fourth copy) | consolidation |
+| `Runner.with_detector_identity/2` | `Declarative.prepare` (Plan-derived detector identity folded into identity material, mirroring imgproxy/TwicPics) | move into the base |
+| `Runner` custom-render dispatch + `RenderRunner` | runner `{:render, fun}` terminal (consolidated from the imgproxy `/info` / Native blurhash mirrors); `Declarative`'s render_fun bridges to `ImagePipe.Renderer` | consolidation + bridge |
+| `HTTPCache` (`prepare`, `etag_material`, `evaluate_conditional`) | existing `Representation.build` + `Response.Conditional` + `CacheHeaders.from_representation`; NEW: the Declarative base's Plan→identity-material derivation (the analogue of each dialect's `Identity.material`) | mechanism swap — the source of accepted deltas U8 and the `[:http_cache, :*]` event removal |
+| `DeliveryBuild` (`build_fun`, `resolve_output`, `encode_first_chunk`, `effective_limits`) | runner `build_fun` — the verbatim `build_and_pump` the dialects share; `Output.Negotiate.negotiate_output` (existing core); the dialects' `result_limits` (the more complete version — clamps against per-format encoder limits) | consolidation |
+| `Options` | existing `SharedConfig.validate_runtime!` + per-dialect `validate_config!`; framework-only keys IIIF keeps (e.g. `allow_debug_headers`) move into `Dialect.IIIF`'s schema | consolidation |
+| `SourceFormat` | `Decode.SourceFormat`, its existing twin | pick the surviving twin |
+
+The only genuinely new logic in the whole deletion is the Declarative base's
+Plan→`Resolved` derivation (identity material, negotiation from
+`plan.output`, detector identity, render bridge, debug-facts plumbing for
+IIIF's debug headers): the framework's per-request *decisions* re-expressed
+in the contract's vocabulary. All *machinery* is shared or already exists.
 
 ## Observable deltas (exhaustive)
 
