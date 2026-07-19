@@ -68,7 +68,8 @@ File-level ExDNA suppression (the exact concern of issue #457) hid the drift.
 | U5 | Product ordering stays wholly inside the dialect's `execute` (its Pipeline); the runner has no ordering concept. | Preserves T8's *reason* while overturning its conclusion. |
 | U6 | The behaviour is public and documented: declarative tier (`use ImagePipe.Dialect.Declarative`, implement `parse/2 -> %Plan{}`) and ordered tier (implement the full behaviour). | Deliberate T13 reversal (user decision). This is a request-lifecycle SDK, not the rejected per-operation mid-execution SDK: no `Resolver`, no `Directive`, no `:deferred`, no Plan markers; `NeutralResolver` stays core-internal. |
 | U7 | IIIF is re-expressed as `ImagePipe.Dialect.IIIF` on the declarative base; `ImagePipe.Parser` (behaviour and dispatch) is deleted. | One user; its three callbacks survive as the Declarative contract. |
-| U8 | The runner unifies conditional-GET on the `Representation` + `Response.Conditional` mechanism; `Request.HTTPCache` is deleted. IIIF's ETag and cache-key values change. | One identity mechanism; the dialect one is stricter (pre-fetch 304 structurally). Greenfield: behavior-level round-trip is the contract, literal values are not (user decision). |
+| U8 | The runner unifies conditional-GET on the `Representation` + `Response.Conditional` mechanism; `Request.HTTPCache`'s identity mechanics are deleted. IIIF's ETag and cache-key values change. | One identity mechanism; the dialect one is stricter (pre-fetch 304 structurally). Greenfield: behavior-level round-trip is the contract, literal values are not (user decision). |
+| U8b | `Request.HTTPCache`'s header-generation policy (generated `Cache-Control: public, max-age=31536000, immutable`; Set-Cookie / `Vary: *` / host-Cache-Control suppression rules; the `http_cache:` mode option with the per-source `:inherit` override) and its four `[:http_cache, :*]` events are **promoted to a core policy module** applied by the runner, gated by a `Resolved.http_cache` value: `:generated` (the Declarative base — IIIF keeps its exact headers and events) or `:dialect_owned` (the three ordered dialects — byte-identical current behavior, no additive events). | The policy is behavior IIIF has that the dialects don't (gated by the CDN wire suite); deleting it would be an unplanned observable delta. Gating on a `Resolved` value keeps U4. Ordered dialects opting into generated headers later (e.g. imgproxy's upstream TTL-driven `Cache-Control`) is separate compat-reviewed work. |
 | U9 | Native gains the `internal_cache: :disabled` handling it is missing, with new wire coverage. | Deliberate bug fix surfaced by this analysis, not silent drift. |
 | U10 | The framework stack — `ImagePipe.Request.{Runner, Processor, HTTPCache, DeliveryBuild, Options}` — is deleted after IIIF migrates. | Zero users remain; keeping it would preserve the second model this design exists to remove. |
 | U11 | `ImagePipe.Renderer` survives as the declarative base's non-image-terminal contract (`render: {:custom, mod, params}` becomes a `{:render, fun}` terminal). | IIIF `info.json` needs it; ordered dialects never see it. |
@@ -144,6 +145,7 @@ callbacks:
   operations: [atom()],           # semantic names for the [:transform, :execute] span start
   auto_rotate?: boolean(),
   debug?: boolean(),              # already gated by the dialect on its config opt-in
+  http_cache: :generated | :dialect_owned,  # U8b: generated cache-header policy participation
   terminal: :image | {:render, render_fun}
 }
 ```
@@ -210,6 +212,12 @@ Notes:
 - The 304-before-any-side-effect invariant becomes structural: it is the
   runner's spine, written once, instead of a discipline each dialect
   re-implements.
+- After `Representation.build`, the runner applies the promoted HTTP-cache
+  header policy (U8b) when `resolved.http_cache == :generated`: generated
+  `Cache-Control` + suppression rules + the four `[:http_cache, :*]` events,
+  exactly as `Request.HTTPCache` does today. `:dialect_owned` skips the
+  policy entirely — the ordered dialects' current header and event surface is
+  unchanged.
 - The negotiated policy's headers ride delivery failures, as today.
 - `pipeline_opts` (`:supports_hdr?` from `Policy.supports_hdr?`) is computed
   by the runner from `resolved.negotiation.policy` and the plan output the
@@ -316,8 +324,11 @@ implementing `Plug`.
 - The lifecycle mirrors in `dialect/{imgproxy,native,twic_pics}.ex` (each
   module shrinks to parse/prepare/decode_request/execute/render_error plus its
   existing submodules).
-- The `[:http_cache, :prepare]` and `[:http_cache, :conditional, :match]`
-  telemetry events (die with HTTPCache).
+- The four `[:http_cache, :*]` telemetry events do **not** die: they move
+  with the promoted header policy (U8b) and keep their names, so the default
+  Logger's `@http_cache_oneshot` list, `Trace.Capture`'s stage lists, and
+  `docs/telemetry.md` need only pointer updates, not removals. Under
+  `:dialect_owned` they simply never fire, matching today.
 - The whole-file ExDNA ignores for `dialect/imgproxy.ex` and
   `dialect/native.ex` (and pipeline files where the mirror moved into the
   runner) — restoring the visibility issue #457 asked for. Remaining
@@ -339,7 +350,8 @@ as the survivor of each pair.
 | `Runner` (cache dispatch, timed lookup, wildcard-INM on hit, `Delivery.stream`, policy headers on failure) | runner serve phase, built from the dialect chains' shared `serve`/`deliver_hit`/`generate` (the fourth copy) | consolidation |
 | `Runner.with_detector_identity/2` | `Declarative.prepare` (Plan-derived detector identity folded into identity material, mirroring imgproxy/TwicPics) | move into the base |
 | `Runner` custom-render dispatch + `RenderRunner` | runner `{:render, fun}` terminal (consolidated from the imgproxy `/info` / Native blurhash mirrors); `Declarative`'s render_fun bridges to `ImagePipe.Renderer` | consolidation + bridge |
-| `HTTPCache` (`prepare`, `etag_material`, `evaluate_conditional`) | existing `Representation.build` + `Response.Conditional` + `CacheHeaders.from_representation`; NEW: the Declarative base's Plan→identity-material derivation (the analogue of each dialect's `Identity.material`) | mechanism swap — the source of accepted deltas U8 and the `[:http_cache, :*]` event removal |
+| `HTTPCache` identity mechanics (`etag_material`, `evaluate_conditional`) | existing `Representation.build` + `Response.Conditional` + `CacheHeaders.from_representation`; NEW: the Declarative base's Plan→identity-material derivation (the analogue of each dialect's `Identity.material`) | mechanism swap — the source of accepted delta U8 |
+| `HTTPCache` header-generation policy (generated `Cache-Control`, suppression rules, `http_cache:` mode + per-source `:inherit`, the four `[:http_cache, :*]` events) | promoted to a core policy module applied by the runner under `Resolved.http_cache == :generated` (U8b) | move, not deletion — IIIF's headers and events preserved; ordered dialects unaffected |
 | `DeliveryBuild` (`build_fun`, `resolve_output`, `encode_first_chunk`, `effective_limits`) | runner `build_fun` — the verbatim `build_and_pump` the dialects share; `Output.Negotiate.negotiate_output` (existing core); the dialects' `result_limits` (the more complete version — clamps against per-format encoder limits) | consolidation |
 | `Options` | existing `SharedConfig.validate_runtime!` + per-dialect `validate_config!`; framework-only keys IIIF keeps (e.g. `allow_debug_headers`) move into `Dialect.IIIF`'s schema | consolidation |
 | `SourceFormat` | `Decode.SourceFormat`, its existing twin | pick the surviving twin |
@@ -363,14 +375,17 @@ or tolerance changes.
    move to `Representation`. Round-trip conditional-GET behavior (304 on
    matching `If-None-Match`, pre-fetch), `Vary` behavior, and storage
    separation are preserved and asserted behaviorally.
-3. **IIIF telemetry surface.** The `[:http_cache, :*]` events disappear;
-   IIIF requests emit the dialect-shaped span set (`[:request]`, `[:parse]`,
+3. **IIIF telemetry surface.** The `[:http_cache, :*]` events are preserved
+   (they move with the promoted policy, U8b); what changes is the span shape:
+   IIIF requests emit the dialect-shaped set (`[:request]`, `[:parse]`,
    `[:transform, :execute]`, `[:encode]`, `[:send]`, `[:output, :negotiate]`,
-   cache one-shots). Per the AGENTS.md sync rules, the same change updates:
-   the default Logger's subscription lists and any `message/3`/`level_for/3`
-   clauses touching removed events; `Trace.Capture`'s `@span_stages` /
-   `@oneshot_stages` (cross-checked against the Logger's lists);
-   `docs/telemetry.md`; and both surfaces' tests.
+   the dialect-path cache/decode spans) in place of the framework-only
+   `[:cache, :lookup]` span shape. Per the AGENTS.md sync rules, the same
+   change updates: the default Logger's subscription lists and any
+   `message/3`/`level_for/3` clauses touching changed events;
+   `Trace.Capture`'s `@span_stages` / `@oneshot_stages` (cross-checked
+   against the Logger's lists); `docs/telemetry.md`; and both surfaces'
+   tests.
 4. **IIIF mount config.** `parser: ImagePipe.Parser.IIIF, iiif: [...]`
    becomes `dialect: ImagePipe.Dialect.IIIF` with flat keys.
 
