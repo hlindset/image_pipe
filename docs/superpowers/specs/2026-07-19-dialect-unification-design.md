@@ -66,15 +66,15 @@ File-level ExDNA suppression (the exact concern of issue #457) hid the drift.
 | U3 | The behaviour has six required callbacks (`validate_config!`, `parse`, `prepare`, `decode_request`, `execute`, `render_error`) and two optional hooks; everything else rides `%Dialect.Resolved{}` as values. | Coarse phases, not mid-execution hooks. Values-not-callbacks is what keeps the contract from regrowing the leaky framework T8 warned about. |
 | U4 | The runner may branch only on `Resolved` fields and neutral core structs — never on dialect identity, never via dialect-specific flags. | The "pile of conditionals" failure mode arrives incrementally; this is the review-enforceable line against it. |
 | U5 | Product ordering stays wholly inside the dialect's `execute` (its Pipeline); the runner has no ordering concept. | Preserves T8's *reason* while overturning its conclusion. |
-| U6 | The behaviour is public and documented: declarative tier (`use ImagePipe.Dialect.Declarative`, implement `parse/2 -> %Plan{}`) and ordered tier (implement the full behaviour). | Deliberate T13 reversal (user decision). This is a request-lifecycle SDK, not the rejected per-operation mid-execution SDK: no `Resolver`, no `Directive`, no `:deferred`, no Plan markers; `NeutralResolver` stays core-internal. |
-| U7 | IIIF is re-expressed as `ImagePipe.Dialect.IIIF` on the declarative base; `ImagePipe.Parser` (behaviour and dispatch) is deleted. | One user; its three callbacks survive as the Declarative contract. |
+| U6 | The behaviour is public and documented: declarative tier (`use ImagePipe.Dialect.Declarative`, implement `parse_plan/2 -> %Plan{}` — a distinct name because the macro owns the behaviour's `parse/2`) and ordered tier (implement the full behaviour). | Deliberate T13 reversal (user decision). This is a request-lifecycle SDK, not the rejected per-operation mid-execution SDK: no `Resolver`, no `Directive`, no `:deferred`, no Plan markers; `NeutralResolver` stays core-internal. |
+| U7 | IIIF is re-expressed as `ImagePipe.Dialect.IIIF` on the declarative base; `ImagePipe.Parser` (behaviour and dispatch) is deleted. | One user; its three callbacks survive as the Declarative contract (`parse_plan/2`, `render_error/3`, `validate_config!/1`). |
 | U8 | The runner unifies conditional-GET on the `Representation` + `Response.Conditional` mechanism; `Request.HTTPCache`'s identity mechanics are deleted. IIIF's ETag and cache-key values change. | One identity mechanism; the dialect one is stricter (pre-fetch 304 structurally). Greenfield: behavior-level round-trip is the contract, literal values are not (user decision). |
-| U8b | `Request.HTTPCache`'s header-generation policy (generated `Cache-Control: public, max-age=31536000, immutable`; Set-Cookie / `Vary: *` / host-Cache-Control suppression rules; the `http_cache:` mode option with the per-source `:inherit` override) and its four `[:http_cache, :*]` events are **promoted to a core policy module** applied by the runner, gated by a `Resolved.http_cache` value: `:generated` (the Declarative base — IIIF keeps its exact headers and events) or `:dialect_owned` (the three ordered dialects — byte-identical current behavior, no additive events). | The policy is behavior IIIF has that the dialects don't (gated by the CDN wire suite); deleting it would be an unplanned observable delta. Gating on a `Resolved` value keeps U4. Ordered dialects opting into generated headers later (e.g. imgproxy's upstream TTL-driven `Cache-Control`) is separate compat-reviewed work. |
+| U8b | `Request.HTTPCache`'s header-generation policy (generated `Cache-Control: public, max-age=31536000, immutable`; Set-Cookie / `Vary: *` / host-Cache-Control suppression rules; the `http_cache:` mode option with the per-source `:inherit` override) and three of the four `[:http_cache, :*]` events (`prepare`, `conditional.match`, `fallback.no_store`) are **promoted to a core policy module** applied by the runner between `Representation.build` and the conditional gate (its ETag suppression must be able to veto the 304, as today), gated by a `Resolved.http_cache` value: `:generated` (the Declarative base — IIIF keeps its exact headers and events) or `:dialect_owned` (the three ordered dialects — byte-identical current behavior, no additive events). The fourth event, `[:http_cache, :cache_hit, :headers]`, already lives in the shared `Response.Sender` cache-entry delivery, fires for every dialect's hits today, and stays there. | The policy is behavior IIIF has that the dialects don't (gated by the CDN wire suite); deleting it would be an unplanned observable delta. Gating on a `Resolved` value keeps U4. Ordered dialects opting into generated headers later (e.g. imgproxy's upstream TTL-driven `Cache-Control`) is separate compat-reviewed work. |
 | U9 | Native gains the `internal_cache: :disabled` handling it is missing, with new wire coverage. | Deliberate bug fix surfaced by this analysis, not silent drift. |
 | U10 | The framework stack — `ImagePipe.Request.{Runner, Processor, HTTPCache, DeliveryBuild, Options}` — is deleted after IIIF migrates. | Zero users remain; keeping it would preserve the second model this design exists to remove. |
-| U11 | `ImagePipe.Renderer` survives as the declarative base's non-image-terminal contract (`render: {:custom, mod, params}` becomes a `{:render, fun}` terminal). | IIIF `info.json` needs it; ordered dialects never see it. |
-| U12 | Per-dialect wire, differential, and telemetry suites gate every phase; no fixture, verdict, or tolerance changes. Deliberate deltas are exactly U8, U9, and U13, plus IIIF's telemetry event set (below). | The inversion's own evidence discipline, reused. |
-| U13 | Debug-header restoration (#462) rides the unification: the runner owns a **default neutral `Debug.Info` builder** fed from `DebugContext` (timings, `Decode`-collected source facts, negotiation/output facts, `Resolved.operations`, cache hit/miss debug), and `allow_debug_headers` moves to `SharedConfig`. imgproxy's already-parsed `debug?` flag rides `Resolved.debug?` and its `X-ImagePipe-*`/`Server-Timing` headers return in Phase B, closing #462. The `debug_info` hook demotes to an optional enrichment override; TwicPics is expected to port onto the runner default (its debug wire tests gate exact reproduction — verify at port time and drop the hook if no dialect needs it). | The inversion lost the threading because each chain had to hand-thread it; restoring pre-unification is disposable work, post-unification is a double port. Every TwicPics debug fact is neutral, so one runner builder replaces per-dialect threading. The flag stays identity-excluded (never moves key/ETag). |
+| U11 | `ImagePipe.Renderer` survives as the declarative base's non-image-terminal contract: `render: {:custom, mod, params}` becomes a `{:render, %RenderTerminal{}}` terminal carrying the render fun, the content-type `offers`, and cacheability (`cache: :none` for IIIF — preserving its per-request ld+json Accept negotiation, `Vary`, and no-internal-cache behavior via `Sender`'s `{:rendered, …}` delivery; `cache: :complete_body` for imgproxy `/info` and Native blurhash). | IIIF `info.json` needs offers negotiation and is uncached today; the ordered dialects' render terminals cache complete bodies. Presentation is never stored. |
+| U12 | Per-dialect wire, differential, and telemetry suites gate every phase; no fixture, verdict, or tolerance changes. Deliberate deltas are exactly the enumerated observable-deltas list below — nothing else may differ. | The inversion's own evidence discipline, reused. |
+| U13 | Debug-header restoration (#462) rides the unification: the runner owns a **default neutral `Debug.Info` builder** fed from `DebugContext` (timings, `Decode`-collected source facts, negotiation/output facts, `Resolved.operations`, cache hit/miss debug), and `allow_debug_headers` moves to `SharedConfig`. imgproxy's already-parsed `debug?` flag rides `Resolved.debug?` and its `X-ImagePipe-*`/`Server-Timing` headers return in Phase B, closing #462. The default builder runs unconditionally and its `Debug.Info` is stored with the cache entry (today's hit-replay contract). The `debug_info` hook demotes to an optional enrichment override; TwicPics ports onto the runner default, which means its debug responses GAIN the six source-fact headers its current tests pin as absent — a deliberate enumerated delta (see observable delta 5), with the per-dialect opt-out (a `Resolved` value) as the fallback if uniform facts are rejected at review. | The inversion lost the threading because each chain had to hand-thread it; restoring pre-unification is disposable work, post-unification is a double port. Every TwicPics debug fact is neutral, so one runner builder replaces per-dialect threading. The flag stays identity-excluded (never moves key/ETag). |
 
 ## The contract
 
@@ -85,14 +85,20 @@ defmodule ImagePipe.Dialect do
   # SharedConfig.validate_runtime!/1, validates its own keys, raises on error.
 
   @callback parse(Plug.Conn.t(), config :: keyword()) ::
-              {:ok, request :: term(), parse_meta :: map()}
-              | {:redirect, pos_integer(), String.t()}
-              | {:error, term()}
+              {parse_result, span_stop_metadata :: map()}
+            when parse_result:
+                   {:ok, request :: term()}
+                   | {:redirect, pos_integer(), String.t()}
+                   | {:error, term()}
   # Wrapped in the [:parse] span by the runner; covers exactly what each
   # dialect's parse span covers today (imgproxy extract→verify→split→parse;
-  # Native verify→lex→parse, parse_meta carries :sig_key_index; TwicPics
-  # Path→Manipulation→RequestBuilder; IIIF classify→resolve-id→grammar).
-  # The request term is opaque to the runner.
+  # Native verify→lex→parse; TwicPics Path→Manipulation→RequestBuilder; IIIF
+  # classify→resolve-id→grammar). The request term is opaque to the runner.
+  # The dialect shapes the span's stop metadata for BOTH outcomes — the
+  # per-dialect differences are deliberate and documented in the chains
+  # (Native's ok-metadata carries :sig_key_index while its error metadata
+  # deliberately omits the error tag; imgproxy/TwicPics tag their errors) —
+  # so a single runner-built metadata map cannot reproduce them.
 
   @callback prepare(Plug.Conn.t(), request :: term(), config :: keyword()) ::
               {:ok, ImagePipe.Dialect.Resolved.t()} | {:error, term()}
@@ -145,27 +151,57 @@ callbacks:
 %Resolved{
   request: term(),                # opaque; threaded to decode_request/execute
   source: source_ref,             # a Plan source reference; runner calls Source.resolve
-  negotiation: %Dialect.Negotiation{},  # promoted from the three identical copies
+  negotiation: {:ok, %Dialect.Negotiation{}} | {:error, term()},
+                                  # DEFERRED result: prepare never fails on
+                                  # negotiation; the runner unwraps it AFTER
+                                  # Source.resolve, preserving today's error
+                                  # precedence (all three ordered dialects
+                                  # resolve the source first, then negotiate —
+                                  # a bad source must keep beating an
+                                  # incapable output format)
   identity_material: material,    # dialect-ordered identity material
   response_meta: %Plan.Response{},# delivery presentation; rides the request, never the cache entry
   operations: [atom()],           # semantic names for the [:transform, :execute] span start
   auto_rotate?: boolean(),
   debug?: boolean(),              # already gated by the dialect on its config opt-in
   http_cache: :generated | :dialect_owned,  # U8b: generated cache-header policy participation
-  terminal: :image | {:render, render_fun}
+  terminal: :image | {:render, %RenderTerminal{}}
 }
 ```
 
-`%ImagePipe.Dialect.Negotiation{selected, vary?, policy_material, policy}` is
-the promoted dialect negotiation-outcome struct. (It is distinct from the
-existing `ImagePipe.Output.Negotiation`, an Accept-parsing helper module with
-no struct; that module is unchanged.)
+`%ImagePipe.Dialect.Negotiation{selected, vary?, policy_material, policy,
+plan_output}` is the promoted dialect negotiation-outcome struct.
+`plan_output` (a `%Plan.Output{}` or nil) is the neutral output plan the
+negotiation was built from — carried so the runner can compute
+`Policy.supports_hdr?` without reaching into the opaque request (today each
+dialect derives it from its own request in `pipeline_opts`). (The struct is
+distinct from the existing `ImagePipe.Output.Negotiation`, an Accept-parsing
+helper module with no struct; that module is unchanged.)
 
-`render_fun.(resolved_source, config) -> {:ok, content_type, iodata()} |
-{:error, reason}` is the whole non-image-terminal contract. imgproxy `/info`
-(header decode + `InfoRenderer`), Native blurhash (inline pipeline +
-`Blurhash.compute`), and IIIF `info.json` (via `ImagePipe.Renderer`) all fit
-as closures; the runner owns the shared complete-body lifecycle around them.
+`%RenderTerminal{}` is the whole non-image-terminal contract, values only:
+
+```elixir
+%RenderTerminal{
+  fun: (resolved_source, config -> {:ok, content_type, iodata()} | {:error, term()}),
+  offers: [{content_type, [accepted_types]}],  # per-request Accept negotiation
+                                               # (IIIF ld+json); [] = none
+  cache: :complete_body | :none                # imgproxy /info and Native
+                                               # blurhash cache complete
+                                               # bodies; IIIF info.json is
+                                               # uncached today and stays so
+}
+```
+
+The runner owns both existing render deliveries, selected by these values:
+`cache: :complete_body` runs the shared complete-body lifecycle
+(`{:complete_body, ct}` cache hit with wildcard-INM check, generate, fail-open
+write) consolidated from the imgproxy-`/info`/Native-blurhash mirrors;
+`cache: :none` + `offers` runs `Sender`'s `{:rendered, …}` delivery, which
+negotiates the content type against the CURRENT request's `Accept` and stamps
+`Vary` — preserving IIIF `info.json`'s ld+json negotiation, its
+no-internal-cache behavior, and its wildcard semantics exactly. Presentation
+(offers/negotiated type) is never stored; only bytes and the canonical
+content type are.
 
 ### The anti-leak rule (U4)
 
@@ -187,10 +223,20 @@ call:
   │    {:redirect, status, location} → Sender.send_redirect
   ├─ dialect.prepare → %Resolved{}
   ├─ Source.resolve(resolved.source, config, config)     (identity only, no bytes)
+  ├─ unwrap resolved.negotiation                          (a negotiation error
+  │                                                        surfaces HERE — after
+  │                                                        source resolve, as in
+  │                                                        all three dialects)
   ├─ Representation.build(source.identity, identity_material, byte_identity)
-  ├─ Conditional.not_modified?(conn, etag) → 304          ← before any fetch,
-  │                                                          decode, encode, or
-  │                                                          cache read
+  ├─ http_cache :generated → apply promoted header policy (U8b) — may
+  │                          SUPPRESS the ETag (mode :disabled, Set-Cookie,
+  │                          Vary: *, host no-store), exactly as
+  │                          HTTPCache.prepare does today
+  ├─ Conditional.not_modified?(conn, effective_etag) → 304 ← before any fetch,
+  │    (:generated → the policy-effective CacheHeaders     decode, encode, or
+  │     etag, nil when suppressed → proceed;               cache read
+  │     :dialect_owned → representation.etag, identical
+  │     to today since no dialect suppresses)
   ├─ serve:
   │    internal_cache :disabled → skip lookup and write, nil cache key
   │    :enabled → Cache.lookup_entry (timed)
@@ -208,9 +254,13 @@ call:
   │          → materialize_for_delivery                         build_and_pump)
   │          → [:encode] span, first-chunk pull → hand off to delivery)
   │      (on_bracket_exit test seam preserved; rescue/catch → {:transform, _})
-  ├─ terminal {:render, fun} → shared complete-body path:
-  │    {:complete_body, ct} cache hit (wildcard-INM checked) → send
-  │    else fun.(resolved_source, config) → fail-open cache write → send
+  ├─ terminal {:render, %RenderTerminal{}} →
+  │    cache :complete_body → shared complete-body path:
+  │      {:complete_body, ct} cache hit (wildcard-INM checked) → send
+  │      else fun.(resolved_source, config) → fail-open cache write → send
+  │    cache :none → fun.(resolved_source, config) →
+  │      Sender {:rendered, ct, body, offers, headers} (per-request Accept
+  │      negotiation + Vary; no cache read or write — IIIF info.json today)
   └─ every terminal [:send]-wrapped; errors → dialect.render_error;
      [:request] stop metadata via classify_error / Telemetry.request_result
 ```
@@ -220,22 +270,30 @@ Notes:
 - The 304-before-any-side-effect invariant becomes structural: it is the
   runner's spine, written once, instead of a discipline each dialect
   re-implements.
-- After `Representation.build`, the runner applies the promoted HTTP-cache
-  header policy (U8b) when `resolved.http_cache == :generated`: generated
-  `Cache-Control` + suppression rules + the four `[:http_cache, :*]` events,
-  exactly as `Request.HTTPCache` does today. `:dialect_owned` skips the
-  policy entirely — the ordered dialects' current header and event surface is
-  unchanged.
+- The promoted header policy (U8b) runs between `Representation.build` and
+  the conditional gate — its ETag suppression must be able to veto the 304,
+  exactly as `HTTPCache.prepare` feeds `evaluate_conditional` today. It owns
+  three of the four `[:http_cache, :*]` events (`prepare`,
+  `conditional.match`, `fallback.no_store`); the fourth,
+  `[:http_cache, :cache_hit, :headers]`, is emitted by the shared
+  `Response.Sender` cache-entry delivery, already fires for every dialect's
+  hits today, and stays in `Sender`. `:dialect_owned` skips the policy —
+  the ordered dialects' current header and event surface is unchanged.
 - The negotiated policy's headers ride delivery failures, as today.
 - `pipeline_opts` (`:supports_hdr?` from `Policy.supports_hdr?`) is computed
-  by the runner from `resolved.negotiation.policy` and the plan output the
-  negotiation was built from; the conservative `false` default is preserved
-  where the format is only known post-transform.
+  by the runner from the unwrapped negotiation's `policy` and `plan_output`
+  fields — the struct carries the output plan precisely so the runner never
+  reaches into the opaque request; the conservative `false` default is
+  preserved where the format is only known post-transform.
 - `result_limits`/`min_limit` (host limits clamped against per-format encoder
   limits) move into the runner — one copy.
-- Timing capture for `debug_info` (decode/transform/encode microseconds) is
-  measured by the runner only when the dialect implements the hook, and handed
-  over via `DebugContext`.
+- The default debug builder runs UNCONDITIONALLY on every generation
+  (timings, `Decode`-collected facts, output facts) and the resulting
+  `Debug.Info` is stored with the cache entry — matching today's contract
+  where facts are collected and stored even while `allow_debug_headers` is
+  off, so a later hit can replay them once the flag is enabled (pinned by
+  `debug_headers_wire_test.exs`). Only header *rendering* is gated, at
+  delivery time.
 
 ## The declarative base
 
@@ -243,7 +301,7 @@ Notes:
 defmodule ImagePipe.Dialect.IIIF do
   use ImagePipe.Dialect.Declarative
 
-  def parse(conn, config), do: ...      # {:ok, %Plan{}} | {:redirect, 303, url} | {:error, r}
+  def parse_plan(conn, config), do: ... # {:ok, %Plan{}} | {:redirect, 303, url} | {:error, r}
   def render_error(conn, reason, config), do: ...
   def validate_config!(opts), do: ...
 end
@@ -255,8 +313,9 @@ dialects:
 - `prepare`: `Transform.validate_prefetch_safe_plan`, the
   `detector_required` capability gate, negotiation from `plan.output`,
   Plan-derived identity material, `debug?` from `Plan.Response`, terminal
-  selection (`render: :image` vs `render: {:custom, mod, params}` →
-  `{:render, fun}` through `ImagePipe.Renderer`).
+  selection (`render: :image` vs `render: {:custom, mod, params}` → a
+  `{:render, %RenderTerminal{cache: :none, offers: …}}` through
+  `ImagePipe.Renderer` — see U11).
 - `execute`: the fixed neutral driver (`Transform.execute_plan`).
 - `decode_request`: the neutral decode preflight.
 
@@ -265,7 +324,7 @@ the runner never branches on which base produced the `Resolved`. The
 ordered/declarative distinction is a fact about who owns the transform stage —
 already established as irreducible by inversion decision T2.
 
-`ImagePipe.Parser` is deleted. `parse_boolean/1` moves to a `Dialect` helper.
+`ImagePipe.Parser` is deleted; its `parse/2` survives as the Declarative contract's `parse_plan/2` (distinct name — the `use` macro implements the behaviour's `parse/2`/`prepare/3` on top of it). `parse_boolean/1` moves to a `Dialect` helper.
 IIIF's nested `iiif: [...]` config flattens to the flat key style every other
 dialect uses.
 
@@ -334,11 +393,15 @@ implementing `Plug`.
 - The lifecycle mirrors in `dialect/{imgproxy,native,twic_pics}.ex` (each
   module shrinks to parse/prepare/decode_request/execute/render_error plus its
   existing submodules).
-- The four `[:http_cache, :*]` telemetry events do **not** die: they move
-  with the promoted header policy (U8b) and keep their names, so the default
-  Logger's `@http_cache_oneshot` list, `Trace.Capture`'s stage lists, and
-  `docs/telemetry.md` need only pointer updates, not removals. Under
-  `:dialect_owned` they simply never fire, matching today.
+- The `[:http_cache, :*]` telemetry events do **not** die: three
+  (`prepare`, `conditional.match`, `fallback.no_store`) move with the
+  promoted header policy (U8b) and keep their names, and
+  `[:http_cache, :cache_hit, :headers]` stays where it already is (the
+  shared `Response.Sender`, firing for every dialect's cache hits today) —
+  so the default Logger's `@http_cache_oneshot` list, `Trace.Capture`'s
+  stage lists, and `docs/telemetry.md` need only pointer updates, not
+  removals. Under `:dialect_owned` the three policy events simply never
+  fire, matching today.
 - The whole-file ExDNA ignores for `dialect/imgproxy.ex` and
   `dialect/native.ex` (and pipeline files where the mirror moved into the
   runner) — restoring the visibility issue #457 asked for. Remaining
@@ -359,9 +422,9 @@ as the survivor of each pair.
 | `Processor` (`process_decoded_source`, `materialize_for_delivery`) | runner build phase (span + materialize backstop, consolidated from the three identical dialect copies) + `Declarative.execute` = `Transform.execute_plan` | consolidation |
 | `Runner` (cache dispatch, timed lookup, wildcard-INM on hit, `Delivery.stream`, policy headers on failure) | runner serve phase, built from the dialect chains' shared `serve`/`deliver_hit`/`generate` (the fourth copy) | consolidation |
 | `Runner.with_detector_identity/2` | `Declarative.prepare` (Plan-derived detector identity folded into identity material, mirroring imgproxy/TwicPics) | move into the base |
-| `Runner` custom-render dispatch + `RenderRunner` | runner `{:render, fun}` terminal (consolidated from the imgproxy `/info` / Native blurhash mirrors); `Declarative`'s render_fun bridges to `ImagePipe.Renderer`, whose `run` gains RenderRunner's `[:render]` span | consolidation + bridge |
+| `Runner` custom-render dispatch + `RenderRunner` | runner `{:render, %RenderTerminal{}}` terminal: the `cache: :complete_body` path consolidates the imgproxy-`/info`/Native-blurhash mirrors; the `cache: :none` path reuses `Sender`'s existing `{:rendered, …}` offers-negotiated delivery (IIIF); `Declarative`'s render fun bridges to `ImagePipe.Renderer`, whose `run` gains RenderRunner's `[:render]` span | consolidation + bridge |
 | `HTTPCache` identity mechanics (`etag_material`, `evaluate_conditional`) | existing `Representation.build` + `Response.Conditional` + `CacheHeaders.from_representation`; NEW: the Declarative base's Plan→identity-material derivation (the analogue of each dialect's `Identity.material`) | mechanism swap — the source of accepted delta U8 |
-| `HTTPCache` header-generation policy (generated `Cache-Control`, suppression rules, `http_cache:` mode + per-source `:inherit`, the four `[:http_cache, :*]` events) | promoted to a core policy module applied by the runner under `Resolved.http_cache == :generated` (U8b) | move, not deletion — IIIF's headers and events preserved; ordered dialects unaffected |
+| `HTTPCache` header-generation policy (generated `Cache-Control`, suppression rules, `http_cache:` mode + per-source `:inherit`, the `prepare`/`conditional.match`/`fallback.no_store` events) | promoted to a core policy module applied by the runner under `Resolved.http_cache == :generated`, ordered before the conditional gate (U8b); `[:http_cache, :cache_hit, :headers]` stays in `Response.Sender` where it already fires for all dialects | move, not deletion — IIIF's headers and events preserved; ordered dialects unaffected |
 | `DeliveryBuild` (`build_fun`, `resolve_output`, `encode_first_chunk`, `effective_limits`) | the runner's `produce_stream` (the verbatim `build_and_pump` chain the dialects share, renamed — it produces the response stream inside `Delivery.Producer`); `Output.Negotiate.negotiate_output` (existing core); the dialects' `result_limits` (the more complete version — clamps against per-format encoder limits) | consolidation |
 | `Options` | existing `SharedConfig.validate_runtime!` + per-dialect `validate_config!`; framework-only keys IIIF keeps (e.g. `allow_debug_headers`) move into `Dialect.IIIF`'s schema | consolidation |
 | `SourceFormat` | `Decode.SourceFormat`, its existing twin | pick the surviving twin |
@@ -408,7 +471,21 @@ or tolerance changes.
    *capability* but has no trigger in its grammar — choosing one (e.g. an
    out-of-band `?debug=1` like IIIF's, or a grammar option) is a
    dialect-surface decision tracked as a follow-up issue, not part of this
-   work. TwicPics and IIIF debug headers are reproduced exactly (gated).
+   work. IIIF debug headers are reproduced exactly (gated). TwicPics debug
+   responses GAIN the six source-fact headers (`source-size`, `color-space`,
+   `icc`, bit depth, alpha, orientation) that its current tests pin as
+   absent — the uniform default builder is the point of U13, so those pins
+   update as part of the port; every other TwicPics debug header is
+   reproduced exactly.
+6. **Negotiation-capability check timing (declarative path only).** The
+   framework runs `Policy.ensure_capable` only after a cache miss
+   (`Runner.process_prepared_stream`); the unified runner surfaces a
+   negotiation error right after source resolution, before any cache access.
+   For the ordered dialects this is exactly today's order (they negotiate in
+   their pre-cache chain); for IIIF it moves the incapable-output failure
+   earlier — same status, but observable to a cache spy. The
+   source-vs-negotiation error precedence itself is preserved for all
+   dialects by the deferred-negotiation unwrap in `Resolved`.
 
 ### Observability audit (framework path vs. unified runner)
 
