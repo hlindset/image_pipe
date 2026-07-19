@@ -8,9 +8,8 @@ ordered `ImagePipe.Dialect.TwicPics.Request`. It resolves source and output
 policy, builds representation identity before cache access, and executes the
 request through its own Pipeline and pipeline-local PointFlow. Request steps
 reuse product-neutral Plan operation structs when their semantics match. The
-dialect doesn't construct a root `ImagePipe.Plan` or use the framework's
-resolver strategy. Unsupported transformations fail before source fetch or
-cache lookup. ImagePipe doesn't ignore them.
+dialect doesn't construct a root `ImagePipe.Plan`. Unsupported transformations
+fail before source fetch or cache lookup. ImagePipe doesn't ignore them.
 
 The imgproxy dialect parses order-insensitive URLs into a fixed-order pipeline.
 The TwicPics dialect is **order-dependent**: transformations apply in chain order and relative units
