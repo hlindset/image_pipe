@@ -73,7 +73,8 @@ File-level ExDNA suppression (the exact concern of issue #457) hid the drift.
 | U9 | Native gains the `internal_cache: :disabled` handling it is missing, with new wire coverage. | Deliberate bug fix surfaced by this analysis, not silent drift. |
 | U10 | The framework stack — `ImagePipe.Request.{Runner, Processor, HTTPCache, DeliveryBuild, Options}` — is deleted after IIIF migrates. | Zero users remain; keeping it would preserve the second model this design exists to remove. |
 | U11 | `ImagePipe.Renderer` survives as the declarative base's non-image-terminal contract (`render: {:custom, mod, params}` becomes a `{:render, fun}` terminal). | IIIF `info.json` needs it; ordered dialects never see it. |
-| U12 | Per-dialect wire, differential, and telemetry suites gate every phase; no fixture, verdict, or tolerance changes. Deliberate deltas are exactly U8 and U9, plus IIIF's telemetry event set (below). | The inversion's own evidence discipline, reused. |
+| U12 | Per-dialect wire, differential, and telemetry suites gate every phase; no fixture, verdict, or tolerance changes. Deliberate deltas are exactly U8, U9, and U13, plus IIIF's telemetry event set (below). | The inversion's own evidence discipline, reused. |
+| U13 | Debug-header restoration (#462) rides the unification: the runner owns a **default neutral `Debug.Info` builder** fed from `DebugContext` (timings, `Decode`-collected source facts, negotiation/output facts, `Resolved.operations`, cache hit/miss debug), and `allow_debug_headers` moves to `SharedConfig`. imgproxy's already-parsed `debug?` flag rides `Resolved.debug?` and its `X-ImagePipe-*`/`Server-Timing` headers return in Phase B, closing #462. The `debug_info` hook demotes to an optional enrichment override; TwicPics is expected to port onto the runner default (its debug wire tests gate exact reproduction — verify at port time and drop the hook if no dialect needs it). | The inversion lost the threading because each chain had to hand-thread it; restoring pre-unification is disposable work, post-unification is a double port. Every TwicPics debug fact is neutral, so one runner builder replaces per-dialect threading. The flag stays identity-excluded (never moves key/ETag). |
 
 ## The contract
 
@@ -124,9 +125,14 @@ defmodule ImagePipe.Dialect do
 
   @callback debug_info(ImagePipe.Dialect.DebugContext.t()) ::
               ImagePipe.Debug.Info.t() | nil
-  # Optional, default nil. TwicPics is the only implementor. DebugContext
-  # carries geometry, decode shrink, negotiation, resolved output, the final
-  # image, encoder search metadata, and stage timings the runner measures.
+  # Optional ENRICHMENT override (U13). The runner builds a default neutral
+  # Debug.Info from DebugContext — geometry, decode shrink, Decode-collected
+  # source facts, negotiation, resolved output, final image dims, encoder
+  # search metadata (the AQ block), Resolved.operations, and stage timings
+  # the runner measures. Every fact TwicPics' build_debug emits today is in
+  # that neutral set, so the expectation is that no dialect implements this
+  # hook; it exists for a future dialect-specific fact and is dropped from
+  # the contract if the ports confirm nobody needs it.
 end
 ```
 
@@ -273,8 +279,10 @@ plug ImagePipe.Plug,
 
 `ImagePipe.Dialect.SharedConfig` keeps its exact role: each dialect's
 `validate_config!` splits the flat list on `SharedConfig.keys/0`, delegates
-the shared subset, and validates its own keys. `ImagePipe.Request.Options`
-is deleted with the framework stack. `ImagePipe.Dialect.*` modules stop
+the shared subset, and validates its own keys. One key moves in:
+`allow_debug_headers` (today TwicPics-private) becomes shared (U13), since
+the debug capability is now runner-owned. `ImagePipe.Request.Options` is
+deleted with the framework stack. `ImagePipe.Dialect.*` modules stop
 implementing `Plug`.
 
 ## Boundary graph
@@ -388,6 +396,17 @@ or tolerance changes.
    tests.
 4. **IIIF mount config.** `parser: ImagePipe.Parser.IIIF, iiif: [...]`
    becomes `dialect: ImagePipe.Dialect.IIIF` with flat keys.
+5. **imgproxy debug headers restored (U13, closes #462).** Under
+   `allow_debug_headers: true` (now a `SharedConfig` key) and the signed
+   `debug:1` option, imgproxy responses regain `X-ImagePipe-*` and
+   `Server-Timing` headers, built by the runner's default neutral builder.
+   The flag remains identity-excluded. The fiddle's imgproxy mount re-enables
+   `allow_debug_headers` and the debug-trigger injection in the same change
+   (demo-sync rule), and `docs/debug_headers.md` is updated. Native gains the
+   *capability* but has no trigger in its grammar — choosing one (e.g. an
+   out-of-band `?debug=1` like IIIF's, or a grammar option) is a
+   dialect-surface decision tracked as a follow-up issue, not part of this
+   work. TwicPics and IIIF debug headers are reproduced exactly (gated).
 
 ### Observability audit (framework path vs. unified runner)
 
@@ -445,7 +464,10 @@ double-wrap reduces every parse failure's `error:` tag to the constant
   each other/Plug/Request), retained no-`%Plan{}`-in-ordered-dialects rule.
 - **New coverage**: Native disabled-cache wire test (U9); a Declarative-base
   wire test proving a minimal host `use ImagePipe.Dialect.Declarative` module
-  mounts and serves (the public-contract smoke test).
+  mounts and serves (the public-contract smoke test); imgproxy debug-header
+  wire coverage mirroring `debug_headers_wire_test.exs`'s contract on the
+  dialect surface, including the identity-exclusion assertion (debug vs plain
+  request share one cache entry and ETag) — the #462 acceptance test.
 
 ## Phasing (implementation plan will detail)
 
@@ -454,7 +476,10 @@ double-wrap reduces every parse failure's `error:` tag to the constant
   the dialect chain shape, and port **Native** first (smallest; carries the
   U9 fix). The framework parser path coexists untouched during A–B.
 - **Phase B**: port imgproxy (endpoint split, `/info` render terminal,
-  ResponseMeta) and TwicPics (debug_info hook, delivery debug flag).
+  ResponseMeta; debug headers return via the runner default builder, closing
+  #462 — fiddle mount and `docs/debug_headers.md` updated in the same change)
+  and TwicPics (ports onto the runner's default debug builder; its debug wire
+  tests gate exact reproduction).
 - **Phase C**: `Declarative` base, `Dialect.IIIF`, delete
   `ImagePipe.Request.*` and `ImagePipe.Parser`, telemetry surface sync
   (Logger + Capture + docs), docs rewrite.
