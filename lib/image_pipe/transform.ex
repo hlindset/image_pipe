@@ -10,7 +10,7 @@ defmodule ImagePipe.Transform do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Plan, ImagePipe.Telemetry, ImagePipe.Resolver],
+    deps: [ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
       # Runtime execution contract — consumed by the request layer.
       State,
@@ -21,14 +21,13 @@ defmodule ImagePipe.Transform do
       Detector,
       Detector.Warmup,
       # Decode-time geometry value produced by `ImagePipe.Decode.with_image/4`'s
-      # header open and consumed by a dialect's decode preflight — not part of
-      # the strategy SDK below (no `ImagePipe.Resolver` strategy sees it).
+      # header open and consumed by a dialect's decode preflight.
       SourceGeometry,
-      # Strategy SDK — the stable contract for carried resolver strategies
-      # (`ImagePipe.Resolver` implementations under parser adapters): the shape
-      # value, the neutral delegate, point/orientation geometry, and the
-      # executable operations a strategy emits (including their pure geometry
-      # helpers, e.g. `Crop.resolved_rect/3`).
+      # Dialect-pipeline contract — the structs and neutral lowering helpers the
+      # in-tree dialect Pipelines consume directly: the shape value, the neutral
+      # resolver, point/orientation geometry, and the executable operations a
+      # Pipeline emits (including their pure geometry helpers, e.g.
+      # `Crop.resolved_rect/3`).
       SourceShape,
       NeutralResolver,
       Focus,
@@ -53,9 +52,8 @@ defmodule ImagePipe.Transform do
       Operation.Gradient,
       Operation.Trim,
       Operation.Flush,
-      # Internal lowering seams — exported for the in-tree imgproxy consumers
-      # (the framework strategy and the inverted dialect); not part of the
-      # strategy SDK and subject to change without notice.
+      # Internal lowering seams — exported only for the in-tree dialect
+      # Pipelines; subject to change without notice.
       Lowering,
       ResizePlanning,
       # Input color-management preamble — dialect-callable (spec G4); the

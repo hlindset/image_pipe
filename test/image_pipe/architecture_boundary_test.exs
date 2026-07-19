@@ -144,7 +144,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Renderer,
-      ImagePipe.Resolver,
       ImagePipe.Transform
     ])
 
@@ -167,7 +166,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Renderer,
-      ImagePipe.Resolver,
       ImagePipe.Transform
     ])
 
@@ -204,8 +202,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Config,
       ImagePipe.Parser,
       ImagePipe.Renderer,
-      ImagePipe.Request,
-      ImagePipe.Resolver
+      ImagePipe.Request
     ])
 
     assert_boundary_exports(dialect_native, [])
@@ -239,8 +236,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(dialect_imgproxy, [
       ImagePipe.Parser,
       ImagePipe.Renderer,
-      ImagePipe.Request,
-      ImagePipe.Resolver
+      ImagePipe.Request
     ])
 
     # `SourceScheme` is the one export: a host implements it to translate a
@@ -275,8 +271,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Dialect.Native,
       ImagePipe.Parser,
       ImagePipe.Renderer,
-      ImagePipe.Request,
-      ImagePipe.Resolver
+      ImagePipe.Request
     ])
 
     assert_boundary_exports(dialect_twicpics, [])
@@ -381,7 +376,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     for {source, forbidden} <- [
           {"alias ImagePipe.Request\nRequest.run(conn)", "ImagePipe.Request"},
           {"ImagePipe.Parser.parse(conn)", "ImagePipe.Parser"},
-          {"alias ImagePipe.Resolver\nResolver.resolve(plan)", "ImagePipe.Resolver"},
           {"ImagePipe.Renderer.run(spec)", "ImagePipe.Renderer"},
           {"ImagePipe.Dialect.Native.call(conn, opts)", "ImagePipe.Dialect.Native"},
           {"alias ImagePipe.Dialect.Imgproxy\nImgproxy.call(conn, opts)",
@@ -416,7 +410,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Parser,
       ImagePipe.Renderer,
       ImagePipe.Request,
-      ImagePipe.Resolver,
       ImagePipe.Response
     ])
 
@@ -445,8 +438,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Config,
       ImagePipe.Parser,
       ImagePipe.Renderer,
-      ImagePipe.Request,
-      ImagePipe.Resolver
+      ImagePipe.Request
     ])
 
     assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
@@ -897,7 +889,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "transform boundary declaration depends on plan and not higher layers" do
     transform = boundary_declaration(ImagePipe.Transform)
 
-    assert_boundary_deps(transform, [ImagePipe.Plan, ImagePipe.Resolver, ImagePipe.Telemetry])
+    assert_boundary_deps(transform, [ImagePipe.Plan, ImagePipe.Telemetry])
 
     refute_boundary_deps(transform, [
       ImagePipe.Parser,
@@ -1267,7 +1259,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp twicpics_forbidden_module([:ImagePipe, :Parser | _rest]), do: "ImagePipe.Parser"
   defp twicpics_forbidden_module([:ImagePipe, :Request | _rest]), do: "ImagePipe.Request"
-  defp twicpics_forbidden_module([:ImagePipe, :Resolver | _rest]), do: "ImagePipe.Resolver"
   defp twicpics_forbidden_module([:ImagePipe, :Renderer | _rest]), do: "ImagePipe.Renderer"
 
   defp twicpics_forbidden_module([:ImagePipe, :Dialect, :TwicPics | _rest]), do: nil
