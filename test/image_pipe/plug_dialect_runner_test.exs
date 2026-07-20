@@ -180,4 +180,21 @@ defmodule ImagePipe.PlugDialectRunnerTest do
     assert get_resp_header(conn, "x-imagepipe-source-size") != []
     assert get_resp_header(conn, "x-imagepipe-source-color-space") != []
   end
+
+  test "complete-body render terminal: generate, cache, hit, wildcard" do
+    config = opts(cache: stateful_cache_probe(), sources: counting_sources())
+
+    first = get("/fix/images/beach.jpg?render=text", config)
+    assert first.status == 200
+    assert first.resp_body == "fixture-body"
+    assert get_resp_header(first, "content-type") |> hd() =~ "text/plain"
+    assert [_etag] = get_resp_header(first, "etag")
+
+    hit = get("/fix/images/beach.jpg?render=text", config)
+    assert hit.status == 200
+    assert hit.resp_body == "fixture-body"
+
+    wildcard = get("/fix/images/beach.jpg?render=text", config, [{"if-none-match", "*"}])
+    assert wildcard.status == 304
+  end
 end

@@ -19,6 +19,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   import Plug.Conn, only: [send_resp: 3, fetch_query_params: 1]
 
   alias ImagePipe.Dialect.Negotiation
+  alias ImagePipe.Dialect.RenderTerminal
   alias ImagePipe.Dialect.Resolved
   alias ImagePipe.Dialect.SharedConfig
   alias ImagePipe.Plan.Output
@@ -50,7 +51,8 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
         request = %{
           segments: segments,
           format: parse_format(params["format"]),
-          debug?: params["debug"] == "1"
+          debug?: params["debug"] == "1",
+          render?: params["render"] == "text"
         }
 
         {{:ok, request}, %{result: :ok}}
@@ -66,6 +68,22 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   defp parse_format(_), do: :jpeg
 
   @impl ImagePipe.Dialect
+  def prepare(%Plug.Conn{} = conn, %{render?: true} = request, config) do
+    negotiation = Negotiation.terminal(:fixture_text)
+
+    {:ok,
+     %Resolved{
+       request: request,
+       source: %Path{segments: request.segments},
+       negotiation: {:ok, negotiation, material(request, negotiation, conn, config)},
+       response_meta: %PlanResponse{},
+       operations: [],
+       auto_rotate?: true,
+       debug?: request.debug?,
+       terminal: {:render, render_terminal()}
+     }}
+  end
+
   def prepare(%Plug.Conn{} = conn, request, config) do
     plan_output = %Output{mode: {:explicit, request.format}, quality: :default}
 
@@ -86,6 +104,12 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
        debug?: request.debug?,
        terminal: :image
      }}
+  end
+
+  defp render_terminal do
+    %RenderTerminal{
+      fun: fn _resolved_source, _config -> {:ok, "text/plain; charset=utf-8", "fixture-body"} end
+    }
   end
 
   defp material(request, negotiation, conn, _config) do
