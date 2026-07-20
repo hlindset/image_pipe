@@ -177,6 +177,16 @@ callbacks:
 }
 ```
 
+**Staged introduction.** This listing is the END-STATE shape. Fields whose
+dispatching code lands in Phase C are introduced in Phase C, not before:
+`http_cache` arrives with the promoted header-policy module (U8b), and
+`RenderTerminal`'s `cache`/`offers` arrive with the `:none`/`Sender`-rendered
+delivery (U11) — Phase A ships `Resolved` without `http_cache` and a
+fun-only `RenderTerminal`, so no phase's public type advertises semantics
+its runner does not implement. Widening a struct with new fields alongside
+their dispatching code is additive; this is an unreleased greenfield
+library, so no versioned-contract or migration machinery is warranted.
+
 `%ImagePipe.Dialect.Negotiation{selected, vary?, policy_material, policy,
 plan_output}` is the promoted dialect negotiation-outcome struct.
 `plan_output` (a `%Plan.Output{}` or nil) is the neutral output plan the
@@ -199,6 +209,10 @@ helper module with no struct; that module is unchanged.)
                                                # uncached today and stays so
 }
 ```
+
+(`offers` and `cache` are Phase C fields — see the staged-introduction note
+under `Resolved` above; Phase A's struct is fun-only with the complete-body
+delivery implied.)
 
 The runner owns both existing render deliveries, selected by these values:
 `cache: :complete_body` runs the shared complete-body lifecycle
