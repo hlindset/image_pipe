@@ -5,13 +5,44 @@ defmodule ImagePipe.PlugDialectRunnerTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.RunnerFixtureDialect
+  alias ImgproxyWireConformanceTest.CacheProbe
+  alias ImgproxyWireConformanceTest.CountingOriginImage
   alias ImgproxyWireConformanceTest.OriginImage
+  alias ImgproxyWireConformanceTest.OriginShouldNotFetch
 
   @sources [
     path:
       {RootHTTPAdapter,
        root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
   ]
+
+  defp counting_sources do
+    [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test",
+         byte_identity: :strong,
+         req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+    ]
+  end
+
+  defp should_not_fetch_sources do
+    [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test",
+         byte_identity: :strong,
+         req_options: [plug: OriginShouldNotFetch]}
+    ]
+  end
+
+  # A fresh ETS-backed CacheProbe store: makes lookups/commits stateful
+  # (real miss-then-hit round trips) rather than the stateless default (see
+  # CacheProbe's module doc).
+  defp stateful_cache_probe do
+    table = :ets.new(:runner_wire_cache_probe, [:set, :public])
+    {CacheProbe, store: table}
+  end
 
   defp opts(extra \\ []) do
     base =
@@ -46,5 +77,42 @@ defmodule ImagePipe.PlugDialectRunnerTest do
   test "OPTIONS answers 204 and non-GET/HEAD answers 405" do
     assert ImagePipe.Plug.call(conn(:options, "/fix/x.jpg"), opts()).status == 204
     assert ImagePipe.Plug.call(conn(:post, "/fix/x.jpg"), opts()).status == 405
+  end
+
+  test "matching If-None-Match returns 304 before any source fetch" do
+    config = opts(sources: should_not_fetch_sources())
+    first = get("/fix/images/beach.jpg?format=webp", opts())
+    [etag] = get_resp_header(first, "etag")
+
+    conn = get("/fix/images/beach.jpg?format=webp", config, [{"if-none-match", etag}])
+    assert conn.status == 304
+    assert conn.resp_body == ""
+  end
+
+  test "miss then hit round trip through the internal cache" do
+    config = opts(cache: stateful_cache_probe(), sources: counting_sources())
+
+    miss = get("/fix/images/beach.jpg?format=webp", config)
+    assert miss.status == 200
+    assert_received :origin_fetch
+
+    hit = get("/fix/images/beach.jpg?format=webp", config)
+    assert hit.status == 200
+    assert hit.resp_body == miss.resp_body
+    refute_received :origin_fetch
+  end
+
+  test "If-None-Match: * is honored only on a cache hit" do
+    config = opts(cache: stateful_cache_probe(), sources: counting_sources())
+
+    # No entry yet: wildcard proceeds (200, generation happens).
+    first = get("/fix/images/beach.jpg?format=webp", config, [{"if-none-match", "*"}])
+    assert first.status == 200
+    assert_received :origin_fetch
+
+    # Entry exists: wildcard answers 304 without regeneration.
+    second = get("/fix/images/beach.jpg?format=webp", config, [{"if-none-match", "*"}])
+    assert second.status == 304
+    refute_received :origin_fetch
   end
 end
