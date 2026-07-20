@@ -5,10 +5,16 @@ defmodule ImagePipe.Plug do
 
   use Boundary,
     deps: [
+      ImagePipe.Cache,
       ImagePipe.Debug,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect,
       ImagePipe.Error,
+      ImagePipe.Output,
       ImagePipe.Parser,
       ImagePipe.Plan,
+      ImagePipe.Representation,
       ImagePipe.Request,
       ImagePipe.Response,
       ImagePipe.Source,
@@ -33,13 +39,26 @@ defmodule ImagePipe.Plug do
 
   @impl Plug
   def init(opts) do
-    opts
-    |> Options.validate!()
-    |> validate_parser_options()
+    case Keyword.fetch(opts, :dialect) do
+      {:ok, dialect} when is_atom(dialect) ->
+        [dialect: dialect] ++ dialect.validate_config!(Keyword.delete(opts, :dialect))
+
+      :error ->
+        opts
+        |> Options.validate!()
+        |> validate_parser_options()
+    end
   end
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
+    case Keyword.fetch(opts, :dialect) do
+      {:ok, dialect} -> ImagePipe.Plug.DialectRunner.run(conn, dialect, opts)
+      :error -> legacy_call(conn, opts)
+    end
+  end
+
+  defp legacy_call(%Plug.Conn{} = conn, opts) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
     Telemetry.Trace.maybe_extract_inbound(conn)
     conn = CORS.maybe_register(conn, opts)
