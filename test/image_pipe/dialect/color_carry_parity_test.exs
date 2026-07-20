@@ -55,7 +55,10 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
   end
 
   defp dialect_native(path) do
-    Native.call(conn(:get, path), Native.init(sources: sources()))
+    ImagePipe.Plug.call(
+      conn(:get, path),
+      ImagePipe.Plug.init(dialect: Native, sources: sources())
+    )
   end
 
   # A coarse pixel grid over the fixture's distinct regions (red field, white

@@ -225,7 +225,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
 
   defp opts(extra) do
     {seams, known} = Keyword.split(extra, @test_only_seam_keys)
-    base = Native.init(Keyword.merge([sources: @default_sources], known))
+    base = ImagePipe.Plug.init(Keyword.merge([dialect: Native, sources: @default_sources], known))
 
     Keyword.merge(
       base,
@@ -236,7 +236,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    Native.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   defp decoded_dims(body) do

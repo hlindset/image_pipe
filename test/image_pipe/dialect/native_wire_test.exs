@@ -56,10 +56,12 @@ defmodule ImagePipe.Dialect.NativeWireTest do
 
   # `output_capabilities` and `on_bracket_exit` are internal test-injection
   # seams (the same convention `ImagePipe.Output.Capabilities.supports?/2`
-  # already documents) — appended AFTER `Native.init/1`'s validation, which
-  # would reject them as unknown options.
+  # already documents) — appended AFTER `ImagePipe.Plug.init/1`'s validation,
+  # which would reject them as unknown options.
   defp opts(extra) do
-    base = Native.init(Keyword.merge([sources: @default_sources], extra))
+    base =
+      ImagePipe.Plug.init(Keyword.merge([dialect: Native, sources: @default_sources], extra))
+
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
@@ -68,7 +70,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    Native.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   defp decoded_dims(body) do
@@ -159,7 +161,13 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       {:ok, request} = Parser.parse(lexed(["format=jpeg", "q=42"]), config)
       conn = conn(:get, "/format=jpeg/q=42/src/images/cat.jpg")
 
-      assert {:ok, negotiation} = Native.negotiate(conn, request, config)
+      assert {:ok, negotiation} =
+               ImagePipe.Dialect.Negotiation.negotiate(
+                 conn,
+                 ImagePipe.Dialect.Native.Identity.plan_output(request),
+                 config
+               )
+
       assert Keyword.fetch!(negotiation.policy_material, :quality) == {:quality, 42}
 
       assert {:ok, resolved} = Policy.resolve(negotiation.policy, :jpeg)
@@ -525,7 +533,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   defp call_method(method, path, config) do
     method
     |> conn(path)
-    |> Native.call(config)
+    |> ImagePipe.Plug.call(config)
   end
 
   describe "OPTIONS / method layer" do

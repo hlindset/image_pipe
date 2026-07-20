@@ -41,13 +41,13 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
     ]
   end
 
-  defp get(dialect, path, headers) do
+  defp get(mod, init_opts, path, headers) do
     conn =
       Enum.reduce(headers, conn(:get, path), fn {k, v}, conn ->
         Plug.Conn.put_req_header(conn, k, v)
       end)
 
-    dialect.call(conn, dialect.init(sources: sources()))
+    mod.call(conn, mod.init(init_opts))
   end
 
   describe "ImagePipe.Dialect.Imgproxy" do
@@ -55,9 +55,14 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
       :ok = TestExporter.attach(self(), extract_inbound: true)
 
       conn =
-        get(ImgproxyDialect, "/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg", [
-          {"traceparent", @tp}
-        ])
+        get(
+          ImgproxyDialect,
+          [sources: sources()],
+          "/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg",
+          [
+            {"traceparent", @tp}
+          ]
+        )
 
       assert conn.status == 200
 
@@ -70,9 +75,14 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
       :ok = TestExporter.attach(self())
 
       conn =
-        get(ImgproxyDialect, "/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg", [
-          {"traceparent", @tp}
-        ])
+        get(
+          ImgproxyDialect,
+          [sources: sources()],
+          "/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg",
+          [
+            {"traceparent", @tp}
+          ]
+        )
 
       assert conn.status == 200
 
@@ -86,7 +96,13 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
     test "adopts an inbound traceparent when extract_inbound: true" do
       :ok = TestExporter.attach(self(), extract_inbound: true)
 
-      conn = get(NativeDialect, "/w=64/src/images/beach.jpg", [{"traceparent", @tp}])
+      conn =
+        get(
+          ImagePipe.Plug,
+          [dialect: NativeDialect, sources: sources()],
+          "/w=64/src/images/beach.jpg",
+          [{"traceparent", @tp}]
+        )
 
       assert conn.status == 200
 
@@ -98,7 +114,13 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
     test "ignores traceparent by default (opt-in)" do
       :ok = TestExporter.attach(self())
 
-      conn = get(NativeDialect, "/w=64/src/images/beach.jpg", [{"traceparent", @tp}])
+      conn =
+        get(
+          ImagePipe.Plug,
+          [dialect: NativeDialect, sources: sources()],
+          "/w=64/src/images/beach.jpg",
+          [{"traceparent", @tp}]
+        )
 
       assert conn.status == 200
 

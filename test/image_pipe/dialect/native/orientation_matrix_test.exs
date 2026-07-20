@@ -194,7 +194,8 @@ defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
   # ── wire-level helpers (mirrors native_wire_test.exs) ──────────────────
 
   defp native_opts(origin) do
-    Native.init(
+    ImagePipe.Plug.init(
+      dialect: Native,
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
       ]
@@ -202,7 +203,7 @@ defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
   end
 
   defp get(path, config) do
-    conn(:get, path) |> Native.call(config)
+    conn(:get, path) |> ImagePipe.Plug.call(config)
   end
 
   defp native_path(segments) do

@@ -4,8 +4,8 @@ defmodule ImagePipe.Dialect.Native.IdentityTest do
   import Plug.Test
 
   alias ImagePipe.Dialect.Native.Identity
-  alias ImagePipe.Dialect.Native.Negotiation
   alias ImagePipe.Dialect.Native.Parser
+  alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Representation
@@ -41,7 +41,9 @@ defmodule ImagePipe.Dialect.Native.IdentityTest do
     base = [
       selected: {:image, :source_negotiated},
       vary?: true,
-      policy_material: Policy.identity_material(base_policy())
+      policy_material: Policy.identity_material(base_policy()),
+      policy: nil,
+      plan_output: nil
     ]
 
     struct!(Negotiation, Keyword.merge(base, overrides))
