@@ -21,8 +21,8 @@ defmodule ImagePipe.Dialect.NativeResultLimitsTest do
   ]
 
   # `output_capabilities` is an internal test-injection seam appended AFTER
-  # `Native.init/1`'s validation, which would reject it as an unknown option
-  # [mirrors native_wire_test.exs's `opts/1` helper].
+  # `ImagePipe.Plug.init/1`'s validation, which would reject it as an unknown
+  # option [mirrors native_wire_test.exs's `opts/1` helper].
   defp opts(extra) do
     base = ImagePipe.Plug.init(Keyword.merge([dialect: Native, sources: @default_sources], extra))
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})

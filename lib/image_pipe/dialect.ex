@@ -41,7 +41,17 @@ defmodule ImagePipe.Dialect do
           | {:redirect, pos_integer(), String.t()}
           | {:error, term()}
 
-  @doc "Init-time config validation; raises on invalid input."
+  @doc """
+  Init-time config validation; raises on invalid input.
+
+  The runner reads the shared runtime keys (`:sources`, `:cache`,
+  `:max_result_width`/`:max_result_height`/`:max_result_pixels`,
+  `:max_body_bytes`, `:max_input_pixels`) straight from the validated
+  config, so the returned keyword must carry them in the shapes
+  `ImagePipe.Dialect.SharedConfig.validate_runtime!/1` produces — delegate
+  the shared subset to it (as `ImagePipe.Dialect.Native` does) rather than
+  hand-rolling those keys.
+  """
   @callback validate_config!(config()) :: config()
 
   @doc """

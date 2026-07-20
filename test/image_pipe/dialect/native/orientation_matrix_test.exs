@@ -36,7 +36,7 @@ defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
      config, both storage-orientation-invariant) never itself branches on
      storage orientation; only core's downstream numeric resolution and the
      orientation-driven `Flush` differ.
-  2. **Pixel invariance** — wire-level `Dialect.Native.call/2` responses for
+  2. **Pixel invariance** — wire-level native-dialect responses for
      the twin/oriented pair are pixel-close (reusing
      `ImagePipe.Test.Differential.PixelCompare`) — see
      `describe "pixel invariance (wire-level twin oracle)"`.

@@ -122,18 +122,18 @@ defmodule ImagePipe.Plug.DialectRunner do
   defp serve_terminal(
          conn,
          dialect,
-         %Resolved{terminal: {:render, terminal}} = resolved,
+         %Resolved{terminal: {:render, terminal}},
          %ImageSource.Resolved{internal_cache: :disabled} = source,
          _negotiation,
          representation,
          config
        ),
-       do: generate_render(conn, dialect, resolved, terminal, source, representation, nil, config)
+       do: generate_render(conn, dialect, terminal, source, representation, nil, config)
 
   defp serve_terminal(
          conn,
          dialect,
-         %Resolved{terminal: {:render, terminal}} = resolved,
+         %Resolved{terminal: {:render, terminal}},
          %ImageSource.Resolved{internal_cache: :enabled} = source,
          _negotiation,
          representation,
@@ -150,7 +150,6 @@ defmodule ImagePipe.Plug.DialectRunner do
         generate_render(
           conn,
           dialect,
-          resolved,
           terminal,
           source,
           representation,
@@ -173,16 +172,7 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
-  defp generate_render(
-         conn,
-         dialect,
-         _resolved,
-         terminal,
-         source,
-         representation,
-         cache_key,
-         config
-       ) do
+  defp generate_render(conn, dialect, terminal, source, representation, cache_key, config) do
     started_at = System.monotonic_time(:microsecond)
 
     case terminal.fun.(source, config) do
@@ -259,7 +249,7 @@ defmodule ImagePipe.Plug.DialectRunner do
 
     case lookup_result do
       {:hit, %Cache.Entry{} = entry} ->
-        deliver_hit(conn, dialect, resolved, entry, representation, cache_serve_us, config)
+        deliver_hit(conn, resolved, entry, representation, cache_serve_us, config)
 
       _miss_or_disabled ->
         generate(
@@ -278,11 +268,11 @@ defmodule ImagePipe.Plug.DialectRunner do
   # A cache hit is the proof that a current representation exists for this
   # key — the only place `If-None-Match: *` may be honored (mirrors every
   # dialect chain and Request.Runner).
-  defp deliver_hit(conn, dialect, resolved, entry, representation, cache_serve_us, config) do
+  defp deliver_hit(conn, resolved, entry, representation, cache_serve_us, config) do
     if Conditional.if_none_match_wildcard?(conn) do
       send_not_modified(conn, representation, config)
     else
-      deliver_hit_entry(conn, dialect, resolved, entry, representation, cache_serve_us, config)
+      deliver_hit_entry(conn, resolved, entry, representation, cache_serve_us, config)
     end
   end
 
@@ -292,7 +282,6 @@ defmodule ImagePipe.Plug.DialectRunner do
   # delivery content types and errors on anything else).
   defp deliver_hit_entry(
          conn,
-         _dialect,
          _resolved,
          %Cache.Entry{representation: {:complete_body, content_type}} = entry,
          representation,
@@ -307,7 +296,7 @@ defmodule ImagePipe.Plug.DialectRunner do
     {conn, %{result: :ok}}
   end
 
-  defp deliver_hit_entry(conn, _dialect, resolved, entry, representation, cache_serve_us, config) do
+  defp deliver_hit_entry(conn, resolved, entry, representation, cache_serve_us, config) do
     hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
 
     conn =
@@ -468,10 +457,8 @@ defmodule ImagePipe.Plug.DialectRunner do
     do: %{result: :processing_error, error: Error.tag(error)}
 
   # `supports_hdr?` from the negotiation's own policy + plan_output — never
-  # from the opaque request. Conservative false when there is no policy.
-  defp pipeline_opts(%Negotiation{policy: nil}, _geometry, config),
-    do: Keyword.put(config, :supports_hdr?, false)
-
+  # from the opaque request. Only image terminals reach this, and their
+  # negotiation always carries a policy.
   defp pipeline_opts(%Negotiation{} = negotiation, geometry, config) do
     Keyword.put(
       config,

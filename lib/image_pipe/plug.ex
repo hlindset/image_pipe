@@ -1,6 +1,11 @@
 defmodule ImagePipe.Plug do
   @moduledoc """
   Plug entry point for fetching, transforming, caching, and encoding images.
+
+  Two mount modes share this entry point: the framework mode (`parser:` — a
+  declarative `ImagePipe.Parser` producing an `ImagePipe.Plan`) and the
+  dialect mode (`dialect:` — an `ImagePipe.Dialect` implementation driven by
+  the shared lifecycle runner).
   """
 
   use Boundary,
