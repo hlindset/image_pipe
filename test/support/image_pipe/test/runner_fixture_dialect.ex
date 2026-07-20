@@ -10,6 +10,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
       ImagePipe.Dialect.SharedConfig,
       ImagePipe.Plan,
       ImagePipe.Representation,
+      ImagePipe.Telemetry,
       ImagePipe.Transform
     ]
 
@@ -60,6 +61,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
 
   defp parse_format("webp"), do: :webp
   defp parse_format("jpeg"), do: :jpeg
+  defp parse_format("bmp"), do: :bmp
   defp parse_format(_), do: :jpeg
 
   @impl ImagePipe.Dialect
@@ -112,5 +114,13 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
 
   def render_error(conn, :not_found, _config), do: send_resp(conn, 404, "not found")
   def render_error(conn, {:source, _}, _config), do: send_resp(conn, 404, "source error")
+
+  def render_error(conn, {:unsupported_output_format, _}, _config),
+    do: send_resp(conn, 415, "unsupported output")
+
   def render_error(conn, _reason, _config), do: send_resp(conn, 500, "error")
+
+  @impl ImagePipe.Dialect
+  def classify_error(:fixture_parse_reject), do: :parser_error
+  def classify_error(reason), do: ImagePipe.Telemetry.request_result({:error, reason})
 end

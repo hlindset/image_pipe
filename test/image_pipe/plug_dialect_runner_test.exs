@@ -115,4 +115,36 @@ defmodule ImagePipe.PlugDialectRunnerTest do
     assert second.status == 304
     refute_received :origin_fetch
   end
+
+  test "negotiation failure surfaces after source resolution, source failure wins when both fail" do
+    # capable source + incapable format -> negotiation error (415)
+    conn = get("/fix/images/beach.jpg?format=bmp", opts())
+    assert conn.status == 415
+
+    # A config with NO adapter for the :path source kind makes Source.resolve
+    # itself fail ({:source, :missing_adapter}) — a genuine resolve-time
+    # error, needing no custom adapter. With the incapable format on the
+    # same request, the SOURCE error must win (the runner unwraps the
+    # deferred negotiation only after resolve succeeds): 404 via the
+    # fixture's {:source, _} render_error clause, not 415.
+    conn = get("/fix/images/beach.jpg?format=bmp", opts(sources: []))
+    assert conn.status == 404
+  end
+
+  test "classify_error shapes the [:request] stop result" do
+    prefix = [:runner_fixture_classify]
+    handler = "runner-fixture-classify-#{inspect(self())}"
+
+    :telemetry.attach(
+      handler,
+      prefix ++ [:request, :stop],
+      fn _event, _measurements, metadata, pid -> send(pid, {:request_stop, metadata}) end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    get("/fix/images/beach.jpg?boom=parse", opts(telemetry_prefix: prefix))
+    assert_received {:request_stop, %{result: :parser_error}}
+  end
 end
