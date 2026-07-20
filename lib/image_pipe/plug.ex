@@ -28,6 +28,7 @@ defmodule ImagePipe.Plug do
   alias ImagePipe.Error
   alias ImagePipe.Parser
   alias ImagePipe.Plan
+  alias ImagePipe.Plug.DialectRunner
   alias ImagePipe.Request.HTTPCache
   alias ImagePipe.Request.Options
   alias ImagePipe.Request.Runner
@@ -53,7 +54,7 @@ defmodule ImagePipe.Plug do
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
     case Keyword.fetch(opts, :dialect) do
-      {:ok, dialect} -> ImagePipe.Plug.DialectRunner.run(conn, dialect, opts)
+      {:ok, dialect} -> DialectRunner.run(conn, dialect, opts)
       :error -> legacy_call(conn, opts)
     end
   end

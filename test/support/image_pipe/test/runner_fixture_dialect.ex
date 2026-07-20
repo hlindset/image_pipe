@@ -20,6 +20,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
 
   alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Dialect.Resolved
+  alias ImagePipe.Dialect.SharedConfig
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Plan.Source.Path
@@ -35,7 +36,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   # the runner fetches with Keyword.fetch!. Unknown keys such as the
   # fixture-only :allow_debug_headers pass through untouched
   # (validate_known_opts! merges the validated subset back).
-  def validate_config!(opts), do: ImagePipe.Dialect.SharedConfig.validate_runtime!(opts)
+  def validate_config!(opts), do: SharedConfig.validate_runtime!(opts)
 
   @impl ImagePipe.Dialect
   def parse(%Plug.Conn{path_info: ["fix" | segments]} = conn, _config) do

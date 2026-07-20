@@ -147,4 +147,37 @@ defmodule ImagePipe.PlugDialectRunnerTest do
     get("/fix/images/beach.jpg?boom=parse", opts(telemetry_prefix: prefix))
     assert_received {:request_stop, %{result: :parser_error}}
   end
+
+  test "debug facts are stored with the entry and replayed on hit only when enabled" do
+    cache = stateful_cache_probe()
+
+    # Generated with rendering OFF: no debug headers, but the entry stores facts.
+    off = get("/fix/images/beach.jpg?format=webp&debug=1", opts(cache: cache))
+    assert off.status == 200
+    assert get_resp_header(off, "x-imagepipe-source-format") == []
+
+    # Same mount with rendering ON: the hit replays the STORED facts.
+    on =
+      get(
+        "/fix/images/beach.jpg?format=webp&debug=1",
+        opts(cache: cache, allow_debug_headers: true)
+      )
+
+    assert on.status == 200
+    assert get_resp_header(on, "x-imagepipe-cache") == ["hit"]
+    assert get_resp_header(on, "x-imagepipe-source-format") == ["jpeg"]
+    assert [timing] = get_resp_header(on, "server-timing")
+    assert timing =~ "cache;dur="
+  end
+
+  test "a debug miss renders measured timings and the six source facts" do
+    conn = get("/fix/images/beach.jpg?format=webp&debug=1", opts(allow_debug_headers: true))
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "x-imagepipe-cache") == ["miss"]
+    assert [timing] = get_resp_header(conn, "server-timing")
+    assert timing =~ "decode;dur=" and timing =~ "transform;dur=" and timing =~ "encode;dur="
+    assert get_resp_header(conn, "x-imagepipe-source-size") != []
+    assert get_resp_header(conn, "x-imagepipe-source-color-space") != []
+  end
 end

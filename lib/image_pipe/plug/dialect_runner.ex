@@ -5,9 +5,11 @@ defmodule ImagePipe.Plug.DialectRunner do
   # (U4) — it must never name a dialect or accept a dialect-specific option.
 
   alias ImagePipe.Cache
+  alias ImagePipe.Debug.Timing
   alias ImagePipe.Decode
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.StreamPull
+  alias ImagePipe.Dialect.DebugContext
   alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Dialect.Resolved
   alias ImagePipe.Error
@@ -16,6 +18,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
+  alias ImagePipe.Plug.DebugBuilder
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.Conditional
@@ -212,13 +215,17 @@ defmodule ImagePipe.Plug.DialectRunner do
     on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
 
     fn pump ->
+      decode_started_at = System.monotonic_time(:microsecond)
+
       Decode.with_image(
         source,
         decode_opts,
         &dialect.decode_request(resolved.request, &1),
         fn state, geometry ->
+          decode_us = System.monotonic_time(:microsecond) - decode_started_at
+
           try do
-            produce_stream(dialect, state, geometry, resolved, negotiation, config, pump)
+            produce_stream(dialect, state, geometry, resolved, negotiation, config, pump, decode_us)
           after
             on_bracket_exit.()
           end
@@ -230,9 +237,13 @@ defmodule ImagePipe.Plug.DialectRunner do
   # transform → resolve output → clamp → materialize → encode first chunk →
   # hand off. Runs inside Delivery.Producer. (The dialects' build_and_pump,
   # written once — spec §The runner.)
-  defp produce_stream(dialect, state, geometry, resolved, negotiation, config, pump) do
-    with {:ok, %State{} = state} <-
-           run_transform(dialect, state, geometry, resolved, negotiation, config),
+  defp produce_stream(dialect, state, geometry, resolved, negotiation, config, pump, decode_us) do
+    shrink = state.decode_shrink
+
+    with {{:ok, %State{} = state}, transform_us} <-
+           Timing.measure(fn ->
+             run_transform(dialect, state, geometry, resolved, negotiation, config)
+           end),
          {:ok, %ResolvedOutput{} = resolved_output} <-
            resolve_output(negotiation.policy, geometry.source_format, state.image, config),
          {:ok, clamped, _clamp_info} <-
@@ -244,11 +255,24 @@ defmodule ImagePipe.Plug.DialectRunner do
            ),
          {:ok, %State{image: image}} <-
            materialize_for_delivery(%State{state | image: clamped}, config),
-         {:ok, chunk, content_type, stream_state, _search_meta} <-
-           encode_first_chunk(image, resolved_output, config) do
-      pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, nil)
+         {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
+           Timing.measure(fn -> encode_first_chunk(image, resolved_output, config) end) do
+      debug =
+        DebugBuilder.build(dialect, %DebugContext{
+          geometry: geometry,
+          shrink: shrink,
+          negotiation: negotiation,
+          resolved_output: resolved_output,
+          image: image,
+          search_meta: search_meta,
+          operations: resolved.operations,
+          timings: %{decode: decode_us, transform: transform_us, encode: encode_us}
+        })
+
+      pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, debug)
     else
-      :empty -> {:error, {:encode, :empty_stream}}
+      {:empty, _microseconds} -> {:error, {:encode, :empty_stream}}
+      {{:error, _reason} = error, _microseconds} -> error
       {:error, _reason} = error -> error
     end
   rescue
@@ -276,6 +300,7 @@ defmodule ImagePipe.Plug.DialectRunner do
     )
   end
 
+  # ex_dna:disable-for-next-line
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
 
   defp transform_stop_metadata({:error, error}),
@@ -303,6 +328,7 @@ defmodule ImagePipe.Plug.DialectRunner do
     )
   end
 
+  # ex_dna:disable-for-next-line
   defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
@@ -312,8 +338,7 @@ defmodule ImagePipe.Plug.DialectRunner do
         result =
           with {:ok, stream, content_type, search_meta} <-
                  Encoder.stream_output(image, resolved_output, config),
-               {:ok, chunk, stream_state} <-
-                 StreamPull.translate(fn -> StreamPull.first_chunk(stream) end) do
+               {:ok, chunk, stream_state} <- first_chunk(stream) do
             {:ok, chunk, content_type, stream_state, search_meta}
           end
 
@@ -322,6 +347,11 @@ defmodule ImagePipe.Plug.DialectRunner do
     )
   end
 
+  defp first_chunk(stream) do
+    StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
+  end
+
+  # ex_dna:disable-for-next-line
   defp encode_stop_metadata({:ok, _chunk, _ct, _stream_state, _meta}, format),
     do: %{result: :ok, output_format: format}
 
@@ -331,6 +361,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   defp encode_stop_metadata({:error, reason}, format),
     do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
 
+  # ex_dna:disable-for-next-line
   defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
 
   defp materialize_for_delivery(%State{} = state, config) do
@@ -340,6 +371,7 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
+  # ex_dna:disable-for-next-line
   defp result_limits(format, config) do
     %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
       Encoder.encoder_limit(format)
@@ -364,6 +396,7 @@ defmodule ImagePipe.Plug.DialectRunner do
 
   # -- terminal sends ---------------------------------------------------------
 
+  # ex_dna:disable-for-next-line
   defp send_with_span(%Plug.Conn{}, config, result, fun) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:send], %{result: result}, fn ->
       sent_conn = fun.()
@@ -376,6 +409,7 @@ defmodule ImagePipe.Plug.DialectRunner do
     end)
   end
 
+  # ex_dna:disable-for-next-line
   defp send_not_modified(conn, %Representation{} = representation, config) do
     conn =
       send_with_span(conn, config, :not_modified, fn ->
