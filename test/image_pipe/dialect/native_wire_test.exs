@@ -8,7 +8,9 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Dialect.Native
+  alias ImagePipe.Dialect.Native.Identity
   alias ImagePipe.Dialect.Native.Parser
+  alias ImagePipe.Dialect.Negotiation, as: DialectNegotiation
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -56,10 +58,12 @@ defmodule ImagePipe.Dialect.NativeWireTest do
 
   # `output_capabilities` and `on_bracket_exit` are internal test-injection
   # seams (the same convention `ImagePipe.Output.Capabilities.supports?/2`
-  # already documents) — appended AFTER `Native.init/1`'s validation, which
-  # would reject them as unknown options.
+  # already documents) — appended AFTER `ImagePipe.Plug.init/1`'s validation,
+  # which would reject them as unknown options.
   defp opts(extra) do
-    base = Native.init(Keyword.merge([sources: @default_sources], extra))
+    base =
+      ImagePipe.Plug.init(Keyword.merge([dialect: Native, sources: @default_sources], extra))
+
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
@@ -68,7 +72,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    Native.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   defp decoded_dims(body) do
@@ -159,7 +163,9 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       {:ok, request} = Parser.parse(lexed(["format=jpeg", "q=42"]), config)
       conn = conn(:get, "/format=jpeg/q=42/src/images/cat.jpg")
 
-      assert {:ok, negotiation} = Native.negotiate(conn, request, config)
+      assert {:ok, negotiation} =
+               DialectNegotiation.negotiate(conn, Identity.plan_output(request), config)
+
       assert Keyword.fetch!(negotiation.policy_material, :quality) == {:quality, 42}
 
       assert {:ok, resolved} = Policy.resolve(negotiation.policy, :jpeg)
@@ -525,7 +531,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   defp call_method(method, path, config) do
     method
     |> conn(path)
-    |> Native.call(config)
+    |> ImagePipe.Plug.call(config)
   end
 
   describe "OPTIONS / method layer" do
@@ -655,6 +661,39 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       assert :ok = Coordinator.cancel(coordinator)
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
+    end
+  end
+
+  # ── internal_cache: :disabled (U9) ──────────────────────────────────────
+
+  describe "internal_cache: :disabled" do
+    test "a source resolving internal_cache: :disabled is neither read from nor written to the cache" do
+      config =
+        opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               byte_identity: :strong,
+               req_options: [plug: {CountingOriginImage, test_pid: self()}],
+               internal_cache: :disabled}
+          ],
+          cache: stateful_cache_probe()
+        )
+
+      # Two identical requests: both must regenerate from the origin, and the
+      # cache must never be consulted or written between them.
+      first = get("/w=64/src/images/cat.jpg", config)
+      assert first.status == 200
+      assert_received :origin_fetch
+
+      second = get("/w=64/src/images/cat.jpg", config)
+      assert second.status == 200
+      assert_received :origin_fetch
+
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received {:source_order, :cache_put}
     end
   end
 end

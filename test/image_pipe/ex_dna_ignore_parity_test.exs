@@ -10,6 +10,7 @@ defmodule ImagePipe.ExDnaConfigTest do
              "lib/image_pipe/decode.ex",
              "lib/image_pipe/decode/source_format.ex",
              "lib/image_pipe/dialect/shared_config.ex",
+             "lib/image_pipe/plug/debug_builder.ex",
              "lib/image_pipe/response/conditional.ex"
            ]
 

@@ -729,9 +729,9 @@ defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
     prefix = [:"stage_set_nat_#{System.unique_integer([:positive])}"]
     attach(prefix)
 
-    opts = Native.init(sources: sources(), telemetry_prefix: prefix)
+    opts = ImagePipe.Plug.init(dialect: Native, sources: sources(), telemetry_prefix: prefix)
 
-    conn = Native.call(conn(:get, "/w=64/src/images/beach.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/w=64/src/images/beach.jpg"), opts)
     assert conn.status == 200
     drain(prefix)
   end

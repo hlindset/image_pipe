@@ -10,19 +10,30 @@ defmodule ImagePipe.Transform.SourceGeometry do
   a mutable `frame`): `SourceGeometry` is a smaller, decode-time-only value —
   the two storage/display extents, the (possibly identity) pending
   orientation the decode observed, and the resolved source format.
+
+  `debug_facts` carries best-effort, non-sensitive source facts collected by
+  `ImagePipe.Decode` for the debug headers; `%{}` when collection failed or
+  the geometry was built elsewhere.
   """
 
   alias ImagePipe.Format
   alias ImagePipe.Transform.PendingOrientation
 
   @enforce_keys [:storage_dimensions, :display_dimensions, :pending_orientation, :source_format]
-  defstruct [:storage_dimensions, :display_dimensions, :pending_orientation, :source_format]
+  defstruct [
+    :storage_dimensions,
+    :display_dimensions,
+    :pending_orientation,
+    :source_format,
+    debug_facts: %{}
+  ]
 
   @type t :: %__MODULE__{
           storage_dimensions: {pos_integer(), pos_integer()},
           display_dimensions: {pos_integer(), pos_integer()},
           pending_orientation: PendingOrientation.t(),
-          source_format: Format.source_format()
+          source_format: Format.source_format(),
+          debug_facts: map()
         }
 
   @doc """

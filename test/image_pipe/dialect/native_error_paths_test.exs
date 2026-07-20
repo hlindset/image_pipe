@@ -219,13 +219,13 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
 
   # `output_capabilities`/`on_bracket_exit`/`chain`/`image_module` are test-
   # injection seams that `Native.Config.validate!/1` would reject as unknown
-  # options — appended AFTER `Native.init/1`, mirroring
+  # options — appended AFTER `ImagePipe.Plug.init/1`, mirroring
   # `NativeWireTest`'s `opts/1` convention exactly.
   @test_only_seam_keys [:output_capabilities, :on_bracket_exit, :chain, :image_module]
 
   defp opts(extra) do
     {seams, known} = Keyword.split(extra, @test_only_seam_keys)
-    base = Native.init(Keyword.merge([sources: @default_sources], known))
+    base = ImagePipe.Plug.init(Keyword.merge([dialect: Native, sources: @default_sources], known))
 
     Keyword.merge(
       base,
@@ -236,7 +236,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    Native.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   defp decoded_dims(body) do
@@ -294,10 +294,10 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
 
     # A pre-delivery failure (a fetch error, discovered before
     # `Delivery.stream/5` is ever called) must still stamp `:result` on the
-    # `[:request]` span's stop metadata — the bug this test guards is
-    # `Native.call/2`'s span carrying only `:status`, which renders every
-    # failing request as `ok` under the default Logger's `outcome/1`
-    # (AGENTS.md, telemetry guidelines).
+    # `[:request]` span's stop metadata — the bug this test guards is the
+    # request span carrying only `:status`, which renders every failing
+    # request as `ok` under the default Logger's `outcome/1` (AGENTS.md,
+    # telemetry guidelines).
     test "stamps :source_error as :result on the [:request] stop span" do
       test_pid = self()
       prefix = [:"native_error_paths_#{System.unique_integer([:positive])}"]

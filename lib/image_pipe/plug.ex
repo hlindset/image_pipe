@@ -1,14 +1,25 @@
 defmodule ImagePipe.Plug do
   @moduledoc """
   Plug entry point for fetching, transforming, caching, and encoding images.
+
+  Two mount modes share this entry point: the framework mode (`parser:` — a
+  declarative `ImagePipe.Parser` producing an `ImagePipe.Plan`) and the
+  dialect mode (`dialect:` — an `ImagePipe.Dialect` implementation driven by
+  the shared lifecycle runner).
   """
 
   use Boundary,
     deps: [
+      ImagePipe.Cache,
       ImagePipe.Debug,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect,
       ImagePipe.Error,
+      ImagePipe.Output,
       ImagePipe.Parser,
       ImagePipe.Plan,
+      ImagePipe.Representation,
       ImagePipe.Request,
       ImagePipe.Response,
       ImagePipe.Source,
@@ -22,6 +33,7 @@ defmodule ImagePipe.Plug do
   alias ImagePipe.Error
   alias ImagePipe.Parser
   alias ImagePipe.Plan
+  alias ImagePipe.Plug.DialectRunner
   alias ImagePipe.Request.HTTPCache
   alias ImagePipe.Request.Options
   alias ImagePipe.Request.Runner
@@ -33,13 +45,26 @@ defmodule ImagePipe.Plug do
 
   @impl Plug
   def init(opts) do
-    opts
-    |> Options.validate!()
-    |> validate_parser_options()
+    case Keyword.fetch(opts, :dialect) do
+      {:ok, dialect} when is_atom(dialect) ->
+        [dialect: dialect] ++ dialect.validate_config!(Keyword.delete(opts, :dialect))
+
+      :error ->
+        opts
+        |> Options.validate!()
+        |> validate_parser_options()
+    end
   end
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
+    case Keyword.fetch(opts, :dialect) do
+      {:ok, dialect} -> DialectRunner.run(conn, dialect, opts)
+      :error -> legacy_call(conn, opts)
+    end
+  end
+
+  defp legacy_call(%Plug.Conn{} = conn, opts) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
     Telemetry.Trace.maybe_extract_inbound(conn)
     conn = CORS.maybe_register(conn, opts)

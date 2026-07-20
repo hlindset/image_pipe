@@ -37,7 +37,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
   end
 
   defp native_opts(sources) do
-    base = Native.init(sources: sources)
+    base = ImagePipe.Plug.init(dialect: Native, sources: sources)
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
@@ -68,7 +68,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
     end
 
     test "native streamed image" do
-      conn = call(Native, @native_image, native_opts(none_sources()))
+      conn = call(ImagePipe.Plug, @native_image, native_opts(none_sources()))
 
       assert conn.status == 200
       assert get_resp_header(conn, "etag") == []
@@ -76,7 +76,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
     end
 
     test "native blurhash complete body" do
-      conn = call(Native, @native_blurhash, native_opts(none_sources()))
+      conn = call(ImagePipe.Plug, @native_blurhash, native_opts(none_sources()))
 
       assert conn.status == 200
       assert get_resp_header(conn, "etag") == []
@@ -95,7 +95,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
     end
 
     test "native streamed image" do
-      conn = call(Native, @native_image, native_opts(strong_sources()))
+      conn = call(ImagePipe.Plug, @native_image, native_opts(strong_sources()))
 
       assert conn.status == 200
       assert [etag] = get_resp_header(conn, "etag")

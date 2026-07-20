@@ -1,3 +1,13 @@
+defmodule ImagePipe.Dialect.NativeContractTest.Mount do
+  @moduledoc false
+  # The contract kits drive a mountable `init/1` + `call/2` pair. Native now
+  # mounts through `ImagePipe.Plug`'s dialect mode, so this shim is its
+  # mount surface for the kits.
+
+  def init(opts), do: ImagePipe.Plug.init([dialect: ImagePipe.Dialect.Native] ++ opts)
+  def call(conn, config), do: ImagePipe.Plug.call(conn, config)
+end
+
 defmodule ImagePipe.Dialect.NativeContractTest do
   @moduledoc """
   The native dialect's `use`-site for `ImagePipe.ContractKit.CacheKey` and
@@ -7,8 +17,8 @@ defmodule ImagePipe.Dialect.NativeContractTest do
   request execution and assertions.
   """
 
-  use ImagePipe.ContractKit.CacheKey, dialect: ImagePipe.Dialect.Native
-  use ImagePipe.ContractKit.RequestSafety, dialect: ImagePipe.Dialect.Native
+  use ImagePipe.ContractKit.CacheKey, dialect: ImagePipe.Dialect.NativeContractTest.Mount
+  use ImagePipe.ContractKit.RequestSafety, dialect: ImagePipe.Dialect.NativeContractTest.Mount
 
   @signing_key "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 

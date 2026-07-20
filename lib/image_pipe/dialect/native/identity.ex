@@ -26,8 +26,8 @@ defmodule ImagePipe.Dialect.Native.Identity do
   passes to `Representation.build/3` alongside this material.
   """
 
-  alias ImagePipe.Dialect.Native.Negotiation
   alias ImagePipe.Dialect.Native.Request
+  alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Output
   alias ImagePipe.Representation

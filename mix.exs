@@ -7,6 +7,9 @@ defmodule ImagePipe.MixProject do
     "lib/image_pipe/decode.ex",
     "lib/image_pipe/decode/source_format.ex",
     "lib/image_pipe/dialect/shared_config.ex",
+    # Deliberate copy of the TwicPics debug build until Phase B deletes the
+    # dialect's copy.
+    "lib/image_pipe/plug/debug_builder.ex",
     "lib/image_pipe/response/conditional.ex"
   ]
 
@@ -46,6 +49,7 @@ defmodule ImagePipe.MixProject do
         groups_for_modules: [
           "Package API": [ImagePipe],
           "Plug API": [ImagePipe.Plug],
+          "Dialect API": [ImagePipe.Dialect, ~r/ImagePipe\.Dialect\..*/],
           "Parser API": [ImagePipe.Parser, ~r/ImagePipe\.Parser\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],

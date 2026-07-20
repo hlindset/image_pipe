@@ -18,8 +18,8 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
 
     * Their subject is `ImagePipe.Delivery` / `ImagePipe.Delivery.Coordinator`
       — core modules the framework and BOTH dialects now share since the D3
-      unification. `NativeErrorPathsTest`'s own rows 8/9 never call
-      `Native.call/2`: they drive `Delivery.stream/5` and `Coordinator.start/5`
+      unification. `NativeErrorPathsTest`'s own rows 8/9 never make a wire
+      request: they drive `Delivery.stream/5` and `Coordinator.start/5`
       directly with a synthetic `build_fun`. Copying them here would assert the
       same core contract a second time with an `Imgproxy` module name on the
       file and no imgproxy code in the call stack.

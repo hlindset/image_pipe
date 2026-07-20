@@ -175,9 +175,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     dialect_native = boundary_declaration(ImagePipe.Dialect.Native)
 
     assert_boundary_deps(dialect_native, [
-      ImagePipe.Cache,
       ImagePipe.Decode,
-      ImagePipe.Delivery,
+      ImagePipe.Dialect,
       ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
@@ -190,16 +189,39 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
-    # The inverted dialect must depend only on core toolkit facades: it never
-    # reaches into the framework's parser/request/resolver/renderer stack.
+    # A contract dialect must depend only on core toolkit facades: it never
+    # reaches into the framework's parser/request/resolver/renderer stack,
+    # and the runner in `ImagePipe.Plug` now owns the cache and delivery
+    # lifecycle, so those deps are gone too.
     refute_boundary_deps(dialect_native, [
+      ImagePipe.Cache,
       ImagePipe.Config,
+      ImagePipe.Delivery,
       ImagePipe.Parser,
       ImagePipe.Renderer,
       ImagePipe.Request
     ])
 
     assert_boundary_exports(dialect_native, [])
+  end
+
+  test "the plug and dialect runner name no concrete dialect (U4 anti-leak rule)" do
+    files =
+      ["lib/image_pipe/plug.ex" | Path.wildcard("lib/image_pipe/plug/**/*.ex")]
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    violations =
+      for file <- files,
+          {line, number} <-
+            file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+          Regex.match?(~r/Dialect\.(Native|Imgproxy|TwicPics|IIIF)\b/, line) do
+        "#{file}:#{number} names a concrete dialect: #{String.trim(line)}"
+      end
+
+    assert violations == [],
+           "the runner branches only on %Resolved{} fields and neutral core structs; " <>
+             "it must never name a dialect: #{inspect(violations)}"
   end
 
   test "dialect imgproxy boundary declaration depends only on core toolkit facades" do
@@ -489,10 +511,14 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   test "core, transform, and parser code does not name a dialect" do
     # A dialect must be removable without changing the core: nothing under
-    # plug/request/source/response/cache/output/plan/transform/parser may
-    # reference ImagePipe.Dialect.
+    # request/source/response/cache/output/plan/transform/parser may
+    # reference ImagePipe.Dialect. `lib/image_pipe/plug.ex` is the one
+    # exception: it hosts the dialect-mode runner, so it may name the
+    # neutral ImagePipe.Dialect CONTRACT — concrete dialect names stay
+    # forbidden there via the U4 test below.
     violations =
       for file <- dialect_forbidden_files(),
+          file != "lib/image_pipe/plug.ex",
           violation <- dialect_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; " <>
           "a dialect must be removable without changing the core"

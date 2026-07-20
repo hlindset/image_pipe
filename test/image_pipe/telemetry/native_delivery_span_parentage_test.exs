@@ -62,7 +62,8 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
 
   test "stage spans of a cache-miss streamed native request are semantic descendants of the request root" do
     config =
-      Native.init(
+      ImagePipe.Plug.init(
+        dialect: Native,
         sources: [
           path:
             {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
@@ -70,7 +71,7 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
         cache: {CacheProbe, result: :miss}
       )
 
-    conn = Native.call(conn(:get, "/w=64/src/images/cat.jpg"), config)
+    conn = ImagePipe.Plug.call(conn(:get, "/w=64/src/images/cat.jpg"), config)
     assert conn.status == 200
 
     spans = SpanWalk.collect()

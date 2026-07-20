@@ -154,7 +154,8 @@ defmodule ImagePipe.Decode do
            storage_dimensions: storage_dimensions,
            display_dimensions: display_dimensions,
            pending_orientation: pending_orientation,
-           source_format: source_format
+           source_format: source_format,
+           debug_facts: debug_facts(input, header_image, opts)
          },
          decode_request = decode_request_fun.(geometry),
          decode_options =
@@ -359,4 +360,72 @@ defmodule ImagePipe.Decode do
 
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
+
+  # Best-effort, non-sensitive source facts for the debug headers. Collected on
+  # every generation (rendering is gated elsewhere). A genuinely-absent value
+  # returns nil/false through the helper's own `case`; only a real raise is an
+  # anomaly — surfaced as one `[:debug, :collect, :error]` event, then the whole
+  # fact set degrades to %{} so collection never breaks decoding.
+  defp debug_facts(input, header_image, opts) do
+    %{
+      source_bytes: source_byte_size(input),
+      source_color_space: source_interpretation(header_image),
+      source_icc?: source_has_icc?(header_image),
+      source_bit_depth: source_bit_depth(header_image),
+      source_alpha?: source_alpha?(header_image),
+      source_orientation: source_orientation(header_image)
+    }
+  rescue
+    exception ->
+      Telemetry.execute(
+        Telemetry.telemetry_opts(opts),
+        [:debug, :collect, :error],
+        %{},
+        %{error: Error.tag(exception)}
+      )
+
+      %{}
+  end
+
+  defp source_byte_size({:buffer, binary}), do: byte_size(binary)
+
+  defp source_byte_size({:path, path}) do
+    case File.stat(path, time: :posix) do
+      {:ok, %File.Stat{size: size}} -> size
+      _ -> nil
+    end
+  end
+
+  defp source_interpretation(image) do
+    case VipsImage.interpretation(image) do
+      interp when is_atom(interp) -> interp
+    end
+  end
+
+  defp source_has_icc?(image) do
+    case VipsImage.header_value(image, "icc-profile-data") do
+      {:ok, blob} when is_binary(blob) and byte_size(blob) > 0 -> true
+      _ -> false
+    end
+  end
+
+  # Bit depth in bits per sample derived from the image interpretation, mirroring
+  # the encoder's `icc_depth/1` logic: 16-bit interpretations yield 16, all others 8.
+  defp source_bit_depth(image) do
+    case VipsImage.interpretation(image) do
+      :VIPS_INTERPRETATION_GREY16 -> 16
+      :VIPS_INTERPRETATION_RGB16 -> 16
+      :VIPS_INTERPRETATION_scRGB -> 16
+      _ -> 8
+    end
+  end
+
+  defp source_orientation(image) do
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, value} when is_integer(value) and value in 1..8 -> value
+      _ -> nil
+    end
+  end
+
+  defp source_alpha?(image), do: Image.has_alpha?(image)
 end
