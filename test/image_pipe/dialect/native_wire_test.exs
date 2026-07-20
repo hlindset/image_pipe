@@ -8,7 +8,9 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Dialect.Native
+  alias ImagePipe.Dialect.Native.Identity
   alias ImagePipe.Dialect.Native.Parser
+  alias ImagePipe.Dialect.Negotiation, as: DialectNegotiation
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -162,11 +164,7 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       conn = conn(:get, "/format=jpeg/q=42/src/images/cat.jpg")
 
       assert {:ok, negotiation} =
-               ImagePipe.Dialect.Negotiation.negotiate(
-                 conn,
-                 ImagePipe.Dialect.Native.Identity.plan_output(request),
-                 config
-               )
+               DialectNegotiation.negotiate(conn, Identity.plan_output(request), config)
 
       assert Keyword.fetch!(negotiation.policy_material, :quality) == {:quality, 42}
 

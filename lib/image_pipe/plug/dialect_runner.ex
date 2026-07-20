@@ -202,6 +202,7 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
+  # ex_dna:disable-for-next-line
   defp write_complete_body_cache(nil = _cache_disabled, _ct, _body, _cost_us, _config), do: :ok
 
   defp write_complete_body_cache(%Cache.Key{} = cache_key, content_type, body, cost_us, config) do

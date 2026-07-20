@@ -422,10 +422,10 @@ image, `/info`, 304, and 4xx errors.
 with `204 No Content` + `Allow: GET, HEAD` (+ `Access-Control-Allow-Methods` when
 `allow_origin` is set, via `Response.CORS.send_options/2`) and any other
 non-GET/HEAD method with `405` + `Allow: GET, HEAD` (`Response.Sender.send_method_not_allowed/1`).
-Both dialects route these ahead of the endpoint/pipeline split (`route/2` in
-`imgproxy.ex`/`native.ex`), inside the same `[:request]` telemetry span the
-framework uses, so the before-send CORS hook stamps these exits identically to
-every other one.
+These are routed ahead of the endpoint/pipeline split (`route/2` in
+`imgproxy.ex`; the shared dialect runner in `ImagePipe.Plug` for Native),
+inside the same `[:request]` telemetry span the framework uses, so the
+before-send CORS hook stamps these exits identically to every other one.
 
 - ✅ `IMGPROXY_ALLOW_ORIGIN` → `allow_origin` (configuration default; verbatim
   origin value, off when unset — same semantics as imgproxy's empty default).

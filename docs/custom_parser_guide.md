@@ -382,19 +382,27 @@ the **order** of its operations, or it carries state across operations against
 the **running image geometry** — positional focus that later crops consume,
 relative units (`p`/`s`) resolved against the dimensions produced by preceding
 operations — a declarative option bag would erase the behavior. Those dialects
-are **not** host parsers: they are self-contained Plugs that own their ordered
-request model and their own pipeline. `ImagePipe.Dialect.Imgproxy`,
-`ImagePipe.Dialect.Native`, and `ImagePipe.Dialect.TwicPics` are the in-tree
-examples; they don't implement `ImagePipe.Parser` and don't construct a root
-`ImagePipe.Plan`.
+are **not** host parsers: they own their ordered request model and their own
+pipeline. `ImagePipe.Dialect.Imgproxy`, `ImagePipe.Dialect.Native`, and
+`ImagePipe.Dialect.TwicPics` are the in-tree examples; they don't implement
+`ImagePipe.Parser` and don't construct a root `ImagePipe.Plan`.
 
-ImagePipe ships **no public SDK** for building such a Plug. A dialect Plug reuses
-neutral core boundaries (`Cache`, `Config`, `Decode`, `Output`, `Source`,
-`Transform`, …) and reuses neutral Plan operation structs as semantic inputs,
-but it must not depend on private in-tree implementation helpers such as
+An ordered dialect implements the public `ImagePipe.Dialect` behaviour — one
+callback per lifecycle phase (config validation, parse, prepare, decode
+preflight, transform execution, error rendering) — and mounts through the
+shared runner: `plug ImagePipe.Plug, dialect: MyDialect, <flat config>`. The
+runner owns the neutral request lifecycle (source resolution, conditional
+GET, cache serve, streaming delivery); the dialect owns everything
+dialect-specific as values on `ImagePipe.Dialect.Resolved`.
+`ImagePipe.Dialect.Native` is the first in-tree dialect ported onto this
+contract; `ImagePipe.Dialect.Imgproxy` and `ImagePipe.Dialect.TwicPics` still
+mount directly as self-contained Plugs during the transition. A dialect
+reuses neutral core boundaries (`Decode`, `Output`, `Source`, `Transform`, …)
+and neutral Plan operation structs as semantic inputs, but it must not depend
+on private in-tree implementation helpers such as
 `ImagePipe.Transform.Lowering` or `ImagePipe.Transform.ResizePlanning` — those
 are internal seams for the in-tree dialect Pipelines and may change without
-notice. If you need this, you own the orchestration end to end.
+notice.
 
 ## Custom renderers (non-image terminals)
 

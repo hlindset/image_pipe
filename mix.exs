@@ -49,6 +49,7 @@ defmodule ImagePipe.MixProject do
         groups_for_modules: [
           "Package API": [ImagePipe],
           "Plug API": [ImagePipe.Plug],
+          "Dialect API": [ImagePipe.Dialect, ~r/ImagePipe\.Dialect\..*/],
           "Parser API": [ImagePipe.Parser, ~r/ImagePipe\.Parser\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
