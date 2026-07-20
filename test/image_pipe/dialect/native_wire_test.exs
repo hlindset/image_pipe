@@ -665,4 +665,37 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       refute_received :bracket_cleanup
     end
   end
+
+  # ── internal_cache: :disabled (U9) ──────────────────────────────────────
+
+  describe "internal_cache: :disabled" do
+    test "a source resolving internal_cache: :disabled is neither read from nor written to the cache" do
+      config =
+        opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               byte_identity: :strong,
+               req_options: [plug: {CountingOriginImage, test_pid: self()}],
+               internal_cache: :disabled}
+          ],
+          cache: stateful_cache_probe()
+        )
+
+      # Two identical requests: both must regenerate from the origin, and the
+      # cache must never be consulted or written between them.
+      first = get("/w=64/src/images/cat.jpg", config)
+      assert first.status == 200
+      assert_received :origin_fetch
+
+      second = get("/w=64/src/images/cat.jpg", config)
+      assert second.status == 200
+      assert_received :origin_fetch
+
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received {:source_order, :cache_put}
+    end
+  end
 end
