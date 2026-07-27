@@ -12,7 +12,7 @@
 
 - Run every mix command through `mise exec -- …` (fresh worktree: `mise trust` + `mise run setup` first; fiddle gate may need `pnpm -C fiddle/assets run build` once).
 - Per-dialect observables are gated: the imgproxy and TwicPics wire, differential, and telemetry suites must pass unchanged except the deltas this plan enumerates (see **Enumerated observable deltas** below). No differential fixture, verdict, or tolerance changes.
-- U4 anti-leak rule: the runner branches only on `%Resolved{}` fields, neutral core structs, and shared conn-private state — never on dialect identity. Architecture tests must reject Imgproxy/TwicPics names in the runner.
+- U4 anti-leak rule: the runner branches only on `%Resolved{}` fields, neutral core structs, and shared conn-private state — never on dialect identity. Architecture tests must reject Imgproxy/TwicPics names in the runner. (The conn-private channel is a **widening** of spec U4's literal wording, which names only `Resolved` fields and neutral core structs; `:image_pipe_send_result` is stamped by the shared `Response.Sender`, so it is neutral in substance. Task 10 records it in the spec addendum.)
 - No changes under `lib/image_pipe/parser/**` or `lib/image_pipe/request/**` (the framework path and IIIF are Phase C).
 - No production deployments or pre-existing cache entries exist. Phase B needs same-version miss/hit coverage, not a cache-metadata migration or identity-epoch bump.
 - Subagents must not run state-mutating git commands (`stash`, `reset`, `checkout --`, `clean`) — worktrees share one stash stack.
@@ -36,6 +36,7 @@ Everything not listed is gated to remain byte-identical by the existing suites.
 
 ```
 lib/image_pipe/plug/dialect_runner.ex            MOD  policy headers on delivery errors; request-stop override
+lib/image_pipe/dialect.ex                        MOD  + Failure export (Boundary)
 lib/image_pipe/dialect/failure.ex                NEW  neutral parse/lifecycle failure provenance
 lib/image_pipe/dialect/resolved.ex               MOD  deferred negotiation + exception-boundary policy
 lib/image_pipe/dialect/render_terminal.ex        MOD  neutral character-encoding policy
@@ -50,8 +51,9 @@ lib/image_pipe/dialect/twic_pics.ex              MOD  chain deleted; behaviour i
 lib/image_pipe/dialect/twic_pics/negotiation.ex  DEL  replaced by ImagePipe.Dialect.Negotiation
 lib/image_pipe/dialect/twic_pics/identity.ex     MOD  alias swap
 lib/image_pipe/dialect/twic_pics/errors.ex       MOD  send/4 → send/3
-mix.exs                                          MOD  drop debug_builder.ex ExDNA ignore (TwicPics copy gone)
+mix.exs                                          MOD  retarget debug_builder.ex ExDNA ignore comment (framework twin survives to Phase C)
 test/support/image_pipe/test/runner_fixture_dialect.ex   MOD  ?format=auto (automatic output)
+test/image_pipe/dialect/native_contract_test.exs MOD  delete the Mount shim; kits own the ImagePipe.Plug mount
 test/support/image_pipe/contract_kit/{cache_key,request_safety}.ex  MOD  polymorphic mounts
 test/support/image_pipe/test/differential/harness.ex     MOD  both dialect arms mount via ImagePipe.Plug after both ports
 test/image_pipe/plug_dialect_runner_test.exs             MOD  vary-on-delivery-error pins
@@ -62,12 +64,18 @@ fiddle/lib/image_pipe_fiddle_web/imgproxy.ex     MOD  ImagePipe.Plug.call
 fiddle/lib/image_pipe_fiddle_web/twic_pics.ex    MOD  ImagePipe.Plug.call
 fiddle/test/image_pipe_fiddle/imgproxy_source_mounts_test.exs  MOD  ImagePipe.Plug.init
 fiddle/test/image_pipe_fiddle_web/wire_test.exs  MOD  signed imgproxy debug request
-docs/debug_headers.md                            MOD  imgproxy emits; mount examples; demo section
-docs/imgproxy_support_matrix.md                  MOD  verify/refresh debug rows (surface axis)
+docs/debug_headers.md                            MOD  imgproxy emits; mount examples; demo section; color-space example
+docs/imgproxy_support_matrix.md                  MOD  debug rows (surface) AND route/2-ownership passages (stage/order)
+docs/twicpics_support_matrix.md                  MOD  "self-contained Plug" architecture sentence (stage/order)
 docs/imgproxy_path_api.md                        MOD  removed init/call references
 docs/execution_flow.md                           MOD  direct TwicPics lifecycle reference
 docs/content-aware-gravity.md                    MOD  direct imgproxy mount
+docs/cache.md                                    MOD  `to: ImagePipe.Dialect.Imgproxy` forward example
+docs/telemetry.md                                MOD  `to: ImagePipe.Dialect.Imgproxy` forward example
+docs/cdn-http-cache.md                           MOD  `to: ImagePipe.Dialect.TwicPics` forward example
+docs/operational_notes.md                        MOD  stale `_debug=1` trigger prose
 docs/custom_parser_guide.md                      MOD  "transition" sentence updated
+docs/superpowers/specs/2026-07-19-dialect-unification-design.md  MOD  per-phase delta + contract-widening addendum
 + per-suite test mounts swapped (enumerated in Tasks 4 and 7)
 ```
 
@@ -186,7 +194,11 @@ In `lib/image_pipe/plug/dialect_runner.ex`:
 
 4. In `ImagePipe.Dialect.Resolved`, widen the `negotiation` type to the existing result tuple or `(-> result)`. In `handle_request/4`, replace the direct match on `resolved.negotiation` with `resolve_negotiation(resolved.negotiation)` after `ImageSource.resolve/3`; the helper invokes a zero-arity function and passes an already-built tuple through.
 
-5. Extend `RunnerFixtureDialect` with a negotiation thunk that sends `:negotiation_invoked` to the test process. Add a runner test with a source adapter whose `resolve/2` returns an error, and assert the source error response wins and `refute_received :negotiation_invoked`. Add the success counterpart asserting the thunk runs once. These pins prevent `prepare/3` from being mistaken for deferred execution.
+5. Extend `RunnerFixtureDialect` with a negotiation thunk that sends `:negotiation_invoked` to the test process. Add a runner test whose config makes `ImagePipe.Source.resolve/3` fail, and assert the source error response wins and `refute_received :negotiation_invoked`. Add the success counterpart asserting the thunk runs once. These pins prevent `prepare/3` from being mistaken for deferred execution.
+
+   Reuse the existing zero-double arrangement rather than writing an adapter: `opts(sources: [])` already fails inside `Source.resolve/3` with `{:source, :missing_adapter}` (`test/image_pipe/plug_dialect_runner_test.exs:119-132`), so the new test is that same call plus the `refute_received`. (The `ImagePipe.Source` callback is `resolve/3` — `lib/image_pipe/source.ex:32` — not `resolve/2`; do not hand-roll an adapter on the wrong arity.)
+
+6. `with_policy_headers/2`'s `%Negotiation{policy: nil}` clause: `policy: nil` is produced only by `Negotiation.terminal/1`, whose render terminal never reaches `generate/8`. Check reachability while implementing — if no image-terminal path can carry `policy: nil`, drop the clause rather than guarding an impossible shape (AGENTS.md validation guidelines).
 
 - [ ] **Step 5: Run the runner + native suites**
 
@@ -253,7 +265,7 @@ In `lib/image_pipe/dialect/twic_pics/config.ex`: remove `:allow_debug_headers` f
 
 - [ ] **Step 4: Update the moved config-test row**
 
-In `test/image_pipe/dialect/twic_pics/config_test.exs`, the "detector and debug options reject malformed values" test lists `allow_debug_headers: "yes"` expecting the TwicPics message. Remove that row from the `for` list — its validation now lives in `shared_config_test.exs` (Step 1). Keep the two detector rows. Add `:allow_debug_headers` to the test that enumerates every shared runtime key, and rename the "all four dialect keys" test so it no longer counts the promoted key as dialect-owned. The passing-value assertions stay. In `RunnerFixtureDialect`, update the comment that currently calls `allow_debug_headers` an unknown passthrough key.
+In `test/image_pipe/dialect/twic_pics/config_test.exs`, the "detector and debug options reject malformed values" test lists `allow_debug_headers: "yes"` expecting the TwicPics message. Remove that row (`config_test.exs:100`) from the `for` list — its validation now lives in `shared_config_test.exs` (Step 1). Keep the two detector rows. Add `:allow_debug_headers` to the shared-key enumeration in `shared_config_test.exs:38-70`, and rename `config_test.exs:73` `"accepts all four dialect keys"` → three keys (`storage_inputs`, `detector`, `detector_required`). The passing-value row (`:79`) and assertion (`:85`) stay verbatim — the key is still validated, now via SharedConfig. In `RunnerFixtureDialect`, update the comment that currently calls `allow_debug_headers` an unknown passthrough key.
 
 - [ ] **Step 5: Run the config and dialect suites**
 
@@ -420,14 +432,16 @@ Notes:
 
 - [ ] **Step 2: Preserve the `/info` Content-Type parameter**
 
-Add optional `charset: :default | nil` to `ImagePipe.Dialect.RenderTerminal`, defaulting to `nil` so Native stays byte-identical. Thread the terminal through both render cache-hit and render-generation sends. For `:default`, call `Plug.Conn.put_resp_content_type/2`; for `nil`, keep the current three-argument call. imgproxy sets `charset: :default` as shown above. Keep the cache entry's content type bare; presentation comes from the current terminal on both hit and miss.
+Add optional `charset: :default | nil` to `ImagePipe.Dialect.RenderTerminal`, defaulting to `nil` so Native stays byte-identical. The struct is `@enforce_keys [:fun]` + `defstruct [:fun]` today (`lib/image_pipe/dialect/render_terminal.ex:14`), so the literal edit is `defstruct [:fun, charset: nil]` — do **not** add the key to `@enforce_keys`. Thread the terminal through both render cache-hit and render-generation sends. For `:default`, call `Plug.Conn.put_resp_content_type/2`; for `nil`, keep the current three-argument call. imgproxy sets `charset: :default` as shown above. Keep the cache entry's content type bare; presentation comes from the current terminal on both hit and miss.
 
-Run `test/image_pipe/dialect/imgproxy/info_wire_test.exs` after Task 4's mount swap and require `content-type: application/json; charset=utf-8` on both a generated response and a cache hit. Do not change that assertion.
+Run `test/image_pipe/dialect/imgproxy/info_wire_test.exs` after Task 4's mount swap and require `content-type: application/json; charset=utf-8` on both a generated response and a cache hit. The literal is already pinned on the miss path at `:131` and `:385` — do not change those. The cache-hit case only asserts `hit == miss` (`:310`), so add one literal `content-type` assertion there; a shared regression would otherwise pass by matching a wrong value on both sides.
 
 - [ ] **Step 3: Delete the dialect Negotiation, swap Identity's alias, shrink Errors**
 
 1. `rm lib/image_pipe/dialect/imgproxy/negotiation.ex`
-2. In `lib/image_pipe/dialect/imgproxy/identity.ex`: replace `alias ImagePipe.Dialect.Imgproxy.Negotiation` with `alias ImagePipe.Dialect.Negotiation`. The `%Negotiation{}` match and the `selected`/`vary?`/`policy_material` reads compile unchanged (the promoted struct is a superset). Update the `@spec material/5` reference and the moduledoc sentence naming "Task 17's `negotiate/3`" to name `ImagePipe.Dialect.Negotiation.negotiate/3`.
+2. In `lib/image_pipe/dialect/imgproxy/identity.ex`: replace `alias ImagePipe.Dialect.Imgproxy.Negotiation` with `alias ImagePipe.Dialect.Negotiation`. The `%Negotiation{}` match and the `selected`/`vary?`/`policy_material` reads compile unchanged (the promoted struct is a superset). Update the `@spec material/5` reference and **all three** "Task 17's `negotiate/3`" references — the moduledoc at `:7` and `plan_output/1`'s `@doc` at `:93` and `:94` — to name `ImagePipe.Dialect.Negotiation.negotiate/3`.
+
+Note on `ImagePipe.Output`: after `negotiation.ex` is deleted, the only remaining mention in this boundary is moduledoc prose (`imgproxy/identity.ex:95`). Leave `ImagePipe.Output` in the `deps:` list. Boundary never reports unused `deps` (only `unused_dirty_xref`), so it is harmless — and dropping it here without also updating the Task 9 arch-test pin would desync the two. The same note applies to TwicPics in Task 6.
 3. In `lib/image_pipe/dialect/imgproxy/errors.ex`: the `headers` parameter is dead (the runner stamps policy headers on the conn before `render_error` — Task 1). Change `send/4` to `send/3`: drop the `headers \\ []` default head, drop the `headers` argument from every clause and from `send_signature_error/3` → `/2` and `send_core_stage_error/4` → `/3`, and delete `put_headers/2` and the `@type header()` if now unused. Rewrite the "Negotiation headers ride the error" moduledoc section to two sentences: the negotiated policy's headers are stamped by the runner (`ImagePipe.Plug`) on delivery failures before this module renders; only post-negotiation delivery failures carry them, preserving the framework's fetch-vs-resolve Vary asymmetry.
 4. Update `lib/image_pipe/dialect/imgproxy/config.ex`'s moduledoc so it names `ImagePipe.Plug.init/1` and `ImagePipe.Plug.call/2`, not the removed dialect Plug callbacks.
 
@@ -457,6 +471,12 @@ git commit -m "Port Dialect.Imgproxy onto the ImagePipe.Dialect contract (Phase 
 
 Shared polymorphic callers in `ContractKit`, `inbound_trace_test.exs`, and `test/support/image_pipe/test/differential/harness.ex` remain unchanged until Task 7, after both dialects implement the contract. Task 4 deliberately does not run those shared suites.
 
+**Knowingly red between Task 3 and Task 7** (compile stays clean; these fail at runtime because they still call the deleted `Imgproxy.init/1|call/2`). Do not diagnose these as regressions:
+- `test/image_pipe/dialect/imgproxy_contract_test.exs` (ContractKit drives `Imgproxy.init/1`)
+- the `"ImagePipe.Dialect.Imgproxy"` describe in `test/image_pipe/dialect/inbound_trace_test.exs`
+
+From Task 6 until Task 7, add `test/image_pipe/dialect/twic_pics_contract_test.exs` and every direct-mount TwicPics suite to that list.
+
 - [ ] **Step 1: Inventory and swap every imgproxy-specific mount**
 
 Run `rg -n "ImagePipe\\.Dialect\\.Imgproxy|Imgproxy\\.(init|call)" test/` and manually classify every executable reference. Replace callback calls with `ImagePipe.Plug.init([dialect: Imgproxy] ++ opts)` and `ImagePipe.Plug.call/2`.
@@ -465,7 +485,9 @@ In `mount_test.exs`, also change all three `Plug.Router.forward` entries from `t
 
 - [ ] **Step 2: Use a temporary imgproxy-local differential mount**
 
-Do not change shared `dialect_plug_opts/2` while TwicPics still mounts directly. Make `test/support/image_pipe/test/imgproxy_differential/harness.ex` return `{ImagePipe.Plug, ImagePipe.Plug.init(dialect: ImagePipe.Dialect.Imgproxy, sources: Shared.sources(@sources_dir))}`. Expose `sources/1` from the shared helper if needed. Task 7 removes this temporary local construction when it can switch both differential wrappers together.
+Do not change shared `dialect_plug_opts/2` while TwicPics still mounts directly. Make `test/support/image_pipe/test/imgproxy_differential/harness.ex` return `{ImagePipe.Plug, ImagePipe.Plug.init(dialect: ImagePipe.Dialect.Imgproxy, sources: Shared.sources(@sources_dir))}`. `sources/1` is **private today** (`defp sources(sources_dir)`, `test/support/image_pipe/test/differential/harness.ex:58`) — change it to `def sources/1`. Task 7 removes this temporary local construction when it can switch both differential wrappers together.
+
+Why the shared helper cannot move in Task 4: `Shared.dialect_plug_opts/2` calls `dialect.init(...)` (`differential/harness.ex:35-37`) and has exactly two callers — `imgproxy_differential/harness.ex:22` and `twicpics_differential/harness.ex:12-13`. Switching it here would break exactly one suite, `test/image_pipe/twicpics_differential_conformance_test.exs` (its `setup_all` at `:19` would call `TwicPics.validate_config!/1`, which does not exist until Task 6), plus two non-suite consumers: `mix twicpics.diagnose` (`test/support/mix/tasks/twicpics.diagnose.ex:52`) and `mix twicpics.gen_report` (`:46`). `test/image_pipe/imgproxy_differential_conformance_test.exs` is unaffected either way.
 
 - [ ] **Step 3: Update the promoted struct seam**
 
@@ -581,6 +603,14 @@ defmodule ImagePipe.Dialect.Imgproxy.DebugHeadersWireTest do
     plain = get("/_/f:jpeg/plain/images/beach.jpg", opts(allow_debug_headers: true))
     assert plain.status == 200
     assert header(plain, "x-imagepipe-source-format") == nil
+
+    # The documented explicit opt-out (support matrix, `debug` extension row):
+    # debug:0 under an enabled mount renders nothing. TwicPics pins its
+    # counterpart at test/image_pipe/dialect/twic_pics/debug_test.exs:105.
+    opted_out = get("/_/debug:0/f:jpeg/plain/images/beach.jpg", opts(allow_debug_headers: true))
+    assert opted_out.status == 200
+    assert header(opted_out, "x-imagepipe-source-format") == nil
+    assert header(opted_out, "server-timing") == nil
   end
 
   test "debug:1 is identity-excluded: one cache entry, one ETag, facts replayed on the hit" do
@@ -632,12 +662,13 @@ The runner change rides this task because its gate is TwicPics' own telemetry co
 **Files:**
 - Modify: `lib/image_pipe/plug/dialect_runner.ex` (request-stop override)
 - Create: `lib/image_pipe/dialect/failure.ex` (neutral failure provenance)
+- Modify: `lib/image_pipe/dialect.ex` (add `Failure` to the Boundary `exports:`)
 - Modify: `lib/image_pipe/dialect/resolved.ex` (neutral exception boundary)
 - Modify: `lib/image_pipe/dialect/twic_pics.ex` (chain deleted, behaviour implemented, `build_debug` copy deleted)
 - Delete: `lib/image_pipe/dialect/twic_pics/negotiation.ex`
 - Modify: `lib/image_pipe/dialect/twic_pics/identity.ex` (alias swap)
 - Modify: `lib/image_pipe/dialect/twic_pics/errors.ex` (`send/4` → `send/3`)
-- Modify: `mix.exs` (drop the `debug_builder.ex` ExDNA ignore — its "deliberate copy" justification dies with the TwicPics copy)
+- Modify: `mix.exs` (retarget the `debug_builder.ex` ExDNA ignore comment — see Step 3.4; the ignore itself **stays**)
 
 - [ ] **Step 1: Runner request-stop override**
 
@@ -767,7 +798,9 @@ In `lib/image_pipe/plug/dialect_runner.ex`, `run/3`, replace the span callback b
 
 `Failure` preserves provenance structurally, so an unknown future lifecycle reason remains a 500/`:processing_error` while an unknown parse rejection remains a 400/`:parser_error`. Do not infer provenance from a tag allowlist.
 
-Add `exception_boundary: :delivery_build | :execute` to `%Resolved{}`, defaulting to `:delivery_build` for Native and imgproxy. Refactor the runner's broad `produce_stream` rescue into a neutral dispatch: `:delivery_build` retains the current broad rescue; `:execute` lets post-transform shared-stage exceptions escape to the delivery session, while TwicPics' callback-local `safe_transform/1` still converts only `Pipeline.run/4` raises to `{:transform, ...}`. This reproduces the two legacy chains without naming a dialect in the runner.
+Add `exception_boundary: :delivery_build | :execute` to `%Resolved{}`, defaulting to `:delivery_build` for Native and imgproxy. `Resolved` is `@enforce_keys [...8 keys]` + `defstruct @enforce_keys` (`lib/image_pipe/dialect/resolved.ex:23-33`), so the literal edit is `defstruct @enforce_keys ++ [exception_boundary: :delivery_build]` plus an `exception_boundary: :delivery_build | :execute` line in `@type t`. Do **not** add it to `@enforce_keys` — that would break every existing construction (`ImagePipe.Dialect.Native`, `RunnerFixtureDialect` at `runner_fixture_dialect.ex:75` and `:97`, and both new `prepare/3` heads).
+
+**Decide, don't just preserve.** This field exists solely to carry a legacy divergence that no test pins today: the runner rescues around all of `produce_stream` (`dialect_runner.ex:428-432`) while TwicPics rescued only `run_transform` (`twic_pics.ex:437-443`), so a post-transform crash (clamp/materialize/encode) is a 422 `{:transform, _}` on imgproxy/Native and a 500-class delivery-session failure on TwicPics. Before adding the field, judge whether that difference is *correct* or merely *historical*: a crash in a shared post-transform stage is not a client error, so `:execute` is arguably right for every dialect. If you converge on one boundary, delete the field, drop it from `%Resolved{}` and the exit criteria, and enumerate the change as a delta for the dialects whose status shifts. Only keep the field if you can state why both boundaries must persist — a U4 conditional that encodes an unexamined difference is exactly the accretion the anti-leak rule exists to prevent. Refactor the runner's broad `produce_stream` rescue into a neutral dispatch: `:delivery_build` retains the current broad rescue; `:execute` lets post-transform shared-stage exceptions escape to the delivery session, while TwicPics' callback-local `safe_transform/1` still converts only `Pipeline.run/4` raises to `{:transform, ...}`. This reproduces the two legacy chains without naming a dialect in the runner.
 
 In the runner's error metadata, unwrap `%Failure{reason: reason}` only for `Error.tag/1`; pass the wrapper unchanged to `classify_error/1` and `render_error/3` so the dialect can act on phase.
 
@@ -776,17 +809,25 @@ In the runner's error metadata, unwrap `%Failure{reason: reason}` only for `Erro
 1. `rm lib/image_pipe/dialect/twic_pics/negotiation.ex`
 2. `lib/image_pipe/dialect/twic_pics/identity.ex`: `alias ImagePipe.Dialect.TwicPics.Negotiation` → `alias ImagePipe.Dialect.Negotiation`; update the `@spec`.
 3. `lib/image_pipe/dialect/twic_pics/errors.ex`: `send/4` → `send/3` exactly as imgproxy's (drop the headers param from every clause and `send_core/4` → `/3`, delete `put_headers/2` and `@type header`).
-4. `mix.exs`: remove `"lib/image_pipe/plug/debug_builder.ex"` and its two-line comment from `@ex_dna_ignores` (the TwicPics copy it mirrored is gone).
+4. `lib/image_pipe/dialect.ex`: add `Failure` to the Boundary `exports:` — it is `exports: [DebugContext, Negotiation, RenderTerminal, Resolved]` today (`:29`). `ImagePipe.Dialect.TwicPics` and `ImagePipe.Plug.DialectRunner` are separate boundaries referencing `%Failure{}` across the boundary line, so without this the Step-4 compile fails.
+5. `mix.exs`: **keep** `"lib/image_pipe/plug/debug_builder.ex"` in `@ex_dna_ignores` and rewrite its comment to name the surviving twin:
+
+```elixir
+    # Mirrors the framework Request.DeliveryBuild debug block until Phase C
+    # deletes the framework stack.
+```
+
+   The TwicPics copy is not the only twin: `lib/image_pipe/request/delivery_build.ex:201-293` carries the same block (`negotiated?/1` at `:244-245`, `quality_search_metric/1` at `:282-290`, and `native_jxl_search?/1` at `:292-293` are byte-identical to `debug_builder.ex:49-50, 98-109`), and it dies with Phase C's framework deletion, not here. Removing the ignore now fails `credo --strict`.
 
 - [ ] **Step 4: Compile**
 
 Run: `mise exec -- mix compile --warnings-as-errors && mise exec -- mix credo --strict`
-Expected: clean (TwicPics suites red until Task 7's mount swap — do not run them yet; credo clean confirms the ExDNA ignore removal is right, i.e. DebugBuilder is no longer a duplicate).
+Expected: clean. (TwicPics suites are red until Task 7's mount swap — do not run them yet.) Credo is clean because the `debug_builder.ex` ignore was retained, not removed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/image_pipe/plug/dialect_runner.ex lib/image_pipe/dialect/failure.ex lib/image_pipe/dialect/resolved.ex lib/image_pipe/dialect/twic_pics.ex lib/image_pipe/dialect/twic_pics/ mix.exs
+git add lib/image_pipe/plug/dialect_runner.ex lib/image_pipe/dialect.ex lib/image_pipe/dialect/failure.ex lib/image_pipe/dialect/resolved.ex lib/image_pipe/dialect/twic_pics.ex lib/image_pipe/dialect/twic_pics/ mix.exs
 git commit -m "Port Dialect.TwicPics onto the contract; promote the request-stop override (Phase B task 6)"
 ```
 
@@ -800,7 +841,8 @@ git commit -m "Port Dialect.TwicPics onto the contract; promote the request-stop
 - Modify: `test/image_pipe/dialect/twic_pics/errors_test.exs` (send/3 arity, if it passes headers)
 - Modify: `test/image_pipe/twicpics_differential/constellations_test.exs`, `test/support/mix/tasks/twicpics.gen_fixtures.ex` (parse-shape destructure)
 - Modify: `test/support/image_pipe/contract_kit/cache_key.ex`, `test/support/image_pipe/contract_kit/request_safety.ex`
-- Modify: `test/image_pipe/dialect/inbound_trace_test.exs`
+- Modify: `test/image_pipe/dialect/native_contract_test.exs` (delete the `Mount` shim — see Step 1)
+- Modify: `test/image_pipe/dialect/inbound_trace_test.exs` (imgproxy **and** Native legs)
 - Modify: `test/support/image_pipe/test/differential/harness.ex`, both dialect-specific differential wrappers
 
 - [ ] **Step 1: Mount swaps**
@@ -823,9 +865,10 @@ Apply to every `TwicPics.init`/`TwicPics.call` site the direct-reference search 
 
 Now that both dialects implement the contract, migrate the polymorphic helpers that literal module-name searches missed:
 
-- `ContractKit.CacheKey` and `ContractKit.RequestSafety`: initialize and call `ImagePipe.Plug` with `dialect: dialect`.
-- `inbound_trace_test.exs`: make its helper accept a dialect and always mount `ImagePipe.Plug`; update the Native calls to pass `NativeDialect` rather than `ImagePipe.Plug`.
-- Shared differential harness: switch `dialect_plug_opts/2` to `ImagePipe.Plug`, restore both wrappers to that helper, and remove Task 4's temporary imgproxy-local construction.
+- `ContractKit.CacheKey` and `ContractKit.RequestSafety`: initialize and call `ImagePipe.Plug` with `dialect: dialect` (`cache_key.ex:176`, `request_safety.ex:115`).
+- **`test/image_pipe/dialect/native_contract_test.exs`: delete the `ImagePipe.Dialect.NativeContractTest.Mount` shim** (`:1-9`) and pass `dialect: ImagePipe.Dialect.Native` in both `use` lines (`:22-23`). The shim is an `init/1`+`call/2` wrapper that Native's kit sites pass as `dialect:`; once the kits mount `ImagePipe.Plug` themselves, the kit would call `Mount.validate_config!/1`, which does not exist — an `UndefinedFunctionError` in `setup` that Step 5's `test/image_pipe/dialect/` run would surface.
+- `inbound_trace_test.exs`: this file has **two** legs — an `"ImagePipe.Dialect.Imgproxy"` describe (`:53`, passing `ImgproxyDialect` as the helper's `mod` at `:56`) and an `"ImagePipe.Dialect.Native"` describe (`:95`, already passing `ImagePipe.Plug` + `dialect: NativeDialect`). Drop `mod` from the helper (`:50`, `mod.call(conn, mod.init(init_opts))`), always mount `ImagePipe.Plug`, and move the imgproxy leg's dialect into `init_opts` as `dialect: ImgproxyDialect`. There is no TwicPics leg in this file.
+- Shared differential harness: switch `dialect_plug_opts/2` to `ImagePipe.Plug`, restore both wrappers to that helper, and remove Task 4's temporary imgproxy-local construction. Its `@doc` (`differential/harness.ex:29-34`) still says "The dialect IS the plug and takes one flat keyword list, so there is no `:parser` key to pass — that is the whole point of the inversion"; that is now false — rewrite it to describe the unified `ImagePipe.Plug, dialect:` mount.
 
 Run `rg -n "\b(dialect|mod)\\.(init|call)\\(" test/` and inspect every remaining dynamic dispatch. None may target Imgproxy or TwicPics.
 
@@ -852,7 +895,7 @@ The parse unit helper should unwrap `%ImagePipe.Dialect.Failure{phase: :parse, r
 
 - [ ] **Step 4: Flip the delta-5 absence pins**
 
-In `test/image_pipe/dialect/twic_pics/debug_test.exs`, the first debug test (lines ~70-72):
+In `test/image_pipe/dialect/twic_pics/debug_test.exs`, replace the **three** absence assertions at lines 69-71 (`source-size`, `source-color-space`, `source-icc`, all `== nil`) with these six — the last three (`source-bit-depth`, `source-alpha`, `source-orientation`) are new assertions with no current counterpart:
 
 ```elixir
       assert header(conn, "x-imagepipe-source-size") == "851508"
@@ -937,12 +980,25 @@ No `fiddle/assets` change: the imgproxy debug-trigger injection (`debugTriggerPa
 - **Security §**: rewrite the imgproxy note — the signature now protects a *disclosing* trigger, which is the point: an attacker cannot append `debug:1` to a signed URL. Drop "Since the imgproxy stack emits no debug headers…".
 - **Demo §**: the fiddle configures imgproxy, TwicPics, and IIIF with `allow_debug_headers: true` and injects each stack's trigger (imgproxy signs a `debug:1`-augmented preview path; TwicPics `debug=1`; IIIF `?debug=1`); delete the "panel stays empty" sentence.
 
-- [ ] **Step 3: Conformance + guide docs (surface axis)**
+- [ ] **Step 3: Conformance + guide docs (surface AND stage/order axes)**
 
-- `docs/imgproxy_support_matrix.md`: re-verify the two debug passages. The extension row (~line 1185) already describes the restored behavior — confirm its wording matches the shipped surface (signed `debug:1`, `allow_debug_headers`, identity-excluded) and refresh only if drifted. The "Response headers" paragraph (~line 868) likewise. This is the conformance-doc sync rule's **surface** axis; the compatibility reviewer confirms it in review.
+- `docs/imgproxy_support_matrix.md` — **two axes changed, per the AGENTS conformance-sync rule**:
+  - *Surface*: re-verify the two debug passages. The extension row (~`:1185`) already describes the restored behavior — confirm it matches the shipped surface (signed `debug:1`, `allow_debug_headers`, identity-excluded) and refresh only if drifted; likewise the "Response headers" paragraph (~`:868`). Rewrite every `ImagePipe.Dialect.Imgproxy.init/1` reference (`:359`, `:577-579` — which adds "before `call/2` ever sees a request" — and `:609`) to `ImagePipe.Plug.init/1` delegating to `Imgproxy.validate_config!/1`.
+  - *Stage/order*: the doc currently asserts imgproxy owns its own routing and chain — `:12-16` ("mount it directly as `plug ImagePipe.Dialect.Imgproxy, …`. It owns its whole request chain end to end … no `ImagePipe.Request.*`"), `:412-416` (the "three stacks" enumeration listing the dialect as a peer of `ImagePipe.Plug`), and `:425-426` / `:457` ("routed ahead of the endpoint/pipeline split (`route/2` in `imgproxy.ex`; the shared dialect runner in `ImagePipe.Plug` for Native)"). After Task 3 imgproxy has no `route/2` and *is* served by the shared runner. Rewrite these so no passage claims dialect-owned routing.
+  - **Do not** flip the ⭕ marker on `IMGPROXY_ENABLE_DEBUG_HEADERS` (`:1199`) or soften the sentence disclaiming the `X-Origin-*`/`X-Result-*` contract. Upstream's flag is a server-global switch emitting a different header family; restoring ImagePipe's own per-request signed `debug:1` headers does not implement it.
+- `docs/twicpics_support_matrix.md` — this **is** a compatibility-target conformance doc under the same rule. Its architecture sentence (`:3`, `:6-7`, "`ImagePipe.Dialect.TwicPics` is a self-contained Plug…") goes stale under delta 9 and needs the same-change rewrite. Its `debug=1` row (`:180`) needs **no** change: it frames `X-ImagePipe-*` as an ImagePipe extension with no TwicPics counterpart, so delta 2's five newly-present source facts make no vendor-parity claim stale. Delta 7 changes only an invalid-value error message, which this doc does not quote.
 - `docs/custom_parser_guide.md`: update the Phase A transition sentence ("`ImagePipe.Dialect.Native` is the first ported example while imgproxy/TwicPics still mount directly during the transition") — all three ordered dialects now implement the behaviour and mount through `ImagePipe.Plug, dialect: …`; IIIF remains on the framework `parser:` mount until Phase C.
 - Update removed API references in `docs/imgproxy_path_api.md` and `docs/imgproxy_support_matrix.md`. In `docs/execution_flow.md`, replace the direct `TwicPics.call`/"self-contained Plug" description with the unified mount; leave the full one-spine rewrite to Phase C. Refresh direct mounts in `docs/content-aware-gravity.md` and any other current guide found.
-- Inventory current sources with `rg -n "ImagePipe\\.Dialect\\.(Imgproxy|TwicPics)\\.(init|call)|plug ImagePipe\\.Dialect\\.(Imgproxy|TwicPics)" README.md docs fiddle`, excluding historical `docs/superpowers/plans/**` and `docs/superpowers/specs/**`. The active-source result must be empty after edits.
+- Inventory current sources with a **bare** module search — `rg -n "ImagePipe\\.Dialect\\.(Imgproxy|TwicPics)" README.md docs fiddle`, excluding historical `docs/superpowers/plans/**` and `docs/superpowers/specs/**`. A pattern anchored on `init|call|plug ` misses the `Plug.Router` `forward … to:` form and prose references, which are live and stale:
+  - `docs/cache.md:7` and `docs/telemetry.md:16` — `to: ImagePipe.Dialect.Imgproxy,`
+  - `docs/cdn-http-cache.md:9` — `to: ImagePipe.Dialect.TwicPics,`
+  - `docs/execution_flow.md:35-36` — `ImagePipe.Dialect.TwicPics.call` lifecycle sketch
+  - `docs/twicpics_support_matrix.md:3,6-7` — "self-contained Plug"
+
+  Then a second sweep for prose that survives a module rename: `rg -n "route/2|self-contained Plug|owns its whole request chain" README.md docs`. Historical/backlog docs (`docs/imgproxy_dialect_phase2_backlog.md`) describe past states and stay as-is. The active-source result must be empty of *mount-shape* claims after edits.
+- `docs/operational_notes.md:238-241` documents a per-request `_debug=1` **query parameter** trigger that no stack uses (imgproxy replaced it with the signed `debug:1` option in #398). Correct it to the per-dialect triggers while this task is already in the debug surface.
+- `docs/debug_headers.md:82` gives `srgb` as the `X-ImagePipe-Source-Color-Space` example; the emitted value is `VIPS_INTERPRETATION_sRGB` (as delta 2 and the Task 5/7 assertions pin). Fix it in the same pass.
+- `docs/execution_flow.md:120` says `Imgproxy.InfoRenderer` renders `/info` "outside this dispatch point". Still true after the `{:render, %RenderTerminal{}}` move (the runner owns it, not `ImagePipe.Renderer`), but give it a wording pass since this task already opens the file.
 - Run Vale over every changed current Markdown file, not a fixed subset. `git diff --name-only` may produce the list, but inspect it before invoking Vale. No new errors are allowed; if the binary is unavailable, report that explicitly.
 
 - [ ] **Step 4: Fiddle gate**
@@ -997,6 +1053,48 @@ git commit -m "Pin Phase B boundaries; audit ExDNA annotations (task 9)"
 
 ---
 
+### Task 10: Spec addendum, telemetry pin, and the `debug_info` hook decision
+
+Three loose ends that belong to Phase B's contract, not to Phase C.
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-07-19-dialect-unification-design.md`
+- Modify: `test/image_pipe/imgproxy_telemetry_contract_test.exs`
+- Modify (conditionally): `lib/image_pipe/dialect.ex`, `lib/image_pipe/plug/debug_builder.ex`
+
+- [ ] **Step 1: Record the phase deltas and contract widenings in the spec**
+
+The spec's "Observable deltas (exhaustive)" list is the U12 contract, and it is now stale: Phase A added three deltas of its own, and Phase B adds deltas 3, 4, 6, 8 (delivery-error headers, request-stop override, parse-span bracketing, `/info` conn path) with no spec counterpart. Likewise the spec's typed listings for `Resolved` and `RenderTerminal` predate Phase B's `Failure`, `charset`, `exception_boundary`, and the deferred-negotiation thunk.
+
+Append one section, `## Per-phase addenda (deltas and contract widenings beyond the original lists)`, with a short subsection per phase citing each item and its plan task. Phase C builds the Declarative base against these listings, so an unrecorded widening becomes a Phase C surprise.
+
+Also record the U4 wording widening: the runner may branch on shared conn-private state stamped by neutral core (`:image_pipe_send_result`), not only on `Resolved` fields and neutral structs.
+
+- [ ] **Step 2: Gate delta 4 instead of asserting it**
+
+Delta 4 currently rests on an absence claim ("no suite pins the old `:ok`"), which is true — `test/image_pipe/imgproxy_telemetry_contract_test.exs:477-498` (mid-stream encode failure after a committed 200) asserts `[:deliver]`, `[:source, :fetch_decode]`, and `[:encode]` stops only. Extend that scenario with a `[:request]` stop assertion of `%{result: :processing_error, status: 200}` so the promoted override is gated for imgproxy the way `:streamed_error` gates it for TwicPics.
+
+- [ ] **Step 3: Settle the optional `debug_info` hook**
+
+Spec U13 says the hook "is dropped from the contract if the ports confirm nobody needs it". Phase B ports the last two ordered dialects, so the evidence is now complete: if neither imgproxy nor TwicPics implements `debug_info/1`, delete the optional callback from `ImagePipe.Dialect` and the `function_exported?(dialect, :debug_info, 1)` probe from `ImagePipe.Plug.DebugBuilder.build/2`, which then calls the default builder directly.
+
+This also retires an AGENTS.md violation: runtime callback-presence probes are forbidden for trusted internal dispatch ("call the callback directly and let missing callbacks raise"). The same objection applies to `classify/2`'s `function_exported?(dialect, :classify_error, 1)` in the runner — but `classify_error/1` has real optionality (the fixture dialect and any host dialect may omit it), so leave it and note the asymmetry. If a reason to keep `debug_info/1` emerges during the ports, record it in the spec addendum from Step 1 instead of deleting.
+
+- [ ] **Step 4: File the Native debug-trigger follow-up**
+
+Delta 7 and Task 8's `docs/debug_headers.md` copy both promise the Native trigger is "tracked". Open the issue (Native gains the debug *capability* via SharedConfig but has no grammar trigger; choosing one — an out-of-band `?debug=1` like IIIF's, or a grammar option — is a dialect-surface decision) and replace the parenthetical in the doc with its number. Do not leave "follow-up issue" unresolved in shipped prose.
+
+- [ ] **Step 5: Run and commit**
+
+Run: `mise exec -- mix test test/image_pipe/imgproxy_telemetry_contract_test.exs test/image_pipe/dialect/ && mise run precommit`
+
+```bash
+git add -A
+git commit -m "Record Phase B contract widenings; gate the request-stop override (task 10)"
+```
+
+---
+
 ## Phase B exit criteria
 
 - `mise run precommit` and `mise run precommit:fiddle` green.
@@ -1004,7 +1102,9 @@ git commit -m "Pin Phase B boundaries; audit ExDNA annotations (task 9)"
 - `lib/image_pipe/request/**`, `lib/image_pipe/parser/**`: zero diffs.
 - The runner still names no dialect (architecture-test-pinned). New dispatch uses neutral `%Negotiation{}`, `%Resolved{exception_boundary: ...}`, `%RenderTerminal{charset: ...}`, `%Failure{}`, and `conn.private[:image_pipe_send_result]` values only.
 - #462's acceptance surface is present: imgproxy debug wire coverage (Task 5), fiddle mount re-enabled, `docs/debug_headers.md` updated. The PR body carries a bare `Fixes #462` line.
-- `Imgproxy.init/1`, `Imgproxy.call/2`, `TwicPics.init/1`, `TwicPics.call/2`, both dialect `Negotiation` modules, and TwicPics' `build_debug` block no longer exist.
+- `Imgproxy.init/1`, `Imgproxy.call/2`, `TwicPics.init/1`, `TwicPics.call/2`, both dialect `Negotiation` modules, TwicPics' `build_debug` block, and the `NativeContractTest.Mount` shim no longer exist.
+- The spec's per-phase addendum records every delta and contract widening Phase B introduced (Task 10), so Phase C's Declarative base is built against an accurate contract listing.
+- `mix.exs` still ignores `lib/image_pipe/plug/debug_builder.ex` for ExDNA, with a comment naming the framework `Request.DeliveryBuild` twin that Phase C deletes.
 
 Phase C (Declarative base, `Dialect.IIIF`, framework-stack deletion, `http_cache`/`RenderTerminal` cache/offers widening, telemetry-surface sync, docs rewrite) gets its own plan after Phase B merges.
 
