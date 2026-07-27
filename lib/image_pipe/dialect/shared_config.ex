@@ -49,7 +49,8 @@ defmodule ImagePipe.Dialect.SharedConfig do
     :max_result_width,
     :max_result_height,
     :max_result_pixels,
-    :allow_origin
+    :allow_origin,
+    :allow_debug_headers
   ]
 
   @validated_option_keys [
@@ -64,7 +65,8 @@ defmodule ImagePipe.Dialect.SharedConfig do
     :max_result_width,
     :max_result_height,
     :max_result_pixels,
-    :allow_origin
+    :allow_origin,
+    :allow_debug_headers
   ]
 
   @options_schema NimbleOptions.new!(
@@ -114,6 +116,10 @@ defmodule ImagePipe.Dialect.SharedConfig do
                     allow_origin: [
                       type: {:custom, __MODULE__, :validate_allow_origin, []},
                       required: false
+                    ],
+                    allow_debug_headers: [
+                      type: :boolean,
+                      default: false
                     ]
                   )
 

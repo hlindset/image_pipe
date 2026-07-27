@@ -34,8 +34,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   # Cache expect (a raw keyword `sources:` fails with {:source,
   # :missing_adapter} — Source.fetch_adapter_config pattern-matches a map)
   # and supplies the max_result_*/max_body_bytes/max_input_pixels defaults
-  # the runner fetches with Keyword.fetch!. Unknown keys such as the
-  # fixture-only :allow_debug_headers pass through untouched
+  # the runner fetches with Keyword.fetch!, along with :allow_debug_headers
   # (validate_known_opts! merges the validated subset back).
   def validate_config!(opts), do: SharedConfig.validate_runtime!(opts)
 
