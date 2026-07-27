@@ -88,7 +88,8 @@ defmodule ImagePipe.Plug.DialectRunner do
     with {:ok, %Resolved{} = resolved} <- dialect.prepare(conn, request, config),
          {:ok, %ImageSource.Resolved{} = source} <-
            ImageSource.resolve(resolved.source, config, config),
-         {:ok, %Negotiation{} = negotiation, material} <- resolved.negotiation do
+         {:ok, %Negotiation{} = negotiation, material} <-
+           resolve_negotiation(resolved.negotiation) do
       representation =
         Representation.build(source.identity, material, source.cache_semantics.byte_identity)
 
@@ -101,6 +102,14 @@ defmodule ImagePipe.Plug.DialectRunner do
       {:error, reason} -> send_error(conn, dialect, reason, config)
     end
   end
+
+  # `Resolved.negotiation` is a result tuple or a zero-arity thunk producing
+  # one — deferred so a dialect can compute negotiation from runtime
+  # geometry unavailable at prepare/3 time. Invoked only after
+  # ImageSource.resolve/3 succeeds, preserving source-before-negotiation
+  # error precedence.
+  defp resolve_negotiation(negotiation) when is_function(negotiation, 0), do: negotiation.()
+  defp resolve_negotiation(negotiation), do: negotiation
 
   # -- terminal dispatch (Resolved-neutral: branches on %Resolved{terminal:}) --
 
@@ -219,6 +228,13 @@ defmodule ImagePipe.Plug.DialectRunner do
       Plug.Conn.put_resp_header(acc, name, value)
     end)
   end
+
+  # negotiation.policy is nil only for Negotiation.terminal/1's render
+  # terminals, which never reach generate/8 — only the image terminal
+  # (Resolved{terminal: :image}) does, and its negotiation always carries a
+  # policy (mirrors pipeline_opts/2's same assumption).
+  defp with_policy_headers(conn, %Negotiation{policy: %Policy{headers: headers}}),
+    do: put_resp_headers(conn, headers)
 
   # -- serve: cache dispatch (Resolved-neutral: branches on Source.Resolved) --
 
@@ -343,11 +359,14 @@ defmodule ImagePipe.Plug.DialectRunner do
         {conn, %{result: :ok}}
 
       {:error, reason} ->
-        # Phase B note: imgproxy/TwicPics ride negotiation.policy.headers on
-        # delivery errors (their Errors.send/4); Native's Errors.send/3 takes
-        # none, so Phase A's contract carries no headers here — see the plan's
-        # exit notes for the Phase B design question.
-        send_error(conn, dialect, reason, config)
+        # An Accept-negotiated response must carry the policy's headers
+        # (Vary: Accept) even when delivery fails, or a shared cache may
+        # serve the failure to a client whose Accept would have negotiated
+        # a working outcome. Stamped on the conn — headers survive
+        # send_resp — so render_error needs no headers argument. Only the
+        # post-negotiation delivery failure carries them (mirroring every
+        # dialect chain): resolve/negotiation errors stay bare.
+        send_error(with_policy_headers(conn, negotiation), dialect, reason, config)
     end
   end
 

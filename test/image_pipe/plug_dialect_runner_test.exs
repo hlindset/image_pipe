@@ -10,6 +10,16 @@ defmodule ImagePipe.PlugDialectRunnerTest do
   alias ImgproxyWireConformanceTest.OriginImage
   alias ImgproxyWireConformanceTest.OriginShouldNotFetch
 
+  defmodule Origin503 do
+    @moduledoc false
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      opts |> Keyword.fetch!(:test_pid) |> send(:origin_fetch)
+      Plug.Conn.send_resp(conn, 503, "origin 503")
+    end
+  end
+
   @sources [
     path:
       {RootHTTPAdapter,
@@ -33,6 +43,16 @@ defmodule ImagePipe.PlugDialectRunnerTest do
          root_url: "http://origin.test",
          byte_identity: :strong,
          req_options: [plug: OriginShouldNotFetch]}
+    ]
+  end
+
+  defp failing_origin_sources do
+    [
+      path:
+        {RootHTTPAdapter,
+         root_url: "http://origin.test",
+         byte_identity: :strong,
+         req_options: [plug: {Origin503, test_pid: self()}]}
     ]
   end
 
@@ -131,6 +151,19 @@ defmodule ImagePipe.PlugDialectRunnerTest do
     assert conn.status == 404
   end
 
+  test "a source resolve failure skips negotiation entirely" do
+    conn = get("/fix/images/beach.jpg?format=webp", opts(sources: []))
+    assert conn.status == 404
+    refute_received :negotiation_invoked
+  end
+
+  test "negotiation runs once after a successful source resolution" do
+    conn = get("/fix/images/beach.jpg?format=webp", opts())
+    assert conn.status == 200
+    assert_received :negotiation_invoked
+    refute_received :negotiation_invoked
+  end
+
   test "classify_error shapes the [:request] stop result" do
     prefix = [:runner_fixture_classify]
     handler = "runner-fixture-classify-#{inspect(self())}"
@@ -196,5 +229,23 @@ defmodule ImagePipe.PlugDialectRunnerTest do
 
     wildcard = get("/fix/images/beach.jpg?render=text", config, [{"if-none-match", "*"}])
     assert wildcard.status == 304
+  end
+
+  test "a delivery failure under automatic output carries the policy's Vary header" do
+    conn = get("/fix/images/beach.jpg?format=auto", opts(sources: failing_origin_sources()))
+
+    assert_received :origin_fetch
+    # The fixture renders {:source, _} as 404; the status is the fixture's
+    # choice — the assertion is the header.
+    assert conn.status == 404
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "a delivery failure under explicit output carries no policy headers" do
+    conn = get("/fix/images/beach.jpg?format=webp", opts(sources: failing_origin_sources()))
+
+    assert_received :origin_fetch
+    assert conn.status == 404
+    assert get_resp_header(conn, "vary") == []
   end
 end
