@@ -30,6 +30,8 @@
 8. **imgproxy returned conn path for `/info`:** parsing still verifies the signature over the prefix-stripped path, but the shared runner returns the original conn. `conn.request_path` therefore retains `/info/...` instead of the legacy stripped path. HTTP status, headers, and body remain unchanged; a mount test pins this conn-state-only delta.
 9. **Mount shape:** `plug ImagePipe.Dialect.Imgproxy, …` / `plug ImagePipe.Dialect.TwicPics, …` become `plug ImagePipe.Plug, dialect: …, <same flat config>`. `Imgproxy.init/1|call/2` and `TwicPics.init/1|call/2` no longer exist. `TwicPics.parse/2` keeps its name but returns the behaviour shape `{parse_result, span_stop_metadata}`; all direct and polymorphic callers are migrated.
 
+10. **Post-transform crashes render 500-class for every dialect.** An unexpected exception in a shared post-transform stage (clamp / materialize / encode-first-chunk) previously rendered 422 on imgproxy/Native (the runner's broad `produce_stream` rescue) and 500-class on TwicPics (which rescued only its pipeline run). Each dialect now rescues its own `execute/4` — so transform crashes stay 422 everywhere, unchanged — and the runner no longer rescues the shared stages. imgproxy/Native shift 422 → 500-class on that path; TwicPics is unchanged. No existing test covered it; Task 7 Step 3 adds the pin. Rationale in Task 6 Step 2.
+
 Everything not listed is gated to remain byte-identical by the existing suites.
 
 ## File Structure (Phase B end state)
@@ -38,15 +40,16 @@ Everything not listed is gated to remain byte-identical by the existing suites.
 lib/image_pipe/plug/dialect_runner.ex            MOD  policy headers on delivery errors; request-stop override
 lib/image_pipe/dialect.ex                        MOD  + Failure export (Boundary)
 lib/image_pipe/dialect/failure.ex                NEW  neutral parse/lifecycle failure provenance
-lib/image_pipe/dialect/resolved.ex               MOD  deferred negotiation + exception-boundary policy
+lib/image_pipe/dialect/resolved.ex               MOD  deferred negotiation
 lib/image_pipe/dialect/render_terminal.ex        MOD  neutral character-encoding policy
 lib/image_pipe/dialect/shared_config.ex          MOD  + allow_debug_headers key (default false)
 lib/image_pipe/dialect/twic_pics/config.ex       MOD  − allow_debug_headers (moved to SharedConfig)
-lib/image_pipe/dialect/imgproxy.ex               MOD  chain deleted; behaviour implemented
+lib/image_pipe/dialect/imgproxy.ex               MOD  chain deleted; behaviour implemented; execute/4 rescue
 lib/image_pipe/dialect/imgproxy/negotiation.ex   DEL  replaced by ImagePipe.Dialect.Negotiation
 lib/image_pipe/dialect/imgproxy/identity.ex      MOD  alias swap to the promoted struct
 lib/image_pipe/dialect/imgproxy/errors.ex        MOD  send/4 → send/3 (headers now runner-stamped)
 lib/image_pipe/dialect/imgproxy/config.ex        MOD  unified mount API docs
+lib/image_pipe/dialect/native.ex                 MOD  execute/4 rescue (layered exception boundary)
 lib/image_pipe/dialect/twic_pics.ex              MOD  chain deleted; behaviour implemented; build_debug deleted
 lib/image_pipe/dialect/twic_pics/negotiation.ex  DEL  replaced by ImagePipe.Dialect.Negotiation
 lib/image_pipe/dialect/twic_pics/identity.ex     MOD  alias swap
@@ -663,7 +666,7 @@ The runner change rides this task because its gate is TwicPics' own telemetry co
 - Modify: `lib/image_pipe/plug/dialect_runner.ex` (request-stop override)
 - Create: `lib/image_pipe/dialect/failure.ex` (neutral failure provenance)
 - Modify: `lib/image_pipe/dialect.ex` (add `Failure` to the Boundary `exports:`)
-- Modify: `lib/image_pipe/dialect/resolved.ex` (neutral exception boundary)
+- Modify: `lib/image_pipe/dialect/native.ex`, `lib/image_pipe/dialect/imgproxy.ex` (add the `execute/4` rescue — layered exception boundary)
 - Modify: `lib/image_pipe/dialect/twic_pics.ex` (chain deleted, behaviour implemented, `build_debug` copy deleted)
 - Delete: `lib/image_pipe/dialect/twic_pics/negotiation.ex`
 - Modify: `lib/image_pipe/dialect/twic_pics/identity.ex` (alias swap)
@@ -759,7 +762,6 @@ In `lib/image_pipe/plug/dialect_runner.ex`, `run/3`, replace the span callback b
        auto_rotate?: request.auto_rotate,
        debug?: request.response.debug?,
        terminal: :image,
-       exception_boundary: :execute
      }}
   end
 
@@ -798,9 +800,18 @@ In `lib/image_pipe/plug/dialect_runner.ex`, `run/3`, replace the span callback b
 
 `Failure` preserves provenance structurally, so an unknown future lifecycle reason remains a 500/`:processing_error` while an unknown parse rejection remains a 400/`:parser_error`. Do not infer provenance from a tag allowlist.
 
-Add `exception_boundary: :delivery_build | :execute` to `%Resolved{}`, defaulting to `:delivery_build` for Native and imgproxy. `Resolved` is `@enforce_keys [...8 keys]` + `defstruct @enforce_keys` (`lib/image_pipe/dialect/resolved.ex:23-33`), so the literal edit is `defstruct @enforce_keys ++ [exception_boundary: :delivery_build]` plus an `exception_boundary: :delivery_build | :execute` line in `@type t`. Do **not** add it to `@enforce_keys` — that would break every existing construction (`ImagePipe.Dialect.Native`, `RunnerFixtureDialect` at `runner_fixture_dialect.ex:75` and `:97`, and both new `prepare/3` heads).
+**No `exception_boundary` field — converge on the layered boundary instead** (decided; supersedes the earlier draft that carried the divergence as a `%Resolved{}` value).
 
-**Decide, don't just preserve.** This field exists solely to carry a legacy divergence that no test pins today: the runner rescues around all of `produce_stream` (`dialect_runner.ex:428-432`) while TwicPics rescued only `run_transform` (`twic_pics.ex:437-443`), so a post-transform crash (clamp/materialize/encode) is a 422 `{:transform, _}` on imgproxy/Native and a 500-class delivery-session failure on TwicPics. Before adding the field, judge whether that difference is *correct* or merely *historical*: a crash in a shared post-transform stage is not a client error, so `:execute` is arguably right for every dialect. If you converge on one boundary, delete the field, drop it from `%Resolved{}` and the exit criteria, and enumerate the change as a delta for the dialects whose status shifts. Only keep the field if you can state why both boundaries must persist — a U4 conditional that encodes an unexamined difference is exactly the accretion the anti-leak rule exists to prevent. Refactor the runner's broad `produce_stream` rescue into a neutral dispatch: `:delivery_build` retains the current broad rescue; `:execute` lets post-transform shared-stage exceptions escape to the delivery session, while TwicPics' callback-local `safe_transform/1` still converts only `Pipeline.run/4` raises to `{:transform, ...}`. This reproduces the two legacy chains without naming a dialect in the runner.
+Today the runner rescues around all of `produce_stream` (`dialect_runner.ex:428-432`) while TwicPics rescued only `run_transform` (`twic_pics.ex:437-443`), so an unexpected exception in a shared post-transform stage (clamp / materialize / encode-first-chunk) is a 422 `{:transform, _}` on imgproxy/Native but a 500-class delivery-session failure on TwicPics. No test pins the difference — the only transform-failure telemetry scenario uses a *returned* error (`imgproxy_telemetry_contract_test.exs:511`), not a raise.
+
+Converge so each layer converts its own failures:
+
+1. **Each dialect rescues its own pipeline run inside `execute/4`.** TwicPics already has `safe_transform/1`; add the same small rescue/catch to `ImagePipe.Dialect.Native.execute/4` and `ImagePipe.Dialect.Imgproxy.execute/4`, producing `{:error, {:transform, {exception, __STACKTRACE__}}}` / `{:error, {:transform, {kind, reason}}}` exactly as the runner does today. Transform crashes therefore stay 422 for every dialect — no change to any existing pin.
+2. **The runner stops broadly rescuing.** Delete the `rescue`/`catch` clauses on `produce_stream/8`. An exception escaping a shared post-transform stage now propagates to the delivery session and renders 500-class, for every dialect.
+
+Why, rather than preserving both: `%Resolved{}` is public SDK surface under U6, and a knob whose only meaning is "which historical accident do you want" is the leak U3/U4 exist to prevent — Phase C's Declarative base would have to pick a value for reasons nobody can state. It is also what AGENTS.md already prescribes ("do not rescue trusted transform callback failures"): the runner laundering raises from a trusted callback lets a dialect silently violate `execute/4`'s documented tagged-tuple contract, while a dialect rescuing its own libvips pipeline is a concrete runtime boundary. And semantically, an unexpected crash in a shared stage is our bug, not the client's — 4xx would both misattribute it and signal "do not retry".
+
+This lands as **enumerated delta 10**. It is an intentional behavior change on a path with no existing coverage; Task 7 Step 3 adds the pin.
 
 In the runner's error metadata, unwrap `%Failure{reason: reason}` only for `Error.tag/1`; pass the wrapper unchanged to `classify_error/1` and `render_error/3` so the dialect can act on phase.
 
@@ -891,7 +902,7 @@ The parse unit helper should unwrap `%ImagePipe.Dialect.Failure{phase: :parse, r
 - `errors_test.exs`: drop the headers argument from any `Errors.send/4` call (assertions on status/body unchanged; delete any test whose only subject was the headers parameter — that behavior now lives in the runner and is pinned by Task 1).
 - Add provenance pins: an unknown `%Failure{phase: :parse, reason: {:future_parse_failure, :detail}}` renders 400 and classifies `:parser_error`; the same raw term as a post-parse failure renders 500 and classifies `:processing_error`. This guards against reintroducing reason-shape inference.
 - Add a detector spy request whose source resolution fails. Assert the source response wins and the detector identity callback is never invoked; this verifies the Task 1 thunk through the TwicPics integration.
-- Add a pre-first-chunk post-transform exception test using the existing `:image_module` seam to raise during forced clamp. Pin the legacy 500 status/body, cache-sink abort/no commit, bracket cleanup, and request-stop result. A `Pipeline.run/4` raise remains 422 with a normal `[:transform, :execute, :stop]`, proving `safe_transform/1` still owns only the execute boundary.
+- Add a pre-first-chunk post-transform exception test using the existing `:image_module` seam to raise during forced clamp. Pin 500-class status/body, cache-sink abort/no commit, bracket cleanup, and request-stop result. Add the **same** test to the imgproxy and Native suites — for those two this is enumerated delta 10 (422 → 500-class), so all three dialects must be pinned together. A `Pipeline.run/4` raise stays 422 with a normal `[:transform, :execute, :stop]` for every dialect, proving each `execute/4` rescue owns only its own boundary.
 
 - [ ] **Step 4: Flip the delta-5 absence pins**
 
@@ -1064,7 +1075,7 @@ Three loose ends that belong to Phase B's contract, not to Phase C.
 
 - [ ] **Step 1: Record the phase deltas and contract widenings in the spec**
 
-The spec's "Observable deltas (exhaustive)" list is the U12 contract, and it is now stale: Phase A added three deltas of its own, and Phase B adds deltas 3, 4, 6, 8 (delivery-error headers, request-stop override, parse-span bracketing, `/info` conn path) with no spec counterpart. Likewise the spec's typed listings for `Resolved` and `RenderTerminal` predate Phase B's `Failure`, `charset`, `exception_boundary`, and the deferred-negotiation thunk.
+The spec's "Observable deltas (exhaustive)" list is the U12 contract, and it is now stale: Phase A added three deltas of its own, and Phase B adds deltas 3, 4, 6, 8, 10 (delivery-error headers, request-stop override, parse-span bracketing, `/info` conn path, layered exception boundary) with no spec counterpart. Likewise the spec's typed listings for `Resolved` and `RenderTerminal` predate Phase B's `Failure`, `charset`, and the deferred-negotiation thunk. Delta 10 (the layered exception boundary) also belongs in the addendum.
 
 Append one section, `## Per-phase addenda (deltas and contract widenings beyond the original lists)`, with a short subsection per phase citing each item and its plan task. Phase C builds the Declarative base against these listings, so an unrecorded widening becomes a Phase C surprise.
 
@@ -1100,7 +1111,7 @@ git commit -m "Record Phase B contract widenings; gate the request-stop override
 - `mise run precommit` and `mise run precommit:fiddle` green.
 - imgproxy + TwicPics wire/telemetry/differential suites pass with no assertion changes beyond the enumerated deltas and the new provenance, exception-boundary, signed-debug, and source-fact compatibility pins.
 - `lib/image_pipe/request/**`, `lib/image_pipe/parser/**`: zero diffs.
-- The runner still names no dialect (architecture-test-pinned). New dispatch uses neutral `%Negotiation{}`, `%Resolved{exception_boundary: ...}`, `%RenderTerminal{charset: ...}`, `%Failure{}`, and `conn.private[:image_pipe_send_result]` values only.
+- The runner still names no dialect (architecture-test-pinned). New dispatch uses neutral `%Negotiation{}`, `%RenderTerminal{charset: ...}`, `%Failure{}`, and `conn.private[:image_pipe_send_result]` values only. No `exception_boundary` knob exists: each dialect's `execute/4` rescues its own pipeline and the runner rescues nothing.
 - #462's acceptance surface is present: imgproxy debug wire coverage (Task 5), fiddle mount re-enabled, `docs/debug_headers.md` updated. The PR body carries a bare `Fixes #462` line.
 - `Imgproxy.init/1`, `Imgproxy.call/2`, `TwicPics.init/1`, `TwicPics.call/2`, both dialect `Negotiation` modules, TwicPics' `build_debug` block, and the `NativeContractTest.Mount` shim no longer exist.
 - The spec's per-phase addendum records every delta and contract widening Phase B introduced (Task 10), so Phase C's Declarative base is built against an accurate contract listing.
@@ -1108,4 +1119,4 @@ git commit -m "Record Phase B contract widenings; gate the request-stop override
 
 Phase C (Declarative base, `Dialect.IIIF`, framework-stack deletion, `http_cache`/`RenderTerminal` cache/offers widening, telemetry-surface sync, docs rewrite) gets its own plan after Phase B merges.
 
-**Notes for Phase C picked up here:** none new. Phase B resolves delivery-error headers, deferred negotiation, parse provenance, render charset, and exception boundaries. The remaining staged widenings are U8b `http_cache` and U11 render `cache:`/`offers`.
+**Notes for Phase C picked up here:** none new. Phase B resolves delivery-error headers, deferred negotiation, parse provenance, render charset, and the exception boundary (converged, no contract knob). The remaining staged widenings are U8b `http_cache` and U11 render `cache:`/`offers`.
