@@ -3,14 +3,15 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
   use ExUnitProperties
 
   # `Pipeline.decode_request/2` feeds `DecodePlanner.open_options_for/5`, the
-  # defunctionalized entry point. The framework arm reaches the SAME decision
-  # through `open_options/5`, walking the op chain — so the two must agree, and
-  # this file proves it the same way `pipeline_assembly_test.exs` does: by
-  # comparing against the framework's own code rather than restating its rules.
+  # defunctionalized entry point. The planner reaches the SAME decision from a
+  # semantic op chain through `DecodePlanner.request_from_chain/3` — so the two
+  # must agree, and this file proves it the same way `pipeline_assembly_test.exs`
+  # does: by comparing against the planner's own code rather than restating its
+  # rules.
   #
-  # The oracle here is `open_options/5` applied to `Assembly.operations/1`'s
-  # output. That is exactly the chain the framework arm builds for the same
-  # request (pipeline_assembly_test.exs pins that equality op for op), so any
+  # The oracle here is the chain path applied to `Assembly.operations/1`'s
+  # output — the neutral operation chain this dialect's own request lowers to
+  # (pipeline_assembly_test.exs pins that equality op for op), so any
   # disagreement is this preflight's.
 
   alias ImagePipe.Dialect.Imgproxy.Assembly
@@ -47,10 +48,16 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
     }
   end
 
-  # The framework arm's answer for the same first pipeline.
+  # The op-chain path's answer for the same first pipeline.
   defp chain_options(fields, format, exif_qt?, auto_rotate?, dims \\ @source_dims) do
     {:ok, ops} = Assembly.operations(preq(fields))
-    DecodePlanner.open_options(ops, format, dims, exif_qt?, auto_rotate?)
+    options_from_chain(ops, format, dims, exif_qt?, auto_rotate?)
+  end
+
+  defp options_from_chain(ops, format, dims, exif_qt?, auto_rotate?) do
+    ops
+    |> DecodePlanner.request_from_chain(dims, exif_qt? and auto_rotate?)
+    |> DecodePlanner.open_options_for(format, dims, exif_qt?, auto_rotate?)
   end
 
   defp preflight_options(fields, format, exif_qt?, auto_rotate?, dims \\ @source_dims) do
@@ -231,8 +238,8 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
     end
 
     test "min_width/min_height disable shrink outright" do
-      # `resize_load_shrink/3`'s first clause. A preflight that emitted a target
-      # box here would shrink where the framework arm does not.
+      # A preflight that emitted a target box here would shrink where the
+      # op-chain path does not.
       for fields <- [
             [width: {:pixels, 400}, height: {:pixels, 300}, min_width: {:pixels, 100}],
             [width: {:pixels, 400}, height: {:pixels, 300}, min_height: {:pixels, 100}],
@@ -499,11 +506,11 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
                :shrink
              ] == 8
 
-      # And it matches the framework arm's chain path for the same request.
+      # And it matches the op-chain path for the same request.
       {:ok, ops} = Assembly.operations(preq(fields))
 
       assert DecodePlanner.open_options_for(decode_request, :jpeg, @source_dims, true, true) ==
-               DecodePlanner.open_options(ops, :jpeg, @source_dims, true, true)
+               options_from_chain(ops, :jpeg, @source_dims, true, true)
     end
 
     test "the rotate agrees with the chain path across formats and EXIF settings" do

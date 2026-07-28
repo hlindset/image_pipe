@@ -4115,11 +4115,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         ],
         cache:
           {ImagePipe.Cache.FileSystem,
-           root: cache_root,
-           path_prefix: "processed",
-           max_body_bytes: 10_000_000,
-           key_headers: [],
-           key_cookies: []}
+           root: cache_root, path_prefix: "processed", max_body_bytes: 10_000_000}
       )
       |> Keyword.merge(overrides)
 

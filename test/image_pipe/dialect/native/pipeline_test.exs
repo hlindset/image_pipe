@@ -338,11 +338,11 @@ defmodule ImagePipe.Dialect.Native.PipelineTest do
 
   # ── decode preflight ───────────────────────────────────────────────────
   #
-  # `decode_request/2` feeds `DecodePlanner.open_options_for/5`. The framework
-  # arm reaches the same decision through `open_options/5`, walking the op
-  # chain, so the two must agree — and the oracle here is `open_options/5`
-  # applied to the same resize the group assembles, rather than a restatement
-  # of the planner's rules.
+  # `decode_request/2` feeds `DecodePlanner.open_options_for/5`. The planner
+  # reaches the same decision from a semantic op chain through
+  # `DecodePlanner.request_from_chain/3`, so the two must agree — and the oracle
+  # here is that chain path applied to the same resize the group assembles,
+  # rather than a restatement of the planner's rules.
 
   describe "decode_request/2 agrees with the chain path" do
     defp preflight_geometry(dims) do
@@ -371,7 +371,9 @@ defmodule ImagePipe.Dialect.Native.PipelineTest do
           enlargement: :deny
         )
 
-      DecodePlanner.open_options([op], format, dims)
+      [op]
+      |> DecodePlanner.request_from_chain(dims, false)
+      |> DecodePlanner.open_options_for(format, dims)
     end
 
     defp chain_dimension(:auto), do: :auto

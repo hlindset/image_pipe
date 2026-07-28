@@ -7,6 +7,14 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
 
   @formats [:jpeg, :webp, :png]
 
+  # The oracle: the same load options the planner chooses for the equivalent
+  # semantic operation chain, reached through `request_from_chain/3`.
+  defp chain_options(chain, format, dims, exif_quarter_turn? \\ false, auto_rotate? \\ false) do
+    chain
+    |> DecodePlanner.request_from_chain(dims, exif_quarter_turn? and auto_rotate?)
+    |> DecodePlanner.open_options_for(format, dims, exif_quarter_turn?, auto_rotate?)
+  end
+
   # --- Parity: crop_extent + resize_target vs. an equivalent chain ---
 
   test "resize_target + crop_extent matches an equivalent chain across formats" do
@@ -19,7 +27,7 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
     request = %Request{resize_target: {400, 300}, crop_extent: {1600, 1200}}
 
     for format <- @formats do
-      expected = DecodePlanner.open_options(chain, format, {3200, 2400})
+      expected = chain_options(chain, format, {3200, 2400})
       actual = DecodePlanner.open_options_for(request, format, {3200, 2400})
 
       assert actual == expected,
@@ -37,7 +45,7 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
     request = %Request{resize_target: {200, 50}}
 
     for format <- @formats, {exif_qt?, auto_rotate?} <- [{false, false}, {true, true}] do
-      expected = DecodePlanner.open_options(chain, format, {3200, 800}, exif_qt?, auto_rotate?)
+      expected = chain_options(chain, format, {3200, 800}, exif_qt?, auto_rotate?)
 
       actual =
         DecodePlanner.open_options_for(request, format, {3200, 800}, exif_qt?, auto_rotate?)
@@ -49,9 +57,9 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
 
   # --- user_quarter_turn? XORs with the EXIF turn ---
   #
-  # Every expectation below is derived from `open_options/5`'s chain path, which
-  # owns the same rule (`net_quarter_turn?/3`: `rem(exif_angle + user_angle, 180)
-  # == 90`). The chain is the oracle; the `%Request{}` form must agree with it.
+  # Every expectation below is derived from the chain path, which owns the same
+  # rule (`rem(exif_angle + user_angle, 180) == 90`). The chain is the oracle;
+  # the hand-built `%Request{}` form must agree with it.
 
   test "user_quarter_turn? swaps the shrink axes when there is no EXIF turn" do
     # src 3200x800; a rot:90 before a fit:200x50 resize means the target's axes
@@ -63,7 +71,7 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
     request = %Request{resize_target: {200, 50}, user_quarter_turn?: true}
 
     for format <- @formats do
-      expected = DecodePlanner.open_options(chain, format, {3200, 800}, false, false)
+      expected = chain_options(chain, format, {3200, 800}, false, false)
       actual = DecodePlanner.open_options_for(request, format, {3200, 800}, false, false)
 
       assert actual == expected,
@@ -90,7 +98,7 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
     request = %Request{resize_target: {200, 50}, user_quarter_turn?: true}
 
     for format <- @formats do
-      expected = DecodePlanner.open_options(chain, format, {3200, 800}, true, true)
+      expected = chain_options(chain, format, {3200, 800}, true, true)
       actual = DecodePlanner.open_options_for(request, format, {3200, 800}, true, true)
 
       assert actual == expected,

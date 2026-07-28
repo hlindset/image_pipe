@@ -10,6 +10,7 @@ defmodule ImagePipe.Dialect.Declarative.IdentityTest do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Output.JpegOptions
+  alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Representation
@@ -86,6 +87,79 @@ defmodule ImagePipe.Dialect.Declarative.IdentityTest do
       )
 
     assert material.vary_header_names == ["accept-language", "Accept"]
+  end
+
+  test "every Plan.Output field is accounted for in the representation material" do
+    # Fields whose contribution is carried elsewhere or deliberately excluded,
+    # each with a rationale. Adding a Plan.Output field forces a decision here so
+    # a byte-affecting field can never silently miss the key (and the ETag).
+    excluded = %{
+      # `mode` selects the :automatic/:explicit key-data clause, not a field value.
+      mode: "drives key-data clause selection",
+      # offsets only bias the search ESTIMATE; the resolved searched quality is what
+      # changes bytes and is already keyed via quality_search.
+      quality_search_offsets: "subsumed by the resolved quality_search",
+      # the global default only seeds quality resolution; its byte effect is carried
+      # into the key by the resolved quality / format_qualities, never independently.
+      default_quality: "subsumed by resolved quality/format_qualities"
+    }
+
+    output = %Output{mode: {:explicit, :webp}}
+    plan = plan_with_output(output)
+
+    keyed =
+      SomeDialect
+      |> Identity.material(plan, negotiation_for(plan), conn(:get, "/x"), [], nil)
+      |> Map.fetch!(:representation)
+      |> Keyword.fetch!(:output)
+      |> Keyword.keys()
+      |> MapSet.new()
+
+    for {field, _} <- Map.from_struct(output) do
+      assert MapSet.member?(keyed, field) or Map.has_key?(excluded, field),
+             "Plan.Output field #{inspect(field)} is neither in the representation material " <>
+               "nor in the excluded-with-rationale list. Add it to Identity.output_data/2 or " <>
+               "document why it does not affect stored bytes."
+    end
+  end
+
+  test "quality_search and max_bytes move both the cache key and the ETag" do
+    base = %QualitySearch.Ssimulacra2{target: 90.0, min_quality: 70, max_quality: 80}
+
+    plain = key(plan_with_output(%Output{mode: {:explicit, :webp}, quality_search: base}))
+
+    retargeted =
+      key(
+        plan_with_output(%Output{
+          mode: {:explicit, :webp},
+          quality_search: %{base | target: 85.0}
+        })
+      )
+
+    assert plain.cache_key.hash != retargeted.cache_key.hash
+    assert plain.etag != retargeted.etag
+
+    small = key(plan_with_output(%Output{mode: {:explicit, :webp}, max_bytes: 50_000}))
+    large = key(plan_with_output(%Output{mode: {:explicit, :webp}, max_bytes: 60_000}))
+
+    assert small.cache_key.hash != large.cache_key.hash
+    assert small.etag != large.etag
+  end
+
+  test "Accept spellings that negotiate the same selection share a key" do
+    automatic = plan_with_output(%Output{mode: :automatic})
+
+    ordered = accept_key(automatic, "image/avif,image/webp")
+    weighted = accept_key(automatic, "image/webp;q=1,image/avif;q=0.1")
+
+    assert ordered.cache_key.hash == weighted.cache_key.hash
+
+    assert ordered.cache_key.hash != accept_key(automatic, "image/jpeg").cache_key.hash
+  end
+
+  defp accept_key(plan, accept) do
+    conn = conn_with_header("accept", accept)
+    key(plan, conn: conn, negotiation: image_negotiation(plan.output, conn))
   end
 
   property "any byte-affecting difference separates the cache key" do

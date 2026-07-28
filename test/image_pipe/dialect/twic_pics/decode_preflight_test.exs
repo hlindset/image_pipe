@@ -45,6 +45,13 @@ defmodule ImagePipe.Dialect.TwicPics.DecodePreflightTest do
     end)
   end
 
+  # The planner's answer for the equivalent semantic operation chain.
+  defp options_from_chain(ops, format, dims, exif_quarter_turn?, auto_rotate?) do
+    ops
+    |> DecodePlanner.request_from_chain(dims, exif_quarter_turn? and auto_rotate?)
+    |> DecodePlanner.open_options_for(format, dims, exif_quarter_turn?, auto_rotate?)
+  end
+
   defp assert_converges(chain, dims, format, pending) do
     request = build(chain)
     geometry = geometry(dims, pending, format)
@@ -57,7 +64,7 @@ defmodule ImagePipe.Dialect.TwicPics.DecodePreflightTest do
              exif_quarter_turn?,
              request.auto_rotate
            ) ==
-             DecodePlanner.open_options(
+             options_from_chain(
                operation_chain(request),
                format,
                dims,
@@ -100,7 +107,7 @@ defmodule ImagePipe.Dialect.TwicPics.DecodePreflightTest do
     {:ok, direct} = Operation.resize(:fit, {:px, 340}, :auto)
 
     assert DecodePlanner.open_options_for(preflight, :jpeg, {4000, 2667}, false, true) ==
-             DecodePlanner.open_options([direct], :jpeg, {4000, 2667}, false, true)
+             options_from_chain([direct], :jpeg, {4000, 2667}, false, true)
   end
 
   test "preceding crop extent is derived and focus-only steps are ignored" do
@@ -130,7 +137,7 @@ defmodule ImagePipe.Dialect.TwicPics.DecodePreflightTest do
       # The relative first resize is shadowed, so preflight converges with a bare
       # resize=<later> against the source frame.
       assert DecodePlanner.open_options_for(preflight, format, {width, height}, false, true) ==
-               DecodePlanner.open_options([direct], format, {width, height}, false, true)
+               options_from_chain([direct], format, {width, height}, false, true)
     end
   end
 end

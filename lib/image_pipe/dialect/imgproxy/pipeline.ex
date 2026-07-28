@@ -79,12 +79,12 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   against whatever the first already produced, so only the first pipeline may
   drive shrink-on-load.
 
-  Every field is derived to agree with what `DecodePlanner.open_options/5`
-  computes from the equivalent op chain. The two
-  paths *converge* rather than approximate each other: this function resolves
-  the same per-axis extents `resize_load_shrink/3` resolves, and both then hand
-  them to the planner's own `ratio_from_targets/4`. What that leaves this
-  function to reproduce is the three rules `resize_load_shrink/3` owns:
+  Every field is derived to agree with what the planner computes from the
+  equivalent op chain (`DecodePlanner.request_from_chain/3`). The two paths
+  *converge* rather than approximate each other: this function resolves the same
+  per-axis extents that path resolves, and both then hand them to the planner's
+  own `ratio_from_targets/4`. What that leaves this function to reproduce is
+  three rules:
 
     * `min_width`/`min_height` disable shrink outright, so a request carrying
       either yields `resize_target: nil` rather than a box;
@@ -114,7 +114,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   the field admits both.
 
   `pipeline_assembly_test.exs`'s sibling `decode_preflight_test.exs` pins that
-  agreement against `open_options/5` directly rather than restating it, by
+  agreement against the op-chain path directly rather than restating it, by
   example and by property.
   """
   @spec decode_request(pipelined_request(), SourceGeometry.t()) ::
@@ -180,21 +180,22 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   defp tagged_crop_axis_extent({:ratio, num, den}, dim),
     do: min(dim, max(1, round(dim * num / den)))
 
-  # `resize_load_shrink/3`'s first clause: a min_* floor interacts with aspect
-  # ratio in ways that are not a per-axis multiplier, so the chain path declines
-  # to shrink at all. No target box can express that; `nil` reproduces it.
+  # `DecodePlanner.chain_resize_target/1`'s min_* clause: a min_* floor interacts
+  # with aspect ratio in ways that are not a per-axis multiplier, so the chain
+  # path declines to shrink at all. No target box can express that; `nil`
+  # reproduces it.
   defp resize_target(%PipelineRequest{min_width: mw, min_height: mh})
        when not is_nil(mw) or not is_nil(mh),
        do: nil
 
   # An untargeted axis stays `nil` rather than being synthesized from the aspect
-  # ratio: `ratio_from_targets/4` — the SAME function the chain path's
-  # `resize_load_shrink/3` calls — then takes that axis's ratio alone, exactly as
-  # the chain does. A derived partner axis would instead bind its `min/2` tighter
-  # whenever the frame is not exactly proportional, shrinking less and decoding
-  # more pixels than the chain path for the same request.
+  # ratio: `ratio_from_targets/4` — the SAME function the chain path reaches
+  # through `DecodePlanner.chain_resize_target/1` — then takes that axis's ratio
+  # alone, exactly as the chain does. A derived partner axis would instead bind
+  # its `min/2` tighter whenever the frame is not exactly proportional, shrinking
+  # less and decoding more pixels than the chain path for the same request.
   #
-  # The extents are NOT rounded, for the same reason: `resize_load_shrink/3`
+  # The extents are NOT rounded, for the same reason: the planner
   # divides by the fractional dpr/zoom-inflated target directly, so rounding here
   # would move the ratio (visibly, on webp's continuous `scale:`) and would round
   # a sub-pixel target — `rs:fit:1:0/dpr:0.4` — down to a division by zero.

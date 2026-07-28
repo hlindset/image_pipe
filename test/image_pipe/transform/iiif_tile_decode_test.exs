@@ -15,7 +15,10 @@ defmodule ImagePipe.Transform.IIIFTileDecodeTest do
     {:ok, crop} = Operation.crop_region({:px, 0}, {:px, 0}, {:px, 4096}, {:px, 4096})
     {:ok, resize} = Operation.resize(:stretch, {:px, 512}, {:px, 512})
 
-    opts = DecodePlanner.open_options([crop, resize], :jpeg, {6000, 4000})
+    opts =
+      [crop, resize]
+      |> DecodePlanner.request_from_chain({6000, 4000}, false)
+      |> DecodePlanner.open_options_for(:jpeg, {6000, 4000})
 
     assert Keyword.get(opts, :access) == :sequential
     # Shrink-on-load fires for the crop-then-downscale tile shape: the source is

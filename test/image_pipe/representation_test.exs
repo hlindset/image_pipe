@@ -50,6 +50,14 @@ defmodule ImagePipe.RepresentationTest do
     assert a.etag == b.etag
   end
 
+  test "a source_identity change moves both the key and the etag" do
+    a = build(source_identity(), material())
+    b = build(Keyword.put(source_identity(), :root, "other"), material())
+
+    assert a.cache_key.hash != b.cache_key.hash
+    assert a.etag != b.etag
+  end
+
   test "a representation change moves both the key and the etag" do
     a = build(source_identity(), material())
 

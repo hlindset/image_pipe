@@ -190,16 +190,19 @@ defmodule ImagePipe.CacheTest do
     for cache <- [
           {__MODULE__.DoesNotExist, []},
           {MissingSinkCallbacksAdapter, []},
-          {MissAdapter, [key_headers: [:accept_language]]},
           {MissAdapter, [max_body_bytes: "10MB"]}
         ] do
       assert_raise ArgumentError, ~r/invalid cache config/, fn ->
         ImagePipe.Plug.init(mount(cache: cache))
       end
     end
+  end
 
-    assert_raise ArgumentError, ~r/key_headers.*cannot include.*accept/, fn ->
-      ImagePipe.Plug.init(mount(cache: {MissAdapter, key_headers: ["Accept"]}))
+  test "ImagePipe init rejects header/cookie cache partitioning options" do
+    for key <- [:key_headers, :key_cookies] do
+      assert_raise ArgumentError, ~r/#{key} was removed.*storage_inputs:/s, fn ->
+        ImagePipe.Plug.init(mount(cache: {MissAdapter, [{key, ["accept-language"]}]}))
+      end
     end
   end
 
@@ -419,7 +422,7 @@ defmodule ImagePipe.CacheTest do
 
   test "adapter runtime opts use validated adapter options without raw adapter config leftovers" do
     cache_opts = [
-      key_headers: ["accept-language"],
+      max_body_bytes: 10_000,
       test_pid: self(),
       drop_me: true
     ]
@@ -429,7 +432,7 @@ defmodule ImagePipe.CacheTest do
     assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
 
     assert_received {:normalized_cache_get, runtime_opts}
-    assert Keyword.fetch!(runtime_opts, :key_headers) == ["accept-language"]
+    assert Keyword.fetch!(runtime_opts, :max_body_bytes) == 10_000
     assert Keyword.fetch!(runtime_opts, :test_pid) == self()
     assert Keyword.fetch!(runtime_opts, :normalized?)
     refute Keyword.has_key?(runtime_opts, :drop_me)
@@ -437,7 +440,7 @@ defmodule ImagePipe.CacheTest do
     assert Cache.open_sink(cache_key(), resolved_output(), opts)
 
     assert_received {:normalized_open_sink, sink_opts}
-    assert Keyword.fetch!(sink_opts, :key_headers) == ["accept-language"]
+    assert Keyword.fetch!(sink_opts, :max_body_bytes) == 10_000
     assert Keyword.fetch!(sink_opts, :test_pid) == self()
     assert Keyword.fetch!(sink_opts, :normalized?)
     refute Keyword.has_key?(sink_opts, :drop_me)

@@ -1,6 +1,6 @@
 defmodule ImagePipe.Transform.DecodePlanner do
   @moduledoc """
-  Chooses image decode load options for semantic Plan operations.
+  Chooses image decode load options for a defunctionalized decode `%Request{}`.
 
   Decode is always opened with `:sequential` access. Random access is provided
   per-op by `ImagePipe.Transform.Chain` when individual operations require it.
@@ -23,56 +23,24 @@ defmodule ImagePipe.Transform.DecodePlanner do
   @type source_format() ::
           :jpeg | :webp | :png | :tiff | :jpeg2000 | :jpeg_xl | :heif | :avif | atom()
 
-  @spec open_options(
-          [ImagePipe.Plan.Pipeline.operation()],
-          source_format(),
-          {pos_integer(), pos_integer()},
-          boolean(),
-          boolean()
-        ) ::
-          keyword()
-  def open_options(
-        chain,
-        source_format,
-        {src_w, src_h},
-        exif_quarter_turn? \\ false,
-        auto_rotate? \\ false
-      )
-      when is_list(chain) and is_atom(source_format) and
-             is_integer(src_w) and src_w > 0 and
-             is_integer(src_h) and src_h > 0 and
-             is_boolean(exif_quarter_turn?) and is_boolean(auto_rotate?) do
-    {shrink_w, shrink_h} =
-      shrink_axes({src_w, src_h}, net_quarter_turn?(chain, exif_quarter_turn?, auto_rotate?))
-
-    base = [access: :sequential, fail_on: :error]
-    load_shrink = compute_load_shrink(chain, shrink_w, shrink_h)
-    append_load_option(base, source_format, load_shrink)
-  end
-
   @doc """
-  Chooses decode load options from a defunctionalized `%Request{}` instead of a
-  semantic op chain (#377/#454).
+  Chooses decode load options from a defunctionalized `%Request{}` (#377/#454).
 
-  Same base access options and the same jpeg `shrink:`/webp `scale:` math as
-  `open_options/5`, computed from resolved display-frame extents rather than
-  walking a `Plan.Pipeline` chain. Precedence: `trim?` disables shrink; else
-  `resize_target` governs when present; else `terminal_reduction` governs (a
-  tiny terminal frame, e.g. blurhash, still informs load shrink even with no
-  resize); neither present means no shrink from those inputs.
-  `required_extent` independently caps the chosen shrink so the loaded
-  display-frame extent never falls below that floor.
+  Precedence: `trim?` disables shrink; else `resize_target` governs when
+  present; else `terminal_reduction` governs (a tiny terminal frame, e.g.
+  blurhash, still informs load shrink even with no resize); neither present
+  means no shrink from those inputs. `required_extent` independently caps the
+  chosen shrink so the loaded display-frame extent never falls below that
+  floor.
 
-  Both entry points share `ratio_from_targets/4`, so a `resize_target` whose
-  axes carry what the chain path's own `resize_load_shrink/3` would compute —
-  each axis independently optional, and fractional once `dpr`/`zoom` inflate it
-  (see `t:Request.resize_target/0`) — yields the identical ratio rather than an
-  approximation of it.
+  A `resize_target`'s axes are each independently optional, and fractional once
+  `dpr`/`zoom` inflate them (see `t:Request.resize_target/0`), so
+  `ratio_from_targets/4` yields the exact ratio rather than an approximation of
+  it.
 
-  The shrink-axis swap is decided by the same *net* turn `open_options/5`
-  computes from the chain: the EXIF turn (`exif_quarter_turn?` and
-  `auto_rotate?`) XOR the dialect's own pre-resize rotate
-  (`request.user_quarter_turn?`).
+  The shrink-axis swap is decided by the *net* orientation turn: the EXIF turn
+  (`exif_quarter_turn?` and `auto_rotate?`) XOR the dialect's own pre-resize
+  rotate (`request.user_quarter_turn?`).
   """
   @spec open_options_for(
           Request.t(),
@@ -112,10 +80,6 @@ defmodule ImagePipe.Transform.DecodePlanner do
   Defunctionalizes a semantic `ImagePipe.Plan.Pipeline` operation chain into the
   `%Request{}` `open_options_for/5` consumes.
 
-  Exact: for every constructible chain, `open_options_for/5` over the returned
-  request yields the identical load options `open_options/5` yields over the
-  chain (`test/image_pipe/transform/decode_planner_chain_request_test.exs`).
-
   `exif_quarter_turn?` is the NET EXIF turn — already gated by the caller's
   auto-rotate policy. `ImagePipe.Transform.PendingOrientation.quarter_turn?/1`
   on a decode-time pending orientation is exactly this value, since the decode
@@ -128,9 +92,9 @@ defmodule ImagePipe.Transform.DecodePlanner do
   `%Rotate{}` accepts any angle in `[0, 360]`), and `rem(exif + user, 180) == 90`
   is NOT reproducible by XORing two booleans whenever the user sum is not a
   multiple of 90 — e.g. exif 90° + user 45° is not a quarter turn, but
-  `true XOR false` says it is. So compute the net turn here, exactly as the
-  chain path does, and set `user_quarter_turn?` to whatever value makes the
-  planner's XOR agree: `exif_quarter_turn? != net_quarter_turn?`.
+  `true XOR false` says it is. So compute the net turn from the summed angles
+  here, and set `user_quarter_turn?` to whatever value makes the planner's XOR
+  agree: `exif_quarter_turn? != net_quarter_turn?`.
   """
   @spec request_from_chain(
           [ImagePipe.Plan.Pipeline.operation()],
@@ -154,8 +118,9 @@ defmodule ImagePipe.Transform.DecodePlanner do
     }
   end
 
-  # Mirrors `resize_load_shrink/3`'s two decisions as data: a `min_width`/
-  # `min_height` resize is ineligible (no per-axis multiplier exists), and only
+  # The first resize's target, as data. A `min_width`/`min_height` resize is
+  # ineligible — those enlarge the result to a floor, interacting with aspect
+  # ratio in ways that are not a simple per-axis multiplier — and only
   # `{:px, n}` axes contribute a target. `{nil, nil}` MUST normalize to `nil` —
   # see `t:Request.resize_target/0`; `{nil, nil}` would shadow
   # `terminal_reduction` in `open_options_for/5`'s precedence.
@@ -177,8 +142,11 @@ defmodule ImagePipe.Transform.DecodePlanner do
   defp normalize_resize_target({nil, nil}), do: nil
   defp normalize_resize_target(target), do: target
 
-  # --- Request-based shrink computation (mirrors compute_load_shrink/3) ---
+  # --- Load shrink from the request ---
 
+  # Trim redefines source dimensions (imgproxy nils ImgData), so any shrink sized
+  # against the original would be wrong. Forgo shrink-on-load — declining to
+  # shrink is always safe, it forgoes the memory win, never quality.
   defp compute_load_shrink_for_request(%Request{trim?: true}, _shrink_w, _shrink_h), do: 1.0
 
   defp compute_load_shrink_for_request(
@@ -225,21 +193,15 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # unless auto-rotate is on) and `baseAngle` is the user `po.Rotate()`
   # (prepare.go:11-22, 270). The EXIF angle contributes a quarter turn iff
   # auto-rotate is enabled *and* the orientation tag is 5/6/7/8 (`exif_quarter_turn?`);
-  # 1/2 (0°) and 3/4 (180°) do not. The user contribution is the sum of `%Rotate{}`
-  # angles before the first resize. Deferred orientation (#146) folds both into a
+  # 1/2 (0°) and 3/4 (180°) do not. Deferred orientation (#146) folds both into a
   # single pending turn whose `quarter_turn?` predicate the residual resize
   # compensates against, so the shrink-axis swap must agree with that same net turn.
-  defp net_quarter_turn?(chain, exif_quarter_turn?, auto_rotate?) do
-    exif_angle = if auto_rotate? and exif_quarter_turn?, do: 90, else: 0
-    rem(exif_angle + user_rotate_angle_before_resize(chain), 180) == 90
-  end
-
-  # The `%Request{}` form of `net_quarter_turn?/3` above. A defunctionalized
-  # request has no chain to walk, so the dialect resolves its own pre-resize
-  # rotate to a boolean and the two terms combine by XOR — exact, because each
-  # term contributes 0 or 90 mod 180 and the sum is a quarter turn iff exactly
-  # one of them is. A dialect that emits no rotate before its resize leaves
-  # `user_quarter_turn?` at `false`, collapsing this to the EXIF term alone.
+  #
+  # A defunctionalized request has no chain to walk, so the dialect resolves its
+  # own pre-resize rotate to a boolean and the two terms combine by XOR — exact,
+  # because each term contributes 0 or 90 mod 180 and the sum is a quarter turn
+  # iff exactly one of them is. A dialect that emits no rotate before its resize
+  # leaves `user_quarter_turn?` at `false`, collapsing this to the EXIF term alone.
   defp request_net_quarter_turn?(
          %Request{user_quarter_turn?: user_turn?},
          exif_qt?,
@@ -260,60 +222,27 @@ defmodule ImagePipe.Transform.DecodePlanner do
     end)
   end
 
-  # --- Shrink/scale computation ---
-
-  # The load shrink must never decode the image *below* the residual resize's
-  # target on either axis — otherwise that resize would upscale a shrunk image and
-  # produce a softer result than the full-decode path. We therefore compute the
-  # shrink against the residual resize's *effective* target, which `dpr` and `zoom`
-  # inflate.
-  #
-  # A crop reaching the chain before the resize is allowed through (imgproxy
-  # parity, #151): the crop reduces the pixels feeding the resize, so the shrink is
-  # sized against the *cropped* extent — `min(crop_dim, src_dim)` per axis, mirroring
-  # imgproxy's `widthToScale = MinNonZero(CropWidth, SrcWidth)` (prepare.go:275-278)
-  # — never the full source, which would over-shrink the cropped region. The crop's
-  # absolute pixel dims and gravity offsets are rescaled by the realized shrink at
-  # execution time (Executor); relative (ratio/percent/focus-point) crops shrink
-  # in place and need no coordinate rescale.
-  #
-  # A quarter-turn rotate reaching the chain before the resize is also allowed
-  # through (#151): orientation is deferred (#146) and flushed *after* the residual
-  # resize, so the stored axes still feed the resize; the only adjustment is that
-  # the resize target is expressed against the *displayed* axes, which `shrink_axes`
-  # already swaps when the combined net turn (EXIF ∘ user rotate) is a quarter turn.
-  # The realized shrink scalar is unchanged by a rotate, so B1's crop-coordinate
-  # rescale at execution still applies verbatim.
-  #
-  # `min_width`/`min_height` remain ineligible — they enlarge the result to a floor,
-  # interacting with aspect ratio in ways that are not a simple per-axis multiplier;
-  # `resize_load_shrink/3` returns `1.0` for that shape, so it never shrinks.
-  #
-  # Declining to shrink is always safe — it forgoes the memory win, never quality.
-  #
-  # The shrink is driven by the first resize sized against the extent that actually
-  # feeds it: a preceding crop narrows that extent (per axis) to the cropped size.
-  defp compute_load_shrink(chain, src_w, src_h) do
-    if Enum.any?(chain, &match?(%PlanTrim{}, &1)) do
-      # Trim redefines source dimensions (imgproxy nils ImgData), so any shrink
-      # sized against the original would be wrong. Forgo shrink-on-load — only
-      # affects the first pipeline, matching imgproxy (trim disables scaleOnLoad).
-      1.0
-    else
-      {crop_w, crop_h} = crop_extent_before_resize(chain, src_w, src_h)
-
-      case Enum.find(chain, &match?(%PlanResize{}, &1)) do
-        nil -> 1.0
-        resize -> resize_load_shrink(resize, crop_w, crop_h)
-      end
-    end
-  end
+  # --- Extent and ratio math ---
 
   # The extent feeding the first resize, per axis: the cropped dimension when a
   # crop precedes the resize, else the full source dimension. Mirrors imgproxy's
   # `widthToScale = MinNonZero(CropWidth, SrcWidth)` (prepare.go:275-276). Absolute
   # pixel crops clamp to the source; relative crops scale the source; `:full_axis`
   # leaves the axis at full source extent.
+  #
+  # Sizing the shrink against the *cropped* extent rather than the full source is
+  # imgproxy parity (#151) and avoids over-shrinking the cropped region. The crop's
+  # absolute pixel dims and gravity offsets are rescaled by the realized shrink at
+  # execution time (Executor); relative (ratio/percent/focus-point) crops shrink
+  # in place and need no coordinate rescale.
+  #
+  # A quarter-turn rotate reaching the chain before the resize is allowed through
+  # too (#151): orientation is deferred (#146) and flushed *after* the residual
+  # resize, so the stored axes still feed the resize; the only adjustment is that
+  # the resize target is expressed against the *displayed* axes, which `shrink_axes`
+  # already swaps when the combined net turn (EXIF ∘ user rotate) is a quarter turn.
+  # The realized shrink scalar is unchanged by a rotate, so the crop-coordinate
+  # rescale at execution still applies verbatim.
   #
   # The canonical pipeline (orientation → crop → resize → …) has at most ONE crop
   # before the resize, so we halt at the first crop and ignore any later one: a
@@ -341,23 +270,16 @@ defmodule ImagePipe.Transform.DecodePlanner do
   defp crop_axis_extent({:ratio, num, den}, src) when num > 0 and den > 0,
     do: min(src, max(1, round(src * num / den)))
 
-  defp resize_load_shrink(%PlanResize{min_width: mw, min_height: mh}, _src_w, _src_h)
-       when not is_nil(mw) or not is_nil(mh),
-       do: 1.0
-
-  defp resize_load_shrink(%PlanResize{width: width, height: height} = resize, src_w, src_h) do
-    target_w = px_target_extent(width, resize, :x)
-    target_h = px_target_extent(height, resize, :y)
-    ratio_from_targets(src_w, src_h, target_w, target_h)
-  end
-
   defp px_target_extent({:px, n}, resize, axis) when n > 0, do: target_extent(n, resize, axis)
   defp px_target_extent(_dimension, _resize, _axis), do: nil
 
-  # Shared ratio math for both entry points: `src / target` per axis, taking the
-  # tighter (larger) ratio when both axes have a target (never over-shrink past
-  # either constraint), a single axis's ratio when only one target is given, or
-  # `1.0` (no shrink) when neither axis has a target.
+  # `src / target` per axis, taking the tighter (larger) ratio when both axes have
+  # a target (never over-shrink past either constraint), a single axis's ratio when
+  # only one target is given, or `1.0` (no shrink) when neither axis has a target.
+  #
+  # The load shrink must never decode the image *below* the residual resize's
+  # target on either axis — otherwise that resize would upscale a shrunk image and
+  # produce a softer result than the full-decode path.
   defp ratio_from_targets(_src_w, _src_h, nil, nil), do: 1.0
   defp ratio_from_targets(src_w, _src_h, target_w, nil), do: src_w / target_w
   defp ratio_from_targets(_src_w, src_h, nil, target_h), do: src_h / target_h

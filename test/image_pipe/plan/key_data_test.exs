@@ -4,6 +4,7 @@ defmodule ImagePipe.Plan.KeyDataTest do
   alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Resize
+  alias ImagePipe.Plan.Output.QualitySearch
 
   test "encodes percent and scale resize dimensions as exact ratios" do
     {:ok, %Resize{} = op} = Operation.resize(:fit, {:percent, 50}, {:scale, 0.5})
@@ -51,5 +52,52 @@ defmodule ImagePipe.Plan.KeyDataTest do
     assert Keyword.get(bounded_data, :max_area) == 3_000_000
     assert Keyword.get(bounded_data, :max_height) == nil
     refute bounded_data == unbounded_data
+  end
+
+  describe "quality_search_data/1 (#344)" do
+    defp search(overrides \\ []) do
+      struct!(
+        %QualitySearch.Ssimulacra2{target: 90.0, min_quality: 70, max_quality: 80},
+        overrides
+      )
+    end
+
+    test "an absent search stays :none" do
+      assert KeyData.quality_search_data(:none) == :none
+    end
+
+    test "different targets do not collide" do
+      refute KeyData.quality_search_data(search(target: 90.0)) ==
+               KeyData.quality_search_data(search(target: 85.0))
+    end
+
+    test "semantically identical searches produce identical data" do
+      assert KeyData.quality_search_data(search(target: 90.0)) ==
+               KeyData.quality_search_data(search(target: 90.0))
+    end
+
+    test "canonically-equal per-format clamps produce identical data" do
+      a = search(format_min: %{webp: 60, jpeg: 50}, format_max: %{webp: 90})
+      b = search(format_min: %{jpeg: 50, webp: 60}, format_max: %{webp: 90})
+
+      assert KeyData.quality_search_data(a) == KeyData.quality_search_data(b)
+    end
+
+    test "max_resolution enters the data (it selects which bytes are stored)" do
+      refute KeyData.quality_search_data(search(max_resolution: 0)) ==
+               KeyData.quality_search_data(search(max_resolution: 50))
+    end
+
+    test "url_min_quality/url_max_quality enter the data" do
+      refute KeyData.quality_search_data(search()) ==
+               KeyData.quality_search_data(search(url_min_quality: 80, url_max_quality: 90))
+    end
+
+    test "searches differing only in metric produce distinct data" do
+      fields = [target: 1.0, min_quality: 70, max_quality: 80, allowed_error: 0.1]
+
+      refute KeyData.quality_search_data(struct!(QualitySearch.Ssimulacra2, fields)) ==
+               KeyData.quality_search_data(struct!(QualitySearch.Butteraugli, fields))
+    end
   end
 end

@@ -91,13 +91,11 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
     }
   end
 
-  # An `:auto` axis is not a target: it stays `nil`, so `ratio_from_targets/4`
-  # — the same function the framework's `open_options/5` reaches through
-  # `resize_load_shrink/3` — takes the targeted axis's ratio alone, exactly as
-  # the chain path does. Synthesizing the missing axis from the aspect ratio
-  # instead binds that function's `min/2` tighter than the chain path whenever
-  # the source is not exactly proportional to the requested box, shrinking less
-  # and decoding more pixels than the chain path for the same request.
+  # An `:auto` axis is not a target: it stays `nil`, so the planner's
+  # `ratio_from_targets/4` takes the targeted axis's ratio alone. Synthesizing
+  # the missing axis from the aspect ratio instead binds that function's `min/2`
+  # tighter whenever the source is not exactly proportional to the requested
+  # box, shrinking less and decoding more pixels than the request calls for.
   # A resize with NO targeted axis normalizes to `nil`, not `{nil, nil}`: the
   # planner's precedence reads `resize_target`'s presence, so an empty box would
   # shadow `terminal_reduction` and cost the blurhash terminal its load shrink.
