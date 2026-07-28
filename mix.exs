@@ -7,8 +7,8 @@ defmodule ImagePipe.MixProject do
     "lib/image_pipe/decode.ex",
     "lib/image_pipe/decode/source_format.ex",
     "lib/image_pipe/dialect/shared_config.ex",
-    # Deliberate copy of the TwicPics debug build until Phase B deletes the
-    # dialect's copy.
+    # Mirrors the framework Request.DeliveryBuild debug block until Phase C
+    # deletes the framework stack.
     "lib/image_pipe/plug/debug_builder.ex",
     "lib/image_pipe/response/conditional.ex"
   ]

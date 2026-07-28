@@ -10,7 +10,9 @@ defmodule ImagePipe.Plug.DialectRunner do
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Dialect.DebugContext
+  alias ImagePipe.Dialect.Failure
   alias ImagePipe.Dialect.Negotiation
+  alias ImagePipe.Dialect.RenderTerminal
   alias ImagePipe.Dialect.Resolved
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
@@ -36,7 +38,16 @@ defmodule ImagePipe.Plug.DialectRunner do
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {conn, metadata} = route(conn, dialect, config)
-      {conn, Map.put(metadata, :status, conn.status)}
+
+      # A committed 200 whose stream then failed: the shared Sender stamps
+      # :image_pipe_send_result (:processing_error), and the request span's
+      # stop result must agree with the [:send] stop.
+      metadata =
+        metadata
+        |> Map.put(:result, Map.get(conn.private, :image_pipe_send_result, metadata.result))
+        |> Map.put(:status, conn.status)
+
+      {conn, metadata}
     end)
   end
 
@@ -88,7 +99,8 @@ defmodule ImagePipe.Plug.DialectRunner do
     with {:ok, %Resolved{} = resolved} <- dialect.prepare(conn, request, config),
          {:ok, %ImageSource.Resolved{} = source} <-
            ImageSource.resolve(resolved.source, config, config),
-         {:ok, %Negotiation{} = negotiation, material} <- resolved.negotiation do
+         {:ok, %Negotiation{} = negotiation, material} <-
+           resolve_negotiation(resolved.negotiation) do
       representation =
         Representation.build(source.identity, material, source.cache_semantics.byte_identity)
 
@@ -101,6 +113,14 @@ defmodule ImagePipe.Plug.DialectRunner do
       {:error, reason} -> send_error(conn, dialect, reason, config)
     end
   end
+
+  # `Resolved.negotiation` is a result tuple or a zero-arity thunk producing
+  # one — deferred so a dialect can compute negotiation from runtime
+  # geometry unavailable at prepare/3 time. Invoked only after
+  # ImageSource.resolve/3 succeeds, preserving source-before-negotiation
+  # error precedence.
+  defp resolve_negotiation(negotiation) when is_function(negotiation, 0), do: negotiation.()
+  defp resolve_negotiation(negotiation), do: negotiation
 
   # -- terminal dispatch (Resolved-neutral: branches on %Resolved{terminal:}) --
 
@@ -141,7 +161,7 @@ defmodule ImagePipe.Plug.DialectRunner do
        ) do
     case Cache.lookup_entry(representation.cache_key, config) do
       {:hit, %Cache.Entry{representation: {:complete_body, content_type}} = entry} ->
-        deliver_render_hit(conn, content_type, entry.body, representation, config)
+        deliver_render_hit(conn, terminal, content_type, entry.body, representation, config)
 
       # A miss, a disabled cache, or an untagged entry (indistinguishable from
       # an image entry — sending one here would answer the render terminal
@@ -159,13 +179,13 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
-  defp deliver_render_hit(conn, content_type, body, representation, config) do
+  defp deliver_render_hit(conn, %RenderTerminal{} = terminal, content_type, body, rep, config) do
     if Conditional.if_none_match_wildcard?(conn) do
-      send_not_modified(conn, representation, config)
+      send_not_modified(conn, rep, config)
     else
       conn =
         send_with_span(conn, config, :ok, fn ->
-          send_complete_body(conn, content_type, body, representation)
+          send_complete_body(conn, content_type, body, rep, terminal.charset)
         end)
 
       {conn, %{result: :ok}}
@@ -182,7 +202,7 @@ defmodule ImagePipe.Plug.DialectRunner do
 
         conn =
           send_with_span(conn, config, :ok, fn ->
-            send_complete_body(conn, content_type, body, representation)
+            send_complete_body(conn, content_type, body, representation, terminal.charset)
           end)
 
         {conn, %{result: :ok}}
@@ -204,21 +224,36 @@ defmodule ImagePipe.Plug.DialectRunner do
     :ok
   end
 
-  defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
+  # `charset` is the current terminal's, never the stored entry's — the cache
+  # keeps a bare content type, so hit and miss present identically.
+  defp send_complete_body(conn, content_type, body, %Representation{} = representation, charset) do
     cache_headers = CacheHeaders.from_representation(representation)
 
     conn
     |> put_resp_headers(cache_headers.representation_headers)
     |> put_resp_headers(cache_headers.headers)
-    |> Plug.Conn.put_resp_content_type(content_type, nil)
+    |> put_body_content_type(content_type, charset)
     |> Plug.Conn.send_resp(200, body)
   end
+
+  defp put_body_content_type(conn, content_type, :default),
+    do: Plug.Conn.put_resp_content_type(conn, content_type)
+
+  defp put_body_content_type(conn, content_type, nil),
+    do: Plug.Conn.put_resp_content_type(conn, content_type, nil)
 
   defp put_resp_headers(conn, headers) do
     Enum.reduce(headers, conn, fn {name, value}, acc ->
       Plug.Conn.put_resp_header(acc, name, value)
     end)
   end
+
+  # negotiation.policy is nil only for Negotiation.terminal/1's render
+  # terminals, which never reach generate/8 — only the image terminal
+  # (Resolved{terminal: :image}) does, and its negotiation always carries a
+  # policy (mirrors pipeline_opts/2's same assumption).
+  defp with_policy_headers(conn, %Negotiation{policy: %Policy{headers: headers}}),
+    do: put_resp_headers(conn, headers)
 
   # -- serve: cache dispatch (Resolved-neutral: branches on Source.Resolved) --
 
@@ -290,7 +325,7 @@ defmodule ImagePipe.Plug.DialectRunner do
        ) do
     conn =
       send_with_span(conn, config, :ok, fn ->
-        send_complete_body(conn, content_type, entry.body, representation)
+        send_complete_body(conn, content_type, entry.body, representation, nil)
       end)
 
     {conn, %{result: :ok}}
@@ -343,11 +378,14 @@ defmodule ImagePipe.Plug.DialectRunner do
         {conn, %{result: :ok}}
 
       {:error, reason} ->
-        # Phase B note: imgproxy/TwicPics ride negotiation.policy.headers on
-        # delivery errors (their Errors.send/4); Native's Errors.send/3 takes
-        # none, so Phase A's contract carries no headers here — see the plan's
-        # exit notes for the Phase B design question.
-        send_error(conn, dialect, reason, config)
+        # An Accept-negotiated response must carry the policy's headers
+        # (Vary: Accept) even when delivery fails, or a shared cache may
+        # serve the failure to a client whose Accept would have negotiated
+        # a working outcome. Stamped on the conn — headers survive
+        # send_resp — so render_error needs no headers argument. Only the
+        # post-negotiation delivery failure carries them (mirroring every
+        # dialect chain): resolve/negotiation errors stay bare.
+        send_error(with_policy_headers(conn, negotiation), dialect, reason, config)
     end
   end
 
@@ -387,6 +425,13 @@ defmodule ImagePipe.Plug.DialectRunner do
   # transform → resolve output → clamp → materialize → encode first chunk →
   # hand off. Runs inside Delivery.Producer. (The dialects' build_and_pump,
   # written once — spec §The runner.)
+  #
+  # Each layer converts its own failures: `execute/4` is a trusted callback
+  # whose raises the runner must not launder into its tagged-tuple contract
+  # (AGENTS.md), so a dialect rescues its own pipeline run and returns
+  # `{:error, {:transform, _}}`. An exception escaping one of the shared
+  # stages below is our bug, not the client's — it propagates to the delivery
+  # session and renders 500-class rather than a misattributed 4xx.
   defp produce_stream(dialect, state, geometry, resolved, negotiation, config, pump, decode_us) do
     shrink = state.decode_shrink
 
@@ -408,7 +453,7 @@ defmodule ImagePipe.Plug.DialectRunner do
          {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
            Timing.measure(fn -> encode_first_chunk(image, resolved_output, config) end) do
       debug =
-        DebugBuilder.build(dialect, %DebugContext{
+        DebugBuilder.build(%DebugContext{
           geometry: geometry,
           shrink: shrink,
           negotiation: negotiation,
@@ -425,10 +470,6 @@ defmodule ImagePipe.Plug.DialectRunner do
       {{:error, _reason} = error, _microseconds} -> error
       {:error, _reason} = error -> error
     end
-  rescue
-    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
-  catch
-    kind, reason -> {:error, {:transform, {kind, reason}}}
   end
 
   defp run_transform(dialect, state, geometry, %Resolved{} = resolved, negotiation, config) do
@@ -571,8 +612,11 @@ defmodule ImagePipe.Plug.DialectRunner do
     {conn, %{result: :not_modified}}
   end
 
+  # `%Failure{}` is unwrapped for `Error.tag/1` only — the telemetry tag names
+  # the reason, not the envelope. `classify_error/1` and `render_error/3` get
+  # the wrapper untouched so a dialect can act on the phase that produced it.
   defp send_error(conn, dialect, reason, config) do
-    metadata = %{result: classify(dialect, reason), error: Error.tag(reason)}
+    metadata = %{result: classify(dialect, reason), error: Error.tag(unwrap(reason))}
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
@@ -581,6 +625,9 @@ defmodule ImagePipe.Plug.DialectRunner do
 
     {conn, metadata}
   end
+
+  defp unwrap(%Failure{reason: reason}), do: reason
+  defp unwrap(reason), do: reason
 
   defp classify(dialect, reason) do
     if function_exported?(dialect, :classify_error, 1) do

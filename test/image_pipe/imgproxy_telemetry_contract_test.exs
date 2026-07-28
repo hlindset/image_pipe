@@ -312,7 +312,8 @@ defmodule ImagePipe.ImgproxyTelemetryContractTest do
   defp call_conn(%Plug.Conn{} = conn, opts) do
     {seams, known} = Keyword.split(opts, @test_only_seam_keys)
 
-    DialectImgproxy.call(conn, Keyword.merge(DialectImgproxy.init(known), seams))
+    init_opts = ImagePipe.Plug.init([dialect: DialectImgproxy] ++ known)
+    ImagePipe.Plug.call(conn, Keyword.merge(init_opts, seams))
   end
 
   # ── scenario 1: image cache miss ──────────────────────────────────────
@@ -495,6 +496,14 @@ defmodule ImagePipe.ImgproxyTelemetryContractTest do
       assert result_of(events, [:deliver], :stop) == :processing_error
       assert result_of(events, [:source, :fetch_decode], :stop) == :ok
       assert result_of(events, [:encode], :stop) == :ok
+
+      # Enumerated delta 4: the runner promotes the mid-stream send override
+      # (`Sender`'s conn-private `:image_pipe_send_result` stamp) onto the
+      # `[:request]` span's stop result for every dialect, not only TwicPics
+      # (which already pinned this as its `:streamed_error` scenario). A
+      # committed 200 whose stream then fails must report `:processing_error`
+      # here, not the stale `:ok` a pre-override span would carry.
+      assert %{result: :processing_error, status: 200} = metadata_of(events, [:request], :stop)
     end
   end
 
@@ -716,10 +725,10 @@ defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
     prefix = [:"stage_set_di_#{System.unique_integer([:positive])}"]
     attach(prefix)
 
-    opts = Imgproxy.init(sources: sources(), telemetry_prefix: prefix)
+    opts = ImagePipe.Plug.init(dialect: Imgproxy, sources: sources(), telemetry_prefix: prefix)
 
     conn =
-      Imgproxy.call(conn(:get, "/unsafe/rs:fit:64:64/plain/images/beach.jpg"), opts)
+      ImagePipe.Plug.call(conn(:get, "/unsafe/rs:fit:64:64/plain/images/beach.jpg"), opts)
 
     assert conn.status == 200
     drain(prefix)

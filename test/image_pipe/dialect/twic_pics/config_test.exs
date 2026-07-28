@@ -17,10 +17,10 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
     assert validated[:max_body_bytes] == 10_000_000
   end
 
-  test "init delegates the flat option list to Config" do
+  test "validate_config! delegates the flat option list to Config" do
     opts = [quality: 42, allow_debug_headers: true]
 
-    assert TwicPics.init(opts) == Config.validate!(opts)
+    assert TwicPics.validate_config!(opts) == Config.validate!(opts)
   end
 
   test "a neutral quality override resolves through ImagePipe.Config" do
@@ -51,7 +51,8 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
         max_result_width: 789,
         max_result_height: 654,
         max_result_pixels: 123_456,
-        allow_origin: "https://images.example"
+        allow_origin: "https://images.example",
+        allow_debug_headers: true
       )
 
     assert validated[:cache] == {CacheProbe, []}
@@ -68,9 +69,10 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
     assert validated[:max_result_height] == 654
     assert validated[:max_result_pixels] == 123_456
     assert validated[:allow_origin] == "https://images.example"
+    assert validated[:allow_debug_headers] == true
   end
 
-  test "accepts all four dialect keys" do
+  test "accepts all three dialect keys" do
     validated =
       Config.validate!(
         storage_inputs: [{:header, "X-Tenant"}, {:cookie, "session"}],
@@ -96,8 +98,7 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
   test "detector and debug options reject malformed values" do
     for {key, value} <- [
           detector: 123,
-          detector_required: :yes,
-          allow_debug_headers: "yes"
+          detector_required: :yes
         ] do
       assert_raise ArgumentError, ~r/invalid ImagePipe.Dialect.TwicPics options/, fn ->
         Config.validate!([{key, value}])

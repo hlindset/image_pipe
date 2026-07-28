@@ -3,13 +3,16 @@
 This matrix compares ImagePipe's `ImagePipe.Dialect.TwicPics` support with the
 [TwicPics media transformation API](https://www.twicpics.com/docs/essentials/api.md).
 
-`ImagePipe.Dialect.TwicPics` is a self-contained Plug. It parses a URL into an
-ordered `ImagePipe.Dialect.TwicPics.Request`. It resolves source and output
-policy, builds representation identity before cache access, and executes the
-request through its own Pipeline and pipeline-local PointFlow. Request steps
-reuse product-neutral Plan operation structs when their semantics match. The
-dialect doesn't construct a root `ImagePipe.Plan`. Unsupported transformations
-fail before source fetch or cache lookup. ImagePipe doesn't ignore them.
+`ImagePipe.Dialect.TwicPics` mounts through the shared dialect runner as
+`plug ImagePipe.Plug, dialect: ImagePipe.Dialect.TwicPics, …`. It implements
+the `ImagePipe.Dialect` behaviour: it parses a URL into an ordered
+`ImagePipe.Dialect.TwicPics.Request`, resolves source and output policy, and
+builds representation identity before cache access, all driven by the shared
+runner's fixed lifecycle. The dialect executes the request through its own
+Pipeline and pipeline-local PointFlow. Request steps reuse product-neutral
+Plan operation structs when their semantics match. The dialect doesn't
+construct a root `ImagePipe.Plan`. Unsupported transformations fail before
+source fetch or cache lookup. ImagePipe doesn't ignore them.
 
 The imgproxy dialect parses order-insensitive URLs into a fixed-order pipeline.
 The TwicPics dialect is **order-dependent**: transformations apply in chain order and relative units

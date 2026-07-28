@@ -51,7 +51,10 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
   end
 
   defp dialect_imgproxy(path) do
-    Imgproxy.call(conn(:get, path), Imgproxy.init(sources: sources()))
+    ImagePipe.Plug.call(
+      conn(:get, path),
+      ImagePipe.Plug.init(dialect: Imgproxy, sources: sources())
+    )
   end
 
   defp dialect_native(path) do

@@ -17,7 +17,7 @@ defmodule ImagePipe.Dialect.TwicPics.DebugTest do
   ]
 
   defp opts(extra \\ []) do
-    TwicPics.init(Keyword.merge([sources: @default_sources], extra))
+    ImagePipe.Plug.init(Keyword.merge([dialect: TwicPics, sources: @default_sources], extra))
   end
 
   defp counting_sources do
@@ -38,7 +38,7 @@ defmodule ImagePipe.Dialect.TwicPics.DebugTest do
   defp get(path, config) do
     :get
     |> conn(path)
-    |> TwicPics.call(config)
+    |> ImagePipe.Plug.call(config)
   end
 
   defp header(conn, name) do
@@ -67,9 +67,12 @@ defmodule ImagePipe.Dialect.TwicPics.DebugTest do
       assert header(conn, "x-imagepipe-source-format") == "jpeg"
       assert header(conn, "x-imagepipe-source-width") == "4000"
       assert header(conn, "x-imagepipe-source-height") == "2667"
-      assert header(conn, "x-imagepipe-source-size") == nil
-      assert header(conn, "x-imagepipe-source-color-space") == nil
-      assert header(conn, "x-imagepipe-source-icc") == nil
+      assert header(conn, "x-imagepipe-source-size") == "851508"
+      assert header(conn, "x-imagepipe-source-color-space") == "VIPS_INTERPRETATION_sRGB"
+      assert header(conn, "x-imagepipe-source-icc") == "true"
+      assert header(conn, "x-imagepipe-source-bit-depth") == "8"
+      assert header(conn, "x-imagepipe-source-alpha") == "false"
+      assert header(conn, "x-imagepipe-source-orientation") == nil
 
       assert header(conn, "x-imagepipe-output-format") == "jpeg"
       assert header(conn, "x-imagepipe-output-negotiated") == "false"
@@ -168,6 +171,12 @@ defmodule ImagePipe.Dialect.TwicPics.DebugTest do
       assert miss.status == 200
       assert_received :origin_fetch
       assert header(miss, "x-imagepipe-source-format") == "jpeg"
+      assert header(miss, "x-imagepipe-source-size") == "851508"
+      assert header(miss, "x-imagepipe-source-color-space") == "VIPS_INTERPRETATION_sRGB"
+      assert header(miss, "x-imagepipe-source-icc") == "true"
+      assert header(miss, "x-imagepipe-source-bit-depth") == "8"
+      assert header(miss, "x-imagepipe-source-alpha") == "false"
+      assert header(miss, "x-imagepipe-source-orientation") == nil
       assert header(miss, "x-imagepipe-cache") == "miss"
 
       hit = get(path, config)
@@ -178,6 +187,11 @@ defmodule ImagePipe.Dialect.TwicPics.DebugTest do
             "x-imagepipe-source-format",
             "x-imagepipe-source-width",
             "x-imagepipe-source-height",
+            "x-imagepipe-source-size",
+            "x-imagepipe-source-color-space",
+            "x-imagepipe-source-icc",
+            "x-imagepipe-source-bit-depth",
+            "x-imagepipe-source-alpha",
             "x-imagepipe-output-format",
             "x-imagepipe-output-width",
             "x-imagepipe-output-height",
@@ -187,6 +201,7 @@ defmodule ImagePipe.Dialect.TwicPics.DebugTest do
         assert header(hit, name) == header(miss, name)
       end
 
+      assert header(hit, "x-imagepipe-source-orientation") == nil
       assert header(hit, "x-imagepipe-cache") == "hit"
       assert header(hit, "server-timing") =~ "cache;dur="
     end

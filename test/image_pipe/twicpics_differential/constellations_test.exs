@@ -44,7 +44,7 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
   end
 
   test "every non-triaged chain parses via ImagePipe.Dialect.TwicPics" do
-    dialect_opts = TwicPics.init([])
+    dialect_opts = TwicPics.validate_config!([])
 
     for c <- Constellations.all(), is_nil(c[:triage]) do
       assert {:ok, _request} = parse(Constellations.twicpics_path(c), dialect_opts),
@@ -52,6 +52,8 @@ defmodule ImagePipe.Test.TwicpicsDifferential.ConstellationsTest do
     end
   end
 
-  defp parse(path, dialect_opts),
-    do: TwicPics.parse(Plug.Test.conn(:get, path), dialect_opts)
+  defp parse(path, dialect_opts) do
+    {result, _span_metadata} = TwicPics.parse(Plug.Test.conn(:get, path), dialect_opts)
+    result
+  end
 end

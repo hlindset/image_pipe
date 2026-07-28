@@ -19,7 +19,8 @@ defmodule ImagePipe.Dialect.SharedConfigTest do
                :max_result_width,
                :max_result_height,
                :max_result_pixels,
-               :allow_origin
+               :allow_origin,
+               :allow_debug_headers
              ])
   end
 
@@ -64,6 +65,15 @@ defmodule ImagePipe.Dialect.SharedConfigTest do
   test "allow_origin rejects control characters (fails at init, not per-request)" do
     assert_raise ArgumentError, ~r/allow_origin/, fn ->
       SharedConfig.validate_runtime!(allow_origin: "*\r\nSet-Cookie: x=1")
+    end
+  end
+
+  test "allow_debug_headers defaults to false and validates as a boolean" do
+    assert SharedConfig.validate_runtime!([])[:allow_debug_headers] == false
+    assert SharedConfig.validate_runtime!(allow_debug_headers: true)[:allow_debug_headers] == true
+
+    assert_raise ArgumentError, ~r/invalid ImagePipe shared runtime options/, fn ->
+      SharedConfig.validate_runtime!(allow_debug_headers: "yes")
     end
   end
 end

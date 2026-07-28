@@ -10,10 +10,13 @@ source fetch or cache lookup. ImagePipe doesn't ignore them.
 
 ## How imgproxy URLs are served
 
-`ImagePipe.Dialect.Imgproxy` is the sole imgproxy stack: mount it directly as
-`plug ImagePipe.Dialect.Imgproxy, …`. It owns its whole request chain end to
-end, assembled directly from ImagePipe's core toolkit — no `Plan` resolution
-strategy, no `ImagePipe.Request.*`.
+`ImagePipe.Dialect.Imgproxy` is the sole imgproxy stack: mount it through the
+shared dialect runner as `plug ImagePipe.Plug, dialect: ImagePipe.Dialect.Imgproxy,
+…`. The dialect supplies imgproxy's request parsing, planning, and pipeline
+assembly; the shared runner (`ImagePipe.Plug`) drives fetch, decode, transform
+execution, negotiation, caching, and delivery — assembled directly from
+ImagePipe's core toolkit, with no `Plan` resolution strategy and no
+`ImagePipe.Request.*`.
 
 Unless a row says otherwise, **ImagePipe is conformant with imgproxy and
 produces identical bytes**: the wire-conformance suite and the differential
@@ -356,8 +359,9 @@ configuration and URL/option tables below use a finer-grained legend:
 ## Configuration options
 
 ImagePipe doesn't read `IMGPROXY_*` environment variables. Variable markers show
-whether ImagePipe has a matching or related `ImagePipe.Dialect.Imgproxy.init/1`
-option, source adapter option, cache adapter option, or runtime option.
+whether ImagePipe has a matching or related `ImagePipe.Plug.init/1` option
+(validated by `ImagePipe.Dialect.Imgproxy.validate_config!/1` for this mount),
+source adapter option, cache adapter option, or runtime option.
 
 This section compares ImagePipe with imgproxy's configuration documentation
 (`configuration/options.mdx`) and its config loaders (`*/config.go`) in
@@ -408,24 +412,27 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 
 ### CORS response headers
 
-`allow_origin` is a dialect-neutral runtime option (default off) shared by all
-three stacks: `ImagePipe.Plug` (any mounted parser, not just IIIF),
-`ImagePipe.Dialect.Imgproxy`, and `ImagePipe.Dialect.Native`
-(`ImagePipe.Dialect.SharedConfig` validates and carries the key for both
-dialects). When set, `ImagePipe.Response.CORS.maybe_register/2` registers a
-`register_before_send/2` hook — the same hook on all three stacks — that
-stamps `Access-Control-Allow-Origin: <value>` verbatim on **every** exit path:
-image, `/info`, 304, and 4xx errors.
+`allow_origin` is a dialect-neutral runtime option (default off) shared by every
+mount: `ImagePipe.Plug`'s framework mode (any mounted parser, not just
+IIIF) and its dialect mode mounting `ImagePipe.Dialect.Imgproxy`,
+`ImagePipe.Dialect.TwicPics`, or `ImagePipe.Dialect.Native`
+(`ImagePipe.Dialect.SharedConfig` validates and carries the key for all three
+dialects). When set, `ImagePipe.Response.CORS.maybe_register/2`
+registers a `register_before_send/2` hook — the same hook on every mount —
+that stamps `Access-Control-Allow-Origin: <value>` verbatim on **every** exit
+path: image, `/info`, 304, and 4xx errors.
 
-**The `OPTIONS`/method layer is shared by all three stacks.** `ImagePipe.Plug`,
-`ImagePipe.Dialect.Imgproxy`, and `ImagePipe.Dialect.Native` all answer `OPTIONS`
+**The `OPTIONS`/method layer is shared by every mount.** `ImagePipe.Plug`'s
+framework mode and its dialect mode for `ImagePipe.Dialect.Imgproxy`,
+`ImagePipe.Dialect.TwicPics`, and `ImagePipe.Dialect.Native` all answer `OPTIONS`
 with `204 No Content` + `Allow: GET, HEAD` (+ `Access-Control-Allow-Methods` when
 `allow_origin` is set, via `Response.CORS.send_options/2`) and any other
 non-GET/HEAD method with `405` + `Allow: GET, HEAD` (`Response.Sender.send_method_not_allowed/1`).
-These are routed ahead of the endpoint/pipeline split (`route/2` in
-`imgproxy.ex`; the shared dialect runner in `ImagePipe.Plug` for Native),
-inside the same `[:request]` telemetry span the framework uses, so the
-before-send CORS hook stamps these exits identically to every other one.
+These are routed ahead of the parse → prepare → resolve → serve lifecycle by
+the shared dialect runner (`route/3` in `ImagePipe.Plug.DialectRunner`, common
+to imgproxy, TwicPics, and Native), inside the same `[:request]` telemetry
+span the framework uses, so the before-send CORS hook stamps these exits
+identically to every other one.
 
 - ✅ `IMGPROXY_ALLOW_ORIGIN` → `allow_origin` (configuration default; verbatim
   origin value, off when unset — same semantics as imgproxy's empty default).
@@ -454,7 +461,7 @@ before-send CORS hook stamps these exits identically to every other one.
 - **`HEAD`: processed like `GET` vs imgproxy's blank `200`.** imgproxy routes
   `HEAD "/*"` to the same `OkHandler` as `OPTIONS` — a fixed blank response
   that never touches the processing pipeline. ImagePipe's `HEAD` is not a
-  method-layer case at all: it proceeds through the same `route/2` fallthrough
+  method-layer case at all: it proceeds through the same `route/3` fallthrough
   as `GET` and is fully processed (source fetch, transform, encode, cache),
   matching `ImagePipe.Plug`'s existing behavior.
 
@@ -573,10 +580,12 @@ application-owned source adapters.
 ### Encoded sources, encrypted sources, and URL rewriting
 
 ImagePipe supports Base64 encoded source URLs. It also supports encrypted source
-URLs when callers configure `source_url_encryption_key` through
-`ImagePipe.Dialect.Imgproxy.init/1`, which validates the full flat option list
-(shared runtime keys, neutral plan/output tunables, and this dialect's own
-keys) in one pass before `call/2` ever sees a request.
+URLs when callers configure `source_url_encryption_key` through the mount's
+`ImagePipe.Plug.init/1`, which delegates to
+`ImagePipe.Dialect.Imgproxy.validate_config!/1` and validates the full flat
+option list (shared runtime keys, neutral plan/output tunables, and this
+dialect's own keys) in one pass before `ImagePipe.Plug.call/2` ever sees a
+request.
 
 - ✅ Base64 encoded source URLs
 - ✅ Encrypted source URLs
@@ -606,7 +615,7 @@ configured pipeline-count limit.
 
 Configure preset definitions with `presets: %{"name" => "w:100"}`.
 ImagePipe validates a map of preset names to option strings during
-`ImagePipe.Dialect.Imgproxy.init/1`.
+`ImagePipe.Plug.init/1` (via `ImagePipe.Dialect.Imgproxy.validate_config!/1`).
 
 - ✅ `IMGPROXY_PRESETS`
 

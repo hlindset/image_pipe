@@ -150,8 +150,14 @@ defmodule ImagePipe.Dialect.Native do
     do: Pipeline.decode_request(request, geometry)
 
   @impl ImagePipe.Dialect
-  def execute(state, geometry, %Request{} = request, opts),
-    do: Pipeline.run(state, geometry, request, opts)
+  # The three dialects' contract delegations are textually identical but
+  # resolve through per-dialect aliases to different Request structs and
+  # Pipeline modules — irreducible without a macro that would force a
+  # naming convention on every dialect and hide the contract.
+  # ex_dna:disable-for-next-line
+  def execute(state, geometry, %Request{} = request, opts) do
+    ImagePipe.Dialect.safe_transform(fn -> Pipeline.run(state, geometry, request, opts) end)
+  end
 
   @impl ImagePipe.Dialect
   def render_error(conn, reason, config), do: Errors.send(conn, reason, config)

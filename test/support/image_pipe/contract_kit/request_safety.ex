@@ -112,7 +112,9 @@ defmodule ImagePipe.ContractKit.RequestSafety do
 
   @doc false
   def build_config(dialect, opts) do
-    config = dialect.init(Keyword.merge(opts, cache: {CacheProbe, []}))
+    config =
+      ImagePipe.Plug.init([dialect: dialect] ++ Keyword.merge(opts, cache: {CacheProbe, []}))
+
     Keyword.merge(config, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
@@ -138,7 +140,7 @@ defmodule ImagePipe.ContractKit.RequestSafety do
       {path, expected_status, opts} = normalize_rejectable_case(item)
       config = build_config(dialect, Keyword.merge(base_opts(), opts))
 
-      conn = dialect.call(conn(:get, path), config)
+      conn = ImagePipe.Plug.call(conn(:get, path), config)
 
       assert conn.status == expected_status,
              "expected #{path} to return #{expected_status}, got #{conn.status}"
@@ -158,7 +160,7 @@ defmodule ImagePipe.ContractKit.RequestSafety do
   def assert_conditional_get_skips_fetch(dialect, path) do
     config = build_config(dialect, base_opts())
 
-    plain_conn = dialect.call(conn(:get, path), config)
+    plain_conn = ImagePipe.Plug.call(conn(:get, path), config)
     assert plain_conn.status == 200
     assert [etag] = get_resp_header(plain_conn, "etag")
     # Drain the plain request's own fetch signal so it can't be mistaken for
@@ -168,7 +170,7 @@ defmodule ImagePipe.ContractKit.RequestSafety do
     conditional_conn =
       conn(:get, path)
       |> put_req_header("if-none-match", etag)
-      |> then(&dialect.call(&1, no_fetch_config(dialect, base_opts())))
+      |> then(&ImagePipe.Plug.call(&1, no_fetch_config(dialect, base_opts())))
 
     assert conditional_conn.status == 304
     assert conditional_conn.resp_body == ""
@@ -200,7 +202,7 @@ defmodule ImagePipe.ContractKit.RequestSafety do
     ExUnit.Callbacks.on_exit(fn -> :telemetry.detach(handler_id) end)
 
     config = build_config(dialect, Keyword.put(base_opts(), :telemetry_prefix, prefix))
-    conn = dialect.call(conn(:get, path), config)
+    conn = ImagePipe.Plug.call(conn(:get, path), config)
     assert conn.status == 200
 
     expected = MapSet.new(events)

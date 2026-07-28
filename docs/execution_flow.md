@@ -32,7 +32,7 @@ ImagePipe.Plug.call
    └─ encode (lazy) → Producer/PreparedStream: chunked streaming,
       cancellable on disconnect, incremental cache write → Response.Sender
 
-ImagePipe.Dialect.TwicPics.call
+ImagePipe.Plug.call (dialect: ImagePipe.Dialect.TwicPics)
 └─ parse → ordered ImagePipe.Dialect.TwicPics.Request
 └─ source identity, conditional request, and cache lookup
 └─ fetch → decode → Dialect.TwicPics.Pipeline.run
@@ -40,11 +40,11 @@ ImagePipe.Dialect.TwicPics.call
 └─ negotiate → encode → deliver
 ```
 
-The framework path serves IIIF and host-supplied parsers. TwicPics is a
-self-contained Plug and never enters parser dispatch or constructs a root
-`ImagePipe.Plan`. Its Pipeline and PointFlow own positional execution. The
-framework step most readers get lost in is the resolve loop, so the rest of
-this page is mostly about that path.
+The framework path serves IIIF and host-supplied parsers. TwicPics mounts
+through the same `ImagePipe.Plug` entry point via `dialect:`, but never enters
+parser dispatch or constructs a root `ImagePipe.Plan`; its Pipeline and
+PointFlow own positional execution. The framework step most readers get lost
+in is the resolve loop, so the rest of this page is mostly about that path.
 
 ## The two operation vocabularies
 
@@ -114,10 +114,10 @@ targets:
 
 | # | Call site | What it dispatches to | How to navigate |
 |---|---|---|---|
-| ① | `parser.parse(conn, opts)` in `ImagePipe.Plug` | The mount's `:parser` module | The in-tree parser is `ImagePipe.Parser.IIIF`; hosts may supply another `ImagePipe.Parser`. TwicPics and imgproxy mount as dialect Plugs and don't pass through this point |
+| ① | `parser.parse(conn, opts)` in `ImagePipe.Plug` | The mount's `:parser` module | The in-tree parser is `ImagePipe.Parser.IIIF`; hosts may supply another `ImagePipe.Parser`. TwicPics and imgproxy mount through `ImagePipe.Plug, dialect: …` and don't pass through this point |
 | ③ | `chain.(state, ops, opts)` in `Executor` | Injected function; always `Chain.execute/3` in production | Test seam only. Inside `Chain`, `Transform.execute(op, state)` dispatches to the op struct's own module — struct name = module name (`%Operation.Crop{}` → `transform/operation/crop.ex`) |
 | ④ | `continue(tag, …)` in `Executor` | `NeutralResolver.continue/4` | Tags are data: grep the tag atom (e.g. `:resize_flush_tail`) to land on both the emitting resolve row and the continue clause |
-| — | `render: {:custom, module, params}` | The plan's renderer module via `ImagePipe.Renderer` | One in-tree renderer: IIIF's info renderer. `ImagePipe.Dialect.Imgproxy.InfoRenderer` renders its `/info` terminal directly, outside this dispatch point |
+| — | `render: {:custom, module, params}` | The plan's renderer module via `ImagePipe.Renderer` | One in-tree renderer: IIIF's info renderer. `ImagePipe.Dialect.Imgproxy.InfoRenderer` supplies the `/info` terminal that the shared dialect runner (in `ImagePipe.Plug`) invokes via `{:render, %RenderTerminal{}}`, outside this `ImagePipe.Renderer` dispatch point |
 | — | `Telemetry.span(…, fn -> … end)` wrappers | n/a | Nearly every layer wraps its real call in a span closure; when lost, skip to the closure body |
 
 Also note `render: :image` vs custom renders fork early: a custom render

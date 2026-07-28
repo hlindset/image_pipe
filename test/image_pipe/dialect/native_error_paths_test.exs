@@ -103,6 +103,16 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
     end
   end
 
+  # A `Clamp.clamp/3` `image_module` seam whose `resize/3` raises. Clamp is a
+  # shared post-transform stage with no rescue of its own (AGENTS.md: only a
+  # dialect's own pipeline run is a trusted-callback boundary the runner must
+  # not launder) — the raise is expected to escape the producer process,
+  # surface to the coordinator as a `:DOWN`, and render 500-class.
+  defmodule RaisingClampImage do
+    @moduledoc false
+    def resize(_image, _scale, _opts), do: raise("boom during clamp resize")
+  end
+
   # A `ImagePipe.Cache` adapter that announces every callback via message so
   # a test can assert sink OWNERSHIP (opened/written/aborted/committed), not
   # just the resulting HTTP response. `get/2` always misses.
@@ -642,6 +652,95 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
 
       assert Coordinator.next(coordinator) == {:error, {:session, :noproc}}
       assert Coordinator.cancel(coordinator) == {:error, {:session, :noproc}}
+    end
+  end
+
+  # ── row 10: pre-first-chunk post-transform exception (forced clamp) ─────
+
+  describe "row 10: pre-first-chunk post-transform exception (forced clamp)" do
+    test "renders 500-class, opens no sink, cleans up once, and reports processing_error" do
+      test_pid = self()
+      prefix = [:"native_error_paths_clamp_#{System.unique_integer([:positive])}"]
+      handler_id = "native-error-paths-clamp-#{inspect(prefix)}"
+
+      :telemetry.attach(
+        handler_id,
+        prefix ++ [:request, :stop],
+        fn _event, _measurements, metadata, test_pid ->
+          send(test_pid, {:request_stop, metadata})
+        end,
+        test_pid
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      config =
+        opts(
+          telemetry_prefix: prefix,
+          max_result_width: 10,
+          max_result_height: 10,
+          cache: {ObservingCacheProbe, []},
+          image_module: RaisingClampImage,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+        )
+
+      conn = get("/w=64/src/images/cat.jpg", config)
+
+      assert conn.status == 500
+      assert conn.resp_body == "internal server error"
+      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received :cache_commit_sink
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
+      assert_receive {:request_stop, %{result: :processing_error}}
+    end
+  end
+
+  # ── row 11: pipeline raise inside the dialect's own execute/4 (422) ─────
+  #
+  # The counterpart to row 10: a raise from INSIDE the dialect's own pipeline
+  # run (via the `chain` seam) is a trusted-callback boundary this dialect
+  # rescues itself (`ImagePipe.Dialect.Native.execute/4`'s `rescue`/`catch`
+  # clauses) and renders as a 422 client error — never a 500-class crash, and
+  # the `[:transform, :execute]` span closes normally (`:stop`, not
+  # `:exception`), because the raise never escapes the pipeline run the span
+  # wraps.
+
+  describe "row 11: pipeline raise inside the dialect's own execute/4 (422)" do
+    test "renders 422 and the [:transform, :execute] span closes normally" do
+      test_pid = self()
+      prefix = [:"native_error_paths_pipeline_raise_#{System.unique_integer([:positive])}"]
+      handler_id = "native-error-paths-pipeline-raise-#{inspect(prefix)}"
+
+      :telemetry.attach_many(
+        handler_id,
+        [prefix ++ [:transform, :execute, :stop], prefix ++ [:transform, :execute, :exception]],
+        fn event, _measurements, metadata, test_pid ->
+          send(test_pid, {:transform_execute, List.last(event), metadata})
+        end,
+        test_pid
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      chain = fn _state, _ops, _opts -> raise "boom in pipeline" end
+
+      config =
+        opts(
+          telemetry_prefix: prefix,
+          cache: {ObservingCacheProbe, []},
+          chain: chain,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+        )
+
+      conn = get("/w=64/src/images/cat.jpg", config)
+
+      assert conn.status == 422
+      refute_received {:cache_open_sink, _key, _metadata}
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
+      assert_receive {:transform_execute, :stop, _metadata}
+      refute_received {:transform_execute, :exception, _metadata}
     end
   end
 end

@@ -57,6 +57,40 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
     end
   end
 
+  # A `Clamp.clamp/3` `image_module` seam whose `resize/3` raises. Clamp is a
+  # shared post-transform stage with no rescue of its own (AGENTS.md: only a
+  # dialect's own pipeline run is a trusted-callback boundary the runner must
+  # not launder) — the raise is expected to escape the producer process,
+  # surface to the coordinator as a `:DOWN`, and render 500-class.
+  defmodule RaisingClampImage do
+    @moduledoc false
+
+    def resize(_image, _scale, _opts), do: raise("boom during clamp resize")
+  end
+
+  # A detector spy whose `identity/1` reports back to the test process. Used
+  # to prove the negotiation thunk (and therefore any detector identity
+  # callback it triggers) never runs before source resolution succeeds.
+  defmodule DetectorSpy do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_opts), do: ["face"]
+
+    @impl true
+    def detect(_image, _opts), do: {:ok, []}
+
+    @impl true
+    def available?(_opts), do: true
+
+    @impl true
+    def identity(opts) do
+      send(Keyword.fetch!(opts, :test_pid), :detector_identity_called)
+      {__MODULE__, :spy_v1}
+    end
+  end
+
   defmodule ObservingCache do
     @moduledoc false
     @behaviour ImagePipe.Cache
@@ -159,7 +193,7 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
       {RootHTTPAdapter,
        root_url: "http://origin.test", byte_identity: :strong, req_options: [plug: OriginImage]}
   ]
-  @test_seams [:image_module, :on_bracket_exit, :chain]
+  @test_seams [:image_module, :on_bracket_exit, :chain, :test_pid]
 
   @doc false
   def handle_request_stop(_name, _measurements, metadata, target) do
@@ -167,15 +201,17 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
   end
 
   defp opts(extra) do
-    {seams, validated} = Keyword.split(extra, @test_seams)
+    {seams, known} = Keyword.split(extra, @test_seams)
 
-    [sources: @default_sources]
-    |> Keyword.merge(validated)
-    |> TwicPics.init()
-    |> Keyword.merge(seams)
+    base =
+      ImagePipe.Plug.init(
+        [dialect: TwicPics] ++ Keyword.merge([sources: @default_sources], known)
+      )
+
+    Keyword.merge(base, seams)
   end
 
-  defp get(path, config), do: TwicPics.call(conn(:get, path), config)
+  defp get(path, config), do: ImagePipe.Plug.call(conn(:get, path), config)
 
   defp decoded_dims(body) do
     {:ok, image} = Image.from_binary(body)
@@ -469,6 +505,114 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
 
       assert Coordinator.next(coordinator) == {:error, {:session, :noproc}}
       assert Coordinator.cancel(coordinator) == {:error, {:session, :noproc}}
+    end
+  end
+
+  describe "row 10: pre-first-chunk post-transform exception (forced clamp)" do
+    test "renders 500-class, opens no sink, cleans up once, and reports processing_error" do
+      test_pid = self()
+      prefix = [:"twic_pics_error_paths_clamp_#{System.unique_integer([:positive])}"]
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          prefix ++ [:request, :stop],
+          &__MODULE__.handle_request_stop/4,
+          test_pid
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      config =
+        opts(
+          telemetry_prefix: prefix,
+          max_result_width: 10,
+          max_result_height: 10,
+          cache: {ObservingCache, test_pid: test_pid},
+          image_module: RaisingClampImage,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+        )
+
+      conn = get("/images/cat.jpg?twic=v1/resize=64/output=jpeg", config)
+
+      assert conn.status == 500
+      assert conn.resp_body == "error encoding image"
+      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received :cache_commit_sink
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
+      assert_receive {:request_stop, %{result: :processing_error}}
+    end
+  end
+
+  describe "row 11: pipeline raise inside the dialect's own execute/4 (422)" do
+    test "renders 422 and the [:transform, :execute] span closes normally" do
+      test_pid = self()
+      prefix = [:"twic_pics_error_paths_pipeline_raise_#{System.unique_integer([:positive])}"]
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach_many(
+          handler_id,
+          [prefix ++ [:transform, :execute, :stop], prefix ++ [:transform, :execute, :exception]],
+          fn event, _measurements, metadata, test_pid ->
+            send(test_pid, {:transform_execute, List.last(event), metadata})
+          end,
+          test_pid
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      chain = fn _state, _ops, _opts -> raise "boom in pipeline" end
+
+      config =
+        opts(
+          telemetry_prefix: prefix,
+          cache: {ObservingCache, test_pid: test_pid},
+          chain: chain,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+        )
+
+      conn = get("/images/cat.jpg?twic=v1/resize=64/output=jpeg", config)
+
+      assert conn.status == 422
+      refute_received {:cache_open_sink, _key, _metadata}
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
+      assert_receive {:transform_execute, :stop, _metadata}
+      refute_received {:transform_execute, :exception, _metadata}
+    end
+  end
+
+  describe "detector identity thunk ordering" do
+    test "a failed source resolution wins and the detector identity callback is never invoked" do
+      test_pid = self()
+
+      config =
+        opts(
+          test_pid: test_pid,
+          detector: DetectorSpy,
+          sources: [path: {ImagePipe.SourceTest.InvalidAdapter, []}]
+        )
+
+      conn = get("/images/cat.jpg?twic=v1/focus=auto/cover=100x80/output=jpeg", config)
+
+      # `ImageSource.resolve/3` rejects the adapter's malformed return value
+      # before any fetch is attempted and before `handle_request/4`'s `with`
+      # ever reaches `resolve_negotiation/1` — the source response wins.
+      assert conn.status == 500
+      refute_received :detector_identity_called
+
+      # Positive control: the same spy DOES fire on a working request, so the
+      # refute above is proven live rather than trivially true because the
+      # spy was never wired at all.
+      config = opts(test_pid: test_pid, detector: DetectorSpy, sources: @default_sources)
+
+      conn = get("/images/cat.jpg?twic=v1/focus=auto/cover=100x80/output=jpeg", config)
+
+      assert conn.status == 200
+      assert_receive :detector_identity_called
     end
   end
 

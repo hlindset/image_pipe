@@ -32,6 +32,18 @@ defmodule ImagePipeFiddleWeb.WireTest do
     assert conn.status == 200
   end
 
+  test "GET /img with a signed debug:1 option serves X-ImagePipe-* debug headers", %{conn: conn} do
+    signed_path = "/debug:1/rs:fill:200:200/plain/local:///images/dog.jpg"
+    signature = sign(signed_path, "736563726574", "68656c6c6f")
+    conn = get(conn, "/img/#{signature}#{signed_path}")
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "x-imagepipe-source-format") != []
+    assert get_resp_header(conn, "x-imagepipe-output-format") == ["jpeg"]
+    assert get_resp_header(conn, "x-imagepipe-output-width") == ["200"]
+    assert get_resp_header(conn, "server-timing") != []
+  end
+
   test "GET /iiif-image processes a IIIF full/max request", %{conn: conn} do
     conn = get(conn, "/iiif-image/dog/full/max/0/default.jpg")
     assert conn.status == 200

@@ -4,7 +4,6 @@ defmodule ImagePipe.Dialect.TwicPics.Source do
   alias ImagePipe.Plan.Source.Path, as: SourcePath
 
   @spec from_segments([String.t()]) :: {:ok, SourcePath.t()} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def from_segments([]), do: {:error, :invalid_source_path}
 
   def from_segments(segments) do

@@ -34,8 +34,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   # Cache expect (a raw keyword `sources:` fails with {:source,
   # :missing_adapter} — Source.fetch_adapter_config pattern-matches a map)
   # and supplies the max_result_*/max_body_bytes/max_input_pixels defaults
-  # the runner fetches with Keyword.fetch!. Unknown keys such as the
-  # fixture-only :allow_debug_headers pass through untouched
+  # the runner fetches with Keyword.fetch!, along with :allow_debug_headers
   # (validate_known_opts! merges the validated subset back).
   def validate_config!(opts), do: SharedConfig.validate_runtime!(opts)
 
@@ -65,6 +64,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   defp parse_format("webp"), do: :webp
   defp parse_format("jpeg"), do: :jpeg
   defp parse_format("bmp"), do: :bmp
+  defp parse_format("auto"), do: :auto
   defp parse_format(_), do: :jpeg
 
   @impl ImagePipe.Dialect
@@ -85,13 +85,26 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   end
 
   def prepare(%Plug.Conn{} = conn, request, config) do
-    plan_output = %Output{mode: {:explicit, request.format}, quality: :default}
+    plan_output =
+      case request.format do
+        :auto -> %Output{mode: :automatic, quality: :default}
+        format -> %Output{mode: {:explicit, format}, quality: :default}
+      end
 
-    negotiation =
+    # A thunk, not an eager tuple: pins that the runner defers negotiation
+    # until after ImagePipe.Source.resolve/3 succeeds (test process is the
+    # calling process throughout, since prepare/3 and negotiation both run
+    # synchronously before any streaming handoff).
+    test_pid = self()
+
+    negotiation = fn ->
+      send(test_pid, :negotiation_invoked)
+
       case Negotiation.negotiate(conn, plan_output, config) do
         {:ok, negotiation} -> {:ok, negotiation, material(request, negotiation, conn, config)}
         {:error, _reason} = error -> error
       end
+    end
 
     {:ok,
      %Resolved{

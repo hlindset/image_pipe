@@ -4,8 +4,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   pre-negotiation output intent.
 
   `material/5` builds an `ImagePipe.Representation.IdentityMaterial` from the
-  canonical `%Request{}` plus the negotiation outcome (Task 17's
-  `negotiate/3`) and the resolved detector identity — never from raw `conn`
+  canonical `%Request{}` plus the negotiation outcome
+  (`ImagePipe.Dialect.Negotiation.negotiate/3`) and the resolved detector
+  identity — never from raw `conn`
   state beyond configured `storage_inputs`, and never from `signature`,
   `expires`, `source_path`, or ANY of `request.response`
   (`filename`/`disposition`/`debug?` — those select delivery presentation, not
@@ -30,8 +31,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   passes to `Representation.build/3` alongside this material.
   """
 
-  alias ImagePipe.Dialect.Imgproxy.Negotiation
   alias ImagePipe.Dialect.Imgproxy.Request
+  alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
@@ -87,11 +88,12 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   Builds the requested output intent from `request.output`: `mode` from
   `format` presence, `color_profile`/`hdr` resolved from the raw
   `color_profile`/`strip_color_profile`/`preserve_hdr` request fields, every
-  other field a direct pass-through. Never errors on `format: :best` — `Task
-  17`'s `negotiate/3` rejects an unsupported explicit format via
-  `Output.Policy.ensure_capable/2` (`Capabilities.supports?/2` returns
-  `false` for `:best`, reaching `{:unsupported_output_format, :best}` through
-  negotiation instead of here). Task 17's `negotiate/3` builds its
+  other field a direct pass-through. Never errors on `format: :best` —
+  `ImagePipe.Dialect.Negotiation.negotiate/3` rejects an unsupported explicit
+  format via `Output.Policy.ensure_capable/2` (`Capabilities.supports?/2`
+  returns `false` for `:best`, reaching `{:unsupported_output_format, :best}`
+  through negotiation instead of here).
+  `ImagePipe.Dialect.Negotiation.negotiate/3` builds its
   `%ImagePipe.Output.Policy{}` from this.
   """
   @spec plan_output(Request.t()) :: Output.t()

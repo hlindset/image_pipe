@@ -92,7 +92,8 @@ defmodule ImagePipe.Dialect.Imgproxy.OrientationMatrixTest do
   # ── wire helpers ────────────────────────────────────────────────────────
 
   defp config_for(origin, extra \\ []) do
-    Imgproxy.init(
+    ImagePipe.Plug.init(
+      dialect: Imgproxy,
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
       ]
@@ -104,7 +105,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OrientationMatrixTest do
   # ride on the config default (which is auto-rotate ON).
   defp path(opts_segment, ar), do: "/unsafe/#{opts_segment}/ar:#{ar}/f:png/plain/images/x.jpg"
 
-  defp get(path, config), do: conn(:get, path) |> Imgproxy.call(config)
+  defp get(path, config), do: conn(:get, path) |> ImagePipe.Plug.call(config)
 
   defp decoded_image(%Plug.Conn{} = conn),
     do: Image.open!(conn.resp_body, access: :random, fail_on: :error)

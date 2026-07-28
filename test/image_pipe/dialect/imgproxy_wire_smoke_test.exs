@@ -50,7 +50,11 @@ defmodule ImagePipe.Dialect.ImgproxyWireSmokeTest do
   # `output_capabilities` is an internal test-injection seam, appended AFTER
   # `Imgproxy.init/1`'s validation (which rejects it as an unknown option).
   defp opts(extra) do
-    base = Imgproxy.init(Keyword.merge([sources: @default_sources], extra))
+    base =
+      ImagePipe.Plug.init(
+        [dialect: Imgproxy] ++ Keyword.merge([sources: @default_sources], extra)
+      )
+
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
@@ -59,7 +63,7 @@ defmodule ImagePipe.Dialect.ImgproxyWireSmokeTest do
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    Imgproxy.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   defp decoded_dims(body) do

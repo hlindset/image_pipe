@@ -32,7 +32,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
   end
 
   defp imgproxy_opts(sources) do
-    base = Imgproxy.init(sources: sources)
+    base = ImagePipe.Plug.init(dialect: Imgproxy, sources: sources)
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
@@ -52,7 +52,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
 
   describe "byte_identity :none withholds the ETag and sends Cache-Control: no-store" do
     test "imgproxy streamed image" do
-      conn = call(Imgproxy, @imgproxy_image, imgproxy_opts(none_sources()))
+      conn = call(ImagePipe.Plug, @imgproxy_image, imgproxy_opts(none_sources()))
 
       assert conn.status == 200
       assert get_resp_header(conn, "etag") == []
@@ -60,7 +60,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
     end
 
     test "imgproxy /info complete body" do
-      conn = call(Imgproxy, @imgproxy_info, imgproxy_opts(none_sources()))
+      conn = call(ImagePipe.Plug, @imgproxy_info, imgproxy_opts(none_sources()))
 
       assert conn.status == 200
       assert get_resp_header(conn, "etag") == []
@@ -86,7 +86,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
 
   describe "a strong byte_identity source emits an ETag and no no-store" do
     test "imgproxy streamed image" do
-      conn = call(Imgproxy, @imgproxy_image, imgproxy_opts(strong_sources()))
+      conn = call(ImagePipe.Plug, @imgproxy_image, imgproxy_opts(strong_sources()))
 
       assert conn.status == 200
       assert [etag] = get_resp_header(conn, "etag")

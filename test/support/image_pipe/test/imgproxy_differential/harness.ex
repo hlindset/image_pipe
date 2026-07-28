@@ -16,8 +16,9 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Harness do
 
   @doc """
   The dialect arm wired to serve the committed sources locally: an opaque
-  `{ImagePipe.Dialect.Imgproxy, initialized_opts}` pair. Build once and thread
-  it through repeated `render/2` calls to avoid re-initializing per render.
+  `{ImagePipe.Plug, initialized_opts}` pair, mounted in dialect mode. Build
+  once and thread it through repeated `render/2` calls to avoid
+  re-initializing per render.
   """
   def plug_opts, do: Shared.dialect_plug_opts(ImagePipe.Dialect.Imgproxy, @sources_dir)
 

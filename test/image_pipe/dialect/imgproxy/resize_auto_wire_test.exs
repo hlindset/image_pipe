@@ -68,14 +68,15 @@ defmodule ImagePipe.Dialect.Imgproxy.ResizeAutoWireTest do
 
   defp call_auto({sw, sh}, {tw, th}) do
     opts =
-      Imgproxy.init(
+      ImagePipe.Plug.init(
+        dialect: Imgproxy,
         sources: [path: {GeneratedSourceAdapter, []}],
         max_body_bytes: 10_000_000,
         max_input_pixels: 40_000_000
       )
 
     conn(:get, "/unsafe/rt:auto/w:#{tw}/h:#{th}/f:jpeg/plain/generated/#{sw}x#{sh}.png")
-    |> Imgproxy.call(opts)
+    |> ImagePipe.Plug.call(opts)
   end
 
   defp assert_auto_dimensions(source, target, expected) do

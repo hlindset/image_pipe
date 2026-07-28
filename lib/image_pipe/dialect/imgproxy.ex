@@ -1,18 +1,15 @@
 defmodule ImagePipe.Dialect.Imgproxy do
   @moduledoc """
-  Plug entry point for ImagePipe's imgproxy-compatible URL dialect.
+  ImagePipe's imgproxy-compatible URL dialect, implemented as an
+  `ImagePipe.Dialect` — mounted through `plug ImagePipe.Plug, dialect:
+  ImagePipe.Dialect.Imgproxy, <flat config>`.
 
-  Unlike `ImagePipe.Plug` (which dispatches through the framework's
-  `Parser`/`Request`/`Resolver`/`Renderer` stack), this dialect owns its
-  whole request chain end to end, assembled directly from ImagePipe's core
-  toolkit. It depends on the core; the core never depends on it.
-
-  `call/2` is the visible chain [pipelines design reference "The visible
-  chain"]: endpoint split → raw path extract → signature verify (403 before
-  any option parsing) → option parse → `exp` gate (400) → geometry check →
-  `detector_required` gate (422) → source translation/resolution → negotiate
-  → build the representation identity (key/ETag/Vary) → conditional-GET gate
-  → serve.
+  The dialect owns the endpoint split, the signature verify (403 before any
+  option parsing), the option grammar, the `exp`/geometry/`detector_required`
+  gates, source translation, negotiation input, the `/info` render terminal,
+  pipeline execution, and error rendering; the shared runner in
+  `ImagePipe.Plug` owns the request lifecycle around them. It depends on the
+  core; the core never depends on it.
 
   ## Everything decidable from the request is decided before the fetch
 
@@ -29,14 +26,6 @@ defmodule ImagePipe.Dialect.Imgproxy do
   call stays: it is the one that produces the operations, and re-running a
   pure function over a parsed request costs nothing next to a fetch.
 
-  The conditional-GET gate (`Response.Conditional.not_modified?/2`) runs
-  BEFORE `serve/7`'s cache lookup: the ETag is derived purely from pre-fetch
-  request-identity material (`ImagePipe.Representation`), so a matching
-  `If-None-Match` short-circuits to 304 without ever touching the cache or
-  the source. `serve/7` calls `Cache.lookup_entry/2` and, on a hit, delivers
-  the stored entry directly (re-checking `If-None-Match: *` at that point,
-  per RFC 9110 §13.1.2); on a miss it falls through to `generate/7`.
-
   ## Response metadata rides the request, never the cache entry
 
   `Content-Disposition` and the `debug?` opt-in are delivery presentation,
@@ -49,10 +38,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePipe.Cache,
       ImagePipe.Config,
       ImagePipe.Decode,
-      ImagePipe.Delivery,
+      ImagePipe.Dialect,
       ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
@@ -66,20 +54,14 @@ defmodule ImagePipe.Dialect.Imgproxy do
     ],
     exports: [SourceScheme]
 
-  @behaviour Plug
+  @behaviour ImagePipe.Dialect
 
-  import Plug.Conn, only: [put_resp_content_type: 2, put_resp_header: 3, send_resp: 3]
-
-  alias ImagePipe.Cache
   alias ImagePipe.Decode
-  alias ImagePipe.Delivery
-  alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Dialect.Imgproxy.Assembly
   alias ImagePipe.Dialect.Imgproxy.Config
   alias ImagePipe.Dialect.Imgproxy.Errors
   alias ImagePipe.Dialect.Imgproxy.Identity
   alias ImagePipe.Dialect.Imgproxy.InfoRenderer
-  alias ImagePipe.Dialect.Imgproxy.Negotiation
   alias ImagePipe.Dialect.Imgproxy.Options
   alias ImagePipe.Dialect.Imgproxy.Path
   alias ImagePipe.Dialect.Imgproxy.Pipeline
@@ -88,41 +70,18 @@ defmodule ImagePipe.Dialect.Imgproxy do
   alias ImagePipe.Dialect.Imgproxy.Signature
   alias ImagePipe.Dialect.Imgproxy.Source, as: ImgproxySource
   alias ImagePipe.Dialect.Imgproxy.SourceEncryption
+  alias ImagePipe.Dialect.Negotiation, as: DialectNegotiation
+  alias ImagePipe.Dialect.RenderTerminal
+  alias ImagePipe.Dialect.Resolved
   alias ImagePipe.Error
-  alias ImagePipe.Output.Clamp
-  alias ImagePipe.Output.Encoder
-  alias ImagePipe.Output.Negotiate
-  alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.Resolved, as: ResolvedOutput
   alias ImagePipe.Plan.Operation, as: PlanOperation
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Plan.SourceInfo
-  alias ImagePipe.Representation
-  alias ImagePipe.Response.CacheHeaders
-  alias ImagePipe.Response.Conditional
-  alias ImagePipe.Response.CORS
-  alias ImagePipe.Response.Sender
-  alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
   alias ImagePipe.Transform.DecodePlanner
-  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.SourceGeometry
-  alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
-
-  # The dialect collects no debug facts yet, so it hands `Delivery` nothing
-  # for the `X-ImagePipe-*` headers or the cache entry's stored debug.
-  @debug_info nil
-
-  # `/info` has one fixed terminal: no format to select, and so nothing to vary
-  # by or to carry as output-policy identity material.
-  @info_negotiation %Negotiation{
-    selected: {:terminal, :info},
-    vary?: false,
-    policy_material: [],
-    policy: nil
-  }
 
   # `/info` reads the header and nothing else, so it asks the decode planner for
   # no shrink at all: every field of a bare request is already the "no
@@ -151,69 +110,92 @@ defmodule ImagePipe.Dialect.Imgproxy do
     SourceEncryption.encrypt_source_url(source_url, hex_key, opts)
   end
 
-  @impl Plug
-  def init(opts), do: Config.validate!(opts)
+  @impl ImagePipe.Dialect
+  def validate_config!(opts), do: Config.validate!(opts)
 
-  @impl Plug
-  def call(%Plug.Conn{} = conn, config) when is_list(config) do
-    Telemetry.Trace.maybe_extract_inbound(conn)
-    conn = CORS.maybe_register(conn, config)
+  # The [:parse] span (runner-wrapped) now brackets the endpoint split too —
+  # a pure path-prefix check. The /info conn is prefix-stripped by
+  # `split_endpoint/1`, matching upstream's signature-over-the-unprefixed-path
+  # behavior; `prepare/3` gets the ORIGINAL conn, which is fine — it reads only
+  # headers, never the path.
+  @impl ImagePipe.Dialect
+  def parse(%Plug.Conn{} = conn, config) do
+    result =
+      case Path.split_endpoint(conn) do
+        {:info, info_conn} -> parse_request(info_conn, config, :info)
+        :image -> parse_request(conn, config, :image)
+      end
 
-    Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
-      {conn, metadata} = route(conn, config)
-      {conn, Map.put(metadata, :status, conn.status)}
-    end)
+    {result, parse_stop_metadata(result)}
   end
 
-  defp route(%Plug.Conn{method: "OPTIONS"} = conn, config) do
-    conn = send_with_span(conn, config, :options, fn -> CORS.send_options(conn, config) end)
-    {conn, %{result: :options}}
-  end
+  # The `/info` terminal [spec §The /info cache path]. Skips three of the image
+  # path's steps because none applies to an info request: the geometry check
+  # has no operations to reject, negotiation has no format to select, and
+  # there is no image body to attach a `Content-Disposition` to. The `exp`
+  # gate and the signature still apply.
+  #
+  # `request/5`'s `:info` head drops the parsed pipelines and output for the same
+  # reason, so none of the three can reach this terminal's identity.
+  @impl ImagePipe.Dialect
+  def prepare(%Plug.Conn{} = conn, %Request{info?: true} = request, config) do
+    with :ok <- check_expires(request, config),
+         {:ok, plan_source} <- ImgproxySource.translate(request.source_path, config) do
+      # /info has one fixed terminal: no format to select, nothing to vary
+      # by or carry as output-policy identity material.
+      negotiation = DialectNegotiation.terminal(:info)
 
-  defp route(%Plug.Conn{method: method} = conn, config) when method not in ["GET", "HEAD"] do
-    conn =
-      send_with_span(conn, config, :method_not_allowed, fn ->
-        Sender.send_method_not_allowed(conn)
-      end)
-
-    {conn, %{result: :method_not_allowed}}
-  end
-
-  defp route(%Plug.Conn{} = conn, config) do
-    case Path.split_endpoint(conn) do
-      {:info, info_conn} -> route_info(info_conn, config)
-      :image -> route_image(conn, config)
+      {:ok,
+       %Resolved{
+         request: request,
+         source: plan_source,
+         negotiation:
+           {:ok, negotiation, Identity.material(request, negotiation, conn, config, nil)},
+         response_meta: %PlanResponse{},
+         operations: [],
+         auto_rotate?: false,
+         debug?: false,
+         terminal: {:render, info_terminal()}
+       }}
     end
   end
 
-  # The `[:send]` span, wrapping every terminal send this dialect performs —
-  # `Sender.send_result/3`, `Errors.send/4`, the /info complete-body
-  # `send_resp/3`, and the OPTIONS-204/method-405 heads — mirroring
-  # `ImagePipe.Plug.send_response/4` + `send_stop_metadata/2`. `[:deliver]`
-  # (the shared `Response.Sender` streaming span) nests inside it; both run in
-  # the connection-owner process.
-  defp send_with_span(%Plug.Conn{}, config, result, fun) do
-    Telemetry.span(Telemetry.telemetry_opts(config), [:send], %{result: result}, fn ->
-      sent_conn = fun.()
-      {sent_conn, send_stop_metadata(sent_conn, result)}
-    end)
+  def prepare(%Plug.Conn{} = conn, %Request{} = request, config) do
+    with :ok <- check_expires(request, config),
+         {:ok, operations} <- check_geometry(request),
+         :ok <- check_detector(operations, config),
+         {:ok, plan_source} <- ImgproxySource.translate(request.source_path, config),
+         {:ok, %PlanResponse{} = response_meta} <- ResponseMeta.build(request, plan_source) do
+      {:ok,
+       %Resolved{
+         request: request,
+         source: plan_source,
+         negotiation: fn -> negotiation_result(conn, request, operations, config) end,
+         response_meta: response_meta,
+         operations: operation_names(request),
+         auto_rotate?: request.auto_rotate,
+         debug?: response_meta.debug?,
+         terminal: :image
+       }}
+    end
   end
 
-  defp send_stop_metadata(%Plug.Conn{} = conn, result) do
-    %{
-      result: Map.get(conn.private, :image_pipe_send_result, result),
-      status: conn.status
-    }
+  @impl ImagePipe.Dialect
+  def decode_request(%Request{} = request, geometry),
+    do: Pipeline.decode_request(request, geometry)
+
+  @impl ImagePipe.Dialect
+  # The three dialects' contract delegations are textually identical but
+  # resolve through per-dialect aliases to different Request structs and
+  # Pipeline modules — irreducible without a macro that would force a
+  # naming convention on every dialect and hide the contract.
+  # ex_dna:disable-for-next-line
+  def execute(state, geometry, %Request{} = request, opts) do
+    ImagePipe.Dialect.safe_transform(fn -> Pipeline.run(state, geometry, request, opts) end)
   end
 
-  # The `[:request]` span's `:result` vocabulary [AGENTS.md, telemetry
-  # guidelines]. `:ok`/`:not_modified` pass straight through; every `{:error,
-  # reason}` this chain produces gets classified via `outcome_result/1` below.
-  defp request_metadata(:ok), do: %{result: :ok}
-  defp request_metadata(:not_modified), do: %{result: :not_modified}
-
-  defp request_metadata({:error, reason}),
-    do: %{result: outcome_result(reason), error: Error.tag(reason)}
+  @impl ImagePipe.Dialect
+  def render_error(conn, reason, config), do: Errors.send(conn, reason, config)
 
   # This dialect's own client-reject reasons — the signature and `exp` gates,
   # both pre-fetch and pre-option-parse — get the client-error atom directly,
@@ -221,7 +203,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # `:parser_error` regardless of the underlying reason. Two pre-fetch gates
   # are the exception, both plan-shape failures rather than syntax ones, and
   # both `:plan_error`: `Assembly.operations/1`'s geometry rejection
-  # (`{:missing_dimensions, _}` — `Errors.send/4` still answers it with the
+  # (`{:missing_dimensions, _}` — `Errors.send/3` still answers it with the
   # same 400 as every other parse reject), and `check_detector/2`'s
   # `{:detector, :unavailable}` (mirroring `ImagePipe.Plug`'s own
   # `:plan_error` for it).
@@ -234,109 +216,16 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # `{:source, _}` to `:source_error` for free; everything it does not
   # specifically recognize (including the long, open-ended tail of Options/Path
   # rejects) lands at its `:processing_error` default.
-  defp outcome_result(:invalid_signature), do: :parser_error
-  defp outcome_result({:invalid_signature_encoding, _signature}), do: :parser_error
-  defp outcome_result({:unsupported_signature, _signature}), do: :parser_error
-  defp outcome_result({:expired_request, _expires}), do: :parser_error
-  defp outcome_result({:missing_dimensions, _resizing_type}), do: :plan_error
-  defp outcome_result({:detector, :unavailable}), do: :plan_error
-  defp outcome_result(reason), do: Telemetry.request_result({:error, reason})
+  @impl ImagePipe.Dialect
+  def classify_error(:invalid_signature), do: :parser_error
+  def classify_error({:invalid_signature_encoding, _signature}), do: :parser_error
+  def classify_error({:unsupported_signature, _signature}), do: :parser_error
+  def classify_error({:expired_request, _expires}), do: :parser_error
+  def classify_error({:missing_dimensions, _resizing_type}), do: :plan_error
+  def classify_error({:detector, :unavailable}), do: :plan_error
+  def classify_error(reason), do: Telemetry.request_result({:error, reason})
 
-  # The `/info` terminal [spec §The /info cache path]. Skips three of the image
-  # chain's steps because none applies to an info request: the geometry check
-  # has no operations to reject, negotiation has no format to select, and
-  # there is no image body to attach a `Content-Disposition` to. The `exp`
-  # gate and the signature still apply.
-  #
-  # `request/5`'s `:info` head drops the parsed pipelines and output for the same
-  # reason, so none of the three can reach this terminal's identity.
-  #
-  # The signature is verified over the path WITHOUT the `/info` prefix —
-  # `split_endpoint/1` already handed back a prefix-stripped conn, and
-  # `Path.extract/1` reads it — matching upstream. The chain never re-derives
-  # the signed path.
-  defp route_info(%Plug.Conn{} = conn, config) do
-    with {:ok, request} <- parse(conn, config, :info),
-         :ok <- check_expires(request, config),
-         {:ok, plan_source} <- ImgproxySource.translate(request.source_path, config),
-         {:ok, resolved} <- ImageSource.resolve(plan_source, config, config) do
-      representation =
-        Representation.build(
-          resolved.identity,
-          Identity.material(request, @info_negotiation, conn, config, nil),
-          resolved.cache_semantics.byte_identity
-        )
-
-      if Conditional.not_modified?(conn, representation.etag) do
-        send_not_modified(conn, representation, config)
-      else
-        serve_info(conn, resolved, representation, config)
-      end
-    else
-      {:error, reason} ->
-        send_error(conn, reason, config)
-    end
-  end
-
-  defp route_image(%Plug.Conn{} = conn, config) do
-    with {:ok, request} <- parse(conn, config, :image),
-         :ok <- check_expires(request, config),
-         {:ok, operations} <- check_geometry(request),
-         :ok <- check_detector(operations, config),
-         {:ok, plan_source} <- ImgproxySource.translate(request.source_path, config),
-         {:ok, response_meta} <- ResponseMeta.build(request, plan_source),
-         {:ok, resolved} <- ImageSource.resolve(plan_source, config, config),
-         {:ok, negotiation} <- negotiate(conn, request, config) do
-      detector_identity = detector_identity(operations, config)
-
-      representation =
-        Representation.build(
-          resolved.identity,
-          Identity.material(request, negotiation, conn, config, detector_identity),
-          resolved.cache_semantics.byte_identity
-        )
-
-      if Conditional.not_modified?(conn, representation.etag) do
-        send_not_modified(conn, representation, config)
-      else
-        serve(conn, request, resolved, negotiation, representation, response_meta, config)
-      end
-    else
-      {:error, reason} ->
-        send_error(conn, reason, config)
-    end
-  end
-
-  # The three send shapes every branch of this chain reduces to, each one a
-  # `[:send]`-wrapped terminal paired with its `[:request]`-stop metadata.
-
-  defp send_not_modified(conn, %Representation{} = representation, config) do
-    metadata = request_metadata(:not_modified)
-
-    conn =
-      send_with_span(conn, config, metadata.result, fn ->
-        Sender.send_result(
-          conn,
-          {:not_modified, CacheHeaders.from_representation(representation)},
-          config
-        )
-      end)
-
-    {conn, metadata}
-  end
-
-  defp send_error(conn, reason, config, headers \\ []) do
-    metadata = request_metadata({:error, reason})
-
-    conn =
-      send_with_span(conn, config, metadata.result, fn ->
-        Errors.send(conn, reason, config, headers)
-      end)
-
-    {conn, metadata}
-  end
-
-  # -- extract → verify → split → parse, one telemetry span ------------------
+  # -- extract → verify → split → parse ---------------------------------------
 
   # Extracts the signature, verifies it, splits off the source path, parses
   # the option segments, then merges the resolved output format from an
@@ -347,13 +236,6 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # imgproxy's signature grammar has no key index to carry. `Signature.verify/3`
   # returns a bare `:ok` — it tries every configured key/salt pair with
   # `Enum.any?/2` and never reports which one matched.
-  defp parse(%Plug.Conn{} = conn, config, endpoint) do
-    Telemetry.span(Telemetry.telemetry_opts(config), [:parse], %{}, fn ->
-      result = parse_request(conn, config, endpoint)
-      {result, parse_stop_metadata(result)}
-    end)
-  end
-
   defp parse_request(%Plug.Conn{} = conn, config, endpoint) do
     with {:ok, signature, signed_path, path_info} <- Path.extract(conn),
          :ok <- Signature.verify(signature, signed_path, Keyword.fetch!(config, :signature)),
@@ -396,7 +278,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   #
   # The parsed `pipelines` and `output` are DROPPED — `pipelines: []`, and
   # `output` reset to its no-intent default below. /info never runs a
-  # pipeline and never encodes — `serve_info/4` goes straight to
+  # pipeline and never encodes — the render terminal goes straight to
   # `source_info/2` with `@info_decode_request` — so nothing on this path
   # reads either field except `Identity.material/5`. Carrying them would mean
   # `/info/rs:fill:100:100/…` and `/info/…` got different cache keys and
@@ -542,6 +424,28 @@ defmodule ImagePipe.Dialect.Imgproxy do
     Enum.any?(operations, &(Map.get(&1, :guide) == {:smart, :face_assist}))
   end
 
+  # -- negotiation ------------------------------------------------------------
+
+  # The thunk is invoked by the runner only after `Source.resolve/3`.
+  # Negotiation, detector callbacks, and identity construction therefore keep
+  # the chain's source-before-negotiation execution and exception precedence.
+  defp negotiation_result(conn, %Request{} = request, operations, config) do
+    case DialectNegotiation.negotiate(conn, Identity.plan_output(request), config) do
+      {:ok, negotiation} ->
+        {:ok, negotiation,
+         Identity.material(
+           request,
+           negotiation,
+           conn,
+           config,
+           detector_identity(operations, config)
+         )}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   # The resolved detector identity for cache-key/ETag material, computed ONCE per
   # request (before `Representation.build`, so the ETag and the key derive from a
   # single resolution). Fully mirrors `Request.Runner.with_detector_identity/2`,
@@ -564,238 +468,22 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end
   end
 
-  # -- negotiation ------------------------------------------------------------
+  # -- the /info render terminal ----------------------------------------------
 
-  defp negotiate(%Plug.Conn{} = conn, %Request{} = request, config) do
-    policy = Policy.from_output_plan(conn, Identity.plan_output(request), config)
+  defp info_terminal do
+    %RenderTerminal{
+      charset: :default,
+      fun: fn resolved_source, config ->
+        case source_info(resolved_source, config) do
+          {:ok, %SourceInfo{} = info} ->
+            {content_type, body} = InfoRenderer.render(info)
+            {:ok, content_type, body}
 
-    with :ok <- Policy.ensure_capable(policy, config) do
-      {selected_format, vary?} = normalize_selection(Policy.identity_selection(policy))
-
-      {:ok,
-       %Negotiation{
-         selected: {:image, selected_format},
-         vary?: vary?,
-         policy_material: Policy.identity_material(policy),
-         policy: policy
-       }}
-    end
-  end
-
-  defp normalize_selection({:explicit, format}), do: {format, false}
-  defp normalize_selection({:auto_head, format}), do: {format, true}
-  defp normalize_selection(:source_negotiated), do: {:source_negotiated, true}
-
-  # -- cache lookup + hit delivery / miss generate -----------------------------
-
-  # A source that resolved `internal_cache: :disabled` has declared its bytes
-  # must not be stored, so this skips the lookup AND the write — mirroring
-  # `ImagePipe.Request.Runner.run_with_cache_config/5`, which pattern-matches the
-  # same field and hands its `process_prepared_stream/6` a `nil` cache key.
-  # `Delivery.stream/5` already documents `nil` as "no cache for this request".
-  #
-  # It is not only an opt-out to respect: `:disabled` is also what
-  # `internal_cache: :auto` resolves to for a source whose bytes have no stable
-  # identity, and keying a stored entry to bytes that cannot be identified is
-  # unsound regardless of intent.
-  defp serve(
-         conn,
-         request,
-         %ImageSource.Resolved{internal_cache: :disabled} = resolved,
-         negotiation,
-         representation,
-         response_meta,
-         config
-       ) do
-    generate(conn, request, resolved, negotiation, representation, response_meta, nil, config)
-  end
-
-  defp serve(
-         conn,
-         request,
-         %ImageSource.Resolved{internal_cache: :enabled} = resolved,
-         negotiation,
-         representation,
-         response_meta,
-         config
-       ) do
-    start = System.monotonic_time(:microsecond)
-    lookup_result = Cache.lookup_entry(representation.cache_key, config)
-    cache_serve_us = System.monotonic_time(:microsecond) - start
-
-    case lookup_result do
-      {:hit, %Cache.Entry{} = entry} ->
-        deliver_hit(conn, entry, representation, response_meta, cache_serve_us, config)
-
-      _miss_or_disabled ->
-        generate(
-          conn,
-          request,
-          resolved,
-          negotiation,
-          representation,
-          response_meta,
-          representation.cache_key,
-          config
-        )
-    end
-  end
-
-  # A cache hit is the proof, absent pre-fetch, that a current representation
-  # exists for this key — so this is the only place `If-None-Match: *` may be
-  # honored (mirroring `ImagePipe.Request.Runner`'s own hit-path check).
-  defp deliver_hit(
-         conn,
-         %Cache.Entry{} = entry,
-         %Representation{} = representation,
-         %PlanResponse{} = response_meta,
-         cache_serve_us,
-         config
-       ) do
-    if Conditional.if_none_match_wildcard?(conn) do
-      send_not_modified(conn, representation, config)
-    else
-      hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
-      metadata = request_metadata(:ok)
-
-      conn =
-        send_with_span(conn, config, metadata.result, fn ->
-          Sender.send_result(
-            conn,
-            {:ok,
-             {:cache_entry, entry, response_meta,
-              CacheHeaders.from_representation(representation), hit_debug}},
-            config
-          )
-        end)
-
-      {conn, metadata}
-    end
-  end
-
-  # `cache_key` is `nil` when the resolved source disabled the internal cache —
-  # `Delivery.stream/5` then produces the response without opening a sink.
-  defp generate(
-         conn,
-         request,
-         %ImageSource.Resolved{} = resolved,
-         %Negotiation{selected: {:image, _selected_format}} = negotiation,
-         %Representation{} = representation,
-         %PlanResponse{} = response_meta,
-         cache_key,
-         config
-       ) do
-    build_fun = build_fun(resolved, request, negotiation, config)
-
-    case Delivery.stream(self(), build_fun, cache_key, response_meta, config) do
-      {:ok, prepared} ->
-        metadata = request_metadata(:ok)
-
-        conn =
-          send_with_span(conn, config, metadata.result, fn ->
-            Sender.send_result(
-              conn,
-              {:ok,
-               {:prepared_stream, prepared, response_meta,
-                CacheHeaders.from_representation(representation)}},
-              config
-            )
-          end)
-
-        {conn, metadata}
-
-      # The negotiated policy's headers ride the failure, as they do on the
-      # framework's own delivery errors (`Runner.process_prepared_stream/6` tags
-      # `policy.headers` onto every `Delivery.stream/5` error): this response was
-      # Accept-negotiated even though it failed.
-      {:error, reason} ->
-        send_error(conn, reason, config, negotiation.policy.headers)
-    end
-  end
-
-  # -- /info: a complete body, not a stream -----------------------------------
-  #
-  # Fetch, decode-to-header, and render entirely inline (no producer process),
-  # then respond with `send_resp/3` directly. `Sender`'s `{:rendered, _}` shape
-  # would do its own Accept negotiation over renderer-supplied offers, which
-  # this terminal does not have; and its image-entry delivery assumes an
-  # encoder output (`Plan.Response.content_disposition/2` only knows the image
-  # delivery content types and errors on anything else). So both the hit and
-  # the miss path stay a dialect-owned send.
-
-  # As on the image path, a source that disabled the internal cache is neither
-  # read from nor written to. The reason the image path honors the flag holds
-  # here unchanged: the stored JSON reports this source's
-  # format/dimensions/orientation, so serving a stale one for bytes that
-  # carry no stable identity is the same unsoundness, one indirection later.
-  defp serve_info(
-         conn,
-         %ImageSource.Resolved{internal_cache: :disabled} = resolved,
-         %Representation{} = representation,
-         config
-       ) do
-    generate_info(conn, resolved, representation, nil, config)
-  end
-
-  defp serve_info(
-         conn,
-         %ImageSource.Resolved{internal_cache: :enabled} = resolved,
-         %Representation{} = representation,
-         config
-       ) do
-    case Cache.lookup_entry(representation.cache_key, config) do
-      {:hit, %Cache.Entry{representation: {:complete_body, content_type}} = entry} ->
-        deliver_info_hit(conn, content_type, entry.body, representation, config)
-
-      # Anything else — a miss, a disabled cache, or an entry an adapter stored
-      # without the `{:complete_body, _}` tag (`Cache.FileSystem` does not
-      # persist it yet) — regenerates. An untagged entry is indistinguishable
-      # from an image entry, and sending one here would answer /info with image
-      # bytes.
-      _miss_or_untagged ->
-        generate_info(conn, resolved, representation, representation.cache_key, config)
-    end
-  end
-
-  # As on the image path, a cache hit is the proof that a current representation
-  # exists for this key, so it is the only place `If-None-Match: *` is honored.
-  defp deliver_info_hit(conn, content_type, body, %Representation{} = representation, config) do
-    if Conditional.if_none_match_wildcard?(conn) do
-      send_not_modified(conn, representation, config)
-    else
-      metadata = request_metadata(:ok)
-
-      conn =
-        send_with_span(conn, config, metadata.result, fn ->
-          send_complete_body(conn, content_type, body, representation)
-        end)
-
-      {conn, metadata}
-    end
-  end
-
-  # `cache_key` is `nil` when the resolved source disabled the internal cache, and
-  # then the rendered body is sent without being stored.
-  defp generate_info(conn, resolved, %Representation{} = representation, cache_key, config) do
-    started_at = System.monotonic_time(:microsecond)
-
-    case source_info(resolved, config) do
-      {:ok, %SourceInfo{} = info} ->
-        {content_type, body} = InfoRenderer.render(info)
-        cost_us = System.monotonic_time(:microsecond) - started_at
-        write_complete_body_cache(cache_key, content_type, body, cost_us, config)
-        metadata = request_metadata(:ok)
-
-        conn =
-          send_with_span(conn, config, metadata.result, fn ->
-            send_complete_body(conn, content_type, body, representation)
-          end)
-
-        {conn, metadata}
-
-      {:error, reason} ->
-        send_error(conn, reason, config)
-    end
+          {:error, _reason} = error ->
+            error
+        end
+      end
+    }
   end
 
   defp source_info(resolved, config) do
@@ -827,120 +515,6 @@ defmodule ImagePipe.Dialect.Imgproxy do
     end
   end
 
-  defp write_complete_body_cache(nil = _cache_disabled, _content_type, _body, _cost_us, _config),
-    do: :ok
-
-  # Fail-open, like every cache write: the sink's own error handling aborts the
-  # adapter sink synchronously on a failed write, after which further writes and
-  # the commit no-op — so the pipe chain needs no error branch of its own.
-  defp write_complete_body_cache(%Cache.Key{} = cache_key, content_type, body, cost_us, config) do
-    cache_key
-    |> Cache.open_sink({:complete_body, content_type}, Keyword.put(config, :cost_us, cost_us))
-    |> Cache.write_chunk(IO.iodata_to_binary(body), config)
-    |> Cache.commit_sink(config)
-
-    :ok
-  end
-
-  # The ETag, the Vary, and the content type are rebuilt from the CURRENT
-  # request's representation, never read back off a stored entry (beyond its
-  # content type) [spec §The /info cache path].
-  #
-  # The Vary must be stamped here and not only on the 304 branch: this terminal
-  # never varies by Accept (`@info_negotiation`), but a configured
-  # `storage_inputs` header can select a different resolved source and so a
-  # genuinely different body. It varies the key,
-  # `CacheHeaders.from_representation/1` puts it on the 304, and a 200 that
-  # omitted it left the two responses inconsistent and let a shared cache serve
-  # one tenant's /info to another.
-  defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
-    cache_headers = CacheHeaders.from_representation(representation)
-
-    conn
-    |> put_resp_headers(cache_headers.representation_headers)
-    |> put_resp_headers(cache_headers.headers)
-    |> put_resp_content_type(content_type)
-    |> send_resp(200, body)
-  end
-
-  defp put_resp_headers(conn, headers) do
-    Enum.reduce(headers, conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
-  end
-
-  # -- build_fun: fetch → decode → transform → encode, run INSIDE the ----------
-  # -- producer process, entirely inside Decode.with_image's bracket. ---------
-
-  defp build_fun(%ImageSource.Resolved{} = resolved, %Request{} = request, negotiation, config) do
-    decode_opts = Keyword.put(config, :auto_rotate?, request.auto_rotate)
-    on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
-
-    fn pump ->
-      Decode.with_image(
-        resolved,
-        decode_opts,
-        &Pipeline.decode_request(request, &1),
-        fn state, geometry ->
-          try do
-            build_and_pump(state, geometry, request, negotiation, config, pump)
-          after
-            on_bracket_exit.()
-          end
-        end
-      )
-    end
-  end
-
-  defp build_and_pump(state, geometry, request, negotiation, config, pump) do
-    with {:ok, %State{} = state} <- run_transform(state, geometry, request, negotiation, config),
-         {:ok, resolved_output} <-
-           resolve_output(negotiation.policy, geometry.source_format, state.image, config),
-         {:ok, clamped, _clamp_info} <-
-           Clamp.clamp_with_telemetry(
-             state.image,
-             result_limits(resolved_output.format, config),
-             resolved_output.format,
-             config
-           ),
-         {:ok, %State{image: image}} <-
-           materialize_for_delivery(%State{state | image: clamped}, config),
-         {:ok, chunk, content_type, stream_state, _search_meta} <-
-           encode_first_chunk(image, resolved_output, config) do
-      pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, @debug_info)
-    else
-      :empty -> {:error, {:encode, :empty_stream}}
-      {:error, _reason} = error -> error
-    end
-  rescue
-    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
-  catch
-    kind, reason -> {:error, {:transform, {kind, reason}}}
-  end
-
-  # The `[:transform, :execute]` span, wrapping the full pipeline run with the
-  # framework's own start/stop shapes (`Request.Processor.process_decoded_source/3`
-  # + `transform_stop_metadata/1`): start carries the aggregate semantic-plan
-  # view (`operations`/`operation_count`), stop the `:result`.
-  defp run_transform(state, geometry, %Request{} = request, negotiation, config) do
-    operations = operation_names(request)
-
-    Telemetry.span(
-      Telemetry.telemetry_opts(config),
-      [:transform, :execute],
-      %{operations: operations, operation_count: length(operations)},
-      fn ->
-        result =
-          Pipeline.run(
-            state,
-            geometry,
-            request,
-            pipeline_opts(negotiation, request, geometry, config)
-          )
-
-        {result, transform_stop_metadata(result)}
-      end
-    )
-  end
-
   # The ordered semantic operation-name atoms across the request's pipelines —
   # the dialect counterpart of `Plan.operation_names/1`, over the same
   # `Assembly.operations/1` product `Pipeline.run/4` executes. Assembly cannot
@@ -952,110 +526,4 @@ defmodule ImagePipe.Dialect.Imgproxy do
       Enum.map(operations, &PlanOperation.name/1)
     end)
   end
-
-  # ex_dna:disable-for-next-line
-  defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
-
-  defp transform_stop_metadata({:error, error}),
-    do: %{result: :processing_error, error: Error.tag(error)}
-
-  # The `[:encode]` span, mirroring the framework's honest forced-encode span
-  # (`Request.DeliveryBuild.encode_first_chunk/3` + `first_chunk/1`):
-  # `Encoder.stream_output/3` only builds the lazy encoder pipeline, so the
-  # first chunk is pulled HERE, inside the span and inside the producer — not
-  # later in the delivery pump, which would leave the span timing only encoder
-  # construction. `StreamPull.resume/2` then hands `pump` an enumerable that
-  # replays it. This is also what surfaces a first-chunk encode failure as a
-  # pre-header 500 (the framework's and upstream imgproxy's behavior) instead
-  # of a mid-stream abort of an already-committed 200.
-  # ex_dna:disable-for-next-line
-  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
-    Telemetry.span(
-      Telemetry.telemetry_opts(config),
-      [:encode],
-      %{output_format: resolved_output.format},
-      fn ->
-        result =
-          with {:ok, stream, content_type, search_meta} <-
-                 Encoder.stream_output(image, resolved_output, config),
-               {:ok, chunk, stream_state} <- first_chunk(stream) do
-            {:ok, chunk, content_type, stream_state, search_meta}
-          end
-
-        {result, encode_stop_metadata(result, resolved_output.format)}
-      end
-    )
-  end
-
-  defp first_chunk(stream) do
-    StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
-  end
-
-  # ex_dna:disable-for-next-line
-  defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state, _search_meta}, format),
-    do: %{result: :ok, output_format: format}
-
-  defp encode_stop_metadata(:empty, format),
-    do: %{result: :processing_error, output_format: format, error: :empty_stream}
-
-  defp encode_stop_metadata({:error, reason}, format),
-    do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
-
-  # Delivery backstop, mirroring the framework's post-clamp barrier
-  # (`ImagePipe.Request.Processor.materialize_for_delivery/2`): the build path has
-  # no discretionary op that forces a mid-pipeline materialize, so a lazy vips
-  # pipeline can reach the encoder unmaterialized. Copy to RAM once before encode
-  # unless an op already did, mapping a copy failure to a decode error (→ 415) via
-  # `Materializer.materialize/2`. The `[:transform, :materialize]` span comes for
-  # free from `Materializer`. The carry stamp is NOT re-applied — `Pipeline.run/4`'s
-  # tail already stamped it, so this half of the framework barrier is not duplicated.
-  defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
-
-  defp materialize_for_delivery(%State{} = state, config) do
-    case Materializer.materialize(state, config) do
-      {:ok, %State{} = materialized} -> {:ok, materialized}
-      {:error, reason} -> {:error, {:decode, reason}}
-    end
-  end
-
-  # `Pipeline.run/4`'s input-color-management preamble needs to know whether the
-  # HDR working space survives to the output, which is a fact about the
-  # NEGOTIATED format, not about any operation. Mirrors
-  # `ImagePipe.Request.DeliveryBuild`'s own threading of the same option
-  # (`measure_transform/2`) — including its conservative `false` for the branch
-  # where the format is only known after the transform.
-  defp pipeline_opts(%Negotiation{policy: policy}, %Request{} = request, geometry, config) do
-    Keyword.put(
-      config,
-      :supports_hdr?,
-      Policy.supports_hdr?(policy, Identity.plan_output(request), geometry.source_format)
-    )
-  end
-
-  # Negotiation runs through the shared `Output.Negotiate` seam (the
-  # `[:output, :negotiate]` span emitter). The helper's unwrapped `{:error,
-  # reason}` is passed straight through, preserving this dialect's error shape.
-  defp resolve_output(policy, source_format, image, config) do
-    Negotiate.negotiate_output(
-      policy,
-      source_format,
-      fn -> Image.has_alpha?(image) end,
-      Telemetry.telemetry_opts(config)
-    )
-  end
-
-  defp result_limits(format, config) do
-    %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
-      Encoder.encoder_limit(format)
-
-    %{
-      max_width: min_limit(Keyword.fetch!(config, :max_result_width), encoder_dimension),
-      max_height: min_limit(Keyword.fetch!(config, :max_result_height), encoder_dimension),
-      max_pixels: min_limit(Keyword.fetch!(config, :max_result_pixels), encoder_pixels)
-    }
-  end
-
-  # Only the encoder limit can be `:infinity` ("no limit from the encoder").
-  defp min_limit(host_limit, :infinity), do: host_limit
-  defp min_limit(host_limit, encoder_limit), do: min(host_limit, encoder_limit)
 end

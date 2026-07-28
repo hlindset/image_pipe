@@ -4,7 +4,10 @@ defmodule ImagePipe.Dialect.Resolved do
 
   `negotiation` is a deferred, coupled result: identity material cannot
   exist without a successful negotiation (every identity builder consumes
-  the struct), so the pair succeeds or fails together. The runner unwraps
+  the struct), so the pair succeeds or fails together. It may be supplied
+  directly as the result tuple, or as a zero-arity thunk returning that
+  tuple — the thunk form lets a dialect defer negotiation until runtime
+  geometry (unavailable at `prepare/3` time) is known. The runner resolves
   it AFTER `ImagePipe.Source.resolve/3`, preserving the dialects'
   source-before-negotiation error precedence.
 
@@ -35,10 +38,12 @@ defmodule ImagePipe.Dialect.Resolved do
   @type negotiation_result ::
           {:ok, Negotiation.t(), IdentityMaterial.t()} | {:error, term()}
 
+  @type negotiation :: negotiation_result() | (-> negotiation_result())
+
   @type t :: %__MODULE__{
           request: term(),
           source: struct(),
-          negotiation: negotiation_result(),
+          negotiation: negotiation(),
           response_meta: Response.t(),
           operations: [atom()],
           auto_rotate?: boolean(),

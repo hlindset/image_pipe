@@ -27,13 +27,12 @@ defmodule ImagePipe.Test.Differential.Harness do
   end
 
   @doc """
-  Dialect arm: `dialect` initialized over the same local source wiring.
-
-  The dialect IS the plug and takes one flat keyword list, so there is no
-  `:parser` key to pass — that is the whole point of the inversion.
+  Dialect arm: `dialect` mounted through the shared `ImagePipe.Plug` runner
+  over the same local source wiring — `ImagePipe.Plug, dialect: dialect,
+  <flat config>`, the same unified mount every dialect uses in production.
   """
   def dialect_plug_opts(dialect, sources_dir) do
-    {dialect, dialect.init(sources: sources(sources_dir))}
+    {ImagePipe.Plug, ImagePipe.Plug.init(dialect: dialect, sources: sources(sources_dir))}
   end
 
   @doc "Render `request_path` through an arm → `{body_bytes, content_type}`."
@@ -55,7 +54,8 @@ defmodule ImagePipe.Test.Differential.Harness do
     Image.open!(body, access: :random, fail_on: :error)
   end
 
-  defp sources(sources_dir) do
+  @doc "Local `path:` source config serving `sources_dir`'s committed files."
+  def sources(sources_dir) do
     [
       path:
         {RootHTTPAdapter,

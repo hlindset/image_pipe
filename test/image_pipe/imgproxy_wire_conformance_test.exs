@@ -1339,8 +1339,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   # An Accept-negotiated response must carry `Vary: Accept` even when it fails,
   # or a shared cache may serve this 415 to a client whose Accept would have
-  # negotiated a different (working) outcome. The dialect threads the negotiation
-  # headers through `Errors.send/4`.
+  # negotiated a different (working) outcome. The runner stamps the negotiation
+  # headers on the conn before `Errors.send/3` renders the error.
   #
   # The sibling test below — explicit `f:png`, where `Vary: []` IS correct — is
   # what proves the header is negotiation-derived rather than stamped
@@ -4598,11 +4598,12 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   end
 
   # The single stack-invocation site: every wire request in this file reaches
-  # the dialect through here. Opts are flat dialect config — the dialect IS the
-  # plug and takes one flat keyword (`Dialect.Imgproxy.Config` splits it three
-  # ways itself), so there is nothing to translate at the boundary.
+  # the dialect through here, mounted via the shared `ImagePipe.Plug` runner.
+  # Opts are flat dialect config — `Dialect.Imgproxy.Config` splits it three
+  # ways itself — so there is nothing to translate at the boundary beyond the
+  # `dialect:` tag.
   defp call_imgproxy_conn(%Plug.Conn{} = conn, opts) do
-    DialectImgproxy.call(conn, DialectImgproxy.init(opts))
+    ImagePipe.Plug.call(conn, ImagePipe.Plug.init([dialect: DialectImgproxy] ++ opts))
   end
 
   defp put_accept(conn, nil), do: conn

@@ -1,5 +1,5 @@
 defmodule ImagePipeFiddleWeb.TwicPics do
-  @moduledoc "Forwards /twic requests to the TwicPics dialect with opts built at boot."
+  @moduledoc "Forwards /twic requests to ImagePipe.Plug (TwicPics dialect) with opts built at boot."
   @behaviour Plug
 
   @impl true
@@ -7,7 +7,7 @@ defmodule ImagePipeFiddleWeb.TwicPics do
 
   @impl true
   def call(conn, _opts) do
-    ImagePipe.Dialect.TwicPics.call(
+    ImagePipe.Plug.call(
       conn,
       :persistent_term.get({ImagePipeFiddle.Application, :twicpics_opts})
     )

@@ -3,9 +3,9 @@ defmodule ImagePipe.Dialect.TwicPics.IdentityTest do
 
   import Plug.Test
 
+  alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Dialect.TwicPics.Config
   alias ImagePipe.Dialect.TwicPics.Identity
-  alias ImagePipe.Dialect.TwicPics.Negotiation
   alias ImagePipe.Dialect.TwicPics.Request
   alias ImagePipe.Dialect.TwicPics.RequestBuilder
   alias ImagePipe.Output.Policy
@@ -44,7 +44,8 @@ defmodule ImagePipe.Dialect.TwicPics.IdentityTest do
       selected: {:image, :source_negotiated},
       vary?: true,
       policy_material: Policy.identity_material(policy),
-      policy: policy
+      policy: policy,
+      plan_output: nil
     ]
 
     struct!(Negotiation, Keyword.merge(base, overrides))

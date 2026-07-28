@@ -6,10 +6,10 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
   alias ImagePipe.Dialect.Imgproxy.CropRequest
   alias ImagePipe.Dialect.Imgproxy.Effects
   alias ImagePipe.Dialect.Imgproxy.Identity
-  alias ImagePipe.Dialect.Imgproxy.Negotiation
   alias ImagePipe.Dialect.Imgproxy.Orientation
   alias ImagePipe.Dialect.Imgproxy.PipelineRequest
   alias ImagePipe.Dialect.Imgproxy.Request
+  alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output.JpegOptions
@@ -46,7 +46,9 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
     base = [
       selected: {:image, :source_negotiated},
       vary?: true,
-      policy_material: Policy.identity_material(base_policy())
+      policy_material: Policy.identity_material(base_policy()),
+      policy: nil,
+      plan_output: nil
     ]
 
     struct!(Negotiation, Keyword.merge(base, overrides))
@@ -345,6 +347,80 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
 
       refute ssimulacra2.cache_key.hash == butteraugli.cache_key.hash
       refute ssimulacra2.etag == butteraugli.etag
+    end
+  end
+
+  describe "negotiation-thunk ordering (source error precedes any detector callback)" do
+    # The runner invokes `resolved.negotiation` — the thunk that computes
+    # detector identity for a `g:obj:*` request (see `Imgproxy.negotiation_result/4`
+    # and `Imgproxy.detector_identity/2`) — only AFTER `ImageSource.resolve/3`
+    # succeeds (`ImagePipe.Plug.DialectRunner.handle_request/4`'s `with` chain).
+    # `ImageSource.resolve/3` resolves source IDENTITY, not bytes — a real
+    # adapter's resolve-time failures (e.g. a denied path) are I/O-shaped and
+    # awkward to force deterministically, so this uses a minimal source
+    # adapter whose `resolve/3` fails outright and whose `fetch/3` raises if
+    # ever reached, isolating exactly the ordering this test is about. This
+    # proves the ordering survives the Task 1 port: a source that fails
+    # resolution must win over a detector whose `identity/1` would raise, and
+    # the detector callback must never run. Asserting only "the response is a
+    # source error" would not distinguish this from a chain that merely
+    # discards a later detector error in favor of an earlier one already in
+    # hand — sending a message from `identity/1` and refuting it proves the
+    # callback itself was never invoked.
+    defmodule FailingResolveSource do
+      @moduledoc false
+      @behaviour ImagePipe.Source
+
+      @impl true
+      def validate_options(opts), do: {:ok, opts}
+
+      @impl true
+      def resolve(_source, _opts, _runtime_opts),
+        do: {:error, {:source, :forced_resolve_failure}}
+
+      @impl true
+      def fetch(_resolved, _opts, _runtime_opts),
+        do: raise("fetch/3 must not be reached: resolve/3 already failed")
+    end
+
+    defmodule RaisingDetector do
+      @moduledoc false
+      @behaviour ImagePipe.Transform.Detector
+
+      @impl true
+      def supported_classes(_opts), do: ["face"]
+
+      @impl true
+      def available?(_opts), do: true
+
+      @impl true
+      def detect(_image, _opts), do: {:ok, []}
+
+      @impl true
+      def identity(opts) do
+        opts |> Keyword.fetch!(:test_pid) |> send(:detector_identity_called)
+        raise "detector identity/1 must not be reached when the source already failed"
+      end
+    end
+
+    test "a source resolution error wins over a detector whose identity/1 would raise, and the detector callback is never invoked" do
+      test_pid = self()
+
+      base =
+        ImagePipe.Plug.init(
+          dialect: ImagePipe.Dialect.Imgproxy,
+          sources: [path: {FailingResolveSource, []}],
+          detector: RaisingDetector
+        )
+
+      config = Keyword.put(base, :test_pid, test_pid)
+
+      conn =
+        conn(:get, "/unsafe/rs:fill:80:80/g:obj:face/plain/images/beach.jpg")
+        |> ImagePipe.Plug.call(config)
+
+      assert conn.status == 422
+      refute_received :detector_identity_called
     end
   end
 end

@@ -8,8 +8,7 @@ defmodule ImagePipe.Dialect.TwicPics.Config do
   @dialect_keys [
     :storage_inputs,
     :detector,
-    :detector_required,
-    :allow_debug_headers
+    :detector_required
   ]
 
   # Hosted TwicPics `output=auto` selects WebP for browsers that accept it and
@@ -31,10 +30,6 @@ defmodule ImagePipe.Dialect.TwicPics.Config do
                       default: :default
                     ],
                     detector_required: [
-                      type: :boolean,
-                      default: false
-                    ],
-                    allow_debug_headers: [
                       type: :boolean,
                       default: false
                     ]

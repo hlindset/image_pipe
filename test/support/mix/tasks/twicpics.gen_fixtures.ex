@@ -101,13 +101,16 @@ defmodule Mix.Tasks.Twicpics.GenFixtures do
   defp validate_parses! do
     import Plug.Test, only: [conn: 2]
 
-    dialect_opts = TwicPics.init([])
+    dialect_opts = TwicPics.validate_config!([])
 
     failures =
       Constellations.all()
       |> Enum.reject(& &1[:triage])
       |> Enum.flat_map(fn c ->
-        case TwicPics.parse(conn(:get, Constellations.twicpics_path(c)), dialect_opts) do
+        {result, _span_metadata} =
+          TwicPics.parse(conn(:get, Constellations.twicpics_path(c)), dialect_opts)
+
+        case result do
           {:ok, _} -> []
           other -> [{c.id, c.chain, other}]
         end

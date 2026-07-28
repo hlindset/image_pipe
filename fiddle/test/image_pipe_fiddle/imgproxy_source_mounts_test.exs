@@ -4,11 +4,12 @@ defmodule ImagePipeFiddle.ImgproxySourceMountsTest do
   # The fiddle mounts three source adapters for the imgproxy provider so the demo
   # can fetch the same sample images via local / s3 / http. This pins that the s3
   # and http mount shapes are accepted by ImagePipe's host-config validation
-  # (the dialect's init raises on an invalid source config).
-  test "imgproxy_source_mounts/0 is accepted by ImagePipe.Dialect.Imgproxy.init/1" do
+  # (ImagePipe.Plug.init/1 raises on an invalid source config).
+  test "imgproxy_source_mounts/0 is accepted by ImagePipe.Plug.init/1" do
     opts =
-      ImagePipe.Dialect.Imgproxy.init(
-        Application.fetch_env!(:image_pipe_fiddle, :imgproxy) ++
+      ImagePipe.Plug.init(
+        [dialect: ImagePipe.Dialect.Imgproxy] ++
+          Application.fetch_env!(:image_pipe_fiddle, :imgproxy) ++
           [sources: ImagePipeFiddle.Application.imgproxy_source_mounts()]
       )
 

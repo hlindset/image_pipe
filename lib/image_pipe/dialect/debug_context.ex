@@ -1,8 +1,7 @@
 defmodule ImagePipe.Dialect.DebugContext do
   @moduledoc """
-  Everything the runner's default neutral debug builder (and the optional
-  `c:ImagePipe.Dialect.debug_info/1` override) may draw on. Source facts
-  ride `geometry.debug_facts` (collected by `ImagePipe.Decode`). Cache
+  Everything the runner's default neutral debug builder may draw on. Source
+  facts ride `geometry.debug_facts` (collected by `ImagePipe.Decode`). Cache
   hit/miss debug (spec U13's "cache hit/miss" input) is NOT carried here:
   it rides the delivery-time `hit_debug` map exactly as today, because it
   is only known at serve time, after generation built this context.

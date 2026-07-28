@@ -6,8 +6,9 @@ level, and a source adapter can override it.
 
 ```elixir
 forward "/images",
-  to: ImagePipe.Dialect.TwicPics,
+  to: ImagePipe.Plug,
   init_opts: [
+    dialect: ImagePipe.Dialect.TwicPics,
     sources: [
       path:
         {ImagePipe.Source.File,
