@@ -248,4 +248,36 @@ defmodule ImagePipe.PlugDialectRunnerTest do
     assert conn.status == 404
     assert get_resp_header(conn, "vary") == []
   end
+
+  describe "render terminal with cache: :none" do
+    test "negotiates the offered content type against the request's Accept and varies" do
+      conn =
+        :get
+        |> conn("/fix/images/beach.jpg?render=uncached")
+        |> put_req_header("accept", "application/ld+json")
+        |> ImagePipe.Plug.call(opts())
+
+      assert conn.status == 200
+      assert hd(get_resp_header(conn, "content-type")) =~ "application/ld+json"
+      assert get_resp_header(conn, "vary") == ["Accept"]
+    end
+
+    test "falls back to the canonical content type without a matching Accept" do
+      conn = get("/fix/images/beach.jpg?render=uncached", opts())
+
+      assert conn.status == 200
+      assert hd(get_resp_header(conn, "content-type")) =~ "application/json"
+      assert get_resp_header(conn, "vary") == ["Accept"]
+    end
+
+    test "never reads or writes the internal cache" do
+      config = opts(cache: stateful_cache_probe())
+
+      assert get("/fix/images/beach.jpg?render=uncached", config).status == 200
+      assert get("/fix/images/beach.jpg?render=uncached", config).status == 200
+
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _body}
+    end
+  end
 end

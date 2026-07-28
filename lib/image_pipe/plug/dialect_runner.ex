@@ -136,13 +136,43 @@ defmodule ImagePipe.Plug.DialectRunner do
        do: serve(conn, dialect, resolved, source, negotiation, representation, config)
 
   # -- render terminal: consolidated from imgproxy /info + Native blurhash.
-  # -- Phase A's sole render delivery is the complete-body lifecycle; the
-  # -- spec's cache-:none/offers variant arrives with Phase C's widening.
+
+  # `cache: :none` bypasses the internal cache entirely and delivers through
+  # `Sender`'s offers-negotiated `{:rendered, …}` path. The source's
+  # `internal_cache` setting is irrelevant — the terminal already says no.
+  defp serve_terminal(
+         conn,
+         dialect,
+         %Resolved{terminal: {:render, %RenderTerminal{cache: :none} = terminal}},
+         source,
+         _negotiation,
+         %Representation{} = representation,
+         config
+       ) do
+    case terminal.fun.(source, config) do
+      {:ok, content_type, body} ->
+        conn =
+          send_with_span(conn, config, :ok, fn ->
+            Sender.send_result(
+              conn,
+              {:ok,
+               {:rendered, content_type, body, terminal.offers,
+                CacheHeaders.from_representation(representation)}},
+              config
+            )
+          end)
+
+        {conn, %{result: :ok}}
+
+      {:error, reason} ->
+        send_error(conn, dialect, reason, config)
+    end
+  end
 
   defp serve_terminal(
          conn,
          dialect,
-         %Resolved{terminal: {:render, terminal}},
+         %Resolved{terminal: {:render, %RenderTerminal{cache: :complete_body} = terminal}},
          %ImageSource.Resolved{internal_cache: :disabled} = source,
          _negotiation,
          representation,
@@ -153,7 +183,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   defp serve_terminal(
          conn,
          dialect,
-         %Resolved{terminal: {:render, terminal}},
+         %Resolved{terminal: {:render, %RenderTerminal{cache: :complete_body} = terminal}},
          %ImageSource.Resolved{internal_cache: :enabled} = source,
          _negotiation,
          representation,
