@@ -654,7 +654,9 @@ defmodule ImagePipe.Plug.DialectRunner do
   defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
 
   defp materialize_for_delivery(%State{} = state, config) do
-    case Materializer.materialize(state, config) do
+    materializer = Keyword.get(config, :image_materializer, Materializer)
+
+    case materializer.materialize(state, config) do
       {:ok, %State{} = materialized} -> {:ok, materialized}
       {:error, reason} -> {:error, {:decode, reason}}
     end
