@@ -5,7 +5,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
 
   import Plug.Test
 
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Orientation1TwinOrigin

@@ -2,7 +2,7 @@ defmodule ImagePipe.RequestSafetyTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.RequestSafetyTest.CacheProbe
   alias ImagePipe.RequestSafetyTest.InvalidPipelinePlanParser

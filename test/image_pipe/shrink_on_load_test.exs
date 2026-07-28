@@ -115,7 +115,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   end
 
   defp iiif_resolver do
-    {ImagePipe.Parser.IIIF.Resolver.Static,
+    {ImagePipe.Dialect.IIIF.Resolver.Static,
      map: %{
        "beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]},
        "png" => %ImagePipe.Plan.Source.Path{segments: ["images", "png"]},

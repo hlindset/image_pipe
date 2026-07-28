@@ -26,7 +26,7 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
       parser: ImagePipe.Parser.IIIF,
       iiif: [
         resolver:
-          {ImagePipe.Parser.IIIF.Resolver.Static,
+          {ImagePipe.Dialect.IIIF.Resolver.Static,
            map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
       ],
       sources: [

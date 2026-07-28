@@ -1,10 +1,10 @@
-defmodule ImagePipe.Parser.IIIF.Resolver.Static do
+defmodule ImagePipe.Dialect.IIIF.Resolver.Static do
   @moduledoc """
   Resolves an identifier from a static `%{identifier => Plan.Source.t()}` map.
   Opaque IDs, no source-structure leakage. Unknown id -> `{:error, :not_found}`.
   """
 
-  @behaviour ImagePipe.Parser.IIIF.Resolver
+  @behaviour ImagePipe.Dialect.IIIF.Resolver
 
   @impl true
   def resolve(identifier, opts) when is_binary(identifier) do

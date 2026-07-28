@@ -4,7 +4,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias Vix.Vips.Image, as: VipsImage

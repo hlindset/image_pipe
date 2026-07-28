@@ -105,7 +105,7 @@ defmodule ImagePipeFiddle.Application do
     [
       parser: ImagePipe.Parser.IIIF,
       iiif: [
-        resolver: {ImagePipe.Parser.IIIF.Resolver.Static, map: iiif_source_map()},
+        resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: iiif_source_map()},
         max_width: 4000,
         max_height: 4000
       ],

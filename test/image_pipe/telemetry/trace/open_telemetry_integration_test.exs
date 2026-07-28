@@ -86,7 +86,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   end
 
   defp iiif_beach_resolver do
-    {ImagePipe.Parser.IIIF.Resolver.Static,
+    {ImagePipe.Dialect.IIIF.Resolver.Static,
      map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
   end
 

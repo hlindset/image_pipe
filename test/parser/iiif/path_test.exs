@@ -2,7 +2,7 @@ defmodule ImagePipe.Parser.IIIF.PathTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
-  alias ImagePipe.Parser.IIIF.Path
+  alias ImagePipe.Dialect.IIIF.Path
 
   defp conn_for(path), do: conn(:get, path)
 

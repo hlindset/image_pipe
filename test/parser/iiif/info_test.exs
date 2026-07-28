@@ -1,7 +1,7 @@
 defmodule ImagePipe.Parser.IIIF.InfoTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Parser.IIIF.{Info, InfoRenderer}
+  alias ImagePipe.Dialect.IIIF.{Info, InfoRenderer}
   alias ImagePipe.Plan.{RenderContext, SourceInfo}
 
   @info %SourceInfo{format: :jpeg, width: 1000, height: 600, orientation: 1}

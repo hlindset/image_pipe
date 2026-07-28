@@ -13,8 +13,8 @@ defmodule ImagePipe.PlugTest do
   # facet for a default-config automatic request (imgproxy parity values).
   @default_format_qualities %{avif: {:quality, 63}, jpeg_xl: {:quality, 77}, webp: {:quality, 79}}
 
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Parser.IIIF
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output

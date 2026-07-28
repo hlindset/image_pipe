@@ -1,7 +1,7 @@
-defmodule ImagePipe.Parser.IIIF.Info do
+defmodule ImagePipe.Dialect.IIIF.Info do
   @moduledoc "Builds the IIIF Image API 3.0 info.json document map."
 
-  alias ImagePipe.Parser.IIIF.Tiling
+  alias ImagePipe.Dialect.IIIF.Tiling
   alias ImagePipe.Plan.SourceInfo
 
   @context "http://iiif.io/api/image/3/context.json"

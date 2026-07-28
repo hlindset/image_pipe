@@ -9,7 +9,7 @@ defmodule ImagePipe.Parser.IIIFTest do
   @opts [
     iiif: [
       resolver:
-        {ImagePipe.Parser.IIIF.Resolver.Static,
+        {ImagePipe.Dialect.IIIF.Resolver.Static,
          map: %{"abc" => %SourcePath{segments: ["beach.jpg"]}}}
     ]
   ]
@@ -47,7 +47,7 @@ defmodule ImagePipe.Parser.IIIFTest do
   test "info request -> render plan with InfoRenderer + id param" do
     {:ok,
      %Plan{
-       render: {:custom, ImagePipe.Parser.IIIF.InfoRenderer, params},
+       render: {:custom, ImagePipe.Dialect.IIIF.InfoRenderer, params},
        output: nil,
        pipelines: []
      }} =

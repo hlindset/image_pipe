@@ -2,7 +2,7 @@ defmodule ImagePipe.Parser.IIIF.GrammarTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Parser.IIIF.Grammar
+  alias ImagePipe.Dialect.IIIF.Grammar
 
   test "region" do
     assert Grammar.region("full") == {:ok, :full}

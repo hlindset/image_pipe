@@ -1,7 +1,7 @@
 defmodule ImagePipe.Parser.IIIF.Resolver.StaticTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Parser.IIIF.Resolver.Static
+  alias ImagePipe.Dialect.IIIF.Resolver.Static
   alias ImagePipe.Plan.Source.Path, as: SourcePath
 
   @map %{"abc" => %SourcePath{segments: ["images", "beach.jpg"]}}

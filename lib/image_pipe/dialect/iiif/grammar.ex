@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.Grammar do
+defmodule ImagePipe.Dialect.IIIF.Grammar do
   @moduledoc false
 
   @doc """

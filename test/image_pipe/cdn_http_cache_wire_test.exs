@@ -6,8 +6,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Parser.IIIF
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Source.Path, as: SourcePath

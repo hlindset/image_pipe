@@ -2,7 +2,7 @@ defmodule ImagePipe.Parser.IIIF.TilingTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Parser.IIIF.Tiling
+  alias ImagePipe.Dialect.IIIF.Tiling
 
   test "Cantaloupe reference: 1500x1200, tile 512" do
     result = Tiling.tiles_and_sizes(1500, 1200, 512)

@@ -1,7 +1,7 @@
-defmodule ImagePipe.Parser.IIIF.PlanBuilder do
+defmodule ImagePipe.Dialect.IIIF.PlanBuilder do
   @moduledoc false
 
-  alias ImagePipe.Parser.IIIF.InfoRenderer
+  alias ImagePipe.Dialect.IIIF.InfoRenderer
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Bitonal
@@ -52,7 +52,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
 
   `source` is an `ImagePipe.Plan.Source.*` struct already resolved by the caller.
   `tokens` is a map with keys `:region`, `:size`, `:rotation`, `:quality`, `:format`
-  carrying the typed grammar values produced by `ImagePipe.Parser.IIIF.Grammar`.
+  carrying the typed grammar values produced by `ImagePipe.Dialect.IIIF.Grammar`.
   `opts` is the resolved IIIF option keyword (neutral config merged with the
   dialect keys). It carries `auto_rotate: boolean()` (sourced from the neutral
   config, default `true`), the size-ceiling bounds

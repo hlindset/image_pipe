@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.Path do
+defmodule ImagePipe.Dialect.IIIF.Path do
   @moduledoc """
   Dispatches an IIIF request by exact `conn.path_info` segment count and
   reconstructs the absolute base URI (for the info.json `id` and base redirect).

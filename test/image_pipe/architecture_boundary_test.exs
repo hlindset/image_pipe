@@ -74,6 +74,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
     ImagePipe.Dialect => "lib/image_pipe/dialect.ex",
     ImagePipe.Dialect.Declarative => "lib/image_pipe/dialect/declarative.ex",
+    ImagePipe.Dialect.IIIF => "lib/image_pipe/dialect/iiif.ex",
     ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
     ImagePipe.Dialect.SharedConfig => "lib/image_pipe/dialect/shared_config.ex",
@@ -149,10 +150,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(parser, [])
 
     assert_boundary_deps(iiif, [
-      ImagePipe.Format,
+      ImagePipe.Config,
+      ImagePipe.Dialect.IIIF,
       ImagePipe.Parser,
-      ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Plan
     ])
 
     assert_boundary_exports(iiif, [])
@@ -166,10 +167,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_allowed_deps(iiif, [
-      ImagePipe.Format,
+      ImagePipe.Config,
+      ImagePipe.Dialect.IIIF,
       ImagePipe.Parser,
-      ImagePipe.Plan,
-      ImagePipe.Renderer
+      ImagePipe.Plan
     ])
   end
 
@@ -331,6 +332,44 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # Nothing here is a host contract module: hosts `use` the base and implement
     # the callbacks, so nothing is exported.
     assert_boundary_exports(declarative, [])
+  end
+
+  test "dialect IIIF boundary declaration stays on the declarative tier" do
+    dialect_iiif = boundary_declaration(ImagePipe.Dialect.IIIF)
+
+    assert_boundary_deps(dialect_iiif, [
+      ImagePipe.Config,
+      ImagePipe.Dialect,
+      ImagePipe.Dialect.Declarative,
+      ImagePipe.Dialect.SharedConfig,
+      ImagePipe.Plan,
+      ImagePipe.Renderer,
+      ImagePipe.Response
+    ])
+
+    # A declarative dialect lowers a request to a Plan and nothing else: the
+    # base owns decode and transform execution, the runner owns cache and
+    # delivery, and no dialect ever names another one.
+    refute_boundary_deps(dialect_iiif, [
+      ImagePipe.Cache,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect.Imgproxy,
+      ImagePipe.Dialect.Native,
+      ImagePipe.Dialect.TwicPics,
+      ImagePipe.Output,
+      ImagePipe.Parser,
+      ImagePipe.Request,
+      ImagePipe.Source,
+      ImagePipe.Transform
+    ])
+
+    # The identifier-resolution behaviour and its built-in static adapter are
+    # the host contract; the grammar, plan builder, and info document are not.
+    assert_boundary_exports(dialect_iiif, [
+      ImagePipe.Dialect.IIIF.Resolver,
+      ImagePipe.Dialect.IIIF.Resolver.Static
+    ])
   end
 
   test "dialect SharedConfig boundary declaration stays product-neutral" do
@@ -556,9 +595,14 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # exception: it hosts the dialect-mode runner, so it may name the
     # neutral ImagePipe.Dialect CONTRACT — concrete dialect names stay
     # forbidden there via the U4 test below.
+    #
+    # The framework IIIF shim delegates to the dialect for the duration of the
+    # migration. Removed with the file in Task 11.
+    exempt = ["lib/image_pipe/plug.ex", "lib/image_pipe/parser/iiif.ex"]
+
     violations =
       for file <- dialect_forbidden_files(),
-          file != "lib/image_pipe/plug.ex",
+          file not in exempt,
           violation <- dialect_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; " <>
           "a dialect must be removable without changing the core"

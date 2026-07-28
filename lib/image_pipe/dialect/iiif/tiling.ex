@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.Tiling do
+defmodule ImagePipe.Dialect.IIIF.Tiling do
   @moduledoc """
   Computes the IIIF Image API 3.0 `tiles` scheme and `sizes` ladder for an
   info.json from a source image's display dimensions and a chosen tile size.
@@ -8,7 +8,7 @@ defmodule ImagePipe.Parser.IIIF.Tiling do
   (64px), one derivative size per scale factor (`round/1` per axis, smallest-first,
   full size last), and a single tile entry clamped to the source dimensions.
 
-  Returns product-neutral atom-keyed data; `ImagePipe.Parser.IIIF.Info` owns the
+  Returns product-neutral atom-keyed data; `ImagePipe.Dialect.IIIF.Info` owns the
   IIIF JSON string-key vocabulary.
   """
 

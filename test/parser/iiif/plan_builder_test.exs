@@ -1,7 +1,7 @@
 defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Parser.IIIF.PlanBuilder
+  alias ImagePipe.Dialect.IIIF.PlanBuilder
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation.{Bitonal, CropGuided, CropRegion, Flip, Gray, Resize, Rotate}
   alias ImagePipe.Plan.Source.Path, as: SourcePath

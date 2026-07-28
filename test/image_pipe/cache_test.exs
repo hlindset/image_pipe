@@ -251,7 +251,7 @@ defmodule ImagePipe.CacheTest do
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
       ImagePipe.Plug.init(
         parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: {ImagePipe.Parser.IIIF.Resolver.Static, map: %{}}],
+        iiif: [resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: %{}}],
         sources: [
           path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
         ],
@@ -270,7 +270,7 @@ defmodule ImagePipe.CacheTest do
     assert_raise ArgumentError, ~r/key_headers.*cannot include.*accept/, fn ->
       ImagePipe.Plug.init(
         parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: {ImagePipe.Parser.IIIF.Resolver.Static, map: %{}}],
+        iiif: [resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: %{}}],
         cache: {MissAdapter, key_headers: ["Accept"]}
       )
     end
@@ -311,7 +311,7 @@ defmodule ImagePipe.CacheTest do
     opts =
       ImagePipe.Plug.init(
         parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: {ImagePipe.Parser.IIIF.Resolver.Static, map: %{}}],
+        iiif: [resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: %{}}],
         sources: [
           path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
         ],

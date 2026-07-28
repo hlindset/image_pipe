@@ -1,9 +1,9 @@
-defmodule ImagePipe.Parser.IIIF.InfoRenderer do
+defmodule ImagePipe.Dialect.IIIF.InfoRenderer do
   @moduledoc "Renders the IIIF info.json via the Phase 1 Renderer mechanism."
 
   @behaviour ImagePipe.Renderer
 
-  alias ImagePipe.Parser.IIIF.Info
+  alias ImagePipe.Dialect.IIIF.Info
   alias ImagePipe.Plan.RenderContext
 
   @impl true
