@@ -36,7 +36,7 @@ defmodule ImagePipe.Output.Negotiation do
 
   # A partial `:format_order` prioritizes the listed formats, then appends any
   # unlisted modern formats in the default order. Validation that the list holds
-  # only distinct known formats lives at the option boundary (Request.Options).
+  # only distinct known formats lives at the mount-config boundary.
   defp server_order(opts) do
     case Keyword.get(opts, :format_order) do
       order when is_list(order) and order != [] -> order ++ (@default_order -- order)

@@ -103,12 +103,10 @@ defmodule ImagePipeFiddle.Application do
     static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
 
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: iiif_source_map()},
-        max_width: 4000,
-        max_height: 4000
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: iiif_source_map()},
+      max_width: 4000,
+      max_height: 4000,
       sources: [
         path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
       ],

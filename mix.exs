@@ -3,18 +3,7 @@ defmodule ImagePipe.MixProject do
 
   @version "0.1.0"
   @source_url "https://github.com/hlindset/image_pipe"
-  @ex_dna_ignores [
-    "lib/image_pipe/decode.ex",
-    "lib/image_pipe/decode/source_format.ex",
-    "lib/image_pipe/dialect/shared_config.ex",
-    # Mirrors the framework Request.DeliveryBuild debug block until Phase C
-    # deletes the framework stack.
-    "lib/image_pipe/plug/debug_builder.ex",
-    # Mirrors the framework header-generation half being deleted in this
-    # phase.
-    "lib/image_pipe/response/cache_policy.ex",
-    "lib/image_pipe/response/conditional.ex"
-  ]
+  @ex_dna_ignores []
 
   def project do
     [
@@ -53,14 +42,12 @@ defmodule ImagePipe.MixProject do
           "Package API": [ImagePipe],
           "Plug API": [ImagePipe.Plug],
           "Dialect API": [ImagePipe.Dialect, ~r/ImagePipe\.Dialect\..*/],
-          "Parser API": [ImagePipe.Parser, ~r/ImagePipe\.Parser\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
           "Cache API": [ImagePipe.Cache, ~r/ImagePipe\.Cache\..*/],
           "Runtime Internals": [
             ~r/ImagePipe\.Source.*/,
             ~r/ImagePipe\.Output.*/,
-            ~r/ImagePipe\.Request.*/,
             ~r/ImagePipe\.Response.*/,
             ImagePipe.Telemetry
           ]

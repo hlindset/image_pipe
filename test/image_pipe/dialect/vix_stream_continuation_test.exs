@@ -1,18 +1,32 @@
-defmodule ImagePipe.Request.VixStreamContinuationTest do
+defmodule ImagePipe.Dialect.VixStreamContinuationTest do
   use ExUnit.Case, async: false
 
+  alias ImagePipe.Decode
   alias ImagePipe.Delivery.Producer
+  alias ImagePipe.Dialect.Declarative
+  alias ImagePipe.Output.Encoder
+  alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Request.DeliveryBuild
-  alias ImagePipe.Source.Resolved, as: ResolvedSource
-  alias ImagePipe.SourceTest.ValidAdapter
+  alias ImagePipe.Source
+  alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Delivery.ProducerClient
+  alias ImagePipe.Transform.Materializer
+  alias ImagePipe.Transform.State
 
   @cleanup_observation_timeout 1_000
+
+  defmodule OriginImage do
+    @moduledoc false
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, File.read!("priv/static/images/beach.jpg"))
+    end
+  end
 
   defmodule ProofServer do
     use GenServer
@@ -458,9 +472,52 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
     end
   end
 
+  # The delivery `build_fun` the runner hands `Delivery.Producer`, assembled
+  # from the same seams `ImagePipe.Plug.DialectRunner` uses: the shared
+  # fetch/decode bracket with a declarative dialect's decode preflight, the
+  # declarative pipeline run, output negotiation, and the encoder's chunk
+  # stream. The Vix target pipe is created inside the producer process, which
+  # is what makes it observable through the producer's links.
   defp producer_build_fun do
-    runtime_opts = [
-      sources: %{path: {ValidAdapter, []}},
+    config = runtime_config()
+    plan = plan()
+    {:ok, source} = Source.resolve(plan.source, config, [])
+
+    policy = Policy.from_output_plan(Plug.Test.conn(:get, "/"), plan.output, config)
+
+    fn pump ->
+      Decode.with_image(
+        source,
+        Keyword.put(config, :auto_rotate?, false),
+        &Declarative.decode_request(plan, &1),
+        &transform_and_pump(&1, &2, plan, policy, config, pump)
+      )
+    end
+  end
+
+  defp transform_and_pump(state, geometry, plan, policy, config, pump) do
+    {:ok, %State{} = state} = Declarative.execute(state, geometry, plan, config)
+    {:ok, %State{image: image}} = Materializer.materialize(state, config)
+
+    {:ok, resolved_output} =
+      Negotiate.negotiate_output(
+        policy,
+        geometry.source_format,
+        fn -> Image.has_alpha?(image) end,
+        []
+      )
+
+    {:ok, stream, content_type, _search_meta} =
+      Encoder.stream_output(image, resolved_output, config)
+
+    pump.(stream, content_type, resolved_output, nil)
+  end
+
+  defp runtime_config do
+    Source.validate_config!(
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+      ],
       output_formats: [jpeg: []],
       output_negotiation: [],
       max_body_bytes: 10_000_000,
@@ -468,16 +525,7 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
       max_result_width: 8_192,
       max_result_height: 8_192,
       max_result_pixels: 40_000_000
-    ]
-
-    policy =
-      Policy.from_output_plan(
-        Plug.Test.conn(:get, "/"),
-        %Output{mode: {:explicit, :jpeg}},
-        runtime_opts
-      )
-
-    DeliveryBuild.build_fun(plan(), resolved_source(), policy, runtime_opts)
+    )
   end
 
   defp plan do
@@ -485,18 +533,6 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
       source: %Path{segments: ["images", "beach.jpg"]},
       pipelines: [%Pipeline{operations: []}],
       output: %Output{mode: {:explicit, :jpeg}}
-    }
-  end
-
-  defp resolved_source do
-    %ResolvedSource{
-      adapter: :path,
-      source_kind: :path,
-      identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]],
-      fetch: :fixture,
-      internal_cache: :enabled,
-      http_cache: :inherit,
-      cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false}
     }
   end
 

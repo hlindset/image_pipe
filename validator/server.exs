@@ -6,7 +6,7 @@
 # Run with:
 #   mise exec -- mix run validator/server.exs
 #
-# The server mounts ImagePipe.Parser.IIIF at /iiif with the reference fixture
+# The server mounts ImagePipe.Dialect.IIIF at /iiif with the reference fixture
 # image (validator/fixtures/67352ccc-d1b0-11e1-89ae-279075081939.png) mapped to
 # the identifier "67352ccc-d1b0-11e1-89ae-279075081939".
 
@@ -34,7 +34,7 @@ end
 defmodule ValidatorServer.IIIFPlug do
   @moduledoc false
 
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
@@ -45,14 +45,12 @@ defmodule ValidatorServer.IIIFPlug do
   @impl Plug
   def init(_opts) do
     ImagePipe.Plug.init(
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver:
-          {StaticResolver,
-           map: %{
-             @image_id => %SourcePath{segments: ["ref.png"]}
-           }}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver:
+        {StaticResolver,
+         map: %{
+           @image_id => %SourcePath{segments: ["ref.png"]}
+         }},
       allow_origin: "*",
       sources: [
         path:

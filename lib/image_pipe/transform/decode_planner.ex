@@ -9,7 +9,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   large downscales.
 
   The planner is a pure function: it does not read image metadata itself.
-  The caller (Request.Processor) reads the header dims and source format and
+  The caller (`ImagePipe.Decode`) reads the header dims and source format and
   passes them in.
   """
 

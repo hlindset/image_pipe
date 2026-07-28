@@ -56,12 +56,11 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
                       type: {:list, {:custom, SharedConfig, :validate_storage_input, []}},
                       default: []
                     ],
-                    # The host-configured content detector, mirroring
-                    # `ImagePipe.Request.Options`: `:default` resolves to the
-                    # bundled composite, `nil` disables detection, or a module
-                    # names a custom detector. Seeded onto the transform state so
-                    # object-guided crops reach it, and consulted by the
-                    # strict-mode capability gate below.
+                    # The host-configured content detector: `:default` resolves
+                    # to the bundled composite, `nil` disables detection, or a
+                    # module names a custom detector. Seeded onto the transform
+                    # state so object-guided crops reach it, and consulted by
+                    # the strict-mode capability gate below.
                     detector: [
                       type: {:or, [{:in, [:default, nil]}, :atom]},
                       default: :default
@@ -69,8 +68,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
                     # The strict-mode capability gate: under `detector_required:
                     # true`, an object-detection request whose configured detector
                     # is unavailable rejects before source fetch or cache access
-                    # rather than silently degrading to attention cropping. The
-                    # default matches the framework's (`ImagePipe.Request.Options`).
+                    # rather than silently degrading to attention cropping.
                     detector_required: [
                       type: :boolean,
                       default: false
@@ -84,9 +82,6 @@ defmodule ImagePipe.Dialect.Imgproxy.Config do
   @doc false
   @spec validate!(keyword()) :: keyword()
   def validate!(opts) when is_list(opts) do
-    # ImagePipe.Config.keys/0 is an established public interface — config.ex:97,
-    # already consumed exactly this way by `ImagePipe.Parser.IIIF`. No new core
-    # widening here.
     {shared, rest} = Keyword.split(opts, SharedConfig.keys())
     {neutral, rest} = Keyword.split(rest, ImagePipe.Config.keys())
     {dialect, unknown} = Keyword.split(rest, @dialect_keys)

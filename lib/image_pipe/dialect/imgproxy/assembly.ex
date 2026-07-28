@@ -5,10 +5,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   # `PipelineRequest` into the `Plan.Operation` list its pipeline runs, and
   # derives the padding/canvas mode that list implies.
   #
-  # The dialect owns its whole request chain rather than depending on the
-  # `ImagePipe.Parser`/`Resolver` boundary the framework parsers (IIIF,
-  # TwicPics) use. This module is the geometry half of that chain, split out
-  # of `ImagePipe.Dialect.Imgproxy.Pipeline` so it lives apart from the
+  # This dialect owns its whole ordered request chain. This module is the
+  # geometry half of that chain, split out of
+  # `ImagePipe.Dialect.Imgproxy.Pipeline` so it lives apart from the
   # resolve-loop driver and the carry math it feeds.
   #
   # `operations/1` runs the five `missing_dimensions/1` guard clauses, then

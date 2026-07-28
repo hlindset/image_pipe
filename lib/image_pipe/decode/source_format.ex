@@ -2,14 +2,7 @@
 defmodule ImagePipe.Decode.SourceFormat do
   @moduledoc false
 
-  # Duplicated from ImagePipe.Request.SourceFormat. That module lives in the
-  # `Request` boundary, which `Decode` must not depend on (a dialect-owned
-  # bracket has no framework Request/Plug stack underneath it) — so this small
-  # loader-name -> format classification is copied rather than shared. Keep
-  # the two in sync by hand; recorded as a deliberate duplication in the
-  # Task 21.6 core-exports report rather than extracted, since the shared
-  # logic is a handful of pattern-matched clauses with no other seam to hang
-  # an extraction off of.
+  # Loader-name -> source-format classification for the decode bracket.
 
   alias Vix.Vips.Image, as: VipsImage
 

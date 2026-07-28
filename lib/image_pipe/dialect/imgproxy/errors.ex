@@ -37,15 +37,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
         module's parse-failure 400 fallback.
       - `{:session, _}` -> 500. The delivery session failed around the
         producer rather than inside it, which carries no image-domain
-        reason; rewrapped as an `{:encode, _, _}` exactly as
-        `ImagePipe.Request.Runner.normalize_delivery_error/1` does, so every
-        stack renders one message for one failure.
+        reason; rewrapped as an `{:encode, _, _}` so every delivery
+        failure renders one message.
       - `{:transform, {:materialize_error, _}}` -> 415. A materialization
         failure is a decode failure (AGENTS.md), so it is rewrapped as
         `{:decode, _}` — the taxonomy `ImagePipe.Decode.with_image/4` itself
-        produces, and the one `ImagePipe.Request.Processor` reaches through
-        its own `classify_materialize_error/1`. Clause order matters: this
-        precedes the general `{:transform, _}` clause.
+        produces. Clause order matters: this precedes the general
+        `{:transform, _}` clause.
       - `{:transform, inner}` -> 422. Rewrapped as `{:transform_error,
         inner}` — this dialect's own `Pipeline.run/4` tags a chain failure
         `{:transform, _}` where `ErrorStatus` expects the `_error`-suffixed

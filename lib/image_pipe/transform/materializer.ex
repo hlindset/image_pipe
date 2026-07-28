@@ -14,9 +14,8 @@ defmodule ImagePipe.Transform.Materializer do
   Per-op materialization (`ImagePipe.Transform.Chain`) calls this before the
   first operation that requires random access, so a sequential decode can stream
   through earlier ops and only copy when an op genuinely needs arbitrary pixel
-  access. `Request.Processor.materialize_for_delivery/2` also calls the arity-2
-  callback form once before delivery for any chain that never materialized
-  mid-pipeline.
+  access. The delivery boundary also calls the arity-2 callback form once
+  before encoding for any chain that never materialized mid-pipeline.
 
   `materialize/1` and `flush/1` emit a `[:transform, :materialize]` telemetry
   span, giving honest per-barrier timing regardless of which call site triggered

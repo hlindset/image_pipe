@@ -5,9 +5,9 @@ defmodule ImagePipe.Source.WrappedStream do
 
   # Wraps a source body stream to enforce `max_body_bytes` and reject non-binary
   # chunks while it is drained. The sole production consumer drains it eagerly
-  # (`Request.Processor.seekable_input/1`), which classifies any *other* failure
-  # of the underlying source as `{:source, :stream_exception}`. This wrapper only
-  # raises the two source-side `StreamError`s it is responsible for.
+  # (`ImagePipe.Decode`), which classifies any *other* failure of the underlying
+  # source as `{:source, :stream_exception}`. This wrapper only raises the two
+  # source-side `StreamError`s it is responsible for.
   @spec new(Enumerable.t(), non_neg_integer() | :infinity) :: Enumerable.t()
   def new(stream, max_body_bytes) do
     Stream.transform(stream, 0, fn chunk, size ->

@@ -3,12 +3,15 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
+  alias ImagePipe.Decode
+  alias ImagePipe.Dialect.Declarative
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Request.Processor
   alias ImagePipe.Source
+  alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Transform.State
 
   # Shrink-on-load decodes a JPEG at reduced resolution, then a residual resize
   # finishes to the requested width. Because the decode prescale is a single scalar
@@ -90,24 +93,52 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
       pipelines: [%Pipeline{operations: [resize]}]
     }
 
-    {:ok, response} =
-      Source.wrap_response(%Source.Response{stream: [body]},
-        max_body_bytes: byte_size(body) + 100
-      )
+    opts = opts(body)
+    {:ok, source} = Source.resolve(plan.source, opts, [])
 
-    {:ok, decoded} = Processor.decode_validate_source_response(response, plan, opts())
-    {:ok, final} = Processor.process_decoded_source(decoded, plan, opts())
+    Decode.with_image(
+      source,
+      Keyword.put(opts, :auto_rotate?, plan.auto_rotate),
+      &Declarative.decode_request(plan, &1),
+      fn state, geometry ->
+        {:ok, %State{} = final} = Declarative.execute(state, geometry, plan, opts)
 
-    {Image.width(final.image), Image.height(final.image), decoded.decode_options[:shrink]}
+        {Image.width(final.image), Image.height(final.image), shrink_factor(state.decode_shrink)}
+      end
+    )
   end
 
-  defp opts do
-    [
+  # The realized load shrink, rounded back to the libjpeg block factor the
+  # planner asked for. `nil` when the decode was not shrunk at all.
+  defp shrink_factor(nil), do: nil
+  defp shrink_factor(%{w: w}), do: round(w)
+
+  defp opts(body) do
+    Source.validate_config!(
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: origin_plug(body)]}
+      ],
       max_input_pixels: 100_000_000,
       max_result_width: 100_000,
       max_result_height: 100_000,
       max_result_pixels: 1_000_000_000,
       max_body_bytes: 100_000_000
-    ]
+    )
+  end
+
+  defp origin_plug(body) do
+    content_type =
+      case body do
+        <<0xFF, 0xD8, _rest::binary>> -> "image/jpeg"
+        _other -> "image/png"
+      end
+
+    fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type(content_type)
+      |> Plug.Conn.send_resp(200, body)
+    end
   end
 end

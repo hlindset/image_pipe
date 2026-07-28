@@ -39,10 +39,8 @@ ex_dna_options = ImagePipe.MixProject.ex_dna_options()
         #
         {ExSlop.Check.Refactor.LengthComparison, false},
         # ExDNA duplicate detection, excluding `alias` declarations (see plugins
-        # note above). `ignore:` contains only core boundary mirrors that cannot
-        # share code without changing the dependency graph: Decode mirrors
-        # Request.Processor / Request.SourceFormat, SharedConfig mirrors
-        # Request.Options, and Response.Conditional mirrors Request.HTTPCache.
+        # note above). `ignore:` is for core boundary mirrors that cannot share
+        # code without changing the dependency graph.
         {ExDNA.Credo,
          excluded_macros: ex_dna_options[:excluded_macros], ignore: ex_dna_options[:ignore]}
       ]

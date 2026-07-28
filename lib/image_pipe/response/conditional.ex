@@ -4,16 +4,6 @@ defmodule ImagePipe.Response.Conditional do
   # lookup or source fetch — a dialect's `ETag` is derived purely from
   # request-identity material (see `ImagePipe.Representation`), so it exists
   # the moment a representation is built, before the cache is ever consulted.
-  #
-  # This deliberately duplicates the private `If-None-Match` parsing/matching
-  # helpers in `ImagePipe.Request.HTTPCache` (`if_none_match?/2`,
-  # `parse_if_none_match/1`, and the public `if_none_match_wildcard?/1`)
-  # rather than sharing them: `HTTPCache` is `Request`-boundary, framework-
-  # frozen code, and this module must stay reachable from a dialect (the
-  # `Response` boundary) without depending on `Request`. See the Task 16
-  # report and the `.credo.exs` `ExDNA.Credo` `ignore:` entry for this file,
-  # which follows the same precedent as Task 12/15's Decode/Delivery
-  # duplications.
 
   import Plug.Conn, only: [get_req_header: 2]
 
@@ -21,11 +11,10 @@ defmodule ImagePipe.Response.Conditional do
   Whether `conn` carries an `If-None-Match` precondition that matches `etag`,
   for GET/HEAD requests only.
 
-  Mirrors `ImagePipe.Request.HTTPCache.evaluate_conditional/3`'s matching
-  semantics (comma-separated tag list, weak `W/"..."` prefixes stripped
-  before comparison) but is a plain predicate over `conn` and a known `etag`
-  — it does not build cache/representation identity itself, so it can run
-  before any cache lookup.
+  Matching follows RFC 9110 (comma-separated tag list, weak `W/"..."` prefixes
+  stripped before comparison). This is a plain predicate over `conn` and a
+  known `etag` — it does not build cache/representation identity itself, so it
+  can run before any cache lookup.
 
   A bare `*` wildcard does NOT match here: per RFC 9110 §13.1.2, `*` may only
   short-circuit once a current representation is *proven* to exist, and

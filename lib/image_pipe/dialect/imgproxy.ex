@@ -448,13 +448,13 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   # The resolved detector identity for cache-key/ETag material, computed ONCE per
   # request (before `Representation.build`, so the ETag and the key derive from a
-  # single resolution). Fully mirrors `Request.Runner.with_detector_identity/2`,
-  # INCLUDING the face-assist leg: identity is resolved when the pipelines request
-  # detection (`detect_classes/1` — a `{:detect, _}` guide) OR a face-assisted
-  # smart guide (`face_assist?/1`, whose attention point blends the detected face
-  # centroid), with the framework's `["face"]` classes fallback. A disabled
-  # detector (`Transform.detector_identity/2` returning nil) leaves the material's
-  # `detector:` entry absent, same as no detection. Otherwise nil.
+  # single resolution). This INCLUDES the face-assist leg: identity is resolved
+  # when the pipelines request detection (`detect_classes/1` — a `{:detect, _}`
+  # guide) OR a face-assisted smart guide (`face_assist?/1`, whose attention
+  # point blends the detected face centroid), with a `["face"]` classes
+  # fallback. A disabled detector (`Transform.detector_identity/2` returning
+  # nil) leaves the material's `detector:` entry absent, same as no detection.
+  # Otherwise nil.
   defp detector_identity(operations, config) do
     detect_classes = detect_classes(operations)
 

@@ -390,8 +390,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   end
 
   # A cache hit is the proof that a current representation exists for this
-  # key — the only place `If-None-Match: *` may be honored (mirrors every
-  # dialect chain and Request.Runner).
+  # key — the only place `If-None-Match: *` may be honored.
   defp deliver_hit(conn, resolved, entry, representation, cache_headers, cache_serve_us, config) do
     if Conditional.if_none_match_wildcard?(conn) do
       send_not_modified(conn, cache_headers, config)

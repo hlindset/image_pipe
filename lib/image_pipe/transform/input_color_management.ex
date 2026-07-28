@@ -173,8 +173,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
   is one seam, and every caller that runs the preamble must also run this or the
   encoder silently takes the "no import ran" branch on an imported image.
 
-  Call it once per request, after the last operation and before encoding. Both
-  in-tree dialects and `ImagePipe.Request.Processor` do.
+  Call it once per request, after the last operation and before encoding.
 
   A state that never imported (`color_imported?: false`, e.g. a profile-less or
   linear-light source) is returned unchanged: there is nothing to carry.
