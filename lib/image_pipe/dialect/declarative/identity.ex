@@ -17,8 +17,9 @@ defmodule ImagePipe.Dialect.Declarative.Identity do
   invalidate every representation every declarative dialect has built.
 
   `plan.expires` and `plan.response` are deliberately absent from both buckets:
-  `expires` is a gate, not identity, and `response` is delivery presentation
-  (including `debug?`, which must never move the key or ETag).
+  this tier does not enforce `expires`, so it has no identity role here, and
+  `response` is delivery presentation (including `debug?`, which must never
+  move the key or ETag).
   """
 
   alias ImagePipe.Dialect.Negotiation

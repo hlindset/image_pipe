@@ -156,11 +156,20 @@ defmodule ImagePipe.Dialect.Declarative.IdentityTest do
     }
   end
 
-  # The plan is held constant so only `negotiation.selected` differs.
+  # The plan is held constant (automatic output mode) so only
+  # `negotiation.selected` differs — driven by two different `Accept` headers
+  # negotiated against that same plan's own output, the way a real request
+  # produces it.
   defp negotiation_selection_pair do
+    automatic = plan_with_output(%Output{mode: :automatic})
+
     constant({
-      {plan(), [negotiation: image_negotiation(%Output{mode: {:explicit, :jpeg}})]},
-      {plan(), [negotiation: image_negotiation(%Output{mode: {:explicit, :png}})]}
+      {automatic, [negotiation: image_negotiation(automatic.output, conn(:get, "/x"))]},
+      {automatic,
+       [
+         negotiation:
+           image_negotiation(automatic.output, conn_with_header("accept", "image/webp"))
+       ]}
     })
   end
 
@@ -222,8 +231,10 @@ defmodule ImagePipe.Dialect.Declarative.IdentityTest do
   defp negotiation_for(%Plan{output: nil}), do: Negotiation.terminal(:render)
   defp negotiation_for(%Plan{output: output}), do: image_negotiation(output)
 
-  defp image_negotiation(%Output{} = output) do
-    {:ok, negotiation} = Negotiation.negotiate(conn(:get, "/x"), output, [])
+  defp image_negotiation(%Output{} = output), do: image_negotiation(output, conn(:get, "/x"))
+
+  defp image_negotiation(%Output{} = output, conn) do
+    {:ok, negotiation} = Negotiation.negotiate(conn, output, [])
     negotiation
   end
 

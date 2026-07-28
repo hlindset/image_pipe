@@ -158,8 +158,8 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   #
   # Mirrors `Executor.seed_color_management/2` and the imgproxy dialect's own
   # `condition_color/2`, including their one divergence: no
-  # `seed_input_color_management` gate (`run/4` IS the real-execution path here). The
-  # `[:transform, :input_color_management]` span is emitted by
+  # `seed_input_color_management` gate (`run/4` IS the real-execution path
+  # here). The `[:transform, :input_color_management]` span is emitted by
   # `InputColorManagement.condition/2` itself, so this dialect gets it for free
   # from the shared seam. A failure is a corrupt/unsupported profile — a decode
   # failure, surfaced as `{:decode, _}` (415), consistent with the

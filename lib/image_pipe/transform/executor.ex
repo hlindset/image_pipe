@@ -4,10 +4,10 @@ defmodule ImagePipe.Transform.Executor do
   # Orchestrates plan execution: seeds the data-determined preamble (EXIF
   # orientation into State.pending_orientation on the seed_orientation gate,
   # input color management on the seed_input_color_management gate), then drives
-  # each pipeline through the fixed
-  # neutral resolve loop below (`run_neutral/4`). Neutral lowering owns the
-  # pending-orientation policy and compensation and emits explicit Flush ops.
-  # Resize expansion/scale arithmetic lives in ImagePipe.Transform.ResizePlanning.
+  # each pipeline through the fixed neutral resolve loop below
+  # (`run_neutral/4`). Neutral lowering owns the pending-orientation policy and
+  # compensation and emits explicit Flush ops. Resize expansion/scale arithmetic
+  # lives in ImagePipe.Transform.ResizePlanning.
   #
   # The resolve loop: for each plan operation, overlay the neutral-advanced shape
   # onto State (THE one shape→State sync site), lower the op through

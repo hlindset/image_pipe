@@ -42,6 +42,12 @@ defmodule ImagePipe.Dialect.Declarative do
   without inferring provenance from a tag allowlist. `classify_error/1` is
   injected with a sensible default and is `defoverridable` — an override must
   re-declare `@impl ImagePipe.Dialect`.
+
+  ## Expiry
+
+  This tier does not enforce `%ImagePipe.Plan{}`'s `expires` field. A host
+  dialect that needs request expiry must reject expired requests itself,
+  inside its own `parse_plan/2`.
   """
 
   alias ImagePipe.Decode
