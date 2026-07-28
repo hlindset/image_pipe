@@ -6,7 +6,6 @@ defmodule ImagePipe.Dialect.TwicPics.Output do
   @formats %{"auto" => :auto, "avif" => :avif, "webp" => :webp, "jpeg" => :jpeg, "png" => :png}
 
   @spec format(String.t()) :: {:ok, atom()} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def format(value) do
     case Map.fetch(@formats, value) do
       {:ok, format} -> {:ok, format}
@@ -15,7 +14,6 @@ defmodule ImagePipe.Dialect.TwicPics.Output do
   end
 
   @spec quality(String.t()) :: {:ok, {:quality, 1..100}} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def quality(value) do
     case Integer.parse(value) do
       {n, ""} when n in 1..100 -> {:ok, {:quality, n}}
@@ -24,7 +22,6 @@ defmodule ImagePipe.Dialect.TwicPics.Output do
   end
 
   @spec build(%{format: atom(), quality: PlanOutput.quality()}) :: {:ok, PlanOutput.t()}
-  # ex_dna:disable-for-next-line
   def build(%{format: :auto, quality: quality}),
     do: {:ok, %PlanOutput{mode: :automatic, quality: quality}}
 

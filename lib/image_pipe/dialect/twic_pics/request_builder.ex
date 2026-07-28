@@ -27,7 +27,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilder do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp fold(chain) do
     Enum.reduce_while(chain, {:ok, @initial}, fn {name, args}, {:ok, acc} ->
       case apply_segment(name, args, acc) do
@@ -37,7 +36,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilder do
     end)
   end
 
-  # ex_dna:disable-for-next-line
   defp apply_segment("resize", args, acc), do: resize(args, acc)
   defp apply_segment("cover", args, acc), do: cover(args, acc)
   defp apply_segment("contain", args, acc), do: contain(args, acc)
@@ -73,7 +71,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilder do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp resize_mode(width, :auto), do: {:fit, width, :auto}
   defp resize_mode(:auto, height), do: {:fit, :auto, height}
   defp resize_mode(width, height), do: {:stretch, width, height}
@@ -145,7 +142,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilder do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp region_size(size) do
     case Units.size(size) do
       {:ok, {width, height}} when width != :auto and height != :auto ->
@@ -179,7 +175,6 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilder do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp output(args, acc) do
     with {:ok, format} <- Output.format(args), do: {:ok, %{acc | format: format}}
   end

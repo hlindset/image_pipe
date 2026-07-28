@@ -5,7 +5,6 @@ defmodule ImagePipe.Dialect.TwicPics.Path do
   alias ImagePipe.Plan.Source.Path, as: SourcePath
 
   @spec extract(Plug.Conn.t()) :: {:ok, SourcePath.t(), String.t()} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def extract(%Plug.Conn{} = conn) do
     with {:ok, manipulation} <- fetch_manipulation(conn),
          {:ok, source} <- Source.from_segments(conn.path_info) do
@@ -13,7 +12,6 @@ defmodule ImagePipe.Dialect.TwicPics.Path do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp fetch_manipulation(%Plug.Conn{} = conn) do
     conn = Plug.Conn.fetch_query_params(conn)
 

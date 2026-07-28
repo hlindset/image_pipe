@@ -26,15 +26,12 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
 
   # Dimension length: strictly positive.
   @spec dimension_length(String.t()) :: {:ok, measure()} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def dimension_length(value), do: parse_length(value, :positive)
 
   # Position length: zero-based, non-negative.
   @spec position_length(String.t()) :: {:ok, measure()} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def position_length(value), do: parse_length(value, :non_negative)
 
-  # ex_dna:disable-for-next-line
   defp parse_length(value, sign) when is_binary(value) do
     {expr, unit_denominator} =
       cond do
@@ -51,13 +48,11 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp check_sign(num, :positive) when num > 0, do: :ok
   defp check_sign(num, :non_negative) when num >= 0, do: :ok
   defp check_sign(_num, _sign), do: :error
 
   # Bare pixels: absolute, fold to a concrete rounded integer.
-  # ex_dna:disable-for-next-line
   defp build_measure(num, den, nil, :positive), do: {:px, max(1, round_half_up(num, den))}
   defp build_measure(num, den, nil, :non_negative), do: {:px, round_half_up(num, den)}
 
@@ -70,19 +65,15 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
   end
 
   # Round a non-negative rational `num/den` half away from zero (den > 0).
-  # ex_dna:disable-for-next-line
   defp round_half_up(num, den), do: div(2 * num + den, 2 * den)
 
   @spec size(String.t()) :: {:ok, {measure() | :auto, measure() | :auto}} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def size(value), do: pair(value, :auto)
 
   @spec crop_size(String.t()) ::
           {:ok, {measure() | :full_axis, measure() | :full_axis}} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def crop_size(value), do: pair(value, :full_axis)
 
-  # ex_dna:disable-for-next-line
   defp pair(value, omitted) do
     case String.split(value, "x", parts: 2) do
       [single] ->
@@ -96,7 +87,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp dimension("-", omitted), do: {:ok, omitted}
   defp dimension("", omitted), do: {:ok, omitted}
   defp dimension(value, _omitted), do: dimension_length(value)
@@ -107,7 +97,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
   # the integer aspect-ratio the crop operation expects). No pixel rounding: a
   # ratio is already exact.
   @spec ratio(String.t()) :: {:ok, {:ratio, pos_integer(), pos_integer()}} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def ratio(value) do
     with [w, h] <- String.split(value, ":", parts: 2),
          {:ok, {nw, dw}} <- eval_number(w),
@@ -135,7 +124,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
   # negative (the consuming parameter applies its own sign/zero rule). Returns
   # `:error` on malformed input, an unconsumed tail, or division by zero.
   @spec eval_number(String.t()) :: {:ok, {integer(), pos_integer()}} | :error
-  # ex_dna:disable-for-next-line
   defp eval_number(string) do
     with {:ok, tokens} <- tokenize(string, []),
          {:ok, rational} <- number(tokens) do
@@ -147,7 +135,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
 
   # Top-level: a single decimal literal, or one parenthesized expression that
   # consumes every token. No bare top-level operators.
-  # ex_dna:disable-for-next-line
   defp number([{:num, rational}]), do: {:ok, rational}
 
   defp number([:lparen | _] = tokens) do
@@ -159,7 +146,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
 
   defp number(_tokens), do: :error
 
-  # ex_dna:disable-for-next-line
   defp tokenize("", acc), do: {:ok, Enum.reverse(acc)}
   defp tokenize(<<?+, rest::binary>>, acc), do: tokenize(rest, [:add | acc])
   defp tokenize(<<?-, rest::binary>>, acc), do: tokenize(rest, [:sub | acc])
@@ -179,7 +165,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
 
   defp tokenize(_other, _acc), do: :error
 
-  # ex_dna:disable-for-next-line
   defp take_number(<<c, rest::binary>>, acc) when c in ?0..?9 or c == ?.,
     do: take_number(rest, <<acc::binary, c>>)
 
@@ -191,13 +176,11 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
 
   defp take_number(rest, acc), do: {acc, rest}
 
-  # ex_dna:disable-for-next-line
   defp take_exponent(<<s, rest::binary>>, acc) when s in [?+, ?-],
     do: take_exponent_digits(rest, <<acc::binary, s>>)
 
   defp take_exponent(rest, acc), do: take_exponent_digits(rest, acc)
 
-  # ex_dna:disable-for-next-line
   defp take_exponent_digits(<<d, rest::binary>>, acc) when d in ?0..?9,
     do: take_exponent_digits(rest, <<acc::binary, d>>)
 
@@ -211,7 +194,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
   # exponent may carry a leading zero — `1e02` = `1e2`). Rejects `.5`, `5.`,
   # `00.5`, `01`, multi-dot `1.2.3`, and a malformed/empty exponent — live
   # TwicPics 404s them.
-  # ex_dna:disable-for-next-line
   defp decimal_to_rational(literal) do
     case String.split(literal, ["e", "E"], parts: 2) do
       [mantissa] ->
@@ -224,7 +206,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp mantissa_rational(mantissa) do
     case String.split(mantissa, ".") do
       [whole] ->
@@ -242,12 +223,10 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
 
   # `[+-]?` then one or more digits (leading zeros allowed). Empty / sign-only
   # rejects (`1e`, `1e+`).
-  # ex_dna:disable-for-next-line
   defp exponent_value("+" <> digits), do: exponent_digits(digits)
   defp exponent_value("-" <> digits), do: with({:ok, n} <- exponent_digits(digits), do: {:ok, -n})
   defp exponent_value(digits), do: exponent_digits(digits)
 
-  # ex_dna:disable-for-next-line
   defp exponent_digits(""), do: :error
 
   defp exponent_digits(digits) do
@@ -257,21 +236,17 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp apply_exponent({n, d}, exp) when exp >= 0, do: {n * Integer.pow(10, exp), d}
   defp apply_exponent({n, d}, exp), do: {n, d * Integer.pow(10, -exp)}
 
   # Tokenizer guarantees digit-only parts; these enforce the JSON shape on top.
-  # ex_dna:disable-for-next-line
   defp valid_int_part("0"), do: :ok
   defp valid_int_part(<<d, _::binary>>) when d in ?1..?9, do: :ok
   defp valid_int_part(_), do: :error
 
-  # ex_dna:disable-for-next-line
   defp valid_frac_part(""), do: :error
   defp valid_frac_part(_frac), do: :ok
 
-  # ex_dna:disable-for-next-line
   defp scaled_rational(whole, frac) do
     case Integer.parse(whole <> frac) do
       {n, ""} -> {:ok, {n, Integer.pow(10, byte_size(frac))}}
@@ -281,24 +256,20 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
 
   # Recursive descent: expr := term (('+'|'-') term)* ; term := factor
   # (('*'|'/') factor)* ; factor := '-' factor | '(' expr ')' | number.
-  # ex_dna:disable-for-next-line
   defp expr(tokens) do
     with {:ok, left, rest} <- term(tokens), do: expr_rest(left, rest)
   end
 
-  # ex_dna:disable-for-next-line
   defp expr_rest(left, [op | rest]) when op in [:add, :sub] do
     with {:ok, right, rest} <- term(rest), do: expr_rest(apply_op(op, left, right), rest)
   end
 
   defp expr_rest(left, rest), do: {:ok, left, rest}
 
-  # ex_dna:disable-for-next-line
   defp term(tokens) do
     with {:ok, left, rest} <- factor(tokens), do: term_rest(left, rest)
   end
 
-  # ex_dna:disable-for-next-line
   defp term_rest(left, [op | rest]) when op in [:mul, :div] do
     case factor(rest) do
       {:ok, right, rest} ->
@@ -314,7 +285,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
 
   defp term_rest(left, rest), do: {:ok, left, rest}
 
-  # ex_dna:disable-for-next-line
   defp factor([:add | rest]), do: factor(rest)
 
   defp factor([:sub | rest]) do
@@ -331,7 +301,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
   defp factor([{:num, rational} | rest]), do: {:ok, rational, rest}
   defp factor(_tokens), do: :error
 
-  # ex_dna:disable-for-next-line
   defp apply_op(:add, {a, b}, {c, d}), do: {a * d + c * b, b * d}
   defp apply_op(:sub, {a, b}, {c, d}), do: {a * d - c * b, b * d}
   defp apply_op(:mul, {a, b}, {c, d}), do: {a * c, b * d}
@@ -339,7 +308,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
   defp apply_op(:div, {a, b}, {c, d}), do: {a * d, b * c}
 
   # Reduce and force a positive denominator.
-  # ex_dna:disable-for-next-line
   defp normalize({num, den}) do
     gcd = max(1, Integer.gcd(num, den))
     {n, d} = {div(num, gcd), div(den, gcd)}
@@ -347,7 +315,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
   end
 
   @spec coordinates(String.t()) :: {:ok, {measure(), measure()}} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def coordinates(value) do
     with [x, y] <- String.split(value, "x", parts: 2),
          {:ok, x} <- position_length(x),
@@ -370,7 +337,6 @@ defmodule ImagePipe.Dialect.TwicPics.Units do
                    ])
 
   @spec anchor(String.t()) :: {:ok, {:anchor, atom(), atom()}} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def anchor(value) do
     case Map.fetch(@dialect_anchors, value) do
       {:ok, guide} -> {:ok, guide}

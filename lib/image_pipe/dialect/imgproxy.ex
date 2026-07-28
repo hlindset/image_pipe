@@ -181,7 +181,6 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   @impl ImagePipe.Dialect
-  # ex_dna:disable-for-next-line
   def decode_request(%Request{} = request, geometry),
     do: Pipeline.decode_request(request, geometry)
 

@@ -228,10 +228,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     dialect_imgproxy = boundary_declaration(ImagePipe.Dialect.Imgproxy)
 
     assert_boundary_deps(dialect_imgproxy, [
-      ImagePipe.Cache,
       ImagePipe.Config,
       ImagePipe.Decode,
-      ImagePipe.Delivery,
+      ImagePipe.Dialect,
       ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
@@ -249,7 +248,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # the one dep native does not take — this dialect's `Config` splits its flat
     # host keyword three ways and validates the neutral half through the core
     # config boundary. It is a core facade, not part of the framework stack.
+    # The runner in `ImagePipe.Plug` now owns the cache and delivery
+    # lifecycle, so those deps are gone too.
     refute_boundary_deps(dialect_imgproxy, [
+      ImagePipe.Cache,
+      ImagePipe.Delivery,
       ImagePipe.Parser,
       ImagePipe.Renderer,
       ImagePipe.Request
@@ -265,11 +268,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     dialect_twicpics = boundary_declaration(ImagePipe.Dialect.TwicPics)
 
     assert_boundary_deps(dialect_twicpics, [
-      ImagePipe.Cache,
       ImagePipe.Config,
-      ImagePipe.Debug,
-      ImagePipe.Decode,
-      ImagePipe.Delivery,
+      ImagePipe.Dialect,
       ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
@@ -282,7 +282,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
+    # The runner in `ImagePipe.Plug` now owns the cache and delivery
+    # lifecycle, and the fetch/decode bracket, so those deps are gone too.
     refute_boundary_deps(dialect_twicpics, [
+      ImagePipe.Cache,
+      ImagePipe.Debug,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
       ImagePipe.Dialect.Imgproxy,
       ImagePipe.Dialect.Native,
       ImagePipe.Parser,
@@ -1375,6 +1381,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp twicpics_forbidden_module([:ImagePipe, :Dialect, :TwicPics | _rest]), do: nil
   defp twicpics_forbidden_module([:ImagePipe, :Dialect, :SharedConfig | _rest]), do: nil
+
+  # The shared contract vocabulary: any ported dialect must name these to
+  # implement the `ImagePipe.Dialect` behaviour. They are not another dialect.
+  defp twicpics_forbidden_module([:ImagePipe, :Dialect, :Failure | _rest]), do: nil
+  defp twicpics_forbidden_module([:ImagePipe, :Dialect, :Negotiation | _rest]), do: nil
+  defp twicpics_forbidden_module([:ImagePipe, :Dialect, :Resolved | _rest]), do: nil
 
   defp twicpics_forbidden_module([:ImagePipe, :Dialect, dialect | _rest]),
     do: "ImagePipe.Dialect.#{dialect}"

@@ -2,12 +2,10 @@ defmodule ImagePipe.Dialect.TwicPics.Manipulation do
   @moduledoc false
 
   @spec parse(String.t()) :: {:ok, [{String.t(), String.t()}]} | {:error, term()}
-  # ex_dna:disable-for-next-line
   def parse("v1/" <> rest), do: segments(rest)
   def parse("v1"), do: {:ok, []}
   def parse(other), do: {:error, {:unsupported_manipulation_version, other}}
 
-  # ex_dna:disable-for-next-line
   defp segments(rest) do
     rest
     |> split_top_level()
@@ -26,10 +24,8 @@ defmodule ImagePipe.Dialect.TwicPics.Manipulation do
   # Split the chain on `/` at parenthesis depth 0 only — a `/` inside a
   # parenthesized `number` expression (`resize=(700/2)`) is division, not a
   # segment separator. Empty segments (stray slashes) are dropped.
-  # ex_dna:disable-for-next-line
   defp split_top_level(string), do: split_top_level(string, 0, "", [])
 
-  # ex_dna:disable-for-next-line
   defp split_top_level(<<>>, _depth, current, acc), do: Enum.reverse(add_segment(current, acc))
 
   defp split_top_level(<<?(, rest::binary>>, depth, current, acc),
