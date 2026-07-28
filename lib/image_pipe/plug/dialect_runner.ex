@@ -11,6 +11,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Dialect.DebugContext
   alias ImagePipe.Dialect.Negotiation
+  alias ImagePipe.Dialect.RenderTerminal
   alias ImagePipe.Dialect.Resolved
   alias ImagePipe.Error
   alias ImagePipe.Output.Clamp
@@ -150,7 +151,7 @@ defmodule ImagePipe.Plug.DialectRunner do
        ) do
     case Cache.lookup_entry(representation.cache_key, config) do
       {:hit, %Cache.Entry{representation: {:complete_body, content_type}} = entry} ->
-        deliver_render_hit(conn, content_type, entry.body, representation, config)
+        deliver_render_hit(conn, terminal, content_type, entry.body, representation, config)
 
       # A miss, a disabled cache, or an untagged entry (indistinguishable from
       # an image entry — sending one here would answer the render terminal
@@ -168,13 +169,13 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
-  defp deliver_render_hit(conn, content_type, body, representation, config) do
+  defp deliver_render_hit(conn, %RenderTerminal{} = terminal, content_type, body, rep, config) do
     if Conditional.if_none_match_wildcard?(conn) do
-      send_not_modified(conn, representation, config)
+      send_not_modified(conn, rep, config)
     else
       conn =
         send_with_span(conn, config, :ok, fn ->
-          send_complete_body(conn, content_type, body, representation)
+          send_complete_body(conn, content_type, body, rep, terminal.charset)
         end)
 
       {conn, %{result: :ok}}
@@ -191,7 +192,7 @@ defmodule ImagePipe.Plug.DialectRunner do
 
         conn =
           send_with_span(conn, config, :ok, fn ->
-            send_complete_body(conn, content_type, body, representation)
+            send_complete_body(conn, content_type, body, representation, terminal.charset)
           end)
 
         {conn, %{result: :ok}}
@@ -213,15 +214,23 @@ defmodule ImagePipe.Plug.DialectRunner do
     :ok
   end
 
-  defp send_complete_body(conn, content_type, body, %Representation{} = representation) do
+  # `charset` is the current terminal's, never the stored entry's — the cache
+  # keeps a bare content type, so hit and miss present identically.
+  defp send_complete_body(conn, content_type, body, %Representation{} = representation, charset) do
     cache_headers = CacheHeaders.from_representation(representation)
 
     conn
     |> put_resp_headers(cache_headers.representation_headers)
     |> put_resp_headers(cache_headers.headers)
-    |> Plug.Conn.put_resp_content_type(content_type, nil)
+    |> put_body_content_type(content_type, charset)
     |> Plug.Conn.send_resp(200, body)
   end
+
+  defp put_body_content_type(conn, content_type, :default),
+    do: Plug.Conn.put_resp_content_type(conn, content_type)
+
+  defp put_body_content_type(conn, content_type, nil),
+    do: Plug.Conn.put_resp_content_type(conn, content_type, nil)
 
   defp put_resp_headers(conn, headers) do
     Enum.reduce(headers, conn, fn {name, value}, acc ->
@@ -306,7 +315,7 @@ defmodule ImagePipe.Plug.DialectRunner do
        ) do
     conn =
       send_with_span(conn, config, :ok, fn ->
-        send_complete_body(conn, content_type, entry.body, representation)
+        send_complete_body(conn, content_type, entry.body, representation, nil)
       end)
 
     {conn, %{result: :ok}}

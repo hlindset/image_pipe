@@ -1,7 +1,8 @@
 defmodule ImagePipe.Dialect.Imgproxy.Config do
   @moduledoc """
-  The dialect's `Plug.init/1` validator — a three-way split of a FLAT
-  keyword list (no parser-named sublist, unlike `ImagePipe.Plug`) into:
+  The dialect's `c:ImagePipe.Dialect.validate_config!/1` implementation, run
+  from `ImagePipe.Plug.init/1` — a three-way split of a FLAT keyword list
+  (no parser-named sublist, unlike `ImagePipe.Plug`'s declarative mount) into:
 
     * shared runtime keys (`ImagePipe.Dialect.SharedConfig`) — source
       fetching, caching, request-safety limits;

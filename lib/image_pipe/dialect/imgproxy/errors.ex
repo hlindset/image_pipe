@@ -32,7 +32,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
         stack renders one status and one message for one failure.
       - `{:encode, _, _}` and `{:encode, :empty_stream}` -> 500
         (`Output.Encoder.stream_output/3`). The 2-tuple is the forced
-        first-chunk pull yielding no bytes — `build_and_pump/6`'s `:empty`
+        first-chunk pull yielding no bytes — the runner's `:empty`
         arm — and must render the 500 "error encoding image", not this
         module's parse-failure 400 fallback.
       - `{:session, _}` -> 500. The delivery session failed around the
@@ -59,107 +59,88 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
 
   ## Negotiation headers ride the error
 
-  `send/4`'s optional `headers` are the negotiated `Output.Policy`'s own
-  (`policy.headers` — `[{"vary", "Accept"}]` for an automatic output, `[]`
-  for an explicit one). An Accept-negotiated response must carry `Vary:
-  Accept` even when it fails, or a shared cache may serve the failure to a
-  client whose `Accept` would have negotiated a working outcome.
-
-  Only the chain's post-negotiation call sites pass them, which is exactly
-  the framework's own boundary: `Runner.process_prepared_stream/6` tags
-  `policy.headers` onto `Policy.ensure_capable/2` and `Delivery.stream/5`
-  failures, while `ImagePipe.Plug`'s pre-negotiation errors — parser, plan
-  validation, detector, source *resolve* — carry `[]`. So a source FETCH
-  failure varies and a source RESOLVE failure does not; that asymmetry is
-  the framework's, mirrored deliberately.
+  The negotiated policy's headers (`policy.headers` — `[{"vary", "Accept"}]`
+  for an automatic output, `[]` for an explicit one) are stamped on the conn
+  by the runner (`ImagePipe.Plug`) on delivery failures, before this module
+  renders. Only post-negotiation delivery failures carry them, preserving the
+  framework's fetch-vs-resolve `Vary` asymmetry.
   """
 
-  import Plug.Conn, only: [put_resp_content_type: 2, put_resp_header: 3, send_resp: 3]
+  import Plug.Conn, only: [put_resp_content_type: 2, send_resp: 3]
 
   alias ImagePipe.Response.ErrorStatus
 
-  @type header() :: {String.t(), String.t()}
-
-  @spec send(Plug.Conn.t(), term(), keyword(), [header()]) :: Plug.Conn.t()
-  def send(conn, reason, config, headers \\ [])
-
-  def send(%Plug.Conn{} = conn, :invalid_signature, _config, headers) do
-    send_signature_error(conn, :invalid_signature, headers)
+  @spec send(Plug.Conn.t(), term(), keyword()) :: Plug.Conn.t()
+  def send(%Plug.Conn{} = conn, :invalid_signature, _config) do
+    send_signature_error(conn, :invalid_signature)
   end
 
-  def send(%Plug.Conn{} = conn, {:invalid_signature_encoding, _signature}, _config, headers) do
-    send_signature_error(conn, :invalid_signature_encoding, headers)
+  def send(%Plug.Conn{} = conn, {:invalid_signature_encoding, _signature}, _config) do
+    send_signature_error(conn, :invalid_signature_encoding)
   end
 
-  def send(%Plug.Conn{} = conn, {:unsupported_signature, _signature}, _config, headers) do
-    send_signature_error(conn, :unsupported_signature, headers)
+  def send(%Plug.Conn{} = conn, {:unsupported_signature, _signature}, _config) do
+    send_signature_error(conn, :unsupported_signature)
   end
 
-  def send(%Plug.Conn{} = conn, {:detector, :unavailable}, config, headers) do
-    send_core_stage_error(conn, {:detector_unavailable, :unavailable}, config, headers)
+  def send(%Plug.Conn{} = conn, {:detector, :unavailable}, config) do
+    send_core_stage_error(conn, {:detector_unavailable, :unavailable}, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:source, _reason} = reason, config, headers) do
-    send_core_stage_error(conn, reason, config, headers)
+  def send(%Plug.Conn{} = conn, {:source, _reason} = reason, config) do
+    send_core_stage_error(conn, reason, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:decode, _reason} = reason, config, headers) do
-    send_core_stage_error(conn, reason, config, headers)
+  def send(%Plug.Conn{} = conn, {:decode, _reason} = reason, config) do
+    send_core_stage_error(conn, reason, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:input_limit, _reason} = reason, config, headers) do
-    send_core_stage_error(conn, reason, config, headers)
+  def send(%Plug.Conn{} = conn, {:input_limit, _reason} = reason, config) do
+    send_core_stage_error(conn, reason, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:unsupported_output_format, _format} = reason, config, headers) do
-    send_core_stage_error(conn, reason, config, headers)
+  def send(%Plug.Conn{} = conn, {:unsupported_output_format, _format} = reason, config) do
+    send_core_stage_error(conn, reason, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:encode, _exception, _stacktrace} = reason, config, headers) do
-    send_core_stage_error(conn, reason, config, headers)
+  def send(%Plug.Conn{} = conn, {:encode, _exception, _stacktrace} = reason, config) do
+    send_core_stage_error(conn, reason, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:encode, :empty_stream} = reason, config, headers) do
-    send_core_stage_error(conn, reason, config, headers)
+  def send(%Plug.Conn{} = conn, {:encode, :empty_stream} = reason, config) do
+    send_core_stage_error(conn, reason, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:session, reason}, config, headers) do
+  def send(%Plug.Conn{} = conn, {:session, reason}, config) do
     exception = RuntimeError.exception("delivery session failed: #{inspect(reason)}")
-    send_core_stage_error(conn, {:encode, exception, []}, config, headers)
+    send_core_stage_error(conn, {:encode, exception, []}, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:transform, {:materialize_error, reason}}, config, headers) do
-    send_core_stage_error(conn, {:decode, reason}, config, headers)
+  def send(%Plug.Conn{} = conn, {:transform, {:materialize_error, reason}}, config) do
+    send_core_stage_error(conn, {:decode, reason}, config)
   end
 
-  def send(%Plug.Conn{} = conn, {:transform, inner}, config, headers) do
-    send_core_stage_error(conn, {:transform_error, inner}, config, headers)
+  def send(%Plug.Conn{} = conn, {:transform, inner}, config) do
+    send_core_stage_error(conn, {:transform_error, inner}, config)
   end
 
-  def send(%Plug.Conn{} = conn, reason, _config, headers) do
+  def send(%Plug.Conn{} = conn, reason, _config) do
     conn
-    |> put_headers(headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(400, "invalid image request: #{inspect(reason)}")
   end
 
-  defp send_signature_error(%Plug.Conn{} = conn, reason, headers) do
+  defp send_signature_error(%Plug.Conn{} = conn, reason) do
     conn
-    |> put_headers(headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(403, "invalid image request: #{inspect(reason)}")
   end
 
-  defp send_core_stage_error(%Plug.Conn{} = conn, reason, config, headers) do
+  defp send_core_stage_error(%Plug.Conn{} = conn, reason, config) do
     {status, message} = ErrorStatus.resolve_status(reason, config)
 
     conn
-    |> put_headers(headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(status, message)
-  end
-
-  defp put_headers(%Plug.Conn{} = conn, headers) do
-    Enum.reduce(headers, conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
   end
 end
