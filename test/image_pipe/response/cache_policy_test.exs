@@ -135,4 +135,76 @@ defmodule ImagePipe.Response.CachePolicyTest do
     assert %CacheHeaders{representation_headers: [{"vary", "Origin, Accept"}]} =
              CachePolicy.generate(conn, representation(vary: ["Accept"]), facts(), config())
   end
+
+  test "prepare telemetry fires with effective_mode, byte_identity, and etag" do
+    attach_telemetry([[:cache_policy_test, :http_cache, :prepare]])
+
+    CachePolicy.generate(conn(:get, "/x"), representation(), facts(), config())
+
+    assert_receive {:telemetry_event, [:cache_policy_test, :http_cache, :prepare], %{}, metadata}
+    assert metadata == %{effective_mode: :enabled, byte_identity: :strong, etag: true}
+  end
+
+  test "no-store fallback telemetry fires with adapter, source_kind, and reason" do
+    attach_telemetry([[:cache_policy_test, :http_cache, :fallback, :no_store]])
+
+    CachePolicy.generate(
+      conn(:get, "/x"),
+      representation(etag: nil, no_store?: true),
+      facts(byte_identity: :none, stable?: false),
+      config()
+    )
+
+    assert_receive {:telemetry_event, [:cache_policy_test, :http_cache, :fallback, :no_store],
+                    %{}, metadata}
+
+    assert metadata == %{
+             adapter: ImagePipe.Source.HTTP,
+             source_kind: :url,
+             reason: :missing_byte_identity
+           }
+  end
+
+  describe "conditional_matched/2" do
+    test "emits [:http_cache, :conditional, :match] with method: :get" do
+      attach_telemetry([[:cache_policy_test, :http_cache, :conditional, :match]])
+
+      assert :ok = CachePolicy.conditional_matched(conn(:get, "/x"), config())
+
+      assert_receive {:telemetry_event, [:cache_policy_test, :http_cache, :conditional, :match],
+                      %{}, metadata}
+
+      assert metadata == %{method: :get}
+    end
+
+    test "emits [:http_cache, :conditional, :match] with method: :head" do
+      attach_telemetry([[:cache_policy_test, :http_cache, :conditional, :match]])
+
+      assert :ok = CachePolicy.conditional_matched(conn(:head, "/x"), config())
+
+      assert_receive {:telemetry_event, [:cache_policy_test, :http_cache, :conditional, :match],
+                      %{}, metadata}
+
+      assert metadata == %{method: :head}
+    end
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:telemetry_event, event, measurements, metadata})
+  end
+
+  defp attach_telemetry(events) do
+    test_pid = self()
+    handler_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        &__MODULE__.handle_telemetry_event/4,
+        test_pid
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
 end

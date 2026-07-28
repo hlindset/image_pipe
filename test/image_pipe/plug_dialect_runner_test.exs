@@ -319,6 +319,8 @@ defmodule ImagePipe.PlugDialectRunnerTest do
     test "dialect_owned emits the representation ETag and no policy events" do
       prefix = [:runner_dialect_owned_test]
       attach_forwarding_handler(prefix ++ [:http_cache, :prepare])
+      attach_forwarding_handler(prefix ++ [:http_cache, :conditional, :match])
+      attach_forwarding_handler(prefix ++ [:http_cache, :fallback, :no_store])
 
       conn = get("/fix/images/beach.jpg", opts(telemetry_prefix: prefix))
 

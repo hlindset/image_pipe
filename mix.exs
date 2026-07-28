@@ -10,8 +10,8 @@ defmodule ImagePipe.MixProject do
     # Mirrors the framework Request.DeliveryBuild debug block until Phase C
     # deletes the framework stack.
     "lib/image_pipe/plug/debug_builder.ex",
-    # Mirrors the framework Request.HTTPCache header-generation half until
-    # Phase C deletes the framework stack.
+    # Mirrors the framework header-generation half being deleted in this
+    # phase.
     "lib/image_pipe/response/cache_policy.ex",
     "lib/image_pipe/response/conditional.ex"
   ]
