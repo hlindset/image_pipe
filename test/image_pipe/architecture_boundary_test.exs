@@ -825,9 +825,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "renderer boundary depends only on the plan" do
+  test "renderer boundary depends only on the plan, error, and telemetry" do
     renderer = boundary_declaration(ImagePipe.Renderer)
-    assert_boundary_deps(renderer, [ImagePipe.Plan])
+    assert_boundary_deps(renderer, [ImagePipe.Error, ImagePipe.Plan, ImagePipe.Telemetry])
   end
 
   test "request, source, and response code does not depend on concrete transform modules" do
