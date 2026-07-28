@@ -23,7 +23,7 @@ Two independent controls must both be satisfied for any header to be emitted:
    (`ImagePipe.Plug, dialect: …`: imgproxy, TwicPics, Native) and the
    framework `parser:` mount (IIIF). Native currently has no per-request
    trigger in its grammar, so its responses render none until a trigger is
-   chosen (follow-up issue).
+   chosen ([#471](https://github.com/hlindset/image_pipe/issues/471)).
 
 2. **Per-request trigger** — opts a single request into debug headers. Honored
    only when `allow_debug_headers: true`; otherwise ignored. The trigger is
