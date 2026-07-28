@@ -17,8 +17,8 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   #      an explicit Flush operation by the resolve driver -> parent is that Flush
   #      op's [:transform, :operation] span, which itself nests under
   #      [:transform, :execute];
-  #   3. the delivery backstop (Processor.materialize_for_delivery/2), which runs AFTER
-  #      [:transform, :execute] has closed -> parent is the request root.
+  #   3. the delivery backstop (the runner's materialize-for-delivery step), which
+  #      runs AFTER [:transform, :execute] has closed -> parent is the request root.
   #
   # (Every successful request materializes at least once: a chain that never
   # materializes mid-pipeline hits the delivery backstop, so there is no "zero
@@ -76,12 +76,10 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
   defp beach_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver:
-          {ImagePipe.Dialect.IIIF.Resolver.Static,
-           map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver:
+        {ImagePipe.Dialect.IIIF.Resolver.Static,
+         map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,
@@ -93,12 +91,10 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
   defp exif6_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver:
-          {ImagePipe.Dialect.IIIF.Resolver.Static,
-           map: %{"oriented" => %ImagePipe.Plan.Source.Path{segments: ["images", "oriented.jpg"]}}}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver:
+        {ImagePipe.Dialect.IIIF.Resolver.Static,
+         map: %{"oriented" => %ImagePipe.Plan.Source.Path{segments: ["images", "oriented.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,

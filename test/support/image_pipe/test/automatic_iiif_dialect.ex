@@ -4,8 +4,7 @@ defmodule ImagePipe.Test.AutomaticIIIFDialect do
   # suites keep a dialect that varies by Accept. The IIIF path grammar always
   # names a format, so real IIIF only ever emits `{:explicit, format}` — this
   # double is the only in-tree witness for automatic-output behavior on the
-  # declarative tier (negotiation Vary, Accept-sensitive identity, and the
-  # Vary loss when an automatic plan collapses to an explicit selection).
+  # declarative tier (negotiation Vary and Accept-sensitive identity).
 
   use Boundary, top_level?: true, check: [out: false]
   use ImagePipe.Dialect.Declarative

@@ -92,8 +92,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   defp miss_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_beach_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_beach_resolver(),
       sources: [
         path:
           {RootHTTPAdapter,
@@ -106,8 +106,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   defp signed_miss_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_beach_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_beach_resolver(),
       sources: [
         path:
           {SignedRootHTTPAdapter,

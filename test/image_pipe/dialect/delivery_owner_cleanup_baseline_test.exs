@@ -1,4 +1,4 @@
-defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
+defmodule ImagePipe.Dialect.DeliveryOwnerCleanupBaselineTest do
   @moduledoc """
   Topology-neutral owner-death cleanup, observed entirely through the public
   Plug surface: this test names no internal delivery module, only
@@ -49,7 +49,7 @@ defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
   # same way it would call the real `Image.stream!/2`), so this is a
   # substitution at a real extension point, not a peek into internals.
   defmodule GatedTwoChunkImage do
-    @event_target ImagePipe.Request.DeliveryOwnerCleanupBaselineTest.StreamEvents
+    @event_target ImagePipe.Dialect.DeliveryOwnerCleanupBaselineTest.StreamEvents
 
     def stream!(_image, _opts) do
       Stream.resource(
@@ -93,24 +93,25 @@ defmodule ImagePipe.Request.DeliveryOwnerCleanupBaselineTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
     opts = [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver:
-          {ImagePipe.Dialect.IIIF.Resolver.Static,
-           map: %{"cat" => %ImagePipe.Plan.Source.Path{segments: ["images", "cat.jpg"]}}}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver:
+        {ImagePipe.Dialect.IIIF.Resolver.Static,
+         map: %{"cat" => %ImagePipe.Plan.Source.Path{segments: ["images", "cat.jpg"]}}},
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ],
-      image_module: GatedTwoChunkImage,
       cache: {CacheProbe, [result: :miss]},
       telemetry_prefix: telemetry_prefix
     ]
 
+    # `image_module` is a test-injection seam the dialect config rejects as an
+    # unknown option, so it is spliced onto the validated config after init/1.
+    initialized = Keyword.put(ImagePipe.Plug.init(opts), :image_module, GatedTwoChunkImage)
+
     owner =
       spawn(fn ->
         conn = Plug.Test.conn(:get, "/cat/full/!64,64/0/default.jpg")
-        ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+        ImagePipe.Plug.call(conn, initialized)
       end)
 
     owner_ref = Process.monitor(owner)

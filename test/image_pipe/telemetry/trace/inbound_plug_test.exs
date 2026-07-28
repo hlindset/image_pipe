@@ -23,12 +23,10 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
 
   defp build_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver:
-          {ImagePipe.Dialect.IIIF.Resolver.Static,
-           map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver:
+        {ImagePipe.Dialect.IIIF.Resolver.Static,
+         map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,

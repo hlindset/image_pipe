@@ -10,10 +10,10 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
   # Two distinct spans:
   #
   #   * [:encode] is the forced output encode (Encoder.stream_output + first_chunk),
-  #     emitted from the PRODUCER process in
-  #     ImagePipe.Request.DeliveryBuild.encode_first_chunk/3. It is the
-  #     heaviest stage of most requests and parents to the request root — a sibling
-  #     of the delivery-backstop [:transform, :materialize], in the same process.
+  #     emitted from the PRODUCER process by the runner's encode-first-chunk step.
+  #     It is the heaviest stage of most requests and parents to the request root —
+  #     a sibling of the delivery-backstop [:transform, :materialize], in the same
+  #     process.
   #
   #   * [:deliver] is connection streaming of the already-produced chunks, emitted
   #     from the REQUEST process in ImagePipe.Response.Sender.send_prepared_stream/5,
@@ -49,12 +49,10 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
 
   defp beach_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver:
-          {ImagePipe.Dialect.IIIF.Resolver.Static,
-           map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver:
+        {ImagePipe.Dialect.IIIF.Resolver.Static,
+         map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,

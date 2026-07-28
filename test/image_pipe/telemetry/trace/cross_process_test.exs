@@ -38,12 +38,10 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
   # [:cache, :write] span fires from the delivery coordinator process (hop A target).
   defp miss_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver:
-          {ImagePipe.Dialect.IIIF.Resolver.Static,
-           map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver:
+        {ImagePipe.Dialect.IIIF.Resolver.Static,
+         map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,
