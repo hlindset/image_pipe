@@ -105,20 +105,14 @@ defmodule ImagePipe.Dialect.TwicPics do
   def decode_request(%Request{} = request, geometry),
     do: Pipeline.decode_request(request, geometry)
 
-  # The pipeline is a concrete libvips runtime boundary, so this dialect
-  # converts its own raises into the callback's tagged-tuple contract; the
-  # runner rescues nothing on its behalf.
   @impl ImagePipe.Dialect
+  # The three dialects' contract delegations are textually identical but
+  # resolve through per-dialect aliases to different Request structs and
+  # Pipeline modules — irreducible without a macro that would force a
+  # naming convention on every dialect and hide the contract.
+  # ex_dna:disable-for-next-line
   def execute(state, geometry, %Request{} = request, opts) do
-    safe_transform(fn -> Pipeline.run(state, geometry, request, opts) end)
-  end
-
-  defp safe_transform(fun) do
-    fun.()
-  rescue
-    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
-  catch
-    kind, reason -> {:error, {:transform, {kind, reason}}}
+    ImagePipe.Dialect.safe_transform(fn -> Pipeline.run(state, geometry, request, opts) end)
   end
 
   # A parse rejection renders this dialect's 400 protocol; every later phase

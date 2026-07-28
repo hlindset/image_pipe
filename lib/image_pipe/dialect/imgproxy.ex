@@ -155,7 +155,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
          operations: [],
          auto_rotate?: false,
          debug?: false,
-         terminal: {:render, info_terminal(config)}
+         terminal: {:render, info_terminal()}
        }}
     end
   end
@@ -184,17 +184,14 @@ defmodule ImagePipe.Dialect.Imgproxy do
   def decode_request(%Request{} = request, geometry),
     do: Pipeline.decode_request(request, geometry)
 
-  # The pipeline is a concrete libvips runtime boundary, so this dialect
-  # converts its own raises into the callback's tagged-tuple contract; the
-  # runner rescues nothing on its behalf.
   @impl ImagePipe.Dialect
+  # The three dialects' contract delegations are textually identical but
+  # resolve through per-dialect aliases to different Request structs and
+  # Pipeline modules — irreducible without a macro that would force a
+  # naming convention on every dialect and hide the contract.
   # ex_dna:disable-for-next-line
   def execute(state, geometry, %Request{} = request, opts) do
-    Pipeline.run(state, geometry, request, opts)
-  rescue
-    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
-  catch
-    kind, reason -> {:error, {:transform, {kind, reason}}}
+    ImagePipe.Dialect.safe_transform(fn -> Pipeline.run(state, geometry, request, opts) end)
   end
 
   @impl ImagePipe.Dialect
@@ -473,7 +470,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   # -- the /info render terminal ----------------------------------------------
 
-  defp info_terminal(_config) do
+  defp info_terminal do
     %RenderTerminal{
       charset: :default,
       fun: fn resolved_source, config ->

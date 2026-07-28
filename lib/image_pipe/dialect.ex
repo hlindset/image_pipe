@@ -85,4 +85,24 @@ defmodule ImagePipe.Dialect do
   @callback classify_error(reason :: term()) :: atom()
 
   @optional_callbacks classify_error: 1
+
+  @doc """
+  Runs a dialect's own pipeline, converting its raises into `c:execute/4`'s
+  tagged-tuple contract.
+
+  A dialect calls this from inside its own `c:execute/4`; the runner rescues
+  nothing on any dialect's behalf. The libvips pipeline is a concrete runtime
+  boundary, so translating its exceptions is the dialect's job — but the
+  `{:transform, _}` shape every dialect's error module pattern-matches is one
+  contract, so it is produced in one place rather than copied per dialect.
+  """
+  @spec safe_transform((-> {:ok, State.t()} | {:error, term()})) ::
+          {:ok, State.t()} | {:error, term()}
+  def safe_transform(fun) when is_function(fun, 0) do
+    fun.()
+  rescue
+    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
+  catch
+    kind, reason -> {:error, {:transform, {kind, reason}}}
+  end
 end
