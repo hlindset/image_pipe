@@ -32,7 +32,7 @@ defmodule ImagePipe.Test.Differential.Harness do
   <flat config>`, the same unified mount every dialect uses in production.
   """
   def dialect_plug_opts(dialect, sources_dir) do
-    {ImagePipe.Plug, ImagePipe.Plug.init([dialect: dialect] ++ [sources: sources(sources_dir)])}
+    {ImagePipe.Plug, ImagePipe.Plug.init(dialect: dialect, sources: sources(sources_dir))}
   end
 
   @doc "Render `request_path` through an arm → `{body_bytes, content_type}`."

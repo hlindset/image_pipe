@@ -179,17 +179,17 @@ defmodule ImagePipe.ContractKit.CacheKey do
     Keyword.merge(config, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
-  defp request(_dialect, path, config, nil), do: ImagePipe.Plug.call(conn(:get, path), config)
+  defp request(path, config, nil), do: ImagePipe.Plug.call(conn(:get, path), config)
 
-  defp request(_dialect, path, config, accept) do
+  defp request(path, config, accept) do
     conn(:get, path) |> put_req_header("accept", accept) |> then(&ImagePipe.Plug.call(&1, config))
   end
 
-  defp request_with_variant(_dialect, path, config, {:header, name, value}) do
+  defp request_with_variant(path, config, {:header, name, value}) do
     conn(:get, path) |> put_req_header(name, value) |> then(&ImagePipe.Plug.call(&1, config))
   end
 
-  defp request_with_variant(_dialect, path, config, {:cookie, name, value}) do
+  defp request_with_variant(path, config, {:cookie, name, value}) do
     conn(:get, path)
     |> put_req_header("cookie", "#{name}=#{value}")
     |> then(&ImagePipe.Plug.call(&1, config))
@@ -226,9 +226,9 @@ defmodule ImagePipe.ContractKit.CacheKey do
     config = build_config(dialect, base_opts())
 
     for {path, accept_a, accept_b} <- cases do
-      conn_a = request(dialect, path, config, accept_a)
+      conn_a = request(path, config, accept_a)
       assert_receive {:cache_lookup, key_a}
-      conn_b = request(dialect, path, config, accept_b)
+      conn_b = request(path, config, accept_b)
       assert_receive {:cache_lookup, key_b}
 
       assert conn_a.status == 200
@@ -248,9 +248,9 @@ defmodule ImagePipe.ContractKit.CacheKey do
     config = build_config(dialect, base_opts())
 
     for {path, accept_a, accept_b} <- cases do
-      conn_a = request(dialect, path, config, accept_a)
+      conn_a = request(path, config, accept_a)
       assert_receive {:cache_lookup, key_a}
-      conn_b = request(dialect, path, config, accept_b)
+      conn_b = request(path, config, accept_b)
       assert_receive {:cache_lookup, key_b}
 
       assert conn_a.status == 200
@@ -266,9 +266,9 @@ defmodule ImagePipe.ContractKit.CacheKey do
     config = build_config(dialect, base_opts())
 
     for {path, accept} <- cases do
-      conn_with = request(dialect, path, config, accept)
+      conn_with = request(path, config, accept)
       assert_receive {:cache_lookup, key_with}
-      conn_without = request(dialect, path, config, nil)
+      conn_without = request(path, config, nil)
       assert_receive {:cache_lookup, key_without}
 
       assert conn_with.status == 200
@@ -292,7 +292,7 @@ defmodule ImagePipe.ContractKit.CacheKey do
     config = build_config(dialect, base_opts())
 
     for path <- paths do
-      conn = request(dialect, path, config, "image/avif")
+      conn = request(path, config, "image/avif")
       assert conn.status == 200
       assert get_resp_header(conn, "vary") == []
     end
@@ -307,7 +307,7 @@ defmodule ImagePipe.ContractKit.CacheKey do
 
     results =
       for variant <- variants do
-        conn = request_with_variant(dialect, path, config, variant)
+        conn = request_with_variant(path, config, variant)
         assert_receive {:cache_lookup, key}
         assert conn.status == 200
         assert_storage_vary(variant, get_resp_header(conn, "vary"))

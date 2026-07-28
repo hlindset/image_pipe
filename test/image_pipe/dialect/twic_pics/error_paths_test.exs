@@ -536,12 +536,52 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
 
       conn = get("/images/cat.jpg?twic=v1/resize=64/output=jpeg", config)
 
-      assert conn.status in 500..599
+      assert conn.status == 500
+      assert conn.resp_body == "error encoding image"
       refute_received {:cache_open_sink, _key, _metadata}
       refute_received :cache_commit_sink
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
       assert_receive {:request_stop, %{result: :processing_error}}
+    end
+  end
+
+  describe "row 11: pipeline raise inside the dialect's own execute/4 (422)" do
+    test "renders 422 and the [:transform, :execute] span closes normally" do
+      test_pid = self()
+      prefix = [:"twic_pics_error_paths_pipeline_raise_#{System.unique_integer([:positive])}"]
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach_many(
+          handler_id,
+          [prefix ++ [:transform, :execute, :stop], prefix ++ [:transform, :execute, :exception]],
+          fn event, _measurements, metadata, test_pid ->
+            send(test_pid, {:transform_execute, List.last(event), metadata})
+          end,
+          test_pid
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      chain = fn _state, _ops, _opts -> raise "boom in pipeline" end
+
+      config =
+        opts(
+          telemetry_prefix: prefix,
+          cache: {ObservingCache, test_pid: test_pid},
+          chain: chain,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+        )
+
+      conn = get("/images/cat.jpg?twic=v1/resize=64/output=jpeg", config)
+
+      assert conn.status == 422
+      refute_received {:cache_open_sink, _key, _metadata}
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
+      assert_receive {:transform_execute, :stop, _metadata}
+      refute_received {:transform_execute, :exception, _metadata}
     end
   end
 
@@ -563,6 +603,16 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorPathsTest do
       # ever reaches `resolve_negotiation/1` — the source response wins.
       assert conn.status == 500
       refute_received :detector_identity_called
+
+      # Positive control: the same spy DOES fire on a working request, so the
+      # refute above is proven live rather than trivially true because the
+      # spy was never wired at all.
+      config = opts(test_pid: test_pid, detector: DetectorSpy, sources: @default_sources)
+
+      conn = get("/images/cat.jpg?twic=v1/focus=auto/cover=100x80/output=jpeg", config)
+
+      assert conn.status == 200
+      assert_receive :detector_identity_called
     end
   end
 
