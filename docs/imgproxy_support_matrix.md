@@ -412,18 +412,19 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 
 ### CORS response headers
 
-`allow_origin` is a dialect-neutral runtime option (default off) shared by all
-three stacks: `ImagePipe.Plug`'s framework mode (any mounted parser, not just
-IIIF) and its dialect mode mounting `ImagePipe.Dialect.Imgproxy` or
-`ImagePipe.Dialect.Native` (`ImagePipe.Dialect.SharedConfig` validates and
-carries the key for both dialects). When set, `ImagePipe.Response.CORS.maybe_register/2`
-registers a `register_before_send/2` hook — the same hook on all three stacks —
+`allow_origin` is a dialect-neutral runtime option (default off) shared by every
+mount: `ImagePipe.Plug`'s framework mode (any mounted parser, not just
+IIIF) and its dialect mode mounting `ImagePipe.Dialect.Imgproxy`,
+`ImagePipe.Dialect.TwicPics`, or `ImagePipe.Dialect.Native`
+(`ImagePipe.Dialect.SharedConfig` validates and carries the key for all three
+dialects). When set, `ImagePipe.Response.CORS.maybe_register/2`
+registers a `register_before_send/2` hook — the same hook on every mount —
 that stamps `Access-Control-Allow-Origin: <value>` verbatim on **every** exit
 path: image, `/info`, 304, and 4xx errors.
 
-**The `OPTIONS`/method layer is shared by all three stacks.** `ImagePipe.Plug`'s
-framework mode and its dialect mode for `ImagePipe.Dialect.Imgproxy` and
-`ImagePipe.Dialect.Native` all answer `OPTIONS`
+**The `OPTIONS`/method layer is shared by every mount.** `ImagePipe.Plug`'s
+framework mode and its dialect mode for `ImagePipe.Dialect.Imgproxy`,
+`ImagePipe.Dialect.TwicPics`, and `ImagePipe.Dialect.Native` all answer `OPTIONS`
 with `204 No Content` + `Allow: GET, HEAD` (+ `Access-Control-Allow-Methods` when
 `allow_origin` is set, via `Response.CORS.send_options/2`) and any other
 non-GET/HEAD method with `405` + `Allow: GET, HEAD` (`Response.Sender.send_method_not_allowed/1`).
