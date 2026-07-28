@@ -36,7 +36,22 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   # and supplies the max_result_*/max_body_bytes/max_input_pixels defaults
   # the runner fetches with Keyword.fetch!, along with :allow_debug_headers
   # (validate_known_opts! merges the validated subset back).
-  def validate_config!(opts), do: SharedConfig.validate_runtime!(opts)
+  #
+  # `:http_cache` is this fixture's own key, not a shared one, so it is split
+  # out, validated here, and merged back — the same shape a real dialect's
+  # config module uses for its dialect-specific options.
+  def validate_config!(opts) do
+    {http_cache, shared} = Keyword.pop(opts, :http_cache)
+
+    case http_cache do
+      nil -> SharedConfig.validate_runtime!(shared)
+      [mode: mode] when mode in [:enabled, :disabled] -> validate_shared(shared, http_cache)
+      other -> raise ArgumentError, "invalid :http_cache option: #{inspect(other)}"
+    end
+  end
+
+  defp validate_shared(shared, http_cache),
+    do: Keyword.put(SharedConfig.validate_runtime!(shared), :http_cache, http_cache)
 
   @impl ImagePipe.Dialect
   def parse(%Plug.Conn{path_info: ["fix" | segments]} = conn, _config) do
@@ -51,7 +66,8 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
           segments: segments,
           format: parse_format(params["format"]),
           debug?: params["debug"] == "1",
-          render: parse_render(params["render"])
+          render: parse_render(params["render"]),
+          http_cache: parse_http_cache(params["http_cache"])
         }
 
         {{:ok, request}, %{result: :ok}}
@@ -66,6 +82,9 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
   defp parse_format("bmp"), do: :bmp
   defp parse_format("auto"), do: :auto
   defp parse_format(_), do: :jpeg
+
+  defp parse_http_cache("generated"), do: :generated
+  defp parse_http_cache(_), do: :dialect_owned
 
   defp parse_render("text"), do: :text
   defp parse_render("uncached"), do: :uncached
@@ -84,6 +103,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
        operations: [],
        auto_rotate?: true,
        debug?: request.debug?,
+       http_cache: request.http_cache,
        terminal: {:render, render_terminal()}
      }}
   end
@@ -100,6 +120,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
        operations: [],
        auto_rotate?: true,
        debug?: request.debug?,
+       http_cache: request.http_cache,
        terminal: {:render, uncached_render_terminal()}
      }}
   end
@@ -135,6 +156,7 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
        operations: [],
        auto_rotate?: true,
        debug?: request.debug?,
+       http_cache: request.http_cache,
        terminal: :image
      }}
   end

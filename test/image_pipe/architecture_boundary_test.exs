@@ -639,6 +639,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(response, [
       ImagePipe.Response.CORS,
       ImagePipe.Response.CacheHeaders,
+      ImagePipe.Response.CachePolicy,
       ImagePipe.Response.Conditional,
       ImagePipe.Response.ErrorStatus,
       ImagePipe.Response.Json,

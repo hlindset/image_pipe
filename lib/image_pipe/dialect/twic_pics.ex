@@ -81,6 +81,7 @@ defmodule ImagePipe.Dialect.TwicPics do
        operations: operation_names(request),
        auto_rotate?: request.auto_rotate,
        debug?: request.response.debug?,
+       http_cache: :dialect_owned,
        terminal: :image
      }}
   end

@@ -280,4 +280,68 @@ defmodule ImagePipe.PlugDialectRunnerTest do
       refute_received {:cache_put, _key, _body}
     end
   end
+
+  describe "http_cache: :generated" do
+    test "generates Cache-Control and the representation ETag, and round-trips a 304" do
+      config = opts(http_cache: [mode: :enabled])
+      conn = get("/fix/images/beach.jpg?http_cache=generated", config)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+      assert [etag] = get_resp_header(conn, "etag")
+
+      revalidated =
+        :get
+        |> conn("/fix/images/beach.jpg?http_cache=generated")
+        |> put_req_header("if-none-match", etag)
+        |> ImagePipe.Plug.call(config)
+
+      assert revalidated.status == 304
+    end
+
+    test "suppressing the ETag also vetoes the 304" do
+      etag =
+        "/fix/images/beach.jpg?http_cache=generated"
+        |> get(opts(http_cache: [mode: :enabled]))
+        |> get_resp_header("etag")
+        |> hd()
+
+      conn =
+        :get
+        |> conn("/fix/images/beach.jpg?http_cache=generated")
+        |> put_req_header("if-none-match", etag)
+        |> ImagePipe.Plug.call(opts(http_cache: [mode: :disabled]))
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == []
+    end
+
+    test "dialect_owned emits the representation ETag and no policy events" do
+      prefix = [:runner_dialect_owned_test]
+      attach_forwarding_handler(prefix ++ [:http_cache, :prepare])
+
+      conn = get("/fix/images/beach.jpg", opts(telemetry_prefix: prefix))
+
+      assert [_etag] = get_resp_header(conn, "etag")
+      # Plug's own untouched default — no generated Cache-Control was added.
+      assert get_resp_header(conn, "cache-control") == ["max-age=0, private, must-revalidate"]
+      refute_received {:telemetry, _, _, _}
+    end
+  end
+
+  defp attach_forwarding_handler(event) do
+    handler = {__MODULE__, event, self()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      event,
+      fn name, measurements, metadata, _config ->
+        send(test_pid, {:telemetry, name, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
 end

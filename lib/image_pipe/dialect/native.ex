@@ -107,6 +107,7 @@ defmodule ImagePipe.Dialect.Native do
          operations: Pipeline.operation_names(request),
          auto_rotate?: @auto_rotate?,
          debug?: false,
+         http_cache: :dialect_owned,
          terminal: terminal(request, config)
        }}
     end

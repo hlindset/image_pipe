@@ -153,6 +153,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
          operations: [],
          auto_rotate?: false,
          debug?: false,
+         http_cache: :dialect_owned,
          terminal: {:render, info_terminal()}
        }}
     end
@@ -173,6 +174,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
          operations: operation_names(request),
          auto_rotate?: request.auto_rotate,
          debug?: response_meta.debug?,
+         http_cache: :dialect_owned,
          terminal: :image
        }}
     end
