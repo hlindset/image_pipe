@@ -45,7 +45,9 @@ A source adapter can override the mount-level mode per source:
 `http_cache: :enabled` forces the generated path even when the mount is
 `mode: :disabled`; `http_cache: :disabled` suppresses generated cache headers
 even when the mount is `mode: :enabled`; the default `:inherit` follows the
-mount.
+mount. The override only reaches a mount whose dialect carries
+`http_cache: :generated`: on a `:dialect_owned` mount the policy never runs, so
+a source-level `:enabled` is inert there.
 
 Source-level `http_cache: :enabled` doesn't force an ETag. The resolved source
 still needs strong byte identity.

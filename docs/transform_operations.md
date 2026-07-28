@@ -26,8 +26,11 @@ The request flow is:
    isolated.
 3. The dialect translates compatible semantics into canonical
    `ImagePipe.Plan.Operation.*` structs.
-4. ImagePipe builds cache keys from source-fetch-free Plan key data plus source
-   freshness, output, config, and the cache key's transform key data version.
+4. `ImagePipe.Representation.build/3` derives the cache key and the ETag from
+   pre-fetch material only — resolved source identity, the dialect's canonical
+   request material (semantic operation key data, terminal, canonical output
+   plan), the negotiation outcome, and the dialect's behavioral epoch. See
+   [cache keys](cache.md#cache-keys).
 5. On cache miss, `ImagePipe.Transform.execute_plan/3` executes semantic Plan
    operations in order, converting each one to executable
    `ImagePipe.Transform.Operation.*` work as an implementation detail.

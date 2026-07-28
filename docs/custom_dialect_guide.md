@@ -107,8 +107,11 @@ processing. `ImagePipe.Dialect.IIIF` uses it for the bare-identifier path
 
 A parse rejection arrives wrapped as
 `%ImagePipe.Dialect.Failure{phase: :parse, reason: your_reason}`; every other
-lifecycle failure arrives as a bare reason. Match the wrapper so an
-*unrecognized* parse rejection still renders as a client error, without
+lifecycle failure arrives as a bare reason. A structurally invalid Plan is one
+of those: the base validates `parse_plan/2`'s return in `prepare/3` and fails
+with a bare `{:plan_validation, reason}` before any source fetch, so your
+handler sees the rejection rather than a broken transform. Match the wrapper so
+an *unrecognized* parse rejection still renders as a client error, without
 inferring provenance from a tag allowlist:
 
 ```elixir
@@ -187,13 +190,6 @@ all. This is an asymmetry worth knowing: the ordered dialects are
 straight from `ImagePipe.Representation.response_headers/1`. See
 [CDN HTTP caching](cdn-http-cache.md) for the full policy, its suppression
 rules, and the per-source override.
-
-### Storage partitioning
-
-`storage_inputs: [{:header, "x-tenant"}, {:cookie, "session"}]` folds the named
-request values into the **cache key** without changing the ETag — they
-partition storage, not bytes. Configured header names also enter `Vary`
-(cookies never do; `Vary` names headers only).
 
 ## Building the Plan
 
@@ -547,6 +543,21 @@ returns — carries a
 `{:render, inner}` envelope, so `render_error/3` can distinguish a
 render-terminal failure from an image-terminal one.
 `ImagePipe.Dialect.IIIF.InfoRenderer` is the complete example.
+
+## Storage partitioning
+
+`storage_inputs: [{:header, "x-tenant"}, {:cookie, "session"}]` folds the named
+request values into the **cache key** without changing the ETag — they
+partition storage, not bytes. Configured header names also enter `Vary`
+(cookies never do; `Vary` names headers only).
+
+Both tiers take this key. A declarative dialect inherits it from
+`ImagePipe.Dialect.Declarative.config_keys/0`; an ordered dialect declares it in
+its own schema (validated with
+`ImagePipe.Dialect.SharedConfig.validate_storage_input/1`) and folds the values
+into its identity material's `storage_only` — `ImagePipe.Dialect.Native`,
+`.Imgproxy`, and `.TwicPics` all do, through
+`ImagePipe.Representation.storage_inputs/2`.
 
 ## The contract surface
 
