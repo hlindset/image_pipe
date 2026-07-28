@@ -270,6 +270,19 @@ defmodule ImagePipe.PlugDialectRunnerTest do
       assert get_resp_header(conn, "vary") == ["Accept"]
     end
 
+    test "keeps the configured storage_inputs headers in Vary alongside Accept" do
+      config = opts(storage_inputs: [{:header, "x-tenant"}])
+
+      conn =
+        :get
+        |> conn("/fix/images/beach.jpg?render=uncached")
+        |> put_req_header("x-tenant", "a")
+        |> ImagePipe.Plug.call(config)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "vary") == ["x-tenant, Accept"]
+    end
+
     test "never reads or writes the internal cache" do
       config = opts(cache: stateful_cache_probe())
 

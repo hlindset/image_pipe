@@ -567,7 +567,10 @@ as a **sibling** of `[:source, :fetch_decode]` under the request root, and it is
 Only a renderer dispatched through that entry point emits it. An ordered dialect
 that drives its own render terminal — the `ImagePipe.Dialect.Imgproxy` `/info`
 endpoint, the `ImagePipe.Dialect.Native` blur-hash terminal — bypasses it and
-emits no `[:render]` span.
+emits no `[:render]` span. Treat this span as covering renderer-dispatched
+responses, not every non-image response: a host attaching to `[:render]` to
+count or time rendered responses sees the declarative tier's renderers only,
+and must read `[:request]`'s `:result` to account for the other two.
 
 Start metadata:
 

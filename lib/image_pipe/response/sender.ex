@@ -443,7 +443,13 @@ defmodule ImagePipe.Response.Sender do
   end
 
   defp maybe_put_vary(conn, false), do: conn
-  defp maybe_put_vary(conn, true), do: Plug.Conn.put_resp_header(conn, "vary", "Accept")
+
+  # Runs after `apply_render_cache_headers/2` has already put the
+  # representation's own `Vary` on the conn (a mount's configured
+  # `storage_inputs` header names), so the render terminal's `Accept` joins
+  # them rather than replacing them.
+  defp maybe_put_vary(conn, true),
+    do: put_resp_header(conn, "vary", CacheHeaders.merge_vary(conn, ["Accept"]))
 
   defp apply_render_cache_headers(%Plug.Conn{} = conn, %CacheHeaders{} = prepared) do
     # Reuse the same delivery-header precedence as image responses: prepared cache /

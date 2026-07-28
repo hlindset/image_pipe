@@ -92,8 +92,16 @@ defmodule ImagePipe.Response.CachePolicy do
   defp conditional_method("GET"), do: :get
   defp conditional_method("HEAD"), do: :head
 
-  defp effective_mode(%{http_cache: :inherit}, config),
-    do: config |> Keyword.fetch!(:http_cache) |> Keyword.fetch!(:mode)
+  # `config` is the mount config a host's own validation produced — a value this
+  # boundary does not build, so `:http_cache` is not guaranteed to be present.
+  # Absent means the mount never opted in, which is exactly `:disabled`: the
+  # same answer the option's own default gives, and the direction that emits no
+  # cache headers.
+  defp effective_mode(%{http_cache: :inherit}, config) do
+    config
+    |> Keyword.get(:http_cache, [])
+    |> Keyword.get(:mode, :disabled)
+  end
 
   defp effective_mode(%{http_cache: mode}, _config) when mode in [:enabled, :disabled], do: mode
 
@@ -179,40 +187,19 @@ defmodule ImagePipe.Response.CachePolicy do
   end
 
   defp representation_headers(_conn, %Representation{vary: []}), do: []
-  defp representation_headers(conn, %Representation{vary: names}), do: merge_vary(conn, names)
 
-  defp merge_vary(conn, added_names) do
-    existing =
-      conn
-      |> get_resp_header("vary")
-      |> Enum.flat_map(&split_vary/1)
-
-    values =
-      existing
-      |> Kernel.++(added_names)
-      |> Enum.uniq_by(&String.downcase/1)
-
-    if Enum.any?(existing, &(String.downcase(&1) == "*")),
-      do: [{"vary", "*"}],
-      else: [{"vary", Enum.join(values, ", ")}]
-  end
-
-  defp split_vary(value) do
-    value
-    |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
+  defp representation_headers(conn, %Representation{vary: names}),
+    do: [{"vary", CacheHeaders.merge_vary(conn, names)}]
 
   defp vary_star?(%Plug.Conn{} = conn) do
     conn
     |> get_resp_header("vary")
-    |> Enum.any?(fn value -> "*" in split_vary(value) end)
+    |> Enum.any?(fn value -> "*" in CacheHeaders.split_vary(value) end)
   end
 
   defp vary_star?(headers) do
     Enum.any?(headers, fn
-      {"vary", value} -> "*" in split_vary(value)
+      {"vary", value} -> "*" in CacheHeaders.split_vary(value)
       _header -> false
     end)
   end

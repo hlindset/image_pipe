@@ -102,7 +102,7 @@ defmodule ImagePipe.MixProject do
   defp extra_compilers(_env), do: [:boundary]
 
   defp description do
-    "A Plug-based image optimization server with an imgproxy-compatible path parser."
+    "A Plug-based image optimization server with mountable URL dialects."
   end
 
   defp package do

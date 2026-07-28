@@ -152,6 +152,33 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       do: StableSource.fetch(resolved, opts, runtime_opts)
   end
 
+  # A declarative host dialect whose `validate_config!/1` validates the shared
+  # keys only — the shape a dialect with no HTTP-cache option of its own lands
+  # on, which leaves `:http_cache` out of the config the policy reads.
+  defmodule NonDelegatingDialect do
+    use ImagePipe.Dialect.Declarative
+
+    alias ImagePipe.Dialect.SharedConfig
+
+    @impl ImagePipe.Dialect
+    def validate_config!(opts),
+      do: SharedConfig.validate_runtime!(Keyword.take(opts, SharedConfig.keys()))
+
+    @impl ImagePipe.Dialect.Declarative
+    def parse_plan(_conn, _config) do
+      {:ok,
+       %Plan{
+         source: %SourcePath{segments: ["beach.jpg"]},
+         pipelines: [%Plan.Pipeline{operations: []}],
+         output: %Plan.Output{mode: {:explicit, :jpeg}}
+       }}
+    end
+
+    @impl ImagePipe.Dialect
+    def render_error(conn, reason, _config),
+      do: Plug.Conn.send_resp(conn, 500, inspect(reason))
+  end
+
   # `identity` is a detector-adapter option, not a mount option, so the dialect
   # config rejects it as unknown. It is spliced onto the validated config after
   # `ImagePipe.Plug.init/1`, where the detector reads it.
@@ -317,6 +344,39 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     assert conn.status == 200
     assert get_resp_header(conn, "vary") == ["x-tenant"]
+  end
+
+  # Every shipped source adapter defaults to `http_cache: :inherit`, so the
+  # mount config is what the policy consults — and a host dialect's
+  # `validate_config!/1` return value is a real boundary, not a struct this
+  # repo built. A missing key means the mount never opted in, which must serve
+  # as `:disabled` rather than failing the request.
+  test "a dialect that skips the declarative config delegation serves without generated cache headers" do
+    opts =
+      init(
+        dialect: NonDelegatingDialect,
+        sources: [path: {InheritingSource, test_pid: self()}],
+        cache: {CacheProbe, test_pid: self()}
+      )
+
+    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg"), opts)
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "etag") == []
+    refute get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+  end
+
+  # A render terminal negotiates its own content type against Accept, on top of
+  # the representation's Vary. The storage partition is what decides WHICH
+  # info.json a shared cache may serve, so the Accept token has to join the
+  # configured header names rather than displace them.
+  test "a render terminal varies by Accept alongside the configured storage_inputs headers" do
+    opts = mount(storage_inputs: [{:header, "x-tenant"}])
+
+    conn = get("/img/info.json", opts, [{"x-tenant", "a"}])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "vary") == ["x-tenant, Accept"]
   end
 
   # Delta 14 of the Phase C plan asked whether an automatic output plan can lose

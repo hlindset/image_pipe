@@ -175,8 +175,12 @@ defmodule ImagePipe.Test.RunnerFixtureDialect do
     }
   end
 
-  defp material(request, negotiation, conn, _config) do
-    {storage_only, storage_vary} = Representation.storage_inputs(conn, [])
+  # `storage_inputs` rides the mount config the way a real dialect's does, so a
+  # runner-level test can mount a header partition and watch it reach both the
+  # cache key and the response's Vary.
+  defp material(request, negotiation, conn, config) do
+    {storage_only, storage_vary} =
+      Representation.storage_inputs(conn, Keyword.get(config, :storage_inputs, []))
 
     %IdentityMaterial{
       dialect_behavior: {__MODULE__, 1},
