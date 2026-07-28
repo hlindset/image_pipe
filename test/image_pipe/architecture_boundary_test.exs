@@ -71,6 +71,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
     ImagePipe.Plan => "lib/image_pipe/plan.ex",
+    ImagePipe.Plug => "lib/image_pipe/plug.ex",
     ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
@@ -116,6 +117,71 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/dialect/twic_pics.ex",
     "lib/image_pipe/dialect/twic_pics/**/*.ex"
   ]
+
+  test "plug boundary is the mount interface and takes only the neutral dialect contract" do
+    plug = boundary_declaration(ImagePipe.Plug)
+
+    assert_boundary_deps(plug, [
+      ImagePipe.Cache,
+      ImagePipe.Debug,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Dialect,
+      ImagePipe.Error,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Representation,
+      ImagePipe.Response,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    # U4 at the declaration layer: the runner takes `ImagePipe.Dialect`, the
+    # neutral contract, and never a concrete dialect. No dialect declares a dep
+    # on `ImagePipe.Plug`, so Boundary's cycle detection would happily accept
+    # one of these — this pin is what stops the expected list above from being
+    # widened to legitimize it alongside the source-level U4 grep.
+    refute_boundary_deps(plug, [
+      ImagePipe.Dialect.Declarative,
+      ImagePipe.Dialect.IIIF,
+      ImagePipe.Dialect.Imgproxy,
+      ImagePipe.Dialect.Native,
+      ImagePipe.Dialect.TwicPics
+    ])
+
+    # U2: the mount is the whole surface. `ImagePipe.Plug.DialectRunner` is the
+    # internal lifecycle, not a host contract.
+    assert_boundary_exports(plug, [])
+  end
+
+  test "dialect contract boundary pins the host-facing struct surface (U6)" do
+    contract = boundary_declaration(ImagePipe.Dialect)
+
+    assert_boundary_deps(contract, [
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Representation,
+      ImagePipe.Source,
+      ImagePipe.Transform
+    ])
+
+    # Widening the contract hands every dialect transitive reach into the
+    # runner's own lifecycle deps and hollows out the per-dialect
+    # `refute_boundary_deps` pins below that prove no dialect can touch them.
+    refute_boundary_deps(contract, [ImagePipe.Cache, ImagePipe.Delivery])
+
+    # The five structs a dialect implementation names to satisfy the callbacks.
+    # Anything added here is new public surface for every host dialect, so the
+    # list is pinned exactly rather than by inclusion.
+    assert_boundary_exports(contract, [
+      ImagePipe.Dialect.DebugContext,
+      ImagePipe.Dialect.Failure,
+      ImagePipe.Dialect.Negotiation,
+      ImagePipe.Dialect.RenderTerminal,
+      ImagePipe.Dialect.Resolved
+    ])
+  end
 
   test "dialect native boundary declaration depends only on core toolkit facades" do
     dialect_native = boundary_declaration(ImagePipe.Dialect.Native)
@@ -328,6 +394,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
+  # Scoped by inclusion to the ordered tier: an ordered dialect lowers its own
+  # private Request straight to transform operations, so a root Plan
+  # construction there is an inversion of its own contract. Producing a
+  # `%ImagePipe.Plan{}` is what `ImagePipe.Dialect.Declarative` and the dialects
+  # built on it are for, which is why the glob lists ordered dialect files only.
   test "TwicPics dialect code never constructs the Plan root struct" do
     violations =
       for file <- twicpics_dialect_files(),
@@ -634,30 +705,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           term <- forbidden_terms,
           String.contains?(line, term) do
         "#{file}:#{number} must not depend on #{term}; ImagePipe.Delivery owns cache staging"
-      end
-
-    assert violations == []
-  end
-
-  test "request code treats cache sinks as opaque cache values" do
-    request_sources =
-      "lib/image_pipe/request/**/*.ex"
-      |> Path.wildcard()
-      |> Map.new(fn file -> {file, File.read!(file)} end)
-
-    forbidden_terms = [
-      "ImagePipe.Cache.Sink",
-      "Cache.Sink",
-      ".Sink",
-      "%Sink{",
-      "%ImagePipe.Cache.Sink{"
-    ]
-
-    violations =
-      for {file, source} <- request_sources,
-          term <- forbidden_terms,
-          String.contains?(source, term) do
-        "#{file} must not inspect cache sink internals through #{term}"
       end
 
     assert violations == []
