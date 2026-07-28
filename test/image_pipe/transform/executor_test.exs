@@ -10,6 +10,8 @@ defmodule ImagePipe.Transform.ExecutorTest do
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.MutableImage
 
   describe "fixed neutral execution" do
     test "a Plan executes through the fixed neutral driver" do
@@ -19,6 +21,35 @@ defmodule ImagePipe.Transform.ExecutorTest do
                Executor.execute(plan([blur]), state_with_image(30, 20), [])
 
       assert dimensions(state.image) == {30, 20}
+    end
+  end
+
+  describe "preamble gates" do
+    # The colour preamble and the EXIF-orientation seed answer different
+    # questions, so they take separate gates. A caller whose orientation was
+    # already seeded before execution (the decode bracket does this) still needs
+    # the colour import, and must not have its pending orientation re-derived.
+    test "seed_input_color_management runs the colour preamble without seeding orientation" do
+      image = profiled_image_with_orientation(80, 40, 6)
+      plan = %{plan([]) | auto_rotate: true}
+
+      assert {:ok, %State{} = conditioned} =
+               Executor.execute(plan, %State{image: image},
+                 seed_input_color_management: true,
+                 seed_orientation: false
+               )
+
+      assert conditioned.color_imported? == true
+      assert is_binary(conditioned.source_color_profile)
+      # Orientation 6 is a quarter turn: had it been seeded, the boundary flush
+      # would have swapped the axes.
+      assert dimensions(conditioned.image) == {80, 40}
+
+      # Control: the orientation gate on its own does seed, and the flush swaps.
+      assert {:ok, %State{} = oriented} =
+               Executor.execute(plan, %State{image: image}, seed_orientation: true)
+
+      assert dimensions(oriented.image) == {40, 80}
     end
   end
 
@@ -704,6 +735,26 @@ defmodule ImagePipe.Transform.ExecutorTest do
       |> Image.Draw.rect!(1, 0, 1, 1, color: :blue)
 
     %State{image: image}
+  end
+
+  # A non-square image carrying both an importable embedded profile (borrowed
+  # from the committed wide-gamut fixture) and an EXIF orientation tag, so one
+  # run can observe the colour import and the orientation seed independently.
+  defp profiled_image_with_orientation(width, height, orientation) do
+    {:ok, profile} =
+      "test/support/image_pipe/test/imgproxy_differential/sources/icc_p3.png"
+      |> Image.open!(access: :sequential)
+      |> VipsImage.header_value("icc-profile-data")
+
+    {:ok, image} =
+      width
+      |> Image.new!(height, color: [120, 60, 200])
+      |> VipsImage.mutate(fn mutable ->
+        :ok = MutableImage.set(mutable, "icc-profile-data", :VipsBlob, profile)
+        :ok = MutableImage.set(mutable, "orientation", :gint, orientation)
+      end)
+
+    image
   end
 
   defp state_with_striped_image do

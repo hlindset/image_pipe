@@ -25,6 +25,7 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
   alias ImagePipe.Dialect.Imgproxy
   alias ImagePipe.Dialect.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.DeclarativeFixtureDialect
   alias Vix.Vips.Image, as: VipsImage
 
   @p3_source "test/support/image_pipe/test/imgproxy_differential/sources/icc_p3.png"
@@ -61,6 +62,13 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
     ImagePipe.Plug.call(
       conn(:get, path),
       ImagePipe.Plug.init(dialect: Native, sources: sources())
+    )
+  end
+
+  defp dialect_declarative(path) do
+    ImagePipe.Plug.call(
+      conn(:get, path),
+      ImagePipe.Plug.init(dialect: DeclarativeFixtureDialect, sources: sources())
     )
   end
 
@@ -133,6 +141,21 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
       assert_pixel_parity(
         dialect_imgproxy("/_/f:png/plain/images/icc_p3.png"),
         dialect_native("/format=png/src/images/icc_p3.png")
+      )
+    end
+  end
+
+  describe "declarative tier" do
+    # The declarative base runs the colour preamble through
+    # `Transform.Executor`'s `seed_input_color_management` gate and stamps the
+    # carry itself in `ImagePipe.Dialect.Declarative.execute/4`. Both halves of
+    # that seam are invisible to a header assertion, so the subject is compared
+    # against an ORDERED leg (never another declarative one) asked for the same
+    # bytes: this source, no geometry, PNG out, default (strip) colour policy.
+    test "no geometry, PNG out: pixels match the imgproxy dialect's equivalent request" do
+      assert_pixel_parity(
+        dialect_imgproxy("/_/f:png/plain/images/icc_p3.png"),
+        dialect_declarative("/images/icc_p3.png?f=png")
       )
     end
   end

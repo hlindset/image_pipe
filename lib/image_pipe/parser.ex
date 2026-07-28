@@ -74,15 +74,4 @@ defmodule ImagePipe.Parser do
   defp keyword_return_error(parser, returned) do
     "#{inspect(parser)}.validate_options!/1 must return a keyword list, got: #{inspect(returned)}"
   end
-
-  @doc """
-  Coerce a URL boolean flag value shared across dialect parsers.
-
-  Accepts the boolean spellings `1`/`t`/`true` and `0`/`f`/`false`; any other
-  value is `{:error, {:invalid_boolean, value}}`.
-  """
-  @spec parse_boolean(String.t()) :: {:ok, boolean()} | {:error, {:invalid_boolean, String.t()}}
-  def parse_boolean(value) when value in ["1", "t", "true"], do: {:ok, true}
-  def parse_boolean(value) when value in ["0", "f", "false"], do: {:ok, false}
-  def parse_boolean(value), do: {:error, {:invalid_boolean, value}}
 end

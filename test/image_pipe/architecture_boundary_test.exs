@@ -72,6 +72,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
+    ImagePipe.Dialect => "lib/image_pipe/dialect.ex",
+    ImagePipe.Dialect.Declarative => "lib/image_pipe/dialect/declarative.ex",
     ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
     ImagePipe.Dialect.SharedConfig => "lib/image_pipe/dialect/shared_config.ex",
@@ -293,6 +295,42 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(dialect_twicpics, [])
+  end
+
+  test "dialect Declarative boundary is its own top-level boundary, not a widened contract" do
+    declarative = boundary_declaration(ImagePipe.Dialect.Declarative)
+
+    assert_boundary_deps(declarative, [
+      ImagePipe.Decode,
+      ImagePipe.Dialect,
+      ImagePipe.Dialect.SharedConfig,
+      ImagePipe.Error,
+      ImagePipe.Plan,
+      ImagePipe.Renderer,
+      ImagePipe.Representation,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    # The declarative base is a sibling of the contract, not a widening of it:
+    # folding these deps into `ImagePipe.Dialect` would hand every ordered
+    # dialect transitive reach into Decode/Renderer/Telemetry and hollow out the
+    # `refute_boundary_deps` pins above that prove they cannot.
+    contract = boundary_declaration(ImagePipe.Dialect)
+    refute_boundary_deps(contract, [ImagePipe.Decode, ImagePipe.Renderer, ImagePipe.Telemetry])
+
+    # Same rule as every product dialect: only core toolkit facades, never the
+    # framework's parser/request/cache/delivery stack.
+    refute_boundary_deps(declarative, [
+      ImagePipe.Cache,
+      ImagePipe.Delivery,
+      ImagePipe.Parser,
+      ImagePipe.Request
+    ])
+
+    # Nothing here is a host contract module: hosts `use` the base and implement
+    # the callbacks, so nothing is exported.
+    assert_boundary_exports(declarative, [])
   end
 
   test "dialect SharedConfig boundary declaration stays product-neutral" do

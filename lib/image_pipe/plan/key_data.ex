@@ -27,6 +27,7 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
   alias ImagePipe.Plan.Operation.Trim
+  alias ImagePipe.Plan.Output.QualitySearch
 
   @crop_anchor_guides [
     :center,
@@ -196,6 +197,54 @@ defmodule ImagePipe.Plan.KeyData do
       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
              denominator > 0 do
     ratio_data(numerator, denominator)
+  end
+
+  @doc """
+  Canonical key data for a resolved `quality_search` plan value.
+
+  `max_resolution` selects which bytes get stored, not whether they get
+  generated: above it the autoquality search is skipped and base-quality bytes
+  ship, below it searched-quality bytes ship. Both are successful 200s with
+  different bytes, so — like the per-format clamps — it is stored identity and
+  enters both the key and the ETag; omitting it would let a config change serve
+  a stale 304. Per-format clamps are sorted for canonical equality.
+  """
+  @spec quality_search_data(:none | struct()) :: :none | keyword()
+  def quality_search_data(:none), do: :none
+
+  def quality_search_data(%QualitySearch.Size{} = s) do
+    [
+      metric: :size,
+      target: s.target,
+      min_quality: s.min_quality,
+      max_quality: s.max_quality,
+      url_min_quality: s.url_min_quality,
+      url_max_quality: s.url_max_quality,
+      max_resolution: s.max_resolution,
+      format_min: Enum.sort(Map.to_list(s.format_min)),
+      format_max: Enum.sort(Map.to_list(s.format_max))
+    ]
+  end
+
+  def quality_search_data(%QualitySearch.Ssimulacra2{} = s),
+    do: quality_metric_data(:ssimulacra2, s)
+
+  def quality_search_data(%QualitySearch.Butteraugli{} = s),
+    do: quality_metric_data(:butteraugli, s)
+
+  defp quality_metric_data(metric, s) do
+    [
+      metric: metric,
+      target: s.target,
+      min_quality: s.min_quality,
+      max_quality: s.max_quality,
+      url_min_quality: s.url_min_quality,
+      url_max_quality: s.url_max_quality,
+      allowed_error: s.allowed_error,
+      max_resolution: s.max_resolution,
+      format_min: Enum.sort(Map.to_list(s.format_min)),
+      format_max: Enum.sort(Map.to_list(s.format_max))
+    ]
   end
 
   defp optional_data(nil), do: nil

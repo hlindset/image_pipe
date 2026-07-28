@@ -11,7 +11,6 @@ defmodule ImagePipe.Cache.Key do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Output
-  alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Pipeline
 
   @schema_version 2
@@ -154,53 +153,12 @@ defmodule ImagePipe.Cache.Key do
 
   defp output_data(_conn, %Output{} = output, opts), do: output_plan_data(output, opts)
 
-  # `max_resolution` selects which bytes get stored, not whether they get generated:
-  # above it the autoquality search is skipped and base-quality bytes ship, below it
-  # searched-quality bytes ship. Both are successful 200s with different bytes, so —
-  # like the per-format clamps — it is stored identity and enters both the key and the
-  # ETag; omitting it would let a config change serve a stale 304. Per-format clamps
-  # are sorted for canonical equality.
   # Encoder-option structs must be flattened to plain maps before the digest
   # (MaterialDigest.canonicalize/1 Enum.maps over maps; structs aren't Enumerable).
   defp encoder_options_key(map),
     do: Map.new(map, fn {format, struct} -> {format, Map.from_struct(struct)} end)
 
-  defp quality_search_key(:none), do: :none
-
-  defp quality_search_key(%QualitySearch.Size{} = s) do
-    [
-      metric: :size,
-      target: s.target,
-      min_quality: s.min_quality,
-      max_quality: s.max_quality,
-      url_min_quality: s.url_min_quality,
-      url_max_quality: s.url_max_quality,
-      max_resolution: s.max_resolution,
-      format_min: Enum.sort(Map.to_list(s.format_min)),
-      format_max: Enum.sort(Map.to_list(s.format_max))
-    ]
-  end
-
-  defp quality_search_key(%QualitySearch.Ssimulacra2{} = s),
-    do: quality_metric_key(:ssimulacra2, s)
-
-  defp quality_search_key(%QualitySearch.Butteraugli{} = s),
-    do: quality_metric_key(:butteraugli, s)
-
-  defp quality_metric_key(metric, s) do
-    [
-      metric: metric,
-      target: s.target,
-      min_quality: s.min_quality,
-      max_quality: s.max_quality,
-      url_min_quality: s.url_min_quality,
-      url_max_quality: s.url_max_quality,
-      allowed_error: s.allowed_error,
-      max_resolution: s.max_resolution,
-      format_min: Enum.sort(Map.to_list(s.format_min)),
-      format_max: Enum.sort(Map.to_list(s.format_max))
-    ]
-  end
+  defp quality_search_key(quality_search), do: KeyData.quality_search_data(quality_search)
 
   defp replace_keyword_value(keyword, key, value) do
     Enum.map(keyword, fn
