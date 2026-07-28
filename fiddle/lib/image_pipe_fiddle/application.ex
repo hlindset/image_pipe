@@ -85,19 +85,18 @@ defmodule ImagePipeFiddle.Application do
     imgproxy = Application.fetch_env!(:image_pipe_fiddle, :imgproxy)
 
     [
+      dialect: ImagePipe.Dialect.Imgproxy,
       sources: imgproxy_source_mounts(),
       # Graceful fallback: detection failures degrade to attention crop (200) rather
       # than erroring; the default Logger surfaces any detection fallback.
-      detector_required: false
+      detector_required: false,
+      allow_debug_headers: true
     ]
     # The dialect takes one flat keyword list; the :imgproxy env sublist
     # (signature, smart_crop_face_detection) merges in at the top level.
-    # The dialect serves no X-ImagePipe-* debug headers, so this mount has no
-    # allow_debug_headers switch; the fiddle's debug panel stays empty here
-    # (the `debug:1` option still parses and is covered by the signature).
     |> Keyword.merge(imgproxy)
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Dialect.Imgproxy.init()
+    |> ImagePipe.Plug.init()
   end
 
   defp build_iiif_opts do
@@ -146,13 +145,14 @@ defmodule ImagePipeFiddle.Application do
     static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
 
     [
+      dialect: ImagePipe.Dialect.TwicPics,
       sources: [
         path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
       ],
       allow_debug_headers: true
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Dialect.TwicPics.init()
+    |> ImagePipe.Plug.init()
   end
 
   defp maybe_put_cache(opts, nil), do: opts

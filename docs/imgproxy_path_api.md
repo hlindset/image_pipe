@@ -11,10 +11,12 @@ For a feature-by-feature comparison with Imgproxy's processing URL surface, see
 
 ## Mounting
 
-`ImagePipe.Dialect.Imgproxy` is the plug — mount it directly:
+`ImagePipe.Dialect.Imgproxy` is a dialect driven by the shared
+`ImagePipe.Plug` runner — mount it with `dialect:`:
 
 ```elixir
-plug ImagePipe.Dialect.Imgproxy,
+plug ImagePipe.Plug,
+  dialect: ImagePipe.Dialect.Imgproxy,
   sources: [...],
   source_url_encryption_key: "..."
 ```
@@ -22,9 +24,9 @@ plug ImagePipe.Dialect.Imgproxy,
 Configuration is one flat keyword list — no `parser:`, and no `:imgproxy`
 sublist, because there is nothing to namespace against.
 
-The dialect's config validates strictly: an unknown key raises out of `init/1`
-rather than being ignored, so a typo or an unsupported option fails loudly at
-boot. See
+The dialect's config validates strictly: an unknown key raises out of
+`ImagePipe.Plug.init/1` rather than being ignored, so a typo or an unsupported
+option fails loudly at boot. See
 [Dialect-stack divergences](imgproxy_support_matrix.md#dialect-stack-divergences)
 for the (small) set of ImagePipe-side implementation facts a host mounting the
 dialect should know.
@@ -68,8 +70,9 @@ same source translation used by plain sources. A decoded `images/cat.jpg`,
 configured custom scheme produces the same `ImagePipe.Plan` source as the
 matching plain request.
 
-`enc` starts an encrypted source URL. Configure it through
-`ImagePipe.Dialect.Imgproxy.init/1`:
+`enc` starts an encrypted source URL. Configure it through the mount's
+`ImagePipe.Plug.init/1` (which delegates to
+`ImagePipe.Dialect.Imgproxy.validate_config!/1` for the `dialect:` key):
 
 ```elixir
 source_url_encryption_key: "000102030405060708090a0b0c0d0e0f"
@@ -195,7 +198,8 @@ Generic quality and format-specific quality are separate canonical fields.
 
 Normal processing URLs support configured Imgproxy presets:
 
-    ImagePipe.Dialect.Imgproxy.init(
+    ImagePipe.Plug.init(
+      dialect: ImagePipe.Dialect.Imgproxy,
       sources: [
         path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
       ],
@@ -356,8 +360,8 @@ Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
   `ar`, the last `ar` in path order wins.
 - When the resolved request policy is `true`, ImagePipe carries it on the
   canonical plan (`Plan.auto_rotate`), not as a pipeline pixel operation. EXIF
-  auto-orient is applied late at the orientation-flush boundary — after
-  crop/resize — with crop gravity and resize dimensions compensated into the
+  auto-orient is applied late at the orientation-flush boundary, after
+  crop/resize, with crop gravity and resize dimensions compensated into the
   storage frame so the observable result matches EXIF-normalized geometry (issue
   #146). That keeps cache keys, ETags, and transform execution on the same
   canonical plan machinery.

@@ -13,19 +13,24 @@ Two independent controls must both be satisfied for any header to be emitted:
    deployment-level switch. When `false`, no debug headers are ever rendered.
 
    ```elixir
-   plug ImagePipe.Dialect.TwicPics,
+   plug ImagePipe.Plug,
+     dialect: ImagePipe.Dialect.TwicPics,
      sources: [...],
      allow_debug_headers: true
    ```
 
-   Debug headers are available on `ImagePipe.Plug` and
-   `ImagePipe.Dialect.TwicPics`. The imgproxy stack parses the `debug:1`
-   processing option in its signed path. It collects no debug facts, emits no
-   debug headers, and has no `allow_debug_headers` switch.
+   Debug headers are available on every mount, both the dialect mounts
+   (`ImagePipe.Plug, dialect: …`: imgproxy, TwicPics, Native) and the
+   framework `parser:` mount (IIIF). Native currently has no per-request
+   trigger in its grammar, so its responses render none until a trigger is
+   chosen (follow-up issue).
 
 2. **Per-request trigger** — opts a single request into debug headers. Honored
    only when `allow_debug_headers: true`; otherwise ignored. The trigger is
    **parser-specific**:
+   - **imgproxy**: the `debug:1` processing option inside the signed path,
+     for example `/<signature>/debug:1/rs:fill:400:300/plain/…` (also
+     `debug:true`; `debug:0`/`debug:false` opt out).
    - **TwicPics**: a `debug=1` segment in the `twic` manipulation chain, e.g.
      `/images/cat.jpg?twic=v1/resize=400/debug=1`. Order-independent; emits no
      transform.
@@ -34,9 +39,9 @@ Two independent controls must both be satisfied for any header to be emitted:
      free slot, so the trigger is an out-of-band query param (read leniently — a
      malformed value is ignored, never a 400).
 
-   Both triggers accept the boolean spellings `1`/`true`; TwicPics also accepts
-   `0`/`false` to explicitly opt out. Neither trigger is signature-protected —
-   see below.
+   All triggers accept the boolean spellings `1`/`true`; TwicPics and imgproxy
+   also accept `0`/`false` to explicitly opt out. Only the imgproxy trigger is
+   signature-protected — see below.
 
 A debug trigger does **not** change the produced image bytes: it lives on
 `Plan.Response`, which is excluded from both the cache key and the ETag, so a
@@ -48,10 +53,10 @@ items, with no cache invalidation.)
 ## Security and disclosure
 
 > **Signing.** On the imgproxy stack, `debug:1` is part of the signed
-> processing-options path, so a configured path signature (HMAC) covers it: an
-> attacker cannot append `debug:1` to an otherwise-valid signed URL without
-> invalidating the signature. Since the imgproxy stack emits no debug headers,
-> this matters only for signature integrity, not disclosure.
+> processing-options path, so a configured path signature (HMAC) covers it,
+> and covers it as a *disclosing* trigger, which is the point: an attacker
+> cannot append `debug:1` to an otherwise-valid signed URL without
+> invalidating the signature.
 >
 > **TwicPics / IIIF** have no request signing at all, so their `debug=1` /
 > `?debug=1` triggers are **always unprotected** — anyone who can reach the mount
@@ -79,7 +84,7 @@ omitted. Names and units are owned by `ImagePipe.Debug.Headers`.
 | `X-ImagePipe-Source-Size` | `184320` | Source byte count |
 | `X-ImagePipe-Source-Width` | `4000` | Source pixel width |
 | `X-ImagePipe-Source-Height` | `3000` | Source pixel height |
-| `X-ImagePipe-Source-Color-Space` | `srgb` | Source interpretation |
+| `X-ImagePipe-Source-Color-Space` | `VIPS_INTERPRETATION_sRGB` | Source interpretation |
 | `X-ImagePipe-Source-ICC` | `true` | Embedded ICC profile present |
 | `X-ImagePipe-Source-Bit-Depth` | `8` | Bits per sample |
 | `X-ImagePipe-Source-Alpha` | `false` | Source has an alpha channel |
@@ -147,10 +152,10 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 
 ## Demo (fiddle)
 
-The bundled demo (`fiddle/`) configures its TwicPics and IIIF mounts with
-`allow_debug_headers: true` and injects each stack's debug trigger into its
-preview requests (TwicPics `debug=1`, IIIF `?debug=1`). Its service worker reads
+The bundled demo (`fiddle/`) configures its imgproxy, TwicPics, and IIIF
+mounts with `allow_debug_headers: true` and injects each stack's debug
+trigger into its preview requests (imgproxy signs a `debug:1`-augmented
+preview path; TwicPics `debug=1`; IIIF `?debug=1`). Its service worker reads
 these headers off the fetched response and surfaces them in a **Debug headers**
 panel under the preview, including the derived output size and compression
-ratio. The imgproxy mount serves through `ImagePipe.Dialect.Imgproxy`, which
-emits no debug headers, so the panel stays empty there.
+ratio.

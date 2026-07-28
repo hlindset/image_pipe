@@ -18,7 +18,8 @@ from the minimum viable module to the advanced extension points:
 A host `ImagePipe.Parser` produces only product-neutral declarative Plans. If a
 dialect's meaning depends on the *order* of its operations or on running-image
 geometry it carries across steps (positional focus, running-dimension units),
-it is not a declarative parser: it owns a self-contained Plug and its own
+it is not a declarative parser: it implements the `ImagePipe.Dialect`
+behaviour, mounted via `ImagePipe.Plug, dialect: …`, and owns its own
 pipeline. See [When a parser isn't enough](#when-a-parser-isnt-enough).
 
 The in-tree framework parser is the primary worked example:
@@ -28,9 +29,10 @@ The in-tree framework parser is the primary worked example:
 | `ImagePipe.Parser.IIIF` | positional path grammar | Host-pluggable id resolution, 303 redirects, custom `info.json` renderer |
 
 For signed path options, source-URL encryption, presets, or syntax whose order
-is itself the execution model, use a self-contained dialect Plug as the
-architectural reference. `ImagePipe.Dialect.Imgproxy` and
-`ImagePipe.Dialect.TwicPics` don't implement `ImagePipe.Parser`.
+is itself the execution model, use an `ImagePipe.Dialect` implementation
+(mounted via `ImagePipe.Plug, dialect: …`) as the architectural reference.
+`ImagePipe.Dialect.Imgproxy` and `ImagePipe.Dialect.TwicPics` don't implement
+`ImagePipe.Parser`.
 
 ## The big picture
 
@@ -56,7 +58,8 @@ Two properties of this flow shape everything a parser does:
   declarative; the transform layer owns operation semantics and neutral
   runtime-geometry lowering. Map matching URL spellings into the same Plan. If
   the syntax requires a positional command stream that can't be stated as a
-  declarative Plan, it belongs in a self-contained dialect Plug.
+  declarative Plan, it belongs in an `ImagePipe.Dialect` implementation
+  (mounted via `ImagePipe.Plug, dialect: …`), not a parser.
 
 ## The parser behaviour
 
@@ -122,11 +125,11 @@ unsupported host config fails at boot instead of being silently ignored.
 When `parse/2` returns `{:error, reason}`, the plug hands the *same tuple* to
 your `handle_error(conn, {:error, reason})`, and your parser owns the response
 — status, content type, body. This is where dialect conventions live: IIIF
-maps `:not_found` to `404`. (`ImagePipe.Dialect.Imgproxy`, which assembles its
-own request chain rather than implementing `ImagePipe.Parser`, uses an
-analogous convention in `Dialect.Imgproxy.Errors` — 403 for signature
-failures, 400 for grammar errors.) Keep bodies terse and non-reflective (don't
-echo secrets or full URLs).
+maps `:not_found` to `404`. (`ImagePipe.Dialect.Imgproxy`, which implements
+the `ImagePipe.Dialect` behaviour's `render_error/3` callback rather than
+`ImagePipe.Parser`, uses an analogous convention in `Dialect.Imgproxy.Errors`
+— 403 for signature failures, 400 for grammar errors.) Keep bodies terse and
+non-reflective (don't echo secrets or full URLs).
 
 Only *parser* errors flow through `handle_error/2`. If a parser hands the plug
 a structurally invalid Plan, the plug's own plan validation rejects it and
@@ -227,8 +230,8 @@ the existing semantic operations. If dialect syntax has no clean neutral
 equivalent, propose a new neutral operation in core — dialect quirks must not
 leak product-specific semantics into the shared vocabulary. If the quirk is an
 *ordered* runtime-geometry behavior that has no product-neutral statement, it
-belongs in a self-contained dialect Plug, not the declarative Plan (see
-[When a parser isn't enough](#when-a-parser-isnt-enough)).
+belongs in an `ImagePipe.Dialect` implementation, not the declarative Plan
+(see [When a parser isn't enough](#when-a-parser-isnt-enough)).
 
 ### Output
 
@@ -394,9 +397,10 @@ shared runner: `plug ImagePipe.Plug, dialect: MyDialect, <flat config>`. The
 runner owns the neutral request lifecycle (source resolution, conditional
 GET, cache serve, streaming delivery); the dialect owns everything
 dialect-specific as values on `ImagePipe.Dialect.Resolved`.
-`ImagePipe.Dialect.Native` is the first in-tree dialect ported onto this
-contract; `ImagePipe.Dialect.Imgproxy` and `ImagePipe.Dialect.TwicPics` still
-mount directly as self-contained Plugs during the transition. A dialect
+All three in-tree ordered dialects — `ImagePipe.Dialect.Native`,
+`ImagePipe.Dialect.Imgproxy`, and `ImagePipe.Dialect.TwicPics` — implement
+this contract and mount through `ImagePipe.Plug, dialect: …`. IIIF remains on
+the framework `parser:` mount until Phase C. A dialect
 reuses neutral core boundaries (`Decode`, `Output`, `Source`, `Transform`, …)
 and neutral Plan operation structs as semantic inputs, but it must not depend
 on private in-tree implementation helpers such as
