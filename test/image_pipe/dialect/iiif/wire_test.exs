@@ -117,10 +117,11 @@ defmodule ImagePipe.Dialect.IIIF.WireTest do
   # Call helpers
   # ---------------------------------------------------------------------------
 
-  # `image_module`/`on_bracket_exit`/`output_capabilities` are test-injection
-  # seams that `ImagePipe.Dialect.IIIF.Config.validate!/1` rejects as unknown
-  # options. They are spliced onto the validated config AFTER
-  # `ImagePipe.Plug.init/1`, the convention every dialect suite follows.
+  # `image_module`/`on_bracket_exit` are test-injection seams that
+  # `ImagePipe.Dialect.IIIF.Config.validate!/1` rejects as unknown options.
+  # `output_capabilities` is a validated shared-config key, not unknown, but is
+  # spliced in the same way for consistency with the other dialect suites'
+  # `opts/1` convention. All three are applied AFTER `ImagePipe.Plug.init/1`.
   @test_only_seam_keys [:image_module, :on_bracket_exit, :output_capabilities]
 
   defp init(opts) do
@@ -787,6 +788,9 @@ defmodule ImagePipe.Dialect.IIIF.WireTest do
 
       refute get_resp_header(disabled, "cache-control") ==
                get_resp_header(enabled, "cache-control")
+
+      assert [enabled_cache_control] = get_resp_header(enabled, "cache-control")
+      assert enabled_cache_control =~ "max-age="
     end
 
     test "http_cache: [mode: :enabled] emits a stable ETag for the same request" do

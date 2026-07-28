@@ -1130,6 +1130,24 @@ defmodule ImagePipe.PlugTest do
     refute_received :origin_was_called
   end
 
+  # Pins ImagePipe.Parser.IIIF's 404 status mapping (unresolved identifier), the
+  # framework mount's only remaining not-found coverage. Goes away with that mount.
+  test "unresolved IIIF identifier returns 404 before origin fetch" do
+    conn = conn(:get, "/nope/full/max/0/default.jpg")
+
+    conn =
+      call_image_pipe(conn,
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.IIIF,
+        iiif: [resolver: iiif_resolver()],
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    assert conn.status == 404
+    assert conn.resp_body == "not found"
+    refute_received :origin_was_called
+  end
+
   test "empty pipeline plan returns a controlled response before source fetch" do
     conn = conn(:get, "/image")
 
