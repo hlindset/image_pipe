@@ -655,16 +655,22 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   # no detector, so the 200 body path executes too.
   test "guide-bearing focal gravity emits an etag on the strong-identity path" do
     opts = mount(dialect: GuidedIIIFDialect)
+    url = "/img/square/200,100/0/default.jpg?guide=focal"
 
-    conn =
-      ImagePipe.Plug.call(
-        conn(:get, "/img/square/200,100/0/default.jpg?guide=focal"),
-        opts
-      )
+    conn = ImagePipe.Plug.call(conn(:get, url), opts)
 
     assert conn.status == 200
     assert [etag] = get_resp_header(conn, "etag")
     assert etag =~ @strong_validator
+    flush_messages()
+
+    # The validator is a pure function of the request: replaying it with
+    # If-None-Match revalidates before the cache is even consulted.
+    revalidated = get(url, opts, [{"if-none-match", etag}])
+
+    assert revalidated.status == 304
+    assert get_resp_header(revalidated, "etag") == [etag]
+    refute_received {:cache_get, %Key{}}
   end
 
   @doc false

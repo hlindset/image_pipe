@@ -54,7 +54,11 @@ defmodule ImagePipe.TelemetryTest do
 
     def validate!(opts) do
       {shared, rest} = Keyword.split(opts, SharedConfig.keys())
-      {base, []} = Keyword.split(rest, Declarative.config_keys())
+      {base, unknown} = Keyword.split(rest, Declarative.config_keys())
+
+      if unknown != [] do
+        raise "unknown mount option(s): #{inspect(Keyword.keys(unknown))}"
+      end
 
       Keyword.merge(SharedConfig.validate_runtime!(shared), Declarative.validate_config!(base))
     end
@@ -172,7 +176,9 @@ defmodule ImagePipe.TelemetryTest do
     def abort_sink(_state, _opts), do: :ok
   end
 
-  defmodule CountingCache do
+  # A plain miss-then-accept-writes cache, just enough to make
+  # `[:cache, :write]` fire.
+  defmodule WritableCache do
     @behaviour ImagePipe.Cache
 
     def get(_key, _opts), do: :miss
@@ -309,7 +315,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/beach/full/100,/0/default.jpg")
-      |> ImagePipe.Plug.call(base_opts(cache: {CountingCache, []}))
+      |> ImagePipe.Plug.call(base_opts(cache: {WritableCache, []}))
 
     assert conn.status == 200
 
@@ -356,9 +362,12 @@ defmodule ImagePipe.TelemetryTest do
     assert index_of(names, @prefix ++ [:source, :fetch_decode, :stop]) <
              index_of(names, @prefix ++ [:render, :start])
 
-    # No image terminal ran.
+    # No image terminal ran, and info.json takes neither the cache-lookup nor
+    # the output-negotiation branch of the image path.
     refute_event(events, @prefix ++ [:encode, :start])
     refute_event(events, @prefix ++ [:deliver, :start])
+    refute_event(events, @prefix ++ [:cache, :lookup, :start])
+    refute_event(events, @prefix ++ [:output, :negotiate, :start])
   end
 
   test "a decode failure on info.json emits no render span" do
