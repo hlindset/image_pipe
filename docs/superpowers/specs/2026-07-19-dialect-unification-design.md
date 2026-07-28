@@ -63,7 +63,7 @@ File-level ExDNA suppression (the exact concern of issue #457) hid the drift.
 | --- | --- | --- |
 | U1 | One coarse request-lifecycle contract, `ImagePipe.Dialect`, replaces both request models. | The post-parse lifecycle is empirically one observable control flow; hand-mirroring it four times already produced a live drift bug. |
 | U2 | `ImagePipe.Plug` becomes the single mount interface and the lifecycle runner: `plug ImagePipe.Plug, dialect: Module, <flat config>`. | "One way to mount" is literal, not cosmetic; the runner owns the neutral spine once. |
-| U3 | The behaviour has six required callbacks (`validate_config!`, `parse`, `prepare`, `decode_request`, `execute`, `render_error`) and two optional hooks; everything else rides `%Dialect.Resolved{}` as values. | Coarse phases, not mid-execution hooks. Values-not-callbacks is what keeps the contract from regrowing the leaky framework T8 warned about. |
+| U3 | The behaviour has six required callbacks (`validate_config!`, `parse`, `prepare`, `decode_request`, `execute`, `render_error`) and one optional hook; everything else rides `%Dialect.Resolved{}` as values. | Coarse phases, not mid-execution hooks. Values-not-callbacks is what keeps the contract from regrowing the leaky framework T8 warned about. |
 | U4 | The runner may branch only on `Resolved` fields and neutral core structs — never on dialect identity, never via dialect-specific flags. | The "pile of conditionals" failure mode arrives incrementally; this is the review-enforceable line against it. |
 | U5 | Product ordering stays wholly inside the dialect's `execute` (its Pipeline); the runner has no ordering concept. | Preserves T8's *reason* while overturning its conclusion. |
 | U6 | The behaviour is public and documented: declarative tier (`use ImagePipe.Dialect.Declarative`, implement `parse_plan/2 -> %Plan{}` — a distinct name because the macro owns the behaviour's `parse/2`) and ordered tier (implement the full behaviour). | Deliberate T13 reversal (user decision). This is a request-lifecycle SDK, not the rejected per-operation mid-execution SDK: no `Resolver`, no `Directive`, no `:deferred`, no Plan markers; `NeutralResolver` stays core-internal. |
@@ -128,19 +128,12 @@ defmodule ImagePipe.Dialect do
   # Optional. Maps a reason to the [:request] span's :result atom; the default
   # is ImagePipe.Telemetry.request_result/1 (today's per-dialect
   # outcome_result fallbacks).
-
-  @callback debug_info(ImagePipe.Dialect.DebugContext.t()) ::
-              ImagePipe.Debug.Info.t() | nil
-  # Optional ENRICHMENT override (U13). The runner builds a default neutral
-  # Debug.Info from DebugContext — geometry, decode shrink, Decode-collected
-  # source facts, negotiation, resolved output, final image dims, encoder
-  # search metadata (the AQ block), Resolved.operations, and stage timings
-  # the runner measures. Every fact TwicPics' build_debug emits today is in
-  # that neutral set, so the expectation is that no dialect implements this
-  # hook; it exists for a future dialect-specific fact and is dropped from
-  # the contract if the ports confirm nobody needs it.
 end
 ```
+
+This listing is the contract as it stands after Phase B; see the per-phase
+addendum at the end of this document for the deltas and contract widenings
+each phase introduced.
 
 ### `%ImagePipe.Dialect.Resolved{}`
 
