@@ -453,7 +453,7 @@ defmodule ImagePipe.Plug.DialectRunner do
          {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
            Timing.measure(fn -> encode_first_chunk(image, resolved_output, config) end) do
       debug =
-        DebugBuilder.build(dialect, %DebugContext{
+        DebugBuilder.build(%DebugContext{
           geometry: geometry,
           shrink: shrink,
           negotiation: negotiation,

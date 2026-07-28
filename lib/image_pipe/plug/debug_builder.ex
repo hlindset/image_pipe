@@ -8,14 +8,8 @@ defmodule ImagePipe.Plug.DebugBuilder do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
 
-  @spec build(module(), DebugContext.t()) :: Info.t()
-  def build(dialect, %DebugContext{} = ctx) do
-    if function_exported?(dialect, :debug_info, 1) do
-      dialect.debug_info(ctx) || default(ctx)
-    else
-      default(ctx)
-    end
-  end
+  @spec build(DebugContext.t()) :: Info.t()
+  def build(%DebugContext{} = ctx), do: default(ctx)
 
   defp default(%DebugContext{} = ctx) do
     {source_width, source_height} = ctx.geometry.storage_dimensions

@@ -496,6 +496,14 @@ defmodule ImagePipe.ImgproxyTelemetryContractTest do
       assert result_of(events, [:deliver], :stop) == :processing_error
       assert result_of(events, [:source, :fetch_decode], :stop) == :ok
       assert result_of(events, [:encode], :stop) == :ok
+
+      # Enumerated delta 4: the runner promotes the mid-stream send override
+      # (`Sender`'s conn-private `:image_pipe_send_result` stamp) onto the
+      # `[:request]` span's stop result for every dialect, not only TwicPics
+      # (which already pinned this as its `:streamed_error` scenario). A
+      # committed 200 whose stream then fails must report `:processing_error`
+      # here, not the stale `:ok` a pre-override span would carry.
+      assert %{result: :processing_error, status: 200} = metadata_of(events, [:request], :stop)
     end
   end
 

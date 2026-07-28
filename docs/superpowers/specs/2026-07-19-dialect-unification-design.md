@@ -611,3 +611,142 @@ namespace guidelines that name `ImagePipe.Parser.*`/`ImagePipe.Request.*`.
 - **Recreating the geometry SDK by drift.** Control: the contract has no
   per-operation hooks; any proposal to add one fails U3/U5 by construction
   and must instead follow the marker-accretion rule in AGENTS.md.
+
+## Per-phase addenda (deltas and contract widenings beyond the original lists)
+
+Implementation-time deltas and typed-contract widenings discovered while
+porting each phase, recorded here so Phase C's Declarative base is built
+against an accurate contract listing rather than the pre-implementation
+lists above (U12).
+
+### Phase A (`docs/superpowers/plans/2026-07-19-dialect-unification-phase-a.md`)
+
+Three deltas the Phase A plan enumerates on its own:
+
+- **(a) Native `internal_cache: :disabled` fix** (Task 9). Restates
+  exhaustive delta 1 above (U9); cited here because Phase A's plan
+  enumerates it independently of this design doc.
+- **(b) Cache entries for Native now store a `Debug.Info` unconditionally**
+  (Task 6), ahead of any dialect implementing a debug trigger — mandated by
+  U13's build-and-store discipline. Internal only: Native has no debug
+  grammar trigger, so the stored entry is never rendered (see observable
+  delta 5's Native debug-trigger follow-up above).
+- **(c) `[:debug, :collect, :error]` and the per-request source-fact
+  collection become reachable on the imgproxy/TwicPics decode paths**
+  through the shared `Decode` module (Task 2), which now owns the
+  collection `Request.Processor` used to own privately. The default Logger
+  and `Trace.Capture` already subscribe to the event name and no suite
+  gates it — the delta is the code path becoming reachable, not a new event
+  name.
+
+### Phase B (`docs/superpowers/plans/2026-07-20-dialect-unification-phase-b.md`)
+
+Five deltas from the plan's own "Enumerated observable deltas" list with no
+counterpart in this design's original list:
+
+- **Delta 3 — delivery-error policy headers become runner-owned** (Task 1).
+  The runner stamps `negotiation.policy.headers` onto the conn before
+  `render_error` on `Delivery.stream` failures only, mirroring the dialect
+  chains exactly. Native gains `Vary: Accept` on an image-terminal delivery
+  failure under automatic output — behavior it never had; imgproxy/TwicPics
+  are byte-identical to their current `Errors.send/4` headers.
+- **Delta 4 — the `[:request]` stop result honors the mid-stream send
+  override for every dialect** (Task 6 Step 1). Promoted from TwicPics'
+  `request_stop_metadata/2`: when `Response.Sender` stamps
+  `:image_pipe_send_result` on a committed 200 whose stream then fails, the
+  request span's stop `result` becomes `:processing_error` instead of
+  `:ok`. TwicPics is unchanged (already pinned by its `:streamed_error`
+  scenario); Native/imgproxy pick up the override telemetry-only. Task 10
+  gates this for imgproxy with a `[:request]` stop assertion in the
+  existing "streamed error after preparation" scenario
+  (`test/image_pipe/imgproxy_telemetry_contract_test.exs`), mirroring
+  TwicPics' pin instead of resting on an absence claim.
+- **Delta 6 — imgproxy's `[:parse]` span brackets the endpoint split**
+  (Task 3). `Path.split_endpoint` moves inside the runner's span.
+  Timing-only; span metadata shapes unchanged.
+- **Delta 8 — imgproxy's returned conn path for `/info`** (Task 4). Parsing
+  still verifies the signature over the prefix-stripped path, but the
+  shared runner returns the original conn, so `conn.request_path` retains
+  `/info/...` instead of the legacy stripped path. HTTP status, headers,
+  and body remain unchanged.
+- **Delta 10 — post-transform crashes render 500-class for every dialect,
+  and the transform-execute span's exception boundary converges** (Task 6
+  Step 2 rationale; Task 7 Step 3 pin). Each dialect now rescues its own
+  `execute/4` pipeline run rather than relying on the runner's broad
+  `produce_stream` rescue; transform crashes stay 422 everywhere
+  (unchanged), but an unexpected exception in a shared post-transform stage
+  (clamp / materialize / encode-first-chunk) shifts imgproxy/Native from
+  422 to 500-class — TwicPics, which already rescued only its own pipeline,
+  is unchanged. A further consequence found during implementation
+  (recorded by Task 10): because each dialect's transform rescue now lives
+  *inside* `execute/4`, the `[:transform, :execute]` span always closes
+  with a normal `:stop` carrying `%{result: :processing_error, …}` for
+  Native and imgproxy, where previously a pipeline raise escaped the span
+  and produced an `:exception` event instead. This converges all three
+  dialects onto TwicPics' long-standing span behavior. The wire status is
+  unchanged (still 422 for transform crashes), but telemetry handlers —
+  including the default Logger and the OTel trace capture — observe a
+  different event shape, so it is a real, previously unenumerated delta.
+
+### Typed-listing widenings (`Resolved`, `RenderTerminal`)
+
+This design's typed listings for `%Resolved{}` and `%RenderTerminal{}`
+(above, "The contract") predate three Phase B additions. None changes
+U4/U5/U6 — each widens an already-declared field or adds a value type
+carried unchanged through the existing dispatch surface, not new dispatch
+surface itself:
+
+- **`Resolved.negotiation` accepts a zero-arity thunk**
+  (`(-> negotiation_result())`), not only the literal result tuple (Task
+  1). The runner invokes the thunk only after
+  `ImagePipe.Source.resolve/3` succeeds, letting a dialect defer
+  negotiation until runtime geometry is known. imgproxy (Task 3) and
+  TwicPics (Task 6) both use the thunk form; Native still supplies the
+  tuple directly.
+- **`RenderTerminal` gains `charset: :default | nil`** (Task 3), defaulting
+  to `nil` so Native stays byte-identical. imgproxy's `/info` sets
+  `charset: :default` to preserve `application/json; charset=utf-8`.
+- **A new `ImagePipe.Dialect.Failure` struct**
+  (`%Failure{phase: :parse, reason: term()}`, Task 6) wraps a lifecycle
+  failure with the phase that produced it, for a dialect whose error
+  rendering or telemetry classification depends on provenance rather than
+  reason alone. The runner passes it unchanged to `classify_error/1` and
+  `render_error/3`, unwrapping only for the telemetry error tag. TwicPics
+  is the only current producer (its parse failures). `phase` is typed
+  `:parse` — the only value any producer constructs or any clause matches
+  today (`lib/image_pipe/dialect/failure.ex`); widen it if and when a
+  second phase's provenance genuinely needs to ride the wrapper.
+
+### U4 wording widening
+
+The Phase B plan's Global Constraints record a widening of U4's literal
+wording, which names only `Resolved` fields and neutral core structs: the
+runner may also branch on shared conn-private state stamped by neutral
+core, specifically `:image_pipe_send_result` (stamped by the shared
+`Response.Sender`, read by `ImagePipe.Plug.DialectRunner` at the
+`[:request]` and `[:send]` stop-metadata sites). This is neutral in
+substance — no dialect stamps or reads it — so it does not reopen U4's
+anti-leak rule; it is recorded here because the rule's original wording did
+not anticipate a conn-private channel.
+
+### The `debug_info/1` hook (U13 contingency resolved)
+
+U13 proposed `c:ImagePipe.Dialect.debug_info/1` as an optional enrichment
+override, explicitly contingent: "dropped from the contract if the ports
+confirm nobody needs it." Phase B ports the last two ordered dialects
+(imgproxy, TwicPics); combined with the already-ported Native and the test
+fixture dialect (`test/support/image_pipe/test/runner_fixture_dialect.ex`),
+every dialect implementation in the tree has now been checked, and none
+implements it. Per U13's own contingency, Task 10 deletes the callback from
+`ImagePipe.Dialect` and the `function_exported?(dialect, :debug_info, 1)`
+probe from `ImagePipe.Plug.DebugBuilder.build/2`, which now calls the
+default builder directly (`build/1`, dropping the now-unused `dialect`
+argument). This removes a runtime callback-presence probe for trusted
+internal dispatch, in line with AGENTS.md's "call the callback directly and
+let missing callbacks raise" rule for impossible internal misuse. The
+sibling probe in the runner's error classification
+(`function_exported?(dialect, :classify_error, 1)`) is deliberately NOT
+touched: `classify_error/1` has real optionality — a host dialect (or the
+test fixture dialect) may legitimately omit it and fall back to
+`ImagePipe.Telemetry.request_result/1` — so its probe stays a load-bearing
+optionality check, not a workaround for impossible misuse.

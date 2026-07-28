@@ -19,7 +19,6 @@ defmodule ImagePipe.Dialect do
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePipe.Debug,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Representation,
@@ -28,7 +27,6 @@ defmodule ImagePipe.Dialect do
     ],
     exports: [DebugContext, Failure, Negotiation, RenderTerminal, Resolved]
 
-  alias ImagePipe.Dialect.DebugContext
   alias ImagePipe.Dialect.Resolved
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.SourceGeometry
@@ -86,11 +84,5 @@ defmodule ImagePipe.Dialect do
   """
   @callback classify_error(reason :: term()) :: atom()
 
-  @doc """
-  Optional enrichment override for the runner's default neutral debug
-  builder. Expected to have no implementors (design decision U13).
-  """
-  @callback debug_info(DebugContext.t()) :: ImagePipe.Debug.Info.t() | nil
-
-  @optional_callbacks classify_error: 1, debug_info: 1
+  @optional_callbacks classify_error: 1
 end

@@ -18,5 +18,5 @@ defmodule ImagePipe.Dialect.Failure do
   @enforce_keys [:phase, :reason]
   defstruct @enforce_keys
 
-  @type t :: %__MODULE__{phase: atom(), reason: term()}
+  @type t :: %__MODULE__{phase: :parse, reason: term()}
 end
