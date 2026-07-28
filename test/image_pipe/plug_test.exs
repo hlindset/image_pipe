@@ -508,7 +508,6 @@ defmodule ImagePipe.PlugTest do
   # (`:output`). Both live under the key's `:representation` facet.
   defp representation_output(%ImagePipe.Cache.Key{} = key) do
     key.data[:representation]
-    |> List.wrap()
     |> Keyword.take([:selection, :output])
     |> Map.new()
   end
@@ -1814,35 +1813,44 @@ defmodule ImagePipe.PlugTest do
   test "returns text 500 when encoding fails before sending chunked headers" do
     prefix = attach_encode_stop_handler()
 
-    conn =
-      call_image_pipe(conn(:get, "/img/full/max/0/default.jpg"),
-        root_url: "http://origin.test",
-        telemetry_prefix: prefix,
-        dialect: ImagePipe.Dialect.IIIF,
-        resolver: iiif_resolver(),
-        image_module: FailingStreamBeforeHeaderImage,
-        origin_req_options: [plug: OriginImage]
-      )
+    {conn, log} =
+      with_log(fn ->
+        call_image_pipe(conn(:get, "/img/full/max/0/default.jpg"),
+          root_url: "http://origin.test",
+          telemetry_prefix: prefix,
+          dialect: ImagePipe.Dialect.IIIF,
+          resolver: iiif_resolver(),
+          image_module: FailingStreamBeforeHeaderImage,
+          origin_req_options: [plug: OriginImage]
+        )
+      end)
 
     assert conn.status == 500
     assert conn.resp_body == "error encoding image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert_received {:encode_stop, %{result: :processing_error, error: :encode}}
     assert_received :stream_encoder_called
+
+    assert log =~ "encode_error: ** (RuntimeError) forced stream encode failure"
+
+    assert log =~
+             ~r{plug_test\.exs:\d+: ImagePipe\.PlugTest\.FailingStreamBeforeHeaderImage\.stream!/2}
   end
 
   test "returns text 500 when encoder produces an empty stream" do
     prefix = attach_encode_stop_handler()
 
-    conn =
-      call_image_pipe(conn(:get, "/img/full/max/0/default.jpg"),
-        root_url: "http://origin.test",
-        telemetry_prefix: prefix,
-        image_module: EmptyStreamingImage,
-        dialect: ImagePipe.Dialect.IIIF,
-        resolver: iiif_resolver(),
-        origin_req_options: [plug: OriginImage]
-      )
+    {conn, log} =
+      with_log(fn ->
+        call_image_pipe(conn(:get, "/img/full/max/0/default.jpg"),
+          root_url: "http://origin.test",
+          telemetry_prefix: prefix,
+          image_module: EmptyStreamingImage,
+          dialect: ImagePipe.Dialect.IIIF,
+          resolver: iiif_resolver(),
+          origin_req_options: [plug: OriginImage]
+        )
+      end)
 
     assert conn.status == 500
     assert conn.state == :sent
@@ -1850,6 +1858,8 @@ defmodule ImagePipe.PlugTest do
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert_received {:encode_stop, %{result: :processing_error, error: :empty_stream}}
     assert_received :stream_encoder_called
+
+    assert log =~ "encode_error: empty_stream"
   end
 
   test "does not send text 500 when encoding fails after chunked response starts" do

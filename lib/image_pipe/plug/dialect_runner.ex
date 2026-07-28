@@ -4,6 +4,8 @@ defmodule ImagePipe.Plug.DialectRunner do
   # This module branches ONLY on %Resolved{} fields and neutral core structs
   # (U4) — it must never name a dialect or accept a dialect-specific option.
 
+  require Logger
+
   alias ImagePipe.Cache
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Decode
@@ -714,6 +716,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   # the reason, not the envelope. `classify_error/1` and `render_error/3` get
   # the wrapper untouched so a dialect can act on the phase that produced it.
   defp send_error(conn, dialect, reason, config) do
+    log_encode_failure(unwrap(reason))
     metadata = %{result: classify(dialect, reason), error: Error.tag(unwrap(reason))}
 
     conn =
@@ -726,6 +729,19 @@ defmodule ImagePipe.Plug.DialectRunner do
 
   defp unwrap(%Failure{reason: reason}), do: reason
   defp unwrap(reason), do: reason
+
+  # An encode failure is a server-side fault, and its telemetry tag (`:encode`)
+  # keeps nothing of what actually went wrong. This is the one funnel every
+  # pre-header failure passes through, and it runs before `Error.tag/1`
+  # discards the exception, so the message and stacktrace are logged here —
+  # once, neutrally — rather than in each dialect's error renderer.
+  defp log_encode_failure({:encode, exception, stacktrace}),
+    do: Logger.error("encode_error: #{Exception.format(:error, exception, stacktrace)}")
+
+  defp log_encode_failure({:encode, :empty_stream}),
+    do: Logger.error("encode_error: empty_stream")
+
+  defp log_encode_failure(_reason), do: :ok
 
   defp classify(dialect, reason) do
     if function_exported?(dialect, :classify_error, 1) do
