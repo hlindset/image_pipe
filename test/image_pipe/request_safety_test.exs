@@ -273,7 +273,7 @@ defmodule ImagePipe.RequestSafetyTest do
     refute_received :cache_put
   end
 
-  test "the mount's body limit reaches the source adapter identically on resolve and fetch" do
+  test "source runtime options pass body limits and runtime metadata without adapter or cache config" do
     opts =
       ImagePipe.Plug.init(
         dialect: ImagePipe.Dialect.IIIF,
@@ -289,9 +289,16 @@ defmodule ImagePipe.RequestSafetyTest do
     assert_received {:source_resolve_runtime_opts, resolve_runtime_opts}
     assert_received {:source_fetch_runtime_opts, fetch_runtime_opts}
 
+    assert resolve_runtime_opts == fetch_runtime_opts
+
     for runtime_opts <- [resolve_runtime_opts, fetch_runtime_opts] do
       assert Keyword.fetch!(runtime_opts, :max_body_bytes) == 1_000_000
       assert Keyword.fetch!(runtime_opts, :telemetry_prefix) == [:image_pipe]
+
+      refute Keyword.has_key?(runtime_opts, :dialect)
+      refute Keyword.has_key?(runtime_opts, :resolver)
+      refute Keyword.has_key?(runtime_opts, :cache)
+      refute Keyword.has_key?(runtime_opts, :sources)
     end
   end
 

@@ -99,7 +99,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   defp handle_request(conn, dialect, request, config) do
     with {:ok, %Resolved{} = resolved} <- dialect.prepare(conn, request, config),
          {:ok, %ImageSource.Resolved{} = source} <-
-           ImageSource.resolve(resolved.source, config, config),
+           ImageSource.resolve(resolved.source, config, ImageSource.runtime_opts(config)),
          {:ok, %Negotiation{} = negotiation, material} <-
            resolve_negotiation(resolved.negotiation) do
       representation =
