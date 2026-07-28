@@ -2,7 +2,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   @moduledoc """
   Inline per-pipeline geometry for the imgproxy dialect.
 
-  Scoping reproduces `ImagePipe.Transform.Executor.execute_pipeline/4`, NOT
+  Scoping reproduces `ImagePipe.Transform.Executor`'s per-pipeline scoping, NOT
   `ImagePipe.Dialect.Native.Pipeline` [spec §Pipeline 1]: imgproxy `-`
   pipelines each re-seed `SourceShape` from the prior pipeline's output,
   start a fresh carry, and flush pending orientation at their own boundary —
@@ -64,10 +64,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # degrade — see `follow/5`, which has no catch-all clause past it.
   @max_continuation_depth 4
 
-  # The carry a pipeline starts with. Fresh per pipeline: a `-` boundary
-  # re-runs the equivalent of the framework strategy's `init/0`, so a scale
-  # computed by one pipeline's resize can never reach the next pipeline's
-  # padding (`Executor.execute_pipeline/4` — "a fresh init/0 per pipeline").
+  # The carry a pipeline starts with. Fresh per pipeline: a `-` boundary starts
+  # a new carry, so a scale computed by one pipeline's resize can never reach
+  # the next pipeline's padding.
   @empty_carry %{effective_padding_scale: nil, canvas_preserving_padding_scale: nil}
 
   @doc """
@@ -294,7 +293,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # than the caller's so the preamble and its postamble stay one seam, in one
   # module, and every `run/4` caller gets both.
 
-  # Mirrors `Executor.execute_pipelines/4`: the first failing pipeline halts the
+  # Mirrors `Executor.execute_pipelines/3`: the first failing pipeline halts the
   # rest.
   defp run_pipelines(pipelines, %State{} = state, ctx) do
     Enum.reduce_while(pipelines, {:ok, state}, fn %PipelineRequest{} = preq, {:ok, state} ->
@@ -368,13 +367,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   # The imgproxy decision column. Everything else delegates to the neutral
   # column below. `resolve/3` and `continue/4` are called as stateless toolkit
-  # functions (`nil` carried state throughout): no injected strategy dispatch is
-  # involved, and the carry is this module's own pipeline-local variable.
+  # functions (`nil` carried state throughout), and the carry is this module's
+  # own pipeline-local variable.
 
   # The carry is computed HERE, from the PRE-resolve shape, before any
-  # continuation is followed — reproducing `resolver.ex:37-49` exactly. It is
-  # never recomputed in `follow/5` [spec §Pipeline 2 "update point"], and the
-  # incoming carry is discarded: a resize replaces both slots outright.
+  # continuation is followed. It is never recomputed in `follow/5`
+  # [spec §Pipeline 2 "update point"], and the incoming carry is discarded: a
+  # resize replaces both slots outright.
   defp run_op(state, shape, _carry, %PlanResize{} = op, _pctx, ctx) do
     # The neutral column buckets `:auto` (`NeutralResolver.resolve_mode/2`,
     # #448); read the concrete branch back to size the no-enlarge cap, then
@@ -419,8 +418,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   # Neutral delegation. Carries the pipeline-local carry across untouched — an
   # effect between the resize and the padding must not lose the stashed
-  # DprScale (the regression the framework resolver's own delegation comment
-  # names).
+  # DprScale.
   defp run_op(state, shape, carry, plan_op, _pctx, ctx) do
     state = overlay(state, shape)
     {ops, continuation} = NeutralResolver.resolve(shape, nil, plan_op)

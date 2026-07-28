@@ -383,7 +383,7 @@ defmodule ImagePipe.Dialect.Native.PipelineTest do
       # A `w=400` request against a NON-proportional 3200x2405 source. Deriving
       # the missing axis from the aspect (`round(400 * 2405/3200)` = 301) binds
       # `min/2` tighter than the targeted axis alone and halves the shrink, so
-      # the decode lands at 2x the pixels the framework arm decodes.
+      # the decode lands at 2x the pixels the chain path decodes.
       resize = %{w: 400, h: :auto, fit: :contain, enlarge: false}
 
       assert Pipeline.decode_request(

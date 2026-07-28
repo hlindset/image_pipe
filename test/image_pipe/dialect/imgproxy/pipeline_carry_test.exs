@@ -7,8 +7,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
   #
   # Every expected scale below is computed by hand from
   # `Lowering.scaled_padding_side/2` (round_half_to_even(side * scale)) and
-  # `scale_canvas_dimension/2` (round(dim * scale)); the arithmetic that
-  # produces the scale is the verbatim copy of the framework resolver's.
+  # `scale_canvas_dimension/2` (round(dim * scale)).
 
   alias ImagePipe.Dialect.Imgproxy.Effects
   alias ImagePipe.Dialect.Imgproxy.Pipeline
@@ -103,8 +102,8 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
       #
       # An assembly that skipped the rule would emit NO resize, leave the carry
       # nil, fall back to the dpr, and scale by 2.0 -> 20 — diverging from the
-      # framework arm, which emits `Resize{width: :auto, height: :auto,
-      # dpr: {:ratio, 2, 1}, enlargement: :deny}` for this exact request.
+      # `Resize{width: :auto, height: :auto, dpr: {:ratio, 2, 1},
+      # enlargement: :deny}` Assembly emits for this exact request.
       ops = executables(state_for(400, 300), req([preq(dpr: 2.0, padding_top: 10)]))
 
       assert [%Padding{top: 10}] = paddings(ops)
@@ -125,9 +124,9 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
     test "fill_down overrides el:1 and still denies enlargement, so the scale caps" do
       # `rs:fill_down:800:600/el:1/dpr:2/pd:10` on a 400x300 source.
       #
-      # `enlargement/1`'s FIRST clause (`plan_builder.ex:830`) matches on
-      # resizing_type :fill_down and returns :deny, OVERRIDING `enlarge: true`.
-      # So padding_scale/4 takes its no-enlarge branch:
+      # `Assembly.enlargement/1`'s FIRST clause matches on resizing_type
+      # :fill_down and returns :deny, OVERRIDING `enlarge: true`. So
+      # padding_scale/4 takes its no-enlarge branch:
       #   display source      = 400x300
       #   base requested box  = 800x600 (dpr forced 1.0, enlarge forced true)
       #   max_without_enlarge = min(400/800, 300/600) = 0.5
@@ -158,7 +157,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
     test "a zoom folds into the requested box, so it never reaches the auto/auto cap" do
       # `zoom:0.5/dpr:2/pd:10`, enlarge off, on a 400x300 source. `zoom_x`/`zoom_y`
       # make resize_rule_requested?/1 true, so an :auto/:auto :fit resize IS
-      # emitted — and the framework threads the zoom onto it, where it folds into
+      # emitted — and Assembly threads the zoom onto it, where it folds into
       # the requested box (`Resize.resolve_base_dimensions/2` -> `apply_zoom/2`):
       #   base (dpr forced 1.0, enlarge forced true) = 400*0.5 x 300*0.5 = 200x150
       #   max_without_enlarge = min(400/200, 300/150) = 2.0
@@ -186,7 +185,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
   describe "the {:auto, :auto, false} emission guard" do
     test "w:0 with no height and no resize rule emits no resize at all" do
       # `/w:0/pd:10/`: width {:pixels, 0}, height nil, resizing_type :fit (the
-      # default). The framework's `resize_operations/1` clauses 1 and 2 both miss
+      # default). `Assembly.resize_operations/1` clauses 1 and 2 both miss
       # (height is nil, not {:pixels, 0}), clause 3 misses (:fit), and clause 4
       # routes to `resize_from_rule/1`, which MAPS THE DIMENSIONS FIRST —
       # {:pixels, 0} -> :auto and nil -> :auto — then hits
@@ -319,8 +318,8 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineCarryTest do
     end
 
     test "extend_aspect_ratio emits its OWN canvas alongside the extend canvas" do
-      # `canvas_operations/1` (`plan_builder.ex:417-426`) emits BOTH
-      # `extend_operation/1` and `extend_aspect_ratio_operation/1`, in that order.
+      # `Assembly.canvas_operations/1` emits BOTH `extend_operation/1` and
+      # `extend_aspect_ratio_operation/1`, in that order.
       # The aspect-ratio canvas box is `{:ratio, w, 1}` x `{:ratio, h, 1}`, which
       # `Lowering.canvas_executables/2` turns into an `{:aspect_ratio, {w, h}}`
       # rule — deliberately NOT scaled by the carry (it is computed from the

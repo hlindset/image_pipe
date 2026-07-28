@@ -328,7 +328,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "TwicPics dialect code never constructs the framework Plan root struct" do
+  test "TwicPics dialect code never constructs the Plan root struct" do
     violations =
       for file <- twicpics_dialect_files(),
           violation <- file |> File.read!() |> plan_construction_violations() do

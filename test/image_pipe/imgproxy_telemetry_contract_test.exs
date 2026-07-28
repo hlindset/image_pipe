@@ -17,9 +17,8 @@
 # ## The dialect emits the full stage set, and that is measured here
 #
 # `ImgproxyTelemetryStageSetTest` at the bottom of this file measures the stage
-# set rather than assuming it: the dialect emits the framework's full stage
-# set (stage-set parity — no framework-only stage remains), in the exact
-# sequence the already-shipped `ImagePipe.Dialect.Native` emits.
+# set rather than assuming it, in the exact sequence `ImagePipe.Dialect.Native`
+# emits.
 defmodule ImagePipe.ImgproxyTelemetryContractTest do
   use ExUnit.Case, async: true
 
@@ -178,7 +177,7 @@ defmodule ImagePipe.ImgproxyTelemetryContractTest do
   # The stages the dialect emits for a plain image cache miss. Everything the
   # scenarios below assert positively is drawn from this set; see
   # `ImgproxyTelemetryStageSetTest`, which measures that this is the full
-  # framework stage set (stage-set parity).
+  # stage set.
   @shared_stages [
     [:request],
     [:parse],

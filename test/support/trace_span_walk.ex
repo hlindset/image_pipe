@@ -6,9 +6,8 @@ defmodule ImagePipe.Test.Trace.SpanWalk do
 
   Shared by the delivery-primitive and native-dialect trace-parentage tests
   (`ImagePipe.Delivery.TraceParentageTest`,
-  `ImagePipe.Telemetry.NativeDeliverySpanParentageTest`). The framework's own
-  D3 topology-gate baseline
-  (`ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`) is IMMUTABLE and
+  `ImagePipe.Telemetry.NativeDeliverySpanParentageTest`). The topology-gate
+  baseline (`ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`)
   deliberately keeps its own private copy rather than depending on this
   module — it must not be able to change out from under that gate.
   """

@@ -98,7 +98,7 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
     preflight_options(fields, :jpeg, false, false)
   end
 
-  describe "agreement with the framework arm's chain path" do
+  describe "agreement with the chain path" do
     test "a plain fit resize" do
       # ratio = min(3200/400, 2400/300) = 8 -> jpeg shrink 8.
       assert assert_agrees_with_chain(width: {:pixels, 400}, height: {:pixels, 300})[:shrink] == 8
@@ -117,7 +117,7 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
       # The regression these rows exist for: 3200x2405 is not 4:3, so a
       # synthesized aspect axis (`round(400 * 2405/3200)` = 301) binds the `min/2`
       # tighter than the targeted axis alone and halves the shrink — decoding 2x
-      # the pixels the framework arm does.
+      # the pixels the chain path does.
       assert chain_options([width: {:pixels, 400}], :jpeg, false, false, {3200, 2405})[:shrink] ==
                8
 
@@ -136,7 +136,7 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
     test "a sub-1.0 dpr shrinks the target below one pixel without dividing by zero" do
       # `rs:fit:1:0/dpr:0.4` -> target extent 1 * 0.4 = 0.4. `dpr` is
       # `:positive_float` in the grammar, so this is a parser-valid request the
-      # framework arm serves. The chain path never rounds the inflated target, so
+      # dialect serves. The chain path never rounds the inflated target, so
       # neither may the preflight: rounding lands on 0 and divides by zero, and
       # flooring at 1 divides by the wrong number (agreeing for jpeg, whose shrink
       # saturates at 8, but not for webp's continuous `scale:`).
@@ -175,16 +175,16 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
 
     test "dpr resolves through the exact rational the resize op carries" do
       # The dpr twin of the `{:scale, 0.29}` crop row below. `Plan.Operation`
-      # lowers a float dpr through `Float.round(7)` (`operation.ex:721-726`), so
-      # `dpr:1.0000000000001` carries `{:ratio, 1, 1}` and the residual resize's
+      # lowers a float dpr through `Float.round(7)` (`ImagePipe.Plan.Operation`),
+      # so `dpr:1.0000000000001` carries `{:ratio, 1, 1}` and the residual resize's
       # real target is a flat 400x300 — chain ratio 3200/400 = 8, jpeg shrink 8.
       # Re-deriving the extent from the raw float inflates the target to
       # 400.00000000004, drops the ratio a hair under 8, and decodes at shrink 4:
-      # 4x the pixels the framework arm decodes. On webp's continuous `scale:`
+      # 4x the pixels the chain path decodes. On webp's continuous `scale:`
       # every such epsilon shows, in either direction.
       #
       # `dpr` is `:positive_float` in the grammar, so these are parser-valid
-      # requests the framework arm serves.
+      # requests the dialect serves.
       for dpr <- [1.0000000000001, 0.9999999999999, 2.0000000000001, 0.4000000000001],
           format <- @formats do
         fields = [width: {:pixels, 400}, height: {:pixels, 300}, dpr: dpr]
@@ -197,11 +197,10 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
 
     test "a dpr with no rational is not a target" do
       # `dpr:0.00000001` rounds to zero at the seventh decimal, so it has no
-      # rational: the resize stage rejects the request outright, byte-identical
-      # to the framework arm's own parse-time rejection. The preflight runs ahead
-      # of that rejection, so it declines to shrink rather than sizing a decode
-      # against a target no operation will ever carry — the request never reaches
-      # a decode anyway.
+      # rational: the resize stage rejects the request outright. The preflight
+      # runs ahead of that rejection, so it declines to shrink rather than
+      # sizing a decode against a target no operation will ever carry — the
+      # request never reaches a decode anyway.
       fields = [width: {:pixels, 400}, height: {:pixels, 300}, dpr: 0.00000001]
 
       assert {:error, {:invalid_operation, :resize, _}} = Assembly.operations(preq(fields))
@@ -433,7 +432,7 @@ defmodule ImagePipe.Dialect.Imgproxy.DecodePreflightTest do
   # value gives — so the chain path's target is unmoved and the raw float's is not.
   #
   # Bounded away from denormal territory: `dpr * zoom` underflowing to 0.0 divides
-  # by zero on BOTH arms identically, which is a framework property, not a
+  # by zero on BOTH paths identically, which is a property of both, not a
   # preflight divergence. Bounded away from zero at the seventh decimal too — a
   # dpr that rounds to 0 there has no rational at all, and `Assembly.operations/1`
   # rejects the request rather than assembling a chain to compare against (the

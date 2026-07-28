@@ -7,13 +7,11 @@ defmodule ImagePipe.Test.OrderedSpike.Pipeline do
 
   **What this module does NOT use.** No `ImagePipe.Plan.Operation` semantic
   structs, no `ImagePipe.Transform.NeutralResolver`, no
-  `{ops, continuation}` vocabulary, no injected strategy dispatch. Every
-  command is compiled straight to a concrete `ImagePipe.Transform.Operation.*`
-  executable struct using plain Elixir arithmetic against a live
-  `Image.width/height` read — the interpreter is a single `Enum.reduce_while`
-  loop (`run/3`). This is the probe's central claim under test: an ordered
-  dialect does not need a generic callback seam to replace an injected
-  strategy framework.
+  `{ops, continuation}` vocabulary. Every command is compiled straight to a
+  concrete `ImagePipe.Transform.Operation.*` executable struct using plain
+  Elixir arithmetic against a live `Image.width/height` read — the interpreter
+  is a single `Enum.reduce_while` loop (`run/3`). This is the probe's central
+  claim under test: an ordered dialect does not need a generic callback seam.
 
   **Command grammar (probe subset):**
 

@@ -154,11 +154,9 @@ defmodule ImagePipe.Delivery.ProducerTest do
     assert_receive {:DOWN, ^ref, :process, ^producer, :normal}
   end
 
-  # The taxonomy rule the framework's runner depends on: a Source.StreamError
-  # escaping the pumped stream keeps the SOURCE phase, so it maps to the
-  # source's domain status rather than degrading to the 500 an {:encode, _}
-  # tag would produce. Ported from the framework's own session tests, which
-  # pinned the same rule before the delivery topology was unified.
+  # The taxonomy rule the runner depends on: a Source.StreamError escaping the
+  # pumped stream keeps the SOURCE phase, so it maps to the source's domain
+  # status rather than degrading to the 500 an {:encode, _} tag would produce.
   test "source stream errors during encoder reduction keep source phase" do
     producer = start_producer(source_error_after_first_chunk_stream())
     ref = Process.monitor(producer)

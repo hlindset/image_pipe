@@ -162,9 +162,8 @@ defmodule ImagePipe.Dialect.Imgproxy.Identity do
   # exactly that pair — same nine fields, both URL-settable
   # (`autoquality:ssimulacra2:…` / `autoquality:butteraugli:…`), with
   # overlapping target ranges — so dropping it gives two requests that encode
-  # to different bytes one cache key and one ETag. `ImagePipe.Cache.Key`
-  # injects a `metric:` discriminator for this reason (`cache/key.ex`'s
-  # `quality_metric_key/2`); carrying the module generalizes it to every struct.
+  # to different bytes one cache key and one ETag. Carrying the module keeps
+  # every such pair distinct.
   # Do NOT re-insert `__struct__` into the map instead: `Enum.map/2` on
   # `%{__struct__: Foo}` still dispatches `Enumerable.Foo` and raises.
   defp canonical(%mod{} = struct),

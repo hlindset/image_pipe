@@ -3,7 +3,6 @@ defmodule ImagePipe.MixProject do
 
   @version "0.1.0"
   @source_url "https://github.com/hlindset/image_pipe"
-  @ex_dna_ignores []
 
   def project do
     [
@@ -69,7 +68,7 @@ defmodule ImagePipe.MixProject do
   end
 
   def ex_dna_options do
-    [excluded_macros: [:alias], ignore: @ex_dna_ignores]
+    [excluded_macros: [:alias]]
   end
 
   def cli do
@@ -213,8 +212,6 @@ defmodule ImagePipe.MixProject do
     excluded_macros =
       Enum.flat_map(options[:excluded_macros], &["--exclude-macro", Atom.to_string(&1)])
 
-    ignores = Enum.flat_map(options[:ignore], &["--ignore", &1])
-
-    Mix.Task.run("ex_dna", excluded_macros ++ ignores ++ args)
+    Mix.Task.run("ex_dna", excluded_macros ++ args)
   end
 end

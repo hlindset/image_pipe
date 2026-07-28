@@ -61,7 +61,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
   for an automatic output, `[]` for an explicit one) are stamped on the conn
   by the runner (`ImagePipe.Plug`) on delivery failures, before this module
   renders. Only post-negotiation delivery failures carry them, preserving the
-  framework's fetch-vs-resolve `Vary` asymmetry.
+  fetch-vs-resolve `Vary` asymmetry.
   """
 
   import Plug.Conn, only: [put_resp_content_type: 2, send_resp: 3]

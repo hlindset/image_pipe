@@ -593,7 +593,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   Public so the decode preflight (`Pipeline.decode_request/2`) can inflate its
   target extent by the SAME rational the resize operation carries, rather than
   re-deriving it from the raw float. `Plan.Operation` lowers a float dpr through
-  `Float.round(7)` (`operation.ex:721-726`), so the two part company past the
+  `Float.round(7)` (`ImagePipe.Plan.Operation`), so the two part company past the
   seventh decimal: `dpr:1.0000000000001` carries `{:ratio, 1, 1}` — a flat 400px
   target — while the float still inflates that target to 400.00000000004, which
   is enough to drop a 3200px jpeg's shrink from 8 to 4 and decode 4x the pixels.

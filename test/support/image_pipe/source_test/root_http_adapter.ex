@@ -15,9 +15,9 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
     root_url = Keyword.fetch!(opts, :root_url)
     req_options = Keyword.get(opts, :req_options, [])
     internal_cache = Keyword.get(opts, :internal_cache, :enabled)
-    # `:none` (default) preserves this adapter's original semantics; `:strong`
-    # gives the source a stable byte identity so both dialects and the framework
-    # emit an ETag — the shape ETag/304 wire tests need.
+    # `:none` (default) leaves the source without a byte identity; `:strong`
+    # gives it a stable one so a dialect emits an ETag — the shape ETag/304
+    # wire tests need.
     byte_identity = Keyword.get(opts, :byte_identity, :none)
 
     {:ok,

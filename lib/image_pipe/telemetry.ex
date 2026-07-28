@@ -179,9 +179,9 @@ defmodule ImagePipe.Telemetry do
   end
 
   @doc """
-  Maps a request outcome to the `:result` telemetry vocabulary shared by the
-  framework Plug and the dialect Plugs. Callers stamp this on the `[:request]`
-  span's stop metadata (with `:status`, and `:error` on failures).
+  Maps a request outcome to the `:result` telemetry vocabulary shared by every
+  dialect Plug. Callers stamp this on the `[:request]` span's stop metadata
+  (with `:status`, and `:error` on failures).
   """
   @spec request_result(:ok | :not_modified | {:error, term()}) :: atom()
   def request_result(:ok), do: :ok

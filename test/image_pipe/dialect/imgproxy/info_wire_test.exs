@@ -122,7 +122,7 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
   # ── the /info body contract ─────────────────────────────────────────────
 
   describe "GET /info/unsafe/plain/images/beach.jpg" do
-    test "200 application/json whose decoded body matches the committed golden (baked from the framework arm pre-retirement)" do
+    test "200 application/json whose decoded body matches the committed golden" do
       path = "/info/unsafe/plain/images/beach.jpg"
 
       dialect = get(path, opts())
@@ -219,10 +219,6 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
   # All three of these parse: `Options.parse` accepts `rs:fill` (the
   # missing-dimensions rejection is `Assembly`'s, and `route_info` correctly
   # never runs `check_geometry`), and `q:`/`f:` are plain output options.
-  #
-  # The framework arm is no oracle here — its /info emits no ETag at all — but it
-  # is where the shape comes from: `PlanBuilder.to_plan/2`'s `info?: true` head
-  # builds `pipelines: []` and `output: nil`.
   describe "/info identity" do
     @ignored_option_paths [
       "/info/unsafe/plain/images/beach.jpg",

@@ -2,9 +2,8 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
   @moduledoc """
   Pins that a real cache-miss, streamed `ImagePipe.Dialect.Native` request's
   stage spans are semantic descendants of the `[:request]` root span — the
-  dialect counterpart of
-  `ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`, which pins the
-  same property for the framework's request runner.
+  native counterpart of
+  `ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`.
 
   `ImagePipe.Delivery` spans work across two process hops (the coordinator
   and the producer), neither of which inherits the caller's trace stack, so
@@ -15,7 +14,7 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
 
   Asserts SEMANTICS ONLY (trace membership + transitive parent-chain descent
   to the request root), never mechanism: no PIDs, no span counts, no
-  process-hop structure — the same discipline as the framework baseline.
+  process-hop structure — the same discipline as that baseline.
   """
 
   use ExUnit.Case, async: false

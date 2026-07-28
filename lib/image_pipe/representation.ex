@@ -47,9 +47,9 @@ defmodule ImagePipe.Representation do
   alias ImagePipe.MaterialDigest
   alias ImagePipe.Representation.IdentityMaterial
 
-  # Successor of the framework's transform key-data version for this stack —
-  # bumping it invalidates every representation built by every dialect,
-  # independent of any single dialect's own `dialect_behavior` epoch.
+  # Core execution epoch: bumping it invalidates every representation built by
+  # every dialect, independent of any single dialect's own `dialect_behavior`
+  # epoch.
   @core_execution_epoch 1
   @etag_schema "ipr1"
 

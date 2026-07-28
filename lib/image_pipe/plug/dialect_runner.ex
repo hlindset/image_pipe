@@ -301,7 +301,6 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp write_complete_body_cache(nil = _cache_disabled, _ct, _body, _cost_us, _config), do: :ok
 
   defp write_complete_body_cache(%Cache.Key{} = cache_key, content_type, body, cost_us, config) do
@@ -592,7 +591,6 @@ defmodule ImagePipe.Plug.DialectRunner do
     )
   end
 
-  # ex_dna:disable-for-next-line
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
 
   defp transform_stop_metadata({:error, error}),
@@ -618,7 +616,6 @@ defmodule ImagePipe.Plug.DialectRunner do
     )
   end
 
-  # ex_dna:disable-for-next-line
   defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
@@ -641,7 +638,6 @@ defmodule ImagePipe.Plug.DialectRunner do
     StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
   end
 
-  # ex_dna:disable-for-next-line
   defp encode_stop_metadata({:ok, _chunk, _ct, _stream_state, _meta}, format),
     do: %{result: :ok, output_format: format}
 
@@ -651,7 +647,6 @@ defmodule ImagePipe.Plug.DialectRunner do
   defp encode_stop_metadata({:error, reason}, format),
     do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
 
-  # ex_dna:disable-for-next-line
   defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
 
   defp materialize_for_delivery(%State{} = state, config) do
@@ -663,7 +658,6 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
-  # ex_dna:disable-for-next-line
   defp result_limits(format, config) do
     %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
       Encoder.encoder_limit(format)
@@ -688,7 +682,6 @@ defmodule ImagePipe.Plug.DialectRunner do
 
   # -- terminal sends ---------------------------------------------------------
 
-  # ex_dna:disable-for-next-line
   defp send_with_span(%Plug.Conn{}, config, result, fun) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:send], %{result: result}, fn ->
       sent_conn = fun.()
@@ -701,7 +694,6 @@ defmodule ImagePipe.Plug.DialectRunner do
     end)
   end
 
-  # ex_dna:disable-for-next-line
   defp send_not_modified(conn, %CacheHeaders{} = cache_headers, config) do
     conn =
       send_with_span(conn, config, :not_modified, fn ->
