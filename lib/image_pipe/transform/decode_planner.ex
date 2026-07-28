@@ -108,6 +108,75 @@ defmodule ImagePipe.Transform.DecodePlanner do
     append_load_option(base, source_format, load_shrink)
   end
 
+  @doc """
+  Defunctionalizes a semantic `ImagePipe.Plan.Pipeline` operation chain into the
+  `%Request{}` `open_options_for/5` consumes.
+
+  Exact: for every constructible chain, `open_options_for/5` over the returned
+  request yields the identical load options `open_options/5` yields over the
+  chain (`test/image_pipe/transform/decode_planner_chain_request_test.exs`).
+
+  `exif_quarter_turn?` is the NET EXIF turn — already gated by the caller's
+  auto-rotate policy. `ImagePipe.Transform.PendingOrientation.quarter_turn?/1`
+  on a decode-time pending orientation is exactly this value, since the decode
+  seeds `user_angle: 0`.
+
+  ## Why `user_quarter_turn?` is derived, not measured
+
+  `%Request{}` carries the user turn as a BOOLEAN, which `open_options_for/5`
+  XORs with the EXIF turn. A chain's rotates sum to an arbitrary angle (a
+  `%Rotate{}` accepts any angle in `[0, 360]`), and `rem(exif + user, 180) == 90`
+  is NOT reproducible by XORing two booleans whenever the user sum is not a
+  multiple of 90 — e.g. exif 90° + user 45° is not a quarter turn, but
+  `true XOR false` says it is. So compute the net turn here, exactly as the
+  chain path does, and set `user_quarter_turn?` to whatever value makes the
+  planner's XOR agree: `exif_quarter_turn? != net_quarter_turn?`.
+  """
+  @spec request_from_chain(
+          [ImagePipe.Plan.Pipeline.operation()],
+          {pos_integer(), pos_integer()},
+          boolean()
+        ) :: Request.t()
+  def request_from_chain(chain, {src_w, src_h}, exif_quarter_turn?)
+      when is_list(chain) and is_integer(src_w) and src_w > 0 and
+             is_integer(src_h) and src_h > 0 and is_boolean(exif_quarter_turn?) do
+    exif_angle = if exif_quarter_turn?, do: 90, else: 0
+    net_quarter_turn? = rem(exif_angle + user_rotate_angle_before_resize(chain), 180) == 90
+    {shrink_w, shrink_h} = shrink_axes({src_w, src_h}, net_quarter_turn?)
+
+    %Request{
+      trim?: Enum.any?(chain, &match?(%PlanTrim{}, &1)),
+      crop_extent: crop_extent_before_resize(chain, shrink_w, shrink_h),
+      resize_target: chain_resize_target(chain),
+      terminal_reduction: nil,
+      required_extent: nil,
+      user_quarter_turn?: exif_quarter_turn? != net_quarter_turn?
+    }
+  end
+
+  # Mirrors `resize_load_shrink/3`'s two decisions as data: a `min_width`/
+  # `min_height` resize is ineligible (no per-axis multiplier exists), and only
+  # `{:px, n}` axes contribute a target. `{nil, nil}` MUST normalize to `nil` —
+  # see `t:Request.resize_target/0`; `{nil, nil}` would shadow
+  # `terminal_reduction` in `open_options_for/5`'s precedence.
+  defp chain_resize_target(chain) do
+    case Enum.find(chain, &match?(%PlanResize{}, &1)) do
+      nil ->
+        nil
+
+      %PlanResize{min_width: mw, min_height: mh} when not is_nil(mw) or not is_nil(mh) ->
+        nil
+
+      %PlanResize{width: width, height: height} = resize ->
+        normalize_resize_target(
+          {px_target_extent(width, resize, :x), px_target_extent(height, resize, :y)}
+        )
+    end
+  end
+
+  defp normalize_resize_target({nil, nil}), do: nil
+  defp normalize_resize_target(target), do: target
+
   # --- Request-based shrink computation (mirrors compute_load_shrink/3) ---
 
   defp compute_load_shrink_for_request(%Request{trim?: true}, _shrink_w, _shrink_h), do: 1.0
