@@ -9,9 +9,7 @@ defmodule ImagePipe.Plug.DebugBuilder do
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
 
   @spec build(DebugContext.t()) :: Info.t()
-  def build(%DebugContext{} = ctx), do: default(ctx)
-
-  defp default(%DebugContext{} = ctx) do
+  def build(%DebugContext{} = ctx) do
     {source_width, source_height} = ctx.geometry.storage_dimensions
     facts = ctx.geometry.debug_facts
 

@@ -6,7 +6,7 @@ image requests, resolves a configured image source, executes a product-neutral
 response.
 
 The current public compatibility target is an Imgproxy-style path API through
-`ImagePipe.Parser.Imgproxy`. Internally, ImagePipe translates Imgproxy syntax
+`ImagePipe.Dialect.Imgproxy`. Internally, ImagePipe translates Imgproxy syntax
 into its own plan, output, transform, cache, and response data structures.
 
 ## Project status
@@ -43,14 +43,14 @@ end
 
 ## Minimal mount
 
-Mount ImagePipe from a Plug router or Phoenix endpoint with a configured source
-adapter and parser:
+Mount ImagePipe from a Plug router or Phoenix endpoint with a configured
+dialect and source adapter:
 
 ```elixir
 forward "/images",
   to: ImagePipe.Plug,
   init_opts: [
-    parser: ImagePipe.Parser.Imgproxy,
+    dialect: ImagePipe.Dialect.Imgproxy,
     sources: [
       path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ]
@@ -70,7 +70,7 @@ defmodule MyApp.ImageRouter do
   forward "/",
     to: ImagePipe.Plug,
     init_opts: [
-      parser: ImagePipe.Parser.Imgproxy,
+      dialect: ImagePipe.Dialect.Imgproxy,
       sources: [
         path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
       ]

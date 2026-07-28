@@ -18,11 +18,9 @@ defmodule ImagePipe.Dialect.TwicPics do
       ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
-      ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Representation,
       ImagePipe.Response,
-      ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ],

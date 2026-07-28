@@ -216,6 +216,15 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
 
   # ── /info under a non-root mount ────────────────────────────────────────
 
+  describe "/info returned conn" do
+    test "the returned conn retains the /info path prefix (the runner never returns the dialect's internally prefix-stripped conn)" do
+      conn = get("/info/unsafe/plain/images/beach.jpg", opts())
+
+      assert conn.status == 200
+      assert conn.request_path == "/info/unsafe/plain/images/beach.jpg"
+    end
+  end
+
   describe "/info under a mount prefix" do
     test "the /info terminal is found after the prefix is stripped, and renders info JSON" do
       conn = PrefixedRouter.call(conn(:get, "/img/info/unsafe/plain/images/beach.jpg"), [])
@@ -223,13 +232,6 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
       assert conn.status == 200
       assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
       assert %{"format" => "jpeg"} = Jason.decode!(conn.resp_body)
-    end
-
-    test "the returned conn retains the /info path prefix (the runner never returns the dialect's internally prefix-stripped conn)" do
-      conn = get("/info/unsafe/plain/images/beach.jpg", opts())
-
-      assert conn.status == 200
-      assert conn.request_path == "/info/unsafe/plain/images/beach.jpg"
     end
 
     test "the /info prefix is excluded from the signed material under a mount too" do
