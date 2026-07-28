@@ -28,14 +28,6 @@ defmodule ImagePipe.Dialect.IIIF.Errors do
   alias ImagePipe.Dialect.Failure
   alias ImagePipe.Response.ErrorStatus
 
-  @grammar_tags [
-    :invalid_region,
-    :invalid_size,
-    :invalid_rotation,
-    :invalid_quality,
-    :invalid_format
-  ]
-
   @spec send(Plug.Conn.t(), term(), keyword()) :: Plug.Conn.t()
   def send(%Plug.Conn{} = conn, %Failure{phase: :parse, reason: reason}, config),
     do: send_parse(conn, reason, config)
@@ -70,11 +62,10 @@ defmodule ImagePipe.Dialect.IIIF.Errors do
 
   defp send_parse(conn, :not_found, _config), do: text(conn, 404, "not found")
 
-  defp send_parse(conn, {tag, _raw}, _config) when tag in @grammar_tags,
-    do: text(conn, 400, "bad request")
-
-  # Every other parse rejection — including a plan-building reject the grammar
-  # cannot name — is a client error.
+  # Every other parse rejection is a client error. In practice that means the
+  # grammar's `:invalid_region`, `:invalid_size`, `:invalid_rotation`,
+  # `:invalid_quality`, and `:invalid_format` tags — `PlanBuilder.image_plan/3`
+  # has no path today that returns `{:error, _}` for a grammar-valid token set.
   defp send_parse(conn, _reason, _config), do: text(conn, 400, "bad request")
 
   defp resolve(conn, reason, config) do

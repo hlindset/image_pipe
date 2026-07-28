@@ -8,6 +8,7 @@ defmodule ImagePipe.Dialect.IIIF.MountTest do
   alias ImagePipe.Dialect.IIIF.Resolver.Static
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImgproxyWireConformanceTest.CacheProbe
 
   defmodule OriginImage do
     @moduledoc false
@@ -58,12 +59,19 @@ defmodule ImagePipe.Dialect.IIIF.MountTest do
       :get
       |> conn("/beach/info.json")
       |> put_req_header("accept", "application/ld+json")
-      |> ImagePipe.Plug.call(opts())
+      |> ImagePipe.Plug.call(opts(cache: {CacheProbe, result: :miss}))
 
     assert conn.status == 200
     assert hd(get_resp_header(conn, "content-type")) =~ "application/ld+json"
     assert get_resp_header(conn, "vary") == ["Accept"]
     assert %{"type" => "ImageService3"} = JSON.decode!(conn.resp_body)
+
+    # A CacheProbe adapter is mounted (rather than leaving the cache
+    # unconfigured) so this refutation is observable: it would fail if
+    # info.json ever read or wrote the internal cache.
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_open_sink, _key, _metadata}
+    refute_received {:cache_put, _key, _body}
   end
 
   test "the base-URI redirect survives" do
@@ -84,7 +92,7 @@ defmodule ImagePipe.Dialect.IIIF.MountTest do
     assert hd(get_resp_header(bad, "content-type")) =~ "text/plain"
   end
 
-  test "an unrecognized parse rejection stays a 400, not a 500" do
+  test "a rejected region token (a second grammar tag) is also a 400, not a 500" do
     conn = get("/beach/-1,-1,0,0/max/0/default.jpg", opts())
     assert conn.status == 400
   end
