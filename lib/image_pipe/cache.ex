@@ -63,7 +63,7 @@ defmodule ImagePipe.Cache do
           | {:miss, Key.t(), {:cache_read, term()}}
 
   @doc false
-  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()}
+  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()} | no_return()
   def validate_config(opts) when is_list(opts) do
     normalize_config(opts)
   end

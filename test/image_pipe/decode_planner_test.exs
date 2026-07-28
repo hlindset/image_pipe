@@ -198,6 +198,18 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     end
   end
 
+  test "a rotate AFTER the resize contributes no turn (the IIIF operation order)" do
+    # Same stored dims and resize target as the rotate-BEFORE-resize case above,
+    # but with the rotate moved after the resize — the shape IIIF's canonical
+    # `region_ops ++ size_ops ++ rotation_ops` order always produces. The rotate
+    # reaches the chain too late to swap the shrink axes: shrink is 3200/400 = 8,
+    # not the swapped 800/400 = 2 the same rotate produces before the resize.
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
+    assert {:ok, rotate} = Operation.rotate(90)
+    opts = chain_options([resize, rotate], :jpeg, {3200, 800})
+    assert opts[:shrink] == 8
+  end
+
   test "a 180 user rotate before the resize shrinks without swapping the axes (#151)" do
     assert {:ok, rotate} = Operation.rotate(180)
     assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)

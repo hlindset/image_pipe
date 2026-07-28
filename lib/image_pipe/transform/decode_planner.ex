@@ -213,7 +213,8 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # reduced mod 360. A 180° rotate contributes no axis swap; two quarter turns
   # cancel; the canonical pipeline order (rotate → crop → resize) places all user
   # rotates before the resize, so this matches the pending orientation the resize
-  # sees when it runs.
+  # sees when it runs. Angles fold with integer `rem/2`: only an integer angle
+  # is supported here.
   defp user_rotate_angle_before_resize(chain) do
     Enum.reduce_while(chain, 0, fn
       %Rotate{angle: angle}, acc -> {:cont, rem(acc + angle, 360)}
