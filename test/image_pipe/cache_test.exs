@@ -2,45 +2,16 @@ defmodule ImagePipe.CacheTest do
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
-  import Plug.Test
 
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Output
-  alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Plan.Source
-
-  defmodule HitAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, opts), do: {:hit, Keyword.fetch!(opts, :entry)}
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
 
   defmodule MissAdapter do
     @behaviour ImagePipe.Cache
 
     def get(%Key{}, _opts), do: :miss
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
-    def write_chunk(state, _chunk, _opts), do: {:ok, state}
-    def commit_sink(_state, _opts), do: :ok
-    def abort_sink(_state, _opts), do: :ok
-  end
-
-  defmodule CaptureAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{} = key, opts) do
-      send(self(), {:cache_get, key, opts})
-      :miss
-    end
-
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
     def write_chunk(state, _chunk, _opts), do: {:ok, state}
     def commit_sink(_state, _opts), do: :ok
@@ -188,28 +159,6 @@ defmodule ImagePipe.CacheTest do
     def put(%Key{}, %Entry{}, _opts), do: :ok
   end
 
-  defp plan(overrides \\ []) do
-    struct!(
-      Plan,
-      Keyword.merge(
-        [
-          source: %Source.Path{segments: ["images", "cat.jpg"]},
-          pipelines: [%Pipeline{operations: []}],
-          output: %Output{mode: {:explicit, :webp}}
-        ],
-        overrides
-      )
-    )
-  end
-
-  defp automatic_plan do
-    plan(output: %Output{mode: :automatic})
-  end
-
-  defp source_identity do
-    [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
-  end
-
   defp cache_key do
     %Key{
       hash: String.duplicate("a", 64),
@@ -217,13 +166,13 @@ defmodule ImagePipe.CacheTest do
     }
   end
 
-  defp entry(body \\ "body") do
-    %Entry{
-      body: body,
-      content_type: "image/webp",
-      headers: [],
-      created_at: ~U[2026-04-29 10:15:00Z]
-    }
+  # A minimal declarative mount; every init case below differs only in `cache:`.
+  defp mount(extra) do
+    [
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: %{}},
+      sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}]
+    ] ++ extra
   end
 
   defp resolved_output do
@@ -237,71 +186,39 @@ defmodule ImagePipe.CacheTest do
     }
   end
 
-  test "returns disabled when no cache is configured" do
-    assert Cache.lookup(
-             conn(:get, "/_/plain/images/cat.jpg"),
-             plan(),
-             source_identity(),
-             []
-           ) ==
-             :disabled
-  end
-
   test "ImagePipe init rejects invalid cache config early" do
-    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: %{}}],
-        sources: [
-          path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
-        ],
-        cache: {__MODULE__.DoesNotExist, []}
-      )
-    end
-
-    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.Plug.init(cache: {MissingSinkCallbacksAdapter, []})
-    end
-
-    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.Plug.init(cache: {MissAdapter, key_headers: [:accept_language]})
+    for cache <- [
+          {__MODULE__.DoesNotExist, []},
+          {MissingSinkCallbacksAdapter, []},
+          {MissAdapter, [key_headers: [:accept_language]]},
+          {MissAdapter, [max_body_bytes: "10MB"]}
+        ] do
+      assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+        ImagePipe.Plug.init(mount(cache: cache))
+      end
     end
 
     assert_raise ArgumentError, ~r/key_headers.*cannot include.*accept/, fn ->
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: %{}}],
-        cache: {MissAdapter, key_headers: ["Accept"]}
-      )
-    end
-
-    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.Plug.init(cache: {MissAdapter, max_body_bytes: "10MB"})
+      ImagePipe.Plug.init(mount(cache: {MissAdapter, key_headers: ["Accept"]}))
     end
   end
 
-  test "ImagePipe init rejects missing required options early" do
-    assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
-      ImagePipe.Plug.init([])
+  test "ImagePipe init rejects a mount missing a required dialect option early" do
+    assert_raise ArgumentError, ~r/required :resolver option not found/, fn ->
+      ImagePipe.Plug.init(dialect: ImagePipe.Dialect.IIIF)
     end
   end
 
   test "ImagePipe init rejects invalid filesystem cache options early" do
-    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.Plug.init(cache: {ImagePipe.Cache.FileSystem, root: "relative/cache"})
-    end
-
-    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.Plug.init(
-        cache: {ImagePipe.Cache.FileSystem, root: System.tmp_dir!(), path_prefix: "../outside"}
-      )
-    end
-
-    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.Plug.init(
-        cache:
-          {ImagePipe.Cache.FileSystem, root: System.tmp_dir!(), path_prefix: "processed//images"}
-      )
+    for cache <- [
+          {ImagePipe.Cache.FileSystem, [root: "relative/cache"]},
+          {ImagePipe.Cache.FileSystem, [root: System.tmp_dir!(), path_prefix: "../outside"]},
+          {ImagePipe.Cache.FileSystem,
+           [root: System.tmp_dir!(), path_prefix: "processed//images"]}
+        ] do
+      assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+        ImagePipe.Plug.init(mount(cache: cache))
+      end
     end
   end
 
@@ -310,12 +227,7 @@ defmodule ImagePipe.CacheTest do
 
     opts =
       ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: %{}}],
-        sources: [
-          path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
-        ],
-        cache: {ImagePipe.Cache.FileSystem, root: root <> "/../image_pipe_cache_init"}
+        mount(cache: {ImagePipe.Cache.FileSystem, root: root <> "/../image_pipe_cache_init"})
       )
 
     assert {ImagePipe.Cache.FileSystem, cache_opts} = Keyword.fetch!(opts, :cache)
@@ -323,141 +235,11 @@ defmodule ImagePipe.CacheTest do
     assert cache_opts[:path_prefix] == ""
   end
 
-  test "returns hits with the generated key" do
-    configured_entry = entry()
-
-    assert {:hit, %Key{} = key, ^configured_entry} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {HitAdapter, entry: configured_entry}
-             )
-
-    assert key.data[:source_identity] == source_identity()
-  end
-
-  test "invalid hit content types are cache read errors" do
-    invalid_entry = %Entry{
-      body: "body",
-      content_type: "image/gif",
-      headers: [],
-      created_at: ~U[2026-04-29 10:15:00Z]
-    }
-
-    log =
-      capture_log(fn ->
-        assert {:miss, %Key{},
-                {:cache_read, {:invalid_entry, {:unsupported_output_format, "image/gif"}}}} =
-                 Cache.lookup(
-                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-                   plan(),
-                   source_identity(),
-                   cache: {HitAdapter, entry: invalid_entry}
-                 )
-      end)
-
-    assert log =~ "cache read error"
-    assert log =~ "unsupported_output_format"
-  end
-
-  test "returns miss with the generated key" do
-    assert {:miss, %Key{} = key} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {MissAdapter, []}
-             )
-
-    assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
-  end
-
-  test "automatic lookup key uses modern candidates without reaching adapter opts" do
-    assert {:miss, %Key{} = key} =
-             Cache.lookup(
-               :get
-               |> conn("/_/plain/images/cat.jpg")
-               |> Plug.Conn.put_req_header("accept", "image/avif,image/webp"),
-               automatic_plan(),
-               source_identity(),
-               auto_avif: false,
-               cache: {CaptureAdapter, key_headers: ["accept-language"]}
-             )
-
-    assert key.data[:output] == [
-             mode: :automatic,
-             modern_candidates: [:webp],
-             auto: [jpeg_xl: true, avif: false, webp: true],
-             quality: :default,
-             format_qualities: %{},
-             quality_search: :none,
-             max_bytes: nil,
-             strip_metadata: true,
-             color_profile: :strip,
-             keep_copyright: true,
-             hdr: :tone_map,
-             flatten_background: [
-               space: :srgb,
-               red: 255,
-               green: 255,
-               blue: 255,
-               alpha: [unit: :ratio, numerator: 1, denominator: 1]
-             ],
-             encoder_options: %{}
-           ]
-
-    assert_received {:cache_get, ^key, adapter_opts}
-    refute Keyword.has_key?(adapter_opts, :selected_output_format)
-    refute Keyword.has_key?(adapter_opts, :selected_output_reason)
-    refute Keyword.has_key?(adapter_opts, :auto_avif)
-    assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
-  end
-
-  test "adapter-private options named like automatic output flags do not affect key data" do
-    assert {:miss, %Key{} = key} =
-             Cache.lookup(
-               :get
-               |> conn("/_/plain/images/cat.jpg")
-               |> Plug.Conn.put_req_header("accept", "image/avif,image/webp"),
-               automatic_plan(),
-               source_identity(),
-               cache: {CaptureAdapter, auto_avif: false, auto_webp: false}
-             )
-
-    assert key.data[:output][:auto] == [jpeg_xl: true, avif: true, webp: true]
-
-    assert_received {:cache_get, ^key, adapter_opts}
-    assert Keyword.fetch!(adapter_opts, :auto_avif) == false
-    assert Keyword.fetch!(adapter_opts, :auto_webp) == false
-  end
-
-  test "read errors fail open by default and are logged" do
-    log =
-      capture_log(fn ->
-        assert {:miss, %Key{}, {:cache_read, :read_failed}} =
-                 Cache.lookup(
-                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-                   plan(),
-                   source_identity(),
-                   cache: {ErrorAdapter, []}
-                 )
-      end)
-
-    assert log =~ "cache read error"
-    assert log =~ ":read_failed"
-  end
-
   test "lookup returns miss when adapter.get raises" do
     log =
       capture_log(fn ->
         assert {:miss, %Key{}, {:cache_read, %RuntimeError{message: "adapter get crashed"}}} =
-                 Cache.lookup(
-                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-                   plan(),
-                   source_identity(),
-                   cache: {RaisingGetAdapter, []}
-                 )
+                 Cache.lookup_entry(cache_key(), cache: {RaisingGetAdapter, []})
       end)
 
     assert log =~ "cache read error"
@@ -467,12 +249,7 @@ defmodule ImagePipe.CacheTest do
     log =
       capture_log(fn ->
         assert {:miss, %Key{}, {:cache_read, {:invalid_adapter_result, :surprise}}} =
-                 Cache.lookup(
-                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-                   plan(),
-                   source_identity(),
-                   cache: {UnexpectedResultAdapter, []}
-                 )
+                 Cache.lookup_entry(cache_key(), cache: {UnexpectedResultAdapter, []})
       end)
 
     assert log =~ "cache read error"
@@ -649,13 +426,7 @@ defmodule ImagePipe.CacheTest do
 
     opts = Cache.validate_config!(cache: {NormalizingAdapter, cache_opts})
 
-    assert {:miss, %Key{}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               opts
-             )
+    assert {:miss, %Key{}} = Cache.lookup_entry(cache_key(), opts)
 
     assert_received {:normalized_cache_get, runtime_opts}
     assert Keyword.fetch!(runtime_opts, :key_headers) == ["accept-language"]

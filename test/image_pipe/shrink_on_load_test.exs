@@ -127,16 +127,16 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   defp file_source_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_resolver(),
       sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}]
     ]
   end
 
   defp http_source_opts(origin_plug) do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_resolver(),
       sources: [
         path:
           {ImagePipe.SourceTest.RootHTTPAdapter,
