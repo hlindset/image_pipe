@@ -17,10 +17,10 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
     assert validated[:max_body_bytes] == 10_000_000
   end
 
-  test "init delegates the flat option list to Config" do
+  test "validate_config! delegates the flat option list to Config" do
     opts = [quality: 42, allow_debug_headers: true]
 
-    assert TwicPics.init(opts) == Config.validate!(opts)
+    assert TwicPics.validate_config!(opts) == Config.validate!(opts)
   end
 
   test "a neutral quality override resolves through ImagePipe.Config" do

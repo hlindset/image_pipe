@@ -515,7 +515,9 @@ defmodule ImagePipe.TwicPicsTelemetryContractTest do
       end)
 
     {seams, known} = Keyword.split(opts, @test_seams)
-    TwicPics.call(conn, Keyword.merge(TwicPics.init(known), seams))
+
+    base = ImagePipe.Plug.init([dialect: TwicPics] ++ known)
+    ImagePipe.Plug.call(conn, Keyword.merge(base, seams))
   end
 
   defp stage?(trace, stage), do: Enum.any?(trace, &(&1.stage == stage))

@@ -128,6 +128,16 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
     def stream!(_image, [{:suffix, ".jpg"} | _]), do: []
   end
 
+  # A `Clamp.clamp/3` `image_module` seam whose `resize/3` raises. Clamp is a
+  # shared post-transform stage with no rescue of its own (AGENTS.md: only a
+  # dialect's own pipeline run is a trusted-callback boundary the runner must
+  # not launder) — the raise is expected to escape the producer process,
+  # surface to the coordinator as a `:DOWN`, and render 500-class.
+  defmodule RaisingClampImage do
+    @moduledoc false
+    def resize(_image, _scale, _opts), do: raise("boom during clamp resize")
+  end
+
   # An `ImagePipe.Cache` adapter that announces every callback via message so a
   # test can assert sink OWNERSHIP (opened/written/aborted/committed), not just
   # the resulting HTTP response. `get/2` always misses.
@@ -646,6 +656,46 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
       assert_received :cache_write_chunk_failed
       assert_received :cache_abort_sink
       refute_received :cache_commit_sink
+    end
+  end
+
+  # ── row 8: pre-first-chunk post-transform exception (forced clamp) ──────
+
+  describe "row 8: pre-first-chunk post-transform exception (forced clamp)" do
+    test "renders 500-class, opens no sink, cleans up once, and reports processing_error" do
+      test_pid = self()
+      prefix = [:"imgproxy_error_paths_clamp_#{System.unique_integer([:positive])}"]
+      handler_id = "imgproxy-error-paths-clamp-#{inspect(prefix)}"
+
+      :telemetry.attach(
+        handler_id,
+        prefix ++ [:request, :stop],
+        fn _event, _measurements, metadata, test_pid ->
+          send(test_pid, {:request_stop, metadata})
+        end,
+        test_pid
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      config =
+        opts(
+          telemetry_prefix: prefix,
+          max_result_width: 10,
+          max_result_height: 10,
+          cache: {ObservingCacheProbe, test_pid: test_pid},
+          image_module: RaisingClampImage,
+          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
+        )
+
+      conn = get("/unsafe/rs:fit:64:64/plain/images/beach.jpg", config)
+
+      assert conn.status in 500..599
+      refute_received {:cache_open_sink, _key, _metadata}
+      refute_received :cache_commit_sink
+      assert_receive :bracket_cleanup
+      refute_received :bracket_cleanup
+      assert_receive {:request_stop, %{result: :processing_error}}
     end
   end
 end

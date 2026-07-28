@@ -3,29 +3,30 @@ defmodule ImagePipe.Dialect.TwicPics.NegotiationTest do
 
   import Plug.Test
 
+  alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Dialect.TwicPics.Config
-  alias ImagePipe.Dialect.TwicPics.Negotiation
   alias ImagePipe.Dialect.TwicPics.RequestBuilder
   alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Source.Path
+
+  # This file's assertions now run against the promoted
+  # `ImagePipe.Dialect.Negotiation.negotiate/3` seam (Phase A). Assertions that
+  # merely duplicated `test/image_pipe/dialect/negotiation_test.exs` (explicit
+  # format bypass, no-Vary) or `test/image_pipe/twic_pics_wire_conformance_test.exs`'s
+  # "output=auto matches hosted TwicPics format selection" describe block (the
+  # WebP-over-AVIF default, AVIF-only fallback, host AVIF re-enable, and
+  # no-modern-candidate fallback) were deleted rather than kept as
+  # post-migration parity pins. What remains is TwicPics-specific behavior not
+  # pinned anywhere else: the `format_order` config knob, explicit-format
+  # capability rejection, and the "one Policy term" identity/resolution
+  # invariant.
 
   defp request!(chain) do
     {:ok, request} =
       RequestBuilder.build(%Path{segments: ["images", "cat.jpg"]}, chain, Config.validate!([]))
 
     request
-  end
-
-  test "explicit output selects the requested format without Vary" do
-    request = request!([{"output", "avif"}])
-    conn = :get |> conn("/") |> Plug.Conn.put_req_header("accept", "image/webp")
-    config = Config.validate!(output_capabilities: %{avif: true})
-
-    assert {:ok, negotiation} = Negotiation.negotiate(conn, request, config)
-    assert negotiation.selected == {:image, :avif}
-    assert negotiation.vary? == false
-    assert negotiation.policy.headers == []
   end
 
   test "automatic output selects the configured first accepted modern format" do
@@ -43,69 +44,17 @@ defmodule ImagePipe.Dialect.TwicPics.NegotiationTest do
         output_capabilities: %{avif: true, webp: true}
       )
 
-    assert {:ok, negotiation} = Negotiation.negotiate(conn, request, config)
+    assert {:ok, negotiation} = Negotiation.negotiate(conn, request.output, config)
     assert negotiation.selected == {:image, :webp}
     assert negotiation.vary? == true
     assert negotiation.policy.headers == [{"vary", "Accept"}]
-  end
-
-  # Hosted imagepipe.twic.pics output=auto probes (2026-07-19): a Chrome Accept
-  # (image/avif,image/webp,...) returns image/webp, and Accept: image/avif alone
-  # returns the source format (image/png), i.e. auto never selects AVIF. The
-  # dialect defaults auto_avif/auto_jpeg_xl off so its default auto negotiation
-  # matches hosted; explicit output=avif still bypasses (covered elsewhere).
-  test "automatic output defaults to WebP over AVIF, matching hosted TwicPics" do
-    request = request!([])
-
-    conn =
-      :get
-      |> conn("/")
-      |> Plug.Conn.put_req_header(
-        "accept",
-        "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
-      )
-
-    assert {:ok, negotiation} = Negotiation.negotiate(conn, request, Config.validate!([]))
-    assert negotiation.selected == {:image, :webp}
-    assert negotiation.vary? == true
-  end
-
-  test "an AVIF-only Accept defers to source negotiation (auto never selects AVIF)" do
-    request = request!([])
-    conn = :get |> conn("/") |> Plug.Conn.put_req_header("accept", "image/avif")
-
-    assert {:ok, negotiation} = Negotiation.negotiate(conn, request, Config.validate!([]))
-    assert negotiation.selected == {:image, :source_negotiated}
-    assert negotiation.vary? == true
-  end
-
-  test "a host may re-enable AVIF auto negotiation" do
-    request = request!([])
-
-    conn =
-      :get |> conn("/") |> Plug.Conn.put_req_header("accept", "image/avif,image/webp")
-
-    assert {:ok, negotiation} =
-             Negotiation.negotiate(conn, request, Config.validate!(auto_avif: true))
-
-    assert negotiation.selected == {:image, :avif}
-  end
-
-  test "automatic output with no modern candidate defers to source negotiation" do
-    request = request!([])
-    conn = :get |> conn("/") |> Plug.Conn.put_req_header("accept", "image/jpeg")
-    config = Config.validate!([])
-
-    assert {:ok, negotiation} = Negotiation.negotiate(conn, request, config)
-    assert negotiation.selected == {:image, :source_negotiated}
-    assert negotiation.vary? == true
   end
 
   test "unsupported configured explicit capability is rejected before source work" do
     request = request!([{"output", "avif"}])
     config = Config.validate!(output_capabilities: %{avif: false})
 
-    assert Negotiation.negotiate(conn(:get, "/"), request, config) ==
+    assert Negotiation.negotiate(conn(:get, "/"), request.output, config) ==
              {:error, {:unsupported_output_format, :avif}}
   end
 
@@ -113,7 +62,7 @@ defmodule ImagePipe.Dialect.TwicPics.NegotiationTest do
     request = request!([{"output", "jpeg"}, {"quality", "42"}])
     config = Config.validate!([])
 
-    assert {:ok, negotiation} = Negotiation.negotiate(conn(:get, "/"), request, config)
+    assert {:ok, negotiation} = Negotiation.negotiate(conn(:get, "/"), request.output, config)
     assert negotiation.policy_material == Policy.identity_material(negotiation.policy)
     assert Keyword.fetch!(negotiation.policy_material, :quality) == {:quality, 42}
 

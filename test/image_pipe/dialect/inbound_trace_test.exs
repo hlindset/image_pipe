@@ -41,13 +41,13 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
     ]
   end
 
-  defp get(mod, init_opts, path, headers) do
+  defp get(init_opts, path, headers) do
     conn =
       Enum.reduce(headers, conn(:get, path), fn {k, v}, conn ->
         Plug.Conn.put_req_header(conn, k, v)
       end)
 
-    mod.call(conn, mod.init(init_opts))
+    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(init_opts))
   end
 
   describe "ImagePipe.Dialect.Imgproxy" do
@@ -56,8 +56,7 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
 
       conn =
         get(
-          ImgproxyDialect,
-          [sources: sources()],
+          [dialect: ImgproxyDialect, sources: sources()],
           "/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg",
           [
             {"traceparent", @tp}
@@ -76,8 +75,7 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
 
       conn =
         get(
-          ImgproxyDialect,
-          [sources: sources()],
+          [dialect: ImgproxyDialect, sources: sources()],
           "/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg",
           [
             {"traceparent", @tp}
@@ -98,7 +96,6 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
 
       conn =
         get(
-          ImagePipe.Plug,
           [dialect: NativeDialect, sources: sources()],
           "/w=64/src/images/beach.jpg",
           [{"traceparent", @tp}]
@@ -116,7 +113,6 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
 
       conn =
         get(
-          ImagePipe.Plug,
           [dialect: NativeDialect, sources: sources()],
           "/w=64/src/images/beach.jpg",
           [{"traceparent", @tp}]

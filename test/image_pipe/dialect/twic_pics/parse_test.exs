@@ -3,8 +3,10 @@ defmodule ImagePipe.Dialect.TwicPics.ParseTest do
 
   import Plug.Test, only: [conn: 2]
 
+  alias ImagePipe.Dialect.Failure
   alias ImagePipe.Dialect.TwicPics
   alias ImagePipe.Dialect.TwicPics.Request
+  alias ImagePipe.Error
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Response
@@ -62,12 +64,24 @@ defmodule ImagePipe.Dialect.TwicPics.ParseTest do
     refute_received :cache_lookup
   end
 
+  test "TwicPics.parse/2 returns the marked failure and correct span metadata" do
+    {result, span_metadata} = TwicPics.parse(conn(:get, "/images/cat.jpg"), config())
+
+    assert {:error, %Failure{phase: :parse, reason: :missing_manipulation}} = result
+    assert span_metadata == %{result: :error, error: Error.tag(:missing_manipulation)}
+  end
+
   defp parse(path) do
-    TwicPics.parse(conn(:get, path), config())
+    {result, _span_metadata} = TwicPics.parse(conn(:get, path), config())
+
+    case result do
+      {:error, %Failure{phase: :parse, reason: reason}} -> {:error, reason}
+      other -> other
+    end
   end
 
   defp config do
-    TwicPics.init(
+    TwicPics.validate_config!(
       sources: [path: {RaisingAdapter, []}],
       cache: {CacheProbe, []}
     )

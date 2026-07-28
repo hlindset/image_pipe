@@ -57,7 +57,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
         Plug.Conn.put_req_header(conn, name, value)
       end)
 
-    TwicPics.call(conn, TwicPics.init(opts))
+    ImagePipe.Plug.call(conn, ImagePipe.Plug.init([dialect: TwicPics] ++ opts))
   end
 
   defp strong_opts(extra \\ []) do

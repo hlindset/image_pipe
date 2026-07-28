@@ -173,24 +173,26 @@ defmodule ImagePipe.ContractKit.CacheKey do
 
   @doc false
   def build_config(dialect, opts) do
-    config = dialect.init(Keyword.merge(opts, cache: {CacheProbe, []}))
+    config =
+      ImagePipe.Plug.init([dialect: dialect] ++ Keyword.merge(opts, cache: {CacheProbe, []}))
+
     Keyword.merge(config, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
-  defp request(dialect, path, config, nil), do: dialect.call(conn(:get, path), config)
+  defp request(_dialect, path, config, nil), do: ImagePipe.Plug.call(conn(:get, path), config)
 
-  defp request(dialect, path, config, accept) do
-    conn(:get, path) |> put_req_header("accept", accept) |> then(&dialect.call(&1, config))
+  defp request(_dialect, path, config, accept) do
+    conn(:get, path) |> put_req_header("accept", accept) |> then(&ImagePipe.Plug.call(&1, config))
   end
 
-  defp request_with_variant(dialect, path, config, {:header, name, value}) do
-    conn(:get, path) |> put_req_header(name, value) |> then(&dialect.call(&1, config))
+  defp request_with_variant(_dialect, path, config, {:header, name, value}) do
+    conn(:get, path) |> put_req_header(name, value) |> then(&ImagePipe.Plug.call(&1, config))
   end
 
-  defp request_with_variant(dialect, path, config, {:cookie, name, value}) do
+  defp request_with_variant(_dialect, path, config, {:cookie, name, value}) do
     conn(:get, path)
     |> put_req_header("cookie", "#{name}=#{value}")
-    |> then(&dialect.call(&1, config))
+    |> then(&ImagePipe.Plug.call(&1, config))
   end
 
   # ── generated-test bodies ────────────────────────────────────────────────
@@ -207,7 +209,7 @@ defmodule ImagePipe.ContractKit.CacheKey do
 
       results =
         for path <- paths do
-          conn = dialect.call(conn(:get, path), config)
+          conn = ImagePipe.Plug.call(conn(:get, path), config)
           assert_receive {:cache_lookup, key}
           assert conn.status == 200, "expected #{path} to return 200, got #{conn.status}"
           {key.hash, get_resp_header(conn, "etag")}

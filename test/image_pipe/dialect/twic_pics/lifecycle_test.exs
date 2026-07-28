@@ -178,8 +178,13 @@ defmodule ImagePipe.Dialect.TwicPics.LifecycleTest do
   @test_seams [:image_module, :on_bracket_exit, :chain]
 
   defp opts(extra \\ []) do
-    {seams, validated} = Keyword.split(extra, @test_seams)
-    base = TwicPics.init(Keyword.merge([sources: @default_sources], validated))
+    {seams, known} = Keyword.split(extra, @test_seams)
+
+    base =
+      ImagePipe.Plug.init(
+        [dialect: TwicPics] ++ Keyword.merge([sources: @default_sources], known)
+      )
+
     Keyword.merge(base, seams)
   end
 
@@ -226,7 +231,7 @@ defmodule ImagePipe.Dialect.TwicPics.LifecycleTest do
     conn =
       Enum.reduce(headers, conn, fn {name, value}, acc -> put_req_header(acc, name, value) end)
 
-    TwicPics.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   defp get(path, config, headers \\ []), do: request(:get, path, config, headers)

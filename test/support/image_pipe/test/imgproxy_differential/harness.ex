@@ -19,20 +19,8 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Harness do
   `{ImagePipe.Plug, initialized_opts}` pair, mounted in dialect mode. Build
   once and thread it through repeated `render/2` calls to avoid
   re-initializing per render.
-
-  Built locally rather than through `Shared.dialect_plug_opts/2` because that
-  helper is also used by the TwicPics differential harness, which cannot yet
-  mount through `ImagePipe.Plug` (its dialect ships in a later task). Once
-  both dialects mount the same way, this local construction can fold back
-  into the shared helper.
   """
-  def plug_opts,
-    do:
-      {ImagePipe.Plug,
-       ImagePipe.Plug.init(
-         dialect: ImagePipe.Dialect.Imgproxy,
-         sources: Shared.sources(@sources_dir)
-       )}
+  def plug_opts, do: Shared.dialect_plug_opts(ImagePipe.Dialect.Imgproxy, @sources_dir)
 
   @doc "Live ImagePipe render for a constellation → `{body_bytes, content_type}`."
   def render(constellation, plug_opts \\ plug_opts()),

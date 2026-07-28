@@ -3,6 +3,8 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorsTest do
 
   import Plug.Test
 
+  alias ImagePipe.Dialect.Failure
+  alias ImagePipe.Dialect.TwicPics
   alias ImagePipe.Dialect.TwicPics.Errors
 
   defp base_conn, do: conn(:get, "/")
@@ -52,37 +54,26 @@ defmodule ImagePipe.Dialect.TwicPics.ErrorsTest do
     end
   end
 
-  describe "negotiation headers" do
-    test "post-negotiation failures preserve the Policy headers" do
-      headers = [{"vary", "Accept"}]
+  # Provenance is read off the `%Failure{}` wrapper's `phase`, never inferred
+  # from the reason's own shape — guards against reintroducing a reason-shape
+  # allowlist that could misclassify a future reason term.
+  describe "provenance-based dispatch, not reason-shape inference" do
+    test "an unknown reason wrapped as a parse failure renders 400 and classifies :parser_error" do
+      failure = %Failure{phase: :parse, reason: {:future_parse_failure, :detail}}
 
-      for reason <- [
-            {:source, :receive_timeout},
-            {:decode, :corrupt},
-            {:input_limit, :too_large},
-            {:encode, :empty_stream},
-            {:session, :timeout},
-            {:transform, :bad_geometry},
-            {:future_core_failure, :detail}
-          ] do
-        conn = Errors.send(base_conn(), reason, [], headers)
+      conn = TwicPics.render_error(base_conn(), failure, [])
 
-        assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept"], inspect(reason)
-      end
+      assert conn.status == 400
+      assert TwicPics.classify_error(failure) == :parser_error
     end
 
-    test "pre-negotiation unsupported output and parse failures carry no Policy headers" do
-      unsupported = Errors.send(base_conn(), {:unsupported_output_format, :avif}, [])
-      parse = Errors.send_parse(base_conn(), {:invalid_quality, "101"}, [])
+    test "the same raw reason as a post-parse failure renders 500 and classifies :processing_error" do
+      reason = {:future_parse_failure, :detail}
 
-      assert Plug.Conn.get_resp_header(unsupported, "vary") == []
-      assert Plug.Conn.get_resp_header(parse, "vary") == []
-    end
+      conn = TwicPics.render_error(base_conn(), reason, [])
 
-    test "an explicit policy's empty header list adds no Vary" do
-      conn = Errors.send(base_conn(), {:decode, :corrupt}, [], [])
-
-      assert Plug.Conn.get_resp_header(conn, "vary") == []
+      assert conn.status == 500
+      assert TwicPics.classify_error(reason) == :processing_error
     end
   end
 end
