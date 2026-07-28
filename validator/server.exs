@@ -1,7 +1,7 @@
 # IIIF Validator Server
 #
 # Starts an HTTP server on port 4000 (or $PORT) that serves the reference image
-# via the ImagePipe IIIF parser for use by the `iiif-validate.py` validator.
+# via the ImagePipe IIIF dialect for use by the `iiif-validate.py` validator.
 #
 # Run with:
 #   mise exec -- mix run validator/server.exs

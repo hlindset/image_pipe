@@ -9,10 +9,12 @@ defmodule ImagePipe.Plug do
   `ImagePipe.Dialect.Declarative`. Every other option is the dialect's flat
   config, validated by its `c:ImagePipe.Dialect.validate_config!/1` at init.
 
-  This module is the lifecycle runner: parse → prepare → source resolve →
-  representation → conditional gate → cache → terminal → deliver. It branches
-  only on `%ImagePipe.Dialect.Resolved{}` fields and neutral core structs, and
-  never names a dialect (design decision U4).
+  This module only reads `:dialect` and hands the request to
+  `ImagePipe.Plug.DialectRunner`, which owns the lifecycle: parse → prepare →
+  source resolve → representation → conditional gate → cache → terminal →
+  deliver. See that module for how each stage branches on
+  `%ImagePipe.Dialect.Resolved{}` fields and neutral core structs without ever
+  naming a dialect (design decision U4).
   """
 
   use Boundary,

@@ -3,12 +3,10 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
   Mount and path semantics for `ImagePipe.Dialect.Imgproxy` [spec §Mount /
   path semantics].
 
-  Mounting a Plug directly rather than through `ImagePipe.Plug`'s `parser:`
-  option changes nothing about which path representation is authoritative —
-  but that is a claim, and the spec's point is that it must be pinned rather
-  than assumed. `path.ex` moved with its own `parser_request_path/1`, so the
-  dialect inherits imgproxy's mount-prefix handling rather than native's
-  `script_name` byte-prefix approach.
+  Which path representation is authoritative is a claim, and the spec's point
+  is that it must be pinned rather than assumed. `path.ex` moved with its own
+  `parser_request_path/1`, so the dialect inherits imgproxy's mount-prefix
+  handling rather than native's `script_name` byte-prefix approach.
 
   `ImagePipe.Dialect.Imgproxy.PathTest` (`path_test.exs`, same dir) already
   covers `extract/1`'s `script_name` handling at the unit level. This file is

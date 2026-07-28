@@ -1,4 +1,3 @@
-# credo:disable-for-this-file ExDNA.Credo
 defmodule ImagePipe.Decode do
   @moduledoc """
   Core fetch-through-decode bracket, shared by every dialect.

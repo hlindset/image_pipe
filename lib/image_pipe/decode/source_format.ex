@@ -1,4 +1,3 @@
-# credo:disable-for-this-file ExDNA.Credo
 defmodule ImagePipe.Decode.SourceFormat do
   @moduledoc false
 
