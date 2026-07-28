@@ -9,6 +9,7 @@ defmodule ImagePipe.Plan.KeyData do
 
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.Background
+  alias ImagePipe.Plan.Operation.Bitonal
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Canvas
@@ -19,6 +20,7 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Gradient
+  alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
   alias ImagePipe.Plan.Operation.Pixelate
@@ -141,6 +143,10 @@ defmodule ImagePipe.Plan.KeyData do
 
   def data(%Rotate{angle: angle, mirror: mirror}), do: [op: :rotate, angle: angle, mirror: mirror]
   def data(%Flip{axis: axis}), do: [op: :flip, axis: axis]
+
+  # Parameterless colour-reduction operations: the tag alone is the identity.
+  def data(%Gray{}), do: [op: :gray]
+  def data(%Bitonal{}), do: [op: :bitonal]
 
   def data(%Blur{sigma: sigma}), do: [op: :blur, sigma: sigma]
   def data(%Sharpen{sigma: sigma}), do: [op: :sharpen, sigma: sigma]

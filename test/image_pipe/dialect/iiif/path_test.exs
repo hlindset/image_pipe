@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.PathTest do
+defmodule ImagePipe.Dialect.IIIF.PathTest do
   use ExUnit.Case, async: true
   import Plug.Test
 

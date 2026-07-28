@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIFWireTest do
+defmodule ImagePipe.Dialect.IIIF.WireTest do
   use ExUnit.Case, async: true
 
   import Plug.Conn
@@ -7,6 +7,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImgproxyWireConformanceTest.CacheProbe
   alias Vix.Vips.Image, as: VipsImage
 
   # ---------------------------------------------------------------------------
@@ -93,70 +94,44 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     {StaticResolver, map: Map.merge(base_map, extra_map)}
   end
 
-  defp iiif_opts(origin_plug) do
+  defp iiif_opts(origin_plug, extra \\ []) do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: static_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: static_resolver(),
       allow_origin: "*",
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
       ]
-    ]
+    ] ++ extra
   end
 
-  defp iiif_opts_tile(origin_plug, tile_size) do
-    [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: static_resolver(), tile_size: tile_size],
-      allow_origin: "*",
-      sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
-      ]
-    ]
-  end
+  defp iiif_opts_tile(origin_plug, tile_size), do: iiif_opts(origin_plug, tile_size: tile_size)
 
-  defp iiif_opts_bounded(origin_plug, bounds) do
-    [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: static_resolver()] ++ bounds,
-      allow_origin: "*",
-      sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
-      ]
-    ]
-  end
+  defp iiif_opts_bounded(origin_plug, bounds), do: iiif_opts(origin_plug, bounds)
 
-  defp iiif_opts_with_rgba do
-    [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: static_resolver()],
-      allow_origin: "*",
-      sources: [
-        path:
-          {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: MultiOriginImage]}
-      ]
-    ]
-  end
+  defp iiif_opts_with_rgba, do: iiif_opts(MultiOriginImage)
 
-  defp iiif_opts_quality(origin_plug, quality) do
-    [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: static_resolver(), quality: quality],
-      allow_origin: "*",
-      sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
-      ]
-    ]
-  end
+  defp iiif_opts_quality(origin_plug, quality), do: iiif_opts(origin_plug, quality: quality)
 
   # ---------------------------------------------------------------------------
   # Call helpers
   # ---------------------------------------------------------------------------
 
+  # `image_module`/`on_bracket_exit`/`output_capabilities` are test-injection
+  # seams that `ImagePipe.Dialect.IIIF.Config.validate!/1` rejects as unknown
+  # options. They are spliced onto the validated config AFTER
+  # `ImagePipe.Plug.init/1`, the convention every dialect suite follows.
+  @test_only_seam_keys [:image_module, :on_bracket_exit, :output_capabilities]
+
+  defp init(opts) do
+    {seams, known} = Keyword.split(opts, @test_only_seam_keys)
+    Keyword.merge(ImagePipe.Plug.init(known), seams)
+  end
+
   # Builds a conn for the path UNDER the IIIF mount prefix (script_name: ["iiif"]).
   # The `path` should be "/img/full/max/0/default.jpg" (without "/iiif").
   defp call_iiif(path, opts, req_headers \\ []) do
-    initialized = ImagePipe.Plug.init(opts)
+    initialized = init(opts)
 
     :get
     |> conn(path)
@@ -166,7 +141,7 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   end
 
   defp call_options(path, opts) do
-    initialized = ImagePipe.Plug.init(opts)
+    initialized = init(opts)
 
     :options
     |> conn(path)
@@ -525,14 +500,18 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     assert dimensions(conn) == {100, 100}
   end
 
-  test "contract 9d: unsupported format .tif → 400" do
+  test "contract 9d: unsupported format .tif → 400, text/plain" do
     conn = call_iiif("/img/full/max/0/default.tif", iiif_opts(OriginImage))
     assert conn.status == 400
+    assert conn.resp_body == "bad request"
+    assert hd(content_type(conn)) =~ "text/plain"
   end
 
-  test "contract 9e: unknown identifier → 404" do
+  test "contract 9e: unknown identifier → 404, text/plain" do
     conn = call_iiif("/nope/full/max/0/default.jpg", iiif_opts(OriginImage))
     assert conn.status == 404
+    assert conn.resp_body == "not found"
+    assert hd(content_type(conn)) =~ "text/plain"
   end
 
   test "contract 9f: unescaped slash in identifier (a/b) → 404" do
@@ -765,6 +744,163 @@ defmodule ImagePipe.Parser.IIIFWireTest do
 
       assert low.status == 200 and high.status == 200
       assert byte_size(high.resp_body) > byte_size(low.resp_body)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Response identity
+  #
+  # Asserted as ROUND-TRIPS (stability, revalidation, separation, storage
+  # partitioning) rather than against literal validator values: the validator is
+  # a derived digest whose spelling is an implementation detail, while the
+  # properties below are the contract a client actually depends on.
+  # ---------------------------------------------------------------------------
+
+  @identity_path "/img/full/100,/0/default.png"
+
+  # A source with a stable byte identity — the precondition for any generated
+  # validator, independent of the mount's `http_cache` mode.
+  defp identity_opts(extra \\ []) do
+    [
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: static_resolver(),
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test",
+           byte_identity: :strong,
+           req_options: [plug: OriginImage]}
+      ]
+    ] ++ extra
+  end
+
+  defp cached_opts(extra \\ []), do: identity_opts([http_cache: [mode: :enabled]] ++ extra)
+
+  describe "response identity" do
+    test "the generated ETag and Cache-Control require http_cache: [mode: :enabled]" do
+      disabled = call_iiif(@identity_path, identity_opts())
+      enabled = call_iiif(@identity_path, cached_opts())
+
+      assert disabled.status == 200 and enabled.status == 200
+      assert get_resp_header(disabled, "etag") == []
+      assert [_etag] = get_resp_header(enabled, "etag")
+
+      refute get_resp_header(disabled, "cache-control") ==
+               get_resp_header(enabled, "cache-control")
+    end
+
+    test "http_cache: [mode: :enabled] emits a stable ETag for the same request" do
+      first = call_iiif(@identity_path, cached_opts())
+      second = call_iiif(@identity_path, cached_opts())
+
+      assert [etag] = get_resp_header(first, "etag")
+      assert get_resp_header(second, "etag") == [etag]
+    end
+
+    test "replaying the ETag as If-None-Match revalidates to 304" do
+      conn = call_iiif(@identity_path, cached_opts())
+      assert [etag] = get_resp_header(conn, "etag")
+
+      revalidated = call_iiif(@identity_path, cached_opts(), [{"if-none-match", etag}])
+
+      assert revalidated.status == 304
+      assert revalidated.resp_body == ""
+      assert get_resp_header(revalidated, "etag") == [etag]
+    end
+
+    test "two semantically different requests never share an ETag" do
+      hundred = call_iiif(@identity_path, cached_opts())
+      fifty = call_iiif("/img/full/50,/0/default.png", cached_opts())
+      gray = call_iiif("/img/full/100,/0/gray.png", cached_opts())
+
+      assert [wide] = get_resp_header(hundred, "etag")
+      assert [narrow] = get_resp_header(fifty, "etag")
+      assert [desaturated] = get_resp_header(gray, "etag")
+
+      refute wide == narrow
+      refute wide == desaturated
+      refute narrow == desaturated
+    end
+
+    test "a storage_inputs header enters Vary and partitions storage, not the ETag" do
+      opts =
+        cached_opts(
+          storage_inputs: [{:header, "x-tenant"}],
+          cache: {CacheProbe, result: :miss}
+        )
+
+      tenant_a = call_iiif(@identity_path, opts, [{"x-tenant", "a"}])
+      assert_received {:cache_lookup, key_a}
+
+      tenant_b = call_iiif(@identity_path, opts, [{"x-tenant", "b"}])
+      assert_received {:cache_lookup, key_b}
+
+      assert get_resp_header(tenant_a, "vary") == ["x-tenant"]
+      # Different storage entries...
+      refute key_a == key_b
+      # ...but byte-identical output, so the validator must not move.
+      assert get_resp_header(tenant_a, "etag") == get_resp_header(tenant_b, "etag")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Delivery-phase error rendering
+  # ---------------------------------------------------------------------------
+
+  # A `Clamp.clamp/3` `image_module` seam whose `resize/3` raises. Clamp is a
+  # shared post-transform stage with no rescue of its own, so the raise escapes
+  # the producer, reaches the runner as a `{:session, _}` delivery failure, and
+  # is rendered by the dialect's own error module.
+  defmodule RaisingClampImage do
+    @moduledoc false
+    def resize(_image, _scale, _opts), do: raise("boom during clamp resize")
+  end
+
+  describe "delivery-phase failures" do
+    test "a delivery-session failure renders 500 internal server error" do
+      prefix = [:"iiif_wire_session_#{System.unique_integer([:positive])}"]
+      handler_id = "iiif-wire-session-#{inspect(prefix)}"
+      test_pid = self()
+
+      :telemetry.attach(
+        handler_id,
+        prefix ++ [:request, :stop],
+        fn _event, _measurements, metadata, pid -> send(pid, {:request_stop, metadata}) end,
+        test_pid
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      config =
+        iiif_opts(OriginImage,
+          telemetry_prefix: prefix,
+          max_result_width: 10,
+          max_result_height: 10,
+          image_module: RaisingClampImage
+        )
+
+      conn = call_iiif("/img/full/max/0/default.jpg", config)
+
+      assert conn.status == 500
+      assert conn.resp_body == "internal server error"
+      assert_receive {:request_stop, %{result: :processing_error}}
+    end
+
+    test "an output format the build cannot write is 501 before any cache access" do
+      config =
+        iiif_opts(OriginImage,
+          cache: {CacheProbe, result: :miss},
+          output_capabilities: %{avif: false}
+        )
+
+      conn = call_iiif("/img/full/max/0/default.avif", config)
+
+      assert conn.status == 501
+      assert conn.resp_body == "requested output format is not supported by this server"
+      # The capability gate runs before the cache is consulted, and a negotiation
+      # error carries no Vary: Accept.
+      assert get_resp_header(conn, "vary") == []
+      refute_received {:cache_lookup, _key}
     end
   end
 end

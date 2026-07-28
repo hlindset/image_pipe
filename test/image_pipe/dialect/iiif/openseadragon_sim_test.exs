@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
+defmodule ImagePipe.Dialect.IIIF.OpenSeadragonSimTest do
   @moduledoc """
   Replicates OpenSeadragon's IIIF v3 getTileUrl algorithm (src/iiiftilesource.js)
   to drive a full pan/zoom tile traversal against a live ImagePipe IIIF endpoint,
@@ -48,8 +48,8 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
 
   defp opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: {StaticResolver, map: %{"grad" => %SourcePath{segments: ["grad.png"]}}}],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: {StaticResolver, map: %{"grad" => %SourcePath{segments: ["grad.png"]}}},
       sources: [
         path:
           {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: GradientOrigin]}

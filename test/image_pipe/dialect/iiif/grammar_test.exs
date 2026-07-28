@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.GrammarTest do
+defmodule ImagePipe.Dialect.IIIF.GrammarTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 

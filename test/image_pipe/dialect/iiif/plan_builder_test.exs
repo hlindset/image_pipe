@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
+defmodule ImagePipe.Dialect.IIIF.PlanBuilderTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Dialect.IIIF.PlanBuilder

@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.Resolver.StaticTest do
+defmodule ImagePipe.Dialect.IIIF.Resolver.StaticTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Dialect.IIIF.Resolver.Static

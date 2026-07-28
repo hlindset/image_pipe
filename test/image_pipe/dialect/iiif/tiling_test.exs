@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.TilingTest do
+defmodule ImagePipe.Dialect.IIIF.TilingTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 

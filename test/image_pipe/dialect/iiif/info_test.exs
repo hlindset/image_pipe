@@ -1,4 +1,4 @@
-defmodule ImagePipe.Parser.IIIF.InfoTest do
+defmodule ImagePipe.Dialect.IIIF.InfoTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Dialect.IIIF.{Info, InfoRenderer}
