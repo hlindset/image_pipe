@@ -22,7 +22,8 @@ defmodule ImagePipe.Dialect.Imgproxy.ShrinkLeakWireTest do
 
   defp call(path) do
     opts =
-      Imgproxy.init(
+      ImagePipe.Plug.init(
+        dialect: Imgproxy,
         sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}],
         max_body_bytes: 20_000_000,
         max_input_pixels: 40_000_000
@@ -30,7 +31,7 @@ defmodule ImagePipe.Dialect.Imgproxy.ShrinkLeakWireTest do
 
     :get
     |> conn(path)
-    |> Imgproxy.call(opts)
+    |> ImagePipe.Plug.call(opts)
   end
 
   defp dimensions(conn) do

@@ -312,7 +312,8 @@ defmodule ImagePipe.ImgproxyTelemetryContractTest do
   defp call_conn(%Plug.Conn{} = conn, opts) do
     {seams, known} = Keyword.split(opts, @test_only_seam_keys)
 
-    DialectImgproxy.call(conn, Keyword.merge(DialectImgproxy.init(known), seams))
+    init_opts = ImagePipe.Plug.init([dialect: DialectImgproxy] ++ known)
+    ImagePipe.Plug.call(conn, Keyword.merge(init_opts, seams))
   end
 
   # ── scenario 1: image cache miss ──────────────────────────────────────
@@ -716,10 +717,10 @@ defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
     prefix = [:"stage_set_di_#{System.unique_integer([:positive])}"]
     attach(prefix)
 
-    opts = Imgproxy.init(sources: sources(), telemetry_prefix: prefix)
+    opts = ImagePipe.Plug.init(dialect: Imgproxy, sources: sources(), telemetry_prefix: prefix)
 
     conn =
-      Imgproxy.call(conn(:get, "/unsafe/rs:fit:64:64/plain/images/beach.jpg"), opts)
+      ImagePipe.Plug.call(conn(:get, "/unsafe/rs:fit:64:64/plain/images/beach.jpg"), opts)
 
     assert conn.status == 200
     drain(prefix)

@@ -55,7 +55,8 @@ defmodule ImagePipe.Test.Differential.Harness do
     Image.open!(body, access: :random, fail_on: :error)
   end
 
-  defp sources(sources_dir) do
+  @doc "Local `path:` source config serving `sources_dir`'s committed files."
+  def sources(sources_dir) do
     [
       path:
         {RootHTTPAdapter,

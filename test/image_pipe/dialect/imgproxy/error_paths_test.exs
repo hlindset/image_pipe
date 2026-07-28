@@ -251,7 +251,11 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
 
   defp opts(extra) do
     {seams, known} = Keyword.split(extra, @test_only_seam_keys)
-    base = Imgproxy.init(Keyword.merge([sources: @default_sources], known))
+
+    base =
+      ImagePipe.Plug.init(
+        [dialect: Imgproxy] ++ Keyword.merge([sources: @default_sources], known)
+      )
 
     Keyword.merge(
       base,
@@ -262,7 +266,7 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    Imgproxy.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   defp decoded_dims(body) do

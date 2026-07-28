@@ -52,14 +52,18 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
   ]
 
   defp opts(extra \\ []) do
-    base = Imgproxy.init(Keyword.merge([sources: @default_sources], extra))
+    base =
+      ImagePipe.Plug.init(
+        [dialect: Imgproxy] ++ Keyword.merge([sources: @default_sources], extra)
+      )
+
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    Imgproxy.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   defp decoded_dims(body) do
@@ -88,8 +92,8 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
   # `Plug.Router.forward/2` is what sets `script_name` in production; building
   # the conn by hand would test the test's idea of a mount rather than Plug's.
   #
-  # `forward/2` calls `Imgproxy.init/1` on `init_opts` itself, so these are the
-  # RAW host options — the same thing a host writes in its own router.
+  # `forward/2` calls `ImagePipe.Plug.init/1` on `init_opts` itself, so these
+  # are the RAW host options — the same thing a host writes in its own router.
   defmodule RootRouter do
     @moduledoc false
     use Plug.Router
@@ -98,8 +102,9 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
     plug :dispatch
 
     forward "/",
-      to: ImagePipe.Dialect.Imgproxy,
+      to: ImagePipe.Plug,
       init_opts: [
+        dialect: ImagePipe.Dialect.Imgproxy,
         sources: [
           path:
             {ImagePipe.SourceTest.RootHTTPAdapter,
@@ -118,8 +123,9 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
     plug :dispatch
 
     forward "/img",
-      to: ImagePipe.Dialect.Imgproxy,
+      to: ImagePipe.Plug,
       init_opts: [
+        dialect: ImagePipe.Dialect.Imgproxy,
         sources: [
           path:
             {ImagePipe.SourceTest.RootHTTPAdapter,
@@ -138,8 +144,9 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
     plug :dispatch
 
     forward "/proxy/v1",
-      to: ImagePipe.Dialect.Imgproxy,
+      to: ImagePipe.Plug,
       init_opts: [
+        dialect: ImagePipe.Dialect.Imgproxy,
         sources: [
           path:
             {ImagePipe.SourceTest.RootHTTPAdapter,
@@ -200,7 +207,7 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
       prefixed =
         conn(:get, "/img" <> path)
         |> Map.put(:script_name, ["img"])
-        |> Imgproxy.call(signing_opts())
+        |> ImagePipe.Plug.call(signing_opts())
 
       assert prefixed.status == 200
       assert prefixed.resp_body == root.resp_body
@@ -218,6 +225,13 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
       assert %{"format" => "jpeg"} = Jason.decode!(conn.resp_body)
     end
 
+    test "the returned conn retains the /info path prefix (the runner never returns the dialect's internally prefix-stripped conn)" do
+      conn = get("/info/unsafe/plain/images/beach.jpg", opts())
+
+      assert conn.status == 200
+      assert conn.request_path == "/info/unsafe/plain/images/beach.jpg"
+    end
+
     test "the /info prefix is excluded from the signed material under a mount too" do
       # Upstream signs the path WITHOUT the `/info` prefix; `split_endpoint/1`
       # strips it before `extract/1` runs. Under a mount BOTH prefixes come off,
@@ -230,7 +244,7 @@ defmodule ImagePipe.Dialect.Imgproxy.MountTest do
       prefixed =
         conn(:get, "/img/info" <> path)
         |> Map.put(:script_name, ["img"])
-        |> Imgproxy.call(signing_opts())
+        |> ImagePipe.Plug.call(signing_opts())
 
       assert prefixed.status == 200
       assert prefixed.resp_body == root.resp_body

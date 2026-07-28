@@ -110,13 +110,13 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
   end
 
   defp opts(extra \\ []) do
-    Imgproxy.init(Keyword.merge([sources: @default_sources], extra))
+    ImagePipe.Plug.init([dialect: Imgproxy] ++ Keyword.merge([sources: @default_sources], extra))
   end
 
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
-    Imgproxy.call(conn, config)
+    ImagePipe.Plug.call(conn, config)
   end
 
   # ── the /info body contract ─────────────────────────────────────────────
@@ -308,6 +308,7 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoWireTest do
 
       assert hit.resp_body == miss.resp_body
       assert get_resp_header(hit, "content-type") == get_resp_header(miss, "content-type")
+      assert get_resp_header(hit, "content-type") == ["application/json; charset=utf-8"]
       assert get_resp_header(hit, "etag") == get_resp_header(miss, "etag")
     end
 
