@@ -31,6 +31,14 @@ defmodule ImagePipe.Source do
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
   @callback resolve(PlanSource.t(), keyword(), keyword()) ::
               {:ok, Resolved.t()} | {:error, error()}
+
+  @doc """
+  The third argument (`runtime_opts`) must be a `runtime_opts/1`-projected
+  keyword list, never a raw mount configuration — a mount configuration also
+  holds every other source's adapter configuration and the cache adapter's
+  configuration, both of which routinely carry credentials, and handing it
+  to an adapter whole would leak them.
+  """
   @callback fetch(Resolved.t(), keyword(), keyword()) :: {:ok, Response.t()} | {:error, error()}
 
   @source_kinds [:path, :url, :object, :reference]
@@ -38,14 +46,21 @@ defmodule ImagePipe.Source do
   @http_cache_policies [:inherit, :enabled, :disabled]
 
   # The per-request runtime surface a source adapter may read: the body limit
-  # it must honor, the transport timeouts it may override per request, and the
-  # request/telemetry correlation data it propagates.
+  # it must honor, the transport timeouts it may override per request, and
+  # the telemetry data it propagates.
+  #
+  # `:receive_timeout`, `:connect_timeout`, and `:pool_timeout` are honored
+  # today by the HTTP and S3 adapters as per-request transport overrides
+  # (`ImagePipe.Source.HTTP`, `ImagePipe.Source.S3`), even though no host
+  # mount surface currently exposes them for configuration (host mount
+  # configs validate against a closed key set and reject unknown keys). They
+  # stay on this list as a deliberate contract for the adapter callback, not
+  # because a mount can supply them yet.
   @runtime_option_keys [
     :max_body_bytes,
     :receive_timeout,
     :connect_timeout,
     :pool_timeout,
-    :request_id,
     :telemetry_prefix
   ]
 
