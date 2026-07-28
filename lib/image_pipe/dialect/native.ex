@@ -149,9 +149,18 @@ defmodule ImagePipe.Dialect.Native do
   def decode_request(%Request{} = request, geometry),
     do: Pipeline.decode_request(request, geometry)
 
+  # The pipeline is a concrete libvips runtime boundary, so this dialect
+  # converts its own raises into the callback's tagged-tuple contract; the
+  # runner rescues nothing on its behalf.
   @impl ImagePipe.Dialect
-  def execute(state, geometry, %Request{} = request, opts),
-    do: Pipeline.run(state, geometry, request, opts)
+  # ex_dna:disable-for-next-line
+  def execute(state, geometry, %Request{} = request, opts) do
+    Pipeline.run(state, geometry, request, opts)
+  rescue
+    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
+  catch
+    kind, reason -> {:error, {:transform, {kind, reason}}}
+  end
 
   @impl ImagePipe.Dialect
   def render_error(conn, reason, config), do: Errors.send(conn, reason, config)

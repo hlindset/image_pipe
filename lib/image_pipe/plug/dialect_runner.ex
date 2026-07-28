@@ -10,6 +10,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Dialect.DebugContext
+  alias ImagePipe.Dialect.Failure
   alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Dialect.RenderTerminal
   alias ImagePipe.Dialect.Resolved
@@ -37,7 +38,16 @@ defmodule ImagePipe.Plug.DialectRunner do
 
     Telemetry.span(Telemetry.telemetry_opts(config), [:request], %{}, fn ->
       {conn, metadata} = route(conn, dialect, config)
-      {conn, Map.put(metadata, :status, conn.status)}
+
+      # A committed 200 whose stream then failed: the shared Sender stamps
+      # :image_pipe_send_result (:processing_error), and the request span's
+      # stop result must agree with the [:send] stop.
+      metadata =
+        metadata
+        |> Map.put(:result, Map.get(conn.private, :image_pipe_send_result, metadata.result))
+        |> Map.put(:status, conn.status)
+
+      {conn, metadata}
     end)
   end
 
@@ -415,6 +425,13 @@ defmodule ImagePipe.Plug.DialectRunner do
   # transform → resolve output → clamp → materialize → encode first chunk →
   # hand off. Runs inside Delivery.Producer. (The dialects' build_and_pump,
   # written once — spec §The runner.)
+  #
+  # Each layer converts its own failures: `execute/4` is a trusted callback
+  # whose raises the runner must not launder into its tagged-tuple contract
+  # (AGENTS.md), so a dialect rescues its own pipeline run and returns
+  # `{:error, {:transform, _}}`. An exception escaping one of the shared
+  # stages below is our bug, not the client's — it propagates to the delivery
+  # session and renders 500-class rather than a misattributed 4xx.
   defp produce_stream(dialect, state, geometry, resolved, negotiation, config, pump, decode_us) do
     shrink = state.decode_shrink
 
@@ -453,10 +470,6 @@ defmodule ImagePipe.Plug.DialectRunner do
       {{:error, _reason} = error, _microseconds} -> error
       {:error, _reason} = error -> error
     end
-  rescue
-    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
-  catch
-    kind, reason -> {:error, {:transform, {kind, reason}}}
   end
 
   defp run_transform(dialect, state, geometry, %Resolved{} = resolved, negotiation, config) do
@@ -599,8 +612,11 @@ defmodule ImagePipe.Plug.DialectRunner do
     {conn, %{result: :not_modified}}
   end
 
+  # `%Failure{}` is unwrapped for `Error.tag/1` only — the telemetry tag names
+  # the reason, not the envelope. `classify_error/1` and `render_error/3` get
+  # the wrapper untouched so a dialect can act on the phase that produced it.
   defp send_error(conn, dialect, reason, config) do
-    metadata = %{result: classify(dialect, reason), error: Error.tag(reason)}
+    metadata = %{result: classify(dialect, reason), error: Error.tag(unwrap(reason))}
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
@@ -609,6 +625,9 @@ defmodule ImagePipe.Plug.DialectRunner do
 
     {conn, metadata}
   end
+
+  defp unwrap(%Failure{reason: reason}), do: reason
+  defp unwrap(reason), do: reason
 
   defp classify(dialect, reason) do
     if function_exported?(dialect, :classify_error, 1) do

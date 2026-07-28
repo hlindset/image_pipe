@@ -26,7 +26,7 @@ defmodule ImagePipe.Dialect do
       ImagePipe.Source,
       ImagePipe.Transform
     ],
-    exports: [DebugContext, Negotiation, RenderTerminal, Resolved]
+    exports: [DebugContext, Failure, Negotiation, RenderTerminal, Resolved]
 
   alias ImagePipe.Dialect.DebugContext
   alias ImagePipe.Dialect.Resolved

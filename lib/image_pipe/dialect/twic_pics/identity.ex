@@ -1,7 +1,7 @@
 defmodule ImagePipe.Dialect.TwicPics.Identity do
   @moduledoc false
 
-  alias ImagePipe.Dialect.TwicPics.Negotiation
+  alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Dialect.TwicPics.Request
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Representation
