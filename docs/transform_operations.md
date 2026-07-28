@@ -2,29 +2,29 @@
 
 ## Purpose
 
-This guide is for parser and dialect authors translating external URL syntax into
-`ImagePipe.Plan`. It explains where semantic request intent belongs, where
-executable transform work belongs, and how to keep parser-specific behavior out
-of runtime/cache boundaries.
+This guide is for dialect authors translating external URL syntax into semantic
+operations. It explains where semantic request intent belongs, where executable
+transform work belongs, and how to keep dialect-specific behavior out of
+runtime/cache boundaries.
 
-Parser authors should construct canonical semantic operations under
+A dialect should construct canonical semantic operations under
 `ImagePipe.Plan.Operation.*` through `ImagePipe.Plan.Operation`. The executable
 modules under `ImagePipe.Transform.Operation.*` are local execution targets used
-by Transform Plan execution and `ImagePipe.Transform.Chain`. Parsers shouldn't
+by Transform Plan execution and `ImagePipe.Transform.Chain`. A dialect shouldn't
 emit executable transform operations.
 
 ## Request flow
 
-Parser code translates external syntax into parser-owned request structs, then
-into `ImagePipe.Plan`, then into executable transform work only after the final
+A dialect translates external syntax into its own request structs, then into
+semantic operations, then into executable transform work only after the final
 cache lookup boundary.
 
 The request flow is:
 
-1. A parser reads external syntax and validates parser-level fields.
-2. Parser-owned request structs keep dialect syntax and compatibility details
+1. A dialect reads external syntax and validates its own fields.
+2. Dialect-owned request structs keep syntax and compatibility details
    isolated.
-3. Planner code translates compatible semantics into canonical
+3. The dialect translates compatible semantics into canonical
    `ImagePipe.Plan.Operation.*` structs.
 4. ImagePipe builds cache keys from source-fetch-free Plan key data plus source
    freshness, output, config, and the cache key's transform key data version.
@@ -43,14 +43,14 @@ Executable structs stay inside Transform execution.
 
 ImagePipe orders operation chains once they reach `ImagePipe.Plan`.
 
-Imgproxy URLs are declarative. Imgproxy planner code emits semantic Plan
+Imgproxy URLs are declarative. The Imgproxy dialect emits semantic Plan
 operations in Imgproxy canonical order. URL option order doesn't define
 Imgproxy transform order. `docs/imgproxy_path_api.md` documents that order for
 Imgproxy paths, but future dialects may use different ordering rules.
 
 Other dialects may have order-sensitive semantics. When the ordered semantics
 map cleanly, emit an ordered `ImagePipe.Plan`. Otherwise keep dialect-specific
-quirks isolated in the parser/adapter layer. Don't force ordered command
+quirks isolated inside that dialect's module tree. Don't force ordered command
 semantics into the Imgproxy API or into product-neutral Plan operations.
 
 For a stage-by-stage mapping of imgproxy's internal processing pipeline onto
@@ -79,7 +79,7 @@ format without changing the transform operation sequence.
 
 ## Semantic operation catalog
 
-Parser/planner code should use these semantic operations:
+Dialect code should use these semantic operations:
 
 - `ImagePipe.Plan.Operation.Resize`: product-neutral resize intent with
   `mode: :fit`, `:cover`, `:stretch`, or `:auto`. `mode: :auto` is semantic
@@ -114,7 +114,7 @@ work after cache lookup.
 ## Executable operation catalog
 
 `ImagePipe.Transform.Operation.*` modules are executable operation targets. They
-describe work over `ImagePipe.Transform.State`, not parser request syntax:
+describe work over `ImagePipe.Transform.State`, not dialect request syntax:
 
 - `ImagePipe.Transform.Operation.Resize`: executable resize with flattened mode
   and dimension fields.
@@ -134,8 +134,8 @@ describe work over `ImagePipe.Transform.State`, not parser request syntax:
 - `ImagePipe.Transform.Operation.Saturation`: executable saturation change.
 
 `ImagePipe.Transform.Operation.AdaptiveResize` is obsolete. Resize
-`mode: :auto` belongs in `ImagePipe.Plan.Operation.Resize`. Parsers must not emit
-an executable adaptive-resize operation.
+`mode: :auto` belongs in `ImagePipe.Plan.Operation.Resize`. A dialect must not
+emit an executable adaptive-resize operation.
 
 ## Choosing resize-like semantic operations
 
@@ -156,7 +156,7 @@ operation or adapter policy instead of extending `mode: :auto` implicitly.
 ## Crop and gravity
 
 Use `CropGuided` for visible crop operations expressed as size plus guide. Use
-`CropRegion` for explicit source/current-space region crops. Parser-specific
+`CropRegion` for explicit source/current-space region crops. Dialect-specific
 gravity spellings, focal-point tokens, and default inheritance rules should
 translate into explicit Plan guide values before ImagePipe builds cache key
 data.
@@ -187,7 +187,7 @@ Input working-space conditioning (`ImagePipe.Transform.InputColorManagement`) is
 a fixed pipeline preamble, not a Plan operation. Every profiled/wide-gamut/CMYK
 source is unconditionally imported to a working space before trim, crop, resize,
 and effects. The output profile policy (`Plan.Output.color_profile`) is the only
-parser-controlled knob; imgproxy `scp` maps to `:strip` (default) or
+dialect-controlled knob; imgproxy `scp` maps to `:strip` (default) or
 `:preserve_source`. The encoder finalize re-embeds or drops the source profile
 per that policy.
 
@@ -227,15 +227,15 @@ dimensions.
 `ImagePipe.Plan.Color` is the canonical Plan color model. It represents sRGB
 RGB channels with alpha and serializes into structured cache key data.
 Third-party color package structs stay behind `ImagePipe.Plan.Color` and must
-not leak into parser request structs, runtime state, or cache key data.
+not leak into dialect request structs, runtime state, or cache key data.
 
 ## Effect operations
 
 Use semantic `Blur`, `Sharpen`, `Pixelate`, `Monochrome`, `Duotone`,
 `Brightness`, `Contrast`, and `Saturation` when a dialect requests full-image
-effects. These operations are product-neutral image effects. Parser aliases
+effects. These operations are product-neutral image effects. Dialect aliases
 such as Imgproxy `bl`, `sh`, `pix`, `mc`, `dt`, `br`, `co`, and `sa` stay in
-parser code.
+dialect code.
 
 Imgproxy effect order is blur, sharpen, pixelate, monochrome, duotone,
 brightness, contrast, saturation, colorize, then gradient. Effects run after result
@@ -248,7 +248,7 @@ Imgproxy treats these effect values as no-ops:
 - zero-intensity tone effects
 - zero-valued color adjustments
 
-ImagePipe accepts those no-op values in the Imgproxy parser and emits no
+ImagePipe accepts those no-op values in the Imgproxy dialect and emits no
 semantic operation.
 
 ## Decode planning
@@ -264,10 +264,10 @@ define separate decode-access metadata.
 
 Final output cache key data captures canonical semantic intent, not resolved
 execution details. It should be stable for matching plans and independent of
-parser-specific spelling, aliases, and compatibility quirks.
+dialect-specific spelling, aliases, and compatibility quirks.
 
-Parser-specific quirks must not leak into transform key data. Keep behavior in
-parser/adapter code when product-neutral Plan operations can't represent it.
+Dialect-specific quirks must not leak into transform key data. Keep behavior in
+the dialect's own modules when product-neutral Plan operations can't represent it.
 Don't encode dialect syntax into operation cache key data.
 
 Some source-aware choices affect executable work after a cache miss. Examples
@@ -277,7 +277,7 @@ conversion. They don't enter the normal final output cache key.
 ## Mapping examples
 
 These examples show current Imgproxy URL concepts translated into semantic Plan
-operations. They describe Imgproxy planner behavior only. Future dialect docs
+operations. They describe the Imgproxy dialect only. Future dialect docs
 should describe their own URL syntax.
 
 | Imgproxy URL concept | Semantic Plan operations |
@@ -299,12 +299,12 @@ should describe their own URL syntax.
 ## Boundary rules
 
 Runtime dispatches through `ImagePipe.Transform` and must not depend on concrete
-Plan or Transform operation modules. Runtime shouldn't depend on parser-specific
-Imgproxy structs, and parser-specific request structs must not leak into runtime
+Plan or Transform operation modules. Runtime shouldn't depend on dialect-specific
+Imgproxy structs, and dialect-specific request structs must not leak into runtime
 execution.
 
-Parser and planner modules construct exported semantic Plan operation structs
-when they translate syntax into `ImagePipe.Plan`. Transform Plan execution may
+Dialect modules construct exported semantic Plan operation structs
+when they translate syntax into semantic operations. Transform Plan execution may
 reference both semantic Plan operations and executable Transform operations
 because it owns conversion between those boundaries.
 

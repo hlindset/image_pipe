@@ -1,13 +1,13 @@
 # ImagePipe
 
-ImagePipe is a Plug-based image optimization server. It parses path-oriented
-image requests, resolves a configured image source, executes a product-neutral
-`ImagePipe.Plan`, negotiates output format, and sends the encoded image
-response.
+ImagePipe is a Plug-based image optimization server. A mounted **dialect** parses
+the incoming request, and the shared runner resolves a configured image source,
+executes the transform pipeline, negotiates the output format, and sends the
+encoded image response.
 
 The current public compatibility target is an Imgproxy-style path API through
 `ImagePipe.Dialect.Imgproxy`. Internally, ImagePipe translates Imgproxy syntax
-into its own plan, output, transform, cache, and response data structures.
+into its own transform, output, cache, and response data structures.
 
 ## Project status
 
@@ -106,12 +106,11 @@ a valid HMAC signature or an exact configured trusted signature.
 
 ## Current support boundaries
 
-ImagePipe currently supports the Imgproxy-style path parser, selected resize,
+ImagePipe currently supports the Imgproxy-style path dialect, selected resize,
 crop, orientation, canvas, padding, background, blur, sharpen, pixelate, output,
 cachebuster, expiry, filename, attachment, and preset options documented in the
 support matrix.
-Unsupported parser and planner requests fail before cache lookup or source
-fetch.
+Requests the dialect rejects fail before cache lookup or source fetch.
 
 The first slice supports local path sources, HTTP and HTTPS URL sources, and
 S3-compatible object sources. ImagePipe currently lacks other provider dialects,
@@ -119,9 +118,9 @@ object detection, watermarking, metadata stripping, video processing, and raw
 source passthrough. Missing Imgproxy options fail or remain absent as
 documented. ImagePipe doesn't ignore them.
 
-URL option order doesn't define transform execution order. The Imgproxy parser
-normalizes aliases and conflict resolution, then the planner emits operations in
-ImagePipe's fixed plan order.
+URL option order doesn't define transform execution order. The Imgproxy dialect
+normalizes aliases and conflict resolution, then assembles its pipeline in
+ImagePipe's fixed operation order.
 
 ## Documentation
 
@@ -145,8 +144,13 @@ ImagePipe's fixed plan order.
 - [Telemetry](docs/telemetry.md) documents emitted span events, measurements,
   metadata, and handler examples.
 - [Transform operations](docs/transform_operations.md) documents the boundary
-  between parser request syntax, semantic plan operations, and executable
+  between dialect request syntax, semantic plan operations, and executable
   transform operations.
+- [Writing a custom dialect](docs/custom_dialect_guide.md) documents the
+  `ImagePipe.Dialect` contract, the declarative and ordered tiers, mounting,
+  config validation, and error rendering.
+- [Execution flow](docs/execution_flow.md) documents the runtime call spine and
+  the neutral runtime-geometry resolve loop.
 - [Source network policy](docs/source-network-policy.md) documents the default
   SSRF protection on HTTP/HTTPS sources, how to allow private origins
   (`address_policy`), custom DNS resolution (`address_resolver`), and the

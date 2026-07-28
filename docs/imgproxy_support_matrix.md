@@ -3,20 +3,22 @@
 This matrix compares ImagePipe's current imgproxy support with Imgproxy's
 processing URL and configuration surfaces.
 
-ImagePipe intentionally treats Imgproxy URLs as a compatibility parser for a
-product-neutral `ImagePipe.Plan`. Supported options translate cleanly into
-canonical plan/output/cache/response fields. Unsupported options fail before
-source fetch or cache lookup. ImagePipe doesn't ignore them.
+ImagePipe implements imgproxy as an **ordered dialect**: `ImagePipe.Dialect.Imgproxy`
+parses an imgproxy URL into its own request struct and runs its own ordered
+`ImagePipe.Dialect.Imgproxy.Pipeline`, which lowers the neutral
+`ImagePipe.Plan.Operation.*` vocabulary through the shared runtime-geometry
+resolver. Supported options translate cleanly into canonical
+transform/output/cache/response fields. Unsupported options fail before source
+fetch or cache lookup. ImagePipe doesn't ignore them.
 
 ## How imgproxy URLs are served
 
 `ImagePipe.Dialect.Imgproxy` is the sole imgproxy stack: mount it through the
 shared dialect runner as `plug ImagePipe.Plug, dialect: ImagePipe.Dialect.Imgproxy,
-…`. The dialect supplies imgproxy's request parsing, planning, and pipeline
-assembly; the shared runner (`ImagePipe.Plug`) drives fetch, decode, transform
-execution, negotiation, caching, and delivery — assembled directly from
-ImagePipe's core toolkit, with no `Plan` resolution strategy and no
-`ImagePipe.Request.*`.
+…`. The dialect supplies imgproxy's request parsing, request building, and
+pipeline assembly; the shared runner (`ImagePipe.Plug`) drives fetch, decode,
+transform execution, negotiation, caching, and delivery — assembled directly
+from ImagePipe's core toolkit.
 
 Unless a row says otherwise, **ImagePipe is conformant with imgproxy and
 produces identical bytes**: the wire-conformance suite and the differential
@@ -50,14 +52,14 @@ no env var and no URL option, so they have no row in the configuration/URL table
 below — yet they are exactly where compatibility lives. This section maps each
 imgproxy stage onto the ImagePipe layer that realizes it.
 
-ImagePipe doesn't execute imgproxy's pipeline directly: it parses to a
-product-neutral `ImagePipe.Plan` whose transform order is fixed by the
-parser/plan layer (URL option order is irrelevant — see
+ImagePipe doesn't execute imgproxy's pipeline directly: `ImagePipe.Dialect.Imgproxy`
+assembles its own ordered `Dialect.Imgproxy.Pipeline` whose stage order is fixed
+by the dialect (URL option order is irrelevant — see
 [transform_operations.md](transform_operations.md) and
-[imgproxy_path_api.md](imgproxy_path_api.md)), then executes that plan across
-three layers — **decode planning**, the **transform chain**, and the **output
-boundary**. The diagram colours stages by which layer realizes them; the tables
-carry the detail.
+[imgproxy_path_api.md](imgproxy_path_api.md)), then runs it across three layers
+— **decode planning**, the **transform chain**, and the **output boundary**. The
+diagram colours stages by which layer realizes them; the tables carry the
+detail.
 
 ```mermaid
 flowchart TD
@@ -134,7 +136,7 @@ imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
 | 1 | `vectorGuardScale` | — | ⭕ | Gated on SVG/vector input support, which isn't implemented yet (SVG is rejected after decode identifies an SVG loader, before transforms). In scope; this pre-scale stage follows once SVG input lands. (see "Source input formats") |
 | 2 | `trim` | `lib/image_pipe/transform/operation/trim.ex` | ✅ | Replicates imgproxy `vips_trim`: (1) colourspace-convert to sRGB for detection; (2) flatten alpha onto magenta `{255,0,255}` before detecting; (3) smart bg = top-left pixel `getpoint(0,0)` of the prepared image; (4) `find_trim` to locate the border box; (5) equal_hor / equal_ver symmetrization — each pair of opposite margins is made equal to the *smaller* inset (trims less aggressively, symmetrically); (6) degenerate box (`width==0 \|\| height==0`) → image returned **unchanged**; (7) extract from the **original** image, preserving its colorspace/alpha. Materializing op (`requires_materialization?: true`). **Storage-frame under deferred orientation (stage/order, [#182](https://github.com/hlindset/image_pipe/issues/182)):** imgproxy trims at stage 2, *before* `rotateAndFlip` (stage 7), so the trim box is computed on **un-oriented** pixels. ImagePipe defers EXIF/user orientation to a late flush, so for an oriented source trim materializes the storage frame to RAM **without** applying the pending orientation (`Materializer.materialize_without_orientation/1`), runs `find_trim`/crop there, and leaves the orientation for the boundary flush. This keeps the two frame-sensitive inputs storage-frame to match imgproxy: the smart `getpoint(0,0)` background is sampled at the **storage** top-left corner (not the rotated display corner), and `equal_hor`/`equal_ver` symmetrize the **storage** axes (which transpose vs the display axes under EXIF 5–8). A plain uniform-border trim commutes with rotation and is unaffected. **Differential coverage (behavioral/pixel):** `equal_hor`/`equal_ver` symmetrization is baked on an **asymmetric** border (`trim_equal_hv_border` → the off-center `border_asym` source, `t:10::1:1`): plain trim → tight 1300×1000 bbox, symmetrization → 1400×1080 reaching into the white border (maxΔ 0). The centered `border` source cannot exercise it (equal opposite margins → `diff==0` no-op, byte-identical to plain trim), so a missing-symmetrization regression would have passed there. The storage-axis transpose under EXIF is separately pinned by `trim_equal_h_exif5`. **Disables shrink-on-load when in the first pipeline** (mirrors imgproxy nil-ing `ImgData` at stage 2, before `scaleOnLoad` at stage 3). Trim in a later pipeline does not disable pipeline-1 scale-on-load. Trim's detection inherits working-space pixels because the input color preamble (`lib/image_pipe/transform/input_color_management.ex`) runs before all operations — pixel-equivalent to imgproxy calling `colorspaceToProcessing` inside `vips_trim`. **Minor bounded divergence — sRGB-skip uses stored header interpretation**, not imgproxy's `guess_interpretation`: at most an extra idempotent sRGB round-trip, no dimension effect (see stage 4 notes). |
 | 3 | `scaleOnLoad` | **decode planning** — `lib/image_pipe/transform/decode_planner.ex` | ✅ | Shrink-on-load computed as a libvips load option (`shrink`/`scale`), not a transform op. Decode opens `:sequential`. The realized factor (`decode_shrink`) and stored extent (`source_dimensions`) are **confined to the pipeline whose decode produced them** — a preceding crop and the residual resize each clear them, so an absolute crop in a later chained (`/-/`) pipeline is sized against that pipeline's input, not rescaled by a stale factor (#180). This matches imgproxy Pro chained pipelines (`IMGPROXY_MAX_CHAINED_PIPELINES`): each pipeline is a full processing pass over the previous pipeline's in-memory output, so `scaleOnLoad`'s preshrink factor (`scale_on_load.go`) exists only for the initial decode and never carries into a later pipeline. |
-| 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/input_color_management.ex` (fixed preamble) | ✅ | ImagePipe imports **every** profiled/wide-gamut/CMYK source to a working space (sRGB for 8-bit; B_W for greyscale) via a fixed preamble — `Executor.execute/3` for the framework parsers (IIIF, TwicPics), `Dialect.Imgproxy.Pipeline.run/4` for the imgproxy dialect — unconditionally, before trim and all geometry — regardless of `scp`. **Stage/order (dialect inversion):** the preamble has a required postamble, the carry stamp that tells `Output.Encoder`'s colorspace-to-result step an import ran. It used to be written by a private function in `Request.Processor`, so it was unreachable from any dialect and every dialect encoded profiled sources with wrong pixels (an `scp:0` P3 source was off by 113 on a 0-255 channel). It now lives with the preamble it belongs to, as `Transform.InputColorManagement.stamp_carry/1`; `Request.Processor` delegates to it and both dialects (`Dialect.Imgproxy`, `Dialect.Native`) call it at their pipeline tail. Same stage, same bytes, one owner — pinned by `ImagePipe.Dialect.ColorCarryParityTest`. Mirrors imgproxy `colorspaceToProcessing`: import gating (has profile, not canonical sRGB-IEC61966, UCHAR/USHORT coding), PCS sniff, 16-bit-alpha band split/rejoin, and linear-source skip (scRGB). For untagged/already-sRGB inputs the preamble is a no-op. **Minor bounded divergence (stage/order):** ImagePipe's working-space chooser and sRGB-IEC61966 skip read the **stored** libvips interpretation (header), where imgproxy uses `vips_image_guess_interpretation` for those same checks. For all normally-decoded sources — the full conformance suite — the stored and guessed interpretations agree; they can diverge only for atypical inputs whose stored interpretation is unset or MULTIBAND. The working-space chooser now consumes the resolved HDR policy (`Format.supports_hdr?(format)` and `Plan.Output.hdr == :preserve`), threaded as a pre-transform `supports_hdr?` boolean from the Request/Output boundary; previously hardwired SDR (the #121 seam). For 16-bit sources this keeps RGB16/GREY16 when the format carries HDR, else collapses to sRGB/B_W. **Differential coverage (behavioral/pixel):** the `cmyk_import` case pixel-conforms the unconditional CMYK→sRGB import against the OSS bake (a 120×90 CMYK JPEG under a no-op `rs:fit:200:200`, isolating the import with no resampling — maxΔ 0). Distinct from `cp:cmyk` CMYK *output* targeting (#214). |
+| 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/input_color_management.ex` (fixed preamble) | ✅ | ImagePipe imports **every** profiled/wide-gamut/CMYK source to a working space (sRGB for 8-bit; B_W for greyscale) via a fixed preamble — `Dialect.Imgproxy.Pipeline.run/4` for this dialect, `Transform.Executor.execute/3` for the declarative tier — unconditionally, before trim and all geometry — regardless of `scp`. **Stage/order:** the preamble has a required postamble, the carry stamp that tells `Output.Encoder`'s colorspace-to-result step an import ran; skipping it makes the encoder take its "no import ran" branch on an imported image (an `scp:0` P3 source off by 113 on a 0-255 channel). It lives with the preamble it belongs to, as `Transform.InputColorManagement.stamp_carry/1`, and every pipeline that runs the import also runs the stamp at its tail. Same stage, same bytes, one owner — pinned by `ImagePipe.Dialect.ColorCarryParityTest`. Mirrors imgproxy `colorspaceToProcessing`: import gating (has profile, not canonical sRGB-IEC61966, UCHAR/USHORT coding), PCS sniff, 16-bit-alpha band split/rejoin, and linear-source skip (scRGB). For untagged/already-sRGB inputs the preamble is a no-op. **Minor bounded divergence (stage/order):** ImagePipe's working-space chooser and sRGB-IEC61966 skip read the **stored** libvips interpretation (header), where imgproxy uses `vips_image_guess_interpretation` for those same checks. For all normally-decoded sources — the full conformance suite — the stored and guessed interpretations agree; they can diverge only for atypical inputs whose stored interpretation is unset or MULTIBAND. The working-space chooser now consumes the resolved HDR policy (`Format.supports_hdr?(format)` and `Plan.Output.hdr == :preserve`), threaded as a pre-transform `supports_hdr?` boolean from the Request/Output boundary; previously hardwired SDR (the #121 seam). For 16-bit sources this keeps RGB16/GREY16 when the format carries HDR, else collapses to sRGB/B_W. **Differential coverage (behavioral/pixel):** the `cmyk_import` case pixel-conforms the unconditional CMYK→sRGB import against the OSS bake (a 120×90 CMYK JPEG under a no-op `rs:fit:200:200`, isolating the import with no resampling — maxΔ 0). Distinct from `cp:cmyk` CMYK *output* targeting (#214). |
 | 5 | `crop` | `lib/image_pipe/transform/operation/crop.ex` | ✅ | Pre-resize crop with anchor / focal-point / smart / object gravity. **Gravity inheritance (surface/behavioral):** a bare crop (`c:W:H` with no inline gravity args) inherits the **entire** top-level `g:` option — both the type *and* its x/y offsets — matching imgproxy ("when gravity is not set, [crop] uses the value of the gravity option"); an inline crop gravity (`c:W:H:type[:x:y]`) fully specifies its own gravity and offsets. Resolved in `plan_builder.ex` `crop_gravity/2`; pinned pixel-wise by `crop_inherit_grav_offset` (byte-identical to the inline `grav_no_off`). **Crop-size rounding (behavioral/pixel, [#318](https://github.com/hlindset/image_pipe/issues/318)):** a fractional crop dimension (`c:0.x` → `< 1` fraction of the source) resolves the crop **size** with **round-half-away-from-zero** (`Geometry.round_half_away_from_zero`), matching imgproxy `CalcCropSize` → `imath.Scale` → `math.Round` (`processing/prepare.go`, `imath/imath.go`). This is deliberately distinct from the **ties-to-even** rounding used for crop *position/offset* composition (`RoundToEven`, `calc_position.go`) — sizes round away, positions round to even. On a `.5` tie the two modes differ by 1px; pinned by `crop_relative_dims_odd_tie` (the odd-dimensioned `placement_odd` source, `c:0.5:0.5` → 405·0.5=202.5, 305·0.5=152.5 → 203×153, where ties-to-even would give 202×152). The same size-rounding convention extends to the `crop_aspect_ratio` (`car`) correction (see its row in the option table) — both its corrected dimension and its shrink-to-bounds clamp round half-away; since `car` is Pro (no OSS oracle) that is convention-based and unit-pinned, not bake-verified. |
 | 6 | `scale` | `lib/image_pipe/transform/operation/resize.ex` | ✅ | `fit`/`fill`/`fill-down`/`force`/`auto`, enlarge, min-width/height, zoom, dpr. Pro `resizing_algorithm` (`ra`) missing. The fit/fill ratio, zoom, and dpr fold into a **single** `imath.Scale` per axis (`round(source × scale)`, one round — `prepare.go` `calcScale`/`calcSizes`), not a fit-round then a dpr-multiply; on a fractional fit dimension this matches imgproxy exactly (`rs:fit:300:200/dpr:2` on 1600×1200 → 533×400, and the dpr=1 auto-axis `rs:fit::200` enlarge → 183×200) (#199). **`auto` fill-vs-fit (behavioral, #233):** `rt:auto` buckets by the **sign** of the source/target width−height difference (`prepare.go:88-97`), with a square dimension (`D == 0`) sharing the non-negative (landscape) bucket; cover fills only when both source and target land in the same bucket, else fit. So square↔landscape pairs fill (cover + result-crop) rather than fit — `auto_resize_square_target_marker` (landscape→square) and `auto_resize_square_source_icc` (square→landscape) pin both directions. **`rt:auto` classified in the display frame (stage/order, [#182](https://github.com/hlindset/image_pipe/issues/182)):** that sign comparison runs on **display-frame** source dims — imgproxy's `ResizeAuto` swaps `srcW`/`srcH` via `ExtractGeometry` for a quarter turn *before* comparing (`prepare.go`). Under deferred orientation, that display-frame classification is owned by the **neutral** resolver (`ImagePipe.Transform.NeutralResolver.resolve_mode/2`, [#448](https://github.com/hlindset/image_pipe/issues/448)) — the fill-vs-fit rule is product-neutral (imgproxy is only its provenance), so any dialect may emit `:auto` with no resolver. That concrete branch then sizes the no-enlarge effective-DPR padding-scale cap, itself computed against the display-frame source dims, in `Dialect.Imgproxy.Pipeline`'s own resize clause, which calls `NeutralResolver.resolve_mode/2` directly and carries the cap in a pipeline-local variable rather than resolver state. This resolves on the display axes, so an EXIF 5–8 / `rot:90`/`270` source is not judged on transposed axes and does not pick fit where imgproxy picks fill. |
 | 7 | `rotateAndFlip` | `.../transform/pending_orientation.ex`, `.../transform/orientation_flush.ex`, `.../transform/orientation.ex`, `.../operation/rotate.ex`, `.../operation/flip.ex` | ✅ | EXIF auto-orient + user rotate/flip are carried as deferred `pending_orientation` state and applied **late** at the orientation-flush boundary — **after** crop/resize, with crop gravity and resize dimensions compensated into the storage frame (`orientation.ex`, a port of imgproxy `gravity.go` `RotateAndFlip`) so the observable result matches. Compose suborder EXIF → user-rotate → user-flip; EXIF auto-orient is the default. Flush streams EXIF orientations 1/2 and materializes 3–8 (and any quarter/half-turn user rotate or vertical flip). The same storage↔display compensation extends to shrink-on-load: a gravity crop carrying a pending quarter turn swaps the storage-frame `decode_shrink` per-axis factors before rescaling its display-frame dims (#185). imgproxy rescales crop dims in the **display** frame (its `SrcWidth`/preshrink are `ExtractGeometry`-swapped — `prepare.go`); ImagePipe reaches the same result by swapping the storage-frame factors ahead of the quarter-turn crop swap. **EXIF coverage:** the differential suite exercises all eight EXIF orientations — including the flip∘quarter-turn compose paths (transpose 5 / transverse 7) that a lone orientation-6 quarter-turn could not reach. imgproxy derives angle and flip for all eight orientations in `angleFlip` (`prepare.go`) and sequences EXIF rotate → EXIF flip → user rotate → user flip in `rotateAndFlip` (`rotate_and_flip.go`); ImagePipe follows the same compose order. **Rotation primitive (behavioral):** both the deferred user rotate (`orientation_flush.ex`) and the executable `Operation.Rotate` apply the exact `vips_rot` (the same primitive `autorotate` runs for EXIF), not libvips' arbitrary-angle affine resampler — the affine path leaves a 1px black edge seam even for 90° multiples (#211). This makes the flip∘quarter-turn ∘ user-`rot:90` compose (transpose 5 / transverse 7) pixel-exact at the frame and block edges, matching imgproxy's vips_rot orientation (`exif_5_cover_rot90`, `exif_7_cover_rot90`). |
@@ -144,7 +146,7 @@ imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
 | 11 | `extendAspectRatio` | `lib/image_pipe/transform/operation/extend_canvas.ex` (`{:aspect_ratio, ratio}` rule) | ✅ | `extend_ar`/`exar`; no-op when a resize dimension is auto/zero. `fp` extend-gravity not supported. Shares the stage-10 centered-placement parity (#196). The AR canvas box is image-relative (computed from the already-dpr-scaled image), so it needs no separate DPR scaling; it inherits the stage-6 single-round scale, so a fractional fit dimension under `dpr` lands at imgproxy's width (`rs:fit:300:200/exar:1/dpr:2` → 533 centred in the 600×400 canvas, #199). |
 | 12 | `padding` | `lib/image_pipe/transform/operation/padding.ex` | ✅ | CSS-style shorthand, effective DPR scaling. **Display frame under deferred orientation (stage/order, [#182](https://github.com/hlindset/image_pipe/issues/182)):** padding runs at stage 12, *after* `rotateAndFlip` (stage 7), so `pt`/`pr`/`pb`/`pl` land on **display** sides. imgproxy `padding` does not require `w`/`h`, so "EXIF-rotated source + asymmetric padding, no resize" is reachable; with a resize present the resize-triggered flush already fires first, but the resize-less path needs the op to flush the pending orientation before padding. ImagePipe does so, so asymmetric padding lands on the display sides regardless of whether a resize is present. (Symmetric padding masks the difference; `ExtendCanvas`/`extend` is incidentally protected because `extend` requires `w`/`h`, forcing a resize and therefore a flush.) **No-enlarge effective-DPR cap (behavioral, [#237](https://github.com/hlindset/image_pipe/issues/237)):** imgproxy's `!Enlarge()` block *always* runs `DprScale = min(DPR, min(wshrink, hshrink))`, so a geometry-less dpr (`pd:…` + `dpr`, no `w`/`h` — which still emits a no-op `auto/auto` resize) caps `DprScale` to 1 (`wshrink=hshrink=1`) and leaves padding unscaled (`pd:10:4:2:8/dpr:2` on a 300×400 display → 312×412). This cap is computed once at the resize and carried to padding in `Dialect.Imgproxy.Pipeline`, as a pipeline-local variable re-seeded per `-` pipeline. The cap (`max_padding_scale_without_enlarge`) returns the real `1.0` for the `auto/auto` requested box rather than treating it as uncapped, matching imgproxy on both the resize-bearing (`exif_182_auto_pad_dpr_cap`) and resize-less (`padding_asym_dpr_exif`) arms. |
 | 13 | `fixSize` | **output boundary** — `lib/image_pipe/output/clamp.ex` (#150) | ✅ | Format-aware encoder dimension clamp. Realized at the **Output boundary**, not the transform chain: the realized image is uniformly downscaled to the chosen encoder's hard limit (WebP 16383, AVIF 16384). Mirrors imgproxy's `processing/fix_size.go` (`fixWebpSize`/`fixHeifSize`). Emits `[:output, :clamp]` ([telemetry.md](telemetry.md)); covered by the wire conformance tests. The host `max_result_*` caps fold into this same clamp via `min(host, encoder)` (#165); ImagePipe's result-pixel cap uses an **independent linear-dimension + sqrt-pixel** rule, deliberately **not** `fixGifSize`'s combined-sqrt (which can leave a result over the dimension limit). |
-| 14 | `flatten` | `lib/image_pipe/transform/operation/background.ex` (explicit `bg`) + **encoder finalize** — `lib/image_pipe/output/encoder.ex` (`flatten_for_format`, format-driven) | ✅ | imgproxy's single `flatten` stage fires when **either** a background is set (`ShouldFlatten`) **or** the result format can't carry alpha (`!Format().SupportsAlpha()`), compositing onto `po.Background()` (default `color.White`). ImagePipe splits the two triggers across two realization sites. **Explicit `bg`/`bga` (`background.ex`):** an alpha flatten onto `background`/`background_alpha` emitted into the transform chain when requested; default black. **Format-driven default flatten (encoder boundary, behavioral/pixel — [#268](https://github.com/hlindset/image_pipe/issues/268)):** when the resolved output format lacks alpha (`Format.supports_alpha?` false — JPEG today) and the working image still carries alpha, the encoder composites onto `Plan.Output.flatten_background` (a `Plan.Color`, default opaque white = imgproxy's `color.White`) in `finalize/2` **before** `colorspaceToResult` (the first stage of the separate finalize pipeline) — matching imgproxy's flatten-before-colorspaceToResult order. Guarded by `has_alpha?`, so an explicit `bg` (already flattened upstream in the chain) and any opaque image pass through untouched; this is why the field is consulted only here for the no-`bg` case — a requested background was consumed in the chain. The default is the declarative seam for a future dialect/host to set; no parser overrides it today (imgproxy itself has no server-level background config, only the per-request `bg`), so it composes into the cache key/ETag but is currently always white. Without this flatten `jpegsave` on an alpha image silently drops alpha to black (and rejects a 2-band greyscale+alpha outright → 500) instead of imgproxy's white flatten. |
+| 14 | `flatten` | `lib/image_pipe/transform/operation/background.ex` (explicit `bg`) + **encoder finalize** — `lib/image_pipe/output/encoder.ex` (`flatten_for_format`, format-driven) | ✅ | imgproxy's single `flatten` stage fires when **either** a background is set (`ShouldFlatten`) **or** the result format can't carry alpha (`!Format().SupportsAlpha()`), compositing onto `po.Background()` (default `color.White`). ImagePipe splits the two triggers across two realization sites. **Explicit `bg`/`bga` (`background.ex`):** an alpha flatten onto `background`/`background_alpha` emitted into the transform chain when requested; default black. **Format-driven default flatten (encoder boundary, behavioral/pixel — [#268](https://github.com/hlindset/image_pipe/issues/268)):** when the resolved output format lacks alpha (`Format.supports_alpha?` false — JPEG today) and the working image still carries alpha, the encoder composites onto `Plan.Output.flatten_background` (a `Plan.Color`, default opaque white = imgproxy's `color.White`) in `finalize/2` **before** `colorspaceToResult` (the first stage of the separate finalize pipeline) — matching imgproxy's flatten-before-colorspaceToResult order. Guarded by `has_alpha?`, so an explicit `bg` (already flattened upstream in the chain) and any opaque image pass through untouched; this is why the field is consulted only here for the no-`bg` case — a requested background was consumed in the chain. The default is the declarative seam for a future dialect/host to set; no dialect overrides it today (imgproxy itself has no server-level background config, only the per-request `bg`), so it composes into the cache key/ETag but is currently always white. Without this flatten `jpegsave` on an alpha image silently drops alpha to black (and rejects a 2-band greyscale+alpha outright → 500) instead of imgproxy's white flatten. |
 | 15 | `watermark` | — | ⭕ | In scope, not yet implemented (consistent with the watermark rows in "Background, effects, and overlays" and "Watermark defaults and custom watermark cache"). |
 
 ### Finalize pipeline
@@ -348,12 +350,12 @@ configuration and URL/option tables below use a finer-grained legend:
 
 | Status | Meaning |
 | --- | --- |
-| ✅ Supported | The parser translates this into `ImagePipe.Plan` or another request facet. |
-| ⚠️ Partial | The parser supports some Imgproxy syntax or semantics, but not the whole option. |
+| ✅ Supported | The dialect translates this into its request struct or another request facet. |
+| ⚠️ Partial | The dialect supports some Imgproxy syntax or semantics, but not the whole option. |
 | 🔗 URL-only | ImagePipe supports the request option, but not Imgproxy's global configuration default. |
 | 🧩 Host-owned | Plug, router, or web-server configuration can provide this behavior outside ImagePipe. |
 | 🚫 Rejected | Recognized or intentionally documented as unsupported, returning an error before side effects. |
-| ⭕ Missing | Not implemented in the current parser/plan/runtime surface. |
+| ⭕ Missing | Not implemented in the current dialect/runtime surface. |
 | 🛑 Out of scope | Excluded from ImagePipe's library surface or delegated to host/runtime ownership. |
 
 ## Configuration options
@@ -413,26 +415,22 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 ### CORS response headers
 
 `allow_origin` is a dialect-neutral runtime option (default off) shared by every
-mount: `ImagePipe.Plug`'s framework mode (any mounted parser, not just
-IIIF) and its dialect mode mounting `ImagePipe.Dialect.Imgproxy`,
-`ImagePipe.Dialect.TwicPics`, or `ImagePipe.Dialect.Native`
-(`ImagePipe.Dialect.SharedConfig` validates and carries the key for all three
-dialects). When set, `ImagePipe.Response.CORS.maybe_register/2`
+mount, whichever dialect it carries — `ImagePipe.Dialect.Imgproxy`,
+`ImagePipe.Dialect.TwicPics`, `ImagePipe.Dialect.Native`, or
+`ImagePipe.Dialect.IIIF` (`ImagePipe.Dialect.SharedConfig` validates and carries
+the key for all of them). When set, `ImagePipe.Response.CORS.maybe_register/2`
 registers a `register_before_send/2` hook — the same hook on every mount —
 that stamps `Access-Control-Allow-Origin: <value>` verbatim on **every** exit
 path: image, `/info`, 304, and 4xx errors.
 
-**The `OPTIONS`/method layer is shared by every mount.** `ImagePipe.Plug`'s
-framework mode and its dialect mode for `ImagePipe.Dialect.Imgproxy`,
-`ImagePipe.Dialect.TwicPics`, and `ImagePipe.Dialect.Native` all answer `OPTIONS`
-with `204 No Content` + `Allow: GET, HEAD` (+ `Access-Control-Allow-Methods` when
-`allow_origin` is set, via `Response.CORS.send_options/2`) and any other
-non-GET/HEAD method with `405` + `Allow: GET, HEAD` (`Response.Sender.send_method_not_allowed/1`).
-These are routed ahead of the parse → prepare → resolve → serve lifecycle by
-the shared dialect runner (`route/3` in `ImagePipe.Plug.DialectRunner`, common
-to imgproxy, TwicPics, and Native), inside the same `[:request]` telemetry
-span the framework uses, so the before-send CORS hook stamps these exits
-identically to every other one.
+**The `OPTIONS`/method layer is shared by every mount.** Every mount answers
+`OPTIONS` with `204 No Content` + `Allow: GET, HEAD` (+ `Access-Control-Allow-Methods`
+when `allow_origin` is set, via `Response.CORS.send_options/2`) and any other
+non-GET/HEAD method with `405` + `Allow: GET, HEAD`
+(`Response.Sender.send_method_not_allowed/1`). These are routed ahead of the
+parse → prepare → resolve → serve lifecycle by the shared runner (`route/3` in
+`ImagePipe.Plug.DialectRunner`), inside the same `[:request]` telemetry span, so
+the before-send CORS hook stamps these exits identically to every other one.
 
 - ✅ `IMGPROXY_ALLOW_ORIGIN` → `allow_origin` (configuration default; verbatim
   origin value, off when unset — same semantics as imgproxy's empty default).
@@ -854,15 +852,18 @@ commonly the host cap (default 8192 per axis), which is below the encoder limits
 
 ImagePipe supports cache adapters through `cache: {Module, opts}`.
 `ImagePipe.Cache.FileSystem` supports `root` and `path_prefix`. Shared cache
-options support `key_headers`, `key_cookies`, and `max_body_bytes`. ImagePipe
-has no built-in cloud cache adapters.
+options support `max_body_bytes`. Partitioning cache storage on request headers
+or cookies is a mount-level option, not a cache-adapter one:
+`storage_inputs: [{:header, name}, {:cookie, name}]` — supported today by the
+declarative tier, not by this dialect. ImagePipe has no built-in cloud cache
+adapters.
 
 - ✅ `IMGPROXY_CACHE_USE`
 - ✅ `IMGPROXY_CACHE_FS_ROOT`
 - ✅ `IMGPROXY_CACHE_PATH_PREFIX`
 - ⭕ `IMGPROXY_CACHE_BUCKET`
-- ✅ `IMGPROXY_CACHE_KEY_HEADERS`
-- ✅ `IMGPROXY_CACHE_KEY_COOKIES`
+- ⭕ `IMGPROXY_CACHE_KEY_HEADERS`
+- ⭕ `IMGPROXY_CACHE_KEY_COOKIES`
 - ⭕ `IMGPROXY_CACHE_REPORT_ERRORS`
 - ⭕ `IMGPROXY_CACHE_S3_*`
 - ⭕ `IMGPROXY_CACHE_GCS_*`

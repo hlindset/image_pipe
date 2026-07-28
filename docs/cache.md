@@ -14,17 +14,16 @@ forward "/",
       {ImagePipe.Cache.FileSystem,
        root: "/var/cache/image_pipe",
        path_prefix: "processed",
-       max_body_bytes: 10_000_000,
-       key_headers: [],
-       key_cookies: []}
+       max_body_bytes: 10_000_000}
   ]
 ```
 
-Cache lookup happens only after request parsing, plan validation, and source
-resolution. A lookup doesn't fetch, decode, or read metadata from the source
-image. Invalid parser and planner requests return before source fetch or cache
-access. Invalid Imgproxy signatures return `403`. Parser, planner, source
-fetch, decode, transform, negotiation, and encode errors are never cached.
+Cache lookup happens only after the dialect's parse and prepare phases and
+source resolution. A lookup doesn't fetch, decode, or read metadata from the
+source image. Requests a dialect rejects at parse or prepare return before
+source fetch or cache access. Invalid Imgproxy signatures return `403`. Parse,
+prepare, source fetch, decode, transform, negotiation, and encode errors are
+never cached.
 
 ## Freshness and source stability
 
@@ -81,10 +80,12 @@ a migration-safe way if mutable origins become a first-class use case.
 ## Cache misses and streaming
 
 On cache read, ImagePipe validates the returned entry before treating it as a
-hit. The entry must have a binary body, cacheable headers, and one of the
-supported output content types: JPEG, PNG, WebP, or AVIF. If that check passes,
-ImagePipe sends the stored body without fetching, decoding, transforming, or
-encoding the source image.
+hit. The entry must have a binary body, cacheable headers, and a content type
+that matches what the entry claims to be: a known image output format for an
+image entry, or any well-formed media type for a dialect-owned complete-body
+entry (`{:complete_body, content_type}` — a rendered document such as the IIIF
+`info.json`). If that check passes, ImagePipe sends the stored body without
+fetching, decoding, transforming, or encoding the source image.
 
 If cache entry validation fails, ImagePipe treats the hit like a miss. It
 reprocesses through a supervised source session using the same cache key and
@@ -116,17 +117,27 @@ open or write errors also fail open and skip the cache write.
 
 ## Cache keys
 
+`ImagePipe.Representation.build/3` owns the derivation. It composes the key from
+pre-fetch material only — nothing is read from the fetched bytes — which is what
+lets a conditional `GET` resolve before any fetch, decode, or encode.
+
 Cache keys include:
 
 - resolved source identity
-- canonical Plan operation key data
-- the cache key's transform key data version
-- configured `:key_headers` and `:key_cookies`
-- normalized automatic-output inputs when output is automatic: detected modern
-  output candidates plus `:auto_jpeg_xl`, `:auto_avif`, and `:auto_webp` flags
+- the dialect module and its behavioral epoch, plus the core execution epoch
+- the dialect's canonical request material: the semantic operation key data, the
+  EXIF auto-orient flag, the terminal identity, the canonical output plan, and the
+  resolved detector identity
+- the negotiation outcome and effective output policy material
+- the plan's cachebuster and the request values named by the mount-level
+  `storage_inputs: [{:header, name}, {:cookie, name}]`
 
-ImagePipe reserves `Accept` for automatic output normalization and rejects it in
-`:key_headers` so raw `Accept` values don't enter cache key material.
+The last group is `storage_only` material: it partitions storage without
+changing the delivered bytes, so it is deliberately absent from the ETag. See
+[docs/cdn-http-cache.md](cdn-http-cache.md).
+
+ImagePipe reserves `Accept` for automatic output normalization; the normalized
+negotiation outcome enters the key instead of the raw header value.
 
 Cache keys exclude:
 
