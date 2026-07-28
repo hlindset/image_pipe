@@ -82,9 +82,7 @@ config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
 #    path_prefix: "processed",
 #    max_body_bytes: 10_000_000,
 #    max_size_bytes: 500_000_000,
-#    node_id: "dev",
-#    key_headers: [],
-#    key_cookies: []}
+#    node_id: "dev"}
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
