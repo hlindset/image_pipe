@@ -95,7 +95,7 @@ defmodule ImagePipe.Dialect.TwicPics.ConfigTest do
     end
   end
 
-  test "detector and debug options reject malformed values" do
+  test "detector options reject malformed values" do
     for {key, value} <- [
           detector: 123,
           detector_required: :yes

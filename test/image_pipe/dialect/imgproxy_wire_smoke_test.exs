@@ -48,7 +48,8 @@ defmodule ImagePipe.Dialect.ImgproxyWireSmokeTest do
   end
 
   # `output_capabilities` is an internal test-injection seam, appended AFTER
-  # `Imgproxy.init/1`'s validation (which rejects it as an unknown option).
+  # `ImagePipe.Plug.init/1`'s validation (which rejects it as an unknown
+  # option).
   defp opts(extra) do
     base =
       ImagePipe.Plug.init(

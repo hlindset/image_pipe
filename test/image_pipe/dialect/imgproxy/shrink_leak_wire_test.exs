@@ -9,8 +9,8 @@ defmodule ImagePipe.Dialect.Imgproxy.ShrinkLeakWireTest do
 
   Multi-pipeline `/-/` is imgproxy-dialect syntax with no IIIF equivalent, so
   this coverage lives on the dialect surface.
-  These drive full requests through `ImagePipe.Dialect.Imgproxy.init/1` +
-  `call/2` over `beach.jpg` (4000×2667, JPEG-shrink-eligible) and assert the
+  These drive full requests through `ImagePipe.Plug.init/1` + `call/2`
+  mounting `ImagePipe.Dialect.Imgproxy`, over `beach.jpg` (4000×2667, JPEG-shrink-eligible) and assert the
   decoded output dimensions.
   """
 

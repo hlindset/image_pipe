@@ -4,8 +4,8 @@ defmodule ImagePipe.Dialect.Imgproxy.ResizeAutoWireTest do
   (#233, promoted to `ImagePipe.Transform.NeutralResolver` in #448) on the
   imgproxy dialect surface.
 
-  These drive full requests through `ImagePipe.Dialect.Imgproxy.init/1` +
-  `call/2` — the source is resolved and fetched for real — and assert the
+  These drive full requests through `ImagePipe.Plug.init/1` + `call/2`
+  mounting `ImagePipe.Dialect.Imgproxy` — the source is resolved and fetched for real — and assert the
   decoded output dimensions, pinning the bucketing end-to-end rather than at
   the resolver unit.
   """

@@ -255,7 +255,7 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
 
   # `output_capabilities`/`on_bracket_exit`/`chain`/`image_module` are test-
   # injection seams that `Imgproxy.Config.validate!/1` would reject as unknown
-  # options — appended AFTER `Imgproxy.init/1`, mirroring
+  # options — appended AFTER `ImagePipe.Plug.init/1`, mirroring
   # `ImgproxyWireSmokeTest`'s `opts/1` convention.
   @test_only_seam_keys [:output_capabilities, :on_bracket_exit, :chain, :image_module]
 
