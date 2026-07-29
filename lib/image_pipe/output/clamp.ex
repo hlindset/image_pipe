@@ -8,10 +8,10 @@ defmodule ImagePipe.Output.Clamp do
   #
   # The core `clamp/3` is product-neutral and format-blind: it reads/resizes via
   # the `image` library directly and returns `clamp_info` describing what it did.
-  # `clamp_with_telemetry/4` is the shared seam every stack (framework + dialects)
-  # calls: it runs `clamp/3` and, when clamping occurred, emits the `[:output,
-  # :clamp]` one-shot tagged with the negotiated `format`. Format enters here only
-  # to label that event, never to influence the resize.
+  # `clamp_with_telemetry/4` wraps it: it runs `clamp/3` and, when clamping
+  # occurred, emits the `[:output, :clamp]` one-shot tagged with the negotiated
+  # `format`. Format enters here only to label that event, never to influence the
+  # resize.
   #
   # Resize is lazy; measuring width/height reads libvips header fields (O(1)).
 
@@ -62,11 +62,9 @@ defmodule ImagePipe.Output.Clamp do
     end
   end
 
-  # Shared clamp seam: run the product-neutral `clamp/3` and, when it actually
-  # downscaled, emit the `[:output, :clamp]` one-shot tagged with the negotiated
-  # `format`. All three stacks (framework + both dialects) call this so the event
-  # fires from one site. Fires only when clamping occurred (`clamp/3` returns
-  # `nil` info for a no-op).
+  # Run the product-neutral `clamp/3` and, when it actually downscaled, emit the
+  # `[:output, :clamp]` one-shot tagged with the negotiated `format`. Fires only
+  # when clamping occurred (`clamp/3` returns `nil` info for a no-op).
   @spec clamp_with_telemetry(VixImage.t(), limits(), atom(), keyword()) ::
           {:ok, VixImage.t(), clamp_info() | nil}
           | {:error, {:encode, Exception.t(), list()}}

@@ -8,24 +8,46 @@ level, and a source adapter can override it.
 forward "/images",
   to: ImagePipe.Plug,
   init_opts: [
-    dialect: ImagePipe.Dialect.TwicPics,
+    dialect: ImagePipe.Dialect.IIIF,
+    resolver: {MyApp.Resolver, []},
+    http_cache: [mode: :enabled],
     sources: [
       path:
         {ImagePipe.Source.File,
          root: "/srv/images",
          root_id: "primary",
-         stable: :trusted,
-         http_cache: :enabled}
+         stable: :trusted}
     ]
   ]
 ```
 
-On the TwicPics dialect mount, `http_cache: :enabled` on the source enables the
-generated HTTP cache path. On an `ImagePipe.Plug` framework mount,
-`http_cache: [mode: :enabled]` enables it at the Plug level. A source-level
-setting overrides the framework mount: `:enabled` forces the path even when the
-Plug uses `mode: :disabled`, while `:disabled` suppresses generated cache
-headers when the Plug uses `mode: :enabled`.
+## Which mounts generate headers
+
+Generated CDN cache headers are a **declarative-tier** capability today.
+`http_cache: [mode: :enabled]` is one of
+`ImagePipe.Dialect.Declarative.config_keys/0`, and a declarative dialect's
+`%ImagePipe.Dialect.Resolved{}` carries `http_cache: :generated`, which runs
+`ImagePipe.Response.CachePolicy` between building the representation and the
+conditional gate. Without `mode: :enabled` the policy generates nothing at
+all: no `Cache-Control`, no `ETag`.
+
+The ordered dialects (`ImagePipe.Dialect.Native`, `ImagePipe.Dialect.Imgproxy`,
+`ImagePipe.Dialect.TwicPics`) carry `http_cache: :dialect_owned`: the policy is
+skipped, and their identity headers come straight from the representation
+(`ImagePipe.Representation.response_headers/1` — the `ETag`, or
+`Cache-Control: no-store` for a source with no byte identity). None of the
+`[:http_cache, :prepare]`, `[:http_cache, :conditional, :match]`, or
+`[:http_cache, :fallback, :no_store]` events fire on those mounts. Opting an
+ordered dialect into the generated policy is separate, compatibility-reviewed
+work.
+
+A source adapter can override the mount-level mode per source:
+`http_cache: :enabled` forces the generated path even when the mount is
+`mode: :disabled`; `http_cache: :disabled` suppresses generated cache headers
+even when the mount is `mode: :enabled`; the default `:inherit` follows the
+mount. The override only reaches a mount whose dialect carries
+`http_cache: :generated`: on a `:dialect_owned` mount the policy never runs, so
+a source-level `:enabled` is inert there.
 
 Source-level `http_cache: :enabled` doesn't force an ETag. The resolved source
 still needs strong byte identity.
@@ -67,7 +89,7 @@ strong byte identity, ImagePipe emits:
 
 ```http
 Cache-Control: public, max-age=31536000, immutable
-ETag: "ip1-..."
+ETag: "ipr1-..."
 ```
 
 When automatic output format selection depends on the request `Accept` header,
@@ -79,6 +101,18 @@ Vary: Accept
 
 Configure the CDN cache key to include `Accept` for routes that use automatic
 output. Explicit output formats don't emit `Vary: Accept`.
+
+Configured `storage_inputs` header names also enter `Vary`. A mount with
+`storage_inputs: [{:header, "x-tenant"}, {:cookie, "session"}]` and automatic
+output sends:
+
+```http
+Vary: x-tenant, Accept
+```
+
+Cookie entries never enter `Vary` — it names headers only. Header names
+normalize to lower case, drop duplicates, and sort deterministically, so the
+header doesn't depend on the configured list's order or spelling.
 
 For CDN configuration:
 
@@ -107,11 +141,11 @@ metadata (`ETag`/`Cache-Control`/`Vary`) matches the equivalent `GET`, per RFC 9
 §9.3.2.
 
 `If-None-Match` uses weak comparison for `GET` and `HEAD`, so both of these match
-the generated ETag `"ip1-token"`:
+the generated ETag `"ipr1-token"`:
 
 ```http
-If-None-Match: "ip1-token"
-If-None-Match: W/"ip1-token"
+If-None-Match: "ipr1-token"
+If-None-Match: W/"ipr1-token"
 ```
 
 `If-None-Match: *` matches any current representation, but ImagePipe cannot prove
@@ -223,45 +257,49 @@ source identities, or ETag values.
 ## Cache Key Relationship
 
 The CDN controls the CDN cache key. ImagePipe can't make two different URLs share
-one CDN object by sending an ETag or custom header. ImagePipe normalizes plan
+one CDN object by sending an ETag or custom header. ImagePipe normalizes request
 material so matching URLs can produce the same ETag. A CDN that keys on the raw
 URL still stores them as separate objects unless the CDN rewrites or redirects
 them before cache lookup.
 
-ImagePipe's internal cache key and HTTP ETag are different values. The internal
-cache key includes storage concerns such as cachebuster and configured cache key
-inputs. The generated ETag identifies the client-visible representation. For
-example, `cachebuster` changes the internal cache key but leaves the generated
-ETag unchanged.
+Both values come from `ImagePipe.Representation.build/3`, which derives them
+from the same pre-fetch material but different slices of it:
 
-Detector and model identity, by contrast, are part of *both* the internal cache
-key and the generated ETag: swapping a detector or model changes the rendition,
-so it must change the validator too — a conditional GET will not return `304`
-against a rendition produced by a different detector.
+- the **internal cache key** is storage identity, and includes the
+  `storage_only` material — the cachebuster plus the request header and cookie
+  values named by the mount's `storage_inputs`;
+- the **generated ETag** identifies the client-visible representation and
+  excludes `storage_only`, so a cachebuster change busts storage while leaving
+  the validator — and therefore already-downloaded client copies — intact.
 
-`Plan.expires` is a parser validity field. It doesn't change generated
-`Cache-Control`.
+Detector and model identity, by contrast, are part of *both*: swapping a
+detector or model changes the rendition, so it must change the validator too — a
+conditional GET will not return `304` against a rendition produced by a
+different detector.
+
+`Plan.expires` is a request-validity field a dialect enforces at parse time. It
+doesn't change generated `Cache-Control`.
 
 ## Versioning
 
-Generated ETags use a visible schema prefix built from the implementation
-constant:
+Generated ETags carry a visible schema prefix from `ImagePipe.Representation`'s
+`@etag_schema` constant (`"ipr1"` today). Changing it changes both the visible
+prefix and the hashed material, invalidating validators already stored by
+browsers and CDNs.
 
-```elixir
-"ip#{@etag_schema}-..."
-```
+Two epochs ride the same material as the key and the ETag, so a bump can never
+pair an old internal-cache body with a new validator:
 
-Changing `@etag_schema` changes both the visible prefix and the hashed material.
-That invalidates validators already stored by browsers and CDNs.
-
-ImagePipe includes `@representation_version` in the shared plan material used by
-generated ETags and the internal cache key. Bump it when encoder behavior,
-output policy behavior, default quality, metadata handling, color handling,
-orientation behavior, or symbolic output-rule semantics can change encoded
-bytes without changing public request syntax.
-
-The same version must be in both places. If it changed only the ETag, ImagePipe
-could serve an old internal-cache body with a new validator.
+- `ImagePipe.Representation`'s `@core_execution_epoch` — bump it when core
+  encoder behavior, output policy behavior, default quality, metadata handling,
+  color handling, or orientation behavior can change encoded bytes without
+  changing public request syntax. It invalidates every representation every
+  dialect has built.
+- each dialect's own behavioral epoch, carried in the material's
+  `dialect_behavior` — for the declarative tier,
+  `ImagePipe.Dialect.Declarative.Identity`'s `@declarative_epoch`; ordered
+  dialects carry theirs in their own `Identity` module. A bump there
+  invalidates only that tier or dialect.
 
 ## Deferred In V1
 
@@ -270,12 +308,13 @@ These are deliberate v1 boundaries:
 - no generated `Last-Modified`
 - no `If-Modified-Since`
 - no short public caching for mutable sources
-- no arbitrary `Vary` dimensions beyond `Accept`
+- no `Vary` dimensions beyond `Accept` and the configured `storage_inputs`
+  header names
 - no Client Hints variation
 - no generated ETags after source fetch
 - no source metadata probing to discover upstream validators
 - no per-route custom ETag override
-- no parser-provided `Cache-Control`
+- no dialect-provided `Cache-Control`
 
 Routes that need custom validators or mutable freshness policy should leave
 ImagePipe generated HTTP caching off and set response headers in their own Plug

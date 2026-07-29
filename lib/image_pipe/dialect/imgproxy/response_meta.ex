@@ -4,8 +4,6 @@ defmodule ImagePipe.Dialect.Imgproxy.ResponseMeta do
   # The `%ImagePipe.Plan.Response{}` one imgproxy request delivers with — its
   # `Content-Disposition` filename, disposition, and the `debug?` opt-in.
   #
-  # The dialect owns its whole request chain rather than depending on the
-  # `ImagePipe.Parser` boundary the framework parsers (IIIF, TwicPics) use.
   # Split out of `ImagePipe.Dialect.Imgproxy` so the chain module itself
   # carries none of this derivation logic — the same split `Assembly` makes
   # for the geometry half.

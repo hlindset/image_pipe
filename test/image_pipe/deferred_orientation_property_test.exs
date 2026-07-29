@@ -5,7 +5,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
 
   import Plug.Test
 
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Orientation1TwinOrigin
@@ -14,7 +14,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   # Deferred orientation (#146): EXIF auto-orient and user rotate/mirror are
   # applied AFTER crop/resize in the canonical model, but ImagePipe defers the
   # flush for performance. This property pins the two observable invariants of
-  # that deferral through the IIIF parser, whose rotation token is a clockwise
+  # that deferral through the IIIF dialect, whose rotation token is a clockwise
   # right angle (0|90|180|270) with an optional leading `!` horizontal mirror
   # applied *before* the rotation:
   #
@@ -156,10 +156,8 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
 
   defp opts(origin, base_bytes, orientation) do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver: {StaticResolver, map: %{"x" => %SourcePath{segments: ["x.jpg"]}}}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: {StaticResolver, map: %{"x" => %SourcePath{segments: ["x.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,

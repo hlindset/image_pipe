@@ -19,11 +19,9 @@ defmodule ImagePipe.Representation do
   `Source.HTTP`/`Source.File`/`Source.S3` adapters whenever the origin supplies
   no validator) gets **no** `ETag` and a `Cache-Control: no-store` directive
   (`response_headers/1`), so a conditional GET can never revalidate against
-  content whose bytes may have changed. This is the sole boundary both dialects
-  reach for that decision — it lives here rather than in each dialect so no
-  dialect can re-ship the divergence. The framework's
-  `ImagePipe.Request.HTTPCache` reproduces the identical decision on its own
-  path (`cache_control_without_etag/2` / `do_generated_etag/4`).
+  content whose bytes may have changed. This is the sole boundary every dialect
+  reaches for that decision — it lives here rather than in each dialect so no
+  dialect can re-ship the divergence.
 
   The cache key and the ETag answer different questions and are derived from
   different (but overlapping) slices of the same data:
@@ -49,9 +47,9 @@ defmodule ImagePipe.Representation do
   alias ImagePipe.MaterialDigest
   alias ImagePipe.Representation.IdentityMaterial
 
-  # Successor of the framework's transform key-data version for this stack —
-  # bumping it invalidates every representation built by every dialect,
-  # independent of any single dialect's own `dialect_behavior` epoch.
+  # Core execution epoch: bumping it invalidates every representation built by
+  # every dialect, independent of any single dialect's own `dialect_behavior`
+  # epoch.
   @core_execution_epoch 1
   @etag_schema "ipr1"
 

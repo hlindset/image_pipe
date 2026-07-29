@@ -81,6 +81,7 @@ defmodule ImagePipe.Dialect.TwicPics do
        operations: operation_names(request),
        auto_rotate?: request.auto_rotate,
        debug?: request.response.debug?,
+       http_cache: :dialect_owned,
        terminal: :image
      }}
   end
@@ -104,7 +105,7 @@ defmodule ImagePipe.Dialect.TwicPics do
     do: Pipeline.decode_request(request, geometry)
 
   @impl ImagePipe.Dialect
-  # The three dialects' contract delegations are textually identical but
+  # The hand-written dialects' contract delegations are textually identical but
   # resolve through per-dialect aliases to different Request structs and
   # Pipeline modules — irreducible without a macro that would force a
   # naming convention on every dialect and hide the contract.

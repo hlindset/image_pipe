@@ -2,10 +2,11 @@ defmodule ImagePipe.Transform.InputColorManagement do
   @moduledoc """
   Fixed, data-determined input-conditioning preamble (NOT a `Plan.Operation`):
   imports the embedded ICC profile into a working space before any processing
-  step, mirroring imgproxy's `colorspaceToProcessing`. Seeded once by
-  `ImagePipe.Transform.Executor`, which passes `supports_hdr?` (resolved in
-  the Request/Output boundary from `Plan.Output.hdr` and the output format's HDR
-  capability).
+  step, mirroring imgproxy's `colorspaceToProcessing`. Seeded once per
+  execution — by `ImagePipe.Transform.Executor` behind its
+  `seed_input_color_management` gate, or directly by an ordered dialect's own
+  pipeline. The caller passes `supports_hdr?`, which `ImagePipe.Output.Policy`
+  resolves from `Plan.Output.hdr` and the output format's HDR capability.
   """
 
   alias ImagePipe.Telemetry
@@ -173,8 +174,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
   is one seam, and every caller that runs the preamble must also run this or the
   encoder silently takes the "no import ran" branch on an imported image.
 
-  Call it once per request, after the last operation and before encoding. Both
-  in-tree dialects and `ImagePipe.Request.Processor` do.
+  Call it once per request, after the last operation and before encoding.
 
   A state that never imported (`color_imported?: false`, e.g. a profile-less or
   linear-light source) is returned unchanged: there is nothing to carry.

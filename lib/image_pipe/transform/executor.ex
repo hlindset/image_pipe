@@ -2,11 +2,12 @@ defmodule ImagePipe.Transform.Executor do
   @moduledoc false
 
   # Orchestrates plan execution: seeds the data-determined preamble (EXIF
-  # orientation into State.pending_orientation and input color management, both
-  # on the seed_orientation gate), then drives each pipeline through the fixed
-  # neutral resolve loop below (`run_neutral/4`). Neutral lowering owns the
-  # pending-orientation policy and compensation and emits explicit Flush ops.
-  # Resize expansion/scale arithmetic lives in ImagePipe.Transform.ResizePlanning.
+  # orientation into State.pending_orientation on the seed_orientation gate,
+  # input color management on the seed_input_color_management gate), then drives
+  # each pipeline through the fixed neutral resolve loop below
+  # (`run_neutral/4`). Neutral lowering owns the pending-orientation policy and
+  # compensation and emits explicit Flush ops. Resize expansion/scale arithmetic
+  # lives in ImagePipe.Transform.ResizePlanning.
   #
   # The resolve loop: for each plan operation, overlay the neutral-advanced shape
   # onto State (THE one shape→State sync site), lower the op through
@@ -75,16 +76,23 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   # Input color management is a data-determined preamble seeded once on the real-
-  # execution path (the same gate as EXIF orientation), not a Plan operation. It
-  # imports the embedded profile into a working space before any operation. The
+  # execution path, not a Plan operation. It imports the embedded profile into a
+  # working space before any operation. The
   # `[:transform, :input_color_management]` span is emitted by
   # `InputColorManagement.condition/2` itself (via `state.telemetry_opts`), the
   # shared seam every stack runs; this gate only decides whether the preamble
   # runs at all (planning skips it). A failure is a decode failure
   # (corrupt/unsupported profile), surfaced as {:decode, _} to stay consistent
   # with the materialization contract.
+  #
+  # Its own gate, `seed_input_color_management`, defaulting to the orientation
+  # gate: a caller whose orientation is already seeded elsewhere still needs the
+  # colour preamble, and one gate cannot answer both questions.
   defp seed_color_management(%State{} = state, opts) do
-    if Keyword.get(opts, :seed_orientation, false) do
+    gated? =
+      Keyword.get(opts, :seed_input_color_management, Keyword.get(opts, :seed_orientation, false))
+
+    if gated? do
       hdr? = Keyword.get(opts, :supports_hdr?, false)
 
       case InputColorManagement.condition(state, supports_hdr?: hdr?) do

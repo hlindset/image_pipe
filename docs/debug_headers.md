@@ -14,20 +14,21 @@ Two independent controls must both be satisfied for any header to be emitted:
 
    ```elixir
    plug ImagePipe.Plug,
-     dialect: ImagePipe.Dialect.TwicPics,
+     dialect: ImagePipe.Dialect.IIIF,
+     resolver: {MyApp.Resolver, []},
      sources: [...],
      allow_debug_headers: true
    ```
 
-   Debug headers are available on every mount, both the dialect mounts
-   (`ImagePipe.Plug, dialect: …`: imgproxy, TwicPics, Native) and the
-   framework `parser:` mount (IIIF). Native currently has no per-request
-   trigger in its grammar, so its responses render none until a trigger is
-   chosen ([#471](https://github.com/hlindset/image_pipe/issues/471)).
+   Debug headers are available on every mount — there is one mount shape, and
+   the flag means the same thing on all of them. Native currently has no
+   per-request trigger in its grammar, so its responses render none until a
+   trigger is chosen
+   ([#471](https://github.com/hlindset/image_pipe/issues/471)).
 
 2. **Per-request trigger** — opts a single request into debug headers. Honored
    only when `allow_debug_headers: true`; otherwise ignored. The trigger is
-   **parser-specific**:
+   **dialect-specific**:
    - **imgproxy**: the `debug:1` processing option inside the signed path,
      for example `/<signature>/debug:1/rs:fill:400:300/plain/…` (also
      `debug:true`; `debug:0`/`debug:false` opt out).
@@ -43,10 +44,11 @@ Two independent controls must both be satisfied for any header to be emitted:
    also accept `0`/`false` to explicitly opt out. Only the imgproxy trigger is
    signature-protected — see below.
 
-A debug trigger does **not** change the produced image bytes: it lives on
-`Plan.Response`, which is excluded from both the cache key and the ETag, so a
-debug request and a plain request resolve to the same cache entry. (Facts are
-collected and stored on every generation regardless of the flag, so enabling
+A debug trigger does **not** change the produced image bytes: it rides the
+dialect's response metadata (`Plan.Response.debug?` on the declarative tier),
+which contributes to neither the cache key nor the ETag, so a debug request and
+a plain request resolve to the same cache entry. (Facts are collected and stored
+on every generation regardless of the flag, so enabling
 `allow_debug_headers: true` immediately surfaces headers for already-cached
 items, with no cache invalidation.)
 

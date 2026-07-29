@@ -31,6 +31,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.SourceInventory do
       `test/image_pipe/transform/input_color_management_sequential_test.exs`
     * `:color_result` — `test/image_pipe/output/color_result_test.exs`
     * `:wire` — `test/image_pipe/imgproxy_wire_conformance_test.exs`
+    * `:executor` — `test/image_pipe/transform/executor_test.exs`
   Every source is also consumed by the differential suite via `Constellations`.
   """
   use Boundary, top_level?: true, deps: []
@@ -204,7 +205,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.SourceInventory do
                produced_by: :gen_sources,
                content:
                  "Red field, white corner, green/blue cross-lines, converted to Display-P3 (embedded P3 profile).",
-               consumers: [:icm, :icm_sequential, :color_result, :color_carry_parity],
+               consumers: [:icm, :icm_sequential, :color_result, :color_carry_parity, :executor],
                invariant:
                  "MUST keep the embedded P3 profile: the ICM `@p3_fixture` asserts a wide-gamut import, and " <>
                    "other tests borrow this profile to tag images in-test."

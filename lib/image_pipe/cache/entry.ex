@@ -16,14 +16,12 @@ defmodule ImagePipe.Cache.Entry do
 
   @type header :: {String.t(), String.t()}
   # `representation` tags what an entry's `content_type`/`body` mean:
-  # `{:image, format}` for the framework's encoder-output path, or
+  # `{:image, format}` for the encoder-output path, or
   # `{:complete_body, content_type}` for a dialect-owned non-image complete
-  # body (e.g. a BlurHash string). `nil` (the default for every entry
-  # constructed before this widening, and for adapters — such as
-  # `ImagePipe.Cache.FileSystem` — that don't yet persist the tag) is treated
-  # identically to `{:image, _}`: `validate/1` falls back to the original
-  # `Format`-based content-type check, so the `{:image, _}` path's behavior
-  # is byte-for-byte unchanged.
+  # body (e.g. a BlurHash string). `nil` (the default for adapters — such as
+  # `ImagePipe.Cache.FileSystem` — that don't persist the tag) is treated
+  # identically to `{:image, _}`: `validate/1` falls back to the
+  # `Format`-based content-type check.
   @type representation :: {:image, atom()} | {:complete_body, String.t()}
   @type t :: %__MODULE__{
           body: binary(),

@@ -9,8 +9,6 @@ defmodule ImagePipe.Cache do
       ImagePipe.Debug,
       ImagePipe.Error,
       ImagePipe.Format,
-      ImagePipe.MaterialDigest,
-      ImagePipe.Plan,
       ImagePipe.Output,
       ImagePipe.Telemetry
     ],
@@ -27,17 +25,10 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan
   alias ImagePipe.Telemetry
 
-  @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
-  @plan_key_option_keys [
-    :auto_jpeg_xl,
-    :auto_avif,
-    :auto_webp,
-    :output_capabilities,
-    :detector_identity
-  ]
+  @shared_cache_option_keys [:max_body_bytes]
+  @removed_cache_option_keys [:key_headers, :key_cookies]
   @required_adapter_callbacks [
     get: 2,
     open_sink: 3,
@@ -46,12 +37,6 @@ defmodule ImagePipe.Cache do
     abort_sink: 2
   ]
   @shared_cache_option_schema NimbleOptions.new!(
-                                key_headers: [
-                                  type: {:list, :string}
-                                ],
-                                key_cookies: [
-                                  type: {:list, :string}
-                                ],
                                 max_body_bytes: [
                                   type: {:or, [nil, :non_neg_integer]}
                                 ]
@@ -71,12 +56,6 @@ defmodule ImagePipe.Cache do
   @type state :: term()
   @opaque sink :: Sink.t()
 
-  @type lookup_result ::
-          :disabled
-          | {:hit, Key.t(), Entry.t()}
-          | {:miss, Key.t()}
-          | {:miss, Key.t(), {:cache_read, term()}}
-
   @type entry_lookup_result ::
           :disabled
           | {:hit, Entry.t()}
@@ -84,7 +63,7 @@ defmodule ImagePipe.Cache do
           | {:miss, Key.t(), {:cache_read, term()}}
 
   @doc false
-  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()}
+  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()} | no_return()
   def validate_config(opts) when is_list(opts) do
     normalize_config(opts)
   end
@@ -101,23 +80,11 @@ defmodule ImagePipe.Cache do
   @doc false
   def shared_option_keys, do: @shared_cache_option_keys
 
-  @doc false
-  @spec lookup(Plug.Conn.t(), Plan.t(), term(), keyword()) :: lookup_result()
-  def lookup(conn, %Plan{} = plan, source_identity, opts) when is_list(opts) do
-    case Keyword.get(opts, :cache) do
-      nil ->
-        :disabled
-
-      {adapter, cache_opts} ->
-        lookup_configured(adapter, conn, plan, source_identity, opts, cache_opts)
-    end
-  end
-
   @doc """
-  Key-first cache lookup: mirrors `lookup/4`'s adapter dispatch and fail-open
-  read-error behavior, minus the `Plan`. A dialect that builds its own
-  `%ImagePipe.Cache.Key{}` (via `ImagePipe.Representation.build/3`) looks it
-  up directly, without a framework `Plan` to derive the key from.
+  Looks up the entry stored under `key`, dispatching to the configured adapter
+  and failing open on a read error. A dialect builds its own
+  `%ImagePipe.Cache.Key{}` via `ImagePipe.Representation.build/3` and looks it
+  up directly.
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
   def lookup_entry(%Key{} = key, opts) when is_list(opts) do
@@ -193,19 +160,6 @@ defmodule ImagePipe.Cache do
     end
   end
 
-  defp lookup_configured(adapter, conn, plan, source_identity, opts, cache_opts) do
-    {:ok, key} = Key.build(conn, plan, source_identity, key_options(opts, cache_opts))
-    get_configured(adapter, key, cache_opts)
-  end
-
-  defp get_configured(adapter, key, cache_opts) do
-    case fetch_entry(adapter, key, cache_opts) do
-      {:hit, entry} -> {:hit, key, entry}
-      :miss -> {:miss, key}
-      {:error, reason} -> handle_read_error(reason, key, cache_opts)
-    end
-  end
-
   defp get_entry_configured(adapter, key, cache_opts) do
     case fetch_entry(adapter, key, cache_opts) do
       {:hit, entry} -> {:hit, entry}
@@ -234,6 +188,7 @@ defmodule ImagePipe.Cache do
 
   defp validate_configured_cache(adapter, cache_opts) do
     with :ok <- validate_cache_opts(adapter, cache_opts),
+         :ok <- reject_removed_options(cache_opts),
          :ok <- validate_adapter(adapter),
          {:ok, shared_opts} <- normalize_shared_options(cache_opts),
          {:ok, adapter_opts} <- normalize_adapter_options(adapter, adapter_options(cache_opts)) do
@@ -265,25 +220,27 @@ defmodule ImagePipe.Cache do
     end)
   end
 
+  defp reject_removed_options(cache_opts) do
+    case Enum.find(@removed_cache_option_keys, &Keyword.has_key?(cache_opts, &1)) do
+      nil ->
+        :ok
+
+      key ->
+        raise ArgumentError,
+              "cache option #{inspect(key)} was removed; partition on request headers and cookies " <>
+                "with the mount-level storage_inputs: [{:header, name}, {:cookie, name}]"
+    end
+  end
+
   defp normalize_shared_options(cache_opts) do
     shared_opts = Keyword.take(cache_opts, @shared_cache_option_keys)
 
     case NimbleOptions.validate(shared_opts, @shared_cache_option_schema) do
       {:ok, validated_shared_opts} ->
-        reject_reserved_key_headers(validated_shared_opts)
+        {:ok, validated_shared_opts}
 
       {:error, error} ->
         {:error, {:invalid_cache_config, shared_validation_error(error)}}
-    end
-  end
-
-  defp reject_reserved_key_headers(shared_opts) do
-    key_headers = Keyword.get(shared_opts, :key_headers, [])
-
-    if Enum.any?(key_headers, &(String.downcase(&1) == "accept")) do
-      {:error, {:invalid_cache_config, {:key_headers, ~s(cannot include "accept")}}}
-    else
-      {:ok, shared_opts}
     end
   end
 
@@ -327,10 +284,4 @@ defmodule ImagePipe.Cache do
 
   defp entry_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
     do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
-
-  defp key_options(opts, cache_opts) do
-    cache_opts
-    |> Keyword.take([:key_headers, :key_cookies])
-    |> Keyword.merge(Keyword.take(opts, @plan_key_option_keys))
-  end
 end

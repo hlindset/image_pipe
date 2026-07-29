@@ -153,6 +153,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
          operations: [],
          auto_rotate?: false,
          debug?: false,
+         http_cache: :dialect_owned,
          terminal: {:render, info_terminal()}
        }}
     end
@@ -173,6 +174,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
          operations: operation_names(request),
          auto_rotate?: request.auto_rotate,
          debug?: response_meta.debug?,
+         http_cache: :dialect_owned,
          terminal: :image
        }}
     end
@@ -183,7 +185,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
     do: Pipeline.decode_request(request, geometry)
 
   @impl ImagePipe.Dialect
-  # The three dialects' contract delegations are textually identical but
+  # The hand-written dialects' contract delegations are textually identical but
   # resolve through per-dialect aliases to different Request structs and
   # Pipeline modules — irreducible without a macro that would force a
   # naming convention on every dialect and hide the contract.
@@ -323,10 +325,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   # -- pre-fetch gates --------------------------------------------------------
 
-  # Mirrors `PlanBuilder.expires_plan/2` + `reject_expired_request/2`: `exp:0`
-  # disables the gate outright (and never reads the clock), and the comparison
-  # is strictly `expires < now`, so a request expiring this very second still
-  # passes.
+  # `exp:0` disables the gate outright (and never reads the clock), and the
+  # comparison is strictly `expires < now`, so a request expiring this very
+  # second still passes.
   defp check_expires(%Request{policy: %{expires: 0}}, _config), do: :ok
 
   defp check_expires(%Request{policy: %{expires: expires}}, config)
@@ -368,9 +369,9 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # model), so the resolved classes are threaded through.
   #
   # The gate consults `detect_classes/1` ONLY — deliberately NOT `face_assist?/1`.
-  # The framework's gate checks `Plan.detect_classes(plan) != nil` alone, while a
-  # face-assist smart guide participates only in cache-key identity. Adding it to
-  # the gate would invent a divergence, not close one.
+  # `ImagePipe.Dialect.Declarative`'s gate checks `Plan.detect_classes(plan) != nil`
+  # alone, while a face-assist smart guide participates only in cache-key identity.
+  # Adding it to the gate would invent a divergence, not close one.
   defp check_detector(operations, config) do
     case detect_classes(operations) do
       nil ->
@@ -392,7 +393,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # The detect-guide classes requested across the pipelines' operations, or `nil`
   # when none request detection. Mirrors `ImagePipe.Plan.detect_classes/1`'s exact
   # return contract (`:all | nonempty_list(String.t()) | nil`) over the dialect
-  # operations' `{:detect, {spec, weights}}` guides. Task 6's cache-key identity
+  # operations' `{:detect, {spec, weights}}` guides. The cache-key identity
   # reuses it alongside `face_assist?/1`.
   @doc false
   @spec detect_classes([map()]) :: :all | nonempty_list(String.t()) | nil
@@ -415,7 +416,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   # True when any operation requests a face-assisted smart guide
   # (`{:smart, :face_assist}`). Mirrors `ImagePipe.Plan.face_assist?/1`. Not
-  # consulted by the gate above (see its note); Task 6's cache-key identity does.
+  # consulted by the gate above (see its note); the cache-key identity does.
   @doc false
   @spec face_assist?([map()]) :: boolean()
   def face_assist?(operations) do
@@ -446,13 +447,13 @@ defmodule ImagePipe.Dialect.Imgproxy do
 
   # The resolved detector identity for cache-key/ETag material, computed ONCE per
   # request (before `Representation.build`, so the ETag and the key derive from a
-  # single resolution). Fully mirrors `Request.Runner.with_detector_identity/2`,
-  # INCLUDING the face-assist leg: identity is resolved when the pipelines request
-  # detection (`detect_classes/1` — a `{:detect, _}` guide) OR a face-assisted
-  # smart guide (`face_assist?/1`, whose attention point blends the detected face
-  # centroid), with the framework's `["face"]` classes fallback. A disabled
-  # detector (`Transform.detector_identity/2` returning nil) leaves the material's
-  # `detector:` entry absent, same as no detection. Otherwise nil.
+  # single resolution). This INCLUDES the face-assist leg: identity is resolved
+  # when the pipelines request detection (`detect_classes/1` — a `{:detect, _}`
+  # guide) OR a face-assisted smart guide (`face_assist?/1`, whose attention
+  # point blends the detected face centroid), with a `["face"]` classes
+  # fallback. A disabled detector (`Transform.detector_identity/2` returning
+  # nil) leaves the material's `detector:` entry absent, same as no detection.
+  # Otherwise nil.
   defp detector_identity(operations, config) do
     detect_classes = detect_classes(operations)
 

@@ -2,12 +2,15 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # Real image encode/decode per case — keep it serial.
   use ExUnit.Case, async: false
 
+  alias ImagePipe.Decode
+  alias ImagePipe.Dialect.Declarative
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source.Path
-  alias ImagePipe.Request.Processor
   alias ImagePipe.Source
+  alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
   # Shrink-on-load through a preceding crop (#151). Today a crop before the resize
@@ -46,27 +49,59 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   end
 
   defp run(body, operations) do
-    plan = plan(operations)
-
-    {:ok, response} =
-      Source.wrap_response(%Source.Response{stream: [body]},
-        max_body_bytes: byte_size(body) + 100
-      )
-
-    {:ok, decoded} = Processor.decode_validate_source_response(response, plan, opts())
-    {:ok, final} = Processor.process_decoded_source(decoded, plan, opts())
-
-    {final.image, decoded.decode_options[:shrink]}
+    decode_execute(body, plan(operations))
   end
 
-  defp opts do
-    [
+  # Fetch + decode through the shared bracket with the declarative dialect's
+  # decode preflight, then run the plan through the declarative pipeline —
+  # the same two seams `ImagePipe.Plug.DialectRunner` drives.
+  defp decode_execute(body, plan) do
+    opts = opts(body)
+    {:ok, source} = Source.resolve(plan.source, opts, [])
+
+    Decode.with_image(
+      source,
+      Keyword.put(opts, :auto_rotate?, plan.auto_rotate),
+      &Declarative.decode_request(plan, &1),
+      fn state, geometry ->
+        {:ok, %State{} = final} = Declarative.execute(state, geometry, plan, opts)
+        {final.image, shrink_factor(state.decode_shrink)}
+      end
+    )
+  end
+
+  # The realized load shrink, rounded back to the libjpeg block factor the
+  # planner asked for. `nil` when the decode was not shrunk at all.
+  defp shrink_factor(nil), do: nil
+  defp shrink_factor(%{w: w}), do: round(w)
+
+  defp opts(body) do
+    Source.validate_config!(
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: origin_plug(body)]}
+      ],
       max_input_pixels: 100_000_000,
       max_result_width: 100_000,
       max_result_height: 100_000,
       max_result_pixels: 1_000_000_000,
       max_body_bytes: 100_000_000
-    ]
+    )
+  end
+
+  defp origin_plug(body) do
+    content_type =
+      case body do
+        <<0xFF, 0xD8, _rest::binary>> -> "image/jpeg"
+        _other -> "image/png"
+      end
+
+    fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type(content_type)
+      |> Plug.Conn.send_resp(200, body)
+    end
   end
 
   # Mean absolute error across all pixels/bands, after downsampling both to ~48px
@@ -204,15 +239,23 @@ defmodule ImagePipe.ShrinkThroughCropTest do
       {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
       plan = plan([crop, resize])
 
-      {:ok, response} =
-        Source.wrap_response(%Source.Response{stream: [body]},
-          max_body_bytes: byte_size(body) + 100
-        )
+      over_limit =
+        body
+        |> opts()
+        |> Keyword.put(:max_input_pixels, @src * @src - 1)
+        |> Keyword.put(:auto_rotate?, plan.auto_rotate)
 
-      over_limit = Keyword.put(opts(), :max_input_pixels, @src * @src - 1)
+      {:ok, source} = Source.resolve(plan.source, over_limit, [])
 
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =
-               Processor.decode_validate_source_response(response, plan, over_limit)
+               Decode.with_image(
+                 source,
+                 over_limit,
+                 &Declarative.decode_request(plan, &1),
+                 fn _state, _geometry ->
+                   flunk("decode must not run past the pixel-limit gate")
+                 end
+               )
 
       assert pixels == @src * @src
       assert limit == @src * @src - 1
@@ -403,36 +446,27 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     |> Image.write!(:memory, suffix: suffix)
   end
 
-  # The streamed full-res decode the processor produces (access: :sequential,
+  # The streamed full-res decode the bracket produces (access: :sequential,
   # fail_on: :error over the source-response seekable input). No ops → no shrink.
   defp decode_streamed(body) do
     plan = plan([])
+    opts = opts(body)
+    {:ok, source} = Source.resolve(plan.source, opts, [])
 
-    {:ok, response} =
-      Source.wrap_response(%Source.Response{stream: [body]},
-        max_body_bytes: byte_size(body) + 100
-      )
-
-    {:ok, decoded} = Processor.decode_validate_source_response(response, plan, opts())
-    decoded.image
+    Decode.with_image(
+      source,
+      Keyword.put(opts, :auto_rotate?, plan.auto_rotate),
+      &Declarative.decode_request(plan, &1),
+      fn state, _geometry -> state.image end
+    )
   end
 
   defp run_auto_rotate(body, operations) do
-    plan = %Plan{
+    decode_execute(body, %Plan{
       source: %Path{segments: ["crop.img"]},
       output: %Plan.Output{mode: :automatic},
       pipelines: [%Pipeline{operations: operations}],
       auto_rotate: true
-    }
-
-    {:ok, response} =
-      Source.wrap_response(%Source.Response{stream: [body]},
-        max_body_bytes: byte_size(body) + 100
-      )
-
-    {:ok, decoded} = Processor.decode_validate_source_response(response, plan, opts())
-    {:ok, final} = Processor.process_decoded_source(decoded, plan, opts())
-
-    {final.image, decoded.decode_options[:shrink]}
+    })
   end
 end

@@ -1,6 +1,7 @@
 defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   @moduledoc false
 
+  alias ImagePipe.Dialect
   alias ImagePipe.Dialect.Imgproxy.CropRequest
   alias ImagePipe.Dialect.Imgproxy.Format
   alias ImagePipe.Dialect.Imgproxy.PercentEncoding
@@ -229,7 +230,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
 
   defp parse_known_option(:filename, [:filename], [value, encoded], segment)
        when value != "" and encoded != "" do
-    with {:ok, encoded?} <- parse_boolean(encoded),
+    with {:ok, encoded?} <- Dialect.parse_boolean(encoded),
          {:ok, assignments} <- parse_filename(value, encoded?) do
       {:ok, assignments}
     else
@@ -240,7 +241,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
 
   defp parse_known_option(:return_attachment, [:return_attachment], [value], segment)
        when value != "" do
-    case parse_boolean(value) do
+    case Dialect.parse_boolean(value) do
       {:ok, true} -> {:ok, [disposition: :attachment]}
       {:ok, false} -> {:ok, [disposition: :inline]}
       {:error, {:invalid_boolean, _value}} -> {:error, {:invalid_option_segment, segment}}
@@ -252,7 +253,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   # HMAC covers it; it does not affect produced bytes, the cache key, or the ETag
   # (it rides on `Plan.Response`, which all three exclude).
   defp parse_known_option(:debug, [:debug], [value], segment) when value != "" do
-    case parse_boolean(value) do
+    case Dialect.parse_boolean(value) do
       {:ok, debug?} -> {:ok, [debug?: debug?]}
       {:error, {:invalid_boolean, _value}} -> {:error, {:invalid_option_segment, segment}}
     end
@@ -447,7 +448,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   end
 
   defp boolish(v) do
-    case parse_boolean(v) do
+    case Dialect.parse_boolean(v) do
       {:ok, b} -> {:ok, b}
       {:error, _} -> :error
     end
@@ -639,11 +640,11 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   defp parse_field(:height, value), do: parse_pixels(value)
   defp parse_field(:min_width, value), do: parse_pixels(value)
   defp parse_field(:min_height, value), do: parse_pixels(value)
-  defp parse_field(:enlarge, value), do: parse_boolean(value)
-  defp parse_field(:extend, value), do: parse_boolean(value)
-  defp parse_field(:strip_metadata, value), do: parse_boolean(value)
-  defp parse_field(:keep_copyright, value), do: parse_boolean(value)
-  defp parse_field(:preserve_hdr, value), do: parse_boolean(value)
+  defp parse_field(:enlarge, value), do: Dialect.parse_boolean(value)
+  defp parse_field(:extend, value), do: Dialect.parse_boolean(value)
+  defp parse_field(:strip_metadata, value), do: Dialect.parse_boolean(value)
+  defp parse_field(:keep_copyright, value), do: Dialect.parse_boolean(value)
+  defp parse_field(:preserve_hdr, value), do: Dialect.parse_boolean(value)
   defp parse_field(:format, value), do: Format.parse(value)
   defp parse_field(:quality, value), do: parse_quality(value)
 
@@ -705,14 +706,6 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
       {:error, _reason} = error -> error
     end
   end
-
-  # Localized from ImagePipe.Parser.parse_boolean/1 — the dialect must not
-  # depend on the Parser boundary (acid test). Same clauses, so every stack
-  # accepts identical boolean spellings.
-  @spec parse_boolean(String.t()) :: {:ok, boolean()} | {:error, {:invalid_boolean, String.t()}}
-  defp parse_boolean(value) when value in ["1", "t", "true"], do: {:ok, true}
-  defp parse_boolean(value) when value in ["0", "f", "false"], do: {:ok, false}
-  defp parse_boolean(value), do: {:error, {:invalid_boolean, value}}
 
   # Generic interpreter for @special_specs entries: each spec is a fixed list of
   # required, non-empty args. Arity/empty-arg failures yield the uniform
@@ -902,7 +895,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
 
   defp parse_trim_flag(nil), do: {:ok, false}
   defp parse_trim_flag(""), do: {:ok, false}
-  defp parse_trim_flag(value), do: parse_boolean(value)
+  defp parse_trim_flag(value), do: Dialect.parse_boolean(value)
 
   defp parse_monochrome([intensity], _segment) when intensity != "" do
     with {:ok, intensity} <- parse_intensity(intensity) do
@@ -1001,7 +994,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   defp parse_optional_keep_alpha(""), do: {:ok, []}
 
   defp parse_optional_keep_alpha(value) do
-    with {:ok, bool} <- parse_boolean(value), do: {:ok, [keep_alpha: bool]}
+    with {:ok, bool} <- Dialect.parse_boolean(value), do: {:ok, [keep_alpha: bool]}
   end
 
   @gradient_directions %{"down" => 0.0, "left" => 90.0, "up" => 180.0, "right" => 270.0}
@@ -1186,13 +1179,13 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   defp parse_zoom(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_extend([value], _segment) when value != "" do
-    with {:ok, extend?} <- parse_boolean(value) do
+    with {:ok, extend?} <- Dialect.parse_boolean(value) do
       {:ok, [extend: extend?, extend_requested: true]}
     end
   end
 
   defp parse_extend([value | gravity_parts], segment) when value != "" do
-    with {:ok, extend?} <- parse_boolean(value),
+    with {:ok, extend?} <- Dialect.parse_boolean(value),
          {:ok, extend_gravity_assignments} <-
            parse_optional_extend_gravity(segment, gravity_parts) do
       {:ok, Keyword.merge([extend: extend?, extend_requested: true], extend_gravity_assignments)}
@@ -1202,13 +1195,13 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   defp parse_extend(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_extend_aspect_ratio([value], _segment) when value != "" do
-    with {:ok, extend?} <- parse_boolean(value) do
+    with {:ok, extend?} <- Dialect.parse_boolean(value) do
       {:ok, [extend_aspect_ratio: extend?]}
     end
   end
 
   defp parse_extend_aspect_ratio([value | gravity_parts], segment) when value != "" do
-    with {:ok, extend?} <- parse_boolean(value),
+    with {:ok, extend?} <- Dialect.parse_boolean(value),
          {:ok, gravity_assignments} <-
            parse_optional_extend_gravity(:extend_aspect_ratio, segment, gravity_parts) do
       {:ok, Keyword.merge([extend_aspect_ratio: extend?], gravity_assignments)}
@@ -1290,7 +1283,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   defp parse_crop_aspect_ratio([ratio, enlarge], _segment)
        when ratio != "" and enlarge != "" do
     with {:ok, ratio} <- parse_non_negative_float(ratio),
-         {:ok, enlarge?} <- parse_boolean(enlarge) do
+         {:ok, enlarge?} <- Dialect.parse_boolean(enlarge) do
       {:ok, [crop_aspect_ratio: ratio, crop_aspect_ratio_enlarge: enlarge?]}
     end
   end
@@ -1345,7 +1338,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   defp parse_auto_rotate([], _segment), do: {:ok, [orientation: [auto_orient: true]]}
 
   defp parse_auto_rotate([value], _segment) when value != "" do
-    with {:ok, auto_orient?} <- parse_boolean(value) do
+    with {:ok, auto_orient?} <- Dialect.parse_boolean(value) do
       {:ok, [orientation: [auto_orient: auto_orient?]]}
     end
   end
@@ -1356,7 +1349,7 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
     do: {:ok, [strip_color_profile: true]}
 
   defp parse_strip_color_profile([value], _segment) when value != "" do
-    with {:ok, value?} <- parse_boolean(value) do
+    with {:ok, value?} <- Dialect.parse_boolean(value) do
       {:ok, [strip_color_profile: value?]}
     end
   end
@@ -1399,14 +1392,14 @@ defmodule ImagePipe.Dialect.Imgproxy.OptionGrammar do
   defp parse_flip([], _segment), do: {:ok, [orientation: [flip: :both]]}
 
   defp parse_flip([horizontal], _segment) when horizontal != "" do
-    with {:ok, horizontal?} <- parse_boolean(horizontal) do
+    with {:ok, horizontal?} <- Dialect.parse_boolean(horizontal) do
       {:ok, [orientation: [flip: flip_value(horizontal?, false)]]}
     end
   end
 
   defp parse_flip([horizontal, vertical], _segment) when horizontal != "" and vertical != "" do
-    with {:ok, horizontal?} <- parse_boolean(horizontal),
-         {:ok, vertical?} <- parse_boolean(vertical) do
+    with {:ok, horizontal?} <- Dialect.parse_boolean(horizontal),
+         {:ok, vertical?} <- Dialect.parse_boolean(vertical) do
       {:ok, [orientation: [flip: flip_value(horizontal?, vertical?)]]}
     end
   end

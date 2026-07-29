@@ -15,17 +15,16 @@ defmodule ImagePipe.Transform.DecodePlanner.Request do
   @typedoc """
   The residual resize's effective target, per axis, in display-frame pixels.
 
-  Wider than `t:extent/0` in two ways, both to let a dialect state exactly what
-  the op-chain path (`open_options/5`) states, rather than an approximation of
-  it:
+  Wider than `t:extent/0` in two ways, both to let a dialect state its resize
+  target exactly rather than as an approximation of it:
 
     * **Each axis is independently optional.** A single-axis resize (`w:400`
       with an `:auto` height) targets that axis and no other, and the shrink is
       that axis's ratio alone. A dialect that had to fill the missing axis would
       have to synthesize one from the aspect ratio, which binds `min/2` tighter
-      than the chain path does whenever the frame is not exactly proportional.
+      whenever the frame is not exactly proportional.
     * **An axis is a `number()`, not a `pos_integer()`.** `dpr`/`zoom` inflate
-      the requested pixel extent to a fractional target; the chain path divides
+      the requested pixel extent to a fractional target, and the planner divides
       by that fraction directly. Rounding it to a whole pixel would move the
       resulting ratio, and rounding a sub-pixel target lands on zero.
 

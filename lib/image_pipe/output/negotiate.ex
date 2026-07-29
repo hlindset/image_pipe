@@ -1,21 +1,16 @@
 defmodule ImagePipe.Output.Negotiate do
   @moduledoc false
 
-  # The shared output-negotiation seam. Every stack (the framework delivery
-  # build and both in-tree dialects) resolves its output through this helper so
-  # the `[:output, :negotiate]` span is emitted from ONE place, with identical
-  # start/stop metadata, rather than re-implemented per stack.
+  # Output negotiation, wrapped in the `[:output, :negotiate]` span.
   #
   # The span encloses BOTH resolution legs — `Policy.resolve/2` and the
   # `:needs_final_image_alpha` second resolution — so exactly one span is emitted
   # per request regardless of which leg runs. The final-alpha probe is deferred
-  # to the caller via `alpha_fun`, because the three stacks hold different image
-  # handles at negotiation time.
+  # to the caller via `alpha_fun`, which closes over the image handle the caller
+  # holds at negotiation time.
   #
   # Error-shape ownership stays with the caller: the helper returns
-  # `{:error, reason}` UNWRAPPED. The framework re-wraps it as
-  # `{:error, {:output, reason}}` at its call site; the dialects pass it through
-  # unwrapped. Each stack's observable error shape is therefore unchanged.
+  # `{:error, reason}` UNWRAPPED.
 
   alias ImagePipe.Error
   alias ImagePipe.Output.Policy

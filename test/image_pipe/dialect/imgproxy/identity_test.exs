@@ -325,8 +325,7 @@ defmodule ImagePipe.Dialect.Imgproxy.IdentityTest do
       # two ordinary URLs that encode to different bytes. A canonicalizer that
       # drops `__struct__` gives them one cache key and one ETag — the first
       # request's image is served for the second, and a conditional GET 304s
-      # against it. The frozen framework injects a `metric:` discriminator for
-      # exactly this pair (`cache/key.ex`'s `quality_metric_key/2`).
+      # against it.
       #
       # The sibling test above cannot see this: it asserts only that the digest
       # is a binary, and exercises one variant whose field set is distinct.

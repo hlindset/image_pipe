@@ -86,14 +86,14 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   end
 
   defp iiif_beach_resolver do
-    {ImagePipe.Parser.IIIF.Resolver.Static,
+    {ImagePipe.Dialect.IIIF.Resolver.Static,
      map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
   end
 
   defp miss_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_beach_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_beach_resolver(),
       sources: [
         path:
           {RootHTTPAdapter,
@@ -106,8 +106,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   defp signed_miss_opts do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_beach_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_beach_resolver(),
       sources: [
         path:
           {SignedRootHTTPAdapter,

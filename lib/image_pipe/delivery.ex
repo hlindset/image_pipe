@@ -1,8 +1,8 @@
 defmodule ImagePipe.Delivery do
   @moduledoc """
   Monitor-based streaming delivery session — the single streaming topology
-  behind both the framework's request runner and a dialect's image terminal
-  [pipelines §Design principles 1, streaming corner case].
+  behind a dialect's image terminal [pipelines §Design principles 1, streaming
+  corner case].
 
   ## Process topology (the flagged invariant)
 

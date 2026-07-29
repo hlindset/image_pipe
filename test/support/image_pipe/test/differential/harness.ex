@@ -3,28 +3,18 @@ defmodule ImagePipe.Test.Differential.Harness do
   Shared live-render machinery for differential suites. Builds a request pipeline
   that serves committed source bytes over a local function plug, so a suite's
   conformance test, report, and diagnose tasks all render identically.
-  Suite-specific wrappers supply the parser (or dialect) and the per-case path.
+  Suite-specific wrappers supply the dialect and the per-case path.
 
-  An arm is an opaque `{plug_module, initialized_opts}` pair: `plug_opts/2` builds
-  the framework arm (`ImagePipe.Plug` + a parser), `dialect_plug_opts/2` the
-  inverted arm (a dialect that owns its own request chain). `render/2` dispatches
-  on the pair, so callers thread an arm through without knowing which stack it is.
-  Each arm carries its own initialized opts — nothing (no cache, no counter) is
-  shared between two arms built from separate calls.
+  An arm is an opaque `{plug_module, initialized_opts}` pair built by
+  `dialect_plug_opts/2`; `render/2` dispatches on the pair, so callers thread an
+  arm through without knowing how it was built. Each arm carries its own
+  initialized opts — nothing (no cache, no counter) is shared between two arms
+  built from separate calls.
   """
   use Boundary, top_level?: true, check: [out: false]
 
   import Plug.Test
   alias ImagePipe.SourceTest.RootHTTPAdapter
-
-  @doc "Framework arm: `ImagePipe.Plug` opts serving `sources_dir`'s files for `parser`."
-  def plug_opts(parser, sources_dir) do
-    {ImagePipe.Plug,
-     ImagePipe.Plug.init(
-       parser: parser,
-       sources: sources(sources_dir)
-     )}
-  end
 
   @doc """
   Dialect arm: `dialect` mounted through the shared `ImagePipe.Plug` runner

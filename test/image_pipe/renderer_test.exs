@@ -22,6 +22,8 @@ defmodule ImagePipe.RendererTest do
   test "run/3 delegates to the module with context, params, opts" do
     spec = {:custom, StubRenderer, %{k: "v"}}
     ctx = %RenderContext{info: %SourceInfo{format: :jpeg, width: 1, height: 1, orientation: 1}}
-    assert {:ok, {"application/json", "stub:jpeg:v"}} = Renderer.run(spec, ctx, [])
+
+    assert {:ok, {"application/json", "stub:jpeg:v"}} =
+             Renderer.run(spec, ctx, telemetry_prefix: [:renderer_test])
   end
 end

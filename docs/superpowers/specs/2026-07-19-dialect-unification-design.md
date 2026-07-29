@@ -743,3 +743,346 @@ touched: `classify_error/1` has real optionality — a host dialect (or the
 test fixture dialect) may legitimately omit it and fall back to
 `ImagePipe.Telemetry.request_result/1` — so its probe stays a load-bearing
 optionality check, not a workaround for impossible misuse.
+
+### Phase C (`docs/superpowers/plans/2026-07-28-dialect-unification-phase-c.md`)
+
+Phase C landed `ImagePipe.Dialect.Declarative`, re-expressed IIIF on it as
+`ImagePipe.Dialect.IIIF`, migrated every suite onto the dialect mount, and
+deleted the framework stack wholesale. Its plan enumerated **seventeen**
+observable deltas and asserted the list exhaustive. Execution proved the list
+needed **three corrections and two additions**; the plan's own rule is that a
+behavior change it does not enumerate is a plan defect, so all five are
+recorded here:
+
+1. **Delta 11 is narrowed** — the `:unsupported_source_format` telemetry tag
+   is *preserved*, not replaced by `:decode`.
+2. **Delta 14 is withdrawn** — the automatic→explicit `Vary` collapse is
+   unreachable by construction.
+3. **Delta 6 has one unreachable clause** — the *delivery-time* 501 cannot
+   occur for IIIF; the reachable pre-fetch 501 (delta 5) is what the suite
+   pins.
+4. **New delta 18** — source adapters now receive a filtered runtime-opts
+   projection instead of the whole validated mount config.
+5. **New delta 19** — encode exceptions raised before response headers are
+   logged (with stacktrace) by the neutral runner.
+
+Corrections 4 and 5 were authorized explicitly by the human mid-execution;
+both are behavior the framework had and the dialect stack had silently lost.
+
+#### The seventeen enumerated deltas, as landed
+
+**IIIF-visible.**
+
+- **Delta 1 — IIIF identity values change** (U8; Tasks 5, 7, 10). ETags and
+  cache keys moved from the framework's `"ip1-…"` digest and `Cache.Key`'s
+  schema-2 hash to `Representation`'s `"ipr1-…"` ETag and representation key,
+  derived by the new `ImagePipe.Dialect.Declarative.Identity`. Round-trip
+  behavior (pre-fetch 304 on a matching `If-None-Match`, `Vary`, storage
+  separation, cachebuster/storage-vary partitioning) is preserved and
+  asserted behaviorally; every literal-value assertion became a round-trip
+  assertion.
+- **Delta 2 — IIIF span shape becomes the dialect shape** (Tasks 5, 6; gated
+  by Tasks 9 and 10). `[:request]`/`[:parse]` **start** metadata lost
+  `parser:` and `request_method` (the dialect shape is `%{}`). Parse **error**
+  stop metadata became richer: the real `Error.tag(reason)` instead of the
+  constant `:error` the framework's double-wrap produced.
+  `[:source, :fetch_decode]` is emitted by `ImagePipe.Decode`,
+  `[:cache, :lookup]` by `Cache.lookup_entry/2` — same names, same metadata
+  shapes, different emitters. **No telemetry event name was added or
+  removed**, so the Logger's and `Trace.Capture`'s subscription lists are
+  unchanged.
+- **Delta 3 — `[:request]`/`[:send]` error metadata loses one unwrap level**
+  (Tasks 9, 10). *No counterpart in this design's original list.* The
+  framework emitted `error: Error.tag(inner)` for `{:source, inner}` and
+  `{:plan_validation, inner}` (`:connect_error`, `:invalid_output_plan`, …).
+  The runner tags the whole reason, so those collapse to the constant
+  `:source` / `:plan_validation`. This was already the shared runner's
+  behavior for all three ordered dialects; IIIF joined them.
+- **Delta 4 — `[:render]` span position, duration, and failure behavior
+  change for `info.json`** (Task 2; gated by Task 10). *No counterpart in the
+  original list.* The span was opened *around* fetch+decode, so it enclosed
+  `[:source, :fetch_decode]`, its duration included the fetch, and a
+  fetch/decode failure still closed it with `result: :render_error`. Moving
+  it into `ImagePipe.Renderer.run/3` makes it a **sibling** of
+  `[:source, :fetch_decode]`, its duration render-only, and a fetch/decode
+  failure emits **no** `[:render]` span at all. Event name and metadata
+  shapes are unchanged; the OTel integration suite's parentage expectation
+  was updated deliberately.
+- **Delta 5 — the negotiation-capability check moves before cache access**
+  (runner-owned; gated by Task 8). `Policy.ensure_capable/2` ran only after a
+  cache miss; the runner surfaces a negotiation error right after source
+  resolution. Same 501 status, but observable to a cache spy — the
+  `request_safety_test.exs` assertion that a cache lookup happened on an
+  incapable-output request flipped to a `refute`. Related: a negotiation-error
+  response no longer carries `Vary: Accept`, because the runner stamps policy
+  headers only on `Delivery.stream` failures. Inert for real IIIF (always
+  `{:explicit, format}` → `policy.headers == []`), live for the
+  automatic-output test double.
+- **Delta 6 — IIIF error rendering is dialect-owned** (Task 6; pinned by Task
+  7). *No counterpart in the original list.* `Dialect.IIIF.Errors` renders
+  parse, plan-validation, detector, source, decode, limit, output, encode,
+  cache-write, and render failures. Statuses and bodies are reproduced
+  exactly, with these deliberate changes: parse-error responses gained
+  `content-type: text/plain`; a delivery-session failure (`{:session, _}`)
+  renders 500 `"internal server error"` instead of 500
+  `"error encoding image"` and no longer stamps `:image_pipe_send_result`;
+  and IIIF's failures no longer reach `Response.Sender`'s error clauses, so
+  its `source_error:`/`processing_error:` **info** lines no longer fire for
+  them (see delta 19 for the separate `:error`-level encode line, which *was*
+  restored).
+
+  **Correction (3 of 5).** The delta's remaining clause — "a delivery-time
+  output-negotiation failure renders **501** instead of 500" — is
+  **unreachable for IIIF** and did not occur.
+  `ImagePipe.Dialect.IIIF.PlanBuilder` builds only
+  `%Output{mode: {:explicit, _}}` plans, so `Output.Policy.resolve/2` cannot
+  take its failing arm at delivery time. The *reachable* 501 is the pre-fetch
+  one covered by delta 5, and that is what the suite pins. Everything else in
+  delta 6 is accurate and landed as written.
+- **Delta 7 — IIIF mount config flattens** (Tasks 6, 7, 8). *No counterpart
+  in the original list.* `parser: …, iiif: [...]` became
+  `dialect: ImagePipe.Dialect.IIIF, <flat keys>`. Three surfaces were lost
+  rather than moved, all deliberately:
+  - Unknown keys now raise (`unknown ImagePipe.Dialect.IIIF option(s): [...]`)
+    where the framework's option validator accepted them; its
+    typo-suggestion guard and the parser behaviour's keyword-return guard are
+    gone with it.
+  - **Test/DI seam keys** (`image_module`, `image_open_module`,
+    `buffer_loader`, `image_materializer`, `on_bracket_exit`, `clock`) are no
+    longer accepted at `init/1`. Suites splice them onto the validated config
+    *after* `ImagePipe.Plug.init/1`, exactly as the ordered-dialect suites
+    already did.
+  - **Top-level source timeouts** (`receive_timeout`, `connect_timeout`,
+    `pool_timeout`) are no longer accepted at the mount; they moved into the
+    per-source adapter config, matching every other dialect.
+- **Delta 8 — `key_headers`/`key_cookies` are removed, not renamed** (Task
+  12). *No counterpart in the original list.* They were cache-**adapter**
+  options read only by the framework runner's `Cache.lookup/4` path. Header
+  and cookie cache partitioning is now the mount-level
+  `storage_inputs: [{:header, name}, {:cookie, name}]`.
+  `Cache.validate_config!` **rejects** them with a message naming
+  `storage_inputs:` — leaving them accepted-but-unread would have silently
+  served cross-variant cache hits.
+- **Delta 9 — `storage_inputs` header names enter `Vary`** (Task 10). *No
+  counterpart in the original list.* `Representation.storage_inputs/2`
+  returns every `{:header, name}` as a vary name; the framework emitted
+  `Vary` only for `mode: :automatic`. A header-partitioned IIIF mount now
+  gains `Vary: <name>[, Accept]`; the merged value and its ordering are
+  pinned in `cdn_http_cache_wire_test.exs`.
+- **Delta 10 — ETag/key `Accept` sensitivity narrows** (Task 5). *No
+  counterpart in the original list.* The framework digested the full
+  `Negotiation.modern_candidates/2` list; `Dialect.Negotiation` carries only
+  the selected head, which is all `Policy.resolve/2` uses. Not a collision —
+  it removes needless re-downloads. Inert for real IIIF, live for the
+  automatic-output double.
+- **Delta 11 — `{:unsupported_source_format, _}` / `:source_format_required`
+  change wrapper** (Task 10). *No counterpart in the original list.*
+  `ImagePipe.Decode` wraps both in `{:decode, _}` where the framework's
+  processor returned them bare. Status and body are unchanged (415 /
+  `"source response is not a supported image"`).
+
+  **Correction (1 of 5).** The plan's telemetry half — that
+  `[:source, :fetch_decode]` stop metadata "tags `:decode` instead of
+  `:unsupported_source_format`" — is **wrong**. `ImagePipe.Decode`'s
+  `error_stop_metadata/1` matches
+  `{:decode, {:unsupported_source_format, family} = inner}` and emits
+  `error: Error.tag(inner)`, i.e. it **preserves** the
+  `:unsupported_source_format` tag and additionally carries
+  `detected_source_format: family`. Only the wrapper on the *return value*
+  changed; the stop metadata's `error:` tag did not. The status/body half of
+  the delta is correct as written.
+- **Delta 12 — `allow_debug_headers` gating moves to the runner** (Tasks 6,
+  10). `delivery_config/2` derives it from `Resolved.debug?` plus the
+  `SharedConfig` flag. Headers are byte-identical, including the stored-facts
+  hit replay; `Debug.Info` is now built unconditionally and **stored with
+  IIIF cache entries**, per U13's build-and-store discipline.
+- **Delta 13 — `http_cache: [mode: :enabled]` is required for a declarative
+  dialect to emit any `ETag` or `Cache-Control`** (Tasks 5, 7). *No
+  counterpart in the original list.* This matches the framework, whose
+  `mode:` defaulted to `:disabled` and generated nothing under it, but it is
+  an **asymmetry with the ordered dialects**, which always emit the
+  representation's ETag unconditionally. Any declarative ETag or 304 test
+  must mount with `http_cache: [mode: :enabled]`; written against the default
+  it cannot pass. Documented in `docs/cdn-http-cache.md` and pinned by the
+  declarative fixture dialect's no-ETag-without-`http_cache` asymmetry test.
+- **Delta 14 — WITHDRAWN as unreachable** (examined in Task 10).
+  **Correction (2 of 5).** The plan claimed `Vary: Accept` could be lost when
+  an automatic output plan collapses to an explicit selection, on the theory
+  that `Negotiation.vary?` is `false` when `Policy.identity_selection/1`
+  returns `{:explicit, _}` (every `auto_*` disabled, or a restricted
+  `output_capabilities`). That case cannot arise:
+  - `Output.Policy.from_output_plan/3` maps **every** `%Output{mode:
+    :automatic}` to a policy with `mode: :source`;
+  - `Policy.identity_selection/1` returns `{:explicit, _}` **only** from a
+    `{:explicit, _}` policy mode — a `:source` policy yields `{:auto_head, _}`
+    or `:source_negotiated`, and `Dialect.Negotiation` sets `vary? = true`
+    for **both** of those;
+  - the `auto_*` flags and `output_capabilities` filter `modern_candidates`
+    one level *below* that branch, so neither lever can force the collapse;
+    an empty candidate list yields `:source_negotiated`, which still varies.
+
+  A discriminating wire pin was landed in `cdn_http_cache_wire_test.exs`
+  anyway, so the invariant is asserted rather than merely argued.
+
+**Cross-dialect.**
+
+- **Delta 15 — `Resolved.http_cache` becomes a required field** (Task 4).
+  Native, imgproxy, and TwicPics set `:dialect_owned`: the promoted policy is
+  skipped, so they emit none of `[:http_cache, :prepare]`,
+  `[:http_cache, :conditional, :match]`, `[:http_cache, :fallback, :no_store]`
+  (as today) and no generated `Cache-Control`. The fourth event,
+  `[:http_cache, :cache_hit, :headers]`, is **not** a policy event: it stayed
+  in `Response.Sender` and keeps firing for every dialect's image cache hits.
+- **Delta 16 — `ImagePipe.Transform.Executor`'s preamble gate splits** (Task
+  5). `:seed_input_color_management` is separated from `:seed_orientation`
+  and defaults to it, so no current caller changes behavior. The ordered
+  dialects never reach `Executor` — they call
+  `InputColorManagement.condition/2` from their own pipelines. See "Core
+  changes the design did not anticipate" below for *why* the split was
+  needed.
+- **Delta 17 — `DecodePlanner.open_options/5` is retired** (Task 12). *No
+  counterpart in the original list.* Its only production caller died with the
+  framework; `request_from_chain/3` + `open_options_for/5` is now the single
+  entry point. Task 1's property test gated that no load option moved, and
+  the IIIF shrink-on-load suites passed unchanged.
+
+#### Two deltas the plan did not enumerate
+
+- **Delta 18 — source runtime opts are filtered** (Task 8b). Source adapters
+  no longer receive the whole validated mount config. The framework projected
+  runtime opts down to six keys before handing them to an adapter; the
+  dialect runner passed `config` as both the adapter config *and* the runtime
+  opts, leaking the `cache:` adapter's options (which routinely hold
+  credentials) and every **other** source's adapter config into every source
+  adapter. This was pre-existing for all three ordered dialects since Phases
+  A/B, and Phase C would have made it permanent by deleting the last
+  filtering path. Closed by a neutral `ImagePipe.Source.runtime_opts/1`
+  allowlist applied at **both** handoffs — `ImagePipe.Plug.DialectRunner`'s
+  `resolve` call and `Source.with_fetched/3`, the non-obvious `Decode` path.
+  The final list is **five** keys (`:max_body_bytes`, `:receive_timeout`,
+  `:connect_timeout`, `:pool_timeout`, `:telemetry_prefix`) — the framework's
+  six minus `:request_id`, which had no producer or consumer anywhere in the
+  tree. The contract is documented on the `c:ImagePipe.Source.fetch/3` and
+  `runtime_opts/1` docs so a future adapter author cannot re-widen it by
+  accident.
+- **Delta 19 — encode exceptions are logged by the neutral runner** (Task
+  9b). An encode raised before response headers was logged **nowhere** on the
+  dialect stack; the framework logged `encode_error: ` plus
+  `Exception.format(:error, exception, stacktrace)` at `Logger.error`. Status
+  and body were unchanged, so no wire suite caught it, but every diagnostic
+  detail was lost — `Error.tag/1` collapses the reason to the bare `:encode`
+  atom. Restored once in the runner's `send_error/4`, one line before the
+  tag, which is the **sole** pre-header failure funnel and therefore also
+  covers `Clamp` and `Producer` encode failures for all four dialects. The
+  `{:encode, :empty_stream}` sibling case is included. This is distinct from
+  delta 6's `Sender` **info** lines, which remain unfired on the IIIF path.
+
+#### Contract widenings
+
+- **`Resolved.http_cache` is now required** (`:generated | :dialect_owned`),
+  completing U8b's gate (delta 15).
+- **`RenderTerminal` gains `cache:` and `offers:`** (U11).
+  `cache: :complete_body` is the stored-body path (imgproxy `/info`, Native
+  blurhash); `cache: :none` routes through `Sender`'s existing
+  `{:rendered, …}` delivery, preserving IIIF `info.json`'s per-request
+  ld+json `Accept` negotiation, its `Vary`, and its no-internal-cache
+  behavior. `offers:` carries the content-type offers that negotiation reads.
+- **`ImagePipe.Dialect.Declarative` is its own top-level boundary**, not a
+  submodule of the `Dialect` boundary. It is a `use`-macro base implementing
+  the six-callback `ImagePipe.Dialect` contract on top of a single host
+  callback, `c:parse_plan/2`, returning `{:ok, %Plan{}}`,
+  `{:redirect, status, url}`, or `{:error, term}`. The base also exposes
+  `config_keys/0` and `validate_config!/1` for its own four keys
+  (`:http_cache`, `:detector`, `:detector_required`, `:storage_inputs`), which
+  a host dialect's `c:ImagePipe.Dialect.validate_config!/1` splits on and
+  delegates to — the same delegation shape `SharedConfig.keys/0` uses. It
+  reports parse provenance with `%ImagePipe.Dialect.Failure{phase: :parse}` —
+  the same
+  wrapper Phase B introduced for TwicPics, now with a second producer, which
+  keeps `phase: :parse` a genuinely shared value rather than a
+  single-dialect quirk.
+- **`ImagePipe.Dialect.parse_boolean/1`** — a shared parse helper on the
+  public `Dialect` module (`"1"/"t"/"true"` → `true`, `"0"/"f"/"false"` →
+  `false`, otherwise `{:error, {:invalid_boolean, value}}`).
+- **`ImagePipe.Response.CachePolicy`** — the promoted generated-cache-header
+  policy (U8b), applied by the runner between `Representation.build` and the
+  conditional gate so its ETag suppression can still veto a 304. It owns the
+  `[:http_cache, :prepare]`, `[:http_cache, :conditional, :match]`, and
+  `[:http_cache, :fallback, :no_store]` events; the suppression-rule table,
+  the per-source `:inherit` override, and the event list are unchanged from
+  the framework's policy.
+- **`ImagePipe.Transform.DecodePlanner.request_from_chain/3`** — the neutral
+  defunctionalization of a Plan operation chain into a
+  `%DecodePlanner.Request{}`, replacing the framework's continuation-shaped
+  planning and leaving `open_options_for/5` the single option-emitting entry
+  point (delta 17).
+- **`ImagePipe.Plan.KeyData.quality_search_data/1`** — the quality-search
+  projection the declarative tier's identity material needs, exported from
+  the neutral key-data module rather than re-derived per dialect.
+
+#### Core changes the design did not anticipate
+
+- **The `Executor` preamble gate split** (delta 16) exists because the two
+  stacks seed orientation in different places: the dialect path seeds
+  `pending_orientation` inside `ImagePipe.Decode`, while the framework seeded
+  it in `Executor`. Without separating `:seed_input_color_management` from
+  `:seed_orientation`, a declarative dialect running through `Executor` would
+  have had to choose between double-seeding orientation and skipping the
+  working-space import. Defaulting the new gate to the old one keeps every
+  existing caller byte-identical.
+- **`Declarative.execute/4` calls `InputColorManagement.stamp_carry/1`.**
+  `stamp_carry/1` is the only writer of the icc-imported/icc-backup carry on
+  `State`; without it the encoder silently takes its "no import ran" branch
+  on an ICC-bearing source and the output profile differs. This is not
+  inferable from the `Transform.execute_plan/3` signature, so it is recorded
+  here and gated by `color_carry_parity_test.exs`, which asserts an
+  ICC-bearing source served through the declarative tier is pixel-identical
+  to the same source through an ordered dialect.
+
+#### Deletion scope beyond the design's Deletions table
+
+The Deletions table above names the framework modules. Phase C additionally
+deleted, all in Task 12:
+
+- **`Cache.Key`'s Plan machinery** — the schema-2 canonical key derivation
+  and its hashing. `Cache.Key` survives as a struct only; representation
+  identity is the sole key mechanism.
+- **`Cache.lookup/4`** — the framework runner's entry point, along with
+  `Cache.key_options/2`.
+- **The `key_headers`/`key_cookies` cache-adapter options** (delta 8), now
+  rejected rather than ignored.
+- **`DecodePlanner.open_options/5`** (delta 17).
+- **The `Cache` boundary's `Plan` dep** — with the Plan-derived key gone, the
+  cache boundary no longer reaches into the request model at all.
+
+#### Latent bugs surfaced during the migration
+
+Three defects the framework path masked, found and fixed in-phase:
+
+- **`ImagePipe.Plan.KeyData.data/1` had no clause for `%Gray{}`/`%Bitonal{}`**
+  (Task 7), so IIIF gray and bitonal requests raised `FunctionClauseError`
+  while building representation identity. Pre-existing — `Cache.Key` mapped
+  the same function — but made reachable by the runner always building a
+  `%Representation{}`.
+- **`DialectRunner.materialize_for_delivery/2` ignored the
+  `image_materializer` test seam** (Task 9), so two delivery-materialization
+  → 415 pins were silently passing at 200.
+- **Retiring `open_options/5` deleted the only test of
+  `user_rotate_angle_before_resize/1`'s halt-at-resize rule** (Task 12). That
+  rule is load-bearing for IIIF, whose canonical operation order is region →
+  size → **rotation**; the pin was restored rather than lost with its
+  incidental host.
+
+#### Decisions implemented
+
+U7, U8, U8b, U10, and U11 are **implemented**. Together with Phase A's U9 and
+Phase B's U13 debug-header restoration, every decision in the table above has
+landed.
+
+The `debug_info/1` hook **stayed deleted**. Phase B removed it after the three
+ordered dialects and the runner fixture dialect were checked and none
+implemented it; the declarative tier does not need it either — `Declarative`
+feeds the runner's default builder through `DebugContext` like every other
+tier — so U13's contingency ("dropped from the contract if the ports confirm
+nobody needs it") is now resolved across **every** tier in the tree, not just
+the ordered ones.

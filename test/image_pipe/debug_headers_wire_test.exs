@@ -4,7 +4,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
@@ -111,7 +111,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # ---------------------------------------------------------------------------
 
   # Every id this file's IIIF requests resolve, shared across the opts builders
-  # below (a single static map keeps each builder's iiif: base minimal).
+  # below (a single static map keeps each builder's mount base minimal).
   defp iiif_resolver do
     {StaticResolver,
      map: %{
@@ -121,54 +121,43 @@ defmodule ImagePipe.DebugHeadersWireTest do
      }}
   end
 
-  # Merges `overrides` into `base`, deep-merging the `:iiif` key so a caller
-  # can override an individual iiif: sub-option (e.g. autoquality_method)
-  # without having to restate the resolver.
-  defp merge_opts(base, overrides) do
-    {iiif_override, overrides} = Keyword.pop(overrides, :iiif, [])
-
-    base
-    |> Keyword.update(:iiif, iiif_override, &Keyword.merge(&1, iiif_override))
-    |> Keyword.merge(overrides)
-  end
-
   # Base mount options using RootHTTPAdapter. Mirrors @default_opts +
   # origin_opts/1 from imgproxy_wire_conformance_test.exs.
   defp base_opts(overrides) do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_resolver(),
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ]
     ]
-    |> merge_opts(overrides)
+    |> Keyword.merge(overrides)
   end
 
   # Mount options using StableOrigin so the HTTP cache generates an ETag
   # (requires byte-identity in the resolved source). Used by G2 tests.
   defp stable_opts(overrides) do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_resolver(),
       sources: [path: {StableOrigin, []}],
       http_cache: [mode: :enabled]
     ]
-    |> merge_opts(overrides)
+    |> Keyword.merge(overrides)
   end
 
   # Mount options pointing at the large SSIM2 origin for G3.
   defp large_ssim2_opts(overrides) do
     [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [resolver: iiif_resolver()],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver: iiif_resolver(),
       sources: [
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: LargeSsim2OriginImage]}
       ]
     ]
-    |> merge_opts(overrides)
+    |> Keyword.merge(overrides)
   end
 
   # An IIIF path that resizes beach.jpg to fit within 400×300 (confined size
@@ -181,11 +170,11 @@ defmodule ImagePipe.DebugHeadersWireTest do
   defp stable_request_path, do: "/stable/full/!400,300/0/default.jpg"
 
   # An IIIF path over the large >6 MP origin. autoquality is entirely
-  # config-driven (autoquality_method/autoquality_target on the iiif: mount
-  # opts) — the IIIF grammar has no URL-level autoquality slot, unlike
-  # imgproxy's autoquality: processing option. No resize so the full frame
-  # goes to the encoder, mirroring the "autoquality:ssim2 yields a decodable
-  # JPEG" test from the conformance suite.
+  # config-driven (autoquality_method/autoquality_target mount options) — the
+  # IIIF grammar has no URL-level autoquality slot, unlike imgproxy's
+  # autoquality: processing option. No resize so the full frame goes to the
+  # encoder, mirroring the "autoquality:ssim2 yields a decodable JPEG" test
+  # from the conformance suite.
   defp autoquality_path, do: "/large/full/max/0/default.jpg"
 
   # Mount options with a filesystem cache + a counting origin, so a second
@@ -202,8 +191,8 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
     opts =
       [
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
+        dialect: ImagePipe.Dialect.IIIF,
+        resolver: iiif_resolver(),
         sources: [
           path:
             {RootHTTPAdapter,
@@ -212,13 +201,9 @@ defmodule ImagePipe.DebugHeadersWireTest do
         ],
         cache:
           {ImagePipe.Cache.FileSystem,
-           root: cache_root,
-           path_prefix: "processed",
-           max_body_bytes: 10_000_000,
-           key_headers: [],
-           key_cookies: []}
+           root: cache_root, path_prefix: "processed", max_body_bytes: 10_000_000}
       ]
-      |> merge_opts(overrides)
+      |> Keyword.merge(overrides)
 
     {opts, cache_root}
   end
@@ -239,7 +224,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   defp with_debug(path), do: path <> "?debug=1"
 
   # Any non-"1"/"true" value is read leniently as "off" (never a 400) — see
-  # debug_requested?/1 in lib/image_pipe/parser/iiif.ex.
+  # debug_requested?/1 in lib/image_pipe/dialect/iiif/plan_builder.ex.
   defp with_non_triggering_debug(path), do: path <> "?debug=0"
 
   # ---------------------------------------------------------------------------
@@ -351,7 +336,8 @@ defmodule ImagePipe.DebugHeadersWireTest do
     opts =
       large_ssim2_opts(
         allow_debug_headers: true,
-        iiif: [autoquality_method: :ssimulacra2, autoquality_target: %{ssimulacra2: 85}]
+        autoquality_method: :ssimulacra2,
+        autoquality_target: %{ssimulacra2: 85}
       )
 
     conn = call(with_debug(autoquality_path()), opts)

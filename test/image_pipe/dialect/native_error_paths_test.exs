@@ -1,18 +1,15 @@
 defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   @moduledoc """
-  Task 20b: the error-path and ownership matrix. One named wire test per
-  matrix row, each asserting user-visible status/behavior AND cleanup
-  ownership (who opens/aborts/commits the cache sink, who tears the process
-  topology down, whether the bracket's `try/after` runs exactly once).
+  The error-path and ownership matrix. One named wire test per matrix row,
+  each asserting user-visible status/behavior AND cleanup ownership (who
+  opens/aborts/commits the cache sink, who tears the process topology down,
+  whether the bracket's `try/after` runs exactly once).
 
   Rows already covered by `ImagePipe.Dialect.NativeWireTest`'s "delivery
-  lifecycle" describe block (Task 15/16: owner-kill during delivery, bracket
-  cleanup at EOF, bracket cleanup on an explicit mid-stream cancel, and every
+  lifecycle" describe block (owner-kill during delivery, bracket cleanup at
+  EOF, bracket cleanup on an explicit mid-stream cancel, and every
   400-before-fetch parse/validation path) are referenced by name here, not
   duplicated.
-
-  Feeds Task 21.3's error-ownership report section — see
-  `.superpowers/sdd/task-20b-report.md`.
   """
 
   use ExUnit.Case, async: true
@@ -87,11 +84,11 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   # A lazy `stream!/2` seam that raises on the FIRST pull, before any chunk is
   # emitted. Because the dialect forces the first chunk inside `build_fun`'s
   # producer (before ever calling `pump`), this surfaces as a pre-header 500,
-  # not a mid-stream abort of an already-committed 200 — the framework's
-  # `FailingStreamBeforeHeaderImage` pin. The lazy `Stream.resource` (rather
-  # than a synchronous raise in `stream!`) is what makes the FORCE load-bearing:
-  # without it, the raise would land in `pump` after the chunked 200 had already
-  # gone out.
+  # not a mid-stream abort of an already-committed 200 — the
+  # `ImagePipe.PlugTest.FailingStreamBeforeHeaderImage` pin. The lazy
+  # `Stream.resource` (rather than a synchronous raise in `stream!`) is what
+  # makes the FORCE load-bearing: without it, the raise would land in `pump`
+  # after the chunked 200 had already gone out.
   defmodule RaisingBeforeFirstChunkImage do
     @moduledoc false
     def stream!(_image, [{:suffix, ".jpg"} | _]) do
@@ -519,8 +516,8 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   # The B3 encode force means a first-chunk encode failure surfaces as a
   # pre-header 500 (never a mid-stream abort of a committed 200). Row 5 above
   # pins only the unchanged mid-stream half; this pins the pre-header half on
-  # the native arm — a raising first pull — mirroring the framework's
-  # `FailingStreamBeforeHeaderImage`.
+  # the native dialect — a raising first pull — mirroring
+  # `ImagePipe.PlugTest.FailingStreamBeforeHeaderImage`.
 
   describe "row 5b: encoder failure before the first chunk (pre-header 500)" do
     test "a raising first pull -> pre-header text 500, conn sent, no chunked commit, sink never opened" do

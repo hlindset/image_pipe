@@ -11,11 +11,19 @@ defmodule ImagePipe.Dialect.Resolved do
   it AFTER `ImagePipe.Source.resolve/3`, preserving the dialects'
   source-before-negotiation error precedence.
 
-  The spec's `http_cache: :generated | :dialect_owned` field is deliberately
-  ABSENT in Phase A: the promoted header-policy module it dispatches to is
-  Phase C work, and a representable-but-inert value would advertise
-  unsupported semantics. Phase C adds the field together with the policy
-  module; until then every dialect gets today's dialect-owned behavior.
+  `http_cache` selects whether the runner applies the core generated
+  cache-header policy (`ImagePipe.Response.CachePolicy`) between building the
+  representation and the conditional gate:
+
+    * `:generated` — the policy runs. It generates `Cache-Control` and emits
+      the representation's `ETag` subject to the host-override and
+      byte-identity suppression rules, and its suppression can veto the 304.
+      It also owns the `[:http_cache, :prepare]`,
+      `[:http_cache, :conditional, :match]`, and
+      `[:http_cache, :fallback, :no_store]` events. Requires an
+      `http_cache: [mode: :enabled]` config to generate anything at all.
+    * `:dialect_owned` — the policy is skipped; identity headers come straight
+      from the representation and none of those three events fire.
   """
 
   alias ImagePipe.Dialect.Negotiation
@@ -31,6 +39,7 @@ defmodule ImagePipe.Dialect.Resolved do
     :operations,
     :auto_rotate?,
     :debug?,
+    :http_cache,
     :terminal
   ]
   defstruct @enforce_keys
@@ -48,6 +57,7 @@ defmodule ImagePipe.Dialect.Resolved do
           operations: [atom()],
           auto_rotate?: boolean(),
           debug?: boolean(),
+          http_cache: :generated | :dialect_owned,
           terminal: :image | {:render, RenderTerminal.t()}
         }
 end

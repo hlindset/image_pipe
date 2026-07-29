@@ -56,8 +56,8 @@ defmodule ImagePipe.Transform do
       # Pipelines; subject to change without notice.
       Lowering,
       ResizePlanning,
-      # Input color-management preamble — dialect-callable (spec G4); the
-      # framework's Executor seeds it internally.
+      # Input color-management preamble — dialect-callable (spec G4);
+      # `Executor` seeds it internally.
       InputColorManagement
     ]
 

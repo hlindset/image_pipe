@@ -17,12 +17,12 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
   and their absence is a finding rather than an oversight:
 
     * Their subject is `ImagePipe.Delivery` / `ImagePipe.Delivery.Coordinator`
-      — core modules the framework and BOTH dialects now share since the D3
-      unification. `NativeErrorPathsTest`'s own rows 8/9 never make a wire
-      request: they drive `Delivery.stream/5` and `Coordinator.start/5`
-      directly with a synthetic `build_fun`. Copying them here would assert the
-      same core contract a second time with an `Imgproxy` module name on the
-      file and no imgproxy code in the call stack.
+      — core modules every dialect shares. `NativeErrorPathsTest`'s own rows
+      8/9 never make a wire request: they drive `Delivery.stream/5` and
+      `Coordinator.start/5` directly with a synthetic `build_fun`. Copying
+      them here would assert the same core contract a second time with an
+      `Imgproxy` module name on the file and no imgproxy code in the call
+      stack.
     * Neither is reachable through this dialect at the wire level anyway.
       `Plug.Test`'s chunked adapter drains the whole stream inside
       `Sender.send_result/3`, so a caller never holds a `%PreparedStream{}` it
@@ -104,7 +104,7 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
   # emitted. Because the dialect forces the first chunk inside `build_fun`'s
   # producer (before ever calling `pump`), this surfaces as a pre-header 500
   # ("error encoding image"), not a mid-stream abort of an already-committed
-  # 200 — the framework's `FailingStreamBeforeHeaderImage` pin. The lazy
+  # 200 — the `ImagePipe.PlugTest.FailingStreamBeforeHeaderImage` pin. The lazy
   # `Stream.resource` (rather than a synchronous raise in `stream!`) is what
   # makes the FORCE load-bearing: without it, the raise would land in `pump`
   # after the chunked 200 had already gone out.
@@ -122,7 +122,7 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
   # A `stream!/2` seam that yields no chunks at all. The forced first-chunk
   # pull sees `:empty`, which `build_and_pump/6` reports as
   # `{:error, {:encode, :empty_stream}}` — a pre-header failure that must
-  # render 500 (`EmptyStreamingImage` in the framework's `plug_test.exs`).
+  # render 500 (`ImagePipe.PlugTest.EmptyStreamingImage`).
   defmodule EmptyStreamingImage do
     @moduledoc false
     def stream!(_image, [{:suffix, ".jpg"} | _]), do: []
@@ -561,11 +561,11 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
   # ── row 5b: encoder failure BEFORE the first chunk (pre-header 500) ──────
   #
   # The B3 encode force means a first-chunk encode failure surfaces as a
-  # pre-header 500 (never a mid-stream abort of a committed 200). The framework
-  # pins both halves (`FailingStreamBeforeHeaderImage` + `EmptyStreamingImage`);
-  # row 5 above pins only the unchanged mid-stream half. These two cases pin the
-  # pre-header half on this dialect arm: a raising first pull, and an empty
-  # stream.
+  # pre-header 500 (never a mid-stream abort of a committed 200).
+  # `ImagePipe.PlugTest` pins both halves (`FailingStreamBeforeHeaderImage` +
+  # `EmptyStreamingImage`); row 5 above pins only the mid-stream half. These two
+  # cases pin the pre-header half on this dialect: a raising first pull, and an
+  # empty stream.
 
   describe "row 5b: encoder failure before the first chunk (pre-header 500)" do
     test "a raising first pull -> pre-header text 500, conn sent, no chunked commit, sink never opened" do

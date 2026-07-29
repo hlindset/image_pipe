@@ -248,4 +248,115 @@ defmodule ImagePipe.PlugDialectRunnerTest do
     assert conn.status == 404
     assert get_resp_header(conn, "vary") == []
   end
+
+  describe "render terminal with cache: :none" do
+    test "negotiates the offered content type against the request's Accept and varies" do
+      conn =
+        :get
+        |> conn("/fix/images/beach.jpg?render=uncached")
+        |> put_req_header("accept", "application/ld+json")
+        |> ImagePipe.Plug.call(opts())
+
+      assert conn.status == 200
+      assert hd(get_resp_header(conn, "content-type")) =~ "application/ld+json"
+      assert get_resp_header(conn, "vary") == ["Accept"]
+    end
+
+    test "falls back to the canonical content type without a matching Accept" do
+      conn = get("/fix/images/beach.jpg?render=uncached", opts())
+
+      assert conn.status == 200
+      assert hd(get_resp_header(conn, "content-type")) =~ "application/json"
+      assert get_resp_header(conn, "vary") == ["Accept"]
+    end
+
+    test "keeps the configured storage_inputs headers in Vary alongside Accept" do
+      config = opts(storage_inputs: [{:header, "x-tenant"}])
+
+      conn =
+        :get
+        |> conn("/fix/images/beach.jpg?render=uncached")
+        |> put_req_header("x-tenant", "a")
+        |> ImagePipe.Plug.call(config)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "vary") == ["x-tenant, Accept"]
+    end
+
+    test "never reads or writes the internal cache" do
+      config = opts(cache: stateful_cache_probe())
+
+      assert get("/fix/images/beach.jpg?render=uncached", config).status == 200
+      assert get("/fix/images/beach.jpg?render=uncached", config).status == 200
+
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _body}
+    end
+  end
+
+  describe "http_cache: :generated" do
+    test "generates Cache-Control and the representation ETag, and round-trips a 304" do
+      config = opts(http_cache: [mode: :enabled])
+      conn = get("/fix/images/beach.jpg?http_cache=generated", config)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+      assert [etag] = get_resp_header(conn, "etag")
+
+      revalidated =
+        :get
+        |> conn("/fix/images/beach.jpg?http_cache=generated")
+        |> put_req_header("if-none-match", etag)
+        |> ImagePipe.Plug.call(config)
+
+      assert revalidated.status == 304
+    end
+
+    test "suppressing the ETag also vetoes the 304" do
+      etag =
+        "/fix/images/beach.jpg?http_cache=generated"
+        |> get(opts(http_cache: [mode: :enabled]))
+        |> get_resp_header("etag")
+        |> hd()
+
+      conn =
+        :get
+        |> conn("/fix/images/beach.jpg?http_cache=generated")
+        |> put_req_header("if-none-match", etag)
+        |> ImagePipe.Plug.call(opts(http_cache: [mode: :disabled]))
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == []
+    end
+
+    test "dialect_owned emits the representation ETag and no policy events" do
+      prefix = [:runner_dialect_owned_test]
+      attach_forwarding_handler(prefix ++ [:http_cache, :prepare])
+      attach_forwarding_handler(prefix ++ [:http_cache, :conditional, :match])
+      attach_forwarding_handler(prefix ++ [:http_cache, :fallback, :no_store])
+
+      conn = get("/fix/images/beach.jpg", opts(telemetry_prefix: prefix))
+
+      assert [_etag] = get_resp_header(conn, "etag")
+      # Plug's own untouched default — no generated Cache-Control was added.
+      assert get_resp_header(conn, "cache-control") == ["max-age=0, private, must-revalidate"]
+      refute_received {:telemetry, _, _, _}
+    end
+  end
+
+  defp attach_forwarding_handler(event) do
+    handler = {__MODULE__, event, self()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      event,
+      fn name, measurements, metadata, _config ->
+        send(test_pid, {:telemetry, name, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
 end

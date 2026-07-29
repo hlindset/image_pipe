@@ -5,6 +5,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Operation.Bitonal
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Colorize
@@ -12,6 +13,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Gradient
+  alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Rotate
@@ -240,6 +242,8 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
   describe "effect operation data" do
     test "returns key data for semantic effect operations" do
+      assert KeyData.data(%Gray{}) == [op: :gray]
+      assert KeyData.data(%Bitonal{}) == [op: :bitonal]
       assert KeyData.data(%Blur{sigma: 2.5}) == [op: :blur, sigma: 2.5]
       assert KeyData.data(%Sharpen{sigma: 0.7}) == [op: :sharpen, sigma: 0.7]
       assert KeyData.data(%Pixelate{size: 8}) == [op: :pixelate, size: 8]

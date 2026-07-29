@@ -2,22 +2,14 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   @moduledoc """
   Inline geometry planner and group executor for the native URL dialect.
 
-  The heart of the dialect inversion: ordinary sequential Elixir code walks a
-  canonical `%Request{}`'s groups and drives them to executed pixels, in
-  place of the framework's `Plan`/`Resolver`/`Executor` strategy dispatch.
+  Ordinary sequential Elixir code walks a canonical `%Request{}`'s groups and
+  drives them to executed pixels.
 
-  **What this module keeps from core, and why.** It removes the `Resolver`
-  facade, strategy selection/registration, `Directive`, markers, and
-  `%Plan{}`/`Plan.Pipeline` — but deliberately *retains* the semantic
-  `Plan.Operation` structs, `SourceShape`, the `{ops, continuation}`
-  vocabulary, and `ImagePipe.Transform.NeutralResolver` as a stateless
-  geometry compiler (`resolve/3` + `continue/4` + `resolve_mode/2`, called
-  directly with `nil` state — no injected strategy dispatch involved).
-  This module therefore demonstrates dialect-owned *request orchestration*
-  over a retained neutral geometry compiler; it does not yet demonstrate that
-  the operation mirror or the continuation vocabulary can die. See
-  `.superpowers/sdd/task-14-report.md` for the full accounting (retained
-  concept families, direct-lowering feasibility) feeding Task 21.
+  **What this module takes from core.** The semantic `Plan.Operation` structs,
+  `SourceShape`, the `{ops, continuation}` vocabulary, and
+  `ImagePipe.Transform.NeutralResolver` as a stateless geometry compiler
+  (`resolve/3` + `continue/4` + `resolve_mode/2`, called directly with `nil`
+  state). The dialect owns the request orchestration around them.
 
   **Fixed stage order within a group** (probe subset): trim(3) →
   region/guided crop(4) → resize(5) → cover result crop(6, automatic, part of
@@ -91,13 +83,11 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
     }
   end
 
-  # An `:auto` axis is not a target: it stays `nil`, so `ratio_from_targets/4`
-  # — the same function the framework's `open_options/5` reaches through
-  # `resize_load_shrink/3` — takes the targeted axis's ratio alone, exactly as
-  # the chain path does. Synthesizing the missing axis from the aspect ratio
-  # instead binds that function's `min/2` tighter than the chain path whenever
-  # the source is not exactly proportional to the requested box, shrinking less
-  # and decoding more pixels than the chain path for the same request.
+  # An `:auto` axis is not a target: it stays `nil`, so the planner's
+  # `ratio_from_targets/4` takes the targeted axis's ratio alone. Synthesizing
+  # the missing axis from the aspect ratio instead binds that function's `min/2`
+  # tighter whenever the source is not exactly proportional to the requested
+  # box, shrinking less and decoding more pixels than the request calls for.
   # A resize with NO targeted axis normalizes to `nil`, not `{nil, nil}`: the
   # planner's precedence reads `resize_target`'s presence, so an empty box would
   # shadow `terminal_reduction` and cost the blurhash terminal its load shrink.
@@ -127,7 +117,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   @doc """
   Executes every group of a canonical `%Request{}` against a decoded state,
   in the fixed stage order, then flushes any surviving pending orientation at
-  the boundary (mirrors `ImagePipe.Transform.Executor.execute_pipeline/4` +
+  the boundary (mirrors `ImagePipe.Transform.Executor.execute_pipeline/3` +
   `flush_boundary/4`).
 
   `opts` accepts the same runtime options threaded to `Chain.execute/3`
@@ -157,9 +147,9 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # (`ImagePipe.Dialect.ColorCarryParityTest`).
   #
   # Mirrors `Executor.seed_color_management/2` and the imgproxy dialect's own
-  # `condition_color/2`, including their one divergence: no `seed_orientation`
-  # gate (`run/4` IS the real-execution path here). The
-  # `[:transform, :input_color_management]` span is emitted by
+  # `condition_color/2`, including their one divergence: no
+  # `seed_input_color_management` gate (`run/4` IS the real-execution path
+  # here). The `[:transform, :input_color_management]` span is emitted by
   # `InputColorManagement.condition/2` itself, so this dialect gets it for free
   # from the shared seam. A failure is a corrupt/unsupported profile — a decode
   # failure, surfaced as `{:decode, _}` (415), consistent with the
@@ -224,7 +214,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
 
   # `resolve/3` and `continue/4` are called as stateless toolkit functions —
   # `nil` carried state throughout, mirroring the neutral resolver's own
-  # contract (no injected strategy dispatch here).
+  # contract.
   defp run_op(state, shape, plan_op, ctx) do
     state = overlay(state, shape)
     {ops, continuation} = NeutralResolver.resolve(shape, nil, plan_op)
@@ -253,8 +243,7 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   # Terminal: every reachable `continue/4` clause for this probe's operation
   # set (`:trim`, `:resize`, `{:resize_tail, _}`, `{:resize_flush_tail, _}`)
   # ends in a bare `{:advance, shape, nil}` — either directly (`:trim`,
-  # `:resize`) or after executing one further tail stage. See the Task 14
-  # report for the enumerated closed set. No clause matches past
+  # `:resize`) or after executing one further tail stage. No clause matches past
   # `@max_continuation_depth` — an unexpected deeper measurement is a
   # core-contract bug and must crash here, not degrade silently.
   # ex_dna:disable-for-next-line

@@ -2,14 +2,14 @@
 #
 # Gate for #164 (deferred look-ahead pre-clamp). Measures the libvips working-set
 # high-water of the oversized buffer that the delivery-backstop / orientation
-# flush materialize_for_delivery materializes on an oversized-ENLARGE request, before #150/#165's
+# flush materializes on an oversized-ENLARGE request, before #150/#165's
 # post-hoc clamp downscales it.
 #
 # Design + gate: docs/superpowers/specs/2026-06-08-oversized-buffer-materialization-benchmark-design.md
 #
 # Control (NO orientation needed — see the design's "premise correction"): the
 # oversized buffer is materialized on EVERY oversized-enlarge request (plain or
-# oriented), because Resize stays lazy and Request.Processor.materialize_for_delivery
+# oriented), because Resize stays lazy and the delivery backstop
 # copy_memory's the resized (oversized, pre-clamp) image. So we compare the SAME
 # final output produced two ways at a fixed host cap:
 #   * Arm A (current):  request target = oversize -> backstop copies the OVERSIZED
@@ -18,9 +18,9 @@
 #                        buffer -> clamp no-ops. (== what the look-ahead would produce.)
 #   gap (A - B) = the avoidable oversized buffer = what #164 would save.
 #
-# Drives the REAL seam (decode -> Executor -> materialize_for_delivery ->
-# Output.Clamp -> Encoder consumed) via Request.Processor + the producer's clamp
-# math, with a hand-built Plan. Output is PNG and max_result_pixels is raised so
+# Drives the REAL seam (decode -> Executor -> delivery materialization ->
+# Output.Clamp -> Encoder consumed) via ImagePipe.Transform.execute_plan/3 + the
+# producer's clamp math, with a hand-built Plan. Output is PNG and max_result_pixels is raised so
 # the per-axis dimension cap is the SOLE binding limit (no encoder / pixel-cap
 # confound). libvips op cache disabled. One case per OS process (the high-water
 # counter is process-wide, monotonic, non-resettable).
@@ -41,7 +41,8 @@ defmodule OversizedBufferBench do
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Request.Processor
+  alias ImagePipe.Transform
+  alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
   # Source: a 2000x3000 portrait, 3-band RGB (rects so it is genuine RGB, not a
@@ -358,7 +359,7 @@ defmodule OversizedBufferBench do
     image = decode_source()
     plan = plan_for(target)
 
-    {:ok, final_state} = Processor.process_decoded_source(%{image: image}, plan, opts())
+    {:ok, final_state} = Transform.execute_plan(plan, %State{image: image}, opts())
     pre = {Image.width(final_state.image), Image.height(final_state.image)}
 
     limits = %{max_width: cap, max_height: cap, max_pixels: @max_pixels}

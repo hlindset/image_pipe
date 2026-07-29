@@ -1,7 +1,7 @@
 defmodule ImagePipe.Telemetry.DeliverySpanParentageBaselineTest do
   @moduledoc """
-  OTel parentage baseline: pins that a real cache-miss, streamed framework
-  request's stage spans are semantic descendants of the `[:request]` root
+  OTel parentage baseline: pins that a real cache-miss, streamed request's
+  stage spans are semantic descendants of the `[:request]` root
   span — the property the delivery topology (a monitor-based
   `ImagePipe.Delivery` producer rather than a `DynamicSupervisor`-owned one)
   most directly puts at risk, since span parentage is stitched across process
@@ -68,12 +68,10 @@ defmodule ImagePipe.Telemetry.DeliverySpanParentageBaselineTest do
     conn = conn(:get, "/beach/full/!120,90/0/default.jpg")
 
     opts = [
-      parser: ImagePipe.Parser.IIIF,
-      iiif: [
-        resolver:
-          {ImagePipe.Parser.IIIF.Resolver.Static,
-           map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
-      ],
+      dialect: ImagePipe.Dialect.IIIF,
+      resolver:
+        {ImagePipe.Dialect.IIIF.Resolver.Static,
+         map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}},
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ],

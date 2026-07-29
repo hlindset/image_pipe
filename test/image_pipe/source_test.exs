@@ -40,10 +40,7 @@ defmodule ImagePipe.SourceTest do
     end
 
     assert {:ok, opts} =
-             Source.validate_config(
-               parser: ImagePipe.Parser.IIIF,
-               sources: [path: {MissingSemanticsSource, []}]
-             )
+             Source.validate_config(sources: [path: {MissingSemanticsSource, []}])
 
     source = %SourcePath{segments: ["cat.jpg"]}
 
@@ -76,10 +73,7 @@ defmodule ImagePipe.SourceTest do
     end
 
     assert {:ok, opts} =
-             Source.validate_config(
-               parser: ImagePipe.Parser.IIIF,
-               sources: [path: {ContradictorySemanticsSource, []}]
-             )
+             Source.validate_config(sources: [path: {ContradictorySemanticsSource, []}])
 
     source = %SourcePath{segments: ["cat.jpg"]}
 

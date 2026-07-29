@@ -1,6 +1,7 @@
 defmodule ImagePipe.Dialect.TwicPics.RequestBuilder do
   @moduledoc false
 
+  alias ImagePipe.Dialect
   alias ImagePipe.Dialect.TwicPics.Output
   alias ImagePipe.Dialect.TwicPics.Request
   alias ImagePipe.Dialect.TwicPics.Units
@@ -48,16 +49,11 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilder do
   defp apply_segment(name, _args, _acc), do: {:error, {:unsupported_transform, name}}
 
   defp debug(args, acc) do
-    case parse_boolean(args) do
+    case Dialect.parse_boolean(args) do
       {:ok, debug?} -> {:ok, %{acc | debug?: debug?}}
       {:error, _reason} -> {:error, {:invalid_debug, args}}
     end
   end
-
-  # ex_dna:disable-for-next-line
-  defp parse_boolean(value) when value in ["1", "t", "true"], do: {:ok, true}
-  defp parse_boolean(value) when value in ["0", "f", "false"], do: {:ok, false}
-  defp parse_boolean(value), do: {:error, {:invalid_boolean, value}}
 
   defp resize(args, acc) do
     if String.contains?(args, ":") do

@@ -1,24 +1,14 @@
-# credo:disable-for-this-file ExDNA.Credo
-# This module deliberately mirrors ImagePipe.Request.Processor's two-open
-# decode flow: Decode cannot depend on the Request boundary (a dialect-owned
-# bracket has no framework Request/Plug stack underneath it), so the logic is
-# duplicated rather than shared. Processor stays untouched; this is parallel
-# logic for the dialect path, not a refactor. Recorded as a deliberate
-# duplication in the Task 21.6 core-exports report.
 defmodule ImagePipe.Decode do
   @moduledoc """
-  Core fetch-through-decode bracket for a dialect that owns its own request
-  chain (no `ImagePipe.Request`/`ImagePipe.Plan` underneath it).
+  Core fetch-through-decode bracket, shared by every dialect.
 
-  `with_image/4` duplicates `ImagePipe.Request.Processor`'s two-open decode
-  flow (header open for stored dims + EXIF orientation, then a sequential
-  re-open with shrink-on-load options) as a bracket: it fetches through
-  `ImagePipe.Source.with_fetched/3`, builds an `ImagePipe.Transform.SourceGeometry`
-  from the header open, asks the caller for a `DecodePlanner.Request.t()` via
-  `decode_request_fun`, re-opens sequentially with the planned options, seeds
-  a `Transform.State` the same way `ImagePipe.Transform.Executor` does, and
-  hands both to `fun`. `Request.Processor` itself is untouched — this is
-  parallel logic for the dialect path, not a refactor of the framework path.
+  `with_image/4` runs the two-open decode flow (header open for stored dims +
+  EXIF orientation, then a sequential re-open with shrink-on-load options) as a
+  bracket: it fetches through `ImagePipe.Source.with_fetched/3`, builds an
+  `ImagePipe.Transform.SourceGeometry` from the header open, asks the caller for
+  a `DecodePlanner.Request.t()` via `decode_request_fun`, re-opens sequentially
+  with the planned options, seeds a `Transform.State` the same way
+  `ImagePipe.Transform.Executor` does, and hands both to `fun`.
   """
 
   use Boundary,
@@ -67,19 +57,15 @@ defmodule ImagePipe.Decode do
 
   Errors normalize to `{:source, _}` (fetch failure), `{:decode, _}` (a
   corrupt/unsupported body or a libvips open failure), or `{:input_limit, _}`
-  (stored header dimensions exceed `opts[:max_input_pixels]`) — the same
-  taxonomy `Request.Processor` produces, so a dialect's status mapping can
-  reuse `Response.ErrorStatus`. `fun`'s own return value passes through
-  unchanged (its own errors, e.g. a transform failure, are the caller's to
-  classify).
+  (stored header dimensions exceed `opts[:max_input_pixels]`), so a dialect's
+  status mapping can reuse `Response.ErrorStatus`. `fun`'s own return value
+  passes through unchanged (its own errors, e.g. a transform failure, are the
+  caller's to classify).
 
   ## The `[:source, :fetch_decode]` span
 
-  This bracket emits the same `[:source, :fetch_decode]` span the framework's
-  `Request.Processor.fetch_decode_validate_source_with_source_format/3` emits,
-  with mirrored start/stop metadata, so every dialect gains it from this one
-  seam (the framework does not route through here and keeps its own
-  processor-side span). The span encloses the fetch AND the decode but NOT the
+  This bracket emits the `[:source, :fetch_decode]` span, so every dialect gains
+  it from this one seam. The span encloses the fetch AND the decode but NOT the
   caller's build: it opens before `Source.with_fetched/3` (so `[:source,
   :fetch]` nests inside it) and closes *inside* the bracket, immediately after
   the decoded `State`/`SourceGeometry` are built and before `fun` runs — a
@@ -176,7 +162,6 @@ defmodule ImagePipe.Decode do
     end
   end
 
-  # Mirrors `Request.Processor.fetch_decode_stop_metadata/1`'s success shape.
   defp ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution) do
     load_option =
       cond do
@@ -201,11 +186,10 @@ defmodule ImagePipe.Decode do
     }
   end
 
-  # Mirrors `Request.Processor.fetch_decode_stop_metadata/1`'s failure shapes
-  # over this module's wrapped error taxonomy: the unsupported-format reject
-  # keeps its specific tag and rejected family, a source failure is
-  # `:source_error`, and everything else (`{:decode, _}`, `{:input_limit, _}`)
-  # is `:processing_error` with its taxonomy tag.
+  # Failure shapes over this module's wrapped error taxonomy: the
+  # unsupported-format reject keeps its specific tag and rejected family, a
+  # source failure is `:source_error`, and everything else (`{:decode, _}`,
+  # `{:input_limit, _}`) is `:processing_error` with its taxonomy tag.
   defp error_stop_metadata({:decode, {:unsupported_source_format, family} = inner}),
     do: %{result: :processing_error, error: Error.tag(inner), detected_source_format: family}
 
@@ -230,9 +214,8 @@ defmodule ImagePipe.Decode do
     }
   end
 
-  # Mirrors Request.Processor.shrink_source_dimensions/2: the residual resize
-  # sizes against the exact original extent, but only when the decode was
-  # actually shrunk (a shrink/scale load option was emitted).
+  # The residual resize sizes against the exact original extent, but only when
+  # the decode was actually shrunk (a shrink/scale load option was emitted).
   defp shrink_source_dimensions(decode_options, storage_dimensions) do
     if Keyword.has_key?(decode_options, :shrink) or Keyword.has_key?(decode_options, :scale) do
       storage_dimensions

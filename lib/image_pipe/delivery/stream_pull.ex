@@ -122,8 +122,7 @@ defmodule ImagePipe.Delivery.StreamPull do
   degrading to the 500 an `{:encode, _}` tag would produce
   (`ImagePipe.Response.ErrorStatus`). Any other throw is a fault in the calling
   dialect's encode/stream; `fallback` builds its tag, so a caller can keep a
-  phase-specific one (the framework's pre-pump build uses `:producer`) while
-  defaulting to the encode tag.
+  phase-specific one while defaulting to the encode tag.
   """
   @spec translate((-> result)) :: result | tagged_error() when result: term()
   def translate(fun) when is_function(fun, 0), do: translate(&encode_fallback/2, fun)

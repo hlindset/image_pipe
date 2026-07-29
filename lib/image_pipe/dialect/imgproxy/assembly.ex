@@ -5,10 +5,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   # `PipelineRequest` into the `Plan.Operation` list its pipeline runs, and
   # derives the padding/canvas mode that list implies.
   #
-  # The dialect owns its whole request chain rather than depending on the
-  # `ImagePipe.Parser`/`Resolver` boundary the framework parsers (IIIF,
-  # TwicPics) use. This module is the geometry half of that chain, split out
-  # of `ImagePipe.Dialect.Imgproxy.Pipeline` so it lives apart from the
+  # This dialect owns its whole ordered request chain. This module is the
+  # geometry half of that chain, split out of
+  # `ImagePipe.Dialect.Imgproxy.Pipeline` so it lives apart from the
   # resolve-loop driver and the carry math it feeds.
   #
   # `operations/1` runs the five `missing_dimensions/1` guard clauses, then
@@ -594,7 +593,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Assembly do
   Public so the decode preflight (`Pipeline.decode_request/2`) can inflate its
   target extent by the SAME rational the resize operation carries, rather than
   re-deriving it from the raw float. `Plan.Operation` lowers a float dpr through
-  `Float.round(7)` (`operation.ex:721-726`), so the two part company past the
+  `Float.round(7)` (`ImagePipe.Plan.Operation`), so the two part company past the
   seventh decimal: `dpr:1.0000000000001` carries `{:ratio, 1, 1}` — a flat 400px
   target — while the float still inflates that target to 400.00000000004, which
   is enough to drop a 3200px jpeg's shrink from 8 to 4 and decode 4x the pixels.

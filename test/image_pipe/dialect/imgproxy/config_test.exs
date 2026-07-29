@@ -97,6 +97,10 @@ defmodule ImagePipe.Dialect.Imgproxy.ConfigTest do
     assert_raise ArgumentError, fn ->
       Config.validate!(clock: :not_a_function)
     end
+
+    assert_raise ArgumentError, fn ->
+      Config.validate!(clock: fn value -> value end)
+    end
   end
 
   test "rejects malformed source scheme translators" do

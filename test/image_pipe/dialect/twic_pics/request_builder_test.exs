@@ -324,7 +324,7 @@ defmodule ImagePipe.Dialect.TwicPics.RequestBuilderTest do
             }} = build([{"output", "auto"}])
   end
 
-  test "every produced request recursively excludes framework and runtime vocabulary" do
+  test "every produced request recursively excludes plan and runtime vocabulary" do
     chains = [
       [],
       [{"resize", "200"}, {"resize", "50p"}],

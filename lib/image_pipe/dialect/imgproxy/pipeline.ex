@@ -2,7 +2,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   @moduledoc """
   Inline per-pipeline geometry for the imgproxy dialect.
 
-  Scoping reproduces `ImagePipe.Transform.Executor.execute_pipeline/4`, NOT
+  Scoping reproduces `ImagePipe.Transform.Executor`'s per-pipeline scoping, NOT
   `ImagePipe.Dialect.Native.Pipeline` [spec §Pipeline 1]: imgproxy `-`
   pipelines each re-seed `SourceShape` from the prior pipeline's output,
   start a fresh carry, and flush pending orientation at their own boundary —
@@ -64,10 +64,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # degrade — see `follow/5`, which has no catch-all clause past it.
   @max_continuation_depth 4
 
-  # The carry a pipeline starts with. Fresh per pipeline: a `-` boundary
-  # re-runs the equivalent of the framework strategy's `init/0`, so a scale
-  # computed by one pipeline's resize can never reach the next pipeline's
-  # padding (`Executor.execute_pipeline/4` — "a fresh init/0 per pipeline").
+  # The carry a pipeline starts with. Fresh per pipeline: a `-` boundary starts
+  # a new carry, so a scale computed by one pipeline's resize can never reach
+  # the next pipeline's padding.
   @empty_carry %{effective_padding_scale: nil, canvas_preserving_padding_scale: nil}
 
   @doc """
@@ -79,12 +78,12 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   against whatever the first already produced, so only the first pipeline may
   drive shrink-on-load.
 
-  Every field is derived to agree with what `DecodePlanner.open_options/5`
-  computes from the equivalent op chain. The two
-  paths *converge* rather than approximate each other: this function resolves
-  the same per-axis extents `resize_load_shrink/3` resolves, and both then hand
-  them to the planner's own `ratio_from_targets/4`. What that leaves this
-  function to reproduce is the three rules `resize_load_shrink/3` owns:
+  Every field is derived to agree with what the planner computes from the
+  equivalent op chain (`DecodePlanner.request_from_chain/3`). The two paths
+  *converge* rather than approximate each other: this function resolves the same
+  per-axis extents that path resolves, and both then hand them to the planner's
+  own `ratio_from_targets/4`. What that leaves this function to reproduce is
+  three rules:
 
     * `min_width`/`min_height` disable shrink outright, so a request carrying
       either yields `resize_target: nil` rather than a box;
@@ -114,7 +113,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   the field admits both.
 
   `pipeline_assembly_test.exs`'s sibling `decode_preflight_test.exs` pins that
-  agreement against `open_options/5` directly rather than restating it, by
+  agreement against the op-chain path directly rather than restating it, by
   example and by property.
   """
   @spec decode_request(pipelined_request(), SourceGeometry.t()) ::
@@ -180,21 +179,22 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   defp tagged_crop_axis_extent({:ratio, num, den}, dim),
     do: min(dim, max(1, round(dim * num / den)))
 
-  # `resize_load_shrink/3`'s first clause: a min_* floor interacts with aspect
-  # ratio in ways that are not a per-axis multiplier, so the chain path declines
-  # to shrink at all. No target box can express that; `nil` reproduces it.
+  # `DecodePlanner.chain_resize_target/1`'s min_* clause: a min_* floor interacts
+  # with aspect ratio in ways that are not a per-axis multiplier, so the chain
+  # path declines to shrink at all. No target box can express that; `nil`
+  # reproduces it.
   defp resize_target(%PipelineRequest{min_width: mw, min_height: mh})
        when not is_nil(mw) or not is_nil(mh),
        do: nil
 
   # An untargeted axis stays `nil` rather than being synthesized from the aspect
-  # ratio: `ratio_from_targets/4` — the SAME function the chain path's
-  # `resize_load_shrink/3` calls — then takes that axis's ratio alone, exactly as
-  # the chain does. A derived partner axis would instead bind its `min/2` tighter
-  # whenever the frame is not exactly proportional, shrinking less and decoding
-  # more pixels than the chain path for the same request.
+  # ratio: `ratio_from_targets/4` — the SAME function the chain path reaches
+  # through `DecodePlanner.chain_resize_target/1` — then takes that axis's ratio
+  # alone, exactly as the chain does. A derived partner axis would instead bind
+  # its `min/2` tighter whenever the frame is not exactly proportional, shrinking
+  # less and decoding more pixels than the chain path for the same request.
   #
-  # The extents are NOT rounded, for the same reason: `resize_load_shrink/3`
+  # The extents are NOT rounded, for the same reason: the planner
   # divides by the fractional dpr/zoom-inflated target directly, so rounding here
   # would move the ratio (visibly, on webp's continuous `scale:`) and would round
   # a sub-pixel target — `rs:fit:1:0/dpr:0.4` — down to a division by zero.
@@ -284,18 +284,16 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # `Output.Encoder`'s colorspace-to-result step that it ran. Without it the
   # encoder takes its "no import ran" branch on an imported image — re-converting
   # an already-converted image (scp on) or skipping the source-profile re-export
-  # (scp:0). Both mistakes leave the output profile header identical to the
-  # framework's, so only a pixel comparison catches them
-  # (`ImagePipe.Dialect.ColorCarryParityTest`).
+  # (scp:0). Both mistakes leave the output profile header unchanged, so only a
+  # pixel comparison catches them (`ImagePipe.Dialect.ColorCarryParityTest`).
   #
-  # Mirrors `Request.Processor.materialize_for_delivery/2`, which stamps at the
-  # framework's delivery boundary. Here the boundary is `run/4`'s tail: the last
-  # operation has run, and the only things left are `Output.Clamp` and the
+  # The stamp lands at the delivery boundary, which here is `run/4`'s tail: the
+  # last operation has run, and the only things left are `Output.Clamp` and the
   # encoder — neither of which drops image metadata. It is `run/4`'s tail rather
   # than the caller's so the preamble and its postamble stay one seam, in one
   # module, and every `run/4` caller gets both.
 
-  # Mirrors `Executor.execute_pipelines/4`: the first failing pipeline halts the
+  # Mirrors `Executor.execute_pipelines/3`: the first failing pipeline halts the
   # rest.
   defp run_pipelines(pipelines, %State{} = state, ctx) do
     Enum.reduce_while(pipelines, {:ok, state}, fn %PipelineRequest{} = preq, {:ok, state} ->
@@ -314,16 +312,16 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # `-` pipeline (`condition/2` is idempotent via `color_imported?`, but the
   # boundary is the request's).
   #
-  # Mirrors `Executor.seed_color_management/2` (`executor.ex:90-101`). A failure
-  # is a corrupt/unsupported profile — a decode failure, surfaced as `{:decode,
-  # _}` (415) to stay consistent with the materialization contract, NOT as
+  # Mirrors `Executor.seed_color_management/2`. A failure is a
+  # corrupt/unsupported profile — a decode failure, surfaced as `{:decode, _}`
+  # (415) to stay consistent with the materialization contract, NOT as
   # `{:transform, _}`. The `[:transform, :input_color_management]` span is
   # emitted by `InputColorManagement.condition/2` itself, so this dialect gets it
   # for free from the shared seam.
   #
-  # One deliberate divergence from the framework: no `seed_orientation` gate. The
-  # framework runs the preamble only on the real-execution path and skips it when
-  # planning; the dialect's `run/4` IS the real-execution path — there is no
+  # One deliberate divergence: no `seed_input_color_management` gate. The
+  # Executor runs the preamble only on the real-execution path and skips it when
+  # planning; this dialect's `run/4` IS the real-execution path — there is no
   # planning caller to gate against — so the gate has no counterpart here rather
   # than being dropped.
   defp condition_color(%State{} = state, opts) do
@@ -369,13 +367,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   # The imgproxy decision column. Everything else delegates to the neutral
   # column below. `resolve/3` and `continue/4` are called as stateless toolkit
-  # functions (`nil` carried state throughout): no injected strategy dispatch is
-  # involved, and the carry is this module's own pipeline-local variable.
+  # functions (`nil` carried state throughout), and the carry is this module's
+  # own pipeline-local variable.
 
   # The carry is computed HERE, from the PRE-resolve shape, before any
-  # continuation is followed — reproducing `resolver.ex:37-49` exactly. It is
-  # never recomputed in `follow/5` [spec §Pipeline 2 "update point"], and the
-  # incoming carry is discarded: a resize replaces both slots outright.
+  # continuation is followed. It is never recomputed in `follow/5`
+  # [spec §Pipeline 2 "update point"], and the incoming carry is discarded: a
+  # resize replaces both slots outright.
   defp run_op(state, shape, _carry, %PlanResize{} = op, _pctx, ctx) do
     # The neutral column buckets `:auto` (`NeutralResolver.resolve_mode/2`,
     # #448); read the concrete branch back to size the no-enlarge cap, then
@@ -420,8 +418,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   # Neutral delegation. Carries the pipeline-local carry across untouched — an
   # effect between the resize and the padding must not lose the stashed
-  # DprScale (the regression the framework resolver's own delegation comment
-  # names).
+  # DprScale.
   defp run_op(state, shape, carry, plan_op, _pctx, ctx) do
     state = overlay(state, shape)
     {ops, continuation} = NeutralResolver.resolve(shape, nil, plan_op)

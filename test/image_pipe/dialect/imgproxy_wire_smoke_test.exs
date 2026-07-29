@@ -133,7 +133,7 @@ defmodule ImagePipe.Dialect.ImgproxyWireSmokeTest do
   # ── expires gate ────────────────────────────────────────────────────────
 
   describe "expires gate" do
-    test "a past exp: is 400 with the framework's pinned body, before any source fetch" do
+    test "a past exp: is 400 with the pinned body, before any source fetch" do
       config =
         opts(
           clock: fn -> DateTime.from_unix!(101) end,
@@ -158,10 +158,9 @@ defmodule ImagePipe.Dialect.ImgproxyWireSmokeTest do
   # ── request-safety boundary: planner rejection is PRE-fetch ─────────────
   #
   # `Assembly.operations/1` is a pure function of the request, so the chain
-  # must run it before the source fetch and the cache lookup — the framework
-  # arm rejects the same request at parse time (`PlanBuilder.to_plan/2`), and
-  # AGENTS.md's request-safety guideline requires parser/planner validation
-  # failures to return "before source fetch or cache access".
+  # must run it before the source fetch and the cache lookup: AGENTS.md's
+  # request-safety guideline requires parser/planner validation failures to
+  # return "before source fetch or cache access".
   #
   # The discriminating signal is `CountingOriginImage`'s `:origin_fetch`
   # message: the positive control below proves it fires for a request that

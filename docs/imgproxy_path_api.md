@@ -21,8 +21,8 @@ plug ImagePipe.Plug,
   source_url_encryption_key: "..."
 ```
 
-Configuration is one flat keyword list — no `parser:`, and no `:imgproxy`
-sublist, because there is nothing to namespace against.
+Configuration is one flat keyword list. `ImagePipe.Plug` reads only `:dialect`
+and hands everything else to the dialect's `validate_config!/1`.
 
 The dialect's config validates strictly: an unknown key raises out of
 `ImagePipe.Plug.init/1` rather than being ignored, so a typo or an unsupported

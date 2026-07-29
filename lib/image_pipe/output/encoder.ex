@@ -13,9 +13,9 @@ defmodule ImagePipe.Output.Encoder do
   alias Vix.Vips.MutableImage, as: VixMutableImage
   alias Vix.Vips.Operation
 
-  # Private image fields the delivery-boundary stamp writes
-  # (`Request.Processor.materialize_for_delivery/2`) for the color finalize to
-  # consume. Removed here once consumed so they never reach the encoded output.
+  # Private image fields the delivery-boundary stamp writes for the color
+  # finalize to consume. Removed here once consumed so they never reach the
+  # encoded output.
   @private_color_fields ["imagepipe-icc-backup", "imagepipe-icc-imported"]
 
   @doc """

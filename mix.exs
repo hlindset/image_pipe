@@ -3,15 +3,6 @@ defmodule ImagePipe.MixProject do
 
   @version "0.1.0"
   @source_url "https://github.com/hlindset/image_pipe"
-  @ex_dna_ignores [
-    "lib/image_pipe/decode.ex",
-    "lib/image_pipe/decode/source_format.ex",
-    "lib/image_pipe/dialect/shared_config.ex",
-    # Mirrors the framework Request.DeliveryBuild debug block until Phase C
-    # deletes the framework stack.
-    "lib/image_pipe/plug/debug_builder.ex",
-    "lib/image_pipe/response/conditional.ex"
-  ]
 
   def project do
     [
@@ -35,10 +26,11 @@ defmodule ImagePipe.MixProject do
           "CHANGELOG.md",
           "LICENSE.md",
           "docs/cache.md",
+          {"docs/cdn-http-cache.md", title: "CDN HTTP Caching"},
           "docs/operational_notes.md",
           "docs/telemetry.md",
           "docs/debug_headers.md",
-          {"docs/custom_parser_guide.md", title: "Writing a Custom Parser"},
+          {"docs/custom_dialect_guide.md", title: "Writing a Custom Dialect"},
           {"docs/execution_flow.md", title: "Execution Flow"},
           {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
           "docs/imgproxy_path_api.md",
@@ -50,14 +42,12 @@ defmodule ImagePipe.MixProject do
           "Package API": [ImagePipe],
           "Plug API": [ImagePipe.Plug],
           "Dialect API": [ImagePipe.Dialect, ~r/ImagePipe\.Dialect\..*/],
-          "Parser API": [ImagePipe.Parser, ~r/ImagePipe\.Parser\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
           "Cache API": [ImagePipe.Cache, ~r/ImagePipe\.Cache\..*/],
           "Runtime Internals": [
             ~r/ImagePipe\.Source.*/,
             ~r/ImagePipe\.Output.*/,
-            ~r/ImagePipe\.Request.*/,
             ~r/ImagePipe\.Response.*/,
             ImagePipe.Telemetry
           ]
@@ -79,7 +69,7 @@ defmodule ImagePipe.MixProject do
   end
 
   def ex_dna_options do
-    [excluded_macros: [:alias], ignore: @ex_dna_ignores]
+    [excluded_macros: [:alias]]
   end
 
   def cli do
@@ -112,7 +102,7 @@ defmodule ImagePipe.MixProject do
   defp extra_compilers(_env), do: [:boundary]
 
   defp description do
-    "A Plug-based image optimization server with an imgproxy-compatible path parser."
+    "A Plug-based image optimization server with mountable URL dialects."
   end
 
   defp package do
@@ -121,6 +111,9 @@ defmodule ImagePipe.MixProject do
         "lib",
         "priv",
         "docs/cache.md",
+        "docs/cdn-http-cache.md",
+        "docs/custom_dialect_guide.md",
+        "docs/execution_flow.md",
         "docs/assets/demo-fiddle-desktop.png",
         "docs/imgproxy_path_api.md",
         "docs/imgproxy_support_matrix.md",
@@ -223,8 +216,6 @@ defmodule ImagePipe.MixProject do
     excluded_macros =
       Enum.flat_map(options[:excluded_macros], &["--exclude-macro", Atom.to_string(&1)])
 
-    ignores = Enum.flat_map(options[:ignore], &["--ignore", &1])
-
-    Mix.Task.run("ex_dna", excluded_macros ++ ignores ++ args)
+    Mix.Task.run("ex_dna", excluded_macros ++ args)
   end
 end

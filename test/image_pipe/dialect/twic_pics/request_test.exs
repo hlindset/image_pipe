@@ -47,7 +47,7 @@ defmodule ImagePipe.Dialect.TwicPics.RequestTest do
     assert request.steps == steps
   end
 
-  test "canonical request terms recursively exclude framework strategy and runtime vocabulary" do
+  test "canonical request terms recursively exclude resolver and runtime vocabulary" do
     request =
       request([
         {:set_focus, {:anchor, :left, :top}},

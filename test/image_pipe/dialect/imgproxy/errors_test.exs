@@ -43,7 +43,7 @@ defmodule ImagePipe.Dialect.Imgproxy.ErrorsTest do
   end
 
   describe "expired requests" do
-    test "{:expired_request, n} -> 400, framework-identical body (documented divergence from upstream's 404)" do
+    test "{:expired_request, n} -> 400 (documented divergence from upstream's 404)" do
       conn = send_error({:expired_request, 100})
 
       assert conn.status == 400

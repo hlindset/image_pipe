@@ -107,6 +107,7 @@ defmodule ImagePipe.Dialect.Native do
          operations: Pipeline.operation_names(request),
          auto_rotate?: @auto_rotate?,
          debug?: false,
+         http_cache: :dialect_owned,
          terminal: terminal(request, config)
        }}
     end
@@ -150,7 +151,7 @@ defmodule ImagePipe.Dialect.Native do
     do: Pipeline.decode_request(request, geometry)
 
   @impl ImagePipe.Dialect
-  # The three dialects' contract delegations are textually identical but
+  # The hand-written dialects' contract delegations are textually identical but
   # resolve through per-dialect aliases to different Request structs and
   # Pipeline modules — irreducible without a macro that would force a
   # naming convention on every dialect and hide the contract.
@@ -162,7 +163,7 @@ defmodule ImagePipe.Dialect.Native do
   @impl ImagePipe.Dialect
   def render_error(conn, reason, config), do: Errors.send(conn, reason, config)
 
-  # This dialect's own client-reject reasons get the framework's client-error
+  # This dialect's own client-reject reasons get the `:parser_error` client-error
   # atom directly: the signature gate
   # (`:missing_signature`/`:invalid_signature`/`:signature_without_keys`), the
   # `expires` gate (`:expired`), and `Parser.parse/2`'s whole parse-failure

@@ -31,11 +31,53 @@ defmodule ImagePipe.Source do
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
   @callback resolve(PlanSource.t(), keyword(), keyword()) ::
               {:ok, Resolved.t()} | {:error, error()}
+
+  @doc """
+  The third argument (`runtime_opts`) must be a `runtime_opts/1`-projected
+  keyword list, never a raw mount configuration — a mount configuration also
+  holds every other source's adapter configuration and the cache adapter's
+  configuration, both of which routinely carry credentials, and handing it
+  to an adapter whole would leak them.
+  """
   @callback fetch(Resolved.t(), keyword(), keyword()) :: {:ok, Response.t()} | {:error, error()}
 
   @source_kinds [:path, :url, :object, :reference]
   @internal_cache_policies [:enabled, :disabled]
   @http_cache_policies [:inherit, :enabled, :disabled]
+
+  # The per-request runtime surface a source adapter may read: the body limit
+  # it must honor, the transport timeouts it may override per request, and
+  # the telemetry data it propagates.
+  #
+  # `:receive_timeout`, `:connect_timeout`, and `:pool_timeout` are honored
+  # today by the HTTP and S3 adapters as per-request transport overrides
+  # (`ImagePipe.Source.HTTP`, `ImagePipe.Source.S3`), even though no host
+  # mount surface currently exposes them for configuration (host mount
+  # configs validate against a closed key set and reject unknown keys). They
+  # stay on this list as a deliberate contract for the adapter callback, not
+  # because a mount can supply them yet.
+  @runtime_option_keys [
+    :max_body_bytes,
+    :receive_timeout,
+    :connect_timeout,
+    :pool_timeout,
+    :telemetry_prefix
+  ]
+
+  @doc """
+  Projects a mount configuration down to the runtime options a source adapter
+  may read (the third argument of `c:resolve/3` and `c:fetch/3`).
+
+  An adapter already receives its own validated adapter options as the second
+  argument; the third carries per-request runtime data only. A mount
+  configuration additionally holds every *other* source's adapter
+  configuration (`:sources`) and the cache adapter's configuration
+  (`:cache`) — both of which routinely carry credentials — so it is never
+  handed to an adapter whole.
+  """
+  @spec runtime_opts(keyword()) :: keyword()
+  def runtime_opts(config) when is_list(config),
+    do: Keyword.take(config, @runtime_option_keys)
 
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
   def validate_config(opts) when is_list(opts) do
@@ -105,6 +147,10 @@ defmodule ImagePipe.Source do
   `wrap_response/2` body-size limiting, and `{:source, _}` error
   normalization already apply there), then hands the response to `fun`.
 
+  `config` is the mount configuration — it selects the adapter through
+  `:sources`, and the adapter's runtime options are projected from it with
+  `runtime_opts/1` rather than passed whole.
+
   `fun` receives the `Response.t()` directly. There is no separate close
   step here because closing is not this bracket's job to invent: when
   `fetch/3` returns a stream response, that stream is a lazy `Enumerable`
@@ -126,8 +172,8 @@ defmodule ImagePipe.Source do
   @spec with_fetched(Resolved.t(), keyword(), (Response.t() -> result)) ::
           result | {:error, error()}
         when result: var
-  def with_fetched(%Resolved{} = resolved, runtime_opts, fun) when is_function(fun, 1) do
-    case fetch(resolved, runtime_opts, runtime_opts) do
+  def with_fetched(%Resolved{} = resolved, config, fun) when is_function(fun, 1) do
+    case fetch(resolved, config, runtime_opts(config)) do
       {:ok, %Response{} = response} -> fun.(response)
       {:error, {:source, _reason}} = error -> error
     end

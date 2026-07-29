@@ -532,7 +532,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   defmodule ResolveDeniedSource do
     @moduledoc false
     # Minimal Source adapter whose resolve/3 fails BEFORE any fetch — exercises
-    # the resolve-time send_source_error path (plug.ex), distinct from streaming.
+    # the resolve-time source-error path, distinct from streaming.
     @behaviour ImagePipe.Source
     @impl true
     def validate_options(opts), do: {:ok, opts}
@@ -4115,11 +4115,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         ],
         cache:
           {ImagePipe.Cache.FileSystem,
-           root: cache_root,
-           path_prefix: "processed",
-           max_body_bytes: 10_000_000,
-           key_headers: [],
-           key_cookies: []}
+           root: cache_root, path_prefix: "processed", max_body_bytes: 10_000_000}
       )
       |> Keyword.merge(overrides)
 
@@ -4815,7 +4811,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert conn.resp_body == "upstream responded 451"
     end
 
-    test "resolve-time source error renders via send_source_error (connect_error -> 404)" do
+    test "resolve-time source error renders as a source error (connect_error -> 404)" do
       opts = Keyword.merge(@default_opts, sources: [path: {ResolveDeniedSource, []}])
       conn = call_imgproxy("/_/rs:fit:50:50/plain/images/x.jpg", opts)
 

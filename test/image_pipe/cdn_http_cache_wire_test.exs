@@ -6,16 +6,23 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
-  alias ImagePipe.Parser.IIIF
-  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Dialect.IIIF
+  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
-  alias ImagePipe.Test.AutomaticIIIFParser
-  alias ImagePipe.Test.GuidedIIIFParser
+  alias ImagePipe.Test.AutomaticIIIFDialect
+  alias ImagePipe.Test.GuidedIIIFDialect
+
+  @image_path "/img/full/max/0/default.jpg"
+
+  # A quoted, non-empty HTTP strong validator. Deliberately shape-only: the
+  # digest scheme is internal, and every value-level property this suite cares
+  # about (stability, revalidation, separation) is asserted as a round-trip.
+  @strong_validator ~r/^"[^"\s]+"$/
 
   defp iiif_resolver do
     {StaticResolver, map: %{"img" => %SourcePath{segments: ["beach.jpg"]}}}
@@ -128,17 +135,99 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     end
   end
 
-  test "guided IIIF test parser rewrites one real crop to the selected product-neutral guide" do
-    opts = GuidedIIIFParser.validate_options!(iiif: [resolver: iiif_resolver()])
+  # StableSource with the source-level HTTP-cache decision left to the mount,
+  # so `http_cache: [mode: ...]` is the deciding input rather than being
+  # overridden by the source's own `:enabled`.
+  defmodule InheritingSource do
+    @behaviour ImagePipe.Source
+
+    def validate_options(opts), do: {:ok, Keyword.put_new(opts, :telemetry_kind, :inherit_test)}
+
+    def resolve(source, opts, runtime_opts) do
+      {:ok, resolved} = StableSource.resolve(source, opts, runtime_opts)
+      {:ok, %{resolved | http_cache: :inherit}}
+    end
+
+    def fetch(resolved, opts, runtime_opts),
+      do: StableSource.fetch(resolved, opts, runtime_opts)
+  end
+
+  # A declarative host dialect whose `validate_config!/1` validates the shared
+  # keys only — the shape a dialect with no HTTP-cache option of its own lands
+  # on, which leaves `:http_cache` out of the config the policy reads.
+  defmodule NonDelegatingDialect do
+    use ImagePipe.Dialect.Declarative
+
+    alias ImagePipe.Dialect.SharedConfig
+
+    @impl ImagePipe.Dialect
+    def validate_config!(opts),
+      do: SharedConfig.validate_runtime!(Keyword.take(opts, SharedConfig.keys()))
+
+    @impl ImagePipe.Dialect.Declarative
+    def parse_plan(_conn, _config) do
+      {:ok,
+       %Plan{
+         source: %SourcePath{segments: ["beach.jpg"]},
+         pipelines: [%Plan.Pipeline{operations: []}],
+         output: %Plan.Output{mode: {:explicit, :jpeg}}
+       }}
+    end
+
+    @impl ImagePipe.Dialect
+    def render_error(conn, reason, _config),
+      do: Plug.Conn.send_resp(conn, 500, inspect(reason))
+  end
+
+  # `identity` is a detector-adapter option, not a mount option, so the dialect
+  # config rejects it as unknown. It is spliced onto the validated config after
+  # `ImagePipe.Plug.init/1`, where the detector reads it.
+  @post_init_keys [:identity]
+
+  defp init(opts) do
+    {post_init, known} = Keyword.split(opts, @post_init_keys)
+    Keyword.merge(ImagePipe.Plug.init(known), post_init)
+  end
+
+  # The suite's baseline mount: a strong-byte-identity source, a cache probe,
+  # and the generated cache-header policy switched on.
+  defp mount(overrides \\ []) do
+    init(
+      Keyword.merge(
+        [
+          dialect: IIIF,
+          resolver: iiif_resolver(),
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {CacheProbe, test_pid: self()},
+          http_cache: [mode: :enabled]
+        ],
+        overrides
+      )
+    )
+  end
+
+  defp get(path, opts, req_headers) do
+    :get
+    |> conn(path)
+    |> put_req_headers(req_headers)
+    |> ImagePipe.Plug.call(opts)
+  end
+
+  defp put_req_headers(conn, headers) do
+    Enum.reduce(headers, conn, fn {name, value}, acc -> put_req_header(acc, name, value) end)
+  end
+
+  test "the guided IIIF test dialect rewrites one real crop to the selected product-neutral guide" do
+    opts = GuidedIIIFDialect.validate_config!(resolver: iiif_resolver())
 
     focal_request = conn(:get, "/img/square/max/0/default.jpg?guide=focal")
     face_request = conn(:get, "/img/square/max/0/default.jpg?guide=face_assist")
 
     assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = baseline | _]}]}} =
-             IIIF.parse(focal_request, opts)
+             IIIF.parse_plan(focal_request, opts)
 
     assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = focal | _]}]}} =
-             GuidedIIIFParser.parse(focal_request, opts)
+             GuidedIIIFDialect.parse_plan(focal_request, opts)
 
     assert focal == %CropGuided{
              baseline
@@ -146,52 +235,39 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
            }
 
     assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = face | _]}]}} =
-             GuidedIIIFParser.parse(face_request, opts)
+             GuidedIIIFDialect.parse_plan(face_request, opts)
 
     assert face == %CropGuided{baseline | guide: {:smart, :face_assist}}
   end
 
-  test "guided IIIF test parser delegates invalid input unchanged" do
-    opts = GuidedIIIFParser.validate_options!(iiif: [resolver: iiif_resolver()])
+  test "the guided IIIF test dialect delegates invalid input unchanged" do
+    opts = GuidedIIIFDialect.validate_config!(resolver: iiif_resolver())
     request = conn(:get, "/img/full/bad/0/default.jpg?guide=focal")
 
-    assert GuidedIIIFParser.parse(request, opts) == IIIF.parse(request, opts)
+    assert GuidedIIIFDialect.parse_plan(request, opts) == IIIF.parse_plan(request, opts)
   end
 
   setup do
-    opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheProbe, test_pid: self()},
-        http_cache: [mode: :enabled]
-      )
-
-    automatic_opts =
-      ImagePipe.Plug.init(
-        parser: AutomaticIIIFParser,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheProbe, test_pid: self()},
-        http_cache: [mode: :enabled]
-      )
-
-    [opts: opts, automatic_opts: automatic_opts]
+    [opts: mount(), automatic_opts: mount(dialect: AutomaticIIIFDialect)]
   end
 
-  test "stable public route emits cache-control and etag", %{opts: opts} do
-    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
+  test "stable public route emits cache-control and a stable etag", %{opts: opts} do
+    conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
     assert conn.status == 200
     assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
 
     assert [etag] = get_resp_header(conn, "etag")
-    assert etag =~ ~r/^"ip1-[A-Za-z0-9_-]+"$/
+    assert etag =~ @strong_validator
+
+    # The validator is a pure function of the request, so replaying the same
+    # request reproduces it byte for byte.
+    replay = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    assert get_resp_header(replay, "etag") == [etag]
   end
 
   test "matching if-none-match returns before cache lookup and source fetch", %{opts: opts} do
-    first = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
+    first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
     [etag] = get_resp_header(first, "etag")
 
     assert_received :source_fetch_called
@@ -199,7 +275,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :get
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -212,7 +288,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "HEAD emits the same cache-control and etag as GET", %{opts: opts} do
-    get = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
+    get = ImagePipe.Plug.call(conn(:get, @image_path), opts)
     flush_messages()
 
     head = ImagePipe.Plug.call(conn(:head, "/img/full/max/0/default.jpg"), opts)
@@ -225,7 +301,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   test "matching if-none-match on a HEAD returns 304 before cache lookup and source fetch",
        %{opts: opts} do
-    first = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
+    first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
     [etag] = get_resp_header(first, "etag")
 
     assert_received :source_fetch_called
@@ -233,7 +309,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     conn =
       :head
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -243,10 +319,103 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
+  test "configured storage_inputs header names enter vary, sorted, ahead of Accept" do
+    opts =
+      mount(
+        dialect: AutomaticIIIFDialect,
+        storage_inputs: [{:header, "X-Tenant"}, {:cookie, "session"}, {:header, "x-region"}]
+      )
+
+    conn = get(@image_path, opts, [{"x-tenant", "a"}, {"x-region", "eu"}])
+
+    assert conn.status == 200
+    # Header names normalize to lowercase and sort deterministically, so neither
+    # the configured order nor the spelling can move the header; Accept, which
+    # the automatic output plan adds, comes last.
+    assert get_resp_header(conn, "vary") == ["x-region, x-tenant, Accept"]
+    # A configured cookie partitions storage but never enters Vary.
+    refute "session" in vary_tokens(conn)
+  end
+
+  test "a plain (non-negotiated) mount varies by its storage_inputs headers alone" do
+    opts = mount(storage_inputs: [{:header, "x-tenant"}])
+
+    conn = get(@image_path, opts, [{"x-tenant", "a"}])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "vary") == ["x-tenant"]
+  end
+
+  # Every shipped source adapter defaults to `http_cache: :inherit`, so the
+  # mount config is what the policy consults — and a host dialect's
+  # `validate_config!/1` return value is a real boundary, not a struct this
+  # repo built. A missing key means the mount never opted in, which must serve
+  # as `:disabled` rather than failing the request.
+  test "a dialect that skips the declarative config delegation serves without generated cache headers" do
+    opts =
+      init(
+        dialect: NonDelegatingDialect,
+        sources: [path: {InheritingSource, test_pid: self()}],
+        cache: {CacheProbe, test_pid: self()}
+      )
+
+    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg"), opts)
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "etag") == []
+    refute get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+  end
+
+  # A render terminal negotiates its own content type against Accept, on top of
+  # the representation's Vary. The storage partition is what decides WHICH
+  # info.json a shared cache may serve, so the Accept token has to join the
+  # configured header names rather than displace them.
+  test "a render terminal varies by Accept alongside the configured storage_inputs headers" do
+    opts = mount(storage_inputs: [{:header, "x-tenant"}])
+
+    conn = get("/img/info.json", opts, [{"x-tenant", "a"}])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "vary") == ["x-tenant, Accept"]
+  end
+
+  # Delta 14 of the Phase C plan asked whether an automatic output plan can lose
+  # `Vary: Accept` by collapsing to an explicit selection. It cannot:
+  # `Policy.from_output_plan/3` maps EVERY `%Output{mode: :automatic}` to
+  # `policy.mode == :source`, and `Policy.identity_selection/1` only returns
+  # `{:explicit, _}` for `policy.mode == {:explicit, _}`. Config can empty
+  # `modern_candidates` (disabled auto_* flags, a restricted
+  # `output_capabilities`), which yields `:source_negotiated` — still an
+  # Accept-varying selection. This pins that invariant at the wire for both
+  # levers.
+  test "an automatic output plan varies by Accept even with no modern candidates left" do
+    for extra <- [
+          [auto_avif: false, auto_webp: false, auto_jpeg_xl: false],
+          [output_capabilities: %{avif: false, webp: false, jpeg_xl: false}]
+        ] do
+      opts = mount([dialect: AutomaticIIIFDialect] ++ extra)
+
+      conn = get(@image_path, opts, [{"accept", "image/avif,image/webp,*/*"}])
+
+      assert conn.status == 200
+
+      # Proof the lever bit: the client accepted AVIF and WebP, and the response
+      # is neither — so `modern_candidates` really was emptied and the selection
+      # deferred to the source format.
+      assert [content_type] = get_resp_header(conn, "content-type")
+      assert content_type =~ "image/jpeg", "#{inspect(extra)} did not empty the candidates"
+
+      assert get_resp_header(conn, "vary") == ["Accept"],
+             "lost Vary: Accept for #{inspect(extra)}"
+
+      flush_messages()
+    end
+  end
+
   test "existing vary is merged in the final response", %{automatic_opts: opts} do
     conn =
       :get
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("accept", "image/webp")
       |> put_resp_header("vary", "Accept-Encoding")
       |> ImagePipe.Plug.call(opts)
@@ -256,14 +425,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "request cookie does not change generated headers or source fetch", %{opts: opts} do
-    without_cookie = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
+    without_cookie = ImagePipe.Plug.call(conn(:get, @image_path), opts)
     [etag] = get_resp_header(without_cookie, "etag")
 
     flush_messages()
 
     with_cookie =
       :get
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("cookie", "session=private")
       |> ImagePipe.Plug.call(opts)
 
@@ -275,7 +444,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "response cookies suppress generated public cache headers", %{opts: opts} do
     conn =
       :get
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_resp_cookie("session", "abc")
       |> ImagePipe.Plug.call(opts)
 
@@ -293,29 +462,32 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       created_at: DateTime.utc_now()
     }
 
-    opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheHitProbe, test_pid: self(), entry: entry},
-        http_cache: [mode: :enabled]
-      )
+    opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
 
-    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
     assert conn.status == 200
     assert conn.resp_body == "cached body"
     assert [etag] = get_resp_header(conn, "etag")
-    assert String.starts_with?(etag, "\"ip1-")
+    assert etag =~ @strong_validator
     assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
     refute_received :source_fetch_called
+    flush_messages()
+
+    # "current prepared" means the conditional gate computes the same validator
+    # from the request alone: replaying it revalidates before the cache is even
+    # consulted.
+    revalidated = get(@image_path, opts, [{"if-none-match", etag}])
+
+    assert revalidated.status == 304
+    assert get_resp_header(revalidated, "etag") == [etag]
+    refute_received {:cache_get, %Key{}}
   end
 
   test "wildcard if-none-match on a cache miss proceeds and returns 200", %{opts: opts} do
     conn =
       :get
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -335,25 +507,23 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       created_at: DateTime.utc_now()
     }
 
-    opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheHitProbe, test_pid: self(), entry: entry},
-        http_cache: [mode: :enabled]
-      )
+    opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
+
+    # The 200 this mount serves for the same request, for the validator the
+    # wildcard 304 must carry.
+    unconditional = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+    assert [etag] = get_resp_header(unconditional, "etag")
+    flush_messages()
 
     conn =
       :get
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 304
     assert conn.resp_body == ""
-    assert [etag] = get_resp_header(conn, "etag")
-    assert String.starts_with?(etag, "\"ip1-")
+    assert get_resp_header(conn, "etag") == [etag]
     refute_received :source_fetch_called
   end
 
@@ -365,18 +535,11 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       created_at: DateTime.utc_now()
     }
 
-    opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheHitProbe, test_pid: self(), entry: entry},
-        http_cache: [mode: :enabled]
-      )
+    opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
 
     conn =
       :head
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -394,17 +557,14 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     }
 
     opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
+      mount(
         sources: [path: {EtaglessCachedSource, test_pid: self()}],
-        cache: {CacheHitProbe, test_pid: self(), entry: entry},
-        http_cache: [mode: :enabled]
+        cache: {CacheHitProbe, test_pid: self(), entry: entry}
       )
 
     conn =
       :get
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("if-none-match", "*")
       |> ImagePipe.Plug.call(opts)
 
@@ -422,19 +582,12 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       created_at: DateTime.utc_now()
     }
 
-    opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheHitProbe, test_pid: self(), entry: entry},
-        http_cache: [mode: :enabled]
-      )
+    opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
 
     conn =
       :get
-      |> conn("/img/full/max/0/default.jpg")
-      |> put_req_header("if-none-match", ~s("ip1-nonmatching", *))
+      |> conn(@image_path)
+      |> put_req_header("if-none-match", ~s("nonmatching-validator", *))
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 304
@@ -451,16 +604,12 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     }
 
     opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
+      mount(
         cache: {CacheHitProbe, test_pid: self(), entry: entry},
-        http_cache: [mode: :enabled],
         allow_origin: "https://cdn.test"
       )
 
-    conn = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
     assert conn.status == 200
     assert conn.resp_body == "cached body"
@@ -469,23 +618,15 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "CORS header lands on a 304 Not Modified response when allow_origin is set" do
-    opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheProbe, test_pid: self()},
-        http_cache: [mode: :enabled],
-        allow_origin: "https://cdn.test"
-      )
+    opts = mount(allow_origin: "https://cdn.test")
 
-    first = ImagePipe.Plug.call(conn(:get, "/img/full/max/0/default.jpg"), opts)
+    first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
     [etag] = get_resp_header(first, "etag")
     flush_messages()
 
     conn =
       :get
-      |> conn("/img/full/max/0/default.jpg")
+      |> conn(@image_path)
       |> put_req_header("if-none-match", etag)
       |> ImagePipe.Plug.call(opts)
 
@@ -494,17 +635,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "host-set content-disposition is preserved on both miss and cache-hit responses" do
-    probe_opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheProbe, test_pid: self()},
-        http_cache: [mode: :enabled]
-      )
+    probe_opts = mount()
 
     miss_conn =
-      conn(:get, "/img/full/max/0/default.jpg")
+      conn(:get, @image_path)
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
       |> ImagePipe.Plug.call(probe_opts)
 
@@ -516,17 +650,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
     assert_received {:cache_put, %Entry{} = entry}
 
-    hit_opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.IIIF,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheHitProbe, test_pid: self(), entry: entry},
-        http_cache: [mode: :enabled]
-      )
+    hit_opts = mount(cache: {CacheHitProbe, test_pid: self(), entry: entry})
 
     hit_conn =
-      conn(:get, "/img/full/max/0/default.jpg")
+      conn(:get, @image_path)
       |> put_resp_header("content-disposition", ~s(attachment; filename="custom.jpg"))
       |> ImagePipe.Plug.call(hit_opts)
 
@@ -540,12 +667,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "detector identity change moves the generated ETag end-to-end (#181 regression)", _ctx do
     etag_for = fn identity ->
       opts =
-        ImagePipe.Plug.init(
-          parser: GuidedIIIFParser,
-          iiif: [resolver: iiif_resolver()],
-          sources: [path: {StableSource, test_pid: self()}],
-          cache: {CacheProbe, test_pid: self()},
-          http_cache: [mode: :enabled],
+        mount(
+          dialect: GuidedIIIFDialect,
           detector: ImagePipe.Test.FakeDetector,
           identity: identity
         )
@@ -570,25 +693,13 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     clean =
       ImagePipe.Plug.call(
         conn(:get, url),
-        ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.IIIF,
-          iiif: [resolver: iiif_resolver()],
-          sources: [path: {StableSource, test_pid: self()}],
-          cache: {CacheProbe, test_pid: self()},
-          http_cache: [mode: :enabled]
-        )
+        mount()
       )
 
     raising =
       ImagePipe.Plug.call(
         conn(:get, url),
-        ImagePipe.Plug.init(
-          parser: ImagePipe.Parser.IIIF,
-          iiif: [resolver: iiif_resolver()],
-          sources: [path: {StableSource, test_pid: self()}],
-          cache: {RaisingCommitProbe, []},
-          http_cache: [mode: :enabled]
-        )
+        mount(cache: {RaisingCommitProbe, []})
       )
 
     assert clean.status == 200
@@ -597,30 +708,138 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert raising.resp_body == clean.resp_body
   end
 
-  # #328: the only guide that reached do_generated_etag under a strong byte
-  # identity before this was :center. A gravity-derived guide
+  # #328: the only guide that reached the generated-ETag path under a strong
+  # byte identity before this was :center. A gravity-derived guide
   # (focal/smart/detect/anchor) exercises the KeyData.guide_data clauses
   # end-to-end — a missing clause 500s here instead of staying green. Focal needs
   # no detector, so the 200 body path executes too.
   test "guide-bearing focal gravity emits an etag on the strong-identity path" do
-    opts =
-      ImagePipe.Plug.init(
-        parser: GuidedIIIFParser,
-        iiif: [resolver: iiif_resolver()],
-        sources: [path: {StableSource, test_pid: self()}],
-        cache: {CacheProbe, test_pid: self()},
-        http_cache: [mode: :enabled]
-      )
+    opts = mount(dialect: GuidedIIIFDialect)
+    url = "/img/square/200,100/0/default.jpg?guide=focal"
 
-    conn =
-      ImagePipe.Plug.call(
-        conn(:get, "/img/square/200,100/0/default.jpg?guide=focal"),
-        opts
-      )
+    conn = ImagePipe.Plug.call(conn(:get, url), opts)
 
     assert conn.status == 200
     assert [etag] = get_resp_header(conn, "etag")
-    assert etag =~ ~r/^"ip1-[A-Za-z0-9_-]+"$/
+    assert etag =~ @strong_validator
+    flush_messages()
+
+    # The validator is a pure function of the request: replaying it with
+    # If-None-Match revalidates before the cache is even consulted.
+    revalidated = get(url, opts, [{"if-none-match", etag}])
+
+    assert revalidated.status == 304
+    assert get_resp_header(revalidated, "etag") == [etag]
+    refute_received {:cache_get, %Key{}}
+  end
+
+  @doc false
+  def forward_event(event, _measurements, metadata, test_pid),
+    do: send(test_pid, {:http_cache, event, metadata})
+
+  describe "generated-policy telemetry" do
+    setup do
+      prefix = [:"cdn_http_cache_#{System.unique_integer([:positive])}"]
+      handler_id = "cdn-http-cache-#{inspect(prefix)}"
+      test_pid = self()
+
+      events =
+        for suffix <- [
+              [:http_cache, :prepare],
+              [:http_cache, :fallback, :no_store],
+              [:http_cache, :conditional, :match]
+            ],
+            do: prefix ++ suffix
+
+      :telemetry.attach_many(handler_id, events, &__MODULE__.forward_event/4, test_pid)
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      [prefix: prefix]
+    end
+
+    test "a strong-identity request prepares generated headers and emits no no-store fallback",
+         %{prefix: prefix} do
+      conn = ImagePipe.Plug.call(conn(:get, @image_path), mount(telemetry_prefix: prefix))
+
+      assert conn.status == 200
+
+      assert_received {:http_cache, event, metadata}
+      assert event == prefix ++ [:http_cache, :prepare]
+      assert metadata == %{effective_mode: :enabled, byte_identity: :strong, etag: true}
+
+      refute_received {:http_cache, _event, %{reason: :missing_byte_identity}}
+    end
+
+    test "a byte-identity-less source falls back to no-store", %{prefix: prefix} do
+      opts =
+        mount(
+          sources: [path: {EtaglessCachedSource, test_pid: self()}],
+          telemetry_prefix: prefix
+        )
+
+      conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      assert get_resp_header(conn, "etag") == []
+
+      assert_received {:http_cache, _prepare,
+                       %{effective_mode: :enabled, byte_identity: :none, etag: false}}
+
+      assert_received {:http_cache, event, metadata}
+      assert event == prefix ++ [:http_cache, :fallback, :no_store]
+      assert metadata.reason == :missing_byte_identity
+      assert metadata.source_kind == :path
+    end
+
+    test "a matching conditional request emits the conditional-match event", %{prefix: prefix} do
+      opts = mount(telemetry_prefix: prefix)
+
+      first = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+      [etag] = get_resp_header(first, "etag")
+      flush_messages()
+
+      conn = get(@image_path, opts, [{"if-none-match", etag}])
+
+      assert conn.status == 304
+      assert_received {:http_cache, event, %{method: :get}}
+      assert event == prefix ++ [:http_cache, :conditional, :match]
+    end
+
+    test "a source that inherits the mount's disabled mode generates no headers",
+         %{prefix: prefix} do
+      opts =
+        mount(
+          sources: [path: {InheritingSource, test_pid: self()}],
+          http_cache: [mode: :disabled],
+          telemetry_prefix: prefix
+        )
+
+      conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "etag") == []
+      # Nothing generated: what remains is Plug's own default directive.
+      assert get_resp_header(conn, "cache-control") == ["max-age=0, private, must-revalidate"]
+
+      # `[:http_cache, :prepare]` still reports the disabled decision; the
+      # no-store fallback must not fire.
+      assert_received {:http_cache, _prepare, %{effective_mode: :disabled, etag: false}}
+      refute_received {:http_cache, _event, %{reason: _}}
+    end
+
+    test "a source that enables the HTTP cache overrides the mount's disabled mode",
+         %{prefix: prefix} do
+      opts = mount(http_cache: [mode: :disabled], telemetry_prefix: prefix)
+
+      conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+      assert [_etag] = get_resp_header(conn, "etag")
+      assert_received {:http_cache, _prepare, %{effective_mode: :enabled, etag: true}}
+    end
   end
 
   defp flush_messages do
