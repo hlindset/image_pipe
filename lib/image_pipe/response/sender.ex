@@ -20,7 +20,6 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
   alias ImagePipe.Response.CacheHeaders
-  alias ImagePipe.Response.ErrorStatus
   alias ImagePipe.Response.Json
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Telemetry
@@ -34,14 +33,9 @@ defmodule ImagePipe.Response.Sender do
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
           | {:rendered, String.t(), iodata(), [{String.t(), [String.t()]}], CacheHeaders.t()}
 
-  @type error() ::
-          {:processing, term(), [{String.t(), String.t()}]}
-
   @spec send_result(
           Plug.Conn.t(),
-          {:ok, delivery()}
-          | {:not_modified, CacheHeaders.t()}
-          | {:error, error()},
+          {:ok, delivery()} | {:not_modified, CacheHeaders.t()},
           keyword()
         ) :: Plug.Conn.t()
   def send_result(
@@ -85,14 +79,6 @@ defmodule ImagePipe.Response.Sender do
     |> Json.send(negotiated_type, body)
   end
 
-  def send_result(
-        conn,
-        {:error, {:processing, reason, response_headers}},
-        opts
-      ) do
-    handle_processing_error(conn, reason, response_headers, opts)
-  end
-
   @spec send_redirect(Plug.Conn.t(), 303, String.t()) :: Plug.Conn.t()
   def send_redirect(%Plug.Conn{} = conn, status, location) when is_binary(location) do
     conn
@@ -116,70 +102,6 @@ defmodule ImagePipe.Response.Sender do
       put_resp_header(conn, name, value)
     end)
     |> send_resp(304, "")
-  end
-
-  defp handle_processing_error(conn, {:encode, exception, stacktrace}, response_headers, _opts),
-    do: handle_encode_exception(exception, stacktrace, conn, response_headers)
-
-  defp handle_processing_error(conn, {:encode, :empty_stream}, response_headers, _opts) do
-    Logger.error("encode_error: empty_stream")
-    send_encode_error(conn, response_headers)
-  end
-
-  defp handle_processing_error(conn, {:cache_write, error}, response_headers, _opts),
-    do: send_cache_error(conn, error, response_headers)
-
-  defp handle_processing_error(conn, {:config, error}, response_headers, _opts),
-    do: send_config_error(conn, error, response_headers)
-
-  defp handle_processing_error(conn, {:render, {:decode, _} = inner}, response_headers, opts),
-    do: handle_processing_error(conn, inner, response_headers, opts)
-
-  defp handle_processing_error(conn, {:render, {:source, _} = inner}, response_headers, opts),
-    do: handle_processing_error(conn, inner, response_headers, opts)
-
-  defp handle_processing_error(
-         conn,
-         {:render, {:unsupported_source_format, _} = inner},
-         response_headers,
-         opts
-       ),
-       do: handle_processing_error(conn, inner, response_headers, opts)
-
-  defp handle_processing_error(
-         conn,
-         {:render, :source_format_required = inner},
-         response_headers,
-         opts
-       ),
-       do: handle_processing_error(conn, inner, response_headers, opts)
-
-  defp handle_processing_error(
-         conn,
-         {:render, {:input_limit, _} = inner},
-         response_headers,
-         opts
-       ),
-       do: handle_processing_error(conn, inner, response_headers, opts)
-
-  defp handle_processing_error(conn, {:render, reason}, response_headers, _opts) do
-    Logger.error("render_error: #{inspect(reason)}")
-
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(500, "error rendering response")
-  end
-
-  # Generic catch-all — MUST be the last handle_processing_error clause.
-  defp handle_processing_error(conn, reason, response_headers, opts) do
-    {status, message} = ErrorStatus.resolve_status(reason, opts)
-    Logger.info("processing_error: #{status} #{inspect(reason)}")
-
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(status, message)
   end
 
   defp send_cache_entry(
@@ -348,38 +270,12 @@ defmodule ImagePipe.Response.Sender do
     end
   end
 
-  defp send_cache_error(%Plug.Conn{} = conn, error),
-    do: send_cache_error(conn, error, [])
-
-  defp send_cache_error(%Plug.Conn{} = conn, error, response_headers) do
+  defp send_cache_error(%Plug.Conn{} = conn, error) do
     Logger.error("cache_error: #{inspect(error)}")
 
     conn
-    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(500, "cache error")
-  end
-
-  defp send_config_error(%Plug.Conn{} = conn, error, response_headers) do
-    Logger.error("config_error: #{inspect(error)}")
-
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(500, "configuration error")
-  end
-
-  defp handle_encode_exception(exception, stacktrace, %Plug.Conn{} = conn, response_headers) do
-    Logger.error("encode_error: #{Exception.format(:error, exception, stacktrace)}")
-
-    conn =
-      if conn.state in [:unset, :set] do
-        send_encode_error(conn, response_headers)
-      else
-        conn
-      end
-
-    mark_send_processing_error(conn)
   end
 
   defp mark_send_processing_error(%Plug.Conn{} = conn),
@@ -521,13 +417,6 @@ defmodule ImagePipe.Response.Sender do
     Enum.reduce(response_headers, conn, fn {name, value}, conn ->
       put_resp_header(conn, name, value)
     end)
-  end
-
-  defp send_encode_error(%Plug.Conn{} = conn, response_headers) do
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(500, "error encoding image")
   end
 
   defp not_modified_headers(%CacheHeaders{} = prepared) do
