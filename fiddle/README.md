@@ -3,6 +3,19 @@
 The Fiddle edits and previews ImagePipe's native path API. Browser state uses
 `/native/...` URLs, while image and text previews run through `/native-image/...`.
 
+The sidebar provides sliders, numeric inputs, toggles, color pickers, and a
+clickable focal-point preview for resize, crop, gravity, orientation, trim,
+canvas, padding, effects, and output settings. Controls generate native URLs;
+opening a saved URL fills the controls with its values. Requests with `then`
+groups have a group selector, while output settings apply to the whole request.
+Examples load into the same controls. The collapsed Advanced section allows
+direct path editing, and control changes preserve other native options.
+
+Crop and cover resize share the Gravity controls. Canvas modes require both
+resize dimensions, so enabling a canvas sets automatic dimensions to pixels;
+switching either dimension back to auto turns the canvas off. PNG palette
+size uses the native bit-depth selector.
+
 The Protection control can route a preview through the signing-required
 `/native-signed/...` mount. Its Signed mode binds the complete native request,
 while Signed + concealed source also replaces the source identifier with an
@@ -25,10 +38,8 @@ against the running demo. The loopback HTTP adapter is enabled in
 development and tests; it is disabled in the base configuration used by
 production. HTTP samples follow the browser's loopback origin and port.
 
-To start your Phoenix server:
-
-* Run `mix setup` to install and setup dependencies
-* Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
+From the repository root, run `mise run setup` once to install dependencies,
+then `mise run fiddle` to start Phoenix and Vite.
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 

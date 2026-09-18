@@ -224,9 +224,10 @@ mise run fiddle      # boots Phoenix (:4000) + Vite (:5173)
 ```
 
 Open http://localhost:4000. The processing
-endpoint is `/native-image`. The option editor supports native paths and
-`then` groups, with examples for geometry, object and face crops, pixel effects,
-canvas placement, padding, and trim.
+endpoint is `/native-image`. Visual controls cover resize, crop, focal points,
+effects, canvas, padding, orientation, and output settings. Saved native URLs
+populate the controls, including a group selector for `then` requests. Examples
+and an optional advanced path editor cover the full native vocabulary.
 The source selector exercises local files, S3, and the demo's HTTP source.
 The Protection control demonstrates signed URLs and concealed sources using
 fixed demo keys.

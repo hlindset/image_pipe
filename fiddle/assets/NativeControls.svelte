@@ -1,7 +1,53 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import NativeVisualControls from "./NativeVisualControls.svelte";
+  import {
+    controlStateFromOptions,
+    defaultControlState,
+    normalizeControlEdit,
+    optionGroups,
+    updateControlOptions,
+  } from "./native-controls";
   import type { NativeState } from "./native-path";
 
   let { nativeState = $bindable() }: { nativeState: NativeState } = $props();
+  let groupIndex = $state(0);
+  let controls = $state(structuredClone(defaultControlState));
+  let baseline = structuredClone(defaultControlState);
+  let lastOptions = "";
+  let lastSource = "";
+  let lastGroup = -1;
+  const groups = $derived(optionGroups(nativeState.options));
+
+  $effect(() => {
+    const options = nativeState.options;
+    const source = nativeState.source;
+    const index = groupIndex;
+    untrack(() => {
+      if (options === lastOptions && source === lastSource && index === lastGroup) return;
+      groupIndex = Math.min(index, optionGroups(options).length - 1);
+      controls = controlStateFromOptions(options, source, groupIndex);
+      baseline = $state.snapshot(controls);
+      lastOptions = options;
+      lastSource = source;
+      lastGroup = groupIndex;
+    });
+  });
+
+  $effect(() => {
+    const current = $state.snapshot(controls);
+    untrack(() => {
+      if (lastGroup < 0) return;
+      const next = normalizeControlEdit(baseline, current);
+      if (JSON.stringify(next) !== JSON.stringify(current)) controls = next;
+      const options = updateControlOptions(lastOptions, lastGroup, baseline, next);
+      baseline = next;
+      if (options === lastOptions) return;
+      if (optionGroups(options).length !== optionGroups(lastOptions).length) lastGroup = -1;
+      lastOptions = options;
+      nativeState.options = options;
+    });
+  });
 
   type Example = {
     label: string;
@@ -112,33 +158,69 @@
 </script>
 
 <section class="native-controls">
-  <label>
+  <label class="field">
+    <span>Examples</span>
+    <select
+      aria-label="Load example"
+      value=""
+      onchange={(event) => {
+        const example = examples[Number(event.currentTarget.value)];
+        if (example) applyExample(example);
+        event.currentTarget.value = "";
+      }}
+    >
+      <option value="" disabled>Choose an example…</option>
+      {#each examples as example, index}
+        <option value={index}>{example.label}</option>
+      {/each}
+    </select>
+  </label>
+  {#if groups.length > 1}
+    <label class="field">
+      <span>Processing group</span>
+      <select bind:value={groupIndex}>
+        {#each groups as _, index}
+          <option value={index}>Group {index + 1}{index > 0 ? " · then" : ""}</option>
+        {/each}
+      </select>
+    </label>
+    <p>Geometry and effects apply to this group. Output settings apply to the whole request.</p>
+  {/if}
+</section>
+
+<NativeVisualControls bind:controlState={controls} source={nativeState.source} />
+
+<details class="native-controls">
+  <summary>Advanced · native path</summary>
+  <label class="field">
     <span>Processing options</span>
     <textarea
       aria-label="Native processing options"
       bind:value={nativeState.options}
       rows="5"
       spellcheck="false"
-      placeholder="w=800/format=webp"
     ></textarea>
   </label>
   <p>Separate options with a slash. Use <code>then</code> to start another processing group.</p>
-  <div class="examples">
-    {#each examples as example}
-      <button type="button" class="quiet-button" onclick={() => applyExample(example)}>
-        {example.label}
-      </button>
-    {/each}
-  </div>
-</section>
+</details>
 
 <style>
   .native-controls {
-    padding: 1rem;
-  }
-  label {
+    padding: 14px;
     display: grid;
-    gap: 0.5rem;
+    gap: 14px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  details.native-controls {
+    display: block;
+  }
+  summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-label);
+  }
+  details[open] summary {
+    margin-bottom: 14px;
   }
   textarea {
     width: 100%;
@@ -157,26 +239,7 @@
     line-height: 1.5;
     color: var(--text-muted);
   }
-  .examples {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  .quiet-button {
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--border-strong);
-    border-radius: 8px;
-    background: var(--surface-button-quiet);
-    color: var(--text-primary);
-    font: inherit;
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-  .quiet-button:hover {
-    color: var(--text-heading);
-    border-color: var(--text-muted);
-  }
-  :where(textarea, .quiet-button):focus-visible {
+  :where(textarea, summary):focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
