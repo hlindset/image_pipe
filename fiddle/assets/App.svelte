@@ -3,7 +3,7 @@
   import { Collapsible, Popover, RadioGroup } from "bits-ui";
   import ImgproxyControls from "./ImgproxyControls.svelte";
   import NativeControls from "./NativeControls.svelte";
-  import { defaultNativeState, nativeFetchPath } from "./native-path";
+  import { nativeFetchPath, resetNativeSettings } from "./native-path";
   import {
     appPathForState,
     defaultAppState,
@@ -27,6 +27,7 @@
     type FiddleState,
     type ProcessedImageMetadata,
     type SourceImage,
+    type SourceType,
   } from "./processing-path";
   import {
     PreviewMetadataTracker,
@@ -196,6 +197,9 @@
   const currentSource = $derived(
     appState.provider === "native" ? appState.native.source : appState.imgproxy.source,
   );
+  const currentSourceType = $derived(
+    appState.provider === "native" ? appState.native.sourceType : appState.imgproxy.sourceType,
+  );
 
   function initialAppState(): AppState {
     if (typeof window === "undefined") {
@@ -317,13 +321,21 @@
     appState.native = { ...appState.native, source };
   }
 
+  function updateSourceType(event: Event): void {
+    const select = event.currentTarget;
+    if (!(select instanceof HTMLSelectElement)) return;
+    const sourceType = select.value as SourceType;
+    appState.imgproxy = { ...appState.imgproxy, sourceType };
+    appState.native = { ...appState.native, sourceType };
+  }
+
   function setThemeMode(nextMode: string): void {
     themeMode = storedThemeMode(nextMode);
   }
 
   function resetSettings(): void {
     if (appState.provider === "native") {
-      appState.native = { ...defaultNativeState, source: appState.native.source };
+      appState.native = resetNativeSettings(appState.native);
     } else {
       appState.imgproxy = resetFiddleSettings(appState.imgproxy);
     }
@@ -453,16 +465,16 @@
               </select>
             </label>
 
-            {#if appState.provider === "imgproxy"}
-              <label class="field">
-                <span>Source type</span>
-                <select bind:value={appState.imgproxy.sourceType}>
-                  <option value="local">Local (filesystem)</option>
-                  <option value="s3">S3 (s3proxy)</option>
-                  <option value="http">HTTP (Plug.Static)</option>
-                </select>
-              </label>
+            <label class="field">
+              <span>Source type</span>
+              <select value={currentSourceType} onchange={updateSourceType}>
+                <option value="local">Local (filesystem)</option>
+                <option value="s3">S3 (s3proxy)</option>
+                <option value="http">HTTP (Plug.Static)</option>
+              </select>
+            </label>
 
+            {#if appState.provider === "imgproxy"}
               <label class="field">
                 <span>Signature</span>
                 <select bind:value={appState.imgproxy.signatureMode}>

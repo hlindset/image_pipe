@@ -6,6 +6,11 @@ copies of the generated color fixtures `icc_p3.png` and `rgba16.png` from
 `../test/support/image_pipe/test/imgproxy_differential/sources/`. They retain
 their embedded profile and bit depth so the examples exercise those paths.
 
+Both providers share the source selector: local files, the optional S3 proxy,
+and HTTP against the running demo. The loopback HTTP adapter is enabled in
+development and tests; it is disabled in the base configuration used by
+production. HTTP samples follow the browser's loopback origin and port.
+
 To start your Phoenix server:
 
 * Run `mix setup` to install and setup dependencies

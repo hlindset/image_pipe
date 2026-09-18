@@ -6,6 +6,7 @@ import {
   fiddlePathForState,
   parseAppPath,
   parseFiddlePath,
+  resetFiddleSettings,
   type AppState,
 } from "./fiddle-url-state";
 
@@ -63,6 +64,17 @@ describe("source type round-trip", () => {
       expect(parsed.sourceType).toBe(sourceType);
     });
   }
+
+  it("preserves the imgproxy source type when resetting transform settings", () => {
+    const reset = resetFiddleSettings({
+      ...defaultFiddleState,
+      sourceType: "s3",
+      resizeEnabled: true,
+    });
+
+    expect(reset.sourceType).toBe("s3");
+    expect(reset.resizeEnabled).toBe(false);
+  });
 });
 
 describe("codec encoder option round-trip", () => {

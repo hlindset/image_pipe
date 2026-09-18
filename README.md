@@ -221,6 +221,7 @@ Open http://localhost:4000. Native is selected by default; its processing
 endpoint is `/native-image`. The option editor supports native paths and
 `then` groups, with examples for geometry, object and face crops, pixel effects,
 canvas placement, padding, and trim.
+The source selector exercises local files, S3, and the demo's HTTP source.
 
 ![Demo fiddle desktop screenshot](docs/assets/demo-fiddle-desktop.png)
 

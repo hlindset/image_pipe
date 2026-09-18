@@ -8,7 +8,8 @@
 import Config
 
 config :image_pipe_fiddle,
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  loopback_http_source: false
 
 config :image_pipe_fiddle, :imgproxy,
   signature: [

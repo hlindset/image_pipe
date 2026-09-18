@@ -17,14 +17,15 @@ export type Rotate = 0 | 90 | 180 | 270;
 export type SignatureMode = "unsigned" | "signed";
 export type SourceImage = (typeof sampleImages)[number]["path"];
 
-// How a sample image is delivered to the imgproxy provider. All three resolve to
+// How a sample image is delivered to either provider. All three resolve to
 // byte-identical bytes from priv/static/images: local filesystem, the opt-in
 // s3proxy fake S3, and HTTP against the fiddle's own Plug.Static.
 export type SourceType = "local" | "s3" | "http";
 
 const localSourceScheme = "local:///";
 const s3SourceBucketPrefix = "s3://sources/";
-const httpSourcePrefix = "http://localhost:4000/";
+const defaultHttpSourcePrefix = "http://localhost:4000/";
+const loopbackHttpSourcePattern = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//;
 
 // COCO-80 object classes in underscore spelling, matching the hardcoded list in
 // ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes).
@@ -1100,7 +1101,7 @@ export function sourceIdentifierForRequest(source: SourceImage, sourceType: Sour
       return `${s3SourceBucketPrefix}${source.slice(source.lastIndexOf("/") + 1)}`;
     case "http":
       // The fiddle's own Plug.Static serves priv/static/images at /images/<file>.
-      return `${httpSourcePrefix}${source}`;
+      return `${httpSourcePrefix()}${source}`;
   }
 }
 
@@ -1125,8 +1126,9 @@ function sourceTypeAndPath(identifier: string): { source: string; sourceType: So
     return { source: identifier.slice(localSourceScheme.length), sourceType: "local" };
   }
 
-  if (identifier.startsWith(httpSourcePrefix)) {
-    return { source: identifier.slice(httpSourcePrefix.length), sourceType: "http" };
+  const httpPrefix = identifier.match(loopbackHttpSourcePattern)?.[0];
+  if (httpPrefix !== undefined) {
+    return { source: identifier.slice(httpPrefix.length), sourceType: "http" };
   }
 
   if (identifier.startsWith(s3SourceBucketPrefix)) {
@@ -1135,6 +1137,20 @@ function sourceTypeAndPath(identifier: string): { source: string; sourceType: So
   }
 
   return null;
+}
+
+function httpSourcePrefix(): string {
+  const location = globalThis.location;
+
+  if (
+    location !== undefined &&
+    (location.hostname === "localhost" || location.hostname === "127.0.0.1") &&
+    (location.protocol === "http:" || location.protocol === "https:")
+  ) {
+    return `${location.origin}/`;
+  }
+
+  return defaultHttpSourcePrefix;
 }
 
 export function signedPathForState(currentState: FiddleState): string {

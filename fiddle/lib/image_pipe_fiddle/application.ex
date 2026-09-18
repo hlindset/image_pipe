@@ -47,15 +47,14 @@ defmodule ImagePipeFiddle.Application do
   end
 
   @doc false
-  # Source adapters mounted for the imgproxy provider. The local File source is
-  # always available; s3 (via the opt-in s3proxy compose service) and http (the
-  # fiddle's own Plug.Static over loopback) let the demo compare source adapters
-  # on byte-identical sample images.
-  def imgproxy_source_mounts do
+  # Source adapters mounted for both providers. The local File source is
+  # always available; s3 (via the opt-in s3proxy compose service) lets the demo
+  # compare source adapters on byte-identical sample images.
+  def source_mounts do
     static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
     s3 = Application.fetch_env!(:image_pipe_fiddle, :s3_source)
 
-    [
+    mounts = [
       path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted},
       s3:
         {ImagePipe.Source.S3,
@@ -69,20 +68,22 @@ defmodule ImagePipeFiddle.Application do
                 secret_access_key: Keyword.fetch!(s3, :secret_access_key)
               ]}
          ],
-         buckets: %{"sources" => []}},
-      # DEV-ONLY SSRF relaxation: the http source type fetches the fiddle's own
-      # Plug.Static over loopback, so localhost must be explicitly allowed and the
-      # address policy must permit loopback IPs. This lives only in the fiddle demo
-      # — never in ImagePipe library defaults.
-      url:
-        {ImagePipe.Source.HTTP,
-         allowed_hosts: ["localhost", "127.0.0.1"], address_policy: [allow_loopback: true]}
+         buckets: %{"sources" => []}}
     ]
+
+    if Application.fetch_env!(:image_pipe_fiddle, :loopback_http_source) do
+      mounts ++
+        [
+          url:
+            {ImagePipe.Source.HTTP,
+             allowed_hosts: ["localhost", "127.0.0.1"], address_policy: [allow_loopback: true]}
+        ]
+    else
+      mounts
+    end
   end
 
   defp build_native_opts do
-    static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
-
     [
       allow_origin: "*",
       allow_debug_headers: true,
@@ -90,9 +91,7 @@ defmodule ImagePipeFiddle.Application do
         "card" => "w=400/h=400/fit=cover",
         "framed" => "preset=card/then/pad=20/bg=fff/format=webp"
       },
-      sources: [
-        path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
-      ]
+      sources: source_mounts()
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
     |> ImagePipe.Plug.init()
@@ -103,7 +102,7 @@ defmodule ImagePipeFiddle.Application do
 
     [
       dialect: ImagePipe.Dialect.Imgproxy,
-      sources: imgproxy_source_mounts(),
+      sources: source_mounts(),
       # Graceful fallback: detection failures degrade to attention crop (200) rather
       # than erroring; the default Logger surfaces any detection fallback.
       detector_required: false,

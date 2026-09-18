@@ -49,6 +49,7 @@ const activeFiddleState = {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("debounce", () => {
@@ -2078,6 +2079,18 @@ describe("sourceIdentifierForRequest", () => {
     expect(sourceIdentifierForRequest("images/dog.jpg", "http")).toBe(
       "http://localhost:4000/images/dog.jpg",
     );
+  });
+
+  it("uses the active loopback browser origin for an HTTP source", () => {
+    vi.stubGlobal("location", new URL("http://localhost:4321/native/w=800"));
+
+    const identifier = sourceIdentifierForRequest("images/dog.jpg", "http");
+
+    expect(identifier).toBe("http://localhost:4321/images/dog.jpg");
+    expect(parseSourceIdentifier(identifier)).toEqual({
+      source: "images/dog.jpg",
+      sourceType: "http",
+    });
   });
 });
 

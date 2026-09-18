@@ -107,6 +107,7 @@ export function resetFiddleSettings(currentState: FiddleState): FiddleState {
   return resetCropPixelsToSource({
     ...defaultFiddleState,
     source: currentState.source,
+    sourceType: currentState.sourceType,
     signatureMode: currentState.signatureMode,
     signatureKey: currentState.signatureKey,
     signatureSalt: currentState.signatureSalt,

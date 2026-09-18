@@ -1,5 +1,7 @@
 import Config
 
+config :image_pipe_fiddle, :loopback_http_source, true
+
 # For development, we disable any cache and enable
 # debugging and code reloading.
 #
