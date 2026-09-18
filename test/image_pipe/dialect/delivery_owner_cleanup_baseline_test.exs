@@ -93,10 +93,6 @@ defmodule ImagePipe.Dialect.DeliveryOwnerCleanupBaselineTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
     opts = [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver:
-        {ImagePipe.Dialect.IIIF.Resolver.Static,
-         map: %{"cat" => %ImagePipe.Plan.Source.Path{segments: ["images", "cat.jpg"]}}},
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ],
@@ -110,7 +106,7 @@ defmodule ImagePipe.Dialect.DeliveryOwnerCleanupBaselineTest do
 
     owner =
       spawn(fn ->
-        conn = Plug.Test.conn(:get, "/cat/full/!64,64/0/default.jpg")
+        conn = Plug.Test.conn(:get, "/w=64/h=64/format=jpeg/src/images/cat.jpg")
         ImagePipe.Plug.call(conn, initialized)
       end)
 
