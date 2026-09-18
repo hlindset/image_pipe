@@ -115,35 +115,100 @@ defmodule ImagePipe.Native.PipelinePixelTest do
 
   describe "output dimensions per fit mode (1600x1200 landscape source, 300x400 portrait box)" do
     test "contain: scales to fit within the box, preserving aspect" do
-      request = req([group(%{resize: %{w: 300, h: 400, fit: :contain, enlarge: false}})])
+      request =
+        req([
+          group(%{
+            resize: %{
+              w: 300,
+              h: 400,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          })
+        ])
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 225}
     end
 
     test "cover: fills the box exactly, cropping overflow" do
-      request = req([group(%{resize: %{w: 300, h: 400, fit: :cover, enlarge: false}})])
+      request =
+        req([
+          group(%{
+            resize: %{
+              w: 300,
+              h: 400,
+              fit: :cover,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          })
+        ])
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 400}
     end
 
     test "cover-down: behaves like cover when the source is larger than the box" do
-      request = req([group(%{resize: %{w: 300, h: 400, fit: :cover_down, enlarge: false}})])
+      request =
+        req([
+          group(%{
+            resize: %{
+              w: 300,
+              h: 400,
+              fit: :cover_down,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          })
+        ])
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 400}
     end
 
     test "stretch: forces the exact box regardless of aspect" do
-      request = req([group(%{resize: %{w: 300, h: 400, fit: :stretch, enlarge: false}})])
+      request =
+        req([
+          group(%{
+            resize: %{
+              w: 300,
+              h: 400,
+              fit: :stretch,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          })
+        ])
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 400}
     end
 
     test "auto: opposite orientation buckets (landscape source, portrait box) resolve to fit" do
-      request = req([group(%{resize: %{w: 300, h: 400, fit: :auto, enlarge: false}})])
+      request =
+        req([
+          group(%{
+            resize: %{
+              w: 300,
+              h: 400,
+              fit: :auto,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          })
+        ])
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 225}
@@ -153,7 +218,20 @@ defmodule ImagePipe.Native.PipelinePixelTest do
   # ── cover result-crop exactness at ±1-prone sizes ─────────────────────────
 
   test "cover result-crop lands on the exact requested box on a non-round source" do
-    request = req([group(%{resize: %{w: 333, h: 222, fit: :cover, enlarge: false}})])
+    request =
+      req([
+        group(%{
+          resize: %{
+            w: 333,
+            h: 222,
+            fit: :cover,
+            enlarge: false,
+            zoom: {1.0, 1.0},
+            min_w: nil,
+            min_h: nil
+          }
+        })
+      ])
 
     assert {:ok, %State{image: image}} = run_native(OddOrigin, request)
     assert {Image.width(image), Image.height(image)} == {333, 222}
@@ -164,7 +242,17 @@ defmodule ImagePipe.Native.PipelinePixelTest do
   test "w=400/then/trim=fff trims the POST-resize image, not the source" do
     request =
       req([
-        group(%{resize: %{w: 400, h: :auto, fit: :contain, enlarge: false}}),
+        group(%{
+          resize: %{
+            w: 400,
+            h: :auto,
+            fit: :contain,
+            enlarge: false,
+            zoom: {1.0, 1.0},
+            min_w: nil,
+            min_h: nil
+          }
+        }),
         group(%{trim: {{255, 255, 255}, 0}})
       ])
 
@@ -263,7 +351,21 @@ defmodule ImagePipe.Native.PipelinePixelTest do
     end
 
     test "a plain resize sets resize_target, leaving an :auto axis untargeted" do
-      request = req([group(%{resize: %{w: 400, h: :auto, fit: :contain, enlarge: false}})])
+      request =
+        req([
+          group(%{
+            resize: %{
+              w: 400,
+              h: :auto,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          })
+        ])
+
       decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
 
       assert decode_request.resize_target == {400, nil}
@@ -278,7 +380,15 @@ defmodule ImagePipe.Native.PipelinePixelTest do
           group(%{
             crop: {{:px, 600}, {:px, 400}},
             guide: {:anchor, :center},
-            resize: %{w: 300, h: :auto, fit: :contain, enlarge: false}
+            resize: %{
+              w: 300,
+              h: :auto,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
           })
         ])
 
@@ -299,7 +409,17 @@ defmodule ImagePipe.Native.PipelinePixelTest do
     test "a trim in a LATER group does not set trim? (only the first group governs)" do
       request =
         req([
-          group(%{resize: %{w: 400, h: :auto, fit: :contain, enlarge: false}}),
+          group(%{
+            resize: %{
+              w: 400,
+              h: :auto,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          }),
           group(%{trim: :auto})
         ])
 

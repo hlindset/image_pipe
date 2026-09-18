@@ -35,9 +35,12 @@ defmodule ImagePipe.Native.Pipeline do
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.InputColorManagement
+  alias ImagePipe.Transform.Lowering
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Flush
+  alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.PendingOrientation
+  alias ImagePipe.Transform.ResizePlanning
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
@@ -86,7 +89,7 @@ defmodule ImagePipe.Native.Pipeline do
     crop_dimensions = if quarter_turn?, do: {dh, dw}, else: {dw, dh}
 
     %DecodePlanner.Request{
-      resize_target: resize_target(group.resize),
+      resize_target: resize_target(group.resize, group.dpr),
       crop_extent: crop_extent(group, crop_dimensions),
       user_quarter_turn?: quarter_turn?,
       trim?: group.trim != nil,
@@ -103,17 +106,21 @@ defmodule ImagePipe.Native.Pipeline do
   # A resize with NO targeted axis normalizes to `nil`, not `{nil, nil}`: the
   # planner's precedence reads `resize_target`'s presence, so an empty box would
   # shadow `terminal_reduction` and cost the blurhash terminal its load shrink.
-  defp resize_target(nil), do: nil
+  defp resize_target(nil, _dpr), do: nil
 
-  defp resize_target(%{w: w, h: h}) do
-    case {target_axis(w), target_axis(h)} do
+  defp resize_target(%{min_w: min_w, min_h: min_h}, _dpr)
+       when min_w != nil or min_h != nil,
+       do: nil
+
+  defp resize_target(%{w: w, h: h, zoom: {zx, zy}}, dpr) do
+    case {target_axis(w, zx * dpr), target_axis(h, zy * dpr)} do
       {nil, nil} -> nil
       target -> target
     end
   end
 
-  defp target_axis(:auto), do: nil
-  defp target_axis(n) when is_integer(n), do: n
+  defp target_axis(:auto, _scale), do: nil
+  defp target_axis(n, scale), do: n * scale
 
   defp crop_extent(%Group{region: {_x, _y, w, h}}, {dw, dh}),
     do: {round(resolve_length(w, dw)), round(resolve_length(h, dh))}
@@ -245,13 +252,81 @@ defmodule ImagePipe.Native.Pipeline do
   defp run_group_body(state, shape, group, ctx) do
     group
     |> group_operations(shape)
-    |> Enum.reduce_while({:ok, state, shape}, fn plan_op, {:ok, state, shape} ->
-      case run_op(state, shape, plan_op, ctx) do
-        {:ok, _state, _shape} = ok -> {:cont, ok}
+    |> Enum.reduce_while({:ok, state, shape, group.dpr}, fn plan_op, {:ok, state, shape, dpr} ->
+      case run_group_op(state, shape, plan_op, dpr, ctx) do
+        {:ok, _state, _shape, _dpr} = ok -> {:cont, ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, state, shape, _dpr} -> {:ok, state, shape}
+      {:error, _reason} = error -> error
+    end
   end
+
+  defp run_group_op(state, shape, %Operation.Resize{} = op, dpr, ctx) do
+    mode = native_resize_mode(op, shape)
+
+    {width, height} =
+      PendingOrientation.display_dims({shape.width, shape.height}, shape.pending_orientation)
+
+    resize = ResizePlanning.resize_from(op, mode)
+
+    target =
+      Resize.native_target(%{resize | dpr: dpr}, source_width: width, source_height: height)
+
+    op = %{
+      op
+      | mode: mode,
+        width: {:px, target.width},
+        height: {:px, target.height},
+        min_width: nil,
+        min_height: nil,
+        zoom_x: 1.0,
+        zoom_y: 1.0,
+        dpr: {:ratio, 1, 1},
+        enlargement: :allow,
+        down: false
+    }
+
+    with {:ok, state, shape} <- run_op(state, shape, op, ctx),
+         do: {:ok, state, shape, target.dpr}
+  end
+
+  defp run_group_op(state, shape, %Operation.Padding{} = op, dpr, ctx) do
+    {ops, continuation} =
+      op |> Lowering.padding_executables(dpr) |> NeutralResolver.display_frame_advance(shape)
+
+    with {:ok, state} <- run_chain(ctx, overlay(state, shape), ops),
+         {:ok, state, shape} <- follow(state, shape, continuation, ctx, 0),
+         do: {:ok, state, shape, dpr}
+  end
+
+  defp run_group_op(state, shape, op, dpr, ctx) do
+    with {:ok, state, shape} <- run_op(state, shape, op, ctx),
+         do: {:ok, state, shape, dpr}
+  end
+
+  defp native_resize_mode(
+         %Operation.Resize{
+           mode: :auto,
+           width: {:px, w},
+           height: {:px, h},
+           zoom_x: zx,
+           zoom_y: zy
+         },
+         shape
+       ) do
+    {sw, sh} =
+      PendingOrientation.display_dims({shape.width, shape.height}, shape.pending_orientation)
+
+    case sw >= sh == w * zx >= h * zy do
+      true -> :cover
+      false -> :fit
+    end
+  end
+
+  defp native_resize_mode(op, shape), do: NeutralResolver.resolve_mode(op, shape)
 
   # `resolve/3` and `continue/4` are called as stateless toolkit functions —
   # `nil` carried state throughout, mirroring the neutral resolver's own
@@ -489,11 +564,21 @@ defmodule ImagePipe.Native.Pipeline do
 
   defp resize_op(nil, _guide), do: nil
 
-  defp resize_op(%{w: w, h: h, fit: fit, enlarge: enlarge?}, guide) do
+  defp resize_op(
+         %{w: w, h: h, fit: fit, enlarge: enlarge?, zoom: {zx, zy}, min_w: mw, min_h: mh},
+         guide
+       ) do
     {mode, down?} = resize_mode_down(fit)
 
     opts =
-      [down: down?, enlargement: if(enlarge?, do: :allow, else: :deny)] ++
+      [
+        down: down?,
+        enlargement: if(enlarge?, do: :allow, else: :deny),
+        zoom_x: zx,
+        zoom_y: zy,
+        min_width: optional_dimension(mw),
+        min_height: optional_dimension(mh)
+      ] ++
         if guide, do: [guide: plan_guide(guide)], else: []
 
     {:ok, op} = Operation.resize(mode, resize_dimension(w), resize_dimension(h), opts)
@@ -508,6 +593,9 @@ defmodule ImagePipe.Native.Pipeline do
 
   defp resize_dimension(:auto), do: :auto
   defp resize_dimension(n) when is_integer(n), do: {:px, n}
+
+  defp optional_dimension(nil), do: nil
+  defp optional_dimension(n), do: resize_dimension(n)
 
   defp blur_op(nil), do: nil
 

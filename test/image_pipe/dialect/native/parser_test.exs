@@ -30,7 +30,17 @@ defmodule ImagePipe.Native.ParserTest do
 
       assert request == %Request{
                groups: [
-                 %Group{resize: %{w: 800, h: :auto, fit: :contain, enlarge: false}}
+                 %Group{
+                   resize: %{
+                     w: 800,
+                     h: :auto,
+                     min_w: nil,
+                     min_h: nil,
+                     fit: :contain,
+                     enlarge: false,
+                     zoom: {1.0, 1.0}
+                   }
+                 }
                ],
                output: %Output{terminal: :image, format: nil, quality: nil},
                source: "images/cat.jpg",
@@ -45,7 +55,15 @@ defmodule ImagePipe.Native.ParserTest do
       assert request == %Request{
                groups: [
                  %Group{
-                   resize: %{w: 300, h: 400, fit: :cover, enlarge: false},
+                   resize: %{
+                     w: 300,
+                     h: 400,
+                     min_w: nil,
+                     min_h: nil,
+                     fit: :cover,
+                     enlarge: false,
+                     zoom: {1.0, 1.0}
+                   },
                    guide: {:focus, 0.25, 0.75}
                  }
                ],
@@ -63,7 +81,15 @@ defmodule ImagePipe.Native.ParserTest do
                  %Group{
                    crop: {{:px, 600}, {:px, 400}},
                    guide: {:anchor_smart},
-                   resize: %{w: 300, h: :auto, fit: :contain, enlarge: false}
+                   resize: %{
+                     w: 300,
+                     h: :auto,
+                     min_w: nil,
+                     min_h: nil,
+                     fit: :contain,
+                     enlarge: false,
+                     zoom: {1.0, 1.0}
+                   }
                  }
                ],
                output: %Output{terminal: :image, format: nil, quality: nil},
@@ -77,7 +103,17 @@ defmodule ImagePipe.Native.ParserTest do
 
       assert request == %Request{
                groups: [
-                 %Group{resize: %{w: 500, h: :auto, fit: :contain, enlarge: false}},
+                 %Group{
+                   resize: %{
+                     w: 500,
+                     h: :auto,
+                     min_w: nil,
+                     min_h: nil,
+                     fit: :contain,
+                     enlarge: false,
+                     zoom: {1.0, 1.0}
+                   }
+                 },
                  %Group{trim: {{255, 255, 255}, 10}}
                ],
                output: %Output{terminal: :image, format: nil, quality: nil},
@@ -119,7 +155,17 @@ defmodule ImagePipe.Native.ParserTest do
 
       assert request == %Request{
                groups: [
-                 %Group{resize: %{w: 32, h: :auto, fit: :contain, enlarge: false}}
+                 %Group{
+                   resize: %{
+                     w: 32,
+                     h: :auto,
+                     min_w: nil,
+                     min_h: nil,
+                     fit: :contain,
+                     enlarge: false,
+                     zoom: {1.0, 1.0}
+                   }
+                 }
                ],
                output: %Output{terminal: :blurhash, format: nil, quality: nil},
                source: "images/cat.jpg",
@@ -129,6 +175,10 @@ defmodule ImagePipe.Native.ParserTest do
   end
 
   describe "happy path per option" do
+    test "dpr is group-scoped and does not require resize intent" do
+      assert {:ok, %Request{groups: [%Group{dpr: 2.0, resize: nil}]}} = parse(["dpr=2"])
+    end
+
     test "w alone builds a resize with h defaulted to auto" do
       assert {:ok, %Request{groups: [%Group{resize: %{w: 800, h: :auto}}]}} = parse(["w=800"])
     end
@@ -145,6 +195,28 @@ defmodule ImagePipe.Native.ParserTest do
     test "enlarge with a resize intent" do
       assert {:ok, %Request{groups: [%Group{resize: %{enlarge: true}}]}} =
                parse(["w=800", "enlarge"])
+    end
+
+    test "minimum dimensions create resize intent without w or h" do
+      assert {:ok,
+              %Request{
+                groups: [
+                  %Group{resize: %{w: :auto, h: :auto, min_w: 320, min_h: 240}}
+                ]
+              }} = parse(["min-w=320", "min-h=240"])
+    end
+
+    test "zoom scalar and pair values are canonical resize data" do
+      assert {:ok, %Request{groups: [%Group{resize: %{zoom: {2.0, 2.0}}}]}} =
+               parse(["w=800", "zoom=2"])
+
+      assert {:ok, %Request{groups: [%Group{resize: %{zoom: {1.25, 0.75}}}]}} =
+               parse(["min-w=320", "zoom=1.25,0.75"])
+    end
+
+    test "unit zoom without resize intent canonicalizes away" do
+      assert parse(["zoom=1"]) == parse([])
+      assert parse(["zoom=1,1"]) == parse([])
     end
 
     test "crop alone defaults its guide to anchor=center" do
@@ -231,6 +303,18 @@ defmodule ImagePipe.Native.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :invalid_dimension))
     end
 
+    test "invalid dpr, zoom, and minimum dimensions report their option errors" do
+      for {segment, reason} <- [
+            {"dpr=0", :invalid_dpr},
+            {"zoom=0", :invalid_zoom},
+            {"min-w=auto", :invalid_min_dimension},
+            {"min-h=0", :invalid_min_dimension}
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse([segment])
+        assert Enum.any?(diagnostics, &(&1.reason == reason))
+      end
+    end
+
     test "key=true is a specific error, not a generic invalid value" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["w=800", "enlarge=true"])
       assert Enum.any?(diagnostics, &(&1.reason == :true_spelled_bare))
@@ -298,6 +382,16 @@ defmodule ImagePipe.Native.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
     end
 
+    test "non-unit zoom without a resize intent is inert" do
+      assert {:error, {:invalid_request, diagnostics}} = parse(["zoom=1,2"])
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "minimum dimensions satisfy fit and enlarge resize intent" do
+      assert {:ok, %Request{groups: [%Group{resize: %{fit: :cover, enlarge: true}}]}} =
+               parse(["min-w=320", "fit=cover", "enlarge"])
+    end
+
     test "a lone auto dimension is inert" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["w=auto"])
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
@@ -349,6 +443,14 @@ defmodule ImagePipe.Native.ParserTest do
       reasons = Enum.map(diagnostics, & &1.reason)
 
       assert :invalid_dimension in reasons
+      refute :inert_option in reasons
+    end
+
+    test "a present-but-invalid minimum dimension suppresses zoom inertness" do
+      assert {:error, {:invalid_request, diagnostics}} = parse(["min-w=invalid", "zoom=2"])
+      reasons = Enum.map(diagnostics, & &1.reason)
+
+      assert :invalid_min_dimension in reasons
       refute :inert_option in reasons
     end
 

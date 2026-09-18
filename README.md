@@ -103,7 +103,8 @@ keys are configured.
 ## Current support boundaries
 
 The native API currently supports EXIF orientation policy, arbitrary rotation,
-resize modes, guided and explicit-region crops, flips, anchors and focal points,
+resize modes, minimum dimensions, DPR and zoom, guided and explicit-region crops,
+flips, anchors and focal points,
 trim, blur, grayscale, bitonal, padding, background, image format and quality,
 BlurHash, debug headers, expiry, presets, and signed URLs. It accepts local
 paths and HTTP(S) source URLs. Invalid requests fail before cache lookup or
@@ -113,6 +114,12 @@ EXIF orientation applies once by default. Use `orient=none` to keep the stored
 pixel orientation; user rotation and flips still apply. Native trim runs after
 orientation, rotation, and flips, so its automatic background comes from the
 displayed top-left corner.
+
+Use `dpr=2` for twice the output density and `zoom=1.5` (or `zoom=2,1`)
+to scale resize targets. Padding follows DPR; source crops keep their physical
+pixel coordinates. `min-w` and `min-h` raise the resize target's minimum size.
+Without `enlarge`, source dimensions cap the resize and padding scales down
+proportionally. Each `then` group starts with DPR and zoom of 1.
 
 Configure reusable native presets with option strings:
 

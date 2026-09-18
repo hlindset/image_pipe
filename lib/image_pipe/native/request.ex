@@ -43,8 +43,11 @@ defmodule ImagePipe.Native.Request.Group do
   @type resize :: %{
           w: :auto | pos_integer(),
           h: :auto | pos_integer(),
+          min_w: pos_integer() | nil,
+          min_h: pos_integer() | nil,
           fit: :contain | :cover | :cover_down | :stretch | :auto,
-          enlarge: boolean()
+          enlarge: boolean(),
+          zoom: {float(), float()}
         }
 
   @type guide ::
@@ -56,6 +59,7 @@ defmodule ImagePipe.Native.Request.Group do
             flip: nil,
             gray: false,
             bitonal: false,
+            dpr: 1.0,
             trim: nil,
             region: nil,
             crop: nil,
@@ -70,6 +74,7 @@ defmodule ImagePipe.Native.Request.Group do
           flip: nil | :horizontal | :vertical | :both,
           gray: boolean(),
           bitonal: boolean(),
+          dpr: float(),
           trim: nil | :auto | {color(), number()},
           region: nil | {length(), length(), length(), length()},
           crop: nil | {length(), length()},

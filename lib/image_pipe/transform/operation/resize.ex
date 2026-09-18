@@ -162,6 +162,67 @@ defmodule ImagePipe.Transform.Operation.Resize do
     }
   end
 
+  @doc false
+  @spec native_target(t(), keyword()) :: %{
+          width: pos_integer(),
+          height: pos_integer(),
+          dpr: float()
+        }
+  def native_target(%__MODULE__{} = operation, opts) do
+    source = source_dimensions(opts)
+    operation = operation |> resolve_relative_dimensions(source) |> normalize()
+    base = native_base(operation, source)
+    base = native_minimum(base, operation)
+    dpr = native_dpr(operation, base, source)
+    %{width: width, height: height} = apply_dpr(base, dpr)
+    %{width: width, height: height, dpr: dpr}
+  end
+
+  defp native_base(%__MODULE__{mode: :fit, width: :auto, height: :auto} = operation, source),
+    do: source |> apply_zoom(operation) |> fit_inside(source)
+
+  defp native_base(%__MODULE__{width: :auto, height: :auto} = operation, source),
+    do: apply_zoom(source, operation)
+
+  defp native_base(%__MODULE__{mode: :fit} = operation, source) do
+    operation |> native_box(source) |> fit_inside(source)
+  end
+
+  defp native_base(%__MODULE__{} = operation, source),
+    do: native_box(operation, source)
+
+  defp native_box(operation, source) do
+    %{
+      operation
+      | width: native_zoom_axis(operation.width, operation.zoom_x),
+        height: native_zoom_axis(operation.height, operation.zoom_y)
+    }
+    |> requested_box(source)
+  end
+
+  defp native_zoom_axis(:auto, _zoom), do: :auto
+  defp native_zoom_axis(value, zoom), do: zoom_axis(value, zoom)
+
+  defp native_minimum(base, operation) do
+    scale =
+      max(
+        minimum_scale(operation.min_width, base.width),
+        minimum_scale(operation.min_height, base.height)
+      )
+
+    %{width: base.width * scale, height: base.height * scale}
+  end
+
+  defp minimum_scale(nil, _base), do: 1.0
+  defp minimum_scale(minimum, base), do: max(1.0, minimum / base)
+
+  defp native_dpr(%__MODULE__{enlarge: true, mode: mode, dpr: dpr}, _base, _source)
+       when mode != :fill_down,
+       do: dpr
+
+  defp native_dpr(%__MODULE__{dpr: dpr}, base, source),
+    do: min(dpr, min(source.width / base.width, source.height / base.height))
+
   # The result-crop box mirrors imgproxy's TargetWidth/TargetHeight
   # (`Scale(po.Width, DprScale * ZoomWidth)`, prepare.go calcSizes): the literal
   # requested dimensions scaled by DPR and zoom, with NO min-dimension expansion

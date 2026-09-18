@@ -30,7 +30,8 @@ streaming, cache, color, decode, and orientation behavior.
 
 The native API implements these option keys:
 
-`orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `crop`, `region`,
+`orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
+`zoom`, `crop`, `region`,
 `anchor`, `focus`, `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
 `debug`, `expires`, `preset`.
 
@@ -161,6 +162,15 @@ the default crop anchor is center, and alpha is preserved unless a
 background is requested. `auto` selects cover when source and target
 orientation match on display axes, contain otherwise. All geometry is
 resolved before final integer-pixel rounding.
+
+`dpr` accepts a positive decimal. `zoom` accepts a positive decimal for both
+axes, or an `x,y` pair. It scales the requested box before the resize mode
+is applied; an automatic axis follows the aspect ratio after the specified
+axis is zoomed. `min-w` and `min-h` accept positive integer logical pixels;
+they uniformly expand the resize target as necessary before the enlargement
+cap. With minimum dimensions alone, the starting target is the current image.
+A non-unit zoom requires a width, height, or minimum dimension. DPR alone
+can scale padding without resizing the source. These options reset at `then`.
 
 ### Source concealment
 

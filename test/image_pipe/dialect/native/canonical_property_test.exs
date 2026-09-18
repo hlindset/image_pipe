@@ -20,7 +20,11 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
   @fixed_group_segments [
     "w=300",
     "h=400",
+    "min-w=200",
+    "min-h=250",
     "fit=cover",
+    "zoom=1.25,0.75",
+    "dpr=2",
     "anchor=smart",
     "blur=2.5",
     "pad=10,20,30,40",
@@ -83,6 +87,12 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
     test "blur=0 canonicalizes the same as blur being entirely absent (Tier-1 identity)" do
       assert parse(["w=800"]) == parse(["w=800", "blur=0"])
       assert parse(["w=800", "blur=0"]) == parse(["w=800", "blur=0.0"])
+    end
+
+    test "unit scale spellings canonicalize to their defaults" do
+      assert parse(["w=800"]) == parse(["w=800", "zoom=1"])
+      assert parse(["w=800"]) == parse(["w=800", "zoom=1.0,1.00"])
+      assert parse(["w=800"]) == parse(["w=800", "dpr=1"])
     end
   end
 

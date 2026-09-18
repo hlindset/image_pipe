@@ -108,7 +108,20 @@ defmodule ImagePipe.Native.BlurhashTest do
   end
 
   test "a resize=200x150,fit=contain group still reduces further to the terminal frame" do
-    request = req([group(%{resize: %{w: 200, h: 150, fit: :contain, enlarge: false}})])
+    request =
+      req([
+        group(%{
+          resize: %{
+            w: 200,
+            h: 150,
+            fit: :contain,
+            enlarge: false,
+            zoom: {1.0, 1.0},
+            min_w: nil,
+            min_h: nil
+          }
+        })
+      ])
 
     assert {:ok, %State{image: image}} = run_reduced(LargeLandscapeOrigin, request)
     assert {Image.width(image), Image.height(image)} == {32, 24}

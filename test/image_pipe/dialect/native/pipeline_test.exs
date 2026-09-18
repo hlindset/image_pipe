@@ -79,9 +79,23 @@ defmodule ImagePipe.Native.PipelineTest do
 
     test ":resize is terminal on first measure (bare, no result-crop tail)" do
       state = state_for(1600, 1200)
-      request = req([group(%{resize: %{w: 800, h: :auto, fit: :contain, enlarge: false}})])
 
-      assert [{:ops, [%ExecutableResize{mode: :fit, width: {:pixels, 800}, height: :auto}]}] =
+      request =
+        req([
+          group(%{
+            resize: %{
+              w: 800,
+              h: :auto,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          })
+        ])
+
+      assert [{:ops, [%ExecutableResize{mode: :fit, width: {:pixels, 800}}]}] =
                collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
     end
 
@@ -91,7 +105,15 @@ defmodule ImagePipe.Native.PipelineTest do
       request =
         req([
           group(%{
-            resize: %{w: 300, h: 400, fit: :cover, enlarge: false},
+            resize: %{
+              w: 300,
+              h: 400,
+              fit: :cover,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            },
             guide: {:focus, 0.25, 0.75}
           })
         ])
@@ -114,7 +136,15 @@ defmodule ImagePipe.Native.PipelineTest do
       request =
         req([
           group(%{
-            resize: %{w: 300, h: 400, fit: :cover, enlarge: false},
+            resize: %{
+              w: 300,
+              h: 400,
+              fit: :cover,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            },
             guide: {:anchor, :center}
           })
         ])
@@ -148,9 +178,23 @@ defmodule ImagePipe.Native.PipelineTest do
   describe "op emission per group" do
     test "plain w=800" do
       state = state_for(1600, 1200)
-      request = req([group(%{resize: %{w: 800, h: :auto, fit: :contain, enlarge: false}})])
 
-      assert [{:ops, [%ExecutableResize{mode: :fit, width: {:pixels, 800}, height: :auto}]}] =
+      request =
+        req([
+          group(%{
+            resize: %{
+              w: 800,
+              h: :auto,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          })
+        ])
+
+      assert [{:ops, [%ExecutableResize{mode: :fit, width: {:pixels, 800}}]}] =
                collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
     end
 
@@ -160,7 +204,15 @@ defmodule ImagePipe.Native.PipelineTest do
       request =
         req([
           group(%{
-            resize: %{w: 300, h: 400, fit: :cover, enlarge: false},
+            resize: %{
+              w: 300,
+              h: 400,
+              fit: :cover,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            },
             guide: {:focus, 0.25, 0.75}
           })
         ])
@@ -182,7 +234,15 @@ defmodule ImagePipe.Native.PipelineTest do
           group(%{
             crop: {{:px, 600}, {:px, 400}},
             guide: {:anchor_smart},
-            resize: %{w: 300, h: :auto, fit: :contain, enlarge: false}
+            resize: %{
+              w: 300,
+              h: :auto,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
           })
         ])
 
@@ -197,7 +257,7 @@ defmodule ImagePipe.Native.PipelineTest do
              } =
                crop
 
-      assert %ExecutableResize{mode: :fit, width: {:pixels, 300}, height: :auto} = resize
+      assert %ExecutableResize{mode: :fit, width: {:pixels, 300}} = resize
     end
 
     test "region=10,20,100,200 emits a coordinate crop with no gravity" do
@@ -231,14 +291,24 @@ defmodule ImagePipe.Native.PipelineTest do
 
       request =
         req([
-          group(%{resize: %{w: 500, h: :auto, fit: :contain, enlarge: false}}),
+          group(%{
+            resize: %{
+              w: 500,
+              h: :auto,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            }
+          }),
           group(%{trim: {{255, 255, 255}, 0}})
         ])
 
       assert [{:ops, [resize]}, {:ops, [trim]}] =
                collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
 
-      assert %ExecutableResize{mode: :fit, width: {:pixels, 500}, height: :auto} = resize
+      assert %ExecutableResize{mode: :fit, width: {:pixels, 500}} = resize
       assert %ExecutableTrim{threshold: threshold, background: %ImagePipe.Plan.Color{}} = trim
       assert threshold == 0.0
     end
@@ -289,7 +359,15 @@ defmodule ImagePipe.Native.PipelineTest do
           group(%{
             trim: :auto,
             region: {{:px, 100}, {:px, 100}, {:px, 800}, {:px, 600}},
-            resize: %{w: 400, h: :auto, fit: :contain, enlarge: false},
+            resize: %{
+              w: 400,
+              h: :auto,
+              fit: :contain,
+              enlarge: false,
+              zoom: {1.0, 1.0},
+              min_w: nil,
+              min_h: nil
+            },
             blur: 3.0,
             pad: {10, 10, 10, 10},
             bg: {255, 0, 0, 1.0}
@@ -364,7 +442,15 @@ defmodule ImagePipe.Native.PipelineTest do
       # A `w=400` request against a NON-proportional 3200x2405 source. Deriving
       # the missing axis from the aspect (`round(400 * 2405/3200)` = 301) binds
       # `min/2` tighter than the targeted axis alone and halves the shrink.
-      resize = %{w: 400, h: :auto, fit: :contain, enlarge: false}
+      resize = %{
+        w: 400,
+        h: :auto,
+        fit: :contain,
+        enlarge: false,
+        zoom: {1.0, 1.0},
+        min_w: nil,
+        min_h: nil
+      }
 
       assert Pipeline.decode_request(
                req([group(%{resize: resize})]),
@@ -377,7 +463,15 @@ defmodule ImagePipe.Native.PipelineTest do
     end
 
     test "two-axis resize preserves both concrete targets" do
-      resize = %{w: 250, h: 190, fit: :contain, enlarge: false}
+      resize = %{
+        w: 250,
+        h: 190,
+        fit: :contain,
+        enlarge: false,
+        zoom: {1.0, 1.0},
+        min_w: nil,
+        min_h: nil
+      }
 
       assert Pipeline.decode_request(
                req([group(%{resize: resize})]),

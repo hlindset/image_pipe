@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
 
   alias ImagePipe.Native.OptionSpec
 
-  @native_keys ~w(rotate flip gray bitonal w h fit enlarge crop region anchor focus blur trim pad bg orient output format q debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom crop region anchor focus blur trim pad bg orient output format q debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -72,9 +72,34 @@ defmodule ImagePipe.Native.OptionSpecTest do
   end
 
   describe "value parsers — happy paths" do
+    test "parse_dpr accepts positive finite decimals and normalizes to float" do
+      assert OptionSpec.parse_dpr("2") == {:ok, 2.0}
+      assert OptionSpec.parse_dpr("1.5") == {:ok, 1.5}
+      assert OptionSpec.parse_dpr("0") == {:error, :invalid_dpr}
+      assert OptionSpec.parse_dpr("-1") == {:error, :invalid_dpr}
+      assert OptionSpec.parse_dpr("1e2") == {:error, :invalid_dpr}
+      assert OptionSpec.parse_dpr(String.duplicate("9", 1_000)) == {:error, :invalid_dpr}
+    end
+
     test "parse_dimension unwraps px to a plain integer, keeps auto" do
       assert OptionSpec.parse_dimension("800") == {:ok, 800}
       assert OptionSpec.parse_dimension("auto") == {:ok, :auto}
+    end
+
+    test "parse_min_dimension accepts positive integers but not auto" do
+      assert OptionSpec.parse_min_dimension("320") == {:ok, 320}
+      assert OptionSpec.parse_min_dimension("0") == {:error, :invalid_min_dimension}
+      assert OptionSpec.parse_min_dimension("auto") == {:error, :invalid_min_dimension}
+      assert OptionSpec.parse_min_dimension("2.5") == {:error, :invalid_min_dimension}
+    end
+
+    test "parse_zoom accepts a positive scalar or x,y pair" do
+      assert OptionSpec.parse_zoom("2") == {:ok, {2.0, 2.0}}
+      assert OptionSpec.parse_zoom("1.25,0.75") == {:ok, {1.25, 0.75}}
+      assert OptionSpec.parse_zoom("0") == {:error, :invalid_zoom}
+      assert OptionSpec.parse_zoom("1,-1") == {:error, :invalid_zoom}
+      assert OptionSpec.parse_zoom("1,2,3") == {:error, :invalid_zoom}
+      assert OptionSpec.parse_zoom("1e2") == {:error, :invalid_zoom}
     end
 
     test "parse_fit translates hyphenated URL spellings to atoms" do

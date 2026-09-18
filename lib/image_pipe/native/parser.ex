@@ -388,7 +388,8 @@ defmodule ImagePipe.Native.Parser do
   end
 
   # Locked probe decisions extending [native §Inertness policy, Tier 2]:
-  # resize intent := a concrete (non-auto) w or h; fit/enlarge require it; a
+  # resize intent := a concrete (non-auto) w or h, or a minimum dimension;
+  # fit/enlarge/non-unit zoom require it; a
   # lone or doubled auto dimension without a concrete partner is inert; an
   # anchor/focus guide requires a consumer (crop, or a cover-family resize
   # with resize intent).
@@ -416,7 +417,7 @@ defmodule ImagePipe.Native.Parser do
   end
 
   defp resize_dependent_errors(group_map, occurrences, group_index, resize_intent, prereq_errored) do
-    resize_requirement = "a concrete (non-auto) w or h"
+    resize_requirement = "a concrete (non-auto) w or h, min-w, or min-h"
 
     inert_if(
       not resize_intent and not prereq_errored and Map.has_key?(group_map, "fit"),
@@ -430,6 +431,13 @@ defmodule ImagePipe.Native.Parser do
         occurrences,
         group_index,
         "enlarge",
+        resize_requirement
+      ) ++
+      inert_if(
+        not resize_intent and not prereq_errored and nonunit_zoom?(group_map),
+        occurrences,
+        group_index,
+        "zoom",
         resize_requirement
       )
   end
@@ -462,7 +470,9 @@ defmodule ImagePipe.Native.Parser do
   # lets the dependent's own inertness check fire.
   defp resize_prereq_errored?(occurrences, group_index) do
     group_key_errored?(occurrences, group_index, "w") or
-      group_key_errored?(occurrences, group_index, "h")
+      group_key_errored?(occurrences, group_index, "h") or
+      group_key_errored?(occurrences, group_index, "min-w") or
+      group_key_errored?(occurrences, group_index, "min-h")
   end
 
   defp guide_prereq_errored?(occurrences, group_index, resize_prereq_errored) do
@@ -526,11 +536,21 @@ defmodule ImagePipe.Native.Parser do
   end
 
   defp resize_intent?(group_map) do
-    concrete_dimension?(Map.get(group_map, "w")) or concrete_dimension?(Map.get(group_map, "h"))
+    concrete_dimension?(Map.get(group_map, "w")) or
+      concrete_dimension?(Map.get(group_map, "h")) or
+      concrete_dimension?(Map.get(group_map, "min-w")) or
+      concrete_dimension?(Map.get(group_map, "min-h"))
   end
 
   defp concrete_dimension?(n) when is_integer(n), do: true
   defp concrete_dimension?(_not_concrete), do: false
+
+  defp nonunit_zoom?(group_map) do
+    case Map.get(group_map, "zoom", {1.0, 1.0}) do
+      {1.0, 1.0} -> false
+      {_x, _y} -> true
+    end
+  end
 
   defp guide_consumer?(group_map, resize_intent?) do
     Map.has_key?(group_map, "crop") or
@@ -561,6 +581,7 @@ defmodule ImagePipe.Native.Parser do
       flip: Map.get(group_map, "flip"),
       gray: Map.get(group_map, "gray", false),
       bitonal: Map.get(group_map, "bitonal", false),
+      dpr: Map.get(group_map, "dpr", 1.0),
       trim: assemble_trim(Map.get(group_map, "trim")),
       region: Map.get(group_map, "region"),
       crop: Map.get(group_map, "crop"),
@@ -580,8 +601,11 @@ defmodule ImagePipe.Native.Parser do
       %{
         w: Map.get(group_map, "w", :auto),
         h: Map.get(group_map, "h", :auto),
+        min_w: Map.get(group_map, "min-w"),
+        min_h: Map.get(group_map, "min-h"),
         fit: Map.get(group_map, "fit", :contain),
-        enlarge: Map.get(group_map, "enlarge", false)
+        enlarge: Map.get(group_map, "enlarge", false),
+        zoom: Map.get(group_map, "zoom", {1.0, 1.0})
       }
     end
   end
@@ -670,6 +694,9 @@ defmodule ImagePipe.Native.Parser do
   def message_for(:duplicate_option), do: "duplicate option"
   def message_for(:empty_segment), do: "empty option segment"
   def message_for(:invalid_dimension), do: "invalid value: expected px or `auto`"
+  def message_for(:invalid_min_dimension), do: "invalid value: expected positive integer px"
+  def message_for(:invalid_dpr), do: "invalid value: expected a positive finite decimal"
+  def message_for(:invalid_zoom), do: "invalid value: expected a positive scalar or x,y pair"
 
   def message_for(:invalid_fit),
     do: "invalid value: expected contain, cover, cover-down, stretch, or auto"

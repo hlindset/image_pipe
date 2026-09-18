@@ -82,6 +82,18 @@ defmodule ImagePipe.Native.IdentityTest do
       refute material(default_request, neg).representation ==
                material(none_request, neg).representation
     end
+
+    test "geometry scale defaults canonicalize while effective values change identity" do
+      default_request = request!(["w=300"])
+      explicit_defaults = request!(["w=300", "dpr=1", "zoom=1"])
+      scaled_request = request!(["w=300", "dpr=2", "zoom=1.5,0.75"])
+      minimum_request = request!(["min-w=300"])
+      neg = negotiation()
+
+      assert material(default_request, neg) == material(explicit_defaults, neg)
+      refute material(default_request, neg) == material(scaled_request, neg)
+      refute material(default_request, neg) == material(minimum_request, neg)
+    end
   end
 
   describe "negotiation outcome composition" do

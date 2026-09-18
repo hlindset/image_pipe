@@ -90,6 +90,7 @@ defmodule ImagePipe.Native.OptionSpec do
   }
 
   @preset_name_pattern ~r/\A[A-Za-z0-9._-]+\z/
+  @positive_decimal_pattern ~r/\A[0-9]+(?:\.[0-9]+)?\z/
 
   @doc """
   Every declared probe-subset option, in a stable order matching the
@@ -151,6 +152,19 @@ defmodule ImagePipe.Native.OptionSpec do
         examples: ["bitonal"]
       },
       %__MODULE__{
+        key: "dpr",
+        scope: :group,
+        value: &__MODULE__.parse_dpr/1,
+        stage: 5,
+        default: 1.0,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Device pixel ratio multiplier",
+        examples: ["dpr=2", "dpr=1.5"]
+      },
+      %__MODULE__{
         key: "w",
         scope: :group,
         value: &__MODULE__.parse_dimension/1,
@@ -177,6 +191,32 @@ defmodule ImagePipe.Native.OptionSpec do
         examples: ["h=400"]
       },
       %__MODULE__{
+        key: "min-w",
+        scope: :group,
+        value: &__MODULE__.parse_min_dimension/1,
+        stage: 5,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Minimum resize width in pixels",
+        examples: ["min-w=320"]
+      },
+      %__MODULE__{
+        key: "min-h",
+        scope: :group,
+        value: &__MODULE__.parse_min_dimension/1,
+        stage: 5,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Minimum resize height in pixels",
+        examples: ["min-h=240"]
+      },
+      %__MODULE__{
         key: "fit",
         scope: :group,
         value: &__MODULE__.parse_fit/1,
@@ -201,6 +241,19 @@ defmodule ImagePipe.Native.OptionSpec do
         terminal_applicability: :both,
         summary: "Allow the resize to upscale past source dimensions",
         examples: ["enlarge"]
+      },
+      %__MODULE__{
+        key: "zoom",
+        scope: :group,
+        value: &__MODULE__.parse_zoom/1,
+        stage: 5,
+        default: {1.0, 1.0},
+        prerequisites: [:resize_intent],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Positive resize multiplier as one scalar or x,y pair",
+        examples: ["zoom=2", "zoom=1.25,0.75"]
       },
       %__MODULE__{
         key: "crop",
@@ -416,6 +469,15 @@ defmodule ImagePipe.Native.OptionSpec do
   # module's job, not this table's.
 
   @doc false
+  @spec parse_dpr(String.t()) :: {:ok, float()} | {:error, :invalid_dpr}
+  def parse_dpr(string) do
+    case positive_decimal(string) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, :invalid_dpr}
+    end
+  end
+
+  @doc false
   @spec parse_dimension(String.t()) ::
           {:ok, :auto | pos_integer()} | {:error, :invalid_dimension}
   def parse_dimension(string) do
@@ -423,6 +485,51 @@ defmodule ImagePipe.Native.OptionSpec do
       {:ok, :auto} -> {:ok, :auto}
       {:ok, {:px, n}} -> {:ok, n}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec parse_min_dimension(String.t()) ::
+          {:ok, pos_integer()} | {:error, :invalid_min_dimension}
+  def parse_min_dimension(string) do
+    case Value.dimension(string) do
+      {:ok, {:px, n}} -> {:ok, n}
+      _invalid -> {:error, :invalid_min_dimension}
+    end
+  end
+
+  @doc false
+  @spec parse_zoom(String.t()) ::
+          {:ok, {float(), float()}} | {:error, :invalid_zoom}
+  def parse_zoom(string) do
+    case String.split(string, ",") do
+      [scalar] ->
+        case positive_decimal(scalar) do
+          {:ok, value} -> {:ok, {value, value}}
+          :error -> {:error, :invalid_zoom}
+        end
+
+      [x, y] ->
+        with {:ok, x} <- positive_decimal(x),
+             {:ok, y} <- positive_decimal(y) do
+          {:ok, {x, y}}
+        else
+          :error -> {:error, :invalid_zoom}
+        end
+
+      _invalid_arity ->
+        {:error, :invalid_zoom}
+    end
+  end
+
+  defp positive_decimal(string) do
+    if Regex.match?(@positive_decimal_pattern, string) do
+      case Float.parse(string) do
+        {value, ""} when value > 0.0 -> {:ok, value}
+        _zero_or_out_of_float_range -> :error
+      end
+    else
+      :error
     end
   end
 
