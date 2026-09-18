@@ -64,3 +64,9 @@ test/support/image_pipe/test/imgproxy_differential/report.html
 
 # Generated TwicPics differential visual-diff report (regenerate on demand)
 test/support/image_pipe/test/twicpics_differential/report.html
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/

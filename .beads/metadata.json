@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "image_plug",
+  "project_id": "01c2c025-9da6-421d-97ab-e48fadf182c2"
+}
