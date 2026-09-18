@@ -1,6 +1,8 @@
 defmodule ImagePipe.Native.PipelineTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Native.Parser
+  alias ImagePipe.Native.Path
   alias ImagePipe.Native.Pipeline
   alias ImagePipe.Native.Request
   alias ImagePipe.Native.Request.Group
@@ -10,6 +12,7 @@ defmodule ImagePipe.Native.PipelineTest do
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Blur, as: ExecutableBlur
   alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize
@@ -350,32 +353,14 @@ defmodule ImagePipe.Native.PipelineTest do
     test "a fully-loaded group: the names helper lists exactly the executed ops, in order" do
       state = state_for(1600, 1200)
 
-      # Every optional slot filled, with a `fit`/contain resize (terminal — no
-      # cover result-crop tail) and a coordinate region crop, so each semantic
-      # op lowers to exactly one executable and there is no continuation
-      # expansion to muddy the 1:1 count.
-      request =
-        req([
-          group(%{
-            trim: :auto,
-            region: {{:px, 100}, {:px, 100}, {:px, 800}, {:px, 600}},
-            resize: %{
-              w: 400,
-              h: :auto,
-              fit: :contain,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            },
-            blur: 3.0,
-            pad: {10, 10, 10, 10},
-            bg: {255, 0, 0, 1.0}
-          })
-        ])
+      path =
+        "/trim=auto/region=100,100,800,600/w=400/h=400/blur=3/extend/pad=10/bg=ff0000/src/test"
+
+      {:ok, lexed} = Plug.Test.conn(:get, path) |> Path.extract()
+      {:ok, request} = Parser.parse(lexed, [])
 
       names = Pipeline.operation_names(request)
-      assert names == [:trim, :crop_region, :resize, :blur, :padding, :background]
+      assert names == [:trim, :crop_region, :resize, :blur, :canvas, :padding, :background]
 
       executed =
         collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
@@ -393,6 +378,7 @@ defmodule ImagePipe.Native.PipelineTest do
   defp executable_category(%Crop{}), do: :crop
   defp executable_category(%ExecutableResize{}), do: :resize
   defp executable_category(%ExecutableBlur{}), do: :blur
+  defp executable_category(%ExtendCanvas{}), do: :canvas
   defp executable_category(%Padding{}), do: :padding
   defp executable_category(%Background{}), do: :background
 

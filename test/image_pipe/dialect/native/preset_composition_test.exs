@@ -46,6 +46,25 @@ defmodule ImagePipe.Native.PresetCompositionTest do
     assert {:ok, ^expected} = parse("/preset=card", presets)
   end
 
+  test "guide overrides replace inherited anchor offsets" do
+    presets = %{
+      "anchor" => "crop=60,40/anchor=top-left/anchor-offset=5,6",
+      "focus" => "focus=0.75,0.25",
+      "nested" => "preset=anchor/focus=0.75,0.25"
+    }
+
+    assert {:ok, focus_expected} = parse("/crop=60,40/focus=0.75,0.25", %{})
+    assert {:ok, ^focus_expected} = parse("/preset=anchor/focus=0.75,0.25", presets)
+    assert {:ok, ^focus_expected} = parse("/preset=anchor,focus", presets)
+    assert {:ok, ^focus_expected} = parse("/preset=nested", presets)
+
+    assert {:ok, anchor_expected} =
+             parse("/crop=60,40/anchor=bottom-right/anchor-offset=-2,3", %{})
+
+    assert {:ok, ^anchor_expected} =
+             parse("/preset=anchor/anchor=bottom-right/anchor-offset=-2,3", presets)
+  end
+
   test "a region replacement prunes preset crop-ratio modifiers" do
     presets = %{
       "crop" => "crop=60,40/crop-ratio=3:2/crop-ratio-enlarge",
@@ -90,6 +109,38 @@ defmodule ImagePipe.Native.PresetCompositionTest do
     assert {:ok, expected} = parse("/crop=60,40", %{})
     assert {:ok, ^expected} = parse("/preset=region/crop=60,40", presets)
     assert {:ok, ^expected} = parse("/preset=region,crop", presets)
+  end
+
+  test "canvas overrides replace inherited mode, placement and offset together" do
+    presets = %{
+      "box" => "w=60/h=40/extend/extend-at=top-left/extend-offset=2,3",
+      "ratio" => "extend-ratio/extend-at=bottom-right/extend-offset=-4,5",
+      "nested" => "preset=box/extend-ratio/extend-at=bottom-right/extend-offset=-4,5"
+    }
+
+    assert {:ok, disabled_expected} = parse("/w=60/h=40", %{})
+    assert {:ok, ^disabled_expected} = parse("/preset=box/extend=false", presets)
+
+    assert {:ok, ratio_expected} =
+             parse(
+               "/w=60/h=40/extend-ratio/extend-at=bottom-right/extend-offset=-4,5",
+               %{}
+             )
+
+    assert {:ok, ^ratio_expected} = parse("/preset=box,ratio", presets)
+    assert {:ok, ^ratio_expected} = parse("/preset=nested", presets)
+  end
+
+  test "same-layer canvas contradictions and stranded dependents remain errors" do
+    for {fragment, reason} <- [
+          {"w=60/h=40/extend/extend-ratio", :mutually_exclusive_options},
+          {"w=60/h=40/extend=false/extend-at=top", :inert_option}
+        ] do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse("/preset=bad", %{"bad" => fragment})
+
+      assert Enum.any?(diagnostics, &(&1.reason == reason))
+    end
   end
 
   test "contradictory alternatives in one layer remain errors" do

@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
 
   alias ImagePipe.Native.OptionSpec
 
-  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom crop crop-ratio crop-ratio-enlarge region anchor focus blur trim trim-symmetry pad bg orient output format q debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus blur trim trim-symmetry pad bg orient output format q debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -166,6 +166,37 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_anchor("bottom-right") == {:ok, :bottom_right}
       assert OptionSpec.parse_anchor("smart") == {:ok, :smart}
       assert OptionSpec.parse_anchor("bogus") == {:error, :invalid_anchor}
+    end
+
+    test "parse_named_anchor excludes smart" do
+      assert OptionSpec.parse_named_anchor("center") == {:ok, :center}
+      assert OptionSpec.parse_named_anchor("bottom-right") == {:ok, :bottom_right}
+      assert OptionSpec.parse_named_anchor("smart") == {:error, :invalid_anchor}
+    end
+
+    test "parse_offset accepts signed px/pct pairs within pixel arithmetic range" do
+      assert OptionSpec.parse_offset("10,-20pct") ==
+               {:ok, {{:px, 10}, {:pct, -20}}}
+
+      assert OptionSpec.parse_offset("0.5,-0.25pct") ==
+               {:ok, {{:px, 0.5}, {:pct, -0.25}}}
+
+      assert OptionSpec.parse_offset("1") == {:error, :invalid_offset}
+      assert OptionSpec.parse_offset("1,2,3") == {:error, :invalid_offset}
+      assert OptionSpec.parse_offset("1em,2") == {:error, :invalid_offset}
+
+      safe_with_axis_headroom = "8" <> String.duplicate("0", 298)
+      unsafe_with_axis_headroom = "9" <> String.duplicate("0", 298)
+
+      assert {:ok, {{:px, _safe}, {:px, 0}}} =
+               OptionSpec.parse_offset("#{safe_with_axis_headroom},0")
+
+      assert OptionSpec.parse_offset("#{unsafe_with_axis_headroom},0") ==
+               {:error, :invalid_offset}
+
+      huge = String.duplicate("9", 400)
+      assert OptionSpec.parse_offset("#{huge},0") == {:error, :invalid_offset}
+      assert OptionSpec.parse_offset("0,-#{huge}pct") == {:error, :invalid_offset}
     end
 
     test "parse_focus parses an x,y fraction pair" do

@@ -32,6 +32,7 @@ The native API implements these option keys:
 
 `orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
 `zoom`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region`, `trim-symmetry`,
+`anchor-offset`, `extend`, `extend-ratio`, `extend-at`, `extend-offset`,
 `anchor`, `focus`, `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
 `debug`, `expires`, `preset`.
 
@@ -183,6 +184,28 @@ they uniformly expand the resize target as necessary before the enlargement
 cap. With minimum dimensions alone, the starting target is the current image.
 A non-unit zoom requires a width, height, or minimum dimension. DPR alone
 can scale padding without resizing the source. These options reset at `then`.
+
+### Anchor offsets and canvas placement
+
+`anchor-offset=x,y` moves a guided crop or cover result crop from its named
+anchor. Both components accept signed pixels or explicit percentages, such
+as `anchor-offset=10,-5pct`. It requires an explicit non-smart `anchor`.
+Positive values move inward from right/bottom edges and forward from
+left/top/center; placement is clamped to retain the crop inside its input.
+Each crop resolves percentages against its own input frame. Pixel offsets
+use the group's effective DPR, including when the source crop precedes resize.
+
+`extend` expands the canvas to the `w`/`h` box; `extend-ratio` expands it to
+that aspect ratio. Both require concrete `w` and `h`, and cannot be enabled
+together. Canvas expansion preserves the image's scale and never crops it.
+The box dimensions use effective DPR; zoom affects the resize alone.
+
+`extend-at` chooses a named anchor, defaulting to center. `extend-offset=x,y`
+uses the same signed-length syntax, with percentages resolved against the
+realized target canvas and pixels scaled by effective DPR. Placement is
+clamped inside the canvas. Canvas placement runs in display coordinates,
+after effects and before padding and background. Added space is transparent
+until a background is requested. Canvas and offset options reset at `then`.
 
 ### Source concealment
 

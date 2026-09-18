@@ -15,10 +15,12 @@ defmodule ImagePipe.Native.Presets do
   alias ImagePipe.Native.Diagnostic
   alias ImagePipe.Native.Parser
 
-  @guide_family ["anchor", "focus"]
+  @guide_family ["anchor", "anchor-offset", "focus"]
+  @canvas_family ["extend", "extend-ratio", "extend-at", "extend-offset"]
   @group_override_families [
     @guide_family,
-    ["crop", "region"]
+    ["crop", "region"],
+    @canvas_family
   ]
   @crop_modifiers ["crop-ratio", "crop-ratio-enlarge"]
 

@@ -39,6 +39,16 @@ defmodule ImagePipe.Native.Request.Group do
 
   @type length :: {:px, number()} | {:pct, number()}
   @type color :: {0..255, 0..255, 0..255}
+  @type named_anchor ::
+          :center
+          | :top
+          | :bottom
+          | :left
+          | :right
+          | :top_left
+          | :top_right
+          | :bottom_left
+          | :bottom_right
 
   @type resize :: %{
           w: :auto | pos_integer(),
@@ -67,7 +77,9 @@ defmodule ImagePipe.Native.Request.Group do
             crop_ratio: nil,
             crop_ratio_enlarge: false,
             guide: nil,
+            anchor_offset: nil,
             resize: nil,
+            canvas: nil,
             blur: nil,
             pad: nil,
             bg: nil
@@ -85,7 +97,15 @@ defmodule ImagePipe.Native.Request.Group do
           crop_ratio: nil | {:ratio, pos_integer(), pos_integer()},
           crop_ratio_enlarge: boolean(),
           guide: nil | guide(),
+          anchor_offset: nil | {length(), length()},
           resize: nil | resize(),
+          canvas:
+            nil
+            | %{
+                mode: :box | :ratio,
+                at: named_anchor(),
+                offset: {length(), length()}
+              },
           blur: nil | float(),
           pad: nil | {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()},
           bg: nil | {0..255, 0..255, 0..255, float()}

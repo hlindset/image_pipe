@@ -214,6 +214,43 @@ defmodule ImagePipe.Native.ParserTest do
                parse(["min-w=320", "zoom=1.25,0.75"])
     end
 
+    test "box and ratio canvas carry placement while resize keeps raw dimensions" do
+      assert {:ok,
+              %Request{
+                groups: [
+                  %Group{
+                    resize: %{w: 300, h: 200},
+                    canvas: %{
+                      mode: :box,
+                      at: :center,
+                      offset: {{:px, 0}, {:px, 0}}
+                    }
+                  }
+                ]
+              }} = parse(["w=300", "h=200", "extend"])
+
+      assert {:ok,
+              %Request{
+                groups: [
+                  %Group{
+                    resize: %{w: 300, h: 200},
+                    canvas: %{
+                      mode: :ratio,
+                      at: :bottom_right,
+                      offset: {{:px, 10.0}, {:pct, -20.0}}
+                    }
+                  }
+                ]
+              }} =
+               parse([
+                 "w=300",
+                 "h=200",
+                 "extend-ratio",
+                 "extend-at=bottom-right",
+                 "extend-offset=10,-20pct"
+               ])
+    end
+
     test "unit zoom without resize intent canonicalizes away" do
       assert parse(["zoom=1"]) == parse([])
       assert parse(["zoom=1,1"]) == parse([])
@@ -252,6 +289,18 @@ defmodule ImagePipe.Native.ParserTest do
                parse(["crop=600,400", "anchor=top-left"])
     end
 
+    test "anchor offset is separate canonical guide placement data" do
+      assert {:ok,
+              %Request{
+                groups: [
+                  %Group{
+                    guide: {:anchor, :top_left},
+                    anchor_offset: {{:px, -10.0}, {:pct, 20.0}}
+                  }
+                ]
+              }} = parse(["crop=600,400", "anchor=top-left", "anchor-offset=-10,20pct"])
+    end
+
     test "focus with a cover-fit resize consumer" do
       assert {:ok, %Request{groups: [%Group{guide: {:focus, 0.1, 0.2}}]}} =
                parse(["w=300", "fit=cover", "focus=0.1,0.2"])
@@ -275,6 +324,12 @@ defmodule ImagePipe.Native.ParserTest do
 
       assert parse(["crop=600,400", "crop-ratio=3:2", "crop-ratio-enlarge=false"]) ==
                parse(["crop=600,400", "crop-ratio=3:2"])
+    end
+
+    test "disabled canvas flags canonicalize away" do
+      assert parse(["extend=false"]) == parse([])
+      assert parse(["extend-ratio=false"]) == parse([])
+      assert parse(["extend=false", "extend-ratio=false"]) == parse([])
     end
 
     test "pad shorthand" do
@@ -354,6 +409,40 @@ defmodule ImagePipe.Native.ParserTest do
       end
     end
 
+    test "malformed placement options fail at the request boundary" do
+      huge = String.duplicate("9", 400)
+
+      for {segment, reason} <- [
+            {"anchor-offset=10", :invalid_offset},
+            {"anchor-offset=#{huge},0", :invalid_offset},
+            {"extend-offset=10,20,30", :invalid_offset},
+            {"extend-at=smart", :invalid_anchor}
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse([segment])
+        assert Enum.any?(diagnostics, &(&1.reason == reason))
+      end
+    end
+
+    test "pixel offsets reject a group DPR combination that overflows float geometry" do
+      large = "1" <> String.duplicate("0", 200)
+
+      for options <- [
+            ["crop=10,10", "anchor=left", "anchor-offset=#{large},0", "dpr=#{large}"],
+            ["w=10", "h=10", "extend", "extend-offset=#{large},0", "dpr=#{large}"]
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse(options)
+        assert Enum.any?(diagnostics, &(&1.reason == :invalid_offset))
+      end
+
+      assert {:ok, %Request{groups: [%Group{anchor_offset: {{:pct, _large}, {:px, 0}}}]}} =
+               parse([
+                 "crop=10,10",
+                 "anchor=left",
+                 "anchor-offset=#{large}pct,0",
+                 "dpr=#{large}"
+               ])
+    end
+
     test "key=true is a specific error, not a generic invalid value" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["w=800", "enlarge=true"])
       assert Enum.any?(diagnostics, &(&1.reason == :true_spelled_bare))
@@ -408,6 +497,16 @@ defmodule ImagePipe.Native.ParserTest do
 
       assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
     end
+
+    test "enabled box and ratio canvas are mutually exclusive" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["w=300", "h=200", "extend", "extend-ratio"])
+
+      assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
+
+      assert {:ok, %Request{groups: [%Group{canvas: %{mode: :box}}]}} =
+               parse(["w=300", "h=200", "extend", "extend-ratio=false"])
+    end
   end
 
   describe "400s: Tier-2 inertness (locked probe decisions)" do
@@ -446,6 +545,40 @@ defmodule ImagePipe.Native.ParserTest do
     test "trim symmetry without trim is inert" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["trim-symmetry=h"])
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "enabled canvas requires concrete w and h" do
+      for options <- [
+            ["extend"],
+            ["w=300", "extend"],
+            ["w=300", "h=auto", "extend"],
+            ["h=200", "extend-ratio"]
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse(options)
+        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      end
+    end
+
+    test "canvas placement requires an enabled canvas" do
+      for options <- [
+            ["extend-at=top-left"],
+            ["extend-offset=10,20"],
+            ["extend=false", "extend-at=top-left"],
+            ["extend-ratio=false", "extend-offset=10,20"]
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse(options)
+        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      end
+    end
+
+    test "anchor offset requires an explicit non-smart anchor" do
+      for options <- [
+            ["crop=600,400", "anchor-offset=10,20"],
+            ["crop=600,400", "anchor=smart", "anchor-offset=10,20"]
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse(options)
+        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      end
     end
 
     test "a lone auto dimension is inert" do
@@ -552,6 +685,33 @@ defmodule ImagePipe.Native.ParserTest do
 
       reasons = Enum.map(diagnostics, & &1.reason)
       assert :invalid_element in reasons
+      refute :inert_option in reasons
+    end
+
+    test "invalid canvas dimensions suppress enabled-canvas inertness" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["w=invalid", "h=200", "extend"])
+
+      reasons = Enum.map(diagnostics, & &1.reason)
+      assert :invalid_dimension in reasons
+      refute :inert_option in reasons
+    end
+
+    test "an invalid canvas flag suppresses placement inertness" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["w=300", "h=200", "extend=true", "extend-at=top-left"])
+
+      reasons = Enum.map(diagnostics, & &1.reason)
+      assert :true_spelled_bare in reasons
+      refute :inert_option in reasons
+    end
+
+    test "an invalid anchor suppresses anchor offset inertness" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["crop=600,400", "anchor=invalid", "anchor-offset=10,20"])
+
+      reasons = Enum.map(diagnostics, & &1.reason)
+      assert :invalid_anchor in reasons
       refute :inert_option in reasons
     end
 

@@ -104,7 +104,8 @@ keys are configured.
 
 The native API currently supports EXIF orientation policy, arbitrary rotation,
 resize modes, minimum dimensions, DPR and zoom, guided and explicit-region crops,
-flips, anchors and focal points, crop-ratio correction, symmetric trimming,
+flips, anchors and focal points, anchor offsets, crop-ratio correction,
+symmetric trimming, canvas extension and placement,
 blur, grayscale, bitonal, padding, background, image format and quality,
 BlurHash, debug headers, expiry, presets, and signed URLs. It accepts local
 paths and HTTP(S) source URLs. Invalid requests fail before cache lookup or
@@ -143,8 +144,11 @@ preset. Presets share cache identity with equivalent explicit requests.
 
 Overrides replace related alternatives: an explicit `anchor` replaces an
 inherited `focus`, and `region` replaces an inherited `crop` together with its
-ratio settings. Conflicting alternatives written together in one preset or
-the explicit URL are still rejected.
+ratio settings. Changing a guide also resets its inherited offset. Canvas
+mode, anchor, and offset form one override family: supply the desired canvas
+settings together. `extend=false` or `extend-ratio=false` disables an inherited
+canvas and clears its placement settings. Conflicting alternatives written
+together in one preset or the explicit URL are still rejected.
 
 Options within a group have a fixed processing order. Use `then` for a second
 pass, for example `/w=500/then/trim=fff/src/images/beach.jpg` to trim after

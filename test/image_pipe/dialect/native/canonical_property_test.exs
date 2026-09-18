@@ -28,12 +28,16 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
     "crop=600,400",
     "crop-ratio=3:2",
     "crop-ratio-enlarge",
-    "anchor=smart",
+    "anchor=top-left",
+    "anchor-offset=10,-20pct",
     "blur=2.5",
     "pad=10,20,30,40",
     "bg=fff,0.5",
     "trim=auto",
-    "trim-symmetry=hv"
+    "trim-symmetry=hv",
+    "extend",
+    "extend-at=bottom-right",
+    "extend-offset=-5,10pct"
   ]
 
   describe "order-insensitivity within a group [native §Canonical form and identity]" do
@@ -60,6 +64,13 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
   # ordering — it must hold across genuinely varied inputs.
   @stability_bases [
     ["w=300", "h=400", "fit=cover", "anchor=smart", "blur=2.5", "pad=10,20,30,40"],
+    [
+      "w=300",
+      "h=400",
+      "extend-ratio",
+      "extend-at=bottom-right",
+      "extend-offset=10,-20pct"
+    ],
     [
       "crop=600,400",
       "crop-ratio=3:2",
@@ -112,6 +123,33 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
       assert parse(base) == parse(["crop=600,400", "crop-ratio=1.5"])
       assert parse(base) == parse(["crop=600,400", "crop-ratio=1.500"])
       assert parse(base) == parse(base ++ ["crop-ratio-enlarge=false"])
+    end
+
+    test "zero offsets and explicit canvas defaults canonicalize away" do
+      crop = ["crop=600,400", "anchor=top-left"]
+      canvas = ["w=300", "h=200", "extend"]
+
+      assert parse(crop) == parse(crop ++ ["anchor-offset=0pct,0"])
+      assert parse(canvas) == parse(canvas ++ ["extend-at=center"])
+      assert parse(canvas) == parse(canvas ++ ["extend-offset=0pct,0"])
+    end
+
+    test "integer and decimal offset spellings have identical serialized request identity" do
+      for {integer_options, decimal_options} <- [
+            {
+              ["crop=600,400", "anchor=top-left", "anchor-offset=10,-20pct"],
+              ["crop=600,400", "anchor=top-left", "anchor-offset=10.0,-20.0pct"]
+            },
+            {
+              ["w=300", "h=200", "extend", "extend-offset=10,-20pct"],
+              ["w=300", "h=200", "extend", "extend-offset=10.0,-20.0pct"]
+            }
+          ] do
+        assert {:ok, integer_request} = parse(integer_options)
+        assert {:ok, decimal_request} = parse(decimal_options)
+        assert integer_request === decimal_request
+        assert :erlang.term_to_binary(integer_request) == :erlang.term_to_binary(decimal_request)
+      end
     end
   end
 

@@ -14,7 +14,7 @@ defmodule ImagePipe.Native.Pipeline do
   **Fixed stage order within a group**: rotate(1) → flip(2) → trim(3) →
   region/guided crop(4) → resize(5) → cover result crop(6, automatic, part of
   the resize's own continuation tail) → blur(7) → gray(10) → bitonal(11) →
-  pad(20) → bg flatten(21).
+  canvas(19) → pad(20) → bg flatten(21).
   `then` starts a new group whose input is the preceding group's result.
   Groups share a continuously-threaded `SourceShape`. Pending orientation is
   flushed before stages that require displayed pixels, including trim, and
@@ -38,6 +38,7 @@ defmodule ImagePipe.Native.Pipeline do
   alias ImagePipe.Transform.Lowering
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.PendingOrientation
@@ -251,30 +252,28 @@ defmodule ImagePipe.Native.Pipeline do
   end
 
   defp run_group_body(state, shape, group, ctx) do
-    group
-    |> group_operations(shape)
-    |> Enum.reduce_while({:ok, state, shape, group.dpr}, fn plan_op, {:ok, state, shape, dpr} ->
+    with {:ok, state, shape, dpr} <-
+           run_group_operations(state, shape, group_operations(group, shape), group.dpr, ctx),
+         {:ok, state, shape} <- run_canvas(state, shape, group, dpr, ctx),
+         {:ok, state, shape, _dpr} <-
+           run_group_operations(state, shape, [pad_op(group.pad), bg_op(group.bg)], dpr, ctx) do
+      {:ok, state, shape}
+    end
+  end
+
+  defp run_group_operations(state, shape, operations, dpr, ctx) do
+    operations
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce_while({:ok, state, shape, dpr}, fn plan_op, {:ok, state, shape, dpr} ->
       case run_group_op(state, shape, plan_op, dpr, ctx) do
         {:ok, _state, _shape, _dpr} = ok -> {:cont, ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
-    |> case do
-      {:ok, state, shape, _dpr} -> {:ok, state, shape}
-      {:error, _reason} = error -> error
-    end
   end
 
   defp run_group_op(state, shape, %Operation.Resize{} = op, dpr, ctx) do
-    mode = native_resize_mode(op, shape)
-
-    {width, height} =
-      PendingOrientation.display_dims({shape.width, shape.height}, shape.pending_orientation)
-
-    resize = ResizePlanning.resize_from(op, mode)
-
-    target =
-      Resize.native_target(%{resize | dpr: dpr}, source_width: width, source_height: height)
+    {mode, target} = native_resize_target(op, shape, dpr)
 
     op = %{
       op
@@ -287,7 +286,9 @@ defmodule ImagePipe.Native.Pipeline do
         zoom_y: 1.0,
         dpr: {:ratio, 1, 1},
         enlargement: :allow,
-        down: false
+        down: false,
+        x_offset: resize_offset(op.x_offset, mode, target.dpr),
+        y_offset: resize_offset(op.y_offset, mode, target.dpr)
     }
 
     with {:ok, state, shape} <- run_op(state, shape, op, ctx),
@@ -306,6 +307,20 @@ defmodule ImagePipe.Native.Pipeline do
   defp run_group_op(state, shape, op, dpr, ctx) do
     with {:ok, state, shape} <- run_op(state, shape, op, ctx),
          do: {:ok, state, shape, dpr}
+  end
+
+  defp native_resize_target(op, shape, dpr) do
+    mode = native_resize_mode(op, shape)
+
+    {width, height} =
+      PendingOrientation.display_dims({shape.width, shape.height}, shape.pending_orientation)
+
+    resize = ResizePlanning.resize_from(op, mode)
+
+    target =
+      Resize.native_target(%{resize | dpr: dpr}, source_width: width, source_height: height)
+
+    {mode, target}
   end
 
   defp native_resize_mode(
@@ -328,6 +343,41 @@ defmodule ImagePipe.Native.Pipeline do
   end
 
   defp native_resize_mode(op, shape), do: NeutralResolver.resolve_mode(op, shape)
+
+  defp run_canvas(state, shape, %Group{canvas: nil}, _dpr, _ctx),
+    do: {:ok, state, shape}
+
+  defp run_canvas(state, shape, %Group{canvas: canvas, resize: resize}, dpr, ctx) do
+    {width, height} =
+      shape
+      |> SourceShape.live_dims()
+      |> PendingOrientation.display_dims(shape.pending_orientation)
+
+    rule = canvas_rule(canvas.mode, resize, dpr)
+    {:ok, {canvas_width, canvas_height}} = ExtendCanvas.resolved_canvas_dims(rule, width, height)
+    {x, y} = canvas.offset
+    {anchor_x, anchor_y} = anchor_pair(canvas.at)
+
+    operation = %ExtendCanvas{
+      rule: rule,
+      gravity: {:anchor, anchor_x, anchor_y},
+      x_offset: canvas_offset(x, canvas_width, dpr),
+      y_offset: canvas_offset(y, canvas_height, dpr),
+      background: :transparent
+    }
+
+    {ops, _advance} = NeutralResolver.display_frame_advance([operation], shape)
+
+    with {:ok, state} <- run_chain(ctx, overlay(state, shape), ops) do
+      {:ok, state, %SourceShape{width: canvas_width, height: canvas_height, frame: :display}}
+    end
+  end
+
+  defp canvas_rule(:box, %{w: w, h: h}, dpr), do: {:dimensions, w * dpr, h * dpr}
+  defp canvas_rule(:ratio, %{w: w, h: h}, _dpr), do: {:aspect_ratio, {w, h}}
+
+  defp canvas_offset({:px, value}, _dimension, dpr), do: value * dpr
+  defp canvas_offset({:pct, value}, dimension, _dpr), do: dimension * value / 100
 
   # `resolve/3` and `continue/4` are called as stateless toolkit functions —
   # `nil` carried state throughout, mirroring the neutral resolver's own
@@ -468,27 +518,69 @@ defmodule ImagePipe.Native.Pipeline do
     display_dims =
       PendingOrientation.display_dims({shape.width, shape.height}, shape.pending_orientation)
 
+    crop = crop_op(group, display_dims)
+    resize = resize_op(group.resize, group.guide) |> with_offsets(group.anchor_offset)
+    crop_dpr = crop_offset_dpr(group, shape, crop, resize)
+
     [
-      crop_op(group, display_dims),
-      resize_op(group.resize, group.guide),
+      crop |> with_offsets(group.anchor_offset) |> scale_offsets(crop_dpr),
+      resize,
       blur_op(group.blur),
       if(group.gray, do: %Operation.Gray{}),
-      if(group.bitonal, do: %Operation.Bitonal{}),
-      pad_op(group.pad),
-      bg_op(group.bg)
+      if(group.bitonal, do: %Operation.Bitonal{})
     ]
-    |> Enum.reject(&is_nil/1)
   end
+
+  defp crop_offset_dpr(%Group{anchor_offset: nil, dpr: dpr}, _shape, _crop, _resize),
+    do: dpr
+
+  defp crop_offset_dpr(%Group{dpr: dpr}, _shape, nil, _resize), do: dpr
+  defp crop_offset_dpr(%Group{dpr: dpr}, _shape, _crop, nil), do: dpr
+
+  defp crop_offset_dpr(%Group{dpr: dpr}, shape, crop, resize) do
+    # Placement does not change crop dimensions. Resolve that shape first so
+    # the crop and subsequent resize use the same enlargement-limited DPR.
+    {_ops, {:advance, cropped_shape, nil}} = NeutralResolver.resolve(shape, nil, crop)
+    {_mode, target} = native_resize_target(resize, cropped_shape, dpr)
+    target.dpr
+  end
+
+  defp with_offsets(nil, _offset), do: nil
+  defp with_offsets(op, nil), do: op
+  defp with_offsets(%Operation.CropRegion{} = op, _offset), do: op
+
+  defp with_offsets(%Operation.Resize{mode: mode} = op, _offset)
+       when mode not in [:cover, :auto],
+       do: op
+
+  defp with_offsets(op, {x, y}),
+    do: %{op | x_offset: tagged_offset(x), y_offset: tagged_offset(y)}
+
+  defp tagged_offset({:px, value}), do: {:pixels, value}
+  defp tagged_offset({:pct, value}), do: {:scale, value / 100}
+
+  defp scale_offsets(%Operation.CropGuided{} = op, dpr),
+    do: %{
+      op
+      | x_offset: scale_pixel_offset(op.x_offset, dpr),
+        y_offset: scale_pixel_offset(op.y_offset, dpr)
+    }
+
+  defp scale_offsets(op, _dpr), do: op
+
+  defp scale_pixel_offset({:pixels, value}, dpr), do: {:pixels, value * dpr}
+  defp scale_pixel_offset({:scale, _value} = offset, _dpr), do: offset
+
+  defp resize_offset(offset, :cover, dpr), do: scale_pixel_offset(offset, dpr)
+  defp resize_offset(_offset, _mode, _dpr), do: {:pixels, 0.0}
 
   @doc """
   The ordered semantic operation-name atoms `run/4` will execute across all
   groups, feeding the transform span's aggregate start metadata.
 
-  A structural mirror of `group_operations/2` above (which needs a live
-  `SourceShape` to resolve pct lengths, unavailable before execution): op
-  *presence* per group is shape-independent, so each clause here answers
-  `Operation.name/1` of the op its `group_operations/2` counterpart would
-  build — including the identity elisions (`pad=0`, no crop/region).
+  Operation presence per group is shape-independent. This lists the body,
+  canvas, padding, and background stages without resolving runtime geometry,
+  including the identity elisions (`pad=0`, no crop/region).
   """
   @spec operation_names(Request.t()) :: [atom()]
   def operation_names(%Request{groups: groups}) do
@@ -496,19 +588,21 @@ defmodule ImagePipe.Native.Pipeline do
   end
 
   defp group_operation_names(%Group{} = group) do
-    [
-      group.rotate && :rotate,
-      group.flip && :flip,
-      group.trim && :trim,
-      crop_name(group),
-      group.resize && :resize,
-      group.blur && :blur,
-      if(group.gray, do: :gray),
-      if(group.bitonal, do: :bitonal),
-      pad_name(group.pad),
-      group.bg && :background
-    ]
-    |> Enum.reject(&is_nil/1)
+    for {value, name} <- [
+          {group.rotate, :rotate},
+          {group.flip, :flip},
+          {group.trim, :trim},
+          {group.region || group.crop, crop_name(group)},
+          {group.resize, :resize},
+          {group.blur, :blur},
+          {group.gray, :gray},
+          {group.bitonal, :bitonal},
+          {group.canvas, :canvas},
+          {pad_name(group.pad), :padding},
+          {group.bg, :background}
+        ],
+        value not in [nil, false],
+        do: name
   end
 
   defp crop_name(%Group{region: region}) when region != nil, do: :crop_region

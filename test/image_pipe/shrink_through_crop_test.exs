@@ -3,7 +3,6 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Imgproxy
   alias ImagePipe.Native
   alias ImagePipe.Native.Pipeline
   alias ImagePipe.Native.Request
@@ -13,9 +12,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
-  # Shrink-on-load through a preceding crop (#151). Today a crop before the resize
-  # forces a full-resolution decode; this exercises the imgproxy-parity path where
-  # the JPEG is shrunk on load and the crop's pixel dims + absolute gravity offsets
+  # Shrink-on-load through a preceding crop (#151). The JPEG is shrunk on load
+  # and the crop's pixel dimensions and absolute gravity offsets
   # are rescaled by the realized shrink. The output must stay pixel-equivalent
   # (±1px on each axis, and perceptually identical) to the full-decode + crop path.
   #
@@ -59,43 +57,6 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     )
   end
 
-  defp run_imgproxy(body, options, config \\ []) do
-    telemetry_prefix = [:"shrink_crop_#{System.unique_integer([:positive])}"]
-    decode_stop = telemetry_prefix ++ [:source, :fetch_decode, :stop]
-    handler_id = {__MODULE__, self(), telemetry_prefix}
-
-    :telemetry.attach(
-      handler_id,
-      decode_stop,
-      &__MODULE__.handle_decode_stop/4,
-      {self(), telemetry_prefix}
-    )
-
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-
-    opts =
-      body
-      |> mount_options()
-      |> Keyword.merge(config)
-      |> Keyword.put(:telemetry_prefix, telemetry_prefix)
-      |> Keyword.put(:dialect, Imgproxy)
-      |> ImagePipe.Plug.init()
-
-    conn =
-      :get
-      |> Plug.Test.conn("/_/#{options}/f:png/plain/crop.img")
-      |> ImagePipe.Plug.call(opts)
-
-    assert conn.status == 200
-    assert_receive {:decode_stop, ^telemetry_prefix, metadata}
-
-    {Image.from_binary!(conn.resp_body), load_shrink(Map.get(metadata, :load_option))}
-  end
-
-  def handle_decode_stop(_event, _measurements, metadata, {test_pid, telemetry_prefix}) do
-    send(test_pid, {:decode_stop, telemetry_prefix, metadata})
-  end
-
   defp request("", opts) do
     assert {{:ok, %Request{} = request}, _metadata} =
              Native.parse(Plug.Test.conn(:get, "/src/crop.img"), opts)
@@ -114,9 +75,6 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # planner asked for. `nil` when the decode was not shrunk at all.
   defp shrink_factor(nil), do: nil
   defp shrink_factor(%{w: w}), do: round(w)
-
-  defp load_shrink(nil), do: nil
-  defp load_shrink({:shrink, factor}), do: factor
 
   defp opts(body) do
     body
@@ -221,10 +179,10 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   describe "CropGuided absolute pixel-offset gravity then resize" do
     test "anchor gravity with absolute pixel offset rescales correctly" do
-      options = "c:1600:1600:nowe:600:400/rs:fit:400:400"
+      options = "crop=1600,1600/anchor=top-left/anchor-offset=600,400/w=400/h=400"
 
-      {jpeg_img, shrink} = run_imgproxy(structured(@src, @src, ".jpg"), options)
-      {png_img, no_shrink} = run_imgproxy(structured(@src, @src, ".png"), options)
+      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), options)
+      {png_img, no_shrink} = run(structured(@src, @src, ".png"), options)
 
       assert no_shrink == nil
 
@@ -294,13 +252,13 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   describe "composition with EXIF orientation (#146)" do
     test "gravity crop + resize on orientation-6 source composes orientation and shrink" do
-      options = "c:1600:1200:nowe:600:400/rs:fit:400:300"
+      options = "crop=1600,1200/anchor=top-left/anchor-offset=600,400/w=400/h=300"
 
       {jpeg_img, shrink} =
-        run_imgproxy(oriented(@src, @src, 6, ".jpg"), options, auto_rotate: true)
+        run(oriented(@src, @src, 6, ".jpg"), options)
 
       {png_img, no_shrink} =
-        run_imgproxy(oriented(@src, @src, 6, ".png"), options, auto_rotate: true)
+        run(oriented(@src, @src, 6, ".png"), options)
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "oriented-6 gravity crop -> fit:400:300")

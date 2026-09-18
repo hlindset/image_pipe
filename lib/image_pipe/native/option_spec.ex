@@ -258,6 +258,58 @@ defmodule ImagePipe.Native.OptionSpec do
         examples: ["zoom=2", "zoom=1.25,0.75"]
       },
       %__MODULE__{
+        key: "extend",
+        scope: :group,
+        value: :flag,
+        stage: 19,
+        default: false,
+        prerequisites: [:concrete_box],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Extend to the requested width and height",
+        examples: ["extend"]
+      },
+      %__MODULE__{
+        key: "extend-ratio",
+        scope: :group,
+        value: :flag,
+        stage: 19,
+        default: false,
+        prerequisites: [:concrete_box],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Extend to the requested width-to-height ratio",
+        examples: ["extend-ratio"]
+      },
+      %__MODULE__{
+        key: "extend-at",
+        scope: :group,
+        value: &__MODULE__.parse_named_anchor/1,
+        stage: 19,
+        default: :center,
+        prerequisites: [:canvas],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Canvas placement anchor",
+        examples: ["extend-at=bottom-right"]
+      },
+      %__MODULE__{
+        key: "extend-offset",
+        scope: :group,
+        value: &__MODULE__.parse_offset/1,
+        stage: 19,
+        default: {{:px, 0}, {:px, 0}},
+        prerequisites: [:canvas],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Signed x,y canvas placement offset",
+        examples: ["extend-offset=10,-20pct"]
+      },
+      %__MODULE__{
         key: "crop",
         scope: :group,
         value: &__MODULE__.parse_crop/1,
@@ -321,6 +373,19 @@ defmodule ImagePipe.Native.OptionSpec do
         terminal_applicability: :both,
         summary: "Crop guide / gravity for a guided crop or cover-family resize",
         examples: ["anchor=smart"]
+      },
+      %__MODULE__{
+        key: "anchor-offset",
+        scope: :group,
+        value: &__MODULE__.parse_offset/1,
+        stage: 6,
+        default: nil,
+        prerequisites: [:named_anchor],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Signed x,y offset from a named crop anchor",
+        examples: ["anchor-offset=10,-20pct"]
       },
       %__MODULE__{
         key: "focus",
@@ -713,6 +778,39 @@ defmodule ImagePipe.Native.OptionSpec do
     case Map.fetch(@anchor_map, string) do
       {:ok, anchor} -> {:ok, anchor}
       :error -> {:error, :invalid_anchor}
+    end
+  end
+
+  @doc false
+  @spec parse_named_anchor(String.t()) :: {:ok, atom()} | {:error, :invalid_anchor}
+  def parse_named_anchor(string) do
+    case parse_anchor(string) do
+      {:ok, :smart} -> {:error, :invalid_anchor}
+      result -> result
+    end
+  end
+
+  @doc false
+  @spec parse_offset(String.t()) ::
+          {:ok, {length_value(), length_value()}} | {:error, :invalid_offset}
+  def parse_offset(string) do
+    case Value.csv(string, 2..2, [&safe_signed_length/1, &safe_signed_length/1]) do
+      {:ok, [x, y]} -> {:ok, {x, y}}
+      {:error, _reason} -> {:error, :invalid_offset}
+    end
+  rescue
+    ArgumentError -> {:error, :invalid_offset}
+    ArithmeticError -> {:error, :invalid_offset}
+  end
+
+  defp safe_signed_length(string) do
+    case Value.length(string) do
+      {:ok, {_unit, value} = length} ->
+        _scaled_for_max_axis = abs(value * 1.0) * @max_vips_axis
+        {:ok, length}
+
+      {:error, _reason} ->
+        {:error, :invalid_length}
     end
   end
 

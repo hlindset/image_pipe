@@ -356,7 +356,52 @@ defmodule ImagePipe.Native.Parser do
 
   defp collect_group_cross_errors(group_map, occurrences, group_index) do
     tier3_exclusive_errors(group_map, occurrences, group_index) ++
+      canvas_exclusive_errors(group_map, occurrences, group_index) ++
+      offset_dpr_errors(group_map, occurrences, group_index) ++
       tier2_group_errors(group_map, occurrences, group_index)
+  end
+
+  defp canvas_exclusive_errors(group_map, occurrences, group_index) do
+    if Map.get(group_map, "extend", false) and Map.get(group_map, "extend-ratio", false) do
+      [exclusive_diagnostic(occurrences, group_index, "extend", "extend-ratio")]
+    else
+      []
+    end
+  end
+
+  defp offset_dpr_errors(group_map, occurrences, group_index) do
+    dpr = Map.get(group_map, "dpr", 1.0)
+
+    Enum.flat_map(
+      ["anchor-offset", "extend-offset"],
+      &offset_dpr_error(group_map, occurrences, group_index, &1, dpr)
+    )
+  end
+
+  defp offset_dpr_error(group_map, occurrences, group_index, key, dpr) do
+    case Map.get(group_map, key) do
+      nil ->
+        []
+
+      offset ->
+        if offset_dpr_safe?(offset, dpr) do
+          []
+        else
+          [diagnostic(:invalid_offset, occurrence_span(occurrences, group_index, key))]
+        end
+    end
+  end
+
+  defp offset_dpr_safe?({x, y}, dpr),
+    do: offset_axis_dpr_safe?(x, dpr) and offset_axis_dpr_safe?(y, dpr)
+
+  defp offset_axis_dpr_safe?({:pct, _value}, _dpr), do: true
+
+  defp offset_axis_dpr_safe?({:px, value}, dpr) do
+    _scaled = value * dpr * 1.0
+    true
+  rescue
+    ArithmeticError -> false
   end
 
   # Table-driven Tier-3 exclusivity: any two present keys where one's
@@ -415,6 +460,8 @@ defmodule ImagePipe.Native.Parser do
       ) ++
       crop_ratio_dependent_errors(group_map, occurrences, group_index) ++
       trim_dependent_errors(group_map, occurrences, group_index) ++
+      canvas_dependent_errors(group_map, occurrences, group_index) ++
+      anchor_offset_errors(group_map, occurrences, group_index) ++
       lone_auto_dimension_errors(group_map, occurrences, group_index, resize_prereq_errored)
   end
 
@@ -493,6 +540,73 @@ defmodule ImagePipe.Native.Parser do
       group_index,
       "trim-symmetry",
       "trim"
+    )
+  end
+
+  defp canvas_dependent_errors(group_map, occurrences, group_index) do
+    canvas_size_errors(group_map, occurrences, group_index) ++
+      canvas_placement_errors(group_map, occurrences, group_index)
+  end
+
+  defp canvas_size_errors(group_map, occurrences, group_index) do
+    dimensions_errored =
+      group_key_errored?(occurrences, group_index, "w") or
+        group_key_errored?(occurrences, group_index, "h")
+
+    concrete_box = is_integer(Map.get(group_map, "w")) and is_integer(Map.get(group_map, "h"))
+    requirement = "concrete (non-auto) w and h"
+
+    inert_if(
+      Map.get(group_map, "extend", false) and not concrete_box and not dimensions_errored,
+      occurrences,
+      group_index,
+      "extend",
+      requirement
+    ) ++
+      inert_if(
+        Map.get(group_map, "extend-ratio", false) and not concrete_box and
+          not dimensions_errored,
+        occurrences,
+        group_index,
+        "extend-ratio",
+        requirement
+      )
+  end
+
+  defp canvas_placement_errors(group_map, occurrences, group_index) do
+    enable_errored =
+      group_key_errored?(occurrences, group_index, "extend") or
+        group_key_errored?(occurrences, group_index, "extend-ratio")
+
+    placement_inert = not canvas_enabled?(group_map) and not enable_errored
+    requirement = "extend or extend-ratio"
+
+    inert_if(
+      placement_inert and Map.has_key?(group_map, "extend-at"),
+      occurrences,
+      group_index,
+      "extend-at",
+      requirement
+    ) ++
+      inert_if(
+        placement_inert and Map.has_key?(group_map, "extend-offset"),
+        occurrences,
+        group_index,
+        "extend-offset",
+        requirement
+      )
+  end
+
+  defp anchor_offset_errors(group_map, occurrences, group_index) do
+    anchor = Map.get(group_map, "anchor")
+
+    inert_if(
+      Map.has_key?(group_map, "anchor-offset") and anchor in [nil, :smart] and
+        not group_key_errored?(occurrences, group_index, "anchor"),
+      occurrences,
+      group_index,
+      "anchor-offset",
+      "an explicit non-smart anchor"
     )
   end
 
@@ -587,6 +701,10 @@ defmodule ImagePipe.Native.Parser do
     end
   end
 
+  defp canvas_enabled?(group_map) do
+    Map.get(group_map, "extend", false) or Map.get(group_map, "extend-ratio", false)
+  end
+
   defp guide_consumer?(group_map, resize_intent?) do
     Map.has_key?(group_map, "crop") or
       (resize_intent? and Map.get(group_map, "fit") in [:cover, :cover_down, :auto])
@@ -624,7 +742,9 @@ defmodule ImagePipe.Native.Parser do
       crop_ratio: Map.get(group_map, "crop-ratio"),
       crop_ratio_enlarge: Map.get(group_map, "crop-ratio-enlarge", false),
       guide: assemble_guide(group_map, resize != nil),
+      anchor_offset: assemble_anchor_offset(Map.get(group_map, "anchor-offset")),
       resize: resize,
+      canvas: assemble_canvas(group_map),
       blur: assemble_blur(Map.get(group_map, "blur")),
       pad: Map.get(group_map, "pad"),
       bg: assemble_bg(Map.get(group_map, "bg"))
@@ -633,6 +753,39 @@ defmodule ImagePipe.Native.Parser do
 
   defp assemble_rotation(0), do: nil
   defp assemble_rotation(angle), do: angle
+
+  defp assemble_anchor_offset(nil), do: nil
+
+  defp assemble_anchor_offset(offset) do
+    case normalize_offset(offset) do
+      {{:px, 0}, {:px, 0}} -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp assemble_canvas(group_map) do
+    mode =
+      cond do
+        Map.get(group_map, "extend", false) -> :box
+        Map.get(group_map, "extend-ratio", false) -> :ratio
+        true -> nil
+      end
+
+    if mode do
+      %{
+        mode: mode,
+        at: Map.get(group_map, "extend-at", :center),
+        offset:
+          group_map
+          |> Map.get("extend-offset", {{:px, 0}, {:px, 0}})
+          |> normalize_offset()
+      }
+    end
+  end
+
+  defp normalize_offset({x, y}), do: {normalize_zero_length(x), normalize_zero_length(y)}
+  defp normalize_zero_length({_unit, value}) when value == 0, do: {:px, 0}
+  defp normalize_zero_length({unit, value}), do: {unit, value * 1.0}
 
   defp assemble_resize(group_map) do
     if resize_intent?(group_map) do
@@ -736,6 +889,7 @@ defmodule ImagePipe.Native.Parser do
   def message_for(:invalid_dpr), do: "invalid value: expected a positive finite decimal"
   def message_for(:invalid_zoom), do: "invalid value: expected a positive scalar or x,y pair"
   def message_for(:invalid_crop_ratio), do: "invalid value: expected a positive a:b or decimal"
+  def message_for(:invalid_offset), do: "invalid value: expected a signed x,y px or pct pair"
 
   def message_for(:invalid_trim_symmetry),
     do: "invalid value: expected h, v, or hv"

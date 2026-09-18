@@ -16,6 +16,15 @@
     { label: "Minimum size", options: "w=200/min-w=400/enlarge" },
     { label: "Square crop", options: "w=400/h=400/fit=cover" },
     { label: "Crop ratio", options: "crop=80pct,80pct/crop-ratio=16:9/w=600" },
+    {
+      label: "Offset crop",
+      options: "crop=60pct,60pct/anchor=top-left/anchor-offset=10pct,5pct/w=600",
+    },
+    { label: "Canvas", options: "w=600/h=600/extend/extend-at=bottom/bg=fff" },
+    {
+      label: "Wide canvas",
+      options: "w=600/h=300/extend-ratio/extend-at=left/extend-offset=5pct,0/bg=fff",
+    },
     { label: "Symmetric trim", options: "trim=auto/trim-symmetry=hv/w=600" },
     { label: "Blur", options: "w=800/blur=3" },
     { label: "Padding", options: "w=600/pad=24/bg=fff" },
