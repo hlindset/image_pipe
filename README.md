@@ -100,6 +100,13 @@ after the signature segment. Key lists support rotation: the first key signs,
 and all configured keys can verify. Unsigned requests are accepted when no
 keys are configured.
 
+S3 sources use `s3://bucket/key?revision` and a configured `:s3` adapter.
+Custom `source_schemes` map source names to host translators. To conceal the
+source, configure separate `source_encryption_keys` and use
+`ImagePipe.Native.encrypt_source/2` to build a signed `enc/<token>` URL.
+See the [source contract](docs/native_api_contract.md#sources) for encoding,
+key rotation, and a complete concealment example.
+
 ## Current support boundaries
 
 The native API currently supports EXIF orientation policy, arbitrary rotation,
@@ -110,8 +117,9 @@ blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness,
 contrast, saturation, colorize, gradients, padding, background, image formats,
 per-format quality, automatic quality search, byte budgets, encoder controls,
 metadata retention, color profile conversion, HDR preservation,
-BlurHash, debug headers, expiry, presets, and signed URLs. It accepts local
-paths and HTTP(S) source URLs. Invalid requests fail before cache lookup or
+BlurHash, debug headers, expiry, presets, signed URLs, and source concealment.
+It accepts local paths, HTTP(S) URLs, S3 objects, and configured source schemes.
+Invalid requests fail before cache lookup or
 source fetch.
 
 EXIF orientation applies once by default. Use `orient=none` to keep the stored

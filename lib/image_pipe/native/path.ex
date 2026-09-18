@@ -31,7 +31,7 @@ defmodule ImagePipe.Native.Path do
   offsets even though it is skipped during lexing, so diagnostics can point
   at the right byte position in the actual request path.
 
-  Lexing work is bounded: at most `@max_option_segments` segments (src/src64
+  Lexing work is bounded: at most `@max_option_segments` segments (src/src64/enc
   excepted) are lexed per request before giving up with a `:too_many_segments`
   diagnostic [native §Error diagnostics, bounded work] — a hostile path with
   an unbounded number of segments must not buy unbounded lexing work.
@@ -75,6 +75,13 @@ defmodule ImagePipe.Native.Path do
     end
   end
 
+  @doc false
+  @spec diagnostic_path(Plug.Conn.t()) :: String.t()
+  def diagnostic_path(%Plug.Conn{} = conn) do
+    path = mount_relative_path!(conn)
+    redact_secrets(path, path, path)
+  end
+
   @doc """
   Full lexing of the mount-relative raw path into option/flag/then segments
   plus a terminal source, called only after `Signature.verify/3` has
@@ -82,11 +89,10 @@ defmodule ImagePipe.Native.Path do
   it) but never returns signature data — `split_signature/1` is the raw
   prefix's only interpreter.
 
-  Returns `{:ok, %{segments: [{raw, span}], source: {:src | :src64, decoded_tail, span}}}`
-  on success, where `decoded_tail` is the fully decoded source string
-  (percent-decoded once for `src`, base64url-decoded for `src64`) — both
-  marker forms feed the same downstream source-resolution toolkit [native
-  §Sources].
+  Returns `{:ok, %{segments: [{raw, span}], source: {:src | :src64 | :enc, source, span}}}`
+  on success. `src` is percent-decoded once, `src64` is base64url-decoded,
+  and `enc` remains an opaque token for authenticated decryption by
+  `ImagePipe.Native` [native §Sources].
 
   On failure returns `{:error, [Diagnostic.t()]}` — errors accumulate
   across independent rule violations in a single pass.
@@ -95,7 +101,7 @@ defmodule ImagePipe.Native.Path do
           {:ok,
            %{
              segments: [{raw :: String.t(), span()}],
-             source: {:src | :src64, decoded_tail :: String.t(), span()}
+             source: {:src | :src64 | :enc, decoded_tail :: String.t(), span()}
            }}
           | {:error, [Diagnostic.t()]}
   def extract(%Plug.Conn{} = conn) do
@@ -206,7 +212,7 @@ defmodule ImagePipe.Native.Path do
   # `segment_count` bounds lexing work [native §Error diagnostics, bounded
   # work]: it counts every non-terminal segment consumed (option, flag,
   # `then`, and every error-producing segment alike) but never the
-  # terminal src/src64 marker itself, so a request genuinely at the option
+  # terminal src/src64/enc marker itself, so a request genuinely at the option
   # budget can still reach its source.
 
   defp lex_segments(path, rest, segments_acc, errors_acc, segment_count) do
@@ -219,7 +225,7 @@ defmodule ImagePipe.Native.Path do
         segment_len = byte_size(segment)
 
         cond do
-          segment in ["src", "src64"] ->
+          segment in ["src", "src64", "enc"] ->
             classify_segment(
               segment,
               path,
@@ -262,6 +268,9 @@ defmodule ImagePipe.Native.Path do
 
       segment == "src64" ->
         finish_source(:src64, path, remainder, segments_acc, errors_acc)
+
+      segment == "enc" ->
+        finish_concealed_source(path, remainder, segments_acc, errors_acc)
 
       String.starts_with?(segment, "sig=") ->
         continue(
@@ -307,6 +316,18 @@ defmodule ImagePipe.Native.Path do
   end
 
   # -- source marker (terminal) --------------------------------------------
+
+  defp finish_concealed_source(path, remainder, segments_acc, errors_acc) do
+    {tail, tail_offset} = concealed_tail(path, remainder)
+
+    case errors_acc do
+      [] -> {:ok, %{segments: segments_acc, source: {:enc, tail, {tail_offset, byte_size(tail)}}}}
+      errors -> {:error, errors}
+    end
+  end
+
+  defp concealed_tail(path, ""), do: {"", byte_size(path)}
+  defp concealed_tail(path, "/" <> tail), do: {tail, byte_size(path) - byte_size(tail)}
 
   defp finish_source(marker, path, remainder, segments_acc, errors_acc) do
     case remainder do
@@ -378,7 +399,7 @@ defmodule ImagePipe.Native.Path do
 
   defp message_for(:non_empty_query_string), do: "query strings are not supported"
   defp message_for(:sig_only_valid_first), do: "sig must be the first segment"
-  defp message_for(:missing_source_marker), do: "missing src or src64 marker"
+  defp message_for(:missing_source_marker), do: "missing src, src64, or enc marker"
   defp message_for(:missing_source), do: "missing source after src/src64 marker"
   defp message_for(:malformed_percent_escape), do: "malformed percent escape"
   defp message_for(:src64_embedded_slash), do: "src64 value may not contain a slash"
@@ -393,4 +414,35 @@ defmodule ImagePipe.Native.Path do
 
   defp message_for(:too_many_segments),
     do: "too many option segments (max #{@max_option_segments})"
+
+  defp redact_secrets(path, rest, redacted) do
+    case split_first_segment(rest) do
+      {nil, _offset, _remainder} ->
+        redacted
+
+      {marker, _offset, _remainder} when marker in ["src", "src64"] ->
+        redacted
+
+      {"enc", _offset, remainder} ->
+        {_tail, offset} = concealed_tail(path, remainder)
+        mask_tail(redacted, offset)
+
+      {"sig=" <> signature, _offset, remainder} ->
+        segment_offset = byte_size(path) - byte_size(rest) + 1
+        redacted = mask_bytes(redacted, segment_offset + 4, byte_size(signature))
+        redact_secrets(path, remainder, redacted)
+
+      {_segment, _offset, remainder} ->
+        redact_secrets(path, remainder, redacted)
+    end
+  end
+
+  defp mask_tail(path, offset) do
+    mask_bytes(path, offset, byte_size(path) - offset)
+  end
+
+  defp mask_bytes(path, offset, length) do
+    <<prefix::binary-size(^offset), _secret::binary-size(^length), suffix::binary>> = path
+    prefix <> String.duplicate("*", length) <> suffix
+  end
 end

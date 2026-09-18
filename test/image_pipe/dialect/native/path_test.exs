@@ -176,6 +176,24 @@ defmodule ImagePipe.Native.PathTest do
                Path.extract(conn)
     end
 
+    test "lexes an encrypted source token without decoding it" do
+      conn = conn_for("/w=800/enc/AQAB-c_d")
+
+      assert {:ok,
+              %{
+                segments: [{"w=800", {1, 5}}],
+                source: {:enc, "AQAB-c_d", {11, 8}}
+              }} = Path.extract(conn)
+    end
+
+    test "leaves malformed encrypted token shapes for the fixed concealment failure" do
+      assert {:ok, %{source: {:enc, "", {4, 0}}}} = Path.extract(conn_for("/enc"))
+      assert {:ok, %{source: {:enc, "", {5, 0}}}} = Path.extract(conn_for("/enc/"))
+
+      assert {:ok, %{source: {:enc, "bad/token", {5, 9}}}} =
+               Path.extract(conn_for("/enc/bad/token"))
+    end
+
     test "spans are computed against the full mount-relative raw path, sig segment included" do
       conn = conn_for("/sig=ABCDEFG/w=800/src/x")
 
@@ -217,6 +235,42 @@ defmodule ImagePipe.Native.PathTest do
     end
   end
 
+  describe "diagnostic_path/1" do
+    test "masks an encrypted token without changing diagnostic byte offsets" do
+      raw_path = "/sig=ABC/w=bad/enc/private/token"
+      redacted = Path.diagnostic_path(conn_for(raw_path))
+
+      assert redacted == "/sig=***/w=bad/enc/*************"
+      assert byte_size(redacted) == byte_size(raw_path)
+      refute redacted =~ "ABC"
+      refute redacted =~ "private"
+      refute redacted =~ "token"
+    end
+
+    test "masks a leading signature on ordinary-source diagnostics" do
+      raw_path = "/sig=private-signature/w=bad/src/images/cat.jpg"
+      redacted = Path.diagnostic_path(conn_for(raw_path))
+
+      assert byte_size(redacted) == byte_size(raw_path)
+      refute redacted =~ "private-signature"
+      assert redacted =~ "/w=bad/src/images/cat.jpg"
+    end
+
+    test "masks a misplaced signature segment before the source marker" do
+      raw_path = "/w=bad/sig=private-signature/src/images/cat.jpg"
+      redacted = Path.diagnostic_path(conn_for(raw_path))
+
+      assert byte_size(redacted) == byte_size(raw_path)
+      refute redacted =~ "private-signature"
+      assert redacted =~ "/w=bad/sig=*****************/src/images/cat.jpg"
+    end
+
+    test "does not treat enc text inside an ordinary source as a concealed token" do
+      raw_path = "/w=bad/src/images/enc/private.jpg"
+      assert Path.diagnostic_path(conn_for(raw_path)) == raw_path
+    end
+  end
+
   describe "extract/1 rules" do
     test "a non-empty query string is an error" do
       conn = conn_for("/w=800/src/x?v=2")
@@ -232,7 +286,7 @@ defmodule ImagePipe.Native.PathTest do
       assert Enum.any?(errors, &(&1.reason == :sig_only_valid_first))
     end
 
-    test "missing src/src64 marker entirely is an error" do
+    test "missing a source marker entirely is an error" do
       conn = conn_for("/w=800/h=600")
 
       assert {:error, [%{reason: :missing_source_marker}]} = Path.extract(conn)

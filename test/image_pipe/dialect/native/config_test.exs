@@ -2,6 +2,10 @@ defmodule ImagePipe.Native.ConfigTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Native.Config
+  alias ImagePipe.Native.SourceEncryption
+
+  @source_key :binary.copy(<<42>>, 32)
+  @signing_key String.duplicate("a1", 32)
 
   defmodule CustomDetector do
   end
@@ -59,5 +63,73 @@ defmodule ImagePipe.Native.ConfigTest do
   test "rejects neutral configuration whose native URL surface is not available" do
     assert_raise ArgumentError, fn -> Config.validate!(auto_rotate: false) end
     assert_raise ArgumentError, fn -> Config.validate!(smart_crop_face_detection: true) end
+  end
+
+  test "normalizes exact 32-byte source encryption keys into a redacted keyring" do
+    config =
+      Config.validate!(
+        keys: [@signing_key],
+        source_encryption_keys: [@source_key]
+      )
+
+    assert %SourceEncryption{} = config[:source_encryption]
+    refute Keyword.has_key?(config, :source_encryption_keys)
+    refute inspect(config) =~ @source_key
+  end
+
+  test "defaults source encryption to a disabled redacted keyring" do
+    config = Config.validate!([])
+
+    assert %SourceEncryption{} = keyring = config[:source_encryption]
+
+    assert SourceEncryption.encrypt("images/cat.jpg", keyring) ==
+             {:error, :source_encryption_disabled}
+  end
+
+  test "requires signing keys and independent encryption key material" do
+    assert_raise ArgumentError, "source encryption requires signing keys", fn ->
+      Config.validate!(source_encryption_keys: [@source_key])
+    end
+
+    shared_key = :binary.copy(<<7>>, 32)
+
+    assert_raise ArgumentError, "signing and source encryption keys must be independent", fn ->
+      Config.validate!(
+        keys: [Base.encode16(shared_key)],
+        source_encryption_keys: [shared_key]
+      )
+    end
+  end
+
+  test "rejects malformed secret configuration without including its value" do
+    malformed_source_key = "private-source-encryption-key"
+
+    source_error =
+      assert_raise ArgumentError, fn ->
+        Config.validate!(
+          keys: [@signing_key],
+          source_encryption_keys: [malformed_source_key]
+        )
+      end
+
+    refute Exception.message(source_error) =~ malformed_source_key
+
+    malformed_signing_key = "private-signing-secret"
+
+    signing_error =
+      assert_raise ArgumentError, fn ->
+        Config.validate!(keys: [malformed_signing_key])
+      end
+
+    refute Exception.message(signing_error) =~ malformed_signing_key
+
+    for malformed_keys <- [malformed_signing_key, %{secret: malformed_signing_key}] do
+      container_error =
+        assert_raise ArgumentError, fn ->
+          Config.validate!(keys: malformed_keys)
+        end
+
+      refute Exception.message(container_error) =~ malformed_signing_key
+    end
   end
 end

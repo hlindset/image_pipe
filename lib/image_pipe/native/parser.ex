@@ -43,7 +43,7 @@ defmodule ImagePipe.Native.Parser do
   @type span :: Diagnostic.span()
   @type lexed :: %{
           segments: [{String.t(), span()}],
-          source: {:src | :src64, String.t(), span()}
+          source: {:src | :src64 | :enc, String.t(), span()}
         }
 
   @doc """

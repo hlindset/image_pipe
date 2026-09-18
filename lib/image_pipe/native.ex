@@ -34,7 +34,7 @@ defmodule ImagePipe.Native do
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ],
-    exports: []
+    exports: [SourceScheme]
 
   @behaviour ImagePipe.Dialect
 
@@ -52,6 +52,7 @@ defmodule ImagePipe.Native do
   alias ImagePipe.Native.Request
   alias ImagePipe.Native.Signature
   alias ImagePipe.Native.Source, as: NativeSource
+  alias ImagePipe.Native.SourceEncryption
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Source, as: ImageSource
@@ -66,6 +67,18 @@ defmodule ImagePipe.Native do
   @impl ImagePipe.Dialect
   def validate_config!(opts), do: Config.validate!(opts)
 
+  @doc """
+  Encrypts a UTF-8 source using a validated native mount configuration.
+
+  The returned value is the token only. The host places it after the `enc/`
+  source marker and signs the complete native request path.
+  """
+  @spec encrypt_source(term(), keyword()) ::
+          {:ok, String.t()} | {:error, :invalid_source | :source_encryption_disabled}
+  def encrypt_source(source, config) do
+    SourceEncryption.encrypt(source, Keyword.fetch!(config, :source_encryption))
+  end
+
   @impl ImagePipe.Dialect
   def parse(%Plug.Conn{} = conn, config) do
     {sig, signed_path} = Path.split_signature(conn)
@@ -73,6 +86,7 @@ defmodule ImagePipe.Native do
     result =
       with {:ok, key_index} <- Signature.verify(sig, signed_path, config),
            {:ok, lexed} <- Path.extract(conn) |> normalize_lex_error(),
+           {:ok, lexed} <- decrypt_source(lexed, config),
            {:ok, request} <- Parser.parse(lexed, config) do
         {request, key_index}
       end
@@ -187,6 +201,7 @@ defmodule ImagePipe.Native do
       do: :parser_error
 
   def classify_error({:invalid_request, _diagnostics}), do: :parser_error
+  def classify_error(:invalid_concealed_source), do: :parser_error
   def classify_error(:expired), do: :parser_error
   def classify_error({:detector, :unavailable}), do: :plan_error
   def classify_error({:invalid_output, _reason}), do: :plan_error
@@ -194,6 +209,15 @@ defmodule ImagePipe.Native do
 
   defp normalize_lex_error({:error, diagnostics}), do: {:error, {:invalid_request, diagnostics}}
   defp normalize_lex_error({:ok, _lexed} = ok), do: ok
+
+  defp decrypt_source(%{source: {:enc, token, span}} = lexed, config) do
+    case SourceEncryption.decrypt(token, Keyword.fetch!(config, :source_encryption)) do
+      {:ok, source} -> {:ok, %{lexed | source: {:enc, source, span}}}
+      {:error, :invalid_concealed_source} = error -> error
+    end
+  end
+
+  defp decrypt_source(lexed, _config), do: {:ok, lexed}
 
   defp check_expires(%Request{expires: expires}, now) do
     if Signature.expired?(expires, now), do: {:error, :expired}, else: :ok

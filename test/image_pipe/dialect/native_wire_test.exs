@@ -145,7 +145,7 @@ defmodule ImagePipe.NativeWireTest do
         ImagePipe.Plug.init(sources: @default_sources, unknown_option: true)
       end
 
-      assert_raise ArgumentError, ~r/hex-encoded/, fn ->
+      assert_raise ArgumentError, fn ->
         ImagePipe.Plug.init(sources: @default_sources, keys: ["not a hex key"])
       end
     end

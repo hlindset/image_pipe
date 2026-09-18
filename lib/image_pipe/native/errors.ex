@@ -21,7 +21,7 @@ defmodule ImagePipe.Native.Errors do
   @spec send(Plug.Conn.t(), term(), keyword()) :: Plug.Conn.t()
   def send(%Plug.Conn{} = conn, {:invalid_request, diagnostics}, _config)
       when is_list(diagnostics) do
-    body = DiagnosticRenderer.render(raw_path(conn), diagnostics)
+    body = DiagnosticRenderer.render(Path.diagnostic_path(conn), diagnostics)
 
     conn
     |> put_resp_content_type("text/plain")
@@ -42,7 +42,7 @@ defmodule ImagePipe.Native.Errors do
       spans: [sig_span(conn)]
     }
 
-    body = DiagnosticRenderer.render(raw_path(conn), [diagnostic])
+    body = DiagnosticRenderer.render(Path.diagnostic_path(conn), [diagnostic])
 
     conn
     |> put_resp_content_type("text/plain")
@@ -50,6 +50,12 @@ defmodule ImagePipe.Native.Errors do
   end
 
   def send(%Plug.Conn{} = conn, :expired, _config) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(404, "not found")
+  end
+
+  def send(%Plug.Conn{} = conn, :invalid_concealed_source, _config) do
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(404, "not found")
@@ -105,20 +111,6 @@ defmodule ImagePipe.Native.Errors do
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(status, message)
-  end
-
-  # `Path.split_signature/1` is pure and safe to call again here: it never
-  # errors and never allocates a diagnostic. Reconstructing the full
-  # mount-relative raw path (WITH the sig segment, when present) matters
-  # because every byte span `Path.extract/1`/`Parser.parse/2` produce is
-  # relative to that full path, sig segment included (Path's own moduledoc:
-  # "the sig segment counts toward offsets even though it is skipped during
-  # lexing").
-  defp raw_path(conn) do
-    case Path.split_signature(conn) do
-      {nil, path} -> path
-      {sig, signed_path} -> "/sig=" <> sig <> signed_path
-    end
   end
 
   defp sig_span(conn) do

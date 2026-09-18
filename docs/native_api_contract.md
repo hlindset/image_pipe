@@ -40,9 +40,9 @@ The native API implements these option keys:
 `avif-options`, `jxl-options`, `meta`, `profile`, `hdr`,
 `debug`, `expires`, `preset`.
 
-It also implements `then`, `src`, `src64`, and full-length HMAC signing with
+It also implements `then`, `src`, `src64`, `enc`, and full-length HMAC signing with
 key rotation. Presets support nested references and complete `then` pipelines.
-Sources are currently paths or HTTP(S) URLs. Image and
+Sources are paths, HTTP(S) URLs, S3 objects, or configured custom schemes. Image and
 BlurHash are implemented terminals. The broader vocabulary in the
 [July native design](https://github.com/hlindset/image_pipe/blob/main/docs/superpowers/specs/2026-07-12-native-url-dialect-design.md)
 is a proposal, not a record of shipped capabilities; in particular, LQIP
@@ -238,6 +238,40 @@ ETags change when a relevant model changes; unrelated model changes leave
 them stable. See [content-aware cropping](content-aware-gravity.md) for host
 configuration, weighting, and warmup.
 
+### Sources
+
+All source forms use the same configured source adapters. `src/<source>`
+percent-decodes its tail once; `src64/<source>` decodes unpadded base64url.
+After this outer decoding:
+
+- A relative path selects the `:path` adapter. Its path segments are not
+  percent-decoded again.
+- An HTTP(S) URL selects the `:http` or `:https` adapter. Its path components
+  are decoded once as URL components and encoded by the adapter when fetching.
+  The query stays an opaque encoded string. Userinfo, fragments, malformed
+  escapes, and ports outside `1..65535` are rejected.
+- `s3://bucket/key?revision` selects the `:s3` adapter with bucket, object key,
+  and optional immutable revision. Key and revision are percent-decoded once.
+  The entire query is the revision value; it is not a `versionId=` parameter.
+  Empty keys, userinfo, fragments, and ports are rejected.
+
+For example, an HTTP source whose filename contains `#` is
+`https://images.example/cat%23one.jpg`. Its `src` spelling includes
+`cat%2523one.jpg`, preserving the source URL's own escape through the outer
+decoding layer. `src64` avoids this extra layer.
+
+Configure custom schemes with
+`source_schemes: %{"asset" => {MyApp.AssetSource, options}}`. The module implements
+`ImagePipe.Native.SourceScheme`. Its
+`translate(source, options)` callback receives the decoded source string and
+returns `{:ok, plan_source}` using `ImagePipe.Plan.Source.Path`, `.URL`,
+`.Object`, or `.Reference`. It may return `{:error, reason}` to reject the
+source. Failures produce a fixed client error without exposing callback
+details. Scheme names must be lowercase URI schemes; built-in `http`,
+`https`, and `s3` cannot be replaced. Source adapters remain responsible for
+filesystem confinement, allowed origins, redirect and body limits, and object
+credentials.
+
 ### Source concealment
 
 Use `enc/<token>` as an alternative to `src` and `src64`. The token is
@@ -251,6 +285,9 @@ and [RFC 5116 section 5.2](https://www.rfc-editor.org/rfc/rfc5116.html#section-5
 
 Encryption keys are a separate ordered list of 32-byte keys: encrypt with
 the first, authenticate/decrypt against the configured list during rotation.
+Set `source_encryption_keys: [key, previous_key]` using raw binary keys;
+signing `keys` use hex-encoded strings. An empty encryption list disables
+concealment. Encryption keys must differ from the signing keys.
 The helper generates a fresh nonce; callers do not supply one. Configure
 signing keys whenever encryption is enabled, and verify the full native
 request signature before decrypting. This binds processing options and
@@ -262,8 +299,26 @@ material in diagnostics or telemetry.
 
 After decryption, use ordinary native source validation and identity.
 Fresh encryptions of the same source and transform share storage/ETag
-identity. Tests in `.9` cover tampering, rotation, nonce generation,
-signature-before-decryption, no-fetch failures, and identity equivalence.
+identity. The public helper accepts validated mount configuration and returns
+only the token:
+
+```elixir
+opts = ImagePipe.Plug.init(
+  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}],
+  keys: [signing_key_hex],
+  source_encryption_keys: [encryption_key]
+)
+
+{:ok, token} = ImagePipe.Native.encrypt_source("photos/cat.jpg", opts)
+path = "/w=400/enc/" <> token
+signature = ImagePipe.Native.Signature.sign(path, opts)
+url = "/images/sig=" <> signature <> path
+```
+
+The `/images` mount prefix is outside the signed path. The helper generates
+a fresh nonce on every call and returns a tagged error for invalid source
+text or disabled encryption. Keep both key sets on the host; clients receive
+the completed signed URL.
 
 ### Pixel effects
 

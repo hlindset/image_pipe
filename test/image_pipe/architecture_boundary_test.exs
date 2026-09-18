@@ -180,7 +180,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Delivery
     ])
 
-    assert_boundary_exports(dialect_native, [])
+    # A host implements `SourceScheme` to translate a custom `foo://` source
+    # into the shared Plan.Source model. The native parser and lifecycle remain
+    # concrete internal implementation.
+    assert_boundary_exports(dialect_native, [ImagePipe.Native.SourceScheme])
   end
 
   test "the plug and request lifecycle have no dependency on compatibility implementations" do
