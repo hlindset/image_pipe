@@ -28,12 +28,4 @@ defmodule ImagePipe.Plan.OperationResizeBoundsTest do
     assert {:error, _} = Operation.resize(:fit, :auto, :auto, max_height: -5)
     assert {:error, _} = Operation.resize(:fit, :auto, :auto, max_area: 1.5)
   end
-
-  test "semantic? accepts a Resize with valid bounds and rejects bad ones" do
-    {:ok, %Resize{} = ok} = Operation.resize(:fit, :auto, :auto, max_width: 2000)
-    assert Operation.semantic?(ok)
-
-    bad = %Resize{ok | max_width: 0}
-    refute Operation.semantic?(bad)
-  end
 end

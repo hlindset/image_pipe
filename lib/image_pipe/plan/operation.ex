@@ -17,7 +17,6 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Gradient
-  alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
   alias ImagePipe.Plan.Operation.Pixelate
@@ -489,88 +488,7 @@ defmodule ImagePipe.Plan.Operation do
     |> String.to_existing_atom()
   end
 
-  @spec semantic?(term()) :: boolean()
-  def semantic?(%Resize{} = operation), do: valid_resize?(operation)
-  def semantic?(%CropGuided{} = operation), do: valid_crop_guided?(operation)
-  def semantic?(%CropRegion{} = operation), do: valid_crop_region?(operation)
-  def semantic?(%Canvas{} = operation), do: valid_canvas?(operation)
-  def semantic?(%Padding{} = operation), do: valid_padding?(operation)
-  def semantic?(%Background{} = operation), do: valid_background?(operation)
-
-  def semantic?(%Rotate{angle: angle, mirror: mirror}),
-    do: is_number(angle) and angle >= 0 and angle < 360 and is_boolean(mirror)
-
-  def semantic?(%Flip{axis: axis}) when axis in @flip_axes, do: true
-  def semantic?(%Blur{} = operation), do: valid_positive_float?(operation.sigma)
-  def semantic?(%Sharpen{} = operation), do: valid_positive_float?(operation.sigma)
-  def semantic?(%Pixelate{} = operation), do: valid_pixelate_size?(operation.size)
-  def semantic?(%Monochrome{} = operation), do: valid_monochrome?(operation)
-  def semantic?(%Duotone{} = operation), do: valid_duotone?(operation)
-
-  def semantic?(%Colorize{} = operation),
-    do:
-      valid_effect_intensity?(operation.opacity) and Color.valid?(operation.color) and
-        is_boolean(operation.keep_alpha)
-
-  def semantic?(%Gradient{} = op),
-    do:
-      valid_effect_intensity?(op.opacity) and Color.valid?(op.color) and is_float(op.angle) and
-        is_float(op.start) and is_float(op.stop) and op.start >= 0.0 and op.start <= 1.0 and
-        op.stop >= 0.0 and op.stop <= 1.0
-
-  def semantic?(%Brightness{} = operation),
-    do: is_integer(operation.value) and operation.value in @brightness_range
-
-  def semantic?(%Contrast{} = operation),
-    do: is_float(operation.value) and operation.value > 0.0
-
-  def semantic?(%Saturation{} = operation),
-    do: is_float(operation.value) and operation.value > 0.0
-
-  def semantic?(%Trim{} = operation), do: valid_trim?(operation)
-  def semantic?(%Bitonal{}), do: true
-  def semantic?(%Gray{}), do: true
-  def semantic?(_operation), do: false
-
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
-
-  defp valid_resize?(%Resize{} = operation) do
-    with {:ok, mode} <- resize_mode(operation.mode),
-         {:ok, _width} <- tagged_resize_dimension(operation.width),
-         {:ok, _height} <- tagged_resize_dimension(operation.height),
-         :ok <- tagged_dpr_ratio(operation.dpr),
-         {:ok, _enlargement} <-
-           member(operation.enlargement, @enlargements),
-         {:ok, _guide} <- resize_guide(operation.guide),
-         :ok <- tagged_offset(operation.x_offset),
-         :ok <- tagged_offset(operation.y_offset),
-         {:ok, _offsets} <- resize_offsets(mode, operation.x_offset, operation.y_offset),
-         :ok <- optional_resize_dimension(operation.min_width),
-         :ok <- optional_resize_dimension(operation.min_height),
-         :ok <- positive_zoom(operation.zoom_x),
-         :ok <- positive_zoom(operation.zoom_y),
-         :ok <- optional_positive_integer_value(operation.max_width),
-         :ok <- optional_positive_integer_value(operation.max_height),
-         :ok <- optional_positive_integer_value(operation.max_area) do
-      true
-    else
-      _error -> false
-    end
-  end
-
-  defp valid_crop_guided?(%CropGuided{} = operation) do
-    with {:ok, _width} <- tagged_crop_dimension(operation.width),
-         {:ok, _height} <- tagged_crop_dimension(operation.height),
-         {:ok, _guide} <- tagged_crop_guide(operation.guide),
-         :ok <- tagged_offset(operation.x_offset),
-         :ok <- tagged_offset(operation.y_offset),
-         {:ok, _aspect_ratio} <- crop_aspect_ratio_option(operation.aspect_ratio),
-         {:ok, _enlarge} <- crop_enlarge_option(operation.enlarge) do
-      true
-    else
-      _error -> false
-    end
-  end
 
   defp crop_aspect_ratio_option(nil), do: {:ok, nil}
 
@@ -583,79 +501,6 @@ defmodule ImagePipe.Plan.Operation do
 
   defp crop_enlarge_option(enlarge) when is_boolean(enlarge), do: {:ok, enlarge}
   defp crop_enlarge_option(other), do: {:error, {:invalid_crop_enlarge, other}}
-
-  defp valid_crop_region?(%CropRegion{} = operation) do
-    with {:ok, _x} <- tagged_crop_coordinate(operation.x),
-         {:ok, _y} <- tagged_crop_coordinate(operation.y),
-         {:ok, _width} <- tagged_crop_region_dimension(operation.width),
-         {:ok, _height} <- tagged_crop_region_dimension(operation.height) do
-      true
-    else
-      _error -> false
-    end
-  end
-
-  defp valid_canvas?(%Canvas{} = operation) do
-    with {:ok, width} <- tagged_canvas_dimension(operation.width),
-         {:ok, height} <- tagged_canvas_dimension(operation.height),
-         {:ok, _placement} <- tagged_canvas_placement(operation.placement),
-         :ok <- validate_canvas_dimension_pair(width, height, :canvas),
-         {:ok, _fill} <- tagged_fill(operation.fill),
-         {:ok, _overflow} <- member(operation.overflow, [:reject]),
-         :ok <- number(operation.x_offset),
-         :ok <- number(operation.y_offset) do
-      true
-    else
-      _error -> false
-    end
-  end
-
-  defp valid_padding?(%Padding{} = operation) do
-    with {:ok, top} <- tagged_padding_side(operation.top),
-         {:ok, right} <- tagged_padding_side(operation.right),
-         {:ok, bottom} <- tagged_padding_side(operation.bottom),
-         {:ok, left} <- tagged_padding_side(operation.left),
-         :ok <- validate_positive_padding([top, right, bottom, left]),
-         {:ok, _pixel_ratio} <- tagged_padding_pixel_ratio(operation.pixel_ratio),
-         {:ok, _fill} <- tagged_fill(operation.fill) do
-      true
-    else
-      _error -> false
-    end
-  end
-
-  defp valid_background?(%Background{color: color}), do: Color.valid?(color)
-
-  defp valid_trim?(%Trim{threshold: threshold, background: background} = operation) do
-    is_number(threshold) and trim_background_valid?(background) and
-      is_boolean(operation.equal_hor) and is_boolean(operation.equal_ver)
-  end
-
-  defp trim_background_valid?(:auto), do: true
-  defp trim_background_valid?(%Color{} = color), do: Color.valid?(color)
-  defp trim_background_valid?(_), do: false
-
-  defp valid_positive_float?(value) when is_float(value) and value > 0.0, do: true
-  defp valid_positive_float?(_value), do: false
-
-  defp valid_pixelate_size?(value) when is_integer(value) and value > 1, do: true
-  defp valid_pixelate_size?(_value), do: false
-
-  defp valid_monochrome?(%Monochrome{intensity: intensity, color: color}) do
-    valid_effect_intensity?(intensity) and Color.valid?(color)
-  end
-
-  defp valid_duotone?(%Duotone{intensity: intensity, shadow: shadow, highlight: highlight}) do
-    valid_effect_intensity?(intensity) and Color.valid?(shadow) and Color.valid?(highlight)
-  end
-
-  defp valid_effect_intensity?(value) do
-    case effect_intensity(value) do
-      {:ok, ^value} -> true
-      {:ok, _value} -> false
-      {:error, _reason} -> false
-    end
-  end
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do
@@ -809,15 +654,6 @@ defmodule ImagePipe.Plan.Operation do
   defp zero_offset?({unit, value}) when unit in [:pixels, :scale] and is_number(value),
     do: value == 0
 
-  defp optional_resize_dimension(nil), do: :ok
-
-  defp optional_resize_dimension(dimension) do
-    case tagged_resize_dimension(dimension) do
-      {:ok, _dimension} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
   defp tagged_crop_dimension(:full_axis), do: {:ok, :full_axis}
 
   defp tagged_crop_dimension(dimension), do: Measure.dimension(dimension)
@@ -970,13 +806,6 @@ defmodule ImagePipe.Plan.Operation do
     end
   end
 
-  defp member(value, values) do
-    if value in values, do: {:ok, value}, else: {:error, :member}
-  end
-
-  defp number(value) when is_number(value), do: :ok
-  defp number(_value), do: {:error, :number}
-
   defp effect_intensity({:ratio, numerator, denominator})
        when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
               denominator > 0 and numerator <= denominator do
@@ -985,13 +814,6 @@ defmodule ImagePipe.Plan.Operation do
   end
 
   defp effect_intensity(_value), do: {:error, :intensity}
-
-  defp tagged_offset(value) when is_number(value), do: :ok
-
-  defp tagged_offset({unit, value}) when unit in [:pixels, :scale] and is_number(value),
-    do: :ok
-
-  defp tagged_offset(_value), do: {:error, :offset}
 
   # A zoom factor is a positive number or an exact `{:ratio, n, d}` (canonicalized
   # here). The ratio form lets a dialect that maps a relative size to a fraction —
@@ -1014,14 +836,6 @@ defmodule ImagePipe.Plan.Operation do
     end
   end
 
-  defp positive_zoom(value) when is_number(value) and value > 0, do: :ok
-
-  defp positive_zoom({:ratio, n, d})
-       when is_integer(n) and is_integer(d) and n > 0 and d > 0,
-       do: :ok
-
-  defp positive_zoom(_value), do: {:error, :zoom}
-
   defp optional_positive_integer(attrs, key) do
     case Keyword.get(attrs, key) do
       nil -> {:ok, nil}
@@ -1029,10 +843,6 @@ defmodule ImagePipe.Plan.Operation do
       _ -> {:error, key}
     end
   end
-
-  defp optional_positive_integer_value(nil), do: :ok
-  defp optional_positive_integer_value(value) when is_integer(value) and value > 0, do: :ok
-  defp optional_positive_integer_value(_value), do: {:error, :max_bound}
 
   defp signed_numeric(attrs, key, default) do
     case Keyword.fetch(attrs, key) do

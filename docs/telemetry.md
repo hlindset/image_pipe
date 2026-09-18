@@ -46,9 +46,9 @@ The top-level request span is:
 ```
 
 ImagePipe also emits stage spans for meaningful request phases. The exact set
-depends on the routing path. For example, cache hits skip source fetch,
-transform execution, output negotiation, the encode span, and the send/deliver
-streaming spans.
+depends on the routing path. Conditional `304` responses and internal cache
+hits skip the fetch/decode, transform, and encode generation stages. Response
+paths still emit the send span; streamed generation also emits delivery spans.
 
 ```text
 [:image_pipe, :parse, ...]
@@ -65,7 +65,6 @@ streaming spans.
 [:image_pipe, :encode, :search, ...]
 [:image_pipe, :encode, :classify, ...]
 [:image_pipe, :cache, :write, ...]
-[:image_pipe, :render, ...]
 [:image_pipe, :send, ...]
 [:image_pipe, :deliver, ...]
 ```
@@ -100,9 +99,9 @@ When a committed `200` fails mid-stream, the stop `:result` agrees with the
 The `[:image_pipe, :parse]` span wraps `c:ImagePipe.Dialect.parse/2`. Its
 **start metadata is empty**; the stop metadata is **dialect-owned** — the
 callback returns it alongside its parse result, for both outcomes. Every in-tree
-dialect reports at least `:result` (`:ok`, `:redirect`, or `:error`), an
-`:error` tag from `ImagePipe.Error.tag/1` on rejection, and `:status` on a
-redirect. Individual dialects add their own fields, such as the native dialect's
+dialect reports at least `:result` (`:ok` or `:error`) and an
+`:error` tag from `ImagePipe.Error.tag/1` on rejection.
+Individual dialects add their own fields, such as the native dialect's
 `:sig_key_index`.
 
 ### Source fetch + decode (`[:source, :fetch_decode]`)
@@ -165,23 +164,23 @@ Failure stop metadata (one of two shapes, by failure mode):
 
 The `[:image_pipe, :transform, :execute]` span wraps the full transform chain.
 It is opened by the runner (`ImagePipe.Plug.DialectRunner`) around
-`c:ImagePipe.Dialect.execute/4`, so it has the same start/stop shape whichever
-tier owns the stage — the fixed neutral driver for a declarative dialect, the
-dialect's own `Pipeline.run/4` for an ordered one. Its start metadata carries
-the aggregate request view:
+`c:ImagePipe.Dialect.execute/4`, so native and imgproxy execution have the same
+start/stop shape while each concrete pipeline owns its request-specific group
+execution. Its start metadata carries the aggregate request view prepared by
+that pipeline:
 
-- `:operation_count` — number of **plan** operations.
-- `:operations` — the ordered list of **plan** (semantic) operation-name atoms.
+- `:operation_count` — number of requested semantic operations.
+- `:operations` — the ordered list of requested semantic operation-name atoms.
 
 **These two aggregate fields use a deliberately different vocabulary from the
-per-operation spans below.** The aggregate `:operations` is the *semantic plan*
-view (`:crop_guided`, `:crop_region`, `:canvas`, …). The per-op span's
-`:operation` is the *executed-transform* view (`Transform.transform_name/1`),
+per-operation spans below.** The aggregate `:operations` is the semantic
+request view (`:crop_guided`, `:crop_region`, `:canvas`, …). The per-op span's
+`:operation` is the executed-transform view (`Transform.transform_name/1`),
 where e.g. both crop variants execute as `:crop` and a canvas executes as
-`:extend_canvas`. A single plan operation can also expand into several executed
-transform ops, so `:operation_count` (plan ops) is **not** guaranteed to equal
-the number of `[:transform, :operation]` spans. Treat the aggregate as "what
-the request asked for" and the per-op spans as "what actually ran".
+`:extend_canvas`. A single semantic operation can also expand into several
+executed transform operations, so `:operation_count` is **not** guaranteed to
+equal the number of `[:transform, :operation]` spans. Treat the aggregate as
+"what the request asked for" and the per-op spans as "what actually ran".
 
 Stop metadata: `:result` (`:ok` or `:processing_error`).
 
@@ -189,13 +188,13 @@ Stop metadata: `:result` (`:ok` or `:processing_error`).
 
 The `[:image_pipe, :transform, :input_color_management]` span wraps the
 data-determined input-color preamble, which runs once at the start of transform
-execution to condition the decoded image into a working colorspace before any plan
-operation. It is emitted from the shared seam
+execution to condition the decoded image into a working colorspace before any
+group operation. It is emitted from the shared seam
 `ImagePipe.Transform.InputColorManagement.condition/2` itself (via
-`State.telemetry_opts`), so every dialect that runs the preamble emits it with
-identical metadata — the declarative tier through
-`ImagePipe.Transform.Executor`, each ordered dialect through its own
-`Pipeline.run/4` — nested inside `[:transform, :execute]` either way.
+`State.telemetry_opts`). `ImagePipe.Native.Pipeline` and
+`ImagePipe.Dialect.Imgproxy.Pipeline` both call that seam before running their
+groups, nested inside `[:transform, :execute]`, and therefore emit identical
+metadata.
 
 Stop metadata:
 
@@ -553,44 +552,6 @@ Stop metadata:
 - `:status`, `:output_format`, and, on failure, `:stream_phase` (the streaming
   phase the error occurred in, e.g. `:encode`) and `:error`.
 
-### Render span (`[:render]`)
-
-The `[:image_pipe, :render]` span wraps alternative (non-image) response
-rendering through the declarative framework. It is emitted by
-`ImagePipe.Renderer.run/3`, so it covers **only** the render call itself, with
-the preceding source fetch and header decode timed separately by
-`[:source, :fetch_decode]`. It sits
-as a **sibling** of `[:source, :fetch_decode]` under the request root, and it is
-**absent** when the fetch or the decode fails, because the renderer never runs.
-
-Only a renderer dispatched through that entry point emits it. An ordered dialect
-that drives its own render terminal — the `ImagePipe.Dialect.Imgproxy` `/info`
-endpoint, the `ImagePipe.Native` blur-hash terminal — bypasses it and
-emits no `[:render]` span. Treat this span as covering renderer-dispatched
-responses, not every non-image response: a host attaching to `[:render]` to
-count or time rendered responses sees the declarative tier's renderers only,
-and must read `[:request]`'s `:result` to account for the other two.
-
-Start metadata:
-
-- `:renderer` — the renderer module.
-  The response content-type is not known until the renderer runs; it is reported
-  in the stop metadata.
-
-Stop metadata:
-
-- `:result` — `:ok` on success, or `:render_error` on failure. The default
-  Logger escalates `:render_error` to `:warning`.
-- `:content_type` — the response content-type string on success (e.g.
-  `"application/json"`).
-- `:error` — a stable error category atom on failure.
-
-The default Logger renders it as:
-
-```text
-image_pipe render: ok (application/json)
-```
-
 ## Measurements
 
 ImagePipe uses the measurements provided by `:telemetry.span/3`:
@@ -657,7 +618,6 @@ Request and stage spans use narrow result atoms:
 - `:cache_error`
 - `:materialize_error`
 - `:processing_error`
-- `:render_error`
 - `:error`
 
 Use `:error` for stage-local failures that aren't otherwise classified at that
@@ -675,7 +635,6 @@ Representative stage → result mappings:
 - `[:transform, :materialize]` → `:ok` or `:materialize_error`.
 - `[:output, :negotiate]` → `:ok` or a negotiation failure category.
 - `[:encode]` → `:ok` or `:processing_error`.
-- `[:render]` → `:ok` or `:render_error`.
 - `[:deliver]` → `:ok`, `:processing_error`, or `:client_closed`.
 
 The `:error` field is a stable category atom (`ImagePipe.Error.tag/1`), never a
@@ -803,10 +762,13 @@ successful streamed delivery includes `cache: :write_error` and
 already delivered.
 
 Generated CDN HTTP cache handling emits non-span events. The first three come
-from `ImagePipe.Response.CachePolicy` and fire **only** on a mount whose
-`%ImagePipe.Dialect.Resolved{}` carries `http_cache: :generated` — the
-declarative tier today. An ordered dialect is `http_cache: :dialect_owned`, so
-the policy is skipped and none of the three fire:
+from `ImagePipe.Response.CachePolicy` and fire **only** when
+`%ImagePipe.Dialect.Resolved{}` carries `http_cache: :generated`. Today this is
+the native mount with an explicit `:http_cache` option: native request
+preparation selects `:generated` when that configuration key is present and
+`:dialect_owned` when it is absent. Imgproxy always selects `:dialect_owned`,
+so the generated policy is skipped and none of the first three events fire for
+imgproxy:
 
 - `[:image_pipe, :http_cache, :prepare]` with `:effective_mode`,
   `:byte_identity`, and `:etag`.
@@ -922,7 +884,6 @@ defmodule MyApp.ImagePipeTelemetry do
     [:encode],
     [:encode, :search],
     [:encode, :search, :probe],
-    [:render],
     [:cache, :stage],
     [:cache, :write],
     [:send],

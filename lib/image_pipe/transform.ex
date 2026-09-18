@@ -57,13 +57,9 @@ defmodule ImagePipe.Transform do
       Lowering,
       ResizePlanning,
       # Input color-management preamble — dialect-callable (spec G4);
-      # `Executor` seeds it internally.
       InputColorManagement
     ]
 
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
 
   @type attrs() :: keyword()
@@ -94,39 +90,9 @@ defmodule ImagePipe.Transform do
     module.requires_materialization?(operation)
   end
 
-  @spec validate_prefetch_safe_plan(Plan.t()) ::
-          {:ok, [Pipeline.t()]} | {:error, term()}
-  def validate_prefetch_safe_plan(%Plan{} = plan) do
-    case Plan.validate_shape(plan) do
-      {:ok, %Plan{render: render, pipelines: pipelines}}
-      when render != :image and is_list(pipelines) ->
-        # A non-image render plan legitimately carries an empty pipeline (it has no
-        # transform stage); allow it. Shape validation already ran above. The check
-        # is plan-shape only, so Transform stays ignorant of renderer internals. The
-        # plan is parser-produced (a host-implementable boundary), so the pipeline
-        # shape is validated here rather than trusted.
-        {:ok, pipelines}
-
-      {:ok, %Plan{render: render, pipelines: pipelines}} when render != :image ->
-        {:error, {:invalid_pipeline_plan, pipelines}}
-
-      {:ok, %Plan{}} ->
-        Plan.validated_pipelines(plan)
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
   @spec execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
   def execute(%module{} = operation, %State{} = state) do
     module.execute(operation, state)
-  end
-
-  @spec execute_plan(Plan.t(), State.t(), keyword()) ::
-          {:ok, State.t()} | {:error, term()}
-  def execute_plan(%Plan{} = plan, %State{} = state, opts \\ []) do
-    Executor.execute(plan, state, opts)
   end
 
   @default_detector ImagePipe.Transform.Detector.Composite

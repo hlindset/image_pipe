@@ -25,8 +25,7 @@ Native mounts opt into the generated policy by configuring `http_cache`.
 With `http_cache: [mode: :enabled]`, `ImagePipe.Response.CachePolicy` runs
 between building the representation and the conditional gate. Explicitly
 setting `mode: :disabled` generates neither `Cache-Control` nor `ETag`,
-unless the source adapter overrides the mode. Declarative mounts also
-support this policy.
+unless the source adapter overrides the mode.
 
 When `http_cache` is omitted from a native mount, identity headers come
 straight from the representation: an `ETag`, or `Cache-Control: no-store`
@@ -289,11 +288,9 @@ pair an old internal-cache body with a new validator:
   color handling, or orientation behavior can change encoded bytes without
   changing public request syntax. It invalidates every representation every
   dialect has built.
-- each dialect's own behavioral epoch, carried in the material's
-  `dialect_behavior` — for the declarative tier,
-  `ImagePipe.Dialect.Declarative.Identity`'s `@declarative_epoch`; ordered
-  dialects carry theirs in their own `Identity` module. A bump there
-  invalidates only that tier or dialect.
+- each request API's behavioral epoch, carried in the material's
+  `dialect_behavior` by its `Identity` module. A bump there invalidates
+  representations from that API.
 
 ## Deferred In V1
 

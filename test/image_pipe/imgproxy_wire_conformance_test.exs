@@ -1978,7 +1978,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   end
 
   # Face-assist is deliberately NOT part of the strict detector gate: the
-  # detector gate keys on `Plan.detect_classes/1` alone (a `{:detect, _}`
+  # detector gate keys on `ImagePipe.Dialect.Imgproxy.detect_classes/1` alone (a `{:detect, _}`
   # guide), while a face-assist smart crop carries a `{:smart, :face_assist}`
   # guide that is not one of the gated detect classes. So even under
   # `detector_required: true` with an UNAVAILABLE face detector, a `g:sm` +

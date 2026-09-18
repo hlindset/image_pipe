@@ -274,17 +274,6 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert met.attributes[:score] == 1.2
   end
 
-  test "captures the render span with its renderer attribute" do
-    Telemetry.span([], [:render], %{renderer: ImagePipe.Telemetry.Trace.CaptureTest}, fn ->
-      {:ok, %{result: :ok, content_type: "application/json"}}
-    end)
-
-    assert_receive {:span, %Span{name: "image_pipe.render"} = span}
-    assert span.status == :ok
-    assert span.attributes[:renderer] == ImagePipe.Telemetry.Trace.CaptureTest
-    assert span.attributes[:content_type] == "application/json"
-  end
-
   test "merges allowlisted stop-metadata attributes onto the span, preserving start attrs" do
     Telemetry.span(
       [],
@@ -356,7 +345,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "folds the clamp one-shot onto the enclosing span with its dimension/limit attributes" do
-    Telemetry.span([], [:render], %{}, fn ->
+    Telemetry.span([], [:encode], %{}, fn ->
       Telemetry.execute(
         [],
         [:output, :clamp],
@@ -372,7 +361,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       {:ok, %{result: :ok}}
     end)
 
-    assert_receive {:span, %Span{name: "image_pipe.render"} = span}
+    assert_receive {:span, %Span{name: "image_pipe.encode"} = span}
 
     refute_received {:span, %Span{name: "image_pipe.output.clamp"}}
 

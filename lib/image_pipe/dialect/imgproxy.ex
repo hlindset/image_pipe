@@ -368,10 +368,8 @@ defmodule ImagePipe.Dialect.Imgproxy do
   # is class-dependent (a composite may own the face model but not the object
   # model), so the resolved classes are threaded through.
   #
-  # The gate consults `detect_classes/1` ONLY — deliberately NOT `face_assist?/1`.
-  # `ImagePipe.Dialect.Declarative`'s gate checks `Plan.detect_classes(plan) != nil`
-  # alone, while a face-assist smart guide participates only in cache-key identity.
-  # Adding it to the gate would invent a divergence, not close one.
+  # Only explicit detection guides require availability. Face-assisted smart
+  # crop may fall back to attention and contributes to cache identity.
   defp check_detector(operations, config) do
     case detect_classes(operations) do
       nil ->
@@ -391,8 +389,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   # The detect-guide classes requested across the pipelines' operations, or `nil`
-  # when none request detection. Mirrors `ImagePipe.Plan.detect_classes/1`'s exact
-  # return contract (`:all | nonempty_list(String.t()) | nil`) over the dialect
+  # when none request detection. Returns `:all | nonempty_list(String.t()) | nil` from
   # operations' `{:detect, {spec, weights}}` guides. The cache-key identity
   # reuses it alongside `face_assist?/1`.
   @doc false
@@ -415,7 +412,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   # True when any operation requests a face-assisted smart guide
-  # (`{:smart, :face_assist}`). Mirrors `ImagePipe.Plan.face_assist?/1`. Not
+  # (`{:smart, :face_assist}`). Not
   # consulted by the gate above (see its note); the cache-key identity does.
   @doc false
   @spec face_assist?([map()]) :: boolean()
@@ -515,7 +512,7 @@ defmodule ImagePipe.Dialect.Imgproxy do
   end
 
   # The ordered semantic operation-name atoms across the request's pipelines —
-  # the dialect counterpart of `Plan.operation_names/1`, over the same
+  # over the same
   # `Assembly.operations/1` product `Pipeline.run/4` executes. Assembly cannot
   # reject here: `check_geometry/1` already ran the same pure function over
   # every pipeline before the fetch.

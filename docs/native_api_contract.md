@@ -25,8 +25,8 @@ The default `ImagePipe.Plug` mount selects native. The current checkout
 mounts every API through `ImagePipe.Plug` and
 `ImagePipe.Plug.DialectRunner`. There is no `ImagePipe.Parser` or
 `ImagePipe.Request` framework left to remove. Native and imgproxy own their
-pipelines. Shared regression tests are moving off the remaining
-`ImagePipe.Dialect.Declarative` framework before its deletion.
+pipelines. Shared regression tests cover the native request lifecycle,
+streaming, cache, color, decode, and orientation behavior.
 
 The native API implements these option keys:
 
@@ -38,7 +38,7 @@ It also implements `then`, `src`, `src64`, and full-length HMAC signing with
 key rotation. Presets support nested references and complete `then` pipelines.
 Sources are currently paths or HTTP(S) URLs. Image and
 BlurHash are implemented terminals. The broader vocabulary in the
-[July native design](superpowers/specs/2026-07-12-native-url-dialect-design.md)
+[July native design](https://github.com/hlindset/image_pipe/blob/main/docs/superpowers/specs/2026-07-12-native-url-dialect-design.md)
 is a proposal, not a record of shipped capabilities; in particular, LQIP
 is not an implemented terminal to preserve.
 

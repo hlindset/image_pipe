@@ -2,16 +2,10 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   @moduledoc """
   Inline per-pipeline geometry for the imgproxy dialect.
 
-  Scoping reproduces `ImagePipe.Transform.Executor`'s per-pipeline scoping, NOT
-  `ImagePipe.Native.Pipeline` [spec §Pipeline 1]: imgproxy `-`
-  pipelines each re-seed `SourceShape` from the prior pipeline's output,
+  Imgproxy `-` pipelines each re-seed `SourceShape` from the prior pipeline's output,
   start a fresh carry, and flush pending orientation at their own boundary —
   a pipeline's output is the next pipeline's input, so each ends in the
   display frame. Only the executed image/`State` crosses a pipeline boundary.
-
-  Native's `then` groups are the opposite: one seed, one flush after the last
-  group, with the shape threaded continuously. Copying that shape here would
-  be silently wrong — a group boundary is not a pipeline boundary.
 
   Semantic operation assembly lives in `ImagePipe.Dialect.Imgproxy.Assembly` —
   this module is the resolve-loop driver and the carry math that consumes it.
@@ -78,12 +72,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   against whatever the first already produced, so only the first pipeline may
   drive shrink-on-load.
 
-  Every field is derived to agree with what the planner computes from the
-  equivalent op chain (`DecodePlanner.request_from_chain/3`). The two paths
-  *converge* rather than approximate each other: this function resolves the same
-  per-axis extents that path resolves, and both then hand them to the planner's
-  own `ratio_from_targets/4`. What that leaves this function to reproduce is
-  three rules:
+  Every field is derived from the same normalized request values the execution
+  operations consume. `DecodePlanner.open_options_for/5` then applies the shared
+  per-axis ratio and format rules. This function is responsible for three rules:
 
     * `min_width`/`min_height` disable shrink outright, so a request carrying
       either yields `resize_target: nil` rather than a box;
@@ -93,28 +84,25 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
     * a zero-sentinel or absent dimension is not a target at all, so an
       auto/auto resize (a bare `dpr:`, say) yields no box.
 
-  Convergence is structural wherever a value is lowered: every value this
+  The derivation is structural wherever a value is lowered: every value this
   function inflates or clamps by is read back from `Assembly` — the one module
   that lowers the dialect's spellings — so it is *the* value the operation
   carries, not a second derivation of it. `Assembly.crop_dimension/1` for a
   crop's tagged measure, `Assembly.dpr_ratio/1` for the dpr's exact rational.
   Re-deriving either from the raw request value instead is what breaks the
-  agreement — see `resize_target/1` and `crop_axis_extent/2`.
+  result — see `resize_target/1` and `crop_axis_extent/2`.
 
-  `zoom` is the one exception, and its agreement is *asserted rather than
-  structural*: nothing lowers it — `Assembly` hands the operation the same plain
-  float and the planner passes floats through untouched — so this function
-  re-derives the same `|| 1.0` default `Assembly` applies. The two agree because
-  both spell the default identically, which the decode-preflight property pins
-  (its factor generator emits `nil`); no lowering guarantees it.
+  `zoom` is the one exception: nothing lowers it — `Assembly` hands the
+  operation the same plain float — so this function applies the same `|| 1.0`
+  default.
 
   An axis with no target stays `nil` and an inflated extent stays fractional —
   see `resize_target/1`, and `t:DecodePlanner.Request.resize_target/0` for why
   the field admits both.
 
-  `pipeline_assembly_test.exs`'s sibling `decode_preflight_test.exs` pins that
-  agreement against the op-chain path directly rather than restating it, by
-  example and by property.
+  `decode_preflight_test.exs` pins the resulting request fields and concrete
+  load options across representative dimensions, formats, crops, DPR, zoom,
+  trim, and orientation cases.
   """
   @spec decode_request(pipelined_request(), SourceGeometry.t()) ::
           DecodePlanner.Request.t()
@@ -149,8 +137,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   defp planning_dims(%SourceGeometry{display_dimensions: dims}, false), do: dims
 
   # Assembly emits at most one rotate, in stage 2 — always before the stage-4
-  # resize — so the chain's `user_rotate_angle_before_resize/1` sum is just this
-  # angle.
+  # resize — so this angle determines whether the displayed axes swap.
   defp user_quarter_turn?(%PipelineRequest{orientation: %Orientation{rotate: angle}}),
     do: rem(angle, 180) == 90
 
@@ -159,10 +146,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   defp crop_extent(%PipelineRequest{crop: %CropRequest{} = crop}, {dw, dh}),
     do: {crop_axis_extent(crop.width, dw), crop_axis_extent(crop.height, dh)}
 
-  # Mirrors `DecodePlanner.crop_axis_extent/2` clause for clause, over the SAME
-  # tagged measure the chain's own crop operation carries — `Assembly.
-  # crop_dimension/1` is the one place the dialect's spellings lower, so routing
-  # through it converges the two paths instead of re-deriving the extent here.
+  # Resolve the same tagged measure the crop operation carries.
+  # `Assembly.crop_dimension/1` is the one place the dialect's spellings lower,
+  # so preflight does not re-derive those values from raw request floats.
   #
   # Re-deriving is what a `{:scale, _}` punishes: the operation carries an exact
   # rational, and `round(dim * num / den)` is not `round(dim * float)` at a
@@ -179,20 +165,16 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   defp tagged_crop_axis_extent({:ratio, num, den}, dim),
     do: min(dim, max(1, round(dim * num / den)))
 
-  # `DecodePlanner.chain_resize_target/1`'s min_* clause: a min_* floor interacts
-  # with aspect ratio in ways that are not a per-axis multiplier, so the chain
-  # path declines to shrink at all. No target box can express that; `nil`
-  # reproduces it.
+  # A min_* floor interacts with aspect ratio in ways that are not a per-axis
+  # multiplier, so preflight declines to shrink. No target box can express it.
   defp resize_target(%PipelineRequest{min_width: mw, min_height: mh})
        when not is_nil(mw) or not is_nil(mh),
        do: nil
 
   # An untargeted axis stays `nil` rather than being synthesized from the aspect
-  # ratio: `ratio_from_targets/4` — the SAME function the chain path reaches
-  # through `DecodePlanner.chain_resize_target/1` — then takes that axis's ratio
-  # alone, exactly as the chain does. A derived partner axis would instead bind
-  # its `min/2` tighter whenever the frame is not exactly proportional, shrinking
-  # less and decoding more pixels than the chain path for the same request.
+  # ratio, so `DecodePlanner` takes that axis's ratio alone. A derived partner
+  # axis would bind `min/2` tighter whenever the frame is not exactly
+  # proportional, shrinking less and decoding more pixels than requested.
   #
   # The extents are NOT rounded, for the same reason: the planner
   # divides by the fractional dpr/zoom-inflated target directly, so rounding here
@@ -208,14 +190,13 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # a 3200px jpeg's shrink from 8 to 4 and decode 4x the pixels.
   #
   # `zoom` is deliberately NOT routed the same way: `Assembly` hands it to the
-  # operation as a plain float and `DecodePlanner.zoom_factor/1` passes floats
-  # through untouched, so the raw value IS the value the operation carries.
+  # resize operation as a plain float, so the raw value IS the value the
+  # operation carries.
   #
   # A dpr with no rational (`dpr:0.00000001`, which rounds to zero at the
   # seventh decimal) is a request `Assembly.operations/1` rejects outright, so
-  # the chain never reaches the preflight with one. Declining to shrink is the
-  # answer for any caller that does: sizing a decode against a target no
-  # operation will ever carry is worse than not shrinking.
+  # the request never reaches decode in the runtime lifecycle. Declining to
+  # shrink keeps this producer aligned with that rejected operation.
   defp resize_target(%PipelineRequest{} = preq) do
     with {:ok, dpr} <- Assembly.dpr_ratio(preq),
          {target_w, target_h} when not (is_nil(target_w) and is_nil(target_h)) <-
@@ -227,11 +208,9 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
     end
   end
 
-  # `px_target_extent/3` + `target_extent/3`: only a concrete pixel dimension is
-  # a target, inflated by dpr and the axis's zoom. The multiplication is ordered
-  # `(n * dpr) * zoom` to match `DecodePlanner.target_extent/3`'s own
-  # `dim * (n / d) * zoom_factor(zoom)` — float multiplication does not
-  # associate, and the two paths must land on the same bits, not merely close.
+  # Only a concrete pixel dimension is a target, inflated by dpr and the axis's
+  # zoom. Preserve that operation order because float multiplication does not
+  # associate.
   defp target_extent(nil, _dpr, _zoom), do: nil
   defp target_extent({:pixels, 0}, _dpr, _zoom), do: nil
 
@@ -243,8 +222,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   `opts` accepts the same runtime options threaded to `Chain.execute/3`
   (telemetry, etc). It also accepts three test-only overrides — `:chain`,
-  `:measure_dims`, `:continue` — mirroring `Executor.run_neutral/4`'s own injectable
-  seams, defaulting to the real `Chain.execute/3`, a live Vix header read, and
+  `:measure_dims`, `:continue` — defaulting to `Chain.execute/3`, a live Vix header read, and
   `NeutralResolver.continue/4` respectively. Real callers never set these.
 
   A pipeline whose geometry `Assembly.operations/1` rejects (`rs:fill` with no
@@ -268,9 +246,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   end
 
   # Seeds the host-configured detector onto the transform state so object-guided
-  # crops (`{:detect, _}` guides flowing into `Crop.execute/2`) reach it. Mirrors
-  # the fields `ImagePipe.Transform.Executor.execute/3` sets — minus
-  # `telemetry_opts`, which `ImagePipe.Decode.with_image/4` already seeded.
+  # crops (`{:detect, _}` guides flowing into `Crop.execute/2`) reach it.
   defp seed_detector(%State{} = state, opts) do
     %State{
       state
@@ -293,8 +269,6 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # than the caller's so the preamble and its postamble stay one seam, in one
   # module, and every `run/4` caller gets both.
 
-  # Mirrors `Executor.execute_pipelines/3`: the first failing pipeline halts the
-  # rest.
   defp run_pipelines(pipelines, %State{} = state, ctx) do
     Enum.reduce_while(pipelines, {:ok, state}, fn %PipelineRequest{} = preq, {:ok, state} ->
       case run_pipeline(state, preq, ctx) do
@@ -312,18 +286,12 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   # `-` pipeline (`condition/2` is idempotent via `color_imported?`, but the
   # boundary is the request's).
   #
-  # Mirrors `Executor.seed_color_management/2`. A failure is a
+  # A failure is a
   # corrupt/unsupported profile — a decode failure, surfaced as `{:decode, _}`
   # (415) to stay consistent with the materialization contract, NOT as
   # `{:transform, _}`. The `[:transform, :input_color_management]` span is
   # emitted by `InputColorManagement.condition/2` itself, so this dialect gets it
   # for free from the shared seam.
-  #
-  # One deliberate divergence: no `seed_input_color_management` gate. The
-  # Executor runs the preamble only on the real-execution path and skips it when
-  # planning; this dialect's `run/4` IS the real-execution path — there is no
-  # planning caller to gate against — so the gate has no counterpart here rather
-  # than being dropped.
   defp condition_color(%State{} = state, opts) do
     hdr? = Keyword.get(opts, :supports_hdr?, false)
 
@@ -523,8 +491,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
 
   defp default_measure_dims(image), do: {Image.width(image), Image.height(image)}
 
-  # THE sync rule, one site, mirroring `Executor`'s private `overlay/2`
-  # exactly: every executable op's execute-time `State.effective_source_dims/
+  # Every executable op's execute-time `State.effective_source_dims/
   # decode_shrink/pending_orientation` read routes through the resolver-
   # advanced shape, because `Chain.execute/3` reads those off `State`, not off
   # the shape directly (resolve-time reads, inside `NeutralResolver`/
@@ -569,8 +536,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
     end
   end
 
-  # Mirrors `Executor.flush_boundary/4`, called once per PIPELINE (not once
-  # per request): syncs State's source-frame fields from the final shape, then
+  # At each pipeline boundary, sync State's source-frame fields from the final shape, then
   # flushes a surviving non-identity pending orientation through an explicit
   # `%Flush{}`; an identity pending clears without materializing (the
   # streaming fast path). Unconditional — a pipeline that assembled no

@@ -79,13 +79,6 @@ defmodule ImagePipe.Response.Sender do
     |> Json.send(negotiated_type, body)
   end
 
-  @spec send_redirect(Plug.Conn.t(), 303, String.t()) :: Plug.Conn.t()
-  def send_redirect(%Plug.Conn{} = conn, status, location) when is_binary(location) do
-    conn
-    |> put_resp_header("location", location)
-    |> send_resp(status, "")
-  end
-
   @spec send_method_not_allowed(Plug.Conn.t()) :: Plug.Conn.t()
   def send_method_not_allowed(%Plug.Conn{} = conn) do
     conn

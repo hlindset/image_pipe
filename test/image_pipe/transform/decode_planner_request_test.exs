@@ -1,82 +1,39 @@
 defmodule ImagePipe.Transform.DecodePlannerRequestTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Operation
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.DecodePlanner.Request
 
   @formats [:jpeg, :webp, :png]
 
-  # The oracle: the same load options the planner chooses for the equivalent
-  # semantic operation chain, reached through `request_from_chain/3`.
-  defp chain_options(chain, format, dims, exif_quarter_turn? \\ false, auto_rotate? \\ false) do
-    chain
-    |> DecodePlanner.request_from_chain(dims, exif_quarter_turn? and auto_rotate?)
-    |> DecodePlanner.open_options_for(format, dims, exif_quarter_turn?, auto_rotate?)
-  end
-
-  # --- Parity: crop_extent + resize_target vs. an equivalent chain ---
-
-  test "resize_target + crop_extent matches an equivalent chain across formats" do
+  test "resize_target and crop_extent produce format-specific load options" do
     # src 3200x2400; crop 1600x1200 feeds a fit:400x300 resize (no dpr/zoom) ->
     # crop/target ratio = min(1600/400, 1200/300) = 4.
-    assert {:ok, crop} = Operation.crop_region({:px, 0}, {:px, 0}, {:px, 1600}, {:px, 1200})
-    assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 300})
-    chain = [crop, resize]
-
     request = %Request{resize_target: {400, 300}, crop_extent: {1600, 1200}}
+    assert DecodePlanner.open_options_for(request, :jpeg, {3200, 2400})[:shrink] == 4
+    assert DecodePlanner.open_options_for(request, :webp, {3200, 2400})[:scale] == 0.25
 
-    for format <- @formats do
-      expected = chain_options(chain, format, {3200, 2400})
-      actual = DecodePlanner.open_options_for(request, format, {3200, 2400})
-
-      assert actual == expected,
-             "mismatch for #{format}: #{inspect(actual)} != #{inspect(expected)}"
-    end
+    png = DecodePlanner.open_options_for(request, :png, {3200, 2400})
+    refute Keyword.has_key?(png, :shrink)
+    refute Keyword.has_key?(png, :scale)
   end
 
-  test "resize_target axis swap matches an equivalent chain across formats and quarter-turn values" do
+  test "resize_target axis swap changes the governing ratio" do
     # src 3200x800 (landscape); an asymmetric target (200x50) makes the swap change
     # which axis governs the min(), so the two quarter-turn settings genuinely
     # diverge, and both entry points must diverge identically.
-    assert {:ok, resize} = Operation.resize(:fit, {:px, 200}, {:px, 50})
-    chain = [resize]
-
     request = %Request{resize_target: {200, 50}}
 
-    for format <- @formats, {exif_qt?, auto_rotate?} <- [{false, false}, {true, true}] do
-      expected = chain_options(chain, format, {3200, 800}, exif_qt?, auto_rotate?)
-
-      actual =
-        DecodePlanner.open_options_for(request, format, {3200, 800}, exif_qt?, auto_rotate?)
-
-      assert actual == expected,
-             "mismatch for #{format}/#{exif_qt?}/#{auto_rotate?}: #{inspect(actual)} != #{inspect(expected)}"
-    end
+    assert DecodePlanner.open_options_for(request, :jpeg, {3200, 800})[:shrink] == 8
+    assert DecodePlanner.open_options_for(request, :jpeg, {3200, 800}, true, true)[:shrink] == 4
   end
 
   # --- user_quarter_turn? XORs with the EXIF turn ---
-  #
-  # Every expectation below is derived from the chain path, which owns the same
-  # rule (`rem(exif_angle + user_angle, 180) == 90`). The chain is the oracle;
-  # the hand-built `%Request{}` form must agree with it.
 
   test "user_quarter_turn? swaps the shrink axes when there is no EXIF turn" do
     # src 3200x800; a rot:90 before a fit:200x50 resize means the target's axes
     # are the stored axes swapped -> shrink computed against {800, 3200}.
-    assert {:ok, rotate} = Operation.rotate(90)
-    assert {:ok, resize} = Operation.resize(:fit, {:px, 200}, {:px, 50})
-    chain = [rotate, resize]
-
     request = %Request{resize_target: {200, 50}, user_quarter_turn?: true}
-
-    for format <- @formats do
-      expected = chain_options(chain, format, {3200, 800}, false, false)
-      actual = DecodePlanner.open_options_for(request, format, {3200, 800}, false, false)
-
-      assert actual == expected,
-             "mismatch for #{format}: #{inspect(actual)} != #{inspect(expected)}"
-    end
 
     # And it genuinely differs from the unswapped arm: min(800/200, 3200/50) = 4
     # (shrink 4) vs. min(3200/200, 800/50) = 16 (shrink 8).
@@ -91,19 +48,7 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
     # The `exif_5_cover_rot90` regression shape: EXIF 5/6/7/8 (90) + rot:90 =
     # net 180, which does NOT transpose the displayed axes. XOR gives false;
     # reading the EXIF term alone would wrongly swap.
-    assert {:ok, rotate} = Operation.rotate(90)
-    assert {:ok, resize} = Operation.resize(:fit, {:px, 200}, {:px, 50})
-    chain = [rotate, resize]
-
     request = %Request{resize_target: {200, 50}, user_quarter_turn?: true}
-
-    for format <- @formats do
-      expected = chain_options(chain, format, {3200, 800}, true, true)
-      actual = DecodePlanner.open_options_for(request, format, {3200, 800}, true, true)
-
-      assert actual == expected,
-             "mismatch for #{format}: #{inspect(actual)} != #{inspect(expected)}"
-    end
 
     # No swap -> shrink against {3200, 800}: min(3200/200, 800/50) = 16 -> 8.
     assert DecodePlanner.open_options_for(request, :jpeg, {3200, 800}, true, true)[:shrink] == 8

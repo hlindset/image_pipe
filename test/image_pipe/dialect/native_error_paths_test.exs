@@ -433,8 +433,7 @@ defmodule ImagePipe.NativeErrorPathsTest do
   # `/w=64/then/blur=5/...` is two groups: the first group's resize runs
   # (real `Chain.execute/3`, proving partial work happened) before the
   # second group's blur is forced to fail via the `:chain` test seam
-  # (`ImagePipe.Native.Pipeline.run/4`'s own injectable, mirroring
-  # `Executor`'s seam — real callers never set it).
+  # in `ImagePipe.Native.Pipeline.run/4`.
 
   describe "row 4: transform failure after partial work" do
     test "a later group's transform failure surfaces 422 after an earlier group already executed, cleanup runs exactly once" do

@@ -3,9 +3,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineScopingTest do
 
   # Pins the boundary-crossing contract for imgproxy `-` pipelines: each
   # pipeline re-seeds its SourceShape, starts a fresh carry, and flushes
-  # pending orientation at its OWN boundary — `Executor.execute_pipeline/4`'s
-  # scoping, NOT `Dialect.Native.Pipeline`'s single-seed/single-flush `then`
-  # groups. Every observation uses only the three native-precedent seams
+  # pending orientation at its own boundary. Every observation uses the seams
   # (`:chain`, `:measure_dims`, `:continue`). Carry freshness needs padding and
   # is pinned in the carry test.
 

@@ -36,7 +36,6 @@ defmodule ImagePipe.Dialect do
   @type request :: term()
   @type parse_result ::
           {:ok, request()}
-          | {:redirect, pos_integer(), String.t()}
           | {:error, term()}
 
   @doc """

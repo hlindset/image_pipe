@@ -52,7 +52,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/config/**/*.ex"
   ]
   @dialect_forbidden_globs @core_surface_globs ++ @transform_globs ++ @core_toolkit_globs
-  @cache_key_files ["lib/image_pipe/cache/key.ex"]
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
@@ -61,7 +60,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
     ImagePipe.Dialect => "lib/image_pipe/dialect.ex",
-    ImagePipe.Dialect.Declarative => "lib/image_pipe/dialect/declarative.ex",
     ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Native => "lib/image_pipe/native.ex",
     ImagePipe.Dialect.SharedConfig => "lib/image_pipe/dialect/shared_config.ex",
@@ -70,7 +68,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Output => "lib/image_pipe/output.ex",
     ImagePipe.Plan => "lib/image_pipe/plan.ex",
     ImagePipe.Plug => "lib/image_pipe/plug.ex",
-    ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
@@ -101,16 +98,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Padding,
     :AdaptiveResize
   ]
-  @post_fetch_transform_state_modules [
-    ImagePipe.Transform.Executor
-  ]
-  @cache_prefetch_forbidden_transform_state_names [
-    :Executor
-  ]
-  @runtime_forbidden_transform_execution_names [:Executor]
-  @cache_prefetch_forbidden_transform_functions [
-    :execute_plan
-  ]
   test "plug boundary mounts native and owns the request lifecycle" do
     plug = boundary_declaration(ImagePipe.Plug)
 
@@ -132,7 +119,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     refute_boundary_deps(plug, [
-      ImagePipe.Dialect.Declarative,
       ImagePipe.Dialect.Imgproxy
     ])
 
@@ -187,14 +173,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
-    # A contract dialect must depend only on core toolkit facades: the runner in
-    # `ImagePipe.Plug` owns the cache and delivery lifecycle, and rendering is
-    # the declarative tier's business, so none of those are deps here.
+    # The Plug runner owns the cache and delivery lifecycle.
     refute_boundary_deps(dialect_native, [
       ImagePipe.Cache,
       ImagePipe.Config,
-      ImagePipe.Delivery,
-      ImagePipe.Renderer
+      ImagePipe.Delivery
     ])
 
     assert_boundary_exports(dialect_native, [])
@@ -244,45 +227,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # are gone too.
     refute_boundary_deps(dialect_imgproxy, [
       ImagePipe.Cache,
-      ImagePipe.Delivery,
-      ImagePipe.Renderer
+      ImagePipe.Delivery
     ])
 
     # `SourceScheme` is the one export: a host implements it to translate a
     # custom `foo://` source scheme. Nothing else in the dialect is a host
     # contract, so nothing else is exported.
     assert_boundary_exports(dialect_imgproxy, [ImagePipe.Dialect.Imgproxy.SourceScheme])
-  end
-
-  test "dialect Declarative boundary is its own top-level boundary, not a widened contract" do
-    declarative = boundary_declaration(ImagePipe.Dialect.Declarative)
-
-    assert_boundary_deps(declarative, [
-      ImagePipe.Decode,
-      ImagePipe.Dialect,
-      ImagePipe.Dialect.SharedConfig,
-      ImagePipe.Error,
-      ImagePipe.Plan,
-      ImagePipe.Renderer,
-      ImagePipe.Representation,
-      ImagePipe.Telemetry,
-      ImagePipe.Transform
-    ])
-
-    # The declarative base is a sibling of the contract, not a widening of it:
-    # folding these deps into `ImagePipe.Dialect` would hand every ordered
-    # dialect transitive reach into Decode/Renderer/Telemetry and hollow out the
-    # `refute_boundary_deps` pins above that prove they cannot.
-    contract = boundary_declaration(ImagePipe.Dialect)
-    refute_boundary_deps(contract, [ImagePipe.Decode, ImagePipe.Renderer, ImagePipe.Telemetry])
-
-    # Same rule as every product dialect: only core toolkit facades — the runner
-    # in `ImagePipe.Plug` owns the cache and delivery lifecycle.
-    refute_boundary_deps(declarative, [ImagePipe.Cache, ImagePipe.Delivery])
-
-    # Nothing here is a host contract module: hosts `use` the base and implement
-    # the callbacks, so nothing is exported.
-    assert_boundary_exports(declarative, [])
   end
 
   test "dialect SharedConfig boundary declaration stays product-neutral" do
@@ -316,7 +267,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Config,
       ImagePipe.Output,
-      ImagePipe.Renderer,
       ImagePipe.Response
     ])
 
@@ -340,7 +290,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     # The shared delivery primitive must not reach into the renderer or config
     # layers, and must never name a concrete dialect.
-    refute_boundary_deps(delivery, [ImagePipe.Config, ImagePipe.Renderer])
+    refute_boundary_deps(delivery, [ImagePipe.Config])
 
     assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
   end
@@ -573,11 +523,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "renderer boundary depends only on the plan, error, and telemetry" do
-    renderer = boundary_declaration(ImagePipe.Renderer)
-    assert_boundary_deps(renderer, [ImagePipe.Error, ImagePipe.Plan, ImagePipe.Telemetry])
-  end
-
   test "request, source, and response code does not depend on concrete transform modules" do
     violations =
       for file <- request_source_response_files(),
@@ -608,26 +553,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "request, source, and response code does not inspect plan operation semantic staging" do
-    violations =
-      for file <- request_source_response_files(),
-          violation <- plan_operation_semantic_references(file) do
-        "#{file}:#{violation.line} must not call #{violation.module}.semantic?/1; use ImagePipe.Transform executable planning instead"
-      end
-
-    assert violations == []
-  end
-
-  test "request, source, and response code does not call removed or internal transform execution APIs" do
-    violations =
-      for file <- request_source_response_files(),
-          violation <- runtime_forbidden_transform_execution_references(file) do
-        "#{file}:#{violation.line} must not use #{violation.module}; execute canonical plans through ImagePipe.Transform.execute_plan/3"
-      end
-
-    assert violations == []
-  end
-
   test "cache boundary declaration avoids post-fetch transform state dependencies" do
     cache = boundary_declaration(ImagePipe.Cache)
 
@@ -639,7 +564,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Telemetry
     ])
 
-    refute_boundary_deps(cache, @post_fetch_transform_state_modules)
+    refute_boundary_deps(cache, [ImagePipe.Transform])
 
     assert_boundary_exports(cache, [
       ImagePipe.Cache.Entry,
@@ -724,7 +649,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(plan, [ImagePipe.Format])
 
     assert_boundary_exports(plan, [
-      ImagePipe.Plan.Pipeline,
       ImagePipe.Plan.Output,
       ImagePipe.Plan.Output.QualitySearch,
       ImagePipe.Plan.Output.QualitySearch.Metric,
@@ -736,7 +660,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Output.WebpOptions,
       ImagePipe.Plan.Output.AvifOptions,
       ImagePipe.Plan.Output.JxlOptions,
-      ImagePipe.Plan.RenderContext,
       ImagePipe.Plan.Response,
       ImagePipe.Plan.SourceInfo,
       ImagePipe.Plan.Color,
@@ -783,16 +706,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           external_color_reference?(line) do
         {text, number} = line
         "#{file}:#{number} must not call or name external Color dependency APIs: #{text}"
-      end
-
-    assert violations == []
-  end
-
-  test "cache key construction does not depend on post-fetch transform execution state" do
-    violations =
-      for file <- @cache_key_files,
-          violation <- cache_prefetch_unsafe_transform_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; final cache keys are prefetch-safe"
       end
 
     assert violations == []
@@ -1008,90 +921,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.uniq()
   end
 
-  defp plan_operation_semantic_references(file) do
-    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
-
-    {_ast, violations} =
-      Macro.prewalk(ast, [], fn
-        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePipe, :Plan, :Operation]}, :semantic?]},
-         _call_meta, _args} = node,
-        violations ->
-          {node, [violation(meta, "ImagePipe.Plan.Operation") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:Plan, :Operation]}, :semantic?]}, _call_meta,
-         _args} = node,
-        violations ->
-          {node, [violation(meta, "Plan.Operation") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:Operation]}, :semantic?]}, _call_meta, _args} =
-            node,
-        violations ->
-          {node, [violation(meta, "Operation") | violations]}
-
-        node, violations ->
-          {node, violations}
-      end)
-
-    violations
-    |> Enum.reverse()
-    |> Enum.uniq()
-  end
-
-  defp runtime_forbidden_transform_execution_references(file) do
-    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
-
-    {_ast, violations} =
-      Macro.prewalk(ast, [], fn
-        {tag, meta,
-         [
-           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePipe, :Transform]}, :{}]},
-            _call_meta, grouped_aliases}
-         ]} = node,
-        violations
-        when tag in [:alias, :import] ->
-          grouped_aliases
-          |> Enum.map(&runtime_forbidden_transform_execution_alias/1)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.map(&violation(meta, &1))
-          |> then(&{node, &1 ++ violations})
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePipe, :Transform, :Executor]}, :execute]},
-         _call_meta, _args} = node,
-        violations ->
-          {node, [violation(meta, "ImagePipe.Transform.Executor.execute") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:Transform, :Executor]}, :execute]}, _call_meta,
-         _args} = node,
-        violations ->
-          {node, [violation(meta, "Transform.Executor.execute") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:Executor]}, :execute]}, _call_meta, _args} =
-            node,
-        violations ->
-          {node, [violation(meta, "Executor.execute") | violations]}
-
-        {:__aliases__, meta, [:ImagePipe, :Transform, module | _rest]} = node, violations
-        when module in @runtime_forbidden_transform_execution_names ->
-          {node, [violation(meta, "ImagePipe.Transform.#{module}") | violations]}
-
-        {:__aliases__, meta, [:Transform, module | _rest]} = node, violations
-        when module in @runtime_forbidden_transform_execution_names ->
-          {node, [violation(meta, "Transform.#{module}") | violations]}
-
-        {:__aliases__, meta, [module | _rest]} = node, violations
-        when module in @runtime_forbidden_transform_execution_names ->
-          {node, [violation(meta, "#{module}") | violations]}
-
-        node, violations ->
-          {node, violations}
-      end)
-
-    violations
-    |> Enum.reverse()
-    |> Enum.uniq()
-    |> reject_runtime_forbidden_transform_execution_child_duplicates()
-  end
-
   defp concrete_transform_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
 
@@ -1185,98 +1014,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp concrete_detector_module(_parts), do: nil
 
-  defp cache_prefetch_unsafe_transform_references(file) do
-    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
-
-    {_ast, violations} =
-      Macro.prewalk(ast, [], fn
-        {tag, meta,
-         [
-           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePipe, :Transform]}, :{}]},
-            _call_meta, grouped_aliases}
-         ]} = node,
-        violations
-        when tag in [:alias, :import] ->
-          grouped_aliases
-          |> Enum.map(&cache_prefetch_unsafe_transform_alias/1)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.map(&violation(meta, &1))
-          |> then(&{node, &1 ++ violations})
-
-        {:__aliases__, meta, [:ImagePipe, :Transform, module | _rest]} = node, violations
-        when module in @cache_prefetch_forbidden_transform_state_names ->
-          {node, [violation(meta, "ImagePipe.Transform.#{module}") | violations]}
-
-        {:__aliases__, meta, [:Transform, module | _rest]} = node, violations
-        when module in @cache_prefetch_forbidden_transform_state_names ->
-          {node, [violation(meta, "Transform.#{module}") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePipe, :Transform]}, function]},
-         _call_meta, _args} = node,
-        violations
-        when function in @cache_prefetch_forbidden_transform_functions ->
-          {node, [violation(meta, "ImagePipe.Transform.#{function}") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:Transform]}, function]}, _call_meta, _args} =
-            node,
-        violations
-        when function in @cache_prefetch_forbidden_transform_functions ->
-          {node, [violation(meta, "Transform.#{function}") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePipe, :Transform, :Executor]}, :execute]},
-         _call_meta, _args} = node,
-        violations ->
-          {node, [violation(meta, "ImagePipe.Transform.Executor.execute") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:Transform, :Executor]}, :execute]}, _call_meta,
-         _args} = node,
-        violations ->
-          {node, [violation(meta, "Transform.Executor.execute") | violations]}
-
-        {{:., meta, [{:__aliases__, _alias_meta, [:Executor]}, :execute]}, _call_meta, _args} =
-            node,
-        violations ->
-          {node, [violation(meta, "Executor.execute") | violations]}
-
-        node, violations ->
-          {node, violations}
-      end)
-
-    violations
-    |> Enum.reverse()
-    |> Enum.uniq()
-  end
-
-  defp reject_runtime_forbidden_transform_execution_child_duplicates(violations) do
-    grouped_alias_lines =
-      violations
-      |> Enum.filter(
-        &(&1.module in [
-            "ImagePipe.Transform.Executor"
-          ])
-      )
-      |> MapSet.new(& &1.line)
-
-    resolver_call_lines =
-      violations
-      |> Enum.filter(
-        &(&1.module in [
-            "Executor.execute",
-            "Transform.Executor.execute"
-          ])
-      )
-      |> MapSet.new(& &1.line)
-
-    Enum.reject(violations, fn
-      %{module: module, line: line}
-      when module in ["Executor"] ->
-        MapSet.member?(grouped_alias_lines, line) or MapSet.member?(resolver_call_lines, line)
-
-      _violation ->
-        false
-    end)
-  end
-
   defp concrete_transform_grouped_alias(prefix, alias) do
     prefix
     |> alias_parts()
@@ -1344,26 +1081,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     do: concrete_plan_module(operation)
 
   defp concrete_plan_module(operation), do: "ImagePipe.Plan.Operation.#{operation}"
-
-  defp cache_prefetch_unsafe_transform_alias({:__aliases__, _meta, [module]})
-       when module in @cache_prefetch_forbidden_transform_state_names,
-       do: "ImagePipe.Transform.#{module}"
-
-  defp cache_prefetch_unsafe_transform_alias({:__aliases__, _meta, [module | _rest]})
-       when module in @cache_prefetch_forbidden_transform_state_names,
-       do: "ImagePipe.Transform.#{module}"
-
-  defp cache_prefetch_unsafe_transform_alias(_alias), do: nil
-
-  defp runtime_forbidden_transform_execution_alias({:__aliases__, _meta, [module]})
-       when module in @runtime_forbidden_transform_execution_names,
-       do: "ImagePipe.Transform.#{module}"
-
-  defp runtime_forbidden_transform_execution_alias({:__aliases__, _meta, [module | _rest]})
-       when module in @runtime_forbidden_transform_execution_names,
-       do: "ImagePipe.Transform.#{module}"
-
-  defp runtime_forbidden_transform_execution_alias(_alias), do: nil
 
   defp violation(meta, module) do
     %{line: Keyword.fetch!(meta, :line), module: module}

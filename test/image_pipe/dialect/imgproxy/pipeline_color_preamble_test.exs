@@ -3,9 +3,7 @@ defmodule ImagePipe.Dialect.Imgproxy.PipelineColorPreambleTest do
 
   # Input color management is a data-determined preamble, not a Plan operation
   # (AGENTS.md): it imports the decoded image's embedded profile into a working
-  # space before ANY operation runs. `Pipeline.run/4` owns it, mirroring
-  # `Executor.run_color_management/2` — so the dialect does NOT inherit
-  # `Dialect.Native.Pipeline`'s known probe limitation of skipping it.
+  # space before any operation runs. `Pipeline.run/4` owns it.
   #
   # The pipeline list is empty in most cases below on purpose: with no
   # operations, `run/4`'s only observable effect IS the preamble.

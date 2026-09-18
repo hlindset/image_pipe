@@ -30,6 +30,7 @@ defmodule ImagePipe.MixProject do
           "docs/operational_notes.md",
           "docs/telemetry.md",
           "docs/debug_headers.md",
+          {"docs/native_api_contract.md", title: "Native API Contract"},
           {"docs/execution_flow.md", title: "Execution Flow"},
           {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
           "docs/imgproxy_path_api.md",
@@ -39,6 +40,7 @@ defmodule ImagePipe.MixProject do
         groups_for_modules: [
           "Package API": [ImagePipe],
           "Plug API": [ImagePipe.Plug],
+          "Native API": [ImagePipe.Native, ~r/ImagePipe\.Native\..*/],
           "Dialect API": [ImagePipe.Dialect, ~r/ImagePipe\.Dialect\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],

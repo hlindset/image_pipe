@@ -130,13 +130,11 @@ defmodule ImagePipe.Native.Pipeline do
   @doc """
   Executes every group of a canonical `%Request{}` against a decoded state,
   in the fixed stage order, then flushes any surviving pending orientation at
-  the boundary (mirrors `ImagePipe.Transform.Executor.execute_pipeline/3` +
-  `flush_boundary/4`).
+  the request boundary.
 
   `opts` accepts the same runtime options threaded to `Chain.execute/3`
   (telemetry, etc). It also accepts three test-only overrides — `:chain`,
-  `:measure_dims`, `:continue` — mirroring `Executor.run_neutral/4`'s own injectable
-  seams, defaulting to the real `Chain.execute/3`, a live Vix header read, and
+  `:measure_dims`, `:continue` — defaulting to `Chain.execute/3`, a live Vix header read, and
   `NeutralResolver.continue/4` respectively. Real callers never set these.
   """
   @spec run(State.t(), SourceGeometry.t(), Request.t(), keyword()) ::
@@ -157,16 +155,9 @@ defmodule ImagePipe.Native.Pipeline do
   # takes its "no import ran" branch on an imported image and re-converts
   # already-converted pixels — a mistake that leaves the output profile header
   # correct, so only a pixel comparison catches it
-  # (`ImagePipe.Dialect.ColorCarryParityTest`).
-  #
-  # Mirrors `Executor.seed_color_management/2` and the imgproxy dialect's own
-  # `condition_color/2`, including their one divergence: no
-  # `seed_input_color_management` gate (`run/4` IS the real-execution path
-  # here). The `[:transform, :input_color_management]` span is emitted by
-  # `InputColorManagement.condition/2` itself, so this dialect gets it for free
-  # from the shared seam. A failure is a corrupt/unsupported profile — a decode
-  # failure, surfaced as `{:decode, _}` (415), consistent with the
-  # materialization contract.
+  # (`ImagePipe.Native.ColorManagementWireTest`).
+  # `InputColorManagement.condition/2` emits the input-color-management span.
+  # Corrupt or unsupported profiles surface as decode failures (415).
   # ex_dna:disable-for-next-line
   defp condition_color(%State{} = state, opts) do
     hdr? = Keyword.get(opts, :supports_hdr?, false)
@@ -260,8 +251,7 @@ defmodule ImagePipe.Native.Pipeline do
     end
   end
 
-  # THE sync rule, one site, mirroring `Executor`'s private `overlay/2`
-  # exactly: every executable op's execute-time `State.effective_source_dims/
+  # Every executable op's execute-time `State.effective_source_dims/
   # decode_shrink/pending_orientation` read routes through the resolver-
   # advanced shape, because `Chain.execute/3` reads those off `State`, not off
   # the shape directly (resolve-time reads, inside `NeutralResolver`/
@@ -309,7 +299,7 @@ defmodule ImagePipe.Native.Pipeline do
     end
   end
 
-  # Mirrors `Executor.flush_boundary/4`: syncs State's source-frame fields
+  # Syncs State's source-frame fields
   # from the final shape, then flushes a surviving non-identity pending
   # orientation through an explicit `%Flush{}`; an identity pending clears
   # without materializing (the streaming fast path).
@@ -402,8 +392,7 @@ defmodule ImagePipe.Native.Pipeline do
 
   @doc """
   The ordered semantic operation-name atoms `run/4` will execute across all
-  groups — the dialect counterpart of `ImagePipe.Plan.operation_names/1`,
-  feeding the `[:transform, :execute]` span's aggregate start metadata.
+  groups, feeding the transform span's aggregate start metadata.
 
   A structural mirror of `group_operations/2` above (which needs a live
   `SourceShape` to resolve pct lengths, unavailable before execution): op

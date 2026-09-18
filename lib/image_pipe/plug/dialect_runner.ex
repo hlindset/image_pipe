@@ -76,14 +76,6 @@ defmodule ImagePipe.Plug.DialectRunner do
       {:ok, request} ->
         handle_request(conn, dialect, request, config)
 
-      {:redirect, status, location} ->
-        conn =
-          send_with_span(conn, config, :redirect, fn ->
-            Sender.send_redirect(conn, status, location)
-          end)
-
-        {conn, %{result: :redirect, status: status}}
-
       {:error, reason} ->
         send_error(conn, dialect, reason, config)
     end

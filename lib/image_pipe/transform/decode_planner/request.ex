@@ -6,7 +6,7 @@ defmodule ImagePipe.Transform.DecodePlanner.Request do
   A dialect-owned pipeline (#454) does not build a semantic op chain before
   choosing decode load options — it speaks in resolved display-frame extents
   instead. This struct carries exactly the inputs the load-shrink math needs,
-  independent of any `ImagePipe.Plan.Pipeline.operation()` chain.
+  as concrete geometry values.
   """
 
   @typedoc "A {width, height} extent in display-frame pixels."

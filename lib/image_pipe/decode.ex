@@ -7,8 +7,7 @@ defmodule ImagePipe.Decode do
   bracket: it fetches through `ImagePipe.Source.with_fetched/3`, builds an
   `ImagePipe.Transform.SourceGeometry` from the header open, asks the caller for
   a `DecodePlanner.Request.t()` via `decode_request_fun`, re-opens sequentially
-  with the planned options, seeds a `Transform.State` the same way
-  `ImagePipe.Transform.Executor` does, and hands both to `fun`.
+  with the planned options, seeds a `Transform.State`, and hands both to `fun`.
   """
 
   use Boundary,

@@ -366,41 +366,16 @@ defmodule ImagePipe.Plan.OperationTest do
       assert {:ok, red} = Operation.color(255, 0, 0, {:ratio, 1, 2})
       assert Operation.background(red) == {:ok, %Operation.Background{color: red}}
     end
-
-    test "semantic validation accepts composition structs" do
-      assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0})
-      assert {:ok, red} = Operation.color(255, 0, 0)
-      assert {:ok, background} = Operation.background(red)
-
-      assert Operation.semantic?(padding)
-      assert Operation.semantic?(background)
-
-      refute Operation.semantic?(%Operation.Padding{
-               top: {:px, 0},
-               right: {:px, 0},
-               bottom: {:px, 0},
-               left: {:px, 0},
-               pixel_ratio: {:ratio, 1, 1},
-               fill: :transparent
-             })
-    end
   end
 
   describe "orientation operations" do
-    test "allows semantic orientation operations" do
-      assert Operation.semantic?(%Rotate{angle: 90})
-      assert Operation.semantic?(%Flip{axis: :horizontal})
-    end
-
-    test "constructs semantic orientation operations" do
+    test "constructs orientation operations" do
       assert Operation.rotate(90) == {:ok, %Rotate{angle: 90}}
       assert Operation.flip(:both) == {:ok, %Flip{axis: :both}}
     end
 
     test "rejects orientation values outside the explicit allowlist" do
       assert Operation.flip(:diagonal) == {:error, {:invalid_operation, :flip, [:diagonal]}}
-
-      refute Operation.semantic?(%Flip{axis: :diagonal})
     end
   end
 
@@ -433,13 +408,6 @@ defmodule ImagePipe.Plan.OperationTest do
       assert {:error, _} = Operation.rotate(-1)
       assert {:error, _} = Operation.rotate(361)
       assert {:error, _} = Operation.rotate("90")
-    end
-
-    test "semantic? accepts arbitrary + mirror, rejects out of range" do
-      assert Operation.semantic?(%Rotate{angle: 45.5, mirror: true})
-      assert Operation.semantic?(%Rotate{angle: 0, mirror: false})
-      refute Operation.semantic?(%Rotate{angle: 360, mirror: false})
-      refute Operation.semantic?(%Rotate{angle: -1, mirror: false})
     end
   end
 
@@ -477,22 +445,10 @@ defmodule ImagePipe.Plan.OperationTest do
       assert {:error, {:invalid_operation, :trim, _}} =
                Operation.trim(threshold: 1.0, background: :nope)
     end
-
-    test "semantic? accepts a valid Trim and rejects a malformed one" do
-      {:ok, op} = Operation.trim(threshold: 1.0, background: :auto)
-      assert Operation.semantic?(op)
-
-      refute Operation.semantic?(%Operation.Trim{
-               threshold: "x",
-               background: :auto,
-               equal_hor: false,
-               equal_ver: false
-             })
-    end
   end
 
   describe "effect operations" do
-    test "constructs semantic effect operations" do
+    test "constructs effect operations" do
       assert Operation.blur(2.5) == {:ok, %Blur{sigma: 2.5}}
       assert Operation.sharpen(0.7) == {:ok, %Sharpen{sigma: 0.7}}
       assert Operation.pixelate(8) == {:ok, %Pixelate{size: 8}}
@@ -515,21 +471,6 @@ defmodule ImagePipe.Plan.OperationTest do
       assert Operation.brightness(20) == {:ok, %Brightness{value: 20}}
       assert Operation.contrast(1.5) == {:ok, %Contrast{value: 1.5}}
       assert Operation.saturation(1.5) == {:ok, %Saturation{value: 1.5}}
-
-      assert Operation.semantic?(%Blur{sigma: 2.5})
-      assert Operation.semantic?(%Sharpen{sigma: 0.7})
-      assert Operation.semantic?(%Pixelate{size: 8})
-      assert Operation.semantic?(%Monochrome{intensity: {:ratio, 1, 2}, color: color})
-
-      assert Operation.semantic?(%Duotone{
-               intensity: {:ratio, 1, 4},
-               shadow: shadow,
-               highlight: highlight
-             })
-
-      assert Operation.semantic?(%Brightness{value: 20})
-      assert Operation.semantic?(%Contrast{value: 1.5})
-      assert Operation.semantic?(%Saturation{value: 1.5})
     end
 
     test "colorize/3 validates opacity ratio, color, keep_alpha" do
@@ -562,11 +503,6 @@ defmodule ImagePipe.Plan.OperationTest do
 
       assert Operation.monochrome({:ratio, 0, 1}, color) ==
                {:error, {:invalid_operation, :monochrome, [{:ratio, 0, 1}, color]}}
-
-      refute Operation.semantic?(%Blur{sigma: 0})
-      refute Operation.semantic?(%Sharpen{sigma: -1.0})
-      refute Operation.semantic?(%Pixelate{size: 0})
-      refute Operation.semantic?(%Monochrome{intensity: {:ratio, 0, 1}, color: color})
     end
 
     test "rejects out-of-range adjustment values" do
@@ -576,10 +512,6 @@ defmodule ImagePipe.Plan.OperationTest do
       assert Operation.contrast(-1.5) == {:error, {:invalid_operation, :contrast, [-1.5]}}
       assert Operation.saturation(0) == {:error, {:invalid_operation, :saturation, [0]}}
       assert Operation.saturation(-1.5) == {:error, {:invalid_operation, :saturation, [-1.5]}}
-
-      refute Operation.semantic?(%Brightness{value: 256})
-      refute Operation.semantic?(%Contrast{value: 0})
-      refute Operation.semantic?(%Saturation{value: -1.5})
     end
   end
 end

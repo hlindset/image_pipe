@@ -5,7 +5,6 @@ defmodule ImagePipe.Native.PipelineTest do
   alias ImagePipe.Native.Request
   alias ImagePipe.Native.Request.Group
   alias ImagePipe.Native.Request.Output
-  alias ImagePipe.Plan.Operation
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Operation.Background
@@ -338,13 +337,10 @@ defmodule ImagePipe.Native.PipelineTest do
 
   # ── decode preflight ───────────────────────────────────────────────────
   #
-  # `decode_request/2` feeds `DecodePlanner.open_options_for/5`. The planner
-  # reaches the same decision from a semantic op chain through
-  # `DecodePlanner.request_from_chain/3`, so the two must agree — and the oracle
-  # here is that chain path applied to the same resize the group assembles,
-  # rather than a restatement of the planner's rules.
+  # `decode_request/2` feeds concrete extents to
+  # `DecodePlanner.open_options_for/5`.
 
-  describe "decode_request/2 agrees with the chain path" do
+  describe "decode_request/2" do
     defp preflight_geometry(dims) do
       %SourceGeometry{
         storage_dimensions: dims,
@@ -364,26 +360,10 @@ defmodule ImagePipe.Native.PipelineTest do
       )
     end
 
-    defp chain_shrink(%{w: w, h: h}, dims, format) do
-      {:ok, op} =
-        Operation.resize(:fit, chain_dimension(w), chain_dimension(h),
-          down: false,
-          enlargement: :deny
-        )
-
-      [op]
-      |> DecodePlanner.request_from_chain(dims, false)
-      |> DecodePlanner.open_options_for(format, dims)
-    end
-
-    defp chain_dimension(:auto), do: :auto
-    defp chain_dimension(n) when is_integer(n), do: {:px, n}
-
     test "a single-axis resize targets that axis alone, not a synthesized aspect" do
       # A `w=400` request against a NON-proportional 3200x2405 source. Deriving
       # the missing axis from the aspect (`round(400 * 2405/3200)` = 301) binds
-      # `min/2` tighter than the targeted axis alone and halves the shrink, so
-      # the decode lands at 2x the pixels the chain path decodes.
+      # `min/2` tighter than the targeted axis alone and halves the shrink.
       resize = %{w: 400, h: :auto, fit: :contain, enlarge: false}
 
       assert Pipeline.decode_request(
@@ -392,24 +372,19 @@ defmodule ImagePipe.Native.PipelineTest do
              ).resize_target == {400, nil}
 
       assert preflight_shrink(resize, {3200, 2405}, :jpeg)[:shrink] == 8
-      assert chain_shrink(resize, {3200, 2405}, :jpeg)[:shrink] == 8
+      assert_in_delta preflight_shrink(resize, {3200, 2405}, :webp)[:scale], 0.125, 1.0e-12
+      refute Keyword.has_key?(preflight_shrink(resize, {3200, 2405}, :png), :shrink)
     end
 
-    test "across formats, axes, and non-proportional sources" do
-      for dims <- [{3200, 2405}, {1999, 1333}, {2401, 3199}, {3200, 2400}],
-          resize <- [
-            %{w: 400, h: :auto, fit: :contain, enlarge: false},
-            %{w: :auto, h: 300, fit: :contain, enlarge: false},
-            %{w: 250, h: 190, fit: :contain, enlarge: false}
-          ],
-          format <- [:jpeg, :webp, :png] do
-        assert preflight_shrink(resize, dims, format) == chain_shrink(resize, dims, format),
-               """
-               native preflight disagrees with the chain path
-               resize: #{inspect(resize)}
-               dims:   #{inspect(dims)}, format: #{format}
-               """
-      end
+    test "two-axis resize preserves both concrete targets" do
+      resize = %{w: 250, h: 190, fit: :contain, enlarge: false}
+
+      assert Pipeline.decode_request(
+               req([group(%{resize: resize})]),
+               preflight_geometry({2401, 3199})
+             ).resize_target == {250, 190}
+
+      assert preflight_shrink(resize, {2401, 3199}, :jpeg)[:shrink] == 8
     end
   end
 

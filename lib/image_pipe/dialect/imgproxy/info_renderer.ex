@@ -7,12 +7,7 @@ defmodule ImagePipe.Dialect.Imgproxy.InfoRenderer do
   a deliberate divergence (ImagePipe decodes it; imgproxy cannot). `width`/`height`
   are orientation-adjusted (swapped for EXIF 5-8).
 
-  Renders directly rather than through the `ImagePipe.Renderer` behaviour: the
-  dialect owns its whole request chain, and rendering /info is not a neutral
-  pluggable render here but this dialect's own terminal. So there is no
-  `requires/1` (the chain's decode is the dialect's own), no `RenderContext`
-  (the chain hands the `%SourceInfo{}` straight over), and no `{:ok, _}`
-  wrapper — this cannot fail.
+  Receives decoded source header facts and returns the JSON response body.
   """
 
   alias ImagePipe.Plan.SourceInfo
