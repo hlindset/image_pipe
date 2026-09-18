@@ -1,8 +1,5 @@
-// The fiddle's three processing endpoints (router forwards: /img, /iiif-image, /twic).
-// All run the same Plan.Output negotiation, so one interceptor covers them. Match on
-// pathname so the TwicPics `?twic=…` query is ignored. `/twicpics/` is the display-only
-// copy link (twicBrowserPath) and is intentionally excluded.
-export const PREVIEW_PREFIXES = ["/img/", "/iiif-image/", "/twic/"] as const;
+// Processing endpoints only; browser links serve the SPA shell.
+export const PREVIEW_PREFIXES = ["/native-image/", "/img/"] as const;
 
 export function isPreviewUrl(url: string): boolean {
   let pathname: string;

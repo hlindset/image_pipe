@@ -8,7 +8,7 @@ import {
 
 const meta = (over: Partial<Parameters<PreviewMetadataTracker["applyMessage"]>[0]> = {}) => ({
   type: "preview-meta" as const,
-  url: "http://localhost:4000/twic/images/dog.jpg?twic=v1/cover=10x10",
+  url: "http://localhost:4000/native-image/w=10/src/images/dog.jpg",
   accept: "image/avif",
   ok: true,
   status: 200,
@@ -23,7 +23,7 @@ const meta = (over: Partial<Parameters<PreviewMetadataTracker["applyMessage"]>[0
 describe("PreviewMetadataTracker", () => {
   it("yields null metadata until dimensions arrive, then merges SW bytes/contentType", () => {
     const t = new PreviewMetadataTracker();
-    const id = t.begin("http://localhost:4000/twic/images/dog.jpg?twic=v1/cover=10x10");
+    const id = t.begin("http://localhost:4000/native-image/w=10/src/images/dog.jpg");
 
     // SW message arrives before onload: stashed, not yet renderable (needs dimensions).
     t.applyMessage(meta(), id);
@@ -81,15 +81,12 @@ describe("PreviewMetadataTracker", () => {
     });
   });
 
-  it("drops a message whose url does not match the in-flight preview (query-sensitive)", () => {
+  it("drops a message whose url does not match the in-flight preview", () => {
     const t = new PreviewMetadataTracker();
-    const id = t.begin("http://localhost:4000/twic/images/dog.jpg?twic=v1/cover=10x10");
+    const id = t.begin("http://localhost:4000/native-image/w=10/src/images/dog.jpg");
     t.applyDimensions({ width: 10, height: 10 }, id);
-    t.applyMessage(
-      meta({ url: "http://localhost:4000/twic/images/dog.jpg?twic=v1/cover=20x20" }),
-      id,
-    );
-    expect(t.metadata?.bytes).toBeNull(); // different query → ignored
+    t.applyMessage(meta({ url: "http://localhost:4000/native-image/w=20/src/images/dog.jpg" }), id);
+    expect(t.metadata?.bytes).toBeNull();
   });
 
   it("merges an ok message that carries null bytes/contentType", () => {

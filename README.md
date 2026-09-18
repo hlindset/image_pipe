@@ -182,8 +182,9 @@ mise run setup       # installs library + fiddle deps
 mise run fiddle      # boots Phoenix (:4000) + Vite (:5173)
 ```
 
-Open http://localhost:4000. The imgproxy-compatible processing endpoint is
-mounted at `/img`.
+Open http://localhost:4000. Native is selected by default; its processing
+endpoint is `/native-image`. The option editor supports native paths and
+`then` groups, with examples for resize, crop, blur, padding, and trim.
 
 ![Demo fiddle desktop screenshot](docs/assets/demo-fiddle-desktop.png)
 

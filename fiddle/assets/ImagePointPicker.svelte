@@ -1,8 +1,7 @@
 <script lang="ts">
   // Shared click/drag/keyboard picker over an image: maps pointer position to a
   // normalized 0..1 point and reports it via `onPick`. Consumers decide what the
-  // point means (imgproxy: a focal point stored as 0..1; TwicPics: a pixel crop
-  // origin derived from the loaded image's natural dimensions). Optional `overlay`
+  // point means. Optional `overlay`
   // snippet draws extra marks (e.g. a crop region) inside the image surface.
   import type { Snippet } from "svelte";
   import { focalPointFromBounds } from "./processing-path";

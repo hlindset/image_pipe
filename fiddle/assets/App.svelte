@@ -2,8 +2,8 @@
   import { onMount } from "svelte";
   import { Collapsible, Popover, RadioGroup } from "bits-ui";
   import ImgproxyControls from "./ImgproxyControls.svelte";
-  import IiifControls from "./IiifControls.svelte";
-  import TwicPicsControls from "./TwicPicsControls.svelte";
+  import NativeControls from "./NativeControls.svelte";
+  import { defaultNativeState, nativeFetchPath } from "./native-path";
   import {
     appPathForState,
     defaultAppState,
@@ -12,8 +12,6 @@
     resetFiddleSettings,
     type AppState,
   } from "./fiddle-url-state";
-  import { defaultIiifState, iiifFetchPath } from "./iiif-path";
-  import { defaultTwicPicsState, twicFetchPath } from "./twicpics-path";
   import {
     buildDebugPreviewPath,
     buildProcessingPath,
@@ -53,21 +51,17 @@
   const initial = initialAppState();
   let appState: AppState = $state(initial);
   let path = $state(
-    initial.provider === "imgproxy"
-      ? buildProcessingPath(initial.imgproxy)
-      : initial.provider === "iiif"
-        ? iiifFetchPath(initial.iiif)
-        : twicFetchPath(initial.twicpics),
+    initial.provider === "native"
+      ? nativeFetchPath(initial.native)
+      : buildProcessingPath(initial.imgproxy),
   );
   // The preview <img> request carries each dialect's debug trigger, built into
   // the path/query by the same builder that produces `path` (and signed, for
   // imgproxy, over the debug-augmented path) — never injected after signing.
   let previewBasePath = $state(
-    initial.provider === "imgproxy"
-      ? buildDebugPreviewPath(initial.imgproxy)
-      : initial.provider === "iiif"
-        ? iiifFetchPath(initial.iiif, { debug: true })
-        : twicFetchPath(initial.twicpics, { debug: true }),
+    initial.provider === "native"
+      ? nativeFetchPath(initial.native)
+      : buildDebugPreviewPath(initial.imgproxy),
   );
   let previewImageUrl: string | null = $state(null);
   let previewLoading = $state(true);
@@ -158,16 +152,12 @@
   });
 
   $effect(() => {
-    if (appState.provider === "imgproxy") {
-      updateProcessingPath(appState.imgproxy);
-    } else if (appState.provider === "iiif") {
-      pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
-      path = iiifFetchPath(appState.iiif);
-      previewBasePath = iiifFetchPath(appState.iiif, { debug: true });
+    if (appState.provider === "native") {
+      pathRequestId += 1;
+      path = nativeFetchPath(appState.native);
+      previewBasePath = path;
     } else {
-      pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
-      path = twicFetchPath(appState.twicpics);
-      previewBasePath = twicFetchPath(appState.twicpics, { debug: true });
+      updateProcessingPath(appState.imgproxy);
     }
   });
   $effect(() => {
@@ -184,18 +174,14 @@
   });
 
   const previewParameters = $derived(
-    appState.provider === "imgproxy"
-      ? path.replace(/^\/[^/]+\/[^/]+\//, "")
-      : appState.provider === "iiif"
-        ? path.replace(/^\/iiif-image\//, "")
-        : path.replace(/^\/twic\//, ""),
+    appState.provider === "native"
+      ? path.replace(/^\/native-image\//, "")
+      : path.replace(/^\/[^/]+\/[^/]+\//, ""),
   );
-  const outputLabel = $derived(
-    appState.provider === "imgproxy"
-      ? resolvedOutputLabel(appState.imgproxy, processedMetadata)
-      : appState.provider === "iiif"
-        ? appState.iiif.format
-        : appState.twicpics.output,
+  const outputLabel = $derived.by(() =>
+    appState.provider === "native"
+      ? (processedMetadata?.contentType?.split("/")[1] ?? "auto")
+      : resolvedOutputLabel(appState.imgproxy, processedMetadata),
   );
   const sizeLabel = $derived(previewError ?? processedSizeLabel(processedMetadata));
   const debugGroups = $derived.by(() => {
@@ -203,18 +189,12 @@
     return parseDebugHeaders(meta?.debugHeaders ?? null, meta?.bytes ?? null);
   });
   const requestSummary = $derived(
-    appState.provider === "imgproxy"
-      ? `${appState.imgproxy.source.replace(/^images\//, "")} / ${requestSignatureLabel(appState.imgproxy, signingError)}`
-      : appState.provider === "iiif"
-        ? appState.iiif.source.replace(/^images\//, "")
-        : appState.twicpics.source.replace(/^images\//, ""),
+    appState.provider === "native"
+      ? appState.native.source.replace(/^images\//, "")
+      : `${appState.imgproxy.source.replace(/^images\//, "")} / ${requestSignatureLabel(appState.imgproxy, signingError)}`,
   );
   const currentSource = $derived(
-    appState.provider === "iiif"
-      ? appState.iiif.source
-      : appState.provider === "twicpics"
-        ? appState.twicpics.source
-        : appState.imgproxy.source,
+    appState.provider === "native" ? appState.native.source : appState.imgproxy.source,
   );
 
   function initialAppState(): AppState {
@@ -222,37 +202,17 @@
       return defaultAppState();
     }
 
-    return parseAppPath(window.location.pathname, window.location.search);
+    return parseAppPath(window.location.pathname);
   }
 
   function restoreStateFromLocation(): void {
-    const parsed = parseAppPath(window.location.pathname, window.location.search);
+    const parsed = parseAppPath(window.location.pathname);
 
-    switch (parsed.provider) {
-      case "iiif":
-        appState = {
-          provider: "iiif",
-          imgproxy: appState.imgproxy,
-          iiif: parsed.iiif,
-          twicpics: appState.twicpics,
-        };
-        break;
-      case "twicpics":
-        appState = {
-          provider: "twicpics",
-          imgproxy: appState.imgproxy,
-          iiif: appState.iiif,
-          twicpics: parsed.twicpics,
-        };
-        break;
-      default:
-        appState = {
-          provider: "imgproxy",
-          imgproxy: parsed.imgproxy,
-          iiif: appState.iiif,
-          twicpics: appState.twicpics,
-        };
-    }
+    appState = {
+      ...appState,
+      provider: parsed.provider,
+      [parsed.provider]: parsed[parsed.provider],
+    };
   }
 
   function requestSignatureLabel(
@@ -352,12 +312,9 @@
     }
 
     const source = select.value as SourceImage;
-    // Source is shared, so update BOTH slices (not just the active one) — switching
-    // provider later then shows the selected image — and reset each provider's
-    // source-dimension-bound pixels (imgproxy crop, IIIF px region).
+    // Keep the selected source when switching providers and reset crop pixels.
     appState.imgproxy = resetCropPixelsToSource({ ...appState.imgproxy, source });
-    appState.iiif = { ...appState.iiif, source, region: { kind: "full" } };
-    appState.twicpics = { ...appState.twicpics, source };
+    appState.native = { ...appState.native, source };
   }
 
   function setThemeMode(nextMode: string): void {
@@ -365,12 +322,10 @@
   }
 
   function resetSettings(): void {
-    if (appState.provider === "imgproxy") {
-      appState.imgproxy = resetFiddleSettings(appState.imgproxy);
-    } else if (appState.provider === "iiif") {
-      appState.iiif = { ...defaultIiifState, source: appState.iiif.source };
+    if (appState.provider === "native") {
+      appState.native = { ...defaultNativeState, source: appState.native.source };
     } else {
-      appState.twicpics = { ...defaultTwicPicsState, source: appState.twicpics.source };
+      appState.imgproxy = resetFiddleSettings(appState.imgproxy);
     }
   }
 
@@ -548,15 +503,10 @@
         </Collapsible.Root>
       </section>
 
-      {#if appState.provider === "imgproxy"}
-        <ImgproxyControls bind:fiddleState={appState.imgproxy} source={appState.imgproxy.source} />
-      {:else if appState.provider === "iiif"}
-        <IiifControls bind:iiifState={appState.iiif} source={appState.iiif.source} />
+      {#if appState.provider === "native"}
+        <NativeControls bind:nativeState={appState.native} />
       {:else}
-        <TwicPicsControls
-          bind:twicpicsState={appState.twicpics}
-          source={appState.twicpics.source}
-        />
+        <ImgproxyControls bind:fiddleState={appState.imgproxy} source={appState.imgproxy.source} />
       {/if}
     </div>
 

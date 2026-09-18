@@ -8,23 +8,18 @@ import {
 } from "./preview-intercept";
 
 describe("isPreviewUrl", () => {
-  it("matches all three processing prefixes regardless of query", () => {
+  it("matches processing prefixes regardless of query", () => {
+    expect(isPreviewUrl("http://localhost:4000/native-image/w=64/src/images/dog.jpg")).toBe(true);
     expect(
       isPreviewUrl("http://localhost:4000/img/_/rs:fit:10:10/plain/local:///images/dog.jpg"),
     ).toBe(true);
-    expect(isPreviewUrl("http://localhost:4000/iiif-image/dog/full/max/0/default.jpg")).toBe(true);
-    expect(isPreviewUrl("http://localhost:4000/twic/images/dog.jpg?twic=v1/cover=10x10")).toBe(
-      true,
-    );
   });
 
-  it("rejects the SPA shell, vite assets, and the display-only /twicpics path", () => {
+  it("rejects the SPA shell and vite assets", () => {
     expect(isPreviewUrl("http://localhost:4000/")).toBe(false);
+    expect(isPreviewUrl("http://localhost:4000/native/w=64/src/images/dog.jpg")).toBe(false);
     expect(isPreviewUrl("http://localhost:4000/preview-sw.js")).toBe(false);
     expect(isPreviewUrl("http://localhost:5173/main.ts")).toBe(false);
-    expect(isPreviewUrl("http://localhost:4000/twicpics/images/dog.jpg?twic=v1/cover=10x10")).toBe(
-      false,
-    );
   });
 
   it("returns false for non-URL strings instead of throwing", () => {
@@ -32,7 +27,7 @@ describe("isPreviewUrl", () => {
   });
 
   it("exposes the prefixes as a readonly list", () => {
-    expect([...PREVIEW_PREFIXES]).toEqual(["/img/", "/iiif-image/", "/twic/"]);
+    expect([...PREVIEW_PREFIXES]).toEqual(["/native-image/", "/img/"]);
   });
 });
 

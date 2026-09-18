@@ -25,13 +25,12 @@ import {
   type WebpPreset,
   type AvifSubsample,
 } from "./processing-path";
-import { defaultIiifState, iiifBrowserPath, parseIiifTail, type IiifState } from "./iiif-path";
 import {
-  defaultTwicPicsState,
-  parseTwicTail,
-  twicBrowserPath,
-  type TwicPicsState,
-} from "./twicpics-path";
+  defaultNativeState,
+  nativeBrowserPath,
+  parseNativeTail,
+  type NativeState,
+} from "./native-path";
 
 // Classes offered in the fiddle's object-gravity UI. A subset of COCO-80 chosen
 // to match the default source images (dog, cat) and the most common fiddles
@@ -1488,76 +1487,48 @@ function parseNumber(value: string | undefined): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-export type Provider = "imgproxy" | "iiif" | "twicpics";
+export type Provider = "native" | "imgproxy";
 
 export const providers: readonly { id: Provider; label: string }[] = [
+  { id: "native", label: "Native" },
   { id: "imgproxy", label: "imgproxy" },
-  { id: "iiif", label: "IIIF (Image API 3.0)" },
-  { id: "twicpics", label: "TwicPics" },
 ];
 
 export type AppState = {
   provider: Provider;
+  native: NativeState;
   imgproxy: FiddleState;
-  iiif: IiifState;
-  twicpics: TwicPicsState;
 };
 
 export function defaultAppState(): AppState {
   return {
-    provider: "imgproxy",
+    provider: "native",
+    native: { ...defaultNativeState },
     imgproxy: { ...defaultFiddleState },
-    iiif: { ...defaultIiifState },
-    twicpics: { ...defaultTwicPicsState },
   };
 }
 
-// Builds the browser URL for the ACTIVE provider only. The /imgproxy prefix lives
-// here, never in the imgproxy signed-path builder (fiddlePathForState).
 export function appPathForState(state: AppState): string {
-  if (state.provider === "iiif") {
-    return iiifBrowserPath(state.iiif);
-  }
-
-  if (state.provider === "twicpics") {
-    return twicBrowserPath(state.twicpics);
-  }
-
-  return `/imgproxy${fiddlePathForState(state.imgproxy)}`;
+  return state.provider === "native"
+    ? nativeBrowserPath(state.native)
+    : `/imgproxy${fiddlePathForState(state.imgproxy)}`;
 }
 
-// Parses a browser URL into an AppState. The inactive slice is defaulted here;
-// App.svelte merges to preserve the in-memory inactive slice across popstate.
-// Dispatch is on the first path segment.
-export function parseAppPath(pathname: string, search = ""): AppState {
+export function parseAppPath(pathname: string): AppState {
   const [, first = "", ...rest] = pathname.split("/");
 
-  if (first === "twicpics") {
-    const twicpics = parseTwicTail(rest.join("/"), search);
+  if (first === "native") {
     return {
-      provider: "twicpics",
-      imgproxy: { ...defaultFiddleState },
-      iiif: { ...defaultIiifState },
-      twicpics: twicpics ?? { ...defaultTwicPicsState },
-    };
-  }
-
-  if (first === "iiif") {
-    const iiif = parseIiifTail(rest.join("/"));
-    return {
-      provider: "iiif",
-      imgproxy: { ...defaultFiddleState },
-      iiif: iiif ?? { ...defaultIiifState },
-      twicpics: { ...defaultTwicPicsState },
+      ...defaultAppState(),
+      native: parseNativeTail(rest.join("/")) ?? { ...defaultNativeState },
     };
   }
 
   if (first === "imgproxy") {
     return {
+      ...defaultAppState(),
       provider: "imgproxy",
       imgproxy: parseFiddlePath("/" + rest.join("/")),
-      iiif: { ...defaultIiifState },
-      twicpics: { ...defaultTwicPicsState },
     };
   }
 

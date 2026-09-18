@@ -36,7 +36,7 @@ export class PreviewMetadataTracker {
 
   applyMessage(message: PreviewMetaMessage, requestId: number): void {
     if (requestId !== this.#requestId) return;
-    if (message.url !== this.#url) return; // full-URL match (query-sensitive for TwicPics)
+    if (message.url !== this.#url) return;
 
     if (!message.ok) {
       const suffix = message.error ? `: ${message.error}` : "";
@@ -71,8 +71,7 @@ export class PreviewMetadataTracker {
 }
 
 // Served by Phoenix from root (:4000), NOT Vite (:5173) — a SW script must be
-// same-origin with the page. Root path ⇒ default scope "/" ⇒ covers /img,
-// /iiif-image, /twic with no Service-Worker-Allowed header needed.
+// same-origin with the page. Root scope covers both processing endpoints.
 export const PREVIEW_WORKER_URL = "/preview-sw.js";
 
 export type PreviewWorker = { ready: boolean; unsubscribe: () => void };
