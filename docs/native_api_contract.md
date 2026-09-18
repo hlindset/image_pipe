@@ -37,7 +37,7 @@ The native API implements these option keys:
 `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
 `gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`, `format-q`,
 `autoquality`, `max-bytes`, `jpeg-options`, `png-options`, `webp-options`,
-`avif-options`, `jxl-options`,
+`avif-options`, `jxl-options`, `meta`, `profile`, `hdr`,
 `debug`, `expires`, `preset`.
 
 It also implements `then`, `src`, `src64`, and full-length HMAC signing with
@@ -301,6 +301,44 @@ Signed decimal angles wrap modulo 360. Start and stop are fractions from
 values produce a hard step. Gradient preserves source alpha. Colorize
 produces an opaque result unless `keep-alpha` preserves the source alpha;
 zero opacity skips the operation and preserves the source unchanged.
+
+### Metadata, color profiles, and HDR
+
+`meta` selects one metadata policy:
+
+| Value | Retained metadata |
+| --- | --- |
+| `copyright` | Copyright and artist attribution; other optional metadata is stripped |
+| `strip` | Optional metadata, including copyright and artist attribution, is stripped |
+| `keep` | Source metadata is retained |
+
+The default is `copyright`. Hosts may set `strip_metadata` and
+`keep_copyright`; an explicit `meta` replaces both choices. Codec-required
+metadata, such as JPEG dimensions, may still be written under `strip`.
+Orientation metadata always describes the delivered pixels: `orient=none`
+uses stored axes even under `meta=keep`, without leaving a source EXIF tag
+that would rotate the result again in a viewer.
+
+`profile=strip` converts to the standard working color space and omits the
+source ICC profile. `profile=preserve` exports back to the source profile
+and retains it. `profile=srgb`, `profile=display-p3`, and `profile=adobe-rgb`
+convert to a shipped target profile and embed its bytes. Profile handling
+is independent of `meta`: stripping optional metadata preserves a requested
+output profile. The default is `strip`; host `strip_color_profile: false`
+selects source-profile preservation. Input ICC conditioning happens before
+transforms so operations work on interpreted colors.
+
+`hdr=preserve` retains a high-bit-depth working space when the selected
+output format supports it. `hdr=tonemap` selects the standard working
+space and is the default; host `preserve_hdr: true` changes that default.
+JPEG falls back to standard output even under `hdr=preserve`. Named profile
+conversion produces 8-bit output and cannot be combined with effective HDR
+preservation; use `hdr=tonemap` with a named target. Conflicting URL and host
+settings fail before source or cache access.
+
+All three policies are request-scoped and enter effective output identity.
+They reject on BlurHash URLs; configured image policies do not change
+BlurHash's fixed pixel space or text response.
 
 ### Image quality and encoders
 

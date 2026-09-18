@@ -41,9 +41,23 @@ defmodule ImagePipe.Native.ConfigTest do
     assert config[:jpeg_options].interlace == true
   end
 
-  test "rejects neutral configuration whose native URL surface is not available yet" do
+  test "resolves native metadata, color-profile, and HDR host policy" do
+    config =
+      Config.validate!(
+        strip_metadata: false,
+        keep_copyright: false,
+        strip_color_profile: false,
+        preserve_hdr: true
+      )
+
+    assert config[:strip_metadata] == false
+    assert config[:keep_copyright] == false
+    assert config[:strip_color_profile] == false
+    assert config[:preserve_hdr] == true
+  end
+
+  test "rejects neutral configuration whose native URL surface is not available" do
     assert_raise ArgumentError, fn -> Config.validate!(auto_rotate: false) end
-    assert_raise ArgumentError, fn -> Config.validate!(strip_metadata: false) end
-    assert_raise ArgumentError, fn -> Config.validate!(preserve_hdr: true) end
+    assert_raise ArgumentError, fn -> Config.validate!(smart_crop_face_detection: true) end
   end
 end

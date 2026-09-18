@@ -18,6 +18,7 @@ defmodule ImagePipe.Native.Output do
            Config.apply_to_output(base_output(request), disable_host_autoquality(config)),
          {:ok, quality_search} <- resolve_quality_search(request, config),
          output = overlay_request(configured, request, quality_search),
+         :ok <- validate_hdr_profile(output),
          :ok <- validate_lossless_webp_request(output, request),
          :ok <- validate_brackets(output, config) do
       {:ok, output}
@@ -54,15 +55,34 @@ defmodule ImagePipe.Native.Output do
     do: QualitySearch.build(method, fields, config)
 
   defp overlay_request(configured, request, quality_search) do
+    {strip_metadata, keep_copyright} =
+      metadata_policy(request.metadata, configured.strip_metadata, configured.keep_copyright)
+
     %{
       configured
-      | format_qualities: Map.merge(configured.format_qualities, request.format_qualities),
+      | strip_metadata: strip_metadata,
+        keep_copyright: keep_copyright,
+        color_profile: request.color_profile || configured.color_profile,
+        hdr: request.hdr || configured.hdr,
+        format_qualities: Map.merge(configured.format_qualities, request.format_qualities),
         quality_search: quality_search,
         max_bytes: request.max_bytes,
         encoder_options:
           merge_encoder_options(configured.encoder_options, request.encoder_options)
     }
   end
+
+  defp metadata_policy(nil, strip_metadata, keep_copyright),
+    do: {strip_metadata, keep_copyright}
+
+  defp metadata_policy(:strip, _strip_metadata, _keep_copyright), do: {true, false}
+  defp metadata_policy(:copyright, _strip_metadata, _keep_copyright), do: {true, true}
+  defp metadata_policy(:keep, _strip_metadata, _keep_copyright), do: {false, false}
+
+  defp validate_hdr_profile(%PlanOutput{color_profile: {:convert, _target}, hdr: :preserve}),
+    do: {:error, :hdr_profile_conversion}
+
+  defp validate_hdr_profile(%PlanOutput{}), do: :ok
 
   defp merge_encoder_options(configured, requested) do
     configured

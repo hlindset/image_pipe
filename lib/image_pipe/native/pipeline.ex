@@ -39,6 +39,7 @@ defmodule ImagePipe.Native.Pipeline do
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Lowering
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.NeutralResolver
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
@@ -49,6 +50,8 @@ defmodule ImagePipe.Native.Pipeline do
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.SourceShape
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.MutableImage, as: VipsMutableImage
 
   # Reachable `continue/4` recursion is at most depth 1 for this probe's
   # operation set (a resize's `{:resize_tail, _}`/`{:resize_flush_tail, _}`
@@ -156,13 +159,72 @@ defmodule ImagePipe.Native.Pipeline do
     state = seed_detector(state, opts)
 
     with {:ok, %State{} = state} <- condition_color(state, opts),
-         {:ok, %State{} = state} <- run_groups(state, request, opts) do
+         {:ok, %State{} = state} <- run_groups(state, request, opts),
+         {:ok, %State{} = state} <- normalize_output_orientation(state, request, opts) do
       {:ok, InputColorManagement.stamp_carry(state)}
     end
   end
 
   defp seed_detector(%State{} = state, opts) do
     %State{state | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default))}
+  end
+
+  defp normalize_output_orientation(
+         %State{} = state,
+         %Request{output: %Output{terminal: :image} = output},
+         opts
+       ) do
+    if retains_source_metadata?(output, opts) do
+      remove_non_normal_orientation(state)
+    else
+      {:ok, state}
+    end
+  end
+
+  defp normalize_output_orientation(%State{} = state, %Request{}, _opts), do: {:ok, state}
+
+  defp retains_source_metadata?(%Output{metadata: :keep}, _opts), do: true
+
+  defp retains_source_metadata?(%Output{metadata: nil}, opts),
+    do: not Keyword.get(opts, :strip_metadata, true)
+
+  defp retains_source_metadata?(%Output{}, _opts), do: false
+
+  defp remove_non_normal_orientation(%State{} = state) do
+    case VipsImage.header_value(state.image, "orientation") do
+      {:ok, 1} ->
+        {:ok, state}
+
+      {:ok, _orientation} ->
+        remove_output_orientation(state)
+
+      {:error, _reason} ->
+        {:ok, state}
+    end
+  end
+
+  defp remove_output_orientation(%State{} = state) do
+    with {:ok, %State{} = state} <- materialize_for_orientation_metadata(state),
+         {:ok, image} <-
+           VipsImage.mutate(state.image, fn mutable ->
+             VipsMutableImage.remove(mutable, "orientation")
+             :ok
+           end) do
+      {:ok, %State{state | image: image}}
+    else
+      {:error, {:decode, _reason}} = error -> error
+      {:error, reason} -> {:error, {:transform, reason}}
+    end
+  end
+
+  defp materialize_for_orientation_metadata(%State{materialized?: true} = state),
+    do: {:ok, state}
+
+  defp materialize_for_orientation_metadata(%State{} = state) do
+    case Materializer.materialize(state) do
+      {:ok, state} -> {:ok, state}
+      {:error, reason} -> {:error, {:decode, reason}}
+    end
   end
 
   # Input color management is a data-determined preamble, not a Plan operation

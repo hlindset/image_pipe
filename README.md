@@ -109,6 +109,7 @@ symmetric trimming, canvas extension and placement, object and face cropping,
 blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness,
 contrast, saturation, colorize, gradients, padding, background, image formats,
 per-format quality, automatic quality search, byte budgets, encoder controls,
+metadata retention, color profile conversion, HDR preservation,
 BlurHash, debug headers, expiry, presets, and signed URLs. It accepts local
 paths and HTTP(S) source URLs. Invalid requests fail before cache lookup or
 source fetch.

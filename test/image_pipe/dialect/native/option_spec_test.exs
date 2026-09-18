@@ -4,7 +4,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
   alias ImagePipe.Native.OptionSpec
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
-  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q format-q autoquality max-bytes jpeg-options png-options webp-options avif-options jxl-options debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options jxl-options debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -392,6 +392,37 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_quality("0") == {:error, :invalid_quality}
       assert OptionSpec.parse_quality("101") == {:error, :invalid_quality}
       assert OptionSpec.parse_quality("50.5") == {:error, :invalid_quality}
+    end
+
+    test "metadata policy uses the exact native vocabulary" do
+      assert OptionSpec.parse_metadata("strip") == {:ok, :strip}
+      assert OptionSpec.parse_metadata("copyright") == {:ok, :copyright}
+      assert OptionSpec.parse_metadata("keep") == {:ok, :keep}
+
+      for value <- ["", "all", "true", "Copyright"] do
+        assert OptionSpec.parse_metadata(value) == {:error, :invalid_metadata}
+      end
+    end
+
+    test "color profile policy canonicalizes named profiles" do
+      assert OptionSpec.parse_color_profile("strip") == {:ok, :strip}
+      assert OptionSpec.parse_color_profile("preserve") == {:ok, :preserve_source}
+      assert OptionSpec.parse_color_profile("srgb") == {:ok, {:convert, :srgb}}
+      assert OptionSpec.parse_color_profile("display-p3") == {:ok, {:convert, :display_p3}}
+      assert OptionSpec.parse_color_profile("adobe-rgb") == {:ok, {:convert, :adobe_rgb}}
+
+      for value <- ["", "keep", "p3", "display_p3", "adobergb", "sRGB"] do
+        assert OptionSpec.parse_color_profile(value) == {:error, :invalid_color_profile}
+      end
+    end
+
+    test "HDR policy uses tonemap and preserve only" do
+      assert OptionSpec.parse_hdr("tonemap") == {:ok, :tone_map}
+      assert OptionSpec.parse_hdr("preserve") == {:ok, :preserve}
+
+      for value <- ["", "tone-map", "keep", "Tonemap"] do
+        assert OptionSpec.parse_hdr(value) == {:error, :invalid_hdr}
+      end
     end
 
     test "format qualities use canonical formats and reject duplicates" do

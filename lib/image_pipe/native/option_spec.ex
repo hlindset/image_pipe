@@ -91,6 +91,25 @@ defmodule ImagePipe.Native.OptionSpec do
     "blurhash" => :blurhash
   }
 
+  @metadata_map %{
+    "strip" => :strip,
+    "copyright" => :copyright,
+    "keep" => :keep
+  }
+
+  @color_profile_map %{
+    "strip" => :strip,
+    "preserve" => :preserve_source,
+    "srgb" => {:convert, :srgb},
+    "display-p3" => {:convert, :display_p3},
+    "adobe-rgb" => {:convert, :adobe_rgb}
+  }
+
+  @hdr_map %{
+    "tonemap" => :tone_map,
+    "preserve" => :preserve
+  }
+
   @preset_name_pattern ~r/\A[A-Za-z0-9._-]+\z/
   @positive_decimal_pattern ~r/\A[0-9]+(?:\.[0-9]+)?\z/
   @unsigned_integer_pattern ~r/\A[0-9]+\z/
@@ -671,6 +690,45 @@ defmodule ImagePipe.Native.OptionSpec do
         terminal_applicability: :image,
         summary: "Per-format output quality overrides",
         examples: ["format-q=avif:60,webp:70"]
+      },
+      %__MODULE__{
+        key: "meta",
+        scope: :request,
+        value: &__MODULE__.parse_metadata/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Output metadata retention policy",
+        examples: ["meta=strip", "meta=copyright", "meta=keep"]
+      },
+      %__MODULE__{
+        key: "profile",
+        scope: :request,
+        value: &__MODULE__.parse_color_profile/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Output color profile policy",
+        examples: ["profile=preserve", "profile=display-p3"]
+      },
+      %__MODULE__{
+        key: "hdr",
+        scope: :request,
+        value: &__MODULE__.parse_hdr/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Output HDR policy",
+        examples: ["hdr=tonemap", "hdr=preserve"]
       },
       %__MODULE__{
         key: "autoquality",
@@ -1436,6 +1494,23 @@ defmodule ImagePipe.Native.OptionSpec do
   end
 
   @doc false
+  @spec parse_metadata(String.t()) ::
+          {:ok, :strip | :copyright | :keep} | {:error, :invalid_metadata}
+  def parse_metadata(string), do: parse_enum(string, @metadata_map, :invalid_metadata)
+
+  @doc false
+  @spec parse_color_profile(String.t()) ::
+          {:ok, :strip | :preserve_source | {:convert, :srgb | :display_p3 | :adobe_rgb}}
+          | {:error, :invalid_color_profile}
+  def parse_color_profile(string),
+    do: parse_enum(string, @color_profile_map, :invalid_color_profile)
+
+  @doc false
+  @spec parse_hdr(String.t()) ::
+          {:ok, :tone_map | :preserve} | {:error, :invalid_hdr}
+  def parse_hdr(string), do: parse_enum(string, @hdr_map, :invalid_hdr)
+
+  @doc false
   @spec parse_quality(String.t()) :: {:ok, 1..100} | {:error, :invalid_quality}
   def parse_quality(string) do
     case Value.number(string) do
@@ -1487,6 +1562,13 @@ defmodule ImagePipe.Native.OptionSpec do
 
   @doc false
   def parse_jxl_options(string), do: parse_encoder_options(string, :jpeg_xl)
+
+  defp parse_enum(string, values, error) do
+    case Map.fetch(values, string) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, error}
+    end
+  end
 
   defp parse_encoder_options(string, format) do
     parser =

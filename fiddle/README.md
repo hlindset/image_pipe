@@ -1,5 +1,11 @@
 # ImagePipeFiddle
 
+The native examples include metadata retention, ICC profile conversion, and
+16-bit output. `display-p3.png` and `rgba16.png` in `priv/static/images/` are
+copies of the generated color fixtures `icc_p3.png` and `rgba16.png` from
+`../test/support/image_pipe/test/imgproxy_differential/sources/`. They retain
+their embedded profile and bit depth so the examples exercise those paths.
+
 To start your Phoenix server:
 
 * Run `mix setup` to install and setup dependencies

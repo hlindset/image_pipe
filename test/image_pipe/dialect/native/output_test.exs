@@ -123,6 +123,60 @@ defmodule ImagePipe.Native.OutputTest do
     assert output.max_bytes == 12_000
   end
 
+  test "inherits host metadata, color-profile, and HDR policy when URL fields are absent" do
+    output =
+      resolve!([],
+        strip_metadata: false,
+        keep_copyright: true,
+        strip_color_profile: false,
+        preserve_hdr: true
+      )
+
+    assert output.strip_metadata == false
+    assert output.keep_copyright == false
+    assert output.color_profile == :preserve_source
+    assert output.hdr == :preserve
+  end
+
+  test "URL metadata policy maps to concrete encoder fields" do
+    for {value, strip_metadata, keep_copyright} <- [
+          {"strip", true, false},
+          {"copyright", true, true},
+          {"keep", false, false}
+        ] do
+      output =
+        resolve!(["meta=#{value}"],
+          strip_metadata: true,
+          keep_copyright: true
+        )
+
+      assert output.strip_metadata == strip_metadata
+      assert output.keep_copyright == keep_copyright
+    end
+  end
+
+  test "URL profile and HDR policy override host defaults" do
+    output =
+      resolve!(["profile=display-p3", "hdr=tonemap"],
+        strip_color_profile: true,
+        preserve_hdr: true
+      )
+
+    assert output.color_profile == {:convert, :display_p3}
+    assert output.hdr == :tone_map
+  end
+
+  test "rejects named profile conversion with effective HDR preservation" do
+    config = Config.validate!(preserve_hdr: true)
+
+    assert {:ok, request} = Parser.parse(lexed(["profile=srgb"]), config)
+
+    assert {:error, {:invalid_output, :hdr_profile_conversion}} =
+             Output.resolve(request.output, config)
+
+    assert resolve!(["profile=srgb", "hdr=tonemap"], preserve_hdr: true).hdr == :tone_map
+  end
+
   test "rejects URL quality search for an explicit lossless WebP output" do
     for {segments, host_opts} <- [
           {[
@@ -165,7 +219,14 @@ defmodule ImagePipe.Native.OutputTest do
   end
 
   test "blurhash ignores host image output policy" do
-    output = resolve!(["output=blurhash"], autoquality_method: :size)
+    output =
+      resolve!(["output=blurhash"],
+        autoquality_method: :size,
+        strip_metadata: false,
+        keep_copyright: false,
+        strip_color_profile: false,
+        preserve_hdr: true
+      )
 
     assert output == %PlanOutput{mode: :automatic}
   end

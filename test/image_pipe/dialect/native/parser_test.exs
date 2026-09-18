@@ -430,6 +430,44 @@ defmodule ImagePipe.Native.ParserTest do
       assert {:ok, %Request{output: %Output{quality: 80}}} = parse(["q=80"])
     end
 
+    test "metadata, color profile, and HDR policies stay sparse and typed" do
+      assert {:ok,
+              %Request{
+                output: %Output{
+                  metadata: :copyright,
+                  color_profile: {:convert, :display_p3},
+                  hdr: :preserve
+                }
+              }} = parse(["meta=copyright", "profile=display-p3", "hdr=preserve"])
+
+      assert {:ok,
+              %Request{
+                output: %Output{
+                  metadata: :strip,
+                  color_profile: :preserve_source,
+                  hdr: :tone_map
+                }
+              }} = parse(["meta=strip", "profile=preserve", "hdr=tonemap"])
+    end
+
+    test "explicit metadata, color profile, and HDR policies override a preset layer" do
+      config = [presets: %{"print" => "meta=keep/profile=adobe-rgb/hdr=preserve"}]
+
+      assert {:ok,
+              %Request{
+                output: %Output{
+                  metadata: :copyright,
+                  color_profile: {:convert, :srgb},
+                  hdr: :tone_map
+                }
+              }} =
+               parse(
+                 ["preset=print", "meta=copyright", "profile=srgb", "hdr=tonemap"],
+                 "images/cat.jpg",
+                 config
+               )
+    end
+
     test "output policy stays sparse and typed" do
       options = [
         "format-q=webp:70,avif:60,jxl:80",
@@ -795,6 +833,9 @@ defmodule ImagePipe.Native.ParserTest do
     test "advanced output options with output=blurhash are inert" do
       for option <- [
             "format-q=webp:70",
+            "meta=keep",
+            "profile=srgb",
+            "hdr=tonemap",
             "autoquality=none",
             "max-bytes=10000",
             "jpeg-options=progressive",

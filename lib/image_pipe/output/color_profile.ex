@@ -1,10 +1,10 @@
 defmodule ImagePipe.Output.ColorProfile do
   @moduledoc false
-  # Resolves a built-in cp/icc target atom to its shipped CC0 .icc profile path.
+  # Resolves a built-in target atom to its shipped CC0 .icc profile path.
   # Filenames are hardcoded per clause (never interpolated from the atom) so there
   # is no string-building seam for user input to slot into if a future custom-dir
-  # slice is added. The only producer of these atoms is the imgproxy parser, which
-  # emits exactly these three; an unknown atom is a programmer error and raises.
+  # slice is added. Request parsers emit exactly these three atoms; an unknown
+  # atom is a programmer error and raises.
 
   # Compile-time presence guard only (build tree). Runtime resolution uses
   # :code.priv_dir/1 in path!/1 so the released artifact path is correct.

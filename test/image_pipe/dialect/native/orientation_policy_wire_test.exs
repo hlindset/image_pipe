@@ -8,6 +8,8 @@ defmodule ImagePipe.Native.OrientationPolicyWireTest do
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
   alias ImgproxyWireConformanceTest.CountingOriginImage
+  alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.MutableImage, as: VipsMutableImage
 
   @orientations 1..8
 
@@ -43,6 +45,68 @@ defmodule ImagePipe.Native.OrientationPolicyWireTest do
       )
 
     assert_pixel_close(none_rotated, stored_rotated, 6, :none_with_user_rotation)
+  end
+
+  test "orient=none with retained metadata normalizes the output orientation tag" do
+    base = marked_image_with_metadata()
+
+    none =
+      image(
+        "/orient=none/meta=keep/format=jpeg/src/images/x.jpg",
+        oriented(base, 6)
+      )
+
+    stored =
+      image(
+        "/orient=none/meta=keep/format=jpeg/src/images/x.jpg",
+        oriented(base, 1)
+      )
+
+    assert_pixel_close(none, stored, 6, :none_with_metadata)
+
+    assert VipsImage.header_value(none, "orientation") in [
+             {:ok, 1},
+             {:error, "No such field"}
+           ]
+
+    assert {:ok, %{image_description: "Orientation metadata sentinel"}} = Image.exif(none)
+  end
+
+  test "orient=auto with retained metadata normalizes the output orientation tag" do
+    base = marked_image()
+    auto = image("/orient=auto/meta=keep/format=jpeg/src/images/x.jpg", oriented(base, 6))
+    displayed = image("/meta=keep/format=jpeg/src/images/x.jpg", twin(base, 6))
+
+    assert_pixel_close(auto, displayed, 6, :auto_with_metadata)
+
+    assert VipsImage.header_value(auto, "orientation") in [
+             {:ok, 1},
+             {:error, "No such field"}
+           ]
+  end
+
+  test "orientation metadata cleanup preserves corrupt-tail decode classification" do
+    body =
+      "priv/static/images/beach.jpg"
+      |> Image.open!()
+      |> Image.set_orientation!(6)
+      |> Image.write!(:memory, suffix: ".jpg")
+      |> corrupt_tail()
+
+    origin = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+
+    response =
+      request(
+        "/orient=none/meta=keep/format=jpeg/src/images/x.jpg",
+        origin
+      )
+
+    assert response.status == 415
+    assert response.resp_body == "source response is not a supported image"
   end
 
   test "orient=none trim=auto chooses the stored-frame top-left background" do
@@ -134,6 +198,29 @@ defmodule ImagePipe.Native.OrientationPolicyWireTest do
     |> Image.Draw.rect!(23, 3, 14, 9, color: [40, 240, 40])
     |> Image.Draw.rect!(4, 15, 20, 6, color: [40, 40, 240])
     |> Image.write!(:memory, suffix: ".png")
+  end
+
+  defp marked_image_with_metadata do
+    image = marked_image() |> Image.open!(access: :random)
+
+    {:ok, tagged} =
+      VipsImage.mutate(image, fn mutable ->
+        VipsMutableImage.set(
+          mutable,
+          "exif-ifd0-ImageDescription",
+          :gchararray,
+          "Orientation metadata sentinel"
+        )
+
+        :ok
+      end)
+
+    Image.write!(tagged, :memory, suffix: ".jpg")
+  end
+
+  defp corrupt_tail(body) do
+    prefix_size = max(byte_size(body) - 64, 1)
+    binary_part(body, 0, prefix_size) <> :binary.copy(<<0>>, 64)
   end
 
   defp trim_frame do

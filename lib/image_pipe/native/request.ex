@@ -149,6 +149,9 @@ defmodule ImagePipe.Native.Request.Output do
   defstruct terminal: :image,
             format: nil,
             quality: nil,
+            metadata: nil,
+            color_profile: nil,
+            hdr: nil,
             format_qualities: %{},
             autoquality: nil,
             max_bytes: nil,
@@ -158,6 +161,13 @@ defmodule ImagePipe.Native.Request.Output do
           terminal: :image | :blurhash,
           format: nil | :avif | :webp | :jpeg | :png | :jpeg_xl,
           quality: nil | 1..100,
+          metadata: nil | :strip | :copyright | :keep,
+          color_profile:
+            nil
+            | :strip
+            | :preserve_source
+            | {:convert, :srgb | :display_p3 | :adobe_rgb},
+          hdr: nil | :tone_map | :preserve,
           format_qualities: %{optional(atom()) => {:quality, 1..100}},
           autoquality:
             nil

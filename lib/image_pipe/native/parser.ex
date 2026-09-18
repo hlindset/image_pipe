@@ -969,6 +969,9 @@ defmodule ImagePipe.Native.Parser do
       terminal: Map.get(clean_request_map, "output", :image),
       format: Map.get(clean_request_map, "format"),
       quality: Map.get(clean_request_map, "q"),
+      metadata: Map.get(clean_request_map, "meta"),
+      color_profile: Map.get(clean_request_map, "profile"),
+      hdr: Map.get(clean_request_map, "hdr"),
       format_qualities: Map.get(clean_request_map, "format-q", %{}),
       autoquality: Map.get(clean_request_map, "autoquality"),
       max_bytes: Map.get(clean_request_map, "max-bytes"),
@@ -1074,6 +1077,12 @@ defmodule ImagePipe.Native.Parser do
     do: "invalid value: expected avif, webp, jpeg, png, or jxl"
 
   def message_for(:invalid_quality), do: "invalid value: expected an integer 1-100"
+  def message_for(:invalid_metadata), do: "invalid value: expected strip, copyright, or keep"
+
+  def message_for(:invalid_color_profile),
+    do: "invalid value: expected strip, preserve, srgb, display-p3, or adobe-rgb"
+
+  def message_for(:invalid_hdr), do: "invalid value: expected tonemap or preserve"
   def message_for(:invalid_format_qualities), do: "invalid per-format quality list"
   def message_for(:invalid_autoquality), do: "invalid autoquality method or named fields"
   def message_for(:invalid_max_bytes), do: "invalid value: expected a positive integer"

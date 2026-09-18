@@ -92,9 +92,13 @@ defmodule ImagePipe.Native.IdentityTest do
   defp build(source_identity, material),
     do: Representation.build(source_identity, material, {:strong, source_identity})
 
-  defp prepared_material!(segments) do
+  defp prepared_material!(segments, config_opts \\ []) do
     request = request!(segments)
-    config = Config.validate!(detector: ClassIdentityDetector)
+
+    config =
+      [detector: ClassIdentityDetector]
+      |> Keyword.merge(config_opts)
+      |> Config.validate!()
 
     assert {:ok, %Resolved{negotiation: negotiation}} =
              Native.prepare(conn(:get, "/"), request, config)
@@ -297,6 +301,26 @@ defmodule ImagePipe.Native.IdentityTest do
   end
 
   describe "output-policy material" do
+    test "equal effective metadata, profile, and HDR policy has equal concrete identity" do
+      host_material =
+        prepared_material!([],
+          strip_metadata: false,
+          keep_copyright: false,
+          strip_color_profile: false,
+          preserve_hdr: true
+        )
+
+      url_material = prepared_material!(["meta=keep", "profile=preserve", "hdr=preserve"])
+
+      assert host_material.representation == url_material.representation
+
+      output_policy = Keyword.fetch!(host_material.representation, :output_policy)
+      assert Keyword.fetch!(output_policy, :strip_metadata) == false
+      assert Keyword.fetch!(output_policy, :keep_copyright) == false
+      assert Keyword.fetch!(output_policy, :color_profile) == :preserve_source
+      assert Keyword.fetch!(output_policy, :hdr) == :preserve
+    end
+
     test "two requests differing only in q differ in representation" do
       conn0 = conn(:get, "/")
       request_a = request!(["w=300", "q=50"])

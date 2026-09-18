@@ -28,6 +28,14 @@ describe("sample image virtual module", () => {
       width: 96,
       height: 64,
     });
+    for (const name of ["display-p3.png", "rgba16.png"]) {
+      expect(sampleImages).toContainEqual({
+        path: `images/${name}`,
+        label: name,
+        width: 512,
+        height: 512,
+      });
+    }
     expect(sampleImages.map((image) => image.path)).not.toContain("images/waterfall.jpg");
   });
 });

@@ -73,6 +73,27 @@
     { label: "Palette PNG", options: "w=600/format=png/png-options=palette,bitdepth:4" },
     { label: "Lossless WebP", options: "w=600/format=webp/webp-options=lossless" },
     { label: "AVIF effort", options: "w=600/format=avif/avif-options=effort:3" },
+    { label: "Keep metadata", options: "w=600/meta=keep" },
+    { label: "Keep attribution", options: "w=600/meta=copyright" },
+    { label: "Strip metadata", options: "w=600/meta=strip" },
+    {
+      label: "Keep Display P3",
+      options: "w=400/format=png/profile=preserve",
+      source: "images/display-p3.png",
+    },
+    { label: "Convert to sRGB", options: "w=600/profile=srgb" },
+    { label: "Convert to Display P3", options: "w=600/profile=display-p3" },
+    { label: "Convert to Adobe RGB", options: "w=600/profile=adobe-rgb" },
+    {
+      label: "Preserve 16-bit",
+      options: "w=400/format=png/hdr=preserve/debug",
+      source: "images/rgba16.png",
+    },
+    {
+      label: "Tone map to 8-bit",
+      options: "w=400/format=png/hdr=tonemap/debug",
+      source: "images/rgba16.png",
+    },
     { label: "Debug headers", options: "w=800/debug" },
   ];
 

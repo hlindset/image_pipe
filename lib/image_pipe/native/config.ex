@@ -7,6 +7,10 @@ defmodule ImagePipe.Native.Config do
   alias ImagePipe.Native.Presets
 
   @supported_neutral_keys [
+    :strip_metadata,
+    :keep_copyright,
+    :strip_color_profile,
+    :preserve_hdr,
     :quality,
     :format_quality,
     :autoquality_method,

@@ -118,6 +118,9 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
     property "request output option order does not change canonical data" do
       options = [
         "format-q=webp:70,avif:60",
+        "meta=copyright",
+        "profile=display-p3",
+        "hdr=tonemap",
         "autoquality=ssimulacra2,target:78,min:40,max:95,error:2",
         "max-bytes=12000",
         "jpeg-options=progressive,quant-table:3",
@@ -233,6 +236,9 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
     test "output option ordering and numeric spellings have identical serialized identity" do
       first = [
         "format-q=webp:70,avif:60,jxl:80",
+        "meta=copyright",
+        "profile=display-p3",
+        "hdr=tonemap",
         "autoquality=ssimulacra2,error:2,target:78,min:40,max:95",
         "jpeg-options=quant-table:3,progressive",
         "webp-options=effort:6,near-lossless"
@@ -240,6 +246,9 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
 
       second = [
         "webp-options=near-lossless,effort:6",
+        "hdr=tonemap",
+        "profile=display-p3",
+        "meta=copyright",
         "jpeg-options=progressive,quant-table:3",
         "autoquality=ssimulacra2,max:95,min:40,target:78.0,error:2.0",
         "format-q=jxl:80,avif:60,webp:70"
