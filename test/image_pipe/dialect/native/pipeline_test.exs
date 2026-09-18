@@ -116,7 +116,16 @@ defmodule ImagePipe.Native.PipelineTest do
           })
         ])
 
-      assert [{:ops, [%ExecutableResize{mode: :fit, width: {:pixels, 800}}]}] =
+      assert [
+               {:ops,
+                [
+                  %ExecutableResize{
+                    mode: :force,
+                    width: {:pixels, 800},
+                    height: {:pixels, 600}
+                  }
+                ]}
+             ] =
                collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
     end
 
@@ -272,7 +281,16 @@ defmodule ImagePipe.Native.PipelineTest do
           })
         ])
 
-      assert [{:ops, [%ExecutableResize{mode: :fit, width: {:pixels, 800}}]}] =
+      assert [
+               {:ops,
+                [
+                  %ExecutableResize{
+                    mode: :force,
+                    width: {:pixels, 800},
+                    height: {:pixels, 600}
+                  }
+                ]}
+             ] =
                collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
     end
 
@@ -335,7 +353,11 @@ defmodule ImagePipe.Native.PipelineTest do
              } =
                crop
 
-      assert %ExecutableResize{mode: :fit, width: {:pixels, 300}} = resize
+      assert %ExecutableResize{
+               mode: :force,
+               width: {:pixels, 300},
+               height: {:pixels, 200}
+             } = resize
     end
 
     test "region=10,20,100,200 emits a coordinate crop with no gravity" do
@@ -386,7 +408,12 @@ defmodule ImagePipe.Native.PipelineTest do
       assert [{:ops, [resize]}, {:ops, [trim]}] =
                collect_ops(fn pid -> run(state, request, chain: recording_chain(pid)) end)
 
-      assert %ExecutableResize{mode: :fit, width: {:pixels, 500}} = resize
+      assert %ExecutableResize{
+               mode: :force,
+               width: {:pixels, 500},
+               height: {:pixels, 400}
+             } = resize
+
       assert %ExecutableTrim{threshold: threshold, background: %ImagePipe.Plan.Color{}} = trim
       assert threshold == 0.0
     end

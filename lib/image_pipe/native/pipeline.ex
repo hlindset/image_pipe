@@ -286,7 +286,7 @@ defmodule ImagePipe.Native.Pipeline do
 
     op = %{
       op
-      | mode: mode,
+      | mode: resolved_target_execution_mode(mode),
         width: {:px, target.width},
         height: {:px, target.height},
         min_width: nil,
@@ -352,6 +352,11 @@ defmodule ImagePipe.Native.Pipeline do
   end
 
   defp native_resize_mode(op, shape), do: NeutralResolver.resolve_mode(op, shape)
+
+  # The target has already applied fit and final pixel rounding. Lower it through
+  # stretch so the executable resize does not fit the rounded box a second time.
+  defp resolved_target_execution_mode(:fit), do: :stretch
+  defp resolved_target_execution_mode(mode), do: mode
 
   defp run_canvas(state, shape, %Group{canvas: nil}, _dpr, _ctx),
     do: {:ok, state, shape}
