@@ -184,23 +184,16 @@ cover resize to select subjects. `anchor=smart-face` blends face detection
 with attention. The [content-aware cropping guide](docs/content-aware-gravity.md)
 covers optional detector setup, weights, fallback, and strict availability checks.
 
-The [native API contract and capability inventory](docs/native_api_contract.md)
-distinguishes implemented options from planned ports. The imgproxy entry point
-remains available during the native-only migration while its useful capabilities
-are being moved to native.
+The [native API contract](docs/native_api_contract.md) defines the complete
+option vocabulary, stage order, coordinate frames, and terminal behavior.
 
 ## Documentation
 
 - [Native API contract](docs/native_api_contract.md) defines native semantics,
   capability retention, and migration ownership.
-- [Imgproxy path API](docs/imgproxy_path_api.md) documents URL shape, option
-  parsing, conflict resolution, signing, presets, output selection, and
-  fixed operation ordering.
-- [Imgproxy support matrix](docs/imgproxy_support_matrix.md) lists supported,
-  partial, rejected, missing, and out-of-scope Imgproxy features.
 - [Content-aware gravity](docs/content-aware-gravity.md) documents smart crop
-  (`g:sm`) and how a host enables optional ML face detection (`g:obj:face`,
-  face-assisted `g:sm`) — the `image_vision` + `ortex` dependencies, the
+  (`anchor=smart`) and optional face detection (`detect=face`,
+  `anchor=smart-face`) — the `image_vision` + `ortex` dependencies, the
   `detector` / `detector_required` options, fallback behavior, warmup, and
   custom detectors.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
@@ -212,11 +205,10 @@ are being moved to native.
   output negotiation.
 - [Telemetry](docs/telemetry.md) documents emitted span events, measurements,
   metadata, and handler examples.
-- [Transform operations](docs/transform_operations.md) documents the boundary
-  between dialect request syntax, semantic plan operations, and executable
-  transform operations.
-- [Execution flow](docs/execution_flow.md) documents the runtime call spine and
-  the neutral runtime-geometry resolve loop.
+- [Transform operations](docs/transform_operations.md) documents native groups,
+  executable operations, geometry, orientation, and materialization.
+- [Execution flow](docs/execution_flow.md) documents the request lifecycle and
+  direct native executor.
 - [Source network policy](docs/source-network-policy.md) documents the default
   SSRF protection on HTTP/HTTPS sources, how to allow private origins
   (`address_policy`), custom DNS resolution (`address_resolver`), and the
@@ -231,7 +223,7 @@ mise run setup       # installs library + fiddle deps
 mise run fiddle      # boots Phoenix (:4000) + Vite (:5173)
 ```
 
-Open http://localhost:4000. Native is selected by default; its processing
+Open http://localhost:4000. The processing
 endpoint is `/native-image`. The option editor supports native paths and
 `then` groups, with examples for geometry, object and face crops, pixel effects,
 canvas placement, padding, and trim.
@@ -250,14 +242,14 @@ mise run fiddle:sidecars jaeger   # start Jaeger (OTLP + UI) via fiddle/docker-c
 mise run fiddle otel              # boots the dev server with tracing on (FIDDLE_OTEL=1)
 ```
 
-Issue an `/img` request, then open the Jaeger UI at http://localhost:16686 and
+Issue a `/native-image` request, then open the Jaeger UI at http://localhost:16686 and
 look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
 Plain `mise run fiddle` leaves tracing off (no `FIDDLE_OTEL`), so it needs no
 Jaeger.
 
 ### Source types (local / S3 / HTTP)
 
-The imgproxy provider can fetch the sample images through three source adapters,
+The demo can fetch sample images through three source adapters,
 chosen with the fiddle's **Source type** control: the local filesystem, a fake S3,
 or HTTP. All three resolve to byte-identical bytes from `priv/static/images`, so
 switching source types is a clean adapter comparison.

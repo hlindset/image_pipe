@@ -1,6 +1,6 @@
 # Operational notes
 
-ImagePipe verifies Imgproxy signatures and parses Imgproxy path options before
+ImagePipe verifies native signatures and parses path options before
 fetching source bytes. Invalid signatures return `403`, and invalid processing
 requests return `400`, both without source traffic.
 
@@ -64,8 +64,7 @@ Static result limits run after transform execution and before final output
 resolution or encoding. `:max_result_width` and `:max_result_height` default
 to `8_192`. `:max_result_pixels` defaults to `40_000_000`. Result dimensions
 mean the final static image width, height, and pixel count. Oversize static
-results now **downscale the served image to fit** these caps rather than erroring
-(imgproxy `limitScale` parity); `:max_input_pixels` remains a hard `413`
+results **downscale the served image to fit** these caps; `:max_input_pixels` is a hard `413`
 image-bomb gate on oversize decoded input. Animation frame limits
 remain out of scope and aren't implemented.
 
@@ -164,8 +163,7 @@ runtime, selected as `{:provider, Module, opts}`. ImagePipe ships two:
 
 Both STS providers call the regional endpoint (`sts.<region>.amazonaws.com`) and
 cache through the same refresh cache as the others — one STS call per credential
-lifetime, fail-closed on expiry. Unlike imgproxy (which defaults the region to
-`us-west-1`), `:region` is **mandatory** on both — there is no silent fallback.
+lifetime, fail-closed on expiry. `:region` is mandatory on both providers.
 
 Hosts can implement their own provider with the
 `ImagePipe.Source.S3.CredentialProvider` behaviour.
@@ -235,8 +233,7 @@ image has an alpha channel, JPEG otherwise. Automatic output responses use
 ## Debug response headers
 
 ImagePipe can attach opt-in `X-ImagePipe-*` and `Server-Timing` debug headers,
-gated by the `allow_debug_headers` mount option and a per-dialect per-request
-trigger: native's `debug` flag or imgproxy's `debug:1` processing option.
-They are off by default. Both triggers are covered by the path signature.
+gated by the `allow_debug_headers` mount option and the request's `debug` flag.
+They are off by default. The flag is covered by the path signature.
 See [Debug response headers](debug_headers.md) for the
 full catalogue and the security/disclosure details.

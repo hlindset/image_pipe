@@ -356,6 +356,4 @@ imgproxy's configurable YOLO models) and RT-DETR for COCO-80 objects (not YOLO),
 so detected boxes — and the resulting crops — are compatible in intent but not
 bit-identical to imgproxy. The face-assist blend weight is ImagePipe's own
 approximation. Weight values accept positive decimals (imgproxy documents only
-integer examples); this is an intentional superset. The full row-by-row mapping
-and divergence notes are in
-[imgproxy_support_matrix.md](imgproxy_support_matrix.md#smart-crop-object-detection-classification-and-best-format-models).
+integer examples).
