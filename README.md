@@ -133,9 +133,9 @@ pass, for example `/w=500/then/trim=fff/src/images/beach.jpg` to trim after
 resizing.
 
 The [native API contract and capability inventory](docs/native_api_contract.md)
-distinguishes implemented options from planned ports. Imgproxy and IIIF
-entry points remain available during the native-only migration;
-their useful capabilities are being moved to native.
+distinguishes implemented options from planned ports. The imgproxy entry point
+remains available during the native-only migration while its useful capabilities
+are being moved to native.
 
 ## Documentation
 
@@ -163,9 +163,6 @@ their useful capabilities are being moved to native.
 - [Transform operations](docs/transform_operations.md) documents the boundary
   between dialect request syntax, semantic plan operations, and executable
   transform operations.
-- [Writing a custom dialect](docs/custom_dialect_guide.md) documents the
-  `ImagePipe.Dialect` contract, the declarative and ordered tiers, mounting,
-  config validation, and error rendering.
 - [Execution flow](docs/execution_flow.md) documents the runtime call spine and
   the neutral runtime-geometry resolve loop.
 - [Source network policy](docs/source-network-policy.md) documents the default

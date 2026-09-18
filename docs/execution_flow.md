@@ -2,9 +2,7 @@
 
 How a request actually moves through the code at runtime — the call spine, the
 two operation vocabularies, the resolve loop, and the places where static
-"go to definition" navigation stops working and what to do there. Read this
-alongside the [custom dialect guide](custom_dialect_guide.md), which documents
-the *contracts*; this page documents the *flow*.
+"go to definition" navigation stops working and what to do there.
 
 ## The call spine
 
@@ -136,8 +134,7 @@ The continuation is the only state channel: it is always `nil`-stated (the
 neutral lowering carries no per-pipeline state), and the driver threads it into
 the next resolve. An ordered dialect that assembles its own chain calls these
 same `NeutralResolver` functions directly and carries its own pipeline-local
-state — see the
-[custom dialect guide](custom_dialect_guide.md#the-ordered-tier).
+state.
 
 At the pipeline boundary the driver flushes any surviving non-identity pending
 orientation through an explicit `%Flush{}` (an identity pending is cleared
@@ -167,10 +164,10 @@ targets:
 
 | # | Call site | What it dispatches to | How to navigate |
 |---|---|---|---|
-| ①–⑥ | `dialect.<callback>` in `DialectRunner` | The mount's `:dialect` module | In-tree: `ImagePipe.Native`, `.Imgproxy`, `.IIIF`. For a declarative dialect, four of the six — `parse/2` ②, `prepare/3` ③, `decode_request/2` ④, `execute/4` ⑤ — land in `ImagePipe.Dialect.Declarative` (injected by its `__using__`), not in the dialect module; `validate_config!/1` ① and `render_error/3` ⑥ are always the dialect module's own |
+| ①–⑥ | `dialect.<callback>` in `DialectRunner` | The mount's `:dialect` module | In-tree: `ImagePipe.Native`, `ImagePipe.Dialect.Imgproxy` |
 | — | `chain.(state, ops, opts)` in `Executor` | Injected function; always `Chain.execute/3` in production | Test seam only. Inside `Chain`, `Transform.execute(op, state)` dispatches to the op struct's own module — struct name = module name (`%Operation.Crop{}` → `transform/operation/crop.ex`) |
 | — | `continue(tag, …)` in `Executor` | `NeutralResolver.continue/4` | Tags are data: grep the tag atom (e.g. `:resize_flush_tail`) to land on both the emitting resolve row and the continue clause |
-| — | `terminal.fun.(source, config)` in `DialectRunner` | The `%RenderTerminal{}`'s closure | Declarative dialects close over `ImagePipe.Renderer.run/3` (which owns the `[:render]` span) and the plan's `render: {:custom, module, params}` module — e.g. `ImagePipe.Dialect.IIIF.InfoRenderer`. Ordered dialects close over their own renderer (`ImagePipe.Dialect.Imgproxy.InfoRenderer`, the `ImagePipe.Native` blur-hash terminal), bypassing that entry point |
+| — | `terminal.fun.(source, config)` in `DialectRunner` | The `%RenderTerminal{}`'s closure | Native closes over its BlurHash terminal; imgproxy uses `ImagePipe.Dialect.Imgproxy.InfoRenderer` |
 | — | `Telemetry.span(…, fn -> … end)` wrappers | n/a | Nearly every layer wraps its real call in a span closure; when lost, skip to the closure body |
 
 A render terminal runs no transform stage at all: the runner opens the decode

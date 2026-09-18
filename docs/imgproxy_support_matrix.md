@@ -415,13 +415,12 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 ### CORS response headers
 
 `allow_origin` is a dialect-neutral runtime option (default off) shared by every
-mount, whichever dialect it carries — `ImagePipe.Dialect.Imgproxy`,
-`ImagePipe.Native`, or
-`ImagePipe.Dialect.IIIF` (`ImagePipe.Dialect.SharedConfig` validates and carries
+mount, whether it carries `ImagePipe.Dialect.Imgproxy` or
+`ImagePipe.Native` (`ImagePipe.Dialect.SharedConfig` validates and carries
 the key for all of them). When set, `ImagePipe.Response.CORS.maybe_register/2`
 registers a `register_before_send/2` hook — the same hook on every mount —
 that stamps `Access-Control-Allow-Origin: <value>` verbatim on **every** exit
-path: image, `/info`, 304, and 4xx errors.
+path: image, imgproxy `/info`, 304, and 4xx errors.
 
 **The `OPTIONS`/method layer is shared by every mount.** Every mount answers
 `OPTIONS` with `204 No Content` + `Allow: GET, HEAD` (+ `Access-Control-Allow-Methods`

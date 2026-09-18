@@ -83,8 +83,8 @@ On cache read, ImagePipe validates the returned entry before treating it as a
 hit. The entry must have a binary body, cacheable headers, and a content type
 that matches what the entry claims to be: a known image output format for an
 image entry, or any well-formed media type for a dialect-owned complete-body
-entry (`{:complete_body, content_type}` — a rendered document such as the IIIF
-`info.json`). If that check passes, ImagePipe sends the stored body without
+entry (`{:complete_body, content_type}` — a rendered JSON document, for example).
+If that check passes, ImagePipe sends the stored body without
 fetching, decoding, transforming, or encoding the source image.
 
 If cache entry validation fails, ImagePipe treats the hit like a miss. It

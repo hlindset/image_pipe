@@ -556,7 +556,7 @@ Stop metadata:
 ### Render span (`[:render]`)
 
 The `[:image_pipe, :render]` span wraps alternative (non-image) response
-rendering — for example the IIIF `info.json` document. It is emitted by
+rendering through the declarative framework. It is emitted by
 `ImagePipe.Renderer.run/3`, so it covers **only** the render call itself, with
 the preceding source fetch and header decode timed separately by
 `[:source, :fetch_decode]`. It sits
@@ -573,7 +573,7 @@ and must read `[:request]`'s `:result` to account for the other two.
 
 Start metadata:
 
-- `:renderer` — the renderer module (e.g. `ImagePipe.Dialect.IIIF.InfoRenderer`).
+- `:renderer` — the renderer module.
   The response content-type is not known until the renderer runs; it is reported
   in the stop metadata.
 

@@ -140,8 +140,8 @@ select {
   font: inherit;
 }
 
-/* Shared form-control styles for the tool panels (App shell, ImgproxyControls,
-   IiifControls). Global so every provider panel inherits them — Svelte component
+/* Shared form-control styles for the tool panels. Global so each panel
+   inherits them — Svelte component
    styles are scoped, so panel-local copies would not reach sibling components. */
 .field,
 .switch-field {

@@ -24,9 +24,9 @@ request and execution needs directly.
 The default `ImagePipe.Plug` mount selects native. The current checkout
 mounts every API through `ImagePipe.Plug` and
 `ImagePipe.Plug.DialectRunner`. There is no `ImagePipe.Parser` or
-`ImagePipe.Request` framework left to remove. IIIF uses
-`ImagePipe.Dialect.Declarative`; native and imgproxy own their
-pipelines. The remaining migration starts from this architecture.
+`ImagePipe.Request` framework left to remove. Native and imgproxy own their
+pipelines. Shared regression tests are moving off the remaining
+`ImagePipe.Dialect.Declarative` framework before its deletion.
 
 The native API implements these option keys:
 

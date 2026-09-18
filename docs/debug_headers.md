@@ -27,10 +27,6 @@ Two independent controls must both be satisfied for any header to be emitted:
    - **imgproxy**: the `debug:1` processing option inside the signed path,
      for example `/<signature>/debug:1/rs:fill:400:300/plain/…` (also
      `debug:true`; `debug:0`/`debug:false` opt out).
-   - **IIIF**: a `?debug=1` query param, e.g.
-     `/iiif/cat/full/400,/0/default.jpg?debug=1`. The IIIF path grammar has no
-     free slot, so the trigger is an out-of-band query param (read leniently — a
-     malformed value is ignored, never a 400).
 
 A debug trigger does **not** change the produced image bytes: it rides the
 request's response metadata, which contributes to neither the cache key nor
@@ -46,10 +42,6 @@ items, with no cache invalidation.)
 > processing-options path, so a configured path signature (HMAC) covers them.
 > Adding either trigger to an otherwise-valid signed URL invalidates its
 > signature.
->
-> **IIIF** has no request signing, so its `?debug=1` trigger is unprotected.
-> Anyone who can reach the mount can add it. Enable `allow_debug_headers: true`
-> on that mount only if the disclosed facts below are acceptable to expose.
 
 When triggered, a response discloses: internal source dimensions and
 format/color/ICC/bit-depth/alpha facts; the negotiated output and its
