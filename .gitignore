@@ -63,6 +63,7 @@ tmp/
 test/support/image_pipe/test/imgproxy_differential/report.html
 
 # Beads / Dolt files (added by bd init)
+.beads.gate.lock
 .dolt/
 *.db
 .beads-credential-key

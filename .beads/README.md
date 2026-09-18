@@ -38,6 +38,26 @@ Issues in Beads are:
 - **Branch-aware**: Issues can follow your branch workflow
 - **Sync-ready**: Uses Dolt remotes for backup and team sharing
 
+### Local Git hooks
+
+Install generated hooks in the checkout's local `.git/hooks` directory. On a
+fresh checkout with no `core.hooksPath` override, install Beads hooks before
+setting up GitButler:
+
+```sh
+mise exec -- bd hooks install
+but setup
+```
+
+GitButler preserves the Beads `pre-commit` and `post-checkout` hooks as
+`*-user` files and delegates to them from its workspace-protection hooks.
+Keep these installed hooks local. Use `mise exec -- bd hooks list` to inspect
+the active installation.
+
+Beads hooks support chained hooks and optional JSONL import/export. Database
+sync uses `bd dolt pull` and `bd dolt push`. Run the repository's mise quality
+gates explicitly before finishing code changes.
+
 ## Why Beads?
 
 ✨ **AI-Native Design**

@@ -4,6 +4,7 @@ embeddeddolt/
 proxieddb/
 
 # Runtime files
+hooks/
 bd.sock
 bd.sock.startlock
 sync-state.json
