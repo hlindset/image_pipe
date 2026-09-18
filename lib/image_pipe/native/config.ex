@@ -9,7 +9,9 @@ defmodule ImagePipe.Native.Config do
     :keys,
     :presets,
     :http_cache,
-    :storage_inputs
+    :storage_inputs,
+    :detector,
+    :detector_required
   ]
   @options_schema NimbleOptions.new!(
                     keys: [
@@ -27,6 +29,14 @@ defmodule ImagePipe.Native.Config do
                     storage_inputs: [
                       type: {:list, {:custom, SharedConfig, :validate_storage_input, []}},
                       default: []
+                    ],
+                    detector: [
+                      type: {:or, [{:in, [:default, nil]}, :atom]},
+                      default: :default
+                    ],
+                    detector_required: [
+                      type: :boolean,
+                      default: false
                     ]
                   )
 

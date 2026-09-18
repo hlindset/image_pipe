@@ -25,7 +25,9 @@ defmodule ImagePipe.Native.PresetCompositionTest do
   test "an explicit guide replaces a preset's alternative guide" do
     for {preset_guide, explicit_guide} <- [
           {"anchor=top-left", "focus=0.75,0.25"},
-          {"focus=0.75,0.25", "anchor=top-left"}
+          {"focus=0.75,0.25", "anchor=top-left"},
+          {"anchor=top-left/anchor-offset=2,3", "detect=face"},
+          {"detect=all:1,face:3", "anchor=top-left"}
         ] do
       presets = %{"card" => "crop=60,40/#{preset_guide}"}
 
@@ -43,6 +45,18 @@ defmodule ImagePipe.Native.PresetCompositionTest do
 
     assert {:ok, expected} = parse("/crop=60,40/focus=0.75,0.25", %{})
     assert {:ok, ^expected} = parse("/preset=base,focus", presets)
+    assert {:ok, ^expected} = parse("/preset=card", presets)
+  end
+
+  test "later and nested detection presets replace inherited guide alternatives" do
+    presets = %{
+      "base" => "crop=60,40/anchor=top-left/anchor-offset=2,3",
+      "detect" => "detect=all:1,face:3",
+      "card" => "preset=base/detect=all:1,face:3"
+    }
+
+    assert {:ok, expected} = parse("/crop=60,40/detect=all:1,face:3", %{})
+    assert {:ok, ^expected} = parse("/preset=base,detect", presets)
     assert {:ok, ^expected} = parse("/preset=card", presets)
   end
 
@@ -79,6 +93,7 @@ defmodule ImagePipe.Native.PresetCompositionTest do
   test "a region replacement prunes an inherited guide without another consumer" do
     presets = %{
       "crop" => "crop=60,40/anchor=top-left",
+      "detected" => "crop=60,40/detect=face",
       "region" => "region=10,20,30,40",
       "nested" => "preset=crop/region=10,20,30,40",
       "cover" => "crop=60,40/anchor=top-left/w=100/h=100/fit=cover"
@@ -88,6 +103,7 @@ defmodule ImagePipe.Native.PresetCompositionTest do
     assert {:ok, ^expected} = parse("/preset=crop/region=10,20,30,40", presets)
     assert {:ok, ^expected} = parse("/preset=crop,region", presets)
     assert {:ok, ^expected} = parse("/preset=nested", presets)
+    assert {:ok, ^expected} = parse("/preset=detected/region=10,20,30,40", presets)
 
     assert {:ok, cover_expected} =
              parse("/region=10,20,30,40/w=100/h=100/fit=cover/anchor=top-left", %{})
@@ -146,7 +162,9 @@ defmodule ImagePipe.Native.PresetCompositionTest do
   test "contradictory alternatives in one layer remain errors" do
     for fragment <- [
           "crop=60,40/region=10,20,30,40",
-          "crop=60,40/anchor=top-left/focus=0.75,0.25"
+          "crop=60,40/anchor=top-left/focus=0.75,0.25",
+          "crop=60,40/anchor=top-left/detect=face",
+          "crop=60,40/focus=0.75,0.25/detect=face"
         ] do
       assert {:error, {:invalid_request, diagnostics}} =
                parse("/preset=bad", %{"bad" => fragment})

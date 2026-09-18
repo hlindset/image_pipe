@@ -60,6 +60,14 @@ defmodule ImagePipe.Native.Errors do
     |> send_resp(400, "invalid source")
   end
 
+  def send(%Plug.Conn{} = conn, {:detector, :unavailable}, config) do
+    {status, message} = ErrorStatus.resolve_status({:detector_unavailable, :unavailable}, config)
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(status, message)
+  end
+
   # ImagePipe.Native.Pipeline.run/4 wraps every
   # ImagePipe.Transform.Chain.execute/3 failure as `{:transform, inner}`
   # (`pipeline.ex`'s `run_chain/3`); `inner` is usually `{:transform_error,

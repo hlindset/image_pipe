@@ -79,6 +79,7 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
       "trim=fff,10",
       "trim-symmetry=h"
     ],
+    ["crop=600,400", "detect=face:3,car"],
     ["region=0,0,600,400", "bg=fff,0.5"],
     ["w=800", "enlarge", "fit=stretch", "format=webp", "q=80"],
     ["w=32", "output=blurhash"]
@@ -150,6 +151,13 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
         assert integer_request === decimal_request
         assert :erlang.term_to_binary(integer_request) == :erlang.term_to_binary(decimal_request)
       end
+    end
+
+    test "detection class order and numeric weight spellings have identical serialized identity" do
+      assert {:ok, first} = parse(["crop=600,400", "detect=face:3,all:1,car"])
+      assert {:ok, second} = parse(["detect=car:1.0,face:3.0,all:1.0", "crop=600,400"])
+      assert first === second
+      assert :erlang.term_to_binary(first) == :erlang.term_to_binary(second)
     end
   end
 

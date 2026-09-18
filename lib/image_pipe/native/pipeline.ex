@@ -32,6 +32,7 @@ defmodule ImagePipe.Native.Pipeline do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Measure
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Transform
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.InputColorManagement
@@ -150,10 +151,16 @@ defmodule ImagePipe.Native.Pipeline do
   @spec run(State.t(), SourceGeometry.t(), Request.t(), keyword()) ::
           {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
   def run(%State{} = state, %SourceGeometry{} = _geometry, %Request{} = request, opts) do
+    state = seed_detector(state, opts)
+
     with {:ok, %State{} = state} <- condition_color(state, opts),
          {:ok, %State{} = state} <- run_groups(state, request, opts) do
       {:ok, InputColorManagement.stamp_carry(state)}
     end
+  end
+
+  defp seed_detector(%State{} = state, opts) do
+    %State{state | detector: Transform.resolve_detector(Keyword.get(opts, :detector, :default))}
   end
 
   # Input color management is a data-determined preamble, not a Plan operation
@@ -753,6 +760,9 @@ defmodule ImagePipe.Native.Pipeline do
   end
 
   defp plan_guide({:anchor_smart}), do: :smart
+
+  defp plan_guide({:smart, :face_assist} = guide), do: guide
+  defp plan_guide({:detect, {_classes, _weights}} = guide), do: guide
 
   defp plan_guide({:focus, fx, fy}), do: {:focal, to_ratio!(fx), to_ratio!(fy)}
 

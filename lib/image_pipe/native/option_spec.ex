@@ -73,7 +73,8 @@ defmodule ImagePipe.Native.OptionSpec do
     "top-right" => :top_right,
     "bottom-left" => :bottom_left,
     "bottom-right" => :bottom_right,
-    "smart" => :smart
+    "smart" => :smart,
+    "smart-face" => :smart_face
   }
 
   @format_map %{
@@ -92,7 +93,9 @@ defmodule ImagePipe.Native.OptionSpec do
   @preset_name_pattern ~r/\A[A-Za-z0-9._-]+\z/
   @positive_decimal_pattern ~r/\A[0-9]+(?:\.[0-9]+)?\z/
   @unsigned_integer_pattern ~r/\A[0-9]+\z/
+  @detect_class_pattern ~r/\A[a-z0-9][a-z0-9_-]*\z/
   @max_vips_axis 2_147_483_647
+  @max_detect_weight 1_000_000.0
 
   @doc """
   Every declared probe-subset option, in a stable order matching the
@@ -368,7 +371,7 @@ defmodule ImagePipe.Native.OptionSpec do
         stage: 6,
         default: :center,
         prerequisites: [:guide_consumer],
-        conflicts: ["focus"],
+        conflicts: ["detect", "focus"],
         identity: :representation,
         terminal_applicability: :both,
         summary: "Crop guide / gravity for a guided crop or cover-family resize",
@@ -394,11 +397,24 @@ defmodule ImagePipe.Native.OptionSpec do
         stage: 6,
         default: nil,
         prerequisites: [:guide_consumer],
-        conflicts: ["anchor"],
+        conflicts: ["anchor", "detect"],
         identity: :representation,
         terminal_applicability: :both,
         summary: "Focal point as x,y unit-space fractions (0.0-1.0)",
         examples: ["focus=0.25,0.75"]
+      },
+      %__MODULE__{
+        key: "detect",
+        scope: :group,
+        value: &__MODULE__.parse_detect/1,
+        stage: 6,
+        default: nil,
+        prerequisites: [:guide_consumer],
+        conflicts: ["anchor", "focus"],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Detector classes with optional positive class weights",
+        examples: ["detect=all", "detect=car,face", "detect=all:1,face:3"]
       },
       %__MODULE__{
         key: "blur",
@@ -772,7 +788,8 @@ defmodule ImagePipe.Native.OptionSpec do
            | :top_right
            | :bottom_left
            | :bottom_right
-           | :smart}
+           | :smart
+           | :smart_face}
           | {:error, :invalid_anchor}
   def parse_anchor(string) do
     case Map.fetch(@anchor_map, string) do
@@ -785,10 +802,81 @@ defmodule ImagePipe.Native.OptionSpec do
   @spec parse_named_anchor(String.t()) :: {:ok, atom()} | {:error, :invalid_anchor}
   def parse_named_anchor(string) do
     case parse_anchor(string) do
-      {:ok, :smart} -> {:error, :invalid_anchor}
+      {:ok, smart} when smart in [:smart, :smart_face] -> {:error, :invalid_anchor}
       result -> result
     end
   end
+
+  @doc false
+  @spec parse_detect(String.t()) ::
+          {:ok, {:all | [String.t()], %{optional(:default | String.t()) => float()}}}
+          | {:error, :invalid_detect}
+  def parse_detect(string) do
+    with {:ok, pairs} <- parse_detect_items(String.split(string, ",")),
+         true <- unique_detect_classes?(pairs) do
+      {:ok, canonical_detect(pairs)}
+    else
+      _invalid -> {:error, :invalid_detect}
+    end
+  end
+
+  defp parse_detect_items(items) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
+      case parse_detect_item(String.split(item, ":")) do
+        {:ok, pair} -> {:cont, {:ok, [pair | acc]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, pairs} -> {:ok, Enum.reverse(pairs)}
+      :error -> :error
+    end
+  end
+
+  defp parse_detect_item([class]) do
+    if valid_detect_class?(class), do: {:ok, {class, 1.0}}, else: :error
+  end
+
+  defp parse_detect_item([class, weight]) do
+    with true <- valid_detect_class?(class),
+         {:ok, weight} <- positive_decimal(weight),
+         true <- weight <= @max_detect_weight do
+      {:ok, {class, weight}}
+    else
+      _invalid -> :error
+    end
+  end
+
+  defp parse_detect_item(_invalid), do: :error
+
+  defp valid_detect_class?(class), do: Regex.match?(@detect_class_pattern, class)
+
+  defp unique_detect_classes?(pairs) do
+    classes = Enum.map(pairs, &elem(&1, 0))
+    Enum.uniq(classes) == classes
+  end
+
+  defp canonical_detect(pairs) do
+    classes = pairs |> Enum.map(&elem(&1, 0)) |> Enum.sort()
+    spec = if "all" in classes, do: :all, else: classes
+    {spec, canonical_detect_weights(pairs)}
+  end
+
+  defp canonical_detect_weights(pairs) do
+    raw = Map.new(pairs, fn {class, weight} -> {detect_weight_key(class), weight} end)
+    effective_default = Map.get(raw, :default, 1.0)
+
+    raw
+    |> Enum.reject(fn {key, weight} -> key != :default and weight == effective_default end)
+    |> Map.new()
+    |> drop_default_detect_weight()
+  end
+
+  defp detect_weight_key("all"), do: :default
+  defp detect_weight_key(class), do: class
+
+  defp drop_default_detect_weight(%{default: 1.0} = weights), do: Map.delete(weights, :default)
+  defp drop_default_detect_weight(weights), do: weights
 
   @doc false
   @spec parse_offset(String.t()) ::

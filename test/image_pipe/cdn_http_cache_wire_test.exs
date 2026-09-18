@@ -572,9 +572,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     etag_for = fn identity ->
       opts =
         init(
-          dialect: ImagePipe.Dialect.Imgproxy,
-          smart_crop_face_detection: true,
           detector: ImagePipe.Test.FakeDetector,
+          http_cache: [mode: :enabled],
           sources: [path: {StableSource, test_pid: self()}],
           cache: {CacheProbe, test_pid: self()},
           identity: identity
@@ -582,7 +581,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
       conn =
         ImagePipe.Plug.call(
-          conn(:get, "/_/rs:fill:50:50/g:sm/f:jpeg/plain/beach.jpg"),
+          conn(:get, "/w=50/h=50/fit=cover/anchor=smart-face/format=jpeg/src/beach.jpg"),
           opts
         )
 

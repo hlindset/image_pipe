@@ -306,6 +306,26 @@ defmodule ImagePipe.Native.ParserTest do
                parse(["w=300", "fit=cover", "focus=0.1,0.2"])
     end
 
+    test "detection guides carry canonical class selection and sparse weights" do
+      assert {:ok, %Request{groups: [%Group{guide: {:detect, {:all, %{}}}}]}} =
+               parse(["crop=600,400", "detect=all"])
+
+      assert {:ok,
+              %Request{
+                groups: [
+                  %Group{guide: {:detect, {["car", "face"], %{"face" => 3.0}}}}
+                ]
+              }} = parse(["crop=600,400", "detect=face:3,car"])
+
+      assert {:ok, %Request{groups: [%Group{guide: {:detect, {:all, %{"face" => 3.0}}}}]}} =
+               parse(["w=300", "fit=cover", "detect=all:1,face:3"])
+    end
+
+    test "smart-face is explicit face-assisted attention" do
+      assert {:ok, %Request{groups: [%Group{guide: {:smart, :face_assist}}]}} =
+               parse(["crop=600,400", "anchor=smart-face"])
+    end
+
     test "blur with a non-zero sigma" do
       assert {:ok, %Request{groups: [%Group{blur: 3.0}]}} = parse(["blur=3"])
     end
@@ -416,10 +436,20 @@ defmodule ImagePipe.Native.ParserTest do
             {"anchor-offset=10", :invalid_offset},
             {"anchor-offset=#{huge},0", :invalid_offset},
             {"extend-offset=10,20,30", :invalid_offset},
-            {"extend-at=smart", :invalid_anchor}
+            {"extend-at=smart", :invalid_anchor},
+            {"extend-at=smart-face", :invalid_anchor}
           ] do
         assert {:error, {:invalid_request, diagnostics}} = parse([segment])
         assert Enum.any?(diagnostics, &(&1.reason == reason))
+      end
+    end
+
+    test "malformed detection values fail at the request boundary" do
+      for value <- ["face,face:2", "face:0", "face:1000000.1", "traffic light", "face:"] do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(["crop=600,400", "detect=#{value}"])
+
+        assert Enum.any?(diagnostics, &(&1.reason == :invalid_detect))
       end
     end
 
@@ -489,6 +519,15 @@ defmodule ImagePipe.Native.ParserTest do
                parse(["crop=600,400", "anchor=center", "focus=0.5,0.5"])
 
       assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
+    end
+
+    test "detect conflicts with anchor and focus" do
+      for alternative <- ["anchor=center", "focus=0.5,0.5"] do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(["crop=600,400", "detect=face", alternative])
+
+        assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
+      end
     end
 
     test "crop and region in the same group" do
@@ -574,7 +613,8 @@ defmodule ImagePipe.Native.ParserTest do
     test "anchor offset requires an explicit non-smart anchor" do
       for options <- [
             ["crop=600,400", "anchor-offset=10,20"],
-            ["crop=600,400", "anchor=smart", "anchor-offset=10,20"]
+            ["crop=600,400", "anchor=smart", "anchor-offset=10,20"],
+            ["crop=600,400", "anchor=smart-face", "anchor-offset=10,20"]
           ] do
         assert {:error, {:invalid_request, diagnostics}} = parse(options)
         assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
@@ -598,6 +638,11 @@ defmodule ImagePipe.Native.ParserTest do
 
     test "focus without a consumer is inert" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["focus=0.5,0.5"])
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "detect without a consumer is inert" do
+      assert {:error, {:invalid_request, diagnostics}} = parse(["detect=face"])
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
     end
 

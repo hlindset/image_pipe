@@ -61,9 +61,11 @@ defmodule ImagePipe.Native.Request.Group do
         }
 
   @type guide ::
-          {:anchor, atom()}
+          {:anchor, named_anchor()}
           | {:anchor_smart}
           | {:focus, float(), float()}
+          | {:smart, :face_assist}
+          | {:detect, {:all | [String.t()], %{optional(:default | String.t()) => float()}}}
 
   defstruct rotate: nil,
             flip: nil,

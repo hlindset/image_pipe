@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
 
   alias ImagePipe.Native.OptionSpec
 
-  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus blur trim trim-symmetry pad bg orient output format q debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur trim trim-symmetry pad bg orient output format q debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -160,11 +160,12 @@ defmodule ImagePipe.Native.OptionSpecTest do
                {:ok, {{:px, 0}, {:px, 0}, {:px, 600}, {:px, 400}}}
     end
 
-    test "parse_anchor translates hyphenated positions and smart" do
+    test "parse_anchor translates named positions and smart modes" do
       assert OptionSpec.parse_anchor("center") == {:ok, :center}
       assert OptionSpec.parse_anchor("top-left") == {:ok, :top_left}
       assert OptionSpec.parse_anchor("bottom-right") == {:ok, :bottom_right}
       assert OptionSpec.parse_anchor("smart") == {:ok, :smart}
+      assert OptionSpec.parse_anchor("smart-face") == {:ok, :smart_face}
       assert OptionSpec.parse_anchor("bogus") == {:error, :invalid_anchor}
     end
 
@@ -172,6 +173,49 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_named_anchor("center") == {:ok, :center}
       assert OptionSpec.parse_named_anchor("bottom-right") == {:ok, :bottom_right}
       assert OptionSpec.parse_named_anchor("smart") == {:error, :invalid_anchor}
+      assert OptionSpec.parse_named_anchor("smart-face") == {:error, :invalid_anchor}
+    end
+
+    test "parse_detect canonicalizes classes and sparse weights" do
+      assert OptionSpec.parse_detect("all") == {:ok, {:all, %{}}}
+
+      assert OptionSpec.parse_detect("face,car") ==
+               {:ok, {["car", "face"], %{}}}
+
+      assert OptionSpec.parse_detect("all:1,face:3") ==
+               {:ok, {:all, %{"face" => 3.0}}}
+
+      assert OptionSpec.parse_detect("all:3,face:3,car") ==
+               {:ok, {:all, %{"car" => 1.0, default: 3.0}}}
+
+      assert OptionSpec.parse_detect("car:1.0") == {:ok, {["car"], %{}}}
+    end
+
+    test "parse_detect accepts custom class tokens and rejects invalid or duplicate items" do
+      assert OptionSpec.parse_detect("license_plate,dog-v2") ==
+               {:ok, {["dog-v2", "license_plate"], %{}}}
+
+      for value <- [
+            "",
+            "Car",
+            "traffic light",
+            "_face",
+            "face/eye",
+            "face=eye",
+            "face:",
+            "face:0",
+            "face:-1",
+            "face:1e2",
+            "face:1000000.1",
+            "face:1:2",
+            "face,face:2",
+            "all:1,all:2"
+          ] do
+        assert OptionSpec.parse_detect(value) == {:error, :invalid_detect}
+      end
+
+      assert OptionSpec.parse_detect("face:1000000") ==
+               {:ok, {["face"], %{"face" => 1_000_000.0}}}
     end
 
     test "parse_offset accepts signed px/pct pairs within pixel arithmetic range" do

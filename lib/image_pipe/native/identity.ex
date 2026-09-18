@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.Identity do
   Composes the native dialect's representation identity material [native
   §Canonical form and identity].
 
-  `material/4` builds an `ImagePipe.Representation.IdentityMaterial` from the
+  `material/5` builds an `ImagePipe.Representation.IdentityMaterial` from the
   canonical `%Request{}` plus the negotiation outcome (Task 15's
   `negotiate/3`) — never from raw `conn` state beyond configured
   `storage_inputs`, and never from `expires`, the signature, or the matched
@@ -12,8 +12,9 @@ defmodule ImagePipe.Native.Identity do
     * `representation` — the canonical transform groups, the terminal
       identity (`:image`, or `Output.Terminal.Blurhash.identity/0` for the
       `blurhash` terminal), the negotiated format selection outcome (image
-      terminal only), and the effective output policy material
-      (`negotiation.policy_material`).
+      terminal only), the effective output policy material
+      (`negotiation.policy_material`), and the relevant detector model identity
+      when this request uses detection.
     * `storage_only` — configured `storage_inputs` values
       (`ImagePipe.Representation.storage_inputs/2`); `conn` contributes to
       identity only through this.
@@ -39,12 +40,19 @@ defmodule ImagePipe.Native.Identity do
   @dialect_epoch {ImagePipe.Native, 1}
 
   @doc """
-  Builds the pre-fetch identity material for `request`, given the negotiation
+  Builds the representation identity material for `request`, given the negotiation
   outcome, the incoming `conn` (consulted only for configured
   `storage_inputs`), and dialect `config`.
   """
-  @spec material(Request.t(), Negotiation.t(), Plug.Conn.t(), keyword()) :: IdentityMaterial.t()
-  def material(%Request{} = request, %Negotiation{} = negotiation, %Plug.Conn{} = conn, config)
+  @spec material(Request.t(), Negotiation.t(), Plug.Conn.t(), keyword(), term() | nil) ::
+          IdentityMaterial.t()
+  def material(
+        %Request{} = request,
+        %Negotiation{} = negotiation,
+        %Plug.Conn{} = conn,
+        config,
+        detector_identity
+      )
       when is_list(config) do
     {storage_only, storage_vary_names} =
       Representation.storage_inputs(conn, Keyword.get(config, :storage_inputs, []))
@@ -52,7 +60,8 @@ defmodule ImagePipe.Native.Identity do
     representation =
       [orient: request.orient, groups: canonical_groups(request.groups)] ++
         selection_material(negotiation.selected) ++
-        [output_policy: negotiation.policy_material]
+        [output_policy: negotiation.policy_material] ++
+        detector_material(detector_identity)
 
     vary_header_names =
       if negotiation.vary? do
@@ -91,6 +100,9 @@ defmodule ImagePipe.Native.Identity do
   defp selection_material({:terminal, :blurhash}) do
     [terminal: Blurhash.identity()]
   end
+
+  defp detector_material(nil), do: []
+  defp detector_material(identity), do: [detector: identity]
 
   defp canonical_groups(groups), do: Enum.map(groups, &Map.from_struct/1)
 end

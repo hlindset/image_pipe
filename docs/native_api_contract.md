@@ -33,7 +33,7 @@ The native API implements these option keys:
 `orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
 `zoom`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region`, `trim-symmetry`,
 `anchor-offset`, `extend`, `extend-ratio`, `extend-at`, `extend-offset`,
-`anchor`, `focus`, `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
+`anchor`, `focus`, `detect`, `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
 `debug`, `expires`, `preset`.
 
 It also implements `then`, `src`, `src64`, and full-length HMAC signing with
@@ -206,6 +206,33 @@ realized target canvas and pixels scaled by effective DPR. Placement is
 clamped inside the canvas. Canvas placement runs in display coordinates,
 after effects and before padding and background. Added space is transparent
 until a background is requested. Canvas and offset options reset at `then`.
+
+### Object and face guides
+
+`detect=face`, `detect=car,dog`, and `detect=all` guide a source crop or
+cover-family resize using detected regions. Each comma-separated class may
+include a positive decimal weight up to `1_000_000`, as in
+`detect=all,face:3`. `all` includes every detected class; named classes alone
+filter detection. Class order is canonical, duplicate names are rejected,
+and integer/decimal weight spellings share identity. Names use lowercase
+letters, digits, underscores, and hyphens, starting with a letter or digit.
+
+`anchor=smart-face` combines attention with face detection; `anchor=smart`
+uses attention alone. `anchor`, `focus`, and `detect` are mutually exclusive
+guides and form one preset override family together with `anchor-offset`.
+Detection and smart guides do not accept anchor offsets. Guides reset at `then`.
+
+Mount options retain `detector: :default | nil | module` and
+`detector_required: boolean`. Strict mode checks the requested explicit
+detection classes before source resolution or cache access and returns 422
+when unavailable. Face-assisted attention remains optional. Missing, empty,
+or failed optional detection falls back to attention cropping.
+
+Representation identity includes the detector identities relevant to every
+group, including face models used by `smart-face`. Both storage keys and
+ETags change when a relevant model changes; unrelated model changes leave
+them stable. See [content-aware cropping](content-aware-gravity.md) for host
+configuration, weighting, and warmup.
 
 ### Source concealment
 

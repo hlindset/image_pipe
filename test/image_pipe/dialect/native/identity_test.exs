@@ -4,11 +4,29 @@ defmodule ImagePipe.Native.IdentityTest do
   import Plug.Test
 
   alias ImagePipe.Dialect.Negotiation
+  alias ImagePipe.Dialect.Resolved
+  alias ImagePipe.Native
   alias ImagePipe.Native.Identity
   alias ImagePipe.Native.Parser
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Representation
+
+  defmodule ClassIdentityDetector do
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_opts), do: ["car", "face"]
+
+    @impl true
+    def available?(_opts), do: true
+
+    @impl true
+    def identity(opts), do: {__MODULE__, Keyword.fetch!(opts, :classes)}
+
+    @impl true
+    def detect(_image, _opts), do: {:ok, []}
+  end
 
   # `Parser.parse/2` consumes Task 4's lexed map directly, mirroring
   # `parser_test.exs`/`canonical_property_test.exs` — this exercises the
@@ -49,8 +67,14 @@ defmodule ImagePipe.Native.IdentityTest do
     struct!(Negotiation, Keyword.merge(base, overrides))
   end
 
-  defp material(request, negotiation, conn \\ conn(:get, "/"), config \\ []) do
-    Identity.material(request, negotiation, conn, config)
+  defp material(
+         request,
+         negotiation,
+         conn \\ conn(:get, "/"),
+         config \\ [],
+         detector_identity \\ nil
+       ) do
+    Identity.material(request, negotiation, conn, config, detector_identity)
   end
 
   defp source_identity,
@@ -60,6 +84,17 @@ defmodule ImagePipe.Native.IdentityTest do
   # (the `:none` withholding contract lives in the representation + wire tests).
   defp build(source_identity, material),
     do: Representation.build(source_identity, material, {:strong, source_identity})
+
+  defp prepared_material!(segments) do
+    request = request!(segments)
+
+    assert {:ok, %Resolved{negotiation: negotiation}} =
+             Native.prepare(conn(:get, "/"), request, detector: ClassIdentityDetector)
+
+    assert is_function(negotiation, 0)
+    assert {:ok, _negotiation, material} = negotiation.()
+    material
+  end
 
   describe "canonical request composition" do
     test "two spellings of the same group produce identical material" do
@@ -93,6 +128,62 @@ defmodule ImagePipe.Native.IdentityTest do
       assert material(default_request, neg) == material(explicit_defaults, neg)
       refute material(default_request, neg) == material(scaled_request, neg)
       refute material(default_request, neg) == material(minimum_request, neg)
+    end
+  end
+
+  describe "detector identity" do
+    test "a relevant detector model identity changes representation and ETag" do
+      request = request!(["w=300"])
+      neg = negotiation()
+
+      mat_v1 = material(request, neg, conn(:get, "/"), [], {:detector, :v1})
+      mat_v2 = material(request, neg, conn(:get, "/"), [], {:detector, :v2})
+
+      assert Keyword.fetch!(mat_v1.representation, :detector) == {:detector, :v1}
+      assert mat_v1.representation != mat_v2.representation
+      assert build(source_identity(), mat_v1).etag != build(source_identity(), mat_v2).etag
+    end
+
+    test "nil detector identity does not add representation material" do
+      request = request!(["w=300"])
+
+      mat = material(request, negotiation())
+
+      refute Keyword.has_key?(mat.representation, :detector)
+    end
+
+    test "request preparation resolves identity for the union of explicit and face-assisted classes" do
+      material =
+        prepared_material!([
+          "crop=100,100",
+          "detect=car",
+          "then",
+          "crop=50,50",
+          "anchor=smart-face"
+        ])
+
+      assert Keyword.fetch!(material.representation, :detector) ==
+               {ClassIdentityDetector, ["car", "face"]}
+    end
+
+    test "all-class detection dominates face assistance for detector identity" do
+      material =
+        prepared_material!([
+          "crop=100,100",
+          "detect=all",
+          "then",
+          "crop=50,50",
+          "anchor=smart-face"
+        ])
+
+      assert Keyword.fetch!(material.representation, :detector) ==
+               {ClassIdentityDetector, :all}
+    end
+
+    test "requests without detection omit detector identity" do
+      material = prepared_material!(["crop=100,100", "anchor=smart"])
+
+      refute Keyword.has_key?(material.representation, :detector)
     end
   end
 

@@ -105,7 +105,7 @@ keys are configured.
 The native API currently supports EXIF orientation policy, arbitrary rotation,
 resize modes, minimum dimensions, DPR and zoom, guided and explicit-region crops,
 flips, anchors and focal points, anchor offsets, crop-ratio correction,
-symmetric trimming, canvas extension and placement,
+symmetric trimming, canvas extension and placement, object and face cropping,
 blur, grayscale, bitonal, padding, background, image format and quality,
 BlurHash, debug headers, expiry, presets, and signed URLs. It accepts local
 paths and HTTP(S) source URLs. Invalid requests fail before cache lookup or
@@ -142,9 +142,9 @@ preset supplies the complete sequence and allows request-wide overrides
 such as `format=png`, but rejects explicit group options or another pipeline
 preset. Presets share cache identity with equivalent explicit requests.
 
-Overrides replace related alternatives: an explicit `anchor` replaces an
-inherited `focus`, and `region` replaces an inherited `crop` together with its
-ratio settings. Changing a guide also resets its inherited offset. Canvas
+Overrides replace related alternatives: an explicit `anchor`, `focus`, or
+`detect` replaces the inherited guide, and `region` replaces an inherited
+`crop` together with its ratio settings. Changing a guide also resets its inherited offset. Canvas
 mode, anchor, and offset form one override family: supply the desired canvas
 settings together. `extend=false` or `extend-ratio=false` disables an inherited
 canvas and clears its placement settings. Conflicting alternatives written
@@ -153,6 +153,11 @@ together in one preset or the explicit URL are still rejected.
 Options within a group have a fixed processing order. Use `then` for a second
 pass, for example `/w=500/then/trim=fff/src/images/beach.jpg` to trim after
 resizing.
+
+Use `detect=face`, `detect=car,dog`, or `detect=all,face:3` with a crop or
+cover resize to select subjects. `anchor=smart-face` blends face detection
+with attention. The [content-aware cropping guide](docs/content-aware-gravity.md)
+covers optional detector setup, weights, fallback, and strict availability checks.
 
 The [native API contract and capability inventory](docs/native_api_contract.md)
 distinguishes implemented options from planned ports. The imgproxy entry point

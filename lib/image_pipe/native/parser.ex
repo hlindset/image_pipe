@@ -507,6 +507,13 @@ defmodule ImagePipe.Native.Parser do
         group_index,
         "focus",
         guide_requirement
+      ) ++
+      inert_if(
+        not guide_consumer and not prereq_errored and Map.has_key?(group_map, "detect"),
+        occurrences,
+        group_index,
+        "detect",
+        guide_requirement
       )
   end
 
@@ -601,7 +608,7 @@ defmodule ImagePipe.Native.Parser do
     anchor = Map.get(group_map, "anchor")
 
     inert_if(
-      Map.has_key?(group_map, "anchor-offset") and anchor in [nil, :smart] and
+      Map.has_key?(group_map, "anchor-offset") and anchor in [nil, :smart, :smart_face] and
         not group_key_errored?(occurrences, group_index, "anchor"),
       occurrences,
       group_index,
@@ -810,12 +817,16 @@ defmodule ImagePipe.Native.Parser do
       Map.has_key?(group_map, "anchor") ->
         case Map.fetch!(group_map, "anchor") do
           :smart -> {:anchor_smart}
+          :smart_face -> {:smart, :face_assist}
           anchor -> {:anchor, anchor}
         end
 
       Map.has_key?(group_map, "focus") ->
         {fx, fy} = Map.fetch!(group_map, "focus")
         {:focus, fx, fy}
+
+      Map.has_key?(group_map, "detect") ->
+        {:detect, Map.fetch!(group_map, "detect")}
 
       guide_consumer?(group_map, resize_intent?) ->
         {:anchor, :center}
@@ -890,6 +901,9 @@ defmodule ImagePipe.Native.Parser do
   def message_for(:invalid_zoom), do: "invalid value: expected a positive scalar or x,y pair"
   def message_for(:invalid_crop_ratio), do: "invalid value: expected a positive a:b or decimal"
   def message_for(:invalid_offset), do: "invalid value: expected a signed x,y px or pct pair"
+
+  def message_for(:invalid_detect),
+    do: "invalid value: expected unique class[:positive-weight] items"
 
   def message_for(:invalid_trim_symmetry),
     do: "invalid value: expected h, v, or hv"

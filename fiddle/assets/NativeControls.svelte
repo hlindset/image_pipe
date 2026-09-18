@@ -15,6 +15,10 @@
     { label: "Zoom", options: "w=400/zoom=1.5" },
     { label: "Minimum size", options: "w=200/min-w=400/enlarge" },
     { label: "Square crop", options: "w=400/h=400/fit=cover" },
+    { label: "Faces", options: "w=400/h=400/fit=cover/detect=face" },
+    { label: "Objects", options: "w=400/h=400/fit=cover/detect=all" },
+    { label: "Favor faces", options: "w=400/h=400/fit=cover/detect=all,face:3" },
+    { label: "Face-assisted smart crop", options: "w=400/h=400/fit=cover/anchor=smart-face" },
     { label: "Crop ratio", options: "crop=80pct,80pct/crop-ratio=16:9/w=600" },
     {
       label: "Offset crop",

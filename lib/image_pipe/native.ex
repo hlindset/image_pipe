@@ -54,6 +54,7 @@ defmodule ImagePipe.Native do
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform
 
   # The BlurHash terminal's delivery content type. Fixed — `format`/`q` with
   # a non-image `output` are Tier-2 parse rejects (Task 5), so no negotiation
@@ -89,12 +90,13 @@ defmodule ImagePipe.Native do
     # The clock read moves from route-entry (pre-parse) to here (post-parse):
     # only a sub-second expiry edge differs and nothing pins it.
     with :ok <- check_expires(request, System.os_time(:second)),
+         :ok <- check_detector(request, config),
          {:ok, plan_source} <- NativeSource.translate(request.source, config) do
       {:ok,
        %Resolved{
          request: request,
          source: plan_source,
-         negotiation: negotiation_result(conn, request, config),
+         negotiation: fn -> negotiation_result(conn, request, config) end,
          response_meta: %PlanResponse{},
          operations: Pipeline.operation_names(request),
          auto_rotate?: request.orient == :auto,
@@ -112,13 +114,16 @@ defmodule ImagePipe.Native do
          config
        ) do
     negotiation = DialectNegotiation.terminal(:blurhash)
-    {:ok, negotiation, Identity.material(request, negotiation, conn, config)}
+
+    {:ok, negotiation,
+     Identity.material(request, negotiation, conn, config, detector_identity(request, config))}
   end
 
   defp negotiation_result(conn, %Request{} = request, config) do
     case DialectNegotiation.negotiate(conn, Identity.plan_output(request), config) do
       {:ok, negotiation} ->
-        {:ok, negotiation, Identity.material(request, negotiation, conn, config)}
+        {:ok, negotiation,
+         Identity.material(request, negotiation, conn, config, detector_identity(request, config))}
 
       {:error, _reason} = error ->
         error
@@ -163,8 +168,9 @@ defmodule ImagePipe.Native do
   # bucket, which always wraps as the single `{:invalid_request, _diagnostics}`
   # tag (`ImagePipe.Native.Parser`).
   #
-  # Everything else — `NativeSource.translate/2`'s `{:invalid_source, _}` and
-  # the core-stage reasons (`:source`, `:decode`, `:input_limit`,
+  # The strict detector capability gate is a plan error. Everything else —
+  # `NativeSource.translate/2`'s `{:invalid_source, _}` and the core-stage
+  # reasons (`:source`, `:decode`, `:input_limit`,
   # `:unsupported_output_format`, `:encode`, `:session`, `:transform`) — defers
   # to the shared classifier, `ImagePipe.Telemetry.request_result/1`. That
   # classifier already resolves `{:source, _}` to `:source_error` for free;
@@ -177,6 +183,7 @@ defmodule ImagePipe.Native do
 
   def classify_error({:invalid_request, _diagnostics}), do: :parser_error
   def classify_error(:expired), do: :parser_error
+  def classify_error({:detector, :unavailable}), do: :plan_error
   def classify_error(reason), do: Telemetry.request_result({:error, reason})
 
   defp normalize_lex_error({:error, diagnostics}), do: {:error, {:invalid_request, diagnostics}}
@@ -184,6 +191,67 @@ defmodule ImagePipe.Native do
 
   defp check_expires(%Request{expires: expires}, now) do
     if Signature.expired?(expires, now), do: {:error, :expired}, else: :ok
+  end
+
+  defp check_detector(%Request{} = request, config) do
+    case explicit_detector_classes(request) do
+      nil ->
+        :ok
+
+      classes ->
+        if Keyword.get(config, :detector_required, false) and
+             not Transform.detector_available?(
+               Keyword.get(config, :detector, :default),
+               Keyword.put(config, :classes, classes)
+             ) do
+          {:error, {:detector, :unavailable}}
+        else
+          :ok
+        end
+    end
+  end
+
+  defp detector_identity(%Request{} = request, config) do
+    case identity_detector_classes(request) do
+      nil ->
+        nil
+
+      classes ->
+        Transform.detector_identity(
+          Keyword.get(config, :detector, :default),
+          Keyword.put(config, :classes, classes)
+        )
+    end
+  end
+
+  defp identity_detector_classes(%Request{} = request) do
+    case {explicit_detector_classes(request), face_assist?(request)} do
+      {:all, _face_assist?} -> :all
+      {nil, false} -> nil
+      {nil, true} -> ["face"]
+      {classes, false} -> classes
+      {classes, true} -> Enum.sort(Enum.uniq(["face" | classes]))
+    end
+  end
+
+  defp explicit_detector_classes(%Request{groups: groups}) do
+    groups
+    |> Enum.reduce_while([], fn group, classes ->
+      case group.guide do
+        {:detect, {:all, _weights}} -> {:halt, :all}
+        {:detect, {requested, _weights}} -> {:cont, requested ++ classes}
+        _other -> {:cont, classes}
+      end
+    end)
+    |> case do
+      :all -> :all
+      [] -> nil
+      classes -> classes |> Enum.uniq() |> Enum.sort()
+    end
+  end
+
+  defp face_assist?(%Request{groups: groups}) do
+    Enum.any?(groups, &(&1.guide == {:smart, :face_assist}))
   end
 
   defp compute_blurhash(%ImageSource.Resolved{} = resolved, %Request{} = request, config) do

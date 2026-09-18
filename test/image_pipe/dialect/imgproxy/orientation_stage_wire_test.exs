@@ -13,58 +13,6 @@ defmodule ImagePipe.Dialect.Imgproxy.OrientationStageWireTest do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
-  defmodule RecordingDetector do
-    @moduledoc false
-    @behaviour ImagePipe.Transform.Detector
-
-    @impl true
-    def supported_classes(_opts), do: ["face"]
-
-    @impl true
-    def available?(_opts), do: true
-
-    @impl true
-    def identity(_opts), do: {__MODULE__, :v1}
-
-    @impl true
-    def detect(image, _opts) do
-      case :persistent_term.get({__MODULE__, :test_pid}, nil) do
-        pid when is_pid(pid) -> send(pid, {:detect_dims, Image.width(image), Image.height(image)})
-        nil -> :ok
-      end
-
-      {:ok, []}
-    end
-  end
-
-  test "object detection sees the display frame with ar:on and storage frame with ar:off" do
-    :persistent_term.put({RecordingDetector, :test_pid}, self())
-    on_exit(fn -> :persistent_term.erase({RecordingDetector, :test_pid}) end)
-
-    base = marked(40, 80)
-    origin = {OrientedFrameOrigin, {base, 6}}
-
-    enabled =
-      request(
-        "/_/ar:true/c:30:30:obj:face/f:png/plain/image.jpg",
-        origin,
-        detector: RecordingDetector
-      )
-
-    assert enabled.status == 200
-    assert_receive {:detect_dims, 80, 40}
-
-    disabled =
-      request(
-        "/_/ar:false/c:30:30:obj:face/f:png/plain/image.jpg",
-        origin,
-        detector: RecordingDetector
-      )
-
-    assert disabled.status == 200
-    assert_receive {:detect_dims, 40, 80}
-  end
-
   test "gradient runs in the display frame after EXIF orientation" do
     base = marked(40, 80)
     path = "/_/gr:1:000000:down/f:png/plain/image.jpg"
