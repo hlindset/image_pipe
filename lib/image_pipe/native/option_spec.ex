@@ -400,7 +400,7 @@ defmodule ImagePipe.Native.OptionSpec do
   @doc false
   @spec parse_crop(String.t()) :: {:ok, {length_value(), length_value()}} | {:error, atom()}
   def parse_crop(string) do
-    case Value.csv(string, 2..2, [&Value.length/1, &Value.length/1]) do
+    case Value.csv(string, 2..2, [&positive_length/1, &positive_length/1]) do
       {:ok, [w, h]} -> {:ok, {w, h}}
       {:error, reason} -> {:error, reason}
     end
@@ -414,11 +414,18 @@ defmodule ImagePipe.Native.OptionSpec do
     case Value.csv(string, 4..4, [
            &Value.length/1,
            &Value.length/1,
-           &Value.length/1,
-           &Value.length/1
+           &positive_length/1,
+           &positive_length/1
          ]) do
       {:ok, [x, y, w, h]} -> {:ok, {x, y, w, h}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp positive_length(string) do
+    case Value.length(string) do
+      {:ok, {_unit, value} = length} when value > 0 -> {:ok, length}
+      _invalid -> {:error, :invalid_length}
     end
   end
 

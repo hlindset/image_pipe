@@ -118,6 +118,8 @@ applying `crop=50pct,100pct` requests 400px in width. This deliberately
 changes the probe's pre-trim percentage basis; task `.4` must replace its
 old expectation and add a native wire pixel test. Region coordinates are
 relative to the trimmed image, with no hidden original-image offset.
+Crop and region widths and heights must be positive; invalid sizes fail
+during request parsing before source resolution or cache access.
 
 Each `then` group receives the previous group's complete result, including
 canvas, padding, and background. Group parameters do not carry forward:
