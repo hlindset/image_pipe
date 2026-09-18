@@ -1,7 +1,8 @@
 [tools]
-erlang = "29"
-elixir = "1.20.0-otp-29"
-node = "latest"
+erlang = "29.1"
+elixir = "1.20.4-otp-29"
+node = "26.9.0"
+pnpm = "12.4.2"
 rust = "1.91"
 python = "3.14.6"
 uv = "0.11.23"

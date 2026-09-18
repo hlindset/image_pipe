@@ -217,6 +217,9 @@ option vocabulary, stage order, coordinate frames, and terminal behavior.
 ## Demo
 
 The interactive demo (ImagePipe Fiddle) is a standalone Phoenix app in `fiddle/`.
+The repository toolchain uses Elixir 1.20.4, OTP 29.1, Node.js 26.9.0, and pnpm 12.4.2
+through `mise.toml`. Install it with `mise install` before setup. The library and
+Fiddle require Elixir 1.18 or newer; CI also covers Elixir 1.18 and 1.19.
 
 ```sh
 mise run setup       # installs library + fiddle deps
