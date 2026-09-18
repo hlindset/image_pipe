@@ -22,6 +22,88 @@ defmodule ImagePipe.Native.PresetCompositionTest do
     assert {:ok, ^request} = parse("/w=300/h=100/fit=cover/blur=1/format=webp/q=90", %{})
   end
 
+  test "an explicit guide replaces a preset's alternative guide" do
+    for {preset_guide, explicit_guide} <- [
+          {"anchor=top-left", "focus=0.75,0.25"},
+          {"focus=0.75,0.25", "anchor=top-left"}
+        ] do
+      presets = %{"card" => "crop=60,40/#{preset_guide}"}
+
+      assert {:ok, request} = parse("/preset=card/#{explicit_guide}", presets)
+      assert {:ok, ^request} = parse("/crop=60,40/#{explicit_guide}", %{})
+    end
+  end
+
+  test "later and nested presets replace earlier guide alternatives" do
+    presets = %{
+      "base" => "crop=60,40/anchor=top-left",
+      "focus" => "focus=0.75,0.25",
+      "card" => "preset=base/focus=0.75,0.25"
+    }
+
+    assert {:ok, expected} = parse("/crop=60,40/focus=0.75,0.25", %{})
+    assert {:ok, ^expected} = parse("/preset=base,focus", presets)
+    assert {:ok, ^expected} = parse("/preset=card", presets)
+  end
+
+  test "a region replacement prunes preset crop-ratio modifiers" do
+    presets = %{
+      "crop" => "crop=60,40/crop-ratio=3:2/crop-ratio-enlarge",
+      "region" => "region=10,20,30,40"
+    }
+
+    assert {:ok, expected} = parse("/region=10,20,30,40", %{})
+    assert {:ok, ^expected} = parse("/preset=crop/region=10,20,30,40", presets)
+    assert {:ok, ^expected} = parse("/preset=crop,region", presets)
+  end
+
+  test "a region replacement prunes an inherited guide without another consumer" do
+    presets = %{
+      "crop" => "crop=60,40/anchor=top-left",
+      "region" => "region=10,20,30,40",
+      "nested" => "preset=crop/region=10,20,30,40",
+      "cover" => "crop=60,40/anchor=top-left/w=100/h=100/fit=cover"
+    }
+
+    assert {:ok, expected} = parse("/region=10,20,30,40", %{})
+    assert {:ok, ^expected} = parse("/preset=crop/region=10,20,30,40", presets)
+    assert {:ok, ^expected} = parse("/preset=crop,region", presets)
+    assert {:ok, ^expected} = parse("/preset=nested", presets)
+
+    assert {:ok, cover_expected} =
+             parse("/region=10,20,30,40/w=100/h=100/fit=cover/anchor=top-left", %{})
+
+    assert {:ok, ^cover_expected} = parse("/preset=cover/region=10,20,30,40", presets)
+
+    assert {:error, {:invalid_request, diagnostics}} =
+             parse("/preset=crop/region=10,20,30,40/anchor=bottom-right", presets)
+
+    assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+  end
+
+  test "a crop replacement removes an earlier region" do
+    presets = %{
+      "region" => "region=10,20,30,40",
+      "crop" => "crop=60,40"
+    }
+
+    assert {:ok, expected} = parse("/crop=60,40", %{})
+    assert {:ok, ^expected} = parse("/preset=region/crop=60,40", presets)
+    assert {:ok, ^expected} = parse("/preset=region,crop", presets)
+  end
+
+  test "contradictory alternatives in one layer remain errors" do
+    for fragment <- [
+          "crop=60,40/region=10,20,30,40",
+          "crop=60,40/anchor=top-left/focus=0.75,0.25"
+        ] do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse("/preset=bad", %{"bad" => fragment})
+
+      assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
+    end
+  end
+
   test "configured preset names must be selectable by the URL grammar" do
     for name <- ["", "bad/name", "two,names", "has space", "bad\n"] do
       assert_raise ArgumentError, fn ->

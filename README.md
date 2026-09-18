@@ -141,6 +141,11 @@ preset supplies the complete sequence and allows request-wide overrides
 such as `format=png`, but rejects explicit group options or another pipeline
 preset. Presets share cache identity with equivalent explicit requests.
 
+Overrides replace related alternatives: an explicit `anchor` replaces an
+inherited `focus`, and `region` replaces an inherited `crop` together with its
+ratio settings. Conflicting alternatives written together in one preset or
+the explicit URL are still rejected.
+
 Options within a group have a fixed processing order. Use `then` for a second
 pass, for example `/w=500/then/trim=fff/src/images/beach.jpg` to trim after
 resizing.

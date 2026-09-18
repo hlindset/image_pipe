@@ -15,6 +15,13 @@ defmodule ImagePipe.Native.Presets do
   alias ImagePipe.Native.Diagnostic
   alias ImagePipe.Native.Parser
 
+  @guide_family ["anchor", "focus"]
+  @group_override_families [
+    @guide_family,
+    ["crop", "region"]
+  ]
+  @crop_modifiers ["crop-ratio", "crop-ratio-enlarge"]
+
   @type compiled :: %{groups: %{non_neg_integer() => map()}, request: map()}
 
   @spec validate_config(%{String.t() => String.t()}) ::
@@ -136,10 +143,41 @@ defmodule ImagePipe.Native.Presets do
   defp merge(next, previous) do
     groups =
       Map.merge(previous.groups, next.groups, fn _index, previous_options, next_options ->
-        Map.merge(previous_options, next_options)
+        previous_options
+        |> prune_override_families(next_options)
+        |> prune_region_dependents(next_options)
+        |> Map.merge(next_options)
       end)
 
     %{groups: groups, request: Map.merge(previous.request, next.request)}
+  end
+
+  defp prune_override_families(previous, next) do
+    Enum.reduce(@group_override_families, previous, fn family, acc ->
+      case Enum.any?(family, &Map.has_key?(next, &1)) do
+        true -> Map.drop(acc, family)
+        false -> acc
+      end
+    end)
+  end
+
+  defp prune_region_dependents(previous, %{"region" => _region} = next) do
+    previous = Map.drop(previous, @crop_modifiers)
+
+    if cover_resize_consumer?(Map.merge(previous, next)),
+      do: previous,
+      else: Map.drop(previous, @guide_family)
+  end
+
+  defp prune_region_dependents(previous, _next), do: previous
+
+  defp cover_resize_consumer?(options) do
+    resize_intent? =
+      Enum.any?(["w", "h", "min-w", "min-h"], fn key ->
+        is_integer(Map.get(options, key))
+      end)
+
+    resize_intent? and Map.get(options, "fit") in [:cover, :cover_down, :auto]
   end
 
   defp diagnostic(reason, span),
