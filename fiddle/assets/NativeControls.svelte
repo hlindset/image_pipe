@@ -191,11 +191,11 @@
 <NativeVisualControls bind:controlState={controls} source={nativeState.source} />
 
 <details class="native-controls">
-  <summary>Advanced · native path</summary>
+  <summary>Advanced · request path</summary>
   <label class="field">
     <span>Processing options</span>
     <textarea
-      aria-label="Native processing options"
+      aria-label="Processing options"
       bind:value={nativeState.options}
       rows="5"
       spellcheck="false"></textarea>

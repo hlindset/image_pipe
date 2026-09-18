@@ -1,5 +1,5 @@
 defmodule ImagePipeFiddleWeb.NativeSigned do
-  @moduledoc "Forwards signed native requests using the demo-only signing configuration."
+  @moduledoc "Forwards signed requests using the demo-only signing configuration."
   @behaviour Plug
 
   @impl true

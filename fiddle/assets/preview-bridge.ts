@@ -71,7 +71,7 @@ export class PreviewMetadataTracker {
 }
 
 // Served by Phoenix from root (:4000), NOT Vite (:5173) — a SW script must be
-// same-origin with the page. Root scope covers the native processing endpoint.
+// same-origin with the page. Root scope covers the image processing endpoint.
 export const PREVIEW_WORKER_URL = "/preview-sw.js";
 
 export type PreviewWorker = { ready: boolean; unsubscribe: () => void };

@@ -50,7 +50,7 @@ defmodule ImagePipeFiddle.Application do
   end
 
   @doc false
-  # Source adapters mounted for the native endpoint. The local File source is
+  # Source adapters mounted for the image endpoint. The local File source is
   # always available; s3 (via the opt-in s3proxy compose service) lets the demo
   # compare source adapters on byte-identical sample images.
   def source_mounts do

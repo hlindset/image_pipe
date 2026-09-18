@@ -40,7 +40,7 @@ describe("native paths", () => {
     expect(parseNativeTail("src/s3%3A//private/dog.jpg")).toBeNull();
   });
 
-  it("leaves option validation to the native API and rejects unknown demo sources", () => {
+  it("leaves option validation to the API and rejects unknown demo sources", () => {
     expect(parseNativeTail("w=oops/src/images/dog.jpg")?.options).toBe("w=oops");
     expect(parseNativeTail("w=500/src/private.jpg")).toBeNull();
     expect(parseNativeTail("w=500")).toBeNull();

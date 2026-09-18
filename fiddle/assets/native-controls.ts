@@ -1046,7 +1046,7 @@ export function normalizeControlEdit(before: ControlState, after: ControlState):
 }
 
 // Apply only user-edited fields, retaining raw spellings and options without a
-// widget. This also keeps native then groups and request-wide options intact.
+// widget. This also keeps then groups and request-wide options intact.
 export function updateControlOptions(
   options: string,
   groupIndex: number,

@@ -1,5 +1,5 @@
 defmodule ImagePipeFiddleWeb.Native do
-  @moduledoc "Forwards native image requests using the configuration built at boot."
+  @moduledoc "Forwards image requests using the configuration built at boot."
   @behaviour Plug
 
   @impl true

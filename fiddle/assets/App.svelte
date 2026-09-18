@@ -413,7 +413,7 @@
     </div>
 
     <div class="sidebar-header">
-      <strong>Native API</strong>
+      <strong>ImagePipe API</strong>
     </div>
 
     <div class="tool-stack">
