@@ -7,9 +7,9 @@ defmodule ImagePipe.Transform.Materializer do
   emits `ImagePipe.Transform.Operation.Flush` (via `flush/1`) before operations
   that need the display frame, including trim.
 
-  `ImagePipe.Transform.Chain` materializes before the first operation requiring
+  `ImagePipe.Transform.run/3` materializes before the first operation requiring
   random access, allowing earlier operations to stream. Delivery calls the
-  arity-2 callback before encoding if the chain has not materialized.
+  arity-2 callback before encoding if the state has not materialized.
 
   Both `materialize/1` and `flush/1` emit `[:transform, :materialize]` spans
   that measure the pixel work at each boundary.
@@ -22,7 +22,7 @@ defmodule ImagePipe.Transform.Materializer do
   @callback materialize(State.t(), keyword()) ::
               {:ok, State.t()} | {:error, term()}
 
-  # Chain and delivery calls share one telemetry span.
+  # Operation and delivery calls share one telemetry span.
   @spec materialize(State.t()) :: {:ok, State.t()} | {:error, term()}
   def materialize(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->

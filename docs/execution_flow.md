@@ -59,10 +59,10 @@ transform operations. Source-dependent steps such as trim and cover resizing
 measure the resulting image before resolving the next stage. Runtime geometry,
 orientation, and decode scaling live in `Transform.State`.
 
-`ImagePipe.Transform.Chain` executes concrete operation structs. Each operation
-implements the transform behaviour; required materialization occurs immediately
-before the first operation that needs it. `Transform.State` carries the image,
-orientation, decode scaling, materialization, and color state.
+The executor calls `ImagePipe.Transform.run/3` for each operation. This shared
+runner handles telemetry, errors, and materialization before an operation needs
+random access. `Transform.State` carries the image, orientation, decode scaling,
+materialization, and color state.
 
 Input color management and EXIF handling are fixed input conditioning.
 Output format, quality, and profile policy belong to output negotiation and

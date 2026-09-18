@@ -78,16 +78,6 @@ defmodule ImagePipe.Native.Errors do
     |> send_resp(status, message)
   end
 
-  # Random-access materialization failures are decode failures (415), including
-  # those returned while executing an operation such as trim.
-  def send(%Plug.Conn{} = conn, {:transform, {:materialize_error, reason}}) do
-    {status, message} = ErrorStatus.resolve_status({:decode, reason})
-
-    conn
-    |> put_resp_content_type("text/plain")
-    |> send_resp(status, message)
-  end
-
   def send(%Plug.Conn{} = conn, {:transform, inner}) do
     {status, message} = ErrorStatus.resolve_status({:transform_error, inner})
 

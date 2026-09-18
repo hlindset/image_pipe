@@ -2,6 +2,9 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Context, Inbound, Span, TestExporter}
+  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.State
 
   setup do
     TestExporter.set_receiver(self())
@@ -326,12 +329,20 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "captures the realized :dims tuple from an operation span's stop metadata" do
-    Telemetry.span([], [:transform, :operation], %{operation: :resize, index: 0}, fn ->
-      {:ok, %{result: :ok, dims: {100, 80}}}
-    end)
+    prefix = [__MODULE__, :operation_dims]
+    :ok = Telemetry.detach_tracer()
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    state = %State{image: Image.new!(200, 160, color: :white)}
+    resize = %Resize{width: 100, height: 80}
+
+    assert {:ok, %State{}} =
+             Transform.run(state, resize, telemetry_prefix: prefix)
 
     assert_receive {:span, %Span{name: "image_pipe.transform.operation"} = span}
+    assert span.attributes[:operation] == :resize
     assert span.attributes[:dims] == {100, 80}
+    refute Map.has_key?(span.attributes, :index)
   end
 
   test "drops non-allowlisted stop-metadata keys" do

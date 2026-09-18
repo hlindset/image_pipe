@@ -38,7 +38,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
   test "rejects wholly outside regions while clamping partial overlap" do
     state = state!(100, 100)
 
-    assert {:error, {:transform, {:transform_error, {:bad_request, :region_out_of_bounds}}}} =
+    assert {:error, {:transform, {:bad_request, :region_out_of_bounds}}} =
              Executor.execute(state, request!("region=500,500,10,10"), [])
 
     assert {:ok, result} = Executor.execute(state, request!("region=90,90,20,20"), [])

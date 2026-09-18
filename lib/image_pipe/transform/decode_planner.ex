@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   Chooses decode load options from a concrete `%Request{}`.
 
   Decode is always opened with `:sequential` access. Random access is provided
-  by `ImagePipe.Transform.Chain` when an operation requires it.
+  by `ImagePipe.Transform.run/3` when an operation requires it.
 
   The planner computes a format-specific shrink/scale option for downscales.
   It is pure: `ImagePipe.Decode` supplies the header dimensions and source format.

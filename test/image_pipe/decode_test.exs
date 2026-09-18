@@ -8,7 +8,7 @@ defmodule ImagePipe.DecodeTest do
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Transform.Chain
+  alias ImagePipe.Transform
   alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
@@ -119,7 +119,7 @@ defmodule ImagePipe.DecodeTest do
 
   # ── Tests ────────────────────────────────────────────────────────────────
 
-  test "happy path: seeds a State + SourceGeometry usable by Chain.execute" do
+  test "seeds state and source geometry for transform execution" do
     opts = source_opts(OriginImage)
     request = request()
 
@@ -138,9 +138,7 @@ defmodule ImagePipe.DecodeTest do
     assert state.source_dimensions == nil
 
     assert {:ok, %State{} = resized} =
-             Chain.execute(state, [
-               %ExecutableResize{width: 100, height: 100}
-             ])
+             Transform.run(state, %ExecutableResize{width: 100, height: 100})
 
     assert Image.width(resized.image) == 100
   end

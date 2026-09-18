@@ -1,9 +1,9 @@
 defmodule ImagePipe.Transform do
   @moduledoc """
-  Behaviour and dispatch facade for transform operations.
+  Operation behaviour and single-operation execution.
 
   Operations provide a stable name and execute over `ImagePipe.Transform.State`.
-  Runtime callers use this facade without depending on concrete operation modules.
+  `run/3` handles telemetry, materialization, and errors. The executor owns order.
   """
 
   use Boundary,
@@ -23,6 +23,8 @@ defmodule ImagePipe.Transform do
       PendingOrientation
     ]
 
+  alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
   @type operation() :: struct()
@@ -42,20 +44,59 @@ defmodule ImagePipe.Transform do
     end
   end
 
-  @spec transform_name(operation()) :: atom()
-  def transform_name(%module{} = operation) do
-    module.name(operation)
+  @doc """
+  Runs one operation, materializing first when it requires random pixel access.
+
+  Emits a `[:transform, :operation]` span with the operation name, parameters,
+  outcome, and resulting dimensions. libvips defers most pixel work, so this
+  span measures pipeline construction plus any materialization it triggers.
+
+  Returns transform failures as `{:error, {:transform, reason}}` and
+  materialization failures as `{:error, {:decode, reason}}`. Programmer errors
+  propagate through the span unchanged.
+  """
+  @spec run(State.t(), operation(), keyword()) ::
+          {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
+  def run(%State{} = state, %module{} = operation, opts \\ []) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:transform, :operation],
+      %{operation: module.name(operation), params: operation},
+      fn ->
+        result =
+          with {:ok, state} <- prepare(state, operation) do
+            module.execute(operation, state)
+          end
+
+        {operation_result(result), stop_metadata(result)}
+      end
+    )
   end
 
-  @spec requires_materialization?(operation()) :: boolean()
-  def requires_materialization?(%module{} = operation) do
-    module.requires_materialization?(operation)
+  defp prepare(%State{materialized?: true} = state, _operation), do: {:ok, state}
+
+  defp prepare(%State{} = state, %module{} = operation) do
+    case module.requires_materialization?(operation) do
+      false -> {:ok, state}
+      true -> materialize(state)
+    end
   end
 
-  @spec execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
-  def execute(%module{} = operation, %State{} = state) do
-    module.execute(operation, state)
+  defp materialize(state) do
+    case Materializer.materialize(state) do
+      {:ok, state} -> {:ok, state}
+      {:error, reason} -> {:error, {:materialize_error, reason}}
+    end
   end
+
+  defp operation_result({:ok, state}), do: {:ok, state}
+  defp operation_result({:error, {:materialize_error, reason}}), do: {:error, {:decode, reason}}
+  defp operation_result({:error, reason}), do: {:error, {:transform, reason}}
+
+  defp stop_metadata({:ok, %State{image: image}}),
+    do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
+
+  defp stop_metadata({:error, _reason}), do: %{result: :error}
 
   @default_detector ImagePipe.Transform.Detector.Composite
 

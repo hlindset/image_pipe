@@ -12,9 +12,9 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   # covered below:
   #
   #   1. mid-chain, before a random-access op (e.g. a smart crop) -> parent is the
-  #      [:transform, :operation] span (Chain.maybe_materialize, inside run_operation);
+  #      [:transform, :operation] span (`Transform.run/3` materializes before execute);
   #   2. a pipeline-boundary flush of a still-pending EXIF orientation, executed as
-  #      an explicit Flush operation by the resolve driver -> parent is that Flush
+  #      an explicit Flush operation by the executor -> parent is that Flush
   #      op's [:transform, :operation] span, which itself nests under
   #      [:transform, :execute];
   #   3. the delivery backstop (the runner's materialize-for-delivery step), which

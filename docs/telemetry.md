@@ -149,7 +149,7 @@ Failure stop metadata (one of two shapes, by failure mode):
 
 ### Transform execute span (`[:transform, :execute]`)
 
-The `[:image_pipe, :transform, :execute]` span wraps the full transform chain.
+The `[:image_pipe, :transform, :execute]` span wraps execution of all request groups.
 It is opened by `ImagePipe.Plug.Runner` around
 `ImagePipe.Transform.Executor.execute/3`. Its start metadata carries the
 aggregate request view:
@@ -160,7 +160,7 @@ aggregate request view:
 These aggregate fields use a different vocabulary from the per-operation spans
 below. `:operations` is the semantic
 request view (`:crop_guided`, `:crop_region`, `:canvas`, …). The per-op span's
-`:operation` is the executed-transform view (`Transform.transform_name/1`),
+`:operation` comes from the operation's `name/1` callback,
 where e.g. both crop variants execute as `:crop` and a canvas executes as
 `:extend_canvas`. A single semantic operation can also expand into several
 executed transform operations, so `:operation_count` is **not** guaranteed to
@@ -218,14 +218,15 @@ Start metadata:
 - `:operation` — the executed operation name atom (e.g. `:resize`, `:crop`).
   Includes the executor's orientation operation: `:flush`
   (applies a pending orientation).
-- `:index` — zero-based position within its executed batch. The executor runs
-  individual stages as separate batches, so this is usually zero.
 - `:params` — the full operation struct (product-neutral, derived from the
   public request).
 
 Stop metadata: `:result` (`:ok` or `:error`). A successful stop also carries
 `:dims` — the realized post-operation image dimensions `{width, height}` (an
 O(1) header read).
+
+The default Logger includes the operation name and outcome, for example
+`image_pipe transform: resize ok` or `image_pipe transform: crop error`.
 
 ### Materialization barrier span (`[:transform, :materialize]`)
 
@@ -252,21 +253,21 @@ error → `415`); a raise inside the flush surfaces as a `[:transform, :material
 
 Parenting depends on where the materialization happens — there are three cases:
 
-- **mid-chain**, before an operation that needs random access (trim,
+- **during execution**, before an operation that needs random access (trim,
   arbitrary-angle rotate, smart/object-detect crop): nested under that
   operation's `[:transform, :operation]` span;
 - **explicit flush**, when a pending EXIF/user orientation is applied by the
   executor's `Flush` operation during execution or at the final boundary:
   nested under that operation's `[:transform, :operation]` span,
   inside `[:transform, :execute]`;
-- **delivery backstop**, when a chain streamed through without ever materializing
+- **delivery backstop**, when the pipeline streamed without materializing
   and the late delivery copy runs after the transform pipeline has closed
   (after `[:transform, :execute]`): nested under the request root.
 
 The delivery backstop lives in the runner's post-clamp, pre-encode
 `Materializer.materialize/2` barrier. Every
 request that decodes and runs the transform pipeline (a cache miss)
-materializes at least once: a chain that never materializes mid-pipeline hits the
+materializes at least once: a pipeline that never materializes during execution hits the
 delivery backstop. Requests served from cache (cache hits, conditional `304`s) skip
 decode and transform entirely, so they emit no `[:transform, :materialize]` span
 (nor any other transform span).

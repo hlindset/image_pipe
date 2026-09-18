@@ -1,7 +1,6 @@
 defmodule ImagePipe.Transform.Operation.RotateTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Transform
   alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation
@@ -9,25 +8,8 @@ defmodule ImagePipe.Transform.Operation.RotateTest do
   defp state_for(image), do: %State{image: image, materialized?: true}
 
   defp run(op, image) do
-    {:ok, %State{image: result}} = Transform.execute(op, state_for(image))
+    {:ok, %State{image: result}} = Rotate.execute(op, state_for(image))
     result
-  end
-
-  test "requires materialization" do
-    assert Transform.requires_materialization?(%Rotate{angle: 45})
-    assert Transform.requires_materialization?(%Rotate{angle: 90})
-  end
-
-  test "name is :rotate" do
-    assert Transform.transform_name(%Rotate{angle: 90}) == :rotate
-  end
-
-  test "right angle uses lossless rot: a 90° turn of a WxH image is HxW, no new bands" do
-    {:ok, image} = Image.new(40, 20, color: [10, 20, 30])
-    result = run(%Rotate{angle: 90}, image)
-    assert Image.width(result) == 20
-    assert Image.height(result) == 40
-    refute Image.has_alpha?(result)
   end
 
   test "arbitrary angle grows the bounding box and adds transparent corners" do

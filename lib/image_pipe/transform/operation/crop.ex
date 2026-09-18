@@ -248,7 +248,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   # A coordinate region the executor found wholly outside the source. Returning the
-  # {:bad_request, _} reason unwrapped lets Chain preserve the 400 verdict.
+  # {:bad_request, _} reason unwrapped preserves the 400 response.
   def execute(%__MODULE__{reject_out_of_bounds: true, crop_from: %{}}, %State{}) do
     {:error, {:bad_request, :region_out_of_bounds}}
   end

@@ -9,8 +9,14 @@ groups against a decoded image.
 `ImagePipe.Plan.Request.Group` holds validated options. The executor resolves
 their source-dependent geometry in fixed stage order and constructs
 `ImagePipe.Transform.Operation.*` structs over `ImagePipe.Transform.State`.
-`ImagePipe.Transform.Chain` executes those operations and applies their
-materialization requirements.
+`ImagePipe.Transform.run/3` runs each operation with telemetry, materialization,
+and error handling. The executor owns stage and group order.
+
+`Plan.Request` describes request intent; operation structs hold the parameters
+resolved for a particular image. For example, crop coordinates change with
+decode shrink and orientation, while resize dimensions are final pixel sizes.
+The executor constructs each operation when its inputs are known and runs it
+immediately.
 
 ## Request flow
 
@@ -93,8 +99,8 @@ the corresponding stage.
   Cover resize executes a resize followed by a measured result crop.
 - Guided crop resolves a width and height using an anchor, focal point, smart
   guide, or detector guide, with offsets and optional aspect-ratio correction.
-- Region crop resolves an explicit x/y/width/height rectangle and clamps it
-  to the available image.
+- Region crop resolves an explicit x/y/width/height rectangle. Partial overlaps
+  clamp to the image; wholly outside regions return 400.
 - Canvas extension places the current image on a target canvas with placement, offsets,
   and transparent or solid fill.
 - Padding expands the current image by logical top/right/bottom/left sides,
@@ -161,8 +167,8 @@ crop operations with an image measurement between them.
 boundary. `AlphaPremultiply` is an internal helper used where an effect needs
 premultiplied alpha. Neither represents independent request syntax.
 
-Orientation state, flip composition, and resize branch selection are resolved
-before executable work reaches the chain.
+The executor resolves orientation state, flip composition, and resize branches
+before running each operation.
 
 `Transform.Executor.Geometry` resolves the resize intent,
 including zoom, minimum dimensions, effective DPR, enlargement, and cover
@@ -174,7 +180,7 @@ only the final pixel width and height; a cover request follows it with a crop.
 Decode always opens sequentially. `ImagePipe.Transform.DecodePlanner` computes
 only shrink/scale load options; it does not switch the loader to random access.
 
-`ImagePipe.Transform.Chain` checks each executable operation's
+`ImagePipe.Transform.run/3` checks the operation's
 `requires_materialization?/1` callback. Immediately before the first operation
 that needs random access, it copies the image to memory through
 `ImagePipe.Transform.Materializer` and marks the state as materialized. Smart
@@ -208,8 +214,7 @@ is recorded on `Transform.State` and passed directly to the encoder after the
 final group.
 
 Output format, quality, metadata, profile, copyright, HDR, and automatic
-negotiation policies belong to output planning and encoding. They do not
-appear in the transform chain.
+negotiation policies belong to output planning and encoding.
 
 ## Examples
 
@@ -235,5 +240,5 @@ rather than constructing executable operation modules.
 
 Transform operations depend on `Transform.State` and product-neutral values.
 They do not parse URLs, resolve sources, read caches, negotiate output, or send
-responses. The executor resolves source-dependent geometry; the chain runs
-individual image operations.
+responses. The executor resolves source-dependent geometry and calls
+`Transform.run/3` for each image operation.

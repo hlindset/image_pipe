@@ -12,7 +12,6 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Plan.Request.Group
   alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Transform
-  alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Executor.Geometry
   alias ImagePipe.Transform.InputColorManagement
@@ -88,7 +87,7 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   @spec reduce_terminal(State.t(), Output.t(), keyword()) ::
-          {:ok, State.t()} | {:error, {:transform, term()}}
+          {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
   def reduce_terminal(%State{} = state, %Output{terminal: terminal}, _opts)
       when terminal in [:image, :info],
       do: {:ok, state}
@@ -111,11 +110,9 @@ defmodule ImagePipe.Transform.Executor do
         Geometry.display_effective_dims(state)
       )
 
-    run_chain(
+    Transform.run(
       state,
-      [
-        %Resize{width: target.width, height: target.height}
-      ],
+      %Resize{width: target.width, height: target.height},
       opts
     )
   end
@@ -167,7 +164,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_rotate(%State{} = state, angle, opts) do
     with {:ok, state} <- flush_display(state, opts),
-         {:ok, state} <- run_chain(state, [%Rotate{angle: angle}], opts) do
+         {:ok, state} <- Transform.run(state, %Rotate{angle: angle}, opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
@@ -183,7 +180,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_trim(state, %Group{} = group, opts) do
     with {:ok, state} <- flush_display(state, opts),
-         {:ok, state} <- run_chain(state, [trim_op(group.trim, group.trim_symmetry)], opts) do
+         {:ok, state} <- Transform.run(state, trim_op(group.trim, group.trim_symmetry), opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
@@ -212,7 +209,7 @@ defmodule ImagePipe.Transform.Executor do
       end
 
     with {:ok, state} <- maybe_flush_tagged(state, opts),
-         {:ok, state} <- run_chain(state, [crop], opts) do
+         {:ok, state} <- Transform.run(state, crop, opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
@@ -233,7 +230,7 @@ defmodule ImagePipe.Transform.Executor do
           )
 
         with {:ok, state} <- flush_display(state, opts),
-             {:ok, state} <- run_chain(state, [crop], opts) do
+             {:ok, state} <- Transform.run(state, crop, opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
 
@@ -245,7 +242,7 @@ defmodule ImagePipe.Transform.Executor do
           |> Geometry.rescale_crop(Geometry.orient_decode_shrink(state.decode_shrink, pending))
           |> Geometry.compensate_crop(pending)
 
-        with {:ok, state} <- run_chain(state, [crop], opts) do
+        with {:ok, state} <- Transform.run(state, crop, opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
 
@@ -253,19 +250,19 @@ defmodule ImagePipe.Transform.Executor do
         state = %State{state | pending_orientation: nil}
 
         with {:ok, state} <-
-               run_chain(state, [Geometry.rescale_crop(crop, state.decode_shrink)], opts) do
+               Transform.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
 
       {:none, true} ->
         with {:ok, state} <-
-               run_chain(state, [Geometry.rescale_crop(crop, state.decode_shrink)], opts) do
+               Transform.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
 
       {_none_or_identity, false} ->
         with {:ok, state} <-
-               run_chain(state, [Geometry.rescale_crop(crop, state.decode_shrink)], opts) do
+               Transform.run(state, Geometry.rescale_crop(crop, state.decode_shrink), opts) do
           {:ok, Geometry.clear_source_frame(state)}
         end
     end
@@ -293,14 +290,14 @@ defmodule ImagePipe.Transform.Executor do
         {resize, tail} =
           compensate_resize(resize, tail, pending)
 
-        with {:ok, state} <- run_chain(state, [resize], opts),
+        with {:ok, state} <- Transform.run(state, resize, opts),
              {:ok, state} <- run_optional(state, tail, opts),
              {:ok, state} <- flush_display(state, opts) do
           {:ok, state, target.dpr}
         end
 
       _none_or_identity ->
-        with {:ok, state} <- run_chain(state, [resize], opts),
+        with {:ok, state} <- Transform.run(state, resize, opts),
              {:ok, state} <- run_optional(state, tail, opts) do
           {:ok, state, target.dpr}
         end
@@ -338,7 +335,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp run_display_optional(state, operation, opts) do
     with {:ok, state} <- flush_display(state, opts),
-         do: run_chain(state, [operation], opts)
+         do: Transform.run(state, operation, opts)
   end
 
   defp execute_canvas(state, %Group{canvas: nil}, _dpr, _opts), do: {:ok, state}
@@ -362,7 +359,7 @@ defmodule ImagePipe.Transform.Executor do
         background: :transparent
       }
 
-      with {:ok, state} <- run_chain(state, [operation], opts) do
+      with {:ok, state} <- Transform.run(state, operation, opts) do
         {:ok, Geometry.clear_source_frame(state)}
       end
     end
@@ -381,7 +378,7 @@ defmodule ImagePipe.Transform.Executor do
     }
 
     with {:ok, state} <- flush_display(state, opts),
-         {:ok, state} <- run_chain(state, [operation], opts) do
+         {:ok, state} <- Transform.run(state, operation, opts) do
       {:ok, Geometry.clear_source_frame(state)}
     end
   end
@@ -397,7 +394,7 @@ defmodule ImagePipe.Transform.Executor do
       :pending ->
         pending = state.pending_orientation
 
-        with {:ok, state} <- run_chain(state, [%Flush{}], opts) do
+        with {:ok, state} <- Transform.run(state, %Flush{}, opts) do
           {:ok, orient_source_frame(state, pending)}
         end
     end
@@ -424,14 +421,7 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp run_optional(state, nil, _opts), do: {:ok, state}
-  defp run_optional(state, operation, opts), do: run_chain(state, [operation], opts)
-
-  defp run_chain(state, operations, opts) do
-    case Chain.execute(state, operations, opts) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, {:transform, reason}}
-    end
-  end
+  defp run_optional(state, operation, opts), do: Transform.run(state, operation, opts)
 
   defp crop_offset_dpr(%Group{anchor_offset: nil, dpr: dpr}, _state), do: dpr
   defp crop_offset_dpr(%Group{resize: nil, dpr: dpr}, _state), do: dpr

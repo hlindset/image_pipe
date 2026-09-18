@@ -215,7 +215,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # --- message ---
   defp message([:transform, :operation | _], _m, meta) do
-    "image_pipe transform: #{meta[:operation]} (##{(meta[:index] || 0) + 1})"
+    "image_pipe transform: #{meta[:operation]} #{outcome(meta)}"
   end
 
   defp message([:transform, :execute | _], _m, meta) do
