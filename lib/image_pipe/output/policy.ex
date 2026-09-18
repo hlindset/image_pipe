@@ -1,15 +1,14 @@
 defmodule ImagePipe.Output.Policy do
   @moduledoc false
 
-  import Plug.Conn, only: [get_req_header: 2]
-
+  alias ImagePipe.Error
   alias ImagePipe.Format
   alias ImagePipe.Output.Capabilities
-  alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output
+  alias ImagePipe.Telemetry
 
   @enforce_keys [
     :mode,
@@ -70,49 +69,6 @@ defmodule ImagePipe.Output.Policy do
 
   @type identity_selection() ::
           {:explicit, format()} | {:auto_head, format()} | :source_negotiated
-
-  @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
-  def from_output_plan(%Plug.Conn{} = conn, %Output{mode: :automatic} = output, opts) do
-    %__MODULE__{
-      mode: :source,
-      modern_candidates: Negotiation.modern_candidates(accept_header(conn), opts),
-      headers: automatic_headers(),
-      quality: output.quality,
-      format_qualities: output.format_qualities,
-      default_quality: output.default_quality,
-      strip_metadata: output.strip_metadata,
-      keep_copyright: output.keep_copyright,
-      color_profile: output.color_profile,
-      flatten_background: output.flatten_background,
-      quality_search: output.quality_search,
-      quality_search_max_iterations: output.quality_search_max_iterations,
-      max_bytes: output.max_bytes,
-      quality_search_offsets: output.quality_search_offsets,
-      encoder_options: output.encoder_options,
-      hdr: output.hdr
-    }
-  end
-
-  def from_output_plan(%Plug.Conn{}, %Output{mode: {:explicit, format}} = output, _opts) do
-    %__MODULE__{
-      mode: {:explicit, format},
-      modern_candidates: [],
-      headers: [],
-      quality: output.quality,
-      format_qualities: output.format_qualities,
-      default_quality: output.default_quality,
-      strip_metadata: output.strip_metadata,
-      keep_copyright: output.keep_copyright,
-      color_profile: output.color_profile,
-      flatten_background: output.flatten_background,
-      quality_search: output.quality_search,
-      quality_search_max_iterations: output.quality_search_max_iterations,
-      max_bytes: output.max_bytes,
-      quality_search_offsets: output.quality_search_offsets,
-      encoder_options: output.encoder_options,
-      hdr: output.hdr
-    }
-  end
 
   @doc """
   The pure pre-source-fetch format selection: explicit format, the negotiated
@@ -177,8 +133,30 @@ defmodule ImagePipe.Output.Policy do
     end
   end
 
+  @spec negotiate(t(), source_format(), Vix.Vips.Image.t(), keyword()) ::
+          {:ok, Resolved.t()} | {:error, term()}
+  def negotiate(%__MODULE__{} = policy, source_format, image, telemetry_opts) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(telemetry_opts),
+      [:output, :negotiate],
+      %{output_mode: output_mode(policy)},
+      fn ->
+        result =
+          case resolve(policy, source_format) do
+            {:needs_final_image_alpha, :source} ->
+              {:ok, resolve_final_image_alpha(policy, Image.has_alpha?(image))}
+
+            result ->
+              result
+          end
+
+        {result, stop_metadata(result)}
+      end
+    )
+  end
+
   @doc """
-  Whether the HDR working space should be kept (`Plan.Output.hdr == :preserve`
+  Whether the HDR working space should be kept (`Policy.hdr == :preserve`
   and the output format carries HDR). Computed pre-transform so it can seed the
   input-color-management stage. In the one branch where the format is only known
   after the transform (`:needs_final_image_alpha`), returns `false` — the
@@ -217,15 +195,11 @@ defmodule ImagePipe.Output.Policy do
     end
   end
 
-  @spec resolve_final_image_alpha(t(), boolean()) :: Resolved.t()
-  def resolve_final_image_alpha(%__MODULE__{} = policy, true),
+  defp resolve_final_image_alpha(%__MODULE__{} = policy, true),
     do: resolved(policy, :png)
 
-  def resolve_final_image_alpha(%__MODULE__{} = policy, false),
+  defp resolve_final_image_alpha(%__MODULE__{} = policy, false),
     do: resolved(policy, :jpeg)
-
-  @spec automatic_headers() :: [{String.t(), String.t()}]
-  def automatic_headers, do: [{"vary", "Accept"}]
 
   defp resolved(%__MODULE__{} = policy, format) do
     %Resolved{
@@ -313,7 +287,14 @@ defmodule ImagePipe.Output.Policy do
   defp default_for(%__MODULE__{}, format) when format in @lossless_default_formats, do: :default
   defp default_for(%__MODULE__{default_quality: default_quality}, _format), do: default_quality
 
-  defp accept_header(conn), do: conn |> get_req_header("accept") |> Enum.join(",")
+  defp output_mode(%__MODULE__{mode: {:explicit, _format}}), do: :explicit
+  defp output_mode(%__MODULE__{mode: :source}), do: :automatic
+
+  defp stop_metadata({:ok, %Resolved{format: format}}),
+    do: %{result: :ok, output_format: format}
+
+  defp stop_metadata({:error, reason}),
+    do: %{result: :output_error, error: Error.tag(reason)}
 
   defp search_iteration_identity(%__MODULE__{quality_search: :none, max_bytes: nil}), do: nil
 

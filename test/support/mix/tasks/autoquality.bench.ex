@@ -696,7 +696,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     {us, _result} =
       timed(fn ->
         {:ok, stream, _mime, _meta} =
-          Encoder.stream_output(image, resolved, telemetry_prefix: @prefix)
+          Encoder.stream_output(image, resolved, nil, telemetry_prefix: @prefix)
 
         Enum.each(stream, fn _ -> :ok end)
       end)
@@ -714,7 +714,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp encode_once(image, resolved) do
     timed(fn ->
-      {:ok, stream, _mime, _meta} = Encoder.stream_output(image, resolved, [])
+      {:ok, stream, _mime, _meta} = Encoder.stream_output(image, resolved, nil, [])
       Enum.reduce(stream, 0, fn chunk, acc -> acc + byte_size(chunk) end)
     end)
   end

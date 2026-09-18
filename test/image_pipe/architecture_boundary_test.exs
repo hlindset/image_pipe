@@ -88,6 +88,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Delivery,
       ImagePipe.Native,
       ImagePipe.Error,
+      ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Representation,
@@ -105,8 +106,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(native, [
       ImagePipe.Cache,
-      ImagePipe.Decode,
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -117,7 +116,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
-    refute_boundary_deps(native, [ImagePipe.Delivery, ImagePipe.Plug])
+    refute_boundary_deps(native, [ImagePipe.Decode, ImagePipe.Delivery, ImagePipe.Plug])
 
     # A host implements `SourceScheme` to translate a custom `foo://` source
     # into the shared Plan.Source model. The native parser and lifecycle remain
@@ -492,7 +491,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Output.AvifOptions,
       ImagePipe.Plan.Output.JxlOptions,
       ImagePipe.Plan.Response,
-      ImagePipe.Plan.SourceInfo,
       ImagePipe.Plan.Color,
       ImagePipe.Plan.Source,
       ImagePipe.Plan.Source.Identity,

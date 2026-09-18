@@ -283,13 +283,9 @@ decode and transform entirely, so they emit no `[:transform, :materialize]` span
 
 The `[:image_pipe, :output, :negotiate]` span wraps output-format negotiation —
 resolving the request's `Output.Policy` against the decoded source format into a
-concrete `Output.Resolved`. It is emitted from the shared seam
-`ImagePipe.Output.Negotiate.negotiate_output/4`, called once from the runner's
-producer-side build. The
-single span encloses **both** resolution legs —
-`Policy.resolve/2` and, when the format depends on the final image's alpha, the
-second `resolve_final_image_alpha` pass — so exactly one span is emitted per
-request regardless of which legs run.
+concrete `Output.Resolved`. `Output.Policy.negotiate/4` emits it once
+from the runner's producer-side build. The span covers source-format resolution
+and, when needed, inspection of the final image's alpha channel.
 
 Start metadata: `:output_mode` — `:explicit` when the request pinned a format, or
 `:automatic` when the format is `Accept`-negotiated from the source.

@@ -17,11 +17,51 @@ defmodule ImagePipe.Native.OutputTest do
     %{segments: Enum.map(segments, &seg/1), source: {:src, source, {0, byte_size(source)}}}
   end
 
-  defp resolve!(segments, host_opts) do
+  defp resolve!(segments, host_opts, accept_header \\ "") do
     config = Config.validate!(host_opts)
     assert {:ok, request} = Parser.parse(lexed(segments), config)
-    assert {:ok, %PlanOutput{} = output} = Output.resolve(request.output, config)
+    assert {:ok, output} = Output.resolve(request.output, config, accept_header)
     output
+  end
+
+  test "automatic policy negotiates candidates from Accept and varies on Accept" do
+    policy = resolve!([], [], "image/webp,image/avif;q=0.1")
+
+    assert policy.mode == :source
+    assert policy.modern_candidates == [:avif, :webp]
+    assert policy.headers == [{"vary", "Accept"}]
+  end
+
+  test "explicit policy is independent of Accept" do
+    policy = resolve!(["format=webp"], [], "image/jpeg")
+
+    assert policy.mode == {:explicit, :webp}
+    assert policy.modern_candidates == []
+    assert policy.headers == []
+  end
+
+  test "automatic policy keeps Vary when Accept has no modern format signal" do
+    for accept_header <- ["", "*/*", "*/*;q=1", "application/json,*/*;q=1"] do
+      policy = resolve!([], [], accept_header)
+
+      assert policy.modern_candidates == []
+      assert policy.headers == [{"vary", "Accept"}]
+    end
+  end
+
+  test "negotiation honors disabled host formats" do
+    policy = resolve!([], [auto_avif: false], "image/avif,image/webp")
+
+    assert policy.modern_candidates == [:webp]
+  end
+
+  test "encoder options select the resolved format's settings" do
+    policy = resolve!(["format=jxl", "jxl-options=effort:4"], [])
+
+    assert {:ok, resolved} = Policy.resolve(policy, :jpeg)
+    assert resolved.encoder_options == %PlanOutput.JxlOptions{effort: 4}
+    assert {:ok, resolved} = Policy.resolve(resolve!(["format=jxl"], []), :jpeg)
+    assert resolved.encoder_options == nil
   end
 
   test "resolves explicit format and quality over host output defaults" do
@@ -77,7 +117,7 @@ defmodule ImagePipe.Native.OutputTest do
     assert {:ok, request} = Parser.parse(lexed(["format=jpeg"]), config)
 
     assert {:error, {:invalid_output, {:invalid_option, :autoquality, :missing_target}}} =
-             Output.resolve(request.output, config)
+             Output.resolve(request.output, config, "")
   end
 
   test "URL autoquality selects the method and overlays sparse fields on host defaults" do
@@ -120,9 +160,8 @@ defmodule ImagePipe.Native.OutputTest do
 
   test "explicit quality keeps precedence over a URL format quality" do
     output = resolve!(["format=jpeg", "q=42", "format-q=jpeg:61"], [])
-    policy = Policy.from_output_plan(Plug.Test.conn(:get, "/"), output, [])
 
-    assert {:ok, resolved} = Policy.resolve(policy, :jpeg)
+    assert {:ok, resolved} = Policy.resolve(output, :jpeg)
     assert resolved.quality == {:quality, 42}
   end
 
@@ -181,7 +220,7 @@ defmodule ImagePipe.Native.OutputTest do
     assert {:ok, request} = Parser.parse(lexed(["profile=srgb"]), config)
 
     assert {:error, {:invalid_output, :hdr_profile_conversion}} =
-             Output.resolve(request.output, config)
+             Output.resolve(request.output, config, "")
 
     assert resolve!(["profile=srgb", "hdr=tonemap"], preserve_hdr: true).hdr == :tone_map
   end
@@ -201,7 +240,7 @@ defmodule ImagePipe.Native.OutputTest do
       assert {:ok, request} = Parser.parse(lexed(segments), config)
 
       assert {:error, {:invalid_output, :lossless_webp_quality_search}} =
-               Output.resolve(request.output, config)
+               Output.resolve(request.output, config, "")
     end
   end
 
@@ -222,7 +261,7 @@ defmodule ImagePipe.Native.OutputTest do
         []
       )
 
-    assert output.mode == :automatic
+    assert output.mode == :source
     assert %PlanOutput.QualitySearch.Ssimulacra2{} = output.quality_search
     assert output.max_bytes == 12_000
   end
@@ -237,7 +276,7 @@ defmodule ImagePipe.Native.OutputTest do
         preserve_hdr: true
       )
 
-    assert output == %PlanOutput{mode: :automatic}
+    assert output == nil
   end
 
   test "info ignores host image output policy" do
@@ -250,14 +289,14 @@ defmodule ImagePipe.Native.OutputTest do
         preserve_hdr: true
       )
 
-    assert output == %PlanOutput{mode: :automatic}
+    assert output == nil
   end
 
   test "prepare resolves host output defaults" do
     config = Config.validate!(quality: 71)
     assert {:ok, request} = Parser.parse(lexed(["format=jpeg"]), config)
 
-    assert {:ok, _source, output} = Native.prepare(request, config)
+    assert {:ok, _source, output} = Native.prepare(request, config, "")
     assert output.default_quality == {:quality, 71}
   end
 
@@ -265,8 +304,8 @@ defmodule ImagePipe.Native.OutputTest do
     config = Config.validate!(autoquality_method: :size)
     assert {:ok, request} = Parser.parse(lexed(["output=blurhash"]), config)
 
-    assert {:ok, _source, output} = Native.prepare(request, config)
-    assert output == %PlanOutput{mode: :automatic}
+    assert {:ok, _source, output} = Native.prepare(request, config, "")
+    assert output == nil
   end
 
   test "prepare maps info presentation and bypasses image policy" do
@@ -278,7 +317,7 @@ defmodule ImagePipe.Native.OutputTest do
                config
              )
 
-    assert {:ok, _source, output} = Native.prepare(request, config)
+    assert {:ok, _source, output} = Native.prepare(request, config, "")
 
     assert Native.response_meta(request) == %Response{
              filename: "report",
@@ -286,14 +325,14 @@ defmodule ImagePipe.Native.OutputTest do
              debug?: true
            }
 
-    assert output == %PlanOutput{mode: :automatic}
+    assert output == nil
   end
 
   test "prepare uses the validated host clock for expiry" do
     config = Config.validate!(clock: fn -> 101 end)
     assert {:ok, request} = Parser.parse(lexed(["expires=100"]), config)
 
-    assert Native.prepare(request, config) == {:error, :expired}
+    assert Native.prepare(request, config, "") == {:error, :expired}
   end
 
   test "rejects an explicit format's inverted URL and host autoquality bracket" do
@@ -306,7 +345,7 @@ defmodule ImagePipe.Native.OutputTest do
              )
 
     assert {:error, {:invalid_output, {:inverted_autoquality_bracket, :jpeg}}} =
-             Native.prepare(request, config)
+             Native.prepare(request, config, "")
   end
 
   test "validates every quality-capable format that automatic negotiation may select" do
@@ -314,14 +353,14 @@ defmodule ImagePipe.Native.OutputTest do
     assert {:ok, request} = Parser.parse(lexed(["autoquality=ssimulacra2,min:70"]), config)
 
     assert {:error, {:invalid_output, {:inverted_autoquality_bracket, :avif}}} =
-             Native.prepare(request, config)
+             Native.prepare(request, config, "")
   end
 
   test "does not validate a modern automatic format disabled by host configuration" do
     config = Config.validate!(auto_avif: false)
     assert {:ok, request} = Parser.parse(lexed(["autoquality=ssimulacra2,min:70"]), config)
 
-    assert {:ok, _source, _output} = Native.prepare(request, config)
+    assert {:ok, _source, _output} = Native.prepare(request, config, "")
   end
 
   test "renders resolved-output failures as a safe 400 plan error" do

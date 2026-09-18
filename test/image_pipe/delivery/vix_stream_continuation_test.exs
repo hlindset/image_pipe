@@ -7,7 +7,6 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   alias ImagePipe.Native.Output, as: NativeOutput
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Output.Encoder
-  alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -484,8 +483,7 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
     {:ok, source_request} = NativeSource.translate(request.source, config)
     {:ok, source} = Source.resolve(source_request, config, [])
 
-    {:ok, plan_output} = NativeOutput.resolve(request.output, config)
-    policy = Policy.from_output_plan(conn, plan_output, config)
+    {:ok, policy} = NativeOutput.resolve(request.output, config, "")
 
     fn pump ->
       Decode.with_image(
@@ -502,15 +500,15 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
     {:ok, %State{image: image}} = Materializer.materialize(state, config)
 
     {:ok, resolved_output} =
-      Negotiate.negotiate_output(
+      Policy.negotiate(
         policy,
         geometry.source_format,
-        fn -> Image.has_alpha?(image) end,
+        image,
         []
       )
 
     {:ok, stream, content_type, _search_meta} =
-      Encoder.stream_output(image, resolved_output, config)
+      Encoder.stream_output(image, resolved_output, state.source_color_profile, config)
 
     pump.(stream, content_type, resolved_output, nil)
   end

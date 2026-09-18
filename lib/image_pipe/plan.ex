@@ -22,7 +22,6 @@ defmodule ImagePipe.Plan do
       Output.AvifOptions,
       Output.JxlOptions,
       Response,
-      SourceInfo,
       Color,
       Source,
       Source.Identity,

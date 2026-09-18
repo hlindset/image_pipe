@@ -1,112 +1,10 @@
 defmodule ImagePipe.Output.PolicyTest do
   use ExUnit.Case, async: true
 
-  import Plug.Conn
-  import Plug.Test
-
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch
-  alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Output.QualitySearch
-
-  describe "encoder_options resolution" do
-    test "resolved encoder_options is the negotiated-format struct" do
-      conn = conn(:get, "/")
-
-      plan = %Output{
-        mode: {:explicit, :jpeg_xl},
-        encoder_options: %{jpeg_xl: %ImagePipe.Plan.Output.JxlOptions{effort: 4}}
-      }
-
-      policy = Policy.from_output_plan(conn, plan, [])
-      {:ok, resolved} = Policy.resolve(policy, :jpeg_xl)
-      assert resolved.encoder_options == %ImagePipe.Plan.Output.JxlOptions{effort: 4}
-    end
-
-    test "resolved encoder_options is nil when the format has no options" do
-      conn = conn(:get, "/")
-      plan = %Output{mode: {:explicit, :jpeg_xl}}
-      policy = Policy.from_output_plan(conn, plan, [])
-      {:ok, resolved} = Policy.resolve(policy, :jpeg_xl)
-      assert resolved.encoder_options == nil
-    end
-  end
-
-  describe "from_output_plan/3" do
-    test "automatic output policy exposes Vary Accept and selected candidates from Accept" do
-      conn =
-        :get
-        |> conn("/image")
-        |> put_req_header("accept", "image/webp,image/avif;q=0.1")
-
-      policy = Policy.from_output_plan(conn, %Output{mode: :automatic}, [])
-
-      assert policy.headers == [{"vary", "Accept"}]
-      assert policy.modern_candidates == [:avif, :webp]
-    end
-
-    test "represents explicit output independently of Accept" do
-      conn =
-        :get
-        |> conn("/_/f:webp/plain/images/cat.jpg")
-        |> put_req_header("accept", "image/jpeg")
-
-      assert Policy.from_output_plan(conn, %Output{mode: {:explicit, :webp}}, []) ==
-               %Policy{
-                 mode: {:explicit, :webp},
-                 modern_candidates: [],
-                 headers: [],
-                 quality: :default,
-                 format_qualities: %{},
-                 strip_metadata: true,
-                 keep_copyright: true,
-                 color_profile: :strip,
-                 encoder_options: %{}
-               }
-    end
-
-    test "represents automatic output as source mode plus modern candidates" do
-      conn =
-        :get
-        |> conn("/_/plain/images/cat.jpg")
-        |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
-
-      assert Policy.from_output_plan(conn, %Output{mode: :automatic}, []) ==
-               %Policy{
-                 mode: :source,
-                 modern_candidates: [:avif, :webp],
-                 headers: [{"vary", "Accept"}],
-                 quality: :default,
-                 format_qualities: %{},
-                 strip_metadata: true,
-                 keep_copyright: true,
-                 color_profile: :strip,
-                 encoder_options: %{}
-               }
-    end
-
-    test "keeps automatic Vary when Accept has no modern format signal" do
-      cases = [
-        conn(:get, "/_/plain/images/cat.jpg"),
-        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", ""),
-        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", "*/*"),
-        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", "*/*;q=1"),
-        conn(:get, "/_/plain/images/cat.jpg")
-        |> put_req_header("accept", "application/json,*/*;q=1")
-      ]
-
-      for conn <- cases do
-        assert %Policy{
-                 mode: :source,
-                 modern_candidates: [],
-                 headers: [{"vary", "Accept"}],
-                 quality: :default,
-                 format_qualities: %{}
-               } = Policy.from_output_plan(conn, %Output{mode: :automatic}, [])
-      end
-    end
-  end
 
   describe "resolve/2" do
     test "selects explicit format before source fetch" do
@@ -245,7 +143,7 @@ defmodule ImagePipe.Output.PolicyTest do
     end
   end
 
-  describe "resolve_final_image_alpha/2" do
+  describe "negotiate/4" do
     test "selects png when final image has alpha" do
       policy = %Policy{
         mode: :source,
@@ -258,7 +156,7 @@ defmodule ImagePipe.Output.PolicyTest do
         color_profile: :strip
       }
 
-      assert Policy.resolve_final_image_alpha(policy, true) ==
+      assert negotiate_alpha(policy, true) ==
                %Resolved{
                  format: :png,
                  quality: :default,
@@ -281,7 +179,7 @@ defmodule ImagePipe.Output.PolicyTest do
         color_profile: :strip
       }
 
-      assert Policy.resolve_final_image_alpha(policy, false) ==
+      assert negotiate_alpha(policy, false) ==
                %Resolved{
                  format: :jpeg,
                  quality: :default,
@@ -304,7 +202,7 @@ defmodule ImagePipe.Output.PolicyTest do
         color_profile: :strip
       }
 
-      assert Policy.resolve_final_image_alpha(policy, false) ==
+      assert negotiate_alpha(policy, false) ==
                %Resolved{
                  format: :jpeg,
                  quality: {:quality, 82},
@@ -314,7 +212,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  color_profile: :strip
                }
 
-      assert Policy.resolve_final_image_alpha(policy, true) ==
+      assert negotiate_alpha(policy, true) ==
                %Resolved{
                  format: :png,
                  quality: {:quality, 70},
@@ -327,14 +225,13 @@ defmodule ImagePipe.Output.PolicyTest do
   end
 
   describe "quality resolution" do
-    test "explicit global quality wins over matching format quality regardless of URL order" do
-      plan = %Output{
-        mode: {:explicit, :webp},
-        quality: {:quality, 80},
-        format_qualities: %{webp: {:quality, 70}}
-      }
-
-      policy = Policy.from_output_plan(conn(:get, "/image"), plan, [])
+    test "explicit global quality wins over matching format quality" do
+      policy =
+        policy(%{
+          mode: {:explicit, :webp},
+          quality: {:quality, 80},
+          format_qualities: %{webp: {:quality, 70}}
+        })
 
       assert Policy.resolve(policy, :jpeg) ==
                {:ok,
@@ -350,13 +247,12 @@ defmodule ImagePipe.Output.PolicyTest do
     end
 
     test "format quality supplies default only when global quality is default" do
-      plan = %Output{
-        mode: {:explicit, :webp},
-        quality: :default,
-        format_qualities: %{webp: {:quality, 70}}
-      }
-
-      policy = Policy.from_output_plan(conn(:get, "/image"), plan, [])
+      policy =
+        policy(%{
+          mode: {:explicit, :webp},
+          quality: :default,
+          format_qualities: %{webp: {:quality, 70}}
+        })
 
       assert Policy.resolve(policy, :jpeg) ==
                {:ok,
@@ -518,27 +414,23 @@ defmodule ImagePipe.Output.PolicyTest do
     end
   end
 
-  describe "supports_hdr?/3" do
+  describe "supports_hdr?/2" do
     test "true only when policy is :preserve and the resolved format carries HDR" do
-      conn = conn(:get, "/")
-
-      preserve = %Output{mode: {:explicit, :png}, hdr: :preserve}
-      tone_map = %Output{mode: {:explicit, :png}, hdr: :tone_map}
-      png = Policy.from_output_plan(conn, preserve, [])
-      jpeg = Policy.from_output_plan(conn, %{preserve | mode: {:explicit, :jpeg}}, [])
+      png = policy(%{mode: {:explicit, :png}, hdr: :preserve})
+      jpeg = %{png | mode: {:explicit, :jpeg}}
+      tone_map = %{png | hdr: :tone_map}
 
       # PNG carries HDR
       assert Policy.supports_hdr?(png, :png)
       # tone_map policy never preserves
-      refute Policy.supports_hdr?(Policy.from_output_plan(conn, tone_map, []), :png)
+      refute Policy.supports_hdr?(tone_map, :png)
       # JPEG cannot carry HDR even when preserve is requested
       refute Policy.supports_hdr?(jpeg, :jpeg)
     end
 
     test "false when the format is only resolvable from the post-transform image (conservative tone-map)" do
       # automatic mode + no modern Accept + modern source → :needs_final_image_alpha → false
-      conn = conn(:get, "/")
-      policy = Policy.from_output_plan(conn, %Output{mode: :automatic, hdr: :preserve}, [])
+      policy = policy(%{mode: :source, hdr: :preserve})
 
       refute Policy.supports_hdr?(policy, :avif)
     end
@@ -594,8 +486,7 @@ defmodule ImagePipe.Output.PolicyTest do
 
   describe "effective_quality default resolution" do
     defp policy_for(format, opts) do
-      output = struct(%Output{mode: {:explicit, format}}, opts)
-      Policy.from_output_plan(%Plug.Conn{}, output, [])
+      policy(Map.put(Map.new(opts), :mode, {:explicit, format}))
     end
 
     test "format in format_qualities wins" do
@@ -633,8 +524,7 @@ defmodule ImagePipe.Output.PolicyTest do
     alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
 
     defp resolve_search_for(format, search) do
-      output = %Output{mode: {:explicit, format}, quality_search: search}
-      policy = Policy.from_output_plan(%Plug.Conn{}, output, [])
+      policy = policy(%{mode: {:explicit, format}, quality_search: search})
       {:ok, resolved} = Policy.resolve(policy, nil)
       resolved.quality_search
     end
@@ -693,5 +583,37 @@ defmodule ImagePipe.Output.PolicyTest do
       assert %RQS.NativeJxlButteraugli{min_quality: 50, max_quality: 90} =
                resolve_search_for(:jpeg_xl, search)
     end
+  end
+
+  defp policy(attrs) do
+    struct!(
+      Policy,
+      Map.merge(
+        %{
+          mode: :source,
+          modern_candidates: [],
+          headers: [],
+          quality: :default,
+          format_qualities: %{},
+          strip_metadata: true,
+          keep_copyright: true,
+          color_profile: :strip
+        },
+        attrs
+      )
+    )
+  end
+
+  defp negotiate_alpha(policy, alpha?) do
+    image = Image.new!(2, 2, color: :red)
+
+    image =
+      case alpha? do
+        true -> Image.add_alpha!(image, 128)
+        false -> image
+      end
+
+    assert {:ok, resolved} = Policy.negotiate(policy, :tiff, image, [])
+    resolved
   end
 end

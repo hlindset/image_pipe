@@ -6,10 +6,8 @@ defmodule ImagePipe.Native.IdentityTest do
   alias ImagePipe.Native
   alias ImagePipe.Native.Config
   alias ImagePipe.Native.Identity
-  alias ImagePipe.Native.Info
   alias ImagePipe.Native.Output
   alias ImagePipe.Native.Parser
-  alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Representation
 
@@ -43,21 +41,14 @@ defmodule ImagePipe.Native.IdentityTest do
     request
   end
 
-  defp plan_output!(request) do
-    {:ok, output} = Output.resolve(request.output, Config.validate!([]))
+  defp output_policy!(request, config \\ [], accept \\ "") do
+    {:ok, output} = Output.resolve(request.output, Config.validate!(config), accept)
     output
   end
 
   defp policy(format \\ :automatic, accept \\ nil) do
-    conn = conn(:get, "/")
-    conn = if accept, do: Plug.Conn.put_req_header(conn, "accept", accept), else: conn
-
-    output =
-      if format == :automatic,
-        do: %ImagePipe.Plan.Output{mode: :automatic},
-        else: %ImagePipe.Plan.Output{mode: {:explicit, format}}
-
-    Policy.from_output_plan(conn, output, auto_avif: true, auto_webp: true)
+    segments = if format == :automatic, do: [], else: ["format=#{format}"]
+    output_policy!(request!(segments), [auto_avif: true, auto_webp: true], accept || "")
   end
 
   defp material(
@@ -86,13 +77,8 @@ defmodule ImagePipe.Native.IdentityTest do
       |> Keyword.merge(config_opts)
       |> Config.validate!()
 
-    assert {:ok, _source, output} = Native.prepare(request, config)
+    assert {:ok, _source, policy} = Native.prepare(request, config, "")
     conn = conn(:get, "/")
-
-    policy =
-      if request.output.terminal == :image,
-        do: Policy.from_output_plan(conn, output, config),
-        else: nil
 
     Native.identity_material(request, policy, conn, config)
   end
@@ -296,7 +282,7 @@ defmodule ImagePipe.Native.IdentityTest do
 
       mat = material(request, negotiation)
 
-      assert mat.representation == [terminal: Info.identity()]
+      assert mat.representation == [terminal: {:info, 1}]
       assert mat.vary_header_names == []
     end
 
@@ -331,12 +317,11 @@ defmodule ImagePipe.Native.IdentityTest do
     end
 
     test "two requests differing only in q differ in representation" do
-      conn0 = conn(:get, "/")
       request_a = request!(["w=300", "q=50"])
       request_b = request!(["w=300", "q=90"])
 
-      policy_a = Policy.from_output_plan(conn0, plan_output!(request_a), [])
-      policy_b = Policy.from_output_plan(conn0, plan_output!(request_b), [])
+      policy_a = output_policy!(request_a)
+      policy_b = output_policy!(request_b)
 
       mat_a =
         material(request_a, policy_a)
@@ -348,10 +333,9 @@ defmodule ImagePipe.Native.IdentityTest do
     end
 
     test "material carries the effective-default policy fields even with no output option spelled" do
-      conn0 = conn(:get, "/")
       request = request!(["w=300"])
 
-      policy = Policy.from_output_plan(conn0, plan_output!(request), [])
+      policy = output_policy!(request)
       mat = material(request, policy)
 
       output_policy_material = Keyword.fetch!(mat.representation, :output_policy)
@@ -364,21 +348,9 @@ defmodule ImagePipe.Native.IdentityTest do
     end
 
     test "different configured default quality yields different representation and ETags" do
-      policy_a =
-        Policy.from_output_plan(
-          conn(:get, "/"),
-          %ImagePipe.Plan.Output{mode: :automatic, default_quality: {:quality, 70}},
-          []
-        )
-
-      policy_b =
-        Policy.from_output_plan(
-          conn(:get, "/"),
-          %ImagePipe.Plan.Output{mode: :automatic, default_quality: {:quality, 90}},
-          []
-        )
-
       request = request!(["w=300"])
+      policy_a = output_policy!(request, quality: 70)
+      policy_b = output_policy!(request, quality: 90)
 
       mat_a =
         material(request, policy_a)

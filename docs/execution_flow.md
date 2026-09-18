@@ -9,9 +9,10 @@ directly.
 The lifecycle is:
 
 1. Parse and validate the request, including signatures, expiry, static geometry,
-   and terminal applicability.
+   terminal applicability, and output capabilities. Combine request output
+   options, host defaults, and Accept negotiation into `ImagePipe.Output.Policy`.
 2. Resolve the source through the configured host source adapter.
-3. Build the representation identity and negotiate output policy.
+3. Build the representation identity from the source identity and output policy.
 4. Apply the conditional request gate. A matching ETag can return 304 before
    source fetch, image decode, or cache access.
 5. Look up a successful encoded response in the cache.
@@ -39,7 +40,8 @@ geometry. Only operations that need arbitrary pixel access materialize the
 image, through `ImagePipe.Transform.Materializer`.
 
 `ImagePipe.Transform.Executor.execute/3` imports input color profiles, executes groups,
-flushes pending orientation, and stamps color state for the encoder. A group
+flushes pending orientation, and returns image and color state. The runner passes
+the retained source ICC profile directly to the encoder. A group
 applies rotation and flip, flushes pending orientation before trim, measures
 the trimmed image, then resolves crop lengths in the resulting display frame.
 Percentage lengths remain in effective source pixels
@@ -73,7 +75,10 @@ encoding. Operation span durations measure lazy pipeline construction;
 `ImagePipe.Response.Sender` sends the prepared response and stops production
 when delivery is cancelled. Failed or incomplete streams do not enter cache.
 
-Native BlurHash and info responses use complete-body terminals.
+`Plug.Terminal` renders BlurHash and info as complete-body responses.
+It owns their decode bracket and terminal telemetry. BlurHash runs the native
+executor and terminal reduction; info reports decoded source facts without
+transforming pixels.
 Debug headers are request presentation: the mount must permit them, and the
 request must opt in. They do not change image cache identity or the ETag.
 

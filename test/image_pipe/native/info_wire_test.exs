@@ -6,6 +6,7 @@ defmodule ImagePipe.Native.InfoWireTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias Vix.Vips.Image, as: VipsImage
 
   @prefix [:native_info_wire]
 
@@ -35,6 +36,41 @@ defmodule ImagePipe.Native.InfoWireTest do
              "width" => 16,
              "height" => 24,
              "orientation" => 6,
+             "size" => byte_size(body)
+           }
+  end
+
+  test "info reports display dimensions for every EXIF orientation" do
+    for orientation <- 1..8 do
+      body =
+        24
+        |> Image.new!(16, color: :red)
+        |> Image.set_orientation!(orientation)
+        |> Image.write!(:memory, suffix: ".jpg")
+
+      response = request("output=info", mount(body))
+      assert response.status == 200
+      info = JSON.decode!(response.resp_body)
+      expected_dimensions = if orientation in 5..8, do: {16, 24}, else: {24, 16}
+
+      assert {info["width"], info["height"]} == expected_dimensions
+      assert info["orientation"] == orientation
+    end
+  end
+
+  test "info uses canonical JPEG XL format and MIME names" do
+    image = Image.new!(24, 16, color: :red)
+    assert {:ok, body} = VipsImage.write_to_buffer(image, ".jxl")
+    response = request("output=info", mount(body, [], "image/jxl"))
+
+    assert response.status == 200
+
+    assert JSON.decode!(response.resp_body) == %{
+             "format" => "jpeg_xl",
+             "mime_type" => "image/jxl",
+             "width" => 24,
+             "height" => 16,
+             "orientation" => 1,
              "size" => byte_size(body)
            }
   end
@@ -167,12 +203,12 @@ defmodule ImagePipe.Native.InfoWireTest do
     |> ImagePipe.Plug.call(config)
   end
 
-  defp mount(body, extra \\ []) do
+  defp mount(body, extra \\ [], content_type \\ "image/jpeg") do
     pid = self()
 
     origin = fn conn ->
       send(pid, :origin_fetch)
-      conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body)
+      conn |> put_resp_content_type(content_type) |> send_resp(200, body)
     end
 
     [

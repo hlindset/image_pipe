@@ -11,7 +11,6 @@ defmodule ImagePipe.Native.Identity do
   source byte identity separately to `ImagePipe.Representation.build/3`.
   """
 
-  alias ImagePipe.Native.Info
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Request
@@ -59,7 +58,7 @@ defmodule ImagePipe.Native.Identity do
          nil,
          _detector_identity
        ) do
-    [terminal: Info.identity()]
+    [terminal: {:info, 1}]
   end
 
   defp representation_material(

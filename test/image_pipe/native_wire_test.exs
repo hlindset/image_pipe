@@ -261,10 +261,7 @@ defmodule ImagePipe.NativeWireTest do
     test "quality in representation material matches the encoder policy" do
       config = opts()
       {:ok, request} = Parser.parse(lexed(["format=jpeg", "q=42"]), config)
-      conn = conn(:get, "/format=jpeg/q=42/src/images/cat.jpg")
-      assert {:ok, plan_output} = NativeOutput.resolve(request.output, config)
-
-      policy = Policy.from_output_plan(conn, plan_output, config)
+      assert {:ok, policy} = NativeOutput.resolve(request.output, config, "")
 
       assert Keyword.fetch!(Policy.identity_material(policy), :quality) == {:quality, 42}
 

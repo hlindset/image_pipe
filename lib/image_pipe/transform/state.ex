@@ -35,7 +35,7 @@ defmodule ImagePipe.Transform.State do
     are then mapped back into the current image frame.
   - `source_color_profile` and `color_imported?`: carry the input-color-management
     result from the preamble (`ImagePipe.Transform.InputColorManagement`) to the
-    delivery-boundary stamp. `source_color_profile` is the raw source ICC bytes
+    encoder call. `source_color_profile` is the raw source ICC bytes
     (or `nil`), and `color_imported?` indicates whether an actual `icc_import` ran.
     Transform-domain data; must never be emitted in telemetry metadata.
   """

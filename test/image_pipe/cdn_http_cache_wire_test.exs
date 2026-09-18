@@ -283,16 +283,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert get_resp_header(conn, "vary") == ["x-tenant"]
   end
 
-  # Delta 14 of the Phase C plan asked whether an automatic output plan can lose
-  # `Vary: Accept` by collapsing to an explicit selection. It cannot:
-  # `Policy.from_output_plan/3` maps EVERY `%Output{mode: :automatic}` to
-  # `policy.mode == :source`, and `Policy.identity_selection/1` only returns
-  # `{:explicit, _}` for `policy.mode == {:explicit, _}`. Config can empty
-  # `modern_candidates` (disabled auto_* flags, a restricted
-  # `output_capabilities`), which yields `:source_negotiated` — still an
-  # Accept-varying selection. This pins that invariant at the wire for both
-  # levers.
-  test "an automatic output plan varies by Accept even with no modern candidates left" do
+  test "automatic output varies by Accept even with no modern candidates left" do
     for extra <- [
           [auto_avif: false, auto_webp: false, auto_jpeg_xl: false],
           [output_capabilities: %{avif: false, webp: false, jpeg_xl: false}]

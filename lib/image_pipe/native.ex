@@ -2,7 +2,7 @@ defmodule ImagePipe.Native do
   @moduledoc """
   ImagePipe's native URL API, mounted through `plug ImagePipe.Plug,
   sources: [...]`. Owns parsing (verify → lex → parse), expiry, source
-  translation, representation identity, terminals, and error rendering.
+  translation, representation identity, and error rendering.
   `ImagePipe.Plug` orchestrates the request lifecycle.
 
   ## Mount prefix caveat
@@ -21,8 +21,6 @@ defmodule ImagePipe.Native do
     top_level?: true,
     deps: [
       ImagePipe.Cache,
-      ImagePipe.Decode,
-      ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -34,24 +32,20 @@ defmodule ImagePipe.Native do
     ],
     exports: [SourceScheme]
 
-  alias ImagePipe.Decode
   alias ImagePipe.Native.Config
   alias ImagePipe.Native.Errors
   alias ImagePipe.Native.Identity
-  alias ImagePipe.Native.Info
   alias ImagePipe.Native.Output, as: NativeOutput
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Path
   alias ImagePipe.Native.Signature
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Native.SourceEncryption
-  alias ImagePipe.Output.Terminal.Blurhash
+  alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Response, as: PlanResponse
-  alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
-  alias ImagePipe.Transform.Executor
 
   def validate_config!(opts), do: Config.validate!(opts)
 
@@ -88,44 +82,21 @@ defmodule ImagePipe.Native do
     end
   end
 
-  def prepare(%Request{} = request, config) do
+  def prepare(%Request{} = request, config, accept_header) do
     with :ok <- check_expires(request, Keyword.fetch!(config, :clock).()),
-         {:ok, plan_output} <- NativeOutput.resolve(request.output, config),
+         {:ok, policy} <- NativeOutput.resolve(request.output, config, accept_header),
+         :ok <- ensure_output_capable(policy, config),
          :ok <- check_detector(request, config),
          {:ok, plan_source} <- NativeSource.translate(request.source, config) do
-      {:ok, plan_source, plan_output}
+      {:ok, plan_source, policy}
     end
   end
+
+  defp ensure_output_capable(nil, _config), do: :ok
+  defp ensure_output_capable(policy, config), do: Policy.ensure_capable(policy, config)
 
   def identity_material(%Request{} = request, policy, conn, config) do
     Identity.material(request, policy, conn, config, detector_identity(request, config))
-  end
-
-  def render_terminal(source, %Request{} = request, config) do
-    Telemetry.span(
-      Telemetry.telemetry_opts(config),
-      [:output, :terminal],
-      %{terminal: request.output.terminal},
-      fn ->
-        result = render_body(source, request, config)
-        {result, %{result: terminal_result(result)}}
-      end
-    )
-  end
-
-  defp render_body(
-         source,
-         %Request{output: %Request.Output{terminal: :blurhash}} = request,
-         config
-       ) do
-    case compute_blurhash(source, request, config) do
-      {:ok, hash} -> {:ok, "text/plain", hash}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp render_body(source, %Request{output: %Request.Output{terminal: :info}} = request, config) do
-    Info.render_source(source, request, config)
   end
 
   def render_error(conn, reason), do: Errors.send(conn, reason)
@@ -180,9 +151,6 @@ defmodule ImagePipe.Native do
       debug?: request.debug?
     }
   end
-
-  defp terminal_result({:ok, _content_type, _body}), do: :ok
-  defp terminal_result({:error, reason}), do: Telemetry.request_result({:error, reason})
 
   defp check_detector(%Request{} = request, config) do
     case explicit_detector_classes(request) do
@@ -243,34 +211,5 @@ defmodule ImagePipe.Native do
 
   defp face_assist?(%Request{groups: groups}) do
     Enum.any?(groups, &(&1.guide == {:smart, :face_assist}))
-  end
-
-  defp compute_blurhash(%ImageSource.Resolved{} = resolved, %Request{} = request, config) do
-    Decode.with_image(
-      resolved,
-      request,
-      config,
-      fn state, _geometry -> run_blurhash(state, request, config) end
-    )
-  end
-
-  defp run_blurhash(state, request, config) do
-    with {:ok, state} <- Executor.execute(state, request, config),
-         {:ok, state} <- Executor.reduce_terminal(state, request.output, config),
-         {:ok, hash} <- Blurhash.compute(state.image) do
-      {:ok, hash}
-    else
-      {:error, {:transform, _reason}} = error -> error
-      # `Executor.execute/3` returns `{:decode, _}` too, from the input-colour
-      # preamble. It must reach `Errors.send/3` untouched: a malformed embedded
-      # profile is a decode failure (415), and rewrapping it below would make
-      # the same source 415 from the image terminal and 422 from this one.
-      {:error, {:decode, _reason}} = error -> error
-      {:error, reason} -> {:error, {:transform, {:blurhash_encode, reason}}}
-    end
-  rescue
-    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
-  catch
-    kind, reason -> {:error, {:transform, {kind, reason}}}
   end
 end

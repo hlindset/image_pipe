@@ -18,6 +18,7 @@ defmodule ImagePipe.Plug do
       ImagePipe.Delivery,
       ImagePipe.Native,
       ImagePipe.Error,
+      ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Representation,

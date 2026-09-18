@@ -1,8 +1,6 @@
 defmodule ImagePipe.Output.QualitySearchConfigTest do
   use ExUnit.Case, async: true
 
-  import Plug.Test
-
   alias ImagePipe.Native.Config
   alias ImagePipe.Native.Output, as: NativeOutput
   alias ImagePipe.Native.Parser
@@ -13,7 +11,7 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
   test "configured search iterations reach encoding and representation identity" do
     image = Image.open!("priv/static/images/beach.jpg") |> Image.thumbnail!(128)
     {_policy, reference} = resolved_output(quality: 50)
-    {:ok, encoded, "image/jpeg", nil} = Encoder.stream_output(image, reference, [])
+    {:ok, encoded, "image/jpeg", nil} = Encoder.stream_output(image, reference, nil, [])
     target = encoded |> Enum.to_list() |> IO.iodata_to_binary() |> byte_size()
 
     opts = [
@@ -27,8 +25,8 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     {long_policy, long} = resolved_output([autoquality_max_iterations: 12] ++ opts)
     refute Policy.identity_material(short_policy) == Policy.identity_material(long_policy)
 
-    {:ok, [_short_body], "image/jpeg", short_meta} = Encoder.stream_output(image, short, [])
-    {:ok, [_long_body], "image/jpeg", long_meta} = Encoder.stream_output(image, long, [])
+    {:ok, [_short_body], "image/jpeg", short_meta} = Encoder.stream_output(image, short, nil, [])
+    {:ok, [_long_body], "image/jpeg", long_meta} = Encoder.stream_output(image, long, nil, [])
     assert short_meta.iterations < long_meta.iterations
     refute short_meta.quality == long_meta.quality
   end
@@ -45,9 +43,9 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     {short_policy, short} = resolved_output([autoquality_max_iterations: 1] ++ opts, :jpeg_xl, 1)
     {long_policy, long} = resolved_output([autoquality_max_iterations: 12] ++ opts, :jpeg_xl, 1)
     {_policy, baseline} = resolved_output(opts, :jpeg_xl)
-    {:ok, [short_body], "image/jxl", short_meta} = Encoder.stream_output(image, short, [])
-    {:ok, [long_body], "image/jxl", long_meta} = Encoder.stream_output(image, long, [])
-    {:ok, [baseline_body], "image/jxl", _meta} = Encoder.stream_output(image, baseline, [])
+    {:ok, [short_body], "image/jxl", short_meta} = Encoder.stream_output(image, short, nil, [])
+    {:ok, [long_body], "image/jxl", long_meta} = Encoder.stream_output(image, long, nil, [])
+    {:ok, [baseline_body], "image/jxl", _meta} = Encoder.stream_output(image, baseline, nil, [])
     assert short_body == baseline_body
     assert byte_size(long_body) < byte_size(short_body)
     assert short_meta.outcome == :best_effort
@@ -71,9 +69,7 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
             autoquality_max_iterations: iterations
           )
 
-        output = output_plan(config)
-        conn = Plug.Conn.put_req_header(conn(:get, "/"), "accept", "image/jxl")
-        policy = Policy.from_output_plan(conn, output, [])
+        policy = output_policy(config, nil, nil, "image/jxl")
         assert Policy.identity_selection(policy) == {:auto_head, :jpeg_xl}
         Policy.identity_material(policy)
       end
@@ -87,7 +83,7 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     {long, _resolved} = resolved_output([autoquality_max_iterations: 12] ++ opts, :png)
     assert Policy.identity_material(short) == Policy.identity_material(long)
     image = Image.new!(8, 8, color: :red)
-    assert {:ok, _stream, "image/png", nil} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, _stream, "image/png", nil} = Encoder.stream_output(image, resolved, nil, [])
   end
 
   test "lossless WebP omits its unused iteration limit from explicit and negotiated identity" do
@@ -107,9 +103,7 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     negotiated_materials =
       for iterations <- [1, 12] do
         config = Config.validate!([autoquality_max_iterations: iterations] ++ opts)
-        output = output_plan(config)
-        conn = Plug.Conn.put_req_header(conn(:get, "/"), "accept", "image/webp")
-        policy = Policy.from_output_plan(conn, output, [])
+        policy = output_policy(config, nil, nil, "image/webp")
         assert Policy.identity_selection(policy) == {:auto_head, :webp}
         Policy.identity_material(policy)
       end
@@ -135,14 +129,12 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
 
   defp resolved_output(opts, format \\ :jpeg, max_bytes \\ nil) do
     config = Config.validate!(opts)
-    output = output_plan(config, format, max_bytes)
-
-    policy = Policy.from_output_plan(conn(:get, "/"), output, [])
+    policy = output_policy(config, format, max_bytes)
     {:ok, resolved} = Policy.resolve(policy, format)
     {policy, resolved}
   end
 
-  defp output_plan(config, format \\ nil, max_bytes \\ nil) do
+  defp output_policy(config, format, max_bytes, accept_header \\ "") do
     segments =
       []
       |> maybe_add_format(format)
@@ -156,7 +148,7 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     }
 
     assert {:ok, request} = Parser.parse(lexed, config)
-    assert {:ok, output} = NativeOutput.resolve(request.output, config)
+    assert {:ok, output} = NativeOutput.resolve(request.output, config, accept_header)
     output
   end
 

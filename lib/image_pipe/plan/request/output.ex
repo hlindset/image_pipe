@@ -3,7 +3,7 @@ defmodule ImagePipe.Plan.Request.Output do
   Terminal selection and sparse output intent from a native request.
 
   Host defaults and format negotiation resolve this intent into
-  `ImagePipe.Plan.Output` for image encoding.
+  `ImagePipe.Output.Policy` for image encoding.
   """
 
   defstruct terminal: :image,

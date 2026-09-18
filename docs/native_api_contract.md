@@ -27,8 +27,9 @@ streaming, cache, color, decode, and orientation behavior.
 
 Canonical native data lives in `ImagePipe.Plan.Request`, with explicit
 `Plan.Request.Group` transform intent and sparse `Plan.Request.Output` policy.
-Parsing and execution share these values. `Plan.Output` holds the resolved
-image encoding policy after host defaults and format negotiation.
+Parsing and execution share these values. `Output.Policy` combines host defaults,
+request overrides, and Accept negotiation. `Output.Resolved` selects the concrete
+encoding settings after source-format and final-image inspection.
 
 The native API implements these option keys:
 
@@ -385,7 +386,9 @@ convert to a shipped target profile and embed its bytes. Profile handling
 is independent of `meta`: stripping optional metadata preserves a requested
 output profile. The default is `strip`; host `strip_color_profile: false`
 selects source-profile preservation. Input ICC conditioning happens before
-transforms so operations work on interpreted colors.
+transforms so operations work on interpreted colors. The executor retains an
+imported source profile in its state and the runner passes it directly to the
+encoder for source-profile restoration.
 
 `hdr=preserve` retains a high-bit-depth working space when the selected
 output format supports it. `hdr=tonemap` selects the standard working

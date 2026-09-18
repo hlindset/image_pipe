@@ -2,6 +2,8 @@ defmodule ImagePipe.Native.Output do
   @moduledoc false
 
   alias ImagePipe.Format
+  alias ImagePipe.Output.Negotiation
+  alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Request.Output, as: RequestOutput
@@ -14,17 +16,16 @@ defmodule ImagePipe.Native.Output do
     jpeg_xl: :jxl_options
   }
 
-  @spec resolve(RequestOutput.t(), keyword()) ::
-          {:ok, PlanOutput.t()} | {:error, {:invalid_output, term()}}
-  def resolve(%RequestOutput{terminal: terminal}, _config)
+  @spec resolve(RequestOutput.t(), keyword(), String.t()) ::
+          {:ok, Policy.t() | nil} | {:error, {:invalid_output, term()}}
+  def resolve(%RequestOutput{terminal: terminal}, _config, _accept_header)
       when terminal in [:blurhash, :info] do
-    {:ok, %PlanOutput{mode: :automatic}}
+    {:ok, nil}
   end
 
-  def resolve(%RequestOutput{} = request, config) when is_list(config) do
+  def resolve(%RequestOutput{} = request, config, accept_header) do
     with {:ok, quality_search} <- resolve_quality_search(request, config),
-         configured = apply_host_config(base_output(request), config),
-         output = overlay_request(configured, request, quality_search),
+         output = policy(request, config, accept_header, quality_search),
          :ok <- validate_hdr_profile(output),
          :ok <- validate_lossless_webp_request(output, request),
          :ok <- validate_brackets(output, config) do
@@ -34,34 +35,53 @@ defmodule ImagePipe.Native.Output do
     end
   end
 
-  defp base_output(%RequestOutput{format: format, quality: quality}) do
-    %PlanOutput{
-      mode: output_mode(format),
-      quality: output_quality(quality)
-    }
-  end
-
-  defp output_mode(nil), do: :automatic
+  defp output_mode(nil), do: :source
   defp output_mode(format), do: {:explicit, format}
 
   defp output_quality(nil), do: :default
   defp output_quality(quality), do: {:quality, quality}
 
-  defp apply_host_config(%PlanOutput{} = output, config) do
-    strip_metadata = Keyword.fetch!(config, :strip_metadata)
+  defp policy(request, config, accept_header, quality_search) do
+    configured_strip = Keyword.fetch!(config, :strip_metadata)
 
-    %{
-      output
-      | default_quality: {:quality, Keyword.fetch!(config, :quality)},
-        format_qualities: normalize_format_qualities(Keyword.fetch!(config, :format_quality)),
-        strip_metadata: strip_metadata,
-        keep_copyright: strip_metadata and Keyword.fetch!(config, :keep_copyright),
-        color_profile: color_profile_policy(Keyword.fetch!(config, :strip_color_profile)),
-        hdr: hdr_policy(Keyword.fetch!(config, :preserve_hdr)),
-        encoder_options: encoder_options_from_config(config),
-        quality_search_max_iterations: Keyword.fetch!(config, :autoquality_max_iterations)
+    {strip_metadata, keep_copyright} =
+      metadata_policy(
+        request.metadata,
+        configured_strip,
+        configured_strip and Keyword.fetch!(config, :keep_copyright)
+      )
+
+    {modern_candidates, headers} = negotiation(request.format, accept_header, config)
+
+    %Policy{
+      mode: output_mode(request.format),
+      modern_candidates: modern_candidates,
+      headers: headers,
+      quality: output_quality(request.quality),
+      default_quality: {:quality, Keyword.fetch!(config, :quality)},
+      format_qualities:
+        Map.merge(
+          normalize_format_qualities(Keyword.fetch!(config, :format_quality)),
+          request.format_qualities
+        ),
+      strip_metadata: strip_metadata,
+      keep_copyright: keep_copyright,
+      color_profile:
+        request.color_profile ||
+          color_profile_policy(Keyword.fetch!(config, :strip_color_profile)),
+      hdr: request.hdr || hdr_policy(Keyword.fetch!(config, :preserve_hdr)),
+      encoder_options:
+        merge_encoder_options(encoder_options_from_config(config), request.encoder_options),
+      quality_search: quality_search,
+      quality_search_max_iterations: Keyword.fetch!(config, :autoquality_max_iterations),
+      max_bytes: request.max_bytes
     }
   end
+
+  defp negotiation(nil, accept_header, config),
+    do: {Negotiation.modern_candidates(accept_header, config), [{"vary", "Accept"}]}
+
+  defp negotiation(_format, _accept_header, _config), do: {[], []}
 
   defp encoder_options_from_config(config) do
     for {format, key} <- @encoder_option_config,
@@ -93,24 +113,6 @@ defmodule ImagePipe.Native.Output do
   defp resolve_quality_search(%RequestOutput{autoquality: {method, fields}}, config),
     do: QualitySearch.build(method, fields, config)
 
-  defp overlay_request(configured, request, quality_search) do
-    {strip_metadata, keep_copyright} =
-      metadata_policy(request.metadata, configured.strip_metadata, configured.keep_copyright)
-
-    %{
-      configured
-      | strip_metadata: strip_metadata,
-        keep_copyright: keep_copyright,
-        color_profile: request.color_profile || configured.color_profile,
-        hdr: request.hdr || configured.hdr,
-        format_qualities: Map.merge(configured.format_qualities, request.format_qualities),
-        quality_search: quality_search,
-        max_bytes: request.max_bytes,
-        encoder_options:
-          merge_encoder_options(configured.encoder_options, request.encoder_options)
-    }
-  end
-
   defp metadata_policy(nil, strip_metadata, keep_copyright),
     do: {strip_metadata, keep_copyright}
 
@@ -118,10 +120,10 @@ defmodule ImagePipe.Native.Output do
   defp metadata_policy(:copyright, _strip_metadata, _keep_copyright), do: {true, true}
   defp metadata_policy(:keep, _strip_metadata, _keep_copyright), do: {false, false}
 
-  defp validate_hdr_profile(%PlanOutput{color_profile: {:convert, _target}, hdr: :preserve}),
+  defp validate_hdr_profile(%Policy{color_profile: {:convert, _target}, hdr: :preserve}),
     do: {:error, :hdr_profile_conversion}
 
-  defp validate_hdr_profile(%PlanOutput{}), do: :ok
+  defp validate_hdr_profile(%Policy{}), do: :ok
 
   defp merge_encoder_options(configured, requested) do
     configured
@@ -132,7 +134,7 @@ defmodule ImagePipe.Native.Output do
   end
 
   defp validate_lossless_webp_request(
-         %PlanOutput{
+         %Policy{
            mode: {:explicit, :webp},
            encoder_options: %{webp: %PlanOutput.WebpOptions{lossless: true}}
          },
@@ -145,15 +147,15 @@ defmodule ImagePipe.Native.Output do
     end
   end
 
-  defp validate_lossless_webp_request(%PlanOutput{}, %RequestOutput{}), do: :ok
+  defp validate_lossless_webp_request(%Policy{}, %RequestOutput{}), do: :ok
 
   defp enabled_url_autoquality?({_method, _fields}), do: true
 
   defp enabled_url_autoquality?(_autoquality), do: false
 
-  defp validate_brackets(%PlanOutput{quality_search: :none}, _config), do: :ok
+  defp validate_brackets(%Policy{quality_search: :none}, _config), do: :ok
 
-  defp validate_brackets(%PlanOutput{mode: mode, quality_search: search}, config) do
+  defp validate_brackets(%Policy{mode: mode, quality_search: search}, config) do
     mode
     |> possible_formats(config)
     |> Enum.filter(&Format.supports_quality?/1)
@@ -172,7 +174,7 @@ defmodule ImagePipe.Native.Output do
     end)
   end
 
-  defp possible_formats(:automatic, config) do
+  defp possible_formats(:source, config) do
     Enum.filter(Format.output_formats(), &automatic_format_enabled?(&1, config))
   end
 

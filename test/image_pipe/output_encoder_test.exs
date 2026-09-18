@@ -34,7 +34,7 @@ defmodule ImagePipe.Output.EncoderTest do
     }
 
     assert {:ok, stream, "image/webp", _meta} =
-             Encoder.stream_output(image, resolved_output, image_module: CaptureImage)
+             Encoder.stream_output(image, resolved_output, nil, image_module: CaptureImage)
 
     assert Enum.to_list(stream) == ["encoded"]
     assert_received {:stream_opts, [suffix: ".webp", quality: 80]}
@@ -54,6 +54,7 @@ defmodule ImagePipe.Output.EncoderTest do
                  keep_copyright: true,
                  color_profile: :preserve_source
                },
+               nil,
                image_module: RaisingStreamImage
              )
 
@@ -74,7 +75,7 @@ defmodule ImagePipe.Output.EncoderTest do
       flatten_background: red
     }
 
-    assert {:ok, stream, "image/jpeg", _meta} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, stream, "image/jpeg", _meta} = Encoder.stream_output(image, resolved, nil, [])
 
     decoded =
       stream
@@ -102,7 +103,7 @@ defmodule ImagePipe.Output.EncoderTest do
       # flatten_background omitted -> defaults to opaque white
     }
 
-    assert {:ok, stream, "image/jpeg", _meta} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, stream, "image/jpeg", _meta} = Encoder.stream_output(image, resolved, nil, [])
 
     decoded =
       stream
@@ -131,7 +132,7 @@ defmodule ImagePipe.Output.EncoderTest do
       # default white flatten_background must be ignored for an alpha-capable format
     }
 
-    assert {:ok, stream, "image/png", _meta} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, stream, "image/png", _meta} = Encoder.stream_output(image, resolved, nil, [])
 
     decoded =
       stream
@@ -221,7 +222,7 @@ defmodule ImagePipe.Output.EncoderTest do
       color_profile: :srgb
     }
 
-    assert {:ok, _stream, "image/png", nil} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, _stream, "image/png", nil} = Encoder.stream_output(image, resolved, nil, [])
   end
 
   test "lossless WebP skips quality and byte-cap search" do
@@ -244,7 +245,7 @@ defmodule ImagePipe.Output.EncoderTest do
       encoder_options: %WebpOptions{lossless: true, effort: 0}
     }
 
-    assert {:ok, _stream, "image/webp", nil} = Encoder.stream_output(image, resolved, [])
+    assert {:ok, _stream, "image/webp", nil} = Encoder.stream_output(image, resolved, nil, [])
   end
 
   describe "stream_output/3 (search path)" do
@@ -252,7 +253,7 @@ defmodule ImagePipe.Output.EncoderTest do
       {:ok, img} = Image.open(@fixture)
       resolved = %{search_resolved() | max_bytes: 200_000}
 
-      {:ok, stream, mime, _meta} = Encoder.stream_output(img, resolved, [])
+      {:ok, stream, mime, _meta} = Encoder.stream_output(img, resolved, nil, [])
       body = stream |> Enum.to_list() |> IO.iodata_to_binary()
       assert mime == "image/jpeg"
       assert byte_size(body) <= 200_000
@@ -270,7 +271,7 @@ defmodule ImagePipe.Output.EncoderTest do
 
       resolved = %{search_resolved() | quality_search: rs}
 
-      {:ok, stream, _mime, _meta} = Encoder.stream_output(img, resolved, [])
+      {:ok, stream, _mime, _meta} = Encoder.stream_output(img, resolved, nil, [])
       body = stream |> Enum.to_list() |> IO.iodata_to_binary()
       assert {:ok, _decoded} = Image.from_binary(body)
     end

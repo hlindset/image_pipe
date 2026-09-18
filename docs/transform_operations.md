@@ -209,8 +209,9 @@ once when resolving source-pixel coordinates into decoded pixels.
 
 `ImagePipe.Transform.InputColorManagement` is a fixed preamble, not an
 operation. It inspects the decoded image and imports an embedded profile into
-the working space before any group runs. The resulting color-management carry
-is stamped for output encoding after the final group.
+the working space before any group runs. The resulting color-management data
+is recorded on `Transform.State` and passed directly to the encoder after the
+final group.
 
 Output format, quality, metadata, profile, copyright, HDR, and automatic
 negotiation policies belong to output planning and encoding. They do not

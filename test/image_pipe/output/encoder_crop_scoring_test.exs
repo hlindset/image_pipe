@@ -70,7 +70,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     attach_stop()
 
     {:ok, [_bin], _mime, _meta} =
-      Encoder.stream_output(zone_plate(7), ssim2_resolved(), telemetry_prefix: @prefix)
+      Encoder.stream_output(zone_plate(7), ssim2_resolved(), nil, telemetry_prefix: @prefix)
 
     assert_receive {:stop, meta}
     assert meta.scorer == :crop
@@ -84,7 +84,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     attach_stop()
 
     {:ok, [_bin], _mime, _meta} =
-      Encoder.stream_output(zone_plate(2), ssim2_resolved(), telemetry_prefix: @prefix)
+      Encoder.stream_output(zone_plate(2), ssim2_resolved(), nil, telemetry_prefix: @prefix)
 
     assert_receive {:stop, meta}
     assert meta.scorer == :full

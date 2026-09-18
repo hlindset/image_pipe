@@ -2,21 +2,8 @@ defmodule ImagePipe.Plan.OutputTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Plan.Output
 
-  test "defaults quality_search to :none and max_bytes to nil" do
-    o = %Output{mode: :automatic}
-    assert o.quality_search == :none
-    assert o.max_bytes == nil
-  end
-
-  test "carries a per-format encoder_options map (empty by default)" do
-    assert %Output{mode: :automatic}.encoder_options == %{}
-
-    opts = %{jpeg_xl: %ImagePipe.Plan.Output.JxlOptions{effort: 4}}
-    assert %Output{mode: :automatic, encoder_options: opts}.encoder_options == opts
-  end
-
   test "default quality_search_offsets carries the 2.4 default and the avif×graphic override" do
-    %Output{quality_search_offsets: offsets} = %Output{mode: :automatic}
+    offsets = Output.default_quality_search_offsets()
     assert offsets.default == 2.4
     assert Map.fetch!(offsets.overrides, {:avif, :graphic}) == 6.0
   end
@@ -27,12 +14,5 @@ defmodule ImagePipe.Plan.OutputTest do
     assert Output.offset_for(offsets, :avif, :photo) == 2.4
     assert Output.offset_for(offsets, :jpeg, :graphic) == 2.4
     assert Output.offset_for(offsets, :webp, :photo) == 2.4
-  end
-
-  test "default_quality defaults to :default and is settable" do
-    assert %ImagePipe.Plan.Output{mode: :automatic}.default_quality == :default
-
-    out = %ImagePipe.Plan.Output{mode: :automatic, default_quality: {:quality, 80}}
-    assert out.default_quality == {:quality, 80}
   end
 end

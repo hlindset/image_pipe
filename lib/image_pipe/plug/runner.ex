@@ -13,12 +13,12 @@ defmodule ImagePipe.Plug.Runner do
   alias ImagePipe.Native
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
-  alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Plug.DebugBuilder
+  alias ImagePipe.Plug.Terminal
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.CachePolicy
@@ -85,10 +85,11 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp handle_request(conn, request, config) do
-    with {:ok, plan_source, plan_output} <- Native.prepare(request, config),
+    accept_header = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
+
+    with {:ok, plan_source, policy} <- Native.prepare(request, config, accept_header),
          {:ok, %ImageSource.Resolved{} = source} <-
-           ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)),
-         {:ok, policy} <- output_policy(conn, request, plan_output, config) do
+           ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)) do
       material = Native.identity_material(request, policy, conn, config)
 
       representation =
@@ -106,13 +107,6 @@ defmodule ImagePipe.Plug.Runner do
       {:error, reason} -> send_error(conn, reason, config)
     end
   end
-
-  defp output_policy(conn, %Request{output: %{terminal: :image}}, plan_output, config) do
-    policy = Policy.from_output_plan(conn, plan_output, config)
-    with :ok <- Policy.ensure_capable(policy, config), do: {:ok, policy}
-  end
-
-  defp output_policy(_conn, %Request{}, _plan_output, _config), do: {:ok, nil}
 
   defp cache_headers(conn, representation, source, config) do
     if Keyword.has_key?(config, :http_cache) do
@@ -263,7 +257,7 @@ defmodule ImagePipe.Plug.Runner do
          cache_key,
          config
        ) do
-    {result, cost_us} = Timing.measure(fn -> Native.render_terminal(source, request, config) end)
+    {result, cost_us} = Timing.measure(fn -> Terminal.render(source, request, config) end)
 
     case result do
       {:ok, content_type, body} ->
@@ -567,7 +561,9 @@ defmodule ImagePipe.Plug.Runner do
          {:ok, %State{image: image}} <-
            materialize_for_delivery(%State{state | image: clamped}, config),
          {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
-           Timing.measure(fn -> encode_first_chunk(image, resolved_output, config) end) do
+           Timing.measure(fn ->
+             encode_first_chunk(image, resolved_output, state.source_color_profile, config)
+           end) do
       debug =
         DebugBuilder.build(%{
           geometry: geometry,
@@ -622,15 +618,15 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp resolve_output(policy, source_format, image, config) do
-    Negotiate.negotiate_output(
+    Policy.negotiate(
       policy,
       source_format,
-      fn -> Image.has_alpha?(image) end,
+      image,
       Telemetry.telemetry_opts(config)
     )
   end
 
-  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, config) do
+  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, source_profile, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
       [:encode],
@@ -638,7 +634,7 @@ defmodule ImagePipe.Plug.Runner do
       fn ->
         result =
           with {:ok, stream, content_type, search_meta} <-
-                 Encoder.stream_output(image, resolved_output, config),
+                 Encoder.stream_output(image, resolved_output, source_profile, config),
                {:ok, chunk, stream_state} <- first_chunk(stream) do
             {:ok, chunk, content_type, stream_state, search_meta}
           end

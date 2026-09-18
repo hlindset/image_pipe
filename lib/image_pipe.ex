@@ -11,6 +11,7 @@ defmodule ImagePipe do
       ImagePipe.Delivery,
       ImagePipe.Native,
       ImagePipe.Error,
+      ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Representation,
@@ -20,7 +21,4 @@ defmodule ImagePipe do
       ImagePipe.Transform
     ],
     exports: [Plug]
-
-  @type imgp_pixels :: {:pixels, non_neg_integer()}
-  @type imgp_ratio :: {number(), number()}
 end

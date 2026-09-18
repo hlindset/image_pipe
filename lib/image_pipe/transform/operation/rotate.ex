@@ -6,7 +6,7 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   no background seam). Any other angle uses the affine
   `vips_rotate` resampler with a transparent background, so the exposed corners
   are transparent; a non-alpha output format flattens that transparency onto the
-  configured `Plan.Output.flatten_background` at encode time.
+  configured `Output.Policy.flatten_background` at encode time.
 
   Materializing op: rotation reads pixels out of row order, so it cannot run over
   a sequential decode. As a `requires_materialization?: true` op it is preceded by
