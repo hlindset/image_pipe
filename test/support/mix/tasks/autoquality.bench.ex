@@ -850,7 +850,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp flatten_alpha(image) do
     if Image.has_alpha?(image) do
-      {:ok, flat} = Image.flatten(image, background_color: [255, 255, 255])
+      {:ok, flat} = Image.flatten(image, background: [255, 255, 255])
       flat
     else
       image

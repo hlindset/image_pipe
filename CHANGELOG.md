@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Updated Elixir/OTP tooling and the library and Fiddle dependencies. Migrated
+  Image background options and Req connection settings, and replaced Vix Git
+  pins with the upstream release containing the required fixes.
+
 - Prepared package metadata for release evaluation.
 - Added product-neutral source adapters for local paths, HTTP(S), and
   S3-compatible object sources.

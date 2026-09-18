@@ -185,12 +185,11 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
 
     with {:ok, image} <- alpha_ready_image(state.image, operation.background),
          {:ok, embedded} <-
-           Image.embed(image, width, height, %{
+           Image.embed(image, width, height,
              x: x,
              y: y,
-             background_color: background_color(operation.background, image),
-             extend_mode: :VIPS_EXTEND_BACKGROUND
-           }) do
+             background: background_color(operation.background, image)
+           ) do
       {:ok, {embedded, x, y}}
     end
   end

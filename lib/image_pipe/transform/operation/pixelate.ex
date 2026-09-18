@@ -58,12 +58,11 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
   defp mirror_embed(image, width, height, width, height), do: {:ok, image}
 
   defp mirror_embed(image, _width, _height, target_width, target_height) do
-    Image.embed(image, target_width, target_height, %{
+    Image.embed(image, target_width, target_height,
       x: 0,
       y: 0,
-      background_color: [0, 0, 0],
-      extend_mode: :VIPS_EXTEND_MIRROR
-    })
+      extend_mode: :mirror
+    )
   end
 
   defp crop_to_original_dimensions(image, width, height, width, height), do: {:ok, image}

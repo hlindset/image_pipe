@@ -310,7 +310,7 @@ defmodule ImagePipe.Output.Encoder do
     if Format.supports_alpha?(format) or not Image.has_alpha?(image) do
       {:ok, image}
     else
-      case Image.flatten(image, background_color: Color.to_rgb_list(background)) do
+      case Image.flatten(image, background: Color.to_rgb_list(background)) do
         {:ok, flattened} -> {:ok, flattened}
         {:error, reason} -> {:error, {:encode, flatten_error(reason), []}}
       end

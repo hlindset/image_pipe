@@ -20,7 +20,7 @@ defmodule ImagePipe.Transform.Operation.Background do
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{color: [red, green, blue, 255]}, %State{} = state) do
-    case Image.flatten(state.image, background_color: [red, green, blue]) do
+    case Image.flatten(state.image, background: [red, green, blue]) do
       {:ok, image} -> {:ok, set_image(state, image)}
       {:error, reason} -> {:error, {__MODULE__, reason}}
     end

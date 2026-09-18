@@ -175,15 +175,12 @@ defmodule ImagePipe.MixProject do
       {:opentelemetry_api, "~> 1.5", optional: true},
       {:opentelemetry, "~> 1.7", only: :test},
       {:nimble_options, "~> 1.1"},
-      {:image, "~> 0.71"},
+      {:image, "~> 0.72"},
       {:ssimulacra2, "~> 0.1.0"},
       {:butteraugli, "~> 0.1.0"},
-      {:vix,
-       git: "https://github.com/akash-akya/vix.git",
-       ref: "157bcf7ab3405b93241743d0f8c37166547266e5",
-       override: true},
+      {:vix, "~> 0.41"},
       {:color, "~> 0.13"},
-      {:req, "~> 0.5"},
+      {:req, "~> 0.7"},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:boundary, "~> 0.10", runtime: false},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
@@ -192,7 +189,7 @@ defmodule ImagePipe.MixProject do
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:talan, "~> 0.2.1"},
+      {:talan, "~> 1.0"},
       {:bandit, "~> 1.5", only: [:dev, :test]}
     ]
 
@@ -218,7 +215,7 @@ defmodule ImagePipe.MixProject do
     # integration smoke lane (`AWS_INTEGRATION`).
     testcontainers_deps =
       if System.get_env("AWS_INTEGRATION") in ["1", "true"] do
-        [{:testcontainers, "~> 1.14", only: :test}]
+        [{:testcontainers, "~> 2.4", only: :test}]
       else
         []
       end

@@ -11,6 +11,12 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Telemetry.Trace.{Context, RaisingExporter, ReqStep, Span, Stack, TestExporter}
+  alias ImagePipe.Telemetry.Trace.TestReqAdapter
+
+  defp stub_request(respond) do
+    Req.new(adapter: TestReqAdapter)
+    |> Req.Request.put_private(:test_response, respond)
+  end
 
   setup do
     TestExporter.set_receiver(self())
@@ -28,14 +34,12 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     # Open a parent span so the client span has a trace to attach to.
     Telemetry.span([], [:request], %{}, fn ->
       req =
-        Req.new(
-          adapter: fn req ->
-            assert [tp] = Req.Request.get_header(req, "traceparent")
-            # Sampled (default mint) parent → outbound flags -01.
-            assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-01\z/
-            {req, Req.Response.new(status: 200, body: "ok")}
-          end
-        )
+        stub_request(fn req ->
+          assert [tp] = Req.Request.get_header(req, "traceparent")
+          # Sampled (default mint) parent → outbound flags -01.
+          assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-01\z/
+          {req, Req.Response.new(status: 200, body: "ok")}
+        end)
         |> ReqStep.attach()
 
       {:ok, _} = Req.request(req)
@@ -57,14 +61,12 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     on_exit(fn -> Stack.clear() end)
 
     req =
-      Req.new(
-        adapter: fn req ->
-          assert [tp] = Req.Request.get_header(req, "traceparent")
-          # Unsampled parent → outbound flags -00.
-          assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-00\z/
-          {req, Req.Response.new(status: 200, body: "ok")}
-        end
-      )
+      stub_request(fn req ->
+        assert [tp] = Req.Request.get_header(req, "traceparent")
+        # Unsampled parent → outbound flags -00.
+        assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-00\z/
+        {req, Req.Response.new(status: 200, body: "ok")}
+      end)
       |> ReqStep.attach()
 
     {:ok, _} = Req.request(req)
@@ -76,11 +78,9 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   test "emits a client span with status :error on transport error" do
     Telemetry.span([], [:request], %{}, fn ->
       req =
-        Req.new(
-          adapter: fn req ->
-            {req, %Mint.TransportError{reason: :timeout}}
-          end
-        )
+        stub_request(fn req ->
+          {req, %Mint.TransportError{reason: :timeout}}
+        end)
         |> ReqStep.attach()
 
       {:error, _exception} = Req.request(req)
@@ -95,12 +95,10 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   test "error span carries the exception type, never the inspected message" do
     Telemetry.span([], [:request], %{}, fn ->
       req =
-        Req.new(
-          adapter: fn req ->
-            # An exception whose message embeds a fake signed source URL.
-            {req, %RuntimeError{message: "boom https://secret.example/x?sig=LEAK"}}
-          end
-        )
+        stub_request(fn req ->
+          # An exception whose message embeds a fake signed source URL.
+          {req, %RuntimeError{message: "boom https://secret.example/x?sig=LEAK"}}
+        end)
         |> ReqStep.attach()
 
       {:error, _exception} = Req.request(req)
@@ -118,13 +116,11 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
 
     Telemetry.span([], [:request], %{}, fn ->
       req =
-        Req.new(
-          adapter: fn req ->
-            # traceparent is still injected (cheap, header only); span just is not emitted.
-            assert [_tp] = Req.Request.get_header(req, "traceparent")
-            {req, Req.Response.new(status: 200, body: "ok")}
-          end
-        )
+        stub_request(fn req ->
+          # traceparent is still injected (cheap, header only); span just is not emitted.
+          assert [_tp] = Req.Request.get_header(req, "traceparent")
+          {req, Req.Response.new(status: 200, body: "ok")}
+        end)
         |> ReqStep.attach()
 
       {:ok, %Req.Response{status: 200}} = Req.request(req)
@@ -143,11 +139,9 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     end)
 
     req =
-      Req.new(
-        adapter: fn req ->
-          {req, Req.Response.new(status: 200, body: "ok")}
-        end
-      )
+      stub_request(fn req ->
+        {req, Req.Response.new(status: 200, body: "ok")}
+      end)
       |> ReqStep.attach()
 
     assert {:ok, %Req.Response{status: 200}} = Req.request(req)
