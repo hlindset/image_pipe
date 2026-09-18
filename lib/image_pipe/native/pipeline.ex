@@ -131,7 +131,7 @@ defmodule ImagePipe.Native.Pipeline do
   defp target_axis(n, scale), do: n * scale
 
   defp crop_extent(%Group{region: {_x, _y, w, h}}, {dw, dh}),
-    do: {round(resolve_length(w, dw)), round(resolve_length(h, dh))}
+    do: {min(round(resolve_length(w, dw)), dw), min(round(resolve_length(h, dh)), dh)}
 
   defp crop_extent(%Group{crop: {_w, _h}} = group, display_dims),
     do: crop_dimensions(group, display_dims)

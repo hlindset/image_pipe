@@ -139,8 +139,9 @@ EXIF is not reapplied. Internal orientation/color/materialization state may
 survive a group boundary when doing so is observably equivalent. Decode
 happens once, and only the first group may inform shrink-on-load.
 BlurHash's terminal reduction contributes a decode hint only for a single
-group. Multi-group requests preserve the first group's input scale unless
-that group explicitly resizes it.
+group, sized against its source crop when present so the crop retains enough
+detail for the terminal's working frame. Multi-group requests preserve the first
+group's input scale unless that group explicitly resizes it.
 
 ### Crop ratios and trim symmetry
 

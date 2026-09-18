@@ -88,11 +88,12 @@ defmodule ImagePipe.Transform.DecodePlanner do
   end
 
   defp compute_load_shrink_for_request(
-         %Request{terminal_reduction: {target_w, target_h}},
+         %Request{terminal_reduction: {target_w, target_h}} = request,
          shrink_w,
          shrink_h
        ) do
-    ratio_from_targets(shrink_w, shrink_h, target_w, target_h)
+    {crop_w, crop_h} = request.crop_extent || {shrink_w, shrink_h}
+    ratio_from_targets(crop_w, crop_h, target_w, target_h)
   end
 
   defp compute_load_shrink_for_request(%Request{}, _shrink_w, _shrink_h), do: 1.0
