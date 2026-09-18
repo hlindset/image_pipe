@@ -198,8 +198,7 @@
       aria-label="Native processing options"
       bind:value={nativeState.options}
       rows="5"
-      spellcheck="false"
-    ></textarea>
+      spellcheck="false"></textarea>
   </label>
   <p>Separate options with a slash. Use <code>then</code> to start another processing group.</p>
 </details>

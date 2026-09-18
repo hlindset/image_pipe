@@ -38,8 +38,15 @@ against the running demo. The loopback HTTP adapter is enabled in
 development and tests; it is disabled in the base configuration used by
 production. HTTP samples follow the browser's loopback origin and port.
 
-From the repository root, run `mise run setup` once to install dependencies,
+From the repository root, run `mise install` to install the toolchain, then
+`mise run setup` once to install dependencies,
 then `mise run fiddle` to start Phoenix and Vite.
+
+Run `mise run precommit:fiddle` for the library and Fiddle checks. The frontend
+uses the stable TypeScript 7 native compiler through `@typescript/native`.
+The `typescript` dependency aliases `@typescript/typescript6` because
+`svelte-check` still needs its JavaScript compiler API, following the
+[TypeScript 7 migration guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 
