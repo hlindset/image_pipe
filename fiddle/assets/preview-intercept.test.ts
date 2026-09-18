@@ -10,9 +10,9 @@ import {
 describe("isPreviewUrl", () => {
   it("matches processing prefixes regardless of query", () => {
     expect(isPreviewUrl("http://localhost:4000/native-image/w=64/src/images/dog.jpg")).toBe(true);
-    expect(
-      isPreviewUrl("http://localhost:4000/img/_/rs:fit:10:10/plain/local:///images/dog.jpg"),
-    ).toBe(true);
+    expect(isPreviewUrl("http://localhost:4000/native-signed/sig=x/w=64/src/images/dog.jpg")).toBe(
+      true,
+    );
   });
 
   it("rejects the SPA shell and vite assets", () => {
@@ -27,7 +27,7 @@ describe("isPreviewUrl", () => {
   });
 
   it("exposes the prefixes as a readonly list", () => {
-    expect([...PREVIEW_PREFIXES]).toEqual(["/native-image/", "/img/"]);
+    expect([...PREVIEW_PREFIXES]).toEqual(["/native-image/", "/native-signed/"]);
   });
 });
 
@@ -35,7 +35,7 @@ describe("parsePreviewMeta", () => {
   it("accepts a well-formed message", () => {
     const message = parsePreviewMeta({
       type: "preview-meta",
-      url: "http://localhost:4000/img/x",
+      url: "http://localhost:4000/native-image/src/images/dog.jpg",
       accept: "image/avif",
       ok: true,
       status: 200,
@@ -50,10 +50,10 @@ describe("parsePreviewMeta", () => {
   });
 
   it("coerces missing/wrong-typed optional fields to safe defaults", () => {
-    const message = parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y" });
+    const message = parsePreviewMeta({ type: "preview-meta", url: "http://x/native-image/y" });
     expect(message).toEqual({
       type: "preview-meta",
-      url: "http://x/img/y",
+      url: "http://x/native-image/y",
       accept: null,
       ok: false,
       status: 0,
@@ -68,7 +68,7 @@ describe("parsePreviewMeta", () => {
   it("rejects foreign messages", () => {
     expect(parsePreviewMeta(null)).toBeNull();
     expect(parsePreviewMeta("hi")).toBeNull();
-    expect(parsePreviewMeta({ type: "other", url: "http://x/img/y" })).toBeNull();
+    expect(parsePreviewMeta({ type: "other", url: "http://x/native-image/y" })).toBeNull();
     expect(parsePreviewMeta({ type: "preview-meta" })).toBeNull(); // no url
   });
 });
@@ -99,7 +99,7 @@ describe("parsePreviewMeta debugHeaders", () => {
   it("accepts a string→string record and drops non-string values", () => {
     const message = parsePreviewMeta({
       type: "preview-meta",
-      url: "http://x/img/y",
+      url: "http://x/native-image/y",
       debugHeaders: { "x-imagepipe-cache": "hit", "x-imagepipe-source-width": 4000, bad: null },
     });
     expect(message?.debugHeaders).toEqual({ "x-imagepipe-cache": "hit" });
@@ -107,14 +107,17 @@ describe("parsePreviewMeta debugHeaders", () => {
 
   it("coerces a missing or non-object debugHeaders to null", () => {
     expect(
-      parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y" })?.debugHeaders,
+      parsePreviewMeta({ type: "preview-meta", url: "http://x/native-image/y" })?.debugHeaders,
     ).toBeNull();
     expect(
-      parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y", debugHeaders: "nope" })
-        ?.debugHeaders,
+      parsePreviewMeta({
+        type: "preview-meta",
+        url: "http://x/native-image/y",
+        debugHeaders: "nope",
+      })?.debugHeaders,
     ).toBeNull();
     expect(
-      parsePreviewMeta({ type: "preview-meta", url: "http://x/img/y", debugHeaders: {} })
+      parsePreviewMeta({ type: "preview-meta", url: "http://x/native-image/y", debugHeaders: {} })
         ?.debugHeaders,
     ).toBeNull();
   });

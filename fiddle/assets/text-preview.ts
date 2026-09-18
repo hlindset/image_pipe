@@ -8,8 +8,11 @@ export type TextPreview = {
 };
 
 export function isTextPreview(path: string): boolean {
-  if (!path.startsWith("/native-image/")) return false;
-  const segments = path.slice("/native-image/".length).split("/");
+  const prefix = ["/native-image/", "/native-signed/"].find((candidate) =>
+    path.startsWith(candidate),
+  );
+  if (prefix === undefined) return false;
+  const segments = path.slice(prefix.length).split("/");
   const sourceIndex = segments.findIndex((segment) => ["src", "src64", "enc"].includes(segment));
   return segments
     .slice(0, sourceIndex)

@@ -11,25 +11,10 @@ defmodule ImagePipeFiddle.SourceMountsTest do
     :ok
   end
 
-  test "source mounts configure the native provider" do
+  test "source mounts configure the native endpoint" do
     opts = ImagePipe.Plug.init(sources: ImagePipeFiddle.Application.source_mounts())
     sources = Keyword.fetch!(opts, :sources)
     assert Map.has_key?(sources, :path)
-    assert Map.has_key?(sources, :s3)
-    assert Map.has_key?(sources, :http)
-  end
-
-  test "source mounts configure the imgproxy provider" do
-    opts =
-      ImagePipe.Plug.init(
-        [dialect: ImagePipe.Dialect.Imgproxy] ++
-          Application.fetch_env!(:image_pipe_fiddle, :imgproxy) ++
-          [sources: ImagePipeFiddle.Application.source_mounts()]
-      )
-
-    assert is_list(opts)
-    sources = Keyword.fetch!(opts, :sources)
-    # url: fans out to :http/:https inside ImagePipe; s3 stays under :s3.
     assert Map.has_key?(sources, :s3)
     assert Map.has_key?(sources, :http)
   end

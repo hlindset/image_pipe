@@ -162,6 +162,13 @@ select {
   gap: 12px;
 }
 
+.field-help {
+  margin: -4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .switch-field {
   display: flex;
   align-items: center;
@@ -191,7 +198,7 @@ select {
 }
 
 /* Shared sidebar section/accordion structure (global for the same reason as the
-   form controls: every provider panel renders its own sections, and Svelte scopes
+   form controls: the editor renders its own sections, and Svelte scopes
    component styles). */
 .tool-section {
   display: flex;

@@ -4,14 +4,21 @@ import {
   sourceIdentifierForRequest,
   type SourceImage,
   type SourceType,
-} from "./processing-path";
+} from "./source";
 
-export type NativeState = { source: SourceImage; sourceType: SourceType; options: string };
+export type Protection = "unsigned" | "signed" | "signed-concealed";
+export type NativeState = {
+  source: SourceImage;
+  sourceType: SourceType;
+  options: string;
+  protection: Protection;
+};
 
 export const defaultNativeState: NativeState = {
   source: "images/dog.jpg",
   sourceType: "local",
   options: "w=800",
+  protection: "unsigned",
 };
 
 export function resetNativeSettings(currentState: NativeState): NativeState {
@@ -22,7 +29,7 @@ export function resetNativeSettings(currentState: NativeState): NativeState {
   };
 }
 
-function nativeTail(state: NativeState): string {
+export function nativeTail(state: NativeState): string {
   const identifier =
     state.sourceType === "local"
       ? state.source
@@ -35,8 +42,45 @@ export function nativeFetchPath(state: NativeState): string {
   return `/native-image/${nativeTail(state)}`;
 }
 
+export async function resolveNativeFetchPath(
+  state: NativeState,
+  fetcher: typeof fetch = fetch,
+): Promise<string> {
+  if (state.protection === "unsigned") return nativeFetchPath(state);
+
+  const response = await fetcher("/api/native-path", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tail: nativeTail(state), protection: state.protection }),
+  });
+  if (!response.ok) throw new Error("Unable to protect preview request");
+
+  const result = (await response.json()) as { path?: unknown };
+  if (typeof result.path !== "string") throw new Error("Invalid protected preview response");
+  return result.path;
+}
+
+export class NativePathResolution {
+  private requestId = 0;
+
+  begin(state: NativeState): { requestId: number; path: string | null } {
+    const requestId = ++this.requestId;
+    const path = state.protection === "unsigned" ? nativeFetchPath(state) : null;
+    return { requestId, path };
+  }
+
+  accept(requestId: number, path: string): string | null {
+    return requestId === this.requestId ? path : null;
+  }
+
+  reject(requestId: number): boolean {
+    return requestId === this.requestId;
+  }
+}
+
 export function nativeBrowserPath(state: NativeState): string {
-  return `/native/${nativeTail(state)}`;
+  const protection = state.protection === "unsigned" ? "" : `${state.protection}/`;
+  return `/native/${protection}${nativeTail(state)}`;
 }
 
 export function parseNativeTail(tail: string): NativeState | null {
@@ -55,5 +99,9 @@ export function parseNativeTail(tail: string): NativeState | null {
     : parseSourceIdentifier(identifier);
   if (!source) return null;
   if (!image && source.sourceType === "local") return null;
-  return { ...source, options: segments.slice(0, sourceIndex).join("/") };
+  return {
+    ...source,
+    options: segments.slice(0, sourceIndex).join("/"),
+    protection: "unsigned",
+  };
 }

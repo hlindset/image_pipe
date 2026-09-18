@@ -70,4 +70,49 @@ defmodule ImagePipeFiddleWeb.NativeWireTest do
     assert {Image.width(auto_image), Image.height(auto_image)} == {64, 96}
     assert {Image.width(none_image), Image.height(none_image)} == {96, 64}
   end
+
+  test "signing helper produces a request bound to its options", %{conn: conn} do
+    response =
+      post(conn, "/api/native-path", %{
+        "tail" => "w=64/format=png/src/images/dog.jpg",
+        "protection" => "signed"
+      })
+
+    assert response.status == 200
+    assert %{"path" => path} = JSON.decode!(response.resp_body)
+    assert String.starts_with?(path, "/native-signed/sig=")
+    assert get(build_conn(), path).status == 200
+
+    tampered = String.replace(path, "/w=64/", "/w=65/")
+    assert get(build_conn(), tampered).status == 403
+  end
+
+  test "concealed helper paths hide the source and refresh after an option edit", %{conn: conn} do
+    path_64 = protected_path(conn, "w=64/format=png/src/images/dog.jpg")
+    path_65 = protected_path(build_conn(), "w=65/format=png/src/images/dog.jpg")
+
+    for {path, width} <- [{path_64, 64}, {path_65, 65}] do
+      assert String.starts_with?(path, "/native-signed/sig=")
+      assert String.contains?(path, "/enc/")
+      refute String.contains?(path, "images/dog.jpg")
+      response = get(build_conn(), path)
+      assert response.status == 200
+      {:ok, image} = Image.from_binary(response.resp_body)
+      assert Image.width(image) == width
+    end
+
+    refute path_64 == path_65
+  end
+
+  defp protected_path(conn, tail) do
+    response =
+      post(conn, "/api/native-path", %{
+        "tail" => tail,
+        "protection" => "signed-concealed"
+      })
+
+    assert response.status == 200
+    assert %{"path" => path} = JSON.decode!(response.resp_body)
+    path
+  end
 end

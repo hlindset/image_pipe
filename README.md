@@ -228,6 +228,8 @@ endpoint is `/native-image`. The option editor supports native paths and
 `then` groups, with examples for geometry, object and face crops, pixel effects,
 canvas placement, padding, and trim.
 The source selector exercises local files, S3, and the demo's HTTP source.
+The Protection control demonstrates signed URLs and concealed sources using
+fixed demo keys.
 
 ![Demo fiddle desktop screenshot](docs/assets/demo-fiddle-desktop.png)
 

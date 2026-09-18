@@ -5,10 +5,13 @@ defmodule ImagePipeFiddle.Application do
 
   use Application
 
+  @demo_signing_key String.duplicate("a1", 32)
+  @demo_source_encryption_key :binary.copy(<<42, 73>>, 16)
+
   @impl true
   def start(_type, _args) do
     :persistent_term.put({__MODULE__, :native_opts}, build_native_opts())
-    :persistent_term.put({__MODULE__, :imgproxy_opts}, build_imgproxy_opts())
+    :persistent_term.put({__MODULE__, :native_signed_opts}, build_native_signed_opts())
     ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
     maybe_attach_tracer()
 
@@ -47,7 +50,7 @@ defmodule ImagePipeFiddle.Application do
   end
 
   @doc false
-  # Source adapters mounted for both providers. The local File source is
+  # Source adapters mounted for the native endpoint. The local File source is
   # always available; s3 (via the opt-in s3proxy compose service) lets the demo
   # compare source adapters on byte-identical sample images.
   def source_mounts do
@@ -84,6 +87,20 @@ defmodule ImagePipeFiddle.Application do
   end
 
   defp build_native_opts do
+    native_opts()
+    |> ImagePipe.Plug.init()
+  end
+
+  defp build_native_signed_opts do
+    native_opts()
+    |> Keyword.merge(
+      keys: [@demo_signing_key],
+      source_encryption_keys: [@demo_source_encryption_key]
+    )
+    |> ImagePipe.Plug.init()
+  end
+
+  defp native_opts do
     [
       allow_origin: "*",
       allow_debug_headers: true,
@@ -94,25 +111,6 @@ defmodule ImagePipeFiddle.Application do
       sources: source_mounts()
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Plug.init()
-  end
-
-  defp build_imgproxy_opts do
-    imgproxy = Application.fetch_env!(:image_pipe_fiddle, :imgproxy)
-
-    [
-      dialect: ImagePipe.Dialect.Imgproxy,
-      sources: source_mounts(),
-      # Graceful fallback: detection failures degrade to attention crop (200) rather
-      # than erroring; the default Logger surfaces any detection fallback.
-      detector_required: false,
-      allow_debug_headers: true
-    ]
-    # The dialect takes one flat keyword list; the :imgproxy env sublist
-    # (signature, smart_crop_face_detection) merges in at the top level.
-    |> Keyword.merge(imgproxy)
-    |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Plug.init()
   end
 
   defp maybe_put_cache(opts, nil), do: opts

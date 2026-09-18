@@ -15,7 +15,13 @@ defmodule ImagePipeFiddleWeb.Router do
   end
 
   forward "/native-image", ImagePipeFiddleWeb.Native
-  forward "/img", ImagePipeFiddleWeb.Imgproxy
+  forward "/native-signed", ImagePipeFiddleWeb.NativeSigned
+
+  scope "/api", ImagePipeFiddleWeb do
+    pipe_through(:api)
+
+    post "/native-path", NativePathController, :create
+  end
 
   scope "/", ImagePipeFiddleWeb do
     pipe_through(:browser)

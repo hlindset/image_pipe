@@ -1,5 +1,5 @@
 // Processing endpoints only; browser links serve the SPA shell.
-export const PREVIEW_PREFIXES = ["/native-image/", "/img/"] as const;
+export const PREVIEW_PREFIXES = ["/native-image/", "/native-signed/"] as const;
 
 export function isPreviewUrl(url: string): boolean {
   let pathname: string;
