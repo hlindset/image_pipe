@@ -3,14 +3,13 @@ defmodule ImagePipe.Dialect.VixStreamContinuationTest do
 
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.Producer
-  alias ImagePipe.Dialect.Declarative
+  alias ImagePipe.Native
+  alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Output
-  alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Delivery.ProducerClient
@@ -474,29 +473,31 @@ defmodule ImagePipe.Dialect.VixStreamContinuationTest do
 
   # The delivery `build_fun` the runner hands `Delivery.Producer`, assembled
   # from the same seams `ImagePipe.Plug.DialectRunner` uses: the shared
-  # fetch/decode bracket with a declarative dialect's decode preflight, the
-  # declarative pipeline run, output negotiation, and the encoder's chunk
+  # fetch/decode bracket with native decode preflight, the native
+  # pipeline run, output negotiation, and the encoder's chunk
   # stream. The Vix target pipe is created inside the producer process, which
   # is what makes it observable through the producer's links.
   defp producer_build_fun do
     config = runtime_config()
-    plan = plan()
-    {:ok, source} = Source.resolve(plan.source, config, [])
+    conn = Plug.Test.conn(:get, "/format=jpeg/src/images/beach.jpg")
+    {{:ok, request}, _metadata} = Native.parse(conn, config)
+    {:ok, source_request} = NativeSource.translate(request.source, config)
+    {:ok, source} = Source.resolve(source_request, config, [])
 
-    policy = Policy.from_output_plan(Plug.Test.conn(:get, "/"), plan.output, config)
+    policy = Policy.from_output_plan(conn, Identity.plan_output(request), config)
 
     fn pump ->
       Decode.with_image(
         source,
-        Keyword.put(config, :auto_rotate?, false),
-        &Declarative.decode_request(plan, &1),
-        &transform_and_pump(&1, &2, plan, policy, config, pump)
+        Keyword.put(config, :auto_rotate?, true),
+        &Pipeline.decode_request(request, &1),
+        &transform_and_pump(&1, &2, request, policy, config, pump)
       )
     end
   end
 
-  defp transform_and_pump(state, geometry, plan, policy, config, pump) do
-    {:ok, %State{} = state} = Declarative.execute(state, geometry, plan, config)
+  defp transform_and_pump(state, geometry, request, policy, config, pump) do
+    {:ok, %State{} = state} = Pipeline.run(state, geometry, request, config)
     {:ok, %State{image: image}} = Materializer.materialize(state, config)
 
     {:ok, resolved_output} =
@@ -514,26 +515,16 @@ defmodule ImagePipe.Dialect.VixStreamContinuationTest do
   end
 
   defp runtime_config do
-    Source.validate_config!(
+    ImagePipe.Plug.init(
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ],
-      output_formats: [jpeg: []],
-      output_negotiation: [],
       max_body_bytes: 10_000_000,
       max_input_pixels: 40_000_000,
       max_result_width: 8_192,
       max_result_height: 8_192,
       max_result_pixels: 40_000_000
     )
-  end
-
-  defp plan do
-    %Plan{
-      source: %Path{segments: ["images", "beach.jpg"]},
-      pipelines: [%Pipeline{operations: []}],
-      output: %Output{mode: {:explicit, :jpeg}}
-    }
   end
 
   defp assert_process_down(nil), do: :not_observed
