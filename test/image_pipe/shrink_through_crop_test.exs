@@ -5,8 +5,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   alias ImagePipe.Decode
   alias ImagePipe.Native
   alias ImagePipe.Native.Pipeline
-  alias ImagePipe.Native.Request
   alias ImagePipe.Native.Source, as: NativeSource
+  alias ImagePipe.Plan.Request
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.State

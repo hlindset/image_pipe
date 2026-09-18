@@ -5,10 +5,10 @@ defmodule ImagePipe.Native.BlurhashTest do
 
   alias ImagePipe.Decode
   alias ImagePipe.Native.Pipeline
-  alias ImagePipe.Native.Request
-  alias ImagePipe.Native.Request.Group
-  alias ImagePipe.Native.Request.Output
   alias ImagePipe.Output.Terminal.Blurhash
+  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Request.Group
+  alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter

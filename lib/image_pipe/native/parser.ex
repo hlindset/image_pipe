@@ -35,10 +35,10 @@ defmodule ImagePipe.Native.Parser do
   alias ImagePipe.Native.Diagnostic
   alias ImagePipe.Native.OptionSpec
   alias ImagePipe.Native.Presets
-  alias ImagePipe.Native.Request
-  alias ImagePipe.Native.Request.Group
-  alias ImagePipe.Native.Request.Output
   alias ImagePipe.Native.Value
+  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Request.Group
+  alias ImagePipe.Plan.Request.Output
 
   @type span :: Diagnostic.span()
   @type lexed :: %{

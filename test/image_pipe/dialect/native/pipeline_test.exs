@@ -4,9 +4,9 @@ defmodule ImagePipe.Native.PipelineTest do
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Path
   alias ImagePipe.Native.Pipeline
-  alias ImagePipe.Native.Request
-  alias ImagePipe.Native.Request.Group
-  alias ImagePipe.Native.Request.Output
+  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Request.Group
+  alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Operation.Background

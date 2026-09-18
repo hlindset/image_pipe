@@ -1,51 +1,11 @@
-defmodule ImagePipe.Native.Request do
+defmodule ImagePipe.Plan.Request.Group do
   @moduledoc """
-  Canonical, pre-negotiation request data for the native URL dialect
-  [native §Canonical form and identity].
-
-  Produced by `ImagePipe.Native.Parser.parse/2` from Task 4's lexed
-  path data. Pure data — no PIDs, refs, or conn state [pipelines §Design
-  principles 2]. Within a group, option order is semantically irrelevant:
-  any permutation of a group's segments produces an equal `%Request{}`
-  [native §Canonical form and identity] (property-tested in
-  `canonical_property_test.exs`).
-  """
-
-  alias ImagePipe.Native.Request.Group
-  alias ImagePipe.Native.Request.Output
-
-  @enforce_keys [:groups, :output, :source]
-  defstruct groups: [],
-            output: nil,
-            source: nil,
-            orient: :auto,
-            filename: nil,
-            attachment?: false,
-            cachebuster: nil,
-            expires: nil,
-            debug?: false
-
-  @type t :: %__MODULE__{
-          groups: [Group.t()],
-          output: Output.t(),
-          source: String.t(),
-          orient: :auto | :none,
-          filename: String.t() | nil,
-          attachment?: boolean(),
-          cachebuster: String.t() | nil,
-          expires: pos_integer() | nil,
-          debug?: boolean()
-        }
-end
-
-defmodule ImagePipe.Native.Request.Group do
-  @moduledoc """
-  One pipeline-group's worth of transform intent [native §Pipeline groups].
+  One group's transform intent.
 
   `then` splits a request into ordered groups; each group is one pass of
   the fixed stage order (`rotate → flip → trim → region/crop → resize →
-  cover result crop → blur → … → pad → bg`) — normative for this dialect,
-  not option order in the URL.
+  cover result crop → blur → … → pad → bg`). The executor applies this order
+  independently of option order in the URL.
   """
 
   @type length :: {:px, number()} | {:pct, number()}
@@ -148,43 +108,5 @@ defmodule ImagePipe.Native.Request.Group do
               },
           pad: nil | {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()},
           bg: nil | {0..255, 0..255, 0..255, float()}
-        }
-end
-
-defmodule ImagePipe.Native.Request.Output do
-  @moduledoc """
-  Terminal selection and output policy [native §Output & delivery,
-  §Terminal contracts].
-  """
-
-  defstruct terminal: :image,
-            format: nil,
-            quality: nil,
-            metadata: nil,
-            color_profile: nil,
-            hdr: nil,
-            format_qualities: %{},
-            autoquality: nil,
-            max_bytes: nil,
-            encoder_options: %{}
-
-  @type t :: %__MODULE__{
-          terminal: :image | :blurhash | :info,
-          format: nil | :avif | :webp | :jpeg | :png | :jpeg_xl,
-          quality: nil | 1..100,
-          metadata: nil | :strip | :copyright | :keep,
-          color_profile:
-            nil
-            | :strip
-            | :preserve_source
-            | {:convert, :srgb | :display_p3 | :adobe_rgb},
-          hdr: nil | :tone_map | :preserve,
-          format_qualities: %{optional(atom()) => {:quality, 1..100}},
-          autoquality:
-            nil
-            | :none
-            | {:size | :ssimulacra2 | :butteraugli, keyword(pos_integer() | float())},
-          max_bytes: nil | pos_integer(),
-          encoder_options: %{optional(atom()) => struct()}
         }
 end

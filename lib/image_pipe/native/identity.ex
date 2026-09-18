@@ -30,8 +30,8 @@ defmodule ImagePipe.Native.Identity do
 
   alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Native.Info
-  alias ImagePipe.Native.Request
   alias ImagePipe.Output.Terminal.Blurhash
+  alias ImagePipe.Plan.Request
   alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
 

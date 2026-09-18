@@ -28,12 +28,12 @@ defmodule ImagePipe.Native.Pipeline do
   `ImagePipe.Transform.InputColorManagement`.
   """
 
-  alias ImagePipe.Native.Request
-  alias ImagePipe.Native.Request.Group
-  alias ImagePipe.Native.Request.Output
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Measure
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Request.Group
+  alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner

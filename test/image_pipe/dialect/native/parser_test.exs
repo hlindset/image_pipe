@@ -7,10 +7,10 @@ defmodule ImagePipe.Native.ParserTest do
   alias ImagePipe.Native.DiagnosticRenderer
   alias ImagePipe.Native.OptionSpec
   alias ImagePipe.Native.Parser
-  alias ImagePipe.Native.Request
-  alias ImagePipe.Native.Request.Group
-  alias ImagePipe.Native.Request.Output
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Request.Group
+  alias ImagePipe.Plan.Request.Output
 
   # `parse/2` consumes Task 4's lexed map directly — never a conn — so
   # tests build that map by hand instead of going through `Path.extract/1`.

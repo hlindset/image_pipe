@@ -28,6 +28,11 @@ mounts every API through `ImagePipe.Plug` and
 pipelines. Shared regression tests cover the native request lifecycle,
 streaming, cache, color, decode, and orientation behavior.
 
+Canonical native data lives in `ImagePipe.Plan.Request`, with explicit
+`Plan.Request.Group` transform intent and sparse `Plan.Request.Output` policy.
+Parsing and execution share these values. `Plan.Output` holds the resolved
+image encoding policy after host defaults and format negotiation.
+
 The native API implements these option keys:
 
 `orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,

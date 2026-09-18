@@ -50,11 +50,11 @@ defmodule ImagePipe.Native do
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Path
   alias ImagePipe.Native.Pipeline
-  alias ImagePipe.Native.Request
   alias ImagePipe.Native.Signature
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Native.SourceEncryption
   alias ImagePipe.Output.Terminal.Blurhash
+  alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry

@@ -7,6 +7,9 @@ defmodule ImagePipe.Plan do
     top_level?: true,
     deps: [ImagePipe.Format],
     exports: [
+      Request,
+      Request.Group,
+      Request.Output,
       Output,
       Output.QualitySearch,
       Output.QualitySearch.Metric,

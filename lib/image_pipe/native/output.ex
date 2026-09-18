@@ -3,9 +3,9 @@ defmodule ImagePipe.Native.Output do
 
   alias ImagePipe.Config
   alias ImagePipe.Format
-  alias ImagePipe.Native.Request.Output, as: RequestOutput
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.QualitySearch
+  alias ImagePipe.Plan.Request.Output, as: RequestOutput
 
   @spec resolve(RequestOutput.t(), keyword()) ::
           {:ok, PlanOutput.t()} | {:error, {:invalid_output, term()}}

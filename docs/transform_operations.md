@@ -2,7 +2,7 @@
 
 ## Overview
 
-ImagePipe's native URL parser produces an `ImagePipe.Native.Request` containing
+ImagePipe's native URL parser produces an `ImagePipe.Plan.Request` containing
 ordered groups and an output policy. `ImagePipe.Native.Pipeline` executes those
 groups against a decoded image.
 
@@ -23,7 +23,7 @@ materialization.
 
 For an image response, the shared Plug lifecycle is:
 
-1. Parse and validate the native path into an `ImagePipe.Native.Request`.
+1. Parse and validate the native path into an `ImagePipe.Plan.Request`.
 2. Apply expiry and source-translation gates.
 3. Resolve source identity, output negotiation, representation identity, and
    conditional/cache decisions.

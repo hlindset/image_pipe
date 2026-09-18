@@ -652,6 +652,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(plan, [ImagePipe.Format])
 
     assert_boundary_exports(plan, [
+      ImagePipe.Plan.Request,
+      ImagePipe.Plan.Request.Group,
+      ImagePipe.Plan.Request.Output,
       ImagePipe.Plan.Output,
       ImagePipe.Plan.Output.QualitySearch,
       ImagePipe.Plan.Output.QualitySearch.Metric,
