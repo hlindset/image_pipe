@@ -2,8 +2,9 @@ defmodule ImagePipe.Native.OptionSpecTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Native.OptionSpec
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
-  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q format-q autoquality max-bytes jpeg-options png-options webp-options avif-options jxl-options debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -391,6 +392,125 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_quality("0") == {:error, :invalid_quality}
       assert OptionSpec.parse_quality("101") == {:error, :invalid_quality}
       assert OptionSpec.parse_quality("50.5") == {:error, :invalid_quality}
+    end
+
+    test "format qualities use canonical formats and reject duplicates" do
+      assert OptionSpec.parse_format_qualities("avif:60,webp:70,jxl:80") ==
+               {:ok, %{avif: {:quality, 60}, webp: {:quality, 70}, jpeg_xl: {:quality, 80}}}
+
+      for value <- ["", "avif", "gif:60", "avif:0", "avif:101", "avif:60,avif:70"] do
+        assert OptionSpec.parse_format_qualities(value) == {:error, :invalid_format_qualities}
+      end
+    end
+
+    test "autoquality parses sparse named fields in canonical order" do
+      assert OptionSpec.parse_autoquality("none") == {:ok, :none}
+
+      assert OptionSpec.parse_autoquality("size,target:12000,min:40,max:90") ==
+               {:ok, {:size, [target: 12_000, min_quality: 40, max_quality: 90]}}
+
+      assert OptionSpec.parse_autoquality("ssimulacra2,error:2,target:78,min:40,max:95") ==
+               {:ok,
+                {:ssimulacra2,
+                 [target: 78.0, min_quality: 40, max_quality: 95, allowed_error: 2.0]}}
+
+      assert OptionSpec.parse_autoquality("butteraugli,target:1,error:0.1") ==
+               {:ok, {:butteraugli, [target: 1.0, allowed_error: 0.1]}}
+
+      assert OptionSpec.parse_autoquality("ssimulacra2,error:101") ==
+               {:ok, {:ssimulacra2, [allowed_error: 101.0]}}
+
+      assert OptionSpec.parse_autoquality("butteraugli,error:25.1") ==
+               {:ok, {:butteraugli, [allowed_error: 25.1]}}
+    end
+
+    test "autoquality rejects malformed, duplicate, incompatible, and out-of-range fields" do
+      for value <- [
+            "",
+            "ssim2",
+            "none,target:1",
+            "size,error:1",
+            "size,target:0",
+            "size,target:1.5",
+            "ssimulacra2,target:101",
+            "butteraugli,target:25.1",
+            "butteraugli,error:-0.1",
+            "ssimulacra2,error:" <> String.duplicate("9", 1_000),
+            "ssimulacra2,min:0",
+            "ssimulacra2,max:101",
+            "ssimulacra2,min:90,max:80",
+            "ssimulacra2,target:78,target:80",
+            "ssimulacra2,unknown:1",
+            "ssimulacra2,"
+          ] do
+        assert OptionSpec.parse_autoquality(value) == {:error, :invalid_autoquality}
+      end
+    end
+
+    test "max bytes is a positive integer" do
+      assert OptionSpec.parse_max_bytes("12000") == {:ok, 12_000}
+
+      for value <- ["0", "-1", "1.5", ""] do
+        assert OptionSpec.parse_max_bytes(value) == {:error, :invalid_max_bytes}
+      end
+    end
+
+    test "codec option parsers produce typed sparse structs" do
+      assert OptionSpec.parse_jpeg_options(
+               "progressive,subsample:on,trellis-quant,overshoot-deringing:false,optimize-scans,quant-table:8"
+             ) ==
+               {:ok,
+                %JpegOptions{
+                  interlace: true,
+                  subsample_mode: :on,
+                  trellis_quant: true,
+                  overshoot_deringing: false,
+                  optimize_scans: true,
+                  quant_table: 8
+                }}
+
+      assert OptionSpec.parse_png_options("interlace:false,palette,bitdepth:4,filter:paeth") ==
+               {:ok, %PngOptions{interlace: false, palette: true, bitdepth: 4, filter: :paeth}}
+
+      assert OptionSpec.parse_webp_options(
+               "lossless,near-lossless:false,smart-subsample,preset:photo,effort:6"
+             ) ==
+               {:ok,
+                %WebpOptions{
+                  lossless: true,
+                  near_lossless: false,
+                  smart_subsample: true,
+                  preset: :photo,
+                  effort: 6
+                }}
+
+      assert OptionSpec.parse_avif_options("subsample:auto,effort:9") ==
+               {:ok, %AvifOptions{subsample_mode: :auto, effort: 9}}
+
+      assert OptionSpec.parse_jxl_options("effort:1") == {:ok, %JxlOptions{effort: 1}}
+    end
+
+    test "codec option parsers reject aliases, duplicates, unknowns, empty fields, and ranges" do
+      invalid = [
+        {&OptionSpec.parse_jpeg_options/1, "progressive:true"},
+        {&OptionSpec.parse_jpeg_options/1, "progressive,progressive:false"},
+        {&OptionSpec.parse_jpeg_options/1, "subsample:bad"},
+        {&OptionSpec.parse_jpeg_options/1, "quant-table:9"},
+        {&OptionSpec.parse_png_options/1, "interlace:true"},
+        {&OptionSpec.parse_png_options/1, "bitdepth:3"},
+        {&OptionSpec.parse_png_options/1, "filter:average"},
+        {&OptionSpec.parse_webp_options/1, "preset:portrait"},
+        {&OptionSpec.parse_webp_options/1, "effort:7"},
+        {&OptionSpec.parse_avif_options/1, "effort:10"},
+        {&OptionSpec.parse_jxl_options/1, "effort:0"},
+        {&OptionSpec.parse_jxl_options/1, "unknown:1"},
+        {&OptionSpec.parse_png_options/1, "palette,"},
+        {&OptionSpec.parse_webp_options/1, ""}
+      ]
+
+      for {parser, value} <- invalid do
+        assert parser.(value) == {:error, :invalid_encoder_options}
+      end
     end
 
     test "parse_expires accepts positive integers only" do

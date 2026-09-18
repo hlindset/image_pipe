@@ -23,6 +23,7 @@ defmodule ImagePipe.Native.Presets do
     @canvas_family
   ]
   @crop_modifiers ["crop-ratio", "crop-ratio-enlarge"]
+  @request_override_families [["q", "autoquality"]]
 
   @type compiled :: %{groups: %{non_neg_integer() => map()}, request: map()}
 
@@ -151,11 +152,20 @@ defmodule ImagePipe.Native.Presets do
         |> Map.merge(next_options)
       end)
 
-    %{groups: groups, request: Map.merge(previous.request, next.request)}
+    request =
+      previous.request
+      |> prune_families(next.request, @request_override_families)
+      |> Map.merge(next.request)
+
+    %{groups: groups, request: request}
   end
 
   defp prune_override_families(previous, next) do
-    Enum.reduce(@group_override_families, previous, fn family, acc ->
+    prune_families(previous, next, @group_override_families)
+  end
+
+  defp prune_families(previous, next, families) do
+    Enum.reduce(families, previous, fn family, acc ->
       case Enum.any?(family, &Map.has_key?(next, &1)) do
         true -> Map.drop(acc, family)
         false -> acc

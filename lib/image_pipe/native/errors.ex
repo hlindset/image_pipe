@@ -2,11 +2,12 @@ defmodule ImagePipe.Native.Errors do
   @moduledoc """
   Dialect-owned error → HTTP status mapping for the native URL dialect.
 
-  Parse/validation failures render the compiler-style diagnostic body
+  Parse failures render the compiler-style diagnostic body
   (`ImagePipe.Native.DiagnosticRenderer`) [native §Error
   diagnostics]. Signature failures stay terse — 403, no spans, no echoed
   path [native §Signing: "a signature oracle should not explain itself"].
-  Everything else (source/decode/limit/encode/output errors) routes through
+  Resolved output-policy failures use a fixed safe 400 response. Everything
+  else (source/decode/limit/encode/output errors) routes through
   the shared `ImagePipe.Response.ErrorStatus` status table.
   """
 
@@ -58,6 +59,12 @@ defmodule ImagePipe.Native.Errors do
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(400, "invalid source")
+  end
+
+  def send(%Plug.Conn{} = conn, {:invalid_output, _reason}, _config) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(400, "invalid output")
   end
 
   def send(%Plug.Conn{} = conn, {:detector, :unavailable}, config) do

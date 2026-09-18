@@ -159,6 +159,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     dialect_native = boundary_declaration(ImagePipe.Native)
 
     assert_boundary_deps(dialect_native, [
+      ImagePipe.Config,
       ImagePipe.Decode,
       ImagePipe.Dialect,
       ImagePipe.Dialect.SharedConfig,
@@ -176,7 +177,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # The Plug runner owns the cache and delivery lifecycle.
     refute_boundary_deps(dialect_native, [
       ImagePipe.Cache,
-      ImagePipe.Config,
       ImagePipe.Delivery
     ])
 

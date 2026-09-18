@@ -35,7 +35,9 @@ The native API implements these option keys:
 `anchor-offset`, `extend`, `extend-ratio`, `extend-at`, `extend-offset`,
 `anchor`, `focus`, `detect`, `blur`, `sharpen`, `pixelate`, `gray`, `bitonal`,
 `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
-`gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
+`gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`, `format-q`,
+`autoquality`, `max-bytes`, `jpeg-options`, `png-options`, `webp-options`,
+`avif-options`, `jxl-options`,
 `debug`, `expires`, `preset`.
 
 It also implements `then`, `src`, `src64`, and full-length HMAC signing with
@@ -299,6 +301,81 @@ Signed decimal angles wrap modulo 360. Start and stop are fractions from
 values produce a hard step. Gradient preserves source alpha. Colorize
 produces an opaque result unless `keep-alpha` preserves the source alpha;
 zero opacity skips the operation and preserves the source unchanged.
+
+### Image quality and encoders
+
+`q=80` sets one explicit quality from 1 to 100. `format-q=avif:60,webp:70`
+sets per-format qualities, using the same format names as `format`. Explicit
+`q` wins over a matching `format-q`. Duplicate formats are invalid. Host
+`quality` defaults to 80; `format_quality` defaults to WebP 79, AVIF 63, and
+JPEG XL 77. Sparse host and URL format maps preserve other configured formats.
+A format-quality table may be shared across requests; only the selected
+format's entry applies.
+PNG ignores the implicit global quality default; an explicit quality can
+request quantization.
+
+`autoquality` starts with a metric name followed by optional named fields:
+
+| Metric | Target | Example |
+| --- | --- | --- |
+| `size` | Positive byte count, required unless supplied by the host | `autoquality=size,target:15000,min:40,max:95` |
+| `ssimulacra2` | Score from 0 to 100; default 78 | `autoquality=ssimulacra2,target:80,min:50,max:95,error:3` |
+| `butteraugli` | Distance from 0 to 25; default 1 | `autoquality=butteraugli,target:1,error:0.1` |
+
+`min` and `max` bound quality from 1 to 100. URL bounds override per-format
+host bounds, which override the global host bounds. `error` is a non-negative
+perceptual tolerance; size search does not accept it. Repeated or unknown
+fields and inverted effective bounds are rejected before source access.
+JPEG XL uses its native distance encoder for Butteraugli; other supported
+formats use the existing iterative search. Large-image SSIMULACRA2 searches
+retain crop scoring and its content-dependent correction.
+
+`autoquality=none` disables a configured search. An explicit `q` also disables
+inherited host search; combining it with an enabled URL `autoquality` is an
+error. Presets treat `q` and `autoquality` as one override family.
+
+`max-bytes=8000` adds a byte budget to fixed quality or quality search. Budgets
+are best effort: if the minimum-quality encode cannot fit, ImagePipe still
+returns the best available image. A byte budget without a quality-search
+objective uses a quality floor of 10, or the requested quality when it is lower.
+PNG and lossless WebP cannot use quality search. An explicit selection of
+either with an enabled URL search or byte budget is rejected. Inherited
+search defaults are inactive for these outputs. Under automatic format
+negotiation, search and byte budgets apply when the selected encoder supports
+them. WebP lossless `q` controls compression effort rather than pixel quality.
+
+Host controls retain `autoquality_method`, `autoquality_target`,
+`autoquality_allowed_error`, global `autoquality_min_quality` and
+`autoquality_max_quality`, per-format `autoquality_format_min_quality` and
+`autoquality_format_max_quality`, `autoquality_max_resolution`, and
+`autoquality_max_iterations`. The iteration budget defaults to 6 and bounds
+the encoder search, including native JXL attempts to meet a byte budget.
+Native JXL Butteraugli without a byte budget uses a single encode. Active
+search settings participate in storage and ETag identity; changing an unused
+iteration budget leaves identity stable.
+
+Each encoder option is a comma-separated list of bare boolean flags and
+`name:value` pairs. Use `flag:false` to override a host-enabled flag. Sparse
+URL fields override the corresponding host option struct. Unknown or repeated
+fields are invalid, as are options for another explicitly selected format.
+Under negotiation, per-format options are conditionally active.
+
+| Native key | Fields |
+| --- | --- |
+| `jpeg-options` | `progressive`, `subsample:auto\|on\|off`, `trellis-quant`, `overshoot-deringing`, `optimize-scans`, `quant-table:0..8` |
+| `png-options` | `interlace`, `palette`, `bitdepth:1\|2\|4\|8\|16`, `filter:none\|sub\|up\|avg\|paeth\|all` |
+| `webp-options` | `lossless`, `near-lossless`, `smart-subsample`, `preset:default\|photo\|picture\|drawing\|icon\|text`, `effort:0..6` |
+| `avif-options` | `subsample:auto\|on\|off`, `effort:0..9` |
+| `jxl-options` | `effort:1..9` |
+
+For example, `format=jpeg/jpeg-options=progressive,quant-table:3` requests a
+progressive JPEG. Host keys `jpeg_options`, `png_options`, `webp_options`,
+`avif_options`, and `jxl_options` accept their corresponding
+`ImagePipe.Plan.Output.*Options` structs. JPEG's host struct calls its
+progressive flag `interlace`.
+
+Quality, search, budgets, and encoder URL options apply only to image output.
+BlurHash rejects these URL options and ignores configured image output policy.
 
 ### Presets and terminals
 

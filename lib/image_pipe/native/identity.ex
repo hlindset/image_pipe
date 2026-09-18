@@ -30,7 +30,6 @@ defmodule ImagePipe.Native.Identity do
   alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Native.Request
   alias ImagePipe.Output.Terminal.Blurhash
-  alias ImagePipe.Plan.Output
   alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
 
@@ -76,21 +75,6 @@ defmodule ImagePipe.Native.Identity do
       dialect_behavior: @dialect_epoch,
       vary_header_names: vary_header_names
     }
-  end
-
-  @doc """
-  Builds the requested output intent from `request.output`: `mode` from
-  `format` presence (`{:explicit, format}` if set, else `:automatic`),
-  `quality` from `q` (`{:quality, n}` if set, else `:default`), every other
-  field left at its `%ImagePipe.Plan.Output{}` constructor default. Task 15's
-  `negotiate/3` builds its `%ImagePipe.Output.Policy{}` from this.
-  """
-  @spec plan_output(Request.t()) :: Output.t()
-  def plan_output(%Request{output: %Request.Output{} = output}) do
-    mode = if output.format, do: {:explicit, output.format}, else: :automatic
-    quality = if output.quality, do: {:quality, output.quality}, else: :default
-
-    %Output{mode: mode, quality: quality}
   end
 
   defp selection_material({:image, _selection} = selected) do

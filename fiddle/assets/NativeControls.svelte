@@ -54,6 +54,25 @@
     { label: "Trim and crop", options: "trim=auto/crop=50pct,50pct/w=600" },
     { label: "Grayscale", options: "w=600/gray" },
     { label: "Black and white", options: "w=600/bitonal" },
+    { label: "JPEG quality", options: "w=600/format=jpeg/q=60" },
+    { label: "Format quality", options: "w=600/format-q=avif:60,webp:70,jxl:75" },
+    { label: "Byte budget", options: "w=600/format=jpeg/max-bytes=20000/debug" },
+    {
+      label: "Size search",
+      options: "w=600/format=jpeg/autoquality=size,target:20000,min:30,max:95/debug",
+    },
+    {
+      label: "Perceptual quality",
+      options: "w=600/format=jpeg/autoquality=ssimulacra2,target:80,min:50,max:95/debug",
+    },
+    {
+      label: "JPEG XL distance",
+      options: "w=600/format=jxl/autoquality=butteraugli,target:1/jxl-options=effort:3/debug",
+    },
+    { label: "Progressive JPEG", options: "w=600/format=jpeg/jpeg-options=progressive" },
+    { label: "Palette PNG", options: "w=600/format=png/png-options=palette,bitdepth:4" },
+    { label: "Lossless WebP", options: "w=600/format=webp/webp-options=lossless" },
+    { label: "AVIF effort", options: "w=600/format=avif/avif-options=effort:3" },
     { label: "Debug headers", options: "w=800/debug" },
   ];
 

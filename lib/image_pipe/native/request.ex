@@ -146,11 +146,24 @@ defmodule ImagePipe.Native.Request.Output do
   §Terminal contracts].
   """
 
-  defstruct terminal: :image, format: nil, quality: nil
+  defstruct terminal: :image,
+            format: nil,
+            quality: nil,
+            format_qualities: %{},
+            autoquality: nil,
+            max_bytes: nil,
+            encoder_options: %{}
 
   @type t :: %__MODULE__{
           terminal: :image | :blurhash,
           format: nil | :avif | :webp | :jpeg | :png | :jpeg_xl,
-          quality: nil | 1..100
+          quality: nil | 1..100,
+          format_qualities: %{optional(atom()) => {:quality, 1..100}},
+          autoquality:
+            nil
+            | :none
+            | {:size | :ssimulacra2 | :butteraugli, keyword(pos_integer() | float())},
+          max_bytes: nil | pos_integer(),
+          encoder_options: %{optional(atom()) => struct()}
         }
 end

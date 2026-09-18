@@ -20,6 +20,7 @@ defmodule ImagePipe.Native do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePipe.Config,
       ImagePipe.Decode,
       ImagePipe.Dialect,
       ImagePipe.Dialect.SharedConfig,
@@ -44,6 +45,7 @@ defmodule ImagePipe.Native do
   alias ImagePipe.Native.Config
   alias ImagePipe.Native.Errors
   alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Output, as: NativeOutput
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Path
   alias ImagePipe.Native.Pipeline
@@ -90,13 +92,14 @@ defmodule ImagePipe.Native do
     # The clock read moves from route-entry (pre-parse) to here (post-parse):
     # only a sub-second expiry edge differs and nothing pins it.
     with :ok <- check_expires(request, System.os_time(:second)),
+         {:ok, plan_output} <- NativeOutput.resolve(request.output, config),
          :ok <- check_detector(request, config),
          {:ok, plan_source} <- NativeSource.translate(request.source, config) do
       {:ok,
        %Resolved{
          request: request,
          source: plan_source,
-         negotiation: fn -> negotiation_result(conn, request, config) end,
+         negotiation: fn -> negotiation_result(conn, request, plan_output, config) end,
          response_meta: %PlanResponse{},
          operations: Pipeline.operation_names(request),
          auto_rotate?: request.orient == :auto,
@@ -111,6 +114,7 @@ defmodule ImagePipe.Native do
   defp negotiation_result(
          conn,
          %Request{output: %Request.Output{terminal: :blurhash}} = request,
+         _plan_output,
          config
        ) do
     negotiation = DialectNegotiation.terminal(:blurhash)
@@ -119,8 +123,8 @@ defmodule ImagePipe.Native do
      Identity.material(request, negotiation, conn, config, detector_identity(request, config))}
   end
 
-  defp negotiation_result(conn, %Request{} = request, config) do
-    case DialectNegotiation.negotiate(conn, Identity.plan_output(request), config) do
+  defp negotiation_result(conn, %Request{} = request, plan_output, config) do
+    case DialectNegotiation.negotiate(conn, plan_output, config) do
       {:ok, negotiation} ->
         {:ok, negotiation,
          Identity.material(request, negotiation, conn, config, detector_identity(request, config))}
@@ -168,7 +172,8 @@ defmodule ImagePipe.Native do
   # bucket, which always wraps as the single `{:invalid_request, _diagnostics}`
   # tag (`ImagePipe.Native.Parser`).
   #
-  # The strict detector capability gate is a plan error. Everything else —
+  # The strict detector capability gate and resolved output-policy failures are
+  # plan errors. Everything else —
   # `NativeSource.translate/2`'s `{:invalid_source, _}` and the core-stage
   # reasons (`:source`, `:decode`, `:input_limit`,
   # `:unsupported_output_format`, `:encode`, `:session`, `:transform`) — defers
@@ -184,6 +189,7 @@ defmodule ImagePipe.Native do
   def classify_error({:invalid_request, _diagnostics}), do: :parser_error
   def classify_error(:expired), do: :parser_error
   def classify_error({:detector, :unavailable}), do: :plan_error
+  def classify_error({:invalid_output, _reason}), do: :plan_error
   def classify_error(reason), do: Telemetry.request_result({:error, reason})
 
   defp normalize_lex_error({:error, diagnostics}), do: {:error, {:invalid_request, diagnostics}}

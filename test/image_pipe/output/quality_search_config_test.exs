@@ -88,6 +88,49 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     assert {:ok, _stream, "image/png", nil} = Encoder.stream_output(image, resolved, [])
   end
 
+  test "lossless WebP omits its unused iteration limit from explicit and negotiated identity" do
+    opts = [
+      autoquality_method: :ssimulacra2,
+      webp_options: %Output.WebpOptions{lossless: true}
+    ]
+
+    explicit_materials =
+      for iterations <- [1, 12] do
+        {policy, _resolved} =
+          resolved_output([autoquality_max_iterations: iterations] ++ opts, :webp)
+
+        Policy.identity_material(policy)
+      end
+
+    negotiated_materials =
+      for iterations <- [1, 12] do
+        config = Config.resolve!([autoquality_max_iterations: iterations] ++ opts)
+        {:ok, output} = Config.apply_to_output(%Output{mode: :automatic}, config)
+        conn = Plug.Conn.put_req_header(conn(:get, "/"), "accept", "image/webp")
+        policy = Policy.from_output_plan(conn, output, [])
+        assert Policy.identity_selection(policy) == {:auto_head, :webp}
+        Policy.identity_material(policy)
+      end
+
+    assert [material, material] = explicit_materials
+    assert [material, material] = negotiated_materials
+  end
+
+  test "lossless WebP encoder configuration does not shadow JPEG XL iteration identity" do
+    opts = [
+      autoquality_method: :butteraugli,
+      webp_options: %Output.WebpOptions{lossless: true}
+    ]
+
+    {short, _resolved} =
+      resolved_output([autoquality_max_iterations: 1] ++ opts, :jpeg_xl)
+
+    {long, _resolved} =
+      resolved_output([autoquality_max_iterations: 12] ++ opts, :jpeg_xl)
+
+    assert Policy.identity_material(short) == Policy.identity_material(long)
+  end
+
   defp resolved_output(opts, format \\ :jpeg, max_bytes \\ nil) do
     config = Config.resolve!(opts)
 

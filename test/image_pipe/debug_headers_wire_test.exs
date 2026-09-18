@@ -133,7 +133,6 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # Mount options pointing at the large SSIM2 origin for G3.
   defp large_ssim2_opts(overrides) do
     [
-      dialect: ImagePipe.Dialect.Imgproxy,
       sources: [
         path:
           {RootHTTPAdapter,
@@ -316,7 +315,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
         autoquality_target: %{ssimulacra2: 85}
       )
 
-    conn = call("/_/debug:1/f:jpeg/plain/images/large.jpg", opts)
+    conn = call("/debug/format=jpeg/src/images/large.jpg", opts)
 
     assert conn.status == 200
 

@@ -1,9 +1,29 @@
 defmodule ImagePipe.Native.Config do
   @moduledoc false
 
+  alias ImagePipe.Config, as: CoreConfig
   alias ImagePipe.Dialect.SharedConfig
   alias ImagePipe.Native.OptionSpec
   alias ImagePipe.Native.Presets
+
+  @supported_neutral_keys [
+    :quality,
+    :format_quality,
+    :autoquality_method,
+    :autoquality_target,
+    :autoquality_min_quality,
+    :autoquality_max_quality,
+    :autoquality_allowed_error,
+    :autoquality_format_min_quality,
+    :autoquality_format_max_quality,
+    :autoquality_max_resolution,
+    :autoquality_max_iterations,
+    :jpeg_options,
+    :png_options,
+    :webp_options,
+    :avif_options,
+    :jxl_options
+  ]
 
   @validated_option_keys [
     :keys,
@@ -43,14 +63,23 @@ defmodule ImagePipe.Native.Config do
   @doc false
   @spec validate!(keyword()) :: keyword()
   def validate!(opts) when is_list(opts) do
-    {shared_opts, native_opts} = Keyword.split(opts, SharedConfig.keys())
+    {shared_opts, rest} = Keyword.split(opts, SharedConfig.keys())
+    {neutral_opts, native_opts} = Keyword.split(rest, CoreConfig.keys())
 
     native_opts =
       native_opts
       |> reject_unknown_opts!()
       |> validate_known_opts!()
 
-    Keyword.merge(native_opts, SharedConfig.validate_runtime!(shared_opts))
+    neutral_opts =
+      neutral_opts
+      |> CoreConfig.reject_unsupported!(@supported_neutral_keys, "native")
+      |> CoreConfig.resolve!()
+
+    shared_opts
+    |> SharedConfig.validate_runtime!()
+    |> Keyword.merge(neutral_opts)
+    |> Keyword.merge(native_opts)
   end
 
   @doc false

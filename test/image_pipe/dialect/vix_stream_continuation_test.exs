@@ -4,7 +4,7 @@ defmodule ImagePipe.Dialect.VixStreamContinuationTest do
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.Producer
   alias ImagePipe.Native
-  alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Output, as: NativeOutput
   alias ImagePipe.Native.Pipeline
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Output.Encoder
@@ -484,7 +484,8 @@ defmodule ImagePipe.Dialect.VixStreamContinuationTest do
     {:ok, source_request} = NativeSource.translate(request.source, config)
     {:ok, source} = Source.resolve(source_request, config, [])
 
-    policy = Policy.from_output_plan(conn, Identity.plan_output(request), config)
+    {:ok, plan_output} = NativeOutput.resolve(request.output, config)
+    policy = Policy.from_output_plan(conn, plan_output, config)
 
     fn pump ->
       Decode.with_image(

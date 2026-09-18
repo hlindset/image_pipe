@@ -319,6 +319,19 @@ defmodule ImagePipe.Output.Policy do
 
   defp search_iteration_identity(%__MODULE__{mode: {:explicit, :png}}), do: nil
 
+  defp search_iteration_identity(%__MODULE__{
+         mode: {:explicit, :webp},
+         encoder_options: %{webp: %Output.WebpOptions{lossless: true}}
+       }),
+       do: nil
+
+  defp search_iteration_identity(%__MODULE__{
+         mode: :source,
+         modern_candidates: [:webp | _rest],
+         encoder_options: %{webp: %Output.WebpOptions{lossless: true}}
+       }),
+       do: nil
+
   defp search_iteration_identity(
          %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{}, max_bytes: nil} = policy
        ) do

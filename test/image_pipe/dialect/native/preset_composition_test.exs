@@ -38,6 +38,23 @@ defmodule ImagePipe.Native.PresetCompositionTest do
     assert {:ok, ^expected} = parse("/preset=base,tone/contrast=2", presets)
   end
 
+  test "q and autoquality form one atomic preset override family" do
+    presets = %{
+      "fixed" => "q=80",
+      "adaptive" => "autoquality=ssimulacra2,target:78",
+      "off" => "q=75/autoquality=none"
+    }
+
+    assert {:ok, expected_none} = parse("/autoquality=none", %{})
+    assert {:ok, ^expected_none} = parse("/preset=fixed/autoquality=none", presets)
+
+    assert {:ok, expected_fixed} = parse("/q=90", %{})
+    assert {:ok, ^expected_fixed} = parse("/preset=adaptive/q=90", presets)
+
+    assert {:ok, expected_off} = parse("/q=75/autoquality=none", %{})
+    assert {:ok, ^expected_off} = parse("/preset=off", presets)
+  end
+
   test "an explicit guide replaces a preset's alternative guide" do
     for {preset_guide, explicit_guide} <- [
           {"anchor=top-left", "focus=0.75,0.25"},

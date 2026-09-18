@@ -4,17 +4,14 @@ defmodule ImagePipe.Plan.Output do
 
   `strip_metadata`, `keep_copyright`, `color_profile`, `hdr`, and
   `flatten_background` are resolved values (never `nil`): a parser resolves its
-  config defaults / URL options into concrete values before building a plan (the
-  imgproxy parser does this in `apply_request_defaults/2`). They drive the
-  encoder's metadata finalize and the transform's HDR working-space decision.
+  config defaults / URL options into concrete values before building a plan.
+  They drive the encoder's metadata finalize and the transform's HDR
+  working-space decision.
 
   `flatten_background` is the color an alpha-bearing image is composited onto when
   the resolved output format can't carry alpha (the encoder's format-driven
-  flatten — imgproxy's `flatten` onto `po.Background()`). It defaults to opaque
-  white, matching imgproxy's `color.White`; a per-request background (e.g. the
-  imgproxy `bg`/`bga` option) is a separate transform-chain operation and does not
-  set this field. No parser overrides it today — it is the declarative seam for a
-  future dialect/host default.
+  flatten). It defaults to opaque white. A per-request `bg` is a separate
+  transform-chain operation and does not set this field.
 
   `quality_search` and `max_bytes` are resolved defaults (`:none`/`nil` = off).
   `quality_search_max_iterations` carries the host's iterative search budget
@@ -23,8 +20,8 @@ defmodule ImagePipe.Plan.Output do
 
   `encoder_options` maps an output `format()` to its libvips-native encoder
   option struct (`JpegOptions`/`PngOptions`/`WebpOptions`/`AvifOptions`/`JxlOptions`).
-  An absent format means no options, i.e. libvips defaults. A parser resolves host
-  config (and, for imgproxy, URL tokens) into this map before building the plan.
+  An absent format means no options, i.e. libvips defaults. Native output
+  resolution merges host configuration and sparse URL fields into this map.
   """
 
   alias ImagePipe.Plan.Color

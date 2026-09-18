@@ -15,6 +15,7 @@ defmodule ImagePipe.Native.OptionSpec do
   as a maintained invariant.
   """
 
+  alias ImagePipe.Native.OutputOptions
   alias ImagePipe.Native.Value
 
   @enforce_keys [
@@ -657,6 +658,110 @@ defmodule ImagePipe.Native.OptionSpec do
         terminal_applicability: :image,
         summary: "Output quality, 1-100",
         examples: ["q=80"]
+      },
+      %__MODULE__{
+        key: "format-q",
+        scope: :request,
+        value: &__MODULE__.parse_format_qualities/1,
+        stage: nil,
+        default: %{},
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Per-format output quality overrides",
+        examples: ["format-q=avif:60,webp:70"]
+      },
+      %__MODULE__{
+        key: "autoquality",
+        scope: :request,
+        value: &__MODULE__.parse_autoquality/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Adaptive quality method with optional named controls",
+        examples: ["autoquality=ssimulacra2,target:78,error:2", "autoquality=none"]
+      },
+      %__MODULE__{
+        key: "max-bytes",
+        scope: :request,
+        value: &__MODULE__.parse_max_bytes/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Positive encoded byte budget",
+        examples: ["max-bytes=12000"]
+      },
+      %__MODULE__{
+        key: "jpeg-options",
+        scope: :request,
+        value: &__MODULE__.parse_jpeg_options/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Sparse JPEG encoder options",
+        examples: ["jpeg-options=progressive,quant-table:3"]
+      },
+      %__MODULE__{
+        key: "png-options",
+        scope: :request,
+        value: &__MODULE__.parse_png_options/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Sparse PNG encoder options",
+        examples: ["png-options=palette,filter:paeth"]
+      },
+      %__MODULE__{
+        key: "webp-options",
+        scope: :request,
+        value: &__MODULE__.parse_webp_options/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Sparse WebP encoder options",
+        examples: ["webp-options=near-lossless,effort:6"]
+      },
+      %__MODULE__{
+        key: "avif-options",
+        scope: :request,
+        value: &__MODULE__.parse_avif_options/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Sparse AVIF encoder options",
+        examples: ["avif-options=subsample:on,effort:6"]
+      },
+      %__MODULE__{
+        key: "jxl-options",
+        scope: :request,
+        value: &__MODULE__.parse_jxl_options/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :image,
+        summary: "Sparse JPEG XL encoder options",
+        examples: ["jxl-options=effort:4"]
       },
       %__MODULE__{
         key: "debug",
@@ -1336,6 +1441,66 @@ defmodule ImagePipe.Native.OptionSpec do
     case Value.number(string) do
       {:ok, n} when is_integer(n) and n >= 1 and n <= 100 -> {:ok, n}
       _invalid -> {:error, :invalid_quality}
+    end
+  end
+
+  @doc false
+  @spec parse_format_qualities(String.t()) ::
+          {:ok, %{optional(atom()) => {:quality, 1..100}}}
+          | {:error, :invalid_format_qualities}
+  def parse_format_qualities(string) do
+    case OutputOptions.parse_format_qualities(string) do
+      {:ok, qualities} -> {:ok, qualities}
+      :error -> {:error, :invalid_format_qualities}
+    end
+  end
+
+  @doc false
+  @spec parse_autoquality(String.t()) :: {:ok, term()} | {:error, :invalid_autoquality}
+  def parse_autoquality(string) do
+    case OutputOptions.parse_autoquality(string) do
+      {:ok, autoquality} -> {:ok, autoquality}
+      :error -> {:error, :invalid_autoquality}
+    end
+  end
+
+  @doc false
+  @spec parse_max_bytes(String.t()) :: {:ok, pos_integer()} | {:error, :invalid_max_bytes}
+  def parse_max_bytes(string) do
+    case OutputOptions.parse_max_bytes(string) do
+      {:ok, max_bytes} -> {:ok, max_bytes}
+      :error -> {:error, :invalid_max_bytes}
+    end
+  end
+
+  @doc false
+  def parse_jpeg_options(string), do: parse_encoder_options(string, :jpeg)
+
+  @doc false
+  def parse_png_options(string), do: parse_encoder_options(string, :png)
+
+  @doc false
+  def parse_webp_options(string), do: parse_encoder_options(string, :webp)
+
+  @doc false
+  def parse_avif_options(string), do: parse_encoder_options(string, :avif)
+
+  @doc false
+  def parse_jxl_options(string), do: parse_encoder_options(string, :jpeg_xl)
+
+  defp parse_encoder_options(string, format) do
+    parser =
+      case format do
+        :jpeg -> &OutputOptions.parse_jpeg_options/1
+        :png -> &OutputOptions.parse_png_options/1
+        :webp -> &OutputOptions.parse_webp_options/1
+        :avif -> &OutputOptions.parse_avif_options/1
+        :jpeg_xl -> &OutputOptions.parse_jxl_options/1
+      end
+
+    case parser.(string) do
+      {:ok, options} -> {:ok, options}
+      :error -> {:error, :invalid_encoder_options}
     end
   end
 

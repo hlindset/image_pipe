@@ -6,7 +6,9 @@ defmodule ImagePipe.Native.IdentityTest do
   alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Dialect.Resolved
   alias ImagePipe.Native
+  alias ImagePipe.Native.Config
   alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Output
   alias ImagePipe.Native.Parser
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
@@ -38,8 +40,13 @@ defmodule ImagePipe.Native.IdentityTest do
   end
 
   defp request!(segments) do
-    {:ok, request} = Parser.parse(lexed(segments), [])
+    {:ok, request} = Parser.parse(lexed(segments), Config.validate!([]))
     request
+  end
+
+  defp plan_output!(request) do
+    {:ok, output} = Output.resolve(request.output, Config.validate!([]))
+    output
   end
 
   defp base_policy do
@@ -87,9 +94,10 @@ defmodule ImagePipe.Native.IdentityTest do
 
   defp prepared_material!(segments) do
     request = request!(segments)
+    config = Config.validate!(detector: ClassIdentityDetector)
 
     assert {:ok, %Resolved{negotiation: negotiation}} =
-             Native.prepare(conn(:get, "/"), request, detector: ClassIdentityDetector)
+             Native.prepare(conn(:get, "/"), request, config)
 
     assert is_function(negotiation, 0)
     assert {:ok, _negotiation, material} = negotiation.()
@@ -294,8 +302,8 @@ defmodule ImagePipe.Native.IdentityTest do
       request_a = request!(["w=300", "q=50"])
       request_b = request!(["w=300", "q=90"])
 
-      policy_a = Policy.from_output_plan(conn0, Identity.plan_output(request_a), [])
-      policy_b = Policy.from_output_plan(conn0, Identity.plan_output(request_b), [])
+      policy_a = Policy.from_output_plan(conn0, plan_output!(request_a), [])
+      policy_b = Policy.from_output_plan(conn0, plan_output!(request_b), [])
 
       mat_a =
         material(request_a, negotiation(policy_material: Policy.identity_material(policy_a)))
@@ -310,13 +318,13 @@ defmodule ImagePipe.Native.IdentityTest do
       conn0 = conn(:get, "/")
       request = request!(["w=300"])
 
-      policy = Policy.from_output_plan(conn0, Identity.plan_output(request), [])
+      policy = Policy.from_output_plan(conn0, plan_output!(request), [])
       mat = material(request, negotiation(policy_material: Policy.identity_material(policy)))
 
       output_policy_material = Keyword.fetch!(mat.representation, :output_policy)
 
       assert Keyword.fetch!(output_policy_material, :quality) == :default
-      assert Keyword.fetch!(output_policy_material, :default_quality) == :default
+      assert Keyword.fetch!(output_policy_material, :default_quality) == {:quality, 80}
       assert Keyword.fetch!(output_policy_material, :strip_metadata) == true
       assert Keyword.fetch!(output_policy_material, :keep_copyright) == true
       assert Keyword.fetch!(output_policy_material, :color_profile) == :strip

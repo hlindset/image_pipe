@@ -115,6 +115,22 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
   end
 
   describe "canonicalization stability and semantic-default equivalence [native §Canonicalization rules]" do
+    property "request output option order does not change canonical data" do
+      options = [
+        "format-q=webp:70,avif:60",
+        "autoquality=ssimulacra2,target:78,min:40,max:95,error:2",
+        "max-bytes=12000",
+        "jpeg-options=progressive,quant-table:3",
+        "webp-options=near-lossless,effort:6"
+      ]
+
+      assert {:ok, canonical} = parse(options)
+
+      check all permutation <- permutation_of(options) do
+        assert {:ok, ^canonical} = parse(permutation)
+      end
+    end
+
     test "/w=800 canonicalizes the same as /fit=contain/w=800" do
       assert parse(["w=800"]) == parse(["fit=contain", "w=800"])
     end
@@ -212,6 +228,38 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
       assert {:ok, named_down} = parse(["gradient=1.0,ff0000,down"])
       assert negative_turn === named_down
       assert :erlang.term_to_binary(negative_turn) == :erlang.term_to_binary(named_down)
+    end
+
+    test "output option ordering and numeric spellings have identical serialized identity" do
+      first = [
+        "format-q=webp:70,avif:60,jxl:80",
+        "autoquality=ssimulacra2,error:2,target:78,min:40,max:95",
+        "jpeg-options=quant-table:3,progressive",
+        "webp-options=effort:6,near-lossless"
+      ]
+
+      second = [
+        "webp-options=near-lossless,effort:6",
+        "jpeg-options=progressive,quant-table:3",
+        "autoquality=ssimulacra2,max:95,min:40,target:78.0,error:2.0",
+        "format-q=jxl:80,avif:60,webp:70"
+      ]
+
+      assert {:ok, first_request} = parse(first)
+      assert {:ok, second_request} = parse(second)
+      assert first_request === second_request
+      assert :erlang.term_to_binary(first_request) == :erlang.term_to_binary(second_request)
+    end
+
+    test "autoquality positive and negative zero spellings have identical serialized identity" do
+      assert {:ok, positive_zero} =
+               parse(["autoquality=ssimulacra2,target:0.0,error:0.0"])
+
+      assert {:ok, negative_zero} =
+               parse(["autoquality=ssimulacra2,target:-0.0,error:-0.0"])
+
+      assert positive_zero === negative_zero
+      assert :erlang.term_to_binary(positive_zero) == :erlang.term_to_binary(negative_zero)
     end
   end
 

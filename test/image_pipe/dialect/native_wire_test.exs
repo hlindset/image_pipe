@@ -9,7 +9,7 @@ defmodule ImagePipe.NativeWireTest do
   alias ImagePipe.Delivery.Coordinator
   alias ImagePipe.Dialect.Negotiation, as: DialectNegotiation
   alias ImagePipe.Native
-  alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Output, as: NativeOutput
   alias ImagePipe.Native.Parser
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
@@ -263,9 +263,10 @@ defmodule ImagePipe.NativeWireTest do
       config = opts()
       {:ok, request} = Parser.parse(lexed(["format=jpeg", "q=42"]), config)
       conn = conn(:get, "/format=jpeg/q=42/src/images/cat.jpg")
+      assert {:ok, plan_output} = NativeOutput.resolve(request.output, config)
 
       assert {:ok, negotiation} =
-               DialectNegotiation.negotiate(conn, Identity.plan_output(request), config)
+               DialectNegotiation.negotiate(conn, plan_output, config)
 
       assert Keyword.fetch!(negotiation.policy_material, :quality) == {:quality, 42}
 

@@ -9,6 +9,7 @@ defmodule ImagePipe.Native.ParserTest do
   alias ImagePipe.Native.Request
   alias ImagePipe.Native.Request.Group
   alias ImagePipe.Native.Request.Output
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
   # `parse/2` consumes Task 4's lexed map directly — never a conn — so
   # tests build that map by hand instead of going through `Path.extract/1`.
@@ -429,6 +430,54 @@ defmodule ImagePipe.Native.ParserTest do
       assert {:ok, %Request{output: %Output{quality: 80}}} = parse(["q=80"])
     end
 
+    test "output policy stays sparse and typed" do
+      options = [
+        "format-q=webp:70,avif:60,jxl:80",
+        "autoquality=ssimulacra2,error:2,target:78,min:40,max:95",
+        "max-bytes=12000",
+        "jpeg-options=progressive,quant-table:3",
+        "png-options=palette:false,filter:paeth",
+        "webp-options=near-lossless,effort:6",
+        "avif-options=subsample:on,effort:9",
+        "jxl-options=effort:4"
+      ]
+
+      assert {:ok,
+              %Request{
+                output: %Output{
+                  format_qualities: %{
+                    webp: {:quality, 70},
+                    avif: {:quality, 60},
+                    jpeg_xl: {:quality, 80}
+                  },
+                  autoquality:
+                    {:ssimulacra2,
+                     [target: 78.0, min_quality: 40, max_quality: 95, allowed_error: 2.0]},
+                  max_bytes: 12_000,
+                  encoder_options: %{
+                    jpeg: %JpegOptions{interlace: true, quant_table: 3},
+                    png: %PngOptions{palette: false, filter: :paeth},
+                    webp: %WebpOptions{near_lossless: true, effort: 6},
+                    avif: %AvifOptions{subsample_mode: :on, effort: 9},
+                    jpeg_xl: %JxlOptions{effort: 4}
+                  }
+                }
+              }} = parse(options)
+    end
+
+    test "q retains precedence intent beside format qualities" do
+      assert {:ok,
+              %Request{
+                output: %Output{quality: 80, format_qualities: %{webp: {:quality, 70}}}
+              }} =
+               parse(["q=80", "format-q=webp:70"])
+    end
+
+    test "q may explicitly disable inherited autoquality" do
+      assert {:ok, %Request{output: %Output{quality: 80, autoquality: :none}}} =
+               parse(["q=80", "autoquality=none"])
+    end
+
     test "expires as a gate field" do
       assert {:ok, %Request{expires: 1_999_999_999}} = parse(["expires=1999999999"])
     end
@@ -741,6 +790,55 @@ defmodule ImagePipe.Native.ParserTest do
                parse(["w=32", "output=blurhash", "q=80"])
 
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "advanced output options with output=blurhash are inert" do
+      for option <- [
+            "format-q=webp:70",
+            "autoquality=none",
+            "max-bytes=10000",
+            "jpeg-options=progressive",
+            "png-options=palette",
+            "webp-options=lossless",
+            "avif-options=effort:6",
+            "jxl-options=effort:4"
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(["w=32", "output=blurhash", option])
+
+        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      end
+    end
+
+    test "an explicit format rejects another codec's URL options" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["format=webp", "jpeg-options=progressive"])
+
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "negotiated output accepts options for multiple codecs" do
+      assert {:ok, %Request{output: %Output{encoder_options: options}}} =
+               parse(["jpeg-options=progressive", "webp-options=lossless"])
+
+      assert Map.keys(options) |> Enum.sort() == [:jpeg, :webp]
+    end
+
+    test "PNG rejects enabled URL quality searches" do
+      for option <- ["autoquality=size,target:10000", "max-bytes=10000"] do
+        assert {:error, {:invalid_request, diagnostics}} = parse(["format=png", option])
+        assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+      end
+
+      assert {:ok, %Request{output: %Output{format: :png, autoquality: :none}}} =
+               parse(["format=png", "autoquality=none"])
+    end
+
+    test "q conflicts with enabled URL autoquality" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["q=80", "autoquality=ssimulacra2,target:78"])
+
+      assert Enum.any?(diagnostics, &(&1.reason == :mutually_exclusive_options))
     end
   end
 

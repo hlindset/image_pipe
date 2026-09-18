@@ -5,6 +5,12 @@ defmodule ImagePipe.ConfigTest do
   alias ImagePipe.Config
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
+  test "format-specific quality maps reject unsupported format keys" do
+    for key <- [:format_quality, :autoquality_format_min_quality, :autoquality_format_max_quality] do
+      assert_raise ArgumentError, fn -> Config.resolve!([{key, %{wepb: 70}}]) end
+    end
+  end
+
   describe "resolve!/2 layering" do
     test "applies neutral defaults when host and overlay are empty" do
       resolved = Config.resolve!([], [])

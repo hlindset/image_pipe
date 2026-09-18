@@ -302,7 +302,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     do: {:ok, objective_q, objective_outcome, ctx}
 
   defp cap_phase(quality_search, max_bytes, objective_q, objective_outcome, ctx) do
-    floor = cap_floor(quality_search)
+    floor = min(cap_floor(quality_search), objective_q)
     ctx = %{ctx | phase: :cap}
 
     with {:ok, ctx} <- ensure_probed(objective_q, ctx) do

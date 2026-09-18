@@ -351,7 +351,9 @@ defmodule ImagePipe.Native.Parser do
         collect_group_cross_errors(group_map, occurrences, group_index)
       end)
 
-    group_errors ++ collect_terminal_applicability_errors(clean_request_map, occurrences)
+    group_errors ++
+      collect_terminal_applicability_errors(clean_request_map, occurrences) ++
+      collect_output_cross_errors(clean_request_map, occurrences)
   end
 
   defp collect_group_cross_errors(group_map, occurrences, group_index) do
@@ -691,6 +693,87 @@ defmodule ImagePipe.Native.Parser do
     end)
   end
 
+  defp collect_output_cross_errors(request_map, occurrences) do
+    quality_autoquality_errors(request_map, occurrences) ++
+      png_search_errors(request_map, occurrences) ++
+      encoder_format_errors(request_map, occurrences)
+  end
+
+  defp quality_autoquality_errors(request_map, occurrences) do
+    if Map.has_key?(request_map, "q") and enabled_autoquality?(request_map) do
+      [
+        %Diagnostic{
+          reason: :mutually_exclusive_options,
+          message: "q and enabled autoquality are mutually exclusive",
+          spans: [
+            request_occurrence_span(occurrences, "q"),
+            request_occurrence_span(occurrences, "autoquality")
+          ]
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp png_search_errors(%{"format" => :png} = request_map, occurrences) do
+    enabled_autoquality_error(request_map, occurrences) ++
+      request_inert_if(
+        Map.has_key?(request_map, "max-bytes"),
+        occurrences,
+        "max-bytes",
+        "a quality-bearing output format"
+      )
+  end
+
+  defp png_search_errors(_request_map, _occurrences), do: []
+
+  defp enabled_autoquality_error(request_map, occurrences) do
+    request_inert_if(
+      enabled_autoquality?(request_map),
+      occurrences,
+      "autoquality",
+      "a quality-bearing output format"
+    )
+  end
+
+  defp enabled_autoquality?(request_map) do
+    match?({_method, _fields}, Map.get(request_map, "autoquality"))
+  end
+
+  defp encoder_format_errors(%{"format" => format} = request_map, occurrences) do
+    encoder_formats = %{
+      "jpeg-options" => :jpeg,
+      "png-options" => :png,
+      "webp-options" => :webp,
+      "avif-options" => :avif,
+      "jxl-options" => :jpeg_xl
+    }
+
+    Enum.flat_map(encoder_formats, fn {key, option_format} ->
+      request_inert_if(
+        Map.has_key?(request_map, key) and option_format != format,
+        occurrences,
+        key,
+        "format=#{format}"
+      )
+    end)
+  end
+
+  defp encoder_format_errors(_request_map, _occurrences), do: []
+
+  defp request_inert_if(false, _occurrences, _key, _requirement), do: []
+
+  defp request_inert_if(true, occurrences, key, requirement) do
+    [
+      %Diagnostic{
+        reason: :inert_option,
+        message: "#{key} requires #{requirement}",
+        spans: [request_occurrence_span(occurrences, key)]
+      }
+    ]
+  end
+
   defp resize_intent?(group_map) do
     concrete_dimension?(Map.get(group_map, "w")) or
       concrete_dimension?(Map.get(group_map, "h")) or
@@ -885,8 +968,25 @@ defmodule ImagePipe.Native.Parser do
     %Output{
       terminal: Map.get(clean_request_map, "output", :image),
       format: Map.get(clean_request_map, "format"),
-      quality: Map.get(clean_request_map, "q")
+      quality: Map.get(clean_request_map, "q"),
+      format_qualities: Map.get(clean_request_map, "format-q", %{}),
+      autoquality: Map.get(clean_request_map, "autoquality"),
+      max_bytes: Map.get(clean_request_map, "max-bytes"),
+      encoder_options: assemble_encoder_options(clean_request_map)
     }
+  end
+
+  defp assemble_encoder_options(request_map) do
+    for {key, format} <- [
+          {"jpeg-options", :jpeg},
+          {"png-options", :png},
+          {"webp-options", :webp},
+          {"avif-options", :avif},
+          {"jxl-options", :jpeg_xl}
+        ],
+        Map.has_key?(request_map, key),
+        into: %{},
+        do: {format, Map.fetch!(request_map, key)}
   end
 
   defp fragment_segments(fragment) do
@@ -974,6 +1074,10 @@ defmodule ImagePipe.Native.Parser do
     do: "invalid value: expected avif, webp, jpeg, png, or jxl"
 
   def message_for(:invalid_quality), do: "invalid value: expected an integer 1-100"
+  def message_for(:invalid_format_qualities), do: "invalid per-format quality list"
+  def message_for(:invalid_autoquality), do: "invalid autoquality method or named fields"
+  def message_for(:invalid_max_bytes), do: "invalid value: expected a positive integer"
+  def message_for(:invalid_encoder_options), do: "invalid encoder option list"
   def message_for(:invalid_expires), do: "invalid value: expected a positive unix timestamp"
 
   def message_for(:invalid_preset_name),

@@ -300,6 +300,10 @@ defmodule ImagePipe.Config do
 
   defp validate_quality_map!(key, map) do
     Enum.each(map, fn {format, q} ->
+      unless Map.has_key?(@encoder_option_config, format) do
+        raise ArgumentError, "invalid config: #{key} has unsupported format #{inspect(format)}"
+      end
+
       unless q in 1..100 do
         raise ArgumentError,
               "invalid config: #{key} #{inspect(format)} (#{q}) must be between 1 and 100"

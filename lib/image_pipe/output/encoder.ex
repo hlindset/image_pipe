@@ -93,6 +93,12 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   # A quality search runs when a search objective or a hard byte budget is set.
+  defp search?(%Resolved{
+         format: :webp,
+         encoder_options: %WebpOptions{lossless: true}
+       }),
+       do: false
+
   defp search?(%Resolved{quality_search: quality_search, max_bytes: max_bytes}),
     do: quality_search != :none or max_bytes != nil
 
