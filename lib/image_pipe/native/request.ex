@@ -15,13 +15,14 @@ defmodule ImagePipe.Native.Request do
   alias ImagePipe.Native.Request.Output
 
   @enforce_keys [:groups, :output, :source]
-  defstruct groups: [], output: nil, source: nil, expires: nil
+  defstruct groups: [], output: nil, source: nil, expires: nil, debug?: false
 
   @type t :: %__MODULE__{
           groups: [Group.t()],
           output: Output.t(),
           source: String.t(),
-          expires: pos_integer() | nil
+          expires: pos_integer() | nil,
+          debug?: boolean()
         }
 end
 

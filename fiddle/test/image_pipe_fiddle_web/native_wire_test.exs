@@ -15,6 +15,14 @@ defmodule ImagePipeFiddleWeb.NativeWireTest do
     assert conn.status == 400
   end
 
+  test "native debug example exposes processing facts", %{conn: conn} do
+    conn = get(conn, "/native-image/w=64/debug/src/images/dog.jpg")
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "x-imagepipe-output-width") == ["64"]
+    assert [_timings] = get_resp_header(conn, "server-timing")
+  end
+
   test "native preset example expands nested transforms and the frame group", %{conn: conn} do
     conn = get(conn, "/native-image/preset=framed/src/images/dog.jpg")
 

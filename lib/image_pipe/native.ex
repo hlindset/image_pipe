@@ -104,7 +104,7 @@ defmodule ImagePipe.Native do
          response_meta: %PlanResponse{},
          operations: Pipeline.operation_names(request),
          auto_rotate?: @auto_rotate?,
-         debug?: false,
+         debug?: request.debug?,
          http_cache:
            if(Keyword.has_key?(config, :http_cache), do: :generated, else: :dialect_owned),
          terminal: terminal(request, config)

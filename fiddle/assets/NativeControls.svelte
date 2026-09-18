@@ -13,6 +13,7 @@
     { label: "Rotate", options: "rotate=30/w=600" },
     { label: "Grayscale", options: "w=600/gray" },
     { label: "Black and white", options: "w=600/bitonal" },
+    { label: "Debug headers", options: "w=800/debug" },
   ];
 </script>
 

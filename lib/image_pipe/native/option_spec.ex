@@ -49,7 +49,7 @@ defmodule ImagePipe.Native.OptionSpec do
           # here.
           prerequisites: [atom()],
           conflicts: [String.t()],
-          identity: :representation | :gate,
+          identity: :representation | :gate | :presentation,
           terminal_applicability: :both | :image,
           summary: String.t(),
           examples: [String.t()]
@@ -331,6 +331,19 @@ defmodule ImagePipe.Native.OptionSpec do
         terminal_applicability: :image,
         summary: "Output quality, 1-100",
         examples: ["q=80"]
+      },
+      %__MODULE__{
+        key: "debug",
+        scope: :request,
+        value: :flag,
+        stage: nil,
+        default: false,
+        prerequisites: [],
+        conflicts: [],
+        identity: :presentation,
+        terminal_applicability: :both,
+        summary: "Request debug response headers when the mount allows them",
+        examples: ["debug"]
       },
       %__MODULE__{
         key: "expires",

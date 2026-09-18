@@ -547,7 +547,8 @@ defmodule ImagePipe.Native.Parser do
       groups: groups,
       output: assemble_output(clean_request_map),
       source: source,
-      expires: Map.get(clean_request_map, "expires")
+      expires: Map.get(clean_request_map, "expires"),
+      debug?: Map.get(clean_request_map, "debug", false)
     }
   end
 

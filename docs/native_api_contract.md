@@ -32,7 +32,7 @@ The native API implements these option keys:
 
 `rotate`, `w`, `h`, `fit`, `enlarge`, `crop`, `region`, `anchor`, `focus`,
 `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
-`expires`, `preset`.
+`debug`, `expires`, `preset`.
 
 It also implements `then`, `src`, `src64`, and full-length HMAC signing with
 key rotation. Presets support nested references and complete `then` pipelines.

@@ -14,21 +14,16 @@ Two independent controls must both be satisfied for any header to be emitted:
 
    ```elixir
    plug ImagePipe.Plug,
-     dialect: ImagePipe.Dialect.IIIF,
-     resolver: {MyApp.Resolver, []},
      sources: [...],
      allow_debug_headers: true
    ```
 
-   Debug headers are available on every mount — there is one mount shape, and
-   the flag means the same thing on all of them. Native currently has no
-   per-request trigger in its grammar, so its responses render none until a
-   trigger is chosen
-   ([#471](https://github.com/hlindset/image_pipe/issues/471)).
-
 2. **Per-request trigger** — opts a single request into debug headers. Honored
    only when `allow_debug_headers: true`; otherwise ignored. The trigger is
    **dialect-specific**:
+   - **native**: the bare `debug` option, for example
+     `/w=400/debug/src/cat.jpg`. Use `debug=false` to opt out. Like other
+     native flags, `debug=true` and numeric spellings are invalid.
    - **imgproxy**: the `debug:1` processing option inside the signed path,
      for example `/<signature>/debug:1/rs:fill:400:300/plain/…` (also
      `debug:true`; `debug:0`/`debug:false` opt out).
@@ -37,13 +32,9 @@ Two independent controls must both be satisfied for any header to be emitted:
      free slot, so the trigger is an out-of-band query param (read leniently — a
      malformed value is ignored, never a 400).
 
-   All triggers accept the boolean spellings `1`/`true`; imgproxy
-   also accept `0`/`false` to explicitly opt out. Only the imgproxy trigger is
-   signature-protected — see below.
-
 A debug trigger does **not** change the produced image bytes: it rides the
-dialect's response metadata (`Plan.Response.debug?` on the declarative tier),
-which contributes to neither the cache key nor the ETag, so a debug request and
+request's response metadata, which contributes to neither the cache key nor
+the ETag, so a debug request and
 a plain request resolve to the same cache entry. (Facts are collected and stored
 on every generation regardless of the flag, so enabling
 `allow_debug_headers: true` immediately surfaces headers for already-cached
@@ -51,11 +42,10 @@ items, with no cache invalidation.)
 
 ## Security and disclosure
 
-> **Signing.** On the imgproxy stack, `debug:1` is part of the signed
-> processing-options path, so a configured path signature (HMAC) covers it,
-> and covers it as a *disclosing* trigger, which is the point: an attacker
-> cannot append `debug:1` to an otherwise-valid signed URL without
-> invalidating the signature.
+> **Signing.** Native `debug` and imgproxy `debug:1` are part of the signed
+> processing-options path, so a configured path signature (HMAC) covers them.
+> Adding either trigger to an otherwise-valid signed URL invalidates its
+> signature.
 >
 > **IIIF** has no request signing, so its `?debug=1` trigger is unprotected.
 > Anyone who can reach the mount can add it. Enable `allow_debug_headers: true`
@@ -149,8 +139,9 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 
 ## Demo (fiddle)
 
-The bundled demo (`fiddle/`) configures its imgproxy mount with
-`allow_debug_headers: true` and signs a `debug:1`-augmented preview path.
+The bundled demo (`fiddle/`) configures its native and imgproxy mounts with
+`allow_debug_headers: true`. The native editor has a **Debug headers** example
+using `debug`; the imgproxy preview signs a `debug:1`-augmented path.
 Its service worker reads
 these headers off the fetched response and surfaces them in a **Debug headers**
 panel under the preview, including the derived output size and compression

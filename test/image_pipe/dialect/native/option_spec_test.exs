@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
 
   alias ImagePipe.Native.OptionSpec
 
-  @native_keys ~w(rotate gray bitonal w h fit enlarge crop region anchor focus blur trim pad bg output format q expires preset)
+  @native_keys ~w(rotate gray bitonal w h fit enlarge crop region anchor focus blur trim pad bg output format q debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -21,7 +21,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
         assert is_nil(spec.stage) or (is_integer(spec.stage) and spec.stage > 0)
         assert is_list(spec.prerequisites)
         assert is_list(spec.conflicts)
-        assert spec.identity in [:representation, :gate]
+        assert spec.identity in [:representation, :gate, :presentation]
         assert spec.terminal_applicability in [:both, :image]
         assert is_binary(spec.summary) and spec.summary != ""
 
