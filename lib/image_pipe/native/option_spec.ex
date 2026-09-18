@@ -982,6 +982,8 @@ defmodule ImagePipe.Native.OptionSpec do
     else
       :error
     end
+  rescue
+    ArgumentError -> :error
   end
 
   @doc false

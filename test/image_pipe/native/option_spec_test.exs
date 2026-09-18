@@ -79,7 +79,6 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_dpr("0") == {:error, :invalid_dpr}
       assert OptionSpec.parse_dpr("-1") == {:error, :invalid_dpr}
       assert OptionSpec.parse_dpr("1e2") == {:error, :invalid_dpr}
-      assert OptionSpec.parse_dpr(String.duplicate("9", 1_000)) == {:error, :invalid_dpr}
     end
 
     test "parse_dimension unwraps px to a plain integer, keeps auto" do
@@ -101,6 +100,15 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_zoom("1,-1") == {:error, :invalid_zoom}
       assert OptionSpec.parse_zoom("1,2,3") == {:error, :invalid_zoom}
       assert OptionSpec.parse_zoom("1e2") == {:error, :invalid_zoom}
+    end
+
+    test "DPR and zoom reject decimals outside the floating-point range" do
+      for value <- [String.duplicate("9", 1_000), String.duplicate("9", 1_000) <> ".5"] do
+        assert OptionSpec.parse_dpr(value) == {:error, :invalid_dpr}
+        assert OptionSpec.parse_zoom(value) == {:error, :invalid_zoom}
+        assert OptionSpec.parse_zoom(value <> ",1") == {:error, :invalid_zoom}
+        assert OptionSpec.parse_zoom("1," <> value) == {:error, :invalid_zoom}
+      end
     end
 
     test "parse_fit translates hyphenated URL spellings to atoms" do
