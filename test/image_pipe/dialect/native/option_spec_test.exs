@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
 
   alias ImagePipe.Native.OptionSpec
 
-  @native_keys ~w(rotate gray bitonal w h fit enlarge crop region anchor focus blur trim pad bg output format q debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal w h fit enlarge crop region anchor focus blur trim pad bg output format q debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do

@@ -41,6 +41,17 @@ defmodule ImagePipe.Transform.PendingOrientation do
   defp exif_angle_flip(_), do: {0, false}
 
   @spec fold_rotate(t(), 0 | 90 | 180 | 270) :: t()
+  def fold_rotate(%__MODULE__{} = po, angle) when angle in [90, 270] do
+    # The flush stores rotation before flips. A later quarter turn rotates
+    # the existing flip axes too, preserving the requested composition.
+    %__MODULE__{
+      po
+      | user_angle: rem(po.user_angle + angle, 360),
+        user_flip_x: po.user_flip_y,
+        user_flip_y: po.user_flip_x
+    }
+  end
+
   def fold_rotate(%__MODULE__{user_angle: a} = po, angle),
     do: %__MODULE__{po | user_angle: rem(a + angle, 360)}
 

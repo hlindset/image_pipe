@@ -557,6 +557,7 @@ defmodule ImagePipe.Native.Parser do
 
     %Group{
       rotate: assemble_rotation(Map.get(group_map, "rotate", 0)),
+      flip: Map.get(group_map, "flip"),
       gray: Map.get(group_map, "gray", false),
       bitonal: Map.get(group_map, "bitonal", false),
       trim: assemble_trim(Map.get(group_map, "trim")),
@@ -679,6 +680,7 @@ defmodule ImagePipe.Native.Parser do
   def message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
   def message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
   def message_for(:invalid_rotation), do: "invalid value: expected degrees from 0 to 360"
+  def message_for(:invalid_flip), do: "invalid value: expected h, v, or hv"
 
   def message_for(:invalid_pad_shorthand),
     do: "invalid value: expected 1-4 comma-separated px values"

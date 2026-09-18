@@ -30,7 +30,7 @@ pipelines. The remaining migration starts from this architecture.
 
 The native API implements these option keys:
 
-`rotate`, `w`, `h`, `fit`, `enlarge`, `crop`, `region`, `anchor`, `focus`,
+`rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `crop`, `region`, `anchor`, `focus`,
 `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
 `debug`, `expires`, `preset`.
 
@@ -97,7 +97,8 @@ The fixed stage order is rotate, flip, trim, source crop, resize/result
 crop, effects, canvas, padding, background. Within effects the order is
 blur, sharpen, pixelate, gray, bitonal, monochrome, duotone, brightness,
 contrast, saturation, colorize, gradient. Units are explicit and `then`
-groups are ordered. Rotate accepts arbitrary angles; flip follows rotate.
+groups are ordered. Rotate accepts arbitrary angles; `flip=h`, `flip=v`, and
+`flip=hv` reflect horizontally, vertically, or both after rotation.
 For example, `/w=500/then/trim=fff/src/image.jpg` deliberately trims the
 smaller intermediate image. It must remain observably different from
 `/w=500/trim=fff/src/image.jpg`, which trims before resizing.

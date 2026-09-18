@@ -112,6 +112,19 @@ defmodule ImagePipe.Native.OptionSpec do
         examples: ["rotate=30", "rotate=90"]
       },
       %__MODULE__{
+        key: "flip",
+        scope: :group,
+        value: &__MODULE__.parse_flip/1,
+        stage: 2,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Flip horizontally, vertically, or both after rotation",
+        examples: ["flip=h", "flip=v", "flip=hv"]
+      },
+      %__MODULE__{
         key: "gray",
         scope: :group,
         value: :flag,
@@ -484,6 +497,13 @@ defmodule ImagePipe.Native.OptionSpec do
         {:error, :invalid_rotation}
     end
   end
+
+  @spec parse_flip(String.t()) ::
+          {:ok, :horizontal | :vertical | :both} | {:error, :invalid_flip}
+  def parse_flip("h"), do: {:ok, :horizontal}
+  def parse_flip("v"), do: {:ok, :vertical}
+  def parse_flip("hv"), do: {:ok, :both}
+  def parse_flip(_value), do: {:error, :invalid_flip}
 
   @doc false
   @spec parse_blur(String.t()) :: {:ok, float()} | {:error, :invalid_blur}

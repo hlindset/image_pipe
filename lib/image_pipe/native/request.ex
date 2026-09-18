@@ -52,6 +52,7 @@ defmodule ImagePipe.Native.Request.Group do
           | {:focus, float(), float()}
 
   defstruct rotate: nil,
+            flip: nil,
             gray: false,
             bitonal: false,
             trim: nil,
@@ -65,6 +66,7 @@ defmodule ImagePipe.Native.Request.Group do
 
   @type t :: %__MODULE__{
           rotate: nil | number(),
+          flip: nil | :horizontal | :vertical | :both,
           gray: boolean(),
           bitonal: boolean(),
           trim: nil | :auto | {color(), number()},

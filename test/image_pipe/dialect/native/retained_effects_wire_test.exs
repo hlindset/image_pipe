@@ -90,6 +90,40 @@ defmodule ImagePipe.Native.RetainedEffectsWireTest do
     refute color_at(gray, 5, 5) == color_at(source(), 5, 5)
   end
 
+  test "flips work without geometry after rotation in every EXIF frame" do
+    for orientation <- 1..8,
+        {value, axes} <- [
+          {"h", [:horizontal]},
+          {"v", [:vertical]},
+          {"hv", [:horizontal, :vertical]}
+        ] do
+      baseline = image("rotate=90", orientation)
+      expected = Enum.reduce(axes, baseline, &Image.flip!(&2, &1))
+      actual = image("flip=#{value}/rotate=90", orientation)
+
+      assert Vimage.write_to_binary(actual) == Vimage.write_to_binary(expected)
+    end
+  end
+
+  test "flip precedes region crop regardless of URL order" do
+    first = request("flip=h/region=0,0,20,20/w=10")
+    second = request("w=10/region=0,0,20,20/flip=h")
+    assert first.status == 200
+    assert first.resp_body == second.resp_body
+    output = Image.from_binary!(first.resp_body)
+    assert color_at(output, 5, 5) == [240, 240, 240]
+  end
+
+  test "later groups rotate the completed result of earlier flips" do
+    for flip <- ["h", "v", "hv"], angle <- [90, 180, 270], orientation <- [1, 6] do
+      baseline = image("rotate=90/flip=#{flip}", orientation)
+      expected = Image.rotate!(baseline, angle)
+      actual = image("rotate=90/flip=#{flip}/then/rotate=#{angle}", orientation)
+
+      assert Vimage.write_to_binary(actual) == Vimage.write_to_binary(expected)
+    end
+  end
+
   test "bitonal produces black and white pixels without requiring geometry" do
     bitonal = image("bitonal")
     assert Enum.uniq(color_at(bitonal, 5, 5)) == [0]
@@ -107,8 +141,15 @@ defmodule ImagePipe.Native.RetainedEffectsWireTest do
     end
   end
 
-  test "invalid rotation and effect values fail validation" do
-    for options <- ["rotate=-1", "rotate=361", "rotate=abc", "gray=yes", "bitonal=1"] do
+  test "invalid rotation, flip, and effect values fail validation" do
+    for options <- [
+          "rotate=-1",
+          "rotate=361",
+          "rotate=abc",
+          "flip=diagonal",
+          "gray=yes",
+          "bitonal=1"
+        ] do
       assert request(options).status == 400
     end
   end

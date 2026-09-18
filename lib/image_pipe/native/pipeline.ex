@@ -11,7 +11,7 @@ defmodule ImagePipe.Native.Pipeline do
   (`resolve/3` + `continue/4` + `resolve_mode/2`, called directly with `nil`
   state). The dialect owns the request orchestration around them.
 
-  **Fixed stage order within a group**: rotate(1) → trim(3) →
+  **Fixed stage order within a group**: rotate(1) → flip(2) → trim(3) →
   region/guided crop(4) → resize(5) → cover result crop(6, automatic, part of
   the resize's own continuation tail) → blur(7) → gray(10) → bitonal(11) →
   pad(20) → bg flatten(21).
@@ -215,7 +215,8 @@ defmodule ImagePipe.Native.Pipeline do
   defp default_measure_dims(image), do: {Image.width(image), Image.height(image)}
 
   defp run_group(state, shape, %Group{} = group, ctx) do
-    with {:ok, state, shape} <- rotate_group(state, shape, group.rotate, ctx) do
+    with {:ok, state, shape} <- rotate_group(state, shape, group.rotate, ctx),
+         {:ok, state, shape} <- flip_group(state, shape, group.flip, ctx) do
       run_group_body(state, shape, group, ctx)
     end
   end
@@ -224,6 +225,11 @@ defmodule ImagePipe.Native.Pipeline do
 
   defp rotate_group(state, shape, angle, ctx),
     do: run_op(state, shape, %Operation.Rotate{angle: angle}, ctx)
+
+  defp flip_group(state, shape, nil, _ctx), do: {:ok, state, shape}
+
+  defp flip_group(state, shape, axis, ctx),
+    do: run_op(state, shape, %Operation.Flip{axis: axis}, ctx)
 
   defp run_group_body(state, shape, group, ctx) do
     group
@@ -420,6 +426,7 @@ defmodule ImagePipe.Native.Pipeline do
   defp group_operation_names(%Group{} = group) do
     [
       group.rotate && :rotate,
+      group.flip && :flip,
       group.trim && :trim,
       crop_name(group),
       group.resize && :resize,

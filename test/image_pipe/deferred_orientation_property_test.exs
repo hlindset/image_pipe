@@ -5,25 +5,20 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
 
   import Plug.Test
 
-  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
 
-  # Deferred orientation (#146): EXIF auto-orient and user rotate/mirror are
-  # applied AFTER crop/resize in the canonical model, but ImagePipe defers the
-  # flush for performance. This property pins the two observable invariants of
-  # that deferral through the IIIF dialect, whose rotation token is a clockwise
-  # right angle (0|90|180|270) with an optional leading `!` horizontal mirror
-  # applied *before* the rotation:
+  # Deferred orientation: native logically applies EXIF, rotate, and flip before
+  # crop/resize. The executor may defer the physical flush while compensating
+  # geometry into the stored frame. These properties check both observable
+  # invariants of that optimization:
   #
-  #   * No-geometry leg — EXIF 1..8 × IIIF rotation/mirror with no region crop or
-  #     resize must EXACTLY match the same-primitive `autorotate ∘ mirror ∘
-  #     rotate` reference (the flush and the mirrored-rotate op use these exact
+  #   * No-geometry leg — EXIF 1..8 × native rotation/flip with no region crop or
+  #     resize must EXACTLY match EXIF, then rotate, then flip (the flush uses these exact
   #     primitives, so equality is real, not tolerant).
   #
-  #   * Crop/resize leg — the SAME IIIF request on the EXIF-oriented source and
+  #   * Crop/resize leg — the SAME native request on the EXIF-oriented source and
   #     on the orientation-1 twin (same displayed pixels, no tag) must land
   #     within ±1px on each axis and match interior flat-region pixels. Identical
   #     operators on both legs ⇒ rounding cancels; the residual is the affine
@@ -32,13 +27,13 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   #     `Image.thumbnail` reference — the pipeline resizes with affine
   #     `Image.resize`, so the only sound oracle is wire-vs-orientation-1.
   #
-  # Both legs run the SAME IIIF request, so any frame-mismatch in the
+  # Both legs run the SAME native request, so any frame-mismatch in the
   # compensation surfaces as a twin divergence: a region crop whose top-left
   # offset must rotate as a displacement vector under a quarter turn (#146
   # Bug 3), and a resize whose requested axes must swap into the storage frame
   # ahead of the flush (#146 Bug 2).
 
-  property "no-geometry: EXIF 1..8 × IIIF rotation/mirror matches the same-primitive reference" do
+  property "no-geometry: EXIF 1..8 × rotation/flip matches the same-primitive reference" do
     check all(
             orientation <- integer(1..8),
             angle <- member_of([0, 90, 180, 270]),
@@ -46,10 +41,10 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
             max_runs: 60
           ) do
       base = sharp_quadrants(64, 96)
-      rotation = rotation_token(mirror, angle)
+      flip = if mirror, do: "/flip=h", else: ""
 
       out =
-        "/x/full/max/#{rotation}/default.png"
+        "/rotate=#{angle}#{flip}/format=png/src/x.jpg"
         |> request(oriented_opts(base, orientation))
         |> decoded()
 
@@ -73,7 +68,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
             max_runs: 80
           ) do
       base = sharp_quadrants(120, 200)
-      path = "/x/#{geometry}/0/default.png"
+      path = "/#{geometry}/format=png/src/x.jpg"
 
       oriented = path |> request(oriented_opts(base, orientation)) |> decoded()
       twin = path |> request(twin_opts(base, orientation)) |> decoded()
@@ -94,32 +89,32 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
 
   # ── Generators ───────────────────────────────────────────────────────────────
 
-  # IIIF geometry is `{region}/{size}`. Regions stay inside the 120×120 box shared
+  # Regions stay inside the 120×120 box shared
   # by every orientation of the 120×200 source (portrait 120×200 and the quarter-
   # turn landscape 200×120), so a single path is in-bounds for all 8 orientations.
   defp geometry_path do
     member_of([
-      # region crop only (size max) — top-left offset rotates as a displacement
-      "20,10,60,40/max",
-      "square/max",
-      "0,0,50,60/max",
-      # resize only (full region)
-      "full/91,",
-      "full/,61",
-      "full/91,61",
-      "full/!91,61",
+      # Region crop only — top-left offset rotates as a displacement.
+      "region=20,10,60,40",
+      "crop=120,120",
+      "region=0,0,50,60",
+      # Resize only.
+      "w=91",
+      "h=61",
+      "w=91/h=61/fit=stretch",
+      "w=91/h=61",
       # region crop + resize — offset + quarter-turn resize compensation
-      "10,10,80,80/!60,60",
-      "20,30,60,90/!50,50",
-      "square/!90,90",
-      "10,20,100,100/50,50"
+      "region=10,10,80,80/w=60/h=60",
+      "region=20,30,60,90/w=50/h=50",
+      "crop=120,120/w=90/h=90",
+      "region=10,20,100,100/w=50/h=50/fit=stretch"
     ])
   end
 
   # ── References & helpers ─────────────────────────────────────────────────────
 
-  # Same primitives the pipeline uses: EXIF autorotate, then (IIIF `!`) horizontal
-  # mirror, then the clockwise right-angle rotate. Right angles take the lossless
+  # Same primitives the pipeline uses: EXIF autorotate, then clockwise rotation,
+  # then horizontal flip. Right angles take the lossless
   # vips_rot path on both sides, so the comparison is exact.
   defp orientation_only_reference(base_bytes, orientation, mirror, angle) do
     oriented =
@@ -131,15 +126,13 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
 
     {:ok, {displayed, _flags}} = Image.autorotate(oriented)
 
-    mirrored = if mirror, do: Image.flip!(displayed, :horizontal), else: displayed
-    rotated = if angle != 0, do: Image.rotate!(mirrored, angle), else: mirrored
+    rotated = if angle != 0, do: Image.rotate!(displayed, angle), else: displayed
+    flipped = if mirror, do: Image.flip!(rotated, :horizontal), else: rotated
 
-    rotated
+    flipped
     |> Image.write!(:memory, suffix: ".png")
     |> Image.open!(access: :random)
   end
-
-  defp rotation_token(mirror, angle), do: "#{if mirror, do: "!"}#{angle}"
 
   defp sharp_quadrants(w, h) do
     Image.new!(w, h, color: :green)
@@ -156,8 +149,6 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
 
   defp opts(origin, base_bytes, orientation) do
     [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver: {StaticResolver, map: %{"x" => %SourcePath{segments: ["x.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,
