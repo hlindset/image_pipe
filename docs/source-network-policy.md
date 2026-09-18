@@ -1,8 +1,7 @@
 # Source network policy (SSRF protection)
 
-`ImagePipe.Source.HTTP` validates the destination of every origin fetch — and of
-every redirect hop — before connecting. By default it refuses to connect to any
-address that is not public.
+`ImagePipe.Source.HTTP` validates every origin and redirect destination before
+connecting. By default it connects only to public addresses.
 
 ## Default policy
 
@@ -11,9 +10,9 @@ For each request, and again for each redirect, the adapter:
 1. Requires an `http`/`https` scheme.
 2. Requires the (case-insensitive) host to be in `allowed_hosts` — redirects may
    not leave the allowlist.
-3. Resolves the host to IP addresses and **denies the fetch if any resolved
-   address is not public** (loopback, unspecified, link-local, private, CGNAT,
-   unique-local, multicast, broadcast, or otherwise reserved).
+3. Resolves the host and **denies the fetch if any resolved address is not
+   public** (loopback, unspecified, link-local, private, CGNAT, unique-local,
+   multicast, broadcast, or otherwise reserved).
 
 IPv4 literal encodings (decimal, octal, hex) and IPv4-mapped / NAT64 / 6to4 IPv6
 forms are canonicalized before classification, so they cannot be used to smuggle
@@ -65,13 +64,12 @@ exception is treated as **deny** (fail-closed).
 address_resolver: fn host -> {:ok, [{93, 184, 216, 34}]} end
 ```
 
-It returns `{:ok, [ip_tuple]}` or `{:error, term}`. Any error, an empty list, or a
-raise denies the fetch.
+It returns `{:ok, [ip_tuple]}` or `{:error, term}`. Errors, empty results, and
+exceptions deny the fetch.
 
 ## Known limitation: DNS rebinding
 
-This is **resolve-and-validate**, not connection-pinned: after the policy
-validates the resolved addresses, the HTTP client re-resolves the hostname when it
-actually connects. A DNS-rebinding attacker who returns a public address to our
-lookup and a private address at connect time can still slip past. Closing this
-requires pinning the connection to the validated IP and is tracked separately.
+This policy resolves and validates but does not pin the connection. The HTTP
+client resolves the hostname again when it connects, so a DNS-rebinding attacker
+could return a public address during validation and a private address during the
+connection. Preventing that requires connecting to the validated IP.

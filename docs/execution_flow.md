@@ -3,7 +3,7 @@
 ## Request lifecycle
 
 `ImagePipe.Plug` validates mount configuration and delegates the request to
-`ImagePipe.Plug.Runner`, which calls native parsing and transform execution
+`ImagePipe.Plug.Runner`, which calls parsing and transform execution
 directly.
 
 The lifecycle is:
@@ -26,12 +26,12 @@ points. Source adapters own fetch side effects and source byte identity;
 representation code owns cache identity and validators; response code owns
 headers and delivery.
 
-## Native request and execution
+## Request and execution
 
 `ImagePipe.Native.Parser` produces `ImagePipe.Plan.Request` data. Presets expand
 before validation, and `then` separates explicitly ordered groups. Option order
 inside a group does not affect processing order. The
-[native API contract](native_api_contract.md) defines stages, coordinate frames,
+[API contract](api_contract.md) defines stages, coordinate frames,
 and the capability inventory.
 
 `ImagePipe.Transform.Executor.decode_request/2` plans shrink-on-load from the first
@@ -54,7 +54,7 @@ the same pixels as eager execution.
 
 ## Geometry and operations
 
-The native executor reads validated group fields and constructs concrete
+The executor reads validated group fields and constructs concrete
 transform operations. Source-dependent steps such as trim and cover resizing
 measure the resulting image before resolving the next stage. Runtime geometry,
 orientation, and decode scaling live in `Transform.State`.
@@ -76,7 +76,7 @@ encoding. Operation span durations measure lazy pipeline construction;
 when delivery is cancelled. Failed or incomplete streams do not enter cache.
 
 `Plug.Terminal` renders BlurHash and info as complete-body responses.
-It owns their decode bracket and terminal telemetry. BlurHash runs the native
+It owns their decode resources and terminal telemetry. BlurHash runs the
 executor and terminal reduction; info reports decoded source facts without
 transforming pixels.
 Debug headers are request presentation: the mount must permit them, and the

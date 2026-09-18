@@ -17,21 +17,17 @@ forward "/",
   ]
 ```
 
-Cache lookup happens only after request parsing, validation, and
-source resolution. A lookup doesn't fetch, decode, or read metadata from the
-source image. Invalid requests return before
-source fetch or cache access. Invalid signatures return `403`. Parse,
-prepare, source fetch, decode, transform, negotiation, and encode errors are
+Cache lookup follows request parsing, validation, and source resolution. It does
+not fetch, decode, or inspect the source image. Invalid requests return before
+source or cache access; invalid signatures return `403`. Failed processing is
 never cached.
 
 ## Freshness and source stability
 
-The internal cache has no time-based freshness and performs no origin
-revalidation. A cache hit is served from the stored encoded body without
-re-fetching the source, without re-reading source metadata, and without checking
-whether the origin bytes changed. Reuse validity is therefore a property of the
-resolved source identity and byte-version seed, not of elapsed time. Their
-combination must name the same bytes across requests and application nodes.
+The internal cache has no TTL or origin revalidation. A hit serves the stored
+body without fetching the source or checking whether its bytes changed. The
+resolved source identity and byte-version seed must therefore name the same
+bytes across requests and application nodes.
 
 That assumption is made explicit per source through the `:stable` option, and
 whether the internal cache is used at all is gated on it through the
@@ -47,20 +43,14 @@ whether the internal cache is used at all is gated on it through the
   configured cache. Under `:auto`, the internal cache is **enabled only when the
   source is stable**.
 
-The consequence is that, with default settings, ImagePipe does not internally
-cache mutable sources at all. A request against a non-stable source skips cache
-lookup and cache staging entirely and re-fetches and re-processes the origin
-every time, so it cannot serve an indefinitely stale transformed response. The
-"stale forever" failure mode only arises if a deployment deliberately forces
-`internal_cache: :enabled` on a mutable source; in that case freshness is the
-caller's responsibility, managed through cachebusters in the request or external
-eviction of the cache (including bounded mode's size-driven eviction, below).
+With the defaults, mutable sources skip cache lookup and staging and are fetched
+and processed on every request. Forcing `internal_cache: :enabled` on a mutable
+source makes freshness the caller's responsibility through request cachebusters
+or external eviction.
 
-`:stable` and `:internal_cache` are independent of the client-facing HTTP cache
-headers (`Cache-Control`, `ETag`, conditional `GET` / `304`), which are governed
-separately and described in [docs/cdn-http-cache.md](cdn-http-cache.md). The
-client-side `ETag` is a validator over request inputs and does not revalidate the
-origin either.
+These options are independent of client-facing `Cache-Control`, `ETag`, and
+conditional `GET` handling. See [CDN HTTP caching](cdn-http-cache.md). An ETag
+validates request-derived byte identity; it does not revalidate the origin.
 
 ### Deliberately not implemented
 
@@ -72,33 +62,24 @@ tracked in [issue #44](https://github.com/hlindset/image_pipe/issues/44):
 - storing origin `ETag` / `Last-Modified` validators and revalidating the origin
   with `If-None-Match` / `If-Modified-Since` (no `304` reuse against the origin).
 
-Entry metadata is versioned (the filesystem adapter carries an independent
-`metadata_version`; see below), so freshness or validator fields can be added in
-a migration-safe way if mutable origins become a first-class use case.
-
 ## Cache misses and streaming
 
-On cache read, ImagePipe validates the returned entry before treating it as a
-hit. The entry must have a binary body, cacheable headers, and a content type
-that matches what the entry claims to be: a known image output format for an
-image entry, or any well-formed media type for a terminal complete-body
-entry (`{:complete_body, content_type}` — a rendered JSON document, for example).
-If that check passes, ImagePipe sends the stored body without
-fetching, decoding, transforming, or encoding the source image.
+Before accepting a hit, ImagePipe requires a binary body, cacheable headers, and
+a matching content type: a known output format for an image, or a well-formed
+media type for `{:complete_body, content_type}`. Valid hits bypass source fetch,
+decode, transforms, and encoding.
 
 If cache entry validation fails, ImagePipe treats the hit like a miss. It
 reprocesses through a supervised source session using the same cache key and
 emits cache read telemetry for the invalid entry.
 
-Configured cache misses and cache read errors stream through a supervised source
-session. The session owns source fetch, decode, transform execution, output
-encoding, and cache staging. It returns the first encoded chunk before ImagePipe
-commits response headers, then `ImagePipe.Response.Sender` pulls later chunks on
-demand.
+Cache misses and read errors stream through a supervised source session that
+owns fetch, decode, transforms, encoding, and staging. It returns the first
+encoded chunk before response headers commit, and `ImagePipe.Response.Sender`
+pulls later chunks on demand.
 
-For those streamed cache misses, the source session writes encoded chunks into a
-cache sink as it returns them to the sender. ImagePipe makes the staged cache
-entry visible only after:
+The session stages each encoded chunk as it sends it. The entry becomes visible
+only after:
 
 - the encoder stream finishes,
 - the sender has successfully delivered every chunk returned by the session,
@@ -109,16 +90,14 @@ failures after the first chunk, and incomplete streams abort the staged entry an
 don't write cache. If the staged body crosses `:max_body_bytes`, ImagePipe drops
 cache staging, continues delivering the response, and skips the cache write.
 
-Cache commit errors after successful streamed delivery fail open. The client
-keeps the response body that was already delivered. ImagePipe emits cache write
-telemetry and doesn't replace that response with a cache error. Cache staging
-open or write errors also fail open and skip the cache write.
+Staging and commit errors fail open: delivery continues, telemetry records the
+cache error, and the entry is not stored.
 
 ## Cache keys
 
-`ImagePipe.Representation.build/3` owns the derivation. It composes the key from
-pre-fetch material only — nothing is read from the fetched bytes — which is what
-lets a conditional `GET` resolve before any fetch, decode, or encode.
+`ImagePipe.Representation.build/3` derives keys entirely from pre-fetch
+material. This allows a conditional `GET` to resolve before fetch, decode, or
+encode.
 
 Cache keys include:
 
@@ -131,9 +110,9 @@ Cache keys include:
 - the plan's cachebuster and the request values named by the mount-level
   `storage_inputs: [{:header, name}, {:cookie, name}]`
 
-The last group is `storage_only` material: it partitions storage without
-changing the delivered bytes, so it is deliberately absent from the ETag. See
-[docs/cdn-http-cache.md](cdn-http-cache.md).
+The last group is `storage_only`: it partitions internal storage without
+changing delivered bytes, so the ETag excludes it. See
+[CDN HTTP caching](cdn-http-cache.md).
 
 ImagePipe reserves `Accept` for automatic output normalization; the normalized
 negotiation outcome enters the key instead of the raw header value.
@@ -164,18 +143,15 @@ header names to lowercase and preserves duplicate allowed headers.
 segments, `.`, `..`, and `~`-prefixed path segments. Generated hashes determine
 cache paths, not request, source, header, or cookie data.
 
-Filesystem metadata has an independent `metadata_version` and includes the
-cached body filename, byte size, and SHA-256 digest. Body files are
-content-addressed by digest.
+Filesystem metadata has its own `metadata_version` and records the body
+filename, byte size, and SHA-256 digest. Bodies are content-addressed by digest.
 
-Missing files are cache misses. Invalid metadata and filesystem read problems
-are cache read errors from the adapter. The cache coordinator logs them, emits
-cache read telemetry, and treats the lookup as a miss.
+Missing files are misses. Invalid metadata and filesystem read failures are
+logged, emitted as cache-read telemetry, and treated as misses.
 
-Adapter errors returned to the cache coordinator fail open and log a warning.
-Plug initialization rejects invalid cache configuration. The client still
-receives encoded response bodies over the cache `:max_body_bytes` limit, but the
-cache skips storage. `:max_body_bytes` must be `nil` or a non-negative integer.
+Adapter errors fail open and log a warning. Invalid configuration fails Plug
+initialization. Bodies over cache `:max_body_bytes` are still delivered but not
+stored; the option must be `nil` or a non-negative integer.
 
 The filesystem adapter validates generated paths under the configured root
 with `Path.safe_relative/2`, so paths that escape through symlinks fail as cache

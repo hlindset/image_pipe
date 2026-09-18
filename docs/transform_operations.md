@@ -2,7 +2,7 @@
 
 ## Overview
 
-ImagePipe's native URL parser produces an `ImagePipe.Plan.Request` containing
+ImagePipe's URL parser produces an `ImagePipe.Plan.Request` containing
 ordered groups and an output policy. `ImagePipe.Transform.Executor` executes those
 groups against a decoded image.
 
@@ -12,17 +12,17 @@ their source-dependent geometry in fixed stage order and constructs
 `ImagePipe.Transform.Chain` executes those operations and applies their
 materialization requirements.
 
-## Native request flow
+## Request flow
 
-For an image response, the shared Plug lifecycle is:
+For an image response, the Plug lifecycle is:
 
-1. Parse and validate the native path into an `ImagePipe.Plan.Request`.
+1. Parse and validate the path into an `ImagePipe.Plan.Request`.
 2. Apply expiry and source-translation gates.
 3. Resolve source identity, output negotiation, representation identity, and
    conditional/cache decisions.
-4. On a generation path, inspect source geometry and plan shrink-on-load.
+4. On a cache miss, inspect source geometry and plan shrink-on-load.
 5. Decode the image and condition its input color space.
-6. Execute every native group in order through `ImagePipe.Transform.Executor`.
+6. Execute every group in order through `ImagePipe.Transform.Executor`.
 7. Flush any deferred orientation, clamp output dimensions, materialize, and
    encode the negotiated format.
 
@@ -30,10 +30,9 @@ Parsing and static validation happen before source fetch or cache access.
 Output selection, expiry, source location, and response presentation are not
 transform operations.
 
-## Fixed native stage order
+## Fixed stage order
 
-Option order inside one group does not control processing order. The currently
-implemented native stages run in this order:
+Options run in this order, regardless of their order in the URL:
 
 1. `rotate`
 2. `flip`
@@ -61,7 +60,7 @@ implemented native stages run in this order:
 previous group, while group options themselves do not carry forward. Decode
 happens once, so only the first group can influence shrink-on-load planning.
 
-The [native API contract](native_api_contract.md#native-semantics)
+The [API contract](api_contract.md#processing-semantics)
 defines the ordering and parameter semantics.
 
 ## Coordinate frames
@@ -75,7 +74,7 @@ Each `then` boundary establishes a new input frame from the previous group's
 final output. Region coordinates in a later group start at that new frame's
 origin; they do not retain a hidden offset into the original source.
 
-Native EXIF auto-orientation defaults to `orient=auto`; `orient=none` uses stored
+EXIF auto-orientation defaults to `orient=auto`; `orient=none` uses stored
 pixels as the initial frame. Pending orientation may be applied late when
 coordinate compensation preserves the logical display result. It is flushed
 before trim, whose automatic background samples the displayed top-left corner.
@@ -105,8 +104,6 @@ the corresponding stage.
 - `Trim` removes a uniform border using an automatic or explicit background
   and supports horizontal or vertical margin equalization.
 
-Native exposes guided and region crops, crop ratios, anchor offsets,
-resize, canvas extension and placement, padding, background, and symmetric trim.
 Object and face guides share the displayed crop frame.
 
 ### Orientation
@@ -133,11 +130,11 @@ can defer the composed orientation until a stage needs displayed pixels.
 - `Gradient` overlays a transparency-to-color gradient with angle and stop
   positions.
 
-Native exposes all these effects and canonicalizes identity values before
-constructing operations. Sigma and pixelate block size use physical pixels
+The parser removes identity values before constructing operations.
+Sigma and pixelate block size use physical pixels
 without DPR scaling. Pixelate and gradient flush pending orientation so their
 grid and direction use the current display frame. See the
-[native effect vocabulary](native_api_contract.md#pixel-effects) for ranges,
+[effect vocabulary](api_contract.md#pixel-effects) for ranges,
 defaults, color syntax, and alpha behavior.
 
 ### Color values
@@ -156,10 +153,7 @@ Executable modules implement the `ImagePipe.Transform` behaviour:
 - `requires_materialization?/1` declares whether the operation needs random
   pixel access; the default is `false`.
 
-The executable catalog includes resize, crop, canvas extension, padding,
-background composition, rotate, trim, blur, sharpen, pixelate, grayscale,
-bitonal, monochrome, duotone, brightness, contrast, saturation, colorize, and
-gradient. Both crop forms use `Transform.Operation.Crop`; canvas extension uses
+Both crop forms use `Transform.Operation.Crop`; canvas extension uses
 `Transform.Operation.ExtendCanvas`. A cover resize uses separate resize and
 crop operations with an image measurement between them.
 
@@ -170,7 +164,7 @@ premultiplied alpha. Neither represents independent request syntax.
 Orientation state, flip composition, and resize branch selection are resolved
 before executable work reaches the chain.
 
-`Transform.Executor.Geometry` resolves the native resize intent,
+`Transform.Executor.Geometry` resolves the resize intent,
 including zoom, minimum dimensions, effective DPR, enlargement, and cover
 dimensions, against the current display frame. The executable `Resize` carries
 only the final pixel width and height; a cover request follows it with a crop.
@@ -207,8 +201,8 @@ once when resolving source-pixel coordinates into decoded pixels.
 
 ## Input and output color handling
 
-`ImagePipe.Transform.InputColorManagement` is a fixed preamble, not an
-operation. It inspects the decoded image and imports an embedded profile into
+`ImagePipe.Transform.InputColorManagement` inspects the decoded image and imports
+an embedded profile into
 the working space before any group runs. The resulting color-management data
 is recorded on `Transform.State` and passed directly to the encoder after the
 final group.
@@ -217,9 +211,9 @@ Output format, quality, metadata, profile, copyright, HDR, and automatic
 negotiation policies belong to output planning and encoding. They do not
 appear in the transform chain.
 
-## Native examples
+## Examples
 
-| Native path fragment | Transform meaning |
+| Path fragment | Transform meaning |
 | --- | --- |
 | `/w=300/format=jpeg/src/images/beach.jpg` | Contain resize to width 300 |
 | `/w=300/h=200/fit=cover/anchor=top/src/images/beach.jpg` | Cover resize and top-guided result crop |
@@ -235,11 +229,11 @@ appear in the transform chain.
 
 ## Boundary rules
 
-The native executor owns fixed group ordering and source-dependent geometry.
+The executor owns fixed group ordering and source-dependent geometry.
 Request orchestration calls the transform boundary's concrete entry points
 rather than constructing executable operation modules.
 
 Transform operations depend on `Transform.State` and product-neutral values.
 They do not parse URLs, resolve sources, read caches, negotiate output, or send
-responses. Source-dependent planning stays in the executor; individual image
-operations execute through the transform chain.
+responses. The executor resolves source-dependent geometry; the chain runs
+individual image operations.

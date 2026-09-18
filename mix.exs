@@ -66,7 +66,7 @@ defmodule ImagePipe.MixProject do
           "docs/operational_notes.md",
           "docs/telemetry.md",
           "docs/debug_headers.md",
-          {"docs/native_api_contract.md", title: "Native API Contract"},
+          {"docs/api_contract.md", title: "API Contract"},
           {"docs/execution_flow.md", title: "Execution Flow"},
           {"docs/source-network-policy.md", title: "Source Network Policy"},
           {"docs/content-aware-gravity.md", title: "Content-aware Cropping"},
@@ -76,7 +76,7 @@ defmodule ImagePipe.MixProject do
         groups_for_modules: [
           "Package API": [ImagePipe],
           "Plug API": [ImagePipe.Plug],
-          "Native API": [ImagePipe.Native, ~r/ImagePipe\.Native\..*/],
+          API: [ImagePipe.Native, ~r/ImagePipe\.Native\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
           "Cache API": [ImagePipe.Cache, ~r/ImagePipe\.Cache\..*/],
@@ -130,7 +130,7 @@ defmodule ImagePipe.MixProject do
   defp extra_compilers(_env), do: [:boundary]
 
   defp description do
-    "A Plug-based image optimization server with a declarative native URL API."
+    "A Plug-based image optimization server with a declarative path API."
   end
 
   defp package do
@@ -141,7 +141,7 @@ defmodule ImagePipe.MixProject do
         "docs/cache.md",
         "docs/cdn-http-cache.md",
         "docs/execution_flow.md",
-        "docs/native_api_contract.md",
+        "docs/api_contract.md",
         "docs/source-network-policy.md",
         "docs/content-aware-gravity.md",
         "docs/assets/demo-fiddle-desktop.png",

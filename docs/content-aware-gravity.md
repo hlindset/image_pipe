@@ -1,7 +1,6 @@
-# Content-aware gravity (smart crop & face detection)
+# Content-aware cropping
 
-ImagePipe supports several content-aware ways to choose *where* a cover/crop is
-anchored, on top of the usual fixed anchors and focal points:
+Content-aware guides place a crop or cover resize around interesting regions:
 
 | URL | What it does | Needs ML? |
 | --- | --- | --- |
@@ -12,9 +11,8 @@ anchored, on top of the usual fixed anchors and focal points:
 | `detect=all,face:3` | detects every class and gives faces **three times the class weight** | **Yes** |
 | `anchor=smart-face` | **blends** the attention point with detected faces | **Yes** |
 
-`anchor=smart` works out of the box — it's pure libvips and needs no extra dependencies.
-The face-aware and object-aware paths need an optional ML detector, which this
-guide explains how to enable.
+`anchor=smart` uses libvips without extra dependencies. Face and object detection
+need an optional ML detector.
 
 Guides require a crop or a cover-family resize in the same group, for example
 `/w=400/h=400/fit=cover/detect=face/src/portrait.jpg` or
@@ -24,11 +22,10 @@ result crop; it resets at `then`.
 
 ## Enabling face and object detection
 
-Face and object detection are **off by default**. ImagePipe pulls no ML runtime
-in a normal build; a host opts in by adding two dependencies:
+To enable face and object detection, add both dependencies to your application:
 
 ```elixir
-# mix.exs — in YOUR application's deps
+# mix.exs
 {:image_vision, "~> 0.4"},
 {:ortex, "~> 0.1"}
 ```
@@ -38,44 +35,32 @@ Both are required:
 - **`image_vision`** provides `Image.FaceDetection` (YuNet) and
   `Image.Detection` (RT-DETR, COCO-80).
 - **`ortex`** is the ONNX runtime `image_vision` runs models through.
-  `image_vision` compiles the detection modules **only** when Ortex is present
-  (`if ImageVision.ortex_configured?()`), so `image_vision` *without* `ortex`
-  silently provides no detection. This is the single most common setup mistake.
+  `image_vision` compiles its detection modules only when Ortex is present.
 
 Practical requirements:
 
 - **A Rust toolchain** — `ortex` builds a native NIF (it needs `cargo`/`rustc`).
-- **A one-time model download** — the YuNet face model (~340 KB) is fetched from
-  HuggingFace on the **first** face detection request and cached on disk. The
-  RT-DETR object model (~175 MB) must be pre-fetched explicitly (see
-  [Warming up](#warming-up-avoiding-first-request-latency)); use
-  `mix image_vision.download_models --detect` at build/deploy time to avoid
-  first-request cold-start latency for object detection.
-  The first cold face request therefore appears to "hang" while it downloads
-  unless the warmup worker is used (see
-  [Warming up](#warming-up-avoiding-first-request-latency)).
+- **Model files** — YuNet (~340 KB) downloads from HuggingFace on first use and
+  is cached on disk. Download RT-DETR (~175 MB) at build/deploy time with
+  `mix image_vision.download_models --detect`. See
+  [Warming up](#warming-up-avoiding-first-request-latency) to load models before
+  serving requests.
 
-Once both deps compile, face and object detection **activates automatically** —
-you don't have to configure anything. ImagePipe's default detector is a
-`Composite` that routes `face` requests to the YuNet adapter
+Once both dependencies compile, the default `Composite` detector routes `face`
+requests to the YuNet adapter
 (`ImagePipe.Transform.Detector.ImageVision.Face`) and COCO-80 object requests to
 the RT-DETR adapter (`ImagePipe.Transform.Detector.ImageVision.Objects`). Each
-checks at runtime whether its `image_vision` module is loadable and uses it when
-it is.
+checks whether its `image_vision` module is available at runtime.
 
 ## What happens without it
 
-By default, ImagePipe falls back when the detector is missing. With no
-`image_vision`/`ortex` (or when a request's image has no detectable face, or the
-model errors), face-aware requests **fall back to `anchor=smart` libvips attention smart
-crop** — a sensible result, just not face-aware. Your app keeps serving images.
-
-If you would rather a face-*required* request fail loudly instead of silently
-degrading, see [`detector_required`](#options) below.
+Missing detectors, empty detections, and detection errors fall back to libvips
+attention cropping. Set [`detector_required`](#options) to reject explicit
+detection requests when the detector is unavailable.
 
 ## Options
 
-Both options are passed to the plug at mount time (alongside `sources:`, etc.):
+Configure the detector at mount time:
 
 ```elixir
 plug ImagePipe.Plug,
@@ -94,19 +79,15 @@ plug ImagePipe.Plug,
   - a module implementing `ImagePipe.Transform.Detector` — a
     [custom detector](#custom-detectors).
 - **`detector_required`** — boolean, default `false`.
-  - `false` — **graceful**: a face-aware request with no available detector falls
-    back to attention.
-  - `true` — **strict**: an explicit `detect` request is **rejected
-    before source resolution, fetch, or cache access** when the detector is unavailable,
-    returning a 422. (Availability is a cheap in-process check, so this decision
-    is made up-front.) `anchor=smart-face` is an optional enhancement to an
-    attention crop and falls back to plain attention when detection is unavailable.
+  - `false` — unavailable detection falls back to attention.
+  - `true` — an explicit `detect` request returns 422 before source resolution,
+    fetch, or cache access when a required detector is unavailable.
+    `anchor=smart-face` still falls back to attention.
 
 ## Warming up (avoiding first-request latency)
 
-Because the model downloads (and loads) on first use, the first cold face
-request pays that cost. To pre-load it at boot, add the optional, host-wired
-warmup worker to **your** supervision tree:
+To download the face model and load models at boot, add the warmup worker to
+your supervision tree:
 
 ```elixir
 # in your application.ex children
@@ -115,21 +96,17 @@ warmup worker to **your** supervision tree:
 
 The default `classes: :all` warms both the face (YuNet) and object (RT-DETR)
 models. If you only use face detection, you can pass `classes: ["face"]` to skip
-the larger RT-DETR model. It runs once, off the boot path (it does not block your
-supervisor's startup), triggers the model load, and then terminates normally (it
-is `restart: :transient`, so it is not restarted). If the detector is unavailable
-it is a clean no-op. The `:detector` option mirrors the plug's — pass the same
-value you gave the plug (`:default`, a custom module, or `nil` to disable).
+the larger RT-DETR model. The worker runs once without blocking supervisor
+startup, then exits normally. Its `:transient` restart policy leaves it stopped
+after success. Unavailable detectors are skipped. Pass the same `:detector`
+value as the Plug: `:default`, a custom module, or `nil` to disable.
 
-There is also a build/deploy-time option: `mix image_vision.download_models
---detect` pre-fetches the RT-DETR object model (~175 MB). The YuNet face model
-(~340 KB) is downloaded on first use regardless; use the warmup worker (or just
-accept the first-request download) for face detection.
+Warmup still requires the RT-DETR model to be downloaded beforehand.
 
 ## Custom detectors
 
-The detector is a small, product-neutral behaviour, so you can swap in your own
-(a different model, a remote service, a fake for tests):
+Implement `ImagePipe.Transform.Detector` to use another model, a remote service,
+or a test fake:
 
 ```elixir
 defmodule MyApp.MyDetector do
@@ -158,10 +135,9 @@ defmodule MyApp.MyDetector do
 end
 ```
 
-Then `detector: MyApp.MyDetector`. The `identity/1` return participates in the
-cache key, so a model/version change you encode there correctly invalidates
-cached results. Keep `identity/1` free of secrets — it appears in per-model
-telemetry spans that fan out to all attached handlers. `supported_classes/1`
+Mount with `detector: MyApp.MyDetector`. Include the model version in `identity/1`
+so model changes invalidate cached results and ETags. Keep it free of secrets:
+it appears in per-model telemetry sent to all handlers. `supported_classes/1`
 must be answerable even when the optional dep is absent; it is used for class
 routing and availability checks before any model is loaded.
 
@@ -185,27 +161,19 @@ Class names use the **underscore spelling** matching the COCO-80 vocabulary:
 Names start with a lowercase letter or digit and may contain lowercase
 letters, digits, underscores, and hyphens. Duplicate class names are rejected.
 
-**Union of detectors.** `detect=all` routes to *every* configured
-child detector — both the face (YuNet) and object (RT-DETR) adapters run, and
-their regions are merged before computing the crop focus. A class list routes
-only to the detector(s) that own the requested classes; e.g. `detect=face` routes
-only to YuNet, `detect=car` routes only to RT-DETR. Detection runs on the decoded
-image inside the bounded transform pipeline (subject to `max_input_pixels`), and
-successful responses are cached — but note that `detect=all` runs *two*
-models per cache miss, so size `max_input_pixels`/concurrency limits with the
-heavier RT-DETR path in mind.
+**Routing.** `detect=all` runs every configured child detector and merges their
+regions. A class list runs only the detectors for those classes: `face` uses
+YuNet, `car` uses RT-DETR. Detection runs on decoded images subject to
+`max_input_pixels`; successful responses can be cached. Account for RT-DETR's
+cost when setting pixel and concurrency limits, especially with `detect=all`.
 
-**Unknown classes degrade, never error.** If a requested class isn't claimed by
-any child of the bundled composite, it is silently dropped. `detect=unicorn`
-succeeds and falls back to attention saliency. Only classes that route to at least one child
-contribute to the crop.
+**Unknown classes.** The bundled composite drops classes no child claims.
+`detect=unicorn` falls back to attention cropping.
 
-**Equal-weight centroid.** The crop focus is the `√area`-weighted centroid of
-all detected regions, without per-class weights. With many mixed-size objects
-the result naturally biases toward larger ones. If you want a face-centric crop
-on a busy scene, use `detect=face` (only faces) or `detect=all,face:3`
-(everything, with a face bias). See [Per-class weights](#per-class-weights).
-`detect=face:3` still filters to faces; `all` keeps other objects in play.
+**Crop focus.** The focus is the `√area`-weighted centroid of detected regions;
+malformed or out-of-image boxes are dropped. Larger regions contribute more.
+Use `detect=face` for faces alone or `detect=all,face:3` to give faces more weight
+among all objects. See [Per-class weights](#per-class-weights).
 
 **Class-aware cache identity.** The cache key and ETag include only the child detector
 identities that the requested class set routes to. An object-only request
@@ -213,36 +181,18 @@ identities that the requested class set routes to. An object-only request
 Requests with `anchor=smart-face` include the face detector identity. Across
 `then` groups, identity includes the union of relevant detector classes.
 
-**Model size and cold-start.** The RT-DETR model is approximately 175 MB. Unlike
-the small YuNet face model, it is not downloaded on first use automatically — use
-`mix image_vision.download_models --detect` at build/deploy time to pre-fetch
-it, and add the warmup worker so it loads into memory before the first request
-(see [Warming up](#warming-up-avoiding-first-request-latency)).
+## Detection telemetry
 
-## How requests, the detector, and the cache interact
+Detection emits a `[:image_pipe, :transform, :detect]` span. Inference is eager,
+so its duration includes model work and cold-start costs. The `:result` is
+`:detected`, `:no_regions`, `:unavailable`, or `:error`. The composite emits a
+nested `[:image_pipe, :transform, :detect, :model]` span for each child it runs.
 
-- `detect=face` and `detect=car,dog` resolve the detected regions'
-  **square-root-area-weighted centroid** to a focal point and reuse the normal focal-point
-  crop. Out-of-image or malformed boxes
-  are dropped.
-- The detector's **class-aware** `identity/1` is folded into the **cache key and ETag**
-  for detection-aware requests. Only the child detectors that the requested class
-  set routes to contribute to the key — so swapping the face model doesn't
-  invalidate object-only cached results, and vice versa.
-- When a detector runs, detection emits a `[:image_pipe, :transform, :detect]`
-  telemetry span with honest duration (the model inference is real, eager work)
-  — useful for spotting cold-start cost. Its `:result` metadata distinguishes a
-  real detection (`:detected`), a normal no-object frame (`:no_regions`), and a
-  configured detector that produced nothing usable (`:unavailable`, `:error`).
-  The Composite also emits a nested `[:image_pipe, :transform, :detect, :model]`
-  span per child detector that ran — see [telemetry.md](telemetry.md) for the
-  full schema.
-  When no detector is configured, nothing runs, so instead of a span ImagePipe
-  emits a one-shot `[:image_pipe, :transform, :detect, :skipped]` marker
-  (`result: :no_detector`). The opt-in default Logger escalates `:unavailable`,
-  `:error`, and `:no_detector` to `:warning`. ImagePipe emits no request-time
-  `Logger` calls itself — fallback observability is telemetry-only. See
-  [telemetry.md](telemetry.md).
+With no configured detector, ImagePipe emits a one-shot
+`[:image_pipe, :transform, :detect, :skipped]` event with `result: :no_detector`.
+The opt-in default Logger logs `:unavailable`, `:error`, and `:no_detector` at
+`:warning`. Request-time detection diagnostics use telemetry; ImagePipe does
+not call Logger directly. See [Telemetry](telemetry.md) for the full schema.
 
 ## Per-class weights
 
@@ -267,26 +217,10 @@ empty lists, duplicate classes, and malformed weights are rejected before
 source access. Class order and equivalent integer/decimal spellings share
 canonical identity.
 
-**The `all` pseudo-class.** `all` is not a regular class name — it is the
-pseudo-class that broadens the detection spec to `:all` (every detector runs,
-every class counts). Without `all`, the spec is the listed class names. `all`
-also sets the default weight for classes not explicitly named: `detect=all:2,face:3`
-means "detect everything at weight 2, override faces to 3".
-
-### Named classes filter; `all` broadens
-
-The selected classes determine which objects contribute:
-
-- **`detect=face`** — filters to faces, uniform weight.
-- **`detect=face:3`** — filters to faces, weight 3. (With one class, the weight
-  is inert — all regions in the spec have the same weight, so the centroid is
-  identical to `detect=face`.)
-- **`detect=person:2,face:3`** — filters to person+face, persons weight 2, faces 3.
-- **`detect=all,face:3`** — detects *everything* (`all` broadens spec), faces
-  boosted 3× over the default weight 1.
-
-Use `detect=all,face:3` when all objects should contribute with a face bias.
-Use `detect=face` when only faces should contribute.
+`all` includes every class and sets the default weight for unnamed classes.
+Without it, only the listed classes contribute. Thus `detect=face:3` has the
+same focus as `detect=face`: all regions have the same weight, which cancels
+in the centroid. Use `detect=all,face:3` to bias faces among other objects.
 
 ### Weighted centroid formula
 
@@ -303,16 +237,10 @@ pullᵢ  = classWeight(labelᵢ) · √areaᵢ
 classWeight(label) = weights[label] ?? weights[:default] ?? 1
 ```
 
-**Why `√area`:** `area` alone makes class
-weights nearly inert — a face is ~1/15 the *area* of a person bounding box, so
-a 3× face boost (3 vs 15) still loses. `√area` tracks linear size, making the
-face ~1/4 of the person instead. The result is a responsive, real lever: a
-modest weight visibly moves the crop while keeping "bigger object wins" as the
-natural fallback for equal-weight scenes.
-
-Pure `weight` without area (each object gets one full vote) makes tiny
-background objects hijack crops. `weight·√area` is the middle path: weights are
-usable *and* size still matters.
+`√area` balances object size and class weight. Using area directly would let
+large boxes dominate; ignoring area would give tiny background objects as much
+influence as large subjects. For a face with 1/15 of a person's bounding-box
+area, square-root weighting reduces the size difference to about 1/4.
 
 ### Worked example — nested scene
 
@@ -323,23 +251,18 @@ With a car (large, low-mid frame), a person (medium, mid frame), and a face
 | --- | --- | --- |
 | `detect=face` (filter) | 0.25 | car/person not considered — lands on face |
 | `detect=all` (uniform) | 0.49 | car dominates; face barely registers |
-| `detect=all,face:3` | 0.45 | gentle, real upward nudge toward the face |
-| `detect=all,face:8` | 0.39 | firmer pull — each weight unit moves it |
+| `detect=all,face:3` | 0.45 | moves focus upward toward the face |
+| `detect=all,face:8` | 0.39 | stronger face bias |
 
-### Honest default consequence
-
-With uniform weights (`detect=all`), larger boxes contribute more — a portrait biases
-toward the `person` box. A face inside a huge
-person box needs a larger boost than the same face in a tight portrait, because
-the size gap is larger; `√area` compresses that gap into a responsive dial
-rather than an on/off switch, but it does not erase it.
+A face inside a large person box needs more weight than the same face in a
+tight portrait: square-root weighting reduces the size difference but does
+not remove it.
 
 ### Canonicalization
 
 ImagePipe canonicalizes weights to a sparse map:
 
-- Class weight entries equal to the effective default are dropped (trivial
-  weight entries do not change the centroid and need not be stored).
+- Class weights equal to the effective default are dropped.
 - `detect=all:1` (default baseline) drops the `:default` key, leaving an empty
   map `%{}`.
 - `detect=face:3` and `detect=all,face:3` have distinct canonical identities:
@@ -349,11 +272,8 @@ ImagePipe canonicalizes weights to a sparse map:
   weight scalar cancels in the centroid) but a *different* cache key — a known,
   accepted redundancy.
 
-## imgproxy compatibility & divergences
+## Imgproxy comparison
 
-ImagePipe uses `image_vision`'s YuNet face model (not
-imgproxy's configurable YOLO models) and RT-DETR for COCO-80 objects (not YOLO),
-so detected boxes — and the resulting crops — are compatible in intent but not
-bit-identical to imgproxy. The face-assist blend weight is ImagePipe's own
-approximation. Weight values accept positive decimals (imgproxy documents only
-integer examples).
+ImagePipe uses YuNet for faces and RT-DETR for COCO-80 objects; imgproxy uses
+configurable YOLO models. These model differences and ImagePipe's face-assist
+blend can produce different crops. ImagePipe accepts positive decimal weights.

@@ -21,16 +21,13 @@ Two independent controls must both be satisfied for any header to be emitted:
 2. **Per-request trigger** — opts a single request into debug headers. Honored
    only when `allow_debug_headers: true`; otherwise ignored. Use the bare
    `debug` option, for example `/w=400/debug/src/cat.jpg`, or `debug=false`
-   to opt out. Like other native flags, `debug=true` and numeric spellings
+   to opt out. Like other path flags, `debug=true` and numeric spellings
    are invalid.
 
-A debug trigger does **not** change the produced image bytes: it rides the
-request's response metadata, which contributes to neither the cache key nor
-the ETag, so a debug request and
-a plain request resolve to the same cache entry. (Facts are collected and stored
-on every generation regardless of the flag, so enabling
-`allow_debug_headers: true` immediately surfaces headers for already-cached
-items, with no cache invalidation.)
+A debug trigger does **not** change the image bytes, cache key, or ETag. ImagePipe
+collects and stores facts on every generation, so enabling
+`allow_debug_headers: true` can expose headers from existing cache entries
+without invalidating them.
 
 ## Security and disclosure
 
@@ -39,12 +36,11 @@ items, with no cache invalidation.)
 > Adding it to an otherwise-valid signed URL invalidates its
 > signature.
 
-When triggered, an image response may disclose internal source dimensions and
-format/color/ICC/bit-depth/alpha facts; the negotiated output and its
-dimensions/quality/profile; autoquality scores and search internals; the applied
-pipeline operations; the cache key; and per-stage timings. Complete-body native
-terminals expose the narrower set described below. None of these are secrets,
-but operators who consider any of it sensitive should leave the mount flag off.
+When triggered, an image response may disclose source dimensions and
+format/color/ICC/bit-depth/alpha facts, output dimensions and policy,
+autoquality details, applied operations, the cache key, and timings.
+Complete-body terminals expose the narrower set below. Leave the mount flag off
+if this operational data is sensitive in your deployment.
 
 ## Header catalogue
 
@@ -107,9 +103,9 @@ compression ratio from `X-ImagePipe-Source-Size ÷ body length`.
 | `X-ImagePipe-Cache-Key` | `a1b2c3…` | Cache key (64-char sha256 hex) |
 | `X-ImagePipe-Pipeline` | `scale,crop,sharpen` | Applied plan operations, in order |
 
-### Complete-body native terminals
+### Complete-body terminals
 
-Native `output=info` and `output=blurhash` responses expose the cache status,
+`output=info` and `output=blurhash` responses expose the cache status,
 cache key, applied operations, and terminal computation timing. Source and
 encoded-output fact headers are omitted because the shared complete-body
 terminal result does not carry those image facts. `output=info` has no transform
@@ -138,16 +134,13 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 
 (There is no separate `fetch` stage — source fetch is folded into `decode`.)
 
-For a complete-body native terminal, `total` measures the terminal computation,
+For a complete-body terminal, `total` measures the terminal computation,
 including its source fetch, decode, transforms, and final info or BlurHash body.
 Those stages are not split into separate timing entries. A cache hit replays the
 stored `total` and appends the live `cache` duration.
 
 ## Demo (fiddle)
 
-The bundled demo (`fiddle/`) uses `allow_debug_headers: true`.
-The editor has a **Debug headers** example using `debug`.
-Its service worker reads
-these headers off the fetched response and surfaces them in a **Debug headers**
-panel under the preview, including the derived output size and compression
-ratio.
+The bundled demo (`fiddle/`) enables debug headers. Its **Debug headers** example
+uses `debug`, and the panel below the preview shows the returned facts plus the
+derived output size and compression ratio.

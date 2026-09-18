@@ -1,37 +1,26 @@
-# Native API contract and capability inventory
-
-Status: implementation contract for Beads epic `image_plug-a0q`, defined in
-task `image_plug-a0q.1`. This document records the intended product contract and
-the capabilities to preserve. Beads owns execution status and dependencies.
+# API contract
 
 ## Direction
 
-ImagePipe has one native URL API, one request lifecycle, and one executor.
-The native API is path-oriented and declarative: options within a group
+ImagePipe has one URL API, one request lifecycle, and one executor.
+The API is path-oriented and declarative: options within a group
 have a fixed processing order, and `then` explicitly sequences groups.
-Imgproxy remains a useful source of image-processing behavior and reference
-fixtures. Its URL grammar and complete pixel parity are not product goals.
-
-Keep host extension points for sources, caches, detectors, and telemetry
-exporters. Remove configurable dialects, generic parser/renderer dispatch,
-and lifecycle callbacks whose only purpose is supporting several request
-languages. Internal structs and functions should express the native
-request and execution needs directly.
+Imgproxy supplies selected test references for shared behavior; ImagePipe semantics
+govern differences. Sources, caches, detectors, and telemetry exporters are host
+extension points.
 
 ## Current implementation
 
-`ImagePipe.Plug` mounts the native API. `ImagePipe.Plug.Runner` owns the
+`ImagePipe.Plug` mounts the API. `ImagePipe.Plug.Runner` owns the
 request lifecycle, and `ImagePipe.Transform.Executor` owns group execution.
-Regression tests cover the native request lifecycle,
-streaming, cache, color, decode, and orientation behavior.
 
-Canonical native data lives in `ImagePipe.Plan.Request`, with explicit
+Canonical request data lives in `ImagePipe.Plan.Request`, with explicit
 `Plan.Request.Group` transform intent and sparse `Plan.Request.Output` policy.
 Parsing and execution share these values. `Output.Policy` combines host defaults,
 request overrides, and Accept negotiation. `Output.Resolved` selects the concrete
 encoding settings after source-format and final-image inspection.
 
-The native API implements these option keys:
+The API accepts these option keys:
 
 `orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
 `zoom`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region`, `trim-symmetry`,
@@ -46,62 +35,41 @@ The native API implements these option keys:
 It also implements `then`, `src`, `src64`, `enc`, and full-length HMAC signing with
 key rotation. Presets support nested references and complete `then` pipelines.
 Sources are paths, HTTP(S) URLs, S3 objects, or configured custom schemes. Image,
-BlurHash, and source-info JSON are implemented terminals. The broader vocabulary in the
-[July native design](https://github.com/hlindset/image_pipe/blob/main/docs/superpowers/specs/2026-07-12-native-url-dialect-design.md)
-is a proposal, not a record of shipped capabilities; in particular, LQIP
-is not an implemented terminal to preserve.
+BlurHash, and source-info JSON are the supported outputs.
 
-## Capability disposition
+## Capabilities
 
-Task numbers in this table are children of `image_plug-a0q`. Each port
-includes native request tests, documentation, and applicable Fiddle controls.
+| Area | Supported behavior |
+| --- | --- |
+| Validation | Reject duplicate, conflicting, inert, or invalid options before side effects; canonicalize equivalent requests |
+| Requests | Presets, signing, expiry, GET/HEAD/OPTIONS, conditional GET, negotiation, caching, and streamed delivery |
+| Resize | Contain, cover, cover-down, stretch, auto, enlargement, minimum dimensions, independent zoom axes, and DPR |
+| Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
+| Geometry | EXIF policy, arbitrary rotation, flips, symmetric trim, canvas placement, padding, and alpha-aware background |
+| Effects | Blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness, contrast, saturation, colorize, and gradient |
+| Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2/Butteraugli/size search, and JPEG/PNG/WebP/AVIF/JXL controls |
+| Color and metadata | Copyright and metadata policy, ICC conversion and preservation, and HDR preservation |
+| Sources | Filesystem, HTTP(S), S3, host adapters, custom schemes, and authenticated source concealment |
+| Delivery | Images, BlurHash, source-info JSON, filenames, attachments, cachebusters, opt-in debug headers, and clock injection |
 
-| Existing capability | Native disposition | Owner |
-| --- | --- | --- |
-| Native grammar, duplicate/conflict/inert-option validation, canonicalization, presets, signing, expiry | Preserve and promote out of the dialect namespace; reject invalid requests before side effects | `.2` |
-| Request lifecycle, conditional GET, negotiation, cache handling, GET/HEAD/OPTIONS, streaming resource ownership | One direct native lifecycle; preserve shared regression coverage | `.2` |
-| Generated HTTP cache headers and host-header precedence | Retain `Response.CachePolicy` behavior, including source identity requirements and opt-in policy | `.2` |
-| Resize modes: contain, cover, cover-down, stretch, auto; enlargement; minimum dimensions; independent zoom axes | Preserve modes; port missing dimensions and zoom controls | `.4` |
-| DPR, canvas extension to box/aspect ratio, canvas gravity and offsets | Port with explicit units and native coordinate semantics | `.4` |
-| Guided and explicit-region crops; anchors, focal points, smart crop; crop ratio correction and enlargement | Preserve current native operations; port missing controls | `.4` |
-| Trim, padding, background flattening and background alpha | Preserve and complete native parameter coverage | `.4` |
-| EXIF policy, user rotation and flips | Expose native controls; preserve orientation/decode correctness | `.4` |
-| IIIF arbitrary-angle rotation, grayscale, bitonal | Port these useful operations before removing their only public entry point; native rotation must not be restricted to imgproxy quarter turns | `.3` |
-| TwicPics resize/cover/contain/inside, ratio crop/canvas, percentage scaling, crop/focus | Retain their image outcomes through native geometry and `then`; retire expression syntax and implicit ordered focus state | `.3`, `.4` |
-| Object/face cropping, class selection, detector configuration, required-detector behavior | Expose through native; retain detector implementations and warmup | `.5` |
-| Blur, sharpen, pixelate, monochrome, duotone, brightness, contrast, saturation, colorize, gradient | Expose the full implemented range of each effect; gray/bitonal ports belong to `.3` | `.6` |
-| Explicit image formats, Accept negotiation, format preference/capability selection, quality and per-format quality | Preserve existing formats and negotiation; port all quality controls | `.2`, `.7` |
-| Maximum output bytes and automatic quality search: size, SSIMULACRA2, Butteraugli | Preserve algorithms and host tuning controls, with explicit native vocabulary | `.7` |
-| JPEG, PNG, WebP, AVIF, and JXL encoder options | Preserve all implemented host controls and existing request controls; avoid dropping JXL because the old proposed URL table omitted it | `.7` |
-| Metadata stripping, copyright retention, output profile policy/selection, HDR preservation | Expose native policy; preserve input ICC conditioning and encoder carry | `.8` |
-| Filesystem, HTTP, S3 and host source adapters; custom scheme translation | Native source model must reach every retained adapter, including object references | `.9` |
-| Source URL concealment | Authenticated encrypted source tokens with independent encryption and signing keys, as specified below | `.9` |
-| BlurHash and source/info output | Preserve BlurHash; port useful info output with a native response contract | `.10` |
-| Cachebuster, filename, attachment, debug headers, clock injection | Port request controls; keep debug opt-in and presentation separate from cached image bytes | `.10` |
-| IIIF identifiers/resolver protocol, info.json profile, tile declarations, size grammar and quality aliases | Retire protocol surface; preserve source lookup through host source adapters and useful image operations above | `.3` |
-| TwicPics aliases, arithmetic expressions, vendor defaults and ordered command grammar | Retire protocol surface | `.3` |
-| Imgproxy aliases, compound resize syntax, implicit units, source suffix formats, truncated/salted signature variants, ignored compatibility options | Retire protocol surface; retain corresponding useful capabilities through native options | `.12` |
-| Generic dialect lifecycle, declarative base, renderer behavior and root Plan execution framework | Remove after consumers and regression coverage move; relocate still-used value types by ownership | `.2`, `.3`, `.12` |
-| NeutralResolver continuations, SourceShape/State geometry synchronization, separate pipeline drivers | Replace with one native executor, retaining decode planning, orientation, and lazy materialization | `.11` |
-| Protocol demo routes/controls, conformance tooling, fixtures, package/docs/CI references | Migrate native controls alongside ports; retain selected test-only reference fixtures and retire orphan tooling | `.3`, `.12`, `.13` |
-| Cross-cutting regressions and final capability audit | Check this inventory against native wire coverage and run the complete library/Fiddle gates | `.14` |
+## Host configuration
 
-Shared host configuration is retained: source/cache adapters,
+Mount configuration includes source/cache adapters,
 `max_body_bytes`, `max_input_pixels`, result width/height/pixel limits,
 telemetry prefix, automatic format preferences, output capabilities, CORS,
 debug-header permission, and storage vary inputs. Source-adapter controls
 (including HTTP bounds and S3 credentials/providers) retain their own
-validation boundaries. Removing a dialect does not remove those controls.
+validation boundaries. Generated HTTP cache policy is opt-in and respects host
+headers and source identity. See [HTTP caching](cdn-http-cache.md).
 
-Core output defaults and configuration also survive:
+Output defaults cover
 metadata/copyright/profile/HDR policy, quality/per-format quality, all
 autoquality targets/bounds/errors/iteration and resolution limits, and each
 encoder's options. Auto-orientation and smart-crop face assistance are
-controlled by native `orient` and `anchor=smart-face`; a `default` preset can
-set their mount defaults. Tasks `.2`, `.5`, `.7`, and `.8` own these settings
-according to the capability table.
+controlled by `orient` and `anchor=smart-face`; a `default` preset can
+set their mount defaults.
 
-## Native semantics
+## Processing semantics
 
 The fixed stage order is rotate, flip, trim, source crop, resize/result
 crop, effects, canvas, padding, background. Within effects the order is
@@ -161,7 +129,7 @@ all foreground content. It requires `trim` in the same group.
 
 ### DPR, zoom, offsets, and padding
 
-Use the July design's logical-unit model. DPR scales output targets and
+DPR scales output targets and
 pixel padding/offsets. Source crop and region lengths are physical source
 pixels, unaffected by DPR. Percentages resolve once against their declared
 physical frame: crop input for anchor offsets, target canvas for extension
@@ -231,7 +199,7 @@ uses attention alone. `anchor`, `focus`, and `detect` are mutually exclusive
 guides and form one preset override family together with `anchor-offset`.
 Detection and smart guides do not accept anchor offsets. Guides reset at `then`.
 
-Mount options retain `detector: :default | nil | module` and
+Mount options are `detector: :default | nil | module` and
 `detector_required: boolean`. Strict mode checks the requested explicit
 detection classes before source resolution or cache access and returns 422
 when unavailable. Face-assisted attention remains optional. Missing, empty,
@@ -294,7 +262,7 @@ Set `source_encryption_keys: [key, previous_key]` using raw binary keys;
 signing `keys` use hex-encoded strings. An empty encryption list disables
 concealment. Encryption keys must differ from the signing keys.
 The helper generates a fresh nonce; callers do not supply one. Configure
-signing keys whenever encryption is enabled, and verify the full native
+signing keys whenever encryption is enabled, and verify the full
 request signature before decrypting. This binds processing options and
 expiry as well as the source token. Reject wrong token lengths/versions,
 authentication failures, and invalid UTF-8 through the same external 404
@@ -302,7 +270,7 @@ response, before source resolution/fetch or cache access. Check the full
 16-byte tag length before calling OTP. Do not emit plaintext, token, or key
 material in diagnostics or telemetry.
 
-After decryption, use ordinary native source validation and identity.
+After decryption, use the same source validation and identity as plain sources.
 Fresh encryptions of the same source and transform share storage/ETag
 identity. The public helper accepts validated mount configuration and returns
 only the token:
@@ -427,8 +395,8 @@ host bounds, which override the global host bounds. `error` is a non-negative
 perceptual tolerance; size search does not accept it. Repeated or unknown
 fields and inverted effective bounds are rejected before source access.
 JPEG XL uses its native distance encoder for Butteraugli; other supported
-formats use the existing iterative search. Large-image SSIMULACRA2 searches
-retain crop scoring and its content-dependent correction.
+formats use iterative search. Large-image SSIMULACRA2 searches use crop scoring
+with a content-dependent correction.
 
 `autoquality=none` disables a configured search. An explicit `q` also disables
 inherited host search; combining it with an enabled URL `autoquality` is an
@@ -444,7 +412,7 @@ search defaults are inactive for these outputs. Under automatic format
 negotiation, search and byte budgets apply when the selected encoder supports
 them. WebP lossless `q` controls compression effort rather than pixel quality.
 
-Host controls retain `autoquality_method`, `autoquality_target`,
+Host controls include `autoquality_method`, `autoquality_target`,
 `autoquality_allowed_error`, global `autoquality_min_quality` and
 `autoquality_max_quality`, per-format `autoquality_format_min_quality` and
 `autoquality_format_max_quality`, `autoquality_max_resolution`, and
@@ -460,7 +428,7 @@ URL fields override the corresponding host option struct. Unknown or repeated
 fields are invalid, as are options for another explicitly selected format.
 Under negotiation, per-format options are conditionally active.
 
-| Native key | Fields |
+| Option | Fields |
 | --- | --- |
 | `jpeg-options` | `progressive`, `subsample:auto\|on\|off`, `trellis-quant`, `overshoot-deringing`, `optimize-scans`, `quant-table:0..8` |
 | `png-options` | `interlace`, `palette`, `bitdepth:1\|2\|4\|8\|16`, `filter:none\|sub\|up\|avg\|paeth\|all` |
@@ -486,10 +454,10 @@ Single-group presets contribute to the first group. A preset containing
 `then` supplies the complete group sequence and cannot combine with explicit
 URL group options or another multi-group preset; request-scoped options may
 still override it. Presets cannot supply a source or signature. Their names
-do not participate in representation identity. Task `.2` owns completion.
+do not participate in representation identity.
 
-`output=image` uses negotiated or explicit format. `output=blurhash` retains
-its fixed text response. `output=info` describes the source with JSON fields
+`output=image` uses negotiated or explicit format. `output=blurhash` returns
+text. `output=info` describes the source with JSON fields
 `format`, `mime_type`, display `width`/`height`, EXIF `orientation`, and
 optional byte `size`. It rejects all group options, explicit `orient` values, and
 image output options, including metadata, profile, and HDR controls,
@@ -498,8 +466,7 @@ source safety limits and can use header inspection without transforming or
 encoding pixels. Format names use the library's canonical vocabulary, including
 `heif`, `jpeg_xl`, and `jpeg2000`. Host image encoding
 policies do not alter info. Preset expansion happens before applicability
-validation, so inherited image options also reject. LQIP is
-outside this migration's scope.
+validation, so inherited image options also reject.
 
 ### Request delivery controls
 
@@ -526,14 +493,12 @@ for a controlled time source; the default is `System.os_time(:second)`.
 
 ## Architecture and verification constraints
 
-The public Plug should call native configuration/parsing, source resolution,
-representation identity, execution, and delivery directly. Parsing produces
-a concrete request with groups and output policy. The executor owns fixed
-ordering and runtime geometry; `Source`, `Output`, and `Response` own their
-respective data and effects. Module moves should follow actual ownership,
-not preserve a generic root Plan solely to satisfy old boundaries.
+The Plug lifecycle calls parsing, source resolution, representation
+identity, execution, and delivery. Parsing produces request groups and output
+intent; the executor owns fixed ordering and runtime geometry. `Source`,
+`Output`, and `Response` own their respective data and effects.
 
-Keep these invariants while changing the structure:
+Preserve these invariants:
 
 - Signature/expiry/static validation precede source fetch and cache access.
 - Conditional responses can complete before fetch, decode, encode, or cache
@@ -546,11 +511,6 @@ Keep these invariants while changing the structure:
 - Delivery owns stream/resource cleanup on success and failure.
 - Telemetry changes update both the default Logger and trace Capture.
 
-Before deleting an old entry point, migrate the shared assertions from its
-wire tests. Native coverage must exercise real requests and decoded pixels,
-not just parser structs. Selected imgproxy fixtures are reference evidence
-for intentionally shared behavior; native semantics govern disagreements.
-
-Keep AGENTS.md, enforcement, and architecture tests aligned with each
-implementation step. The capability inventory and native semantics here
-take precedence over the July probe design where they differ.
+API coverage must exercise real requests and decoded pixels, alongside
+parser tests. Keep AGENTS.md, boundary declarations, and architecture tests
+aligned with the implementation.

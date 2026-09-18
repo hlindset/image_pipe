@@ -21,15 +21,15 @@ forward "/images",
 
 ## Which mounts generate headers
 
-Native mounts opt into the generated policy by configuring `http_cache`.
-With `http_cache: [mode: :enabled]`, `ImagePipe.Response.CachePolicy` runs
-between building the representation and the conditional gate. Explicitly
-setting `mode: :disabled` generates neither `Cache-Control` nor `ETag`,
-unless the source adapter overrides the mode.
+ImagePipe mounts opt into generated policy with `http_cache`. Setting
+`http_cache: [mode: :enabled]` runs `ImagePipe.Response.CachePolicy` after the
+representation is built and before the conditional gate. Setting
+`mode: :disabled` generates neither `Cache-Control` nor `ETag` unless the source
+adapter overrides it.
 
-When `http_cache` is omitted from a native mount, identity headers come
-straight from the representation: an `ETag`, or `Cache-Control: no-store`
-for a source with no byte identity. The `[:http_cache, :prepare]`,
+When `http_cache` is omitted, identity headers come from the representation: an
+`ETag`, or `Cache-Control: no-store` when byte identity is unavailable. The
+`[:http_cache, :prepare]`,
 `[:http_cache, :conditional, :match]`, and
 `[:http_cache, :fallback, :no_store]` events fire only on the generated path.
 
@@ -43,7 +43,7 @@ mount. Source overrides apply when the mount includes an explicit
 Source-level `http_cache: :enabled` doesn't force an ETag. The resolved source
 still needs strong byte identity.
 
-## Stable Source Bytes
+## Stable source bytes
 
 `stable: :trusted` tells a source adapter that the resolved source identity names
 the same bytes for every request. Use it only for write-once storage,
@@ -55,13 +55,11 @@ identity. Files can be overwritten under the same path, so file sources need
 `stable: :trusted` before ImagePipe derives a strong byte identity from
 `root_id` and path segments.
 
-For `ImagePipe.Source.HTTP`, `stable: :trusted` derives byte identity from the
-URL components. ImagePipe doesn't put raw query strings into the identity. It
-stores a query SHA-256 so signed query URLs and rotating query credentials don't appear in
-ETags or telemetry. ImagePipe redacts query material instead of ignoring it:
-different query strings still produce different generated ETags. If credentials
-rotate while the source bytes stay the same, use a source identity without
-credentials or a custom adapter.
+For `ImagePipe.Source.HTTP`, `stable: :trusted` derives byte identity from URL
+components. Raw query strings never enter ETags or telemetry; a query SHA-256
+preserves their identity effect. Different query strings therefore produce
+different ETags. If credentials rotate while the bytes stay the same, use a
+credential-free source identity or a custom adapter.
 
 For `ImagePipe.Source.S3`, objects with a revision are stable under
 `stable: :auto` because the fetch includes the object version. S3 objects
@@ -73,7 +71,7 @@ ImagePipe can create a public HTTP validator. `internal_cache` is about whether
 ImagePipe may reuse an encoded body from its configured cache. A route can use
 internal caching without generated HTTP cache headers.
 
-## Generated Headers
+## Generated headers
 
 For successful `GET` and `HEAD` responses with generated HTTP caching enabled and
 strong byte identity, ImagePipe emits:
@@ -123,7 +121,7 @@ Vary: Accept-Encoding, Accept
 If an earlier Plug set `Vary: *`, ImagePipe preserves `Vary: *` and suppresses
 generated public cache headers.
 
-## Conditional Requests
+## Conditional requests
 
 ImagePipe handles `If-None-Match` for explicit entity tags matching a generated
 ETag. A matching `GET` or `HEAD` returns `304 Not Modified` after source resolution
@@ -139,14 +137,12 @@ If-None-Match: "ipr1-token"
 If-None-Match: W/"ipr1-token"
 ```
 
-`If-None-Match: *` matches any current representation, but ImagePipe cannot prove
-one exists pre-fetch — a request can still fail at source, decode, transform, or
-encode. So the wildcard does **not** short-circuit before fetch; it proceeds into
-the runner and is honored only on an **internal cache hit**, which proves a current
-representation was successfully produced for the cache key. On a hit the response is
-`304 Not Modified`, whether or not an ETag was generated; on a miss the request
-generates and returns `200`. A header mixing `*` with explicit tags (invalid per
-RFC 9110 §13.1.2) collapses to the wildcard.
+`If-None-Match: *` needs proof that a current representation exists, which is not
+available before source processing. ImagePipe therefore honors it only on an
+**internal cache hit**. A hit returns `304 Not Modified` with or without a
+generated ETag; a miss processes the request and returns `200`. A header mixing
+`*` with explicit tags, invalid under RFC 9110 §13.1.2, is treated as the
+wildcard.
 
 ImagePipe serves only `GET` and `HEAD`. Any other method receives
 `405 Method Not Allowed` with `Allow: GET, HEAD`, before parsing, source
@@ -156,7 +152,7 @@ ImagePipe doesn't interpret host-supplied ETags. If an earlier Plug sets
 `ETag`, ImagePipe preserves it, suppresses its generated ETag, and doesn't use
 that host ETag to return `304`.
 
-## Host Headers
+## Host headers
 
 Existing host policy wins over generated policy.
 
@@ -184,7 +180,7 @@ Required representation headers are separate from generated cache policy.
 Suppressing generated `Cache-Control` or `ETag` leaves `Vary: Accept` in place
 when automatic output uses `Accept`.
 
-## Missing Byte Identity
+## Missing byte identity
 
 If HTTP caching uses `mode: :enabled` but the resolved source doesn't provide
 strong byte identity, ImagePipe emits:
@@ -193,8 +189,8 @@ strong byte identity, ImagePipe emits:
 Cache-Control: no-store
 ```
 
-It doesn't emit a generated ETag. This is a safety fallback for a route that
-asked for shared-cache behavior but couldn't prove validator material.
+It emits no generated ETag. This prevents shared caching when the route cannot
+prove byte identity.
 
 ImagePipe emits this required telemetry event:
 
@@ -245,13 +241,12 @@ Metadata reports whether a generated ETag, generated cache headers, and
 representation headers were present. It doesn't include cache keys, paths,
 source identities, or ETag values.
 
-## Cache Key Relationship
+## Cache key relationship
 
-The CDN controls the CDN cache key. ImagePipe can't make two different URLs share
-one CDN object by sending an ETag or custom header. ImagePipe normalizes request
-material so matching URLs can produce the same ETag. A CDN that keys on the raw
-URL still stores them as separate objects unless the CDN rewrites or redirects
-them before cache lookup.
+The CDN controls its cache key. An ETag cannot make two URLs share one CDN
+object. ImagePipe may produce the same ETag for equivalent request material, but
+a CDN keyed on raw URLs stores separate objects unless it rewrites or redirects
+before lookup.
 
 Both values come from `ImagePipe.Representation.build/3`, which derives them
 from the same pre-fetch material but different slices of it:
@@ -263,9 +258,8 @@ from the same pre-fetch material but different slices of it:
   excludes `storage_only`, so a cachebuster change busts storage while leaving
   the validator — and therefore already-downloaded client copies — intact.
 
-Detector and model identity, by contrast, are part of *both*: swapping a
-detector or model changes the rendition, so it must change the validator too — a
-conditional GET will not return `304` against a rendition produced by a
+Detector and model identity enter both values because changing either can change
+the rendition. A conditional GET cannot return `304` for a rendition made by a
 different detector.
 
 `Plan.Request.expires` is enforced before source resolution. It
@@ -273,17 +267,14 @@ doesn't change generated `Cache-Control`.
 
 ## Versioning
 
-Generated ETags carry a visible schema prefix from `ImagePipe.Representation`'s
-`@etag_schema` constant (`"ipr1"` today). Changing it changes both the visible
-prefix and the hashed material, invalidating validators already stored by
-browsers and CDNs.
+Generated ETags carry the visible `"ipr1"` schema prefix from
+`ImagePipe.Representation`. Changing the schema changes both the prefix and
+hashed material, invalidating stored validators.
 
-`ImagePipe.Representation`'s `@core_execution_epoch` enters both the cache
-key and ETag. It can invalidate stored representations together when a
-deployed application needs an explicit cache migration. Ordinary development
-changes update the canonical material and tests in place.
+`ImagePipe.Representation`'s `@core_execution_epoch` enters both the cache key
+and ETag and can invalidate all stored representations together.
 
-## Deferred In V1
+## Deliberate limits
 
 These are deliberate v1 boundaries:
 

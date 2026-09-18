@@ -1,18 +1,13 @@
 # ImagePipe
 
-ImagePipe is a Plug-based image optimization server with a native path API.
+ImagePipe is a Plug-based image optimization server with a path API.
 It resolves a configured image source, executes the requested transforms,
 negotiates the output format, and sends the encoded image response.
 
 ## Project status
 
-ImagePipe is a greenfield, unreleased library. The codebase includes working
-native request parsing, request safety checks, transform execution,
-source adapters, output negotiation, filesystem response caching, telemetry
-spans, and a local demo server.
-
-The package metadata exists for release evaluation, but no Hex package exists
-yet. Treat the `0.1.0` API as subject to change until the first release.
+ImagePipe is unreleased and has no Hex package yet. The `0.1.0` API may change
+before release.
 
 ## Installation
 
@@ -22,16 +17,6 @@ For local evaluation, depend on a checkout:
 def deps do
   [
     {:image_pipe, path: "../image_pipe"}
-  ]
-end
-```
-
-After the Hex package exists, depend on the package version:
-
-```elixir
-def deps do
-  [
-    {:image_pipe, "~> 0.1.0"}
   ]
 end
 ```
@@ -94,7 +79,7 @@ By default, HTTP/HTTPS sources refuse to connect to non-public addresses and
 re-check the policy on every redirect hop. See
 [Source network policy](docs/source-network-policy.md) to allow private origins.
 
-Configure `keys: [hex_encoded_key]` to require signed native URLs. The
+Configure `keys: [hex_encoded_key]` to require signed URLs. The
 `sig=<mac>` segment authenticates the complete mount-relative request path
 after the signature segment. Key lists support rotation: the first key signs,
 and all configured keys can verify. Unsigned requests are accepted when no
@@ -104,27 +89,22 @@ S3 sources use `s3://bucket/key?revision` and a configured `:s3` adapter.
 Custom `source_schemes` map source names to host translators. To conceal the
 source, configure separate `source_encryption_keys` and use
 `ImagePipe.Native.encrypt_source/2` to build a signed `enc/<token>` URL.
-See the [source contract](docs/native_api_contract.md#sources) for encoding,
+See the [source contract](docs/api_contract.md#sources) for encoding,
 key rotation, and a complete concealment example.
 
-## Current support boundaries
+## API
 
-The native API currently supports EXIF orientation policy, arbitrary rotation,
-resize modes, minimum dimensions, DPR and zoom, guided and explicit-region crops,
-flips, anchors and focal points, anchor offsets, crop-ratio correction,
-symmetric trimming, canvas extension and placement, object and face cropping,
-blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness,
-contrast, saturation, colorize, gradients, padding, background, image formats,
-per-format quality, automatic quality search, byte budgets, encoder controls,
-metadata retention, color profile conversion, HDR preservation,
-BlurHash, source-info JSON, filenames and attachments, cachebusters, debug headers,
-expiry, presets, signed URLs, and source concealment.
-It accepts local paths, HTTP(S) URLs, S3 objects, and configured source schemes.
-Invalid requests fail before cache lookup or
-source fetch.
+The API supports orientation, resize and crop, object and face detection,
+pixel effects, canvas and padding, color profiles, HDR, and encoder controls.
+Responses can be images, BlurHash text, or source-info JSON. Sources can be local
+paths, HTTP(S) URLs, S3 objects, or configured schemes.
+
+Invalid requests fail before cache lookup or source fetch. The
+[API contract](docs/api_contract.md) lists every option and defines
+processing order, coordinate frames, and output behavior.
 
 EXIF orientation applies once by default. Use `orient=none` to keep the stored
-pixel orientation; user rotation and flips still apply. Native trim runs after
+pixel orientation; user rotation and flips still apply. Trim runs after
 orientation, rotation, and flips, so its automatic background comes from the
 displayed top-left corner.
 
@@ -134,7 +114,7 @@ pixel coordinates. `min-w` and `min-h` raise the resize target's minimum size.
 Without `enlarge`, source dimensions cap the resize and padding scales down
 proportionally. Each `then` group starts with DPR and zoom of 1.
 
-Configure reusable native presets with option strings:
+Configure reusable presets with option strings:
 
 ```elixir
 plug ImagePipe.Plug,
@@ -176,7 +156,7 @@ are stems; ImagePipe adds the response format's extension. Use letters, digits,
 dots, underscores, and hyphens for `filename` and `cb` values. `attachment=false`
 overrides an inherited attachment setting. Delivery settings preserve the cached
 body and ETag. `cb=revision-2` changes the storage key while preserving the ETag
-for unchanged bytes. The [delivery contract](docs/native_api_contract.md#request-delivery-controls)
+for unchanged bytes. The [delivery contract](docs/api_contract.md#request-delivery-controls)
 also covers expiry and the optional host clock.
 
 Use `detect=face`, `detect=car,dog`, or `detect=all,face:3` with a crop or
@@ -184,35 +164,22 @@ cover resize to select subjects. `anchor=smart-face` blends face detection
 with attention. The [content-aware cropping guide](docs/content-aware-gravity.md)
 covers optional detector setup, weights, fallback, and strict availability checks.
 
-The [native API contract](docs/native_api_contract.md) defines the complete
-option vocabulary, stage order, coordinate frames, and terminal behavior.
-
 ## Documentation
 
-- [Native API contract](docs/native_api_contract.md) defines native semantics,
-  capability retention, and migration ownership.
-- [Content-aware gravity](docs/content-aware-gravity.md) documents smart crop
-  (`anchor=smart`) and optional face detection (`detect=face`,
-  `anchor=smart-face`) — the `image_vision` + `ortex` dependencies, the
-  `detector` / `detector_required` options, fallback behavior, warmup, and
-  custom detectors.
-- [Cache](docs/cache.md) documents filesystem response caching, cache keys,
-  stored headers, failure modes, and cache safety boundaries.
-- [CDN HTTP caching](docs/cdn-http-cache.md) documents generated
-  `Cache-Control`, ETags, `Vary: Accept`, source stability, and CDN behavior.
-- [Operational notes](docs/operational_notes.md) documents request safety,
-  source fetching, decode planning, multi-pipeline behavior, and automatic
-  output negotiation.
-- [Telemetry](docs/telemetry.md) documents emitted span events, measurements,
-  metadata, and handler examples.
-- [Transform operations](docs/transform_operations.md) documents native groups,
-  executable operations, geometry, orientation, and materialization.
-- [Execution flow](docs/execution_flow.md) documents the request lifecycle and
-  direct native executor.
-- [Source network policy](docs/source-network-policy.md) documents the default
-  SSRF protection on HTTP/HTTPS sources, how to allow private origins
-  (`address_policy`), custom DNS resolution (`address_resolver`), and the
-  DNS-rebinding limitation.
+- [API contract](docs/api_contract.md): options and semantics.
+- [Content-aware cropping](docs/content-aware-gravity.md): detection setup,
+  weights, fallback, warmup, and custom detectors.
+- [Cache](docs/cache.md): response storage, keys, headers, and failure handling.
+- [CDN HTTP caching](docs/cdn-http-cache.md): `Cache-Control`, ETags,
+  `Vary: Accept`, and source stability.
+- [Operational notes](docs/operational_notes.md): request safety, fetching,
+  decode planning, groups, and format negotiation.
+- [Telemetry](docs/telemetry.md): events, measurements, metadata, and handlers.
+- [Transform operations](docs/transform_operations.md): geometry, orientation,
+  operations, and materialization.
+- [Execution flow](docs/execution_flow.md): the request lifecycle.
+- [Source network policy](docs/source-network-policy.md): SSRF protection,
+  private origins, DNS resolution, and the DNS-rebinding limitation.
 
 ## Demo
 
@@ -226,11 +193,11 @@ mise run setup       # installs library + fiddle deps
 mise run fiddle      # boots Phoenix (:4000) + Vite (:5173)
 ```
 
-Open http://localhost:4000. The processing
-endpoint is `/native-image`. Visual controls cover resize, crop, focal points,
-effects, canvas, padding, orientation, and output settings. Saved native URLs
+Open http://localhost:4000. The processing endpoint is `/native-image`.
+Visual controls cover resize, crop, focal points,
+effects, canvas, padding, orientation, and output settings. Saved URLs
 populate the controls, including a group selector for `then` requests. Examples
-and an optional advanced path editor cover the full native vocabulary.
+and an optional advanced path editor cover the full vocabulary.
 The source selector exercises local files, S3, and the demo's HTTP source.
 The Protection control demonstrates signed URLs and concealed sources using
 fixed demo keys.
@@ -239,8 +206,7 @@ fixed demo keys.
 
 ### Tracing (OpenTelemetry → Jaeger)
 
-The fiddle can export its `image_pipe.*` spans to a local Jaeger, demonstrating
-the library's OpenTelemetry exporter end to end (see
+To export `image_pipe.*` spans to local Jaeger (see
 [the cookbook](docs/cookbook/opentelemetry-jaeger.md)):
 
 ```sh
@@ -250,23 +216,19 @@ mise run fiddle otel              # boots the dev server with tracing on (FIDDLE
 
 Issue a `/native-image` request, then open the Jaeger UI at http://localhost:16686 and
 look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
-Plain `mise run fiddle` leaves tracing off (no `FIDDLE_OTEL`), so it needs no
-Jaeger.
+Tracing is off by default; `mise run fiddle` needs no Jaeger.
 
 ### Source types (local / S3 / HTTP)
 
-The demo can fetch sample images through three source adapters,
-chosen with the fiddle's **Source type** control: the local filesystem, a fake S3,
-or HTTP. All three resolve to byte-identical bytes from `priv/static/images`, so
-switching source types is a clean adapter comparison.
+The **Source type** control selects local files, a fake S3 server, or HTTP.
+All three serve the same bytes from `priv/static/images` for adapter comparisons.
 
-The **S3** source type needs the opt-in s3proxy sidecar — a fake S3 over the local
-filesystem that mirrors `priv/static/images` (`mise run fiddle:sidecars` brings up
-both Jaeger and s3proxy; `mise run fiddle:sidecars s3proxy` starts just the fake S3):
+S3 requires the s3proxy sidecar, which serves `priv/static/images`:
 
 ```sh
 mise run fiddle:sidecars s3proxy   # fake S3 at http://localhost:8081, bucket "sources"
 ```
 
-The **HTTP** source type needs no sidecar — it fetches the fiddle's own
-`Plug.Static` at `http://localhost:4000/images/<file>`.
+`mise run fiddle:sidecars` starts both s3proxy and Jaeger.
+HTTP needs no sidecar: it fetches `http://localhost:4000/images/<file>` from
+the Fiddle's `Plug.Static`.

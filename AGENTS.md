@@ -15,27 +15,27 @@
 - Match the process weight to the change. If a change is small and contained enough to hold in a single working context — a localized fix, a narrow option, an isolated edit with an obvious blast radius — skip the written spec/plan and do the design work interactively with the user, implemented test-first (TDD). Reserve written specs, implementation plans, and the plan-review cycle below for work that genuinely spans multiple contexts or whose design isn't settled. When unsure whether a change is small enough, lean toward asking the user rather than defaulting to heavyweight process.
 - When presenting the inline-vs-subagent execution choice for a plan, lead with a calibrated recommendation rather than a neutral menu. Default to **inline execution + one final parallel review of the complete diff** when the plan's tasks are holdable in a single working context, and incremental TDD catches integration bugs faster than per-task review round-trips. Reserve **subagent-per-task with two-stage review** for plans whose tasks span many files or boundaries, or are large enough that context isolation per task earns its keep.
 
-## Native API guidelines
+## API guidelines
 
-- ImagePipe has one native, path-oriented, declarative API. Follow [the native API contract](docs/native_api_contract.md) for capability retention, fixed stage order, coordinate frames, DPR, source concealment, and terminal semantics.
+- ImagePipe has one path-oriented, declarative API. Follow [the API contract](docs/api_contract.md) for capability retention, fixed stage order, coordinate frames, DPR, source concealment, and terminal semantics.
 - Option order within a group must not define processing order. Only an explicit `then` opens a new group. Operations use the display frame produced by preceding stages; crop percentages resolve after trim. Deferred orientation is an implementation optimization and must preserve the logical result.
 - Use one concrete request lifecycle and one executor. Keep host extension points for sources, caches, detectors, and exporters. Prefer direct calls and data over configurable dialect/parser/renderer behaviours, continuation protocols, and callback wrappers.
 - Preserve useful capabilities identified in the contract before deleting their only entry point. Beads epic `image_plug-a0q` owns migration dependencies and progress.
-- Keep selected imgproxy comparisons as test-only reference evidence for intentionally shared behavior. Native semantics govern disagreements; exact vendor parity is not required.
+- Keep selected imgproxy comparisons as test-only reference evidence for intentionally shared behavior. ImagePipe semantics govern disagreements; exact vendor parity is not required.
 - When changing reference fixtures, follow `test/support/image_pipe/test/imgproxy_reference/README.md`. Update `SourceInventory` when adding, removing, or regenerating a source and check its consumers first: color-management tests also depend on source ICC profiles, bit depth, and alpha. Inspect generated-file changes with GitButler and retain only intentional fixture updates.
 
 ## Transform guidelines
 
-- Keep transforms composable. Each operation expresses an image operation over `ImagePipe.Transform.State` with explicit parameters. The native executor resolves source-dependent geometry and calls these operations directly.
+- Keep transforms composable. Each operation expresses an image operation over `ImagePipe.Transform.State` with explicit parameters. The executor resolves source-dependent geometry and calls these operations directly.
 - Trust operation structs inside the transform boundary. A transform struct missing required callbacks is a programmer error; validation should validate operation fields, not prove that the module implements the transform behaviour.
 - Decode is always opened `:sequential`; random access is provided per-operation. `ImagePipe.Transform.DecodePlanner` no longer chooses an access mode — it always opens sequential and only computes the shrink/scale load option. The cost of random access is paid per-op, lazily, by `ImagePipe.Transform.Chain`, which materializes the image to RAM (`copy_memory`, via `ImagePipe.Transform.Materializer`, tracked by `State.materialized?`) immediately before the first operation that needs it. An operation declares its need with the `requires_materialization?/1` behaviour callback (default `false`); only operations that genuinely require arbitrary pixel access (smart/object-detect crop, trim) return `true`. EXIF auto-orient is the one self-managing exception, and is **not** a transform operation: it is carried as deferred `pending_orientation` state on `State` (`ImagePipe.Transform.PendingOrientation`) and applied late at the orientation-flush boundary (`ImagePipe.Transform.OrientationFlush`, after crop/resize with crop gravity + resize dimensions compensated into the storage frame), composing EXIF → user-rotate → user-flip (issue #146). Its materialization need is data-determined (the EXIF orientation header, which no op struct can see), so the flush self-materializes for EXIF orientations 3–8 (and any quarter/half-turn user rotate or vertical flip) and streams 1/2.
 - Conservatism about sequential safety is preserved as a **test gate**, not a blanket random-access default. Before classifying an operation `requires_materialization?: false` (sequential-safe), it must be proven so by a per-op sequential-vs-random pixel-equivalence test opened from a genuinely streamed source (`access: :sequential`, `fail_on: :error` — not `from_binary`, which buffers) plus a property test over input shapes (sizes, orientations, sigmas); see `test/image_pipe/transform/sequential_access_test.exs`. The equivalence harness must include a self-check that a known-random op (e.g. a raw transpose) raises under the streamed open, so the comparison cannot pass tautologically. Materialization failures (`copy_memory`) are decode failures and must surface as `{:decode, _}` (→ 415), consistent between the mid-chain and delivery paths. The silent-buffering failure mode (libvips inserting a line/tile cache, yielding correct pixels but no memory win) is **not** covered by these correctness tests — it requires a memory high-water benchmark, currently deferred, so "no materialization" is a correctness-verified but not yet perf-verified claim.
 - **Distinguish discretionary operations from input conditioning.** A concern that is (a) not a user-requested transform and (b) whose behavior is sourced entirely from runtime image inspection — the decoded image's own headers/interpretation/bytes, which _no operation struct can see_ — is **not** a transform operation. Model it as fixed pipeline preamble or self-managing `State`, the way decode access mode, shrink-on-load planning, EXIF auto-orient (`pending_orientation`), and input color-management (working-space import) already are. Its materialization need is governed by the same sequential-safety gate as any operation — prove it, don't assert it. The declarative knob a request _does_ control (e.g. the output color-profile policy) belongs on `Plan.Request.Output` and resolves into `Output.Policy`, not as a synthetic operation. EXIF auto-orient and input color management are the two worked examples.
-- Keep the demo UI in sync with transform changes. When you add, remove, or change the parameters of a transform or a native URL option, update the `fiddle/assets/` Svelte app (controls and URL state) in the same change so the demo can exercise the new behavior end-to-end.
+- Keep the demo UI in sync with transform changes. When you add, remove, or change the parameters of a transform or a URL option, update the `fiddle/assets/` Svelte app (controls and URL state) in the same change so the demo can exercise the new behavior end-to-end.
 
 ## Request safety guidelines
 
-- Preserve request safety boundaries: native parse and config-validation failures should return before source fetch or cache access, source fetching should use non-bang Req flows with bounded redirects/timeouts/content-type/body limits, and decoded input pixel limits should remain explicit.
+- Preserve request safety boundaries: parse and config-validation failures should return before source fetch or cache access, source fetching should use non-bang Req flows with bounded redirects/timeouts/content-type/body limits, and decoded input pixel limits should remain explicit.
 
 ## Cache guidelines
 
@@ -64,8 +64,8 @@
 
 ## Namespace boundary guidelines
 
-- Keep canonical native request data under `ImagePipe.Plan.*`, with explicit groups and output policy.
-- Keep URL parsing and request configuration together; parsing produces concrete native data and validates static request constraints before side effects.
+- Keep canonical request data under `ImagePipe.Plan.*`, with explicit groups and output policy.
+- Keep URL parsing and request configuration together; parsing produces concrete data and validates static request constraints before side effects.
 - Keep the mount interface and request orchestration under `ImagePipe.Plug`. Its lifecycle is parse, validate, source resolve, representation, conditional gate, cache, execution, and delivery.
 - Keep source side effects and source identity under `ImagePipe.Source.*`.
 - Keep response delivery under `ImagePipe.Response.*`.
@@ -76,7 +76,7 @@
 ## Boundary library guidelines
 
 - Use `Boundary` declarations to enforce namespace ownership. Update declarations and architecture tests together as modules move.
-- The Plug lifecycle may depend on native parsing/configuration and the core facades it orchestrates: source, cache, representation, decode, transform, output, response, delivery, telemetry, and error handling.
+- The Plug lifecycle may depend on parsing/configuration and the core facades it orchestrates: source, cache, representation, decode, transform, output, response, delivery, telemetry, and error handling.
 - Parsing depends on canonical plan data. Runtime geometry belongs to the executor, which must not depend on URL grammar, Plug, source fetching, cache storage, output encoding, or response delivery.
 - Source code must not depend on cache, response, or request orchestration. Cache may depend on canonical identity/output/transform material. Output may depend on canonical output intent, but not request parsing.
 - Move shared value types to their actual owner as consumers migrate. Do not preserve a generic dispatch framework to retain its structs.
@@ -97,7 +97,7 @@ Validation belongs at boundaries the caller doesn't control. Inside the codebase
 
 **Validate:**
 
-- Host configuration and option parsing (mount options, native request config, adapter config).
+- Host configuration and option parsing (mount options, request config, adapter config).
 - HTTP request input (headers, query strings, bodies, conditional-request fields).
 - Cache reads from external storage and other data crossing a serialization boundary.
 - Third-party API responses.
@@ -164,10 +164,10 @@ Validation belongs at boundaries the caller doesn't control. Inside the codebase
 
 ### When to add tests
 
-- For behavior changes, add focused ExUnit coverage at the relevant boundary: native grammar/order-insensitivity and execution, mount-level no-source-fetch failures, output negotiation including `Vary: Accept`, cache key/corruption behavior, and source/decode limit handling.
+- For behavior changes, add focused ExUnit coverage at the relevant boundary: grammar/order-insensitivity and execution, mount-level no-source-fetch failures, output negotiation including `Vary: Accept`, cache key/corruption behavior, and source/decode limit handling.
 - Add a compact set of wire-level Plug tests when changing request parsing, execution, output negotiation, caching, or safety behavior. These tests should make real `ImagePipe.Plug.call/2` requests and assert user-visible contracts such as status, headers, content type, decoded output dimensions, cache/source access, and response-body equivalence where relevant.
 - When a request option should visibly change image pixels, include a request-boundary test that decodes the response body and compares pixels against a plain or otherwise appropriate baseline. Cover the no-geometry form separately when the option must work without resize, crop, canvas, or padding. Request structs and transform-unit assertions are not enough for these changes.
-- Keep wire-level tests representative, not exhaustive. Use them for public contracts such as option-order equivalence, `Accept` negotiation and `Vary`, explicit output formats bypassing negotiation, representative geometry results, request-safety failures before source/cache access, and cache reuse for semantically equivalent requests. Leave grammar edge cases and combinatorial coverage in native parse, execution, cache-key, and property tests.
+- Keep wire-level tests representative, not exhaustive. Use them for public contracts such as option-order equivalence, `Accept` negotiation and `Vary`, explicit output formats bypassing negotiation, representative geometry results, request-safety failures before source/cache access, and cache reuse for semantically equivalent requests. Leave grammar edge cases and combinatorial coverage in parse, execution, cache-key, and property tests.
 - Add StreamData property tests when correctness depends on invariants across many input shapes or orderings, such as canonicalization, filesystem safety, option order-insensitivity, cache keys, normalization, and round-trip behavior. Keep focused example tests for specific edge cases and error messages.
 
 ### Tests not to write

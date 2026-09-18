@@ -1,7 +1,7 @@
 # Imgproxy pixel references
 
 These three PNGs are immutable reference outputs baked by upstream imgproxy.
-The tests send equivalent requests through ImagePipe's native URL API; no
+The tests send equivalent requests through ImagePipe's URL API; no
 imgproxy parser or runtime code participates.
 
 The original fixture manifest recorded these generator fields verbatim:
@@ -15,7 +15,7 @@ Each comparison preserves the differential suite's default tolerance: at most
 below are part of the provenance. Do not regenerate a fixture to accommodate an
 ImagePipe change.
 
-| Fixture | Source SHA-256 | Fixture SHA-256 | Imgproxy options | Native options |
+| Fixture | Source SHA-256 | Fixture SHA-256 | Imgproxy options | ImagePipe options |
 | --- | --- | --- | --- | --- |
 | `crop_gravity_placement.png` | `eb3de4dce6337ed2bd531b35187bcda3265542dc5b661152631839616eca7d09` | `65c19f17fcf0110fa45ef5e46a77e3ca9d90f1f4f017f229019d3b16aa089ff3` | `c:120:90/g:nowe` | `crop=120,90/anchor=top-left` |
 | `effects_chain_order_high_freq.png` | `54ded6c57ec02c685e275276b54947f8c9345015342fc8a2acc9d8e54e4a7d43` | `6dabd60fea767033d02075a8815bdabf88f716dbbe1cb3630a108c654e14a203` | `rs:fit:240:240/bl:2/sh:2/pix:8` | `w=240/h=240/fit=contain/blur=2/sharpen=2/pixelate=8` |

@@ -1,11 +1,8 @@
 # Telemetry
 
-ImagePipe emits telemetry spans for the request lifecycle and its major runtime
-stages. Host applications can attach their own logging, metrics, or tracing
-integration to those events. ImagePipe doesn't *hard*-depend on
-AppSignal, OpenTelemetry, or any other tracing system; it ships an optional,
-opt-in OTel exporter (API-only at compile time) — see
-[OpenTelemetry export](#opentelemetry-export) below.
+ImagePipe emits telemetry spans for the request lifecycle and major runtime
+stages. Hosts can attach logging, metrics, or tracing handlers. ImagePipe has no
+required tracing backend; its OpenTelemetry exporter is optional and opt-in.
 
 ## Configuration
 
@@ -101,10 +98,8 @@ an unsigned request. Rejection reasons appear on the enclosing request span.
 
 ### Source fetch + decode (`[:source, :fetch_decode]`)
 
-`[:image_pipe, :source, :fetch_decode]` wraps source fetch **and** image decode
-as one span. By deliberate design it also folds in the two input guards that run
-during decode — input-pixel-count validation and source body-size limiting —
-rather than emitting separate spans for them.
+`[:image_pipe, :source, :fetch_decode]` wraps source fetch, image decode, the
+input-pixel guard, and the source body-size limit.
 
 It is emitted from the `ImagePipe.Decode.with_image/4` bracket. The span closes
 immediately after the decoded state is
@@ -112,12 +107,9 @@ built, *before* the transform/encode continuation runs (even though that
 continuation stays inside the source bracket), so a transform or encode failure
 is never misattributed to fetch/decode.
 
-This fold is intentional. libvips is lazy: a standalone `[:decode]` span would
-time loader *construction*, not pixel work (real decode cost is realized later,
-during transform materialization and encode). A separate timing span for it
-would mislead, the same way per-operation durations would (see below). The
-guards are likewise checks, not durationful stages. So their *outcomes* are
-reported as stop metadata on this span instead of as their own spans.
+libvips is lazy, so a separate decode span would time loader construction rather
+than pixel work. Decode and guard outcomes therefore appear on this span's stop
+metadata; real pixel work is timed by materialization and encode spans.
 
 The nested `[:source, :fetch]` span (source side effects only) lives inside it.
 
@@ -165,8 +157,8 @@ aggregate request view:
 - `:operation_count` — number of requested semantic operations.
 - `:operations` — the ordered list of requested semantic operation-name atoms.
 
-**These two aggregate fields use a deliberately different vocabulary from the
-per-operation spans below.** The aggregate `:operations` is the semantic
+These aggregate fields use a different vocabulary from the per-operation spans
+below. `:operations` is the semantic
 request view (`:crop_guided`, `:crop_region`, `:canvas`, …). The per-op span's
 `:operation` is the executed-transform view (`Transform.transform_name/1`),
 where e.g. both crop variants execute as `:crop` and a canvas executes as
@@ -223,11 +215,11 @@ per-operation timing. Honest aggregate timing lives on `[:transform, :execute]`.
 
 Start metadata:
 
-- `:operation` — the operation name atom (e.g. `:resize`, `:crop_region`).
+- `:operation` — the executed operation name atom (e.g. `:resize`, `:crop`).
   Includes the executor's orientation operation: `:flush`
   (applies a pending orientation).
-- `:index` — zero-based position within its executed batch. The native
-  executor runs individual stages as separate batches, so this is usually zero.
+- `:index` — zero-based position within its executed batch. The executor runs
+  individual stages as separate batches, so this is usually zero.
 - `:params` — the full operation struct (product-neutral, derived from the
   public request).
 
@@ -264,8 +256,8 @@ Parenting depends on where the materialization happens — there are three cases
   arbitrary-angle rotate, smart/object-detect crop): nested under that
   operation's `[:transform, :operation]` span;
 - **explicit flush**, when a pending EXIF/user orientation is applied by the
-  `Flush` operation (emitted by the resolver mid-pipeline or at the pipeline
-  boundary): nested under that `Flush` op's `[:transform, :operation]` span,
+  executor's `Flush` operation during execution or at the final boundary:
+  nested under that operation's `[:transform, :operation]` span,
   inside `[:transform, :execute]`;
 - **delivery backstop**, when a chain streamed through without ever materializing
   and the late delivery copy runs after the transform pipeline has closed
@@ -299,9 +291,8 @@ Stop metadata:
 
 ### Output terminal span (`[:output, :terminal]`)
 
-The `[:image_pipe, :output, :terminal]` span wraps the actual computation of a
-complete-body native terminal. It currently covers source info JSON and
-BlurHash generation. A complete-body cache hit and a conditional `304` perform
+The `[:image_pipe, :output, :terminal]` span wraps source info JSON and BlurHash
+generation. A complete-body cache hit and a conditional `304` perform
 no terminal computation and therefore emit no terminal span.
 
 Start metadata: `:terminal` — `:info` or `:blurhash`.
@@ -399,7 +390,7 @@ image_pipe encode search: ok (crop hit q72 12345b score 90.42)
 On the crop-scoring path (an `:ssim2` search above the internal ~6 MP crossover),
 ImagePipe classifies the finalized image as `:photo` (continuous-tone) or
 `:graphic` (discrete-tone: screenshots, text, charts, line art) to select the
-per-`{format, content-class}` confirm-skipped crop offset (#380). The
+per-`{format, content-class}` crop offset. The
 classification is wrapped in a `[:image_pipe, :encode, :classify]` span. It is
 emitted from the search setup, **before** the `[:encode, :search]` span opens, so
 it is a sibling of the search under `[:encode]` — not nested under it. The span
@@ -455,9 +446,8 @@ Stop metadata:
 - `:scorer` — `:full` or `:crop` (the configured scorer).
 - `:tiles_scored` — tiles scored on the crop path; absent on the full-frame path.
 
-Confirm/bump probes additionally carry the crop→full residual — the real-world
-accuracy of the internal crop-correction offset, a shadow signal for any future
-per-content offset calibration:
+Confirm/bump probes also carry the crop-to-full residual, which measures the
+accuracy of the internal crop-correction offset:
 
 - `:crop_estimate` — the offset-corrected crop estimate for the same buffer.
 - `:full_frame_score` — the authoritative whole-frame score (equals `:score`).
@@ -576,10 +566,9 @@ HTTP cache decision events aren't spans. ImagePipe emits them with
 
 ## Metadata
 
-Metadata is product-neutral and free of sensitive data (no secrets, credentials,
-or source-derived paths). Cardinality is a consumer concern — handlers may safely
-accept high-cardinality fields and project or aggregate them as needed. Common
-fields are:
+Metadata excludes secrets, credentials, private content, and source-derived
+paths that may contain them. Cardinality is a consumer concern; handlers choose
+which emitted fields become metrics tags. Common fields are:
 
 - `:result` - the stable outcome category.
 - `:status` - the response status when known.
@@ -591,7 +580,7 @@ fields are:
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
 - `:error` - a stable error category when known.
 - `:sig_key_index` - the matched signing-key index (`ImagePipe.Native.Signature.verify/3`'s
-  return value) on the native parser's `[:parse]` stop metadata; `nil` when the
+  return value) on the path parser's `[:parse]` stop metadata; `nil` when the
   request is legitimately unsigned.
 
 Exception events include the metadata added by `:telemetry.span/3`, including
@@ -601,11 +590,10 @@ All span events also include `:telemetry_span_context`, which
 `:telemetry.span/3` injects for correlating the events from the same span. Treat
 it as correlation data, not as a metrics dimension.
 
-ImagePipe doesn't emit full request paths by default. Native paths can
-contain signatures, filenames, and source-shaped user data, and often have high
-cardinality. Host applications that need path-level observability should add
-that data in their own handlers with the relevant privacy and cardinality
-controls.
+ImagePipe does not emit full request paths. They can contain signatures, source
+URLs, tokens, and private identifiers. Hosts that add paths in their own
+handlers must apply suitable privacy controls; they should separately decide
+which high-cardinality values are appropriate as metrics dimensions.
 
 ## Result values
 
@@ -645,9 +633,9 @@ raw message or source-derived path.
 
 ## Content-aware crop detection
 
-Detection-aware crops (`g:obj:face`, `g:obj:car`, `g:obj`, `c:W:H:obj:…`, and
-face-assisted `g:sm`) report detection two ways, depending on whether any
-detection actually ran.
+`detect=face`, `detect=car,dog`, and `detect=all,face:3` guides on crop or
+cover requests, plus `anchor=smart-face`, report detection according to whether
+a detector ran.
 
 When a detector is configured, ImagePipe wraps the detector invocation in a
 `[:image_pipe, :transform, :detect]` span whose duration reflects real inference
@@ -712,9 +700,8 @@ back to attention saliency; the opt-in default Logger escalates all three to
 `:warning`. The normal `:no_regions` and `:detected` span results log at the
 base level.
 
-For face-assisted smart crop (`g:sm` with `smart_crop_face_detection`), when a
-face is found ImagePipe blends the attention point with the face centroid. It
-emits a one-shot (non-span) marker recording the skew:
+For `anchor=smart-face`, a detected face is blended with the attention point.
+ImagePipe emits a one-shot marker recording the skew:
 
 ```text
 [:image_pipe, :transform, :detect, :blend]
@@ -796,14 +783,10 @@ image_pipe http_cache cache_hit headers: etag true (generated true, representati
 
 ## Output dimension clamp (`[:output, :clamp]`)
 
-When the realized final image exceeds the effective result caps — the tighter of
-the host `max_result_width`/`max_result_height`/`max_result_pixels` config and the
-negotiated output encoder's hard limit (`min(host, encoder)`) — ImagePipe
-uniformly downscales it to fit before encoding and emits a one-shot (non-span)
-marker. This both keeps encoding from failing (WebP caps each dimension at 16383,
-AVIF at 16384, JPEG at 65535; PNG effectively unbounded) and serves the host result cap as a
-downscale rather than an error. The common trigger
-is the host cap (default 8192 per axis), which is below the encoder limits.
+When the final image exceeds the tighter of the host result caps and encoder
+limits, ImagePipe uniformly downscales it before encoding and emits a one-shot
+marker. WebP caps each axis at 16383, AVIF at 16384, JPEG at 65535, and PNG is
+effectively unbounded. The host's default 8192-axis cap is usually tighter.
 
 ```text
 [:image_pipe, :output, :clamp]
@@ -859,8 +842,7 @@ annotation onto the enclosing span (typically `[:source, :fetch_decode]`).
 
 ## Attaching handlers
 
-A host application can attach to all ImagePipe span events with
-`:telemetry.attach_many/4`:
+A host can attach to the core lifecycle spans with `:telemetry.attach_many/4`:
 
 ```elixir
 defmodule MyApp.ImagePipeTelemetry do
@@ -882,7 +864,6 @@ defmodule MyApp.ImagePipeTelemetry do
     [:encode],
     [:encode, :search],
     [:encode, :search, :probe],
-    [:cache, :stage],
     [:cache, :write],
     [:send],
     [:deliver]
@@ -912,20 +893,17 @@ defmodule MyApp.ImagePipeTelemetry do
 end
 ```
 
-When customizing `telemetry_prefix`, attach to that same prefix instead of
-`[:image_pipe]`.
+When customizing `telemetry_prefix`, use the same prefix here. Add detection,
+classification, encode-search cost-leg, bounded-cache, HTTP-cache, clamp, and
+debug events from the sections above when the handler needs them; one-shot
+events do not have span suffixes.
 
 ## Tracing (opt-in)
 
-The events above are raw `:telemetry` events. ImagePipe also ships an **opt-in
-span tracer** that consumes those events, reconstructs correctly-nested
-distributed-trace-shaped spans (one `trace_id` per request, parent/child
-relationships preserved across the `[:transform, :execute]` /
-`[:transform, :operation]` / `[:transform, :materialize]` nesting and across the
-request → `ImagePipe.Delivery` coordinator → producer process seams — the
-producer-emitted `[:encode]` span parents to the request root, and `[:deliver]`
-nests under `[:send]` in the request process), and hands each finished span to
-a pluggable exporter as an `ImagePipe.Telemetry.Trace.Span`.
+ImagePipe also provides an opt-in tracer that converts these events into
+`ImagePipe.Telemetry.Trace.Span` values. It preserves request-wide trace IDs and
+parentage across transform nesting and delivery processes. Producer-side
+`:encode` spans parent to the request root; `:deliver` nests under `:send`.
 
 The tracer is **not** attached automatically. A host opts in with
 `ImagePipe.Telemetry.attach_tracer/1` and removes it with
@@ -1021,33 +999,23 @@ ImagePipe.Telemetry.attach_tracer(
 )
 ```
 
-**Hierarchy and correlation:** spans are buffered per trace and replayed into the
-SDK top-down when the request's root span finishes, so every child is parented
-onto its parent's OTel-minted span context — the full span tree survives into
-Jaeger/Tempo. (The replay buffer is a GenServer supervised by ImagePipe's
-application; it is inert unless this exporter is attached, and best-effort:
-buffered traces are dropped on crash/shutdown, and under extreme load spans for
-new traces are shed rather than growing without bound.) Correlation with logs
-is trace-level: logs and OTel spans share the `trace_id`; OTel mints its own
-span ids, so the `span=` ids in `LogExporter` lines will not match OTel span
-ids. When ImagePipe is *not* the originating tracer (`extract_inbound: true`
-behind a traced caller), the root span is a real child of the caller. As the
-originator, only the root carries a synthetic "remote parent" (it forces
-ImagePipe's `trace_id` onto the OTel trace) — at most one out-of-trace parent
-reference per trace, on the root. Traces whose root never finishes (the
-emitting process died) are flushed flat after ~10 s, each span keeping its
-recorded parent id; spans finishing shortly after the root (cross-process
-stages) still parent correctly within the same window, except a late span
-whose own parent is also late and not yet replayed, which falls back to a
-dangling parent. One cosmetic side effect of forcing the `trace_id`: every
-replayed span is marked as having a *remote* parent (`parent_span_is_remote`),
-because the OTel SDK propagates the root's synthetic remote-parent flag down
-the tree. Hierarchy and trace identity are unaffected, but a `parent_based`
-sampler that treats remote and local parents differently will take its
-remote-parent branch for all ImagePipe spans — keep both branches on the same
-policy. If `:opentelemetry_api` is absent, `attach_tracer/1` raises;
-if present but the SDK isn't started, spans are silently dropped by the noop
-tracer (start the SDK). See `docs/cookbook/opentelemetry-jaeger.md`.
+**Hierarchy and correlation:** the exporter buffers each trace and replays it
+top-down when the request root finishes, preserving the tree in Jaeger or Tempo.
+The bounded, supervised buffer is best-effort: crashes or shutdown drop buffered
+traces, and overload sheds new traces. Logs and OTel spans share `trace_id`, but
+OTel mints different span IDs.
+
+With inbound extraction, the request root is a real child of the caller. When
+ImagePipe originates a trace, a synthetic remote parent forces its trace ID into
+OTel. The SDK propagates that remote-parent flag to replayed descendants, so a
+`parent_based` sampler must use the same policy for its remote and local parent
+branches. Roots that never finish are flushed flat after about 10 seconds.
+Cross-process spans finishing shortly after the root retain parentage when their
+parent is already known; otherwise they may have a dangling parent.
+
+If `:opentelemetry_api` is absent, `attach_tracer/1` raises. If the API is present
+but the SDK is not running, the noop tracer drops spans. See the
+[Jaeger cookbook](cookbook/opentelemetry-jaeger.md).
 
 **Forced sampled flag:** the OTel exporter always emits spans with the W3C `-01`
 sampled flag set — trace-level correlation requires every span to reach the SDK.
