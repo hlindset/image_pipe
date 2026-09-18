@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
 
   alias ImagePipe.Native.OptionSpec
 
-  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur trim trim-symmetry pad bg orient output format q debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -252,6 +252,100 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_blur("2.5") == {:ok, 2.5}
       assert OptionSpec.parse_blur("0") == {:ok, 0.0}
       assert OptionSpec.parse_blur("-1") == {:error, :invalid_blur}
+    end
+
+    test "scalar effect parsers preserve implemented ranges" do
+      assert OptionSpec.parse_sharpen("0") == {:ok, 0.0}
+      assert OptionSpec.parse_sharpen("1.5") == {:ok, 1.5}
+      assert OptionSpec.parse_sharpen("-1") == {:error, :invalid_sharpen}
+
+      assert OptionSpec.parse_pixelate("1") == {:ok, 1}
+      assert OptionSpec.parse_pixelate("8") == {:ok, 8}
+      assert OptionSpec.parse_pixelate("0") == {:error, :invalid_pixelate}
+      assert OptionSpec.parse_pixelate("1.5") == {:error, :invalid_pixelate}
+
+      assert OptionSpec.parse_brightness("-255") == {:ok, -255}
+      assert OptionSpec.parse_brightness("255") == {:ok, 255}
+      assert OptionSpec.parse_brightness("256") == {:error, :invalid_brightness}
+      assert OptionSpec.parse_brightness("1.5") == {:error, :invalid_brightness}
+
+      assert OptionSpec.parse_contrast("1") == {:ok, 1.0}
+      assert OptionSpec.parse_saturation("0.25") == {:ok, 0.25}
+      assert OptionSpec.parse_contrast("0") == {:error, :invalid_contrast}
+      assert OptionSpec.parse_saturation("-1") == {:error, :invalid_saturation}
+    end
+
+    test "monochrome and duotone use strict native positional arities" do
+      assert OptionSpec.parse_monochrome("0.5") ==
+               {:ok, %{intensity: 0.5, color: {179, 179, 179}}}
+
+      assert OptionSpec.parse_monochrome("1,red") ==
+               {:ok, %{intensity: 1.0, color: {255, 0, 0}}}
+
+      assert OptionSpec.parse_duotone("0.25") ==
+               {:ok, %{intensity: 0.25, shadow: {0, 0, 0}, highlight: {255, 255, 255}}}
+
+      assert OptionSpec.parse_duotone("1,112233,ffeecc") ==
+               {:ok, %{intensity: 1.0, shadow: {17, 34, 51}, highlight: {255, 238, 204}}}
+
+      for value <- ["0.5,", "0.5,red,blue", "0.5,,white"] do
+        assert OptionSpec.parse_monochrome(value) == {:error, :invalid_monochrome}
+      end
+
+      for value <- ["0.5,black", "0.5,,white", "0.5,black,"] do
+        assert OptionSpec.parse_duotone(value) == {:error, :invalid_duotone}
+      end
+    end
+
+    test "colorize requires color and accepts only the keep-alpha literal" do
+      assert OptionSpec.parse_colorize("0.5,red") ==
+               {:ok, %{opacity: 0.5, color: {255, 0, 0}, keep_alpha: false}}
+
+      assert OptionSpec.parse_colorize("1,ff0000,keep-alpha") ==
+               {:ok, %{opacity: 1.0, color: {255, 0, 0}, keep_alpha: true}}
+
+      for value <- ["0.5", "0.5,", "0.5,red,true", "0.5,red,false", "0.5,red,"] do
+        assert OptionSpec.parse_colorize(value) == {:error, :invalid_colorize}
+      end
+    end
+
+    test "gradient fills trailing defaults and canonicalizes directions" do
+      assert OptionSpec.parse_gradient("0.5,black") ==
+               {:ok, %{opacity: 0.5, color: {0, 0, 0}, angle: 0.0, start: 0.0, stop: 1.0}}
+
+      assert OptionSpec.parse_gradient("1,red,left,0.25,0.75") ==
+               {:ok, %{opacity: 1.0, color: {255, 0, 0}, angle: 90.0, start: 0.25, stop: 0.75}}
+
+      assert {:ok, %{angle: 270.0}} = OptionSpec.parse_gradient("1,red,-90")
+      assert {:ok, %{angle: 45.5}} = OptionSpec.parse_gradient("1,red,405.5")
+
+      for value <- [
+            "1",
+            "1,red,",
+            "1,red,down,",
+            "1,red,down,0,",
+            "1,red,sideways",
+            "1,red,down,-0.1",
+            "1,red,down,0,1.1"
+          ] do
+        assert OptionSpec.parse_gradient(value) == {:error, :invalid_gradient}
+      end
+    end
+
+    test "composite effects validate colors even at zero intensity or opacity" do
+      assert OptionSpec.parse_monochrome("0,not-a-color") == {:error, :invalid_monochrome}
+      assert OptionSpec.parse_duotone("0,black,not-a-color") == {:error, :invalid_duotone}
+      assert OptionSpec.parse_colorize("0,not-a-color") == {:error, :invalid_colorize}
+      assert OptionSpec.parse_gradient("0,not-a-color") == {:error, :invalid_gradient}
+    end
+
+    test "effect numeric overflow is rejected instead of raising" do
+      huge = String.duplicate("9", 400)
+
+      assert OptionSpec.parse_sharpen(huge) == {:error, :invalid_sharpen}
+      assert OptionSpec.parse_contrast(huge) == {:error, :invalid_contrast}
+      assert OptionSpec.parse_monochrome("#{huge}.0") == {:error, :invalid_monochrome}
+      assert OptionSpec.parse_gradient("1,red,#{huge}") == {:error, :invalid_gradient}
     end
 
     test "parse_trim accepts auto, color-only, and color+tolerance" do

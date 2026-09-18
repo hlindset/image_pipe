@@ -13,8 +13,10 @@ defmodule ImagePipe.Native.Pipeline do
 
   **Fixed stage order within a group**: rotate(1) → flip(2) → trim(3) →
   region/guided crop(4) → resize(5) → cover result crop(6, automatic, part of
-  the resize's own continuation tail) → blur(7) → gray(10) → bitonal(11) →
-  canvas(19) → pad(20) → bg flatten(21).
+  the resize's own continuation tail) → blur(7) → sharpen(8) → pixelate(9) →
+  gray(10) → bitonal(11) → monochrome(12) → duotone(13) → brightness(14) →
+  contrast(15) → saturation(16) → colorize(17) → gradient(18) → canvas(19) →
+  pad(20) → bg flatten(21).
   `then` starts a new group whose input is the preceding group's result.
   Groups share a continuously-threaded `SourceShape`. Pending orientation is
   flushed before stages that require displayed pixels, including trim, and
@@ -533,8 +535,17 @@ defmodule ImagePipe.Native.Pipeline do
       crop |> with_offsets(group.anchor_offset) |> scale_offsets(crop_dpr),
       resize,
       blur_op(group.blur),
+      sharpen_op(group.sharpen),
+      pixelate_op(group.pixelate),
       if(group.gray, do: %Operation.Gray{}),
-      if(group.bitonal, do: %Operation.Bitonal{})
+      if(group.bitonal, do: %Operation.Bitonal{}),
+      monochrome_op(group.monochrome),
+      duotone_op(group.duotone),
+      brightness_op(group.brightness),
+      contrast_op(group.contrast),
+      saturation_op(group.saturation),
+      colorize_op(group.colorize),
+      gradient_op(group.gradient)
     ]
   end
 
@@ -602,8 +613,17 @@ defmodule ImagePipe.Native.Pipeline do
           {group.region || group.crop, crop_name(group)},
           {group.resize, :resize},
           {group.blur, :blur},
+          {group.sharpen, :sharpen},
+          {group.pixelate, :pixelate},
           {group.gray, :gray},
           {group.bitonal, :bitonal},
+          {group.monochrome, :monochrome},
+          {group.duotone, :duotone},
+          {group.brightness, :brightness},
+          {group.contrast, :contrast},
+          {group.saturation, :saturation},
+          {group.colorize, :colorize},
+          {group.gradient, :gradient},
           {group.canvas, :canvas},
           {pad_name(group.pad), :padding},
           {group.bg, :background}
@@ -720,6 +740,75 @@ defmodule ImagePipe.Native.Pipeline do
     op
   end
 
+  defp sharpen_op(nil), do: nil
+
+  defp sharpen_op(sigma) do
+    {:ok, op} = Operation.sharpen(sigma)
+    op
+  end
+
+  defp pixelate_op(nil), do: nil
+
+  defp pixelate_op(size) do
+    {:ok, op} = Operation.pixelate(size)
+    op
+  end
+
+  defp monochrome_op(nil), do: nil
+
+  defp monochrome_op(%{intensity: intensity, color: color}) do
+    {:ok, op} = Operation.monochrome(to_ratio!(intensity), rgb!(color))
+    op
+  end
+
+  defp duotone_op(nil), do: nil
+
+  defp duotone_op(%{intensity: intensity, shadow: shadow, highlight: highlight}) do
+    {:ok, op} = Operation.duotone(to_ratio!(intensity), rgb!(shadow), rgb!(highlight))
+    op
+  end
+
+  defp brightness_op(nil), do: nil
+
+  defp brightness_op(value) do
+    {:ok, op} = Operation.brightness(value)
+    op
+  end
+
+  defp contrast_op(nil), do: nil
+
+  defp contrast_op(value) do
+    {:ok, op} = Operation.contrast(value)
+    op
+  end
+
+  defp saturation_op(nil), do: nil
+
+  defp saturation_op(value) do
+    {:ok, op} = Operation.saturation(value)
+    op
+  end
+
+  defp colorize_op(nil), do: nil
+
+  defp colorize_op(%{opacity: opacity, color: color, keep_alpha: keep_alpha}) do
+    {:ok, op} = Operation.colorize(to_ratio!(opacity), rgb!(color), keep_alpha)
+    op
+  end
+
+  defp gradient_op(nil), do: nil
+
+  defp gradient_op(%{
+         opacity: opacity,
+         color: color,
+         angle: angle,
+         start: start,
+         stop: stop
+       }) do
+    {:ok, op} = Operation.gradient(to_ratio!(opacity), rgb!(color), angle, start, stop)
+    op
+  end
+
   defp pad_op(nil), do: nil
 
   # A pad shorthand where every side is 0 is the Tier-1 identity point (same
@@ -739,6 +828,11 @@ defmodule ImagePipe.Native.Pipeline do
     {:ok, color} = Color.rgba(r, g, b, to_ratio!(alpha))
     {:ok, op} = Operation.background(color)
     op
+  end
+
+  defp rgb!({red, green, blue}) do
+    {:ok, color} = Color.rgb(red, green, blue)
+    color
   end
 
   # -- shared value conversion ----------------------------------------------

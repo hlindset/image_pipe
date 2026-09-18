@@ -31,6 +31,15 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
     "anchor=top-left",
     "anchor-offset=10,-20pct",
     "blur=2.5",
+    "sharpen=1.5",
+    "pixelate=8",
+    "monochrome=0.5,red",
+    "duotone=0.75,black,white",
+    "brightness=-20",
+    "contrast=1.25",
+    "saturation=0.75",
+    "colorize=0.5,blue,keep-alpha",
+    "gradient=1,red,left,0.25,0.75",
     "pad=10,20,30,40",
     "bg=fff,0.5",
     "trim=auto",
@@ -80,6 +89,17 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
       "trim-symmetry=h"
     ],
     ["crop=600,400", "detect=face:3,car"],
+    [
+      "sharpen=1.5",
+      "pixelate=8",
+      "monochrome=0.5,red",
+      "duotone=0.75,black,white",
+      "brightness=-20",
+      "contrast=1.25",
+      "saturation=0.75",
+      "colorize=0.5,blue,keep-alpha",
+      "gradient=1,red,left,0.25,0.75"
+    ],
     ["region=0,0,600,400", "bg=fff,0.5"],
     ["w=800", "enlarge", "fit=stretch", "format=webp", "q=80"],
     ["w=32", "output=blurhash"]
@@ -158,6 +178,40 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
       assert {:ok, second} = parse(["detect=car:1.0,face:3.0,all:1.0", "crop=600,400"])
       assert first === second
       assert :erlang.term_to_binary(first) == :erlang.term_to_binary(second)
+    end
+
+    test "effect numeric and color spellings have identical serialized identity" do
+      integers = [
+        "sharpen=2",
+        "monochrome=1,red",
+        "duotone=1,black,white",
+        "contrast=2",
+        "saturation=2",
+        "colorize=1,red,keep-alpha",
+        "gradient=1,red,-90,0,1"
+      ]
+
+      decimals = [
+        "sharpen=2.0",
+        "monochrome=1.0,ff0000",
+        "duotone=1.0,000,fff",
+        "contrast=2.0",
+        "saturation=2.0",
+        "colorize=1.0,ff0000,keep-alpha",
+        "gradient=1.0,ff0000,270.0,0.0,1.0"
+      ]
+
+      assert {:ok, integer_request} = parse(integers)
+      assert {:ok, decimal_request} = parse(decimals)
+      assert integer_request === decimal_request
+
+      assert :erlang.term_to_binary(integer_request) ==
+               :erlang.term_to_binary(decimal_request)
+
+      assert {:ok, negative_turn} = parse(["gradient=1,red,-360"])
+      assert {:ok, named_down} = parse(["gradient=1.0,ff0000,down"])
+      assert negative_turn === named_down
+      assert :erlang.term_to_binary(negative_turn) == :erlang.term_to_binary(named_down)
     end
   end
 

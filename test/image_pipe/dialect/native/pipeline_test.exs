@@ -10,12 +10,23 @@ defmodule ImagePipe.Native.PipelineTest do
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Operation.Background
+  alias ImagePipe.Transform.Operation.Bitonal, as: ExecutableBitonal
   alias ImagePipe.Transform.Operation.Blur, as: ExecutableBlur
+  alias ImagePipe.Transform.Operation.Brightness, as: ExecutableBrightness
+  alias ImagePipe.Transform.Operation.Colorize, as: ExecutableColorize
+  alias ImagePipe.Transform.Operation.Contrast, as: ExecutableContrast
   alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.Operation.Duotone, as: ExecutableDuotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flush
+  alias ImagePipe.Transform.Operation.Gradient, as: ExecutableGradient
+  alias ImagePipe.Transform.Operation.Gray, as: ExecutableGray
+  alias ImagePipe.Transform.Operation.Monochrome, as: ExecutableMonochrome
   alias ImagePipe.Transform.Operation.Padding
+  alias ImagePipe.Transform.Operation.Pixelate, as: ExecutablePixelate
   alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize
+  alias ImagePipe.Transform.Operation.Saturation, as: ExecutableSaturation
+  alias ImagePipe.Transform.Operation.Sharpen, as: ExecutableSharpen
   alias ImagePipe.Transform.Operation.Trim, as: ExecutableTrim
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
@@ -55,6 +66,13 @@ defmodule ImagePipe.Native.PipelineTest do
     fn state, ops, opts ->
       send(pid, {:ops, ops})
       Chain.execute(state, ops, opts)
+    end
+  end
+
+  defp planning_chain(pid) do
+    fn state, ops, _opts ->
+      send(pid, {:ops, ops})
+      {:ok, state}
     end
   end
 
@@ -179,6 +197,63 @@ defmodule ImagePipe.Native.PipelineTest do
   # ── exact op-emission per group ──────────────────────────────────────────
 
   describe "op emission per group" do
+    test "parsed effect options lower in fixed stage order without DPR parameter scaling" do
+      state = state_for(32, 24)
+
+      path =
+        "/dpr=2/gradient=1,red,left,0.25,0.75/colorize=1,ff0000,keep-alpha/" <>
+          "saturation=0.5/contrast=1.25/brightness=-20/" <>
+          "duotone=1,112233,ffeecc/monochrome=1,red/bitonal/gray/" <>
+          "pixelate=8/sharpen=1.5/blur=2/src/test"
+
+      {:ok, lexed} = Plug.Test.conn(:get, path) |> Path.extract()
+      assert {:ok, request} = Parser.parse(lexed, [])
+
+      assert Pipeline.operation_names(request) == [
+               :blur,
+               :sharpen,
+               :pixelate,
+               :gray,
+               :bitonal,
+               :monochrome,
+               :duotone,
+               :brightness,
+               :contrast,
+               :saturation,
+               :colorize,
+               :gradient
+             ]
+
+      operations =
+        collect_ops(fn pid -> run(state, request, chain: planning_chain(pid)) end)
+        |> Enum.flat_map(fn {:ops, operations} -> operations end)
+
+      assert [
+               %ExecutableBlur{sigma: 2.0},
+               %ExecutableSharpen{sigma: 1.5},
+               %ExecutablePixelate{size: 8},
+               %ExecutableGray{},
+               %ExecutableBitonal{},
+               %ExecutableMonochrome{intensity: 1.0, color: [255, 0, 0]},
+               %ExecutableDuotone{
+                 intensity: 1.0,
+                 shadow: [17, 34, 51],
+                 highlight: [255, 238, 204]
+               },
+               %ExecutableBrightness{value: -20},
+               %ExecutableContrast{value: 1.25},
+               %ExecutableSaturation{value: 0.5},
+               %ExecutableColorize{opacity: 1.0, color: [255, 0, 0], keep_alpha: true},
+               %ExecutableGradient{
+                 opacity: 1.0,
+                 color: [255, 0, 0],
+                 angle: 90.0,
+                 start: 0.25,
+                 stop: 0.75
+               }
+             ] = operations
+    end
+
     test "plain w=800" do
       state = state_for(1600, 1200)
 

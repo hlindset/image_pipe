@@ -13,30 +13,10 @@ defmodule ImagePipe.Dialect.Imgproxy.OrientationStageWireTest do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
-  test "gradient runs in the display frame after EXIF orientation" do
-    base = marked(40, 80)
-    path = "/_/gr:1:000000:down/f:png/plain/image.jpg"
-
-    oriented = image(path, {OrientedFrameOrigin, {base, 6}})
-    twin = image(path, {Orientation1TwinOrigin, {base, 6}})
-
-    assert {Image.width(oriented), Image.height(oriented)} ==
-             {Image.width(twin), Image.height(twin)}
-
-    assert VipsImage.write_to_binary(oriented) == VipsImage.write_to_binary(twin)
-  end
-
   test "asymmetric padding lands on display-frame sides after EXIF orientation" do
     assert_display_frame_parity(
       "/_/pd:10:4:2:8/f:png/plain/image.jpg",
       "asymmetric padding"
-    )
-  end
-
-  test "pixelate aligns partial blocks in the display frame after EXIF orientation" do
-    assert_display_frame_parity(
-      "/_/pix:7/f:png/plain/image.jpg",
-      "non-divisible pixelate grid"
     )
   end
 

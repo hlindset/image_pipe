@@ -49,18 +49,27 @@ implemented native stages run in this order:
 5. resize from `w`, `h`, `fit`, and `enlarge`, including the automatic result
    crop for cover modes
 6. `blur`
-7. `gray`
-8. `bitonal`
-9. `pad`
-10. `bg`
+7. `sharpen`
+8. `pixelate`
+9. `gray`
+10. `bitonal`
+11. `monochrome`
+12. `duotone`
+13. `brightness`
+14. `contrast`
+15. `saturation`
+16. `colorize`
+17. `gradient`
+18. canvas extension
+19. `pad`
+20. `bg`
 
 `then` starts another group. Each group receives the complete result of the
 previous group, while group options themselves do not carry forward. Decode
 happens once, so only the first group can influence shrink-on-load planning.
 
 The [native API contract](native_api_contract.md#native-semantics)
-defines the fixed ordering and the additional retained stages as the native
-surface grows.
+defines the ordering and parameter semantics.
 
 ## Coordinate frames
 
@@ -106,9 +115,9 @@ the native or imgproxy pipeline hands them to the resolver.
 - `Trim` removes a uniform border using an automatic or explicit background
   and supports horizontal or vertical margin equalization.
 
-Native currently exposes guided crop, region crop, resize, padding,
-background, and trim. Canvas and the broader compatibility parameters remain
-available to the imgproxy pipeline and shared resolver.
+Native exposes guided and region crops, crop ratios, anchor offsets,
+resize, canvas extension and placement, padding, background, and symmetric trim.
+Object and face guides share the displayed crop frame.
 
 ### Orientation
 
@@ -135,9 +144,12 @@ one-to-one executable operation per semantic orientation operation.
 - `Gradient` overlays a transparency-to-color gradient with angle and stop
   positions.
 
-Native currently exposes blur, gray, and bitonal. The imgproxy compatibility
-path retains the broader effect set. Request parsers canonicalize their own
-documented identity values before constructing operations.
+Native exposes all these effects and canonicalizes identity values before
+constructing operations. Sigma and pixelate block size use physical pixels
+without DPR scaling. Pixelate and gradient flush pending orientation so their
+grid and direction use the current display frame. See the
+[native effect vocabulary](native_api_contract.md#pixel-effects) for ranges,
+defaults, color syntax, and alpha behavior.
 
 ### Color values
 
@@ -223,6 +235,9 @@ appear in the transform chain.
 | `/w=500/then/trim=fff/src/images/beach.jpg` | Resize first; trim the smaller intermediate image in group two |
 | `/trim=fff/w=500/src/images/beach.jpg` | Trim first; resize within the same fixed-order group |
 | `/blur=2.5/gray/pad=10/bg=fff/src/images/beach.jpg` | Blur, grayscale, padding, then background composition |
+| `/sharpen=2/pixelate=7/src/images/beach.jpg` | Sharpen before pixelating, without resizing |
+| `/duotone=1,123456,efab89/gradient=0.5,black/src/images/beach.jpg` | Duotone followed by a downward dark gradient |
+| `/contrast=2/then/brightness=30/src/images/beach.jpg` | Use a second group to apply brightness after contrast |
 
 ## Boundary rules
 

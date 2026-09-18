@@ -106,7 +106,8 @@ The native API currently supports EXIF orientation policy, arbitrary rotation,
 resize modes, minimum dimensions, DPR and zoom, guided and explicit-region crops,
 flips, anchors and focal points, anchor offsets, crop-ratio correction,
 symmetric trimming, canvas extension and placement, object and face cropping,
-blur, grayscale, bitonal, padding, background, image format and quality,
+blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness,
+contrast, saturation, colorize, gradients, padding, background, image format and quality,
 BlurHash, debug headers, expiry, presets, and signed URLs. It accepts local
 paths and HTTP(S) source URLs. Invalid requests fail before cache lookup or
 source fetch.
@@ -208,7 +209,8 @@ mise run fiddle      # boots Phoenix (:4000) + Vite (:5173)
 
 Open http://localhost:4000. Native is selected by default; its processing
 endpoint is `/native-image`. The option editor supports native paths and
-`then` groups, with examples for resize, crop, blur, padding, and trim.
+`then` groups, with examples for geometry, object and face crops, pixel effects,
+canvas placement, padding, and trim.
 
 ![Demo fiddle desktop screenshot](docs/assets/demo-fiddle-desktop.png)
 

@@ -22,6 +22,22 @@ defmodule ImagePipe.Native.PresetCompositionTest do
     assert {:ok, ^request} = parse("/w=300/h=100/fit=cover/blur=1/format=webp/q=90", %{})
   end
 
+  test "effect options replace earlier preset values per key" do
+    presets = %{
+      "base" =>
+        "sharpen=1/pixelate=8/brightness=10/contrast=1.5/monochrome=0.5,red/gradient=1,blue,left",
+      "tone" => "brightness=-20/monochrome=1,blue/colorize=0.5,red,keep-alpha"
+    }
+
+    assert {:ok, expected} =
+             parse(
+               "/sharpen=1/pixelate=8/brightness=-20/contrast=2/monochrome=1,blue/colorize=0.5,red,keep-alpha/gradient=1,blue,left",
+               %{}
+             )
+
+    assert {:ok, ^expected} = parse("/preset=base,tone/contrast=2", presets)
+  end
+
   test "an explicit guide replaces a preset's alternative guide" do
     for {preset_guide, explicit_guide} <- [
           {"anchor=top-left", "focus=0.75,0.25"},

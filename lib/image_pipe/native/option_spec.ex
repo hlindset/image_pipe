@@ -93,9 +93,17 @@ defmodule ImagePipe.Native.OptionSpec do
   @preset_name_pattern ~r/\A[A-Za-z0-9._-]+\z/
   @positive_decimal_pattern ~r/\A[0-9]+(?:\.[0-9]+)?\z/
   @unsigned_integer_pattern ~r/\A[0-9]+\z/
+  @signed_integer_pattern ~r/\A-?[0-9]+\z/
   @detect_class_pattern ~r/\A[a-z0-9][a-z0-9_-]*\z/
   @max_vips_axis 2_147_483_647
   @max_detect_weight 1_000_000.0
+  @default_monochrome_color {179, 179, 179}
+  @gradient_directions %{
+    "down" => 0.0,
+    "left" => 90.0,
+    "up" => 180.0,
+    "right" => 270.0
+  }
 
   @doc """
   Every declared probe-subset option, in a stable order matching the
@@ -428,6 +436,123 @@ defmodule ImagePipe.Native.OptionSpec do
         terminal_applicability: :both,
         summary: "Gaussian blur sigma; 0 is the Tier-1 identity point",
         examples: ["blur=2.5"]
+      },
+      %__MODULE__{
+        key: "sharpen",
+        scope: :group,
+        value: &__MODULE__.parse_sharpen/1,
+        stage: 8,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Sharpen sigma; 0 is the identity point",
+        examples: ["sharpen=1.5"]
+      },
+      %__MODULE__{
+        key: "pixelate",
+        scope: :group,
+        value: &__MODULE__.parse_pixelate/1,
+        stage: 9,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Pixelation block size; 1 is the identity point",
+        examples: ["pixelate=8"]
+      },
+      %__MODULE__{
+        key: "monochrome",
+        scope: :group,
+        value: &__MODULE__.parse_monochrome/1,
+        stage: 12,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Monochrome intensity and optional color",
+        examples: ["monochrome=0.5", "monochrome=1,red"]
+      },
+      %__MODULE__{
+        key: "duotone",
+        scope: :group,
+        value: &__MODULE__.parse_duotone/1,
+        stage: 13,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Duotone intensity with optional shadow and highlight colors",
+        examples: ["duotone=0.5", "duotone=1,112233,ffeecc"]
+      },
+      %__MODULE__{
+        key: "brightness",
+        scope: :group,
+        value: &__MODULE__.parse_brightness/1,
+        stage: 14,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Additive brightness adjustment from -255 to 255",
+        examples: ["brightness=-20"]
+      },
+      %__MODULE__{
+        key: "contrast",
+        scope: :group,
+        value: &__MODULE__.parse_contrast/1,
+        stage: 15,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Positive contrast factor; 1 is the identity point",
+        examples: ["contrast=1.25"]
+      },
+      %__MODULE__{
+        key: "saturation",
+        scope: :group,
+        value: &__MODULE__.parse_saturation/1,
+        stage: 16,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Positive saturation factor; 1 is the identity point",
+        examples: ["saturation=0.5"]
+      },
+      %__MODULE__{
+        key: "colorize",
+        scope: :group,
+        value: &__MODULE__.parse_colorize/1,
+        stage: 17,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Color overlay with optional alpha preservation",
+        examples: ["colorize=0.5,red", "colorize=1,ff0000,keep-alpha"]
+      },
+      %__MODULE__{
+        key: "gradient",
+        scope: :group,
+        value: &__MODULE__.parse_gradient/1,
+        stage: 18,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Directional color gradient with unit-space stops",
+        examples: ["gradient=1,red,left,0.25,0.75"]
       },
       %__MODULE__{
         key: "trim",
@@ -934,9 +1059,211 @@ defmodule ImagePipe.Native.OptionSpec do
   @doc false
   @spec parse_blur(String.t()) :: {:ok, float()} | {:error, :invalid_blur}
   def parse_blur(string) do
-    case Value.number(string) do
-      {:ok, n} when is_number(n) and n >= 0 -> {:ok, n * 1.0}
-      _invalid -> {:error, :invalid_blur}
+    case nonnegative_float(string) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, :invalid_blur}
+    end
+  end
+
+  @doc false
+  @spec parse_sharpen(String.t()) :: {:ok, float()} | {:error, :invalid_sharpen}
+  def parse_sharpen(string) do
+    case nonnegative_float(string) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, :invalid_sharpen}
+    end
+  end
+
+  @doc false
+  @spec parse_pixelate(String.t()) :: {:ok, pos_integer()} | {:error, :invalid_pixelate}
+  def parse_pixelate(string) do
+    if Regex.match?(@unsigned_integer_pattern, string) do
+      case String.to_integer(string) do
+        value when value >= 1 -> {:ok, value}
+        _zero -> {:error, :invalid_pixelate}
+      end
+    else
+      {:error, :invalid_pixelate}
+    end
+  end
+
+  @doc false
+  @spec parse_monochrome(String.t()) :: {:ok, map()} | {:error, :invalid_monochrome}
+  def parse_monochrome(string) do
+    result =
+      case String.split(string, ",", trim: false) do
+        [intensity] ->
+          with {:ok, intensity} <- Value.fraction(intensity) do
+            {:ok, %{intensity: intensity, color: @default_monochrome_color}}
+          end
+
+        [intensity, color] ->
+          with {:ok, intensity} <- Value.fraction(intensity),
+               {:ok, color} <- Value.color(color) do
+            {:ok, %{intensity: intensity, color: color}}
+          end
+
+        _invalid_arity ->
+          :error
+      end
+
+    effect_result(result, :invalid_monochrome)
+  end
+
+  @doc false
+  @spec parse_duotone(String.t()) :: {:ok, map()} | {:error, :invalid_duotone}
+  def parse_duotone(string) do
+    result =
+      case String.split(string, ",", trim: false) do
+        [intensity] ->
+          with {:ok, intensity} <- Value.fraction(intensity) do
+            {:ok, %{intensity: intensity, shadow: {0, 0, 0}, highlight: {255, 255, 255}}}
+          end
+
+        [intensity, shadow, highlight] ->
+          with {:ok, intensity} <- Value.fraction(intensity),
+               {:ok, shadow} <- Value.color(shadow),
+               {:ok, highlight} <- Value.color(highlight) do
+            {:ok, %{intensity: intensity, shadow: shadow, highlight: highlight}}
+          end
+
+        _invalid_arity ->
+          :error
+      end
+
+    effect_result(result, :invalid_duotone)
+  end
+
+  @doc false
+  @spec parse_brightness(String.t()) :: {:ok, -255..255} | {:error, :invalid_brightness}
+  def parse_brightness(string) do
+    if Regex.match?(@signed_integer_pattern, string) do
+      case String.to_integer(string) do
+        value when value >= -255 and value <= 255 -> {:ok, value}
+        _out_of_range -> {:error, :invalid_brightness}
+      end
+    else
+      {:error, :invalid_brightness}
+    end
+  end
+
+  @doc false
+  @spec parse_contrast(String.t()) :: {:ok, float()} | {:error, :invalid_contrast}
+  def parse_contrast(string), do: parse_factor(string, :invalid_contrast)
+
+  @doc false
+  @spec parse_saturation(String.t()) :: {:ok, float()} | {:error, :invalid_saturation}
+  def parse_saturation(string), do: parse_factor(string, :invalid_saturation)
+
+  @doc false
+  @spec parse_colorize(String.t()) :: {:ok, map()} | {:error, :invalid_colorize}
+  def parse_colorize(string) do
+    result =
+      case String.split(string, ",", trim: false) do
+        [opacity, color] ->
+          colorize(opacity, color, false)
+
+        [opacity, color, "keep-alpha"] ->
+          colorize(opacity, color, true)
+
+        _invalid_arity_or_alpha_policy ->
+          :error
+      end
+
+    effect_result(result, :invalid_colorize)
+  end
+
+  @doc false
+  @spec parse_gradient(String.t()) :: {:ok, map()} | {:error, :invalid_gradient}
+  def parse_gradient(string) do
+    result =
+      case String.split(string, ",", trim: false) do
+        [opacity, color] ->
+          gradient(opacity, color, "down", "0", "1")
+
+        [opacity, color, direction] ->
+          gradient(opacity, color, direction, "0", "1")
+
+        [opacity, color, direction, start] ->
+          gradient(opacity, color, direction, start, "1")
+
+        [opacity, color, direction, start, stop] ->
+          gradient(opacity, color, direction, start, stop)
+
+        _invalid_arity ->
+          :error
+      end
+
+    effect_result(result, :invalid_gradient)
+  end
+
+  defp nonnegative_float(string) do
+    with {:ok, value} when value >= 0 <- Value.number(string),
+         {:ok, value} <- finite_float(value) do
+      {:ok, value}
+    else
+      _invalid -> :error
+    end
+  end
+
+  defp parse_factor(string, reason) do
+    with {:ok, value} when value > 0 <- Value.number(string),
+         {:ok, value} <- finite_float(value) do
+      {:ok, value}
+    else
+      _invalid -> {:error, reason}
+    end
+  end
+
+  defp finite_float(value) do
+    {:ok, value * 1.0}
+  rescue
+    ArithmeticError -> :error
+  end
+
+  defp effect_result({:ok, effect}, _reason), do: {:ok, effect}
+  defp effect_result(_invalid, reason), do: {:error, reason}
+
+  defp colorize(opacity, color, keep_alpha) do
+    with {:ok, opacity} <- Value.fraction(opacity),
+         {:ok, color} <- Value.color(color) do
+      {:ok, %{opacity: opacity, color: color, keep_alpha: keep_alpha}}
+    end
+  end
+
+  defp gradient(opacity, color, direction, start, stop) do
+    with {:ok, opacity} <- Value.fraction(opacity),
+         {:ok, color} <- Value.color(color),
+         {:ok, angle} <- gradient_direction(direction),
+         {:ok, start} <- Value.fraction(start),
+         {:ok, stop} <- Value.fraction(stop) do
+      {:ok, %{opacity: opacity, color: color, angle: angle, start: start, stop: stop}}
+    end
+  end
+
+  defp gradient_direction(direction) do
+    case Map.fetch(@gradient_directions, direction) do
+      {:ok, angle} -> {:ok, angle}
+      :error -> numeric_gradient_direction(direction)
+    end
+  end
+
+  defp numeric_gradient_direction(direction) do
+    with {:ok, value} <- Value.number(direction),
+         {:ok, value} <- finite_float(value) do
+      {:ok, normalize_angle(value)}
+    else
+      _invalid -> {:error, :invalid_direction}
+    end
+  end
+
+  defp normalize_angle(angle) do
+    normalized = :math.fmod(angle, 360.0)
+
+    cond do
+      normalized == 0.0 -> 0.0
+      normalized < 0.0 -> normalized + 360.0
+      true -> normalized
     end
   end
 

@@ -33,7 +33,9 @@ The native API implements these option keys:
 `orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
 `zoom`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region`, `trim-symmetry`,
 `anchor-offset`, `extend`, `extend-ratio`, `extend-at`, `extend-offset`,
-`anchor`, `focus`, `detect`, `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
+`anchor`, `focus`, `detect`, `blur`, `sharpen`, `pixelate`, `gray`, `bitonal`,
+`monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
+`gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
 `debug`, `expires`, `preset`.
 
 It also implements `then`, `src`, `src64`, and full-length HMAC signing with
@@ -261,12 +263,44 @@ Fresh encryptions of the same source and transform share storage/ETag
 identity. Tests in `.9` cover tampering, rotation, nonce generation,
 signature-before-decryption, no-fetch failures, and identity equivalence.
 
-### Effects, presets, and terminals
+### Pixel effects
 
-Keep existing effect ranges: brightness is an additive adjustment, contrast
-and saturation are factors with 1 as identity. The July proposal's bounded
-percentage scale does not constrain these factor controls. Validate the
-concrete ranges at the URL boundary and keep native no-op canonicalization.
+Effects work with or without geometry, and run after resize in the fixed
+order listed above. Each group starts with its effects disabled. Use `then`
+to change their relative order: `contrast=2/then/brightness=30` adjusts
+brightness after contrast, while `contrast=2/brightness=30` applies
+brightness first.
+
+| Option | Values and defaults | Example |
+| --- | --- | --- |
+| `blur`, `sharpen` | Non-negative sigma; 0 disables the effect | `sharpen=1.5` |
+| `pixelate` | Integer block size at least 1; 1 disables the effect | `pixelate=8` |
+| `gray`, `bitonal` | Bare flag; `=false` disables it | `gray` |
+| `monochrome` | Intensity from 0 to 1, optional color (default `b3b3b3`) | `monochrome=0.8,704214` |
+| `duotone` | Intensity from 0 to 1, optionally both shadow and highlight colors (default black and white) | `duotone=1,123456,efab89` |
+| `brightness` | Integer additive adjustment from -255 to 255; 0 is identity | `brightness=30` |
+| `contrast`, `saturation` | Positive factors; 1 is identity | `contrast=1.5/saturation=0.7` |
+| `colorize` | Opacity from 0 to 1, required color, optional literal `keep-alpha` | `colorize=0.3,red,keep-alpha` |
+| `gradient` | Opacity from 0 to 1, required color, optional direction, start, stop | `gradient=0.8,black,down,0.2,0.9` |
+
+Colors accept bare 3/6-digit hex or CSS names. Positional values are comma
+separated, without empty placeholders. Monochrome and duotone intensity,
+and colorize and gradient opacity, use 0 as identity. Identity values share
+representation identity with the absent effect; all supplied values are
+still validated. Contrast and saturation retain their full positive factor
+range rather than a bounded percentage scale.
+
+Blur/sharpen sigma and pixelate block size are physical effect parameters,
+unaffected by DPR. Pixelate aligns its blocks with the current display axes.
+Gradient direction also uses the current display frame, after resizing:
+`down` (default) is 0°, `left` is 90°, `up` is 180°, and `right` is 270°.
+Signed decimal angles wrap modulo 360. Start and stop are fractions from
+0 to 1, defaulting to 0 and 1; reversing them reverses the ramp, and equal
+values produce a hard step. Gradient preserves source alpha. Colorize
+produces an opaque result unless `keep-alpha` preserves the source alpha;
+zero opacity skips the operation and preserves the source unchanged.
+
+### Presets and terminals
 
 Presets expand before validation and canonicalization. Precedence is default
 preset, named presets in listed order, then explicit URL values. Resolve

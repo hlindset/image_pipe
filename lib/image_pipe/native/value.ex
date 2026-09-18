@@ -9,7 +9,7 @@ defmodule ImagePipe.Native.Value do
   the caller's job.
 
   Range/consumer validation beyond the shape itself (e.g. that a `brightness`
-  number falls within -100..100, or that a `dimension` result is combined
+  number falls within -255..255, or that a `dimension` result is combined
   with a resize consumer) is also the caller's job; this module only knows
   the grammar.
   """
@@ -33,7 +33,12 @@ defmodule ImagePipe.Native.Value do
   @spec number(String.t()) :: {:ok, number()} | {:error, :invalid_number}
   def number(string) when is_binary(string) do
     if Regex.match?(@number_pattern, string) do
-      {:ok, decimal_to_number(string)}
+      try do
+        {:ok, decimal_to_number(string)}
+      rescue
+        ArgumentError -> {:error, :invalid_number}
+        ArithmeticError -> {:error, :invalid_number}
+      end
     else
       {:error, :invalid_number}
     end

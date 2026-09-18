@@ -193,6 +193,16 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     )
   end
 
+  test "duotone streams from a gray input" do
+    assert_sequential_matches_random(
+      [
+        %Gray{},
+        %Duotone{intensity: 0.8, shadow: [0, 0, 0], highlight: [255, 255, 255]}
+      ],
+      File.read!(@beach)
+    )
+  end
+
   test "Rotate op is materializing (known-random; cannot stream)" do
     assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 45})
     assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 90, mirror: true})
@@ -330,6 +340,33 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
     check all(sigma_tenths <- integer(5..40), max_runs: 12) do
       assert_sequential_matches_random([%Blur{sigma: sigma_tenths / 10}], body)
+    end
+  end
+
+  property "duotone streams from gray inputs across dimensions and alpha layouts" do
+    check all(
+            width <- integer(7..64),
+            height <- integer(7..64),
+            alpha? <- boolean(),
+            max_runs: 16
+          ) do
+      {base, marker, bands} =
+        if alpha?,
+          do: {[40, 120, 200, 177], [220, 30, 80, 63], 4},
+          else: {[40, 120, 200], [220, 30, 80], 3}
+
+      body =
+        Image.new!(width, height, color: base, bands: bands)
+        |> Image.Draw.rect!(1, 1, max(1, div(width, 2)), max(1, div(height, 2)), color: marker)
+        |> Image.write!(:memory, suffix: ".png")
+
+      assert_sequential_matches_random(
+        [
+          %Gray{},
+          %Duotone{intensity: 0.8, shadow: [10, 20, 30], highlight: [220, 230, 240]}
+        ],
+        body
+      )
     end
   end
 

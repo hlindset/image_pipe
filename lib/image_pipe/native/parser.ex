@@ -753,6 +753,15 @@ defmodule ImagePipe.Native.Parser do
       resize: resize,
       canvas: assemble_canvas(group_map),
       blur: assemble_blur(Map.get(group_map, "blur")),
+      sharpen: assemble_zero_identity(Map.get(group_map, "sharpen")),
+      pixelate: assemble_one_identity(Map.get(group_map, "pixelate")),
+      monochrome: assemble_intensity_effect(Map.get(group_map, "monochrome")),
+      duotone: assemble_intensity_effect(Map.get(group_map, "duotone")),
+      brightness: assemble_zero_identity(Map.get(group_map, "brightness")),
+      contrast: assemble_one_identity(Map.get(group_map, "contrast")),
+      saturation: assemble_one_identity(Map.get(group_map, "saturation")),
+      colorize: assemble_opacity_effect(Map.get(group_map, "colorize")),
+      gradient: assemble_opacity_effect(Map.get(group_map, "gradient")),
       pad: Map.get(group_map, "pad"),
       bg: assemble_bg(Map.get(group_map, "bg"))
     }
@@ -852,6 +861,22 @@ defmodule ImagePipe.Native.Parser do
   defp assemble_blur(sigma) when sigma == 0.0, do: nil
   defp assemble_blur(sigma), do: sigma
 
+  defp assemble_zero_identity(nil), do: nil
+  defp assemble_zero_identity(value) when value == 0, do: nil
+  defp assemble_zero_identity(value), do: value
+
+  defp assemble_one_identity(nil), do: nil
+  defp assemble_one_identity(value) when value == 1, do: nil
+  defp assemble_one_identity(value), do: value
+
+  defp assemble_intensity_effect(nil), do: nil
+  defp assemble_intensity_effect(%{intensity: intensity}) when intensity == 0, do: nil
+  defp assemble_intensity_effect(effect), do: effect
+
+  defp assemble_opacity_effect(nil), do: nil
+  defp assemble_opacity_effect(%{opacity: opacity}) when opacity == 0, do: nil
+  defp assemble_opacity_effect(effect), do: effect
+
   defp assemble_bg(nil), do: nil
   defp assemble_bg({{r, g, b}, nil}), do: {r, g, b, 1.0}
   defp assemble_bg({{r, g, b}, alpha}), do: {r, g, b, alpha}
@@ -917,6 +942,25 @@ defmodule ImagePipe.Native.Parser do
   def message_for(:invalid_element), do: "invalid value: one or more elements are invalid"
   def message_for(:invalid_anchor), do: "invalid value: expected a named anchor position"
   def message_for(:invalid_blur), do: "invalid value: expected a non-negative number"
+  def message_for(:invalid_sharpen), do: "invalid value: expected a non-negative finite number"
+  def message_for(:invalid_pixelate), do: "invalid value: expected a positive integer"
+
+  def message_for(:invalid_monochrome),
+    do: "invalid value: expected intensity[,color]"
+
+  def message_for(:invalid_duotone),
+    do: "invalid value: expected intensity or intensity,shadow,highlight"
+
+  def message_for(:invalid_brightness), do: "invalid value: expected an integer from -255 to 255"
+  def message_for(:invalid_contrast), do: "invalid value: expected a positive finite factor"
+  def message_for(:invalid_saturation), do: "invalid value: expected a positive finite factor"
+
+  def message_for(:invalid_colorize),
+    do: "invalid value: expected opacity,color[,keep-alpha]"
+
+  def message_for(:invalid_gradient),
+    do: "invalid value: expected opacity,color[,direction,start,stop]"
+
   def message_for(:invalid_rotation), do: "invalid value: expected degrees from 0 to 360"
   def message_for(:invalid_flip), do: "invalid value: expected h, v, or hv"
 

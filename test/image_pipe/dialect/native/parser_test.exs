@@ -330,6 +330,62 @@ defmodule ImagePipe.Native.ParserTest do
       assert {:ok, %Request{groups: [%Group{blur: 3.0}]}} = parse(["blur=3"])
     end
 
+    test "retained effects assemble complete canonical group data" do
+      assert {:ok,
+              %Request{
+                groups: [
+                  %Group{
+                    sharpen: 1.5,
+                    pixelate: 8,
+                    monochrome: %{intensity: 0.5, color: {179, 179, 179}},
+                    duotone: %{
+                      intensity: 1.0,
+                      shadow: {17, 34, 51},
+                      highlight: {255, 238, 204}
+                    },
+                    brightness: -20,
+                    contrast: 1.25,
+                    saturation: 0.75,
+                    colorize: %{opacity: 0.5, color: {255, 0, 0}, keep_alpha: true},
+                    gradient: %{
+                      opacity: 1.0,
+                      color: {0, 0, 255},
+                      angle: 90.0,
+                      start: 0.25,
+                      stop: 0.75
+                    }
+                  }
+                ]
+              }} =
+               parse([
+                 "sharpen=1.5",
+                 "pixelate=8",
+                 "monochrome=0.5",
+                 "duotone=1,112233,ffeecc",
+                 "brightness=-20",
+                 "contrast=1.25",
+                 "saturation=0.75",
+                 "colorize=0.5,red,keep-alpha",
+                 "gradient=1,blue,left,0.25,0.75"
+               ])
+    end
+
+    test "effect identity values canonicalize away" do
+      identities = [
+        "sharpen=0",
+        "pixelate=1",
+        "monochrome=0,red",
+        "duotone=0,black,white",
+        "brightness=0",
+        "contrast=1",
+        "saturation=1.0",
+        "colorize=0,red,keep-alpha",
+        "gradient=0,blue,left,0.25,0.75"
+      ]
+
+      assert parse(identities) === parse([])
+    end
+
     test "trim=auto" do
       assert {:ok, %Request{groups: [%Group{trim: :auto}]}} = parse(["trim=auto"])
     end
@@ -450,6 +506,23 @@ defmodule ImagePipe.Native.ParserTest do
                  parse(["crop=600,400", "detect=#{value}"])
 
         assert Enum.any?(diagnostics, &(&1.reason == :invalid_detect))
+      end
+    end
+
+    test "malformed retained effects fail at the request boundary" do
+      for {segment, reason} <- [
+            {"sharpen=-1", :invalid_sharpen},
+            {"pixelate=0", :invalid_pixelate},
+            {"monochrome=0.5,red,blue", :invalid_monochrome},
+            {"duotone=0.5,black", :invalid_duotone},
+            {"brightness=1.5", :invalid_brightness},
+            {"contrast=0", :invalid_contrast},
+            {"saturation=-1", :invalid_saturation},
+            {"colorize=0.5", :invalid_colorize},
+            {"gradient=1,red,sideways", :invalid_gradient}
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse([segment])
+        assert Enum.any?(diagnostics, &(&1.reason == reason))
       end
     end
 

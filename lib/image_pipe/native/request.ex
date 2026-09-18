@@ -83,6 +83,15 @@ defmodule ImagePipe.Native.Request.Group do
             resize: nil,
             canvas: nil,
             blur: nil,
+            sharpen: nil,
+            pixelate: nil,
+            monochrome: nil,
+            duotone: nil,
+            brightness: nil,
+            contrast: nil,
+            saturation: nil,
+            colorize: nil,
+            gradient: nil,
             pad: nil,
             bg: nil
 
@@ -109,6 +118,23 @@ defmodule ImagePipe.Native.Request.Group do
                 offset: {length(), length()}
               },
           blur: nil | float(),
+          sharpen: nil | float(),
+          pixelate: nil | pos_integer(),
+          monochrome: nil | %{intensity: float(), color: color()},
+          duotone: nil | %{intensity: float(), shadow: color(), highlight: color()},
+          brightness: nil | integer(),
+          contrast: nil | float(),
+          saturation: nil | float(),
+          colorize: nil | %{opacity: float(), color: color(), keep_alpha: boolean()},
+          gradient:
+            nil
+            | %{
+                opacity: float(),
+                color: color(),
+                angle: float(),
+                start: float(),
+                stop: float()
+              },
           pad: nil | {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()},
           bg: nil | {0..255, 0..255, 0..255, float()}
         }
