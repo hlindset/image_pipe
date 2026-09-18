@@ -6,27 +6,17 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
-  alias ImagePipe.Dialect.IIIF
-  alias ImagePipe.Dialect.IIIF.Resolver.Static, as: StaticResolver
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Operation.CropGuided
-  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
-  alias ImagePipe.Test.AutomaticIIIFDialect
-  alias ImagePipe.Test.GuidedIIIFDialect
 
-  @image_path "/img/full/max/0/default.jpg"
+  @image_path "/format=jpeg/src/beach.jpg"
+  @automatic_path "/src/beach.jpg"
 
   # A quoted, non-empty HTTP strong validator. Deliberately shape-only: the
   # digest scheme is internal, and every value-level property this suite cares
   # about (stability, revalidation, separation) is asserted as a round-trip.
   @strong_validator ~r/^"[^"\s]+"$/
-
-  defp iiif_resolver do
-    {StaticResolver, map: %{"img" => %SourcePath{segments: ["beach.jpg"]}}}
-  end
 
   defmodule StableSource do
     @behaviour ImagePipe.Source
@@ -152,33 +142,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       do: StableSource.fetch(resolved, opts, runtime_opts)
   end
 
-  # A declarative host dialect whose `validate_config!/1` validates the shared
-  # keys only — the shape a dialect with no HTTP-cache option of its own lands
-  # on, which leaves `:http_cache` out of the config the policy reads.
-  defmodule NonDelegatingDialect do
-    use ImagePipe.Dialect.Declarative
-
-    alias ImagePipe.Dialect.SharedConfig
-
-    @impl ImagePipe.Dialect
-    def validate_config!(opts),
-      do: SharedConfig.validate_runtime!(Keyword.take(opts, SharedConfig.keys()))
-
-    @impl ImagePipe.Dialect.Declarative
-    def parse_plan(_conn, _config) do
-      {:ok,
-       %Plan{
-         source: %SourcePath{segments: ["beach.jpg"]},
-         pipelines: [%Plan.Pipeline{operations: []}],
-         output: %Plan.Output{mode: {:explicit, :jpeg}}
-       }}
-    end
-
-    @impl ImagePipe.Dialect
-    def render_error(conn, reason, _config),
-      do: Plug.Conn.send_resp(conn, 500, inspect(reason))
-  end
-
   # `identity` is a detector-adapter option, not a mount option, so the dialect
   # config rejects it as unknown. It is spliced onto the validated config after
   # `ImagePipe.Plug.init/1`, where the detector reads it.
@@ -195,8 +158,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     init(
       Keyword.merge(
         [
-          dialect: IIIF,
-          resolver: iiif_resolver(),
           sources: [path: {StableSource, test_pid: self()}],
           cache: {CacheProbe, test_pid: self()},
           http_cache: [mode: :enabled]
@@ -217,38 +178,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     Enum.reduce(headers, conn, fn {name, value}, acc -> put_req_header(acc, name, value) end)
   end
 
-  test "the guided IIIF test dialect rewrites one real crop to the selected product-neutral guide" do
-    opts = GuidedIIIFDialect.validate_config!(resolver: iiif_resolver())
-
-    focal_request = conn(:get, "/img/square/max/0/default.jpg?guide=focal")
-    face_request = conn(:get, "/img/square/max/0/default.jpg?guide=face_assist")
-
-    assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = baseline | _]}]}} =
-             IIIF.parse_plan(focal_request, opts)
-
-    assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = focal | _]}]}} =
-             GuidedIIIFDialect.parse_plan(focal_request, opts)
-
-    assert focal == %CropGuided{
-             baseline
-             | guide: {:focal, {:ratio, 3, 10}, {:ratio, 7, 10}}
-           }
-
-    assert {:ok, %Plan{pipelines: [%{operations: [%CropGuided{} = face | _]}]}} =
-             GuidedIIIFDialect.parse_plan(face_request, opts)
-
-    assert face == %CropGuided{baseline | guide: {:smart, :face_assist}}
-  end
-
-  test "the guided IIIF test dialect delegates invalid input unchanged" do
-    opts = GuidedIIIFDialect.validate_config!(resolver: iiif_resolver())
-    request = conn(:get, "/img/full/bad/0/default.jpg?guide=focal")
-
-    assert GuidedIIIFDialect.parse_plan(request, opts) == IIIF.parse_plan(request, opts)
-  end
-
   setup do
-    [opts: mount(), automatic_opts: mount(dialect: AutomaticIIIFDialect)]
+    [opts: mount()]
   end
 
   test "stable public route emits cache-control and a stable etag", %{opts: opts} do
@@ -291,7 +222,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     get = ImagePipe.Plug.call(conn(:get, @image_path), opts)
     flush_messages()
 
-    head = ImagePipe.Plug.call(conn(:head, "/img/full/max/0/default.jpg"), opts)
+    head = ImagePipe.Plug.call(conn(:head, @image_path), opts)
 
     assert head.status == 200
     assert get_resp_header(head, "etag") != []
@@ -321,12 +252,9 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   test "configured storage_inputs header names enter vary, sorted, ahead of Accept" do
     opts =
-      mount(
-        dialect: AutomaticIIIFDialect,
-        storage_inputs: [{:header, "X-Tenant"}, {:cookie, "session"}, {:header, "x-region"}]
-      )
+      mount(storage_inputs: [{:header, "X-Tenant"}, {:cookie, "session"}, {:header, "x-region"}])
 
-    conn = get(@image_path, opts, [{"x-tenant", "a"}, {"x-region", "eu"}])
+    conn = get(@automatic_path, opts, [{"x-tenant", "a"}, {"x-region", "eu"}])
 
     assert conn.status == 200
     # Header names normalize to lowercase and sort deterministically, so neither
@@ -346,37 +274,13 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert get_resp_header(conn, "vary") == ["x-tenant"]
   end
 
-  # Every shipped source adapter defaults to `http_cache: :inherit`, so the
-  # mount config is what the policy consults — and a host dialect's
-  # `validate_config!/1` return value is a real boundary, not a struct this
-  # repo built. A missing key means the mount never opted in, which must serve
-  # as `:disabled` rather than failing the request.
-  test "a dialect that skips the declarative config delegation serves without generated cache headers" do
-    opts =
-      init(
-        dialect: NonDelegatingDialect,
-        sources: [path: {InheritingSource, test_pid: self()}],
-        cache: {CacheProbe, test_pid: self()}
-      )
-
-    conn = ImagePipe.Plug.call(conn(:get, "/beach.jpg"), opts)
-
-    assert conn.status == 200
-    assert get_resp_header(conn, "etag") == []
-    refute get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
-  end
-
-  # A render terminal negotiates its own content type against Accept, on top of
-  # the representation's Vary. The storage partition is what decides WHICH
-  # info.json a shared cache may serve, so the Accept token has to join the
-  # configured header names rather than displace them.
-  test "a render terminal varies by Accept alongside the configured storage_inputs headers" do
+  test "a BlurHash terminal varies by configured storage_inputs headers" do
     opts = mount(storage_inputs: [{:header, "x-tenant"}])
 
-    conn = get("/img/info.json", opts, [{"x-tenant", "a"}])
+    conn = get("/output=blurhash/src/beach.jpg", opts, [{"x-tenant", "a"}])
 
     assert conn.status == 200
-    assert get_resp_header(conn, "vary") == ["x-tenant, Accept"]
+    assert get_resp_header(conn, "vary") == ["x-tenant"]
   end
 
   # Delta 14 of the Phase C plan asked whether an automatic output plan can lose
@@ -393,9 +297,9 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
           [auto_avif: false, auto_webp: false, auto_jpeg_xl: false],
           [output_capabilities: %{avif: false, webp: false, jpeg_xl: false}]
         ] do
-      opts = mount([dialect: AutomaticIIIFDialect] ++ extra)
+      opts = mount(extra)
 
-      conn = get(@image_path, opts, [{"accept", "image/avif,image/webp,*/*"}])
+      conn = get(@automatic_path, opts, [{"accept", "image/avif,image/webp,*/*"}])
 
       assert conn.status == 200
 
@@ -412,10 +316,10 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     end
   end
 
-  test "existing vary is merged in the final response", %{automatic_opts: opts} do
+  test "existing vary is merged in the final response", %{opts: opts} do
     conn =
       :get
-      |> conn(@image_path)
+      |> conn(@automatic_path)
       |> put_req_header("accept", "image/webp")
       |> put_resp_header("vary", "Accept-Encoding")
       |> ImagePipe.Plug.call(opts)
@@ -667,15 +571,18 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "detector identity change moves the generated ETag end-to-end (#181 regression)", _ctx do
     etag_for = fn identity ->
       opts =
-        mount(
-          dialect: GuidedIIIFDialect,
+        init(
+          dialect: ImagePipe.Dialect.Imgproxy,
+          smart_crop_face_detection: true,
           detector: ImagePipe.Test.FakeDetector,
+          sources: [path: {StableSource, test_pid: self()}],
+          cache: {CacheProbe, test_pid: self()},
           identity: identity
         )
 
       conn =
         ImagePipe.Plug.call(
-          conn(:get, "/img/square/50,50/0/default.jpg?guide=face_assist"),
+          conn(:get, "/_/rs:fill:50:50/g:sm/f:jpeg/plain/beach.jpg"),
           opts
         )
 
@@ -688,7 +595,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "commit_sink raise still delivers the complete body, byte-identical to a clean cache (#183)" do
-    url = "/img/full/50,50/0/default.jpg"
+    url = "/w=50/h=50/fit=stretch/format=jpeg/src/beach.jpg"
 
     clean =
       ImagePipe.Plug.call(
@@ -714,8 +621,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   # end-to-end — a missing clause 500s here instead of staying green. Focal needs
   # no detector, so the 200 body path executes too.
   test "guide-bearing focal gravity emits an etag on the strong-identity path" do
-    opts = mount(dialect: GuidedIIIFDialect)
-    url = "/img/square/200,100/0/default.jpg?guide=focal"
+    opts = mount()
+    url = "/crop=100,100/focus=0.3,0.7/w=200/h=100/fit=stretch/format=jpeg/src/beach.jpg"
 
     conn = ImagePipe.Plug.call(conn(:get, url), opts)
 
