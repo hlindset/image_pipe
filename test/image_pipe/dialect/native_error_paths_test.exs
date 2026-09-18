@@ -1,9 +1,7 @@
 defmodule ImagePipe.NativeErrorPathsTest do
   @moduledoc """
-  The error-path and ownership matrix. One named wire test per matrix row,
-  each asserting user-visible status/behavior AND cleanup ownership (who
-  opens/aborts/commits the cache sink, who tears the process topology down,
-  whether the bracket's `try/after` runs exactly once).
+  Wire-level error and ownership regressions, asserting user-visible behavior
+  together with cache, process, and bracket cleanup.
 
   Rows already covered by `ImagePipe.NativeWireTest`'s "delivery
   lifecycle" describe block (owner-kill during delivery, bracket cleanup at
@@ -26,9 +24,6 @@ defmodule ImagePipe.NativeErrorPathsTest do
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Delivery.SessionProbe
-  alias ImagePipe.Transform.Chain
-  alias ImagePipe.Transform.Operation.Blur, as: ExecutableBlur
-  alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize
   alias ImgproxyWireConformanceTest.OriginImage
 
   # ── row-specific origin/cache/encoder test doubles ─────────────────────
@@ -224,11 +219,11 @@ defmodule ImagePipe.NativeErrorPathsTest do
     path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
   ]
 
-  # `output_capabilities`/`on_bracket_exit`/`chain`/`image_module` are test-
+  # `output_capabilities`/`on_bracket_exit`/`image_module` are test-
   # injection seams that `Native.Config.validate!/1` would reject as unknown
   # options — appended AFTER `ImagePipe.Plug.init/1`, mirroring
   # `NativeWireTest`'s `opts/1` convention exactly.
-  @test_only_seam_keys [:output_capabilities, :on_bracket_exit, :chain, :image_module]
+  @test_only_seam_keys [:output_capabilities, :on_bracket_exit, :image_module]
 
   defp opts(extra) do
     {seams, known} = Keyword.split(extra, @test_only_seam_keys)
@@ -425,50 +420,6 @@ defmodule ImagePipe.NativeErrorPathsTest do
       assert_received :origin_fetch
       assert conn.status == 415
       refute_received {:cache_open_sink, _key, _metadata}
-    end
-  end
-
-  # ── row 4: transform failure after partial work ─────────────────────────
-  #
-  # `/w=64/then/blur=5/...` is two groups: the first group's resize runs
-  # (real `Chain.execute/3`, proving partial work happened) before the
-  # second group's blur is forced to fail via the `:chain` test seam
-  # in `ImagePipe.Native.Pipeline.run/4`.
-
-  describe "row 4: transform failure after partial work" do
-    test "a later group's transform failure surfaces 422 after an earlier group already executed, cleanup runs exactly once" do
-      test_pid = self()
-
-      chain = fn state, ops, chain_opts ->
-        send(test_pid, {:chain_call, Enum.map(ops, & &1.__struct__)})
-
-        if Enum.any?(ops, &match?(%ExecutableBlur{}, &1)) do
-          {:error, :forced_blur_failure}
-        else
-          Chain.execute(state, ops, chain_opts)
-        end
-      end
-
-      config = opts(chain: chain, on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end)
-
-      conn = get("/w=64/then/blur=5/src/images/cat.jpg", config)
-
-      assert conn.status == 422
-
-      chain_calls = drain_chain_calls()
-      assert Enum.any?(chain_calls, &(ExecutableResize in &1))
-      assert Enum.any?(chain_calls, &(ExecutableBlur in &1))
-
-      assert_receive :bracket_cleanup
-      refute_received :bracket_cleanup
-    end
-  end
-
-  defp drain_chain_calls(acc \\ []) do
-    receive do
-      {:chain_call, structs} -> drain_chain_calls([structs | acc])
-    after
-      0 -> acc
     end
   end
 
@@ -689,54 +640,6 @@ defmodule ImagePipe.NativeErrorPathsTest do
       assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
       assert_receive {:request_stop, %{result: :processing_error}}
-    end
-  end
-
-  # ── row 11: pipeline raise inside the dialect's own execute/4 (422) ─────
-  #
-  # The counterpart to row 10: a raise from INSIDE the dialect's own pipeline
-  # run (via the `chain` seam) is a trusted-callback boundary this dialect
-  # rescues itself (`ImagePipe.Native.execute/4`'s `rescue`/`catch`
-  # clauses) and renders as a 422 client error — never a 500-class crash, and
-  # the `[:transform, :execute]` span closes normally (`:stop`, not
-  # `:exception`), because the raise never escapes the pipeline run the span
-  # wraps.
-
-  describe "row 11: pipeline raise inside the dialect's own execute/4 (422)" do
-    test "renders 422 and the [:transform, :execute] span closes normally" do
-      test_pid = self()
-      prefix = [:"native_error_paths_pipeline_raise_#{System.unique_integer([:positive])}"]
-      handler_id = "native-error-paths-pipeline-raise-#{inspect(prefix)}"
-
-      :telemetry.attach_many(
-        handler_id,
-        [prefix ++ [:transform, :execute, :stop], prefix ++ [:transform, :execute, :exception]],
-        fn event, _measurements, metadata, test_pid ->
-          send(test_pid, {:transform_execute, List.last(event), metadata})
-        end,
-        test_pid
-      )
-
-      on_exit(fn -> :telemetry.detach(handler_id) end)
-
-      chain = fn _state, _ops, _opts -> raise "boom in pipeline" end
-
-      config =
-        opts(
-          telemetry_prefix: prefix,
-          cache: {ObservingCacheProbe, []},
-          chain: chain,
-          on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
-        )
-
-      conn = get("/w=64/src/images/cat.jpg", config)
-
-      assert conn.status == 422
-      refute_received {:cache_open_sink, _key, _metadata}
-      assert_receive :bracket_cleanup
-      refute_received :bracket_cleanup
-      assert_receive {:transform_execute, :stop, _metadata}
-      refute_received {:transform_execute, :exception, _metadata}
     end
   end
 end

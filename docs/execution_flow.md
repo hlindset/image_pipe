@@ -27,23 +27,23 @@ headers and delivery.
 
 ## Native request and execution
 
-`ImagePipe.Native.Parser` produces concrete native request data. Presets expand
+`ImagePipe.Native.Parser` produces `ImagePipe.Plan.Request` data. Presets expand
 before validation, and `then` separates explicitly ordered groups. Option order
 inside a group does not affect processing order. The
 [native API contract](native_api_contract.md) defines stages, coordinate frames,
 and the capability inventory.
 
-`ImagePipe.Native.Pipeline.decode_request/2` plans shrink-on-load from the first
+`ImagePipe.Transform.Executor.decode_request/2` plans shrink-on-load from the first
 group. Decode opens sequentially and supplies both image state and source
 geometry. Only operations that need arbitrary pixel access materialize the
 image, through `ImagePipe.Transform.Materializer`.
 
-`ImagePipe.Native.Pipeline.run/4` imports input color profiles, executes groups,
+`ImagePipe.Transform.Executor.execute/3` imports input color profiles, executes groups,
 flushes pending orientation, and stamps color state for the encoder. A group
 applies rotation and flip, flushes pending orientation before trim, measures
 the trimmed image, then resolves crop lengths in the resulting display frame.
 Percentage lengths remain in effective source pixels
-until lowering compensates for decode shrink.
+until geometry resolution compensates for decode shrink.
 
 Each group receives the preceding group's complete result. `orient=auto` applies
 EXIF once; `orient=none` keeps stored pixels as the initial frame.
@@ -52,10 +52,10 @@ the same pixels as eager execution.
 
 ## Geometry and operations
 
-The current native and imgproxy pipelines use semantic `Plan.Operation` values
-and the shared `Transform.NeutralResolver`. The resolver produces executable
-operations plus geometry updates. Source-dependent steps such as trim and
-cover resizing measure the resulting image and continue from those dimensions.
+The native executor reads validated group fields and constructs concrete
+transform operations. Source-dependent steps such as trim and cover resizing
+measure the resulting image before resolving the next stage. Runtime geometry,
+orientation, and decode scaling live in `Transform.State`.
 
 `ImagePipe.Transform.Chain` executes concrete operation structs. Each operation
 implements the transform behaviour; required materialization occurs immediately
@@ -73,7 +73,7 @@ encoding. Operation span durations measure lazy pipeline construction;
 `ImagePipe.Response.Sender` sends the prepared response and stops production
 when delivery is cancelled. Failed or incomplete streams do not enter cache.
 
-Native BlurHash and imgproxy info responses use complete-body terminals.
+Native BlurHash and info responses use complete-body terminals.
 Debug headers are request presentation: the mount must permit them, and the
 request must opt in. They do not change image cache identity or the ETag.
 

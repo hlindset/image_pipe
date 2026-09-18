@@ -81,14 +81,8 @@ defmodule ImagePipe.Native.Errors do
     |> send_resp(status, message)
   end
 
-  # ImagePipe.Native.Pipeline.run/4 wraps every
-  # ImagePipe.Transform.Chain.execute/3 failure as `{:transform, inner}`
-  # (`pipeline.ex`'s `run_chain/3`); `inner` is usually `{:transform_error,
-  # reason}` (an operation's own validation/runtime failure) but can also be
-  # `{:materialize_error, reason}` (a decode-time random-access failure, e.g.
-  # during a materializing trim) — per AGENTS.md, materialization failures
-  # are decode failures and must surface as `{:decode, _}` (415), the same
-  # taxonomy `ImagePipe.Decode.with_image/4` itself produces.
+  # Random-access materialization failures are decode failures (415), including
+  # those returned while executing an operation such as trim.
   def send(%Plug.Conn{} = conn, {:transform, {:materialize_error, reason}}, config) do
     {status, message} = ErrorStatus.resolve_status({:decode, reason}, config)
 

@@ -4,14 +4,13 @@ defmodule ImagePipe.Native.PipelinePixelTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native
   alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Request.Group
-  alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.OrientedFrameOrigin
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
 
@@ -94,11 +93,15 @@ defmodule ImagePipe.Native.PipelinePixelTest do
     resolved
   end
 
-  defp req(groups, output \\ %Output{}) do
-    %Request{groups: groups, output: output, source: "test"}
-  end
+  defp request(options) do
+    config =
+      Native.validate_config!(sources: [path: {RootHTTPAdapter, root_url: "http://origin.test"}])
 
-  defp group(fields), do: struct!(Group, fields)
+    {{:ok, request}, _metadata} =
+      Native.parse(Plug.Test.conn(:get, "/#{options}/src/test"), config)
+
+    request
+  end
 
   defp run_native(origin, %Request{} = request, extra \\ []) do
     opts = source_opts(origin, extra)
@@ -106,8 +109,8 @@ defmodule ImagePipe.Native.PipelinePixelTest do
     Decode.with_image(
       resolved(opts),
       opts,
-      &Pipeline.decode_request(request, &1),
-      fn state, geometry -> Pipeline.run(state, geometry, request, opts) end
+      &Executor.decode_request(request, &1),
+      fn state, _geometry -> Executor.execute(state, request, opts) end
     )
   end
 
@@ -115,100 +118,35 @@ defmodule ImagePipe.Native.PipelinePixelTest do
 
   describe "output dimensions per fit mode (1600x1200 landscape source, 300x400 portrait box)" do
     test "contain: scales to fit within the box, preserving aspect" do
-      request =
-        req([
-          group(%{
-            resize: %{
-              w: 300,
-              h: 400,
-              fit: :contain,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            }
-          })
-        ])
+      request = request("w=300/h=400/fit=contain")
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 225}
     end
 
     test "cover: fills the box exactly, cropping overflow" do
-      request =
-        req([
-          group(%{
-            resize: %{
-              w: 300,
-              h: 400,
-              fit: :cover,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            }
-          })
-        ])
+      request = request("w=300/h=400/fit=cover")
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 400}
     end
 
     test "cover-down: behaves like cover when the source is larger than the box" do
-      request =
-        req([
-          group(%{
-            resize: %{
-              w: 300,
-              h: 400,
-              fit: :cover_down,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            }
-          })
-        ])
+      request = request("w=300/h=400/fit=cover-down")
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 400}
     end
 
     test "stretch: forces the exact box regardless of aspect" do
-      request =
-        req([
-          group(%{
-            resize: %{
-              w: 300,
-              h: 400,
-              fit: :stretch,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            }
-          })
-        ])
+      request = request("w=300/h=400/fit=stretch")
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 400}
     end
 
     test "auto: opposite orientation buckets (landscape source, portrait box) resolve to fit" do
-      request =
-        req([
-          group(%{
-            resize: %{
-              w: 300,
-              h: 400,
-              fit: :auto,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            }
-          })
-        ])
+      request = request("w=300/h=400/fit=auto")
 
       assert {:ok, %State{image: image}} = run_native(LandscapeOrigin, request)
       assert {Image.width(image), Image.height(image)} == {300, 225}
@@ -218,20 +156,7 @@ defmodule ImagePipe.Native.PipelinePixelTest do
   # ── cover result-crop exactness at ±1-prone sizes ─────────────────────────
 
   test "cover result-crop lands on the exact requested box on a non-round source" do
-    request =
-      req([
-        group(%{
-          resize: %{
-            w: 333,
-            h: 222,
-            fit: :cover,
-            enlarge: false,
-            zoom: {1.0, 1.0},
-            min_w: nil,
-            min_h: nil
-          }
-        })
-      ])
+    request = request("w=333/h=222/fit=cover")
 
     assert {:ok, %State{image: image}} = run_native(OddOrigin, request)
     assert {Image.width(image), Image.height(image)} == {333, 222}
@@ -240,21 +165,7 @@ defmodule ImagePipe.Native.PipelinePixelTest do
   # ── the cheap-trim contract: trim in group 2 runs on group 1's output ────
 
   test "w=400/then/trim=fff trims the POST-resize image, not the source" do
-    request =
-      req([
-        group(%{
-          resize: %{
-            w: 400,
-            h: :auto,
-            fit: :contain,
-            enlarge: false,
-            zoom: {1.0, 1.0},
-            min_w: nil,
-            min_h: nil
-          }
-        }),
-        group(%{trim: {{255, 255, 255}, 0}})
-      ])
+    request = request("w=400/then/trim=fff,0")
 
     assert {:ok, %State{image: image}} = run_native(TrimSourceOrigin, request)
     width = Image.width(image)
@@ -277,13 +188,7 @@ defmodule ImagePipe.Native.PipelinePixelTest do
   # out transposed and mis-sized (Task 14 review Critical).
 
   test "guided pct crop resolves against display dims under a quarter-turn EXIF source" do
-    request =
-      req([
-        group(%{
-          crop: {{:pct, 50}, {:pct, 50}},
-          guide: {:anchor, :center}
-        })
-      ])
+    request = request("crop=50pct,50pct/anchor=center")
 
     assert {:ok, %State{image: image}} = run_native(exif_six_landscape_origin(), request)
     # 50% of the 1200x1600 DISPLAY frame => 600x800. Pre-fix, this resolved
@@ -293,10 +198,7 @@ defmodule ImagePipe.Native.PipelinePixelTest do
   end
 
   test "pct region resolves against display dims under a quarter-turn EXIF source" do
-    request =
-      req([
-        group(%{region: {{:pct, 0}, {:pct, 0}, {:pct, 25}, {:pct, 50}}})
-      ])
+    request = request("region=0pct,0pct,25pct,50pct")
 
     assert {:ok, %State{image: image}} = run_native(exif_six_landscape_origin(), request)
 
@@ -309,27 +211,14 @@ defmodule ImagePipe.Native.PipelinePixelTest do
   end
 
   test "px crop stays correct (display-frame pixels pass through unchanged) under the same EXIF-6 source" do
-    request =
-      req([
-        group(%{
-          crop: {{:px, 600}, {:px, 800}},
-          guide: {:anchor, :center}
-        })
-      ])
+    request = request("crop=600,800/anchor=center")
 
     assert {:ok, %State{image: image}} = run_native(exif_six_landscape_origin(), request)
     assert {Image.width(image), Image.height(image)} == {600, 800}
   end
 
   test "a pct crop resolves against the trimmed display dimensions" do
-    request =
-      req([
-        group(%{
-          trim: {{255, 255, 255}, 0},
-          crop: {{:pct, 50}, {:pct, 50}},
-          guide: {:anchor, :center}
-        })
-      ])
+    request = request("trim=fff,0/crop=50pct,50pct/anchor=center")
 
     assert {:ok, %State{image: image}} = run_native(TrimSourceOrigin, request)
 
@@ -351,22 +240,9 @@ defmodule ImagePipe.Native.PipelinePixelTest do
     end
 
     test "a plain resize sets resize_target, leaving an :auto axis untargeted" do
-      request =
-        req([
-          group(%{
-            resize: %{
-              w: 400,
-              h: :auto,
-              fit: :contain,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            }
-          })
-        ])
+      request = request("w=400")
 
-      decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
+      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
 
       assert decode_request.resize_target == {400, nil}
       assert decode_request.crop_extent == nil
@@ -375,63 +251,34 @@ defmodule ImagePipe.Native.PipelinePixelTest do
     end
 
     test "a crop before the resize sets crop_extent from the FIRST group's crop" do
-      request =
-        req([
-          group(%{
-            crop: {{:px, 600}, {:px, 400}},
-            guide: {:anchor, :center},
-            resize: %{
-              w: 300,
-              h: :auto,
-              fit: :contain,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            }
-          })
-        ])
+      request = request("crop=600,400/anchor=center/w=300")
 
-      decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
+      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
 
       assert decode_request.resize_target == {300, nil}
       assert decode_request.crop_extent == {600, 400}
     end
 
     test "a trim-only first group sets trim?: true and no resize_target" do
-      request = req([group(%{trim: :auto})])
-      decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
+      request = request("trim=auto")
+      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
 
       assert decode_request.trim? == true
       assert decode_request.resize_target == nil
     end
 
     test "a trim in a LATER group does not set trim? (only the first group governs)" do
-      request =
-        req([
-          group(%{
-            resize: %{
-              w: 400,
-              h: :auto,
-              fit: :contain,
-              enlarge: false,
-              zoom: {1.0, 1.0},
-              min_w: nil,
-              min_h: nil
-            }
-          }),
-          group(%{trim: :auto})
-        ])
+      request = request("w=400/then/trim=auto")
 
-      decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
+      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
 
       assert decode_request.trim? == false
       assert decode_request.resize_target == {400, nil}
     end
 
     test "output=blurhash sets the terminal reduction for a single-group request" do
-      request = req([group(%{})], %Output{terminal: :blurhash})
-      decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
+      request = request("output=blurhash")
+      decode_request = Executor.decode_request(request, geometry({1600, 1200}))
 
       assert decode_request.terminal_reduction == {32, 32}
     end

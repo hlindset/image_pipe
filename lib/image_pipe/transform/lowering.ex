@@ -319,17 +319,8 @@ defmodule ImagePipe.Transform.Lowering do
 
   defp scaled_padding_side({:px, value}, scale), do: round_half_to_even(value * scale)
 
-  defp round_half_to_even(value) do
-    floor = Float.floor(value)
-    fraction = value - floor
-
-    cond do
-      fraction < 0.5 -> trunc(floor)
-      fraction > 0.5 -> trunc(floor) + 1
-      rem(trunc(floor), 2) == 0 -> trunc(floor)
-      true -> trunc(floor) + 1
-    end
-  end
+  defp round_half_to_even(value),
+    do: ImagePipe.Transform.Executor.Geometry.round_half_to_even(value)
 
   def tagged_executable_gravity(:center), do: {:anchor, :center, :center}
   def tagged_executable_gravity(:top_left), do: {:anchor, :left, :top}

@@ -622,6 +622,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports_include(transform, [
+      ImagePipe.Transform.Executor,
       ImagePipe.Transform.State,
       ImagePipe.Transform.Chain,
       ImagePipe.Transform.DecodePlanner,

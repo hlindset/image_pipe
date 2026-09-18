@@ -18,30 +18,21 @@ defmodule ImagePipe.Transform.State do
     residual resize must size against, set by decode when shrink-on-load has reduced
     the decoded image; `nil` otherwise. It is exact (not reconstructed from the shrunk
     dims), so the residual resize lands on the same target as a full-resolution
-    decode. It stays in the storage frame — EXIF/user orientation is carried as a
-    pending rotation on `pending_orientation` and flushed after the resize, so no
-    pre-resize op swaps these dimensions. A preceding crop or quarter-turn rotate no
-    longer declines shrink-on-load (#151); the resize target is expressed against the
-    cropped/displayed axes instead (see `ImagePipe.Transform.DecodePlanner`).
-
-    During pipeline execution the field carries a second meaning: before each
-    operation the pipeline overlays the resolver-advanced
-    `ImagePipe.Transform.SourceShape` onto the state, writing the shape's current
-    effective dims here — so every `effective_source_dims/1` read resolves against
-    the shape-tracked frame (value-equal to the live image dims whenever no shrink
-    is outstanding). At the pipeline boundary the driver restores the decode
-    meaning: the stored original extent iff shrink-on-load survived unconsumed,
-    `nil` otherwise — so a stale frame never leaks into a later pipeline.
+    decode. Pending orientation describes how those axes map to the display
+    frame. A physical quarter-turn flush swaps the surviving extent and shrink
+    axes. A resize consumes the source extent; crop, trim, arbitrary rotation,
+    canvas, and padding establish geometry from their resulting image. The
+    executor clears the source extent and decode scale at those boundaries.
   - `decode_shrink`: the *realized* per-axis shrink factor `%{w: float, h: float}`
     (each `>= 1.0`, original ÷ decoded) actually applied by shrink-on-load, or `nil`
     when the decode was full-resolution. A crop preceding the resize rescales its
     absolute pixel dims and pixel/absolute gravity offsets by this factor so the
     crop selects the same source region on the shrunk image that it would at full
     resolution; relative (ratio/percent/focus-point) coordinates are untouched.
-    For JPEG block shrink and WebP scale-on-load the factor is uniform across axes.
-    It is a storage-frame factor, so a gravity crop carrying a pending quarter-turn
-    swaps the per-axis factors before rescaling (the display-frame crop dims are
-    swapped into the storage frame after).
+    Integer decoded dimensions can make the realized factors differ between axes.
+    Its axes follow the current image. A gravity crop carrying a pending
+    quarter-turn swaps the per-axis factors before rescaling; the crop dimensions
+    are then mapped back into the current image frame.
   - `source_color_profile` and `color_imported?`: carry the input-color-management
     result from the preamble (`ImagePipe.Transform.InputColorManagement`) to the
     delivery-boundary stamp. `source_color_profile` is the raw source ICC bytes

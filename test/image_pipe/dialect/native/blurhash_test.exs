@@ -4,14 +4,13 @@ defmodule ImagePipe.Native.BlurhashTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Parser
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Request.Group
-  alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
 
   # A plain 3200x2400 landscape JPEG — large enough to exercise JPEG
@@ -51,11 +50,19 @@ defmodule ImagePipe.Native.BlurhashTest do
     resolved
   end
 
-  defp req(groups, output \\ %Output{terminal: :blurhash}) do
-    %Request{groups: groups, output: output, source: "test"}
-  end
+  defp seg(raw), do: {raw, {0, byte_size(raw)}}
 
-  defp group(fields), do: struct!(Group, fields)
+  defp parse!(segments) do
+    source = "test"
+
+    lexed = %{
+      segments: Enum.map(segments, &seg/1),
+      source: {:src, source, {0, byte_size(source)}}
+    }
+
+    assert {:ok, request} = Parser.parse(lexed, [])
+    request
+  end
 
   defp run_reduced(origin, %Request{} = request, extra \\ []) do
     opts = source_opts(origin, extra)
@@ -63,24 +70,24 @@ defmodule ImagePipe.Native.BlurhashTest do
     Decode.with_image(
       resolved(opts),
       opts,
-      &Pipeline.decode_request(request, &1),
-      fn state, geometry ->
-        with {:ok, state} <- Pipeline.run(state, geometry, request, opts) do
-          Pipeline.reduce_terminal(state, request, opts)
+      &Executor.decode_request(request, &1),
+      fn state, _geometry ->
+        with {:ok, state} <- Executor.execute(state, request, opts) do
+          Executor.reduce_terminal(state, request.output, opts)
         end
       end
     )
   end
 
   test "output=blurhash with no resize on a large jpeg gets shrink > 1 on decode (#377 tied to the wire)" do
-    request = req([group(%{})])
+    request = parse!(["output=blurhash"])
     opts = source_opts(LargeLandscapeOrigin)
 
     result =
       Decode.with_image(
         resolved(opts),
         opts,
-        &Pipeline.decode_request(request, &1),
+        &Executor.decode_request(request, &1),
         fn state, _geometry -> {:ok, state} end
       )
 
@@ -90,7 +97,7 @@ defmodule ImagePipe.Native.BlurhashTest do
   end
 
   test "reduce_terminal contain-fits the pipeline output to the 32x32 working frame" do
-    request = req([group(%{})])
+    request = parse!(["output=blurhash"])
 
     assert {:ok, %State{image: image}} = run_reduced(LargeLandscapeOrigin, request)
 
@@ -101,34 +108,21 @@ defmodule ImagePipe.Native.BlurhashTest do
   end
 
   test "reduce_terminal is a no-op for the plain image terminal" do
-    request = req([group(%{})], %Output{terminal: :image})
+    request = parse!([])
 
     assert {:ok, %State{image: image}} = run_reduced(LargeLandscapeOrigin, request)
     assert {Image.width(image), Image.height(image)} == {3200, 2400}
   end
 
   test "a resize=200x150,fit=contain group still reduces further to the terminal frame" do
-    request =
-      req([
-        group(%{
-          resize: %{
-            w: 200,
-            h: 150,
-            fit: :contain,
-            enlarge: false,
-            zoom: {1.0, 1.0},
-            min_w: nil,
-            min_h: nil
-          }
-        })
-      ])
+    request = parse!(["w=200", "h=150", "output=blurhash"])
 
     assert {:ok, %State{image: image}} = run_reduced(LargeLandscapeOrigin, request)
     assert {Image.width(image), Image.height(image)} == {32, 24}
   end
 
   test "compute/1 produces a plausibly-shaped blurhash for the reduced pipeline output" do
-    request = req([group(%{})])
+    request = parse!(["output=blurhash"])
 
     assert {:ok, %State{image: image}} = run_reduced(LargeLandscapeOrigin, request)
     assert {:ok, hash} = Blurhash.compute(image)

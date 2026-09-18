@@ -36,10 +36,8 @@ defmodule ImagePipe.Transform.DecodePlanner.Request do
       resize_target: nil,        terminal_reduction: {32, 32}  ->  shrink: 8
       resize_target: {nil, nil}, terminal_reduction: {32, 32}  ->  no shrink
 
-  A dialect that uses no terminal is unaffected today, which is exactly why the
-  distinction is stated here rather than left to be rediscovered: both shipped
-  pipelines normalize (`Native.Pipeline.resize_target/1`,
-  `Imgproxy.Pipeline.resize_target/1`), and the next one must too.
+  The executor normalizes an untargeted resize to `nil` so the terminal can
+  supply its reduction target.
   """
   @type resize_target() :: {number() | nil, number() | nil}
 

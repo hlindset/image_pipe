@@ -23,9 +23,9 @@ request and execution needs directly.
 
 The default `ImagePipe.Plug` mount selects native. The current checkout
 mounts every API through `ImagePipe.Plug` and
-`ImagePipe.Plug.DialectRunner`. There is no `ImagePipe.Parser` or
-`ImagePipe.Request` framework left to remove. Native and imgproxy own their
-pipelines. Shared regression tests cover the native request lifecycle,
+`ImagePipe.Plug.DialectRunner`. Native execution lives in
+`ImagePipe.Transform.Executor`; imgproxy retains its own pipeline during
+the migration. Shared regression tests cover the native request lifecycle,
 streaming, cache, color, decode, and orientation behavior.
 
 Canonical native data lives in `ImagePipe.Plan.Request`, with explicit
@@ -95,12 +95,13 @@ debug-header permission, and storage vary inputs. Source-adapter controls
 (including HTTP bounds and S3 credentials/providers) retain their own
 validation boundaries. Removing a dialect does not remove those controls.
 
-Core output defaults and configuration also survive: auto-orientation,
-metadata/copyright/profile/HDR policy, quality/per-format quality, smart-crop
-face detection, all autoquality targets/bounds/errors/iteration and
-resolution limits, and each encoder's options. Dialect-specific default
-overlays are unnecessary once there is one API. Tasks `.2`, `.5`, `.7`,
-and `.8` own these settings according to the capability table.
+Core output defaults and configuration also survive:
+metadata/copyright/profile/HDR policy, quality/per-format quality, all
+autoquality targets/bounds/errors/iteration and resolution limits, and each
+encoder's options. Auto-orientation and smart-crop face assistance are
+controlled by native `orient` and `anchor=smart-face`; a `default` preset can
+set their mount defaults. Tasks `.2`, `.5`, `.7`, and `.8` own these settings
+according to the capability table.
 
 ## Native semantics
 

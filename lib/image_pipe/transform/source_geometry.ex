@@ -1,15 +1,13 @@
 defmodule ImagePipe.Transform.SourceGeometry do
   @moduledoc """
   Pre-decode geometry facts produced by `ImagePipe.Decode.with_image/4`'s
-  header open, handed to a dialect's `decode_request_fun` (and to the paired
+  header open, handed to `decode_request_fun` (and to the paired
   `Transform.State`-consuming callback) so it can plan against the display
   frame without re-deriving orientation compensation itself.
 
-  Distinct from `ImagePipe.Transform.SourceShape` (the *execute-time* shape
-  threaded through the resolve driver, which also carries `decode_shrink` and
-  a mutable `frame`): `SourceGeometry` is a smaller, decode-time-only value —
-  the two storage/display extents, the (possibly identity) pending
-  orientation the decode observed, and the resolved source format.
+  It contains the storage/display extents, the pending orientation observed
+  during decode, and the resolved source format. Runtime image geometry and
+  realized decode scaling belong to `ImagePipe.Transform.State`.
 
   `debug_facts` carries best-effort, non-sensitive source facts collected by
   `ImagePipe.Decode` for the debug headers; `%{}` when collection failed or

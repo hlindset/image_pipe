@@ -3,21 +3,14 @@
 ## Overview
 
 ImagePipe's native URL parser produces an `ImagePipe.Plan.Request` containing
-ordered groups and an output policy. `ImagePipe.Native.Pipeline` executes those
+ordered groups and an output policy. `ImagePipe.Transform.Executor` executes those
 groups against a decoded image.
 
-The pipeline uses two operation layers internally:
-
-- `ImagePipe.Plan.Operation.*` structs describe validated, product-neutral
-  image intent such as resize, crop, rotate, trim, and effects.
-- `ImagePipe.Transform.Operation.*` structs describe executable libvips work
-  over `ImagePipe.Transform.State`.
-
-`ImagePipe.Transform.NeutralResolver` resolves source-dependent geometry and
-lowers semantic operations into executable operations. `ImagePipe.Transform.Chain`
-executes the resulting work. Request orchestration stays in the native or
-imgproxy pipeline; the transform facade owns generic execution and
-materialization.
+`ImagePipe.Plan.Request.Group` holds validated options. The executor resolves
+their source-dependent geometry in fixed stage order and constructs
+`ImagePipe.Transform.Operation.*` structs over `ImagePipe.Transform.State`.
+`ImagePipe.Transform.Chain` executes those operations and applies their
+materialization requirements.
 
 ## Native request flow
 
@@ -29,7 +22,7 @@ For an image response, the shared Plug lifecycle is:
    conditional/cache decisions.
 4. On a generation path, inspect source geometry and plan shrink-on-load.
 5. Decode the image and condition its input color space.
-6. Execute every native group in order through `ImagePipe.Native.Pipeline`.
+6. Execute every native group in order through `ImagePipe.Transform.Executor`.
 7. Flush any deferred orientation, clamp output dimensions, materialize, and
    encode the negotiated format.
 
@@ -88,28 +81,25 @@ coordinate compensation preserves the logical display result. It is flushed
 before trim, whose automatic background samples the displayed top-left corner.
 EXIF is applied once per request, not once per group.
 
-## Semantic operation catalog
+## Group options and operation geometry
 
-`ImagePipe.Plan.Operation` provides constructors for the internal semantic
-operation structs. Constructors validate and canonicalize their fields before
-the native or imgproxy pipeline hands them to the resolver.
+The parser validates and canonicalizes group fields before execution. The
+executor resolves lengths, placement, and resize targets against the image at
+the corresponding stage.
 
 ### Geometry and composition
 
-- `Resize` supports `:fit`, `:cover`, `:stretch`, and source-dependent `:auto`
-  modes. It carries enlargement policy, guide, offsets, minimums, zoom, DPR,
-  and result bounds where the requesting pipeline needs them. Cover resize may
-  resolve into a resize followed by a result crop.
-- `CropGuided` crops to a width and height using an anchor, focal point, smart
-  guide, or detector guide. It can carry offsets and optional aspect-ratio
-  correction.
-- `CropRegion` crops an explicit x/y/width/height rectangle. Its out-of-bounds
-  policy is either clamp or reject.
-- `Canvas` places the current image on a target canvas with placement, offsets,
+- Resize supports contain, cover, stretch, and source-dependent automatic
+  modes, with enlargement policy, guide, offsets, minimums, zoom, and DPR.
+  Cover resize executes a resize followed by a measured result crop.
+- Guided crop resolves a width and height using an anchor, focal point, smart
+  guide, or detector guide, with offsets and optional aspect-ratio correction.
+- Region crop resolves an explicit x/y/width/height rectangle and clamps it
+  to the available image.
+- Canvas extension places the current image on a target canvas with placement, offsets,
   and transparent or solid fill.
-- `Padding` expands the current image by logical top/right/bottom/left sides.
-  Its pixel ratio supports compatibility behavior that scales padding with a
-  preceding resize.
+- Padding expands the current image by logical top/right/bottom/left sides,
+  scaled by the effective DPR of the preceding resize.
 - `Background` composites an alpha-capable sRGB color behind the current
   image. An opaque background removes alpha as a consequence of composition.
 - `Trim` removes a uniform border using an automatic or explicit background
@@ -121,14 +111,13 @@ Object and face guides share the displayed crop frame.
 
 ### Orientation
 
-- `Rotate` accepts clockwise angles in `[0, 360]`; the constructor folds 360
+- Rotation accepts clockwise angles in `[0, 360]`; parsing folds 360
   to 0 and canonicalizes whole-number floats. Right angles can use lossless
   orientation routing, while arbitrary angles use resampling.
-- `Flip` represents horizontal, vertical, or both-axis reflection.
+- Flip represents horizontal, vertical, or both-axis reflection.
 
-User rotation and flip compose with pending EXIF orientation. The resolver may
-combine them before emitting executable work, so there is no requirement for a
-one-to-one executable operation per semantic orientation operation.
+User rotation and flip compose with pending EXIF orientation. The executor
+can defer the composed orientation until a stage needs displayed pixels.
 
 ### Effects
 
@@ -170,10 +159,9 @@ Executable modules implement the `ImagePipe.Transform` behaviour:
 The executable catalog includes resize, crop, canvas extension, padding,
 background composition, rotate, trim, blur, sharpen, pixelate, grayscale,
 bitonal, monochrome, duotone, brightness, contrast, saturation, colorize, and
-gradient. Some semantic operations lower to a differently named executable
-operation: both crop variants become `Transform.Operation.Crop`, and `Canvas`
-becomes `Transform.Operation.ExtendCanvas`. One semantic operation may also
-produce multiple executable operations.
+gradient. Both crop forms use `Transform.Operation.Crop`; canvas extension uses
+`Transform.Operation.ExtendCanvas`. A cover resize uses separate resize and
+crop operations with an image measurement between them.
 
 `Transform.Operation.Flush` applies surviving pending orientation at a safe
 boundary. `AlphaPremultiply` is an internal helper used where an effect needs
@@ -201,16 +189,16 @@ image.
 
 ## Decode planning
 
-`ImagePipe.Native.Pipeline.decode_request/2` derives shrink-on-load information
+`ImagePipe.Transform.Executor.decode_request/2` derives shrink-on-load information
 from the first group. Resize targets, crop extent, quarter-turn rotation, trim,
 and a reducing terminal can contribute. An arbitrary-angle rotation disables
 shrink-on-load planning because resampling changes the crop frame.
 BlurHash's terminal hint applies only to single-group requests, preserving
 the input scale of later groups that may trim or crop.
 
-The selected load shrink is an optimization. Geometry continues to use source
-pixel coordinates through `SourceShape`, and lowering applies the realized
-decode shrink exactly once.
+The selected load shrink is an optimization. `Transform.State` retains source
+dimensions and realized decode scaling so geometry applies the shrink exactly
+once when resolving source-pixel coordinates into decoded pixels.
 
 ## Input and output color handling
 
@@ -241,12 +229,11 @@ appear in the transform chain.
 
 ## Boundary rules
 
-The native and imgproxy pipelines own request-specific assembly and group
-execution. Shared request orchestration calls their concrete lifecycle
-callbacks and depends on the `ImagePipe.Transform` facade rather than concrete
-executable operation modules.
+The native executor owns fixed group ordering and source-dependent geometry.
+Request orchestration calls the transform boundary's concrete entry points
+rather than constructing executable operation modules.
 
 Transform operations depend on `Transform.State` and product-neutral values.
 They do not parse URLs, resolve sources, read caches, negotiate output, or send
-responses. Source-dependent planning stays in the pipelines and neutral
-resolver; execution stays in the transform chain.
+responses. Source-dependent planning stays in the executor; individual image
+operations execute through the transform chain.

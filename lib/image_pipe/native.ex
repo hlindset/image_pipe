@@ -49,7 +49,6 @@ defmodule ImagePipe.Native do
   alias ImagePipe.Native.Output, as: NativeOutput
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Path
-  alias ImagePipe.Native.Pipeline
   alias ImagePipe.Native.Signature
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Native.SourceEncryption
@@ -59,6 +58,7 @@ defmodule ImagePipe.Native do
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Executor
 
   # The BlurHash terminal's delivery content type. Fixed — `format`/`q` with
   # a non-image `output` are Tier-2 parse rejects (Task 5), so no negotiation
@@ -181,16 +181,11 @@ defmodule ImagePipe.Native do
 
   @impl ImagePipe.Dialect
   def decode_request(%Request{} = request, geometry),
-    do: Pipeline.decode_request(request, geometry)
+    do: Executor.decode_request(request, geometry)
 
   @impl ImagePipe.Dialect
-  # The hand-written dialects' contract delegations are textually identical but
-  # resolve through per-dialect aliases to different Request structs and
-  # Pipeline modules — irreducible without a macro that would force a
-  # naming convention on every dialect and hide the contract.
-  # ex_dna:disable-for-next-line
-  def execute(state, geometry, %Request{} = request, opts) do
-    ImagePipe.Dialect.safe_transform(fn -> Pipeline.run(state, geometry, request, opts) end)
+  def execute(state, _geometry, %Request{} = request, opts) do
+    ImagePipe.Dialect.safe_transform(fn -> Executor.execute(state, request, opts) end)
   end
 
   @impl ImagePipe.Dialect
@@ -249,7 +244,7 @@ defmodule ImagePipe.Native do
   end
 
   defp operation_names(%Request{output: %Request.Output{terminal: :info}}), do: []
-  defp operation_names(%Request{} = request), do: Pipeline.operation_names(request)
+  defp operation_names(%Request{} = request), do: Executor.operation_names(request)
 
   defp auto_rotate?(%Request{output: %Request.Output{terminal: :info}}), do: false
   defp auto_rotate?(%Request{} = request), do: request.orient == :auto
@@ -336,19 +331,19 @@ defmodule ImagePipe.Native do
     Decode.with_image(
       resolved,
       decode_opts,
-      &Pipeline.decode_request(request, &1),
-      fn state, geometry -> run_blurhash(state, geometry, request, config) end
+      &Executor.decode_request(request, &1),
+      fn state, _geometry -> run_blurhash(state, request, config) end
     )
   end
 
-  defp run_blurhash(state, geometry, request, config) do
-    with {:ok, state} <- Pipeline.run(state, geometry, request, config),
-         {:ok, state} <- Pipeline.reduce_terminal(state, request, config),
+  defp run_blurhash(state, request, config) do
+    with {:ok, state} <- Executor.execute(state, request, config),
+         {:ok, state} <- Executor.reduce_terminal(state, request.output, config),
          {:ok, hash} <- Blurhash.compute(state.image) do
       {:ok, hash}
     else
       {:error, {:transform, _reason}} = error -> error
-      # `Pipeline.run/4` returns `{:decode, _}` too, from the input-colour
+      # `Executor.execute/3` returns `{:decode, _}` too, from the input-colour
       # preamble. It must reach `Errors.send/3` untouched: a malformed embedded
       # profile is a decode failure (415), and rewrapping it below would make
       # the same source 415 from the image terminal and 422 from this one.

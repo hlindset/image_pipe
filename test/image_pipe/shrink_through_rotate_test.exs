@@ -5,11 +5,11 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   alias ImagePipe.Decode
   alias ImagePipe.Dialect.Imgproxy
   alias ImagePipe.Native
-  alias ImagePipe.Native.Pipeline
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Plan.Request
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
 
   # Shrink-on-load through a preceding 90/270 user rotate (#151, the B2 extension).
@@ -61,9 +61,9 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     Decode.with_image(
       source,
       Keyword.put(opts, :auto_rotate?, true),
-      &Pipeline.decode_request(request, &1),
-      fn state, geometry ->
-        {:ok, %State{} = final} = Pipeline.run(state, geometry, request, opts)
+      &Executor.decode_request(request, &1),
+      fn state, _geometry ->
+        {:ok, %State{} = final} = Executor.execute(state, request, opts)
         {final.image, shrink_factor(state.decode_shrink)}
       end
     )
@@ -283,7 +283,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
                Decode.with_image(
                  source,
                  over_limit,
-                 &Pipeline.decode_request(request, &1),
+                 &Executor.decode_request(request, &1),
                  fn _state, _geometry ->
                    flunk("decode must not run past the pixel-limit gate")
                  end

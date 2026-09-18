@@ -6,9 +6,9 @@ defmodule ImagePipe.Native.CropRatioTrimWireTest do
 
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Path
-  alias ImagePipe.Native.Pipeline
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias Vix.Vips.Image, as: VipsImage
@@ -80,7 +80,7 @@ defmodule ImagePipe.Native.CropRatioTrimWireTest do
 
     {:ok, lexed} = conn(:get, "/crop=200,200/crop-ratio=2/h=25/src/image.jpg") |> Path.extract()
     {:ok, request} = Parser.parse(lexed, [])
-    decode_request = Pipeline.decode_request(request, geometry)
+    decode_request = Executor.decode_request(request, geometry)
 
     assert DecodePlanner.open_options_for(decode_request, :jpeg, {800, 600})[:shrink] == 4
   end

@@ -13,6 +13,7 @@ defmodule ImagePipe.Transform do
     deps: [ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
       # Runtime execution contract — consumed by the request layer.
+      Executor,
       State,
       Chain,
       DecodePlanner,

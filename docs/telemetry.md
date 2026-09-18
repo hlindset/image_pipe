@@ -192,7 +192,7 @@ data-determined input-color preamble, which runs once at the start of transform
 execution to condition the decoded image into a working colorspace before any
 group operation. It is emitted from the shared seam
 `ImagePipe.Transform.InputColorManagement.condition/2` itself (via
-`State.telemetry_opts`). `ImagePipe.Native.Pipeline` and
+`State.telemetry_opts`). `ImagePipe.Transform.Executor` and
 `ImagePipe.Dialect.Imgproxy.Pipeline` both call that seam before running their
 groups, nested inside `[:transform, :execute]`, and therefore emit identical
 metadata.
@@ -234,10 +234,10 @@ per-operation timing. Honest aggregate timing lives on `[:transform, :execute]`.
 Start metadata:
 
 - `:operation` — the operation name atom (e.g. `:resize`, `:crop_region`).
-  Includes the neutral bookkeeping operation the resolver emits: `:flush`
+  Includes the executor's orientation operation: `:flush`
   (applies a pending orientation).
-- `:index` — zero-based position within its executed batch (a staged resolve
-  may execute one plan operation's executables across more than one batch).
+- `:index` — zero-based position within its executed batch. The native
+  executor runs individual stages as separate batches, so this is usually zero.
 - `:params` — the full operation struct (product-neutral, derived from the
   public request).
 

@@ -5,7 +5,6 @@ defmodule ImagePipe.Dialect.VixStreamContinuationTest do
   alias ImagePipe.Delivery.Producer
   alias ImagePipe.Native
   alias ImagePipe.Native.Output, as: NativeOutput
-  alias ImagePipe.Native.Pipeline
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Negotiate
@@ -13,6 +12,7 @@ defmodule ImagePipe.Dialect.VixStreamContinuationTest do
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Delivery.ProducerClient
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
@@ -491,14 +491,14 @@ defmodule ImagePipe.Dialect.VixStreamContinuationTest do
       Decode.with_image(
         source,
         Keyword.put(config, :auto_rotate?, true),
-        &Pipeline.decode_request(request, &1),
+        &Executor.decode_request(request, &1),
         &transform_and_pump(&1, &2, request, policy, config, pump)
       )
     end
   end
 
   defp transform_and_pump(state, geometry, request, policy, config, pump) do
-    {:ok, %State{} = state} = Pipeline.run(state, geometry, request, config)
+    {:ok, %State{} = state} = Executor.execute(state, request, config)
     {:ok, %State{image: image}} = Materializer.materialize(state, config)
 
     {:ok, resolved_output} =

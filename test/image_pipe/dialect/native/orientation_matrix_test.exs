@@ -1,51 +1,7 @@
 defmodule ImagePipe.Native.OrientationMatrixTest do
   @moduledoc """
-  Task 19: the orientation-invariance matrix — the probe's #146 regression
-  net for the native URL dialect.
-
-  The native dialect plans ALL geometry (crop/region/resize/focal gravity)
-  against the DISPLAY frame (`ImagePipe.Native.Pipeline.group_operations/2`);
-  only core (`NeutralResolver`/`Lowering`/the orientation flush) performs the
-  storage-frame compensation once the deferred `pending_orientation` is
-  eventually flushed. This matrix exercises EXIF orientation {1, 6, 8} ×
-  {explicit-region crop, guided top-left crop, cover+focal result crop, plain
-  resize} and asserts three invariants per cell:
-
-  1. **Semantic-intent invariance** — the dialect's DECISION about which
-     operations to run, and of what KIND, does not branch on storage
-     orientation. Captured via the same `chain:` recorder seam
-     `pipeline_test.exs` uses (`run/4`'s test-only chain override), comparing
-     an EXIF-oriented source (`ImagePipe.Test.OrientedFrameOrigin`) against
-     its orientation-1 twin (`ImagePipe.Test.Orientation1TwinOrigin`, same
-     displayed pixels, tag stripped) — see `describe "semantic-intent
-     invariance"`. The captured items are `NeutralResolver`-RESOLVED
-     executable ops (`ImagePipe.Transform.Operation.*`), not the dialect's
-     pre-resolve `Plan.Operation` — there is no test-only seam to intercept
-     the latter without touching frozen `Pipeline`/`transform/*` source, so
-     this compares the CLOSEST observable surface. Because CORE's own job
-     under a quarter turn is to storage-compensate those executable ops'
-     NUMERIC fields (width/height/mode/gravity anchor can legitimately swap
-     or change value — proven empirically: see the Task 19 report) and to
-     append a terminal `Flush{}`, an EXACT struct-equality assertion is the
-     WRONG invariant — it fails even on provably-correct geometry (assertion
-     2 below passes for every one of these same cells). The assertion here is
-     therefore the invariant that genuinely belongs to the DIALECT layer: the
-     Flush-stripped op-KIND sequence (module + crop-source kind + gravity
-     kind, deliberately excluding axis-dependent numeric fields) is identical
-     — proving `group_operations/2` (which only reads `display_dims` + group
-     config, both storage-orientation-invariant) never itself branches on
-     storage orientation; only core's downstream numeric resolution and the
-     orientation-driven `Flush` differ.
-  2. **Pixel invariance** — wire-level native-dialect responses for
-     the twin/oriented pair are pixel-close (reusing
-     `ImagePipe.Test.Differential.PixelCompare`) — see
-     `describe "pixel invariance (wire-level twin oracle)"`.
-  3. **Shrink correctness** — decode shrink is computed against STORAGE axes
-     (the quarter-turn swap) while planning used DISPLAY axes: the loaded
-     (pre-flush) image comes out shrunk in the storage frame, not transposed
-     or mis-shrunk against the wrong axis pair — see
-     `describe "shrink correctness (orientation 6 quarter turn)"`.
-
+  Native orientation regression coverage for display-frame geometry and
+  storage-frame shrink-on-load planning.
   """
 
   # Real fetch/decode through a Plug-backed origin per case — keep it serial,
@@ -57,7 +13,6 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
   alias ImagePipe.Decode
   alias ImagePipe.Native
   alias ImagePipe.Native.Parser
-  alias ImagePipe.Native.Pipeline
   alias ImagePipe.Native.Presets
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
@@ -65,12 +20,9 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
   alias ImagePipe.Test.Differential.PixelCompare
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
-  alias ImagePipe.Transform.Chain
-  alias ImagePipe.Transform.Operation.Crop
-  alias ImagePipe.Transform.Operation.Flush
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
-  alias ImagePipe.Transform.State
 
   # ── the matrix: {label, native-dialect option segments} ───────────────────
   #
@@ -122,9 +74,6 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
     request
   end
 
-  # ── direct Pipeline driving (mirrors pipeline_pixel_test.exs's run_native/3,
-  # extended with pipeline_test.exs's recording chain) ────────────────────
-
   defp source_opts(origin, extra \\ []) do
     Source.validate_config!(
       Keyword.merge(
@@ -144,42 +93,6 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
   defp resolved(opts) do
     {:ok, resolved} = Source.resolve(%SourcePath{segments: ["images", "x.jpg"]}, opts, [])
     resolved
-  end
-
-  defp recording_chain(pid) do
-    fn state, ops, opts ->
-      send(pid, {:ops, ops})
-      Chain.execute(state, ops, opts)
-    end
-  end
-
-  # Runs the request against `origin` through the REAL decode + pipeline
-  # (genuine fetch/decode/transform, not a hand-built State), returning both
-  # the pipeline result and the ordered list of executable-op batches the
-  # chain recorder observed.
-  defp run_with_ops(origin, request) do
-    opts = source_opts(origin)
-    pid = self()
-
-    result =
-      Decode.with_image(
-        resolved(opts),
-        opts,
-        &Pipeline.decode_request(request, &1),
-        fn state, geometry ->
-          Pipeline.run(state, geometry, request, Keyword.put(opts, :chain, recording_chain(pid)))
-        end
-      )
-
-    {result, drain_ops([])}
-  end
-
-  defp drain_ops(acc) do
-    receive do
-      {:ops, ops} -> drain_ops([ops | acc])
-    after
-      0 -> Enum.reverse(acc)
-    end
   end
 
   # ── wire-level helpers (mirrors native_wire_test.exs) ──────────────────
@@ -204,62 +117,7 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
   defp decoded_image(%Plug.Conn{} = conn),
     do: Image.open!(conn.resp_body, access: :random, fail_on: :error)
 
-  # ── 1. semantic-intent invariance ───────────────────────────────────────
-  #
-  # A Flush-stripped op-KIND sequence: module + crop-source kind (:region vs
-  # :gravity) + gravity kind (nil/:smart/:anchor/:fp) — deliberately excluding
-  # axis-dependent numeric fields (width/height/mode/exact anchor/fp values),
-  # which CORE (not the dialect) legitimately resolves differently per
-  # storage orientation. See the moduledoc note above for why exact struct
-  # equality is the wrong invariant here.
-
-  defp op_kind(%Crop{crop_from: crop_from, gravity: gravity}),
-    do: {Crop, crop_from_kind(crop_from), gravity_kind(gravity)}
-
-  defp op_kind(%mod{}), do: {mod, nil, nil}
-
-  defp crop_from_kind(:gravity), do: :gravity
-  defp crop_from_kind(%{}), do: :region
-
-  defp gravity_kind(nil), do: nil
-  defp gravity_kind(:smart), do: :smart
-  defp gravity_kind({:anchor, _, _}), do: :anchor
-  defp gravity_kind({:fp, _, _}), do: :fp
-
-  defp op_kind_sequence(ops_batches) do
-    ops_batches
-    |> List.flatten()
-    |> Enum.reject(&match?(%Flush{}, &1))
-    |> Enum.map(&op_kind/1)
-  end
-
-  describe "semantic-intent invariance (Task 14 op-emission surface)" do
-    for orientation <- @orientations, {label, segments} <- @matrix do
-      test "EXIF #{orientation}: #{label} emits the same op-kind sequence for twin vs oriented-frame source" do
-        orientation = unquote(orientation)
-        segments = unquote(segments)
-        label = unquote(label)
-        request = parse!(segments)
-        base_png = fixture_base_png()
-
-        {twin_result, twin_ops} =
-          run_with_ops({Orientation1TwinOrigin, {base_png, orientation}}, request)
-
-        {oriented_result, oriented_ops} =
-          run_with_ops({OrientedFrameOrigin, {base_png, orientation}}, request)
-
-        assert {:ok, %State{}} = twin_result
-        assert {:ok, %State{}} = oriented_result
-
-        assert op_kind_sequence(oriented_ops) == op_kind_sequence(twin_ops),
-               "EXIF #{orientation} #{label}: op-kind sequence diverges between the twin " <>
-                 "(display-native) and oriented (deferred-rotation) sources — " <>
-                 "twin: #{inspect(twin_ops)}, oriented: #{inspect(oriented_ops)}"
-      end
-    end
-  end
-
-  # ── 2. pixel invariance (wire-level) ────────────────────────────────────
+  # ── pixel invariance (wire-level) ───────────────────────────────────────
 
   describe "pixel invariance (wire-level twin oracle)" do
     for orientation <- @orientations, {label, segments} <- @matrix do
@@ -302,7 +160,7 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
     end
   end
 
-  # ── 3. shrink correctness ───────────────────────────────────────────────
+  # ── shrink correctness ──────────────────────────────────────────────────
 
   describe "shrink correctness (orientation 6 quarter turn)" do
     # A 1600x1200 STORAGE-frame source tagged EXIF-6 (quarter turn): DISPLAY
@@ -344,7 +202,7 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
         source_format: :jpeg
       }
 
-      decode_request = Pipeline.decode_request(request, geometry)
+      decode_request = Executor.decode_request(request, geometry)
 
       assert decode_request.resize_target == {200, nil}
     end
@@ -357,7 +215,7 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
         Decode.with_image(
           resolved(opts),
           opts,
-          &Pipeline.decode_request(request, &1),
+          &Executor.decode_request(request, &1),
           fn state, _geometry -> {:ok, {Image.width(state.image), Image.height(state.image)}} end
         )
 

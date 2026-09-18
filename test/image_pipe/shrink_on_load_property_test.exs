@@ -5,11 +5,11 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
 
   alias ImagePipe.Decode
   alias ImagePipe.Native
-  alias ImagePipe.Native.Pipeline
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Plan.Request
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
 
   # Shrink-on-load decodes a JPEG at reduced resolution, then a residual resize
@@ -89,9 +89,9 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
     Decode.with_image(
       source,
       Keyword.put(opts, :auto_rotate?, true),
-      &Pipeline.decode_request(request, &1),
-      fn state, geometry ->
-        {:ok, %State{} = final} = Pipeline.run(state, geometry, request, opts)
+      &Executor.decode_request(request, &1),
+      fn state, _geometry ->
+        {:ok, %State{} = final} = Executor.execute(state, request, opts)
 
         {Image.width(final.image), Image.height(final.image), shrink_factor(state.decode_shrink)}
       end
