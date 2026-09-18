@@ -227,6 +227,18 @@ defmodule ImagePipe.Native.ParserTest do
                parse(["crop=600,400"])
     end
 
+    test "crop ratio and enlargement are canonical crop data" do
+      assert {:ok,
+              %Request{
+                groups: [
+                  %Group{
+                    crop_ratio: {:ratio, 3, 2},
+                    crop_ratio_enlarge: true
+                  }
+                ]
+              }} = parse(["crop=600,400", "crop-ratio=3:2", "crop-ratio-enlarge"])
+    end
+
     test "region needs no guide" do
       assert {:ok,
               %Request{
@@ -251,6 +263,18 @@ defmodule ImagePipe.Native.ParserTest do
 
     test "trim=auto" do
       assert {:ok, %Request{groups: [%Group{trim: :auto}]}} = parse(["trim=auto"])
+    end
+
+    test "trim symmetry is canonical group data" do
+      assert {:ok, %Request{groups: [%Group{trim_symmetry: :both}]}} =
+               parse(["trim=auto", "trim-symmetry=hv"])
+    end
+
+    test "false crop ratio enlargement canonicalizes away" do
+      assert parse(["crop-ratio-enlarge=false"]) == parse([])
+
+      assert parse(["crop=600,400", "crop-ratio=3:2", "crop-ratio-enlarge=false"]) ==
+               parse(["crop=600,400", "crop-ratio=3:2"])
     end
 
     test "pad shorthand" do
@@ -309,6 +333,21 @@ defmodule ImagePipe.Native.ParserTest do
             {"zoom=0", :invalid_zoom},
             {"min-w=auto", :invalid_min_dimension},
             {"min-h=0", :invalid_min_dimension}
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse([segment])
+        assert Enum.any?(diagnostics, &(&1.reason == reason))
+      end
+    end
+
+    test "malformed crop ratio and trim symmetry fail at the request boundary" do
+      huge_ratio = String.duplicate("9", 400)
+
+      for {segment, reason} <- [
+            {"crop-ratio=1:0", :invalid_crop_ratio},
+            {"crop-ratio=1e2", :invalid_crop_ratio},
+            {"crop-ratio=#{huge_ratio}:1", :invalid_crop_ratio},
+            {"crop-ratio=1:#{huge_ratio}", :invalid_crop_ratio},
+            {"trim-symmetry=vh", :invalid_trim_symmetry}
           ] do
         assert {:error, {:invalid_request, diagnostics}} = parse([segment])
         assert Enum.any?(diagnostics, &(&1.reason == reason))
@@ -392,6 +431,23 @@ defmodule ImagePipe.Native.ParserTest do
                parse(["min-w=320", "fit=cover", "enlarge"])
     end
 
+    test "crop ratio without crop is inert" do
+      assert {:error, {:invalid_request, diagnostics}} = parse(["crop-ratio=3:2"])
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "true crop ratio enlargement without crop ratio is inert" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["crop=600,400", "crop-ratio-enlarge"])
+
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "trim symmetry without trim is inert" do
+      assert {:error, {:invalid_request, diagnostics}} = parse(["trim-symmetry=h"])
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
     test "a lone auto dimension is inert" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["w=auto"])
       assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
@@ -468,6 +524,33 @@ defmodule ImagePipe.Native.ParserTest do
 
       reasons = Enum.map(diagnostics, & &1.reason)
 
+      assert :invalid_element in reasons
+      refute :inert_option in reasons
+    end
+
+    test "a present-but-invalid crop suppresses crop ratio inertness" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["crop=invalid", "crop-ratio=3:2"])
+
+      reasons = Enum.map(diagnostics, & &1.reason)
+      assert :invalid_arity in reasons
+      refute :inert_option in reasons
+    end
+
+    test "a present-but-invalid crop ratio suppresses enlargement inertness" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["crop=600,400", "crop-ratio=invalid", "crop-ratio-enlarge"])
+
+      reasons = Enum.map(diagnostics, & &1.reason)
+      assert :invalid_crop_ratio in reasons
+      refute :inert_option in reasons
+    end
+
+    test "a present-but-invalid trim suppresses symmetry inertness" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["trim=invalid", "trim-symmetry=v"])
+
+      reasons = Enum.map(diagnostics, & &1.reason)
       assert :invalid_element in reasons
       refute :inert_option in reasons
     end

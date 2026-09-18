@@ -25,11 +25,15 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
     "fit=cover",
     "zoom=1.25,0.75",
     "dpr=2",
+    "crop=600,400",
+    "crop-ratio=3:2",
+    "crop-ratio-enlarge",
     "anchor=smart",
     "blur=2.5",
     "pad=10,20,30,40",
     "bg=fff,0.5",
-    "trim=auto"
+    "trim=auto",
+    "trim-symmetry=hv"
   ]
 
   describe "order-insensitivity within a group [native §Canonical form and identity]" do
@@ -56,7 +60,14 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
   # ordering — it must hold across genuinely varied inputs.
   @stability_bases [
     ["w=300", "h=400", "fit=cover", "anchor=smart", "blur=2.5", "pad=10,20,30,40"],
-    ["crop=600,400", "anchor=top-left", "trim=fff,10"],
+    [
+      "crop=600,400",
+      "crop-ratio=3:2",
+      "crop-ratio-enlarge",
+      "anchor=top-left",
+      "trim=fff,10",
+      "trim-symmetry=h"
+    ],
     ["region=0,0,600,400", "bg=fff,0.5"],
     ["w=800", "enlarge", "fit=stretch", "format=webp", "q=80"],
     ["w=32", "output=blurhash"]
@@ -93,6 +104,14 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
       assert parse(["w=800"]) == parse(["w=800", "zoom=1"])
       assert parse(["w=800"]) == parse(["w=800", "zoom=1.0,1.00"])
       assert parse(["w=800"]) == parse(["w=800", "dpr=1"])
+    end
+
+    test "ratio spellings and false enlargement canonicalize to equal crop data" do
+      base = ["crop=600,400", "crop-ratio=3:2"]
+
+      assert parse(base) == parse(["crop=600,400", "crop-ratio=1.5"])
+      assert parse(base) == parse(["crop=600,400", "crop-ratio=1.500"])
+      assert parse(base) == parse(base ++ ["crop-ratio-enlarge=false"])
     end
   end
 

@@ -15,6 +15,8 @@
     { label: "Zoom", options: "w=400/zoom=1.5" },
     { label: "Minimum size", options: "w=200/min-w=400/enlarge" },
     { label: "Square crop", options: "w=400/h=400/fit=cover" },
+    { label: "Crop ratio", options: "crop=80pct,80pct/crop-ratio=16:9/w=600" },
+    { label: "Symmetric trim", options: "trim=auto/trim-symmetry=hv/w=600" },
     { label: "Blur", options: "w=800/blur=3" },
     { label: "Padding", options: "w=600/pad=24/bg=fff" },
     { label: "Resize then trim", options: "w=500/then/trim=fff" },

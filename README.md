@@ -104,8 +104,8 @@ keys are configured.
 
 The native API currently supports EXIF orientation policy, arbitrary rotation,
 resize modes, minimum dimensions, DPR and zoom, guided and explicit-region crops,
-flips, anchors and focal points,
-trim, blur, grayscale, bitonal, padding, background, image format and quality,
+flips, anchors and focal points, crop-ratio correction, symmetric trimming,
+blur, grayscale, bitonal, padding, background, image format and quality,
 BlurHash, debug headers, expiry, presets, and signed URLs. It accepts local
 paths and HTTP(S) source URLs. Invalid requests fail before cache lookup or
 source fetch.

@@ -31,7 +31,7 @@ streaming, cache, color, decode, and orientation behavior.
 The native API implements these option keys:
 
 `orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `min-w`, `min-h`, `dpr`,
-`zoom`, `crop`, `region`,
+`zoom`, `crop`, `crop-ratio`, `crop-ratio-enlarge`, `region`, `trim-symmetry`,
 `anchor`, `focus`, `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
 `debug`, `expires`, `preset`.
 
@@ -136,6 +136,18 @@ happens once, and only the first group may inform shrink-on-load.
 BlurHash's terminal reduction contributes a decode hint only for a single
 group. Multi-group requests preserve the first group's input scale unless
 that group explicitly resizes it.
+
+### Crop ratios and trim symmetry
+
+`crop-ratio=16:9` (or a positive decimal such as `1.5`) corrects the guided
+crop box to that aspect ratio by reducing one dimension. Add
+`crop-ratio-enlarge` to grow the other dimension instead. The corrected box
+is uniformly capped to the current image bounds, then placed using the crop
+guide. Ratio correction uses display axes and physical source pixels.
+
+`trim-symmetry=h`, `v`, or `hv` removes equal amounts from opposing edges
+on the selected display axes. It uses the smaller detected inset, preserving
+all foreground content. It requires `trim` in the same group.
 
 ### DPR, zoom, offsets, and padding
 

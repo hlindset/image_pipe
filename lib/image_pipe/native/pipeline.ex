@@ -37,6 +37,7 @@ defmodule ImagePipe.Native.Pipeline do
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Lowering
   alias ImagePipe.Transform.NeutralResolver
+  alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.PendingOrientation
@@ -125,8 +126,8 @@ defmodule ImagePipe.Native.Pipeline do
   defp crop_extent(%Group{region: {_x, _y, w, h}}, {dw, dh}),
     do: {round(resolve_length(w, dw)), round(resolve_length(h, dh))}
 
-  defp crop_extent(%Group{crop: {w, h}}, {dw, dh}),
-    do: {round(resolve_length(w, dw)), round(resolve_length(h, dh))}
+  defp crop_extent(%Group{crop: {_w, _h}} = group, display_dims),
+    do: crop_dimensions(group, display_dims)
 
   defp crop_extent(%Group{}, _display_dims), do: nil
 
@@ -216,7 +217,7 @@ defmodule ImagePipe.Native.Pipeline do
   defp run_group(state, shape, %Group{} = group, ctx) do
     with {:ok, state, shape} <- rotate_group(state, shape, group.rotate, ctx),
          {:ok, state, shape} <- flip_group(state, shape, group.flip, ctx),
-         {:ok, state, shape} <- trim_group(state, shape, group.trim, ctx) do
+         {:ok, state, shape} <- trim_group(state, shape, group, ctx) do
       run_group_body(state, shape, group, ctx)
     end
   end
@@ -231,9 +232,9 @@ defmodule ImagePipe.Native.Pipeline do
   defp flip_group(state, shape, axis, ctx),
     do: run_op(state, shape, %Operation.Flip{axis: axis}, ctx)
 
-  defp trim_group(state, shape, nil, _ctx), do: {:ok, state, shape}
+  defp trim_group(state, shape, %Group{trim: nil}, _ctx), do: {:ok, state, shape}
 
-  defp trim_group(state, shape, trim, ctx) do
+  defp trim_group(state, shape, %Group{} = group, ctx) do
     with {:ok, state} <- flush_boundary(state, shape, ctx) do
       {width, height} = ctx.measure_dims.(state.image)
 
@@ -245,7 +246,7 @@ defmodule ImagePipe.Native.Pipeline do
         decode_shrink: nil
       }
 
-      run_op(state, shape, trim_op(trim), ctx)
+      run_op(state, shape, trim_op(group.trim, group.trim_symmetry), ctx)
     end
   end
 
@@ -518,20 +519,20 @@ defmodule ImagePipe.Native.Pipeline do
   defp pad_name({0, 0, 0, 0}), do: nil
   defp pad_name({_top, _right, _bottom, _left}), do: :padding
 
-  defp trim_op(:auto), do: build_trim_op(@default_trim_threshold, :auto)
+  defp trim_op(:auto, symmetry), do: build_trim_op(@default_trim_threshold, :auto, symmetry)
 
-  defp trim_op({{r, g, b}, tolerance}) do
+  defp trim_op({{r, g, b}, tolerance}, symmetry) do
     {:ok, color} = Color.rgb(r, g, b)
-    build_trim_op(tolerance * 1.0, color)
+    build_trim_op(tolerance * 1.0, color, symmetry)
   end
 
-  defp build_trim_op(threshold, background) do
+  defp build_trim_op(threshold, background, symmetry) do
     {:ok, op} =
       Operation.trim(
         threshold: threshold,
         background: background,
-        equal_hor: false,
-        equal_ver: false
+        equal_hor: symmetry in [:horizontal, :both],
+        equal_ver: symmetry in [:vertical, :both]
       )
 
     op
@@ -549,11 +550,13 @@ defmodule ImagePipe.Native.Pipeline do
     op
   end
 
-  defp crop_op(%Group{crop: {w, h}, guide: guide}, {dw, dh}) do
+  defp crop_op(%Group{crop: {_w, _h}, guide: guide} = group, display_dims) do
+    {width, height} = crop_dimensions(group, display_dims)
+
     {:ok, op} =
       Operation.crop_guided(
-        px(resolve_length(w, dw)),
-        px(resolve_length(h, dh)),
+        px(width),
+        px(height),
         plan_guide(guide)
       )
 
@@ -561,6 +564,18 @@ defmodule ImagePipe.Native.Pipeline do
   end
 
   defp crop_op(%Group{}, _display_dims), do: nil
+
+  defp crop_dimensions(%Group{crop: {w, h}} = group, {dw, dh}) do
+    crop = %Crop{
+      width: {:pixels, round(resolve_length(w, dw))},
+      height: {:pixels, round(resolve_length(h, dh))},
+      crop_from: :gravity,
+      aspect_ratio: group.crop_ratio,
+      enlarge: group.crop_ratio_enlarge
+    }
+
+    Crop.resolved_box_dims(crop, dw, dh)
+  end
 
   defp resize_op(nil, _guide), do: nil
 

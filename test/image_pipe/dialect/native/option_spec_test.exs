@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
 
   alias ImagePipe.Native.OptionSpec
 
-  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom crop region anchor focus blur trim pad bg orient output format q debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom crop crop-ratio crop-ratio-enlarge region anchor focus blur trim trim-symmetry pad bg orient output format q debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -116,6 +116,45 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_crop("80pct,60pct") == {:ok, {{:pct, 80}, {:pct, 60}}}
     end
 
+    test "parse_crop_ratio reduces ratio and decimal spellings to tagged integers" do
+      assert OptionSpec.parse_crop_ratio("3:2") == {:ok, {:ratio, 3, 2}}
+      assert OptionSpec.parse_crop_ratio("6:4") == {:ok, {:ratio, 3, 2}}
+      assert OptionSpec.parse_crop_ratio("1.5") == {:ok, {:ratio, 3, 2}}
+      assert OptionSpec.parse_crop_ratio("1.500") == {:ok, {:ratio, 3, 2}}
+      assert OptionSpec.parse_crop_ratio("2") == {:ok, {:ratio, 2, 1}}
+    end
+
+    test "parse_crop_ratio rejects zero, signs, malformed ratios, and exponent notation" do
+      for value <- [
+            "0",
+            "0.0",
+            "0:1",
+            "1:0",
+            "-1",
+            "+1:2",
+            "1:-2",
+            "1.5:2",
+            "1:2:3",
+            "1e2"
+          ] do
+        assert OptionSpec.parse_crop_ratio(value) == {:error, :invalid_crop_ratio}
+      end
+    end
+
+    test "parse_crop_ratio reserves float headroom for a signed-32-bit pixel axis" do
+      safe = String.duplicate("9", 298)
+      overflow = String.duplicate("9", 300)
+      huge = String.duplicate("9", 400)
+
+      assert {:ok, {:ratio, _numerator, 1}} = OptionSpec.parse_crop_ratio("#{safe}:1")
+      assert {:ok, {:ratio, 1, _denominator}} = OptionSpec.parse_crop_ratio("1:#{safe}")
+      assert OptionSpec.parse_crop_ratio("#{overflow}:1") == {:error, :invalid_crop_ratio}
+      assert OptionSpec.parse_crop_ratio("1:#{overflow}") == {:error, :invalid_crop_ratio}
+      assert OptionSpec.parse_crop_ratio("#{huge}:1") == {:error, :invalid_crop_ratio}
+      assert OptionSpec.parse_crop_ratio("1:#{huge}") == {:error, :invalid_crop_ratio}
+      assert OptionSpec.parse_crop_ratio("#{huge}:#{huge}") == {:ok, {:ratio, 1, 1}}
+    end
+
     test "parse_region parses an x,y,w,h length quad" do
       assert OptionSpec.parse_region("0,0,600,400") ==
                {:ok, {{:px, 0}, {:px, 0}, {:px, 600}, {:px, 400}}}
@@ -144,6 +183,13 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_trim("auto") == {:ok, :auto}
       assert OptionSpec.parse_trim("fff") == {:ok, {{255, 255, 255}, nil}}
       assert OptionSpec.parse_trim("fff,10") == {:ok, {{255, 255, 255}, 10}}
+    end
+
+    test "parse_trim_symmetry accepts horizontal, vertical, or both axes" do
+      assert OptionSpec.parse_trim_symmetry("h") == {:ok, :horizontal}
+      assert OptionSpec.parse_trim_symmetry("v") == {:ok, :vertical}
+      assert OptionSpec.parse_trim_symmetry("hv") == {:ok, :both}
+      assert OptionSpec.parse_trim_symmetry("vh") == {:error, :invalid_trim_symmetry}
     end
 
     test "parse_bg accepts color-only and color+alpha" do

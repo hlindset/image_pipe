@@ -413,6 +413,8 @@ defmodule ImagePipe.Native.Parser do
         guide_consumer,
         guide_prereq_errored
       ) ++
+      crop_ratio_dependent_errors(group_map, occurrences, group_index) ++
+      trim_dependent_errors(group_map, occurrences, group_index) ++
       lone_auto_dimension_errors(group_map, occurrences, group_index, resize_prereq_errored)
   end
 
@@ -459,6 +461,39 @@ defmodule ImagePipe.Native.Parser do
         "focus",
         guide_requirement
       )
+  end
+
+  defp crop_ratio_dependent_errors(group_map, occurrences, group_index) do
+    crop_errored = group_key_errored?(occurrences, group_index, "crop")
+    ratio_errored = group_key_errored?(occurrences, group_index, "crop-ratio")
+    ratio_present = Map.has_key?(group_map, "crop-ratio")
+
+    inert_if(
+      ratio_present and not Map.has_key?(group_map, "crop") and not crop_errored,
+      occurrences,
+      group_index,
+      "crop-ratio",
+      "crop"
+    ) ++
+      inert_if(
+        Map.get(group_map, "crop-ratio-enlarge", false) and not ratio_present and
+          not ratio_errored,
+        occurrences,
+        group_index,
+        "crop-ratio-enlarge",
+        "crop-ratio"
+      )
+  end
+
+  defp trim_dependent_errors(group_map, occurrences, group_index) do
+    inert_if(
+      Map.has_key?(group_map, "trim-symmetry") and not Map.has_key?(group_map, "trim") and
+        not group_key_errored?(occurrences, group_index, "trim"),
+      occurrences,
+      group_index,
+      "trim-symmetry",
+      "trim"
+    )
   end
 
   # A prerequisite key present in the group but whose value failed to parse
@@ -583,8 +618,11 @@ defmodule ImagePipe.Native.Parser do
       bitonal: Map.get(group_map, "bitonal", false),
       dpr: Map.get(group_map, "dpr", 1.0),
       trim: assemble_trim(Map.get(group_map, "trim")),
+      trim_symmetry: Map.get(group_map, "trim-symmetry"),
       region: Map.get(group_map, "region"),
       crop: Map.get(group_map, "crop"),
+      crop_ratio: Map.get(group_map, "crop-ratio"),
+      crop_ratio_enlarge: Map.get(group_map, "crop-ratio-enlarge", false),
       guide: assemble_guide(group_map, resize != nil),
       resize: resize,
       blur: assemble_blur(Map.get(group_map, "blur")),
@@ -697,6 +735,10 @@ defmodule ImagePipe.Native.Parser do
   def message_for(:invalid_min_dimension), do: "invalid value: expected positive integer px"
   def message_for(:invalid_dpr), do: "invalid value: expected a positive finite decimal"
   def message_for(:invalid_zoom), do: "invalid value: expected a positive scalar or x,y pair"
+  def message_for(:invalid_crop_ratio), do: "invalid value: expected a positive a:b or decimal"
+
+  def message_for(:invalid_trim_symmetry),
+    do: "invalid value: expected h, v, or hv"
 
   def message_for(:invalid_fit),
     do: "invalid value: expected contain, cover, cover-down, stretch, or auto"

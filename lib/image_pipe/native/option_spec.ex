@@ -91,6 +91,8 @@ defmodule ImagePipe.Native.OptionSpec do
 
   @preset_name_pattern ~r/\A[A-Za-z0-9._-]+\z/
   @positive_decimal_pattern ~r/\A[0-9]+(?:\.[0-9]+)?\z/
+  @unsigned_integer_pattern ~r/\A[0-9]+\z/
+  @max_vips_axis 2_147_483_647
 
   @doc """
   Every declared probe-subset option, in a stable order matching the
@@ -269,6 +271,32 @@ defmodule ImagePipe.Native.OptionSpec do
         examples: ["crop=600,400"]
       },
       %__MODULE__{
+        key: "crop-ratio",
+        scope: :group,
+        value: &__MODULE__.parse_crop_ratio/1,
+        stage: 4,
+        default: nil,
+        prerequisites: [:crop],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Crop aspect ratio as a:b or a positive decimal",
+        examples: ["crop-ratio=3:2", "crop-ratio=1.5"]
+      },
+      %__MODULE__{
+        key: "crop-ratio-enlarge",
+        scope: :group,
+        value: :flag,
+        stage: 4,
+        default: false,
+        prerequisites: [:crop_ratio],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Allow crop ratio correction to enlarge the crop box",
+        examples: ["crop-ratio-enlarge"]
+      },
+      %__MODULE__{
         key: "region",
         scope: :group,
         value: &__MODULE__.parse_region/1,
@@ -332,6 +360,19 @@ defmodule ImagePipe.Native.OptionSpec do
         terminal_applicability: :both,
         summary: "Trim a surrounding background: auto, or color[,tolerance]",
         examples: ["trim=auto", "trim=fff,10"]
+      },
+      %__MODULE__{
+        key: "trim-symmetry",
+        scope: :group,
+        value: &__MODULE__.parse_trim_symmetry/1,
+        stage: 3,
+        default: nil,
+        prerequisites: [:trim],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Make trim margins symmetric horizontally, vertically, or on both axes",
+        examples: ["trim-symmetry=h", "trim-symmetry=v", "trim-symmetry=hv"]
       },
       %__MODULE__{
         key: "pad",
@@ -553,6 +594,85 @@ defmodule ImagePipe.Native.OptionSpec do
   end
 
   @doc false
+  @spec parse_crop_ratio(String.t()) ::
+          {:ok, {:ratio, pos_integer(), pos_integer()}} | {:error, :invalid_crop_ratio}
+  def parse_crop_ratio(string) do
+    result =
+      case String.split(string, ":") do
+        [decimal] -> decimal_ratio(decimal)
+        [numerator, denominator] -> integer_ratio(numerator, denominator)
+        _invalid_arity -> :error
+      end
+
+    case result do
+      {:ok, {numerator, denominator}} ->
+        ratio = normalized_ratio(numerator, denominator)
+
+        if pixel_geometry_ratio?(ratio) do
+          {:ok, ratio}
+        else
+          {:error, :invalid_crop_ratio}
+        end
+
+      :error ->
+        {:error, :invalid_crop_ratio}
+    end
+  end
+
+  defp decimal_ratio(string) do
+    if Regex.match?(@positive_decimal_pattern, string) do
+      case String.split(string, ".", parts: 2) do
+        [integer] ->
+          positive_ratio_parts(String.to_integer(integer), 1)
+
+        [integer, fraction] ->
+          denominator = Integer.pow(10, String.length(fraction))
+          numerator = String.to_integer(integer) * denominator + String.to_integer(fraction)
+          positive_ratio_parts(numerator, denominator)
+      end
+    else
+      :error
+    end
+  end
+
+  defp integer_ratio(numerator, denominator) do
+    with true <- Regex.match?(@unsigned_integer_pattern, numerator),
+         true <- Regex.match?(@unsigned_integer_pattern, denominator),
+         {numerator, ""} <- Integer.parse(numerator),
+         {denominator, ""} <- Integer.parse(denominator) do
+      positive_ratio_parts(numerator, denominator)
+    else
+      _invalid -> :error
+    end
+  end
+
+  defp positive_ratio_parts(numerator, denominator)
+       when numerator > 0 and denominator > 0,
+       do: {:ok, {numerator, denominator}}
+
+  defp positive_ratio_parts(_numerator, _denominator), do: :error
+
+  defp normalized_ratio(numerator, denominator) do
+    gcd = Integer.gcd(numerator, denominator)
+    {:ratio, div(numerator, gcd), div(denominator, gcd)}
+  end
+
+  # Crop geometry may multiply either direction of the ratio by a libvips
+  # image axis. Reject public numeric input unless both directions survive
+  # that arithmetic as positive finite BEAM floats. Integer-to-float
+  # conversion and float overflow raise `ArithmeticError`; this rescue is
+  # intentionally limited to the request numeric boundary.
+  defp pixel_geometry_ratio?({:ratio, numerator, denominator}) do
+    ratio = numerator / denominator
+    reciprocal = denominator / numerator
+
+    ratio > 0.0 and reciprocal > 0.0 and
+      ratio * @max_vips_axis > 0.0 and reciprocal * @max_vips_axis > 0.0
+  rescue
+    ArithmeticError -> false
+  end
+
+  @doc false
   @spec parse_region(String.t()) ::
           {:ok, {length_value(), length_value(), length_value(), length_value()}}
           | {:error, atom()}
@@ -646,6 +766,14 @@ defmodule ImagePipe.Native.OptionSpec do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc false
+  @spec parse_trim_symmetry(String.t()) ::
+          {:ok, :horizontal | :vertical | :both} | {:error, :invalid_trim_symmetry}
+  def parse_trim_symmetry("h"), do: {:ok, :horizontal}
+  def parse_trim_symmetry("v"), do: {:ok, :vertical}
+  def parse_trim_symmetry("hv"), do: {:ok, :both}
+  def parse_trim_symmetry(_value), do: {:error, :invalid_trim_symmetry}
 
   defp parse_tolerance(string) do
     case Value.number(string) do
