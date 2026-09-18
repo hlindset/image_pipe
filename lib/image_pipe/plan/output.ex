@@ -17,6 +17,9 @@ defmodule ImagePipe.Plan.Output do
   future dialect/host default.
 
   `quality_search` and `max_bytes` are resolved defaults (`:none`/`nil` = off).
+  `quality_search_max_iterations` carries the host's iterative search budget
+  through output resolution to encoding and participates in identity when a
+  search or byte cap is active.
 
   `encoder_options` maps an output `format()` to its libvips-native encoder
   option struct (`JpegOptions`/`PngOptions`/`WebpOptions`/`AvifOptions`/`JxlOptions`).
@@ -46,6 +49,7 @@ defmodule ImagePipe.Plan.Output do
             hdr: :tone_map,
             flatten_background: Color.white(),
             quality_search: :none,
+            quality_search_max_iterations: 6,
             max_bytes: nil,
             quality_search_offsets: @default_quality_search_offsets,
             encoder_options: %{}
@@ -74,6 +78,7 @@ defmodule ImagePipe.Plan.Output do
             | ImagePipe.Plan.Output.QualitySearch.Size.t()
             | ImagePipe.Plan.Output.QualitySearch.Ssimulacra2.t()
             | ImagePipe.Plan.Output.QualitySearch.Butteraugli.t(),
+          quality_search_max_iterations: pos_integer(),
           max_bytes: nil | pos_integer(),
           quality_search_offsets: quality_search_offsets(),
           encoder_options: %{optional(format()) => struct()}

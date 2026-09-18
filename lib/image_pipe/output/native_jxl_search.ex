@@ -9,7 +9,8 @@ defmodule ImagePipe.Output.NativeJxlSearch do
   `{:ok, binary(), EncodeSearch.meta()}` execution contract. The distance target is
   clamped into the `[min_quality, max_quality]` Q-bracket via the libjxl Q→distance
   mapping (`ImagePipe.Output.JxlDistance`); `max_bytes` is honored by geometrically
-  raising distance until the bytes fit (or the 25.0 ceiling), emitting the same
+  raising distance until the bytes fit, the 25.0 ceiling, or the configured
+  attempt limit, emitting the same
   `[:encode, :search]` span as the external search so observers read one stage.
   """
 
@@ -40,6 +41,7 @@ defmodule ImagePipe.Output.NativeJxlSearch do
       nqs,
       resolved.max_bytes,
       Resolved.jxl_effort(resolved),
+      resolved.quality_search_max_iterations,
       telemetry_opts
     )
   end
@@ -47,7 +49,7 @@ defmodule ImagePipe.Output.NativeJxlSearch do
   # libvips drives JXL `distance` directly: there is no external measure and no
   # band loop. We clamp the target into the Q-bracket's distance range, then
   # either encode once (no max_bytes) or degrade distance until the bytes fit.
-  defp native_jxl_butteraugli(image, nqs, max_bytes, effort, telemetry_opts) do
+  defp native_jxl_butteraugli(image, nqs, max_bytes, effort, max_attempts, telemetry_opts) do
     # Q-bracket → distance bracket; clamp the target. `dist` is decreasing in Q,
     # so max_quality is the distance floor (lowest distance / highest quality
     # allowed) and min_quality is the distance ceiling.
@@ -56,19 +58,19 @@ defmodule ImagePipe.Output.NativeJxlSearch do
     effective = nqs.target |> max(dist_floor) |> min(dist_ceil)
 
     Telemetry.span(telemetry_opts, [:encode, :search], native_start_meta(nqs, max_bytes), fn ->
-      result = native_encode(image, effective, effort, max_bytes)
+      result = native_encode(image, effective, effort, max_bytes, max_attempts)
       {result, native_stop_meta(result)}
     end)
   end
 
-  defp native_encode(image, distance, effort, nil) do
+  defp native_encode(image, distance, effort, nil, _max_attempts) do
     with {:ok, bin} <- Encoder.encode_jxl_distance(image, distance, effort) do
       {:ok, bin, native_meta(bin, :native, nil)}
     end
   end
 
-  defp native_encode(image, distance, effort, max_bytes) do
-    native_descend(image, distance, effort, max_bytes)
+  defp native_encode(image, distance, effort, max_bytes, max_attempts) do
+    native_descend(image, distance, effort, max_bytes, max_attempts)
   end
 
   # Raise distance (degrade) from the clamped target until bytes fit or we hit the
@@ -76,13 +78,13 @@ defmodule ImagePipe.Output.NativeJxlSearch do
   # `effective` is always <= dist_ceil = from_quality(min_quality) <= ~14.5
   # (min_quality >= 1), and `min/2` caps each step at exactly 25.0, so the
   # recursion saturates at @native_distance_max in finite steps.
-  defp native_descend(image, distance, effort, max_bytes) do
+  defp native_descend(image, distance, effort, max_bytes, attempts_left) do
     with {:ok, bin} <- Encoder.encode_jxl_distance(image, distance, effort) do
       cond do
         byte_size(bin) <= max_bytes ->
           {:ok, bin, native_meta(bin, :native, nil)}
 
-        distance >= @native_distance_max ->
+        distance >= @native_distance_max or attempts_left == 1 ->
           {:ok, bin, native_meta(bin, :best_effort, :max_bytes)}
 
         true ->
@@ -90,7 +92,8 @@ defmodule ImagePipe.Output.NativeJxlSearch do
             image,
             min(@native_distance_max, distance * 1.5 + 0.5),
             effort,
-            max_bytes
+            max_bytes,
+            attempts_left - 1
           )
       end
     end

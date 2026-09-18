@@ -213,7 +213,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
     encode_fun = fn quality -> encode_leg(finalized_image, resolved, quality, telemetry_opts) end
     scorer = Keyword.get(opts, :scorer, :full)
-    max_iterations = Keyword.get(opts, :max_iterations, @default_max_iterations)
+    max_iterations = resolved.quality_search_max_iterations
 
     with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer, telemetry_opts) do
       base_quality = base_quality(resolved)

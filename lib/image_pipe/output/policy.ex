@@ -26,6 +26,7 @@ defmodule ImagePipe.Output.Policy do
                 flatten_background: Color.white(),
                 default_quality: :default,
                 quality_search: :none,
+                quality_search_max_iterations: 6,
                 max_bytes: nil,
                 quality_search_offsets: Output.default_quality_search_offsets(),
                 encoder_options: %{},
@@ -60,6 +61,7 @@ defmodule ImagePipe.Output.Policy do
             | Output.QualitySearch.Size.t()
             | Output.QualitySearch.Ssimulacra2.t()
             | Output.QualitySearch.Butteraugli.t(),
+          quality_search_max_iterations: pos_integer(),
           max_bytes: nil | pos_integer(),
           quality_search_offsets: Output.quality_search_offsets(),
           encoder_options: %{optional(format()) => struct()},
@@ -83,6 +85,7 @@ defmodule ImagePipe.Output.Policy do
       color_profile: output.color_profile,
       flatten_background: output.flatten_background,
       quality_search: output.quality_search,
+      quality_search_max_iterations: output.quality_search_max_iterations,
       max_bytes: output.max_bytes,
       quality_search_offsets: output.quality_search_offsets,
       encoder_options: output.encoder_options,
@@ -103,6 +106,7 @@ defmodule ImagePipe.Output.Policy do
       color_profile: output.color_profile,
       flatten_background: output.flatten_background,
       quality_search: output.quality_search,
+      quality_search_max_iterations: output.quality_search_max_iterations,
       max_bytes: output.max_bytes,
       quality_search_offsets: output.quality_search_offsets,
       encoder_options: output.encoder_options,
@@ -140,6 +144,7 @@ defmodule ImagePipe.Output.Policy do
       default_quality: policy.default_quality,
       format_qualities: policy.format_qualities,
       quality_search: quality_search_identity(policy.quality_search),
+      quality_search_max_iterations: search_iteration_identity(policy),
       quality_search_offsets: policy.quality_search_offsets,
       max_bytes: policy.max_bytes,
       strip_metadata: policy.strip_metadata,
@@ -232,6 +237,7 @@ defmodule ImagePipe.Output.Policy do
       color_profile: policy.color_profile,
       flatten_background: policy.flatten_background,
       quality_search: resolve_search(policy, format),
+      quality_search_max_iterations: policy.quality_search_max_iterations,
       max_bytes: policy.max_bytes,
       encoder_options: Map.get(policy.encoder_options, format)
     }
@@ -308,6 +314,23 @@ defmodule ImagePipe.Output.Policy do
   defp default_for(%__MODULE__{default_quality: default_quality}, _format), do: default_quality
 
   defp accept_header(conn), do: conn |> get_req_header("accept") |> Enum.join(",")
+
+  defp search_iteration_identity(%__MODULE__{quality_search: :none, max_bytes: nil}), do: nil
+
+  defp search_iteration_identity(%__MODULE__{mode: {:explicit, :png}}), do: nil
+
+  defp search_iteration_identity(
+         %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{}, max_bytes: nil} = policy
+       ) do
+    case identity_selection(policy) do
+      {:explicit, :jpeg_xl} -> nil
+      {:auto_head, :jpeg_xl} -> nil
+      _iterative -> policy.quality_search_max_iterations
+    end
+  end
+
+  defp search_iteration_identity(%__MODULE__{quality_search_max_iterations: iterations}),
+    do: iterations
 
   # Canonicalized quality-search identity: structs must not reach the digest
   # directly (MaterialDigest.canonicalize/1 maps over maps but structs aren't

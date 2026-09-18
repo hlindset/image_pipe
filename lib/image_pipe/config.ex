@@ -143,6 +143,7 @@ defmodule ImagePipe.Config do
            color_profile: color_profile_policy(Keyword.fetch!(resolved, :strip_color_profile)),
            hdr: hdr_policy(Keyword.fetch!(resolved, :preserve_hdr)),
            encoder_options: encoder_options_from_config(resolved),
+           quality_search_max_iterations: Keyword.fetch!(resolved, :autoquality_max_iterations),
            quality_search: quality_search
        }}
     end

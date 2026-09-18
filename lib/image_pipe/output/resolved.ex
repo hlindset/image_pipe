@@ -15,6 +15,7 @@ defmodule ImagePipe.Output.Resolved do
               [
                 flatten_background: Color.white(),
                 quality_search: :none,
+                quality_search_max_iterations: 6,
                 max_bytes: nil,
                 encoder_options: nil
               ]
@@ -35,6 +36,7 @@ defmodule ImagePipe.Output.Resolved do
             | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t()
             | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t()
             | ImagePipe.Output.ResolvedQualitySearch.NativeJxlButteraugli.t(),
+          quality_search_max_iterations: pos_integer(),
           max_bytes: nil | pos_integer(),
           encoder_options:
             nil
