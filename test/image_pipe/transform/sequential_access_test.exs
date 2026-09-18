@@ -85,23 +85,23 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     )
   end
 
-  test "fit resize streams" do
+  test "resize to a landscape target streams" do
     assert_sequential_matches_random(
-      [%Resize{mode: :fit, width: {:pixels, 120}, height: :auto}],
+      [%Resize{width: 120, height: 80}],
       File.read!(@dog)
     )
   end
 
-  test "fill resize streams" do
+  test "resize to a portrait target streams" do
     assert_sequential_matches_random(
-      [%Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}],
+      [%Resize{width: 100, height: 200}],
       File.read!(@beach)
     )
   end
 
-  test "force resize streams" do
+  test "resize to a square target streams" do
     assert_sequential_matches_random(
-      [%Resize{mode: :force, width: {:pixels, 100}, height: {:pixels, 100}}],
+      [%Resize{width: 100, height: 100}],
       File.read!(@beach)
     )
   end
@@ -132,7 +132,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     assert_sequential_matches_random(
       [
         %ExtendCanvas{
-          rule: {:dimensions, {:pixels, 400}, {:pixels, 400}},
+          rule: {:dimensions, 400, 400},
           gravity: {:anchor, :center, :center},
           background: :transparent
         }
@@ -262,12 +262,12 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     end
   end
 
-  property "fit resize streams across varied targets" do
+  property "proportional resize streams across varied targets" do
     body = File.read!(@dog)
 
     check all(w <- integer(16..400), max_runs: 12) do
       assert_sequential_matches_random(
-        [%Resize{mode: :fit, width: {:pixels, w}, height: :auto}],
+        [%Resize{width: w, height: w * 2}],
         body
       )
     end
@@ -320,7 +320,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     end
   end
 
-  property "fill resize streams across varied targets" do
+  property "resize streams across independently varied target axes" do
     body = File.read!(@beach)
 
     check all(
@@ -329,7 +329,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
             max_runs: 12
           ) do
       assert_sequential_matches_random(
-        [%Resize{mode: :fill, width: {:pixels, w}, height: {:pixels, h}}],
+        [%Resize{width: w, height: h}],
         body
       )
     end

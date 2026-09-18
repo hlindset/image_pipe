@@ -139,7 +139,7 @@ defmodule ImagePipe.DecodeTest do
 
     assert {:ok, %State{} = resized} =
              Chain.execute(state, [
-               %ExecutableResize{mode: :fit, width: {:pixels, 100}, height: :auto}
+               %ExecutableResize{width: 100, height: 100}
              ])
 
     assert Image.width(resized.image) == 100

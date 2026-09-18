@@ -17,7 +17,7 @@ defmodule ImagePipe.Transform.ChainTest do
   doctest ImagePipe.Transform.Chain
 
   test "transform name is delegated to operation module" do
-    operation = %Resize{mode: :fit, width: {:pixels, 10}, height: :auto}
+    operation = %Resize{width: 10, height: 10}
 
     assert Transform.transform_name(operation) == :resize
     assert Transform.transform_name(%Brightness{value: 20}) == :brightness
@@ -41,8 +41,8 @@ defmodule ImagePipe.Transform.ChainTest do
     {:ok, image} = Image.new(200, 100, color: :white)
 
     chain = [
-      %Resize{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}},
-      %ExtendCanvas{rule: {:dimensions, {:pixels, 100}, {:pixels, 100}}}
+      %Resize{width: 100, height: 50},
+      %ExtendCanvas{rule: {:dimensions, 100, 100}}
     ]
 
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
@@ -54,7 +54,7 @@ defmodule ImagePipe.Transform.ChainTest do
     {:ok, image} = Image.new(200, 100, color: :white)
 
     chain = [
-      %Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}},
+      %Resize{width: 200, height: 100},
       %Crop{
         width: {:pixels, 100},
         height: {:pixels, 100},
@@ -77,7 +77,7 @@ defmodule ImagePipe.Transform.ChainTest do
       |> Image.Draw.rect!(200, 0, 100, 100, color: :blue)
 
     chain = [
-      %Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}},
+      %Resize{width: 300, height: 100},
       %Crop{
         width: {:pixels, 100},
         height: {:pixels, 100},
@@ -134,49 +134,6 @@ defmodule ImagePipe.Transform.ChainTest do
     assert Image.width(image) == 100
     assert Image.height(image) == 100
     assert Image.get_pixel!(image, 50, 50) == [0, 0, 255]
-  end
-
-  test "fill resize crops to min-adjusted target dimensions" do
-    for mode <- [:fill, :fill_down] do
-      {:ok, image} = Image.new(1000, 500, color: :white)
-
-      chain = [
-        %Resize{
-          mode: mode,
-          width: {:pixels, 100},
-          height: {:pixels, 100},
-          min_width: {:pixels, 300}
-        },
-        %Crop{
-          width: {:pixels, 300},
-          height: {:pixels, 300},
-          crop_from: :gravity,
-          gravity: {:anchor, :center, :center}
-        }
-      ]
-
-      assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
-      assert Image.width(image) == 300
-      assert Image.height(image) == 300
-    end
-  end
-
-  test "fill-down crops clamped images to the requested aspect ratio" do
-    {:ok, image} = Image.new(200, 100, color: :white)
-
-    chain = [
-      %Resize{mode: :fill_down, width: {:pixels, 300}, height: {:pixels, 300}, enlarge: true},
-      %Crop{
-        width: {:pixels, 100},
-        height: {:pixels, 100},
-        crop_from: :gravity,
-        gravity: {:anchor, :center, :center}
-      }
-    ]
-
-    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
-    assert Image.width(image) == 100
-    assert Image.height(image) == 100
   end
 
   test "background composites alpha onto a transparent source" do

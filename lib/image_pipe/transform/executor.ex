@@ -68,8 +68,7 @@ defmodule ImagePipe.Transform.Executor do
       crop_extent: decode_crop_extent(group, crop_frame),
       user_quarter_turn?: quarter_turn?,
       trim?: group.trim != nil,
-      terminal_reduction: decode_terminal_reduction(request),
-      required_extent: nil
+      terminal_reduction: decode_terminal_reduction(request)
     }
   end
 
@@ -101,29 +100,26 @@ defmodule ImagePipe.Transform.Executor do
 
   def reduce_terminal(%State{} = state, %Output{terminal: :blurhash}, opts) do
     {width, height} = @blurhash_terminal_reduction
-    {source_width, source_height} = Geometry.display_effective_dims(state)
 
-    target =
-      Resize.native_target(
-        %Resize{
-          mode: :fit,
-          width: {:pixels, width},
-          height: {:pixels, height},
+    {_mode, target} =
+      Geometry.resize_target(
+        %{
+          fit: :contain,
+          w: width,
+          h: height,
+          min_w: nil,
+          min_h: nil,
+          zoom: {1.0, 1.0},
           enlarge: true
         },
-        source_width: source_width,
-        source_height: source_height
+        1.0,
+        Geometry.display_effective_dims(state)
       )
 
     run_chain(
       state,
       [
-        %Resize{
-          mode: :force,
-          width: {:pixels, target.width},
-          height: {:pixels, target.height},
-          enlarge: true
-        }
+        %Resize{width: target.width, height: target.height}
       ],
       opts
     )
@@ -287,9 +283,12 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_resize(%State{} = state, %Group{} = group, opts) do
     {mode, target} =
-      resize_target(group.resize, group.dpr, Geometry.display_effective_dims(state))
+      Geometry.resize_target(group.resize, group.dpr, Geometry.display_effective_dims(state))
 
-    resize = execution_resize(mode, target)
+    {width, height} =
+      Geometry.resize_dimensions(mode, target, Geometry.display_effective_dims(state))
+
+    resize = %Resize{width: width, height: height}
     tail = resize_tail(mode, target, group.guide, group.anchor_offset)
 
     case Geometry.pending_class(state) do
@@ -297,7 +296,7 @@ defmodule ImagePipe.Transform.Executor do
         pending = state.pending_orientation
 
         {resize, tail} =
-          compensate_resize(resize, tail, pending, Geometry.display_effective_dims(state))
+          compensate_resize(resize, tail, pending)
 
         with {:ok, state} <- run_chain(state, [resize], opts),
              {:ok, state} <- run_optional(state, tail, opts),
@@ -311,28 +310,6 @@ defmodule ImagePipe.Transform.Executor do
           {:ok, state, target.dpr}
         end
     end
-  end
-
-  defp execution_resize(:contain, target), do: force_resize(target)
-  defp execution_resize(:stretch, target), do: force_resize(target)
-  defp execution_resize(:auto_contain, target), do: force_resize(target)
-
-  defp execution_resize(mode, target) when mode in [:cover, :cover_down, :auto_cover] do
-    %Resize{
-      mode: :fill,
-      width: {:pixels, target.width},
-      height: {:pixels, target.height},
-      enlarge: true
-    }
-  end
-
-  defp force_resize(target) do
-    %Resize{
-      mode: :force,
-      width: {:pixels, target.width},
-      height: {:pixels, target.height},
-      enlarge: true
-    }
   end
 
   defp resize_tail(mode, target, guide, offset)
@@ -351,33 +328,15 @@ defmodule ImagePipe.Transform.Executor do
 
   defp resize_tail(_mode, _target, _guide, _offset), do: nil
 
-  defp compensate_resize(resize, tail, pending, display_dims) do
-    if PendingOrientation.quarter_turn?(pending) and tail != nil do
-      {display_width, display_height} = display_dims
+  defp compensate_resize(resize, tail, pending) do
+    resize =
+      case PendingOrientation.quarter_turn?(pending) do
+        true -> Orientation.swap_resize(resize)
+        false -> resize
+      end
 
-      dimensions =
-        Resize.resolve_dimensions(resize,
-          source_width: display_width,
-          source_height: display_height
-        )
-
-      resize = %Resize{
-        mode: :force,
-        width: {:pixels, dimensions.intermediate_height},
-        height: {:pixels, dimensions.intermediate_width},
-        enlarge: true
-      }
-
-      {resize, Geometry.compensate_crop(tail, pending)}
-    else
-      resize =
-        if PendingOrientation.quarter_turn?(pending),
-          do: Orientation.swap_resize(resize),
-          else: resize
-
-      tail = if tail, do: Geometry.compensate_crop(tail, pending), else: nil
-      {resize, tail}
-    end
+    tail = if tail, do: Geometry.compensate_crop(tail, pending), else: nil
+    {resize, tail}
   end
 
   defp run_display_optional(state, nil, _opts), do: {:ok, state}
@@ -479,41 +438,6 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
-  defp resize_target(resize_request, dpr, display_dims) do
-    mode = resolved_resize_mode(resize_request, display_dims)
-    resize = logical_resize(resize_request, dpr, mode)
-    {width, height} = display_dims
-    target = Resize.native_target(resize, source_width: width, source_height: height)
-    {mode, target}
-  end
-
-  defp logical_resize(resize, dpr, mode) do
-    %Resize{
-      mode: resize_operation_mode(mode),
-      width: resize_dimension(resize.w),
-      height: resize_dimension(resize.h),
-      min_width: optional_dimension(resize.min_w),
-      min_height: optional_dimension(resize.min_h),
-      zoom_x: elem(resize.zoom, 0),
-      zoom_y: elem(resize.zoom, 1),
-      dpr: dpr,
-      enlarge: resize.enlarge
-    }
-  end
-
-  defp resize_operation_mode(mode) when mode in [:contain, :auto_contain], do: :fit
-  defp resize_operation_mode(:stretch), do: :force
-  defp resize_operation_mode(:cover_down), do: :fill_down
-  defp resize_operation_mode(mode) when mode in [:cover, :auto_cover], do: :fill
-
-  defp resolved_resize_mode(%{fit: :auto, w: w, h: h, zoom: {zoom_x, zoom_y}}, {sw, sh})
-       when is_integer(w) and is_integer(h) do
-    if sw >= sh == w * zoom_x >= h * zoom_y, do: :auto_cover, else: :auto_contain
-  end
-
-  defp resolved_resize_mode(%{fit: :auto}, _display_dims), do: :auto_contain
-  defp resolved_resize_mode(%{fit: fit}, _display_dims), do: fit
-
   defp crop_offset_dpr(%Group{anchor_offset: nil, dpr: dpr}, _state), do: dpr
   defp crop_offset_dpr(%Group{resize: nil, dpr: dpr}, _state), do: dpr
 
@@ -527,7 +451,7 @@ defmodule ImagePipe.Transform.Executor do
         elem(Geometry.display_effective_dims(state), 1)
       )
 
-    {_mode, target} = resize_target(group.resize, group.dpr, {width, height})
+    {_mode, target} = Geometry.resize_target(group.resize, group.dpr, {width, height})
     target.dpr
   end
 
@@ -671,11 +595,6 @@ defmodule ImagePipe.Transform.Executor do
 
   defp canvas_offset({:px, value}, _dimension, dpr), do: value * dpr
   defp canvas_offset({:pct, value}, dimension, _dpr), do: dimension * value / 100
-
-  defp resize_dimension(:auto), do: :auto
-  defp resize_dimension(value), do: {:pixels, value}
-  defp optional_dimension(nil), do: nil
-  defp optional_dimension(value), do: {:pixels, value}
 
   defp resolve_length({:px, value}, _dimension), do: value
   defp resolve_length({:pct, value}, dimension), do: dimension * value / 100

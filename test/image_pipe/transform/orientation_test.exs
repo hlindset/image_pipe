@@ -145,24 +145,14 @@ defmodule ImagePipe.Transform.OrientationTest do
       refute O.swap_dims?(0) or O.swap_dims?(180)
     end
 
-    test "swap_resize swaps width/height, min, zoom; leaves dpr" do
+    test "swap_resize swaps resolved pixel dimensions" do
       resize = %ImagePipe.Transform.Operation.Resize{
-        mode: :fit,
-        width: {:pixels, 100},
-        height: :auto,
-        min_width: {:pixels, 10},
-        min_height: nil,
-        zoom_x: 2.0,
-        zoom_y: 1.0,
-        dpr: 3.0,
-        enlarge: false
+        width: 100,
+        height: 50
       }
 
       swapped = O.swap_resize(resize)
-      assert swapped.width == :auto and swapped.height == {:pixels, 100}
-      assert swapped.min_width == nil and swapped.min_height == {:pixels, 10}
-      assert swapped.zoom_x == 1.0 and swapped.zoom_y == 2.0
-      assert swapped.dpr == 3.0
+      assert swapped.width == 50 and swapped.height == 100
     end
   end
 

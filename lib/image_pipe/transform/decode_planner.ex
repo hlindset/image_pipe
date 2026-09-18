@@ -24,9 +24,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   Precedence: `trim?` disables shrink; else `resize_target` governs when
   present; else `terminal_reduction` governs (a tiny terminal frame, e.g.
   blurhash, still informs load shrink even with no resize); neither present
-  means no shrink from those inputs. `required_extent` independently caps the
-  chosen shrink so the loaded display-frame extent never falls below that
-  floor.
+  means no shrink from those inputs.
 
   A `resize_target`'s axes are each independently optional, and fractional once
   `dpr`/`zoom` inflate them (see `t:Request.resize_target/0`), so
@@ -63,10 +61,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
 
     base = [access: :sequential, fail_on: :error]
 
-    load_shrink =
-      request
-      |> compute_load_shrink_for_request(shrink_w, shrink_h)
-      |> cap_to_required_extent(request.required_extent, shrink_w, shrink_h)
+    load_shrink = compute_load_shrink_for_request(request, shrink_w, shrink_h)
 
     append_load_option(base, source_format, load_shrink)
   end
@@ -97,17 +92,6 @@ defmodule ImagePipe.Transform.DecodePlanner do
   end
 
   defp compute_load_shrink_for_request(%Request{}, _shrink_w, _shrink_h), do: 1.0
-
-  # `required_extent` is a floor on the *loaded* display-frame extent, not on the
-  # extent feeding a resize/terminal target — so it is measured against the (axis-
-  # swapped) source dims, independent of any crop, exactly like `load_shrink`
-  # itself is bounded from below by 1.0 (never over-shrink past the source).
-  defp cap_to_required_extent(load_shrink, nil, _shrink_w, _shrink_h), do: load_shrink
-
-  defp cap_to_required_extent(load_shrink, {required_w, required_h}, shrink_w, shrink_h) do
-    floor_ratio = ratio_from_targets(shrink_w, shrink_h, required_w, required_h)
-    min(load_shrink, floor_ratio)
-  end
 
   # The resize target is expressed against the *displayed* axes. When the combined
   # net orientation turn (EXIF ∘ user rotate) is a quarter turn, the displayed axes

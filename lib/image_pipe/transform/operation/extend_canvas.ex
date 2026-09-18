@@ -28,19 +28,18 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   - `background`: background fill passed to `Image.embed/4`. Defaults to
     `:white`; `:transparent` is converted to an RGBA transparent color.
 
-  Dimension rules accept non-negative numbers, `{:pixels, value}` with a
-  non-negative value, or `:auto` on each axis. Aspect-ratio rules require
+  Dimension rules accept non-negative pixel numbers. Aspect-ratio rules use
   positive numeric ratio components.
 
   ## Execution Semantics
 
   `execute/2` resolves the canvas size from `rule`, embeds
   `ImagePipe.Transform.State.image` into that canvas, and stores the embedded
-  image back into the state. If dimensions are invalid or embedding fails,
+  image back into the state. If embedding fails,
   execution returns `{:error, {__MODULE__, reason}}`.
 
   For `{:dimensions, width, height}`, each requested dimension resolves against
-  the current image size. `:auto` keeps the current size on that axis. The final
+  the current image size. The final
   canvas width and height are never smaller than the current image.
 
   For `{:aspect_ratio, {ratio_width, ratio_height}}`, execution expands the
@@ -55,7 +54,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   ## Examples
 
       canvas = %ImagePipe.Transform.Operation.ExtendCanvas{
-        rule: {:dimensions, {:pixels, 400}, {:pixels, 300}},
+        rule: {:dimensions, 400, 300},
         gravity: {:anchor, :center, :center},
         x_offset: 0.0,
         y_offset: 0.0
@@ -73,8 +72,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
     only: [
       center_origin: 2,
       image_height: 1,
-      image_width: 1,
-      resolve_dimension: 2
+      image_width: 1
     ]
 
   alias ImagePipe.Transform.State
@@ -88,11 +86,10 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
             background: :white
 
   @type scalar() :: non_neg_integer() | float()
-  @type length() :: scalar() | {:pixels, scalar()}
   @type ratio() :: {pos_integer() | float(), pos_integer() | float()}
 
   @type canvas_rule() ::
-          {:dimensions, length() | :auto, length() | :auto}
+          {:dimensions, scalar(), scalar()}
           | {:aspect_ratio, ratio()}
 
   @type t :: %__MODULE__{
@@ -141,19 +138,14 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   @spec resolved_canvas_dims(canvas_rule(), pos_integer(), pos_integer()) ::
           {:ok, {pos_integer(), pos_integer()}} | {:error, term()}
   def resolved_canvas_dims({:dimensions, width, height}, image_width, image_height) do
-    width = canvas_dimension(image_width, width)
-    height = canvas_dimension(image_height, height)
-
-    {:ok, {max(image_width, width), max(image_height, height)}}
+    {:ok, {max(image_width, round(width)), max(image_height, round(height))}}
   end
 
   def resolved_canvas_dims(
         {:aspect_ratio, {ratio_width, ratio_height}},
         image_width,
         image_height
-      )
-      when is_number(ratio_width) and is_number(ratio_height) and ratio_width > 0 and
-             ratio_height > 0 do
+      ) do
     target_ratio = ratio_width / ratio_height
     source_ratio = image_width / image_height
 
@@ -166,9 +158,6 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
 
     {:ok, {max(image_width, width), max(image_height, height)}}
   end
-
-  def resolved_canvas_dims(rule, _image_width, _image_height),
-    do: {:error, {:invalid_canvas_rule, rule}}
 
   @doc false
   # The realized embed origin of the image content inside the resolved canvas —
@@ -238,17 +227,6 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
 
   defp base_offset(:y, {:anchor, _x, :bottom}, image_size, canvas_size),
     do: canvas_size - image_size
-
-  defp canvas_dimension(current_size, :auto), do: current_size
-
-  defp canvas_dimension(_current_size, {:pixels, value}) when is_number(value) and value >= 0,
-    do: round(value)
-
-  defp canvas_dimension(_current_size, value) when is_number(value) and value >= 0,
-    do: round(value)
-
-  defp canvas_dimension(current_size, size_unit),
-    do: resolve_dimension(size_unit, current_size)
 
   defp alpha_ready_image(image, :transparent) do
     case Image.has_alpha?(image) do

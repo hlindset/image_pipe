@@ -35,9 +35,8 @@ defmodule ImagePipe.Transform.Chain do
 
       iex> chain = [
       ...>   %ImagePipe.Transform.Operation.Resize{
-      ...>     mode: :fit,
-      ...>     width: {:pixels, 100},
-      ...>     height: :auto
+      ...>     width: 100,
+      ...>     height: 100
       ...>   }
       ...> ]
       ...> {:ok, empty_image} = Image.new(500, 500)

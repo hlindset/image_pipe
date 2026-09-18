@@ -85,31 +85,6 @@ defmodule ImagePipe.Transform.DecodePlannerRequestTest do
     assert opts[:shrink] == 4
   end
 
-  # --- required_extent is an independent floor ---
-
-  test "required_extent caps a deeper shrink chosen by terminal_reduction" do
-    # terminal hint alone wants shrink 8 (see above), but a 1600x1200 floor only
-    # allows shrink 2 (3200/1600 = 2400/1200 = 2).
-    request = %Request{terminal_reduction: {32, 32}, required_extent: {1600, 1200}}
-    opts = DecodePlanner.open_options_for(request, :jpeg, {3200, 2400})
-
-    assert opts[:shrink] == 2
-  end
-
-  test "required_extent caps a deeper shrink chosen by resize_target" do
-    request = %Request{resize_target: {100, 100}, required_extent: {1600, 1200}}
-    opts = DecodePlanner.open_options_for(request, :jpeg, {3200, 2400})
-
-    assert opts[:shrink] == 2
-  end
-
-  test "required_extent below the natural shrink has no effect" do
-    request = %Request{resize_target: {800, 600}, required_extent: {100, 100}}
-    opts = DecodePlanner.open_options_for(request, :jpeg, {3200, 2400})
-
-    assert opts[:shrink] == 4
-  end
-
   # --- No inputs -> no shrink from those inputs ---
 
   test "an empty request produces no shrink or scale keys" do

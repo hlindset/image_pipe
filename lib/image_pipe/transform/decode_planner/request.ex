@@ -52,7 +52,6 @@ defmodule ImagePipe.Transform.DecodePlanner.Request do
           crop_extent: extent() | nil,
           trim?: boolean(),
           terminal_reduction: extent() | nil,
-          required_extent: extent() | nil,
           user_quarter_turn?: boolean()
         }
 
@@ -60,6 +59,5 @@ defmodule ImagePipe.Transform.DecodePlanner.Request do
             crop_extent: nil,
             trim?: false,
             terminal_reduction: nil,
-            required_extent: nil,
             user_quarter_turn?: false
 end

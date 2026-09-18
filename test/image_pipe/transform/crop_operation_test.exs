@@ -72,20 +72,6 @@ defmodule ImagePipe.Transform.CropOperationTest do
     assert {100, 200} == dimensions(result)
   end
 
-  test "fractional crop size on an odd dimension rounds half away from zero" do
-    # 401 * 0.5 = 200.5 — a `.5` tie. imgproxy's CalcCropSize rounds crop sizes
-    # half-away-from-zero (imath.Scale -> math.Round) -> 201, not ties-to-even 200.
-    op = %Crop{
-      width: {:scale, 0.5},
-      height: :auto,
-      crop_from: :gravity,
-      gravity: {:anchor, :center, :center}
-    }
-
-    {:ok, result} = Crop.execute(op, state(401, 300))
-    assert {201, 300} == dimensions(result)
-  end
-
   test "aspect-ratio correction rounds the adjusted crop size half away from zero" do
     # height 201 × ratio 1:2 → 201 * 0.5 = 100.5, a `.5` tie. imgproxy resolves
     # aspect-ratio-corrected crop SIZES with imath.Scale (half-away, like CalcCropSize
@@ -626,23 +612,6 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       {:ok, state} = Crop.execute(crop, xyz_state(60, 60))
       assert origin_pixel(state) == [left, top]
-    end
-
-    test "offsets and offset_scale flow into the origin" do
-      crop = %Crop{
-        width: {:pixels, 10},
-        height: {:pixels, 10},
-        crop_from: :gravity,
-        gravity: {:anchor, :left, :top},
-        x_offset: {:pixels, 3},
-        y_offset: {:pixels, 5},
-        offset_scale: 2.0
-      }
-
-      assert {:ok, %{left: 6, top: 10}} = Crop.resolved_rect(crop, 40, 40)
-
-      {:ok, state} = Crop.execute(crop, xyz_state(40, 40))
-      assert origin_pixel(state) == [6, 10]
     end
   end
 end

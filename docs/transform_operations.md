@@ -170,6 +170,11 @@ premultiplied alpha. Neither represents independent request syntax.
 Orientation state, flip composition, and resize branch selection are resolved
 before executable work reaches the chain.
 
+`Transform.Executor.Geometry` resolves the native resize intent,
+including zoom, minimum dimensions, effective DPR, enlargement, and cover
+dimensions, against the current display frame. The executable `Resize` carries
+only the final pixel width and height; a cover request follows it with a crop.
+
 ## Streaming and materialization
 
 Decode always opens sequentially. `ImagePipe.Transform.DecodePlanner` computes

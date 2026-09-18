@@ -14,10 +14,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   Required fields:
 
-  - `width`: crop width as a positive length or `:auto`.
-  - `height`: crop height as a positive length or `:auto`.
+  - `width`: crop width as `{:pixels, value}`.
+  - `height`: crop height as `{:pixels, value}`.
   - `crop_from`: crop source, either `:gravity` or `%{left: left, top: top}`
-    with non-negative position lengths.
+    with `{:pixels, value}` positions clamped to the image bounds.
 
   Optional fields:
 
@@ -26,21 +26,15 @@ defmodule ImagePipe.Transform.Operation.Crop do
     focal point tuple `{:fp, x, y}` where `x` and `y` are normalized `0.0..1.0`
     coordinates.
   - `x_offset`: horizontal offset as a number, `{:pixels, value}`,
-    `{:scale, value}`, or `{:scale, numerator, denominator}`. Defaults to `0.0`.
+    or `{:scale, value}`. Defaults to `0.0`.
   - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
     to `0.0`.
-  - `offset_scale`: multiplier applied to pixel offsets, usually the effective
-    DPR used by the preceding resize. Defaults to `1.0`.
   - `center_bias`: `{x_side, y_side}` tie-break for a centered crop with an odd
     extent difference, each `:near` (keep the extra pixel toward the left/top
     origin, matching imgproxy `ShrinkToEven`) or `:far` (toward the right/bottom).
     Defaults to `{:near, :near}`. Only affects `:center` anchor axes; callers that
     crop in a frame that is later reversed (deferred orientation) set the
     reversed axis to `:far` so the kept pixel lands on the intended display side.
-
-  Numeric length units are resolved against the current image dimensions during
-  execution. `:auto` crop dimensions resolve to the current image dimension on
-  that axis.
 
   ## Execution Semantics
 
@@ -54,8 +48,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   crop around a normalized current-image point and clamps it into image bounds.
 
   Result crops are represented as `crop_from: :gravity` with explicit `width`
-  and `height`. Pixel offsets are multiplied by `offset_scale`; scale offsets
-  are resolved relative to the current image bounds.
+  and `height`. The executor scales pixel offsets by effective DPR; scale
+  offsets are resolved relative to the current image bounds.
 
   For coordinate crops, `crop_from` is the requested top-left crop position
   before the rectangle is clamped to image bounds. `reject_out_of_bounds` is a
@@ -92,9 +86,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
       center_origin: 2,
       image_height: 1,
       image_width: 1,
-      resolve_dimension: 3,
-      resolve_offset: 3,
-      resolve_position: 2,
+      resolve_dimension: 2,
+      resolve_offset: 2,
+      resolve_position: 1,
       round_half_away_from_zero: 1,
       round_ties_to_even: 1
     ]
@@ -111,12 +105,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # exact combination of attention saliency and detected faces is unspecified.
   @face_assist_weight 0.7
 
-  @type length_unit() ::
-          integer()
-          | float()
-          | {:pixels, integer() | float()}
-          | {:scale, integer() | float()}
-          | {:scale, integer() | float(), integer() | float()}
+  @type pixels() :: {:pixels, integer()}
+  @type offset() :: number() | {:pixels, number()} | {:scale, number()}
 
   @doc """
   The executable operation used by `ImagePipe.Transform.Operation.Crop`.
@@ -128,7 +118,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
     gravity: nil,
     x_offset: 0.0,
     y_offset: 0.0,
-    offset_scale: 1.0,
     aspect_ratio: nil,
     enlarge: false,
     reject_out_of_bounds: false,
@@ -136,13 +125,13 @@ defmodule ImagePipe.Transform.Operation.Crop do
   ]
 
   @type t :: %__MODULE__{
-          width: length_unit() | :auto,
-          height: length_unit() | :auto,
+          width: pixels(),
+          height: pixels(),
           crop_from:
             :gravity
             | %{
-                left: length_unit(),
-                top: length_unit()
+                left: pixels(),
+                top: pixels()
               },
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
@@ -154,9 +143,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
             | {:detect,
                {[String.t()], %{optional(:default) => number(), optional(String.t()) => number()}}}
             | nil,
-          x_offset: length_unit() | number(),
-          y_offset: length_unit() | number(),
-          offset_scale: pos_integer() | float(),
+          x_offset: offset(),
+          y_offset: offset(),
           aspect_ratio: nil | {:ratio, pos_integer(), pos_integer()},
           enlarge: boolean(),
           reject_out_of_bounds: boolean(),
@@ -175,8 +163,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   @spec resolved_box_dims(t(), pos_integer(), pos_integer()) ::
           {pos_integer(), pos_integer()}
   def resolved_box_dims(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
-    crop_width = resolve_dimension(params.width, image_width, clamp?: true)
-    crop_height = resolve_dimension(params.height, image_height, clamp?: true)
+    crop_width = resolve_dimension(params.width, image_width)
+    crop_height = resolve_dimension(params.height, image_height)
 
     {crop_width, crop_height} =
       correct_aspect_ratio(
@@ -192,11 +180,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   def resolved_box_dims(%__MODULE__{crop_from: %{}} = params, image_width, image_height) do
-    target_width = if params.width == :auto, do: image_width, else: params.width
-    target_height = if params.height == :auto, do: image_height, else: params.height
-
-    {resolve_dimension(target_width, image_width, clamp?: true),
-     resolve_dimension(target_height, image_height, clamp?: true)}
+    {resolve_dimension(params.width, image_width), resolve_dimension(params.height, image_height)}
   end
 
   @doc false
@@ -211,8 +195,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
           | {:error, term()}
   def resolved_rect(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
-         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
+         crop_width = resolve_dimension(crop.width, image_width),
+         crop_height = resolve_dimension(crop.height, image_height),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -223,9 +207,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
              image_height
            ),
          {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
-      offset_scale = crop.offset_scale * 1.0
-      x_offset = resolve_offset(default_if_nil(params.x_offset, 0.0), image_width, offset_scale)
-      y_offset = resolve_offset(default_if_nil(params.y_offset, 0.0), image_height, offset_scale)
+      x_offset = resolve_offset(params.x_offset, image_width)
+      y_offset = resolve_offset(params.y_offset, image_height)
 
       {:ok,
        gravity_crop_coordinates(
@@ -243,16 +226,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   def resolved_rect(%__MODULE__{} = params, image_width, image_height) do
     %{left: left_coord, top: top_coord} = params.crop_from
-    left_px = resolve_position(left_coord, image_width)
-    top_px = resolve_position(top_coord, image_height)
-
-    # keep :auto dimensions as is
-    target_width = if params.width == :auto, do: image_width, else: params.width
-    target_height = if params.height == :auto, do: image_height, else: params.height
+    left_px = resolve_position(left_coord)
+    top_px = resolve_position(top_coord)
 
     # make sure crop is within image bounds
-    crop_width = resolve_dimension(target_width, image_width, clamp?: true)
-    crop_height = resolve_dimension(target_height, image_height, clamp?: true)
+    crop_width = resolve_dimension(params.width, image_width)
+    crop_height = resolve_dimension(params.height, image_height)
 
     # figure out the crop anchor from the resolved origin
     center_x = round(left_px + crop_width / 2)
@@ -322,8 +301,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_height = image_height(state)
 
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
-         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
+         crop_width = resolve_dimension(crop.width, image_width),
+         crop_height = resolve_dimension(crop.height, image_height),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -378,8 +357,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_height = image_height(state)
 
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         crop_width = resolve_dimension(crop.width, image_width, clamp?: true),
-         crop_height = resolve_dimension(crop.height, image_height, clamp?: true),
+         crop_width = resolve_dimension(crop.width, image_width),
+         crop_height = resolve_dimension(crop.height, image_height),
          {crop_width, crop_height} =
            correct_aspect_ratio(
              crop_width,
@@ -496,7 +475,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp default_if_nil(value, _default), do: value
 
   defp crop_dimensions(%__MODULE__{} = params, _image_width, _image_height) do
-    {:ok, %{width: params.width, height: params.height, offset_scale: params.offset_scale}}
+    {:ok, %{width: params.width, height: params.height}}
   end
 
   defp gravity_crop_coordinates(

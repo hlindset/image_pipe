@@ -141,8 +141,7 @@ defmodule ImagePipe.Transform.Orientation do
 
   @doc """
   Swap the requested axes of an executable resize so it operates in the storage
-  frame ahead of a quarter-turn orientation flush. Width/height, min-width/
-  min-height, and zoom_x/zoom_y swap; `dpr` is axis-agnostic and unchanged.
+  frame ahead of a quarter-turn orientation flush.
   """
   @spec swap_resize(ImagePipe.Transform.Operation.Resize.t()) ::
           ImagePipe.Transform.Operation.Resize.t()
@@ -150,11 +149,7 @@ defmodule ImagePipe.Transform.Orientation do
     %ImagePipe.Transform.Operation.Resize{
       resize
       | width: resize.height,
-        height: resize.width,
-        min_width: resize.min_height,
-        min_height: resize.min_width,
-        zoom_x: resize.zoom_y,
-        zoom_y: resize.zoom_x
+        height: resize.width
     }
   end
 
