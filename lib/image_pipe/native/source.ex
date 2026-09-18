@@ -1,4 +1,4 @@
-defmodule ImagePipe.Dialect.Native.Source do
+defmodule ImagePipe.Native.Source do
   @moduledoc """
   Decoded native source string → `ImagePipe.Plan.Source` translation
   [native §Sources: "Both forms feed the core source-resolution toolkit
@@ -6,7 +6,7 @@ defmodule ImagePipe.Dialect.Native.Source do
   never another dialect's translation code"].
 
   `translate/2` consumes the already-decoded source string produced by
-  `ImagePipe.Dialect.Native.Path.extract/1` (percent-decoded once for a
+  `ImagePipe.Native.Path.extract/1` (percent-decoded once for a
   `src` tail, base64url-decoded for a `src64` tail) and classifies it:
 
     * no `scheme://` prefix — a root-relative `%Plan.Source.Path{}`. The

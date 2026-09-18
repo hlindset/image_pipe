@@ -1,6 +1,6 @@
 defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
   @moduledoc """
-  Pins that a real cache-miss, streamed `ImagePipe.Dialect.Native` request's
+  Pins that a real cache-miss, streamed `ImagePipe.Native` request's
   stage spans are semantic descendants of the `[:request]` root span — the
   native counterpart of
   `ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`.
@@ -21,7 +21,7 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
 
   import Plug.Test
 
-  alias ImagePipe.Dialect.Native
+  alias ImagePipe.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.TestExporter

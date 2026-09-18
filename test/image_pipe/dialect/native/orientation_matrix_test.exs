@@ -1,10 +1,10 @@
-defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
+defmodule ImagePipe.Native.OrientationMatrixTest do
   @moduledoc """
   Task 19: the orientation-invariance matrix — the probe's #146 regression
   net for the native URL dialect.
 
   The native dialect plans ALL geometry (crop/region/resize/focal gravity)
-  against the DISPLAY frame (`ImagePipe.Dialect.Native.Pipeline.group_operations/2`);
+  against the DISPLAY frame (`ImagePipe.Native.Pipeline.group_operations/2`);
   only core (`NeutralResolver`/`Lowering`/the orientation flush) performs the
   storage-frame compensation once the deferred `pending_orientation` is
   eventually flushed. This matrix exercises EXIF orientation {1, 6, 8} ×
@@ -48,7 +48,7 @@ defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
 
   **Documented subset limitation.** The probe's native dialect has no
   `orient=` option — EXIF auto-rotate is a FIXED policy
-  (`ImagePipe.Dialect.Native.@auto_rotate?` is hardcoded `true`, per
+  (`ImagePipe.Native.@auto_rotate?` is hardcoded `true`, per
   `ImagePipe.Decode.with_image/4`'s "the EXIF policy is the CALLER's choice"
   contract). The exit criterion's "auto-rotate OFF" arm is therefore NOT
   exercisable end-to-end through this dialect; it is validated only at the
@@ -65,9 +65,9 @@ defmodule ImagePipe.Dialect.Native.OrientationMatrixTest do
   import Plug.Test
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Native
-  alias ImagePipe.Dialect.Native.Parser
-  alias ImagePipe.Dialect.Native.Pipeline
+  alias ImagePipe.Native
+  alias ImagePipe.Native.Parser
+  alias ImagePipe.Native.Pipeline
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter

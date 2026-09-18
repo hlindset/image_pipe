@@ -1,11 +1,11 @@
-defmodule ImagePipe.Dialect.Native.Signature do
+defmodule ImagePipe.Native.Signature do
   @moduledoc """
   HMAC signing and verification for the native URL dialect, plus the
   `expires` gate [native §Signing, §Byte-level contract].
 
   `verify/3` is called before any lexing of the request path has
   happened: its two path-derived inputs (`sig_segment`, `signed_path`)
-  come straight from `ImagePipe.Dialect.Native.Path.split_signature/1`,
+  come straight from `ImagePipe.Native.Path.split_signature/1`,
   the raw pre-parse byte split — "verify first, parse second, with zero
   scanning" [native §Signing]. The MAC covers `signed_path` exactly as
   `split_signature/1` returns it: the raw bytes from the `/` following

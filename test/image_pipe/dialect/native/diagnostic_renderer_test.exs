@@ -1,8 +1,8 @@
-defmodule ImagePipe.Dialect.Native.DiagnosticRendererTest do
+defmodule ImagePipe.Native.DiagnosticRendererTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Dialect.Native.Diagnostic
-  alias ImagePipe.Dialect.Native.DiagnosticRenderer
+  alias ImagePipe.Native.Diagnostic
+  alias ImagePipe.Native.DiagnosticRenderer
 
   defp diag(reason, message, spans) do
     %Diagnostic{reason: reason, message: message, spans: spans}

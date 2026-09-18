@@ -23,7 +23,7 @@ defmodule ImagePipe.Dialect.ColorCarryParityTest do
   # twice and an alias would silently pin both arms to one stack. This file
   # calls both stacks, from separate functions, by design.
   alias ImagePipe.Dialect.Imgproxy
-  alias ImagePipe.Dialect.Native
+  alias ImagePipe.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.DeclarativeFixtureDialect
   alias Vix.Vips.Image, as: VipsImage

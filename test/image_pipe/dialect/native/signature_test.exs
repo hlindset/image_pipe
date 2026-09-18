@@ -1,8 +1,8 @@
-defmodule ImagePipe.Dialect.Native.SignatureTest do
+defmodule ImagePipe.Native.SignatureTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Dialect.Native.Signature
+  alias ImagePipe.Native.Signature
 
   @key_a "00112233445566778899aabbccddeeff00112233445566778899aabbccddee"
   @key_b "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"

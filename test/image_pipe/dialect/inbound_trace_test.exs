@@ -11,7 +11,7 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
   import Plug.Test
 
   alias ImagePipe.Dialect.Imgproxy, as: ImgproxyDialect
-  alias ImagePipe.Dialect.Native, as: NativeDialect
+  alias ImagePipe.Native, as: NativeDialect
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
@@ -90,7 +90,7 @@ defmodule ImagePipe.Dialect.InboundTraceTest do
     end
   end
 
-  describe "ImagePipe.Dialect.Native" do
+  describe "ImagePipe.Native" do
     test "adopts an inbound traceparent when extract_inbound: true" do
       :ok = TestExporter.attach(self(), extract_inbound: true)
 

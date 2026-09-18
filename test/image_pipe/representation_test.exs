@@ -11,7 +11,7 @@ defmodule ImagePipe.RepresentationTest do
     base = [
       representation: [groups: [], terminal: :image, selection: {:explicit, :webp}],
       storage_only: [cachebuster: nil],
-      dialect_behavior: {ImagePipe.Dialect.Native, 1},
+      dialect_behavior: {ImagePipe.Native, 1},
       vary_header_names: ["Accept"]
     ]
 
@@ -75,13 +75,13 @@ defmodule ImagePipe.RepresentationTest do
     a =
       build(
         source_identity(),
-        material(dialect_behavior: {ImagePipe.Dialect.Native, 1})
+        material(dialect_behavior: {ImagePipe.Native, 1})
       )
 
     b =
       build(
         source_identity(),
-        material(dialect_behavior: {ImagePipe.Dialect.Native, 2})
+        material(dialect_behavior: {ImagePipe.Native, 2})
       )
 
     assert a.cache_key.hash != b.cache_key.hash

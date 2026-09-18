@@ -21,7 +21,7 @@ Dialects come in two tiers:
 | Tier | You implement | Transform stage | In-tree |
 |---|---|---|---|
 | **Declarative** | `parse_plan/2` → `%ImagePipe.Plan{}` | the fixed neutral driver, from the base | `ImagePipe.Dialect.IIIF` |
-| **Ordered** | the full `ImagePipe.Dialect` behaviour | your own pipeline, in `execute/4` | `ImagePipe.Dialect.Native`, `ImagePipe.Dialect.Imgproxy`, `ImagePipe.Dialect.TwicPics` |
+| **Ordered** | the full `ImagePipe.Dialect` behaviour | your own pipeline, in `execute/4` | `ImagePipe.Native`, `ImagePipe.Dialect.Imgproxy`, `ImagePipe.Dialect.TwicPics` |
 
 One lifecycle covers both. Same behaviour, same runner, same mount — the runner
 never branches on which tier produced its `%ImagePipe.Dialect.Resolved{}`. The
@@ -555,7 +555,7 @@ Both tiers take this key. A declarative dialect inherits it from
 `ImagePipe.Dialect.Declarative.config_keys/0`; an ordered dialect declares it in
 its own schema (validated with
 `ImagePipe.Dialect.SharedConfig.validate_storage_input/1`) and folds the values
-into its identity material's `storage_only` — `ImagePipe.Dialect.Native`,
+into its identity material's `storage_only` — `ImagePipe.Native`,
 `.Imgproxy`, and `.TwicPics` all do, through
 `ImagePipe.Representation.storage_inputs/2`.
 

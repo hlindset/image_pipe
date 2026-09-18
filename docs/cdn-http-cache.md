@@ -8,8 +8,6 @@ level, and a source adapter can override it.
 forward "/images",
   to: ImagePipe.Plug,
   init_opts: [
-    dialect: ImagePipe.Dialect.IIIF,
-    resolver: {MyApp.Resolver, []},
     http_cache: [mode: :enabled],
     sources: [
       path:
@@ -23,23 +21,19 @@ forward "/images",
 
 ## Which mounts generate headers
 
-Generated CDN cache headers are a **declarative-tier** capability today.
-`http_cache: [mode: :enabled]` is one of
-`ImagePipe.Dialect.Declarative.config_keys/0`, and a declarative dialect's
-`%ImagePipe.Dialect.Resolved{}` carries `http_cache: :generated`, which runs
-`ImagePipe.Response.CachePolicy` between building the representation and the
-conditional gate. Without `mode: :enabled` the policy generates nothing at
-all: no `Cache-Control`, no `ETag`.
+Native mounts opt into the generated policy by configuring `http_cache`.
+With `http_cache: [mode: :enabled]`, `ImagePipe.Response.CachePolicy` runs
+between building the representation and the conditional gate. Explicitly
+setting `mode: :disabled` generates neither `Cache-Control` nor `ETag`,
+unless the source adapter overrides the mode. Declarative mounts also
+support this policy.
 
-The ordered dialects (`ImagePipe.Dialect.Native`, `ImagePipe.Dialect.Imgproxy`,
-`ImagePipe.Dialect.TwicPics`) carry `http_cache: :dialect_owned`: the policy is
-skipped, and their identity headers come straight from the representation
-(`ImagePipe.Representation.response_headers/1` — the `ETag`, or
-`Cache-Control: no-store` for a source with no byte identity). None of the
-`[:http_cache, :prepare]`, `[:http_cache, :conditional, :match]`, or
-`[:http_cache, :fallback, :no_store]` events fire on those mounts. Opting an
-ordered dialect into the generated policy is separate, compatibility-reviewed
-work.
+When `http_cache` is omitted from a native mount, identity headers come
+straight from the representation: an `ETag`, or `Cache-Control: no-store`
+for a source with no byte identity. Imgproxy and TwicPics also use this
+identity-header path. The `[:http_cache, :prepare]`,
+`[:http_cache, :conditional, :match]`, and
+`[:http_cache, :fallback, :no_store]` events fire only on the generated path.
 
 A source adapter can override the mount-level mode per source:
 `http_cache: :enabled` forces the generated path even when the mount is

@@ -1,13 +1,13 @@
-defmodule ImagePipe.Dialect.Native.PipelinePixelTest do
+defmodule ImagePipe.Native.PipelinePixelTest do
   # Real fetch/decode through a Plug-backed origin per case — keep it serial,
   # mirroring test/image_pipe/decode_test.exs.
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Native.Pipeline
-  alias ImagePipe.Dialect.Native.Request
-  alias ImagePipe.Dialect.Native.Request.Group
-  alias ImagePipe.Dialect.Native.Request.Output
+  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Request
+  alias ImagePipe.Native.Request.Group
+  alias ImagePipe.Native.Request.Output
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter

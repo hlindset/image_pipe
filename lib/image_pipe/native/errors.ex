@@ -1,9 +1,9 @@
-defmodule ImagePipe.Dialect.Native.Errors do
+defmodule ImagePipe.Native.Errors do
   @moduledoc """
   Dialect-owned error → HTTP status mapping for the native URL dialect.
 
   Parse/validation failures render the compiler-style diagnostic body
-  (`ImagePipe.Dialect.Native.DiagnosticRenderer`) [native §Error
+  (`ImagePipe.Native.DiagnosticRenderer`) [native §Error
   diagnostics]. Signature failures stay terse — 403, no spans, no echoed
   path [native §Signing: "a signature oracle should not explain itself"].
   Everything else (source/decode/limit/encode/output errors) routes through
@@ -12,9 +12,9 @@ defmodule ImagePipe.Dialect.Native.Errors do
 
   import Plug.Conn, only: [put_resp_content_type: 2, send_resp: 3]
 
-  alias ImagePipe.Dialect.Native.Diagnostic
-  alias ImagePipe.Dialect.Native.DiagnosticRenderer
-  alias ImagePipe.Dialect.Native.Path
+  alias ImagePipe.Native.Diagnostic
+  alias ImagePipe.Native.DiagnosticRenderer
+  alias ImagePipe.Native.Path
   alias ImagePipe.Response.ErrorStatus
 
   @spec send(Plug.Conn.t(), term(), keyword()) :: Plug.Conn.t()
@@ -60,7 +60,7 @@ defmodule ImagePipe.Dialect.Native.Errors do
     |> send_resp(400, "invalid source")
   end
 
-  # ImagePipe.Dialect.Native.Pipeline.run/4 wraps every
+  # ImagePipe.Native.Pipeline.run/4 wraps every
   # ImagePipe.Transform.Chain.execute/3 failure as `{:transform, inner}`
   # (`pipeline.ex`'s `run_chain/3`); `inner` is usually `{:transform_error,
   # reason}` (an operation's own validation/runtime failure) but can also be

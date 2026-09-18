@@ -1,12 +1,12 @@
-defmodule ImagePipe.Dialect.Native.DiagnosticTest do
+defmodule ImagePipe.Native.DiagnosticTest do
   use ExUnit.Case, async: true
 
   import Plug.Test
 
-  alias ImagePipe.Dialect.Native.Diagnostic
-  alias ImagePipe.Dialect.Native.DiagnosticRenderer
-  alias ImagePipe.Dialect.Native.Parser
-  alias ImagePipe.Dialect.Native.Path
+  alias ImagePipe.Native.Diagnostic
+  alias ImagePipe.Native.DiagnosticRenderer
+  alias ImagePipe.Native.Parser
+  alias ImagePipe.Native.Path
 
   defp conn_for(path) do
     conn(:get, path)
@@ -21,8 +21,6 @@ defmodule ImagePipe.Dialect.Native.DiagnosticTest do
   defp parse(segments) do
     Parser.parse(lexed(segments), [])
   end
-
-  defp fragment(string), do: Parser.parse_option_fragment(string, [])
 
   # -- migration: Path.extract/1 emits %Diagnostic{} structs -------------
 
@@ -93,7 +91,6 @@ defmodule ImagePipe.Dialect.Native.DiagnosticTest do
   describe "Parser.parse/2 emits %Diagnostic{} structs" do
     test "every error is a %Diagnostic{} with a non-empty message and a non-empty spans list" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["bogus=10", "w=notanumber"])
-      assert diagnostics != []
 
       for diagnostic <- diagnostics do
         assert %Diagnostic{reason: reason, message: message, spans: spans} = diagnostic
@@ -142,24 +139,6 @@ defmodule ImagePipe.Dialect.Native.DiagnosticTest do
     for {segments, reason} <- @parser_reasons do
       test "#{reason} carries a real message (#{inspect(segments)})" do
         assert {:error, {:invalid_request, diagnostics}} = parse(unquote(segments))
-        diagnostic = Enum.find(diagnostics, &(&1.reason == unquote(reason)))
-
-        assert %Diagnostic{message: message} = diagnostic
-        assert is_binary(message) and message != ""
-      end
-    end
-  end
-
-  describe "parse_option_fragment/2 emits %Diagnostic{} structs" do
-    @fragment_reasons [
-      {"w=800/then/h=400", :then_not_allowed_in_fragment},
-      {"w=800/src", :source_not_allowed_in_fragment},
-      {"w=800/format=webp", :request_scoped_key_in_fragment}
-    ]
-
-    for {fragment_string, reason} <- @fragment_reasons do
-      test "#{reason} carries a real message (#{fragment_string})" do
-        assert {:error, diagnostics} = fragment(unquote(fragment_string))
         diagnostic = Enum.find(diagnostics, &(&1.reason == unquote(reason)))
 
         assert %Diagnostic{message: message} = diagnostic

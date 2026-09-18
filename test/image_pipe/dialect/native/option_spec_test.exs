@@ -1,15 +1,15 @@
-defmodule ImagePipe.Dialect.Native.OptionSpecTest do
+defmodule ImagePipe.Native.OptionSpecTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Dialect.Native.OptionSpec
+  alias ImagePipe.Native.OptionSpec
 
-  @probe_subset_keys ~w(w h fit enlarge crop region anchor focus blur trim pad bg output format q expires preset)
+  @native_keys ~w(rotate gray bitonal w h fit enlarge crop region anchor focus blur trim pad bg output format q expires preset)
 
   describe "all/0" do
-    test "declares exactly the probe subset, one entry per key" do
+    test "declares native options, one entry per key" do
       keys = Enum.map(OptionSpec.all(), & &1.key)
 
-      assert Enum.sort(keys) == Enum.sort(@probe_subset_keys)
+      assert Enum.sort(keys) == Enum.sort(@native_keys)
       assert Enum.uniq(keys) == keys
     end
 

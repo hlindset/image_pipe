@@ -1,7 +1,7 @@
-defmodule ImagePipe.Dialect.Native.ValueTest do
+defmodule ImagePipe.Native.ValueTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Dialect.Native.Value
+  alias ImagePipe.Native.Value
 
   describe "number/1" do
     valid = [

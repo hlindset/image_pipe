@@ -1,13 +1,14 @@
-defmodule ImagePipe.Dialect.Native.Config do
+defmodule ImagePipe.Native.Config do
   @moduledoc false
 
-  alias ImagePipe.Dialect.Native.Presets
   alias ImagePipe.Dialect.SharedConfig
+  alias ImagePipe.Native.OptionSpec
+  alias ImagePipe.Native.Presets
 
   @validated_option_keys [
     :keys,
     :presets,
-    :on_inert_option,
+    :http_cache,
     :storage_inputs
   ]
   @options_schema NimbleOptions.new!(
@@ -19,9 +20,9 @@ defmodule ImagePipe.Dialect.Native.Config do
                       type: {:custom, __MODULE__, :validate_presets, []},
                       default: %{}
                     ],
-                    on_inert_option: [
-                      type: {:in, [:reject, :ignore]},
-                      default: :reject
+                    http_cache: [
+                      type: :keyword_list,
+                      keys: [mode: [type: {:in, [:disabled, :enabled]}, default: :disabled]]
                     ],
                     storage_inputs: [
                       type: {:list, {:custom, SharedConfig, :validate_storage_input, []}},
@@ -32,15 +33,14 @@ defmodule ImagePipe.Dialect.Native.Config do
   @doc false
   @spec validate!(keyword()) :: keyword()
   def validate!(opts) when is_list(opts) do
-    {shared_opts, dialect_opts} = Keyword.split(opts, SharedConfig.keys())
+    {shared_opts, native_opts} = Keyword.split(opts, SharedConfig.keys())
 
-    dialect_opts =
-      dialect_opts
+    native_opts =
+      native_opts
       |> reject_unknown_opts!()
       |> validate_known_opts!()
-      |> reject_unimplemented_on_inert_option!()
 
-    Keyword.merge(dialect_opts, SharedConfig.validate_runtime!(shared_opts))
+    Keyword.merge(native_opts, SharedConfig.validate_runtime!(shared_opts))
   end
 
   @doc false
@@ -56,7 +56,10 @@ defmodule ImagePipe.Dialect.Native.Config do
 
   @doc false
   def validate_presets(value) when is_map(value) do
-    if Enum.all?(value, fn {k, v} -> is_binary(k) and is_binary(v) end) do
+    if Enum.all?(value, fn {name, fragment} ->
+         is_binary(name) and is_binary(fragment) and
+           OptionSpec.parse_preset_names(name) == {:ok, [name]}
+       end) do
       Presets.validate_config(value)
     else
       {:error, "expected a map of preset name to option-fragment string, got: #{inspect(value)}"}
@@ -73,7 +76,7 @@ defmodule ImagePipe.Dialect.Native.Config do
         opts
 
       key ->
-        raise ArgumentError, "unknown ImagePipe.Dialect.Native option #{inspect(key)}"
+        raise ArgumentError, "unknown ImagePipe.Native option #{inspect(key)}"
     end
   end
 
@@ -86,18 +89,7 @@ defmodule ImagePipe.Dialect.Native.Config do
 
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError,
-              "invalid ImagePipe.Dialect.Native options: #{Exception.message(error)}"
-    end
-  end
-
-  defp reject_unimplemented_on_inert_option!(opts) do
-    case Keyword.fetch(opts, :on_inert_option) do
-      {:ok, :ignore} ->
-        raise ArgumentError,
-              "ImagePipe.Dialect.Native on_inert_option: :ignore is not yet implemented"
-
-      _other ->
-        opts
+              "invalid ImagePipe.Native options: #{Exception.message(error)}"
     end
   end
 end

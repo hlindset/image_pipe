@@ -36,7 +36,7 @@ defmodule ImagePipe.Renderer do
   Invokes the renderer inside the `[:render]` span.
 
   The span lives on the facade so every caller of the behaviour gets it.
-  (`ImagePipe.Dialect.Imgproxy`'s `/info` and `ImagePipe.Dialect.Native`'s
+  (`ImagePipe.Dialect.Imgproxy`'s `/info` and `ImagePipe.Native`'s
   blurhash terminals render through their own `RenderTerminal` funs, not this
   facade, and emit no `[:render]` span.)
   """

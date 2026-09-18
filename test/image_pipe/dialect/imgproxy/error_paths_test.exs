@@ -1,7 +1,7 @@
 defmodule ImagePipe.Dialect.Imgproxy.ErrorPathsTest do
   @moduledoc """
   The error-path and ownership matrix for `ImagePipe.Dialect.Imgproxy`, the
-  imgproxy-URL twin of `ImagePipe.Dialect.NativeErrorPathsTest`. One named
+  imgproxy-URL twin of `ImagePipe.NativeErrorPathsTest`. One named
   wire test per matrix row, each asserting user-visible status/behavior AND
   cleanup ownership (who opens/aborts/commits the cache sink, whether the
   `build_fun` bracket's `try/after` runs exactly once).

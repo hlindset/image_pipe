@@ -1,11 +1,11 @@
-defmodule ImagePipe.Dialect.Native.IdentityTest do
+defmodule ImagePipe.Native.IdentityTest do
   use ExUnit.Case, async: true
 
   import Plug.Test
 
-  alias ImagePipe.Dialect.Native.Identity
-  alias ImagePipe.Dialect.Native.Parser
   alias ImagePipe.Dialect.Negotiation
+  alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Parser
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Representation

@@ -566,7 +566,7 @@ as a **sibling** of `[:source, :fetch_decode]` under the request root, and it is
 
 Only a renderer dispatched through that entry point emits it. An ordered dialect
 that drives its own render terminal — the `ImagePipe.Dialect.Imgproxy` `/info`
-endpoint, the `ImagePipe.Dialect.Native` blur-hash terminal — bypasses it and
+endpoint, the `ImagePipe.Native` blur-hash terminal — bypasses it and
 emits no `[:render]` span. Treat this span as covering renderer-dispatched
 responses, not every non-image response: a host attaching to `[:render]` to
 count or time rendered responses sees the declarative tier's renderers only,
@@ -628,7 +628,7 @@ fields are:
 - `:source_kind` - `:path`, `:url`, `:object`, or `:reference` on source spans.
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
 - `:error` - a stable error category when known.
-- `:sig_key_index` - the matched signing-key index (`ImagePipe.Dialect.Native.Signature.verify/3`'s
+- `:sig_key_index` - the matched signing-key index (`ImagePipe.Native.Signature.verify/3`'s
   return value) on the native URL dialect's `[:parse]` stop metadata; `nil` when the
   request is legitimately unsigned.
 

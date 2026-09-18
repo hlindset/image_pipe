@@ -211,7 +211,7 @@ know them:
 
 ### Observability
 
-`Dialect.Imgproxy` emits exactly the stage sequence `ImagePipe.Dialect.Native`
+`Dialect.Imgproxy` emits exactly the stage sequence `ImagePipe.Native`
 does for a plain image cache miss — same stages, same order — measured rather
 than assumed by `ImagePipe.ImgproxyTelemetryStageSetTest`. Emission sites are
 documented in `docs/telemetry.md`.
@@ -416,7 +416,7 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 
 `allow_origin` is a dialect-neutral runtime option (default off) shared by every
 mount, whichever dialect it carries — `ImagePipe.Dialect.Imgproxy`,
-`ImagePipe.Dialect.TwicPics`, `ImagePipe.Dialect.Native`, or
+`ImagePipe.Dialect.TwicPics`, `ImagePipe.Native`, or
 `ImagePipe.Dialect.IIIF` (`ImagePipe.Dialect.SharedConfig` validates and carries
 the key for all of them). When set, `ImagePipe.Response.CORS.maybe_register/2`
 registers a `register_before_send/2` hook — the same hook on every mount —

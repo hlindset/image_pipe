@@ -1,22 +1,21 @@
-defmodule ImagePipe.Dialect.Native.OptionSpec do
+defmodule ImagePipe.Native.OptionSpec do
   @moduledoc """
-  Declarative option table for the native URL dialect's probe subset
+  Declarative option table for the native URL API
   [native §Architecture, option schema].
 
-  One `%OptionSpec{}` per probe-subset key (`w h fit enlarge crop region
-  anchor focus blur trim pad bg output format q expires preset`). The table
+  One `%OptionSpec{}` per native option. The table
   drives *mechanical* concerns only — key lookup, scope/duplicate
   validation, per-segment value dispatch, and terminal-applicability
   rejection; complex cross-option semantics (resize intent, guide
   consumers, group assembly) stay ordinary code in
-  `ImagePipe.Dialect.Native.Parser`.
+  `ImagePipe.Native.Parser`.
 
   A completeness test (`option_spec_test.exs`) requires every entry to
   populate all fields and carry at least one example — "easy to document"
   as a maintained invariant.
   """
 
-  alias ImagePipe.Dialect.Native.Value
+  alias ImagePipe.Native.Value
 
   @enforce_keys [
     :key,
@@ -90,7 +89,7 @@ defmodule ImagePipe.Dialect.Native.OptionSpec do
     "blurhash" => :blurhash
   }
 
-  @preset_name_pattern ~r/^[A-Za-z0-9._-]+$/
+  @preset_name_pattern ~r/\A[A-Za-z0-9._-]+\z/
 
   @doc """
   Every declared probe-subset option, in a stable order matching the
@@ -99,6 +98,45 @@ defmodule ImagePipe.Dialect.Native.OptionSpec do
   @spec all() :: [t()]
   def all do
     [
+      %__MODULE__{
+        key: "rotate",
+        scope: :group,
+        value: &__MODULE__.parse_rotate/1,
+        stage: 1,
+        default: 0,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Clockwise rotation in degrees from 0 to 360",
+        examples: ["rotate=30", "rotate=90"]
+      },
+      %__MODULE__{
+        key: "gray",
+        scope: :group,
+        value: :flag,
+        stage: 10,
+        default: false,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Convert to grayscale",
+        examples: ["gray"]
+      },
+      %__MODULE__{
+        key: "bitonal",
+        scope: :group,
+        value: :flag,
+        stage: 11,
+        default: false,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Threshold grayscale at 128 to black and white, preserving alpha",
+        examples: ["bitonal"]
+      },
       %__MODULE__{
         key: "w",
         scope: :group,
@@ -411,6 +449,19 @@ defmodule ImagePipe.Dialect.Native.OptionSpec do
     case Value.csv(string, 2..2, [&Value.fraction/1, &Value.fraction/1]) do
       {:ok, [fx, fy]} -> {:ok, {fx, fy}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec parse_rotate(String.t()) :: {:ok, number()} | {:error, :invalid_rotation}
+  def parse_rotate(string) do
+    case Value.number(string) do
+      {:ok, angle} when angle >= 0 and angle <= 360 ->
+        angle = if angle == trunc(angle), do: rem(trunc(angle), 360), else: angle
+        {:ok, angle}
+
+      _invalid ->
+        {:error, :invalid_rotation}
     end
   end
 

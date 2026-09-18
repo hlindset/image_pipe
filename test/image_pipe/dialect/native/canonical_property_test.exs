@@ -1,8 +1,8 @@
-defmodule ImagePipe.Dialect.Native.CanonicalPropertyTest do
+defmodule ImagePipe.Native.CanonicalPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Dialect.Native.Parser
+  alias ImagePipe.Native.Parser
 
   defp seg(raw), do: {raw, {0, byte_size(raw)}}
 

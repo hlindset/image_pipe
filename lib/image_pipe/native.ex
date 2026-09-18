@@ -1,15 +1,13 @@
-defmodule ImagePipe.Dialect.Native do
+defmodule ImagePipe.Native do
   @moduledoc """
-  ImagePipe's native URL dialect, implemented as an `ImagePipe.Dialect` —
-  mounted through `plug ImagePipe.Plug, dialect: ImagePipe.Dialect.Native,
-  <flat config>`. The dialect owns parsing (verify → lex → parse), the
-  `expires` gate, source translation, negotiation input, pipeline execution,
-  and error rendering; the shared runner in `ImagePipe.Plug` owns the
-  request lifecycle around them.
+  ImagePipe's native URL API, mounted through `plug ImagePipe.Plug,
+  sources: [...]`. Owns parsing (verify → lex → parse), expiry, source
+  translation, negotiation input, pipeline execution, and error rendering.
+  `ImagePipe.Plug` orchestrates the request lifecycle.
 
   ## Mount prefix caveat
 
-  `ImagePipe.Dialect.Native.Path` strips the mount prefix from the raw
+  `ImagePipe.Native.Path` strips the mount prefix from the raw
   request path by treating `conn.script_name` (Plug's *decoded* segment
   list) as a byte-exact raw string prefix of `conn.request_path`. This is
   only correct when the mount path is canonical unescaped ASCII. A
@@ -40,18 +38,18 @@ defmodule ImagePipe.Dialect.Native do
   @behaviour ImagePipe.Dialect
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Native.Config
-  alias ImagePipe.Dialect.Native.Errors
-  alias ImagePipe.Dialect.Native.Identity
-  alias ImagePipe.Dialect.Native.Parser
-  alias ImagePipe.Dialect.Native.Path
-  alias ImagePipe.Dialect.Native.Pipeline
-  alias ImagePipe.Dialect.Native.Request
-  alias ImagePipe.Dialect.Native.Signature
-  alias ImagePipe.Dialect.Native.Source, as: NativeSource
   alias ImagePipe.Dialect.Negotiation, as: DialectNegotiation
   alias ImagePipe.Dialect.RenderTerminal
   alias ImagePipe.Dialect.Resolved
+  alias ImagePipe.Native.Config
+  alias ImagePipe.Native.Errors
+  alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Parser
+  alias ImagePipe.Native.Path
+  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Request
+  alias ImagePipe.Native.Signature
+  alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Source, as: ImageSource
@@ -107,7 +105,8 @@ defmodule ImagePipe.Dialect.Native do
          operations: Pipeline.operation_names(request),
          auto_rotate?: @auto_rotate?,
          debug?: false,
-         http_cache: :dialect_owned,
+         http_cache:
+           if(Keyword.has_key?(config, :http_cache), do: :generated, else: :dialect_owned),
          terminal: terminal(request, config)
        }}
     end
@@ -168,7 +167,7 @@ defmodule ImagePipe.Dialect.Native do
   # (`:missing_signature`/`:invalid_signature`/`:signature_without_keys`), the
   # `expires` gate (`:expired`), and `Parser.parse/2`'s whole parse-failure
   # bucket, which always wraps as the single `{:invalid_request, _diagnostics}`
-  # tag (`ImagePipe.Dialect.Native.Parser`).
+  # tag (`ImagePipe.Native.Parser`).
   #
   # Everything else — `NativeSource.translate/2`'s `{:invalid_source, _}` and
   # the core-stage reasons (`:source`, `:decode`, `:input_limit`,

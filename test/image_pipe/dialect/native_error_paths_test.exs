@@ -1,11 +1,11 @@
-defmodule ImagePipe.Dialect.NativeErrorPathsTest do
+defmodule ImagePipe.NativeErrorPathsTest do
   @moduledoc """
   The error-path and ownership matrix. One named wire test per matrix row,
   each asserting user-visible status/behavior AND cleanup ownership (who
   opens/aborts/commits the cache sink, who tears the process topology down,
   whether the bracket's `try/after` runs exactly once).
 
-  Rows already covered by `ImagePipe.Dialect.NativeWireTest`'s "delivery
+  Rows already covered by `ImagePipe.NativeWireTest`'s "delivery
   lifecycle" describe block (owner-kill during delivery, bracket cleanup at
   EOF, bracket cleanup on an explicit mid-stream cancel, and every
   400-before-fetch parse/validation path) are referenced by name here, not
@@ -21,7 +21,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.Coordinator
-  alias ImagePipe.Dialect.Native
+  alias ImagePipe.Native
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -433,7 +433,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   # `/w=64/then/blur=5/...` is two groups: the first group's resize runs
   # (real `Chain.execute/3`, proving partial work happened) before the
   # second group's blur is forced to fail via the `:chain` test seam
-  # (`ImagePipe.Dialect.Native.Pipeline.run/4`'s own injectable, mirroring
+  # (`ImagePipe.Native.Pipeline.run/4`'s own injectable, mirroring
   # `Executor`'s seam — real callers never set it).
 
   describe "row 4: transform failure after partial work" do
@@ -697,7 +697,7 @@ defmodule ImagePipe.Dialect.NativeErrorPathsTest do
   #
   # The counterpart to row 10: a raise from INSIDE the dialect's own pipeline
   # run (via the `chain` seam) is a trusted-callback boundary this dialect
-  # rescues itself (`ImagePipe.Dialect.Native.execute/4`'s `rescue`/`catch`
+  # rescues itself (`ImagePipe.Native.execute/4`'s `rescue`/`catch`
   # clauses) and renders as a 422 client error — never a 500-class crash, and
   # the `[:transform, :execute]` span closes normally (`:stop`, not
   # `:exception`), because the raise never escapes the pipeline run the span

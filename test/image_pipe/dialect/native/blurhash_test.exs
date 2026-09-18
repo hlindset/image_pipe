@@ -1,13 +1,13 @@
-defmodule ImagePipe.Dialect.Native.BlurhashTest do
+defmodule ImagePipe.Native.BlurhashTest do
   # Real fetch/decode through a Plug-backed origin per case — mirrors
   # `pipeline_pixel_test.exs`.
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Native.Pipeline
-  alias ImagePipe.Dialect.Native.Request
-  alias ImagePipe.Dialect.Native.Request.Group
-  alias ImagePipe.Dialect.Native.Request.Output
+  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Request
+  alias ImagePipe.Native.Request.Group
+  alias ImagePipe.Native.Request.Output
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source

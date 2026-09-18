@@ -1,20 +1,13 @@
 defmodule ImagePipe.Plug do
   @moduledoc """
-  The single mount interface for ImagePipe (design decision U2).
+  Mounts ImagePipe's native image API.
 
-      plug ImagePipe.Plug, dialect: MyApp.Dialect, sources: [...]
+      plug ImagePipe.Plug, sources: [...]
 
-  `:dialect` names a module implementing `ImagePipe.Dialect` — an ordered
-  dialect that owns its own pipeline, or a declarative one built on
-  `ImagePipe.Dialect.Declarative`. Every other option is the dialect's flat
-  config, validated by its `c:ImagePipe.Dialect.validate_config!/1` at init.
-
-  This module only reads `:dialect` and hands the request to
-  `ImagePipe.Plug.DialectRunner`, which owns the lifecycle: parse → prepare →
-  source resolve → representation → conditional gate → cache → terminal →
-  deliver. See that module for how each stage branches on
-  `%ImagePipe.Dialect.Resolved{}` fields and neutral core structs without ever
-  naming a dialect (design decision U4).
+  Native URLs use options such as `/w=300/format=webp/src/images/photo.jpg`.
+  Options within a group have a fixed processing order; `then` starts the
+  next group. Configuration is validated at initialization, and invalid
+  requests are rejected before source fetching or cache access.
   """
 
   use Boundary,
@@ -24,6 +17,7 @@ defmodule ImagePipe.Plug do
       ImagePipe.Decode,
       ImagePipe.Delivery,
       ImagePipe.Dialect,
+      ImagePipe.Native,
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -41,7 +35,7 @@ defmodule ImagePipe.Plug do
 
   @impl Plug
   def init(opts) do
-    dialect = Keyword.fetch!(opts, :dialect)
+    dialect = Keyword.get(opts, :dialect, ImagePipe.Native)
 
     unless is_atom(dialect) do
       raise ArgumentError, "dialect: expected a module, got: #{inspect(dialect)}"

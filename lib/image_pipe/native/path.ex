@@ -1,4 +1,4 @@
-defmodule ImagePipe.Dialect.Native.Path do
+defmodule ImagePipe.Native.Path do
   @moduledoc """
   Raw request path → structured, byte-spanned segments for the native URL
   dialect [native §URL anatomy, §Byte-level contract].
@@ -23,7 +23,7 @@ defmodule ImagePipe.Dialect.Native.Path do
   `conn.script_name` from `conn.request_path` as a raw string prefix. Since
   `script_name` is Plug's *decoded* segment list, this is only byte-exact
   when the mount path is canonical unescaped ASCII — see the moduledoc note
-  on `ImagePipe.Dialect.Native` for the full caveat and the runtime raise
+  on `ImagePipe.Native` for the full caveat and the runtime raise
   this module performs when that invariant doesn't hold.
 
   All byte spans returned by `extract/1` are `{byte_offset, byte_length}`
@@ -37,7 +37,7 @@ defmodule ImagePipe.Dialect.Native.Path do
   an unbounded number of segments must not buy unbounded lexing work.
   """
 
-  alias ImagePipe.Dialect.Native.Diagnostic
+  alias ImagePipe.Native.Diagnostic
 
   @type span :: Diagnostic.span()
 
@@ -122,7 +122,7 @@ defmodule ImagePipe.Dialect.Native.Path do
 
       :error ->
         raise ArgumentError,
-              "ImagePipe.Dialect.Native: request_path #{inspect(request_path)} does not " <>
+              "ImagePipe.Native: request_path #{inspect(request_path)} does not " <>
                 "start with the mount prefix #{inspect(prefix)} derived from script_name " <>
                 "#{inspect(script_name)}"
     end
@@ -136,7 +136,7 @@ defmodule ImagePipe.Dialect.Native.Path do
         "/" <> segment
       else
         raise ArgumentError,
-              "ImagePipe.Dialect.Native: mount path segment #{inspect(segment)} is not " <>
+              "ImagePipe.Native: mount path segment #{inspect(segment)} is not " <>
                 "canonical unescaped ASCII (non-canonical/escaped mount paths are " <>
                 "unsupported in v1; a config-supplied raw mount prefix is a future " <>
                 "escape hatch)"

@@ -10,6 +10,7 @@ defmodule ImagePipe do
       ImagePipe.Decode,
       ImagePipe.Delivery,
       ImagePipe.Dialect,
+      ImagePipe.Native,
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,

@@ -15,7 +15,7 @@ defmodule ImagePipe.Dialect.ByteIdentityCacheHeadersTest do
   import Plug.Test
 
   alias ImagePipe.Dialect.Imgproxy
-  alias ImagePipe.Dialect.Native
+  alias ImagePipe.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImgproxyWireConformanceTest.OriginImage
 

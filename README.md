@@ -1,18 +1,13 @@
 # ImagePipe
 
-ImagePipe is a Plug-based image optimization server. A mounted **dialect** parses
-the incoming request, and the shared runner resolves a configured image source,
-executes the transform pipeline, negotiates the output format, and sends the
-encoded image response.
-
-The current public compatibility target is an Imgproxy-style path API through
-`ImagePipe.Dialect.Imgproxy`. Internally, ImagePipe translates Imgproxy syntax
-into its own transform, output, cache, and response data structures.
+ImagePipe is a Plug-based image optimization server with a native path API.
+It resolves a configured image source, executes the requested transforms,
+negotiates the output format, and sends the encoded image response.
 
 ## Project status
 
 ImagePipe is a greenfield, unreleased library. The codebase includes working
-Imgproxy-style request parsing, request safety checks, transform execution,
+native request parsing, request safety checks, transform execution,
 source adapters, output negotiation, filesystem response caching, telemetry
 spans, and a local demo server.
 
@@ -44,13 +39,12 @@ end
 ## Minimal mount
 
 Mount ImagePipe from a Plug router or Phoenix endpoint with a configured
-dialect and source adapter:
+source adapter:
 
 ```elixir
 forward "/images",
   to: ImagePipe.Plug,
   init_opts: [
-    dialect: ImagePipe.Dialect.Imgproxy,
     sources: [
       path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ]
@@ -70,7 +64,6 @@ defmodule MyApp.ImageRouter do
   forward "/",
     to: ImagePipe.Plug,
     init_opts: [
-      dialect: ImagePipe.Dialect.Imgproxy,
       sources: [
         path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
       ]
@@ -82,7 +75,7 @@ With that router running at `http://localhost:4000`, this unsigned development
 URL requests a 300-pixel-wide image from `/images/beach.jpg`:
 
 ```text
-http://localhost:4000/_/w:300/plain/images/beach.jpg
+http://localhost:4000/w=300/src/images/beach.jpg
 ```
 
 To accept both HTTP and HTTPS source URLs, configure the shared `:url` source
@@ -101,29 +94,53 @@ By default, HTTP/HTTPS sources refuse to connect to non-public addresses and
 re-check the policy on every redirect hop. See
 [Source network policy](docs/source-network-policy.md) to allow private origins.
 
-`_` and `unsafe` work only without Imgproxy signing. Configured signing requires
-a valid HMAC signature or an exact configured trusted signature.
+Configure `keys: [hex_encoded_key]` to require signed native URLs. The
+`sig=<mac>` segment authenticates the complete mount-relative request path
+after the signature segment. Key lists support rotation: the first key signs,
+and all configured keys can verify. Unsigned requests are accepted when no
+keys are configured.
 
 ## Current support boundaries
 
-ImagePipe currently supports the Imgproxy-style path dialect, selected resize,
-crop, orientation, canvas, padding, background, blur, sharpen, pixelate, output,
-cachebuster, expiry, filename, attachment, and preset options documented in the
-support matrix.
-Requests the dialect rejects fail before cache lookup or source fetch.
+The native API currently supports arbitrary rotation, resize modes, guided and explicit-region
+crops, anchors and focal points, trim, blur, grayscale, bitonal, padding, background, image format
+and quality, BlurHash, expiry, presets, and signed URLs. It accepts local paths
+and HTTP(S) source URLs. Invalid requests fail before cache lookup or source
+fetch.
 
-The first slice supports local path sources, HTTP and HTTPS URL sources, and
-S3-compatible object sources. ImagePipe currently lacks other provider dialects,
-object detection, watermarking, metadata stripping, video processing, and raw
-source passthrough. Missing Imgproxy options fail or remain absent as
-documented. ImagePipe doesn't ignore them.
+Configure reusable native presets with option strings:
 
-URL option order doesn't define transform execution order. The Imgproxy dialect
-normalizes aliases and conflict resolution, then assembles its pipeline in
-ImagePipe's fixed operation order.
+```elixir
+plug ImagePipe.Plug,
+  sources: [...],
+  presets: %{
+    "card" => "w=400/h=400/fit=cover",
+    "framed" => "preset=card/then/pad=20/bg=fff/format=webp"
+  }
+```
+
+`/preset=framed/src/images/photo.jpg` expands before request validation.
+Preset names use letters, digits, dots, underscores, and hyphens. Nested
+references compile at initialization; invalid names, unknown references, and
+cycles fail there. Precedence is `default`, named presets in listed order, then explicit
+URL options. Single-group presets contribute to the first group. A pipeline
+preset supplies the complete sequence and allows request-wide overrides
+such as `format=png`, but rejects explicit group options or another pipeline
+preset. Presets share cache identity with equivalent explicit requests.
+
+Options within a group have a fixed processing order. Use `then` for a second
+pass, for example `/w=500/then/trim=fff/src/images/beach.jpg` to trim after
+resizing.
+
+The [native API contract and capability inventory](docs/native_api_contract.md)
+distinguishes implemented options from planned ports. Imgproxy, IIIF, and
+TwicPics entry points remain available during the native-only migration;
+their useful capabilities are being moved to native.
 
 ## Documentation
 
+- [Native API contract](docs/native_api_contract.md) defines native semantics,
+  capability retention, and migration ownership.
 - [Imgproxy path API](docs/imgproxy_path_api.md) documents URL shape, option
   parsing, conflict resolution, signing, presets, output selection, and
   fixed operation ordering.

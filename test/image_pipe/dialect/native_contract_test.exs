@@ -1,4 +1,4 @@
-defmodule ImagePipe.Dialect.NativeContractTest do
+defmodule ImagePipe.NativeContractTest do
   @moduledoc """
   The native dialect's `use`-site for `ImagePipe.ContractKit.CacheKey` and
   `ImagePipe.ContractKit.RequestSafety` [pipelines design §Enforcement
@@ -7,8 +7,8 @@ defmodule ImagePipe.Dialect.NativeContractTest do
   request execution and assertions.
   """
 
-  use ImagePipe.ContractKit.CacheKey, dialect: ImagePipe.Dialect.Native
-  use ImagePipe.ContractKit.RequestSafety, dialect: ImagePipe.Dialect.Native
+  use ImagePipe.ContractKit.CacheKey, dialect: ImagePipe.Native
+  use ImagePipe.ContractKit.RequestSafety, dialect: ImagePipe.Native
 
   @signing_key "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 

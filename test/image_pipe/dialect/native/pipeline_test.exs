@@ -1,10 +1,10 @@
-defmodule ImagePipe.Dialect.Native.PipelineTest do
+defmodule ImagePipe.Native.PipelineTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Dialect.Native.Pipeline
-  alias ImagePipe.Dialect.Native.Request
-  alias ImagePipe.Dialect.Native.Request.Group
-  alias ImagePipe.Dialect.Native.Request.Output
+  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Request
+  alias ImagePipe.Native.Request.Group
+  alias ImagePipe.Native.Request.Output
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.DecodePlanner

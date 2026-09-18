@@ -1,4 +1,4 @@
-defmodule ImagePipe.Dialect.Native.Pipeline do
+defmodule ImagePipe.Native.Pipeline do
   @moduledoc """
   Inline geometry planner and group executor for the native URL dialect.
 
@@ -11,9 +11,10 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   (`resolve/3` + `continue/4` + `resolve_mode/2`, called directly with `nil`
   state). The dialect owns the request orchestration around them.
 
-  **Fixed stage order within a group** (probe subset): trim(3) →
+  **Fixed stage order within a group**: rotate(1) → trim(3) →
   region/guided crop(4) → resize(5) → cover result crop(6, automatic, part of
-  the resize's own continuation tail) → blur(7) → pad(20) → bg flatten(21).
+  the resize's own continuation tail) → blur(7) → gray(10) → bitonal(11) →
+  pad(20) → bg flatten(21).
   `then` starts a new group; groups within one `run/4` call share a single
   continuously-threaded `SourceShape` (seeded once, flushed once, after the
   last group) — there is no per-group flush boundary, which is what makes the
@@ -26,9 +27,9 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   `ImagePipe.Transform.InputColorManagement`.
   """
 
-  alias ImagePipe.Dialect.Native.Request
-  alias ImagePipe.Dialect.Native.Request.Group
-  alias ImagePipe.Dialect.Native.Request.Output
+  alias ImagePipe.Native.Request
+  alias ImagePipe.Native.Request.Group
+  alias ImagePipe.Native.Request.Output
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Measure
   alias ImagePipe.Plan.Operation
@@ -70,13 +71,25 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   untouched by this preflight.
   """
   @spec decode_request(Request.t(), SourceGeometry.t()) :: DecodePlanner.Request.t()
+  def decode_request(%Request{groups: [%Group{rotate: angle} | _]}, _geometry)
+      when angle != nil and angle not in [90, 180, 270] do
+    # Arbitrary rotation changes the crop frame through resampling. Decode
+    # the full source so later source-pixel coordinates stay exact.
+    %DecodePlanner.Request{}
+  end
+
   def decode_request(
         %Request{groups: [%Group{} = group | _]} = request,
         %SourceGeometry{} = geometry
       ) do
+    {dw, dh} = geometry.display_dimensions
+    quarter_turn? = group.rotate in [90, 270]
+    crop_dimensions = if quarter_turn?, do: {dh, dw}, else: {dw, dh}
+
     %DecodePlanner.Request{
       resize_target: resize_target(group.resize),
-      crop_extent: crop_extent(group, geometry.display_dimensions),
+      crop_extent: crop_extent(group, crop_dimensions),
+      user_quarter_turn?: quarter_turn?,
       trim?: group.trim != nil,
       terminal_reduction: terminal_reduction(request.output),
       required_extent: nil
@@ -202,6 +215,17 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
   defp default_measure_dims(image), do: {Image.width(image), Image.height(image)}
 
   defp run_group(state, shape, %Group{} = group, ctx) do
+    with {:ok, state, shape} <- rotate_group(state, shape, group.rotate, ctx) do
+      run_group_body(state, shape, group, ctx)
+    end
+  end
+
+  defp rotate_group(state, shape, nil, _ctx), do: {:ok, state, shape}
+
+  defp rotate_group(state, shape, angle, ctx),
+    do: run_op(state, shape, %Operation.Rotate{angle: angle}, ctx)
+
+  defp run_group_body(state, shape, group, ctx) do
     group
     |> group_operations(shape)
     |> Enum.reduce_while({:ok, state, shape}, fn plan_op, {:ok, state, shape} ->
@@ -369,6 +393,8 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
       crop_op(group, display_dims),
       resize_op(group.resize, group.guide),
       blur_op(group.blur),
+      if(group.gray, do: %Operation.Gray{}),
+      if(group.bitonal, do: %Operation.Bitonal{}),
       pad_op(group.pad),
       bg_op(group.bg)
     ]
@@ -393,10 +419,13 @@ defmodule ImagePipe.Dialect.Native.Pipeline do
 
   defp group_operation_names(%Group{} = group) do
     [
+      group.rotate && :rotate,
       group.trim && :trim,
       crop_name(group),
       group.resize && :resize,
       group.blur && :blur,
+      if(group.gray, do: :gray),
+      if(group.bitonal, do: :bitonal),
       pad_name(group.pad),
       group.bg && :background
     ]

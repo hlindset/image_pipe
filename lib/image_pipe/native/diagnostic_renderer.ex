@@ -1,6 +1,6 @@
-defmodule ImagePipe.Dialect.Native.DiagnosticRenderer do
+defmodule ImagePipe.Native.DiagnosticRenderer do
   @moduledoc """
-  Renders an accumulated `[ImagePipe.Dialect.Native.Diagnostic.t()]` list
+  Renders an accumulated `[ImagePipe.Native.Diagnostic.t()]` list
   into the compiler-style caret display used as the `400` response body
   for the native URL dialect [native §Error diagnostics].
 
@@ -29,7 +29,7 @@ defmodule ImagePipe.Dialect.Native.DiagnosticRenderer do
   for a defensive length cap on diagnostic text, not user-facing prose.
   """
 
-  alias ImagePipe.Dialect.Native.Diagnostic
+  alias ImagePipe.Native.Diagnostic
 
   @header "invalid transformation options"
 

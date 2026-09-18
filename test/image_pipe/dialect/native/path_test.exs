@@ -1,10 +1,10 @@
-defmodule ImagePipe.Dialect.Native.PathTest do
+defmodule ImagePipe.Native.PathTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
   import Plug.Test
 
-  alias ImagePipe.Dialect.Native.Path
+  alias ImagePipe.Native.Path
 
   defp conn_for(path) do
     conn(:get, path)

@@ -1,6 +1,6 @@
-defmodule ImagePipe.Dialect.NativeResultLimitsTest do
+defmodule ImagePipe.NativeResultLimitsTest do
   @moduledoc """
-  Request-boundary coverage for `ImagePipe.Dialect.Native`'s `result_limits/2`:
+  Request-boundary coverage for `ImagePipe.Native`'s `result_limits/2`:
   host-configured `max_result_*` caps reach the post-transform clamp, AND the
   clamp composes the host cap with the format's hard encoder limit via `min/2`
   (`ImagePipe.Output.Encoder.encoder_limit/1`), never exceeding either side.
@@ -10,7 +10,7 @@ defmodule ImagePipe.Dialect.NativeResultLimitsTest do
 
   import Plug.Test
 
-  alias ImagePipe.Dialect.Native
+  alias ImagePipe.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImgproxyWireConformanceTest.OriginImage
 

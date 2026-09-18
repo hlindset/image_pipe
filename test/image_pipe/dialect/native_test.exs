@@ -1,10 +1,10 @@
-defmodule ImagePipe.Dialect.NativeTest do
+defmodule ImagePipe.NativeTest do
   use ExUnit.Case, async: true
 
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Dialect.Native
+  alias ImagePipe.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
   describe "init/1" do
@@ -13,7 +13,6 @@ defmodule ImagePipe.Dialect.NativeTest do
 
       assert Keyword.fetch!(opts, :keys) == []
       assert Keyword.fetch!(opts, :presets) == %{}
-      assert Keyword.fetch!(opts, :on_inert_option) == :reject
       assert Keyword.fetch!(opts, :storage_inputs) == []
       assert Keyword.fetch!(opts, :max_body_bytes) == 10_000_000
       assert Keyword.fetch!(opts, :max_input_pixels) == 40_000_000
@@ -37,39 +36,20 @@ defmodule ImagePipe.Dialect.NativeTest do
       assert Keyword.fetch!(opts, :keys) == ["deadbeef"]
     end
 
-    test "raises on on_inert_option: :ignore (not yet implemented)" do
-      assert_raise ArgumentError, ~r/not yet implemented/, fn ->
-        ImagePipe.Plug.init(dialect: Native, on_inert_option: :ignore)
-      end
-    end
-
-    test "raises on an invalid on_inert_option value" do
-      assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(dialect: Native, on_inert_option: :bogus)
-      end
-    end
-
-    test "accepts a presets map whose fragments parse as group-scoped-only options" do
+    test "compiles preset options at initialization" do
       opts = ImagePipe.Plug.init(dialect: Native, presets: %{"card" => "w=300/h=200/fit=cover"})
 
-      assert Keyword.fetch!(opts, :presets) == %{"card" => "w=300/h=200/fit=cover"}
+      assert Keyword.fetch!(opts, :presets) == %{
+               "card" => %{
+                 groups: %{0 => %{"w" => 300, "h" => 200, "fit" => :cover}},
+                 request: %{}
+               }
+             }
     end
 
     test "raises on a preset fragment with an unknown option" do
       assert_raise ArgumentError, fn ->
         ImagePipe.Plug.init(dialect: Native, presets: %{"bad" => "bogus=1"})
-      end
-    end
-
-    test "raises on a preset fragment containing then" do
-      assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(dialect: Native, presets: %{"bad" => "w=300/then/h=200"})
-      end
-    end
-
-    test "raises on a preset fragment containing a request-scoped key" do
-      assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(dialect: Native, presets: %{"bad" => "w=300/format=webp"})
       end
     end
 

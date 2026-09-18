@@ -1,12 +1,12 @@
-defmodule ImagePipe.Dialect.Native.Diagnostic do
+defmodule ImagePipe.Native.Diagnostic do
   @moduledoc """
   A single structured diagnostic for the native URL dialect's error
   reporting [native §Error diagnostics].
 
-  Producers (`ImagePipe.Dialect.Native.Path`, `ImagePipe.Dialect.Native.Parser`)
+  Producers (`ImagePipe.Native.Path`, `ImagePipe.Native.Parser`)
   build one `%Diagnostic{}` per independent validation failure — errors
   accumulate across a request rather than stopping at the first one.
-  `ImagePipe.Dialect.Native.DiagnosticRenderer` turns an accumulated list
+  `ImagePipe.Native.DiagnosticRenderer` turns an accumulated list
   into the compiler-style caret display that becomes the `400` response
   body.
   """

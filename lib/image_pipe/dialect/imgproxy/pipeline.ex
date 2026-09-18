@@ -3,7 +3,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Pipeline do
   Inline per-pipeline geometry for the imgproxy dialect.
 
   Scoping reproduces `ImagePipe.Transform.Executor`'s per-pipeline scoping, NOT
-  `ImagePipe.Dialect.Native.Pipeline` [spec §Pipeline 1]: imgproxy `-`
+  `ImagePipe.Native.Pipeline` [spec §Pipeline 1]: imgproxy `-`
   pipelines each re-seed `SourceShape` from the prior pipeline's output,
   start a fresh carry, and flush pending orientation at their own boundary —
   a pipeline's output is the next pipeline's input, so each ends in the

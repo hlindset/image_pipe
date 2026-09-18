@@ -28,13 +28,15 @@ mounts every API through `ImagePipe.Plug` and
 `ImagePipe.Dialect.Declarative`; native, imgproxy, and TwicPics own their
 pipelines. The remaining migration starts from this architecture.
 
-The native probe implements these option keys:
+The native API implements these option keys:
 
-`w`, `h`, `fit`, `enlarge`, `crop`, `region`, `anchor`, `focus`, `blur`,
-`trim`, `pad`, `bg`, `output`, `format`, `q`, `expires`, `preset`.
+`rotate`, `w`, `h`, `fit`, `enlarge`, `crop`, `region`, `anchor`, `focus`,
+`blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
+`expires`, `preset`.
 
 It also implements `then`, `src`, `src64`, and full-length HMAC signing with
-key rotation. Sources are currently paths or HTTP(S) URLs. Image and
+key rotation. Presets support nested references and complete `then` pipelines.
+Sources are currently paths or HTTP(S) URLs. Image and
 BlurHash are implemented terminals. The broader vocabulary in the
 [July native design](superpowers/specs/2026-07-12-native-url-dialect-design.md)
 is a proposal, not a record of shipped capabilities; in particular, LQIP

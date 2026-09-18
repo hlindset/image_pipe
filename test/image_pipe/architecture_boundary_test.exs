@@ -64,7 +64,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Dialect.Declarative => "lib/image_pipe/dialect/declarative.ex",
     ImagePipe.Dialect.IIIF => "lib/image_pipe/dialect/iiif.ex",
     ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
-    ImagePipe.Dialect.Native => "lib/image_pipe/dialect/native.ex",
+    ImagePipe.Native => "lib/image_pipe/native.ex",
     ImagePipe.Dialect.SharedConfig => "lib/image_pipe/dialect/shared_config.ex",
     ImagePipe.Dialect.TwicPics => "lib/image_pipe/dialect/twic_pics.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
@@ -118,7 +118,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/dialect/twic_pics/**/*.ex"
   ]
 
-  test "plug boundary is the mount interface and takes only the neutral dialect contract" do
+  test "plug boundary mounts native and owns the request lifecycle" do
     plug = boundary_declaration(ImagePipe.Plug)
 
     assert_boundary_deps(plug, [
@@ -127,6 +127,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Decode,
       ImagePipe.Delivery,
       ImagePipe.Dialect,
+      ImagePipe.Native,
       ImagePipe.Error,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -137,16 +138,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
-    # U4 at the declaration layer: the runner takes `ImagePipe.Dialect`, the
-    # neutral contract, and never a concrete dialect. No dialect declares a dep
-    # on `ImagePipe.Plug`, so Boundary's cycle detection would happily accept
-    # one of these — this pin is what stops the expected list above from being
-    # widened to legitimize it alongside the source-level U4 grep.
     refute_boundary_deps(plug, [
       ImagePipe.Dialect.Declarative,
       ImagePipe.Dialect.IIIF,
       ImagePipe.Dialect.Imgproxy,
-      ImagePipe.Dialect.Native,
       ImagePipe.Dialect.TwicPics
     ])
 
@@ -184,7 +179,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   test "dialect native boundary declaration depends only on core toolkit facades" do
-    dialect_native = boundary_declaration(ImagePipe.Dialect.Native)
+    dialect_native = boundary_declaration(ImagePipe.Native)
 
     assert_boundary_deps(dialect_native, [
       ImagePipe.Decode,
@@ -214,7 +209,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(dialect_native, [])
   end
 
-  test "the plug and dialect runner name no concrete dialect (U4 anti-leak rule)" do
+  test "the plug and request lifecycle have no dependency on compatibility implementations" do
     files =
       ["lib/image_pipe/plug.ex" | Path.wildcard("lib/image_pipe/plug/**/*.ex")]
       |> Enum.uniq()
@@ -224,13 +219,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       for file <- files,
           {line, number} <-
             file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
-          Regex.match?(~r/Dialect\.(Native|Imgproxy|TwicPics|IIIF)\b/, line) do
+          Regex.match?(~r/Dialect\.(Imgproxy|TwicPics|IIIF)\b/, line) do
         "#{file}:#{number} names a concrete dialect: #{String.trim(line)}"
       end
 
     assert violations == [],
-           "the runner branches only on %Resolved{} fields and neutral core structs; " <>
-             "it must never name a dialect: #{inspect(violations)}"
+           "native request orchestration must not depend on compatibility implementations: " <>
+             inspect(violations)
   end
 
   test "dialect imgproxy boundary declaration depends only on core toolkit facades" do
@@ -292,7 +287,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Decode,
       ImagePipe.Delivery,
       ImagePipe.Dialect.Imgproxy,
-      ImagePipe.Dialect.Native,
+      ImagePipe.Native,
       ImagePipe.Renderer
     ])
 
@@ -351,7 +346,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Decode,
       ImagePipe.Delivery,
       ImagePipe.Dialect.Imgproxy,
-      ImagePipe.Dialect.Native,
+      ImagePipe.Native,
       ImagePipe.Dialect.TwicPics,
       ImagePipe.Output,
       ImagePipe.Source,
@@ -518,7 +513,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     for {source, forbidden} <- [
           {"ImagePipe.Renderer.run(spec)", "ImagePipe.Renderer"},
-          {"ImagePipe.Dialect.Native.call(conn, opts)", "ImagePipe.Dialect.Native"},
+          {"ImagePipe.Native.call(conn, opts)", "ImagePipe.Native"},
           {"alias ImagePipe.Dialect.Imgproxy\nImgproxy.call(conn, opts)",
            "ImagePipe.Dialect.Imgproxy"}
         ] do
@@ -578,12 +573,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   test "core and transform code does not name a dialect" do
-    # A dialect must be removable without changing the core: nothing under
-    # source/response/cache/output/plan/transform may reference
-    # ImagePipe.Dialect. `lib/image_pipe/plug.ex` is the one exception: it hosts
-    # the dialect runner, so it may name the neutral ImagePipe.Dialect
-    # CONTRACT — concrete dialect names stay forbidden there via the U4 test
-    # above.
+    # Source/response/cache/output/plan/transform stay independent of URL
+    # parsing. The mount selects the native implementation.
     exempt = ["lib/image_pipe/plug.ex"]
 
     violations =
@@ -1070,12 +1061,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   defp dialect_references(file) do
-    file
-    |> File.read!()
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.filter(fn {line, _number} -> String.contains?(line, "ImagePipe.Dialect") end)
-    |> Enum.map(fn {_line, number} -> %{line: number, module: "ImagePipe.Dialect"} end)
+    for {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+        module <- ["ImagePipe.Dialect", "ImagePipe.Native"],
+        String.contains?(line, module),
+        do: %{line: number, module: module}
   end
 
   defp twicpics_dialect_reference?(line), do: String.contains?(line, "Dialect.TwicPics")
@@ -1330,6 +1319,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp twicpics_forbidden_module([:ImagePipe, :Dialect, dialect | _rest]),
     do: "ImagePipe.Dialect.#{dialect}"
+
+  defp twicpics_forbidden_module([:ImagePipe, :Native | _rest]), do: "ImagePipe.Native"
 
   defp twicpics_forbidden_module(_parts), do: nil
 

@@ -1,9 +1,9 @@
-defmodule ImagePipe.Dialect.Native.Request do
+defmodule ImagePipe.Native.Request do
   @moduledoc """
   Canonical, pre-negotiation request data for the native URL dialect
   [native §Canonical form and identity].
 
-  Produced by `ImagePipe.Dialect.Native.Parser.parse/2` from Task 4's lexed
+  Produced by `ImagePipe.Native.Parser.parse/2` from Task 4's lexed
   path data. Pure data — no PIDs, refs, or conn state [pipelines §Design
   principles 2]. Within a group, option order is semantically irrelevant:
   any permutation of a group's segments produces an equal `%Request{}`
@@ -11,8 +11,8 @@ defmodule ImagePipe.Dialect.Native.Request do
   `canonical_property_test.exs`).
   """
 
-  alias ImagePipe.Dialect.Native.Request.Group
-  alias ImagePipe.Dialect.Native.Request.Output
+  alias ImagePipe.Native.Request.Group
+  alias ImagePipe.Native.Request.Output
 
   @enforce_keys [:groups, :output, :source]
   defstruct groups: [], output: nil, source: nil, expires: nil
@@ -25,7 +25,7 @@ defmodule ImagePipe.Dialect.Native.Request do
         }
 end
 
-defmodule ImagePipe.Dialect.Native.Request.Group do
+defmodule ImagePipe.Native.Request.Group do
   @moduledoc """
   One pipeline-group's worth of transform intent [native §Pipeline groups].
 
@@ -50,7 +50,10 @@ defmodule ImagePipe.Dialect.Native.Request.Group do
           | {:anchor_smart}
           | {:focus, float(), float()}
 
-  defstruct trim: nil,
+  defstruct rotate: nil,
+            gray: false,
+            bitonal: false,
+            trim: nil,
             region: nil,
             crop: nil,
             guide: nil,
@@ -60,6 +63,9 @@ defmodule ImagePipe.Dialect.Native.Request.Group do
             bg: nil
 
   @type t :: %__MODULE__{
+          rotate: nil | number(),
+          gray: boolean(),
+          bitonal: boolean(),
           trim: nil | :auto | {color(), number()},
           region: nil | {length(), length(), length(), length()},
           crop: nil | {length(), length()},
@@ -71,7 +77,7 @@ defmodule ImagePipe.Dialect.Native.Request.Group do
         }
 end
 
-defmodule ImagePipe.Dialect.Native.Request.Output do
+defmodule ImagePipe.Native.Request.Output do
   @moduledoc """
   Terminal selection and output policy [native §Output & delivery,
   §Terminal contracts].

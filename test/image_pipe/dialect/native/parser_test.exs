@@ -1,13 +1,14 @@
-defmodule ImagePipe.Dialect.Native.ParserTest do
+defmodule ImagePipe.Native.ParserTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Dialect.Native.Diagnostic
-  alias ImagePipe.Dialect.Native.DiagnosticRenderer
-  alias ImagePipe.Dialect.Native.Parser
-  alias ImagePipe.Dialect.Native.Request
-  alias ImagePipe.Dialect.Native.Request.Group
-  alias ImagePipe.Dialect.Native.Request.Output
+  alias ImagePipe.Native.Config
+  alias ImagePipe.Native.Diagnostic
+  alias ImagePipe.Native.DiagnosticRenderer
+  alias ImagePipe.Native.Parser
+  alias ImagePipe.Native.Request
+  alias ImagePipe.Native.Request.Group
+  alias ImagePipe.Native.Request.Output
 
   # `parse/2` consumes Task 4's lexed map directly — never a conn — so
   # tests build that map by hand instead of going through `Path.extract/1`.
@@ -20,7 +21,7 @@ defmodule ImagePipe.Dialect.Native.ParserTest do
   end
 
   defp parse(segments, source \\ "images/cat.jpg", config \\ []) do
-    Parser.parse(lexed(segments, source), config)
+    Parser.parse(lexed(segments, source), Config.validate!(config))
   end
 
   describe "worked examples [native §Examples]" do
@@ -408,45 +409,6 @@ defmodule ImagePipe.Dialect.Native.ParserTest do
     end
   end
 
-  describe "parse_option_fragment/2" do
-    defp fragment(string), do: Parser.parse_option_fragment(string, [])
-
-    test "parses a group-scoped-only fragment into a clean map" do
-      assert fragment("w=800/fit=cover") == {:ok, %{"w" => 800, "fit" => :cover}}
-    end
-
-    test "rejects a then segment" do
-      assert {:error, diagnostics} = fragment("w=800/then/h=400")
-      assert Enum.any?(diagnostics, &(&1.reason == :then_not_allowed_in_fragment))
-    end
-
-    test "rejects a src segment" do
-      assert {:error, diagnostics} = fragment("w=800/src")
-      assert Enum.any?(diagnostics, &(&1.reason == :source_not_allowed_in_fragment))
-    end
-
-    test "rejects a request-scoped key" do
-      assert {:error, diagnostics} = fragment("w=800/format=webp")
-      assert Enum.any?(diagnostics, &(&1.reason == :request_scoped_key_in_fragment))
-    end
-
-    test "rejects an unknown key" do
-      assert {:error, diagnostics} = fragment("bogus=1")
-      assert Enum.any?(diagnostics, &(&1.reason == :unknown_option))
-    end
-
-    test "rejects a duplicate key within the fragment" do
-      assert {:error, diagnostics} = fragment("w=800/w=900")
-      assert Enum.any?(diagnostics, &(&1.reason == :duplicate_option))
-    end
-
-    test "does not run cross-option (Tier 2/3) validation" do
-      # `anchor` alone has no consumer within this fragment, but that is a
-      # decision for the merged request, not this narrow surface.
-      assert fragment("anchor=smart") == {:ok, %{"anchor" => :smart}}
-    end
-  end
-
   describe "presets [native §Presets, trimmed to probe]" do
     test "a named preset contributes options the URL never states" do
       config = [presets: %{"card" => "w=300/fit=cover"}]
@@ -534,7 +496,8 @@ defmodule ImagePipe.Dialect.Native.ParserTest do
       raw_path = "/src/images/cat.jpg"
       lexed = %{segments: [], source: {:src, "images/cat.jpg", {5, 14}}}
 
-      assert {:error, {:invalid_request, diagnostics}} = Parser.parse(lexed, config)
+      assert {:error, {:invalid_request, diagnostics}} =
+               Parser.parse(lexed, Config.validate!(config))
 
       assert [%Diagnostic{reason: :inert_option, spans: [{0, 19}]}] = diagnostics
       assert byte_size(raw_path) == 19

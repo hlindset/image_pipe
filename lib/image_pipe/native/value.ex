@@ -1,4 +1,4 @@
-defmodule ImagePipe.Dialect.Native.Value do
+defmodule ImagePipe.Native.Value do
   @moduledoc """
   Pure parsers for the native URL dialect's value micro-syntax [native
   §Value micro-syntax].

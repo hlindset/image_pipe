@@ -47,7 +47,7 @@ defmodule ImagePipe.Dialect.Imgproxy.Errors do
       - `{:transform, inner}` -> 422. Rewrapped as `{:transform_error,
         inner}` — this dialect's own `Pipeline.run/4` tags a chain failure
         `{:transform, _}` where `ErrorStatus` expects the `_error`-suffixed
-        domain tag (mirrors `ImagePipe.Dialect.Native.Errors`'s identical
+        domain tag (mirrors `ImagePipe.Native.Errors`'s identical
         rewrap for its own `{:transform, inner}` reason).
 
   `ErrorStatus` is a reusable *default*, not a core-owned protocol mapping:

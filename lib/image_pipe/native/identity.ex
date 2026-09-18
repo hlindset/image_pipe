@@ -1,4 +1,4 @@
-defmodule ImagePipe.Dialect.Native.Identity do
+defmodule ImagePipe.Native.Identity do
   @moduledoc """
   Composes the native dialect's representation identity material [native
   §Canonical form and identity].
@@ -26,8 +26,8 @@ defmodule ImagePipe.Dialect.Native.Identity do
   passes to `Representation.build/3` alongside this material.
   """
 
-  alias ImagePipe.Dialect.Native.Request
   alias ImagePipe.Dialect.Negotiation
+  alias ImagePipe.Native.Request
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Output
   alias ImagePipe.Representation
@@ -36,7 +36,7 @@ defmodule ImagePipe.Dialect.Native.Identity do
   # This dialect's behavioral epoch — bumped whenever a parser/pipeline
   # semantics change must invalidate every representation this dialect has
   # ever built, independent of the core's own execution epoch.
-  @dialect_epoch {ImagePipe.Dialect.Native, 1}
+  @dialect_epoch {ImagePipe.Native, 1}
 
   @doc """
   Builds the pre-fetch identity material for `request`, given the negotiation

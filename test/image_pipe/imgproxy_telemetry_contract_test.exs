@@ -17,7 +17,7 @@
 # ## The dialect emits the full stage set, and that is measured here
 #
 # `ImgproxyTelemetryStageSetTest` at the bottom of this file measures the stage
-# set rather than assuming it, in the exact sequence `ImagePipe.Dialect.Native`
+# set rather than assuming it, in the exact sequence `ImagePipe.Native`
 # emits.
 defmodule ImagePipe.ImgproxyTelemetryContractTest do
   use ExUnit.Case, async: true
@@ -667,7 +667,7 @@ defmodule ImagePipe.ImgproxyTelemetryStageSetTest do
   # This module is deliberately NOT parameterized — comparing the two dialects
   # head to head is its whole subject.
   alias ImagePipe.Dialect.Imgproxy
-  alias ImagePipe.Dialect.Native
+  alias ImagePipe.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImgproxyWireConformanceTest.OriginImage
 

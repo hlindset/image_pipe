@@ -1,4 +1,4 @@
-defmodule ImagePipe.Dialect.NativeWireTest do
+defmodule ImagePipe.NativeWireTest do
   use ExUnit.Case, async: true
 
   import Plug.Conn
@@ -7,10 +7,10 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
-  alias ImagePipe.Dialect.Native
-  alias ImagePipe.Dialect.Native.Identity
-  alias ImagePipe.Dialect.Native.Parser
   alias ImagePipe.Dialect.Negotiation, as: DialectNegotiation
+  alias ImagePipe.Native
+  alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Parser
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -61,13 +61,51 @@ defmodule ImagePipe.Dialect.NativeWireTest do
   # already documents) — appended AFTER `ImagePipe.Plug.init/1`'s validation,
   # which would reject them as unknown options.
   defp opts(extra) do
-    base =
-      ImagePipe.Plug.init(Keyword.merge([dialect: Native, sources: @default_sources], extra))
+    base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
 
     Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
   end
 
   defp opts, do: opts([])
+
+  test "nested pipeline presets share bytes, identity and cache with explicit requests" do
+    config =
+      opts(
+        presets: %{
+          "small" => "w=64/then/pad=4",
+          "card" => "preset=small/format=png"
+        },
+        sources: counting_sources(),
+        cache: stateful_cache_probe()
+      )
+
+    preset = get("/preset=card/src/images/cat.jpg", config)
+    assert preset.status == 200
+    assert_received :origin_fetch
+
+    explicit = get("/w=64/then/pad=4/format=png/src/images/cat.jpg", config)
+    assert explicit.status == 200
+    assert explicit.resp_body == preset.resp_body
+    assert get_resp_header(explicit, "etag") == get_resp_header(preset, "etag")
+    assert Image.width(Image.from_binary!(explicit.resp_body)) == 72
+    refute_received :origin_fetch
+  end
+
+  test "ambiguous pipeline preset fails before cache or source access" do
+    response =
+      get(
+        "/preset=small/w=64/src/images/cat.jpg",
+        opts(
+          presets: %{"small" => "w=100/then/pad=4"},
+          sources: should_not_fetch_sources(),
+          cache: stateful_cache_probe()
+        )
+      )
+
+    assert response.status == 400
+    refute_received :origin_fetch
+    refute_received {:cache_lookup, _}
+  end
 
   defp get(path, config, headers \\ []) do
     conn = conn(:get, path)
@@ -98,6 +136,69 @@ defmodule ImagePipe.Dialect.NativeWireTest do
       assert {width, _height} = decoded_dims(conn.resp_body)
       assert width == 64
       assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    end
+  end
+
+  describe "native mount configuration" do
+    test "rejects unknown and malformed native options at initialization" do
+      assert_raise ArgumentError, ~r/unknown .* option :unknown_option/, fn ->
+        ImagePipe.Plug.init(sources: @default_sources, unknown_option: true)
+      end
+
+      assert_raise ArgumentError, ~r/hex-encoded/, fn ->
+        ImagePipe.Plug.init(sources: @default_sources, keys: ["not a hex key"])
+      end
+    end
+  end
+
+  describe "generated HTTP cache policy" do
+    test "opt-in headers support conditional responses before cache reads or source fetch" do
+      config = opts(http_cache: [mode: :enabled], sources: counting_sources())
+      first = get("/w=64/src/images/cat.jpg", config)
+      assert first.status == 200
+      assert_received :origin_fetch
+      assert get_resp_header(first, "cache-control") == ["public, max-age=31536000, immutable"]
+      assert [etag] = get_resp_header(first, "etag")
+
+      cached_config =
+        opts(
+          http_cache: [mode: :enabled],
+          sources: should_not_fetch_sources(),
+          cache: {CacheProbe, []}
+        )
+
+      second = get("/w=64/src/images/cat.jpg", cached_config, [{"if-none-match", etag}])
+      assert second.status == 304
+      refute_received {:cache_lookup, _}
+      refute_received :origin_fetch
+    end
+
+    test "host privacy headers suppress generated validators and the conditional shortcut" do
+      config = opts(http_cache: [mode: :enabled])
+      first = get("/w=64/src/images/cat.jpg", config)
+      [etag] = get_resp_header(first, "etag")
+
+      for {name, value} <- [
+            {"cache-control", "private, no-store"},
+            {"vary", "*"},
+            {"set-cookie", "session=test"}
+          ] do
+        response =
+          conn(:get, "/w=64/src/images/cat.jpg")
+          |> put_req_header("if-none-match", etag)
+          |> put_resp_header(name, value)
+          |> ImagePipe.Plug.call(config)
+
+        assert response.status == 200
+        assert get_resp_header(response, "etag") == []
+        assert get_resp_header(response, name) == [value]
+      end
+    end
+
+    test "disabled policy emits no generated validator" do
+      response = get("/w=64/src/images/cat.jpg", opts(http_cache: [mode: :disabled]))
+      assert response.status == 200
+      assert get_resp_header(response, "etag") == []
     end
   end
 

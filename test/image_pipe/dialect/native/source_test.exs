@@ -1,7 +1,7 @@
-defmodule ImagePipe.Dialect.Native.SourceTest do
+defmodule ImagePipe.Native.SourceTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Dialect.Native.Source
+  alias ImagePipe.Native.Source
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.URL
 
