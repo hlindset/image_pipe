@@ -216,7 +216,8 @@ defmodule ImagePipe.Native.Pipeline do
 
   defp run_group(state, shape, %Group{} = group, ctx) do
     with {:ok, state, shape} <- rotate_group(state, shape, group.rotate, ctx),
-         {:ok, state, shape} <- flip_group(state, shape, group.flip, ctx) do
+         {:ok, state, shape} <- flip_group(state, shape, group.flip, ctx),
+         {:ok, state, shape} <- trim_group(state, shape, group.trim, ctx) do
       run_group_body(state, shape, group, ctx)
     end
   end
@@ -230,6 +231,11 @@ defmodule ImagePipe.Native.Pipeline do
 
   defp flip_group(state, shape, axis, ctx),
     do: run_op(state, shape, %Operation.Flip{axis: axis}, ctx)
+
+  defp trim_group(state, shape, nil, _ctx), do: {:ok, state, shape}
+
+  defp trim_group(state, shape, trim, ctx),
+    do: run_op(state, shape, trim_op(trim), ctx)
 
   defp run_group_body(state, shape, group, ctx) do
     group
@@ -374,28 +380,15 @@ defmodule ImagePipe.Native.Pipeline do
 
   # -- per-group semantic op assembly --------------------------------------
   #
-  # Built fresh for each group against that group's STARTING shape (the shape
-  # as of the end of the previous group, or the seed for group 0) — the only
-  # pct-relative values in the probe subset (`crop`/`region` lengths) resolve
-  # against the CURRENT DISPLAY dims at this point (`SourceShape.live_dims/1`,
-  # swapped for a pending quarter turn via `PendingOrientation.display_dims/2`
-  # — the same computation `Decode.with_image/4` uses to seed
-  # `SourceGeometry.display_dimensions`), before any of this group's own ops
-  # run. This basis is the group's INPUT shape, so a pct crop/region in a
-  # group that ALSO trims (stage 3, before crop's stage 4) resolves against
-  # the PRE-trim display dims, not the post-trim result — a deliberate,
-  # pinned choice (the group-input shape is what "current display dims"
-  # means here), not an oversight; see `pipeline_pixel_test.exs` for the
-  # pinning test. Resolved px lengths need no such compensation: the caller
-  # already supplies them in the display frame, matching what the resolver's
-  # crop path expects.
+  # Crop percentages use the effective display frame after rotation, flip,
+  # and trim. Keep lengths in source pixels here: lowering applies the realized
+  # decode shrink once when translating them into decoded-image coordinates.
 
   defp group_operations(%Group{} = group, %SourceShape{} = shape) do
     display_dims =
-      PendingOrientation.display_dims(SourceShape.live_dims(shape), shape.pending_orientation)
+      PendingOrientation.display_dims({shape.width, shape.height}, shape.pending_orientation)
 
     [
-      trim_op(group.trim),
       crop_op(group, display_dims),
       resize_op(group.resize, group.guide),
       blur_op(group.blur),
@@ -446,8 +439,6 @@ defmodule ImagePipe.Native.Pipeline do
   defp pad_name(nil), do: nil
   defp pad_name({0, 0, 0, 0}), do: nil
   defp pad_name({_top, _right, _bottom, _left}), do: :padding
-
-  defp trim_op(nil), do: nil
 
   defp trim_op(:auto), do: build_trim_op(@default_trim_threshold, :auto)
 

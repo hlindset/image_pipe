@@ -12,6 +12,7 @@
     { label: "Framed preset", options: "preset=framed" },
     { label: "Rotate", options: "rotate=30/w=600" },
     { label: "Flip", options: "rotate=90/flip=h/w=600" },
+    { label: "Trim and crop", options: "trim=auto/crop=50pct,50pct/w=600" },
     { label: "Grayscale", options: "w=600/gray" },
     { label: "Black and white", options: "w=600/bitonal" },
     { label: "Debug headers", options: "w=800/debug" },

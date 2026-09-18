@@ -115,9 +115,8 @@ produces the same result as this logical order.
 
 Crop and region percentages use their operation's input dimensions, after
 rotation, flip, and trim. Trimming a 1000px-wide input to 800px and then
-applying `crop=50pct,100pct` requests 400px in width. This deliberately
-changes the probe's pre-trim percentage basis; task `.4` must replace its
-old expectation and add a native wire pixel test. Region coordinates are
+applying `crop=50pct,100pct` requests 400px in width. Decode shrink-on-load
+preserves these source-pixel coordinates. Region coordinates are
 relative to the trimmed image, with no hidden original-image offset.
 Crop and region widths and heights must be positive; invalid sizes fail
 during request parsing before source resolution or cache access.

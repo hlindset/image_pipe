@@ -233,11 +233,7 @@ defmodule ImagePipe.Native.PipelinePixelTest do
     assert {Image.width(image), Image.height(image)} == {600, 800}
   end
 
-  # ── intra-group pct basis: resolved against the group-INPUT display dims,
-  # before this group's own trim runs (documented, pinned choice — see
-  # `group_operations/2`'s moduledoc note) ─────────────────────────────────
-
-  test "a pct crop in a group that also trims resolves against the group's PRE-trim display dims" do
+  test "a pct crop resolves against the trimmed display dimensions" do
     request =
       req([
         group(%{
@@ -249,14 +245,9 @@ defmodule ImagePipe.Native.PipelinePixelTest do
 
     assert {:ok, %State{image: image}} = run_native(TrimSourceOrigin, request)
 
-    # TrimSourceOrigin is an 800x800 white canvas with a centered 400x400
-    # block. A post-trim pct basis would resolve 50% of ~400x400 => ~200x200;
-    # the group-input (pre-trim) basis this dialect uses resolves 50% of the
-    # untouched 800x800 source => 400x400. Small tolerance for the trim
-    # threshold-0 antialiasing rim (mirrors the cheap-trim contract test
-    # above).
-    assert_in_delta Image.width(image), 400, 10
-    assert_in_delta Image.height(image), 400, 10
+    # Half of the trimmed 400x400 block, allowing the trim threshold's rim.
+    assert_in_delta Image.width(image), 200, 5
+    assert_in_delta Image.height(image), 200, 5
   end
 
   # ── decode_request/2 preflight values ─────────────────────────────────────

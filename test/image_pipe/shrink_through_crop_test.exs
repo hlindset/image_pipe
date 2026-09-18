@@ -3,11 +3,11 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Declarative
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Plan.Source.Path
+  alias ImagePipe.Dialect.Imgproxy
+  alias ImagePipe.Native
+  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Request
+  alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.State
@@ -40,34 +40,74 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     |> Image.write!(:memory, suffix: suffix)
   end
 
-  defp plan(operations) do
-    %Plan{
-      source: %Path{segments: ["crop.img"]},
-      output: %Plan.Output{mode: :automatic},
-      pipelines: [%Pipeline{operations: operations}]
-    }
-  end
-
-  defp run(body, operations) do
-    decode_execute(body, plan(operations))
-  end
-
-  # Fetch + decode through the shared bracket with the declarative dialect's
-  # decode preflight, then run the plan through the declarative pipeline —
-  # the same two seams `ImagePipe.Plug.DialectRunner` drives.
-  defp decode_execute(body, plan) do
+  # Parse a real native request, fetch and decode through the shared bracket,
+  # then run it through the native pipeline — the same seams the Plug drives.
+  defp run(body, options) do
     opts = opts(body)
-    {:ok, source} = Source.resolve(plan.source, opts, [])
+    request = request(options, opts)
+    {:ok, source_request} = NativeSource.translate(request.source, opts)
+    {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
       source,
-      Keyword.put(opts, :auto_rotate?, plan.auto_rotate),
-      &Declarative.decode_request(plan, &1),
+      Keyword.put(opts, :auto_rotate?, true),
+      &Pipeline.decode_request(request, &1),
       fn state, geometry ->
-        {:ok, %State{} = final} = Declarative.execute(state, geometry, plan, opts)
+        {:ok, %State{} = final} = Pipeline.run(state, geometry, request, opts)
         {final.image, shrink_factor(state.decode_shrink)}
       end
     )
+  end
+
+  defp run_imgproxy(body, options, config \\ []) do
+    telemetry_prefix = [:"shrink_crop_#{System.unique_integer([:positive])}"]
+    decode_stop = telemetry_prefix ++ [:source, :fetch_decode, :stop]
+    handler_id = {__MODULE__, self(), telemetry_prefix}
+
+    :telemetry.attach(
+      handler_id,
+      decode_stop,
+      &__MODULE__.handle_decode_stop/4,
+      {self(), telemetry_prefix}
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    opts =
+      body
+      |> mount_options()
+      |> Keyword.merge(config)
+      |> Keyword.put(:telemetry_prefix, telemetry_prefix)
+      |> Keyword.put(:dialect, Imgproxy)
+      |> ImagePipe.Plug.init()
+
+    conn =
+      :get
+      |> Plug.Test.conn("/_/#{options}/f:png/plain/crop.img")
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 200
+    assert_receive {:decode_stop, ^telemetry_prefix, metadata}
+
+    {Image.from_binary!(conn.resp_body), load_shrink(Map.get(metadata, :load_option))}
+  end
+
+  def handle_decode_stop(_event, _measurements, metadata, {test_pid, telemetry_prefix}) do
+    send(test_pid, {:decode_stop, telemetry_prefix, metadata})
+  end
+
+  defp request("", opts) do
+    assert {{:ok, %Request{} = request}, _metadata} =
+             Native.parse(Plug.Test.conn(:get, "/src/crop.img"), opts)
+
+    request
+  end
+
+  defp request(options, opts) do
+    assert {{:ok, %Request{} = request}, _metadata} =
+             Native.parse(Plug.Test.conn(:get, "/#{options}/src/crop.img"), opts)
+
+    request
   end
 
   # The realized load shrink, rounded back to the libjpeg block factor the
@@ -75,8 +115,17 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   defp shrink_factor(nil), do: nil
   defp shrink_factor(%{w: w}), do: round(w)
 
+  defp load_shrink(nil), do: nil
+  defp load_shrink({:shrink, factor}), do: factor
+
   defp opts(body) do
-    Source.validate_config!(
+    body
+    |> mount_options()
+    |> ImagePipe.Plug.init()
+  end
+
+  defp mount_options(body) do
+    [
       sources: [
         path:
           {RootHTTPAdapter,
@@ -87,7 +136,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
       max_result_height: 100_000,
       max_result_pixels: 1_000_000_000,
       max_body_bytes: 100_000_000
-    )
+    ]
   end
 
   defp origin_plug(body) do
@@ -151,24 +200,20 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   describe "CropRegion (explicit pixel coords) then resize" do
     test "centre region crop + fit resize is pixel-equivalent across shrink and full decode" do
-      {:ok, crop} = Operation.crop_region({:px, 800}, {:px, 800}, {:px, 1600}, {:px, 1600})
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
-      ops = [crop, resize]
+      options = "region=800,800,1600,1600/w=400/h=400"
 
-      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), ops)
-      {png_img, no_shrink} = run(structured(@src, @src, ".png"), ops)
+      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), options)
+      {png_img, no_shrink} = run(structured(@src, @src, ".png"), options)
 
       assert no_shrink == nil, "PNG baseline must not shrink"
       assert_equivalent(jpeg_img, png_img, shrink, "region 800,800 1600x1600 -> fit:400:400")
     end
 
     test "off-centre region crop preserves placement" do
-      {:ok, crop} = Operation.crop_region({:px, 1200}, {:px, 400}, {:px, 1200}, {:px, 1200})
-      {:ok, resize} = Operation.resize(:fit, {:px, 300}, {:px, 300})
-      ops = [crop, resize]
+      options = "region=1200,400,1200,1200/w=300/h=300"
 
-      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), ops)
-      {png_img, _} = run(structured(@src, @src, ".png"), ops)
+      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), options)
+      {png_img, _} = run(structured(@src, @src, ".png"), options)
 
       assert_equivalent(jpeg_img, png_img, shrink, "region 1200,400 1200x1200 -> fit:300:300")
     end
@@ -176,17 +221,12 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   describe "CropGuided absolute pixel-offset gravity then resize" do
     test "anchor gravity with absolute pixel offset rescales correctly" do
-      {:ok, crop} =
-        Operation.crop_guided({:px, 1600}, {:px, 1600}, {:anchor, :left, :top},
-          x_offset: {:pixels, 600},
-          y_offset: {:pixels, 400}
-        )
+      options = "c:1600:1600:nowe:600:400/rs:fit:400:400"
 
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
-      ops = [crop, resize]
+      {jpeg_img, shrink} = run_imgproxy(structured(@src, @src, ".jpg"), options)
+      {png_img, no_shrink} = run_imgproxy(structured(@src, @src, ".png"), options)
 
-      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), ops)
-      {png_img, _} = run(structured(@src, @src, ".png"), ops)
+      assert no_shrink == nil
 
       assert_equivalent(
         jpeg_img,
@@ -199,14 +239,10 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   describe "CropGuided focus-point gravity (relative) then resize" do
     test "focus-point gravity is unaffected by the shrink rescale" do
-      {:ok, crop} =
-        Operation.crop_guided({:px, 1600}, {:px, 1600}, {:focal, {:ratio, 1, 4}, {:ratio, 3, 4}})
+      options = "crop=1600,1600/focus=0.25,0.75/w=400/h=400"
 
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
-      ops = [crop, resize]
-
-      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), ops)
-      {png_img, _} = run(structured(@src, @src, ".png"), ops)
+      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), options)
+      {png_img, _} = run(structured(@src, @src, ".png"), options)
 
       assert_equivalent(jpeg_img, png_img, shrink, "guided 1600x1600 focal(0.25,0.75) -> fit:400")
     end
@@ -214,14 +250,10 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   describe "relative (ratio) crop dimensions then resize" do
     test "ratio crop dims need no rescale and stay equivalent" do
-      {:ok, crop} =
-        Operation.crop_guided({:ratio, 1, 2}, {:ratio, 1, 2}, {:anchor, :center, :center})
+      options = "crop=50pct,50pct/anchor=center/w=400/h=400"
 
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
-      ops = [crop, resize]
-
-      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), ops)
-      {png_img, _} = run(structured(@src, @src, ".png"), ops)
+      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), options)
+      {png_img, _} = run(structured(@src, @src, ".png"), options)
 
       assert_equivalent(jpeg_img, png_img, shrink, "guided ratio 1/2 center -> fit:400")
     end
@@ -234,24 +266,22 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     # smuggle an over-budget source past the limit.
     test "over-limit JPEG with crop+resize is rejected before decode" do
       body = structured(@src, @src, ".jpg")
-
-      {:ok, crop} = Operation.crop_region({:px, 0}, {:px, 0}, {:px, 1600}, {:px, 1600})
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
-      plan = plan([crop, resize])
+      opts = opts(body)
+      request = request("region=0,0,1600,1600/w=400/h=400", opts)
 
       over_limit =
-        body
-        |> opts()
+        opts
         |> Keyword.put(:max_input_pixels, @src * @src - 1)
-        |> Keyword.put(:auto_rotate?, plan.auto_rotate)
+        |> Keyword.put(:auto_rotate?, true)
 
-      {:ok, source} = Source.resolve(plan.source, over_limit, [])
+      {:ok, source_request} = NativeSource.translate(request.source, over_limit)
+      {:ok, source} = Source.resolve(source_request, over_limit, [])
 
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =
                Decode.with_image(
                  source,
                  over_limit,
-                 &Declarative.decode_request(plan, &1),
+                 &Pipeline.decode_request(request, &1),
                  fn _state, _geometry ->
                    flunk("decode must not run past the pixel-limit gate")
                  end
@@ -263,27 +293,14 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   end
 
   describe "composition with EXIF orientation (#146)" do
-    # A gravity crop + resize on an EXIF-oriented source: the deferred-orientation
-    # compensation (compensate_crop: gravity remap + dim swap) and the shrink-on-load
-    # coordinate rescale must BOTH apply to the same executable %Crop{}. The rescale
-    # is a uniform scalar (both axes ÷ the realized shrink), so it commutes with the
-    # quarter-turn axis swap. Compared against the same oriented source as PNG (full
-    # decode), output must stay pixel-equivalent.
     test "gravity crop + resize on orientation-6 source composes orientation and shrink" do
-      jpeg = oriented(@src, @src, 6, ".jpg")
-      png = oriented(@src, @src, 6, ".png")
+      options = "c:1600:1200:nowe:600:400/rs:fit:400:300"
 
-      {:ok, crop} =
-        Operation.crop_guided({:px, 1600}, {:px, 1200}, {:anchor, :left, :top},
-          x_offset: {:pixels, 600},
-          y_offset: {:pixels, 400}
-        )
+      {jpeg_img, shrink} =
+        run_imgproxy(oriented(@src, @src, 6, ".jpg"), options, auto_rotate: true)
 
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 300})
-      ops = [crop, resize]
-
-      {jpeg_img, shrink} = run_auto_rotate(jpeg, ops)
-      {png_img, no_shrink} = run_auto_rotate(png, ops)
+      {png_img, no_shrink} =
+        run_imgproxy(oriented(@src, @src, 6, ".png"), options, auto_rotate: true)
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "oriented-6 gravity crop -> fit:400:300")
@@ -310,27 +327,22 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     for orientation <- [6, 3, 8] do
       test "EXIF #{orientation}: region crop + resize succeeds and matches eager flush at #{@src}px" do
         orientation = unquote(orientation)
-        {:ok, crop} = Operation.crop_region({:px, 800}, {:px, 600}, {:px, 1200}, {:px, 900})
-        {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 300})
-        ops = [crop, resize]
+        options = "region=800,600,1200,900/w=400/h=300"
 
         body = oriented(@src, @src, orientation, ".png")
-        {deferred, _} = run_auto_rotate(body, ops)
-        eager = run_eager_reference(body, ops)
+        {deferred, _} = run(body, options)
+        eager = run_eager_reference(body, options)
 
         assert_orientation_equivalent(deferred, eager, "EXIF #{orientation} region crop")
       end
     end
 
     test "no-geometry rotate:90 on a large oriented source flushes at delivery (#146)" do
-      {:ok, rotate} = Operation.rotate(90)
-      ops = [rotate]
-
       # auto_rotate on an orientation-6 source plus a user 90° rotate: the entire
       # turn is deferred and flushed at delivery (no resize/crop to flush behind).
       body = oriented(@src, @src, 6, ".png")
-      {deferred, _} = run_auto_rotate(body, ops)
-      eager = run_eager_reference(body, ops)
+      {deferred, _} = run(body, "rotate=90")
+      eager = run_eager_reference(body, "rotate=90")
 
       assert_orientation_equivalent(deferred, eager, "rotate:90 delivery flush")
     end
@@ -347,7 +359,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # user rotate cancel (net 0 mod 360) the per-stage rotations still ran on the
   # un-materialized `access: :sequential` decode and copy_memory raised
   # `{:decode, "Failed to memory copy image"}` at large sizes — a user-reachable
-  # HTTP 415 on a valid request (e.g. `/_/rot:270/.../EXIF-5 source`).
+  # HTTP 415 on a valid request (e.g. `/rotate=270/src/...` with an EXIF-5 source).
   #
   # The two predicates DIVERGE on exactly six (orientation, user_rotate) pairs: the
   # net-cancel holes where `exif_angle != 0` but the angles sum to 0 mod 360 —
@@ -396,12 +408,12 @@ defmodule ImagePipe.ShrinkThroughCropTest do
       test "EXIF #{orientation} + rot:#{angle} (net-cancel) materializes and matches eager at #{@src}px" do
         orientation = unquote(orientation)
         angle = unquote(angle)
-        {:ok, rotate} = Operation.rotate(angle)
+        options = "rotate=#{angle}"
 
         body = oriented(@src, @src, orientation, ".png")
-        assert {final, _shrink} = run_auto_rotate(body, [rotate])
+        assert {final, _shrink} = run(body, options)
 
-        eager = run_eager_reference(body, [rotate])
+        eager = run_eager_reference(body, options)
 
         assert_orientation_equivalent(final, eager, "EXIF #{orientation} + rot:#{angle}")
       end
@@ -412,11 +424,11 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # re-encode untagged, then run the SAME operations through the plain path. This
   # is the displayed-frame result the deferred path must reproduce. Takes the
   # already-built oriented body so the deferred and eager legs share one fixture.
-  defp run_eager_reference(body, operations) do
+  defp run_eager_reference(body, options) do
     {:ok, img} = Image.open(body, access: :random)
     {:ok, {upright, _flags}} = Image.autorotate(img)
     upright_body = Image.write!(upright, :memory, suffix: ".png")
-    {img_out, _shrink} = run(upright_body, operations)
+    {img_out, _shrink} = run(upright_body, options)
     img_out
   end
 
@@ -449,24 +461,16 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # The streamed full-res decode the bracket produces (access: :sequential,
   # fail_on: :error over the source-response seekable input). No ops → no shrink.
   defp decode_streamed(body) do
-    plan = plan([])
     opts = opts(body)
-    {:ok, source} = Source.resolve(plan.source, opts, [])
+    request = request("", opts)
+    {:ok, source_request} = NativeSource.translate(request.source, opts)
+    {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
       source,
-      Keyword.put(opts, :auto_rotate?, plan.auto_rotate),
-      &Declarative.decode_request(plan, &1),
+      Keyword.put(opts, :auto_rotate?, true),
+      &Pipeline.decode_request(request, &1),
       fn state, _geometry -> state.image end
     )
-  end
-
-  defp run_auto_rotate(body, operations) do
-    decode_execute(body, %Plan{
-      source: %Path{segments: ["crop.img"]},
-      output: %Plan.Output{mode: :automatic},
-      pipelines: [%Pipeline{operations: operations}],
-      auto_rotate: true
-    })
   end
 end
