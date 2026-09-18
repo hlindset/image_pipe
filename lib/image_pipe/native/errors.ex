@@ -1,14 +1,11 @@
 defmodule ImagePipe.Native.Errors do
   @moduledoc """
-  Native error → HTTP status mapping.
+  Maps request errors to HTTP responses.
 
-  Parse failures render the compiler-style diagnostic body
-  (`ImagePipe.Native.DiagnosticRenderer`) [native §Error
-  diagnostics]. Signature failures stay terse — 403, no spans, no echoed
-  path [native §Signing: "a signature oracle should not explain itself"].
-  Resolved output-policy failures use a fixed safe 400 response. Everything
-  else (source/decode/limit/encode/output errors) routes through
-  the shared `ImagePipe.Response.ErrorStatus` status table.
+  Parse failures use `ImagePipe.Native.DiagnosticRenderer`. Signature failures
+  return a terse 403 without spans or echoed paths to avoid a signature oracle.
+  Resolved output-policy failures return a fixed safe 400. Source, decode,
+  limit, encode, and output errors use `ImagePipe.Response.ErrorStatus`.
   """
 
   import Plug.Conn, only: [put_resp_content_type: 2, send_resp: 3]

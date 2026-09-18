@@ -1,14 +1,12 @@
 defmodule ImagePipe.Transform.Detector.Composite do
   @moduledoc """
-  A `ImagePipe.Transform.Detector` that fans a requested class set out across an
-  ordered list of child detectors and merges their regions.
+  Routes requested classes to an ordered list of detectors and merges their regions.
 
-  Each requested class routes to the child(ren) whose `supported_classes/1` claim
-  it (`:all` routes to every child); classes no child claims are dropped
-  (best-effort). Identity and availability are class-aware: they reflect only the
-  children a given request routes to, so e.g. an object-only request is unaffected
-  by a face-model change. The bundled default composes the face (YuNet) and object
-  (RT-DETR) adapters.
+  Each class goes to every child that lists it in `supported_classes/1`; `:all`
+  routes to every child, and unclaimed classes are dropped. Identity and
+  availability reflect only routed children, so an object-only request is
+  unaffected by a face-model change. The default combines the face (YuNet) and
+  object (RT-DETR) adapters.
   """
   @behaviour ImagePipe.Transform.Detector
 
@@ -26,12 +24,6 @@ defmodule ImagePipe.Transform.Detector.Composite do
 
   @spec default() :: t()
   def default, do: %__MODULE__{children: @default_children}
-
-  # --- Explicit-composite helpers and Detector behaviour ---
-  #
-  # supported_classes/1 is shared between the behaviour (takes opts keyword)
-  # and the explicit helper (takes a %Composite{} struct). The struct clause is
-  # listed first so it matches before the catch-all opts clause.
 
   @spec supported_classes(t() | keyword()) :: [String.t()]
   def supported_classes(%__MODULE__{children: children}) do
@@ -83,12 +75,9 @@ defmodule ImagePipe.Transform.Detector.Composite do
     |> merge_results()
   end
 
-  # Merge the routed children's results. Any successful child yields
-  # {:ok, merged regions} — best-effort across models, even if some children
-  # errored or found nothing. Only when EVERY routed child errored do we surface
-  # the error, so the [:transform, :detect] span reflects a real outage instead
-  # of a misleading :no_regions. An empty routed set (e.g. all-unknown classes)
-  # degrades to {:ok, []}.
+  # Merge successful results even when other children fail. Return an error only
+  # if every routed child fails, so telemetry distinguishes an outage from no
+  # detections. No routed children yields {:ok, []}.
   defp merge_results([]), do: {:ok, []}
 
   defp merge_results(results) do
@@ -149,9 +138,7 @@ defmodule ImagePipe.Transform.Detector.Composite do
 
     children
     |> Enum.map(fn child ->
-      # Routing uses each detector's STATIC vocabulary, so `[]` opts here is
-      # deliberate (not a dropped argument): `supported_classes/1` must answer
-      # without request-specific opts or a loaded model.
+      # Routing uses static vocabulary, independent of request options or model loading.
       child_classes = Enum.filter(child.supported_classes([]), &MapSet.member?(requested, &1))
       {child, child_classes}
     end)

@@ -21,9 +21,7 @@ defmodule ImagePipe.Transform.Geometry do
   def resolve_offset({:pixels, value}, _reference), do: value * 1.0
   def resolve_offset({:scale, value}, reference), do: reference * value * 1.0
 
-  # imgproxy `imath.RoundToEven`: round half to even (banker's rounding). imgproxy
-  # composes integer origins with even-rounded offsets, so positions stay
-  # integer-faithful only when ties round the same way.
+  # Crop positions and offsets round ties to even, matching imgproxy's RoundToEven.
   def round_ties_to_even(value) when is_integer(value), do: value
 
   def round_ties_to_even(value) when is_float(value) do
@@ -39,9 +37,8 @@ defmodule ImagePipe.Transform.Geometry do
     end
   end
 
-  # imgproxy `imath.Scale` -> `imath.Round` -> Go `math.Round`: round half away
-  # from zero. imgproxy resolves crop *sizes* (CalcCropSize, prepare.go) this way,
-  # distinct from the ties-to-even rounding it uses for crop positions/offsets.
+  # Crop sizes round ties away from zero, matching imgproxy's CalcCropSize.
+  # Positions and offsets use ties-to-even instead.
   def round_half_away_from_zero(value) when is_integer(value), do: value
 
   def round_half_away_from_zero(value) when is_float(value) and value < 0.0,
@@ -55,10 +52,7 @@ defmodule ImagePipe.Transform.Geometry do
     if fraction < 0.5, do: floor, else: floor + 1
   end
 
-  # Centered placement of an `inner`-sized box in an `outer`-sized frame, mirroring
-  # imgproxy calc_position.go: `ShrinkToEven(outer - inner + 1, 2)`. Shared by the
-  # result crop and the canvas embed so the two place a centered rectangle
-  # identically; the `+1` then round-half-to-even biases an odd gap toward the far
-  # edge, where a plain `div(gap, 2)` floors toward the near edge.
+  # Shared crop/canvas placement, matching imgproxy's ShrinkToEven(gap + 1, 2).
+  # For odd gaps this places the origin one pixel farther than div(gap, 2).
   def center_origin(outer, inner), do: round_ties_to_even((outer - inner + 1) / 2)
 end

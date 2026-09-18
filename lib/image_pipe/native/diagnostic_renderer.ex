@@ -1,21 +1,12 @@
 defmodule ImagePipe.Native.DiagnosticRenderer do
   @moduledoc """
-  Renders an accumulated `[ImagePipe.Native.Diagnostic.t()]` list
-  into the compiler-style caret display used as the `400` response body
-  for the native URL API [native §Error diagnostics].
+  Renders URL diagnostics as a caret display for `400` responses.
 
-  There is only ever one source line — the raw request path — so layout
-  is a single-line, rustc-style cascade: diagnostics are ordered left to
-  right by their leftmost span; every span gets a caret run on the
-  underline row; each diagnostic gets exactly one label, anchored at its
-  own leftmost span (a diagnostic with more than one span, e.g. a
-  duplicate key, still gets exactly one label). Labels stack below the
-  underline with the rightmost diagnostic's label closest to the carets —
-  every diagnostic further left keeps a connecting `|` until its own row,
-  so no two labels ever collide.
+  The raw request path occupies one line. Every diagnostic span gets carets;
+  each diagnostic gets one label anchored at its leftmost span. Labels stack
+  rightmost-first beneath the carets, with connecting bars to prevent overlap.
 
-  Diagnostic work is bounded, so a hostile path can't buy disproportionate
-  work:
+  Work and output are bounded:
 
     * at most #{16} diagnostics are rendered — further ones are
       summarized in a trailing count line;
@@ -24,9 +15,7 @@ defmodule ImagePipe.Native.DiagnosticRenderer do
     * the whole rendered body is capped at #{8192} bytes, truncated with
       a marker.
 
-  Truncation is byte-level, not codepoint-aware — a cut can in principle
-  land inside a multi-byte UTF-8 sequence. That is an accepted trade-off
-  for a defensive length cap on diagnostic text, not user-facing prose.
+  Truncation uses byte offsets and may split a multi-byte UTF-8 sequence.
   """
 
   alias ImagePipe.Native.Diagnostic

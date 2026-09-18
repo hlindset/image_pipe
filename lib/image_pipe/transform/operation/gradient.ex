@@ -38,9 +38,7 @@ defmodule ImagePipe.Transform.Operation.Gradient do
     end
   end
 
-  # Gradient always preserves the source alpha, which is exactly what
-  # Image.without_alpha_band/2 does: it strips alpha, runs the fn over the RGB
-  # bands, and rejoins the original alpha unchanged.
+  # Blend color bands, then restore the original alpha unchanged.
   defp apply_gradient(%VipsImage{} = image, %__MODULE__{} = op) do
     width = VipsImage.width(image)
     height = VipsImage.height(image)
@@ -63,8 +61,8 @@ defmodule ImagePipe.Transform.Operation.Gradient do
   #      |dx|+|dy| ≥ 1 (never zero), so p = (q − q_min)/(q_max − q_min) ∈ [0,1].
   #   3. m = opacity · clamp01((p − start)/(stop − start)).
   #
-  # DEGENERATE GUARD: when stop == start the ramp divisor is 0. Treat it as a hard
-  # step at `start` (p < start → 0, p ≥ start → opacity), guarded BEFORE dividing.
+  # Equal start/stop produces a hard step (p < start → 0, p ≥ start → opacity),
+  # avoiding division by zero.
   defp gradient_mask(width, height, %__MODULE__{} = op) do
     with {:ok, projection} <- normalized_projection(width, height, op.angle) do
       ramp_mask(projection, op.start, op.stop, op.opacity)
@@ -109,9 +107,7 @@ defmodule ImagePipe.Transform.Operation.Gradient do
   defp ramp_mask(projection, start, stop, opacity) do
     scale = 1.0 / (stop - start)
 
-    # clamp/2 defaults to min: 0.0, max: 1.0 — exactly clamp01. Passing min: 0.0
-    # explicitly is rejected by Vix's positive-double validation, so rely on the
-    # defaults.
+    # Use clamp's [0, 1] defaults: Vix rejects an explicit zero minimum.
     with {:ok, ramp} <- Operation.linear(projection, [scale], [-start * scale]),
          {:ok, clamped} <- Operation.clamp(ramp) do
       Operation.linear(clamped, [opacity], [0.0])

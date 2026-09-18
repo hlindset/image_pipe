@@ -1,17 +1,11 @@
 defmodule ImagePipe.Native.Value do
   @moduledoc """
-  Pure parsers for the native URL API's value micro-syntax [native
-  §Value micro-syntax].
+  Pure parsers for URL option values.
 
-  Each function parses exactly one value shape from a raw segment-value
-  string and returns `{:ok, value} | {:error, reason_atom}`. These are pure
-  functions: no conn, no config, no span attachment — span attachment is
-  the caller's job.
-
-  Range/consumer validation beyond the shape itself (e.g. that a `brightness`
-  number falls within -255..255, or that a `dimension` result is combined
-  with a resize consumer) is also the caller's job; this module only knows
-  the grammar.
+  Each parses one value shape and returns `{:ok, value}` or
+  `{:error, reason_atom}`. The caller attaches diagnostic spans and validates
+  option-specific ranges and dependencies, such as brightness limits or a
+  dimension's resize consumer.
   """
 
   alias ImagePipe.Plan.Color, as: PlanColor
@@ -24,11 +18,8 @@ defmodule ImagePipe.Native.Value do
   Parses a plain decimal: an optional leading `-`, digits, and an optional
   `.digits` fraction. No exponent notation, no leading `+`, no whitespace.
 
-  Returns an integer when the input has no decimal point, a float
-  otherwise — mirroring the literal form of the input. Range checking
-  (e.g. that the option's allowed values are non-negative, or bounded to
-  -100..100) is the caller's job: `number/1` does not know which option is
-  calling it.
+  Returns an integer without a decimal point, otherwise a float.
+  The caller checks the option's allowed range.
   """
   @spec number(String.t()) :: {:ok, number()} | {:error, :invalid_number}
   def number(string) when is_binary(string) do
@@ -55,7 +46,7 @@ defmodule ImagePipe.Native.Value do
   @doc """
   Parses a length: a bare number means pixels, a `pct` suffix means
   percentage of the relevant dimension. No other unit is recognized —
-  `80p` is an error, not a pixel value [native §Value micro-syntax].
+  `80p` is an error, not a pixel value.
   """
   @spec length(String.t()) ::
           {:ok, {:px, number()} | {:pct, number()}} | {:error, :invalid_length}
@@ -74,10 +65,8 @@ defmodule ImagePipe.Native.Value do
   end
 
   @doc """
-  Parses a dimension: a positive integer number of pixels, or the keyword
-  `auto`. No sign, no fraction, no `pct` — dimensions are the target-box
-  shape (`w`/`h`), not the general length shape [native §Value
-  micro-syntax].
+  Parses a target dimension (`w`/`h`): positive integer pixels or `auto`.
+  Rejects signs, fractions, and `pct` units.
   """
   @spec dimension(String.t()) ::
           {:ok, {:px, pos_integer()} | :auto} | {:error, :invalid_dimension}
@@ -97,7 +86,7 @@ defmodule ImagePipe.Native.Value do
   @doc """
   Parses a fraction: a decimal in the inclusive 0.0–1.0 range. Used for
   unitless unit-space values such as `focus`, opacity, intensity, alpha,
-  and gradient `start`/`stop` [native §Value micro-syntax, §Coordinates].
+  and gradient `start`/`stop`.
   """
   @spec fraction(String.t()) :: {:ok, float()} | {:error, :invalid_fraction}
   def fraction(string) when is_binary(string) do
@@ -110,13 +99,10 @@ defmodule ImagePipe.Native.Value do
   end
 
   @doc """
-  Parses a color: a bare 3- or 6-digit hex triple (no `#`), or a CSS
-  named color from the full CSS Color Module Level 4 named-color list,
-  including its aliases (`cyan`/`aqua`, `magenta`/`fuchsia`,
-  `grey`/`gray`, and the rest of the 148-name list) [native §Value
-  micro-syntax, §Colors]. A 3-digit hex is normalized to its 6-digit
-  expansion before decoding, so `fff` and `ffffff` produce the same
-  tuple.
+  Parses a bare 3- or 6-digit hex color (no `#`) or a lowercase CSS Color
+  Module Level 4 named color, including aliases such as `cyan`/`aqua` and
+  `grey`/`gray`. Expands 3-digit hex first, so `fff` and `ffffff` return the
+  same tuple.
   """
   @spec color(String.t()) :: {:ok, {0..255, 0..255, 0..255}} | {:error, :invalid_color}
   def color(string) when is_binary(string) do
@@ -126,12 +112,8 @@ defmodule ImagePipe.Native.Value do
     end
   end
 
-  # Only attempt named-color resolution for pure lowercase-alpha strings:
-  # every CSS named color is a single lowercase word, so this both matches
-  # the parser's lowercase-only grammar and avoids the underlying
-  # lookup's underscore/hyphen/case normalization loosening the bare-name
-  # match (e.g. treating a hyphenated segment value as an alias for a
-  # known name).
+  # Require lowercase letters before lookup, whose case/hyphen/underscore
+  # normalization would otherwise accept names outside the URL grammar.
   defp css_named_color(string) do
     if Regex.match?(@css_name_pattern, string) do
       case PlanColor.rgb_name(string) do
@@ -165,8 +147,8 @@ defmodule ImagePipe.Native.Value do
 
   @doc """
   Parses the CSS 1–4 value px shorthand into `{top, right, bottom, left}`,
-  following the standard CSS shorthand expansion rules [native §Value
-  micro-syntax]. Each value is a non-negative integer number of pixels.
+  following standard CSS expansion rules. Each value is a non-negative integer
+  number of pixels.
   """
   @spec pad_shorthand(String.t()) ::
           {:ok, {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()}}
@@ -213,9 +195,8 @@ defmodule ImagePipe.Native.Value do
 
   @doc """
   Parses a comma-separated list of fixed-arity-range positional values,
-  applying one parser per position [native §Value micro-syntax,
-  §Pairs/lists]. `arity` is the inclusive range of accepted element
-  counts; `parsers` supplies one parser per position, up to the maximum
+  applying one parser per position. `arity` is the inclusive range of accepted
+  element counts; `parsers` supplies one parser per position, up to the maximum
   arity — positions beyond the actual element count are simply not
   invoked.
   """
@@ -250,7 +231,7 @@ defmodule ImagePipe.Native.Value do
   Parses the value half of an explicit boolean override (`key=false` /
   `key=true`). The bare-flag case (no `=value` at all, meaning `true`) is
   a segment-level concern handled by the caller, not this function — it
-  only sees the string after `=` [native §Booleans].
+  only sees the string after `=`.
 
   `key=true` is a specific error, `:true_spelled_bare`, rather than a
   generic invalid value: the bare form is the one spelling of true, and

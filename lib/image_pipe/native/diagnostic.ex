@@ -1,14 +1,10 @@
 defmodule ImagePipe.Native.Diagnostic do
   @moduledoc """
-  A single structured diagnostic for the native URL API's error
-  reporting [native §Error diagnostics].
+  A structured URL validation failure with byte spans.
 
-  Producers (`ImagePipe.Native.Path`, `ImagePipe.Native.Parser`)
-  build one `%Diagnostic{}` per independent validation failure — errors
-  accumulate across a request rather than stopping at the first one.
-  `ImagePipe.Native.DiagnosticRenderer` turns an accumulated list
-  into the compiler-style caret display that becomes the `400` response
-  body.
+  `ImagePipe.Native.Path` and `ImagePipe.Native.Parser` accumulate independent
+  failures. `ImagePipe.Native.DiagnosticRenderer` renders them as a caret
+  display in the `400` response body.
   """
 
   @enforce_keys [:reason, :message, :spans]
@@ -22,10 +18,8 @@ defmodule ImagePipe.Native.Diagnostic do
           # One-line, human-readable label rendered under the diagnostic's
           # carets (e.g. "unknown option").
           message: String.t(),
-          # One or more byte spans into the raw mount-relative request
-          # path. More than one span means the diagnostic is about a
-          # relationship between multiple segments (a duplicate key, a
-          # mutually exclusive pair), not a single segment.
+          # Byte spans into the raw mount-relative path. Multiple spans identify
+          # related segments, such as duplicate or mutually exclusive options.
           spans: [span(), ...]
         }
 end

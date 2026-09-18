@@ -1,6 +1,6 @@
 defmodule ImagePipe.Transform.Operation.Resize do
   @moduledoc """
-  Resizes the current image to concrete pixel dimensions resolved by the native
+  Resizes the current image to concrete pixel dimensions resolved by the
   executor. Cover requests use a separate crop after this operation.
   """
 

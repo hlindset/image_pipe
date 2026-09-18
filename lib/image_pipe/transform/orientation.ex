@@ -1,33 +1,20 @@
 defmodule ImagePipe.Transform.Orientation do
   @moduledoc false
-  # Pure orientation-compensation helpers for the deferred-orientation pipeline
-  # (issue #146).
+  # Maps display-frame crop gravity and resize dimensions to the storage frame,
+  # allowing crop/resize to run before the deferred orientation flush without
+  # changing the visible result.
   #
-  # By design, EXIF auto-orient and user rotate/flip are applied AFTER cropping
-  # and resizing in the canonical model. For performance, ImagePipe performs
-  # crop/resize before that orientation flush. To keep the observable result
-  # identical, the pre-flush crop's gravity (type + X/Y offset) and the pre-flush
-  # resize's requested dimensions must be expressed in the *storage* frame.
-  #
-  # This module is a verbatim port of imgproxy's gravity compensation:
-  # `local/imgproxy-master/processing/gravity.go` — `RotateAndFlip` (lines
-  # 88-156) plus the rotation/flip type maps (lines 8-57). The offset switches
-  # in `RotateAndFlip` key on the *already-remapped* gravity type, and this port
-  # preserves that ordering.
+  # Follows imgproxy's gravity.go RotateAndFlip and type maps. Offset rules use
+  # the already-remapped gravity type, so preserve that ordering.
   #
   # Gravity representation in the executable frame:
   #   {:anchor, :left | :center | :right, :top | :center | :bottom}
   #   {:fp, x :: float, y :: float}        (focus point, fractional coords)
   #   :smart | {:smart, :face_assist} | {:detect, term}   (never remapped)
   #
-  # For a focus point the tuple coords carry imgproxy's GravityFocusPoint X/Y
-  # (where the focus coords *are* the gravity X/Y), so they rotate/flip via the
-  # FP fraction rules (rotate_fp, `1 - fx`). ImagePipe additionally supports a
-  # SEPARATE crop offset that imgproxy's FP path has no analog for
-  # (calc_position.go uses only the focus coords for GravityFocusPoint). That
-  # separate offset is a plain displacement, so it transforms like the
-  # GravityCenter vector (negate/axis-swap), NOT via the `1 - x` fraction rule —
-  # applying the fraction rule to it injected a spurious 1px shift at 90/270.
+  # Focus coordinates transform as fractions (e.g. `1 - fx`). Their separate
+  # crop offsets are displacement vectors, transformed by negation/axis swaps.
+  # Applying fraction rules to offsets would introduce a spurious 1px shift.
 
   alias ImagePipe.Transform.PendingOrientation
 
@@ -78,21 +65,16 @@ defmodule ImagePipe.Transform.Orientation do
   def swap_dims?(angle), do: rem(angle, 180) == 90
 
   @doc """
-  Per-storage-axis center-crop discard side under a pending orientation.
+  Returns center-crop rounding sides for the storage axes under pending orientation.
 
-  A centered crop with an odd extent difference must discard one extra pixel from
-  one side. imgproxy crops in the *display* frame and always rounds the discard so
-  the extra kept pixel sits toward the near (top/left) display edge
-  (`ShrinkToEven`, calc_position.go:37-38). ImagePipe crops in the *storage* frame
-  and flushes orientation after, so a storage-frame near-side bias lands on the
-  wrong display side whenever the flush reverses that storage axis's direction.
+  An odd extent difference requires asymmetric rounding. The default
+  `ShrinkToEven` rule matches imgproxy's display-frame placement. When orientation
+  reverses an axis, storage-frame cropping must reverse that rounding to preserve
+  the display result.
 
-  Returns `{x_side, y_side}` for the storage X and Y axes, each `:near` (default
-  `ShrinkToEven` rounding) or `:far` (round the other way) so that, after the
-  flush, the kept pixel lands on imgproxy's near display edge. The flip is needed
-  exactly when a storage axis's near (origin) edge maps to a far (right/bottom)
-  display edge under the composed orientation (autorotate ∘ user rotate ∘ user
-  hflip ∘ user vflip — OrientationFlush.apply_orientation order).
+  Returns `{x_side, y_side}`, each `:near` for default rounding or `:far` for its
+  reverse. An axis uses `:far` when its near storage edge maps to a far display
+  edge after EXIF orientation, user rotation, and user flips.
   """
   @spec center_discard_sides(PendingOrientation.t()) :: {:near | :far, :near | :far}
   def center_discard_sides(%PendingOrientation{} = po) do
@@ -175,10 +157,7 @@ defmodule ImagePipe.Transform.Orientation do
 
     case gravity do
       {:anchor, :center, v} when v in [:top, :bottom, :center] -> {gravity, -x, y}
-      # The FP tuple coords flip via `1 - fx` (imgproxy's GravityFocusPoint X/Y
-      # ARE the focus coords). The SEPARATE crop offset is a plain displacement,
-      # not a focus coord, so it negates like a vector (the Center X-rule) — the
-      # `1 - x` fraction rule must NOT touch it.
+      # Focus coordinates use `1 - fx`; the separate displacement negates.
       {:fp, fx, fy} -> {{:fp, 1.0 - fx, fy}, -x, y}
       _ -> {gravity, x, y}
     end
@@ -214,9 +193,7 @@ defmodule ImagePipe.Transform.Orientation do
   defp rotate_offset({:anchor, h, :center} = g, 90, x, y) when h in [:left, :right],
     do: {g, y, -x}
 
-  # FP tuple coords rotate via rotate_fp (the imgproxy GravityFocusPoint coord
-  # rule); the SEPARATE crop offset is a plain displacement and rotates like the
-  # GravityCenter vector (90 -> {y, -x}), NOT via the `1 - x` fraction rule.
+  # Rotate focus fractions and displacement vectors separately.
   defp rotate_offset({:fp, fx, fy}, 90, x, y) do
     {fx2, fy2} = rotate_fp(fx, fy, 90)
     {{:fp, fx2, fy2}, y, -x}

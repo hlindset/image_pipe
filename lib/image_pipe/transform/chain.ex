@@ -2,18 +2,14 @@ defmodule ImagePipe.Transform.Chain do
   @moduledoc """
   Executes ordered transform operation chains.
 
-  A chain is the ordered list of executable transform operation structs selected
-  by transform execution. Execution proceeds left to right through
-  `ImagePipe.Transform` and stops at the first operation error.
+  Runs operation structs left to right through `ImagePipe.Transform`, stopping
+  at the first error.
 
-  Each operation is wrapped in a `[:transform, :operation]` telemetry span for
-  tracing. The span duration mostly reflects pipeline *construction* time, not
-  pixel work — libvips is lazy and defers/fuses compute to materialization/encode.
-  The exception is a materializing operation: its `copy_memory` runs inside the
-  operation span, so that span's duration includes a real pixel copy (a nested
-  `[:transform, :materialize]` span isolates that cost). Either way, per-operation
-  duration is for tracing execution structure, not timing; honest aggregate timing
-  lives on the coarse `[:transform, :execute]` stage span.
+  Each operation emits a `[:transform, :operation]` span. Its duration mostly
+  measures pipeline construction: libvips defers pixel work until materialization
+  or encoding. When an operation materializes, its span includes that copy;
+  a nested `[:transform, :materialize]` span isolates the cost. Use operation
+  spans to trace execution order and `[:transform, :execute]` for aggregate timing.
   """
 
   alias ImagePipe.Telemetry
@@ -78,8 +74,7 @@ defmodule ImagePipe.Transform.Chain do
     end)
   end
 
-  # Successful stops also carry the realized post-op image dimensions (an O(1)
-  # header read) — decoded dimensions are product-neutral, non-sensitive metadata.
+  # Dimensions are a non-sensitive O(1) header read.
   defp stop_metadata({:ok, %State{image: image}}),
     do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
 

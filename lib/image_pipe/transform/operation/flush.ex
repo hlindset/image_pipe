@@ -1,15 +1,11 @@
 defmodule ImagePipe.Transform.Operation.Flush do
   @moduledoc """
-  Executable flush operation that applies any pending orientation late.
+  Applies pending orientation and copies the result to RAM.
 
-  This operation delegates to `ImagePipe.Transform.Materializer.flush/1`,
-  which applies pending EXIF auto-rotate and user-rotate/flip operations
-  before copying the image to RAM and clearing the pending state.
-
-  The operation is marked `requires_materialization?: false` because it
-  self-manages: `OrientationFlush.flush/1` already performs its own
-  random-access preparation and copy, so pre-materialization would be a
-  redundant copy.
+  Delegates to `ImagePipe.Transform.Materializer.flush/1`, which applies EXIF
+  orientation, user rotation, and user flips, then clears pending state.
+  `requires_materialization?: false` avoids a redundant copy: the flush prepares
+  its own random access and materializes the result.
   """
 
   use ImagePipe.Transform

@@ -1,6 +1,6 @@
 defmodule ImagePipe.Native.Presets do
   @moduledoc """
-  Compiles host-configured native presets at initialization.
+  Compiles host-configured presets at initialization.
 
   Defaults apply first, followed by named presets in request order and
   explicit URL options. Nested references use the same precedence without

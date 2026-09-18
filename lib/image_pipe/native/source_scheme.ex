@@ -1,6 +1,6 @@
 defmodule ImagePipe.Native.SourceScheme do
   @moduledoc """
-  Host extension point for translating custom native source schemes.
+  Host extension point for translating custom source schemes.
 
   Configure a translator under the lowercase scheme name:
 

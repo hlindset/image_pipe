@@ -1,6 +1,6 @@
 defmodule ImagePipe.Transform.Executor do
   @moduledoc """
-  Executes canonical native request intent over a decoded transform state.
+  Executes canonical request intent over a decoded transform state.
 
   The executor owns the fixed per-group stage order and resolves geometry from
   the current image plus the decode state. Right-angle orientation remains

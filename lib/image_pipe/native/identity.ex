@@ -1,6 +1,6 @@
 defmodule ImagePipe.Native.Identity do
   @moduledoc """
-  Builds representation identity from canonical native request data and the
+  Builds representation identity from canonical request data and the
   resolved output policy. Byte-affecting groups, terminal, output selection,
   and detector identity enter both the cache key and ETag. Source info carries
   only its terminal identity.

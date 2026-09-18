@@ -5,7 +5,7 @@ defmodule ImagePipe.Source do
   A source adapter validates its mount options, resolves canonical
   `ImagePipe.Plan.Source` values into a `ImagePipe.Source.Resolved` value, and
   fetches that value as an `ImagePipe.Source.Response`. Configure adapters
-  under the native mount's `:sources` option.
+  under the mount's `:sources` option.
 
   Adapter callbacks receive their own validated options and a projected set
   of runtime limits. They never receive the complete mount configuration.
@@ -43,11 +43,8 @@ defmodule ImagePipe.Source do
               {:ok, Resolved.t()} | {:error, error()}
 
   @doc """
-  The third argument (`runtime_opts`) must be a `runtime_opts/1`-projected
-  keyword list, never a raw mount configuration — a mount configuration also
-  holds every other source's adapter configuration and the cache adapter's
-  configuration, both of which routinely carry credentials, and handing it
-  to an adapter whole would leak them.
+  The third argument must be projected with `runtime_opts/1`. Passing the full
+  mount configuration would expose other source and cache adapters' credentials.
   """
   @callback fetch(Resolved.t(), keyword(), keyword()) :: {:ok, Response.t()} | {:error, error()}
 
@@ -55,17 +52,9 @@ defmodule ImagePipe.Source do
   @internal_cache_policies [:enabled, :disabled]
   @http_cache_policies [:inherit, :enabled, :disabled]
 
-  # The per-request runtime surface a source adapter may read: the body limit
-  # it must honor, the transport timeouts it may override per request, and
-  # the telemetry data it propagates.
-  #
-  # `:receive_timeout`, `:connect_timeout`, and `:pool_timeout` are honored
-  # today by the HTTP and S3 adapters as per-request transport overrides
-  # (`ImagePipe.Source.HTTP`, `ImagePipe.Source.S3`), even though no host
-  # mount surface currently exposes them for configuration (host mount
-  # configs validate against a closed key set and reject unknown keys). They
-  # stay on this list as a deliberate contract for the adapter callback, not
-  # because a mount can supply them yet.
+  # Adapter runtime options: body limit, transport timeouts, and telemetry.
+  # HTTP and S3 honor these timeout overrides when called directly; mount
+  # configuration rejects them as unknown keys.
   @runtime_option_keys [
     :max_body_bytes,
     :receive_timeout,
@@ -75,15 +64,11 @@ defmodule ImagePipe.Source do
   ]
 
   @doc """
-  Projects a mount configuration down to the runtime options a source adapter
-  may read (the third argument of `c:resolve/3` and `c:fetch/3`).
+  Selects the runtime options passed as the third argument to `c:resolve/3`
+  and `c:fetch/3`.
 
-  An adapter already receives its own validated adapter options as the second
-  argument; the third carries per-request runtime data only. A mount
-  configuration additionally holds every *other* source's adapter
-  configuration (`:sources`) and the cache adapter's configuration
-  (`:cache`) — both of which routinely carry credentials — so it is never
-  handed to an adapter whole.
+  Adapters receive their own validated options separately. This projection
+  excludes `:sources` and `:cache`, which can contain other adapters' credentials.
   """
   @spec runtime_opts(keyword()) :: keyword()
   def runtime_opts(config) when is_list(config),
@@ -153,31 +138,20 @@ defmodule ImagePipe.Source do
   end
 
   @doc """
-  Fetch bracket: resolves through `fetch/3` (its `[:source, :fetch]` span,
-  `wrap_response/2` body-size limiting, and `{:source, _}` error
-  normalization already apply there), then hands the response to `fun`.
+  Fetches a source and passes its `Response.t()` to `fun`.
 
-  `config` is the mount configuration — it selects the adapter through
-  `:sources`, and the adapter's runtime options are projected from it with
-  `runtime_opts/1` rather than passed whole.
+  Uses `fetch/3`'s telemetry, body-size limit, and source-error normalization.
+  `config` selects the adapter through `:sources`; `runtime_opts/1` selects
+  the runtime options it receives.
 
-  `fun` receives the `Response.t()` directly. There is no separate close
-  step here because closing is not this bracket's job to invent: when
-  `fetch/3` returns a stream response, that stream is a lazy `Enumerable`
-  built on `Stream.resource/3` (by the host adapter, then wrapped by
-  `wrap_response/2`'s `WrappedStream`), and `Stream.resource/3` already
-  guarantees its own cleanup function runs on any termination of
-  enumeration it starts — normal completion, an early halt, or an
-  exception propagating out of the reducer. A caller that fully drains the
-  stream before doing further work (as `ImagePipe.Decode.with_image/4`
-  does) therefore never leaves a live resource behind on any later error
-  path. This bracket does not itself re-drain or otherwise touch
-  `response.stream`: a `Stream` is re-entrant, so touching it a second time
-  would reopen — and re-fetch — the same resource rather than reuse it.
+  Resource streams own their cleanup: `Stream.resource/3` runs its cleanup
+  on completion, early halt, or a reducer exception. Fully draining the stream
+  before further work, as `ImagePipe.Decode.with_image/4` does, releases it
+  before any later error. This function never re-enumerates the stream, which
+  would reopen and re-fetch the resource.
 
-  If `fun` raises or throws, the exception/throw propagates unchanged: this
-  bracket normalizes only `fetch/3`'s own `{:error, {:source, _}}` return,
-  never a caller exception.
+  Returns `fun`'s result or `fetch/3`'s `{:error, {:source, _}}` unchanged.
+  Exceptions and throws from `fun` propagate unchanged.
   """
   @spec with_fetched(Resolved.t(), keyword(), (Response.t() -> result)) ::
           result | {:error, error()}
@@ -201,9 +175,8 @@ defmodule ImagePipe.Source do
     {:ok, %Response{response | stream: WrappedStream.new(stream, max_body_bytes)}}
   end
 
-  # A `Response` from a host-implementable `Source` adapter must carry exactly one of `path`
-  # or `stream`. Both-set (which would let a path bypass the stream body-limit) and all-nil
-  # are rejected at this boundary rather than trusted.
+  # Host adapters must return exactly one of `path` or `stream`; accepting both
+  # would let the path bypass the stream body limit.
   def wrap_response(_response, _runtime_opts), do: {:error, {:source, :invalid_adapter_result}}
 
   defp validate_sources(sources) when is_list(sources) do

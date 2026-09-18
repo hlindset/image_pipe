@@ -1,35 +1,22 @@
 defmodule ImagePipe.Native.Parser do
   @moduledoc """
-  Segments → validated groups → canonical `%Request{}` for the native URL
-  API [native §Request semantics].
+  Parses URL segments into a validated, canonical `%Request{}`.
 
-  `parse/2` consumes Task 4's lexed map (`ImagePipe.Native.Path.extract/1`'s
-  success return value) and never touches `Plug.Conn` — `Path` owns all
-  raw-path/HTTP concerns.
+  `parse/2` consumes the lexed map from `ImagePipe.Native.Path.extract/1`.
+  `Path` owns raw-path and HTTP handling.
 
-  Validation runs in five ordered passes, each producing accumulated
-  diagnostics (errors are reported together, not just the first):
+  Validation accumulates diagnostics in five passes:
 
-    1. per-segment — known key, value parse.
-    2. groups — split on `then`; empty group (leading/trailing/doubled) is
-       an error.
-    3. scope/duplicates — group-scoped twice in a group, or request-scoped
-       twice anywhere, is an error (every occurrence's span participates).
-       Presets then expand into the groups and request-wide options, so
-       cross-option validation sees the complete request.
-    4. cross-option, over successfully parsed, non-duplicate values only
-       (derivative suppression [native §Error diagnostics]) — Tier-3
-       exclusive pairs (table-driven via `OptionSpec.conflicts`), Tier-2
-       inertness (resize intent, guide consumers, lone/doubled `auto`
-       dimensions), and terminal-applicability rejection (table-driven via
-       `OptionSpec.terminal_applicability`).
-    5. Tier-1 identity canonicalization (`blur=0` → absent) plus semantic-
-       default canonicalization (absent `fit`/guide with a consumer present
-       canonicalize to their concrete defaults) during final struct
-       assembly.
+    1. Parse each option key and value.
+    2. Split groups on `then`; reject leading, trailing, or consecutive separators.
+    3. Reject duplicate group options within a group and request options anywhere,
+       marking every occurrence. Then expand presets.
+    4. Check conflicts, inert options, and output applicability using only valid,
+       non-duplicate values, to avoid errors caused by earlier failures.
+    5. Build the request, remove identity values (`blur=0` → absent), and resolve
+       omitted fit/guide defaults when an operation uses them.
 
-  Diagnostics are `ImagePipe.Native.Diagnostic` structs — `reason`
-  atoms are stable, tests match on them.
+  Diagnostics are `ImagePipe.Native.Diagnostic` structs with stable `reason` atoms.
   """
 
   alias ImagePipe.Native.Diagnostic
@@ -47,7 +34,7 @@ defmodule ImagePipe.Native.Parser do
         }
 
   @doc """
-  Parses a fully lexed native path (`ImagePipe.Native.Path.extract/1`'s
+  Parses a fully lexed request path (`ImagePipe.Native.Path.extract/1`'s
   success value) into a canonical `%Request{}`.
   """
   @spec parse(lexed(), keyword()) ::
@@ -411,7 +398,7 @@ defmodule ImagePipe.Native.Parser do
   end
 
   # Table-driven Tier-3 exclusivity: any two present keys where one's
-  # `conflicts` list names the other [native §Scoping and duplicates]. The
+  # `conflicts` list names the other. The
   # `key < other` guard reports each symmetric pair once.
   defp tier3_exclusive_errors(group_map, occurrences, group_index) do
     group_map
@@ -438,7 +425,7 @@ defmodule ImagePipe.Native.Parser do
     }
   end
 
-  # Locked probe decisions extending [native §Inertness policy, Tier 2]:
+  # Inertness rules:
   # resize intent := a concrete (non-auto) w or h, or a minimum dimension;
   # fit/enlarge/non-unit zoom require it; a
   # lone or doubled auto dimension without a concrete partner is inert; an
@@ -623,13 +610,9 @@ defmodule ImagePipe.Native.Parser do
     )
   end
 
-  # A prerequisite key present in the group but whose value failed to parse
-  # (e.g. `w=invalid`) must not also trigger a dependent's inertness
-  # diagnostic — the value error already tells the client what's wrong
-  # [native §Error diagnostics: derivative suppression]. Presence is judged
-  # from the full occurrences list (ok-or-error), not the clean group map,
-  # so only a prerequisite key genuinely ABSENT from the group's segments
-  # lets the dependent's own inertness check fire.
+  # An invalid prerequisite (e.g. `w=invalid`) already has a value diagnostic.
+  # Check all occurrences, including invalid ones, so dependent inertness errors
+  # appear only when the prerequisite is absent.
   defp resize_prereq_errored?(occurrences, group_index) do
     group_key_errored?(occurrences, group_index, "w") or
       group_key_errored?(occurrences, group_index, "h") or
@@ -925,10 +908,8 @@ defmodule ImagePipe.Native.Parser do
     end
   end
 
-  # A single anchor/focus deliberately guides both an explicit guided crop
-  # and the result crop of a cover-family resize [native §Geometry
-  # semantics]; absent guide with a consumer present canonicalizes to the
-  # concrete default (`anchor=center`) rather than staying nil.
+  # One anchor/focus guides both explicit crop and cover-family resize crop.
+  # A consumer without a guide receives the canonical default, anchor=center.
   defp assemble_guide(group_map, resize_intent?) do
     cond do
       Map.has_key?(group_map, "anchor") ->
@@ -964,7 +945,7 @@ defmodule ImagePipe.Native.Parser do
   defp assemble_trim({color, tolerance}), do: {color, tolerance}
 
   # Tier-1 identity canonicalization: blur=0 (the identity sigma) is
-  # equivalent to blur being absent [native §Inertness policy, Tier 1].
+  # equivalent to blur being absent.
   defp assemble_blur(nil), do: nil
   defp assemble_blur(sigma) when sigma == 0.0, do: nil
   defp assemble_blur(sigma), do: sigma
@@ -1035,12 +1016,10 @@ defmodule ImagePipe.Native.Parser do
   end
 
   @doc """
-  The central wording table for every `reason` a `Diagnostic` this module
-  (or `ImagePipe.Native.Path`'s sibling table) produces — public
-  so a diagnostic built outside `Parser` (e.g.
-  `ImagePipe.Native.Presets`'s `:unknown_preset`, which carries a
-  request-supplied name the table itself can't embed) still sources its
-  static wording from here rather than duplicating it.
+  Returns shared diagnostic wording for `reason`.
+
+  Other producers, such as `ImagePipe.Native.Presets`, use this table before
+  appending request-specific details such as an unknown preset's name.
   """
   @spec message_for(atom()) :: String.t()
   def message_for(:empty_pipeline_group), do: "empty pipeline group"

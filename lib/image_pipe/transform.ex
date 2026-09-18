@@ -2,10 +2,8 @@ defmodule ImagePipe.Transform do
   @moduledoc """
   Behaviour and dispatch facade for transform operations.
 
-  Operation modules implement this behaviour with a stable transform name and
-  execution over `ImagePipe.Transform.State`. Runtime callers dispatch through
-  this module's generic functions so the runtime boundary does not need to know
-  concrete operation modules.
+  Operations provide a stable name and execute over `ImagePipe.Transform.State`.
+  Runtime callers use this facade without depending on concrete operation modules.
   """
 
   use Boundary,
@@ -20,8 +18,7 @@ defmodule ImagePipe.Transform do
       Materializer,
       Detector,
       Detector.Warmup,
-      # Decode-time geometry produced by the header open and consumed by decode
-      # preflight.
+      # Header geometry used by decode preflight.
       SourceGeometry,
       PendingOrientation
     ]

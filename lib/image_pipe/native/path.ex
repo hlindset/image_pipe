@@ -1,40 +1,25 @@
 defmodule ImagePipe.Native.Path do
   @moduledoc """
-  Raw request path → structured, byte-spanned segments for the native URL
-  API [native §URL anatomy, §Byte-level contract].
+  Splits request paths into segments with byte spans.
 
-  Produces two surfaces because signature verification must precede ALL
-  parsing [native §Signing: "verify first, parse second, with zero
-  scanning"]:
+  Signature verification must precede parsing:
 
-    * `split_signature/1` — raw byte inspection only. Strips the mount
-      prefix, peels a leading `sig=` value if present, and returns
-      `{sig, signed_path}`. No segment validation, no percent handling, no
-      diagnostics. This is the only interpreter of the raw prefix; it never
-      errors and never allocates diagnostics, so it is safe to call before
-      any verification has happened.
-    * `extract/1` — full lexing with spans and decoding. Must only be called
-      after `Signature.verify/3` has succeeded against the same conn's
-      `split_signature/1` output. It skips a leading `sig=` segment
-      internally (without validating it — `split_signature/1` already did
-      that job) but does not return signature data itself.
+    * `split_signature/1` strips the mount prefix and returns
+      `{sig, signed_path}` using raw byte inspection only. It does not validate
+      segments, decode escapes, or allocate diagnostics.
+    * `extract/1` lexes and decodes only after `Signature.verify/3` succeeds
+      against the same connection's `split_signature/1` output. It skips the
+      leading signature segment and returns no signature data.
 
-  Both functions compute the mount-relative raw path the same way: strip
-  `conn.script_name` from `conn.request_path` as a raw string prefix. Since
-  `script_name` is Plug's *decoded* segment list, this is only byte-exact
-  when the mount path is canonical unescaped ASCII — see the moduledoc note
-  on `ImagePipe.Native` for the full caveat and the runtime raise
-  this module performs when that invariant doesn't hold.
+  Both strip `conn.script_name` from `conn.request_path` as a raw prefix.
+  Because Plug decodes `script_name`, the mount must use canonical unescaped
+  ASCII. Other mount paths raise; see `ImagePipe.Native` for the caveat.
 
-  All byte spans returned by `extract/1` are `{byte_offset, byte_length}`
-  into the *mount-relative* raw path — the sig segment counts toward
-  offsets even though it is skipped during lexing, so diagnostics can point
-  at the right byte position in the actual request path.
+  Spans are `{byte_offset, byte_length}` into the mount-relative raw path,
+  including the skipped signature segment in their offsets.
 
-  Lexing work is bounded: at most `@max_option_segments` segments (src/src64/enc
-  excepted) are lexed per request before giving up with a `:too_many_segments`
-  diagnostic [native §Error diagnostics, bounded work] — a hostile path with
-  an unbounded number of segments must not buy unbounded lexing work.
+  Lexing stops with `:too_many_segments` after `@max_option_segments`
+  non-source segments, bounding work on hostile paths.
   """
 
   alias ImagePipe.Native.Diagnostic
@@ -52,11 +37,9 @@ defmodule ImagePipe.Native.Path do
   value and the raw remainder from the following `/` to end of path. Else
   returns `{nil, whole_mount_relative_path}`.
 
-  Runs before verification: never validates segments, never percent-decodes,
-  never returns an error tuple, never allocates a `Diagnostic`. The one
-  exception is the mount-prefix canonicality raise (host misconfiguration,
-  500-class, documented on the module) — that is not part of this
-  function's `{sig, path}` contract.
+  Runs before verification without segment validation, percent-decoding,
+  error tuples, or diagnostics. A noncanonical mount prefix raises as host
+  misconfiguration (a 500-class error).
   """
   @spec split_signature(Plug.Conn.t()) :: {sig :: String.t() | nil, signed_path :: String.t()}
   def split_signature(%Plug.Conn{} = conn) do
@@ -92,7 +75,7 @@ defmodule ImagePipe.Native.Path do
   Returns `{:ok, %{segments: [{raw, span}], source: {:src | :src64 | :enc, source, span}}}`
   on success. `src` is percent-decoded once, `src64` is base64url-decoded,
   and `enc` remains an opaque token for authenticated decryption by
-  `ImagePipe.Native` [native §Sources].
+  `ImagePipe.Native`.
 
   On failure returns `{:error, [Diagnostic.t()]}` — errors accumulate
   across independent rule violations in a single pass.
@@ -209,11 +192,8 @@ defmodule ImagePipe.Native.Path do
 
   # -- segment lexer -------------------------------------------------------
   #
-  # `segment_count` bounds lexing work [native §Error diagnostics, bounded
-  # work]: it counts every non-terminal segment consumed (option, flag,
-  # `then`, and every error-producing segment alike) but never the
-  # terminal src/src64/enc marker itself, so a request genuinely at the option
-  # budget can still reach its source.
+  # Count every non-terminal segment, including invalid ones, to bound work.
+  # Exclude src/src64/enc so a request at the option limit can reach its source.
 
   defp lex_segments(path, rest, segments_acc, errors_acc, segment_count) do
     case split_first_segment(rest) do

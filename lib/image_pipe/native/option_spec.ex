@@ -1,18 +1,12 @@
 defmodule ImagePipe.Native.OptionSpec do
   @moduledoc """
-  Declarative option table for the native URL API
-  [native §Architecture, option schema].
+  Declarative option table for the ImagePipe URL API.
 
-  One `%OptionSpec{}` per native option. The table
-  drives *mechanical* concerns only — key lookup, scope/duplicate
-  validation, per-segment value dispatch, and terminal-applicability
-  rejection; complex cross-option semantics (resize intent, guide
-  consumers, group assembly) stay ordinary code in
-  `ImagePipe.Native.Parser`.
+  Each `%OptionSpec{}` defines an option's key, scope, value parser, conflicts,
+  and supported outputs. `ImagePipe.Native.Parser` handles resize intent,
+  guide consumers, and group assembly.
 
-  A completeness test (`option_spec_test.exs`) requires every entry to
-  populate all fields and carry at least one example — "easy to document"
-  as a maintained invariant.
+  Tests require complete entries with at least one example each.
   """
 
   alias ImagePipe.Native.OutputOptions
@@ -43,11 +37,7 @@ defmodule ImagePipe.Native.OptionSpec do
           value: :flag | value_parser(),
           stage: pos_integer() | nil,
           default: term(),
-          # Documentation-only in this probe: nothing reads this field to
-          # drive validation. The resize-intent/guide-consumer inertness
-          # logic it names is hand-written in `Parser`'s
-          # `tier2_group_errors/3` (and helpers), not table-driven from
-          # here.
+          # Describes dependencies; Parser.tier2_group_errors/3 validates them.
           prerequisites: [atom()],
           conflicts: [String.t()],
           identity: :representation | :storage | :gate | :presentation,
@@ -128,8 +118,7 @@ defmodule ImagePipe.Native.OptionSpec do
   }
 
   @doc """
-  Every declared probe-subset option, in a stable order matching the
-  vocabulary tables in [native §Option vocabulary].
+  Returns every declared option in a stable order.
   """
   @spec all() :: [t()]
   def all do
@@ -914,10 +903,8 @@ defmodule ImagePipe.Native.OptionSpec do
 
   # -- per-key value parsers -------------------------------------------
   #
-  # Each parses only its own segment's value shape [native §Value
-  # micro-syntax]; cross-option assembly (combining w/h/fit/enlarge into a
-  # resize map, defaulting an omitted trim tolerance, etc.) is the parser
-  # module's job, not this table's.
+  # Each parses one segment's value shape. The parser combines options and
+  # supplies defaults, such as an omitted trim tolerance.
 
   @doc false
   @spec parse_dpr(String.t()) :: {:ok, float()} | {:error, :invalid_dpr}

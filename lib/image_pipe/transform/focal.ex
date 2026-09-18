@@ -1,10 +1,7 @@
 defmodule ImagePipe.Transform.Focal do
   @moduledoc false
-  # Pure weighted centroid of detected regions for object gravity. Each region
-  # pulls the focal point toward its box center, weighted by `classWeight(label) ·
-  # area_term(area)`. Task 2 swaps `area_term` from `area` to `√area`; the class
-  # weight is the Slice 2 addition. Kept pure (no image/State) so the formula is
-  # unit-testable with exact coordinates.
+  # Pure centroid for object gravity. Each region's box center is weighted by
+  # its class weight times √area.
 
   @type region :: %{
           optional(:label) => String.t() | nil,
@@ -42,9 +39,7 @@ defmodule ImagePipe.Transform.Focal do
     class_weight(Map.get(region, :label), weights) * area_term(w, h)
   end
 
-  # √area tracks the box's linear size, so a class weight is a responsive lever
-  # (a face boost actually moves the crop) while a dominant object still wins.
-  # See the Slice 2 design doc for the rationale.
+  # √area preserves size influence while letting class weights affect smaller boxes.
   defp area_term(w, h), do: :math.sqrt(w * h)
 
   defp class_weight(label, weights) do

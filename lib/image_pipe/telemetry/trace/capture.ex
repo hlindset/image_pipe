@@ -11,14 +11,11 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:send],
     [:encode],
     [:encode, :search],
-    # Content classification for the per-class crop offset (#380). Emitted before
-    # the search span opens, so it is a sibling of [:encode, :search] under [:encode].
+    # Classification precedes search; both spans are children of [:encode].
     [:encode, :classify],
     [:encode, :search, :probe],
-    # Per-probe cost legs (eager NIF/op calls → honest durations). The encode leg
-    # is method-neutral (fires for every objective); the scoring legs carry the
-    # per-metric segment (`:ssimulacra2`/`:butteraugli`, from the metric's
-    # `leg_name/0`) so each metric gets distinct span names a backend can group by.
+    # Probe spans time eager work. Encoding is shared across objectives; scoring
+    # uses each metric's leg_name/0 for distinct span names.
     [:encode, :search, :probe, :encode],
     [:encode, :search, :probe, :ssimulacra2, :decode],
     [:encode, :search, :probe, :ssimulacra2, :metric],
@@ -64,11 +61,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
   # Keys safe to copy into span attributes (allowlist; everything else dropped).
   #
-  # SENSITIVITY: allowlist only. Never add :source_url, :source_path, request paths,
-  # signatures, tokens, or any secret-bearing key. Operation structs (:params) are
-  # stored opaque (inspected by exporters) and MUST NOT be pattern-matched against
-  # concrete transform operation structs here — that would invert the telemetry
-  # boundary (enforced by the capture-no-concrete-modules architecture test).
+  # Never allow source URLs/paths, request paths, signatures, tokens, or other
+  # secret-bearing data. Keep :params opaque: matching concrete transform structs
+  # here would invert the telemetry dependency boundary.
   @safe_keys [
     :operation,
     :index,
@@ -76,7 +71,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :operations,
     :terminal,
     :result,
-    # matched signing-key index on the native parser's [:parse] stop
+    # matched signing-key index on the parser's [:parse] stop
     # metadata (nil when the request is legitimately unsigned) — a small
     # integer, never a secret
     :sig_key_index,
@@ -204,10 +199,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   defp classify(event, plen) do
     stage = Enum.drop(event, plen)
 
-    # CRITICAL: one-shots whose last atom is :stop (e.g. [:cache, :flush, :stop],
-    # [:cache, :eviction, :stop], [:cache, :cleanup, :stop]) are terminal events, NOT
-    # span stops. Check membership in @oneshot_stages BEFORE the suffix dispatch, or
-    # they would wrongly pop and export an unrelated span.
+    # Check one-shots before suffix dispatch: events such as [:cache, :flush, :stop]
+    # must not pop and export an unrelated span.
     if stage in @oneshot_stages do
       {:oneshot, name(stage)}
     else
@@ -344,11 +337,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
   defp exception_message(meta), do: inspect(meta[:reason])
 
-  # Span attributes are seeded from start metadata (on_start) and then enriched
-  # with the stop metadata's allowlisted keys here — the per-result verdict
-  # (chosen quality/score, HTTP status, error tag, decoded shape, …) that the
-  # Logger and metrics handlers already see. Stop keys win on collision (the
-  # start value was a placeholder for the same fact).
+  # Merge allowlisted stop metadata into the start attributes. Stop values win
+  # so final outcomes replace placeholders.
   defp merge_attrs(%Span{attributes: attrs} = span, meta) do
     %{span | attributes: Map.merge(attrs, safe_attrs(meta))}
   end

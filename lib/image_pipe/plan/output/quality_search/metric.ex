@@ -1,7 +1,7 @@
 defmodule ImagePipe.Plan.Output.QualitySearch.Metric do
   @moduledoc """
   Product-neutral facts about a perceptual autoquality metric, keyed by its
-  identity atom. The Plan namespace gives the native parser and
+  identity atom. The Plan namespace gives the parser and
   `ImagePipe.Output` runtime one definition of each mathematical property.
 
   - `target_range/1` — the valid `{lo, hi}` band a requested target must fall in:

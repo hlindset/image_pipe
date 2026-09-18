@@ -1,6 +1,6 @@
 defmodule ImagePipe.Native.Source do
   @moduledoc """
-  Translates a decoded native source string into `ImagePipe.Plan.Source`.
+  Translates a decoded source string into `ImagePipe.Plan.Source`.
 
   `translate/2` consumes the already-decoded source string produced by
   `ImagePipe.Native.Path.extract/1` (percent-decoded once for a `src` tail,

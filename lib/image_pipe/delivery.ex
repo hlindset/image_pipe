@@ -1,48 +1,31 @@
 defmodule ImagePipe.Delivery do
   @moduledoc """
-  Monitor-based streaming delivery session — the single streaming topology
-  behind the request runner's image terminal [pipelines §Design principles 1, streaming
-  corner case].
+  Streaming delivery sessions for the request runner's image terminal.
 
-  ## Process topology (the flagged invariant)
-
-  Three processes, three distinct ownership roles:
+  ## Process ownership
 
     * **conn owner** — the process running the ImagePipe plug request
-      (`self()` at the point `stream/5` is called, always). It holds the
-      `%ImagePipe.Response.PreparedStream{}` `next`/`cancel` closures.
-    * **coordinator** (`Delivery.Coordinator`) — `Process.monitor(owner)` in
-      its own `init/1`. THIS is the monitor direction that matters: a plain
-      `spawn_monitor` from the owner would only ever observe the coordinator
-      dying, never the reverse. Owner-death detection requires the
-      coordinator to watch the owner. The coordinator owns the cache sink
-      and, on owner `:DOWN`, requests a graceful producer halt and aborts the
-      sink.
-    * **producer** (`Delivery.Producer`) — linked AND monitored by the
-      coordinator. `build_fun` (constructed by the request runner) runs the
-      whole fetch → decode → transform → encode flow here and, once it has an
-      encoder `Enumerable` ready, calls the `pump` function this module hands
-      it. `pump` runs the entire chunk-demand loop — only encoded chunks
-      cross the process boundary (via plain messages); the lazy vips image
-      and the encoder `Enumerable` never leave the producer process.
-      `build_fun` does not return until the encoder reaches EOF or is halted,
-      so the request runner that wraps its pump call in brackets (e.g.
-      `ImagePipe.Decode.with_image/4`, which itself enters
-      `ImagePipe.Source.with_fetched/3`) stays *inside* them for the delivery's
-      entire lifetime, and their cleanup runs exactly once — whether by normal
-      completion, an owner disconnect, or an explicit `cancel`.
+      (`self()` when calling `stream/5`). It holds the prepared stream's
+      `next`/`cancel` closures.
+    * **coordinator** (`Delivery.Coordinator`) — monitors the owner and owns
+      the cache sink. On owner `:DOWN`, it requests a graceful producer halt
+      and aborts the sink. The monitor must point from coordinator to owner
+      to detect owner death.
+    * **producer** (`Delivery.Producer`) — linked to and monitored by the
+      coordinator. It runs `build_fun`'s fetch → decode → transform → encode
+      flow and the `pump` demand loop. Only encoded chunks cross the process
+      boundary; the lazy vips image and encoder enumerable stay here.
 
-  ## Why owner-down uses a graceful halt, not a forceful kill
+  `build_fun` must remain inside its resource brackets until `pump` reaches
+  EOF or halts. Cleanup runs once inside the producer on completion, owner
+  disconnect, and explicit cancellation.
 
-  A forceful kill (`Process.exit(producer, :shutdown)` — the producer never
-  traps exits, so the signal terminates it immediately, with no further Elixir
-  code running) would skip any `try/after` still on the producer's stack.
-  Since the request runner may run its encode/pump body inside such brackets,
-  owner-down (like an explicit `cancel/1`) instead sends a graceful
-  `{:halt, ...}` message and lets the producer finish its current unit of
-  work, hit `after`, and reply — backstopped by a short timeout that force-
-  kills a genuinely wedged producer (accepting, in that narrow edge case,
-  that cleanup may not run).
+  ## Graceful cancellation
+
+  Owner death and explicit cancellation send `{:halt, ...}` so the producer
+  can finish its current work and run `after` cleanup. The producer does not
+  trap exits, so a shutdown signal would skip that cleanup. A short timeout
+  force-kills a stuck producer; cleanup may not run in that case.
   """
 
   use Boundary,
@@ -55,10 +38,8 @@ defmodule ImagePipe.Delivery do
       ImagePipe.Source,
       ImagePipe.Telemetry
     ],
-    # StreamPull is the encoder-stream demand protocol. It is exported because
-    # the request runner that forces the first chunk itself (to keep that pull
-    # inside its own encode span) needs `first_chunk/1` + `resume/2` to hand
-    # the already-pulled chunk back to `pump`.
+    # The runner uses first_chunk/1 and resume/2 to keep the first pull inside
+    # its encode span, then hand the chunk to pump.
     exports: [StreamPull]
 
   alias ImagePipe.Cache.Key
@@ -74,23 +55,18 @@ defmodule ImagePipe.Delivery do
   a `%ImagePipe.Response.PreparedStream{}` once the first encoded chunk is
   ready.
 
-  `conn_owner_pid` MUST be `self()` at the call site (the process running the
-  ImagePipe plug request). Two things are keyed off that: the
-  coordinator's owner-death detection, and the trace context this function
-  captures — the calling process's current span is the parent both hops
-  (coordinator and producer) adopt, so the request runner never passes, and can never
-  forget to pass, a trace context.
+  `conn_owner_pid` must be `self()`, the process running the plug request.
+  The coordinator monitors it for owner death. Both coordinator and producer
+  inherit the calling process's current trace context.
 
   `cache_key` is `nil` when the request runner has no cache configured for
   this request; the session then simply stages nothing.
 
-  `build_fun` runs fetch → decode → transform → encode entirely inside the
-  producer process; see the moduledoc for the bracket-containment contract
-  it must uphold. It hands its encoder output to `pump`, along with the
-  `%ImagePipe.Debug.Info{}` it collected while producing it (or `nil` for a
-  request that collects none) — the session carries that onto both the
-  returned `%PreparedStream{}` and the cache entry it stages, stamping the
-  measured generation cost into it as the `:total` timing.
+  `build_fun` runs fetch → decode → transform → encode in the producer, keeping
+  `pump` inside its resource brackets as described above. It passes encoder
+  output and collected `ImagePipe.Debug.Info` (or `nil`) to `pump`. The session
+  includes this debug data in the prepared stream and staged cache entry,
+  adding measured generation cost as the `:total` timing.
   """
   @spec stream(pid(), build_fun(), Key.t() | nil, PlanResponse.t(), keyword()) ::
           {:ok, PreparedStream.t()} | {:error, term()}
@@ -127,13 +103,10 @@ defmodule ImagePipe.Delivery do
     end
   end
 
-  # Every error return from this module reclaims the coordinator before it
-  # returns. Most failures already stopped it (a producer error stops the
-  # session itself), in which case this is a `:noproc` no-op. The one that does
-  # not is `{:session, :timeout}`: the call gave up but the coordinator and its
-  # wedged producer are still alive, and the conn owner is not a reclaim path —
-  # under Bandit it is the *connection* process, so a wedged encode would hold
-  # its producer (vips image, fds) for the rest of a keep-alive connection.
+  # Cancel on every error; this is a no-op if the session already stopped.
+  # A session timeout can leave the coordinator and producer alive. Under
+  # Bandit, waiting for owner death would retain them for the keep-alive
+  # connection's lifetime.
   defp cancel_and_error(coordinator, reason) do
     _cancel_result = Coordinator.cancel(coordinator)
     {:error, reason}

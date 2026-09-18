@@ -1,9 +1,9 @@
 defmodule ImagePipe.Native.Config do
   @moduledoc """
-  Validates and resolves the native mount configuration.
+  Validates and resolves the mount configuration.
 
   This is the single host-configuration boundary for source and cache adapters,
-  request safety, output policy, native parsing, and delivery controls.
+  request safety, output policy, parsing, and delivery controls.
   """
 
   alias ImagePipe.Cache

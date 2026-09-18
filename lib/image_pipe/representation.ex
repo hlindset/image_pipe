@@ -1,25 +1,18 @@
 defmodule ImagePipe.Representation do
   @moduledoc """
-  Builds a response's cache key, ETag, and Vary header names from categorized,
-  pre-fetch identity material.
+  Builds cache keys, ETags, and Vary header names before source fetch.
 
-  `build/3` turns canonical request data into representation identity.
-  It accepts `source_identity` (opaque
-  keyword material from `ImagePipe.Source.Resolved`), a
-  `%ImagePipe.Representation.IdentityMaterial{}`, and the source's
-  `byte_identity` — all available before any source fetch. There is no
-  function anywhere in this boundary (or any other) that builds a key or ETag
-  from fetched bytes; that is what lets a conditional GET resolve before fetch,
-  decode, or encode.
+  `build/3` accepts opaque `source_identity` keyword material from
+  `ImagePipe.Source.Resolved`, an `ImagePipe.Representation.IdentityMaterial`,
+  and the source's `byte_identity`. Deriving identity from these inputs lets
+  conditional GETs resolve before fetch, decode, or encode.
 
   ## Byte identity governs the ETag
 
-  A strong-byte-identity source contributes an `ETag`. A source whose bytes
-  carry no stable identity (`byte_identity: :none` — reachable with the shipped
-  `Source.HTTP`/`Source.File`/`Source.S3` adapters whenever the origin supplies
-  no validator) gets **no** `ETag` and a `Cache-Control: no-store` directive
-  (`response_headers/1`), so a conditional GET can never revalidate against
-  content whose bytes may have changed.
+  A source with strong byte identity contributes an `ETag`. A source with
+  `byte_identity: :none` gets no ETag and `Cache-Control: no-store` from
+  `response_headers/1`, preventing revalidation of potentially changed bytes.
+  The HTTP, File, and S3 adapters use `:none` when no validator is available.
 
   The cache key and the ETag answer different questions and are derived from
   different (but overlapping) slices of the same data:
@@ -50,10 +43,8 @@ defmodule ImagePipe.Representation do
   @enforce_keys [:cache_key, :etag, :vary, :no_store?]
   defstruct @enforce_keys
 
-  # Mirrors `ImagePipe.Source.CacheSemantics.byte_identity/0` structurally so
-  # the decision can live here without this boundary taking a dep on
-  # `ImagePipe.Source`: the caller passes the plain term, this module owns the
-  # `== :none` decision (the D5 discipline — one decision, one place).
+  # Mirrors Source.CacheSemantics without adding a Source dependency.
+  # Representation owns the decision to withhold an ETag for `:none`.
   @type byte_identity :: {:strong, term()} | :none
 
   @type t :: %__MODULE__{
@@ -96,12 +87,8 @@ defmodule ImagePipe.Representation do
   end
 
   @doc """
-  The identity/cache response headers for this representation.
-
-  A strong-byte-identity representation contributes its `ETag`. A `no_store?`
-  representation (a `:none` source) instead contributes `Cache-Control:
-  no-store` and no `ETag`, preventing conditional validation of changed content
-  or shared caching of bytes with no stable identity.
+  Returns the representation's `ETag`, or `Cache-Control: no-store` when the
+  source has no stable byte identity.
   """
   @spec response_headers(t()) :: [{String.t(), String.t()}]
   def response_headers(%__MODULE__{no_store?: true}), do: [{"cache-control", "no-store"}]

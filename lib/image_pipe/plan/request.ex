@@ -1,6 +1,6 @@
 defmodule ImagePipe.Plan.Request do
   @moduledoc """
-  Canonical native request data shared by parsing and execution.
+  Canonical request data shared by parsing and execution.
 
   Groups express fixed-order transform intent. Output holds sparse request
   policy before format negotiation. Delivery controls and request gates travel

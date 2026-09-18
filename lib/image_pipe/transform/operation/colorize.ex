@@ -27,11 +27,8 @@ defmodule ImagePipe.Transform.Operation.Colorize do
     end
   end
 
-  # IMPORTANT: do NOT use Image.without_alpha_band/2 here. It strips alpha, runs the
-  # fn, and *unconditionally rejoins the original alpha* (see bitonal.ex:34-35). That
-  # is wrong for colorize, whose DEFAULT (keep_alpha: false) must produce an OPAQUE
-  # result. So split alpha explicitly (the input_color_management.ex alpha_split_at
-  # pattern) and rejoin only when keep_alpha is true.
+  # Split alpha explicitly: without_alpha_band/2 always restores it, but colorize
+  # defaults to opaque output. Rejoin only when keep_alpha is true.
   defp apply_colorize(image, o, color, keep_alpha) do
     case Image.has_alpha?(image) do
       false -> blend_rgb(image, o, color)

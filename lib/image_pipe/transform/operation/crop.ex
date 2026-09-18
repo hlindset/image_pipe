@@ -1,14 +1,9 @@
 defmodule ImagePipe.Transform.Operation.Crop do
   @moduledoc """
-  Represents an executable crop operation that selects a bounded rectangle
-  from the current image.
+  Selects a bounded rectangle from the current image.
 
-  The native executor resolves request geometry before constructing this
-  operation.
-
-  Use `Crop` for resolved visible crop work, coordinate-based crops, and result
-  crops that trim an already resized image back to resolved target geometry.
-  Request-specific gravity inheritance is resolved before execution.
+  The executor resolves geometry and gravity inheritance before
+  constructing coordinate, gravity, or post-resize result crops.
 
   ## Fields
 
@@ -51,16 +46,11 @@ defmodule ImagePipe.Transform.Operation.Crop do
   and `height`. The executor scales pixel offsets by effective DPR; scale
   offsets are resolved relative to the current image bounds.
 
-  For coordinate crops, `crop_from` is the requested top-left crop position
-  before the rectangle is clamped to image bounds. `reject_out_of_bounds` is a
-  verdict decided upstream: when `true`, the requested region was found to lie
-  wholly outside the source (in the original, pre-decode-shrink frame, decided
-  before execution), so execution returns
-  `{:error, {:bad_request, :region_out_of_bounds}}` without cropping. When
-  `false` (the default) a coordinate crop clamps to image bounds as usual. The
-  detection lives at resolve time rather than here because the original-frame
-  dimensions and request coordinates are only available before the shrink
-  rescale; a partially overlapping region is never rejected.
+  Coordinate crops start at `crop_from` and clamp to image bounds. The executor
+  sets `reject_out_of_bounds: true` for regions wholly outside the original
+  source frame, before decode-shrink rescaling loses those coordinates. Such
+  crops return `{:error, {:bad_request, :region_out_of_bounds}}` without cropping.
+  The default is `false`; partially overlapping regions are never rejected.
 
   ## Examples
 
@@ -72,9 +62,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
         x_offset: {:scale, 0.1},
         y_offset: {:pixels, -12}
       }
-
-  A semantic crop request with focal-point guide may execute as the same kind
-  of `Crop` operation. URL grammar and aliases stay in parser documentation.
   """
 
   use ImagePipe.Transform
@@ -155,11 +142,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   def name(%__MODULE__{}), do: :crop
 
   @doc false
-  # Realized crop-box dimensions resolved purely against the given live image
-  # dims — the exact box `execute/2` crops to on an image of that size (the crop
-  # *position* is excluded; it never affects the box). Mirrors the dimension
-  # resolution inside `crop_coordinates`/`smart_crop` so the neutral resolver can
-  # advance the source shape without reading the live image.
+  # Pure crop dimensions shared by execution and geometry planning.
+  # Position does not affect the box size.
   @spec resolved_box_dims(t(), pos_integer(), pos_integer()) ::
           {pos_integer(), pos_integer()}
   def resolved_box_dims(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
@@ -184,12 +168,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   @doc false
-  # The realized crop rectangle resolved purely against the given live image
-  # dims — the exact {left, top, width, height} `execute/2` crops on an image
-  # of that size. Defined for concrete-gravity (anchor/fp) and coordinate
-  # crops; a :smart/:detect gravity has no pure rectangle (pixels decide it).
-  # Lets the executor translate a carried point by the realized crop
-  # origin without reading the live image.
+  # Pure rectangle for anchor, focus-point, and coordinate crops. The executor
+  # uses its origin to translate carried points. Smart/detect crops require pixels.
   @spec resolved_rect(t(), pos_integer(), pos_integer()) ::
           {:ok, %{left: integer(), top: integer(), width: pos_integer(), height: pos_integer()}}
           | {:error, term()}
@@ -229,15 +209,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
     left_px = resolve_position(left_coord)
     top_px = resolve_position(top_coord)
 
-    # make sure crop is within image bounds
     crop_width = resolve_dimension(params.width, image_width)
     crop_height = resolve_dimension(params.height, image_height)
 
-    # figure out the crop anchor from the resolved origin
     center_x = round(left_px + crop_width / 2)
     center_y = round(top_px + crop_height / 2)
 
-    # ...and make sure crop still stays within bounds
     left = max(0, min(image_width - crop_width, round(center_x - crop_width / 2)))
     top = max(0, min(image_height - crop_height, round(center_y - crop_height / 2)))
 
@@ -338,11 +315,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp blend_axis(attention, face),
     do: clamp_unit((1 - @face_assist_weight) * attention + @face_assist_weight * face)
 
-  # Records how face detection skewed the attention point for `{:smart,
-  # :face_assist}`: the pure saliency point, the face centroid, the blended
-  # result actually used, and the blend weight. A one-shot (not a span) — it is a
-  # decision, not measured work. Coordinates are normalized 0..1, product-neutral,
-  # and derived from the public request, so they are safe to emit.
+  # Records the saliency point, face centroid, blended point, and blend weight.
+  # These normalized coordinates are non-sensitive metadata. Emit a one-shot
+  # event because this records a decision rather than measured work.
   defp emit_blend(telemetry_opts, attention, face, blended) do
     Telemetry.execute(telemetry_opts, [:transform, :detect, :blend], %{}, %{
       attention: attention,
@@ -428,10 +403,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     )
   end
 
-  # A face-aware request with no detector configured runs no detection, so it
-  # emits a one-shot `[:transform, :detect, :skipped]` marker rather than a span
-  # (a span would carry a meaningless near-zero duration). The crop falls back to
-  # attention saliency.
+  # No detector means attention fallback. Emit a skipped marker rather than
+  # timing work that did not run.
   defp emit_detect_skipped(classes, telemetry_opts) do
     Telemetry.execute(telemetry_opts, [:transform, :detect, :skipped], %{}, %{
       classes: classes,
@@ -439,13 +412,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
     })
   end
 
-  # The detector-level outcome recorded on the detect span's stop metadata. The
-  # span wraps the detector invocation, so it only fires when a detector module
-  # exists. `result` reflects what the detector returned, not the final crop
-  # decision: a usable `:detected` result whose boxes all fall outside the image
-  # still degrades to attention downstream. `:no_regions` is normal (no face in
-  # the frame); `:unavailable` and `:error` mark a configured detector that could
-  # not produce a usable detection, so the crop fell back to attention saliency.
+  # Span outcomes describe detection, not final crop placement: :detected boxes
+  # outside the image can still lead to attention fallback. :no_regions is normal;
+  # :unavailable and :error indicate a configured detector could not provide results.
   defp detect_reason({:ok, [_ | _]}), do: :detected
   defp detect_reason({:ok, []}), do: :no_regions
   defp detect_reason({:error, {:detector, :unavailable}}), do: :unavailable
@@ -511,13 +480,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
     }
   end
 
-  # Per-axis anchored position, mirroring imgproxy calc_position.go (lines 37-54).
-  # The offset's SIGN depends on the anchor edge: it is ADDED from the near edge
-  # (left/top/center) and SUBTRACTED from the far edge (right/bottom), so a
-  # positive offset always moves the window INWARD from the named edge. imgproxy
-  # rounds the offset to an even integer first (ScaleToEven/RoundToEven), then
-  # combines it with an integer origin; we match that by rounding the bare offset
-  # with round-half-to-even before composing.
+  # Positive offsets add for left/top/center and subtract for right/bottom.
+  # Round the offset ties-to-even before adding it to the integer origin, matching
+  # imgproxy's calc_position.go.
   defp gravity_position(
          {:anchor, x_anchor, y_anchor},
          image_width,
@@ -534,10 +499,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     }
   end
 
-  # Focus-point gravity uses only the focus coords for placement (calc_position.go
-  # lines 16-21 — GravityFocusPoint has no offset term). The separate ImagePipe
-  # offset is applied as a plain inward displacement (add), consistent with the
-  # near-edge convention; it is already vector-transformed for orientation upstream.
+  # Focus-point placement adds the separate displacement, which the executor has
+  # already transformed for pending orientation.
   defp gravity_position(
          {:fp, x, y},
          image_width,
@@ -558,11 +521,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp anchor_position(anchor, _bounds, _crop, offset, _bias) when anchor in [:left, :top],
     do: round_offset_to_even(offset)
 
-  # Center: pos = ShrinkToEven(bounds - crop + 1, 2) + offset (calc_position.go:37-38).
-  # ShrinkToEven(a, 2) = RoundToEven(a / 2); the offset is an even integer added
-  # after. With `:far` bias the extra discarded pixel moves to the opposite side:
-  # the origin becomes (bounds - crop) - ShrinkToEven(bounds - crop + 1, 2), used
-  # when a later orientation flush reverses this axis (Orientation.center_discard_sides).
+  # Add the rounded offset to the shared center origin. :far reflects that origin
+  # across the gap to preserve rounding when the orientation flush reverses an axis.
   defp anchor_position(:center, bounds, crop, offset, :near),
     do: center_origin(bounds, crop) + round_offset_to_even(offset)
 
@@ -573,10 +533,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp anchor_position(anchor, bounds, crop, offset, _bias) when anchor in [:right, :bottom],
     do: bounds - crop - round_offset_to_even(offset)
 
-  # imgproxy converts every offset to an even integer before composing it with the
-  # integer origin (ScaleToEven / RoundToEven, imath.go). The bare offset reaching
-  # here is already resolved against the right bounds/scale, so round it the same
-  # way to keep the composed position integer-faithful.
+  # Offsets already have resolved bounds/scale; round ties-to-even before placement.
   defp round_offset_to_even(offset), do: round_ties_to_even(offset)
 
   defp clamp_position(value, max_value), do: max(0, min(max_value, value))

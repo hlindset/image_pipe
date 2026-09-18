@@ -13,39 +13,26 @@ defmodule ImagePipe.Transform.DecodePlanner.Request do
   @typedoc """
   The residual resize's effective target, per axis, in display-frame pixels.
 
-  Wider than `t:extent/0` in two ways, both to let the executor state its resize
-  target exactly rather than as an approximation of it:
+  Unlike `t:extent/0`, each axis is optional and may be fractional:
 
-    * **Each axis is independently optional.** A single-axis resize (`w:400`
-      with an `:auto` height) targets that axis and no other, and the shrink is
-      that axis's ratio alone. Filling the missing axis would
-      have to synthesize one from the aspect ratio, which binds `min/2` tighter
-      whenever the frame is not exactly proportional.
-    * **An axis is a `number()`, not a `pos_integer()`.** `dpr`/`zoom` inflate
-      the requested pixel extent to a fractional target, and the planner divides
-      by that fraction directly. Rounding it to a whole pixel would move the
-      resulting ratio, and rounding a sub-pixel target lands on zero.
+    * A single-axis resize (`w:400` with `:auto` height) uses only that axis's
+      shrink ratio. Synthesizing the other target can unnecessarily constrain it.
+    * `dpr`/`zoom` can produce fractional targets. Rounding changes the shrink
+      ratio and can turn a sub-pixel target into zero.
 
-  **A resize with no targeted axis MUST normalize to `nil`, never `{nil, nil}`.**
-  The two are not interchangeable: `open_options_for/5`'s precedence reads this
-  field's *presence*, so `{nil, nil}` matches the `resize_target` clause and
-  shadows `terminal_reduction`, silently costing a terminal its load shrink —
+  A resize with no target axes must normalize to `nil`. `{nil, nil}` would match
+  the resize clause and suppress `terminal_reduction`:
 
       resize_target: nil,        terminal_reduction: {32, 32}  ->  shrink: 8
       resize_target: {nil, nil}, terminal_reduction: {32, 32}  ->  no shrink
-
-  The executor normalizes an untargeted resize to `nil` so the terminal can
-  supply its reduction target.
   """
   @type resize_target() :: {number() | nil, number() | nil}
 
   @typedoc """
-  Whether the user rotation, applied before the residual
-  resize, sum to a quarter turn (90°/270° mod 180).
+  Decode targets, crop extent, trim flag, and pre-resize user orientation.
 
-  `open_options_for/5`'s caller supplies the EXIF turn separately; this field
-  carries the *user* turn, which the planner XORs with it. A request without
-  rotation leaves this `false`.
+  `user_quarter_turn?` is true for a 90°/270° user rotation. The planner XORs it
+  with the separately supplied EXIF turn to determine whether to swap axes.
   """
   @type t() :: %__MODULE__{
           resize_target: resize_target() | nil,

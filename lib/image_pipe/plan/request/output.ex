@@ -1,6 +1,6 @@
 defmodule ImagePipe.Plan.Request.Output do
   @moduledoc """
-  Terminal selection and sparse output intent from a native request.
+  Terminal selection and sparse output intent from a request.
 
   Host defaults and format negotiation resolve this intent into
   `ImagePipe.Output.Policy` for image encoding.

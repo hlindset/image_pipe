@@ -1,13 +1,10 @@
 defmodule ImagePipe.Transform.SourceGeometry do
   @moduledoc """
-  Pre-decode geometry facts produced by `ImagePipe.Decode.with_image/4`'s
-  header open. The native executor uses them to plan against the display frame,
-  and the paired `Transform.State`-consuming callback receives them for output
-  negotiation and source reporting.
+  Source geometry read by `ImagePipe.Decode.with_image/4` during header open.
 
-  It contains the storage/display extents, the pending orientation observed
-  during decode, and the resolved source format. Runtime image geometry and
-  realized decode scaling belong to `ImagePipe.Transform.State`.
+  Carries storage/display extents, pending orientation, and source format for
+  executor planning, output negotiation, and source reporting. Current image
+  geometry and realized decode scaling belong to `ImagePipe.Transform.State`.
 
   `debug_facts` carries best-effort, non-sensitive source facts collected by
   `ImagePipe.Decode` for the debug headers; `%{}` when collection failed or

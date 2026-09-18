@@ -1,20 +1,16 @@
 defmodule ImagePipe.Native do
   @moduledoc """
-  ImagePipe's native URL API, mounted through `plug ImagePipe.Plug,
+  ImagePipe's URL API, mounted through `plug ImagePipe.Plug,
   sources: [...]`. Owns parsing (verify → lex → parse), expiry, source
   translation, representation identity, and error rendering.
   `ImagePipe.Plug` orchestrates the request lifecycle.
 
   ## Mount prefix caveat
 
-  `ImagePipe.Native.Path` strips the mount prefix from the raw
-  request path by treating `conn.script_name` (Plug's *decoded* segment
-  list) as a byte-exact raw string prefix of `conn.request_path`. This is
-  only correct when the mount path is canonical unescaped ASCII. A
-  `script_name` segment that round-trips unequal through percent-encoding
-  is host misconfiguration and raises at request runtime (500-class, never
-  a client 400) — non-canonical/escaped mount paths are unsupported in v1.
-  A config-supplied raw mount prefix is the future escape hatch.
+  `ImagePipe.Native.Path` strips `conn.script_name` from `conn.request_path`
+  as a raw prefix. Because Plug decodes `script_name`, mount paths must use
+  canonical unescaped ASCII. A segment that changes when percent-encoded
+  raises at request time as host misconfiguration (500-class).
   """
 
   use Boundary,
@@ -50,10 +46,10 @@ defmodule ImagePipe.Native do
   def validate_config!(opts), do: Config.validate!(opts)
 
   @doc """
-  Encrypts a UTF-8 source using a validated native mount configuration.
+  Encrypts a UTF-8 source using a validated mount configuration.
 
   The returned value is the token only. The host places it after the `enc/`
-  source marker and signs the complete native request path.
+  source marker and signs the complete request path.
   """
   @spec encrypt_source(term(), keyword()) ::
           {:ok, String.t()} | {:error, :invalid_source | :source_encryption_disabled}
@@ -101,7 +97,7 @@ defmodule ImagePipe.Native do
 
   def render_error(conn, reason), do: Errors.send(conn, reason)
 
-  # Native client-reject reasons get the `:parser_error` client-error
+  # Client-reject reasons get the `:parser_error` client-error
   # atom directly: the signature gate
   # (`:missing_signature`/`:invalid_signature`/`:signature_without_keys`), the
   # `expires` gate (`:expired`), and `Parser.parse/2`'s whole parse-failure

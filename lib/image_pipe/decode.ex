@@ -2,12 +2,10 @@ defmodule ImagePipe.Decode do
   @moduledoc """
   Source fetch and image decode bracket.
 
-  `with_image/4` runs the two-open decode flow (header open for stored dims +
-  EXIF orientation, then a sequential re-open with shrink-on-load options) as a
-  bracket: it fetches through `ImagePipe.Source.with_fetched/3`, builds an
-  `ImagePipe.Transform.SourceGeometry` from the header open, derives the decode
-  preflight from the native request, re-opens sequentially with the planned
-  options, seeds a `Transform.State`, and hands both to `fun`.
+  `with_image/4` fetches through `ImagePipe.Source.with_fetched/3`, reads stored
+  dimensions and EXIF orientation, then reopens sequentially with planned
+  shrink-on-load options. It passes the resulting `ImagePipe.Transform.State`
+  and `ImagePipe.Transform.SourceGeometry` to the caller.
   """
 
   use Boundary,
@@ -44,34 +42,29 @@ defmodule ImagePipe.Decode do
   @type error() :: {:source, term()} | {:decode, term()} | {:input_limit, term()}
 
   @doc """
-  Fetch, decode, and run `fun` over the resulting `Transform.State` +
-  `SourceGeometry`.
+  Fetches and decodes a source, then calls `fun` with its `Transform.State`
+  and `SourceGeometry`.
 
-  The native request owns EXIF orientation and decode-time preflight intent.
+  The request owns EXIF orientation and decode-time preflight intent.
   After the header open, the bracket passes the request and resulting
   `SourceGeometry` to `ImagePipe.Transform.Executor.decode_request/2`, then
   feeds that plan to `DecodePlanner.open_options_for/5` to compute the
   shrink-on-load options for the sequential re-open. The info terminal reads
   source facts without applying EXIF orientation.
 
-  Errors normalize to `{:source, _}` (fetch failure), `{:decode, _}` (a
-  corrupt/unsupported body or a libvips open failure), or `{:input_limit, _}`
-  (stored header dimensions exceed `opts[:max_input_pixels]`), for the status mapping in `Response.ErrorStatus`. `fun`'s own return value
-  passes through unchanged (its own errors, e.g. a transform failure, are the
-  caller's to classify).
+  Returns errors tagged `{:source, _}` for fetch failures, `{:decode, _}` for
+  corrupt/unsupported bodies or libvips open failures, and `{:input_limit, _}`
+  when stored dimensions exceed `opts[:max_input_pixels]`. These tags map to
+  HTTP statuses in `Response.ErrorStatus`. `fun`'s return value passes through
+  unchanged, including errors.
 
   ## The `[:source, :fetch_decode]` span
 
-  This bracket emits the `[:source, :fetch_decode]` span. The span encloses the fetch AND the decode but NOT the
-  caller's build: it opens before `Source.with_fetched/3` (so `[:source,
-  :fetch]` nests inside it) and closes *inside* the bracket, immediately after
-  the decoded `State`/`SourceGeometry` are built and before `fun` runs — a
-  transform/encode failure in `fun` can never be misattributed to it. That
-  close site is not a function boundary, hence the manual
-  `Telemetry.start_span/3` bracket: a fetch/decode error closes the span with
-  an error `:stop`, and a raise before the decode completed closes it with
-  `:exception` semantics (a raise from `fun`, after the span already stopped,
-  does not re-close it).
+  The span starts before `Source.with_fetched/3`, enclosing its fetch span,
+  and stops after decode, before `fun` runs. This requires a manual
+  `Telemetry.start_span/3` bracket so transform/encode failures are attributed
+  to the caller. Fetch/decode errors emit an error `:stop`; exceptions before
+  decode completes emit `:exception`. Exceptions from `fun` do not close it again.
   """
   @spec with_image(
           Source.Resolved.t(),
@@ -107,9 +100,8 @@ defmodule ImagePipe.Decode do
     end
   end
 
-  # `fun` ran (the span already stopped `:ok` inside the bracket): pass its
-  # result through untouched. Otherwise the fetch or the decode failed before
-  # the build was reached, and the error closes the span here.
+  # The marker distinguishes `fun`'s result from a fetch/decode error, which
+  # still needs to close the span.
   defp unwrap_decoded({decoded, result}, _span, decoded), do: result
 
   defp unwrap_decoded({:error, reason} = error, span, _decoded) do
@@ -345,11 +337,9 @@ defmodule ImagePipe.Decode do
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
-  # Best-effort, non-sensitive source facts for the debug headers. Collected on
-  # every generation (rendering is gated elsewhere). A genuinely-absent value
-  # returns nil/false through the helper's own `case`; only a real raise is an
-  # anomaly — surfaced as one `[:debug, :collect, :error]` event, then the whole
-  # fact set degrades to %{} so collection never breaks decoding.
+  # Collect non-sensitive debug facts on every generation; rendering is gated
+  # elsewhere. Missing values return nil/false. Exceptions emit one debug error
+  # event and discard the facts so collection cannot break decoding.
   defp debug_facts(input, header_image, opts) do
     %{
       source_bytes: source_byte_size(input),

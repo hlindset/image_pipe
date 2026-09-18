@@ -1,10 +1,8 @@
 defmodule ImagePipe.Transform.PendingOrientation do
   @moduledoc false
-  # Deferred orientation carried on Transform.State: EXIF auto-orient ∘ user
-  # rotate ∘ user flip, applied late by Transform.OrientationFlush. Pure data +
-  # the EXIF-tag → (angle, horizontal-mirror) mapping. Verify the mapping against
-  # `local/imgproxy-master/processing/prepare.go` (angleFlip): 3/4→180, 5/6→90,
-  # 7/8→270; horizontal mirror on 2/4/5/7.
+  # Carries deferred EXIF orientation, user rotation, and user flips on State.
+  # OrientationFlush applies them in that order. EXIF tags map to a rotation
+  # followed by a horizontal mirror, matching imgproxy's angleFlip.
 
   defstruct auto_rotate?: false,
             exif_angle: 0,
@@ -82,11 +80,9 @@ defmodule ImagePipe.Transform.PendingOrientation do
   def identity?(%__MODULE__{}), do: false
 
   @doc """
-  The display-frame dims for storage-frame dims under a (possibly nil) pending
-  orientation: the axes swap iff a quarter turn is pending. The shared home
-  for the nil-tolerant form of this decision (the Focus/strategy dedup);
-  resolver-internal sites with a proven non-nil pending may still swap via
-  quarter_turn?/1 directly.
+  Returns display dimensions for the given storage dimensions.
+
+  Swaps axes for a pending quarter turn; `nil` leaves dimensions unchanged.
   """
   @spec display_dims({pos_integer(), pos_integer()}, t() | nil) ::
           {pos_integer(), pos_integer()}

@@ -1,26 +1,16 @@
 defmodule ImagePipe.Native.Signature do
   @moduledoc """
-  HMAC signing and verification for the native URL API, plus the
-  `expires` gate [native §Signing, §Byte-level contract].
+  HMAC signing, verification, and expiry checks for ImagePipe URLs.
 
-  `verify/3` is called before any lexing of the request path has
-  happened: its two path-derived inputs (`sig_segment`, `signed_path`)
-  come straight from `ImagePipe.Native.Path.split_signature/1`,
-  the raw pre-parse byte split — "verify first, parse second, with zero
-  scanning" [native §Signing]. The MAC covers `signed_path` exactly as
-  `split_signature/1` returns it: the raw bytes from the `/` following
-  the sig segment through the end of the mount-relative path, query
-  excluded. No normalization happens here or in `split_signature/1`, so
-  e.g. a duplicate slash is signature-significant and verifies against
-  the bytes as sent — normalization-sensitive rejection (an empty
-  segment) is a parse-time concern, not a signing-time one.
+  `verify/3` runs before lexing. Its `sig_segment` and `signed_path` come
+  directly from `ImagePipe.Native.Path.split_signature/1`. The MAC covers
+  raw bytes from the slash after the signature through the mount-relative
+  path's end, excluding the query. Neither function normalizes the path:
+  duplicate slashes affect the signature and may be rejected later by parsing.
 
-  Keys are host config (`config[:keys]`), an ordered list of hex-encoded
-  strings [native §Config]. The first key signs (`sign/2`); verification
-  tries each key in order with `Plug.Crypto.secure_compare/2` and
-  returns the matched key's index, so key rotation is observable via the
-  returned index (surfaced as `:sig_key_index` telemetry metadata by
-  Task 15).
+  `config[:keys]` is an ordered list of hex-encoded keys. `sign/2` uses the
+  first; verification tries each with `Plug.Crypto.secure_compare/2` and
+  returns the matching index, exposed as `:sig_key_index` telemetry for key rotation.
   """
 
   @signature_size 43
@@ -31,10 +21,8 @@ defmodule ImagePipe.Native.Signature do
   Verifies `sig_segment` (as returned by `ImagePipe.Native.Path.split_signature/1`) against
   `signed_path` under the configured ordered key list.
 
-  Returns `{:ok, nil}` when the request is legitimately unsigned (no keys
-  configured, no `sig` segment present) and `{:ok, key_index}` when a
-  signature matched — one success shape, so callers never need a special
-  unsigned branch.
+  Returns `{:ok, nil}` when no keys or signature are present, and
+  `{:ok, key_index}` when a signature matches.
   """
   @spec verify(sig_segment :: String.t() | nil, signed_path :: String.t(), config()) ::
           {:ok, key_index :: non_neg_integer() | nil}
@@ -75,13 +63,10 @@ defmodule ImagePipe.Native.Signature do
   end
 
   @doc """
-  The `expires` gate [native §Signing: "not identity material"]. `now` is
-  an injected unix timestamp (seconds) rather than a live clock read, so
-  callers stay deterministic under test; the chain (Task 15) passes
-  `System.os_time(:second)`.
+  Checks expiry against the supplied Unix timestamp in seconds.
 
-  `expires` is valid through and including its own timestamp — only
-  strictly-past timestamps are expired.
+  `expires` remains valid at its own timestamp; only earlier timestamps are
+  expired. The request lifecycle supplies `System.os_time(:second)` by default.
   """
   @spec expired?(expires :: pos_integer() | nil, now :: integer()) :: boolean()
   def expired?(nil, _now), do: false

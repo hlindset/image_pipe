@@ -47,12 +47,9 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
     end
   end
 
-  # Image.FaceDetection.detect/1 returns a BARE list of
-  # %{box: {x,y,w,h}, score, landmarks} and RAISES on failure — wrap in a narrow
-  # boundary rescue (sanctioned host/optional-dep runtime boundary). Boxes are
-  # {x, y, width, height} absolute top-left pixels; landmarks are dropped.
-  # Image.FaceDetection.detect/1 lives in the optional image_vision+ortex stack
-  # (the IMAGE_VISION=1 test lane); absent it, Dialyzer sees an unknown function.
+  # FaceDetection returns a bare list and raises on failure; rescue at this
+  # dependency boundary. Boxes use absolute {x, y, width, height}; drop landmarks.
+  # Dialyzer cannot resolve the function without the optional image_vision stack.
   @dialyzer {:nowarn_function, detect_faces: 1}
   defp detect_faces(image) do
     regions =

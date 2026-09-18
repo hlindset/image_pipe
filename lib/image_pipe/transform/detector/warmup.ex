@@ -2,27 +2,20 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   @moduledoc """
   Optional one-shot worker that pre-loads a detector's models at boot.
 
-  Host-wired: add it to the HOST's supervision tree (ImagePipe does not start
-  it), e.g.:
+  Add it to the host's supervision tree; ImagePipe does not start it:
 
       {ImagePipe.Transform.Detector.Warmup, detector: :default}
 
-  The `:detector` option mirrors the plug's `:detector` option: `:default` (the
-  default when omitted) resolves to the bundled adapter, `nil` disables detection
-  (the worker becomes a clean no-op), and a module selects a custom detector.
+  `:detector` accepts `:default` (the bundled adapter, used when omitted), `nil`
+  (no work), or a custom detector module, matching the plug option.
 
-  `restart: :transient` — it warms once and terminates `:normal`, so the
-  supervisor does not restart it. It does NOT trap exits: a shutdown mid-download
-  is acceptable (nothing is staged to clean up). A failed warmup logs and retries
-  in-process a bounded number of times with exponential backoff (so a transient
-  blip — e.g. a model download hiccup — gets a real chance to recover and the
-  retry warnings aren't a same-instant burst), then terminates `:normal` — it
-  never raises (a raised exit under `:transient` would restart-storm). A detector
-  whose `available?/1` is `false` is structurally unavailable, so warmup is
-  skipped entirely (no point retrying a failure that cannot recover).
+  Failed warmup results are logged and retried with bounded exponential backoff.
+  The worker then exits normally, so `restart: :transient` does not restart it.
+  Unavailable detectors are skipped. It does not trap exits; shutdown during a
+  download needs no cleanup.
 
-  The worker runs the blocking model load inside `handle_continue/2`, so
-  `start_link/1` returns immediately and the host's boot is never blocked.
+  Model loading runs in `handle_continue/2`, allowing `start_link/1` to return
+  without waiting for the download.
   """
   use GenServer, restart: :transient
 
@@ -31,9 +24,7 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector
 
-  # Exponential backoff between failed-warmup retries: 100ms, 200ms, 400ms, …
-  # capped at 1s. Bounded and non-blocking relative to host boot (the work runs
-  # in handle_continue/2).
+  # Retry delays: 100ms, 200ms, 400ms, …, capped at 1s.
   @backoff_base_ms 100
   @backoff_cap_ms 1_000
 
