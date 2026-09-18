@@ -3,11 +3,11 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Declarative
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Plan.Source.Path
+  alias ImagePipe.Dialect.Imgproxy
+  alias ImagePipe.Native
+  alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Request
+  alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.State
@@ -50,32 +50,66 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     |> Image.write!(:memory, suffix: suffix)
   end
 
-  defp plan(operations, auto_rotate?) do
-    %Plan{
-      source: %Path{segments: ["rot.img"]},
-      output: %{},
-      pipelines: [%Pipeline{operations: operations}],
-      auto_rotate: auto_rotate?
-    }
-  end
-
-  # Fetch + decode through the shared bracket with the declarative dialect's
-  # decode preflight, then run the plan through the declarative pipeline —
-  # the same two seams `ImagePipe.Plug.DialectRunner` drives.
-  defp run(body, operations, auto_rotate? \\ false) do
-    plan = plan(operations, auto_rotate?)
+  # Parse a real native request, fetch and decode through the shared bracket,
+  # then run it through the native pipeline — the same seams the Plug drives.
+  defp run(body, options) do
     opts = opts(body)
-    {:ok, source} = Source.resolve(plan.source, opts, [])
+    request = request(options, opts)
+    {:ok, source_request} = NativeSource.translate(request.source, opts)
+    {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
       source,
-      Keyword.put(opts, :auto_rotate?, plan.auto_rotate),
-      &Declarative.decode_request(plan, &1),
+      Keyword.put(opts, :auto_rotate?, true),
+      &Pipeline.decode_request(request, &1),
       fn state, geometry ->
-        {:ok, %State{} = final} = Declarative.execute(state, geometry, plan, opts)
+        {:ok, %State{} = final} = Pipeline.run(state, geometry, request, opts)
         {final.image, shrink_factor(state.decode_shrink)}
       end
     )
+  end
+
+  defp run_imgproxy(body, options) do
+    telemetry_prefix = [:"shrink_rotate_#{System.unique_integer([:positive])}"]
+    decode_stop = telemetry_prefix ++ [:source, :fetch_decode, :stop]
+    handler_id = {__MODULE__, self(), telemetry_prefix}
+
+    :telemetry.attach(
+      handler_id,
+      decode_stop,
+      &__MODULE__.handle_decode_stop/4,
+      {self(), telemetry_prefix}
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    opts =
+      body
+      |> mount_options()
+      |> Keyword.put(:telemetry_prefix, telemetry_prefix)
+      |> Keyword.put(:dialect, Imgproxy)
+      |> ImagePipe.Plug.init()
+
+    conn =
+      :get
+      |> Plug.Test.conn("/_/#{options}/f:png/plain/rot.img")
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 200
+    assert_receive {:decode_stop, ^telemetry_prefix, metadata}
+
+    {Image.from_binary!(conn.resp_body), load_shrink(Map.get(metadata, :load_option))}
+  end
+
+  def handle_decode_stop(_event, _measurements, metadata, {test_pid, telemetry_prefix}) do
+    send(test_pid, {:decode_stop, telemetry_prefix, metadata})
+  end
+
+  defp request(options, opts) do
+    assert {{:ok, %Request{} = request}, _metadata} =
+             Native.parse(Plug.Test.conn(:get, "/#{options}/src/rot.img"), opts)
+
+    request
   end
 
   # The realized load shrink, rounded back to the libjpeg block factor the
@@ -83,8 +117,17 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   defp shrink_factor(nil), do: nil
   defp shrink_factor(%{w: w}), do: round(w)
 
+  defp load_shrink(nil), do: nil
+  defp load_shrink({:shrink, factor}), do: factor
+
   defp opts(body) do
-    Source.validate_config!(
+    body
+    |> mount_options()
+    |> ImagePipe.Plug.init()
+  end
+
+  defp mount_options(body) do
+    [
       sources: [
         path:
           {RootHTTPAdapter,
@@ -95,7 +138,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
       max_result_height: 100_000,
       max_result_pixels: 1_000_000_000,
       max_body_bytes: 100_000_000
-    )
+    ]
   end
 
   defp origin_plug(body) do
@@ -161,12 +204,10 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     for angle <- [90, 270] do
       test "rot:#{angle} + fit resize is pixel-equivalent across shrink and full decode" do
         angle = unquote(angle)
-        {:ok, rotate} = Operation.rotate(angle)
-        {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
-        ops = [rotate, resize]
+        options = "rotate=#{angle}/w=400/h=400"
 
-        {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), ops)
-        {png_img, no_shrink} = run(structured(@src, @src, ".png"), ops)
+        {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), options)
+        {png_img, no_shrink} = run(structured(@src, @src, ".png"), options)
 
         assert no_shrink == nil, "PNG baseline must not shrink"
         assert_equivalent(jpeg_img, png_img, shrink, "rot:#{angle} -> fit:400:400")
@@ -176,12 +217,8 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     # rot:180 swaps no axes but must still shrink correctly. Use a non-square source
     # and a width-only fit so a wrongly-applied swap would change the dims.
     test "rot:180 + fit resize shrinks without swapping (non-square source)" do
-      {:ok, rotate} = Operation.rotate(180)
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
-      ops = [rotate, resize]
-
-      {jpeg_img, shrink} = run(structured(3200, 2400, ".jpg"), ops)
-      {png_img, no_shrink} = run(structured(3200, 2400, ".png"), ops)
+      {jpeg_img, shrink} = run(structured(3200, 2400, ".jpg"), "rotate=180/w=400")
+      {png_img, no_shrink} = run(structured(3200, 2400, ".png"), "rotate=180/w=400")
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "rot:180 -> fit:400")
@@ -193,12 +230,8 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     # stored image turned 180 (still landscape). A width-only fit must still land
     # the right dims, proving the net-turn determination (not EXIF alone).
     test "EXIF-6 + rot:90 = net 180 (no swap) stays pixel-equivalent" do
-      {:ok, rotate} = Operation.rotate(90)
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
-      ops = [rotate, resize]
-
-      {jpeg_img, shrink} = run(oriented(3200, 2400, 6, ".jpg"), ops, true)
-      {png_img, no_shrink} = run(oriented(3200, 2400, 6, ".png"), ops, true)
+      {jpeg_img, shrink} = run(oriented(3200, 2400, 6, ".jpg"), "rotate=90/w=400")
+      {png_img, no_shrink} = run(oriented(3200, 2400, 6, ".png"), "rotate=90/w=400")
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "EXIF-6 + rot:90 net-180 -> fit:400")
@@ -208,12 +241,8 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     # displays it portrait 2400×3200, so a width-only fit:400 targets the displayed
     # width 2400. A missing swap would size against 3200 and over-shrink.
     test "EXIF-6 + rot:180 = net 90 (swap) stays pixel-equivalent" do
-      {:ok, rotate} = Operation.rotate(180)
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
-      ops = [rotate, resize]
-
-      {jpeg_img, shrink} = run(oriented(3200, 2400, 6, ".jpg"), ops, true)
-      {png_img, no_shrink} = run(oriented(3200, 2400, 6, ".png"), ops, true)
+      {jpeg_img, shrink} = run(oriented(3200, 2400, 6, ".jpg"), "rotate=180/w=400")
+      {png_img, no_shrink} = run(oriented(3200, 2400, 6, ".png"), "rotate=180/w=400")
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "EXIF-6 + rot:180 net-90 -> fit:400")
@@ -221,23 +250,11 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   end
 
   describe "crop + rotate + resize (B1 ∘ B2)" do
-    # Gravity crop (so the orientation is not pre-flushed by a region crop) on a
-    # rotated source: the deferred quarter-turn axis swap, the crop dim → shrink
-    # sizing (B1), and the crop-coordinate rescale must all compose. Square source so
-    # the rotate doesn't itself change dims; the crop placement carries the signal.
     test "gravity crop + rot:90 + resize composes B1 and B2" do
-      {:ok, crop} =
-        Operation.crop_guided({:px, 1600}, {:px, 1600}, {:anchor, :left, :top},
-          x_offset: {:pixels, 600},
-          y_offset: {:pixels, 400}
-        )
+      options = "rot:90/c:1600:1600:nowe:600:400/rs:fit:400:400"
 
-      {:ok, rotate} = Operation.rotate(90)
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
-      ops = [rotate, crop, resize]
-
-      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), ops)
-      {png_img, no_shrink} = run(structured(@src, @src, ".png"), ops)
+      {jpeg_img, shrink} = run_imgproxy(structured(@src, @src, ".jpg"), options)
+      {png_img, no_shrink} = run_imgproxy(structured(@src, @src, ".png"), options)
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "rot:90 + gravity crop -> fit:400:400")
@@ -251,24 +268,22 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     # over-budget source past the limit.
     test "over-limit JPEG with rotate+resize is rejected before decode" do
       body = structured(@src, @src, ".jpg")
-
-      {:ok, rotate} = Operation.rotate(90)
-      {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
-      p = plan([rotate, resize], false)
+      opts = opts(body)
+      request = request("rotate=90/w=400/h=400", opts)
 
       over_limit =
-        body
-        |> opts()
+        opts
         |> Keyword.put(:max_input_pixels, @src * @src - 1)
-        |> Keyword.put(:auto_rotate?, p.auto_rotate)
+        |> Keyword.put(:auto_rotate?, true)
 
-      {:ok, source} = Source.resolve(p.source, over_limit, [])
+      {:ok, source_request} = NativeSource.translate(request.source, over_limit)
+      {:ok, source} = Source.resolve(source_request, over_limit, [])
 
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =
                Decode.with_image(
                  source,
                  over_limit,
-                 &Declarative.decode_request(p, &1),
+                 &Pipeline.decode_request(request, &1),
                  fn _state, _geometry ->
                    flunk("decode must not run past the pixel-limit gate")
                  end
