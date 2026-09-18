@@ -309,7 +309,7 @@ defmodule ImagePipe.Native.PipelinePixelTest do
       assert decode_request.resize_target == {400, nil}
     end
 
-    test "output=blurhash sets the terminal reduction regardless of groups" do
+    test "output=blurhash sets the terminal reduction for a single-group request" do
       request = req([group(%{})], %Output{terminal: :blurhash})
       decode_request = Pipeline.decode_request(request, geometry({1600, 1200}))
 

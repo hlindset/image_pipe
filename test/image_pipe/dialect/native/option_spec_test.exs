@@ -3,7 +3,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
 
   alias ImagePipe.Native.OptionSpec
 
-  @native_keys ~w(rotate flip gray bitonal w h fit enlarge crop region anchor focus blur trim pad bg output format q debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal w h fit enlarge crop region anchor focus blur trim pad bg orient output format q debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -130,6 +130,12 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_output("image") == {:ok, :image}
       assert OptionSpec.parse_output("blurhash") == {:ok, :blurhash}
       assert OptionSpec.parse_output("lqip") == {:error, :invalid_output}
+    end
+
+    test "parse_orientation accepts auto and none only" do
+      assert OptionSpec.parse_orientation("auto") == {:ok, :auto}
+      assert OptionSpec.parse_orientation("none") == {:ok, :none}
+      assert OptionSpec.parse_orientation("sideways") == {:error, :invalid_orientation}
     end
 
     test "parse_format translates jxl to :jpeg_xl" do

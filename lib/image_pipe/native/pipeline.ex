@@ -15,11 +15,10 @@ defmodule ImagePipe.Native.Pipeline do
   region/guided crop(4) → resize(5) → cover result crop(6, automatic, part of
   the resize's own continuation tail) → blur(7) → gray(10) → bitonal(11) →
   pad(20) → bg flatten(21).
-  `then` starts a new group; groups within one `run/4` call share a single
-  continuously-threaded `SourceShape` (seeded once, flushed once, after the
-  last group) — there is no per-group flush boundary, which is what makes the
-  "cheap trim" contract work: a trim in group 2 runs on group 1's already-
-  executed output dims, not the original source.
+  `then` starts a new group whose input is the preceding group's result.
+  Groups share a continuously-threaded `SourceShape`. Pending orientation is
+  flushed before stages that require displayed pixels, including trim, and
+  at the request boundary.
 
   **Input color management** brackets that order: the embedded-ICC working-space
   import runs as a preamble before the first group, and the delivery-boundary
@@ -91,7 +90,7 @@ defmodule ImagePipe.Native.Pipeline do
       crop_extent: crop_extent(group, crop_dimensions),
       user_quarter_turn?: quarter_turn?,
       trim?: group.trim != nil,
-      terminal_reduction: terminal_reduction(request.output),
+      terminal_reduction: terminal_reduction(request),
       required_extent: nil
     }
   end
@@ -124,8 +123,10 @@ defmodule ImagePipe.Native.Pipeline do
 
   defp crop_extent(%Group{}, _display_dims), do: nil
 
-  defp terminal_reduction(%Output{terminal: :blurhash}), do: @blurhash_terminal_reduction
-  defp terminal_reduction(%Output{terminal: :image}), do: nil
+  defp terminal_reduction(%Request{groups: [_group], output: %Output{terminal: :blurhash}}),
+    do: @blurhash_terminal_reduction
+
+  defp terminal_reduction(%Request{}), do: nil
 
   @doc """
   Executes every group of a canonical `%Request{}` against a decoded state,
@@ -225,8 +226,21 @@ defmodule ImagePipe.Native.Pipeline do
 
   defp trim_group(state, shape, nil, _ctx), do: {:ok, state, shape}
 
-  defp trim_group(state, shape, trim, ctx),
-    do: run_op(state, shape, trim_op(trim), ctx)
+  defp trim_group(state, shape, trim, ctx) do
+    with {:ok, state} <- flush_boundary(state, shape, ctx) do
+      {width, height} = ctx.measure_dims.(state.image)
+
+      shape = %SourceShape{
+        width: width,
+        height: height,
+        frame: :display,
+        pending_orientation: nil,
+        decode_shrink: nil
+      }
+
+      run_op(state, shape, trim_op(trim), ctx)
+    end
+  end
 
   defp run_group_body(state, shape, group, ctx) do
     group

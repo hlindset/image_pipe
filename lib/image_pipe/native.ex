@@ -60,12 +60,6 @@ defmodule ImagePipe.Native do
   # or dialect config ever changes this.
   @blurhash_content_type "text/plain; charset=utf-8"
 
-  # The probe subset has no `orient` option — EXIF auto-orient is always on.
-  # This is the dialect's own choice, per ImagePipe.Decode.with_image/4's
-  # contract ("the EXIF policy is the CALLER's choice, never baked into this
-  # core primitive").
-  @auto_rotate? true
-
   @impl ImagePipe.Dialect
   def validate_config!(opts), do: Config.validate!(opts)
 
@@ -103,7 +97,7 @@ defmodule ImagePipe.Native do
          negotiation: negotiation_result(conn, request, config),
          response_meta: %PlanResponse{},
          operations: Pipeline.operation_names(request),
-         auto_rotate?: @auto_rotate?,
+         auto_rotate?: request.orient == :auto,
          debug?: request.debug?,
          http_cache:
            if(Keyword.has_key?(config, :http_cache), do: :generated, else: :dialect_owned),
@@ -193,7 +187,7 @@ defmodule ImagePipe.Native do
   end
 
   defp compute_blurhash(%ImageSource.Resolved{} = resolved, %Request{} = request, config) do
-    decode_opts = Keyword.put(config, :auto_rotate?, @auto_rotate?)
+    decode_opts = Keyword.put(config, :auto_rotate?, request.orient == :auto)
 
     Decode.with_image(
       resolved,

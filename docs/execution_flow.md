@@ -40,11 +40,13 @@ image, through `ImagePipe.Transform.Materializer`.
 
 `ImagePipe.Native.Pipeline.run/4` imports input color profiles, executes groups,
 flushes pending orientation, and stamps color state for the encoder. A group
-applies rotation and flip, measures trim, then resolves crop lengths in the
-resulting display frame. Percentage lengths remain in effective source pixels
+applies rotation and flip, flushes pending orientation before trim, measures
+the trimmed image, then resolves crop lengths in the resulting display frame.
+Percentage lengths remain in effective source pixels
 until lowering compensates for decode shrink.
 
-Each group receives the preceding group's complete result. EXIF applies once.
+Each group receives the preceding group's complete result. `orient=auto` applies
+EXIF once; `orient=none` keeps stored pixels as the initial frame.
 Deferred orientation composes successive rotations and flips while preserving
 the same pixels as eager execution.
 

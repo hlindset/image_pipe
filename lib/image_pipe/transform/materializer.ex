@@ -7,9 +7,8 @@ defmodule ImagePipe.Transform.Materializer do
   orientation-agnostic: applying a pending orientation is the explicit
   `ImagePipe.Transform.Operation.Flush` operation's job (via `flush/1`), emitted
   by the resolver at every site that needs the display frame — so no operation
-  reaches a materialize with a non-identity pending that a `Flush` hasn't
-  already cleared. Trim deliberately materializes pre-orientation (the storage
-  frame), which is exactly this plain copy.
+  reaches a display-frame operation with a pending orientation. Native flushes
+  orientation before trim; imgproxy trims the storage frame using a plain copy.
 
   Per-op materialization (`ImagePipe.Transform.Chain`) calls this before the
   first operation that requires random access, so a sequential decode can stream

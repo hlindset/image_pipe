@@ -50,7 +50,7 @@ defmodule ImagePipe.Native.Identity do
       Representation.storage_inputs(conn, Keyword.get(config, :storage_inputs, []))
 
     representation =
-      [groups: canonical_groups(request.groups)] ++
+      [orient: request.orient, groups: canonical_groups(request.groups)] ++
         selection_material(negotiation.selected) ++
         [output_policy: negotiation.policy_material]
 

@@ -22,6 +22,12 @@ describe("sample image virtual module", () => {
       width: 5011,
       height: 7516,
     });
+    expect(sampleImages).toContainEqual({
+      path: "images/orientation-6.jpg",
+      label: "orientation-6.jpg",
+      width: 96,
+      height: 64,
+    });
     expect(sampleImages.map((image) => image.path)).not.toContain("images/waterfall.jpg");
   });
 });

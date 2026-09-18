@@ -547,6 +547,7 @@ defmodule ImagePipe.Native.Parser do
       groups: groups,
       output: assemble_output(clean_request_map),
       source: source,
+      orient: Map.get(clean_request_map, "orient", :auto),
       expires: Map.get(clean_request_map, "expires"),
       debug?: Map.get(clean_request_map, "debug", false)
     }
@@ -686,6 +687,7 @@ defmodule ImagePipe.Native.Parser do
     do: "invalid value: expected 1-4 comma-separated px values"
 
   def message_for(:invalid_output), do: "invalid value: expected image or blurhash"
+  def message_for(:invalid_orientation), do: "invalid value: expected auto or none"
 
   def message_for(:invalid_format),
     do: "invalid value: expected avif, webp, jpeg, png, or jxl"

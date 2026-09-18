@@ -46,16 +46,6 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
      or mis-shrunk against the wrong axis pair — see
      `describe "shrink correctness (orientation 6 quarter turn)"`.
 
-  **Documented subset limitation.** The probe's native dialect has no
-  `orient=` option — EXIF auto-rotate is a FIXED policy
-  (`ImagePipe.Native.@auto_rotate?` is hardcoded `true`, per
-  `ImagePipe.Decode.with_image/4`'s "the EXIF policy is the CALLER's choice"
-  contract). The exit criterion's "auto-rotate OFF" arm is therefore NOT
-  exercisable end-to-end through this dialect; it is validated only at the
-  CORE level by `ImagePipe.Transform.SourceGeometry.planning_frame/2` unit
-  tests (Task 12). `describe "auto-rotate is a fixed policy"` below pins that
-  there is no URL-grammar escape hatch, so this omission is a proven
-  boundary, not a silent gap.
   """
 
   # Real fetch/decode through a Plug-backed origin per case — keep it serial,
@@ -68,6 +58,7 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
   alias ImagePipe.Native
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Pipeline
+  alias ImagePipe.Native.Presets
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -376,11 +367,24 @@ defmodule ImagePipe.Native.OrientationMatrixTest do
     end
   end
 
-  # ── auto-rotate is a fixed policy (documented subset limitation) ───────
+  describe "request orientation policy" do
+    test "defaults to auto and accepts explicit none" do
+      assert parse!([]).orient == :auto
+      assert parse!(["orient=auto"]).orient == :auto
+      assert parse!(["orient=none"]).orient == :none
+    end
 
-  describe "auto-rotate is a fixed policy" do
-    test "the native dialect's URL grammar has no orient= escape hatch" do
-      assert {:error, {:invalid_request, _diagnostics}} = Parser.parse(lexed(["orient=none"]), [])
+    test "orient is request-scoped and rejects duplicates across groups" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               Parser.parse(lexed(["orient=auto", "then", "orient=none"]), [])
+
+      assert Enum.any?(diagnostics, &(&1.reason == :duplicate_option))
+    end
+
+    test "the default preset can select orient=none" do
+      assert {:ok, presets} = Presets.validate_config(%{"default" => "orient=none"})
+      assert {:ok, request} = Parser.parse(lexed([]), presets: presets)
+      assert request.orient == :none
     end
   end
 end

@@ -3,7 +3,13 @@
 
   let { nativeState = $bindable() }: { nativeState: NativeState } = $props();
 
-  const examples = [
+  type Example = {
+    label: string;
+    options: string;
+    source?: NativeState["source"];
+  };
+
+  const examples: Example[] = [
     { label: "Resize", options: "w=800" },
     { label: "Square crop", options: "w=400/h=400/fit=cover" },
     { label: "Blur", options: "w=800/blur=3" },
@@ -12,11 +18,25 @@
     { label: "Framed preset", options: "preset=framed" },
     { label: "Rotate", options: "rotate=30/w=600" },
     { label: "Flip", options: "rotate=90/flip=h/w=600" },
+    {
+      label: "Stored orientation",
+      options: "orient=none/w=600",
+      source: "images/orientation-6.jpg",
+    },
+    { label: "Rotate then trim", options: "rotate=90/trim=auto/w=600" },
     { label: "Trim and crop", options: "trim=auto/crop=50pct,50pct/w=600" },
     { label: "Grayscale", options: "w=600/gray" },
     { label: "Black and white", options: "w=600/bitonal" },
     { label: "Debug headers", options: "w=800/debug" },
   ];
+
+  function applyExample(example: Example) {
+    nativeState = {
+      ...nativeState,
+      options: example.options,
+      source: example.source ?? nativeState.source,
+    };
+  }
 </script>
 
 <section class="native-controls">
@@ -33,11 +53,7 @@
   <p>Separate options with a slash. Use <code>then</code> to start another processing group.</p>
   <div class="examples">
     {#each examples as example}
-      <button
-        type="button"
-        class="quiet-button"
-        onclick={() => (nativeState.options = example.options)}
-      >
+      <button type="button" class="quiet-button" onclick={() => applyExample(example)}>
         {example.label}
       </button>
     {/each}

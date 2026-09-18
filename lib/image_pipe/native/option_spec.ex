@@ -307,6 +307,19 @@ defmodule ImagePipe.Native.OptionSpec do
         examples: ["bg=f4f4f4"]
       },
       %__MODULE__{
+        key: "orient",
+        scope: :request,
+        value: &__MODULE__.parse_orientation/1,
+        stage: nil,
+        default: :auto,
+        prerequisites: [],
+        conflicts: [],
+        identity: :representation,
+        terminal_applicability: :both,
+        summary: "Apply EXIF orientation automatically, or ignore it",
+        examples: ["orient=auto", "orient=none"]
+      },
+      %__MODULE__{
         key: "output",
         scope: :request,
         value: &__MODULE__.parse_output/1,
@@ -543,6 +556,12 @@ defmodule ImagePipe.Native.OptionSpec do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc false
+  @spec parse_orientation(String.t()) :: {:ok, :auto | :none} | {:error, :invalid_orientation}
+  def parse_orientation("auto"), do: {:ok, :auto}
+  def parse_orientation("none"), do: {:ok, :none}
+  def parse_orientation(_value), do: {:error, :invalid_orientation}
 
   @doc false
   @spec parse_output(String.t()) :: {:ok, :image | :blurhash} | {:error, :invalid_output}

@@ -73,10 +73,11 @@ Each `then` boundary establishes a new input frame from the previous group's
 final output. Region coordinates in a later group start at that new frame's
 origin; they do not retain a hidden offset into the original source.
 
-Native EXIF auto-orientation is always enabled at present. It is carried as
-pending-orientation state and may be applied late when coordinate compensation
-preserves the logical display result. EXIF is applied once per request, not once
-per group.
+Native EXIF auto-orientation defaults to `orient=auto`; `orient=none` uses stored
+pixels as the initial frame. Pending orientation may be applied late when
+coordinate compensation preserves the logical display result. It is flushed
+before trim, whose automatic background samples the displayed top-left corner.
+EXIF is applied once per request, not once per group.
 
 ## Semantic operation catalog
 
@@ -192,6 +193,8 @@ image.
 from the first group. Resize targets, crop extent, quarter-turn rotation, trim,
 and a reducing terminal can contribute. An arbitrary-angle rotation disables
 shrink-on-load planning because resampling changes the crop frame.
+BlurHash's terminal hint applies only to single-group requests, preserving
+the input scale of later groups that may trim or crop.
 
 The selected load shrink is an optimization. Geometry continues to use source
 pixel coordinates through `SourceShape`, and lowering applies the realized

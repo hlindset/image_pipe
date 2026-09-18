@@ -30,8 +30,8 @@ streaming, cache, color, decode, and orientation behavior.
 
 The native API implements these option keys:
 
-`rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `crop`, `region`, `anchor`, `focus`,
-`blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
+`orient`, `rotate`, `flip`, `w`, `h`, `fit`, `enlarge`, `crop`, `region`,
+`anchor`, `focus`, `blur`, `gray`, `bitonal`, `trim`, `pad`, `bg`, `output`, `format`, `q`,
 `debug`, `expires`, `preset`.
 
 It also implements `then`, `src`, `src64`, and full-length HMAC signing with
@@ -113,6 +113,11 @@ display frame. A top-left crop addresses the displayed top-left corner.
 The executor may defer physical rotation only when coordinate compensation
 produces the same result as this logical order.
 
+Automatic trim samples the displayed top-left corner. Pending orientation is
+applied before trim so that both background sampling and trim axes follow this
+frame. The request-wide `orient` value also applies to BlurHash. A default
+preset can set `orient=none`; an explicit URL value overrides that preset.
+
 Crop and region percentages use their operation's input dimensions, after
 rotation, flip, and trim. Trimming a 1000px-wide input to 800px and then
 applying `crop=50pct,100pct` requests 400px in width. Decode shrink-on-load
@@ -127,6 +132,9 @@ guide, rotation, DPR, and effects must be stated again to apply again.
 EXIF is not reapplied. Internal orientation/color/materialization state may
 survive a group boundary when doing so is observably equivalent. Decode
 happens once, and only the first group may inform shrink-on-load.
+BlurHash's terminal reduction contributes a decode hint only for a single
+group. Multi-group requests preserve the first group's input scale unless
+that group explicitly resizes it.
 
 ### DPR, zoom, offsets, and padding
 

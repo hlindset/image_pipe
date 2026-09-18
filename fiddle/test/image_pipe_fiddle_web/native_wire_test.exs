@@ -31,4 +31,18 @@ defmodule ImagePipeFiddleWeb.NativeWireTest do
     {:ok, image} = Image.from_binary(conn.resp_body)
     assert {Image.width(image), Image.height(image)} == {440, 440}
   end
+
+  test "native orientation example distinguishes display and stored dimensions", %{conn: conn} do
+    auto = get(conn, "/native-image/format=png/src/images/orientation-6.jpg")
+    none = get(conn, "/native-image/orient=none/format=png/src/images/orientation-6.jpg")
+
+    assert auto.status == 200
+    assert none.status == 200
+
+    {:ok, auto_image} = Image.from_binary(auto.resp_body)
+    {:ok, none_image} = Image.from_binary(none.resp_body)
+
+    assert {Image.width(auto_image), Image.height(auto_image)} == {64, 96}
+    assert {Image.width(none_image), Image.height(none_image)} == {96, 64}
+  end
 end

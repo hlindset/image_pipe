@@ -70,6 +70,18 @@ defmodule ImagePipe.Native.IdentityTest do
 
       assert material(a, neg) == material(b, neg)
     end
+
+    test "explicit auto orientation is the default and none changes representation identity" do
+      default_request = request!(["w=300"])
+      auto_request = request!(["orient=auto", "w=300"])
+      none_request = request!(["orient=none", "w=300"])
+      neg = negotiation()
+
+      assert material(default_request, neg) == material(auto_request, neg)
+
+      refute material(default_request, neg).representation ==
+               material(none_request, neg).representation
+    end
   end
 
   describe "negotiation outcome composition" do
