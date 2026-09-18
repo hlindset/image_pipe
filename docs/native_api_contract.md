@@ -25,7 +25,7 @@ The default `ImagePipe.Plug` mount selects native. The current checkout
 mounts every API through `ImagePipe.Plug` and
 `ImagePipe.Plug.DialectRunner`. There is no `ImagePipe.Parser` or
 `ImagePipe.Request` framework left to remove. IIIF uses
-`ImagePipe.Dialect.Declarative`; native, imgproxy, and TwicPics own their
+`ImagePipe.Dialect.Declarative`; native and imgproxy own their
 pipelines. The remaining migration starts from this architecture.
 
 The native API implements these option keys:

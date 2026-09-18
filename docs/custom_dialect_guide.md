@@ -21,7 +21,7 @@ Dialects come in two tiers:
 | Tier | You implement | Transform stage | In-tree |
 |---|---|---|---|
 | **Declarative** | `parse_plan/2` → `%ImagePipe.Plan{}` | the fixed neutral driver, from the base | `ImagePipe.Dialect.IIIF` |
-| **Ordered** | the full `ImagePipe.Dialect` behaviour | your own pipeline, in `execute/4` | `ImagePipe.Native`, `ImagePipe.Dialect.Imgproxy`, `ImagePipe.Dialect.TwicPics` |
+| **Ordered** | the full `ImagePipe.Dialect` behaviour | your own pipeline, in `execute/4` | `ImagePipe.Native`, `ImagePipe.Dialect.Imgproxy` |
 
 One lifecycle covers both. Same behaviour, same runner, same mount — the runner
 never branches on which tier produced its `%ImagePipe.Dialect.Resolved{}`. The
@@ -466,12 +466,6 @@ owns its transform stage:
 One callback per lifecycle phase, never a mid-execution hook. `request` is
 opaque to the runner: it is whatever struct your `parse/2` produced.
 
-`ImagePipe.Dialect.TwicPics` is the compact reference. Its `parse/2` returns its
-own `Request` struct paired with the `[:parse]` span's stop metadata; its
-`prepare/3` returns a `%Resolved{}` with `http_cache: :dialect_owned` and a
-deferred negotiation thunk; its `execute/4` runs the dialect's own ordered
-`Pipeline` and `PointFlow`.
-
 `execute/4` is the ordering boundary. The runner rescues nothing on a dialect's
 behalf, so wrap the pipeline run in `ImagePipe.Dialect.safe_transform/1`, which
 converts a raise or throw out of the libvips pipeline into the callback's
@@ -555,8 +549,8 @@ Both tiers take this key. A declarative dialect inherits it from
 `ImagePipe.Dialect.Declarative.config_keys/0`; an ordered dialect declares it in
 its own schema (validated with
 `ImagePipe.Dialect.SharedConfig.validate_storage_input/1`) and folds the values
-into its identity material's `storage_only` — `ImagePipe.Native`,
-`.Imgproxy`, and `.TwicPics` all do, through
+into its identity material's `storage_only` — `ImagePipe.Native` and
+`ImagePipe.Dialect.Imgproxy` both do, through
 `ImagePipe.Representation.storage_inputs/2`.
 
 ## The contract surface

@@ -104,8 +104,7 @@ defmodule ImagePipe.Dialect.Imgproxy.DebugHeadersWireTest do
     assert header(plain, "x-imagepipe-source-format") == nil
 
     # The documented explicit opt-out (support matrix, `debug` extension row):
-    # debug:0 under an enabled mount renders nothing. TwicPics pins its
-    # counterpart at test/image_pipe/dialect/twic_pics/debug_test.exs:105.
+    # debug:0 under an enabled mount renders nothing.
     opted_out = get("/_/debug:0/f:jpeg/plain/images/beach.jpg", opts(allow_debug_headers: true))
     assert opted_out.status == 200
     assert header(opted_out, "x-imagepipe-source-format") == nil

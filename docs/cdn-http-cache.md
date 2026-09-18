@@ -30,7 +30,7 @@ support this policy.
 
 When `http_cache` is omitted from a native mount, identity headers come
 straight from the representation: an `ETag`, or `Cache-Control: no-store`
-for a source with no byte identity. Imgproxy and TwicPics also use this
+for a source with no byte identity. Imgproxy also uses this
 identity-header path. The `[:http_cache, :prepare]`,
 `[:http_cache, :conditional, :match]`, and
 `[:http_cache, :fallback, :no_store]` events fire only on the generated path.

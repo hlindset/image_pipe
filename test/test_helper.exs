@@ -6,11 +6,9 @@
 # `:imgproxy_triage` quarantines recorded-but-unresolved imgproxy differential
 # discrepancies (see the lane README + issues #194-#197); run them with
 # `--include imgproxy_triage`.
-# `:imgproxy_report` / `:twicpics_report` are the full-constellation HTML report
-# renders (render every constellation + inline PNGs); they are integration/report
-# jobs, not unit coverage, so they are opt-in via `--include imgproxy_report` /
-# `--include twicpics_report` (or `mix imgproxy.gen_report` / `mix
-# twicpics.gen_report`). Their rendering logic is unit-tested separately.
+# `:imgproxy_report` renders the full-constellation HTML report with inline PNGs.
+# Run this integration/report job with `--include imgproxy_report` or
+# `mix imgproxy.gen_report`. Its rendering logic is unit-tested separately.
 # `:aws_integration` runs the opt-in LocalStack STS round-trip
 # (`--include aws_integration`); it is a protocol-fidelity smoke test, NOT a
 # correctness gate (LocalStack does not strictly verify SigV4 — signing is
@@ -38,8 +36,6 @@ ExUnit.start(
     :image_vision,
     :imgproxy_triage,
     :imgproxy_report,
-    :twicpics_triage,
-    :twicpics_report,
     :aws_integration
   ]
 )

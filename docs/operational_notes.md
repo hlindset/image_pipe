@@ -236,10 +236,9 @@ image has an alpha channel, JPEG otherwise. Automatic output responses use
 
 ImagePipe can attach opt-in `X-ImagePipe-*` and `Server-Timing` debug headers,
 gated by the `allow_debug_headers` mount option and a per-dialect per-request
-trigger: imgproxy's signed `debug:1` processing option, TwicPics' `debug=1`
-manipulation, or the IIIF `?debug=1` query parameter. They are off by default.
-The imgproxy trigger is covered by the path signature; the TwicPics and IIIF
-triggers are unprotected query/path segments — only enable
-`allow_debug_headers: true` on those mounts if the disclosed facts are
+trigger: imgproxy's signed `debug:1` processing option or the IIIF `?debug=1`
+query parameter. They are off by default. The imgproxy trigger is covered by
+the path signature; the IIIF trigger is an unprotected query parameter — only
+enable `allow_debug_headers: true` on that mount if the disclosed facts are
 acceptable to expose. See [Debug response headers](debug_headers.md) for the
 full catalogue and the security/disclosure details.

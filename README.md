@@ -133,8 +133,8 @@ pass, for example `/w=500/then/trim=fff/src/images/beach.jpg` to trim after
 resizing.
 
 The [native API contract and capability inventory](docs/native_api_contract.md)
-distinguishes implemented options from planned ports. Imgproxy, IIIF, and
-TwicPics entry points remain available during the native-only migration;
+distinguishes implemented options from planned ports. Imgproxy and IIIF
+entry points remain available during the native-only migration;
 their useful capabilities are being moved to native.
 
 ## Documentation

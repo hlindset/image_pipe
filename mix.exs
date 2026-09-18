@@ -84,10 +84,6 @@ defmodule ImagePipe.MixProject do
         "imgproxy.gen_report": :test,
         "imgproxy.reauthor": :test,
         "imgproxy.gen_sources": :test,
-        "twicpics.gen_fixtures": :test,
-        "twicpics.diagnose": :test,
-        "twicpics.gen_report": :test,
-        "twicpics.reauthor": :test,
         "worktrees.clean": :test
       ]
     ]

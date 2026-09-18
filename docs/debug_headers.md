@@ -32,15 +32,12 @@ Two independent controls must both be satisfied for any header to be emitted:
    - **imgproxy**: the `debug:1` processing option inside the signed path,
      for example `/<signature>/debug:1/rs:fill:400:300/plain/…` (also
      `debug:true`; `debug:0`/`debug:false` opt out).
-   - **TwicPics**: a `debug=1` segment in the `twic` manipulation chain, e.g.
-     `/images/cat.jpg?twic=v1/resize=400/debug=1`. Order-independent; emits no
-     transform.
    - **IIIF**: a `?debug=1` query param, e.g.
      `/iiif/cat/full/400,/0/default.jpg?debug=1`. The IIIF path grammar has no
      free slot, so the trigger is an out-of-band query param (read leniently — a
      malformed value is ignored, never a 400).
 
-   All triggers accept the boolean spellings `1`/`true`; TwicPics and imgproxy
+   All triggers accept the boolean spellings `1`/`true`; imgproxy
    also accept `0`/`false` to explicitly opt out. Only the imgproxy trigger is
    signature-protected — see below.
 
@@ -60,11 +57,9 @@ items, with no cache invalidation.)
 > cannot append `debug:1` to an otherwise-valid signed URL without
 > invalidating the signature.
 >
-> **TwicPics / IIIF** have no request signing at all, so their `debug=1` /
-> `?debug=1` triggers are **always unprotected** — anyone who can reach the mount
-> can add them. Enable `allow_debug_headers: true` on those mounts only if the
-> disclosed facts below are acceptable to expose. (If those dialects gain signing
-> later, the trigger should ride the signed material.)
+> **IIIF** has no request signing, so its `?debug=1` trigger is unprotected.
+> Anyone who can reach the mount can add it. Enable `allow_debug_headers: true`
+> on that mount only if the disclosed facts below are acceptable to expose.
 
 When triggered, a response discloses: internal source dimensions and
 format/color/ICC/bit-depth/alpha facts; the negotiated output and its
@@ -154,10 +149,9 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 
 ## Demo (fiddle)
 
-The bundled demo (`fiddle/`) configures its imgproxy, TwicPics, and IIIF
-mounts with `allow_debug_headers: true` and injects each stack's debug
-trigger into its preview requests (imgproxy signs a `debug:1`-augmented
-preview path; TwicPics `debug=1`; IIIF `?debug=1`). Its service worker reads
+The bundled demo (`fiddle/`) configures its imgproxy mount with
+`allow_debug_headers: true` and signs a `debug:1`-augmented preview path.
+Its service worker reads
 these headers off the fetched response and surfaces them in a **Debug headers**
 panel under the preview, including the derived output size and compression
 ratio.

@@ -66,7 +66,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Native => "lib/image_pipe/native.ex",
     ImagePipe.Dialect.SharedConfig => "lib/image_pipe/dialect/shared_config.ex",
-    ImagePipe.Dialect.TwicPics => "lib/image_pipe/dialect/twic_pics.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
@@ -113,11 +112,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   @cache_prefetch_forbidden_transform_functions [
     :execute_plan
   ]
-  @twicpics_dialect_globs [
-    "lib/image_pipe/dialect/twic_pics.ex",
-    "lib/image_pipe/dialect/twic_pics/**/*.ex"
-  ]
-
   test "plug boundary mounts native and owns the request lifecycle" do
     plug = boundary_declaration(ImagePipe.Plug)
 
@@ -141,8 +135,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(plug, [
       ImagePipe.Dialect.Declarative,
       ImagePipe.Dialect.IIIF,
-      ImagePipe.Dialect.Imgproxy,
-      ImagePipe.Dialect.TwicPics
+      ImagePipe.Dialect.Imgproxy
     ])
 
     # U2: the mount is the whole surface. `ImagePipe.Plug.DialectRunner` is the
@@ -219,7 +212,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       for file <- files,
           {line, number} <-
             file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
-          Regex.match?(~r/Dialect\.(Imgproxy|TwicPics|IIIF)\b/, line) do
+          Regex.match?(~r/Dialect\.(Imgproxy|IIIF)\b/, line) do
         "#{file}:#{number} names a concrete dialect: #{String.trim(line)}"
       end
 
@@ -261,37 +254,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # custom `foo://` source scheme. Nothing else in the dialect is a host
     # contract, so nothing else is exported.
     assert_boundary_exports(dialect_imgproxy, [ImagePipe.Dialect.Imgproxy.SourceScheme])
-  end
-
-  test "dialect TwicPics boundary declaration depends only on core toolkit facades" do
-    dialect_twicpics = boundary_declaration(ImagePipe.Dialect.TwicPics)
-
-    assert_boundary_deps(dialect_twicpics, [
-      ImagePipe.Config,
-      ImagePipe.Dialect,
-      ImagePipe.Dialect.SharedConfig,
-      ImagePipe.Error,
-      ImagePipe.Format,
-      ImagePipe.Plan,
-      ImagePipe.Representation,
-      ImagePipe.Response,
-      ImagePipe.Telemetry,
-      ImagePipe.Transform
-    ])
-
-    # The runner in `ImagePipe.Plug` now owns the cache and delivery
-    # lifecycle, and the fetch/decode bracket, so those deps are gone too.
-    refute_boundary_deps(dialect_twicpics, [
-      ImagePipe.Cache,
-      ImagePipe.Debug,
-      ImagePipe.Decode,
-      ImagePipe.Delivery,
-      ImagePipe.Dialect.Imgproxy,
-      ImagePipe.Native,
-      ImagePipe.Renderer
-    ])
-
-    assert_boundary_exports(dialect_twicpics, [])
   end
 
   test "dialect Declarative boundary is its own top-level boundary, not a widened contract" do
@@ -347,7 +309,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Delivery,
       ImagePipe.Dialect.Imgproxy,
       ImagePipe.Native,
-      ImagePipe.Dialect.TwicPics,
       ImagePipe.Output,
       ImagePipe.Source,
       ImagePipe.Transform
@@ -372,157 +333,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(shared_config, [])
-  end
-
-  test "shared dialect config does not name the TwicPics product dialect" do
-    refute shared_config_twicpics_reference?("defmodule ImagePipe.Dialect.SharedConfig do")
-
-    assert shared_config_twicpics_reference?("ImagePipe.Dialect.TwicPics.Config.validate!(opts)")
-
-    violations =
-      "lib/image_pipe/dialect/shared_config.ex"
-      |> File.read!()
-      |> String.split("\n")
-      |> Enum.with_index(1)
-      |> Enum.filter(fn {line, _number} -> shared_config_twicpics_reference?(line) end)
-
-    assert violations == []
-  end
-
-  # Scoped by inclusion to the ordered tier: an ordered dialect lowers its own
-  # private Request straight to transform operations, so a root Plan
-  # construction there is an inversion of its own contract. Producing a
-  # `%ImagePipe.Plan{}` is what `ImagePipe.Dialect.Declarative` and the dialects
-  # built on it are for, which is why the glob lists ordered dialect files only.
-  test "TwicPics dialect code never constructs the Plan root struct" do
-    violations =
-      for file <- twicpics_dialect_files(),
-          violation <- file |> File.read!() |> plan_construction_violations() do
-        "#{file}:#{violation.line} constructs #{violation.module}; " <>
-          "the inverted dialect owns its private Request and must not construct ImagePipe.Plan"
-      end
-
-    assert violations == []
-  end
-
-  test "TwicPics Plan-construction checker resolves root aliases by lexical scope" do
-    assert [%{module: "%Plan{}"}] =
-             plan_construction_violations("""
-             alias ImagePipe.Plan
-             %Plan{}
-             """)
-
-    assert [%{module: "%ImagePipe.Plan{}"}] =
-             plan_construction_violations("%ImagePipe.Plan{}")
-
-    assert plan_construction_violations("""
-           alias ImagePipe.Plan
-           %Plan.Output{}
-           alias ImagePipe.Plan.Operation
-           %Operation.Resize{}
-           """) == []
-
-    assert [%{line: 8, module: "%OuterPlan{}"}] =
-             plan_construction_violations("""
-             alias ImagePipe.Plan, as: OuterPlan
-
-             fn ->
-               alias Other.Plan, as: OuterPlan
-               %OuterPlan{}
-             end
-
-             %OuterPlan{}
-             """)
-
-    assert [%{line: 3, module: "%Plan{}"}] =
-             plan_construction_violations("""
-             fn ->
-               alias ImagePipe.Plan
-               %Plan{}
-             end
-
-             %Plan{}
-             """)
-  end
-
-  # The geometry-resolution SDK is retired: the root ImagePipe.Plan has no
-  # resolver field. This syntax-aware gate replaces the removed
-  # non-module-resolver plan-shape rejection — a reintroduced
-  # %Plan{resolver: ...} construction or update fails here rather than silently
-  # changing cache identity.
-  test "no lib code constructs a root ImagePipe.Plan with a :resolver field" do
-    violations =
-      for file <- Path.wildcard("lib/**/*.ex"),
-          violation <- file |> File.read!() |> plan_resolver_field_violations() do
-        "#{file}:#{violation.line} constructs #{violation.module} with a :resolver field; " <>
-          "the geometry-resolution SDK is retired and the root Plan has no resolver"
-      end
-
-    assert violations == []
-  end
-
-  test "the root-Plan resolver-field checker resolves aliases and ignores unrelated resolvers" do
-    assert [%{module: "%Plan{}"}] =
-             plan_resolver_field_violations("""
-             alias ImagePipe.Plan
-             %Plan{resolver: nil}
-             """)
-
-    assert [%{module: "%ImagePipe.Plan{}"}] =
-             plan_resolver_field_violations("%ImagePipe.Plan{source: s, resolver: mod}")
-
-    # Update syntax is flagged too.
-    assert [%{module: "%Plan{}"}] =
-             plan_resolver_field_violations("""
-             alias ImagePipe.Plan
-             %Plan{base | resolver: mod}
-             """)
-
-    # A root Plan with no resolver field is fine.
-    assert plan_resolver_field_violations("""
-           alias ImagePipe.Plan
-           %Plan{source: s, pipelines: p, output: o}
-           """) == []
-
-    # Unrelated resolver option groups (IIIF id resolver, HTTP address_resolver,
-    # keyword options, non-root structs) are never flagged.
-    assert plan_resolver_field_violations("""
-           alias ImagePipe.Dialect.IIIF
-           %IIIF.Config{resolver: SomeResolver}
-           mount(iiif: [resolver: MyResolver])
-           %{opts | address_resolver: r}
-           """) == []
-  end
-
-  test "TwicPics dialect code does not reach outside core facades or into another dialect" do
-    violations =
-      for file <- twicpics_dialect_files(),
-          violation <- file |> File.read!() |> twicpics_forbidden_reference_violations() do
-        "#{file}:#{violation.line} names #{violation.module}; " <>
-          "the inverted TwicPics dialect may depend only on core toolkit facades"
-      end
-
-    assert violations == []
-  end
-
-  test "TwicPics reference checker allows its private Request and rejects other dialects" do
-    assert twicpics_forbidden_reference_violations("""
-           alias ImagePipe.Dialect.TwicPics.Request
-           %Request{}
-           """) == []
-
-    for {source, forbidden} <- [
-          {"ImagePipe.Renderer.run(spec)", "ImagePipe.Renderer"},
-          {"ImagePipe.Native.call(conn, opts)", "ImagePipe.Native"},
-          {"alias ImagePipe.Dialect.Imgproxy\nImgproxy.call(conn, opts)",
-           "ImagePipe.Dialect.Imgproxy"}
-        ] do
-      assert Enum.any?(
-               twicpics_forbidden_reference_violations(source),
-               &(&1.module == forbidden)
-             ),
-             "expected #{source} to be rejected as #{forbidden}"
-    end
   end
 
   test "decode boundary declaration depends only on the core fetch/decode toolkit" do
@@ -583,21 +393,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           violation <- dialect_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; " <>
           "a dialect must be removable without changing the core"
-      end
-
-    assert violations == []
-  end
-
-  test "core and transform code does not name the TwicPics dialect" do
-    assert twicpics_dialect_reference?("ImagePipe.Dialect.TwicPics.call(conn, opts)")
-    assert twicpics_dialect_reference?("Dialect.TwicPics.call(conn, opts)")
-
-    violations =
-      for file <- dialect_forbidden_files(),
-          {line, number} <- File.read!(file) |> String.split("\n") |> Enum.with_index(1),
-          twicpics_dialect_reference?(line) do
-        "#{file}:#{number} must not name ImagePipe.Dialect.TwicPics; " <>
-          "the TwicPics dialect must be removable without changing the core"
       end
 
     assert violations == []
@@ -1066,263 +861,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
         String.contains?(line, module),
         do: %{line: number, module: module}
   end
-
-  defp twicpics_dialect_reference?(line), do: String.contains?(line, "Dialect.TwicPics")
-
-  defp shared_config_twicpics_reference?(line),
-    do: String.contains?(line, "ImagePipe.Dialect.TwicPics")
-
-  defp twicpics_dialect_files do
-    @twicpics_dialect_globs
-    |> Enum.flat_map(&Path.wildcard/1)
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
-  defp plan_construction_violations(source) do
-    source
-    |> Code.string_to_quoted!()
-    |> plan_root_expressions()
-    |> scan_plan_sequence(%{})
-    |> elem(0)
-  end
-
-  defp plan_root_expressions({:__block__, _meta, expressions}), do: expressions
-  defp plan_root_expressions(ast), do: [ast]
-
-  defp scan_plan_sequence(expressions, aliases) do
-    Enum.reduce(expressions, {[], aliases}, fn expression, {violations, aliases} ->
-      case expression do
-        {:alias, _meta, _arguments} = alias_ast ->
-          {violations, bind_plan_aliases(alias_ast, aliases)}
-
-        expression ->
-          {violations ++ scan_plan_expression(expression, aliases), aliases}
-      end
-    end)
-  end
-
-  defp scan_plan_expression({:__block__, _meta, expressions}, aliases) do
-    expressions
-    |> scan_plan_sequence(aliases)
-    |> elem(0)
-  end
-
-  defp scan_plan_expression(
-         {:%, meta, [{:__aliases__, _alias_meta, parts}, fields]},
-         aliases
-       ) do
-    nested = scan_plan_expression(fields, aliases)
-
-    case resolve_plan_alias(parts, aliases) do
-      [:ImagePipe, :Plan] ->
-        [%{line: Keyword.get(meta, :line, 0), module: "%#{Enum.join(parts, ".")}{}"} | nested]
-
-      _other ->
-        nested
-    end
-  end
-
-  defp scan_plan_expression({:alias, _meta, _arguments}, _aliases), do: []
-
-  defp scan_plan_expression(tuple, aliases) when is_tuple(tuple) do
-    tuple
-    |> Tuple.to_list()
-    |> Enum.flat_map(&scan_plan_expression(&1, aliases))
-  end
-
-  defp scan_plan_expression(list, aliases) when is_list(list),
-    do: Enum.flat_map(list, &scan_plan_expression(&1, aliases))
-
-  defp scan_plan_expression(_literal, _aliases), do: []
-
-  defp bind_plan_aliases({:alias, _meta, [target]}, aliases),
-    do: bind_plan_alias_targets(target, [], aliases)
-
-  defp bind_plan_aliases({:alias, _meta, [target, opts]}, aliases) when is_list(opts),
-    do: bind_plan_alias_targets(target, opts, aliases)
-
-  defp bind_plan_alias_targets(target, opts, aliases) do
-    targets = plan_alias_targets(target)
-
-    case Keyword.get(opts, :as) do
-      nil ->
-        Enum.reduce(targets, aliases, fn parts, acc ->
-          Map.put(acc, List.last(parts), parts)
-        end)
-
-      {:__aliases__, _as_meta, [as]} ->
-        case targets do
-          [parts] -> Map.put(aliases, as, parts)
-          _grouped -> aliases
-        end
-    end
-  end
-
-  defp plan_alias_targets({:__aliases__, _meta, parts}), do: [parts]
-
-  defp plan_alias_targets(
-         {{:., _dot_meta, [{:__aliases__, _prefix_meta, prefix}, :{}]}, _call_meta, children}
-       ) do
-    Enum.map(children, fn {:__aliases__, _child_meta, child} -> prefix ++ child end)
-  end
-
-  defp plan_alias_targets(_target), do: []
-
-  defp resolve_plan_alias([first | rest] = parts, aliases) do
-    case Map.fetch(aliases, first) do
-      {:ok, bound} -> bound ++ rest
-      :error -> parts
-    end
-  end
-
-  defp resolve_plan_alias([], _aliases), do: []
-
-  # Root-Plan resolver-field checker: flags a `%ImagePipe.Plan{...}` construction
-  # or update whose field map carries a `:resolver` key, reusing the same lexical
-  # alias resolution as the Plan-construction checker above.
-  defp plan_resolver_field_violations(source) do
-    source
-    |> Code.string_to_quoted!()
-    |> plan_root_expressions()
-    |> scan_resolver_sequence(%{})
-    |> elem(0)
-  end
-
-  defp scan_resolver_sequence(expressions, aliases) do
-    Enum.reduce(expressions, {[], aliases}, fn expression, {violations, aliases} ->
-      case expression do
-        {:alias, _meta, _arguments} = alias_ast ->
-          {violations, bind_plan_aliases(alias_ast, aliases)}
-
-        expression ->
-          {violations ++ scan_resolver_expression(expression, aliases), aliases}
-      end
-    end)
-  end
-
-  defp scan_resolver_expression({:__block__, _meta, expressions}, aliases) do
-    expressions
-    |> scan_resolver_sequence(aliases)
-    |> elem(0)
-  end
-
-  defp scan_resolver_expression(
-         {:%, meta, [{:__aliases__, _alias_meta, parts}, fields]},
-         aliases
-       ) do
-    nested = scan_resolver_expression(fields, aliases)
-
-    with [:ImagePipe, :Plan] <- resolve_plan_alias(parts, aliases),
-         true <- plan_fields_have_resolver?(fields) do
-      [%{line: Keyword.get(meta, :line, 0), module: "%#{Enum.join(parts, ".")}{}"} | nested]
-    else
-      _other -> nested
-    end
-  end
-
-  defp scan_resolver_expression({:alias, _meta, _arguments}, _aliases), do: []
-
-  defp scan_resolver_expression(tuple, aliases) when is_tuple(tuple) do
-    tuple
-    |> Tuple.to_list()
-    |> Enum.flat_map(&scan_resolver_expression(&1, aliases))
-  end
-
-  defp scan_resolver_expression(list, aliases) when is_list(list),
-    do: Enum.flat_map(list, &scan_resolver_expression(&1, aliases))
-
-  defp scan_resolver_expression(_literal, _aliases), do: []
-
-  # Struct fields are a `{:%{}, _, kwlist}` node for construction and
-  # `{:%{}, _, [{:|, _, [_base, kwlist]}]}` for an update.
-  defp plan_fields_have_resolver?({:%{}, _meta, [{:|, _pipe_meta, [_base, kwlist]}]})
-       when is_list(kwlist),
-       do: Keyword.keyword?(kwlist) and Keyword.has_key?(kwlist, :resolver)
-
-  defp plan_fields_have_resolver?({:%{}, _meta, kwlist}) when is_list(kwlist),
-    do: Keyword.keyword?(kwlist) and Keyword.has_key?(kwlist, :resolver)
-
-  defp plan_fields_have_resolver?(_fields), do: false
-
-  defp twicpics_forbidden_reference_violations(source) do
-    source
-    |> Code.string_to_quoted!()
-    |> plan_root_expressions()
-    |> scan_twicpics_reference_sequence(%{})
-    |> elem(0)
-    |> Enum.uniq()
-  end
-
-  defp scan_twicpics_reference_sequence(expressions, aliases) do
-    Enum.reduce(expressions, {[], aliases}, fn expression, {violations, aliases} ->
-      case expression do
-        {:alias, meta, [target | _opts]} = alias_ast ->
-          alias_violations =
-            target
-            |> plan_alias_targets()
-            |> Enum.flat_map(&twicpics_reference_violation(&1, meta))
-
-          {violations ++ alias_violations, bind_plan_aliases(alias_ast, aliases)}
-
-        expression ->
-          {violations ++ scan_twicpics_reference_expression(expression, aliases), aliases}
-      end
-    end)
-  end
-
-  defp scan_twicpics_reference_expression({:__block__, _meta, expressions}, aliases) do
-    expressions
-    |> scan_twicpics_reference_sequence(aliases)
-    |> elem(0)
-  end
-
-  defp scan_twicpics_reference_expression(
-         {:__aliases__, meta, parts},
-         aliases
-       ) do
-    parts
-    |> resolve_plan_alias(aliases)
-    |> twicpics_reference_violation(meta)
-  end
-
-  defp scan_twicpics_reference_expression({:alias, _meta, _arguments}, _aliases), do: []
-
-  defp scan_twicpics_reference_expression(tuple, aliases) when is_tuple(tuple) do
-    tuple
-    |> Tuple.to_list()
-    |> Enum.flat_map(&scan_twicpics_reference_expression(&1, aliases))
-  end
-
-  defp scan_twicpics_reference_expression(list, aliases) when is_list(list),
-    do: Enum.flat_map(list, &scan_twicpics_reference_expression(&1, aliases))
-
-  defp scan_twicpics_reference_expression(_literal, _aliases), do: []
-
-  defp twicpics_reference_violation(parts, meta) do
-    case twicpics_forbidden_module(parts) do
-      nil -> []
-      module -> [%{line: Keyword.get(meta, :line, 0), module: module}]
-    end
-  end
-
-  defp twicpics_forbidden_module([:ImagePipe, :Renderer | _rest]), do: "ImagePipe.Renderer"
-
-  defp twicpics_forbidden_module([:ImagePipe, :Dialect, :TwicPics | _rest]), do: nil
-  defp twicpics_forbidden_module([:ImagePipe, :Dialect, :SharedConfig | _rest]), do: nil
-
-  # The shared contract vocabulary: any ported dialect must name these to
-  # implement the `ImagePipe.Dialect` behaviour. They are not another dialect.
-  defp twicpics_forbidden_module([:ImagePipe, :Dialect, :Failure | _rest]), do: nil
-  defp twicpics_forbidden_module([:ImagePipe, :Dialect, :Negotiation | _rest]), do: nil
-  defp twicpics_forbidden_module([:ImagePipe, :Dialect, :Resolved | _rest]), do: nil
-
-  defp twicpics_forbidden_module([:ImagePipe, :Dialect, dialect | _rest]),
-    do: "ImagePipe.Dialect.#{dialect}"
-
-  defp twicpics_forbidden_module([:ImagePipe, :Native | _rest]), do: "ImagePipe.Native"
-
-  defp twicpics_forbidden_module(_parts), do: nil
 
   defp boundary_declaration(module) do
     file = Map.fetch!(@boundary_files, module)

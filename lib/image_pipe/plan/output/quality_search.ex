@@ -3,7 +3,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch do
   Builds a per-request autoquality search struct
   (`Size`/`Ssimulacra2`/`Butteraugli`) from resolved neutral config, optionally
   overlaid with URL-supplied fields. Product-neutral: every dialect (imgproxy via
-  `build/3` with URL fields, IIIF/TwicPics via `from_config/1` with none) shares
+  `build/3` with URL fields, IIIF via `from_config/1` with none) shares
   this one builder, so the struct shape and the per-metric fallbacks live in one
   place.
 

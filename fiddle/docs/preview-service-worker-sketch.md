@@ -90,10 +90,8 @@ const sw = self as unknown as ServiceWorkerGlobalScope;
 sw.addEventListener("install", () => sw.skipWaiting());
 sw.addEventListener("activate", (e) => e.waitUntil(sw.clients.claim()));
 
-// All three processing endpoints negotiate output the same way, so all three hit
-// the JXL-via-`image/*` bug and all three need interception. Match on PATHNAME so
-// the TwicPics `?twic=…` query is ignored.
-const PREVIEW_PREFIXES = ["/img/", "/iiif-image/", "/twic/"];
+// Match the processing endpoints by pathname.
+const PREVIEW_PREFIXES = ["/img/", "/native-image/"];
 const isPreview = (url: string) => {
   const { pathname } = new URL(url);
   return PREVIEW_PREFIXES.some((p) => pathname.startsWith(p));
@@ -169,9 +167,7 @@ The panel's format label (`resolvedOutputLabel` → `outputFormatFromContentType
 `contentType` still arrives — just from the SW instead of the fetch response.
 
 Correlation key is the **full URL including query string** (`absolute(previewPath)` vs the SW's
-`event.request.url`). This matters for TwicPics, whose `twicFetchPath` is `/twic/<src>?twic=<params>` —
-two previews can share a pathname and differ only in the query, so a path-only match would mis-correlate
-metadata. imgproxy/IIIF are path-only, so the full-URL key is a strict superset that just works.
+`event.request.url`). This keeps metadata associated with the exact requested resource.
 
 ## Topology — this is a dev-only app (the only mode)
 
@@ -195,16 +191,14 @@ the default scope is `/`, which already covers `/img/*` — **no `Service-Worker
 (that header is only required when serving from a subdirectory but wanting a broader scope). One small
 Phoenix route returning the file with `content-type: text/javascript` is all it takes.
 
-Keep the `fetch` predicate **narrow — the three processing prefixes only** (`/img/`, `/iiif-image/`,
-`/twic/`; match on pathname so the TwicPics `?twic=…` query is ignored). The SW then never touches Vite
+Keep the `fetch` predicate **narrow — the processing prefixes only** (`/img/`, `/native-image/`).
+The SW then never touches Vite
 assets (`:5173` is a different origin anyway), the HMR websocket, the SPA shell, or Phoenix
 `live_reload`. And it uses **no Cache API** (live demo), so none of the classic SW stale-cache dev pain
 applies.
 
-All three endpoints (`ImagePipeFiddleWeb.{Imgproxy,IIIF,TwicPics}`, routed at those prefixes) run the
-same `Plan.Output` negotiation, so a single interceptor fixes all three uniformly — there is no
-per-dialect branching in the worker. `/twicpics/` (`twicBrowserPath`, the display/copy link) is not a
-real route and is never fetched by the preview, so it is deliberately excluded.
+Both endpoints (`ImagePipeFiddleWeb.{Imgproxy,Native}`, routed at those prefixes) use
+the same output negotiation and preview interceptor.
 
 ## Lifecycle / first-load race
 

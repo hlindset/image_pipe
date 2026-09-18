@@ -1,7 +1,7 @@
 defmodule ImagePipe.Test.Differential.ManifestTerm do
   @moduledoc """
-  Shared, suite-neutral serialization + hashing for differential manifests
-  (imgproxy, TwicPics). Renders a git-diffable, `mix format`-stable Elixir term
+  Serialization and hashing for differential manifests.
+  Renders a git-diffable, `mix format`-stable Elixir term
   with deterministically key-sorted maps (so a manifest stays diffable past
   `inspect`'s 32-key small-map sorting limit), and computes the authored-field and
   file hashes. Each suite keeps its own `validate!`/entry shape and the top-level

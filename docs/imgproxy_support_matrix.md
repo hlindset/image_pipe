@@ -416,7 +416,7 @@ ImagePipe runs. ImagePipe itself doesn't check this header.
 
 `allow_origin` is a dialect-neutral runtime option (default off) shared by every
 mount, whichever dialect it carries — `ImagePipe.Dialect.Imgproxy`,
-`ImagePipe.Dialect.TwicPics`, `ImagePipe.Native`, or
+`ImagePipe.Native`, or
 `ImagePipe.Dialect.IIIF` (`ImagePipe.Dialect.SharedConfig` validates and carries
 the key for all of them). When set, `ImagePipe.Response.CORS.maybe_register/2`
 registers a `register_before_send/2` hook — the same hook on every mount —

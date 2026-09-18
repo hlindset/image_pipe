@@ -193,20 +193,13 @@ be a real host option (phase 1 deliberately declined to invent one).
 
 ---
 
-## F. Rides with the TwicPics inversion (not phase 2 proper) — #457
+## F. Request lifecycle simplification — Beads `image_plug-a0q.12`
 
-Promoting the two product-neutral chain helpers (`resolve_output/3`;
-`cache_headers`/`vary_headers`, which needs a `Response → Representation` edge)
-into core, and settling the ExDNA-visibility strategy for the chain module, is
-deferred to the **TwicPics inversion** — where the boundary-graph ADR has three
-real dialects. The goal is unreachable at N=2 (the ExDNA ignore is file-level and
-the structural mirrors — `negotiate`'s policy branch, `generate`'s
-`Delivery.stream` case — cannot be shared between two top-level dialect
-boundaries). `result_limits` is **not** a clean imgproxy↔native mirror (only its
-`@default_*` constants triplicate — see B4).
-
-- Tracked: GitHub issue #457; breadcrumbed in `.credo.exs`'s ExDNA-ignore comment
-  for `dialect/imgproxy.ex`.
+The native-only migration owns the remaining lifecycle cleanup: direct native
+parsing and execution, output negotiation, representation identity, and response
+delivery. Task `image_plug-a0q.12` replaces generic dispatch after capability
+ports; `image_plug-a0q.11` consolidates transform execution. See the
+[native API contract](native_api_contract.md) for the current boundaries.
 
 ---
 

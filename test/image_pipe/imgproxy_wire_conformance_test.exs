@@ -3788,8 +3788,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     test "clamp telemetry is isolated from concurrent foreign emissions" do
       attach_clamp_telemetry()
 
-      # A concurrently-running async module (e.g. the TwicPics wire suite, which
-      # legitimately clamps an oversized result) emits the output clamp event
+      # A concurrently-running async module can emit the output clamp event
       # while this module's refute_received clamp tests are in flight. A global
       # handler keyed on the shared event name would receive that foreign event
       # and flake the refute. The handler must be scoped so it never does.

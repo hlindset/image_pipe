@@ -65,9 +65,7 @@ defmodule ImagePipe.Test.Differential.ReportUI do
   end
 
   # Per-axis card-hide rules for the suite-supplied type/group filter. Generated from
-  # the axis vocab (not hardcoded) so any suite filters correctly — imgproxy's
-  # transform/known_divergence/lossy and TwicPics' focus/cover/contain/inside/crop
-  # alike. A card is hidden when the active `data-type` doesn't match its `group-<set>`
+  # the axis vocabulary. A card is hidden when the active `data-type` doesn't match its `group-<set>`
   # class; the "all" button has no rule (it hides nothing).
   defp type_axis_css(%{buttons: buttons}) do
     buttons

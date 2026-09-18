@@ -2,7 +2,7 @@ defmodule ImagePipe.Config do
   @moduledoc """
   Product-neutral plan/output configuration: the schema, ImagePipe's default
   values, and the shared range checks for every tunable that is not specific to
-  a dialect (imgproxy/IIIF/TwicPics). Dialect adapters validate their own keys and
+  a dialect (imgproxy/IIIF). Dialect adapters validate their own keys and
   delegate the neutral keys here, so the whole plan/output layer is host-tunable
   from one schema and a drop-in provider inherits sensible defaults.
 
