@@ -1,6 +1,6 @@
 defmodule ImagePipe.Native.Diagnostic do
   @moduledoc """
-  A single structured diagnostic for the native URL dialect's error
+  A single structured diagnostic for the native URL API's error
   reporting [native §Error diagnostics].
 
   Producers (`ImagePipe.Native.Path`, `ImagePipe.Native.Parser`)

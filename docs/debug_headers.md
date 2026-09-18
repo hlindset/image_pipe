@@ -19,14 +19,10 @@ Two independent controls must both be satisfied for any header to be emitted:
    ```
 
 2. **Per-request trigger** — opts a single request into debug headers. Honored
-   only when `allow_debug_headers: true`; otherwise ignored. The trigger is
-   **dialect-specific**:
-   - **native**: the bare `debug` option, for example
-     `/w=400/debug/src/cat.jpg`. Use `debug=false` to opt out. Like other
-     native flags, `debug=true` and numeric spellings are invalid.
-   - **imgproxy**: the `debug:1` processing option inside the signed path,
-     for example `/<signature>/debug:1/rs:fill:400:300/plain/…` (also
-     `debug:true`; `debug:0`/`debug:false` opt out).
+   only when `allow_debug_headers: true`; otherwise ignored. Use the bare
+   `debug` option, for example `/w=400/debug/src/cat.jpg`, or `debug=false`
+   to opt out. Like other native flags, `debug=true` and numeric spellings
+   are invalid.
 
 A debug trigger does **not** change the produced image bytes: it rides the
 request's response metadata, which contributes to neither the cache key nor
@@ -38,9 +34,9 @@ items, with no cache invalidation.)
 
 ## Security and disclosure
 
-> **Signing.** Native `debug` and imgproxy `debug:1` are part of the signed
+> **Signing.** `debug` is part of the signed
 > processing-options path, so a configured path signature (HMAC) covers them.
-> Adding either trigger to an otherwise-valid signed URL invalidates its
+> Adding it to an otherwise-valid signed URL invalidates its
 > signature.
 
 When triggered, an image response may disclose internal source dimensions and
@@ -149,9 +145,8 @@ stored `total` and appends the live `cache` duration.
 
 ## Demo (fiddle)
 
-The bundled demo (`fiddle/`) configures its native and imgproxy mounts with
-`allow_debug_headers: true`. The native editor has a **Debug headers** example
-using `debug`; the imgproxy preview signs a `debug:1`-augmented path.
+The bundled demo (`fiddle/`) uses `allow_debug_headers: true`.
+The editor has a **Debug headers** example using `debug`.
 Its service worker reads
 these headers off the fetched response and surfaces them in a **Debug headers**
 panel under the preview, including the derived output size and compression

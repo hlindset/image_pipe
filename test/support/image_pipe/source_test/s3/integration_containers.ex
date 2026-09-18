@@ -4,7 +4,7 @@ if Code.ensure_loaded?(Testcontainers) do
     Shared `testcontainers` plumbing for the opt-in `:aws_integration` smoke lane.
 
     Compiled only when the `testcontainers` dep is present (added by
-    `AWS_INTEGRATION=1`/`IMGPROXY_DIFF=1`); a plain `mix test` skips this module
+    `AWS_INTEGRATION=1`); a plain `mix test` skips this module
     entirely, so the integration lane cannot run on the default lane.
 
     How to run the whole lane (from the repo root):

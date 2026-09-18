@@ -51,7 +51,7 @@ defmodule ImagePipe.Plan.Color do
   including its aliases such as `cyan`/`aqua`, `magenta`/`fuchsia`,
   `grey`/`gray`) and returns its 8-bit sRGB channel tuple. Returns a bare
   tuple rather than `t()`, mirroring how callers such as the native
-  dialect's `Value.color/1` combine a color's channels with a
+  native parser's `Value.color/1` combine a color's channels with a
   separately-parsed alpha before building a `t()`.
   """
   @spec rgb_name(term()) :: {:ok, {channel(), channel(), channel()}} | {:error, term()}

@@ -80,7 +80,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test",
-           req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
+           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
       ]
     ]
   end

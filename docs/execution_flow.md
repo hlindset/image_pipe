@@ -3,8 +3,8 @@
 ## Request lifecycle
 
 `ImagePipe.Plug` validates mount configuration and delegates the request to
-`ImagePipe.Plug.DialectRunner`. Native is the default API; imgproxy has its own
-request adapter while its retained capabilities move to native.
+`ImagePipe.Plug.Runner`, which calls native parsing and transform execution
+directly.
 
 The lifecycle is:
 

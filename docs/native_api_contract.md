@@ -3,7 +3,6 @@
 Status: implementation contract for Beads epic `image_plug-a0q`, defined in
 task `image_plug-a0q.1`. This document records the intended product contract and
 the capabilities to preserve. Beads owns execution status and dependencies.
-Proposed names below are not a claim that those options are implemented.
 
 ## Direction
 
@@ -21,11 +20,9 @@ request and execution needs directly.
 
 ## Current implementation
 
-The default `ImagePipe.Plug` mount selects native. The current checkout
-mounts every API through `ImagePipe.Plug` and
-`ImagePipe.Plug.DialectRunner`. Native execution lives in
-`ImagePipe.Transform.Executor`; imgproxy retains its own pipeline during
-the migration. Shared regression tests cover the native request lifecycle,
+`ImagePipe.Plug` mounts the native API. `ImagePipe.Plug.Runner` owns the
+request lifecycle, and `ImagePipe.Transform.Executor` owns group execution.
+Regression tests cover the native request lifecycle,
 streaming, cache, color, decode, and orientation behavior.
 
 Canonical native data lives in `ImagePipe.Plan.Request`, with explicit

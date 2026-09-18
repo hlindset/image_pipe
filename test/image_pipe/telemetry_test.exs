@@ -753,16 +753,12 @@ defmodule ImagePipe.TelemetryTest do
              @custom_prefix
 
     for prefix <- ["image_pipe", [:image_pipe, "request"], [], [:image_pipe, 1]] do
-      assert_raise ArgumentError,
-                   ~r/invalid ImagePipe shared runtime options: invalid value for :telemetry_prefix option/,
-                   fn -> ImagePipe.Plug.init(opts(telemetry_prefix: prefix)) end
+      assert_raise ArgumentError, fn -> ImagePipe.Plug.init(opts(telemetry_prefix: prefix)) end
     end
   end
 
   describe "request_result/1" do
-    # The shared classifier the dialect Plugs stamp on their [:request] span's
-    # :result. It must exactly mirror the runner's own error classification so
-    # both arms speak the same vocabulary.
+    # The shared classifier stamps the native request span's result.
     test "maps :ok and :not_modified straight through" do
       assert ImagePipe.Telemetry.request_result(:ok) == :ok
       assert ImagePipe.Telemetry.request_result(:not_modified) == :not_modified
@@ -771,23 +767,6 @@ defmodule ImagePipe.TelemetryTest do
     test "maps a source error" do
       assert ImagePipe.Telemetry.request_result({:error, {:source, :connect_error}}) ==
                :source_error
-    end
-
-    test "maps a cache-write error" do
-      assert ImagePipe.Telemetry.request_result({:error, {:cache_write, :boom}}) == :cache_error
-    end
-
-    test "maps output/pipeline plan validation errors, bare and wrapped" do
-      assert ImagePipe.Telemetry.request_result({:error, :invalid_output_plan}) == :plan_error
-      assert ImagePipe.Telemetry.request_result({:error, :invalid_pipeline_plan}) == :plan_error
-
-      assert ImagePipe.Telemetry.request_result({:error, {:invalid_output_plan, :reason}}) ==
-               :plan_error
-
-      assert ImagePipe.Telemetry.request_result({:error, {:invalid_pipeline_plan, :reason}}) ==
-               :plan_error
-
-      assert ImagePipe.Telemetry.request_result({:error, :empty_pipeline_plan}) == :plan_error
     end
 
     test "everything else falls back to processing_error" do

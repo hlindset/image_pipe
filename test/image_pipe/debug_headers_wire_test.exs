@@ -11,7 +11,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # Source stubs
   # ---------------------------------------------------------------------------
 
-  # Mimics ImgproxyWireConformanceTest.OriginImage — serves beach.jpg from priv.
+  # Mimics ImagePipe.Test.PlugFixture.OriginImage — serves beach.jpg from priv.
   defmodule OriginImage do
     @moduledoc false
 
@@ -64,8 +64,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
     end
   end
 
-  # A >6 MP source for autoquality — zone-plate JPEG. Mirrors
-  # LargeSsim2OriginImage from imgproxy_wire_conformance_test.exs.
+  # A >6 MP source for autoquality — zone-plate JPEG.
   defmodule LargeSsim2OriginImage do
     @moduledoc false
 
@@ -109,8 +108,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   # Harness helpers
   # ---------------------------------------------------------------------------
 
-  # Base mount options using RootHTTPAdapter. Mirrors @default_opts +
-  # origin_opts/1 from imgproxy_wire_conformance_test.exs.
+  # Base mount options using RootHTTPAdapter.
   defp base_opts(overrides) do
     [
       sources: [

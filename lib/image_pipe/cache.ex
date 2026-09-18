@@ -82,7 +82,7 @@ defmodule ImagePipe.Cache do
 
   @doc """
   Looks up the entry stored under `key`, dispatching to the configured adapter
-  and failing open on a read error. A dialect builds its own
+  and failing open on a read error. The request runner builds its
   `%ImagePipe.Cache.Key{}` via `ImagePipe.Representation.build/3` and looks it
   up directly.
   """

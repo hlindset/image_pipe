@@ -1,9 +1,6 @@
 defmodule ImagePipe.Native.Source do
   @moduledoc """
-  Decoded native source string → `ImagePipe.Plan.Source` translation
-  [native §Sources: "Both forms feed the core source-resolution toolkit
-  (relative path → configured source; scheme forms per host config) —
-  never another dialect's translation code"].
+  Translates a decoded native source string into `ImagePipe.Plan.Source`.
 
   `translate/2` consumes the already-decoded source string produced by
   `ImagePipe.Native.Path.extract/1` (percent-decoded once for a `src` tail,

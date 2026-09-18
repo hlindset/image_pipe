@@ -34,7 +34,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   it.
 
   The shrink-axis swap is decided by the *net* orientation turn: the EXIF turn
-  (`exif_quarter_turn?` and `auto_rotate?`) XOR the dialect's own pre-resize
+  (`exif_quarter_turn?` and `auto_rotate?`) XOR the request's pre-resize
   rotate (`request.user_quarter_turn?`).
   """
   @spec open_options_for(
@@ -130,7 +130,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # The request producer resolves its own pre-resize rotate to a boolean and the
   # two terms combine by XOR — exact,
   # because each term contributes 0 or 90 mod 180 and the sum is a quarter turn
-  # iff exactly one of them is. A dialect that emits no rotate before its resize
+  # iff exactly one of them is. A request without rotation before resize
   # leaves `user_quarter_turn?` at `false`, collapsing this to the EXIF term alone.
   defp request_net_quarter_turn?(
          %Request{user_quarter_turn?: user_turn?},

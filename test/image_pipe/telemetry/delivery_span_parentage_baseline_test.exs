@@ -27,8 +27,8 @@ defmodule ImagePipe.Telemetry.DeliverySpanParentageBaselineTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
-  alias ImgproxyWireConformanceTest.CacheProbe
-  alias ImgproxyWireConformanceTest.OriginImage
+  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.PlugFixture.OriginImage
 
   # No `telemetry_prefix` here (project convention otherwise requires one for
   # telemetry-asserting tests): `TestExporter`/`Capture` attach via a global

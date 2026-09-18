@@ -15,7 +15,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   # force-kills a wedged producer. A forceful kill (`Process.exit/2` — the
   # producer never traps exits, so a non-:normal exit reason terminates it
   # immediately) would skip any `try/after` still on the producer's stack.
-  # That matters because a calling dialect may run its whole encode/pump loop
+  # That matters because the request runner may run its whole encode/pump loop
   # INSIDE a bracket callback (e.g. `ImagePipe.Decode.with_image/4`) wrapped
   # in a `try/after`: killing forcefully would break the
   # cleanup-runs-exactly-once invariant on owner disconnect, not just on

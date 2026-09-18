@@ -3,11 +3,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   Represents an executable canvas expansion operation that embeds the
   current image into a same-size-or-larger canvas.
 
-  ## Construct When
-
-  Transform Plan execution may convert semantic Plan operations to this
-  executable operation. Parser modules should construct
-  `ImagePipe.Plan.Operation.*` through Plan constructors.
+  The native executor resolves request dimensions before constructing this
+  operation.
 
   Use it for resolved letterboxing, padding, or aspect-ratio canvas extension
   without changing the image content scale.

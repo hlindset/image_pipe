@@ -323,11 +323,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Test.Autoquality.TileSelection
-  alias ImagePipe.Test.ImgproxyDifferential.SourceInventory
+  alias ImagePipe.Test.SourceInventory
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
-  @sources_dir "test/support/image_pipe/test/imgproxy_differential/sources"
+  @sources_dir "test/support/image_pipe/test/sources"
   @prefix [:autoquality_bench]
 
   # Shipped defaults under test (see ImagePipe.Output.EncodeSearch + the imgproxy

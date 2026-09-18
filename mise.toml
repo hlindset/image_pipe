@@ -21,26 +21,6 @@ run = [
   "pnpm -C fiddle/assets run build",
 ]
 
-# Full imgproxy differential bake (requires Docker). Wraps the whole dance so no
-# manual IMGPROXY_DIFF / Ryuk / recompile juggling is needed:
-#   - IMGPROXY_DIFF=1 gates the testcontainers dep AND the env-gated gen_fixtures task
-#     module; --force is required because toggling the flag doesn't trigger a recompile.
-#   - TESTCONTAINERS_RYUK_DISABLED=true: Ryuk (the testcontainers reaper) fails on some
-#     local Docker setups; the bake tears its own container down, so this is a no-op
-#     where Ryuk works and a fix where it doesn't.
-#   - the trailing flag-less `compile --force` restores the default-lane build so a
-#     plain `mix test` doesn't see the now-stale generator module.
-# `env VAR=val` prefixes keep this shell-agnostic (the run lines are not fish-safe inline).
-[tasks."diff:bake"]
-description = "Regenerate imgproxy differential fixtures + manifest + REPORT against the pinned container (requires Docker)"
-env = { MIX_ENV = "test" }
-run = [
-  "env IMGPROXY_DIFF=1 mix deps.get",
-  "env IMGPROXY_DIFF=1 mix compile --force",
-  "env IMGPROXY_DIFF=1 TESTCONTAINERS_RYUK_DISABLED=true mix imgproxy.gen_fixtures",
-  "mix compile --force",
-]
-
 [tasks.precommit]
 description = "Elixir library checks: format, compile (warnings as errors), credo, dialyzer, duplication, test"
 run = [

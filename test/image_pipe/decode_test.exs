@@ -3,11 +3,12 @@ defmodule ImagePipe.DecodeTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
+  alias ImagePipe.Native.Parser
+  alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.Chain
-  alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Operation.Resize, as: ExecutableResize
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
@@ -92,8 +93,7 @@ defmodule ImagePipe.DecodeTest do
             path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
           ],
           max_body_bytes: 10_000_000,
-          max_input_pixels: 40_000_000,
-          auto_rotate?: true
+          max_input_pixels: 40_000_000
         ],
         extra
       )
@@ -105,15 +105,26 @@ defmodule ImagePipe.DecodeTest do
     resolved
   end
 
-  defp no_shrink_request(%SourceGeometry{}), do: %DecodePlanner.Request{}
+  defp request(segments \\ []) do
+    source = "images/x.jpg"
+
+    lexed = %{
+      segments: Enum.map(segments, &{&1, {0, byte_size(&1)}}),
+      source: {:src, source, {0, byte_size(source)}}
+    }
+
+    assert {:ok, %Request{} = request} = Parser.parse(lexed, [])
+    request
+  end
 
   # ── Tests ────────────────────────────────────────────────────────────────
 
   test "happy path: seeds a State + SourceGeometry usable by Chain.execute" do
     opts = source_opts(OriginImage)
+    request = request()
 
     result =
-      Decode.with_image(resolved(opts), opts, &no_shrink_request/1, fn state, geometry ->
+      Decode.with_image(resolved(opts), request, opts, fn state, geometry ->
         {:ok, {state, geometry}}
       end)
 
@@ -136,9 +147,10 @@ defmodule ImagePipe.DecodeTest do
 
   test "oversized header pixels short-circuit as {:error, {:input_limit, _}}" do
     opts = source_opts(OriginImage, max_input_pixels: 1000)
+    request = request()
 
     result =
-      Decode.with_image(resolved(opts), opts, &no_shrink_request/1, fn _state, _geometry ->
+      Decode.with_image(resolved(opts), request, opts, fn _state, _geometry ->
         flunk("fun must not run past the pixel-limit gate")
       end)
 
@@ -148,9 +160,10 @@ defmodule ImagePipe.DecodeTest do
 
   test "a corrupt body normalizes to {:error, {:decode, _}}" do
     opts = source_opts(CorruptOrigin)
+    request = request()
 
     result =
-      Decode.with_image(resolved(opts), opts, &no_shrink_request/1, fn _state, _geometry ->
+      Decode.with_image(resolved(opts), request, opts, fn _state, _geometry ->
         flunk("fun must not run on a decode failure")
       end)
 
@@ -159,9 +172,10 @@ defmodule ImagePipe.DecodeTest do
 
   test "an unsupported source format (gif) normalizes to {:error, {:decode, _}}, not a bare :unsupported_source_format tag" do
     opts = source_opts(GifOrigin)
+    request = request()
 
     result =
-      Decode.with_image(resolved(opts), opts, &no_shrink_request/1, fn _state, _geometry ->
+      Decode.with_image(resolved(opts), request, opts, fn _state, _geometry ->
         flunk("fun must not run on a rejected source format")
       end)
 
@@ -170,41 +184,37 @@ defmodule ImagePipe.DecodeTest do
 
   test "a source fetch failure normalizes to {:error, {:source, _}}" do
     opts = source_opts(NotFoundOrigin)
+    request = request()
 
     result =
-      Decode.with_image(resolved(opts), opts, &no_shrink_request/1, fn _state, _geometry ->
+      Decode.with_image(resolved(opts), request, opts, fn _state, _geometry ->
         flunk("fun must not run on a source fetch failure")
       end)
 
     assert {:error, {:source, {:bad_status, 404}}} = result
   end
 
-  test "decode_request_fun receives the header-open geometry (EXIF-oriented: display != storage)" do
+  test "an auto-oriented request exposes header-open display geometry" do
     opts = source_opts(OrientedOrigin)
-    test_pid = self()
+    request = request()
 
-    decode_request_fun = fn %SourceGeometry{} = geometry ->
-      send(test_pid, {:geometry, geometry})
-      %DecodePlanner.Request{}
-    end
-
-    assert {:ok, _state} =
-             Decode.with_image(resolved(opts), opts, decode_request_fun, fn state, _geometry ->
-               {:ok, state}
+    assert {:ok, {%State{}, %SourceGeometry{} = geometry}} =
+             Decode.with_image(resolved(opts), request, opts, fn state, geometry ->
+               {:ok, {state, geometry}}
              end)
 
-    assert_receive {:geometry, %SourceGeometry{} = geometry}
     assert geometry.storage_dimensions == {800, 600}
     assert geometry.display_dimensions == {600, 800}
     assert geometry.pending_orientation.exif_angle == 90
     refute PendingOrientation.identity?(geometry.pending_orientation)
   end
 
-  test "auto_rotate?: false seeds a non-rotating pending orientation on the same EXIF-oriented source" do
-    opts = source_opts(OrientedOrigin, auto_rotate?: false)
+  test "orient=none seeds a non-rotating pending orientation on the same EXIF-oriented source" do
+    opts = source_opts(OrientedOrigin)
+    request = request(["orient=none"])
 
     assert {:ok, {%State{} = state, %SourceGeometry{} = geometry}} =
-             Decode.with_image(resolved(opts), opts, &no_shrink_request/1, fn state, geometry ->
+             Decode.with_image(resolved(opts), request, opts, fn state, geometry ->
                {:ok, {state, geometry}}
              end)
 
@@ -216,13 +226,10 @@ defmodule ImagePipe.DecodeTest do
 
   test "shrink actually applied: a half-size resize_target halves the loaded dims and sets decode_shrink" do
     opts = source_opts(LargeJpegOrigin)
-
-    decode_request_fun = fn %SourceGeometry{storage_dimensions: {w, h}} ->
-      %DecodePlanner.Request{resize_target: {div(w, 2), div(h, 2)}}
-    end
+    request = request(["w=2048", "h=1024"])
 
     assert {:ok, %State{} = state} =
-             Decode.with_image(resolved(opts), opts, decode_request_fun, fn state, _geometry ->
+             Decode.with_image(resolved(opts), request, opts, fn state, _geometry ->
                {:ok, state}
              end)
 

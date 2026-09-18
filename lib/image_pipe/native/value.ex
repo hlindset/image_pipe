@@ -1,6 +1,6 @@
 defmodule ImagePipe.Native.Value do
   @moduledoc """
-  Pure parsers for the native URL dialect's value micro-syntax [native
+  Pure parsers for the native URL API's value micro-syntax [native
   §Value micro-syntax].
 
   Each function parses exactly one value shape from a raw segment-value
@@ -128,7 +128,7 @@ defmodule ImagePipe.Native.Value do
 
   # Only attempt named-color resolution for pure lowercase-alpha strings:
   # every CSS named color is a single lowercase word, so this both matches
-  # the dialect's lowercase-only grammar and avoids the underlying
+  # the parser's lowercase-only grammar and avoids the underlying
   # lookup's underscore/hyphen/case normalization loosening the bare-name
   # match (e.g. treating a hyphenated segment value as an alias for a
   # known name).

@@ -101,8 +101,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
           path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
         ],
         max_body_bytes: 10_000_000,
-        max_input_pixels: 10_000_000,
-        auto_rotate?: false
+        max_input_pixels: 10_000_000
       )
 
     {:ok, resolved} = Source.resolve(%SourcePath{segments: ["image"]}, opts, [])
@@ -110,8 +109,8 @@ defmodule ImagePipe.Transform.ExecutorTest do
     assert {:ok, {24, 32}} =
              Decode.with_image(
                resolved,
+               request,
                opts,
-               &Executor.decode_request(request, &1),
                fn state, _geometry ->
                  assert {Image.width(state.image), Image.height(state.image)} == {400, 300}
                  assert {:ok, state} = Executor.execute(state, request, [])

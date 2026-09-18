@@ -1,7 +1,7 @@
 defmodule ImagePipe.Native.Path do
   @moduledoc """
   Raw request path → structured, byte-spanned segments for the native URL
-  dialect [native §URL anatomy, §Byte-level contract].
+  API [native §URL anatomy, §Byte-level contract].
 
   Produces two surfaces because signature verification must precede ALL
   parsing [native §Signing: "verify first, parse second, with zero

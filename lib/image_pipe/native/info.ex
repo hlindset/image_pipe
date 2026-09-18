@@ -3,25 +3,24 @@ defmodule ImagePipe.Native.Info do
 
   alias ImagePipe.Decode
   alias ImagePipe.Format
+  alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.SourceInfo
   alias ImagePipe.Source
-  alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.SourceGeometry
   alias Vix.Vips.Image, as: VipsImage
 
-  @decode_request %DecodePlanner.Request{}
   @identity {__MODULE__, 1}
 
   @spec identity() :: {module(), pos_integer()}
   def identity, do: @identity
 
-  @spec render_source(Source.Resolved.t(), keyword()) ::
+  @spec render_source(Source.Resolved.t(), Request.t(), keyword()) ::
           {:ok, String.t(), iodata()} | {:error, term()}
-  def render_source(%Source.Resolved{} = resolved, config) do
+  def render_source(%Source.Resolved{} = resolved, %Request{} = request, config) do
     Decode.with_image(
       resolved,
-      Keyword.put(config, :auto_rotate?, false),
-      fn _geometry -> @decode_request end,
+      request,
+      config,
       fn state, geometry ->
         {content_type, body} = render(source_info(state.image, geometry))
         {:ok, content_type, body}

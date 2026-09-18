@@ -29,8 +29,7 @@ unless the source adapter overrides the mode.
 
 When `http_cache` is omitted from a native mount, identity headers come
 straight from the representation: an `ETag`, or `Cache-Control: no-store`
-for a source with no byte identity. Imgproxy also uses this
-identity-header path. The `[:http_cache, :prepare]`,
+for a source with no byte identity. The `[:http_cache, :prepare]`,
 `[:http_cache, :conditional, :match]`, and
 `[:http_cache, :fallback, :no_store]` events fire only on the generated path.
 
@@ -38,9 +37,8 @@ A source adapter can override the mount-level mode per source:
 `http_cache: :enabled` forces the generated path even when the mount is
 `mode: :disabled`; `http_cache: :disabled` suppresses generated cache headers
 even when the mount is `mode: :enabled`; the default `:inherit` follows the
-mount. The override only reaches a mount whose dialect carries
-`http_cache: :generated`: on a `:dialect_owned` mount the policy never runs, so
-a source-level `:enabled` is inert there.
+mount. Source overrides apply when the mount includes an explicit
+`:http_cache` option.
 
 Source-level `http_cache: :enabled` doesn't force an ETag. The resolved source
 still needs strong byte identity.
@@ -270,7 +268,7 @@ detector or model changes the rendition, so it must change the validator too —
 conditional GET will not return `304` against a rendition produced by a
 different detector.
 
-`Plan.expires` is a request-validity field a dialect enforces at parse time. It
+`Plan.Request.expires` is enforced before source resolution. It
 doesn't change generated `Cache-Control`.
 
 ## Versioning
@@ -280,17 +278,10 @@ Generated ETags carry a visible schema prefix from `ImagePipe.Representation`'s
 prefix and the hashed material, invalidating validators already stored by
 browsers and CDNs.
 
-Two epochs ride the same material as the key and the ETag, so a bump can never
-pair an old internal-cache body with a new validator:
-
-- `ImagePipe.Representation`'s `@core_execution_epoch` — bump it when core
-  encoder behavior, output policy behavior, default quality, metadata handling,
-  color handling, or orientation behavior can change encoded bytes without
-  changing public request syntax. It invalidates every representation every
-  dialect has built.
-- each request API's behavioral epoch, carried in the material's
-  `dialect_behavior` by its `Identity` module. A bump there invalidates
-  representations from that API.
+`ImagePipe.Representation`'s `@core_execution_epoch` enters both the cache
+key and ETag. It can invalidate stored representations together when a
+deployed application needs an explicit cache migration. Ordinary development
+changes update the canonical material and tests in place.
 
 ## Deferred In V1
 
@@ -305,7 +296,6 @@ These are deliberate v1 boundaries:
 - no generated ETags after source fetch
 - no source metadata probing to discover upstream validators
 - no per-route custom ETag override
-- no dialect-provided `Cache-Control`
 
 Routes that need custom validators or mutable freshness policy should leave
 ImagePipe generated HTTP caching off and set response headers in their own Plug

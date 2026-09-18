@@ -3,7 +3,9 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
 
   import Plug.Test
 
-  alias ImagePipe.Config
+  alias ImagePipe.Native.Config
+  alias ImagePipe.Native.Output, as: NativeOutput
+  alias ImagePipe.Native.Parser
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Output
@@ -64,12 +66,12 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     policies =
       for iterations <- [1, 12] do
         config =
-          Config.resolve!(
+          Config.validate!(
             autoquality_method: :butteraugli,
             autoquality_max_iterations: iterations
           )
 
-        {:ok, output} = Config.apply_to_output(%Output{mode: :automatic}, config)
+        output = output_plan(config)
         conn = Plug.Conn.put_req_header(conn(:get, "/"), "accept", "image/jxl")
         policy = Policy.from_output_plan(conn, output, [])
         assert Policy.identity_selection(policy) == {:auto_head, :jpeg_xl}
@@ -104,8 +106,8 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
 
     negotiated_materials =
       for iterations <- [1, 12] do
-        config = Config.resolve!([autoquality_max_iterations: iterations] ++ opts)
-        {:ok, output} = Config.apply_to_output(%Output{mode: :automatic}, config)
+        config = Config.validate!([autoquality_max_iterations: iterations] ++ opts)
+        output = output_plan(config)
         conn = Plug.Conn.put_req_header(conn(:get, "/"), "accept", "image/webp")
         policy = Policy.from_output_plan(conn, output, [])
         assert Policy.identity_selection(policy) == {:auto_head, :webp}
@@ -132,13 +134,36 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
   end
 
   defp resolved_output(opts, format \\ :jpeg, max_bytes \\ nil) do
-    config = Config.resolve!(opts)
-
-    {:ok, output} =
-      Config.apply_to_output(%Output{mode: {:explicit, format}, max_bytes: max_bytes}, config)
+    config = Config.validate!(opts)
+    output = output_plan(config, format, max_bytes)
 
     policy = Policy.from_output_plan(conn(:get, "/"), output, [])
     {:ok, resolved} = Policy.resolve(policy, format)
     {policy, resolved}
   end
+
+  defp output_plan(config, format \\ nil, max_bytes \\ nil) do
+    segments =
+      []
+      |> maybe_add_format(format)
+      |> maybe_add_max_bytes(max_bytes)
+
+    source = "images/test.jpg"
+
+    lexed = %{
+      segments: Enum.map(segments, &{&1, {0, byte_size(&1)}}),
+      source: {:src, source, {0, byte_size(source)}}
+    }
+
+    assert {:ok, request} = Parser.parse(lexed, config)
+    assert {:ok, output} = NativeOutput.resolve(request.output, config)
+    output
+  end
+
+  defp maybe_add_format(segments, nil), do: segments
+  defp maybe_add_format(segments, :jpeg_xl), do: segments ++ ["format=jxl"]
+  defp maybe_add_format(segments, format), do: segments ++ ["format=#{format}"]
+
+  defp maybe_add_max_bytes(segments, nil), do: segments
+  defp maybe_add_max_bytes(segments, max_bytes), do: segments ++ ["max-bytes=#{max_bytes}"]
 end

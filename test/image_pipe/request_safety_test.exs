@@ -209,8 +209,6 @@ defmodule ImagePipe.RequestSafetyTest do
       assert Keyword.fetch!(runtime_opts, :max_body_bytes) == 1_000_000
       assert Keyword.fetch!(runtime_opts, :telemetry_prefix) == [:image_pipe]
 
-      refute Keyword.has_key?(runtime_opts, :dialect)
-      refute Keyword.has_key?(runtime_opts, :resolver)
       refute Keyword.has_key?(runtime_opts, :cache)
       refute Keyword.has_key?(runtime_opts, :sources)
     end

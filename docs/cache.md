@@ -6,7 +6,6 @@ ImagePipe can cache complete encoded responses after successful processing:
 forward "/",
   to: ImagePipe.Plug,
   init_opts: [
-    dialect: ImagePipe.Dialect.Imgproxy,
     sources: [
       path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ],
@@ -18,10 +17,10 @@ forward "/",
   ]
 ```
 
-Cache lookup happens only after the dialect's parse and prepare phases and
+Cache lookup happens only after request parsing, validation, and
 source resolution. A lookup doesn't fetch, decode, or read metadata from the
-source image. Requests a dialect rejects at parse or prepare return before
-source fetch or cache access. Invalid Imgproxy signatures return `403`. Parse,
+source image. Invalid requests return before
+source fetch or cache access. Invalid signatures return `403`. Parse,
 prepare, source fetch, decode, transform, negotiation, and encode errors are
 never cached.
 
@@ -31,8 +30,8 @@ The internal cache has no time-based freshness and performs no origin
 revalidation. A cache hit is served from the stored encoded body without
 re-fetching the source, without re-reading source metadata, and without checking
 whether the origin bytes changed. Reuse validity is therefore a property of the
-*source identity*, not of elapsed time: the cache assumes that a given resolved
-source identity always names the same bytes.
+resolved source identity and byte-version seed, not of elapsed time. Their
+combination must name the same bytes across requests and application nodes.
 
 That assumption is made explicit per source through the `:stable` option, and
 whether the internal cache is used at all is gated on it through the
@@ -82,7 +81,7 @@ a migration-safe way if mutable origins become a first-class use case.
 On cache read, ImagePipe validates the returned entry before treating it as a
 hit. The entry must have a binary body, cacheable headers, and a content type
 that matches what the entry claims to be: a known image output format for an
-image entry, or any well-formed media type for a dialect-owned complete-body
+image entry, or any well-formed media type for a terminal complete-body
 entry (`{:complete_body, content_type}` — a rendered JSON document, for example).
 If that check passes, ImagePipe sends the stored body without
 fetching, decoding, transforming, or encoding the source image.
@@ -123,9 +122,9 @@ lets a conditional `GET` resolve before any fetch, decode, or encode.
 
 Cache keys include:
 
-- resolved source identity
-- the dialect module and its behavioral epoch, plus the core execution epoch
-- the dialect's canonical request material: the semantic operation key data, the
+- resolved source identity and byte-version seed
+- the core execution epoch
+- canonical request material: the ordered groups, the
   EXIF auto-orient flag, the terminal identity, the canonical output plan, and the
   resolved detector identity
 - the negotiation outcome and effective output policy material

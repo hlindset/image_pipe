@@ -94,13 +94,4 @@ defmodule ImagePipe.Transform.Operation.RotateTest do
     assert max_dev <= 10,
            "constant colour distorted across the alpha seam (double-premultiply?): max channel dev #{max_dev}"
   end
-
-  test "mirror flips horizontally before rotating" do
-    {:ok, left} = Image.new(20, 20, color: [255, 0, 0])
-    {:ok, right} = Image.new(20, 20, color: [0, 0, 255])
-    {:ok, joined} = Operation.join(left, right, :VIPS_DIRECTION_HORIZONTAL)
-    result = run(%Rotate{angle: 0, mirror: true}, joined)
-    [r | _] = Image.get_pixel!(result, 1, 10)
-    assert r == 0, "left edge should now be the (blue) mirrored right half"
-  end
 end

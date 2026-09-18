@@ -9,9 +9,9 @@ defmodule ImagePipe.Delivery.StreamPull do
   # producer boundary:
   #
   #   * `ImagePipe.Delivery.Producer` runs the chunk-demand loop.
-  #   * a calling dialect may need to force the first chunk itself (pulling it
+  #   * the request runner may need to force the first chunk itself (pulling it
   #     is what makes libvips actually encode, so it has to happen inside that
-  #     dialect's own encode span/timing) and then hand `pump` a `resume/2`
+  #     runner's own encode span/timing) and then hand `pump` a `resume/2`
   #     enumerable that replays it.
   #
   # The pull functions are raw: `first_chunk/1`, `continue/1` and `resume/2`
@@ -121,7 +121,7 @@ defmodule ImagePipe.Delivery.StreamPull do
   failure and must keep the source's domain status (422/404/502) rather than
   degrading to the 500 an `{:encode, _}` tag would produce
   (`ImagePipe.Response.ErrorStatus`). Any other throw is a fault in the calling
-  dialect's encode/stream; `fallback` builds its tag, so a caller can keep a
+  runner's encode/stream; `fallback` builds its tag, so a caller can keep a
   phase-specific one while defaulting to the encode tag.
   """
   @spec translate((-> result)) :: result | tagged_error() when result: term()

@@ -18,7 +18,6 @@ defmodule ImagePipe.Response do
       Conditional,
       CORS,
       ErrorStatus,
-      Json,
       PreparedStream,
       Sender
     ]

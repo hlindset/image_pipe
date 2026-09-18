@@ -79,16 +79,13 @@ For example, the cache lookup stop event with the default prefix is:
 ### Request span (`[:request]`)
 
 The `[:image_pipe, :request]` span wraps the whole request, opened by
-`ImagePipe.Plug.DialectRunner` before any dialect callback runs. Its **start
-metadata is empty** — nothing about the request is known yet, and the runner
-does not name the mounted dialect.
+`ImagePipe.Plug.Runner` before parsing. Its **start metadata is empty**.
 
 Stop metadata:
 
-- `:result` — the request outcome category (see "Result values"). A dialect may
-  refine an error into its own vocabulary through the optional
-  `c:ImagePipe.Dialect.classify_error/1` callback; otherwise the neutral
-  `ImagePipe.Telemetry.request_result/1` mapping applies.
+- `:result` — the request outcome category (see "Result values").
+  `ImagePipe.Native.classify_error/1` classifies request validation failures;
+  runtime failures use `ImagePipe.Telemetry.request_result/1`.
 - `:status` — the response status.
 - `:error` — a stable error category on failures.
 
@@ -97,13 +94,10 @@ When a committed `200` fails mid-stream, the stop `:result` agrees with the
 
 ### Parse span (`[:parse]`)
 
-The `[:image_pipe, :parse]` span wraps `c:ImagePipe.Dialect.parse/2`. Its
-**start metadata is empty**; the stop metadata is **dialect-owned** — the
-callback returns it alongside its parse result, for both outcomes. Every in-tree
-dialect reports at least `:result` (`:ok` or `:error`) and an
-`:error` tag from `ImagePipe.Error.tag/1` on rejection.
-Individual dialects add their own fields, such as the native dialect's
-`:sig_key_index`.
+The `[:image_pipe, :parse]` span wraps `ImagePipe.Native.parse/2`. Its
+**start metadata is empty**. Stop metadata contains `:result` (`:ok` or
+`:error`); successful parsing also includes `:sig_key_index`, or `nil` for
+an unsigned request. Rejection reasons appear on the enclosing request span.
 
 ### Source fetch + decode (`[:source, :fetch_decode]`)
 
@@ -112,8 +106,8 @@ as one span. By deliberate design it also folds in the two input guards that run
 during decode — input-pixel-count validation and source body-size limiting —
 rather than emitting separate spans for them.
 
-It is emitted from one place: the `ImagePipe.Decode.with_image/4` bracket every
-dialect routes through. The span closes immediately after the decoded state is
+It is emitted from the `ImagePipe.Decode.with_image/4` bracket. The span closes
+immediately after the decoded state is
 built, *before* the transform/encode continuation runs (even though that
 continuation stays inside the source bracket), so a transform or encode failure
 is never misattributed to fetch/decode.
@@ -164,11 +158,9 @@ Failure stop metadata (one of two shapes, by failure mode):
 ### Transform execute span (`[:transform, :execute]`)
 
 The `[:image_pipe, :transform, :execute]` span wraps the full transform chain.
-It is opened by the runner (`ImagePipe.Plug.DialectRunner`) around
-`c:ImagePipe.Dialect.execute/4`, so native and imgproxy execution have the same
-start/stop shape while each concrete pipeline owns its request-specific group
-execution. Its start metadata carries the aggregate request view prepared by
-that pipeline:
+It is opened by `ImagePipe.Plug.Runner` around
+`ImagePipe.Transform.Executor.execute/3`. Its start metadata carries the
+aggregate request view:
 
 - `:operation_count` — number of requested semantic operations.
 - `:operations` — the ordered list of requested semantic operation-name atoms.
@@ -192,10 +184,8 @@ data-determined input-color preamble, which runs once at the start of transform
 execution to condition the decoded image into a working colorspace before any
 group operation. It is emitted from the shared seam
 `ImagePipe.Transform.InputColorManagement.condition/2` itself (via
-`State.telemetry_opts`). `ImagePipe.Transform.Executor` and
-`ImagePipe.Dialect.Imgproxy.Pipeline` both call that seam before running their
-groups, nested inside `[:transform, :execute]`, and therefore emit identical
-metadata.
+`State.telemetry_opts`). `ImagePipe.Transform.Executor` calls it before
+running groups, nested inside the image request's `[:transform, :execute]` span.
 
 Stop metadata:
 
@@ -282,8 +272,7 @@ Parenting depends on where the materialization happens — there are three cases
   (after `[:transform, :execute]`): nested under the request root.
 
 The delivery backstop lives in the runner's post-clamp, pre-encode
-`Materializer.materialize/2` barrier, so every dialect emits it with identical
-metadata. Every
+`Materializer.materialize/2` barrier. Every
 request that decodes and runs the transform pipeline (a cache miss)
 materializes at least once: a chain that never materializes mid-pipeline hits the
 delivery backstop. Requests served from cache (cache hits, conditional `304`s) skip
@@ -296,7 +285,7 @@ The `[:image_pipe, :output, :negotiate]` span wraps output-format negotiation �
 resolving the request's `Output.Policy` against the decoded source format into a
 concrete `Output.Resolved`. It is emitted from the shared seam
 `ImagePipe.Output.Negotiate.negotiate_output/4`, called once from the runner's
-producer-side build, so every dialect emits it with identical metadata. The
+producer-side build. The
 single span encloses **both** resolution legs —
 `Policy.resolve/2` and, when the format depends on the final image's alpha, the
 second `resolve_final_image_alpha` pass — so exactly one span is emitted per
@@ -543,7 +532,7 @@ level), and the OTel exporter folds it onto the search span.
 The `[:image_pipe, :send]` span wraps the terminal response send — every path a
 request can exit through: the streamed/cached image sends, error responses,
 rendered/complete bodies (`/info`, blurhash), 304s, the OPTIONS 204, and the
-method-405 reject. `ImagePipe.Plug.DialectRunner` emits it around every
+method-405 reject. `ImagePipe.Plug.Runner` emits it around every
 terminal send, so all exits share the same shapes. It runs in the
 connection-owner process.
 
@@ -606,7 +595,7 @@ fields are:
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
 - `:error` - a stable error category when known.
 - `:sig_key_index` - the matched signing-key index (`ImagePipe.Native.Signature.verify/3`'s
-  return value) on the native URL dialect's `[:parse]` stop metadata; `nil` when the
+  return value) on the native parser's `[:parse]` stop metadata; `nil` when the
   request is legitimately unsigned.
 
 Exception events include the metadata added by `:telemetry.span/3`, including
@@ -616,7 +605,7 @@ All span events also include `:telemetry_span_context`, which
 `:telemetry.span/3` injects for correlating the events from the same span. Treat
 it as correlation data, not as a metrics dimension.
 
-ImagePipe doesn't emit full request paths by default. Imgproxy-style paths can
+ImagePipe doesn't emit full request paths by default. Native paths can
 contain signatures, filenames, and source-shaped user data, and often have high
 cardinality. Host applications that need path-level observability should add
 that data in their own handlers with the relevant privacy and cardinality
@@ -781,12 +770,7 @@ already delivered.
 
 Generated CDN HTTP cache handling emits non-span events. The first three come
 from `ImagePipe.Response.CachePolicy` and fire **only** when
-`%ImagePipe.Dialect.Resolved{}` carries `http_cache: :generated`. Today this is
-the native mount with an explicit `:http_cache` option: native request
-preparation selects `:generated` when that configuration key is present and
-`:dialect_owned` when it is absent. Imgproxy always selects `:dialect_owned`,
-so the generated policy is skipped and none of the first three events fire for
-imgproxy:
+the mount includes an explicit `:http_cache` option:
 
 - `[:image_pipe, :http_cache, :prepare]` with `:effective_mode`,
   `:byte_identity`, and `:etag`.
@@ -822,7 +806,7 @@ negotiated output encoder's hard limit (`min(host, encoder)`) — ImagePipe
 uniformly downscales it to fit before encoding and emits a one-shot (non-span)
 marker. This both keeps encoding from failing (WebP caps each dimension at 16383,
 AVIF at 16384, JPEG at 65535; PNG effectively unbounded) and serves the host result cap as a
-downscale rather than an error (imgproxy `limitScale` parity). The common trigger
+downscale rather than an error. The common trigger
 is the host cap (default 8192 per axis), which is below the encoder limits.
 
 ```text
@@ -844,12 +828,11 @@ This metadata is product-neutral and non-sensitive (no URLs, secrets, or PII).
 
 The event is emitted from a single site — the shared clamp seam
 `ImagePipe.Output.Clamp.clamp_with_telemetry/4`, called once from the runner's
-producer-side build — so every dialect produces identical `[:output, :clamp]`
-metadata. It fires only when the
+producer-side build. It fires only when the
 clamp actually downscaled the image; a within-caps result is a silent no-op.
 
 The opt-in default Logger attaches to this event and renders it at `:warning`,
-matching imgproxy's `slog.Warn` for the same condition, e.g.:
+for example:
 
 ```text
 image_pipe output clamp: 18000x9000 -> 8192x4096 for webp (caps w:8192 h:8192 px:40000000)
@@ -1078,5 +1061,5 @@ downstream OTel collector instead.
 **Span attributes:** the `[:output, :clamp]` one-shot's `source_dimensions` /
 `dimensions` / `limits` and the `[:transform, :input_color_management]` span's
 `working_space` / `imported?` are on the capture allowlist, so they surface as
-OTel span attributes on every dialect (all product-neutral geometry, a
+OTel span attributes (all product-neutral geometry, a
 colorspace atom, and a boolean; no secrets).

@@ -10,7 +10,7 @@ defmodule ImagePipe.Output.ColorResultTest do
   alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
 
-  @sources "test/support/image_pipe/test/imgproxy_differential/sources"
+  @sources "test/support/image_pipe/test/sources"
   @p3_fixture "#{@sources}/icc_p3.png"
   @plain_srgb_fixture "#{@sources}/small.png"
 

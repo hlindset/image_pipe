@@ -1,7 +1,7 @@
 defmodule ImagePipe.Response.Conditional do
   @moduledoc false
   # Conditional-GET (`If-None-Match`) evaluation, usable BEFORE any cache
-  # lookup or source fetch — a dialect's `ETag` is derived purely from
+  # lookup or source fetch — the `ETag` is derived purely from
   # request-identity material (see `ImagePipe.Representation`), so it exists
   # the moment a representation is built, before the cache is ever consulted.
 

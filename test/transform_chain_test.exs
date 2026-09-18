@@ -161,30 +161,6 @@ defmodule ImagePipe.Transform.ChainTest do
     end
   end
 
-  test "zero-dimension resize with zoom clamps raster sources when enlarge is false" do
-    {:ok, image} = Image.new(100, 50, color: :white)
-
-    chain = [
-      %Resize{mode: :fit, width: {:pixels, 0}, height: {:pixels, 0}, zoom_x: 2.0, zoom_y: 1.5}
-    ]
-
-    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
-    assert Image.width(image) == 100
-    assert Image.height(image) == 38
-  end
-
-  test "zero-dimension resize with dpr preserves raster sources when enlarge is false" do
-    {:ok, image} = Image.new(100, 50, color: :white)
-
-    chain = [
-      %Resize{mode: :fit, width: {:pixels, 0}, height: {:pixels, 0}, dpr: 2.0}
-    ]
-
-    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
-    assert Image.width(image) == 100
-    assert Image.height(image) == 50
-  end
-
   test "fill-down crops clamped images to the requested aspect ratio" do
     {:ok, image} = Image.new(200, 100, color: :white)
 

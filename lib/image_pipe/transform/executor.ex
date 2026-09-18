@@ -87,6 +87,10 @@ defmodule ImagePipe.Transform.Executor do
          {:ok, state} <- normalize_output_orientation(state, request.output, opts) do
       {:ok, InputColorManagement.stamp_carry(state)}
     end
+  rescue
+    exception -> {:error, {:transform, {exception, __STACKTRACE__}}}
+  catch
+    kind, reason -> {:error, {:transform, {kind, reason}}}
   end
 
   @spec reduce_terminal(State.t(), Output.t(), keyword()) ::

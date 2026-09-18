@@ -1,7 +1,7 @@
 defmodule ImagePipe.Native.Parser do
   @moduledoc """
   Segments → validated groups → canonical `%Request{}` for the native URL
-  dialect [native §Request semantics].
+  API [native §Request semantics].
 
   `parse/2` consumes Task 4's lexed map (`ImagePipe.Native.Path.extract/1`'s
   success return value) and never touches `Plug.Conn` — `Path` owns all
@@ -47,7 +47,7 @@ defmodule ImagePipe.Native.Parser do
         }
 
   @doc """
-  Parses a fully lexed native-dialect path (Task 4's `Path.extract/1`
+  Parses a fully lexed native path (`ImagePipe.Native.Path.extract/1`'s
   success value) into a canonical `%Request{}`.
   """
   @spec parse(lexed(), keyword()) ::

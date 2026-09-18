@@ -1,13 +1,13 @@
 defmodule ImagePipe.Decode do
   @moduledoc """
-  Core fetch-through-decode bracket, shared by every dialect.
+  Source fetch and image decode bracket.
 
   `with_image/4` runs the two-open decode flow (header open for stored dims +
   EXIF orientation, then a sequential re-open with shrink-on-load options) as a
   bracket: it fetches through `ImagePipe.Source.with_fetched/3`, builds an
-  `ImagePipe.Transform.SourceGeometry` from the header open, asks the caller for
-  a `DecodePlanner.Request.t()` via `decode_request_fun`, re-opens sequentially
-  with the planned options, seeds a `Transform.State`, and hands both to `fun`.
+  `ImagePipe.Transform.SourceGeometry` from the header open, derives the decode
+  preflight from the native request, re-opens sequentially with the planned
+  options, seeds a `Transform.State`, and hands both to `fun`.
   """
 
   use Boundary,
@@ -26,9 +26,12 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Decode.SourceFormat
   alias ImagePipe.Error
   alias ImagePipe.Format.Detector
+  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
@@ -44,27 +47,22 @@ defmodule ImagePipe.Decode do
   Fetch, decode, and run `fun` over the resulting `Transform.State` +
   `SourceGeometry`.
 
-  `opts` MUST include `auto_rotate?: boolean()` — the EXIF auto-orient policy
-  is always the caller's (dialect's) choice, never baked into this core
-  primitive; this bracket owns only the storage/display compensation once
-  that choice is made. `decode_request_fun` receives the `SourceGeometry`
-  built from the header open and must return a `DecodePlanner.Request.t()`
-  describing the caller's decode-time preflight (resize target, crop extent,
-  trim, terminal reduction, required floor) — fed to
-  `DecodePlanner.open_options_for/5` to compute the shrink-on-load options for
-  the sequential re-open.
+  The native request owns EXIF orientation and decode-time preflight intent.
+  After the header open, the bracket passes the request and resulting
+  `SourceGeometry` to `ImagePipe.Transform.Executor.decode_request/2`, then
+  feeds that plan to `DecodePlanner.open_options_for/5` to compute the
+  shrink-on-load options for the sequential re-open. The info terminal reads
+  source facts without applying EXIF orientation.
 
   Errors normalize to `{:source, _}` (fetch failure), `{:decode, _}` (a
   corrupt/unsupported body or a libvips open failure), or `{:input_limit, _}`
-  (stored header dimensions exceed `opts[:max_input_pixels]`), so a dialect's
-  status mapping can reuse `Response.ErrorStatus`. `fun`'s own return value
+  (stored header dimensions exceed `opts[:max_input_pixels]`), for the status mapping in `Response.ErrorStatus`. `fun`'s own return value
   passes through unchanged (its own errors, e.g. a transform failure, are the
   caller's to classify).
 
   ## The `[:source, :fetch_decode]` span
 
-  This bracket emits the `[:source, :fetch_decode]` span, so every dialect gains
-  it from this one seam. The span encloses the fetch AND the decode but NOT the
+  This bracket emits the `[:source, :fetch_decode]` span. The span encloses the fetch AND the decode but NOT the
   caller's build: it opens before `Source.with_fetched/3` (so `[:source,
   :fetch]` nests inside it) and closes *inside* the bracket, immediately after
   the decoded `State`/`SourceGeometry` are built and before `fun` runs — a
@@ -77,21 +75,21 @@ defmodule ImagePipe.Decode do
   """
   @spec with_image(
           Source.Resolved.t(),
+          Request.t(),
           keyword(),
-          (SourceGeometry.t() -> DecodePlanner.Request.t()),
           (State.t(), SourceGeometry.t() -> result)
         ) :: result | {:error, error()}
         when result: var
-  def with_image(%Source.Resolved{} = resolved, opts, decode_request_fun, fun)
-      when is_function(decode_request_fun, 1) and is_function(fun, 2) do
-    auto_rotate? = Keyword.fetch!(opts, :auto_rotate?)
+  def with_image(%Source.Resolved{} = resolved, %Request{} = request, opts, fun)
+      when is_function(fun, 2) do
+    auto_rotate? = auto_rotate?(request)
     span = Telemetry.start_span(Telemetry.telemetry_opts(opts), [:source, :fetch_decode], %{})
     decoded = make_ref()
 
     try do
       resolved
       |> Source.with_fetched(opts, fn %Source.Response{} = response ->
-        case decode(response, opts, auto_rotate?, decode_request_fun) do
+        case decode(response, request, opts, auto_rotate?) do
           {:ok, state, geometry, stop_metadata} ->
             Telemetry.stop_span(span, stop_metadata)
             {decoded, fun.(state, geometry)}
@@ -119,7 +117,7 @@ defmodule ImagePipe.Decode do
     error
   end
 
-  defp decode(response, opts, auto_rotate?, decode_request_fun) do
+  defp decode(response, request, opts, auto_rotate?) do
     with {:ok, input} <- seekable_input(response),
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
@@ -142,7 +140,7 @@ defmodule ImagePipe.Decode do
            source_format: source_format,
            debug_facts: debug_facts(input, header_image, opts)
          },
-         decode_request = decode_request_fun.(geometry),
+         decode_request = Executor.decode_request(request, geometry),
          decode_options =
            DecodePlanner.open_options_for(
              decode_request,
@@ -160,6 +158,10 @@ defmodule ImagePipe.Decode do
        ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution)}
     end
   end
+
+  defp auto_rotate?(%Request{output: %Output{terminal: :info}}), do: false
+  defp auto_rotate?(%Request{orient: :auto}), do: true
+  defp auto_rotate?(%Request{orient: :none}), do: false
 
   defp ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution) do
     load_option =

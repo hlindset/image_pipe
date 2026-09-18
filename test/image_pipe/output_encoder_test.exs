@@ -145,7 +145,7 @@ defmodule ImagePipe.Output.EncoderTest do
     assert alpha == 0
   end
 
-  @fixture "test/support/image_pipe/test/imgproxy_differential/sources/high_freq.jpg"
+  @fixture "test/support/image_pipe/test/sources/high_freq.jpg"
 
   defp search_resolved do
     %Resolved{

@@ -88,8 +88,8 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
 
     Decode.with_image(
       source,
-      Keyword.put(opts, :auto_rotate?, true),
-      &Executor.decode_request(request, &1),
+      request,
+      opts,
       fn state, _geometry ->
         {:ok, %State{} = final} = Executor.execute(state, request, opts)
 

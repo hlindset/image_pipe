@@ -96,7 +96,7 @@ defmodule ImagePipe.Cache.FileSystem do
                     ]
                   )
 
-  @doc false
+  @doc "Returns the supervision tree required by a bounded filesystem cache."
   def child_spec(opts) do
     if Keyword.has_key?(opts, :max_size_bytes) do
       registry_name = registry_name(Keyword.fetch!(opts, :root))

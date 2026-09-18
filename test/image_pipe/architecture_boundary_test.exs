@@ -3,6 +3,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   @request_source_response_globs [
     "lib/image_pipe/plug.ex",
+    "lib/image_pipe/plug/**/*.ex",
     "lib/image_pipe/source.ex",
     "lib/image_pipe/source/**/*.ex",
     "lib/image_pipe/response.ex",
@@ -10,6 +11,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   ]
   @detector_forbidden_globs [
     "lib/image_pipe/plug.ex",
+    "lib/image_pipe/plug/**/*.ex",
     "lib/image_pipe/source.ex",
     "lib/image_pipe/source/**/*.ex",
     "lib/image_pipe/response.ex",
@@ -35,34 +37,22 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/transform.ex",
     "lib/image_pipe/transform/**/*.ex"
   ]
-  # The shared runtime toolkit (delivery/decode/representation/config). It is
-  # core — a dialect must be removable without editing it — so it belongs in
-  # the "core must not name a dialect" grep alongside
-  # plug/source/response/cache/output/plan/transform. The Boundary compiler
-  # already enforces the real dep graph; this closes the grep's blind spot over
-  # exactly that surface.
   @core_toolkit_globs [
     "lib/image_pipe/delivery.ex",
     "lib/image_pipe/delivery/**/*.ex",
     "lib/image_pipe/decode.ex",
     "lib/image_pipe/decode/**/*.ex",
     "lib/image_pipe/representation.ex",
-    "lib/image_pipe/representation/**/*.ex",
-    "lib/image_pipe/config.ex",
-    "lib/image_pipe/config/**/*.ex"
+    "lib/image_pipe/representation/**/*.ex"
   ]
-  @dialect_forbidden_globs @core_surface_globs ++ @transform_globs ++ @core_toolkit_globs
+  @parsing_forbidden_globs @core_surface_globs ++ @transform_globs ++ @core_toolkit_globs
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
-    ImagePipe.Config => "lib/image_pipe/config.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
-    ImagePipe.Dialect => "lib/image_pipe/dialect.ex",
-    ImagePipe.Dialect.Imgproxy => "lib/image_pipe/dialect/imgproxy.ex",
     ImagePipe.Native => "lib/image_pipe/native.ex",
-    ImagePipe.Dialect.SharedConfig => "lib/image_pipe/dialect/shared_config.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
@@ -74,16 +64,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Telemetry => "lib/image_pipe/telemetry.ex",
     ImagePipe.Transform => "lib/image_pipe/transform.ex"
   }
-  @concrete_plan_names [
-    :Background,
-    :Canvas,
-    :CropGuided,
-    :CropRegion,
-    :Flip,
-    :Padding,
-    :Rotate,
-    :Resize
-  ]
   @concrete_transform_names [
     :Scale,
     :Contain,
@@ -106,7 +86,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Dialect,
       ImagePipe.Native,
       ImagePipe.Error,
       ImagePipe.Output,
@@ -118,51 +97,15 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
-    refute_boundary_deps(plug, [
-      ImagePipe.Dialect.Imgproxy
-    ])
-
-    # U2: the mount is the whole surface. `ImagePipe.Plug.DialectRunner` is the
-    # internal lifecycle, not a host contract.
     assert_boundary_exports(plug, [])
   end
 
-  test "dialect contract boundary pins the host-facing struct surface (U6)" do
-    contract = boundary_declaration(ImagePipe.Dialect)
+  test "native parsing and configuration depend on runtime facades" do
+    native = boundary_declaration(ImagePipe.Native)
 
-    assert_boundary_deps(contract, [
-      ImagePipe.Output,
-      ImagePipe.Plan,
-      ImagePipe.Representation,
-      ImagePipe.Source,
-      ImagePipe.Transform
-    ])
-
-    # Widening the contract hands every dialect transitive reach into the
-    # runner's own lifecycle deps and hollows out the per-dialect
-    # `refute_boundary_deps` pins below that prove no dialect can touch them.
-    refute_boundary_deps(contract, [ImagePipe.Cache, ImagePipe.Delivery])
-
-    # The five structs a dialect implementation names to satisfy the callbacks.
-    # Anything added here is new public surface for every host dialect, so the
-    # list is pinned exactly rather than by inclusion.
-    assert_boundary_exports(contract, [
-      ImagePipe.Dialect.DebugContext,
-      ImagePipe.Dialect.Failure,
-      ImagePipe.Dialect.Negotiation,
-      ImagePipe.Dialect.RenderTerminal,
-      ImagePipe.Dialect.Resolved
-    ])
-  end
-
-  test "dialect native boundary declaration depends only on core toolkit facades" do
-    dialect_native = boundary_declaration(ImagePipe.Native)
-
-    assert_boundary_deps(dialect_native, [
-      ImagePipe.Config,
+    assert_boundary_deps(native, [
+      ImagePipe.Cache,
       ImagePipe.Decode,
-      ImagePipe.Dialect,
-      ImagePipe.Dialect.SharedConfig,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
@@ -174,82 +117,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
-    # The Plug runner owns the cache and delivery lifecycle.
-    refute_boundary_deps(dialect_native, [
-      ImagePipe.Cache,
-      ImagePipe.Delivery
-    ])
+    refute_boundary_deps(native, [ImagePipe.Delivery, ImagePipe.Plug])
 
     # A host implements `SourceScheme` to translate a custom `foo://` source
     # into the shared Plan.Source model. The native parser and lifecycle remain
     # concrete internal implementation.
-    assert_boundary_exports(dialect_native, [ImagePipe.Native.SourceScheme])
-  end
-
-  test "the plug and request lifecycle have no dependency on compatibility implementations" do
-    files =
-      ["lib/image_pipe/plug.ex" | Path.wildcard("lib/image_pipe/plug/**/*.ex")]
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    violations =
-      for file <- files,
-          {line, number} <-
-            file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
-          Regex.match?(~r/Dialect\.Imgproxy\b/, line) do
-        "#{file}:#{number} names a concrete dialect: #{String.trim(line)}"
-      end
-
-    assert violations == [],
-           "native request orchestration must not depend on compatibility implementations: " <>
-             inspect(violations)
-  end
-
-  test "dialect imgproxy boundary declaration depends only on core toolkit facades" do
-    dialect_imgproxy = boundary_declaration(ImagePipe.Dialect.Imgproxy)
-
-    assert_boundary_deps(dialect_imgproxy, [
-      ImagePipe.Config,
-      ImagePipe.Decode,
-      ImagePipe.Dialect,
-      ImagePipe.Dialect.SharedConfig,
-      ImagePipe.Error,
-      ImagePipe.Format,
-      ImagePipe.Plan,
-      ImagePipe.Representation,
-      ImagePipe.Response,
-      ImagePipe.Telemetry,
-      ImagePipe.Transform
-    ])
-
-    # Same rule as the native dialect: only core toolkit facades.
-    # `ImagePipe.Config` is the one dep native does not take — this dialect's
-    # `Config` splits its flat host keyword three ways and validates the neutral
-    # half through the core config boundary, which is a core facade. The runner
-    # in `ImagePipe.Plug` owns the cache and delivery lifecycle, so those deps
-    # are gone too.
-    refute_boundary_deps(dialect_imgproxy, [
-      ImagePipe.Cache,
-      ImagePipe.Delivery
-    ])
-
-    # `SourceScheme` is the one export: a host implements it to translate a
-    # custom `foo://` source scheme. Nothing else in the dialect is a host
-    # contract, so nothing else is exported.
-    assert_boundary_exports(dialect_imgproxy, [ImagePipe.Dialect.Imgproxy.SourceScheme])
-  end
-
-  test "dialect SharedConfig boundary declaration stays product-neutral" do
-    shared_config = boundary_declaration(ImagePipe.Dialect.SharedConfig)
-
-    assert_boundary_deps(shared_config, [
-      ImagePipe.Cache,
-      ImagePipe.Format,
-      ImagePipe.Source,
-      ImagePipe.Telemetry
-    ])
-
-    assert_boundary_exports(shared_config, [])
+    assert_boundary_exports(native, [ImagePipe.Native.SourceScheme])
   end
 
   test "decode boundary declaration depends only on the core fetch/decode toolkit" do
@@ -268,7 +141,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # output, renderer, or response layers.
     refute_boundary_deps(decode, [
       ImagePipe.Cache,
-      ImagePipe.Config,
       ImagePipe.Output,
       ImagePipe.Response
     ])
@@ -279,46 +151,32 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "delivery boundary declaration depends only on core streaming/cache facades" do
     delivery = boundary_declaration(ImagePipe.Delivery)
 
-    # `ImagePipe.Output` is a pinned-but-currently-unused declared dep (a known
-    # dead entry left by the extraction); this pins the declared list as-is.
     assert_boundary_deps(delivery, [
       ImagePipe.Cache,
       ImagePipe.Debug,
-      ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ])
 
-    # The shared delivery primitive must not reach into the renderer or config
-    # layers, and must never name a concrete dialect.
-    refute_boundary_deps(delivery, [ImagePipe.Config])
-
     assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
   end
 
-  test "core and transform code does not name a dialect" do
+  test "core and transform code do not depend on native request parsing" do
     # Source/response/cache/output/plan/transform stay independent of URL
     # parsing. The mount selects the native implementation.
     exempt = ["lib/image_pipe/plug.ex"]
 
     violations =
-      for file <- dialect_forbidden_files(),
+      for file <- parsing_forbidden_files(),
           file not in exempt,
-          violation <- dialect_references(file) do
+          violation <- parsing_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; " <>
-          "a dialect must be removable without changing the core"
+          "runtime image work must not depend on URL parsing"
       end
 
     assert violations == []
-  end
-
-  test "the dialect-forbidden grep excludes the dialect directory" do
-    dialect_files = Path.wildcard("lib/image_pipe/dialect/**/*.ex")
-
-    assert dialect_files != []
-    assert Enum.all?(dialect_files, &(&1 not in dialect_forbidden_files()))
   end
 
   test "application boundary owns OTP startup" do
@@ -380,7 +238,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Response.CachePolicy,
       ImagePipe.Response.Conditional,
       ImagePipe.Response.ErrorStatus,
-      ImagePipe.Response.Json,
       ImagePipe.Response.PreparedStream,
       ImagePipe.Response.Sender
     ])
@@ -498,20 +355,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(format, [ImagePipe.Format.Detector])
   end
 
-  test "config boundary depends only on format and plan, exports nothing" do
-    config = boundary_declaration(ImagePipe.Config)
-
-    assert_boundary_deps(config, [ImagePipe.Plan])
-    assert_boundary_exports(config, [])
-
-    refute_boundary_deps(config, [ImagePipe.Output, ImagePipe.Cache])
-  end
-
   test "output boundary depends only on format and plan data" do
     output = boundary_declaration(ImagePipe.Output)
 
     assert_boundary_deps(output, [
-      ImagePipe.Config,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Plan,
@@ -531,16 +378,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       for file <- request_source_response_files(),
           violation <- concrete_transform_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; use ImagePipe.Transform dispatch instead"
-      end
-
-    assert violations == []
-  end
-
-  test "request, source, and response code does not depend on concrete plan operation modules" do
-    violations =
-      for file <- request_source_response_files(),
-          violation <- concrete_plan_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; use generic Plan/Transform facades instead"
       end
 
     assert violations == []
@@ -624,26 +461,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports_include(transform, [
       ImagePipe.Transform.Executor,
       ImagePipe.Transform.State,
-      ImagePipe.Transform.Chain,
       ImagePipe.Transform.DecodePlanner,
       ImagePipe.Transform.DecodePlanner.Request,
       ImagePipe.Transform.Materializer,
       ImagePipe.Transform.SourceGeometry,
-      ImagePipe.Transform.Operation.Resize,
-      ImagePipe.Transform.Operation.ExtendCanvas,
-      ImagePipe.Transform.Operation.Padding,
-      ImagePipe.Transform.Operation.Background,
-      ImagePipe.Transform.Operation.Bitonal,
-      ImagePipe.Transform.Operation.Crop,
-      ImagePipe.Transform.Operation.Blur,
-      ImagePipe.Transform.Operation.Sharpen,
-      ImagePipe.Transform.Operation.Pixelate,
-      ImagePipe.Transform.Operation.Monochrome,
-      ImagePipe.Transform.Operation.Duotone,
-      ImagePipe.Transform.Operation.Gray,
-      ImagePipe.Transform.Operation.Brightness,
-      ImagePipe.Transform.Operation.Contrast,
-      ImagePipe.Transform.Operation.Saturation
+      ImagePipe.Transform.PendingOrientation,
+      ImagePipe.Transform.Detector,
+      ImagePipe.Transform.Detector.Warmup
     ])
   end
 
@@ -670,36 +494,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Response,
       ImagePipe.Plan.SourceInfo,
       ImagePipe.Plan.Color,
-      ImagePipe.Plan.KeyData,
-      ImagePipe.Plan.Measure,
       ImagePipe.Plan.Source,
       ImagePipe.Plan.Source.Identity,
       ImagePipe.Plan.Source.Path,
       ImagePipe.Plan.Source.URL,
       ImagePipe.Plan.Source.Object,
-      ImagePipe.Plan.Source.Reference,
-      ImagePipe.Plan.Operation,
-      ImagePipe.Plan.Operation.Background,
-      ImagePipe.Plan.Operation.Bitonal,
-      ImagePipe.Plan.Operation.Blur,
-      ImagePipe.Plan.Operation.Brightness,
-      ImagePipe.Plan.Operation.Canvas,
-      ImagePipe.Plan.Operation.Colorize,
-      ImagePipe.Plan.Operation.Contrast,
-      ImagePipe.Plan.Operation.CropGuided,
-      ImagePipe.Plan.Operation.CropRegion,
-      ImagePipe.Plan.Operation.Duotone,
-      ImagePipe.Plan.Operation.Flip,
-      ImagePipe.Plan.Operation.Gradient,
-      ImagePipe.Plan.Operation.Gray,
-      ImagePipe.Plan.Operation.Monochrome,
-      ImagePipe.Plan.Operation.Padding,
-      ImagePipe.Plan.Operation.Pixelate,
-      ImagePipe.Plan.Operation.Rotate,
-      ImagePipe.Plan.Operation.Resize,
-      ImagePipe.Plan.Operation.Saturation,
-      ImagePipe.Plan.Operation.Sharpen,
-      ImagePipe.Plan.Operation.Trim
+      ImagePipe.Plan.Source.Reference
     ])
   end
 
@@ -731,18 +531,26 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.sort()
   end
 
-  defp dialect_forbidden_files do
-    @dialect_forbidden_globs
+  defp parsing_forbidden_files do
+    @parsing_forbidden_globs
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.uniq()
     |> Enum.sort()
   end
 
-  defp dialect_references(file) do
-    for {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
-        module <- ["ImagePipe.Dialect", "ImagePipe.Native"],
-        String.contains?(line, module),
-        do: %{line: number, module: module}
+  defp parsing_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {:__aliases__, meta, [:ImagePipe, :Native | _] = parts} = node, violations ->
+          {node, [violation(meta, Enum.join(parts, ".")) | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
   end
 
   defp boundary_declaration(module) do
@@ -889,45 +697,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp module_alias({:__aliases__, _meta, parts}), do: Module.concat(parts)
 
-  defp concrete_plan_references(file) do
-    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
-
-    {_ast, violations} =
-      Macro.prewalk(ast, [], fn
-        {tag, meta,
-         [
-           {{:., _dot_meta, [grouped_alias_prefix, :{}]}, _call_meta, grouped_aliases}
-         ]} = node,
-        violations
-        when tag in [:alias, :import] ->
-          grouped_aliases
-          |> Enum.map(&concrete_plan_grouped_alias(grouped_alias_prefix, &1))
-          |> Enum.reject(&is_nil/1)
-          |> Enum.map(&violation(meta, concrete_plan_module(&1)))
-          |> then(&{node, &1 ++ violations})
-
-        {:__aliases__, meta, [:ImagePipe, :Plan, :Operation, operation | _rest]} = node,
-        violations
-        when operation in @concrete_plan_names ->
-          {node, [violation(meta, concrete_plan_module(operation)) | violations]}
-
-        {:__aliases__, meta, [:Plan, :Operation, operation | _rest]} = node, violations
-        when operation in @concrete_plan_names ->
-          {node, [violation(meta, "Plan.Operation.#{operation}") | violations]}
-
-        {:__aliases__, meta, [:Operation, operation | _rest]} = node, violations
-        when operation in @concrete_plan_names ->
-          {node, [violation(meta, "Operation.#{operation}") | violations]}
-
-        node, violations ->
-          {node, violations}
-      end)
-
-    violations
-    |> Enum.reverse()
-    |> Enum.uniq()
-  end
-
   defp concrete_transform_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
 
@@ -1028,27 +797,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> concrete_transform_name()
   end
 
-  defp concrete_plan_grouped_alias(prefix, alias) do
-    prefix
-    |> alias_parts()
-    |> Kernel.++(grouped_alias_parts(alias))
-    |> concrete_plan_name()
-  end
-
-  defp concrete_plan_name([:ImagePipe, :Plan, :Operation, operation | _rest])
-       when operation in @concrete_plan_names,
-       do: operation
-
-  defp concrete_plan_name([:Plan, :Operation, operation | _rest])
-       when operation in @concrete_plan_names,
-       do: operation
-
-  defp concrete_plan_name([:Operation, operation | _rest])
-       when operation in @concrete_plan_names,
-       do: operation
-
-  defp concrete_plan_name(_parts), do: nil
-
   defp concrete_transform_name([:ImagePipe, :Transform, :Operation, transform | _rest])
        when transform in @concrete_transform_names,
        do: transform
@@ -1081,15 +829,5 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp concrete_transform_module(transform), do: "ImagePipe.Transform.Operation.#{transform}"
 
-  defp concrete_plan_module({:__aliases__, _meta, [operation]}),
-    do: concrete_plan_module(operation)
-
-  defp concrete_plan_module({:__aliases__, _meta, [operation | _rest]}),
-    do: concrete_plan_module(operation)
-
-  defp concrete_plan_module(operation), do: "ImagePipe.Plan.Operation.#{operation}"
-
-  defp violation(meta, module) do
-    %{line: Keyword.fetch!(meta, :line), module: module}
-  end
+  defp violation(meta, module), do: %{line: Keyword.get(meta, :line, 0), module: module}
 end

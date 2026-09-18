@@ -1,9 +1,9 @@
 defmodule ImagePipe.Transform.SourceGeometry do
   @moduledoc """
   Pre-decode geometry facts produced by `ImagePipe.Decode.with_image/4`'s
-  header open, handed to `decode_request_fun` (and to the paired
-  `Transform.State`-consuming callback) so it can plan against the display
-  frame without re-deriving orientation compensation itself.
+  header open. The native executor uses them to plan against the display frame,
+  and the paired `Transform.State`-consuming callback receives them for output
+  negotiation and source reporting.
 
   It contains the storage/display extents, the pending orientation observed
   during decode, and the resolved source format. Runtime image geometry and
@@ -33,15 +33,4 @@ defmodule ImagePipe.Transform.SourceGeometry do
           source_format: Format.source_format(),
           debug_facts: map()
         }
-
-  @doc """
-  The frame a dialect should plan geometry against: `display_dimensions` when
-  `auto_rotate?` is true, `storage_dimensions` otherwise. The caller's own
-  EXIF policy choice (never baked into this struct's shape) selects the
-  answer; `display_dimensions` itself was already computed at construction
-  time from whatever pending orientation the decode was seeded with.
-  """
-  @spec planning_frame(t(), boolean()) :: {pos_integer(), pos_integer()}
-  def planning_frame(%__MODULE__{display_dimensions: dims}, true), do: dims
-  def planning_frame(%__MODULE__{storage_dimensions: dims}, false), do: dims
 end

@@ -1,55 +1,33 @@
 defmodule ImagePipe.Native.Identity do
   @moduledoc """
-  Composes the native dialect's representation identity material [native
-  §Canonical form and identity].
+  Builds representation identity from canonical native request data and the
+  resolved output policy. Byte-affecting groups, terminal, output selection,
+  and detector identity enter both the cache key and ETag. Source info carries
+  only its terminal identity.
 
-  `material/5` builds an `ImagePipe.Representation.IdentityMaterial` from the
-  canonical `%Request{}` plus the negotiation outcome (Task 15's
-  `negotiate/3`) — never from raw `conn` state beyond configured
-  `storage_inputs`, and never from `expires`, the signature, or the matched
-  signing-key index (those are gates, not identity):
-
-    * `representation` — the canonical transform groups, the terminal
-      identity (`:image`, `Output.Terminal.Blurhash.identity/0`, or the
-      versioned source-info identity), the negotiated format selection outcome
-      (image terminal only), the effective output policy material
-      (`negotiation.policy_material`), and the relevant detector model identity
-      when this request uses detection. Source info has no pixel or image-output
-      inputs and therefore carries only its terminal identity.
-    * `storage_only` — the request cachebuster plus configured `storage_inputs`
-      values (`ImagePipe.Representation.storage_inputs/2`); `conn` contributes
-      to identity only through the configured inputs.
-    * `dialect_behavior` — `@dialect_epoch`, this dialect's behavioral epoch.
-    * `vary_header_names` — the configured storage-vary header names, plus
-      `"Accept"` when `negotiation.vary?` is true.
-
-  `source` is never part of this material — it is a separate
-  `source_identity` (from `ImagePipe.Source.Resolved`) that the dialect
-  passes to `Representation.build/3` alongside this material.
+  The cachebuster and configured request-header/cookie storage inputs partition
+  cache storage without changing the ETag. Expiry, signatures, filenames,
+  attachment, and debug presentation do not enter identity. The caller passes
+  source byte identity separately to `ImagePipe.Representation.build/3`.
   """
 
-  alias ImagePipe.Dialect.Negotiation
   alias ImagePipe.Native.Info
+  alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Plan.Request
   alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
 
-  # This dialect's behavioral epoch — bumped whenever a parser/pipeline
-  # semantics change must invalidate every representation this dialect has
-  # ever built, independent of the core's own execution epoch.
-  @dialect_epoch {ImagePipe.Native, 1}
-
   @doc """
   Builds the representation identity material for `request`, given the negotiation
   outcome, the incoming `conn` (consulted only for configured
-  `storage_inputs`), and dialect `config`.
+  `storage_inputs`), and mount `config`.
   """
-  @spec material(Request.t(), Negotiation.t(), Plug.Conn.t(), keyword(), term() | nil) ::
+  @spec material(Request.t(), Policy.t() | nil, Plug.Conn.t(), keyword(), term() | nil) ::
           IdentityMaterial.t()
   def material(
         %Request{} = request,
-        %Negotiation{} = negotiation,
+        policy,
         %Plug.Conn{} = conn,
         config,
         detector_identity
@@ -60,10 +38,10 @@ defmodule ImagePipe.Native.Identity do
 
     storage_only = cachebuster_material(request.cachebuster) ++ configured_storage_only
 
-    representation = representation_material(request, negotiation, detector_identity)
+    representation = representation_material(request, policy, detector_identity)
 
     vary_header_names =
-      if negotiation.vary? do
+      if varies_by_accept?(policy) do
         Enum.uniq(storage_vary_names ++ ["Accept"])
       else
         storage_vary_names
@@ -72,36 +50,52 @@ defmodule ImagePipe.Native.Identity do
     %IdentityMaterial{
       representation: representation,
       storage_only: storage_only,
-      dialect_behavior: @dialect_epoch,
       vary_header_names: vary_header_names
     }
   end
 
   defp representation_material(
-         %Request{},
-         %Negotiation{selected: {:terminal, :info}},
+         %Request{output: %{terminal: :info}},
+         nil,
          _detector_identity
        ) do
     [terminal: Info.identity()]
   end
 
-  defp representation_material(request, negotiation, detector_identity) do
+  defp representation_material(
+         %Request{output: %{terminal: :blurhash}} = request,
+         nil,
+         detector_identity
+       ) do
     [orient: request.orient, groups: canonical_groups(request.groups)] ++
-      selection_material(negotiation.selected) ++
-      [output_policy: negotiation.policy_material] ++
+      [terminal: Blurhash.identity(), output_policy: []] ++
       detector_material(detector_identity)
+  end
+
+  defp representation_material(request, %Policy{} = policy, detector_identity) do
+    [
+      orient: request.orient,
+      groups: canonical_groups(request.groups),
+      terminal: :image,
+      selection: {:image, selected_format(policy)},
+      output_policy: Policy.identity_material(policy)
+    ] ++ detector_material(detector_identity)
   end
 
   defp cachebuster_material(nil), do: []
   defp cachebuster_material(cachebuster), do: [cachebuster: cachebuster]
 
-  defp selection_material({:image, _selection} = selected) do
-    [terminal: :image, selection: selected]
+  defp selected_format(policy) do
+    case Policy.identity_selection(policy) do
+      {:explicit, format} -> format
+      {:auto_head, format} -> format
+      :source_negotiated -> :source_negotiated
+    end
   end
 
-  defp selection_material({:terminal, :blurhash}) do
-    [terminal: Blurhash.identity()]
-  end
+  defp varies_by_accept?(nil), do: false
+  defp varies_by_accept?(%Policy{mode: {:explicit, _format}}), do: false
+  defp varies_by_accept?(%Policy{}), do: true
 
   defp detector_material(nil), do: []
   defp detector_material(identity), do: [detector: identity]

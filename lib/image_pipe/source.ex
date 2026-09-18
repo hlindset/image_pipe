@@ -1,5 +1,15 @@
 defmodule ImagePipe.Source do
-  @moduledoc false
+  @moduledoc """
+  Behaviour for source adapters.
+
+  A source adapter validates its mount options, resolves canonical
+  `ImagePipe.Plan.Source` values into a `ImagePipe.Source.Resolved` value, and
+  fetches that value as an `ImagePipe.Source.Response`. Configure adapters
+  under the native mount's `:sources` option.
+
+  Adapter callbacks receive their own validated options and a projected set
+  of runtime limits. They never receive the complete mount configuration.
+  """
 
   use Boundary,
     top_level?: true,

@@ -11,7 +11,6 @@ defmodule ImagePipe.RepresentationTest do
     base = [
       representation: [groups: [], terminal: :image, selection: {:explicit, :webp}],
       storage_only: [cachebuster: nil],
-      dialect_behavior: {ImagePipe.Native, 1},
       vary_header_names: ["Accept"]
     ]
 
@@ -58,6 +57,14 @@ defmodule ImagePipe.RepresentationTest do
     assert a.etag != b.etag
   end
 
+  test "a source byte revision moves the key and etag for the same logical source" do
+    a = Representation.build(source_identity(), material(), {:strong, "revision-1"})
+    b = Representation.build(source_identity(), material(), {:strong, "revision-2"})
+
+    assert a.cache_key.hash != b.cache_key.hash
+    assert a.etag != b.etag
+  end
+
   test "a representation change moves both the key and the etag" do
     a = build(source_identity(), material())
 
@@ -65,23 +72,6 @@ defmodule ImagePipe.RepresentationTest do
       build(
         source_identity(),
         material(representation: [groups: [], terminal: :blurhash])
-      )
-
-    assert a.cache_key.hash != b.cache_key.hash
-    assert a.etag != b.etag
-  end
-
-  test "a dialect_behavior epoch bump moves both the key and the etag" do
-    a =
-      build(
-        source_identity(),
-        material(dialect_behavior: {ImagePipe.Native, 1})
-      )
-
-    b =
-      build(
-        source_identity(),
-        material(dialect_behavior: {ImagePipe.Native, 2})
       )
 
     assert a.cache_key.hash != b.cache_key.hash

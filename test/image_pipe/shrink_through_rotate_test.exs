@@ -3,7 +3,6 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Imgproxy
   alias ImagePipe.Native
   alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Plan.Request
@@ -14,7 +13,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
   # Shrink-on-load through a preceding 90/270 user rotate (#151, the B2 extension).
   # Today a quarter-turn rotate before the resize forces a full-resolution decode;
-  # this exercises the imgproxy-parity path where the JPEG is shrunk on load and the
+  # this exercises the native path where the JPEG is shrunk on load and the
   # shrink axes are swapped to match the combined net orientation turn (ExtractGeometry
   # `(angle + baseAngle) % 180`). Output must stay pixel-equivalent (±1px each axis,
   # perceptually identical) to the full-decode path.
@@ -60,49 +59,13 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
     Decode.with_image(
       source,
-      Keyword.put(opts, :auto_rotate?, true),
-      &Executor.decode_request(request, &1),
+      request,
+      opts,
       fn state, _geometry ->
         {:ok, %State{} = final} = Executor.execute(state, request, opts)
         {final.image, shrink_factor(state.decode_shrink)}
       end
     )
-  end
-
-  defp run_imgproxy(body, options) do
-    telemetry_prefix = [:"shrink_rotate_#{System.unique_integer([:positive])}"]
-    decode_stop = telemetry_prefix ++ [:source, :fetch_decode, :stop]
-    handler_id = {__MODULE__, self(), telemetry_prefix}
-
-    :telemetry.attach(
-      handler_id,
-      decode_stop,
-      &__MODULE__.handle_decode_stop/4,
-      {self(), telemetry_prefix}
-    )
-
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-
-    opts =
-      body
-      |> mount_options()
-      |> Keyword.put(:telemetry_prefix, telemetry_prefix)
-      |> Keyword.put(:dialect, Imgproxy)
-      |> ImagePipe.Plug.init()
-
-    conn =
-      :get
-      |> Plug.Test.conn("/_/#{options}/f:png/plain/rot.img")
-      |> ImagePipe.Plug.call(opts)
-
-    assert conn.status == 200
-    assert_receive {:decode_stop, ^telemetry_prefix, metadata}
-
-    {Image.from_binary!(conn.resp_body), load_shrink(Map.get(metadata, :load_option))}
-  end
-
-  def handle_decode_stop(_event, _measurements, metadata, {test_pid, telemetry_prefix}) do
-    send(test_pid, {:decode_stop, telemetry_prefix, metadata})
   end
 
   defp request(options, opts) do
@@ -116,9 +79,6 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   # planner asked for. `nil` when the decode was not shrunk at all.
   defp shrink_factor(nil), do: nil
   defp shrink_factor(%{w: w}), do: round(w)
-
-  defp load_shrink(nil), do: nil
-  defp load_shrink({:shrink, factor}), do: factor
 
   defp opts(body) do
     body
@@ -251,10 +211,11 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
   describe "crop + rotate + resize (B1 ∘ B2)" do
     test "gravity crop + rot:90 + resize composes B1 and B2" do
-      options = "rot:90/c:1600:1600:nowe:600:400/rs:fit:400:400"
+      options =
+        "rotate=90/crop=1600,1600/anchor=top-left/anchor-offset=600,400/w=400/h=400"
 
-      {jpeg_img, shrink} = run_imgproxy(structured(@src, @src, ".jpg"), options)
-      {png_img, no_shrink} = run_imgproxy(structured(@src, @src, ".png"), options)
+      {jpeg_img, shrink} = run(structured(@src, @src, ".jpg"), options)
+      {png_img, no_shrink} = run(structured(@src, @src, ".png"), options)
 
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "rot:90 + gravity crop -> fit:400:400")
@@ -271,10 +232,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
       opts = opts(body)
       request = request("rotate=90/w=400/h=400", opts)
 
-      over_limit =
-        opts
-        |> Keyword.put(:max_input_pixels, @src * @src - 1)
-        |> Keyword.put(:auto_rotate?, true)
+      over_limit = Keyword.put(opts, :max_input_pixels, @src * @src - 1)
 
       {:ok, source_request} = NativeSource.translate(request.source, over_limit)
       {:ok, source} = Source.resolve(source_request, over_limit, [])
@@ -282,8 +240,8 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =
                Decode.with_image(
                  source,
+                 request,
                  over_limit,
-                 &Executor.decode_request(request, &1),
                  fn _state, _geometry ->
                    flunk("decode must not run past the pixel-limit gate")
                  end

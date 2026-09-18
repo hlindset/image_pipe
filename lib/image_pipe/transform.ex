@@ -12,58 +12,22 @@ defmodule ImagePipe.Transform do
     top_level?: true,
     deps: [ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
-      # Runtime execution contract — consumed by the request layer.
+      # Runtime execution contract.
       Executor,
       State,
-      Chain,
       DecodePlanner,
       DecodePlanner.Request,
       Materializer,
       Detector,
       Detector.Warmup,
-      # Decode-time geometry value produced by `ImagePipe.Decode.with_image/4`'s
-      # header open and consumed by a dialect's decode preflight.
+      # Decode-time geometry produced by the header open and consumed by decode
+      # preflight.
       SourceGeometry,
-      # Dialect-pipeline contract — the structs and neutral lowering helpers the
-      # in-tree dialect Pipelines consume directly: the shape value, the neutral
-      # resolver, point/orientation geometry, and the executable operations a
-      # Pipeline emits (including their pure geometry helpers, e.g.
-      # `Crop.resolved_rect/3`).
-      SourceShape,
-      NeutralResolver,
-      Focus,
-      PendingOrientation,
-      Operation.Resize,
-      Operation.Rotate,
-      Operation.ExtendCanvas,
-      Operation.Padding,
-      Operation.Background,
-      Operation.Bitonal,
-      Operation.Crop,
-      Operation.Blur,
-      Operation.Sharpen,
-      Operation.Pixelate,
-      Operation.Monochrome,
-      Operation.Duotone,
-      Operation.Gray,
-      Operation.Brightness,
-      Operation.Contrast,
-      Operation.Saturation,
-      Operation.Colorize,
-      Operation.Gradient,
-      Operation.Trim,
-      Operation.Flush,
-      # Internal lowering seams — exported only for the in-tree dialect
-      # Pipelines; subject to change without notice.
-      Lowering,
-      ResizePlanning,
-      # Input color-management preamble — dialect-callable (spec G4);
-      InputColorManagement
+      PendingOrientation
     ]
 
   alias ImagePipe.Transform.State
 
-  @type attrs() :: keyword()
   @type operation() :: struct()
 
   @callback name(operation()) :: atom()

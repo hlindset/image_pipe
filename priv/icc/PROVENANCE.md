@@ -1,13 +1,9 @@
 # ICC profile provenance
 
-These three profiles are **CC0 / public-domain substitutes** shipped for the
-imgproxy `cp`/`icc` color-profile target (feature #119). They are **not** the
-vendor-authored profiles. Each substitute's **primaries match the named vendor
-target** (so the gamut conversion is correct), but the embedded profile
-`description` text and the tone-response-curve (TRC) representation differ from
-whatever a given vendor ships. Where this produces an observable divergence
-from upstream imgproxy, see the divergence note in
-[`docs/imgproxy_support_matrix.md`](../../docs/imgproxy_support_matrix.md).
+These three **CC0 / public-domain profiles** provide the native `profile=srgb`,
+`profile=display-p3`, and `profile=adobe-rgb` output targets. Each profile uses
+the named color space's primaries. Its embedded description and
+tone-response-curve representation come from the source collection below.
 
 All three files are taken verbatim from
 [saucecontrol/Compact-ICC-Profiles](https://github.com/saucecontrol/Compact-ICC-Profiles),

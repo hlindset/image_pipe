@@ -1,8 +1,8 @@
 defmodule ImagePipe.Response.ErrorStatus do
   @moduledoc false
   # Maps an internal processing failure reason to a client-facing
-  # {http_status, message}. Status is keyed on a small closed class vocabulary
-  # (the host-override seam); message is keyed on the full reason. classify/1
+  # {http_status, message}. Status is keyed on a small closed class vocabulary;
+  # message is keyed on the full reason. classify/1
   # resolves a class-leading reason first ({<known_class>, _detail}), then the
   # core domain table, then a total fallback. See
   # docs/superpowers/specs/2026-06-29-error-status-mapping-design.md.
@@ -37,22 +37,8 @@ defmodule ImagePipe.Response.ErrorStatus do
     :server_error
   ]
 
-  @plan_validation_error_tags [
-    :unsupported_source,
-    :invalid_output_plan,
-    :invalid_expires,
-    :invalid_cachebuster,
-    :invalid_response_plan,
-    :invalid_pipeline_plan,
-    :invalid_pipeline_operation,
-    :unprojectable_operation_for_cache_adapter,
-    :detector_unavailable
-  ]
-
-  @spec resolve_status(term(), keyword()) :: {100..599, String.t()}
-  def resolve_status(reason, _opts \\ []) do
-    # _opts is the Option-A seam: a future host policy is consulted here before
-    # the default table. Threaded now so adding it touches only this function.
+  @spec resolve_status(term()) :: {100..599, String.t()}
+  def resolve_status(reason) do
     {default_status_code(classify(reason)), message_for(reason)}
   end
 
@@ -60,19 +46,14 @@ defmodule ImagePipe.Response.ErrorStatus do
 
   @spec classify(term()) :: class()
   def classify({:transform_error, inner}), do: class_lead(inner) || :unprocessable
-  def classify({:render, inner}), do: classify(inner)
   def classify({:source, inner}), do: class_lead(inner) || source_domain_class(inner)
   def classify({:decode, _}), do: :unsupported_media
-  def classify({:unsupported_source_format, _}), do: :unsupported_media
   def classify(:source_format_required), do: :unsupported_media
   def classify({:input_limit, _}), do: :payload_too_large
   def classify({:unsupported_output_format, _}), do: :unsupported_output
   def classify({:encode, _}), do: :server_error
   def classify({:encode, _, _}), do: :server_error
-  def classify({:cache_write, _}), do: :server_error
-  def classify({:config, _}), do: :server_error
-  def classify(:empty_pipeline_plan), do: :unprocessable
-  def classify({tag, _}) when tag in @plan_validation_error_tags, do: :unprocessable
+  def classify({:detector_unavailable, _}), do: :unprocessable
   def classify(_other), do: :server_error
 
   # Step 1: a reason that leads with a known class atom routes by that class.
@@ -120,15 +101,11 @@ defmodule ImagePipe.Response.ErrorStatus do
   # --- message table (reason-keyed; specific, never embeds a URL) ------------
 
   @spec message_for(term()) :: String.t()
-  def message_for({:transform_error, {:bad_request, :upscale_required}}),
-    do: "upscaling requires the ^ prefix"
-
   def message_for({:transform_error, {:bad_request, :region_out_of_bounds}}),
     do: "requested region is outside the image"
 
   def message_for({:transform_error, {:bad_request, _}}), do: "bad request"
   def message_for({:transform_error, _}), do: "invalid image transform"
-  def message_for({:render, inner}), do: message_for(inner)
   def message_for({:source, {:bad_status, code}}), do: "upstream responded #{code}"
   def message_for({:source, :connect_error}), do: "source unreachable"
   def message_for({:source, :too_many_redirects}), do: "too many redirects"
@@ -150,24 +127,16 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:source, _}), do: "invalid image source"
 
   def message_for({:decode, _}), do: "source response is not a supported image"
-  def message_for({:unsupported_source_format, _}), do: "source response is not a supported image"
   def message_for(:source_format_required), do: "source response is not a supported image"
   def message_for({:input_limit, _}), do: "source image is too large"
 
   def message_for({:unsupported_output_format, _}),
     do: "requested output format is not supported by this server"
 
-  def message_for({:cache_write, _}), do: "cache error"
-  def message_for({:config, _}), do: "configuration error"
   def message_for({:encode, _}), do: "error encoding image"
   def message_for({:encode, _, _}), do: "error encoding image"
 
-  # Transform + plan-validation family share one opaque message (a transform/plan
-  # failed); source errors are the diagnostic family above.
-  def message_for(:empty_pipeline_plan), do: "invalid image transform"
-
-  def message_for({tag, _}) when tag in @plan_validation_error_tags,
-    do: "invalid image transform"
+  def message_for({:detector_unavailable, _}), do: "invalid image transform"
 
   # Any reason not matched above is an unrecognized/unknown failure, which
   # classify/1 maps to :server_error (500).

@@ -2,13 +2,14 @@ defmodule ImagePipe.DecodeFactsTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.SharedConfig
+  alias ImagePipe.Native.Config
+  alias ImagePipe.Native.Parser
+  alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Test.PlugFixture.OriginImage
   alias ImagePipe.Transform.SourceGeometry
-  alias ImgproxyWireConformanceTest.OriginImage
 
   @sources [
     path:
@@ -17,17 +18,22 @@ defmodule ImagePipe.DecodeFactsTest do
   ]
 
   test "with_image geometry carries the six source debug facts" do
-    # validate_runtime! converts :sources into the map Source.resolve expects
-    # and supplies the max_body_bytes/max_input_pixels defaults decode reads.
-    config = SharedConfig.validate_runtime!(sources: @sources)
+    config = Config.validate!(sources: @sources)
     source = %Path{segments: ["images", "beach.jpg"]}
     {:ok, resolved} = Source.resolve(source, config, config)
+    source_value = "images/beach.jpg"
+
+    assert {:ok, %Request{} = request} =
+             Parser.parse(
+               %{segments: [], source: {:src, source_value, {0, byte_size(source_value)}}},
+               config
+             )
 
     result =
       Decode.with_image(
         resolved,
-        Keyword.put(config, :auto_rotate?, true),
-        fn _geometry -> %DecodePlanner.Request{} end,
+        request,
+        config,
         fn _state, %SourceGeometry{debug_facts: facts} -> {:ok, facts} end
       )
 

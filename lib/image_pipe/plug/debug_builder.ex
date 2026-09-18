@@ -1,15 +1,13 @@
 defmodule ImagePipe.Plug.DebugBuilder do
   @moduledoc false
-  # The default neutral Debug.Info builder (design decision U13). Runs
-  # unconditionally on every generation; rendering is gated at delivery.
+  # Builds debug facts on every generation; rendering is gated at delivery.
 
   alias ImagePipe.Debug.Info
-  alias ImagePipe.Dialect.DebugContext
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
 
-  @spec build(DebugContext.t()) :: Info.t()
-  def build(%DebugContext{} = ctx) do
+  @spec build(map()) :: Info.t()
+  def build(ctx) do
     {source_width, source_height} = ctx.geometry.storage_dimensions
     facts = ctx.geometry.debug_facts
 
@@ -25,7 +23,7 @@ defmodule ImagePipe.Plug.DebugBuilder do
       source_orientation: Map.get(facts, :source_orientation),
       shrink: ctx.shrink,
       output_format: ctx.resolved_output.format,
-      output_negotiated?: negotiated?(ctx.negotiation.policy),
+      output_negotiated?: negotiated?(ctx.policy),
       output_width: Image.width(ctx.image),
       output_height: Image.height(ctx.image),
       output_quality: output_quality(ctx.resolved_output, ctx.search_meta),

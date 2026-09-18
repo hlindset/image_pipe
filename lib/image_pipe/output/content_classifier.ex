@@ -5,7 +5,7 @@ defmodule ImagePipe.Output.ContentClassifier do
   Returns `:photo` (continuous-tone photographic content) or `:graphic`
   (discrete-tone synthetic content: screenshots, UI, text, charts, line art).
   Derived entirely from runtime image inspection on a 512 px downsample, like
-  EXIF auto-orient and input color management — not a `Plan.Operation`.
+  EXIF auto-orient and input color management.
 
   `:graphic` is the **safe fallback**: misclassification is asymmetric (a photo
   read as graphic only inflates a file slightly; a graphic read as photo ships

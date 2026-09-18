@@ -1,20 +1,18 @@
 defmodule ImagePipe.Transform.Operation.Rotate do
   @moduledoc """
-  Executable rotation. Applies an optional horizontal mirror (IIIF `!`) *before*
-  rotating clockwise by `angle` degrees.
+  Executable clockwise rotation by `angle` degrees.
 
   Exact right-angle multiples use the lossless `vips_rot` primitive (no resample,
-  no #211 background seam — even when mirrored). Any other angle uses the affine
+  no background seam). Any other angle uses the affine
   `vips_rotate` resampler with a transparent background, so the exposed corners
   are transparent; a non-alpha output format flattens that transparency onto the
-  configured `Plan.Output.flatten_background` at encode time (IIIF defines no
-  per-request fill knob).
+  configured `Plan.Output.flatten_background` at encode time.
 
   Materializing op: rotation reads pixels out of row order, so it cannot run over
   a sequential decode. As a `requires_materialization?: true` op it is preceded by
   `Chain`/`Materializer`'s copy-to-memory; when an orientation is pending, the
-  resolver emits an explicit `Operation.Flush` before this op, so it always sees
-  the EXIF-corrected display frame.
+  executor flushes it before this op, so rotation sees the corrected display
+  frame.
   """
 
   use ImagePipe.Transform
@@ -25,9 +23,9 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   alias Vix.Vips.Operation
 
   @enforce_keys [:angle]
-  defstruct [:angle, mirror: false]
+  defstruct [:angle]
 
-  @type t :: %__MODULE__{angle: number(), mirror: boolean()}
+  @type t :: %__MODULE__{angle: number()}
 
   # Float RGBA: vips_rotate's `background` is an array of doubles; a 4-element
   # value fills the exposed corners fully transparent on an alpha image.
@@ -40,21 +38,15 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   def requires_materialization?(%__MODULE__{}), do: true
 
   @impl ImagePipe.Transform
-  def execute(%__MODULE__{angle: angle, mirror: mirror}, %State{} = state) do
-    with {:ok, image} <- maybe_mirror(state.image, mirror),
-         {:ok, image} <- rotate(image, angle) do
-      {:ok, set_image(state, image)}
-    else
+  def execute(%__MODULE__{angle: angle}, %State{} = state) do
+    case rotate(state.image, angle) do
+      {:ok, image} -> {:ok, set_image(state, image)}
       {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 
-  defp maybe_mirror(image, false), do: {:ok, image}
-  defp maybe_mirror(image, true), do: Image.flip(image, :horizontal)
-
-  # Angles arrive pre-normalized to integers for whole numbers (folded by the
-  # Plan.Operation.rotate/2 constructor and the IIIF grammar), so exact right-angle
-  # multiples match this clause and take Image.rotate/3's discrete vips_rot fast
+  # Angles arrive pre-normalized to integers for whole numbers, so exact
+  # right-angle multiples match this clause and take Image.rotate/3's discrete vips_rot fast
   # path — lossless, no resample, no #211 background seam, the same primitive
   # OrientationFlush and imgproxy use. Only genuinely fractional angles reach the
   # affine clause below.

@@ -21,7 +21,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{LogExporter, OpenTelemetryExporter, OtelReplay, Span}
-  alias ImgproxyWireConformanceTest.CacheProbe
+  alias ImagePipe.Test.PlugFixture.CacheProbe
 
   # Inline plug: serves beach.jpg for any request path (ignores query params).
   # Used by signed_miss_opts so the Req plug-adapter handles the signed fetch URL.
@@ -91,7 +91,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test",
-           req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
+           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
       ],
       cache: {CacheProbe, result: :miss}
     ]

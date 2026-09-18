@@ -3,16 +3,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
   Represents an executable crop operation that selects a bounded rectangle
   from the current image.
 
-  ## Construct When
-
-  Transform Plan execution may convert semantic Plan operations to this
-  executable operation. Parser modules should construct
-  `ImagePipe.Plan.Operation.*` through Plan constructors.
+  The native executor resolves request geometry before constructing this
+  operation.
 
   Use `Crop` for resolved visible crop work, coordinate-based crops, and result
   crops that trim an already resized image back to resolved target geometry.
-  Parser-specific gravity inheritance belongs in the parser/adapter layer
-  before semantic Plan operations are constructed.
+  Request-specific gravity inheritance is resolved before execution.
 
   ## Fields
 
@@ -65,7 +61,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   before the rectangle is clamped to image bounds. `reject_out_of_bounds` is a
   verdict decided upstream: when `true`, the requested region was found to lie
   wholly outside the source (in the original, pre-decode-shrink frame, decided
-  at resolve time in `ImagePipe.Transform.Lowering`), so execution returns
+  before execution), so execution returns
   `{:error, {:bad_request, :region_out_of_bounds}}` without cropping. When
   `false` (the default) a coordinate crop clamps to image bounds as usual. The
   detection lives at resolve time rather than here because the original-frame
@@ -208,7 +204,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   # dims — the exact {left, top, width, height} `execute/2` crops on an image
   # of that size. Defined for concrete-gravity (anchor/fp) and coordinate
   # crops; a :smart/:detect gravity has no pure rectangle (pixels decide it).
-  # Lets a dialect Pipeline translate a carried point by the realized crop
+  # Lets the executor translate a carried point by the realized crop
   # origin without reading the live image.
   @spec resolved_rect(t(), pos_integer(), pos_integer()) ::
           {:ok, %{left: integer(), top: integer(), width: pos_integer(), height: pos_integer()}}
@@ -296,9 +292,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   # A coordinate region the executor found wholly outside the source. Returning the
-  # {:bad_request, _} reason unwrapped lets Chain yield {:transform_error,
-  # {:bad_request, :region_out_of_bounds}} → 400, the same status path as Resize's
-  # :upscale_required (a {__MODULE__, _} wrap would demote it to a generic 422).
+  # {:bad_request, _} reason unwrapped lets Chain preserve the 400 verdict.
   def execute(%__MODULE__{reject_out_of_bounds: true, crop_from: %{}}, %State{}) do
     {:error, {:bad_request, :region_out_of_bounds}}
   end

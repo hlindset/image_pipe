@@ -76,7 +76,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     :operations,
     :terminal,
     :result,
-    # matched signing-key index on the native URL dialect's [:parse] stop
+    # matched signing-key index on the native parser's [:parse] stop
     # metadata (nil when the request is legitimately unsigned) — a small
     # integer, never a secret
     :sig_key_index,

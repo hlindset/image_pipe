@@ -522,27 +522,25 @@ defmodule ImagePipe.Output.PolicyTest do
     test "true only when policy is :preserve and the resolved format carries HDR" do
       conn = conn(:get, "/")
 
-      png = Policy.from_output_plan(conn, %Output{mode: {:explicit, :png}}, [])
-      jpeg = Policy.from_output_plan(conn, %Output{mode: {:explicit, :jpeg}}, [])
-
       preserve = %Output{mode: {:explicit, :png}, hdr: :preserve}
       tone_map = %Output{mode: {:explicit, :png}, hdr: :tone_map}
+      png = Policy.from_output_plan(conn, preserve, [])
+      jpeg = Policy.from_output_plan(conn, %{preserve | mode: {:explicit, :jpeg}}, [])
 
       # PNG carries HDR
-      assert Policy.supports_hdr?(png, preserve, :png)
+      assert Policy.supports_hdr?(png, :png)
       # tone_map policy never preserves
-      refute Policy.supports_hdr?(png, tone_map, :png)
+      refute Policy.supports_hdr?(Policy.from_output_plan(conn, tone_map, []), :png)
       # JPEG cannot carry HDR even when preserve is requested
-      refute Policy.supports_hdr?(jpeg, %{preserve | mode: {:explicit, :jpeg}}, :jpeg)
+      refute Policy.supports_hdr?(jpeg, :jpeg)
     end
 
     test "false when the format is only resolvable from the post-transform image (conservative tone-map)" do
       # automatic mode + no modern Accept + modern source → :needs_final_image_alpha → false
       conn = conn(:get, "/")
-      policy = Policy.from_output_plan(conn, %Output{mode: :automatic}, [])
-      preserve = %Output{mode: :automatic, hdr: :preserve}
+      policy = Policy.from_output_plan(conn, %Output{mode: :automatic, hdr: :preserve}, [])
 
-      refute Policy.supports_hdr?(policy, preserve, :avif)
+      refute Policy.supports_hdr?(policy, :avif)
     end
   end
 

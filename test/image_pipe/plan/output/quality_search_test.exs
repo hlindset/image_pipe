@@ -57,7 +57,7 @@ defmodule ImagePipe.Plan.Output.QualitySearchTest do
     end
   end
 
-  # A config keyword shaped like Config.resolve!([]) for the autoquality keys.
+  # A validated native config subset for the autoquality keys.
   defp config(extra \\ []) do
     Keyword.merge(
       [

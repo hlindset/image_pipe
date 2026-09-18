@@ -1,5 +1,11 @@
 defmodule ImagePipe.Source.S3 do
-  @moduledoc false
+  @moduledoc """
+  Built-in S3-compatible object source adapter.
+
+  Configure shared settings under `:default` and optionally override them per
+  bucket with `:buckets`. Each effective bucket configuration requires a
+  region and endpoint and may use static or provider-backed credentials.
+  """
 
   @behaviour ImagePipe.Source
 

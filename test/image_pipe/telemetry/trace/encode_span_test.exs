@@ -53,7 +53,7 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test",
-           req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
+           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
       ]
     ]
   end

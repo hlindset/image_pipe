@@ -1,6 +1,6 @@
 defmodule ImagePipe.Native.Signature do
   @moduledoc """
-  HMAC signing and verification for the native URL dialect, plus the
+  HMAC signing and verification for the native URL API, plus the
   `expires` gate [native §Signing, §Byte-level contract].
 
   `verify/3` is called before any lexing of the request path has
@@ -28,7 +28,7 @@ defmodule ImagePipe.Native.Signature do
   @type config :: keyword()
 
   @doc """
-  Verifies `sig_segment` (as returned by `Path.split_signature/1`) against
+  Verifies `sig_segment` (as returned by `ImagePipe.Native.Path.split_signature/1`) against
   `signed_path` under the configured ordered key list.
 
   Returns `{:ok, nil}` when the request is legitimately unsigned (no keys

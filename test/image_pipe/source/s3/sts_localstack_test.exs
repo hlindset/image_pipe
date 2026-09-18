@@ -13,7 +13,7 @@ if Code.ensure_loaded?(Testcontainers) do
         TESTCONTAINERS_RYUK_DISABLED=true \\
           mise exec -- mix test --include aws_integration
 
-    Compiled only when `testcontainers` is present (`AWS_INTEGRATION`/`IMGPROXY_DIFF`)
+    Compiled only when `testcontainers` is present (`AWS_INTEGRATION`)
     and tagged `:aws_integration` (excluded from the default lane), so a normal
     `mix test` never touches it.
     """

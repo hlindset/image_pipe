@@ -48,8 +48,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
     Decode.with_image(
       source,
-      Keyword.put(opts, :auto_rotate?, true),
-      &Executor.decode_request(request, &1),
+      request,
+      opts,
       fn state, _geometry ->
         {:ok, %State{} = final} = Executor.execute(state, request, opts)
         {final.image, shrink_factor(state.decode_shrink)}
@@ -227,10 +227,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
       opts = opts(body)
       request = request("region=0,0,1600,1600/w=400/h=400", opts)
 
-      over_limit =
-        opts
-        |> Keyword.put(:max_input_pixels, @src * @src - 1)
-        |> Keyword.put(:auto_rotate?, true)
+      over_limit = Keyword.put(opts, :max_input_pixels, @src * @src - 1)
 
       {:ok, source_request} = NativeSource.translate(request.source, over_limit)
       {:ok, source} = Source.resolve(source_request, over_limit, [])
@@ -238,8 +235,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =
                Decode.with_image(
                  source,
+                 request,
                  over_limit,
-                 &Executor.decode_request(request, &1),
                  fn _state, _geometry ->
                    flunk("decode must not run past the pixel-limit gate")
                  end
@@ -426,8 +423,8 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
     Decode.with_image(
       source,
-      Keyword.put(opts, :auto_rotate?, true),
-      &Executor.decode_request(request, &1),
+      request,
+      opts,
       fn state, _geometry -> state.image end
     )
   end

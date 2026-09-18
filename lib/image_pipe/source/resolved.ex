@@ -1,5 +1,11 @@
 defmodule ImagePipe.Source.Resolved do
-  @moduledoc false
+  @moduledoc """
+  Validated source information returned by `ImagePipe.Source.resolve/3`.
+
+  Source adapters construct this value from canonical source intent. The
+  `identity` and `cache_semantics` fields describe cache-safe source identity;
+  `fetch` contains adapter-private data needed by the later fetch callback.
+  """
 
   alias ImagePipe.Source.CacheSemantics
 

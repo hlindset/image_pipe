@@ -205,7 +205,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   test "Rotate op is materializing (known-random; cannot stream)" do
     assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 45})
-    assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 90, mirror: true})
+    assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 90})
   end
 
   defp oriented_jpeg_body(orientation) do

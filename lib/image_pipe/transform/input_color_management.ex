@@ -1,6 +1,6 @@
 defmodule ImagePipe.Transform.InputColorManagement do
   @moduledoc """
-  Fixed, data-determined input-conditioning preamble (NOT a `Plan.Operation`):
+  Fixed, data-determined input-conditioning preamble:
   imports the embedded ICC profile into a working space before any processing
   step, mirroring imgproxy's `colorspaceToProcessing`. Seeded once per
   execution by the pipeline. The caller passes `supports_hdr?`, which `ImagePipe.Output.Policy`

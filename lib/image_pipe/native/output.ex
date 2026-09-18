@@ -1,11 +1,18 @@
 defmodule ImagePipe.Native.Output do
   @moduledoc false
 
-  alias ImagePipe.Config
   alias ImagePipe.Format
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.QualitySearch
   alias ImagePipe.Plan.Request.Output, as: RequestOutput
+
+  @encoder_option_config %{
+    jpeg: :jpeg_options,
+    png: :png_options,
+    webp: :webp_options,
+    avif: :avif_options,
+    jpeg_xl: :jxl_options
+  }
 
   @spec resolve(RequestOutput.t(), keyword()) ::
           {:ok, PlanOutput.t()} | {:error, {:invalid_output, term()}}
@@ -15,9 +22,8 @@ defmodule ImagePipe.Native.Output do
   end
 
   def resolve(%RequestOutput{} = request, config) when is_list(config) do
-    with {:ok, configured} <-
-           Config.apply_to_output(base_output(request), disable_host_autoquality(config)),
-         {:ok, quality_search} <- resolve_quality_search(request, config),
+    with {:ok, quality_search} <- resolve_quality_search(request, config),
+         configured = apply_host_config(base_output(request), config),
          output = overlay_request(configured, request, quality_search),
          :ok <- validate_hdr_profile(output),
          :ok <- validate_lossless_webp_request(output, request),
@@ -41,7 +47,39 @@ defmodule ImagePipe.Native.Output do
   defp output_quality(nil), do: :default
   defp output_quality(quality), do: {:quality, quality}
 
-  defp disable_host_autoquality(config), do: Keyword.put(config, :autoquality_method, :none)
+  defp apply_host_config(%PlanOutput{} = output, config) do
+    strip_metadata = Keyword.fetch!(config, :strip_metadata)
+
+    %{
+      output
+      | default_quality: {:quality, Keyword.fetch!(config, :quality)},
+        format_qualities: normalize_format_qualities(Keyword.fetch!(config, :format_quality)),
+        strip_metadata: strip_metadata,
+        keep_copyright: strip_metadata and Keyword.fetch!(config, :keep_copyright),
+        color_profile: color_profile_policy(Keyword.fetch!(config, :strip_color_profile)),
+        hdr: hdr_policy(Keyword.fetch!(config, :preserve_hdr)),
+        encoder_options: encoder_options_from_config(config),
+        quality_search_max_iterations: Keyword.fetch!(config, :autoquality_max_iterations)
+    }
+  end
+
+  defp encoder_options_from_config(config) do
+    for {format, key} <- @encoder_option_config,
+        struct = Keyword.get(config, key),
+        not is_nil(struct),
+        not struct.__struct__.all_nil?(struct),
+        into: %{},
+        do: {format, struct}
+  end
+
+  defp normalize_format_qualities(map),
+    do: Map.new(map, fn {format, quality} -> {format, {:quality, quality}} end)
+
+  defp color_profile_policy(true), do: :strip
+  defp color_profile_policy(false), do: :preserve_source
+
+  defp hdr_policy(true), do: :preserve
+  defp hdr_policy(false), do: :tone_map
 
   defp resolve_quality_search(%RequestOutput{quality: quality}, _config)
        when not is_nil(quality),

@@ -2,7 +2,7 @@ defmodule ImagePipe.Native.DiagnosticRenderer do
   @moduledoc """
   Renders an accumulated `[ImagePipe.Native.Diagnostic.t()]` list
   into the compiler-style caret display used as the `400` response body
-  for the native URL dialect [native §Error diagnostics].
+  for the native URL API [native §Error diagnostics].
 
   There is only ever one source line — the raw request path — so layout
   is a single-line, rustc-style cascade: diagnostics are ordered left to

@@ -16,7 +16,6 @@ defmodule ImagePipe.Plug do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Dialect,
       ImagePipe.Native,
       ImagePipe.Error,
       ImagePipe.Output,
@@ -31,21 +30,14 @@ defmodule ImagePipe.Plug do
 
   @behaviour Plug
 
-  alias ImagePipe.Plug.DialectRunner
+  alias ImagePipe.Native
+  alias ImagePipe.Plug.Runner
 
   @impl Plug
-  def init(opts) do
-    dialect = Keyword.get(opts, :dialect, ImagePipe.Native)
-
-    unless is_atom(dialect) do
-      raise ArgumentError, "dialect: expected a module, got: #{inspect(dialect)}"
-    end
-
-    [dialect: dialect] ++ dialect.validate_config!(Keyword.delete(opts, :dialect))
-  end
+  def init(opts), do: Native.validate_config!(opts)
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
-    DialectRunner.run(conn, Keyword.fetch!(opts, :dialect), opts)
+    Runner.run(conn, opts)
   end
 end

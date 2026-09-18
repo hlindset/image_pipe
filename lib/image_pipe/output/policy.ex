@@ -117,7 +117,7 @@ defmodule ImagePipe.Output.Policy do
   @doc """
   The pure pre-source-fetch format selection: explicit format, the negotiated
   auto-candidate head, or a deferral to source-format resolution. Public and
-  core-owned so dialect identity material can read the same decision that
+  core-owned so request identity material can read the same decision that
   `resolve/2` later encodes, without re-deriving negotiation.
   """
   @spec identity_selection(t()) :: identity_selection()
@@ -184,15 +184,15 @@ defmodule ImagePipe.Output.Policy do
   after the transform (`:needs_final_image_alpha`), returns `false` — the
   conservative tone-map (see the design doc, decision 2).
   """
-  @spec supports_hdr?(t(), Output.t(), source_format() | nil) :: boolean()
-  def supports_hdr?(%__MODULE__{} = policy, %Output{hdr: :preserve}, source_format) do
+  @spec supports_hdr?(t(), source_format() | nil) :: boolean()
+  def supports_hdr?(%__MODULE__{hdr: :preserve} = policy, source_format) do
     case resolve(policy, source_format) do
       {:ok, %Resolved{format: format}} -> Format.supports_hdr?(format)
       _other -> false
     end
   end
 
-  def supports_hdr?(%__MODULE__{}, %Output{}, _source_format), do: false
+  def supports_hdr?(%__MODULE__{}, _source_format), do: false
 
   @spec ensure_capable(t(), keyword()) :: :ok | {:error, {:unsupported_output_format, format()}}
   def ensure_capable(%__MODULE__{mode: {:explicit, format}}, opts) do
