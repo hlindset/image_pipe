@@ -115,6 +115,22 @@ defmodule ImagePipe.Native.CanonicalPropertyTest do
   end
 
   describe "canonicalization stability and semantic-default equivalence [native §Canonicalization rules]" do
+    property "delivery and storage control order does not change canonical request data" do
+      options = [
+        "filename=Card_v2.small-1",
+        "attachment",
+        "cb=deploy_42",
+        "expires=1999999999",
+        "debug"
+      ]
+
+      assert {:ok, canonical} = parse(options)
+
+      check all permutation <- permutation_of(options) do
+        assert {:ok, ^canonical} = parse(permutation)
+      end
+    end
+
     property "request output option order does not change canonical data" do
       options = [
         "format-q=webp:70,avif:60",

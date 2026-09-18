@@ -38,12 +38,12 @@ The native API implements these option keys:
 `gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`, `format-q`,
 `autoquality`, `max-bytes`, `jpeg-options`, `png-options`, `webp-options`,
 `avif-options`, `jxl-options`, `meta`, `profile`, `hdr`,
-`debug`, `expires`, `preset`.
+`debug`, `expires`, `preset`, `filename`, `attachment`, `cb`.
 
 It also implements `then`, `src`, `src64`, `enc`, and full-length HMAC signing with
 key rotation. Presets support nested references and complete `then` pipelines.
-Sources are paths, HTTP(S) URLs, S3 objects, or configured custom schemes. Image and
-BlurHash are implemented terminals. The broader vocabulary in the
+Sources are paths, HTTP(S) URLs, S3 objects, or configured custom schemes. Image,
+BlurHash, and source-info JSON are implemented terminals. The broader vocabulary in the
 [July native design](https://github.com/hlindset/image_pipe/blob/main/docs/superpowers/specs/2026-07-12-native-url-dialect-design.md)
 is a proposal, not a record of shipped capabilities; in particular, LQIP
 is not an implemented terminal to preserve.
@@ -485,12 +485,38 @@ do not participate in representation identity. Task `.2` owns completion.
 `output=image` uses negotiated or explicit format. `output=blurhash` retains
 its fixed text response. `output=info` describes the source with JSON fields
 `format`, `mime_type`, display `width`/`height`, EXIF `orientation`, and
-optional byte `size`. It rejects transforms and encoder options as inert,
+optional byte `size`. It rejects all group options, explicit `orient` values, and
+image output options, including metadata, profile, and HDR controls,
 uses fixed `application/json`, and does not set `Vary: Accept`. Info retains
 source safety limits and can use header inspection without transforming or
-encoding pixels. Use the library's canonical format names rather than
-vendor aliases. Task `.10` owns the info contract and wire tests. LQIP is
+encoding pixels. Format names use the library's canonical vocabulary, including
+`heif`, `jpeg_xl`, and `jpeg2000`. Host image encoding
+policies do not alter info. Preset expansion happens before applicability
+validation, so inherited image options also reject. LQIP is
 outside this migration's scope.
+
+### Request delivery controls
+
+`filename=photo` supplies a response filename stem. `attachment` (or
+`attachment=true`) selects download disposition; `attachment=false` selects
+inline disposition and overrides an inherited preset value. Both apply to image,
+BlurHash, and info responses. ImagePipe adds the actual response's extension,
+including `.txt` for BlurHash and `.json` for info. Filename and attachment
+settings are applied from the current request on cache hits as well as misses.
+They do not participate in cache keys or ETags, and `304` responses omit
+`Content-Disposition`. HEAD preserves GET response headers; the HTTP adapter
+suppresses its body.
+
+`filename` and `cb` accept nonempty values containing ASCII letters, digits,
+dots, underscores, and hyphens. Option values do not support percent escapes.
+`cb=release-2` contributes only to storage identity: it selects a new cache entry
+without changing the ETag of an otherwise identical representation. Debug intent
+is also presentation-only and remains subject to the host disclosure gate.
+
+`expires` is a UNIX timestamp in seconds. A request expires when it is less than
+the current time; equality remains valid. Expired requests return `404` before
+source fetch or cache access. Hosts may configure `clock: fn -> unix_seconds end`
+for a controlled time source; the default is `System.os_time(:second)`.
 
 ## Architecture and verification constraints
 

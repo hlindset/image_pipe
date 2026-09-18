@@ -33,6 +33,7 @@ defmodule ImagePipe.Native.Config do
   @validated_option_keys [
     :keys,
     :presets,
+    :clock,
     :source_schemes,
     :http_cache,
     :storage_inputs,
@@ -43,6 +44,9 @@ defmodule ImagePipe.Native.Config do
                     presets: [
                       type: {:custom, __MODULE__, :validate_presets, []},
                       default: %{}
+                    ],
+                    clock: [
+                      type: {:custom, __MODULE__, :validate_clock, []}
                     ],
                     source_schemes: [
                       type: {:custom, __MODULE__, :validate_source_schemes, []},
@@ -122,6 +126,11 @@ defmodule ImagePipe.Native.Config do
       {:error, "expected a map of preset name to option-fragment string, got: #{inspect(value)}"}
 
   @doc false
+  def validate_clock(clock) when is_function(clock, 0), do: {:ok, clock}
+
+  def validate_clock(_clock), do: {:error, "expected a zero-arity function"}
+
+  @doc false
   def validate_source_schemes(%{} = schemes) do
     if Enum.all?(schemes, &valid_source_scheme_entry?/1) do
       {:ok, schemes}
@@ -169,6 +178,9 @@ defmodule ImagePipe.Native.Config do
 
     case NimbleOptions.validate(known_opts, @options_schema) do
       {:ok, validated_opts} ->
+        validated_opts =
+          Keyword.put_new(validated_opts, :clock, fn -> System.os_time(:second) end)
+
         Keyword.merge(opts, validated_opts)
 
       {:error, %NimbleOptions.ValidationError{} = error} ->

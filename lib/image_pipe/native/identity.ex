@@ -10,14 +10,15 @@ defmodule ImagePipe.Native.Identity do
   signing-key index (those are gates, not identity):
 
     * `representation` — the canonical transform groups, the terminal
-      identity (`:image`, or `Output.Terminal.Blurhash.identity/0` for the
-      `blurhash` terminal), the negotiated format selection outcome (image
-      terminal only), the effective output policy material
+      identity (`:image`, `Output.Terminal.Blurhash.identity/0`, or the
+      versioned source-info identity), the negotiated format selection outcome
+      (image terminal only), the effective output policy material
       (`negotiation.policy_material`), and the relevant detector model identity
-      when this request uses detection.
-    * `storage_only` — configured `storage_inputs` values
-      (`ImagePipe.Representation.storage_inputs/2`); `conn` contributes to
-      identity only through this.
+      when this request uses detection. Source info has no pixel or image-output
+      inputs and therefore carries only its terminal identity.
+    * `storage_only` — the request cachebuster plus configured `storage_inputs`
+      values (`ImagePipe.Representation.storage_inputs/2`); `conn` contributes
+      to identity only through the configured inputs.
     * `dialect_behavior` — `@dialect_epoch`, this dialect's behavioral epoch.
     * `vary_header_names` — the configured storage-vary header names, plus
       `"Accept"` when `negotiation.vary?` is true.
@@ -28,6 +29,7 @@ defmodule ImagePipe.Native.Identity do
   """
 
   alias ImagePipe.Dialect.Negotiation
+  alias ImagePipe.Native.Info
   alias ImagePipe.Native.Request
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Representation
@@ -53,14 +55,12 @@ defmodule ImagePipe.Native.Identity do
         detector_identity
       )
       when is_list(config) do
-    {storage_only, storage_vary_names} =
+    {configured_storage_only, storage_vary_names} =
       Representation.storage_inputs(conn, Keyword.get(config, :storage_inputs, []))
 
-    representation =
-      [orient: request.orient, groups: canonical_groups(request.groups)] ++
-        selection_material(negotiation.selected) ++
-        [output_policy: negotiation.policy_material] ++
-        detector_material(detector_identity)
+    storage_only = cachebuster_material(request.cachebuster) ++ configured_storage_only
+
+    representation = representation_material(request, negotiation, detector_identity)
 
     vary_header_names =
       if negotiation.vary? do
@@ -76,6 +76,24 @@ defmodule ImagePipe.Native.Identity do
       vary_header_names: vary_header_names
     }
   end
+
+  defp representation_material(
+         %Request{},
+         %Negotiation{selected: {:terminal, :info}},
+         _detector_identity
+       ) do
+    [terminal: Info.identity()]
+  end
+
+  defp representation_material(request, negotiation, detector_identity) do
+    [orient: request.orient, groups: canonical_groups(request.groups)] ++
+      selection_material(negotiation.selected) ++
+      [output_policy: negotiation.policy_material] ++
+      detector_material(detector_identity)
+  end
+
+  defp cachebuster_material(nil), do: []
+  defp cachebuster_material(cachebuster), do: [cachebuster: cachebuster]
 
   defp selection_material({:image, _selection} = selected) do
     [terminal: :image, selection: selected]

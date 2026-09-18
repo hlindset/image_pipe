@@ -8,6 +8,7 @@ defmodule ImagePipe.Native.IdentityTest do
   alias ImagePipe.Native
   alias ImagePipe.Native.Config
   alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Info
   alias ImagePipe.Native.Output
   alias ImagePipe.Native.Parser
   alias ImagePipe.Output.Policy
@@ -300,6 +301,26 @@ defmodule ImagePipe.Native.IdentityTest do
     end
   end
 
+  describe "info terminal" do
+    test "uses only the versioned info computation as representation material" do
+      request = request!(["output=info"])
+      negotiation = negotiation(selected: {:terminal, :info}, vary?: false, policy_material: [])
+
+      mat = material(request, negotiation)
+
+      assert mat.representation == [terminal: Info.identity()]
+      assert mat.vary_header_names == []
+    end
+
+    test "filename and attachment stay outside representation and storage identity" do
+      plain = request!(["output=info"])
+      presented = request!(["output=info", "filename=report", "attachment"])
+      negotiation = negotiation(selected: {:terminal, :info}, vary?: false, policy_material: [])
+
+      assert material(plain, negotiation) == material(presented, negotiation)
+    end
+  end
+
   describe "output-policy material" do
     test "equal effective metadata, profile, and HDR policy has equal concrete identity" do
       host_material =
@@ -432,6 +453,23 @@ defmodule ImagePipe.Native.IdentityTest do
 
       assert rep_a.cache_key.hash != rep_b.cache_key.hash
       assert rep_a.etag == rep_b.etag
+    end
+  end
+
+  describe "cachebuster" do
+    test "changes storage identity and the cache key without changing the ETag" do
+      negotiation = negotiation(selected: {:terminal, :info}, vary?: false, policy_material: [])
+      plain = material(request!(["output=info"]), negotiation)
+      busted = material(request!(["output=info", "cb=v2"]), negotiation)
+
+      refute Keyword.has_key?(plain.storage_only, :cachebuster)
+      assert Keyword.fetch!(busted.storage_only, :cachebuster) == "v2"
+
+      plain_representation = build(source_identity(), plain)
+      busted_representation = build(source_identity(), busted)
+
+      refute plain_representation.cache_key.hash == busted_representation.cache_key.hash
+      assert plain_representation.etag == busted_representation.etag
     end
   end
 end

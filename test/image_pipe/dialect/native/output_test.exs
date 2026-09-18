@@ -9,6 +9,7 @@ defmodule ImagePipe.Native.OutputTest do
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.{JpegOptions, WebpOptions}
+  alias ImagePipe.Plan.Response
 
   defp seg(raw), do: {raw, {0, byte_size(raw)}}
 
@@ -231,6 +232,19 @@ defmodule ImagePipe.Native.OutputTest do
     assert output == %PlanOutput{mode: :automatic}
   end
 
+  test "info ignores host image output policy" do
+    output =
+      resolve!(["output=info"],
+        autoquality_method: :size,
+        strip_metadata: false,
+        keep_copyright: false,
+        strip_color_profile: false,
+        preserve_hdr: true
+      )
+
+    assert output == %PlanOutput{mode: :automatic}
+  end
+
   test "prepare captures the resolved output in image negotiation" do
     config = Config.validate!(quality: 71)
     assert {:ok, request} = Parser.parse(lexed(["format=jpeg"]), config)
@@ -249,6 +263,39 @@ defmodule ImagePipe.Native.OutputTest do
     assert {:ok, negotiation, _identity} = resolved.negotiation.()
 
     assert negotiation.plan_output == nil
+  end
+
+  test "prepare maps info presentation and bypasses image policy" do
+    config = Config.validate!(autoquality_method: :size)
+
+    assert {:ok, request} =
+             Parser.parse(
+               lexed(["output=info", "filename=report", "attachment", "debug"]),
+               config
+             )
+
+    assert {:ok, resolved} = Native.prepare(Plug.Test.conn(:get, "/"), request, config)
+
+    assert resolved.response_meta == %Response{
+             filename: "report",
+             disposition: :attachment,
+             debug?: true
+           }
+
+    assert resolved.operations == []
+    assert resolved.auto_rotate? == false
+    assert {:render, terminal} = resolved.terminal
+    assert terminal.charset == :default
+    assert {:ok, negotiation, _identity} = resolved.negotiation.()
+    assert negotiation.selected == {:terminal, :info}
+    assert negotiation.plan_output == nil
+  end
+
+  test "prepare uses the validated host clock for expiry" do
+    config = Config.validate!(clock: fn -> 101 end)
+    assert {:ok, request} = Parser.parse(lexed(["expires=100"]), config)
+
+    assert Native.prepare(Plug.Test.conn(:get, "/"), request, config) == {:error, :expired}
   end
 
   test "rejects an explicit format's inverted URL and host autoquality bracket" do

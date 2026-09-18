@@ -4,7 +4,7 @@ defmodule ImagePipe.Native.OptionSpecTest do
   alias ImagePipe.Native.OptionSpec
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
-  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options jxl-options debug expires preset)
+  @native_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options jxl-options filename attachment cb debug expires preset)
 
   describe "all/0" do
     test "declares native options, one entry per key" do
@@ -22,8 +22,8 @@ defmodule ImagePipe.Native.OptionSpecTest do
         assert is_nil(spec.stage) or (is_integer(spec.stage) and spec.stage > 0)
         assert is_list(spec.prerequisites)
         assert is_list(spec.conflicts)
-        assert spec.identity in [:representation, :gate, :presentation]
-        assert spec.terminal_applicability in [:both, :image]
+        assert spec.identity in [:representation, :storage, :gate, :presentation]
+        assert spec.terminal_applicability in [:pixels, :image, :all]
         assert is_binary(spec.summary) and spec.summary != ""
 
         assert is_list(spec.examples) and spec.examples != [],
@@ -367,10 +367,23 @@ defmodule ImagePipe.Native.OptionSpecTest do
       assert OptionSpec.parse_bg("fff,0.5") == {:ok, {{255, 255, 255}, 0.5}}
     end
 
-    test "parse_output accepts image and blurhash only" do
+    test "parse_output accepts image, blurhash, and info only" do
       assert OptionSpec.parse_output("image") == {:ok, :image}
       assert OptionSpec.parse_output("blurhash") == {:ok, :blurhash}
+      assert OptionSpec.parse_output("info") == {:ok, :info}
       assert OptionSpec.parse_output("lqip") == {:error, :invalid_output}
+    end
+
+    test "filename and cachebuster use the nonempty ASCII path-token grammar" do
+      for value <- ["cat", "cat.jpg", "Card_v2.small-1"] do
+        assert OptionSpec.parse_filename(value) == {:ok, value}
+        assert OptionSpec.parse_cachebuster(value) == {:ok, value}
+      end
+
+      for value <- ["", "cat photo", "cat/photo", "cat%20photo", "café", "*"] do
+        assert OptionSpec.parse_filename(value) == {:error, :invalid_filename}
+        assert OptionSpec.parse_cachebuster(value) == {:error, :invalid_cachebuster}
+      end
     end
 
     test "parse_orientation accepts auto and none only" do

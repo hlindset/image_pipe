@@ -45,6 +45,7 @@ defmodule ImagePipe.Native do
   alias ImagePipe.Native.Config
   alias ImagePipe.Native.Errors
   alias ImagePipe.Native.Identity
+  alias ImagePipe.Native.Info
   alias ImagePipe.Native.Output, as: NativeOutput
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Path
@@ -62,7 +63,7 @@ defmodule ImagePipe.Native do
   # The BlurHash terminal's delivery content type. Fixed — `format`/`q` with
   # a non-image `output` are Tier-2 parse rejects (Task 5), so no negotiation
   # or dialect config ever changes this.
-  @blurhash_content_type "text/plain; charset=utf-8"
+  @blurhash_content_type "text/plain"
 
   @impl ImagePipe.Dialect
   def validate_config!(opts), do: Config.validate!(opts)
@@ -105,7 +106,7 @@ defmodule ImagePipe.Native do
   def prepare(%Plug.Conn{} = conn, %Request{} = request, config) do
     # The clock read moves from route-entry (pre-parse) to here (post-parse):
     # only a sub-second expiry edge differs and nothing pins it.
-    with :ok <- check_expires(request, System.os_time(:second)),
+    with :ok <- check_expires(request, Keyword.fetch!(config, :clock).()),
          {:ok, plan_output} <- NativeOutput.resolve(request.output, config),
          :ok <- check_detector(request, config),
          {:ok, plan_source} <- NativeSource.translate(request.source, config) do
@@ -114,9 +115,9 @@ defmodule ImagePipe.Native do
          request: request,
          source: plan_source,
          negotiation: fn -> negotiation_result(conn, request, plan_output, config) end,
-         response_meta: %PlanResponse{},
-         operations: Pipeline.operation_names(request),
-         auto_rotate?: request.orient == :auto,
+         response_meta: response_meta(request),
+         operations: operation_names(request),
+         auto_rotate?: auto_rotate?(request),
          debug?: request.debug?,
          http_cache:
            if(Keyword.has_key?(config, :http_cache), do: :generated, else: :dialect_owned),
@@ -127,14 +128,17 @@ defmodule ImagePipe.Native do
 
   defp negotiation_result(
          conn,
-         %Request{output: %Request.Output{terminal: :blurhash}} = request,
+         %Request{output: %Request.Output{terminal: terminal}} = request,
          _plan_output,
          config
-       ) do
-    negotiation = DialectNegotiation.terminal(:blurhash)
+       )
+       when terminal in [:blurhash, :info] do
+    negotiation = DialectNegotiation.terminal(terminal)
 
-    {:ok, negotiation,
-     Identity.material(request, negotiation, conn, config, detector_identity(request, config))}
+    detector_identity =
+      if terminal == :blurhash, do: detector_identity(request, config), else: nil
+
+    {:ok, negotiation, Identity.material(request, negotiation, conn, config, detector_identity)}
   end
 
   defp negotiation_result(conn, %Request{} = request, plan_output, config) do
@@ -151,11 +155,24 @@ defmodule ImagePipe.Native do
   defp terminal(%Request{output: %Request.Output{terminal: :blurhash}} = request, _config) do
     {:render,
      %RenderTerminal{
+       charset: :default,
        fun: fn resolved_source, config ->
-         case compute_blurhash(resolved_source, request, config) do
-           {:ok, hash} -> {:ok, @blurhash_content_type, hash}
-           {:error, _reason} = error -> error
-         end
+         render_terminal(:blurhash, config, fn ->
+           case compute_blurhash(resolved_source, request, config) do
+             {:ok, hash} -> {:ok, @blurhash_content_type, hash}
+             {:error, _reason} = error -> error
+           end
+         end)
+       end
+     }}
+  end
+
+  defp terminal(%Request{output: %Request.Output{terminal: :info}}, _config) do
+    {:render,
+     %RenderTerminal{
+       charset: :default,
+       fun: fn resolved_source, config ->
+         render_terminal(:info, config, fn -> Info.render_source(resolved_source, config) end)
        end
      }}
   end
@@ -222,6 +239,35 @@ defmodule ImagePipe.Native do
   defp check_expires(%Request{expires: expires}, now) do
     if Signature.expired?(expires, now), do: {:error, :expired}, else: :ok
   end
+
+  defp response_meta(%Request{} = request) do
+    %PlanResponse{
+      filename: request.filename,
+      disposition: if(request.attachment?, do: :attachment, else: :inline),
+      debug?: request.debug?
+    }
+  end
+
+  defp operation_names(%Request{output: %Request.Output{terminal: :info}}), do: []
+  defp operation_names(%Request{} = request), do: Pipeline.operation_names(request)
+
+  defp auto_rotate?(%Request{output: %Request.Output{terminal: :info}}), do: false
+  defp auto_rotate?(%Request{} = request), do: request.orient == :auto
+
+  defp render_terminal(name, config, fun) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(config),
+      [:output, :terminal],
+      %{terminal: name},
+      fn ->
+        result = fun.()
+        {result, %{result: terminal_result(result)}}
+      end
+    )
+  end
+
+  defp terminal_result({:ok, _content_type, _body}), do: :ok
+  defp terminal_result({:error, reason}), do: Telemetry.request_result({:error, reason})
 
   defp check_detector(%Request{} = request, config) do
     case explicit_detector_classes(request) do

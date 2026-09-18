@@ -28,6 +28,20 @@ defmodule ImagePipe.Native.ConfigTest do
     assert_raise ArgumentError, fn -> Config.validate!(detector_required: :yes) end
   end
 
+  test "clock defaults to system seconds and accepts a zero-arity host function" do
+    default_clock = Config.validate!([])[:clock]
+    assert is_function(default_clock, 0)
+    assert abs(default_clock.() - System.os_time(:second)) <= 1
+
+    clock = fn -> 1_999_999_999 end
+    assert Config.validate!(clock: clock)[:clock] == clock
+  end
+
+  test "clock rejects values that are not zero-arity functions" do
+    assert_raise ArgumentError, fn -> Config.validate!(clock: :system) end
+    assert_raise ArgumentError, fn -> Config.validate!(clock: fn value -> value end) end
+  end
+
   test "resolves the output configuration supported by the native dialect" do
     config =
       Config.validate!(

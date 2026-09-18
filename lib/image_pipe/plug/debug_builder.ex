@@ -38,6 +38,11 @@ defmodule ImagePipe.Plug.DebugBuilder do
     }
   end
 
+  @spec build_terminal([atom()], non_neg_integer()) :: Info.t()
+  def build_terminal(operations, total_us) do
+    %Info{pipeline: operations, timings: %{total: total_us}}
+  end
+
   defp negotiated?(%Policy{mode: {:explicit, _format}}), do: false
   defp negotiated?(%Policy{mode: :source}), do: true
 

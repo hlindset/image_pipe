@@ -55,6 +55,26 @@ defmodule ImagePipe.Native.PresetCompositionTest do
     assert {:ok, ^expected_off} = parse("/preset=off", presets)
   end
 
+  test "presets carry info delivery and storage controls with ordinary per-key precedence" do
+    presets = %{
+      "download" =>
+        "output=info/filename=from-preset/attachment/cb=preset-v1/expires=1999999999/debug"
+    }
+
+    assert {:ok, request} =
+             parse(
+               "/preset=download/filename=explicit/attachment=false/cb=explicit-v2",
+               presets
+             )
+
+    assert request.output.terminal == :info
+    assert request.filename == "explicit"
+    assert request.attachment? == false
+    assert request.cachebuster == "explicit-v2"
+    assert request.expires == 1_999_999_999
+    assert request.debug?
+  end
+
   test "an explicit guide replaces a preset's alternative guide" do
     for {preset_guide, explicit_guide} <- [
           {"anchor=top-left", "focus=0.75,0.25"},

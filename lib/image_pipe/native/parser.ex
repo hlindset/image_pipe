@@ -352,7 +352,11 @@ defmodule ImagePipe.Native.Parser do
       end)
 
     group_errors ++
-      collect_terminal_applicability_errors(clean_request_map, occurrences) ++
+      collect_terminal_applicability_errors(
+        clean_group_maps,
+        clean_request_map,
+        occurrences
+      ) ++
       collect_output_cross_errors(clean_request_map, occurrences)
   end
 
@@ -674,23 +678,41 @@ defmodule ImagePipe.Native.Parser do
     end
   end
 
-  defp collect_terminal_applicability_errors(clean_request_map, occurrences) do
+  defp collect_terminal_applicability_errors(
+         clean_group_maps,
+         clean_request_map,
+         occurrences
+       ) do
     terminal = Map.get(clean_request_map, "output", :image)
 
-    clean_request_map
-    |> Enum.filter(fn {key, _value} ->
-      spec = OptionSpec.fetch(key)
-      spec.terminal_applicability != :both and spec.terminal_applicability != terminal
-    end)
-    |> Enum.map(fn {key, _value} ->
-      span = request_occurrence_span(occurrences, key)
+    group_errors =
+      Enum.flat_map(clean_group_maps, fn {group_index, group_map} ->
+        for {key, _value} <- group_map,
+            not terminal_applicable?(OptionSpec.fetch(key).terminal_applicability, terminal) do
+          terminal_inert_diagnostic(key, terminal, occurrence_span(occurrences, group_index, key))
+        end
+      end)
 
-      %Diagnostic{
-        reason: :inert_option,
-        message: "#{key} is inert for output=#{terminal}",
-        spans: [span]
-      }
-    end)
+    request_errors =
+      for {key, _value} <- clean_request_map,
+          not terminal_applicable?(OptionSpec.fetch(key).terminal_applicability, terminal) do
+        terminal_inert_diagnostic(key, terminal, request_occurrence_span(occurrences, key))
+      end
+
+    group_errors ++ request_errors
+  end
+
+  defp terminal_applicable?(:all, _terminal), do: true
+  defp terminal_applicable?(:pixels, terminal) when terminal in [:image, :blurhash], do: true
+  defp terminal_applicable?(:image, :image), do: true
+  defp terminal_applicable?(_applicability, _terminal), do: false
+
+  defp terminal_inert_diagnostic(key, terminal, span) do
+    %Diagnostic{
+      reason: :inert_option,
+      message: "#{key} is inert for output=#{terminal}",
+      spans: [span]
+    }
   end
 
   defp collect_output_cross_errors(request_map, occurrences) do
@@ -811,6 +833,9 @@ defmodule ImagePipe.Native.Parser do
       output: assemble_output(clean_request_map),
       source: source,
       orient: Map.get(clean_request_map, "orient", :auto),
+      filename: Map.get(clean_request_map, "filename"),
+      attachment?: Map.get(clean_request_map, "attachment", false),
+      cachebuster: Map.get(clean_request_map, "cb"),
       expires: Map.get(clean_request_map, "expires"),
       debug?: Map.get(clean_request_map, "debug", false)
     }
@@ -1070,8 +1095,10 @@ defmodule ImagePipe.Native.Parser do
   def message_for(:invalid_pad_shorthand),
     do: "invalid value: expected 1-4 comma-separated px values"
 
-  def message_for(:invalid_output), do: "invalid value: expected image or blurhash"
+  def message_for(:invalid_output), do: "invalid value: expected image, blurhash, or info"
   def message_for(:invalid_orientation), do: "invalid value: expected auto or none"
+  def message_for(:invalid_filename), do: "invalid value: expected [A-Za-z0-9._-]+"
+  def message_for(:invalid_cachebuster), do: "invalid value: expected [A-Za-z0-9._-]+"
 
   def message_for(:invalid_format),
     do: "invalid value: expected avif, webp, jpeg, png, or jxl"

@@ -15,13 +15,24 @@ defmodule ImagePipe.Native.Request do
   alias ImagePipe.Native.Request.Output
 
   @enforce_keys [:groups, :output, :source]
-  defstruct groups: [], output: nil, source: nil, orient: :auto, expires: nil, debug?: false
+  defstruct groups: [],
+            output: nil,
+            source: nil,
+            orient: :auto,
+            filename: nil,
+            attachment?: false,
+            cachebuster: nil,
+            expires: nil,
+            debug?: false
 
   @type t :: %__MODULE__{
           groups: [Group.t()],
           output: Output.t(),
           source: String.t(),
           orient: :auto | :none,
+          filename: String.t() | nil,
+          attachment?: boolean(),
+          cachebuster: String.t() | nil,
           expires: pos_integer() | nil,
           debug?: boolean()
         }
@@ -158,7 +169,7 @@ defmodule ImagePipe.Native.Request.Output do
             encoder_options: %{}
 
   @type t :: %__MODULE__{
-          terminal: :image | :blurhash,
+          terminal: :image | :blurhash | :info,
           format: nil | :avif | :webp | :jpeg | :png | :jpeg_xl,
           quality: nil | 1..100,
           metadata: nil | :strip | :copyright | :keep,

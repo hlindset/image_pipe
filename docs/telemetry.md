@@ -55,6 +55,7 @@ paths still emit the send span; streamed generation also emits delivery spans.
 [:image_pipe, :source, :resolve, ...]
 [:image_pipe, :cache, :lookup, ...]
 [:image_pipe, :output, :negotiate, ...]
+[:image_pipe, :output, :terminal, ...]
 [:image_pipe, :source, :fetch, ...]
 [:image_pipe, :source, :fetch_decode, ...]
 [:image_pipe, :transform, :execute, ...]
@@ -310,6 +311,21 @@ Stop metadata:
   source-only format with no acceptable target).
 - `:output_format` — the negotiated output format atom, on success.
 - `:error` — a stable error category (`ImagePipe.Error.tag/1`), on failure.
+
+### Output terminal span (`[:output, :terminal]`)
+
+The `[:image_pipe, :output, :terminal]` span wraps the actual computation of a
+complete-body native terminal. It currently covers source info JSON and
+BlurHash generation. A complete-body cache hit and a conditional `304` perform
+no terminal computation and therefore emit no terminal span.
+
+Start metadata: `:terminal` — `:info` or `:blurhash`.
+
+Stop metadata:
+
+- `:result` — `:ok` on success, or the request outcome category for a decode or
+  transform failure.
+- `:terminal` — repeated from start metadata.
 
 ### Output encode span (`[:encode]`)
 
@@ -585,6 +601,7 @@ fields are:
 - `:cache` - cache status when relevant.
 - `:output_mode` - `:automatic` or `:explicit` when known.
 - `:output_format` - the resolved output format when known.
+- `:terminal` - the complete-body terminal name (`:info` or `:blurhash`).
 - `:source_kind` - `:path`, `:url`, `:object`, or `:reference` on source spans.
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
 - `:error` - a stable error category when known.
@@ -634,6 +651,7 @@ Representative stage → result mappings:
 - `[:transform, :execute]` → `:ok` or `:processing_error`.
 - `[:transform, :materialize]` → `:ok` or `:materialize_error`.
 - `[:output, :negotiate]` → `:ok` or a negotiation failure category.
+- `[:output, :terminal]` → `:ok` or a terminal computation failure category.
 - `[:encode]` → `:ok` or `:processing_error`.
 - `[:deliver]` → `:ok`, `:processing_error`, or `:client_closed`.
 
@@ -875,6 +893,7 @@ defmodule MyApp.ImagePipeTelemetry do
     [:source, :resolve],
     [:cache, :lookup],
     [:output, :negotiate],
+    [:output, :terminal],
     [:source, :fetch],
     [:source, :fetch_decode],
     [:transform, :execute],

@@ -21,7 +21,10 @@ defmodule ImagePipe.Format do
     avif: "image/avif",
     webp: "image/webp",
     jpeg: "image/jpeg",
-    png: "image/png"
+    png: "image/png",
+    heif: "image/heif",
+    tiff: "image/tiff",
+    jpeg2000: "image/jp2"
   }
   @output_mime_types Enum.map(@output_formats, &{&1, Map.fetch!(@mime_types, &1)})
 
@@ -102,10 +105,10 @@ defmodule ImagePipe.Format do
   end
 
   @spec mime_type(atom()) :: {:ok, String.t()} | :error
-  def mime_type(format), do: Keyword.fetch(@output_mime_types, format)
+  def mime_type(format), do: Map.fetch(@mime_types, format)
 
   @spec mime_type!(atom()) :: String.t()
-  def mime_type!(format), do: Keyword.fetch!(@output_mime_types, format)
+  def mime_type!(format), do: Map.fetch!(@mime_types, format)
 
   @spec canonical_mime_type(term()) :: term()
   def canonical_mime_type(mime_type) do

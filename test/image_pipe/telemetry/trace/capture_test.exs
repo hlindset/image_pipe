@@ -91,6 +91,16 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert span.attributes[:target] == 90.0
   end
 
+  test "captures an output terminal span with its terminal attribute" do
+    Telemetry.span([], [:output, :terminal], %{terminal: :blurhash}, fn ->
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = span}
+    assert span.status == :ok
+    assert span.attributes[:terminal] == :blurhash
+  end
+
   test "captures the content-class classify span with its allowlisted attributes" do
     Telemetry.span(
       [],

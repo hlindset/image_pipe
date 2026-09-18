@@ -9,7 +9,8 @@ defmodule ImagePipe.Native.Output do
 
   @spec resolve(RequestOutput.t(), keyword()) ::
           {:ok, PlanOutput.t()} | {:error, {:invalid_output, term()}}
-  def resolve(%RequestOutput{terminal: :blurhash}, _config) do
+  def resolve(%RequestOutput{terminal: terminal}, _config)
+      when terminal in [:blurhash, :info] do
     {:ok, %PlanOutput{mode: :automatic}}
   end
 

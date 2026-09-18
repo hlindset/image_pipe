@@ -117,7 +117,8 @@ blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness,
 contrast, saturation, colorize, gradients, padding, background, image formats,
 per-format quality, automatic quality search, byte budgets, encoder controls,
 metadata retention, color profile conversion, HDR preservation,
-BlurHash, debug headers, expiry, presets, signed URLs, and source concealment.
+BlurHash, source-info JSON, filenames and attachments, cachebusters, debug headers,
+expiry, presets, signed URLs, and source concealment.
 It accepts local paths, HTTP(S) URLs, S3 objects, and configured source schemes.
 Invalid requests fail before cache lookup or
 source fetch.
@@ -164,6 +165,19 @@ together in one preset or the explicit URL are still rejected.
 Options within a group have a fixed processing order. Use `then` for a second
 pass, for example `/w=500/then/trim=fff/src/images/beach.jpg` to trim after
 resizing.
+
+Use `/output=info/src/images/photo.jpg` for source format, MIME type, display
+dimensions, EXIF orientation, and available byte size as JSON. Info rejects image
+processing options, including options inherited from presets. It retains source
+safety limits and uses a fixed content type, independent of `Accept`.
+
+Add `filename=photo/attachment` to download an image or text response. Filenames
+are stems; ImagePipe adds the response format's extension. Use letters, digits,
+dots, underscores, and hyphens for `filename` and `cb` values. `attachment=false`
+overrides an inherited attachment setting. Delivery settings preserve the cached
+body and ETag. `cb=revision-2` changes the storage key while preserving the ETag
+for unchanged bytes. The [delivery contract](docs/native_api_contract.md#request-delivery-controls)
+also covers expiry and the optional host clock.
 
 Use `detect=face`, `detect=car,dog`, or `detect=all,face:3` with a crop or
 cover resize to select subjects. `anchor=smart-face` blends face detection

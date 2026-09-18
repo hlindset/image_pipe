@@ -47,6 +47,37 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode: ok (jpeg)"
   end
 
+  test "renders an output terminal span with its terminal and outcome" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :output, :terminal, :stop],
+          %{duration: System.convert_time_unit(2, :millisecond, :native)},
+          %{terminal: :info, result: :ok}
+        )
+      end)
+
+    assert log =~ "output terminal: ok (info)"
+  end
+
+  test "escalates an output terminal computation failure" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :output, :terminal, :stop],
+          %{duration: 1_000},
+          %{terminal: :blurhash, result: :processing_error}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "output terminal: processing_error (blurhash)"
+  end
+
   test "renders the request span with the :options (OPTIONS) outcome" do
     Telemetry.attach_default_logger(level: :info)
 

@@ -68,7 +68,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
         body_sha256: body_sha256(body),
         body_filename: body_filename(cache_key, body),
         cost_us: 0,
-        debug: nil
+        debug: nil,
+        representation: nil
       },
       Map.new(overrides)
     )
@@ -197,14 +198,40 @@ defmodule ImagePipe.Cache.FileSystemTest do
       timings: %{decode: 8, transform: 21, encode: 140, total: 181}
     }
 
-    metadata = entry_metadata(content_type: "image/avif", output_format: :avif, debug: info)
+    metadata =
+      entry_metadata(
+        content_type: "image/avif",
+        output_format: :avif,
+        representation: {:image, :avif},
+        debug: info
+      )
 
     assert {:ok, state} = FileSystem.open_sink(cache_key, metadata, root: root)
     assert {:ok, state} = FileSystem.write_chunk(state, "BODYBYTES", root: root)
     assert :ok = FileSystem.commit_sink(state, root: root)
 
-    assert {:hit, %Entry{debug: read_back}} = FileSystem.get(cache_key, root: root)
+    assert {:hit, %Entry{debug: read_back, representation: {:image, :avif}}} =
+             FileSystem.get(cache_key, root: root)
+
     assert read_back == info
+  end
+
+  test "round-trips a complete-body representation through metadata", %{root: root} do
+    cache_key = key("abcdef" <> String.duplicate("3", 58))
+
+    metadata =
+      entry_metadata(
+        content_type: "application/json",
+        output_format: nil,
+        representation: {:complete_body, "application/json"}
+      )
+
+    assert {:ok, state} = FileSystem.open_sink(cache_key, metadata, root: root)
+    assert {:ok, state} = FileSystem.write_chunk(state, ~s({"ok":true}), root: root)
+    assert :ok = FileSystem.commit_sink(state, root: root)
+
+    assert {:hit, %Entry{representation: {:complete_body, "application/json"}}} =
+             FileSystem.get(cache_key, root: root)
   end
 
   test "sink writes chunks to temp files and makes the entry visible only at commit", %{
@@ -405,6 +432,30 @@ defmodule ImagePipe.Cache.FileSystemTest do
 
     assert {:error, {:invalid_metadata, {:invalid_content_type, _reason}}} =
              FileSystem.get(cache_key, root: root)
+  end
+
+  test "serialized representation must agree with its content type", %{root: root} do
+    for {suffix, representation, content_type} <- [
+          {"1", {:complete_body, "text/plain"}, "application/json"},
+          {"2", {:image, :jpeg}, "image/webp"},
+          {"3", {:image, :unknown}, "image/webp"},
+          {"4", :invalid, "image/webp"}
+        ] do
+      cache_key = key("c0ffee" <> String.duplicate(suffix, 58))
+      dir = Path.join([root, "c0", "ff"])
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, body_filename(cache_key, "body")), "body")
+
+      File.write!(
+        Path.join(dir, cache_key.hash <> ".meta"),
+        :erlang.term_to_binary(
+          metadata(cache_key, "body", representation: representation, content_type: content_type)
+        )
+      )
+
+      assert {:error, {:invalid_metadata, {:invalid_representation, ^representation}}} =
+               FileSystem.get(cache_key, root: root)
+    end
   end
 
   test "malformed metadata headers are returned as invalid metadata", %{root: root} do

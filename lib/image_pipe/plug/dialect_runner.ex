@@ -7,6 +7,8 @@ defmodule ImagePipe.Plug.DialectRunner do
   require Logger
 
   alias ImagePipe.Cache
+  alias ImagePipe.Debug
+  alias ImagePipe.Debug.Info
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Decode
   alias ImagePipe.Delivery
@@ -22,6 +24,7 @@ defmodule ImagePipe.Plug.DialectRunner do
   alias ImagePipe.Output.Negotiate
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
+  alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Plug.DebugBuilder
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
@@ -221,28 +224,52 @@ defmodule ImagePipe.Plug.DialectRunner do
   defp serve_terminal(
          conn,
          dialect,
-         %Resolved{terminal: {:render, %RenderTerminal{cache: :complete_body} = terminal}},
+         %Resolved{terminal: {:render, %RenderTerminal{cache: :complete_body} = terminal}} =
+           resolved,
          %ImageSource.Resolved{internal_cache: :disabled} = source,
          _negotiation,
          _representation,
          cache_headers,
          config
        ),
-       do: generate_render(conn, dialect, terminal, source, cache_headers, nil, config)
+       do:
+         generate_render(
+           conn,
+           dialect,
+           terminal,
+           resolved,
+           source,
+           cache_headers,
+           nil,
+           config
+         )
 
   defp serve_terminal(
          conn,
          dialect,
-         %Resolved{terminal: {:render, %RenderTerminal{cache: :complete_body} = terminal}},
+         %Resolved{terminal: {:render, %RenderTerminal{cache: :complete_body} = terminal}} =
+           resolved,
          %ImageSource.Resolved{internal_cache: :enabled} = source,
          _negotiation,
          representation,
          cache_headers,
          config
        ) do
-    case Cache.lookup_entry(representation.cache_key, config) do
-      {:hit, %Cache.Entry{representation: {:complete_body, content_type}} = entry} ->
-        deliver_render_hit(conn, terminal, content_type, entry.body, cache_headers, config)
+    {lookup_result, cache_serve_us} =
+      Timing.measure(fn -> Cache.lookup_entry(representation.cache_key, config) end)
+
+    case lookup_result do
+      {:hit, %Cache.Entry{representation: {:complete_body, _content_type}} = entry} ->
+        deliver_render_hit(
+          conn,
+          terminal,
+          resolved,
+          entry,
+          representation,
+          cache_headers,
+          cache_serve_us,
+          config
+        )
 
       # A miss, a disabled cache, or an untagged entry (indistinguishable from
       # an image entry — sending one here would answer the render terminal
@@ -252,6 +279,7 @@ defmodule ImagePipe.Plug.DialectRunner do
           conn,
           dialect,
           terminal,
+          resolved,
           source,
           cache_headers,
           representation.cache_key,
@@ -260,30 +288,84 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
-  defp deliver_render_hit(conn, %RenderTerminal{} = terminal, content_type, body, headers, config) do
+  defp deliver_render_hit(
+         conn,
+         %RenderTerminal{} = terminal,
+         %Resolved{} = resolved,
+         %Cache.Entry{representation: {:complete_body, content_type}} = entry,
+         representation,
+         headers,
+         cache_serve_us,
+         config
+       ) do
     if Conditional.if_none_match_wildcard?(conn) do
       send_not_modified(conn, headers, config)
     else
       conn =
+        put_terminal_debug_headers(
+          conn,
+          resolved.response_meta,
+          entry.debug,
+          :hit,
+          representation.cache_key,
+          cache_serve_us,
+          config
+        )
+
+      conn =
         send_with_span(conn, config, :ok, fn ->
-          send_complete_body(conn, content_type, body, headers, terminal.charset)
+          send_complete_body(
+            conn,
+            content_type,
+            entry.body,
+            headers,
+            resolved.response_meta,
+            terminal.charset
+          )
         end)
 
       {conn, %{result: :ok}}
     end
   end
 
-  defp generate_render(conn, dialect, terminal, source, cache_headers, cache_key, config) do
-    started_at = System.monotonic_time(:microsecond)
+  defp generate_render(
+         conn,
+         dialect,
+         terminal,
+         %Resolved{} = resolved,
+         source,
+         cache_headers,
+         cache_key,
+         config
+       ) do
+    {result, cost_us} = Timing.measure(fn -> terminal.fun.(source, config) end)
 
-    case terminal.fun.(source, config) do
+    case result do
       {:ok, content_type, body} ->
-        cost_us = System.monotonic_time(:microsecond) - started_at
-        write_complete_body_cache(cache_key, content_type, body, cost_us, config)
+        debug = DebugBuilder.build_terminal(resolved.operations, cost_us)
+        write_complete_body_cache(cache_key, content_type, body, cost_us, debug, config)
+
+        conn =
+          put_terminal_debug_headers(
+            conn,
+            resolved.response_meta,
+            debug,
+            :miss,
+            cache_key,
+            nil,
+            config
+          )
 
         conn =
           send_with_span(conn, config, :ok, fn ->
-            send_complete_body(conn, content_type, body, cache_headers, terminal.charset)
+            send_complete_body(
+              conn,
+              content_type,
+              body,
+              cache_headers,
+              resolved.response_meta,
+              terminal.charset
+            )
           end)
 
         {conn, %{result: :ok}}
@@ -293,25 +375,102 @@ defmodule ImagePipe.Plug.DialectRunner do
     end
   end
 
-  defp write_complete_body_cache(nil = _cache_disabled, _ct, _body, _cost_us, _config), do: :ok
+  defp write_complete_body_cache(
+         nil = _cache_disabled,
+         _content_type,
+         _body,
+         _cost_us,
+         _debug,
+         _config
+       ),
+       do: :ok
 
-  defp write_complete_body_cache(%Cache.Key{} = cache_key, content_type, body, cost_us, config) do
+  defp write_complete_body_cache(
+         %Cache.Key{} = cache_key,
+         content_type,
+         body,
+         cost_us,
+         %Info{} = debug,
+         config
+       ) do
     cache_key
-    |> Cache.open_sink({:complete_body, content_type}, Keyword.put(config, :cost_us, cost_us))
+    |> Cache.open_sink(
+      {:complete_body, content_type},
+      config
+      |> Keyword.put(:cost_us, cost_us)
+      |> Keyword.put(:debug_info, debug)
+    )
     |> Cache.write_chunk(IO.iodata_to_binary(body), config)
     |> Cache.commit_sink(config)
 
     :ok
   end
 
+  defp put_terminal_debug_headers(
+         conn,
+         %PlanResponse{} = response_meta,
+         debug,
+         cache,
+         cache_key,
+         cache_serve_us,
+         config
+       ) do
+    headers =
+      terminal_debug_headers(
+        debug,
+        cache,
+        cache_key,
+        cache_serve_us,
+        response_meta.debug? and Keyword.get(config, :allow_debug_headers, false)
+      )
+
+    put_resp_headers(conn, headers)
+  end
+
+  defp terminal_debug_headers(_debug, _cache, _cache_key, _cache_serve_us, false), do: []
+  defp terminal_debug_headers(nil, _cache, _cache_key, _cache_serve_us, true), do: []
+
+  defp terminal_debug_headers(%Info{} = debug, cache, cache_key, cache_serve_us, true) do
+    Debug.Headers.render(debug,
+      cache: cache,
+      cache_key: cache_key_hash(cache_key),
+      cache_serve_us: cache_serve_us
+    )
+  end
+
+  defp cache_key_hash(nil), do: nil
+  defp cache_key_hash(%Cache.Key{hash: hash}), do: hash
+
   # `charset` is the current terminal's, never the stored entry's — the cache
   # keeps a bare content type, so hit and miss present identically.
-  defp send_complete_body(conn, content_type, body, %CacheHeaders{} = cache_headers, charset) do
+  defp send_complete_body(
+         conn,
+         content_type,
+         body,
+         %CacheHeaders{} = cache_headers,
+         %PlanResponse{} = response_meta,
+         charset
+       ) do
     conn
     |> put_resp_headers(cache_headers.representation_headers)
     |> put_resp_headers(cache_headers.headers)
+    |> put_complete_body_disposition(response_meta, content_type)
     |> put_body_content_type(content_type, charset)
     |> Plug.Conn.send_resp(200, body)
+  end
+
+  defp put_complete_body_disposition(
+         conn,
+         %PlanResponse{disposition: :default, filename: nil},
+         _content_type
+       ),
+       do: conn
+
+  defp put_complete_body_disposition(conn, %PlanResponse{} = response_meta, content_type) do
+    {:ok, content_disposition} =
+      PlanResponse.content_disposition(response_meta, content_type)
+
+    Plug.Conn.put_resp_header(conn, "content-disposition", content_disposition)
   end
 
   defp put_body_content_type(conn, content_type, :default),
@@ -399,12 +558,10 @@ defmodule ImagePipe.Plug.DialectRunner do
   end
 
   # A warmed `{:complete_body, content_type}` entry must NOT flow through
-  # `Sender`'s image-entry delivery, which assumes an encoder output
-  # (`Plan.Response.content_disposition/2` only knows the fixed image
-  # delivery content types and errors on anything else).
+  # `Sender`'s image-entry delivery, which assumes an encoder output.
   defp deliver_hit_entry(
          conn,
-         _resolved,
+         resolved,
          %Cache.Entry{representation: {:complete_body, content_type}} = entry,
          _representation,
          cache_headers,
@@ -413,7 +570,14 @@ defmodule ImagePipe.Plug.DialectRunner do
        ) do
     conn =
       send_with_span(conn, config, :ok, fn ->
-        send_complete_body(conn, content_type, entry.body, cache_headers, nil)
+        send_complete_body(
+          conn,
+          content_type,
+          entry.body,
+          cache_headers,
+          resolved.response_meta,
+          nil
+        )
       end)
 
     {conn, %{result: :ok}}

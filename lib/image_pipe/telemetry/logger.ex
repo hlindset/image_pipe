@@ -30,7 +30,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:transform, :detect, :model]
     ],
     cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]],
-    output: [[:output, :negotiate]],
+    output: [[:output, :negotiate], [:output, :terminal]],
     http_cache: [],
     debug: []
   }
@@ -176,7 +176,8 @@ defmodule ImagePipe.Telemetry.Logger do
       encode_failure?(suffix, metadata) or
       color_management_failure?(suffix, metadata) or
       detect_fallback_warning?(suffix, metadata) or
-      negotiate_failure?(suffix, metadata)
+      negotiate_failure?(suffix, metadata) or
+      terminal_failure?(suffix, metadata)
   end
 
   # A genuine server-side encode-compute failure (forced evaluation raised/errored
@@ -208,6 +209,9 @@ defmodule ImagePipe.Telemetry.Logger do
   # :warning. The `:ok` outcome stays at base level.
   defp negotiate_failure?([:output, :negotiate | _], meta), do: meta[:result] not in [:ok, nil]
   defp negotiate_failure?(_suffix, _meta), do: false
+
+  defp terminal_failure?([:output, :terminal | _], meta), do: meta[:result] not in [:ok, nil]
+  defp terminal_failure?(_suffix, _meta), do: false
 
   # --- message ---
   defp message([:transform, :operation | _], _m, meta) do
@@ -303,6 +307,10 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:output, :negotiate | _], _m, meta) do
     format = if meta[:output_format], do: " (#{meta[:output_format]})", else: ""
     "image_pipe output negotiate: #{outcome(meta)}#{format}"
+  end
+
+  defp message([:output, :terminal | _], _m, meta) do
+    "image_pipe output terminal: #{outcome(meta)} (#{meta[:terminal]})"
   end
 
   defp message([:transform, :detect, :model | _], _m, meta) do

@@ -43,12 +43,12 @@ items, with no cache invalidation.)
 > Adding either trigger to an otherwise-valid signed URL invalidates its
 > signature.
 
-When triggered, a response discloses: internal source dimensions and
+When triggered, an image response may disclose internal source dimensions and
 format/color/ICC/bit-depth/alpha facts; the negotiated output and its
 dimensions/quality/profile; autoquality scores and search internals; the applied
-pipeline operations; the cache key; and per-stage timings. None of these are
-secrets, but operators who consider any of it sensitive should leave the mount
-flag off.
+pipeline operations; the cache key; and per-stage timings. Complete-body native
+terminals expose the narrower set described below. None of these are secrets,
+but operators who consider any of it sensitive should leave the mount flag off.
 
 ## Header catalogue
 
@@ -111,11 +111,24 @@ compression ratio from `X-ImagePipe-Source-Size ÷ body length`.
 | `X-ImagePipe-Cache-Key` | `a1b2c3…` | Cache key (64-char sha256 hex) |
 | `X-ImagePipe-Pipeline` | `scale,crop,sharpen` | Applied plan operations, in order |
 
+### Complete-body native terminals
+
+Native `output=info` and `output=blurhash` responses expose the cache status,
+cache key, applied operations, and terminal computation timing. Source and
+encoded-output fact headers are omitted because the shared complete-body
+terminal result does not carry those image facts. `output=info` has no transform
+pipeline; a BlurHash request reports the operations it actually applies.
+
+These facts are collected on every successful generation and stored with the
+complete-body cache entry. A later request with both debug controls enabled can
+therefore render them from a hit even when the request that populated the entry
+did not emit debug headers.
+
 ### Timings — `Server-Timing`
 
-Durations are in **milliseconds**. On a miss, the live per-stage durations plus
-`total` are emitted; on a hit, the stored origin durations are replayed plus a
-live `cache` entry for the cache read.
+Durations are in **milliseconds**. On an image miss, the live per-stage
+durations plus `total` are emitted; on a hit, the stored origin durations are
+replayed plus a live `cache` entry for the cache read.
 
 ```text
 Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, total;dur=181.2
@@ -128,6 +141,11 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 ```
 
 (There is no separate `fetch` stage — source fetch is folded into `decode`.)
+
+For a complete-body native terminal, `total` measures the terminal computation,
+including its source fetch, decode, transforms, and final info or BlurHash body.
+Those stages are not split into separate timing entries. A cache hit replays the
+stored `total` and appends the live `cache` duration.
 
 ## Demo (fiddle)
 

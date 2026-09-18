@@ -50,8 +50,8 @@ defmodule ImagePipe.Native.OptionSpec do
           # here.
           prerequisites: [atom()],
           conflicts: [String.t()],
-          identity: :representation | :gate | :presentation,
-          terminal_applicability: :both | :image,
+          identity: :representation | :storage | :gate | :presentation,
+          terminal_applicability: :pixels | :image | :all,
           summary: String.t(),
           examples: [String.t()]
         }
@@ -88,7 +88,8 @@ defmodule ImagePipe.Native.OptionSpec do
 
   @output_map %{
     "image" => :image,
-    "blurhash" => :blurhash
+    "blurhash" => :blurhash,
+    "info" => :info
   }
 
   @metadata_map %{
@@ -111,6 +112,7 @@ defmodule ImagePipe.Native.OptionSpec do
   }
 
   @preset_name_pattern ~r/\A[A-Za-z0-9._-]+\z/
+  @path_token_pattern ~r/\A[A-Za-z0-9._-]+\z/
   @positive_decimal_pattern ~r/\A[0-9]+(?:\.[0-9]+)?\z/
   @unsigned_integer_pattern ~r/\A[0-9]+\z/
   @signed_integer_pattern ~r/\A-?[0-9]+\z/
@@ -141,7 +143,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Clockwise rotation in degrees from 0 to 360",
         examples: ["rotate=30", "rotate=90"]
       },
@@ -154,7 +156,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Flip horizontally, vertically, or both after rotation",
         examples: ["flip=h", "flip=v", "flip=hv"]
       },
@@ -167,7 +169,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Convert to grayscale",
         examples: ["gray"]
       },
@@ -180,7 +182,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Threshold grayscale at 128 to black and white, preserving alpha",
         examples: ["bitonal"]
       },
@@ -193,7 +195,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Device pixel ratio multiplier",
         examples: ["dpr=2", "dpr=1.5"]
       },
@@ -206,7 +208,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Resize target width, in px, or auto to preserve aspect",
         examples: ["w=800"]
       },
@@ -219,7 +221,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Resize target height, in px, or auto to preserve aspect",
         examples: ["h=400"]
       },
@@ -232,7 +234,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Minimum resize width in pixels",
         examples: ["min-w=320"]
       },
@@ -245,7 +247,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Minimum resize height in pixels",
         examples: ["min-h=240"]
       },
@@ -258,7 +260,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:resize_intent],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Resize mode: contain, cover, cover-down, stretch, or auto",
         examples: ["fit=cover"]
       },
@@ -271,7 +273,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:resize_intent],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Allow the resize to upscale past source dimensions",
         examples: ["enlarge"]
       },
@@ -284,7 +286,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:resize_intent],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Positive resize multiplier as one scalar or x,y pair",
         examples: ["zoom=2", "zoom=1.25,0.75"]
       },
@@ -297,7 +299,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:concrete_box],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Extend to the requested width and height",
         examples: ["extend"]
       },
@@ -310,7 +312,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:concrete_box],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Extend to the requested width-to-height ratio",
         examples: ["extend-ratio"]
       },
@@ -323,7 +325,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:canvas],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Canvas placement anchor",
         examples: ["extend-at=bottom-right"]
       },
@@ -336,7 +338,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:canvas],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Signed x,y canvas placement offset",
         examples: ["extend-offset=10,-20pct"]
       },
@@ -349,7 +351,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: ["region"],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Guided crop to w,h (px or pct), guided by anchor/focus",
         examples: ["crop=600,400"]
       },
@@ -362,7 +364,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:crop],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Crop aspect ratio as a:b or a positive decimal",
         examples: ["crop-ratio=3:2", "crop-ratio=1.5"]
       },
@@ -375,7 +377,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:crop_ratio],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Allow crop ratio correction to enlarge the crop box",
         examples: ["crop-ratio-enlarge"]
       },
@@ -388,7 +390,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: ["crop"],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Explicit-region crop x,y,w,h (px or pct)",
         examples: ["region=0,0,600,400"]
       },
@@ -401,7 +403,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:guide_consumer],
         conflicts: ["detect", "focus"],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Crop guide / gravity for a guided crop or cover-family resize",
         examples: ["anchor=smart"]
       },
@@ -414,7 +416,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:named_anchor],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Signed x,y offset from a named crop anchor",
         examples: ["anchor-offset=10,-20pct"]
       },
@@ -427,7 +429,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:guide_consumer],
         conflicts: ["anchor", "detect"],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Focal point as x,y unit-space fractions (0.0-1.0)",
         examples: ["focus=0.25,0.75"]
       },
@@ -440,7 +442,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:guide_consumer],
         conflicts: ["anchor", "focus"],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Detector classes with optional positive class weights",
         examples: ["detect=all", "detect=car,face", "detect=all:1,face:3"]
       },
@@ -453,7 +455,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Gaussian blur sigma; 0 is the Tier-1 identity point",
         examples: ["blur=2.5"]
       },
@@ -466,7 +468,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Sharpen sigma; 0 is the identity point",
         examples: ["sharpen=1.5"]
       },
@@ -479,7 +481,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Pixelation block size; 1 is the identity point",
         examples: ["pixelate=8"]
       },
@@ -492,7 +494,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Monochrome intensity and optional color",
         examples: ["monochrome=0.5", "monochrome=1,red"]
       },
@@ -505,7 +507,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Duotone intensity with optional shadow and highlight colors",
         examples: ["duotone=0.5", "duotone=1,112233,ffeecc"]
       },
@@ -518,7 +520,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Additive brightness adjustment from -255 to 255",
         examples: ["brightness=-20"]
       },
@@ -531,7 +533,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Positive contrast factor; 1 is the identity point",
         examples: ["contrast=1.25"]
       },
@@ -544,7 +546,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Positive saturation factor; 1 is the identity point",
         examples: ["saturation=0.5"]
       },
@@ -557,7 +559,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Color overlay with optional alpha preservation",
         examples: ["colorize=0.5,red", "colorize=1,ff0000,keep-alpha"]
       },
@@ -570,7 +572,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Directional color gradient with unit-space stops",
         examples: ["gradient=1,red,left,0.25,0.75"]
       },
@@ -583,7 +585,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Trim a surrounding background: auto, or color[,tolerance]",
         examples: ["trim=auto", "trim=fff,10"]
       },
@@ -596,7 +598,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [:trim],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Make trim margins symmetric horizontally, vertically, or on both axes",
         examples: ["trim-symmetry=h", "trim-symmetry=v", "trim-symmetry=hv"]
       },
@@ -609,7 +611,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "CSS 1-4 value px shorthand padding",
         examples: ["pad=20", "pad=10,20,30,40"]
       },
@@ -622,7 +624,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Background color, flattens transparency: color[,alpha]",
         examples: ["bg=f4f4f4"]
       },
@@ -635,7 +637,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
+        terminal_applicability: :pixels,
         summary: "Apply EXIF orientation automatically, or ignore it",
         examples: ["orient=auto", "orient=none"]
       },
@@ -648,9 +650,9 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :representation,
-        terminal_applicability: :both,
-        summary: "Terminal selection: image (default) or blurhash",
-        examples: ["output=blurhash"]
+        terminal_applicability: :all,
+        summary: "Terminal selection: image (default), blurhash, or info",
+        examples: ["output=blurhash", "output=info"]
       },
       %__MODULE__{
         key: "format",
@@ -822,6 +824,45 @@ defmodule ImagePipe.Native.OptionSpec do
         examples: ["jxl-options=effort:4"]
       },
       %__MODULE__{
+        key: "filename",
+        scope: :request,
+        value: &__MODULE__.parse_filename/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :presentation,
+        terminal_applicability: :all,
+        summary: "ASCII filename stem for response delivery",
+        examples: ["filename=card-v2"]
+      },
+      %__MODULE__{
+        key: "attachment",
+        scope: :request,
+        value: :flag,
+        stage: nil,
+        default: false,
+        prerequisites: [],
+        conflicts: [],
+        identity: :presentation,
+        terminal_applicability: :all,
+        summary: "Deliver the response as an attachment",
+        examples: ["attachment"]
+      },
+      %__MODULE__{
+        key: "cb",
+        scope: :request,
+        value: &__MODULE__.parse_cachebuster/1,
+        stage: nil,
+        default: nil,
+        prerequisites: [],
+        conflicts: [],
+        identity: :storage,
+        terminal_applicability: :all,
+        summary: "ASCII storage cachebuster token",
+        examples: ["cb=release-42"]
+      },
+      %__MODULE__{
         key: "debug",
         scope: :request,
         value: :flag,
@@ -830,7 +871,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :presentation,
-        terminal_applicability: :both,
+        terminal_applicability: :all,
         summary: "Request debug response headers when the mount allows them",
         examples: ["debug"]
       },
@@ -843,7 +884,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :gate,
-        terminal_applicability: :both,
+        terminal_applicability: :all,
         summary: "Unix timestamp after which the URL is invalid (404)",
         examples: ["expires=1999999999"]
       },
@@ -856,7 +897,7 @@ defmodule ImagePipe.Native.OptionSpec do
         prerequisites: [],
         conflicts: [],
         identity: :gate,
-        terminal_applicability: :both,
+        terminal_applicability: :all,
         summary: "One or more configured preset names to expand",
         examples: ["preset=card"]
       }
@@ -1475,13 +1516,21 @@ defmodule ImagePipe.Native.OptionSpec do
   def parse_orientation(_value), do: {:error, :invalid_orientation}
 
   @doc false
-  @spec parse_output(String.t()) :: {:ok, :image | :blurhash} | {:error, :invalid_output}
+  @spec parse_output(String.t()) :: {:ok, :image | :blurhash | :info} | {:error, :invalid_output}
   def parse_output(string) do
     case Map.fetch(@output_map, string) do
       {:ok, output} -> {:ok, output}
       :error -> {:error, :invalid_output}
     end
   end
+
+  @doc false
+  @spec parse_filename(String.t()) :: {:ok, String.t()} | {:error, :invalid_filename}
+  def parse_filename(string), do: parse_path_token(string, :invalid_filename)
+
+  @doc false
+  @spec parse_cachebuster(String.t()) :: {:ok, String.t()} | {:error, :invalid_cachebuster}
+  def parse_cachebuster(string), do: parse_path_token(string, :invalid_cachebuster)
 
   @doc false
   @spec parse_format(String.t()) ::
@@ -1562,6 +1611,13 @@ defmodule ImagePipe.Native.OptionSpec do
 
   @doc false
   def parse_jxl_options(string), do: parse_encoder_options(string, :jpeg_xl)
+
+  defp parse_path_token(string, error) do
+    case Regex.match?(@path_token_pattern, string) do
+      true -> {:ok, string}
+      false -> {:error, error}
+    end
+  end
 
   defp parse_enum(string, values, error) do
     case Map.fetch(values, string) do

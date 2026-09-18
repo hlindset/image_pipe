@@ -5,6 +5,7 @@ defmodule ImagePipe.Native.ParserTest do
   alias ImagePipe.Native.Config
   alias ImagePipe.Native.Diagnostic
   alias ImagePipe.Native.DiagnosticRenderer
+  alias ImagePipe.Native.OptionSpec
   alias ImagePipe.Native.Parser
   alias ImagePipe.Native.Request
   alias ImagePipe.Native.Request.Group
@@ -422,6 +423,30 @@ defmodule ImagePipe.Native.ParserTest do
       assert {:ok, %Request{output: %Output{terminal: :image}}} = parse(["output=image"])
     end
 
+    test "info terminal carries delivery and storage controls as typed request data" do
+      assert {:ok,
+              %Request{
+                output: %Output{terminal: :info},
+                filename: "Card_v2.small-1",
+                attachment?: true,
+                cachebuster: "deploy_42",
+                expires: 1_999_999_999,
+                debug?: true
+              }} =
+               parse([
+                 "output=info",
+                 "filename=Card_v2.small-1",
+                 "attachment",
+                 "cb=deploy_42",
+                 "expires=1999999999",
+                 "debug"
+               ])
+    end
+
+    test "attachment=false canonicalizes to the request default" do
+      assert parse(["attachment=false"]) == parse([])
+    end
+
     test "format alone (negotiated output)" do
       assert {:ok, %Request{output: %Output{format: :avif}}} = parse(["format=avif"])
     end
@@ -545,6 +570,20 @@ defmodule ImagePipe.Native.ParserTest do
       assert Enum.any?(diagnostics, &(&1.reason == :invalid_dimension))
     end
 
+    test "presentation and storage tokens reject empty or non-ASCII-safe values" do
+      for {segment, reason} <- [
+            {"filename=", :invalid_filename},
+            {"filename=cat photo", :invalid_filename},
+            {"filename=café", :invalid_filename},
+            {"cb=", :invalid_cachebuster},
+            {"cb=release/42", :invalid_cachebuster},
+            {"cb=release%2042", :invalid_cachebuster}
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} = parse([segment])
+        assert Enum.any?(diagnostics, &(&1.reason == reason))
+      end
+    end
+
     test "invalid dpr, zoom, and minimum dimensions report their option errors" do
       for {segment, reason} <- [
             {"dpr=0", :invalid_dpr},
@@ -666,6 +705,19 @@ defmodule ImagePipe.Native.ParserTest do
                parse(["format=webp", "w=800", "then", "format=avif"])
 
       assert Enum.any?(diagnostics, &(&1.reason == :duplicate_option))
+    end
+
+    test "delivery and storage controls are request-scoped across groups" do
+      for {first, second} <- [
+            {"filename=first", "filename=second"},
+            {"attachment", "attachment=false"},
+            {"cb=first", "cb=second"}
+          ] do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse([first, "w=800", "then", second])
+
+        assert Enum.any?(diagnostics, &(&1.reason == :duplicate_option))
+      end
     end
 
     test "the same key in different groups is not a duplicate" do
@@ -851,6 +903,49 @@ defmodule ImagePipe.Native.ParserTest do
       end
     end
 
+    test "info rejects every transform option and orientation as inert" do
+      for spec <- OptionSpec.all(), spec.scope == :group do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(["output=info", hd(spec.examples)])
+
+        assert Enum.any?(diagnostics, fn diagnostic ->
+                 diagnostic.reason == :inert_option and
+                   String.starts_with?(diagnostic.message, "#{spec.key} ")
+               end),
+               spec.key
+      end
+
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["output=info", "orient=auto"])
+
+      assert Enum.any?(diagnostics, &(&1.reason == :inert_option))
+    end
+
+    test "info rejects every image-only output policy as inert" do
+      for spec <- OptionSpec.all(), spec.terminal_applicability == :image do
+        assert {:error, {:invalid_request, diagnostics}} =
+                 parse(["output=info", hd(spec.examples)])
+
+        assert Enum.any?(diagnostics, fn diagnostic ->
+                 diagnostic.reason == :inert_option and
+                   String.starts_with?(diagnostic.message, "#{spec.key} ")
+               end),
+               spec.key
+      end
+    end
+
+    test "info accepts its complete request-control allowlist" do
+      assert {:ok, %Request{output: %Output{terminal: :info}}} =
+               parse([
+                 "output=info",
+                 "filename=info.json",
+                 "attachment",
+                 "cb=v1",
+                 "expires=1999999999",
+                 "debug"
+               ])
+    end
+
     test "an explicit format rejects another codec's URL options" do
       assert {:error, {:invalid_request, diagnostics}} =
                parse(["format=webp", "jpeg-options=progressive"])
@@ -989,6 +1084,11 @@ defmodule ImagePipe.Native.ParserTest do
   end
 
   describe "400s: empty pipeline groups" do
+    test "info does not make an explicit empty pipeline group valid" do
+      assert {:error, {:invalid_request, diagnostics}} = parse(["output=info", "then"])
+      assert Enum.any?(diagnostics, &(&1.reason == :empty_pipeline_group))
+    end
+
     test "leading then" do
       assert {:error, {:invalid_request, diagnostics}} = parse(["then", "w=800"])
       assert Enum.any?(diagnostics, &(&1.reason == :empty_pipeline_group))
