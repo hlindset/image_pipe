@@ -15,6 +15,31 @@ defmodule ImagePipeFiddleWeb.NativeWireTest do
     assert conn.status == 400
   end
 
+  test "native info download example returns source facts", %{conn: conn} do
+    response =
+      get(
+        conn,
+        "/native-image/output=info/filename=source-info/attachment/src/images/orientation-6.jpg"
+      )
+
+    assert response.status == 200
+    assert get_resp_header(response, "content-type") == ["application/json; charset=utf-8"]
+
+    assert get_resp_header(response, "content-disposition") == [
+             ~s(attachment; filename="source-info.json")
+           ]
+
+    assert %{"width" => 64, "height" => 96, "orientation" => 6} = JSON.decode!(response.resp_body)
+  end
+
+  test "native BlurHash example returns text", %{conn: conn} do
+    response = get(conn, "/native-image/w=100/output=blurhash/src/images/dog.jpg")
+
+    assert response.status == 200
+    assert get_resp_header(response, "content-type") == ["text/plain; charset=utf-8"]
+    assert byte_size(response.resp_body) > 0
+  end
+
   test "native debug example exposes processing facts", %{conn: conn} do
     conn = get(conn, "/native-image/w=64/debug/src/images/dog.jpg")
 

@@ -95,6 +95,11 @@
       source: "images/rgba16.png",
     },
     { label: "Debug headers", options: "w=800/debug" },
+    { label: "Source info", options: "output=info" },
+    { label: "BlurHash", options: "w=100/output=blurhash" },
+    { label: "Download image", options: "w=800/filename=sample/attachment" },
+    { label: "Download info", options: "output=info/filename=source-info/attachment" },
+    { label: "Cachebuster", options: "w=800/cb=v2/debug" },
   ];
 
   function applyExample(example: Example) {

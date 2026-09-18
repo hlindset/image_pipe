@@ -36,6 +36,7 @@
   } from "./preview-bridge";
   import DebugInfoPanel from "./DebugInfoPanel.svelte";
   import { parseDebugHeaders } from "./debug-headers";
+  import { isTextPreview, readTextPreview, type TextPreview } from "./text-preview";
   import {
     applyThemeMode,
     persistThemeMode,
@@ -68,6 +69,7 @@
   let previewLoading = $state(true);
   let previewError: string | null = $state(null);
   let processedMetadata: ProcessedImageMetadata | null = $state(null);
+  let textPreview: TextPreview | null = $state(null);
   let signingError: string | null = $state(null);
   // Element references bound via bind:this.
   let toolsSidebar: HTMLElement | null = $state(null);
@@ -83,6 +85,7 @@
   let previewWorkerDisposed = false; // guards the register-promise-vs-unmount race
   let currentRequestId = 0;
   let lastPreviewAbsolute: string | null = null; // dedupe on resolved URL, not raw path
+  let textPreviewController: AbortController | null = null;
   const updatePreviewPath = debounce((previewRequestPath: string) => {
     // `previewRequestPath` already carries each dialect's debug trigger, built in
     // by the provider's path builder (and signed, for imgproxy, over the
@@ -100,8 +103,32 @@
     previewLoading = true;
     previewError = null;
     processedMetadata = null;
-    previewImageUrl = absolute; // same-origin → <img> triggers the real, SW-intercepted request (with the debug trigger)
+    textPreview = null;
+    textPreviewController?.abort();
+    if (isTextPreview(previewRequestPath)) {
+      previewImageUrl = null;
+      textPreviewController = new AbortController();
+      void loadTextPreview(absolute, currentRequestId, textPreviewController.signal);
+    } else {
+      textPreviewController = null;
+      previewImageUrl = absolute;
+    }
   }, 150);
+
+  async function loadTextPreview(url: string, requestId: number, signal: AbortSignal) {
+    try {
+      const response = await fetch(url, { signal });
+      const result = await readTextPreview(response);
+      if (signal.aborted || requestId !== currentRequestId) return;
+      textPreview = result;
+      previewLoading = false;
+    } catch (error) {
+      if (signal.aborted || requestId !== currentRequestId) return;
+      lastPreviewAbsolute = null;
+      previewError = error instanceof Error ? error.message : "Unable to load preview";
+      previewLoading = false;
+    }
+  }
   const updateFiddleLocation = debounce((nextPath: string) => {
     if (
       typeof window === "undefined" ||
@@ -125,6 +152,7 @@
     restoreStateFromLocation();
 
     void registerPreviewWorker((message) => {
+      if (textPreviewController !== null) return;
       previewMetadata.applyMessage(message, currentRequestId);
       // Reflect late-arriving bytes/contentType (and SW-reported errors) into the UI.
       if (previewMetadata.metadata !== null) processedMetadata = previewMetadata.metadata;
@@ -149,6 +177,7 @@
       window.removeEventListener("popstate", restoreStateFromLocation);
       previewWorkerDisposed = true;
       previewWorker?.unsubscribe();
+      textPreviewController?.abort();
     };
   });
 
@@ -180,13 +209,21 @@
       : path.replace(/^\/[^/]+\/[^/]+\//, ""),
   );
   const outputLabel = $derived.by(() =>
-    appState.provider === "native"
-      ? (processedMetadata?.contentType?.split("/")[1] ?? "auto")
-      : resolvedOutputLabel(appState.imgproxy, processedMetadata),
+    textPreview !== null
+      ? textPreview.contentType
+      : appState.provider === "native"
+        ? (processedMetadata?.contentType?.split("/")[1] ?? "auto")
+        : resolvedOutputLabel(appState.imgproxy, processedMetadata),
   );
-  const sizeLabel = $derived(previewError ?? processedSizeLabel(processedMetadata));
+  const sizeLabel = $derived.by(
+    () =>
+      previewError ??
+      (textPreview !== null
+        ? `${textPreview.bytes.toLocaleString()} bytes`
+        : processedSizeLabel(processedMetadata)),
+  );
   const debugGroups = $derived.by(() => {
-    const meta = processedMetadata;
+    const meta = textPreview ?? processedMetadata;
     return parseDebugHeaders(meta?.debugHeaders ?? null, meta?.bytes ?? null);
   });
   const requestSummary = $derived(
@@ -613,7 +650,9 @@
       </div>
       <div class="image-frame">
         <figure>
-          {#if previewImageUrl !== null}
+          {#if textPreview !== null}
+            <pre class="text-preview">{textPreview.text}</pre>
+          {:else if previewImageUrl !== null}
             <img
               class:is-loading={previewLoading}
               src={previewImageUrl}
@@ -635,6 +674,18 @@
 </main>
 
 <style>
+  .text-preview {
+    max-width: 100%;
+    padding: 1.5rem;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    text-align: left;
+    color: var(--text-primary);
+    background: var(--surface-control);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+  }
+
   .fiddle-shell {
     width: 100%;
     height: 100dvh;
