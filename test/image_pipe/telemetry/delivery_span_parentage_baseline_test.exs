@@ -65,13 +65,9 @@ defmodule ImagePipe.Telemetry.DeliverySpanParentageBaselineTest do
   ]
 
   test "stage spans of a cache-miss streamed request are semantic descendants of the request root" do
-    conn = conn(:get, "/beach/full/!120,90/0/default.jpg")
+    conn = conn(:get, "/w=120/h=90/format=jpeg/src/images/beach.jpg")
 
     opts = [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver:
-        {ImagePipe.Dialect.IIIF.Resolver.Static,
-         map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}},
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ],

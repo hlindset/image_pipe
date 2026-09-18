@@ -15,7 +15,6 @@ Set the telemetry prefix as a Plug option:
 forward "/",
   to: ImagePipe.Plug,
   init_opts: [
-    dialect: ImagePipe.Dialect.Imgproxy,
     sources: [
       path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ],
