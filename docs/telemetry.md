@@ -292,11 +292,11 @@ Stop metadata:
 
 ### Output terminal span (`[:output, :terminal]`)
 
-The `[:image_pipe, :output, :terminal]` span wraps source info JSON and BlurHash
+The `[:image_pipe, :output, :terminal]` span wraps source info JSON, BlurHash, and LQIP CSS
 generation. A complete-body cache hit and a conditional `304` perform
 no terminal computation and therefore emit no terminal span.
 
-Start metadata: `:terminal` — `:info` or `:blurhash`.
+Start metadata: `:terminal` — `:info`, `:blurhash`, or `:lqip_css`.
 
 Stop metadata:
 
@@ -518,7 +518,7 @@ level), and the OTel exporter folds it onto the search span.
 
 The `[:image_pipe, :send]` span wraps the terminal response send — every path a
 request can exit through: the streamed/cached image sends, error responses,
-rendered/complete bodies (`/info`, blurhash), 304s, the OPTIONS 204, and the
+rendered/complete bodies (info, BlurHash, LQIP CSS), 304s, the OPTIONS 204, and the
 method-405 reject. `ImagePipe.Plug.Runner` emits it around every
 terminal send, so all exits share the same shapes. It runs in the
 connection-owner process.
@@ -576,7 +576,7 @@ which emitted fields become metrics tags. Common fields are:
 - `:cache` - cache status when relevant.
 - `:output_mode` - `:automatic` or `:explicit` when known.
 - `:output_format` - the resolved output format when known.
-- `:terminal` - the complete-body terminal name (`:info` or `:blurhash`).
+- `:terminal` - the complete-body terminal name (`:info`, `:blurhash`, or `:lqip_css`).
 - `:source_kind` - `:path`, `:url`, `:object`, or `:reference` on source spans.
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
 - `:error` - a stable error category when known.

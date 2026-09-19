@@ -30,6 +30,7 @@
   import DebugInfoPanel from "./DebugInfoPanel.svelte";
   import { parseDebugHeaders } from "./debug-headers";
   import { isTextPreview, readTextPreview, type TextPreview } from "./text-preview";
+  import LqipCssPreview from "./LqipCssPreview.svelte";
   import {
     applyThemeMode,
     persistThemeMode,
@@ -565,8 +566,11 @@
         <span>{outputLabel}</span>
       </div>
       <div class="image-frame">
-        <figure>
+        <figure class:text-output={textPreview !== null}>
           {#if textPreview !== null}
+            {#if /^#[0-9a-f]{8}$/.test(textPreview.text)}
+              <LqipCssPreview value={textPreview.text} />
+            {/if}
             <pre class="text-preview">{textPreview.text}</pre>
           {:else if previewImageUrl !== null}
             <img
@@ -592,6 +596,7 @@
 <style>
   .text-preview {
     max-width: 100%;
+    margin: 0;
     padding: 1.5rem;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
@@ -909,6 +914,15 @@
       display: inline-flex;
       margin: 0;
       box-shadow: var(--image-shadow);
+    }
+
+    figure.text-output {
+      min-width: 0;
+      max-width: 100%;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      box-shadow: none;
     }
 
     img {

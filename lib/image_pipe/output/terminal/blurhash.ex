@@ -19,6 +19,7 @@ defmodule ImagePipe.Output.Terminal.Blurhash do
   produce a different, wrong, hash for visually identical content.
   """
 
+  alias ImagePipe.Output.Terminal.PixelSpace
   alias Vix.Vips.Image, as: Vimage
 
   @doc """
@@ -34,55 +35,13 @@ defmodule ImagePipe.Output.Terminal.Blurhash do
   Computes a BlurHash string for `image`.
 
   Owns two responsibilities: normalizing `image` into the fixed terminal
-  pixel space (`to_terminal_pixel_space/1`) and running the 4x3-component
+  pixel space (`ImagePipe.Output.Terminal.PixelSpace`) and running the 4x3-component
   BlurHash encode (`Image.Blurhash.encode/2`) over the normalized result.
   """
   @spec compute(Vimage.t()) :: {:ok, String.t()} | {:error, term()}
   def compute(%Vimage{} = image) do
-    with {:ok, normalized} <- to_terminal_pixel_space(image) do
+    with {:ok, normalized} <- PixelSpace.normalize(image) do
       Image.Blurhash.encode(normalized, x_components: 4, y_components: 3)
-    end
-  end
-
-  @doc """
-  Normalizes `image` into the fixed terminal pixel space: sRGB, tone-mapped,
-  independent of the decoded image's color profile, flattened to 3 bands (no
-  alpha — `Image.Blurhash.encode/2` only accepts 3-band images), 8-bit.
-
-  Exposed (not `@doc false`) so the pixel-space-invariance property — two
-  images with identical visual content but different embedded color
-  profiles normalize to close (and, when the profile conversion happens to
-  be exact, byte-identical) pixels — is independently assertable in tests,
-  not just inferable from the final hash string.
-  """
-  @spec to_terminal_pixel_space(Vimage.t()) :: {:ok, Vimage.t()} | {:error, term()}
-  def to_terminal_pixel_space(%Vimage{} = image) do
-    with {:ok, srgb} <- to_srgb(image),
-         {:ok, flattened} <- Image.flatten(srgb, background: :black) do
-      Image.cast(flattened, {:u, 8})
-    end
-  end
-
-  # ICC-aware conversion: when the source carries an embedded profile,
-  # `Image.to_colorspace/3` (libvips `icc_transform`) reads it as the input
-  # profile and converts to sRGB — a genuine colorimetric conversion, not a
-  # byte reinterpretation. Sources without an embedded profile (the common
-  # case) fall back to the cheaper interpretation-based `to_colorspace/2`
-  # (libvips `colourspace`), which still handles non-RGB interpretations
-  # (CMYK, LAB, linear-light scRGB HDR) by converting/companding into sRGB —
-  # the "tone-mapped" half of the fixed pixel space for HDR sources.
-  defp to_srgb(image) do
-    if embedded_icc_profile?(image) do
-      Image.to_colorspace(image, :srgb, [])
-    else
-      Image.to_colorspace(image, :srgb)
-    end
-  end
-
-  defp embedded_icc_profile?(image) do
-    case Vimage.header_value(image, "icc-profile-data") do
-      {:ok, profile} when is_binary(profile) -> true
-      _not_present -> false
     end
   end
 end

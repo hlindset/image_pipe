@@ -686,11 +686,16 @@ defmodule ImagePipe.API.Parser do
   end
 
   defp terminal_applicable?(:all, _terminal), do: true
-  defp terminal_applicable?(:pixels, terminal) when terminal in [:image, :blurhash], do: true
+
+  defp terminal_applicable?(:pixels, terminal) when terminal in [:image, :blurhash, :lqip_css],
+    do: true
+
   defp terminal_applicable?(:image, :image), do: true
   defp terminal_applicable?(_applicability, _terminal), do: false
 
   defp terminal_inert_diagnostic(key, terminal, span) do
+    terminal = terminal |> Atom.to_string() |> String.replace("_", "-")
+
     %Diagnostic{
       reason: :inert_option,
       message: "#{key} is inert for output=#{terminal}",
@@ -1074,7 +1079,9 @@ defmodule ImagePipe.API.Parser do
   def message_for(:invalid_pad_shorthand),
     do: "invalid value: expected 1-4 comma-separated px values"
 
-  def message_for(:invalid_output), do: "invalid value: expected image, blurhash, or info"
+  def message_for(:invalid_output),
+    do: "invalid value: expected image, blurhash, lqip-css, or info"
+
   def message_for(:invalid_orientation), do: "invalid value: expected auto or none"
   def message_for(:invalid_filename), do: "invalid value: expected [A-Za-z0-9._-]+"
   def message_for(:invalid_cachebuster), do: "invalid value: expected [A-Za-z0-9._-]+"

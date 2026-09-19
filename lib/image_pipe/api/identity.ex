@@ -13,6 +13,7 @@ defmodule ImagePipe.API.Identity do
 
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
+  alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Request
   alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
@@ -62,12 +63,13 @@ defmodule ImagePipe.API.Identity do
   end
 
   defp representation_material(
-         %Request{output: %{terminal: :blurhash}} = request,
+         %Request{output: %{terminal: terminal}} = request,
          nil,
          detector_identity
-       ) do
+       )
+       when terminal in [:blurhash, :lqip_css] do
     [orient: request.orient, groups: canonical_groups(request.groups)] ++
-      [terminal: Blurhash.identity(), output_policy: []] ++
+      [terminal: terminal_identity(terminal), output_policy: []] ++
       detector_material(detector_identity)
   end
 
@@ -83,6 +85,9 @@ defmodule ImagePipe.API.Identity do
 
   defp cachebuster_material(nil), do: []
   defp cachebuster_material(cachebuster), do: [cachebuster: cachebuster]
+
+  defp terminal_identity(:blurhash), do: Blurhash.identity()
+  defp terminal_identity(:lqip_css), do: LqipCss.identity()
 
   defp selected_format(policy) do
     case Policy.identity_selection(policy) do

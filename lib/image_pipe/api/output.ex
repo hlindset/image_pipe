@@ -19,7 +19,7 @@ defmodule ImagePipe.API.Output do
   @spec resolve(RequestOutput.t(), keyword(), String.t()) ::
           {:ok, Policy.t() | nil} | {:error, {:invalid_output, term()}}
   def resolve(%RequestOutput{terminal: terminal}, _config, _accept_header)
-      when terminal in [:blurhash, :info] do
+      when terminal in [:blurhash, :lqip_css, :info] do
     {:ok, nil}
   end
 

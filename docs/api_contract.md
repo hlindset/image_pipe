@@ -35,7 +35,7 @@ The API accepts these option keys:
 It also implements `then`, `src`, `src64`, `enc`, and full-length HMAC signing with
 key rotation. Presets support nested references and complete `then` pipelines.
 Sources are paths, HTTP(S) URLs, S3 objects, or configured custom schemes. Image,
-BlurHash, and source-info JSON are the supported outputs.
+BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
 
 ## Capabilities
 
@@ -50,7 +50,7 @@ BlurHash, and source-info JSON are the supported outputs.
 | Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2/Butteraugli/size search, and JPEG/PNG/WebP/AVIF/JXL controls |
 | Color and metadata | Copyright and metadata policy, ICC conversion and preservation, and HDR preservation |
 | Sources | Filesystem, HTTP(S), S3, host adapters, custom schemes, and authenticated source concealment |
-| Delivery | Images, BlurHash, source-info JSON, filenames, attachments, cachebusters, opt-in debug headers, and clock injection |
+| Delivery | Images, BlurHash, LQIP CSS, source-info JSON, filenames, attachments, cachebusters, opt-in debug headers, and clock injection |
 
 ## Host configuration
 
@@ -93,7 +93,7 @@ produces the same result as this logical order.
 
 Automatic trim samples the displayed top-left corner. Pending orientation is
 applied before trim so that both background sampling and trim axes follow this
-frame. The request-wide `orient` value also applies to BlurHash. A default
+frame. The request-wide `orient` value also applies to BlurHash and LQIP CSS. A default
 preset can set `orient=none`; an explicit URL value overrides that preset.
 
 Crop and region percentages use their operation's input dimensions, after
@@ -367,8 +367,8 @@ preservation; use `hdr=tonemap` with a named target. Conflicting URL and host
 settings fail before source or cache access.
 
 All three policies are request-scoped and enter effective output identity.
-They reject on BlurHash URLs; configured image policies do not change
-BlurHash's fixed pixel space or text response.
+They reject on BlurHash and LQIP CSS URLs; configured image policies do not change
+their fixed pixel space or text responses.
 
 ### Image quality and encoders
 
@@ -443,7 +443,7 @@ progressive JPEG. Host keys `jpeg_options`, `png_options`, `webp_options`,
 progressive flag `interlace`.
 
 Quality, search, budgets, and encoder URL options apply only to image output.
-BlurHash rejects these URL options and ignores configured image output policy.
+BlurHash and LQIP CSS reject these URL options and ignore configured image output policy.
 
 ### Presets and terminals
 
@@ -457,7 +457,16 @@ still override it. Presets cannot supply a source or signature. Their names
 do not participate in representation identity.
 
 `output=image` uses negotiated or explicit format. `output=blurhash` returns
-text. `output=info` describes the source with JSON fields
+text. `output=lqip-css` returns Image's packed 8-digit `#rrggbbaa` placeholder
+value as `text/plain; charset=utf-8`, with no `Vary: Accept`. Both placeholder
+outputs apply all groups and orientation, normalize to sRGB with black-flattened
+alpha and 8-bit channels, and retain source safety limits. LQIP CSS reduces to a
+materialized 3×3 frame before sampling; it adds no terminal-specific decode hint.
+The value is used as `style="--lqip: #22333091"` with the shared stylesheet in
+[Image's LQIP CSS guide](https://hexdocs.pm/image/lqip_css.html). Successful
+placeholder responses use the usual cache and pre-fetch conditional-request path.
+
+`output=info` describes the source with JSON fields
 `format`, `mime_type`, display `width`/`height`, EXIF `orientation`, and
 optional byte `size`. It rejects all group options, explicit `orient` values, and
 image output options, including metadata, profile, and HDR controls,
@@ -473,8 +482,8 @@ validation, so inherited image options also reject.
 `filename=photo` supplies a response filename stem. `attachment` (or
 `attachment=true`) selects download disposition; `attachment=false` selects
 inline disposition and overrides an inherited preset value. Both apply to image,
-BlurHash, and info responses. ImagePipe adds the actual response's extension,
-including `.txt` for BlurHash and `.json` for info. Filename and attachment
+BlurHash, LQIP CSS, and info responses. ImagePipe adds the actual response's extension,
+including `.txt` for BlurHash and LQIP CSS and `.json` for info. Filename and attachment
 settings are applied from the current request on cache hits as well as misses.
 They do not participate in cache keys or ETags, and `304` responses omit
 `Content-Disposition`. HEAD preserves GET response headers; the HTTP adapter

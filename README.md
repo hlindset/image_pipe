@@ -96,12 +96,17 @@ key rotation, and a complete concealment example.
 
 The API supports orientation, resize and crop, object and face detection,
 pixel effects, canvas and padding, color profiles, HDR, and encoder controls.
-Responses can be images, BlurHash text, or source-info JSON. Sources can be local
-paths, HTTP(S) URLs, S3 objects, or configured schemes.
+Responses can be images, BlurHash text, LQIP CSS values, or source-info JSON.
+Sources can be local paths, HTTP(S) URLs, S3 objects, or configured schemes.
 
 Invalid requests fail before cache lookup or source fetch. The
 [API contract](docs/api_contract.md) lists every option and defines
 processing order, coordinate frames, and output behavior.
+
+Use `/output=lqip-css/src/images/photo.jpg` to get a packed `#rrggbbaa`
+placeholder value. Apply it as `style="--lqip: #22333091"` with the shared
+stylesheet from [Image's LQIP CSS guide](https://hexdocs.pm/image/lqip_css.html).
+Requested transforms shape the placeholder just like image output.
 
 EXIF orientation applies once by default. Use `orient=none` to keep the stored
 pixel orientation; user rotation and flips still apply. Trim runs after

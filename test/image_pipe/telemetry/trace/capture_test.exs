@@ -95,13 +95,24 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "captures an output terminal span with its terminal attribute" do
-    Telemetry.span([], [:output, :terminal], %{terminal: :blurhash}, fn ->
-      {:ok, %{result: :ok}}
-    end)
+    prefix = [:capture_terminal_test]
+    Telemetry.detach_tracer()
+    :ok = TestExporter.attach(self(), prefix: prefix)
 
-    assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = span}
-    assert span.status == :ok
-    assert span.attributes[:terminal] == :blurhash
+    for terminal <- [:info, :blurhash, :lqip_css] do
+      Telemetry.span(
+        [telemetry_prefix: prefix],
+        [:output, :terminal],
+        %{terminal: terminal},
+        fn ->
+          {:ok, %{result: :ok}}
+        end
+      )
+
+      assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = span}
+      assert span.status == :ok
+      assert span.attributes[:terminal] == terminal
+    end
   end
 
   test "captures the content-class classify span with its allowlisted attributes" do

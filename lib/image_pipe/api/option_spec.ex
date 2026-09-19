@@ -79,6 +79,7 @@ defmodule ImagePipe.API.OptionSpec do
   @output_map %{
     "image" => :image,
     "blurhash" => :blurhash,
+    "lqip-css" => :lqip_css,
     "info" => :info
   }
 
@@ -640,8 +641,8 @@ defmodule ImagePipe.API.OptionSpec do
         conflicts: [],
         identity: :representation,
         terminal_applicability: :all,
-        summary: "Terminal selection: image (default), blurhash, or info",
-        examples: ["output=blurhash", "output=info"]
+        summary: "Terminal selection: image (default), blurhash, lqip-css, or info",
+        examples: ["output=blurhash", "output=lqip-css", "output=info"]
       },
       %__MODULE__{
         key: "format",
@@ -1505,7 +1506,8 @@ defmodule ImagePipe.API.OptionSpec do
   def parse_orientation(_value), do: {:error, :invalid_orientation}
 
   @doc false
-  @spec parse_output(String.t()) :: {:ok, :image | :blurhash | :info} | {:error, :invalid_output}
+  @spec parse_output(String.t()) ::
+          {:ok, :image | :blurhash | :lqip_css | :info} | {:error, :invalid_output}
   def parse_output(string) do
     case Map.fetch(@output_map, string) do
       {:ok, output} -> {:ok, output}
