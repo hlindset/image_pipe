@@ -1,6 +1,6 @@
 # ICC profile provenance
 
-These three **CC0 / public-domain profiles** provide the native `profile=srgb`,
+These three **CC0 / public-domain profiles** provide the API's `profile=srgb`,
 `profile=display-p3`, and `profile=adobe-rgb` output targets. Each profile uses
 the named color space's primaries. Its embedded description and
 tone-response-curve representation come from the source collection below.

@@ -2,9 +2,9 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   # Real image encode/decode per case — keep it serial.
   use ExUnit.Case, async: false
 
+  alias ImagePipe.API
+  alias ImagePipe.API.Source, as: APISource
   alias ImagePipe.Decode
-  alias ImagePipe.Native
-  alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Plan.Request
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -38,12 +38,12 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     |> Image.write!(:memory, suffix: suffix)
   end
 
-  # Parse a real native request, fetch and decode through the shared bracket,
-  # then run it through the native pipeline — the same seams the Plug drives.
+  # Parse a real API request, fetch and decode through the shared bracket,
+  # then run it through the API pipeline — the same seams the Plug drives.
   defp run(body, options) do
     opts = opts(body)
     request = request(options, opts)
-    {:ok, source_request} = NativeSource.translate(request.source, opts)
+    {:ok, source_request} = APISource.translate(request.source, opts)
     {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
@@ -59,14 +59,14 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   defp request("", opts) do
     assert {{:ok, %Request{} = request}, _metadata} =
-             Native.parse(Plug.Test.conn(:get, "/src/crop.img"), opts)
+             API.parse(Plug.Test.conn(:get, "/src/crop.img"), opts)
 
     request
   end
 
   defp request(options, opts) do
     assert {{:ok, %Request{} = request}, _metadata} =
-             Native.parse(Plug.Test.conn(:get, "/#{options}/src/crop.img"), opts)
+             API.parse(Plug.Test.conn(:get, "/#{options}/src/crop.img"), opts)
 
     request
   end
@@ -229,7 +229,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
       over_limit = Keyword.put(opts, :max_input_pixels, @src * @src - 1)
 
-      {:ok, source_request} = NativeSource.translate(request.source, over_limit)
+      {:ok, source_request} = APISource.translate(request.source, over_limit)
       {:ok, source} = Source.resolve(source_request, over_limit, [])
 
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =
@@ -418,7 +418,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   defp decode_streamed(body) do
     opts = opts(body)
     request = request("", opts)
-    {:ok, source_request} = NativeSource.translate(request.source, opts)
+    {:ok, source_request} = APISource.translate(request.source, opts)
     {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(

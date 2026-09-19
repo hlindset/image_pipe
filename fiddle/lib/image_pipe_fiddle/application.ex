@@ -10,8 +10,8 @@ defmodule ImagePipeFiddle.Application do
 
   @impl true
   def start(_type, _args) do
-    :persistent_term.put({__MODULE__, :native_opts}, build_native_opts())
-    :persistent_term.put({__MODULE__, :native_signed_opts}, build_native_signed_opts())
+    :persistent_term.put({__MODULE__, :api_opts}, build_api_opts())
+    :persistent_term.put({__MODULE__, :api_signed_opts}, build_api_signed_opts())
     ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
     maybe_attach_tracer()
 
@@ -86,13 +86,13 @@ defmodule ImagePipeFiddle.Application do
     end
   end
 
-  defp build_native_opts do
-    native_opts()
+  defp build_api_opts do
+    api_opts()
     |> ImagePipe.Plug.init()
   end
 
-  defp build_native_signed_opts do
-    native_opts()
+  defp build_api_signed_opts do
+    api_opts()
     |> Keyword.merge(
       keys: [@demo_signing_key],
       source_encryption_keys: [@demo_source_encryption_key]
@@ -100,7 +100,7 @@ defmodule ImagePipeFiddle.Application do
     |> ImagePipe.Plug.init()
   end
 
-  defp native_opts do
+  defp api_opts do
     [
       allow_origin: "*",
       allow_debug_headers: true,

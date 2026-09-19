@@ -5,7 +5,7 @@
 #
 # Jaeger (all-in-one v2) — OpenTelemetry traces:
 #   mise run fiddle otel                # emit traces; UI at http://localhost:16686
-# Then look for the `image_pipe.request` trace after issuing a native request.
+# Then look for the `image_pipe.request` trace after issuing an API request.
 #
 # s3proxy — fake S3 over the local filesystem, mirrors priv/static/images so the
 # fiddle's "S3" source type can fetch the sample images as s3://sources/<file>.

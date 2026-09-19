@@ -1,7 +1,7 @@
 defmodule ImagePipe.SourceTest.FoobarTranslator do
   @moduledoc false
 
-  @behaviour ImagePipe.Native.SourceScheme
+  @behaviour ImagePipe.API.SourceScheme
 
   @impl true
   def translate(source, _opts) do

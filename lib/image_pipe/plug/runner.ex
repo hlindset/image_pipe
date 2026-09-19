@@ -2,6 +2,7 @@ defmodule ImagePipe.Plug.Runner do
   @moduledoc false
   require Logger
 
+  alias ImagePipe.API
   alias ImagePipe.Cache
   alias ImagePipe.Debug
   alias ImagePipe.Debug.Info
@@ -10,7 +11,6 @@ defmodule ImagePipe.Plug.Runner do
   alias ImagePipe.Delivery
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Error
-  alias ImagePipe.Native
   alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
@@ -80,17 +80,17 @@ defmodule ImagePipe.Plug.Runner do
 
   defp parse(%Plug.Conn{} = conn, config) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:parse], %{}, fn ->
-      Native.parse(conn, config)
+      API.parse(conn, config)
     end)
   end
 
   defp handle_request(conn, request, config) do
     accept_header = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
 
-    with {:ok, plan_source, policy} <- Native.prepare(request, config, accept_header),
+    with {:ok, plan_source, policy} <- API.prepare(request, config, accept_header),
          {:ok, %ImageSource.Resolved{} = source} <-
            ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)) do
-      material = Native.identity_material(request, policy, conn, config)
+      material = API.identity_material(request, policy, conn, config)
 
       representation =
         Representation.build(source.identity, material, source.cache_semantics.byte_identity)
@@ -226,7 +226,7 @@ defmodule ImagePipe.Plug.Runner do
       conn =
         put_terminal_debug_headers(
           conn,
-          Native.response_meta(request),
+          API.response_meta(request),
           entry.debug,
           :hit,
           representation.cache_key,
@@ -241,7 +241,7 @@ defmodule ImagePipe.Plug.Runner do
             content_type,
             entry.body,
             headers,
-            Native.response_meta(request)
+            API.response_meta(request)
           )
         end)
 
@@ -267,7 +267,7 @@ defmodule ImagePipe.Plug.Runner do
         conn =
           put_terminal_debug_headers(
             conn,
-            Native.response_meta(request),
+            API.response_meta(request),
             debug,
             :miss,
             cache_key,
@@ -282,7 +282,7 @@ defmodule ImagePipe.Plug.Runner do
               content_type,
               body,
               cache_headers,
-              Native.response_meta(request)
+              API.response_meta(request)
             )
           end)
 
@@ -465,7 +465,7 @@ defmodule ImagePipe.Plug.Runner do
       send_with_span(conn, config, :ok, fn ->
         Sender.send_result(
           conn,
-          {:ok, {:cache_entry, entry, Native.response_meta(request), cache_headers, hit_debug}},
+          {:ok, {:cache_entry, entry, API.response_meta(request), cache_headers, hit_debug}},
           delivery_config(request, config)
         )
       end)
@@ -486,13 +486,13 @@ defmodule ImagePipe.Plug.Runner do
        ) do
     build_fun = build_fun(request, source, policy, config)
 
-    case Delivery.stream(self(), build_fun, cache_key, Native.response_meta(request), config) do
+    case Delivery.stream(self(), build_fun, cache_key, API.response_meta(request), config) do
       {:ok, prepared} ->
         conn =
           send_with_span(conn, config, :ok, fn ->
             Sender.send_result(
               conn,
-              {:ok, {:prepared_stream, prepared, Native.response_meta(request), cache_headers}},
+              {:ok, {:prepared_stream, prepared, API.response_meta(request), cache_headers}},
               delivery_config(request, config)
             )
           end)
@@ -715,11 +715,11 @@ defmodule ImagePipe.Plug.Runner do
 
   defp send_error(conn, reason, config) do
     log_encode_failure(reason)
-    metadata = %{result: Native.classify_error(reason), error: Error.tag(reason)}
+    metadata = %{result: API.classify_error(reason), error: Error.tag(reason)}
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->
-        Native.render_error(conn, reason)
+        API.render_error(conn, reason)
       end)
 
     {conn, metadata}

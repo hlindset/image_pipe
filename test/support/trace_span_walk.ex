@@ -4,9 +4,9 @@ defmodule ImagePipe.Test.Trace.SpanWalk do
   asserting one is a transitive descendant of a request root, walking
   `parent_span_id` links.
 
-  Shared by the delivery-primitive and native-dialect trace-parentage tests
+  Shared by the delivery-primitive and API trace-parentage tests
   (`ImagePipe.Delivery.TraceParentageTest`,
-  `ImagePipe.Telemetry.NativeDeliverySpanParentageTest`). The topology-gate
+  `ImagePipe.Telemetry.APIDeliverySpanParentageTest`). The topology-gate
   baseline (`ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`)
   deliberately keeps its own private copy rather than depending on this
   module — it must not be able to change out from under that gate.

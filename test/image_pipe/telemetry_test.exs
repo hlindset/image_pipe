@@ -570,7 +570,7 @@ defmodule ImagePipe.TelemetryTest do
     end
   end
 
-  test "native parse failures identify the invalid request on the request span" do
+  test "API parse failures identify the invalid request on the request span" do
     conn =
       :get
       |> conn("/rotate=361/format=jpeg/src/images/beach.jpg")
@@ -758,7 +758,7 @@ defmodule ImagePipe.TelemetryTest do
   end
 
   describe "request_result/1" do
-    # The shared classifier stamps the native request span's result.
+    # The shared classifier stamps the API request span's result.
     test "maps :ok and :not_modified straight through" do
       assert ImagePipe.Telemetry.request_result(:ok) == :ok
       assert ImagePipe.Telemetry.request_result(:not_modified) == :not_modified

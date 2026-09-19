@@ -2,9 +2,9 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   # Real image encode/decode per case — keep it serial.
   use ExUnit.Case, async: false
 
+  alias ImagePipe.API
+  alias ImagePipe.API.Source, as: APISource
   alias ImagePipe.Decode
-  alias ImagePipe.Native
-  alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Plan.Request
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -13,7 +13,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
   # Shrink-on-load through a preceding 90/270 user rotate (#151, the B2 extension).
   # Today a quarter-turn rotate before the resize forces a full-resolution decode;
-  # this exercises the native path where the JPEG is shrunk on load and the
+  # this exercises the API path where the JPEG is shrunk on load and the
   # shrink axes are swapped to match the combined net orientation turn (ExtractGeometry
   # `(angle + baseAngle) % 180`). Output must stay pixel-equivalent (±1px each axis,
   # perceptually identical) to the full-decode path.
@@ -49,12 +49,12 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
     |> Image.write!(:memory, suffix: suffix)
   end
 
-  # Parse a real native request, fetch and decode through the shared bracket,
-  # then run it through the native pipeline — the same seams the Plug drives.
+  # Parse a real API request, fetch and decode through the shared bracket,
+  # then run it through the API pipeline — the same seams the Plug drives.
   defp run(body, options) do
     opts = opts(body)
     request = request(options, opts)
-    {:ok, source_request} = NativeSource.translate(request.source, opts)
+    {:ok, source_request} = APISource.translate(request.source, opts)
     {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
@@ -70,7 +70,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
   defp request(options, opts) do
     assert {{:ok, %Request{} = request}, _metadata} =
-             Native.parse(Plug.Test.conn(:get, "/#{options}/src/rot.img"), opts)
+             API.parse(Plug.Test.conn(:get, "/#{options}/src/rot.img"), opts)
 
     request
   end
@@ -234,7 +234,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
 
       over_limit = Keyword.put(opts, :max_input_pixels, @src * @src - 1)
 
-      {:ok, source_request} = NativeSource.translate(request.source, over_limit)
+      {:ok, source_request} = APISource.translate(request.source, over_limit)
       {:ok, source} = Source.resolve(source_request, over_limit, [])
 
       assert {:error, {:input_limit, {:too_many_input_pixels, pixels, limit}}} =

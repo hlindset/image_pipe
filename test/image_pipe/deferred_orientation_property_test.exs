@@ -9,16 +9,16 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   alias ImagePipe.Test.Orientation1TwinOrigin
   alias ImagePipe.Test.OrientedFrameOrigin
 
-  # Deferred orientation: native logically applies EXIF, rotate, and flip before
+  # Deferred orientation: API logically applies EXIF, rotate, and flip before
   # crop/resize. The executor may defer the physical flush while compensating
   # geometry into the stored frame. These properties check both observable
   # invariants of that optimization:
   #
-  #   * No-geometry leg — EXIF 1..8 × native rotation/flip with no region crop or
+  #   * No-geometry leg — EXIF 1..8 × API rotation/flip with no region crop or
   #     resize must EXACTLY match EXIF, then rotate, then flip (the flush uses these exact
   #     primitives, so equality is real, not tolerant).
   #
-  #   * Crop/resize leg — the SAME native request on the EXIF-oriented source and
+  #   * Crop/resize leg — the SAME API request on the EXIF-oriented source and
   #     on the orientation-1 twin (same displayed pixels, no tag) must land
   #     within ±1px on each axis and match interior flat-region pixels. Identical
   #     operators on both legs ⇒ rounding cancels; the residual is the affine
@@ -27,7 +27,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   #     `Image.thumbnail` reference — the pipeline resizes with affine
   #     `Image.resize`, so the only sound oracle is wire-vs-orientation-1.
   #
-  # Both legs run the SAME native request, so any frame-mismatch in the
+  # Both legs run the SAME API request, so any frame-mismatch in the
   # compensation surfaces as a twin divergence: a region crop whose top-left
   # offset must rotate as a displacement vector under a quarter turn (#146
   # Bug 3), and a resize whose requested axes must swap into the storage frame

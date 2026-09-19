@@ -88,7 +88,7 @@ keys are configured.
 S3 sources use `s3://bucket/key?revision` and a configured `:s3` adapter.
 Custom `source_schemes` map source names to host translators. To conceal the
 source, configure separate `source_encryption_keys` and use
-`ImagePipe.Native.encrypt_source/2` to build a signed `enc/<token>` URL.
+`ImagePipe.API.encrypt_source/2` to build a signed `enc/<token>` URL.
 See the [source contract](docs/api_contract.md#sources) for encoding,
 key rotation, and a complete concealment example.
 
@@ -193,7 +193,7 @@ mise run setup       # installs library + fiddle deps
 mise run fiddle      # boots Phoenix (:4000) + Vite (:5173)
 ```
 
-Open http://localhost:4000. The processing endpoint is `/native-image`.
+Open http://localhost:4000. The processing endpoint is `/image`.
 Visual controls cover resize, crop, focal points,
 effects, canvas, padding, orientation, and output settings. Saved URLs
 populate the controls, including a group selector for `then` requests. Examples
@@ -214,7 +214,7 @@ mise run fiddle:sidecars jaeger   # start Jaeger (OTLP + UI) via fiddle/docker-c
 mise run fiddle otel              # boots the dev server with tracing on (FIDDLE_OTEL=1)
 ```
 
-Issue a `/native-image` request, then open the Jaeger UI at http://localhost:16686 and
+Issue a `/image` request, then open the Jaeger UI at http://localhost:16686 and
 look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
 Tracing is off by default; `mise run fiddle` needs no Jaeger.
 

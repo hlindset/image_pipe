@@ -359,7 +359,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   # Shrink-on-load composed with deferred orientation (the retina-photo case). The
   # source is a 4000×3000 JPEG tagged EXIF orientation 6, so the displayed image is
-  # 3000×4000 (portrait). Native auto-rotation is on; width 375 against the
+  # 3000×4000 (portrait). API auto-rotation is on; width 375 against the
   # displayed width (3000) gives load_shrink 8. libvips returns the shrink-load
   # stored-oriented (landscape); OrientationFlush rotates it after the residual
   # resize, which must land on the displayed-orientation target 375×500.

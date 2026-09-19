@@ -9,7 +9,7 @@ defmodule ImagePipe do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Native,
+      ImagePipe.API,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,

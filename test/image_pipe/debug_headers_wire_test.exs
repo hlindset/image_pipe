@@ -4,7 +4,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Native.Signature
+  alias ImagePipe.API.Signature
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
   # ---------------------------------------------------------------------------

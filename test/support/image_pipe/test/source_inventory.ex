@@ -29,8 +29,8 @@ defmodule ImagePipe.Test.SourceInventory do
     * `:icm_sequential` —
       `test/image_pipe/transform/input_color_management_sequential_test.exs`
     * `:color_result` — `test/image_pipe/output/color_result_test.exs`
-    * `:wire` — native request wire tests
-    * `:executor` — native executor tests
+    * `:wire` — API request wire tests
+    * `:executor` — API executor tests
   """
   use Boundary, top_level?: true, deps: []
 
