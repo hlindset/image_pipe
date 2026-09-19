@@ -117,6 +117,16 @@ defmodule ImagePipe.Transform.Executor do
     )
   end
 
+  def reduce_terminal(%State{} = state, %Output{terminal: :lqip_css}, opts) do
+    with {:ok, state} <- Transform.run(state, %Resize{width: 3, height: 3}, opts) do
+      # The encoder samples pixels separately, so buffer only its tiny working frame.
+      case Materializer.materialize(state) do
+        {:ok, state} -> {:ok, state}
+        {:error, reason} -> {:error, {:decode, reason}}
+      end
+    end
+  end
+
   @doc "The fixed-order operation names represented by a request."
   @spec operation_names(Request.t()) :: [atom()]
   def operation_names(%Request{groups: groups}),

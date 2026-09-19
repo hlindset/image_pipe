@@ -67,7 +67,8 @@ defmodule ImagePipe.API.CacheContractTest do
         {"/format=webp/w=64/src/images/cat.jpg", "image/avif"}
       ],
       fixed_content_type: [
-        "/w=32/output=blurhash/src/images/cat.jpg"
+        "/w=32/output=blurhash/src/images/cat.jpg",
+        "/output=lqip-css/src/images/cat.jpg"
       ]
     }
   end

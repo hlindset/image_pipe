@@ -105,11 +105,11 @@ compression ratio from `X-ImagePipe-Source-Size ÷ body length`.
 
 ### Complete-body terminals
 
-`output=info` and `output=blurhash` responses expose the cache status,
+`output=info`, `output=blurhash`, and `output=lqip-css` responses expose the cache status,
 cache key, applied operations, and terminal computation timing. Source and
 encoded-output fact headers are omitted because the shared complete-body
 terminal result does not carry those image facts. `output=info` has no transform
-pipeline; a BlurHash request reports the operations it actually applies.
+pipeline; a placeholder request reports the operations it actually applies.
 
 These facts are collected on every successful generation and stored with the
 complete-body cache entry. A later request with both debug controls enabled can
@@ -135,7 +135,7 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 (There is no separate `fetch` stage — source fetch is folded into `decode`.)
 
 For a complete-body terminal, `total` measures the terminal computation,
-including its source fetch, decode, transforms, and final info or BlurHash body.
+including its source fetch, decode, transforms, and final info or placeholder body.
 Those stages are not split into separate timing entries. A cache hit replays the
 stored `total` and appends the live `cache` duration.
 

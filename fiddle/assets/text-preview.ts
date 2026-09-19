@@ -14,7 +14,7 @@ export function isTextPreview(path: string): boolean {
   const sourceIndex = segments.findIndex((segment) => ["src", "src64", "enc"].includes(segment));
   return segments
     .slice(0, sourceIndex)
-    .some((segment) => segment === "output=info" || segment === "output=blurhash");
+    .some((segment) => ["output=info", "output=blurhash", "output=lqip-css"].includes(segment));
 }
 
 export async function readTextPreview(response: Response): Promise<TextPreview> {

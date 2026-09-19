@@ -2,6 +2,7 @@ defmodule ImagePipe.Output.Terminal.BlurhashTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Output.Terminal.Blurhash
+  alias ImagePipe.Output.Terminal.PixelSpace
   alias Vix.Vips.Image, as: Vimage
 
   @sources "test/support/image_pipe/test/sources"
@@ -31,7 +32,7 @@ defmodule ImagePipe.Output.Terminal.BlurhashTest do
     end
   end
 
-  describe "to_terminal_pixel_space/1 — pixel-space invariance" do
+  describe "placeholder pixel-space invariance" do
     # `icc_p3.png` is generated (mix fixtures.gen_sources) by building this
     # exact sRGB pattern, untagged, then converting it to Display-P3 via
     # `Image.to_colorspace(icc, :p3, [])` — so this reference IS the sRGB
@@ -49,8 +50,8 @@ defmodule ImagePipe.Output.Terminal.BlurhashTest do
       srgb_reference = srgb_twin_of_wide_gamut_fixture()
       wide_gamut_source = Image.open!(@wide_gamut_fixture, access: :random)
 
-      assert {:ok, normalized_reference} = Blurhash.to_terminal_pixel_space(srgb_reference)
-      assert {:ok, normalized_wide_gamut} = Blurhash.to_terminal_pixel_space(wide_gamut_source)
+      assert {:ok, normalized_reference} = PixelSpace.normalize(srgb_reference)
+      assert {:ok, normalized_wide_gamut} = PixelSpace.normalize(wide_gamut_source)
 
       assert Vimage.width(normalized_reference) == Vimage.width(normalized_wide_gamut)
       assert Vimage.height(normalized_reference) == Vimage.height(normalized_wide_gamut)
@@ -89,7 +90,7 @@ defmodule ImagePipe.Output.Terminal.BlurhashTest do
     test "a plain sRGB image with no embedded profile passes through as a no-op reinterpretation" do
       image = Image.open!(@plain_srgb_fixture, access: :random)
 
-      assert {:ok, normalized} = Blurhash.to_terminal_pixel_space(image)
+      assert {:ok, normalized} = PixelSpace.normalize(image)
 
       assert {:ok, difference, _diff_image} = Image.compare(image, normalized, metric: :ae)
       assert difference == 0.0

@@ -18,7 +18,7 @@ defmodule ImagePipe.Plan.Request.Output do
             encoder_options: %{}
 
   @type t :: %__MODULE__{
-          terminal: :image | :blurhash | :info,
+          terminal: :image | :blurhash | :lqip_css | :info,
           format: nil | :avif | :webp | :jpeg | :png | :jpeg_xl,
           quality: nil | 1..100,
           metadata: nil | :strip | :copyright | :keep,

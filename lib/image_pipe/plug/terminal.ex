@@ -4,6 +4,7 @@ defmodule ImagePipe.Plug.Terminal do
   alias ImagePipe.Decode
   alias ImagePipe.Format
   alias ImagePipe.Output.Terminal.Blurhash
+  alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Request
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
@@ -60,6 +61,16 @@ defmodule ImagePipe.Plug.Terminal do
       |> JSON.encode_to_iodata!()
 
     {:ok, "application/json", body}
+  end
+
+  defp render_body(state, _geometry, %Request{output: %{terminal: :lqip_css}} = request, config) do
+    with {:ok, state} <- Executor.execute(state, request, config),
+         {:ok, state} <- Executor.reduce_terminal(state, request.output, config) do
+      case LqipCss.compute(state.image) do
+        {:ok, value} -> {:ok, "text/plain", value}
+        {:error, reason} -> {:error, {:transform, {:lqip_css_encode, reason}}}
+      end
+    end
   end
 
   defp exif_orientation(image) do

@@ -9,7 +9,8 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
 
   @terminals [
     {"output=info", nil},
-    {"w=12/output=blurhash", "resize"}
+    {"w=12/output=blurhash", "resize"},
+    {"w=12/output=lqip-css", "resize"}
   ]
 
   setup context do
@@ -26,7 +27,7 @@ defmodule ImagePipe.API.TerminalFileSystemCacheWireTest do
     %{body: body, root: root}
   end
 
-  test "info and BlurHash replay complete bodies and debug facts from FileSystem", %{
+  test "terminals replay complete bodies and debug facts from FileSystem", %{
     body: body,
     root: root
   } do

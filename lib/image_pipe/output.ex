@@ -16,6 +16,7 @@ defmodule ImagePipe.Output do
       Negotiation,
       Policy,
       Resolved,
-      Terminal.Blurhash
+      Terminal.Blurhash,
+      Terminal.LqipCss
     ]
 end

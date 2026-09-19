@@ -75,8 +75,8 @@ encoding. Operation span durations measure lazy pipeline construction;
 `ImagePipe.Response.Sender` sends the prepared response and stops production
 when delivery is cancelled. Failed or incomplete streams do not enter cache.
 
-`Plug.Terminal` renders BlurHash and info as complete-body responses.
-It owns their decode resources and terminal telemetry. BlurHash runs the
+`Plug.Terminal` renders BlurHash, LQIP CSS, and info as complete-body responses.
+It owns their decode resources and terminal telemetry. BlurHash and LQIP CSS run the
 executor and terminal reduction; info reports decoded source facts without
 transforming pixels.
 Debug headers are request presentation: the mount must permit them, and the

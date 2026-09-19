@@ -51,18 +51,23 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test "renders an output terminal span with its terminal and outcome" do
-    Telemetry.attach_default_logger(level: :info)
+    prefix = [:logger_terminal_test]
+    Telemetry.attach_default_logger(level: :info, prefix: prefix)
 
     log =
       capture_log(fn ->
-        :telemetry.execute(
-          [:image_pipe, :output, :terminal, :stop],
-          %{duration: System.convert_time_unit(2, :millisecond, :native)},
-          %{terminal: :info, result: :ok}
-        )
+        for terminal <- [:info, :blurhash, :lqip_css] do
+          :telemetry.execute(
+            prefix ++ [:output, :terminal, :stop],
+            %{duration: System.convert_time_unit(2, :millisecond, :native)},
+            %{terminal: terminal, result: :ok}
+          )
+        end
       end)
 
     assert log =~ "output terminal: ok (info)"
+    assert log =~ "output terminal: ok (blurhash)"
+    assert log =~ "output terminal: ok (lqip_css)"
   end
 
   test "escalates an output terminal computation failure" do
