@@ -11,7 +11,7 @@ defmodule ImagePipeFiddle.SourceMountsTest do
     :ok
   end
 
-  test "source mounts configure the native endpoint" do
+  test "source mounts configure the API endpoint" do
     opts = ImagePipe.Plug.init(sources: ImagePipeFiddle.Application.source_mounts())
     sources = Keyword.fetch!(opts, :sources)
     assert Map.has_key?(sources, :path)

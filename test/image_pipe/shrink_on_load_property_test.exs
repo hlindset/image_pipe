@@ -3,9 +3,9 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
+  alias ImagePipe.API
+  alias ImagePipe.API.Source, as: APISource
   alias ImagePipe.Decode
-  alias ImagePipe.Native
-  alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Plan.Request
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
@@ -83,7 +83,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   defp decode_resize(body, options) do
     opts = opts(body)
     request = request(options, opts)
-    {:ok, source_request} = NativeSource.translate(request.source, opts)
+    {:ok, source_request} = APISource.translate(request.source, opts)
     {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
@@ -102,7 +102,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
     path = "/#{options}/src/property.img"
 
     assert {{:ok, %Request{} = request}, _metadata} =
-             Native.parse(Plug.Test.conn(:get, path), opts)
+             API.parse(Plug.Test.conn(:get, path), opts)
 
     request
   end

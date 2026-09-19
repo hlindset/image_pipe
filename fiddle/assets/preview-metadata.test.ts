@@ -10,7 +10,7 @@ describe("debouncePreviewPath", () => {
     const seen: string[] = [];
     const schedule = debouncePreviewPath((path) => seen.push(path), 150);
 
-    schedule("/native-image/w=64/src/images/dog.jpg");
+    schedule("/image/w=64/src/images/dog.jpg");
     schedule(null);
     vi.advanceTimersByTime(150);
 

@@ -16,7 +16,7 @@ defmodule ImagePipe.Plug do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Native,
+      ImagePipe.API,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
@@ -31,11 +31,11 @@ defmodule ImagePipe.Plug do
 
   @behaviour Plug
 
-  alias ImagePipe.Native
+  alias ImagePipe.API
   alias ImagePipe.Plug.Runner
 
   @impl Plug
-  def init(opts), do: Native.validate_config!(opts)
+  def init(opts), do: API.validate_config!(opts)
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do

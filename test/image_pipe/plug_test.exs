@@ -248,7 +248,7 @@ defmodule ImagePipe.PlugTest do
     def materialize(_state, _opts), do: {:error, :forced_materialization_failure}
   end
 
-  # Keys the native mount's `validate_config!/1` does not accept, spliced onto the
+  # Keys the API mount's `validate_config!/1` does not accept, spliced onto the
   # validated config AFTER `ImagePipe.Plug.init/1`:
   #
   #   * `image_module`/`image_open_module`/`image_materializer` are test-injection
@@ -352,7 +352,7 @@ defmodule ImagePipe.PlugTest do
     assert_receive {:cache_probe_flushed, ^ref}
   end
 
-  # An encode failure raised before the first chunk renders through the native
+  # An encode failure raised before the first chunk renders through the API
   # error renderer, so its cause is observable on the `[:encode]` span's stop
   # metadata rather than in the log. `:telemetry` handlers are global, so each
   # attachment gets its own private prefix and is detached with the test.
@@ -374,7 +374,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   # The output facet of a looked-up key: which format the pre-fetch identity
-  # named (`:selection`) and the canonical native output policy it was built
+  # named (`:selection`) and the canonical API output policy it was built
   # from (`:output_policy`). Both live under the key's `:representation` facet.
   defp representation_output(%ImagePipe.Cache.Key{} = key) do
     key.data[:representation]
@@ -410,7 +410,7 @@ defmodule ImagePipe.PlugTest do
     end
   end
 
-  # The native automatic-output policy facet every automatic cache-key assertion
+  # The API automatic-output policy facet every automatic cache-key assertion
   # in this file shares. `selection` (the negotiated head, or
   # `:source_negotiated` when the choice is deferred to the decoded source
   # format) is asserted alongside it.

@@ -4,7 +4,7 @@
   // point means. Optional `overlay`
   // snippet draws extra marks (e.g. a crop region) inside the image surface.
   import type { Snippet } from "svelte";
-  import { focalPointFromBounds } from "./native-controls";
+  import { focalPointFromBounds } from "./api-controls";
 
   type Props = {
     src: string;

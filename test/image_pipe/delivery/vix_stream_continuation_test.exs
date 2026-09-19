@@ -1,11 +1,11 @@
 defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   use ExUnit.Case, async: false
 
+  alias ImagePipe.API
+  alias ImagePipe.API.Output, as: APIOutput
+  alias ImagePipe.API.Source, as: APISource
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.Producer
-  alias ImagePipe.Native
-  alias ImagePipe.Native.Output, as: NativeOutput
-  alias ImagePipe.Native.Source, as: NativeSource
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Source
@@ -472,18 +472,18 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
 
   # The delivery `build_fun` the runner hands `Delivery.Producer`, assembled
   # from the same seams `ImagePipe.Plug.Runner` uses: the shared
-  # fetch/decode bracket with native decode preflight, the native
+  # fetch/decode bracket with API decode preflight, the
   # pipeline run, output negotiation, and the encoder's chunk
   # stream. The Vix target pipe is created inside the producer process, which
   # is what makes it observable through the producer's links.
   defp producer_build_fun do
     config = runtime_config()
     conn = Plug.Test.conn(:get, "/format=jpeg/src/images/beach.jpg")
-    {{:ok, request}, _metadata} = Native.parse(conn, config)
-    {:ok, source_request} = NativeSource.translate(request.source, config)
+    {{:ok, request}, _metadata} = API.parse(conn, config)
+    {:ok, source_request} = APISource.translate(request.source, config)
     {:ok, source} = Source.resolve(source_request, config, [])
 
-    {:ok, policy} = NativeOutput.resolve(request.output, config, "")
+    {:ok, policy} = APIOutput.resolve(request.output, config, "")
 
     fn pump ->
       Decode.with_image(

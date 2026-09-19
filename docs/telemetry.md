@@ -81,7 +81,7 @@ The `[:image_pipe, :request]` span wraps the whole request, opened by
 Stop metadata:
 
 - `:result` — the request outcome category (see "Result values").
-  `ImagePipe.Native.classify_error/1` classifies request validation failures;
+  `ImagePipe.API.classify_error/1` classifies request validation failures;
   runtime failures use `ImagePipe.Telemetry.request_result/1`.
 - `:status` — the response status.
 - `:error` — a stable error category on failures.
@@ -91,7 +91,7 @@ When a committed `200` fails mid-stream, the stop `:result` agrees with the
 
 ### Parse span (`[:parse]`)
 
-The `[:image_pipe, :parse]` span wraps `ImagePipe.Native.parse/2`. Its
+The `[:image_pipe, :parse]` span wraps `ImagePipe.API.parse/2`. Its
 **start metadata is empty**. Stop metadata contains `:result` (`:ok` or
 `:error`); successful parsing also includes `:sig_key_index`, or `nil` for
 an unsigned request. Rejection reasons appear on the enclosing request span.
@@ -580,7 +580,7 @@ which emitted fields become metrics tags. Common fields are:
 - `:source_kind` - `:path`, `:url`, `:object`, or `:reference` on source spans.
 - `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
 - `:error` - a stable error category when known.
-- `:sig_key_index` - the matched signing-key index (`ImagePipe.Native.Signature.verify/3`'s
+- `:sig_key_index` - the matched signing-key index (`ImagePipe.API.Signature.verify/3`'s
   return value) on the path parser's `[:parse]` stop metadata; `nil` when the
   request is legitimately unsigned.
 

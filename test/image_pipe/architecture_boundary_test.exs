@@ -52,7 +52,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
     ImagePipe.Delivery => "lib/image_pipe/delivery.ex",
-    ImagePipe.Native => "lib/image_pipe/native.ex",
+    ImagePipe.API => "lib/image_pipe/api.ex",
     ImagePipe.Error => "lib/image_pipe/error.ex",
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
@@ -78,7 +78,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Padding,
     :AdaptiveResize
   ]
-  test "plug boundary mounts native and owns the request lifecycle" do
+  test "plug boundary mounts API and owns the request lifecycle" do
     plug = boundary_declaration(ImagePipe.Plug)
 
     assert_boundary_deps(plug, [
@@ -86,7 +86,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
-      ImagePipe.Native,
+      ImagePipe.API,
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
@@ -101,10 +101,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(plug, [])
   end
 
-  test "native parsing and configuration depend on runtime facades" do
-    native = boundary_declaration(ImagePipe.Native)
+  test "API parsing and configuration depend on runtime facades" do
+    api = boundary_declaration(ImagePipe.API)
 
-    assert_boundary_deps(native, [
+    assert_boundary_deps(api, [
       ImagePipe.Cache,
       ImagePipe.Format,
       ImagePipe.Output,
@@ -116,12 +116,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
-    refute_boundary_deps(native, [ImagePipe.Decode, ImagePipe.Delivery, ImagePipe.Plug])
+    refute_boundary_deps(api, [ImagePipe.Decode, ImagePipe.Delivery, ImagePipe.Plug])
 
     # A host implements `SourceScheme` to translate a custom `foo://` source
-    # into the shared Plan.Source model. The native parser and lifecycle remain
+    # into the shared Plan.Source model. The API parser and lifecycle remain
     # concrete internal implementation.
-    assert_boundary_exports(native, [ImagePipe.Native.SourceScheme])
+    assert_boundary_exports(api, [ImagePipe.API.SourceScheme])
   end
 
   test "decode boundary declaration depends only on the core fetch/decode toolkit" do
@@ -162,9 +162,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
   end
 
-  test "core and transform code do not depend on native request parsing" do
+  test "core and transform code do not depend on API request parsing" do
     # Source/response/cache/output/plan/transform stay independent of URL
-    # parsing. The mount selects the native implementation.
+    # parsing. The mount selects the API implementation.
     exempt = ["lib/image_pipe/plug.ex"]
 
     violations =
@@ -541,7 +541,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     {_ast, violations} =
       Macro.prewalk(ast, [], fn
-        {:__aliases__, meta, [:ImagePipe, :Native | _] = parts} = node, violations ->
+        {:__aliases__, meta, [:ImagePipe, :API | _] = parts} = node, violations ->
           {node, [violation(meta, Enum.join(parts, ".")) | violations]}
 
         node, violations ->

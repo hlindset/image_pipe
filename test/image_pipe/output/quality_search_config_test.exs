@@ -1,9 +1,9 @@
 defmodule ImagePipe.Output.QualitySearchConfigTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Native.Config
-  alias ImagePipe.Native.Output, as: NativeOutput
-  alias ImagePipe.Native.Parser
+  alias ImagePipe.API.Config
+  alias ImagePipe.API.Output, as: APIOutput
+  alias ImagePipe.API.Parser
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Output
@@ -148,7 +148,7 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     }
 
     assert {:ok, request} = Parser.parse(lexed, config)
-    assert {:ok, output} = NativeOutput.resolve(request.output, config, accept_header)
+    assert {:ok, output} = APIOutput.resolve(request.output, config, accept_header)
     output
   end
 

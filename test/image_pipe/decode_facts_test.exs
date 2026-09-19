@@ -1,9 +1,9 @@
 defmodule ImagePipe.DecodeFactsTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.API.Config
+  alias ImagePipe.API.Parser
   alias ImagePipe.Decode
-  alias ImagePipe.Native.Config
-  alias ImagePipe.Native.Parser
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Source

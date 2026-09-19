@@ -7,7 +7,7 @@ defmodule ImagePipe.MixProject do
     "ImagePipe.Cache.normalize_adapter_options/2",
     "ImagePipe.Delivery.Producer",
     "ImagePipe.Error.tag/1",
-    "ImagePipe.Native.Config.validate!/1",
+    "ImagePipe.API.Config.validate!/1",
     "ImagePipe.Output",
     "ImagePipe.Output.Clamp.clamp_with_telemetry/4",
     "ImagePipe.Output.Encoder",
@@ -31,7 +31,7 @@ defmodule ImagePipe.MixProject do
   @internal_typespec_references [
     "t:ImagePipe.Delivery.build_fun/0",
     "ImagePipe.Delivery.stream/5",
-    "ImagePipe.Native.Identity.material/5",
+    "ImagePipe.API.Identity.material/5",
     "ImagePipe.Output.EncodeSearch.run/3",
     "ImagePipe.Output.NativeJxlSearch.run/3",
     "t:ImagePipe.Transform.SourceGeometry.t/0",
@@ -76,7 +76,7 @@ defmodule ImagePipe.MixProject do
         groups_for_modules: [
           "Package API": [ImagePipe],
           "Plug API": [ImagePipe.Plug],
-          API: [ImagePipe.Native, ~r/ImagePipe\.Native\..*/],
+          API: [ImagePipe.API, ~r/ImagePipe\.API\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
           "Cache API": [ImagePipe.Cache, ~r/ImagePipe\.Cache\..*/],

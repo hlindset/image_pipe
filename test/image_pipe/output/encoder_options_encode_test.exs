@@ -1,9 +1,9 @@
 defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Native.Config
-  alias ImagePipe.Native.Output, as: NativeOutput
-  alias ImagePipe.Native.Parser
+  alias ImagePipe.API.Config
+  alias ImagePipe.API.Output, as: APIOutput
+  alias ImagePipe.API.Parser
   alias ImagePipe.Output.{Encoder, Policy, Resolved}
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
@@ -39,7 +39,7 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
     assert :binary.match(bin, <<0xFF, 0xC2>>) != :nomatch
   end
 
-  test "native encoder options reach encoding through output policy" do
+  test "API encoder options reach encoding through output policy" do
     config = Config.validate!([])
     segments = ["format=jpeg", "q=75", "jpeg-options=progressive"]
 
@@ -49,7 +49,7 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
     }
 
     assert {:ok, request} = Parser.parse(lexed, config)
-    assert {:ok, policy} = NativeOutput.resolve(request.output, config, "")
+    assert {:ok, policy} = APIOutput.resolve(request.output, config, "")
     {:ok, resolved} = Policy.resolve(policy, :jpeg)
     assert resolved.encoder_options == %JpegOptions{interlace: true}
 

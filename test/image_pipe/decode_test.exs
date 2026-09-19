@@ -2,8 +2,8 @@ defmodule ImagePipe.DecodeTest do
   # Real fetch/decode through a Plug-backed origin per case — keep it serial.
   use ExUnit.Case, async: false
 
+  alias ImagePipe.API.Parser
   alias ImagePipe.Decode
-  alias ImagePipe.Native.Parser
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source

@@ -28,7 +28,7 @@ headers and delivery.
 
 ## Request and execution
 
-`ImagePipe.Native.Parser` produces `ImagePipe.Plan.Request` data. Presets expand
+`ImagePipe.API.Parser` produces `ImagePipe.Plan.Request` data. Presets expand
 before validation, and `then` separates explicitly ordered groups. Option order
 inside a group does not affect processing order. The
 [API contract](api_contract.md) defines stages, coordinate frames,

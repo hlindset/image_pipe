@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Slider } from "bits-ui";
-  import { controlLimits, type CropDimensionUnit } from "./native-controls";
+  import { controlLimits, type CropDimensionUnit } from "./api-controls";
 
   type Props = {
     label: string;

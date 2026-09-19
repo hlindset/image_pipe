@@ -1,14 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Collapsible, Popover, RadioGroup } from "bits-ui";
-  import NativeControls from "./NativeControls.svelte";
+  import ApiControls from "./ApiControls.svelte";
   import {
-    nativeFetchPath,
-    NativePathResolution,
-    resolveNativeFetchPath,
-    resetNativeSettings,
+    apiFetchPath,
+    ApiPathResolution,
+    resolveApiFetchPath,
+    resetApiSettings,
     type Protection,
-  } from "./native-path";
+  } from "./api-path";
   import {
     appPathForState,
     defaultAppState,
@@ -44,8 +44,7 @@
   let requestOpen = $state(true);
   let themeMode: ThemeMode = $state(readStoredThemeMode());
   const initial = initialAppState();
-  const initialPath =
-    initial.native.protection === "unsigned" ? nativeFetchPath(initial.native) : null;
+  const initialPath = initial.api.protection === "unsigned" ? apiFetchPath(initial.api) : null;
   let appState: AppState = $state(initial);
   let path: string | null = $state(initialPath);
   let previewBasePath: string | null = $state(initialPath);
@@ -68,7 +67,7 @@
   let currentRequestId = 0;
   let lastPreviewAbsolute: string | null = null; // dedupe on resolved URL, not raw path
   let textPreviewController: AbortController | null = null;
-  const pathResolution = new NativePathResolution();
+  const pathResolution = new ApiPathResolution();
   const updatePreviewPath = debouncePreviewPath((previewRequestPath: string) => {
     const absolute = new URL(previewRequestPath, window.location.origin).href;
     // Dedupe on the RESOLVED url (not the raw path): a no-op must never flip
@@ -160,13 +159,13 @@
   });
 
   $effect(() => {
-    const requestState = { ...appState.native };
+    const requestState = { ...appState.api };
     const pending = pathResolution.begin(requestState);
     setResolvedPath(pending.path);
 
     if (pending.path !== null) return;
 
-    void resolveNativeFetchPath(requestState)
+    void resolveApiFetchPath(requestState)
       .then((resolvedPath) => {
         const currentPath = pathResolution.accept(pending.requestId, resolvedPath);
         if (currentPath === null) return;
@@ -192,7 +191,7 @@
   });
 
   const previewParameters = $derived(
-    path?.replace(/^\/(?:native-image|native-signed)\//, "") ?? "Preparing protected request…",
+    path?.replace(/^\/(?:image|image-signed)\//, "") ?? "Preparing protected request…",
   );
   const outputLabel = $derived.by(() =>
     textPreview !== null
@@ -210,9 +209,9 @@
     const meta = textPreview ?? processedMetadata;
     return parseDebugHeaders(meta?.debugHeaders ?? null, meta?.bytes ?? null);
   });
-  const requestSummary = $derived(appState.native.source.replace(/^images\//, ""));
-  const currentSource = $derived(appState.native.source);
-  const currentSourceType = $derived(appState.native.sourceType);
+  const requestSummary = $derived(appState.api.source.replace(/^images\//, ""));
+  const currentSource = $derived(appState.api.source);
+  const currentSourceType = $derived(appState.api.sourceType);
 
   function initialAppState(): AppState {
     if (typeof window === "undefined") {
@@ -278,21 +277,21 @@
     }
 
     const source = select.value as SourceImage;
-    appState.native = { ...appState.native, source };
+    appState.api = { ...appState.api, source };
   }
 
   function updateSourceType(event: Event): void {
     const select = event.currentTarget;
     if (!(select instanceof HTMLSelectElement)) return;
     const sourceType = select.value as SourceType;
-    appState.native = { ...appState.native, sourceType };
+    appState.api = { ...appState.api, sourceType };
   }
 
   function updateProtection(event: Event): void {
     const select = event.currentTarget;
     if (!(select instanceof HTMLSelectElement)) return;
     const protection = select.value as Protection;
-    appState.native = { ...appState.native, protection };
+    appState.api = { ...appState.api, protection };
   }
 
   function setResolvedPath(resolvedPath: string | null): void {
@@ -317,7 +316,7 @@
   }
 
   function resetSettings(): void {
-    appState.native = resetNativeSettings(appState.native);
+    appState.api = resetApiSettings(appState.api);
   }
 
   function closeTools(): void {
@@ -451,7 +450,7 @@
 
             <label class="field">
               <span>Protection</span>
-              <select value={appState.native.protection} onchange={updateProtection}>
+              <select value={appState.api.protection} onchange={updateProtection}>
                 <option value="unsigned">Unsigned</option>
                 <option value="signed">Signed</option>
                 <option value="signed-concealed">Signed + concealed source</option>
@@ -464,7 +463,7 @@
         </Collapsible.Root>
       </section>
 
-      <NativeControls bind:nativeState={appState.native} />
+      <ApiControls bind:apiState={appState.api} />
     </div>
 
     <div class="drawer-actions">

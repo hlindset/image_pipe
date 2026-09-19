@@ -132,7 +132,7 @@ defmodule ImagePipe.RequestSafetyTest do
     end
   end
 
-  test "invalid native options return before source identity cache lookup and origin" do
+  test "invalid API options return before source identity cache lookup and origin" do
     for path <- [
           "/format=invalid/src/images/cat.jpg",
           "/q=invalid/src/images/cat.jpg",
@@ -157,7 +157,7 @@ defmodule ImagePipe.RequestSafetyTest do
     end
   end
 
-  test "invalid native size requests return before source identity and cache work" do
+  test "invalid API size requests return before source identity and cache work" do
     conn =
       ImagePipe.Plug.call(
         conn(:get, "/w=0/format=jpeg/src/images/cat.jpg"),

@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { isTextPreview, readTextPreview } from "./text-preview";
 
 describe("text terminal preview", () => {
-  it("recognizes native terminals only before the source separator", () => {
-    expect(isTextPreview("/native-image/output=info/src/images/dog.jpg")).toBe(true);
-    expect(isTextPreview("/native-image/w=20/output=blurhash/src/images/dog.jpg")).toBe(true);
-    expect(isTextPreview("/native-signed/sig=value/output=info/enc/token")).toBe(true);
-    expect(isTextPreview("/native-image/src/output=info/dog.jpg")).toBe(false);
-    expect(isTextPreview("/native-image/w=20/src/images/dog.jpg")).toBe(false);
+  it("recognizes API terminals only before the source separator", () => {
+    expect(isTextPreview("/image/output=info/src/images/dog.jpg")).toBe(true);
+    expect(isTextPreview("/image/w=20/output=blurhash/src/images/dog.jpg")).toBe(true);
+    expect(isTextPreview("/image-signed/sig=value/output=info/enc/token")).toBe(true);
+    expect(isTextPreview("/image/src/output=info/dog.jpg")).toBe(false);
+    expect(isTextPreview("/image/w=20/src/images/dog.jpg")).toBe(false);
   });
 
   it("pretty prints JSON while measuring the original response bytes", async () => {

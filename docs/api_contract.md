@@ -235,7 +235,7 @@ decoding layer. `src64` avoids this extra layer.
 
 Configure custom schemes with
 `source_schemes: %{"asset" => {MyApp.AssetSource, options}}`. The module implements
-`ImagePipe.Native.SourceScheme`. Its
+`ImagePipe.API.SourceScheme`. Its
 `translate(source, options)` callback receives the decoded source string and
 returns `{:ok, plan_source}` using `ImagePipe.Plan.Source.Path`, `.URL`,
 `.Object`, or `.Reference`. It may return `{:error, reason}` to reject the
@@ -282,9 +282,9 @@ opts = ImagePipe.Plug.init(
   source_encryption_keys: [encryption_key]
 )
 
-{:ok, token} = ImagePipe.Native.encrypt_source("photos/cat.jpg", opts)
+{:ok, token} = ImagePipe.API.encrypt_source("photos/cat.jpg", opts)
 path = "/w=400/enc/" <> token
-signature = ImagePipe.Native.Signature.sign(path, opts)
+signature = ImagePipe.API.Signature.sign(path, opts)
 url = "/images/sig=" <> signature <> path
 ```
 

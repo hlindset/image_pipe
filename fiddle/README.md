@@ -1,7 +1,7 @@
 # ImagePipeFiddle
 
 The Fiddle edits and previews ImagePipe's path API. Browser state uses
-`/native/...` URLs, while image and text previews run through `/native-image/...`.
+`/edit/...` URLs, while image and text previews run through `/image/...`.
 
 The sidebar provides sliders, numeric inputs, toggles, color pickers, and a
 clickable focal-point preview for resize, crop, gravity, orientation, trim,
@@ -17,7 +17,7 @@ switching either dimension back to auto turns the canvas off. PNG palette
 size uses the bit-depth selector.
 
 The Protection control can route a preview through the signing-required
-`/native-signed/...` mount. Its Signed mode binds the complete request,
+`/image-signed/...` mount. Its Signed mode binds the complete request,
 while Signed + concealed source also replaces the source identifier with an
 authenticated encrypted token. The fixed keys are demo-only and stay on the
 Fiddle server; browser URLs retain only the selected mode and editable request

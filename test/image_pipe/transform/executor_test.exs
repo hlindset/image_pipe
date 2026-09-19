@@ -1,9 +1,9 @@
 defmodule ImagePipe.Transform.ExecutorTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.API.Parser
+  alias ImagePipe.API.Path
   alias ImagePipe.Decode
-  alias ImagePipe.Native.Parser
-  alias ImagePipe.Native.Path
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter

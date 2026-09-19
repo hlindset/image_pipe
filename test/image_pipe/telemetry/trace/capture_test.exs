@@ -129,7 +129,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert span.attributes[:nat_var] == 0.11
   end
 
-  test "captures :sig_key_index on the native URL dialect's [:parse] stop metadata" do
+  test "captures :sig_key_index on the API URL dialect's [:parse] stop metadata" do
     Telemetry.span([], [:parse], %{}, fn -> {:ok, %{result: :ok, sig_key_index: 1}} end)
 
     assert_receive {:span, %Span{name: "image_pipe.parse"} = span}
