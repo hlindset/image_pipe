@@ -58,7 +58,7 @@ defmodule ImagePipe.Output.Terminal.Blurhash do
   @spec to_terminal_pixel_space(Vimage.t()) :: {:ok, Vimage.t()} | {:error, term()}
   def to_terminal_pixel_space(%Vimage{} = image) do
     with {:ok, srgb} <- to_srgb(image),
-         {:ok, flattened} <- Image.flatten(srgb) do
+         {:ok, flattened} <- Image.flatten(srgb, background: :black) do
       Image.cast(flattened, {:u, 8})
     end
   end

@@ -2,7 +2,6 @@ defmodule ImagePipe.Plan.ColorTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan.Color
-  alias ImagePipe.Plan.Operation
 
   test "constructs opaque sRGB color from integer channels" do
     assert {:ok,
@@ -60,10 +59,5 @@ defmodule ImagePipe.Plan.ColorTest do
            ]
 
     refute inspect(Color.key_data(red)) =~ "Color.SRGB"
-  end
-
-  test "Operation exposes color constructors through the Plan facade" do
-    assert Operation.color(1, 2, 3) == Color.rgb(1, 2, 3)
-    assert Operation.color(1, 2, 3, {:ratio, 1, 2}) == Color.rgba(1, 2, 3, {:ratio, 1, 2})
   end
 end

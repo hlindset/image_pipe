@@ -4,13 +4,12 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   use ExUnitProperties
 
   alias ImagePipe.Decode
-  alias ImagePipe.Dialect.Declarative
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Plan.Source.Path
+  alias ImagePipe.Native
+  alias ImagePipe.Native.Source, as: NativeSource
+  alias ImagePipe.Plan.Request
   alias ImagePipe.Source
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State
 
   # Shrink-on-load decodes a JPEG at reduced resolution, then a residual resize
@@ -45,13 +44,13 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
             target <- integer(60..div(governing_dim(mode, source_w, source_h), 4)),
             max_runs: 100
           ) do
-      resize = fit_resize(mode, target)
+      options = fit_options(mode, target)
 
       {shrink_w, shrink_h, shrink} =
-        decode_resize(solid(source_w, source_h, ".jpg"), resize)
+        decode_resize(solid(source_w, source_h, ".jpg"), options)
 
       {full_w, full_h, no_shrink} =
-        decode_resize(solid(source_w, source_h, ".png"), resize)
+        decode_resize(solid(source_w, source_h, ".png"), options)
 
       label = "#{source_w}x#{source_h} #{mode}:#{target}"
 
@@ -72,40 +71,40 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   defp governing_dim(:height, _source_w, source_h), do: source_h
   defp governing_dim(:square, source_w, source_h), do: min(source_w, source_h)
 
-  defp fit_resize(:width, target), do: build_fit({:px, target}, :auto)
-  defp fit_resize(:height, target), do: build_fit(:auto, {:px, target})
-  defp fit_resize(:square, target), do: build_fit({:px, target}, {:px, target})
-
-  defp build_fit(width, height) do
-    {:ok, resize} = Operation.resize(:fit, width, height)
-    resize
-  end
+  defp fit_options(:width, target), do: "w=#{target}"
+  defp fit_options(:height, target), do: "h=#{target}"
+  defp fit_options(:square, target), do: "w=#{target}/h=#{target}"
 
   defp solid(width, height, suffix) do
     {:ok, image} = Image.new(width, height, color: [120, 130, 140])
     Image.write!(image, :memory, suffix: suffix)
   end
 
-  defp decode_resize(body, resize) do
-    plan = %Plan{
-      source: %Path{segments: ["property.img"]},
-      output: %{},
-      pipelines: [%Pipeline{operations: [resize]}]
-    }
-
+  defp decode_resize(body, options) do
     opts = opts(body)
-    {:ok, source} = Source.resolve(plan.source, opts, [])
+    request = request(options, opts)
+    {:ok, source_request} = NativeSource.translate(request.source, opts)
+    {:ok, source} = Source.resolve(source_request, opts, [])
 
     Decode.with_image(
       source,
-      Keyword.put(opts, :auto_rotate?, plan.auto_rotate),
-      &Declarative.decode_request(plan, &1),
-      fn state, geometry ->
-        {:ok, %State{} = final} = Declarative.execute(state, geometry, plan, opts)
+      request,
+      opts,
+      fn state, _geometry ->
+        {:ok, %State{} = final} = Executor.execute(state, request, opts)
 
         {Image.width(final.image), Image.height(final.image), shrink_factor(state.decode_shrink)}
       end
     )
+  end
+
+  defp request(options, opts) do
+    path = "/#{options}/src/property.img"
+
+    assert {{:ok, %Request{} = request}, _metadata} =
+             Native.parse(Plug.Test.conn(:get, path), opts)
+
+    request
   end
 
   # The realized load shrink, rounded back to the libjpeg block factor the
@@ -114,7 +113,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   defp shrink_factor(%{w: w}), do: round(w)
 
   defp opts(body) do
-    Source.validate_config!(
+    ImagePipe.Plug.init(
       sources: [
         path:
           {RootHTTPAdapter,

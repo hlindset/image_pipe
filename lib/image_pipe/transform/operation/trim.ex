@@ -80,7 +80,7 @@ defmodule ImagePipe.Transform.Operation.Trim do
 
   defp flatten_alpha(image) do
     if Image.has_alpha?(image) do
-      Image.flatten(image, background_color: @magenta)
+      Image.flatten(image, background: @magenta)
     else
       {:ok, image}
     end

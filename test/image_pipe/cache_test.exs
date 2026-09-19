@@ -166,11 +166,9 @@ defmodule ImagePipe.CacheTest do
     }
   end
 
-  # A minimal declarative mount; every init case below differs only in `cache:`.
+  # Every init case below differs only in `cache:`.
   defp mount(extra) do
     [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: %{}},
       sources: [path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}]
     ] ++ extra
   end
@@ -203,12 +201,6 @@ defmodule ImagePipe.CacheTest do
       assert_raise ArgumentError, ~r/#{key} was removed.*storage_inputs:/s, fn ->
         ImagePipe.Plug.init(mount(cache: {MissAdapter, [{key, ["accept-language"]}]}))
       end
-    end
-  end
-
-  test "ImagePipe init rejects a mount missing a required dialect option early" do
-    assert_raise ArgumentError, ~r/required :resolver option not found/, fn ->
-      ImagePipe.Plug.init(dialect: ImagePipe.Dialect.IIIF)
     end
   end
 

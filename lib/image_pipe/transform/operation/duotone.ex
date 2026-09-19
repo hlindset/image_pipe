@@ -40,13 +40,21 @@ defmodule ImagePipe.Transform.Operation.Duotone do
 
   defp apply_duotone(%VipsImage{} = image, intensity, shadow, highlight) do
     Image.without_alpha_band(image, fn image ->
-      with {:ok, matrix} <-
+      with {:ok, image} <- ensure_rgb(image),
+           {:ok, matrix} <-
              VipsImage.new_matrix_from_array(3, 3, matrix(intensity, shadow, highlight)),
            {:ok, recombined} <- Operation.recomb(image, matrix),
            {:ok, adjusted} <- Operation.linear(recombined, [1.0], addends(intensity, shadow)) do
         Operation.cast(adjusted, VipsImage.format(image))
       end
     end)
+  end
+
+  defp ensure_rgb(%VipsImage{} = image) do
+    case VipsImage.bands(image) do
+      1 -> Image.to_colorspace(image, :srgb)
+      3 -> {:ok, image}
+    end
   end
 
   defp matrix(intensity, shadow, highlight) do

@@ -1,13 +1,12 @@
 # Cookbook: OpenTelemetry traces to Jaeger (local)
 
-ImagePipe emits `:telemetry` spans and ships an opt-in exporter that replays them into
-your OpenTelemetry SDK, carrying ImagePipe's trace_id. This sends traces to a local
-Jaeger.
+ImagePipe emits `:telemetry` spans and provides an opt-in exporter that replays
+them through the host's OpenTelemetry SDK while preserving ImagePipe's
+`trace_id`. This recipe sends those traces to a local Jaeger.
 
-> The `fiddle/` demo app in this repo wires exactly this up (gated behind `FIDDLE_OTEL=1`)
-> — see `fiddle/docker-compose.yml`, the `:opentelemetry`/`:opentelemetry_exporter` config
-> in `fiddle/config/config.exs`, and the `attach_tracer/1` call in
-> `fiddle/lib/image_pipe_fiddle/application.ex` for a runnable example.
+> The `fiddle/` demo contains a runnable example gated by `FIDDLE_OTEL=1`. See
+> `fiddle/docker-compose.yml`, `fiddle/config/config.exs`, and the
+> `attach_tracer/1` call in `fiddle/lib/image_pipe_fiddle/application.ex`.
 
 ## 1. Run Jaeger
 
@@ -32,8 +31,8 @@ natively on 4317 (gRPC) and 4318 (HTTP).
 {:opentelemetry, "~> 1.7"},
 ```
 
-ImagePipe itself only needs `:opentelemetry_api` (it declares it optional); you bring
-the SDK. Adding `:opentelemetry` pulls `:opentelemetry_api` in transitively.
+ImagePipe declares only the optional `:opentelemetry_api` dependency. The host
+provides the SDK; `:opentelemetry` brings the API transitively.
 
 ## 3. Point the SDK at Jaeger
 
@@ -56,8 +55,8 @@ config :opentelemetry_exporter,
 config :opentelemetry, traces_exporter: :none
 ```
 
-(For releases you can instead put the SDK config in `config/runtime.exs` and read the
-endpoint from an env var; just keep the test override.)
+For releases, this configuration can live in `config/runtime.exs` and read the
+endpoint from an environment variable. Keep the test override.
 
 ## 4. Activate at startup
 
@@ -68,25 +67,26 @@ ImagePipe.Telemetry.attach_tracer(
 )
 ```
 
-If `:opentelemetry_api` isn't present this raises at startup. Issue a request, wait a
-few seconds for the batch processor to flush, then find the `image_pipe.request` trace
-in Jaeger — descendant spans such as `image_pipe.send` (with `image_pipe.deliver`
-nested under it), `image_pipe.encode`, `image_pipe.transform.execute`, and
-`image_pipe.transform.operation` appear in the trace beneath the request root. The root span itself may show a "missing parent" note in Jaeger when ImagePipe originates the trace: its synthetic
-remote parent is what forces ImagePipe's `trace_id` onto the OTel trace (use
-`extract_inbound: true` behind a traced caller to make it a real child instead).
+If `:opentelemetry_api` is absent, this raises at startup. After a request and a
+batch flush, Jaeger shows an `image_pipe.request` trace with descendants such as
+`image_pipe.send`, its nested `image_pipe.deliver`, `image_pipe.encode`,
+`image_pipe.transform.execute`, and `image_pipe.transform.operation`.
+
+When ImagePipe starts the trace, Jaeger may show a missing parent on the root.
+The synthetic remote parent forces ImagePipe's `trace_id` onto the OTel trace.
+Behind a traced caller, `extract_inbound: true` instead makes the root a real
+child of the inbound span.
 
 ## Troubleshooting: no traces appear
 
-The exporter detects the OTel API at **compile time** (a `Code.ensure_loaded?` guard
-baked into `image_pipe`). If you added the SDK to an already-compiled project,
-`image_pipe` may have been compiled *without* `:opentelemetry_api` and the exporter
-stays dormant — `ImagePipe.Telemetry.Trace.OpenTelemetryExporter.available?/0` returns
-`false`. Force a recompile so it picks the API up:
+The exporter detects the OTel API at **compile time**. If the SDK was added after
+ImagePipe was compiled, the exporter remains unavailable and
+`ImagePipe.Telemetry.Trace.OpenTelemetryExporter.available?/0` returns `false`.
+Force a recompile:
 
 ```sh
 mix deps.compile image_pipe --force   # or: mix clean && mix compile
 ```
 
-A fresh build (deps fetched before the first compile) doesn't hit this, because the
-compiler sees `:opentelemetry_api` while compiling `image_pipe`.
+A fresh build sees `:opentelemetry_api` during compilation and needs no forced
+recompile.

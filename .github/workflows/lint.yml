@@ -11,6 +11,7 @@ on:
       - ".formatter.exs"
       - "mix.exs"
       - "mix.lock"
+      - "mise.toml"
       - ".github/workflows/lint.yml"
   pull_request:
     branches: ["main"]
@@ -31,10 +32,10 @@ jobs:
         with:
           mise_toml: |
             [tools]
-            erlang = "29"
-            elixir = "1.20.0-otp-29"
-            node = "latest"
-            pnpm = "latest"
+            erlang = "29.1"
+            elixir = "1.20.4-otp-29"
+            node = "26.9.0"
+            pnpm = "12.4.2"
       - name: Install Hex
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
@@ -54,9 +55,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: priv/plts
-          key: plt-dev-erlang29-elixir1.20.0-otp29-${{ hashFiles('mix.lock') }}
+          key: plt-dev-erlang29.1-elixir1.20.4-otp29-${{ hashFiles('mix.lock') }}
           restore-keys: |
-            plt-dev-erlang29-elixir1.20.0-otp29-
+            plt-dev-erlang29.1-elixir1.20.4-otp29-
       - name: Create PLTs
         if: steps.plt-cache.outputs.cache-hit != 'true'
         run: mise exec -- mix dialyzer --plt

@@ -1,5 +1,12 @@
 defmodule ImagePipe.Source.HTTP do
-  @moduledoc false
+  @moduledoc """
+  Built-in HTTP source adapter with destination and response-size controls.
+
+  `:allowed_hosts` is required. Redirects are disabled by default and every
+  redirect target is checked against the same host and network-address policy.
+  Transport settings may be supplied through the documented timeout and
+  `:req_options` fields in the mount configuration.
+  """
 
   @behaviour ImagePipe.Source
 

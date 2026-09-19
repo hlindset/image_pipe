@@ -5,11 +5,13 @@ defmodule ImagePipeFiddle.Application do
 
   use Application
 
+  @demo_signing_key String.duplicate("a1", 32)
+  @demo_source_encryption_key :binary.copy(<<42, 73>>, 16)
+
   @impl true
   def start(_type, _args) do
-    :persistent_term.put({__MODULE__, :imgproxy_opts}, build_imgproxy_opts())
-    :persistent_term.put({__MODULE__, :iiif_opts}, build_iiif_opts())
-    :persistent_term.put({__MODULE__, :twicpics_opts}, build_twicpics_opts())
+    :persistent_term.put({__MODULE__, :native_opts}, build_native_opts())
+    :persistent_term.put({__MODULE__, :native_signed_opts}, build_native_signed_opts())
     ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
     maybe_attach_tracer()
 
@@ -48,15 +50,14 @@ defmodule ImagePipeFiddle.Application do
   end
 
   @doc false
-  # Source adapters mounted for the imgproxy provider. The local File source is
-  # always available; s3 (via the opt-in s3proxy compose service) and http (the
-  # fiddle's own Plug.Static over loopback) let the demo compare source adapters
-  # on byte-identical sample images. Scoped to imgproxy — iiif/twicpics keep File.
-  def imgproxy_source_mounts do
+  # Source adapters mounted for the image endpoint. The local File source is
+  # always available; s3 (via the opt-in s3proxy compose service) lets the demo
+  # compare source adapters on byte-identical sample images.
+  def source_mounts do
     static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
     s3 = Application.fetch_env!(:image_pipe_fiddle, :s3_source)
 
-    [
+    mounts = [
       path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted},
       s3:
         {ImagePipe.Source.S3,
@@ -70,87 +71,46 @@ defmodule ImagePipeFiddle.Application do
                 secret_access_key: Keyword.fetch!(s3, :secret_access_key)
               ]}
          ],
-         buckets: %{"sources" => []}},
-      # DEV-ONLY SSRF relaxation: the http source type fetches the fiddle's own
-      # Plug.Static over loopback, so localhost must be explicitly allowed and the
-      # address policy must permit loopback IPs. This lives only in the fiddle demo
-      # — never in ImagePipe library defaults.
-      url:
-        {ImagePipe.Source.HTTP,
-         allowed_hosts: ["localhost", "127.0.0.1"], address_policy: [allow_loopback: true]}
+         buckets: %{"sources" => []}}
     ]
-  end
 
-  defp build_imgproxy_opts do
-    imgproxy = Application.fetch_env!(:image_pipe_fiddle, :imgproxy)
-
-    [
-      dialect: ImagePipe.Dialect.Imgproxy,
-      sources: imgproxy_source_mounts(),
-      # Graceful fallback: detection failures degrade to attention crop (200) rather
-      # than erroring; the default Logger surfaces any detection fallback.
-      detector_required: false,
-      allow_debug_headers: true
-    ]
-    # The dialect takes one flat keyword list; the :imgproxy env sublist
-    # (signature, smart_crop_face_detection) merges in at the top level.
-    |> Keyword.merge(imgproxy)
-    |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Plug.init()
-  end
-
-  defp build_iiif_opts do
-    static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
-
-    [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver: {ImagePipe.Dialect.IIIF.Resolver.Static, map: iiif_source_map()},
-      max_width: 4000,
-      max_height: 4000,
-      sources: [
-        path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
-      ],
-      allow_debug_headers: true,
-      allow_origin: "*"
-    ]
-    |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Plug.init()
-  end
-
-  # Maps each sample image to a slash-free, extension-stripped IIIF identifier
-  # (images/dog.jpg -> "dog"). Sample filenames are URL-safe by convention, so the
-  # id needs no encoding. Stems must be unique across the set; raises if not.
-  defp iiif_source_map do
-    files =
-      :image_pipe_fiddle
-      |> Application.app_dir("priv/static/images")
-      |> File.ls!()
-      |> Enum.filter(&(Path.extname(&1) in ~w(.avif .jpeg .jpg .png .webp)))
-
-    map =
-      Map.new(files, fn file ->
-        {Path.rootname(file), %ImagePipe.Plan.Source.Path{segments: ["images", file]}}
-      end)
-
-    if map_size(map) < length(files) do
-      raise "IIIF identifier stem collision among sample images (two files share a basename)"
+    if Application.fetch_env!(:image_pipe_fiddle, :loopback_http_source) do
+      mounts ++
+        [
+          url:
+            {ImagePipe.Source.HTTP,
+             allowed_hosts: ["localhost", "127.0.0.1"], address_policy: [allow_loopback: true]}
+        ]
+    else
+      mounts
     end
-
-    map
   end
 
-  defp build_twicpics_opts do
-    static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
+  defp build_native_opts do
+    native_opts()
+    |> ImagePipe.Plug.init()
+  end
 
+  defp build_native_signed_opts do
+    native_opts()
+    |> Keyword.merge(
+      keys: [@demo_signing_key],
+      source_encryption_keys: [@demo_source_encryption_key]
+    )
+    |> ImagePipe.Plug.init()
+  end
+
+  defp native_opts do
     [
-      dialect: ImagePipe.Dialect.TwicPics,
-      sources: [
-        path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
-      ],
-      allow_debug_headers: true
+      allow_origin: "*",
+      allow_debug_headers: true,
+      presets: %{
+        "card" => "w=400/h=400/fit=cover",
+        "framed" => "preset=card/then/pad=20/bg=fff/format=webp"
+      },
+      sources: source_mounts()
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
-    |> ImagePipe.Plug.init()
   end
 
   defp maybe_put_cache(opts, nil), do: opts

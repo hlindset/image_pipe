@@ -10,8 +10,7 @@ defmodule ImagePipe.Output.Negotiation do
   # Server preference order among the modern formats. AVIF leads because, at the
   # ssim2 web-delivery quality target, it is both smaller and sharper than JPEG XL
   # (JXL only pulls ahead near visual-losslessness). A host may override the order
-  # via the `:format_order` option; this diverges from imgproxy's documented
-  # JXL > AVIF > WebP preference (see docs/imgproxy_support_matrix.md).
+  # via the `:format_order` option.
   @default_order [:avif, :jpeg_xl, :webp]
 
   @spec modern_candidates(String.t() | nil, keyword()) :: [:jpeg_xl | :avif | :webp]

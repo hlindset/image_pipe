@@ -323,11 +323,11 @@ defmodule Mix.Tasks.Autoquality.Bench do
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Test.Autoquality.TileSelection
-  alias ImagePipe.Test.ImgproxyDifferential.SourceInventory
+  alias ImagePipe.Test.SourceInventory
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
-  @sources_dir "test/support/image_pipe/test/imgproxy_differential/sources"
+  @sources_dir "test/support/image_pipe/test/sources"
   @prefix [:autoquality_bench]
 
   # Shipped defaults under test (see ImagePipe.Output.EncodeSearch + the imgproxy
@@ -696,7 +696,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
     {us, _result} =
       timed(fn ->
         {:ok, stream, _mime, _meta} =
-          Encoder.stream_output(image, resolved, telemetry_prefix: @prefix)
+          Encoder.stream_output(image, resolved, nil, telemetry_prefix: @prefix)
 
         Enum.each(stream, fn _ -> :ok end)
       end)
@@ -714,7 +714,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp encode_once(image, resolved) do
     timed(fn ->
-      {:ok, stream, _mime, _meta} = Encoder.stream_output(image, resolved, [])
+      {:ok, stream, _mime, _meta} = Encoder.stream_output(image, resolved, nil, [])
       Enum.reduce(stream, 0, fn chunk, acc -> acc + byte_size(chunk) end)
     end)
   end
@@ -850,7 +850,7 @@ defmodule Mix.Tasks.Autoquality.Bench do
 
   defp flatten_alpha(image) do
     if Image.has_alpha?(image) do
-      {:ok, flat} = Image.flatten(image, background_color: [255, 255, 255])
+      {:ok, flat} = Image.flatten(image, background: [255, 255, 255])
       flat
     else
       image

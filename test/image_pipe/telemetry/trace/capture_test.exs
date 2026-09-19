@@ -2,6 +2,9 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Context, Inbound, Span, TestExporter}
+  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.State
 
   setup do
     TestExporter.set_receiver(self())
@@ -89,6 +92,16 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert span.attributes[:objective] == :ssimulacra2
     assert span.attributes[:max_bytes] == 200_000
     assert span.attributes[:target] == 90.0
+  end
+
+  test "captures an output terminal span with its terminal attribute" do
+    Telemetry.span([], [:output, :terminal], %{terminal: :blurhash}, fn ->
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = span}
+    assert span.status == :ok
+    assert span.attributes[:terminal] == :blurhash
   end
 
   test "captures the content-class classify span with its allowlisted attributes" do
@@ -274,17 +287,6 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert met.attributes[:score] == 1.2
   end
 
-  test "captures the render span with its renderer attribute" do
-    Telemetry.span([], [:render], %{renderer: ImagePipe.Telemetry.Trace.CaptureTest}, fn ->
-      {:ok, %{result: :ok, content_type: "application/json"}}
-    end)
-
-    assert_receive {:span, %Span{name: "image_pipe.render"} = span}
-    assert span.status == :ok
-    assert span.attributes[:renderer] == ImagePipe.Telemetry.Trace.CaptureTest
-    assert span.attributes[:content_type] == "application/json"
-  end
-
   test "merges allowlisted stop-metadata attributes onto the span, preserving start attrs" do
     Telemetry.span(
       [],
@@ -327,12 +329,20 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "captures the realized :dims tuple from an operation span's stop metadata" do
-    Telemetry.span([], [:transform, :operation], %{operation: :resize, index: 0}, fn ->
-      {:ok, %{result: :ok, dims: {100, 80}}}
-    end)
+    prefix = [__MODULE__, :operation_dims]
+    :ok = Telemetry.detach_tracer()
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    state = %State{image: Image.new!(200, 160, color: :white)}
+    resize = %Resize{width: 100, height: 80}
+
+    assert {:ok, %State{}} =
+             Transform.run(state, resize, telemetry_prefix: prefix)
 
     assert_receive {:span, %Span{name: "image_pipe.transform.operation"} = span}
+    assert span.attributes[:operation] == :resize
     assert span.attributes[:dims] == {100, 80}
+    refute Map.has_key?(span.attributes, :index)
   end
 
   test "drops non-allowlisted stop-metadata keys" do
@@ -356,7 +366,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "folds the clamp one-shot onto the enclosing span with its dimension/limit attributes" do
-    Telemetry.span([], [:render], %{}, fn ->
+    Telemetry.span([], [:encode], %{}, fn ->
       Telemetry.execute(
         [],
         [:output, :clamp],
@@ -372,7 +382,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       {:ok, %{result: :ok}}
     end)
 
-    assert_receive {:span, %Span{name: "image_pipe.render"} = span}
+    assert_receive {:span, %Span{name: "image_pipe.encode"} = span}
 
     refute_received {:span, %Span{name: "image_pipe.output.clamp"}}
 

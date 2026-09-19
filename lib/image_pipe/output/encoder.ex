@@ -13,18 +13,12 @@ defmodule ImagePipe.Output.Encoder do
   alias Vix.Vips.MutableImage, as: VixMutableImage
   alias Vix.Vips.Operation
 
-  # Private image fields the delivery-boundary stamp writes for the color
-  # finalize to consume. Removed here once consumed so they never reach the
-  # encoded output.
-  @private_color_fields ["imagepipe-icc-backup", "imagepipe-icc-imported"]
-
   @doc """
-  The output encoder's hard per-format limits, used by `ImagePipe.Output.Clamp`
-  to keep encoding from failing. `:max_dimension` is the hard per-axis pixel
-  limit; `:max_pixels` is a total-resolution budget. `:infinity` means no
-  practical limit. Sourced from libvips encoder constraints (cf. imgproxy
-  `processing/fix_size.go`). #165 folds these with the host `max_result_*` caps
-  via `min/2` at the producer before calling `Clamp.clamp/3`.
+  Returns libvips encoder limits for `ImagePipe.Output.Clamp`.
+
+  `:max_dimension` limits each axis; `:max_pixels` limits total pixels.
+  `:infinity` means no practical limit. The producer takes the minimum of
+  these limits and the host's `max_result_*` caps before calling `Clamp.clamp/3`.
   """
   @spec encoder_limit(Format.output_format()) :: %{
           max_dimension: pos_integer() | :infinity,
@@ -36,13 +30,14 @@ defmodule ImagePipe.Output.Encoder do
   def encoder_limit(:jpeg), do: %{max_dimension: 65_535, max_pixels: :infinity}
   def encoder_limit(:png), do: %{max_dimension: :infinity, max_pixels: :infinity}
 
-  @spec stream_output(VixImage.t(), Resolved.t(), keyword()) ::
+  @doc "Encodes the image using the source ICC profile retained by input conditioning, or nil."
+  @spec stream_output(VixImage.t(), Resolved.t(), binary() | nil, keyword()) ::
           {:ok, Enumerable.t(), String.t(), map() | nil}
           | {:error, {:encode, Exception.t(), list()}}
           | {:error, {:decode, term()}}
-  def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, opts) do
+  def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, source_profile, opts) do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
-         {:ok, finalized} <- finalize(image, resolved_output) do
+         {:ok, finalized} <- finalize(image, resolved_output, source_profile) do
       deliver(finalized, resolved_output, mime_type, suffix, opts)
     end
   rescue
@@ -93,13 +88,18 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   # A quality search runs when a search objective or a hard byte budget is set.
+  defp search?(%Resolved{
+         format: :webp,
+         encoder_options: %WebpOptions{lossless: true}
+       }),
+       do: false
+
   defp search?(%Resolved{quality_search: quality_search, max_bytes: max_bytes}),
     do: quality_search != :none or max_bytes != nil
 
-  # One megapixel computation, one precedence ladder: the host max_resolution skip
-  # wins (it disables the search above the host cap, unchanged); otherwise crop-score
-  # above the internal crossover, else full-frame. A max_bytes-alone request has no
-  # descriptor, so max_resolution is 0 and it never skips.
+  # The host max_resolution cap disables search first; otherwise the internal
+  # crossover selects crop or full-frame scoring. max_bytes alone has no descriptor
+  # and uses max_resolution=0, so it never skips.
   defp scorer_mode(finalized, %Resolved{quality_search: quality_search}) do
     megapixels = Image.width(finalized) * Image.height(finalized) / 1_000_000
     max_resolution = max_resolution_of(quality_search)
@@ -153,7 +153,7 @@ defmodule ImagePipe.Output.Encoder do
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
 
-  # No encoder options: the existing `image`-wrapper path (byte-neutral baseline).
+  # Use the Image wrapper when there are no encoder options.
   defp buffer_for(image, suffix, quality, []) do
     case Image.write(image, :memory, suffix: suffix, quality: quality) do
       {:ok, binary} -> {:ok, binary}
@@ -277,17 +277,14 @@ defmodule ImagePipe.Output.Encoder do
   defp encode_error(reason),
     do: ArgumentError.exception("failed to encode to buffer: #{inspect(reason)}")
 
-  # Color finalize (port of imgproxy `colorspaceToResult`) + metadata strip.
-  # We realize ONCE via copy_memory here, in the producer's own call stack, so a
-  # corrupt-source failure is a returnable {:error, ...} (mapped to a 415 decode
-  # error) instead of the uncatchable producer crash that an in-`mutate`
-  # copy_memory (linked MutableImage GenServer) would cause. All subsequent color
-  # work and mutates run on the in-memory image and cannot fail that way.
-  defp finalize(image, %Resolved{} = resolved) do
+  # Materialize on the producer's stack so corrupt-source failures return decode
+  # errors (415). Doing this inside mutate would crash the linked MutableImage
+  # GenServer. Color finalization and metadata stripping then use the in-memory image.
+  defp finalize(image, %Resolved{} = resolved, source_profile) do
     case VixImage.copy_memory(image) do
       {:ok, mem} ->
         with {:ok, flattened} <- flatten_for_format(mem, resolved) do
-          color_result(flattened, resolved)
+          color_result(flattened, resolved, source_profile)
         end
 
       {:error, reason} ->
@@ -295,20 +292,14 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  # imgproxy `flatten` (end of the processing pipeline, before `colorspaceToResult`):
-  # when the result format can't carry alpha, composite the alpha-bearing working
-  # image onto the resolved `flatten_background` (`Plan.Output.flatten_background`,
-  # default opaque white = imgproxy `color.White`) so the encoder never hands an
-  # alpha band to a non-alpha save (`jpegsave` rejects it / silently drops it).
-  # Guarded by `has_alpha?` so a per-request background (already flattened in the
-  # transform chain) and any opaque image pass through untouched. The background's
-  # own alpha is intentionally ignored (`to_rgb_list` drops it): the composite
-  # target is opaque, matching imgproxy's RGB-only `color.White`.
+  # Non-alpha formats need opaque pixels. Flatten onto the resolved background
+  # (default white), ignoring its alpha. Already-opaque images pass through,
+  # including those flattened by a request's background transform.
   defp flatten_for_format(image, %Resolved{format: format, flatten_background: background}) do
     if Format.supports_alpha?(format) or not Image.has_alpha?(image) do
       {:ok, image}
     else
-      case Image.flatten(image, background_color: Color.to_rgb_list(background)) do
+      case Image.flatten(image, background: Color.to_rgb_list(background)) do
         {:ok, flattened} -> {:ok, flattened}
         {:error, reason} -> {:error, {:encode, flatten_error(reason), []}}
       end
@@ -319,47 +310,32 @@ defmodule ImagePipe.Output.Encoder do
     do:
       ArgumentError.exception("failed to flatten alpha for non-alpha output: #{inspect(reason)}")
 
-  # imgproxy `colorspaceToResult`: read the import carry, restore the backed-up
-  # source profile (icc_export targets the EMBEDDED profile, so the source blob
-  # must be on icc-profile-data first), then switch on (keep?, imported):
-  #
-  #   keep && imported  -> icc_export to the source profile (re-embed scp:0)
-  #   !keep && !imported -> icc_transform to the standard space (sRGB/sGrey)
-  #   otherwise          -> nothing (already in the right space)
-  #
-  # then drop the profile when !keep, and finally strip other metadata and the two
-  # private carry fields. The read-before-strip order is load-bearing:
-  # `minimize_metadata` enumerate-removes every header field, the private ones
-  # included.
-  # cp/icc: convert the working-space image (sRGB after the #124 import preamble) to
-  # the chosen built-in target profile and embed it. A dedicated clause: it must NOT
-  # flow through maybe_drop_profile/2, which (keep? == false here) would strip the
-  # profile we just embedded. strip_metadata_and_private preserves the ICC because
-  # color_profile is not :strip, while still stripping EXIF/XMP/IPTC.
-  defp color_result(image, %Resolved{color_profile: {:convert, target}} = resolved) do
+  # Explicit conversion embeds the chosen target profile. Keep it out of
+  # maybe_drop_profile/2, which would strip that profile. strip_metadata preserves
+  # the ICC for this policy while removing EXIF/XMP/IPTC.
+  defp color_result(
+         image,
+         %Resolved{color_profile: {:convert, target}} = resolved,
+         _source_profile
+       ) do
     with {:ok, image} <- convert_to_target(image, target, resolved.format) do
-      {:ok, strip_metadata_and_private(image, resolved)}
+      {:ok, strip_metadata(image, resolved)}
     end
   end
 
-  defp color_result(image, %Resolved{} = resolved) do
-    imported = header_value(image, "imagepipe-icc-imported") == 1
-    backup = header_value(image, "imagepipe-icc-backup")
-
+  defp color_result(image, %Resolved{} = resolved, source_profile) do
     keep? =
       resolved.color_profile == :preserve_source and
         Format.supports_color_profile?(resolved.format)
 
-    with {:ok, image} <- restore_backup(image, backup),
-         {:ok, image} <- apply_color_result(image, keep?, imported),
+    with {:ok, image} <- restore_backup(image, source_profile),
+         {:ok, image} <- apply_color_result(image, keep?, source_profile != nil),
          {:ok, image} <- maybe_drop_profile(image, keep?) do
-      {:ok, strip_metadata_and_private(image, resolved)}
+      {:ok, strip_metadata(image, resolved)}
     end
   end
 
-  # keep && imported: re-embed the source profile via icc_export. PCS re-sniffed
-  # from the restored profile (same blob as import → matches), depth from the
-  # interpretation (icc_export has no embedded-blob target).
+  # Export to the restored source profile, using its PCS and the image's bit depth.
   defp apply_color_result(image, true, true) do
     case Operation.icc_export(image,
            pcs: pcs(header_value(image, "icc-profile-data")),
@@ -370,17 +346,14 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  # !keep && !imported: transform to the standard space. Short-circuits to a no-op
-  # for an untagged/already-sRGB image (mirroring imgproxy `has_embedded_icc == 0`).
+  # Without a retained/imported profile, convert tagged images to the standard space.
   defp apply_color_result(image, false, false), do: to_standard(image)
 
   # keep && !imported (already in the source space) and !keep && imported (already
   # standard): nothing to do.
   defp apply_color_result(image, _keep?, _imported), do: {:ok, image}
 
-  # Transform to the standard space (sRGB for color, sGrey for greyscale), mirroring
-  # `vips_icc_transform_standard`. imgproxy's wrapper early-returns when there is no
-  # embedded profile, so an untagged image stays pixel-identical.
+  # Convert tagged images to sRGB or sGrey. Untagged images keep their pixels.
   defp to_standard(image) do
     case header_value(image, "icc-profile-data") do
       nil ->
@@ -400,15 +373,10 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  # Convert working-space sRGB -> target built-in profile and embed it. Greyscale
-  # (B_W/sGrey, 1-band) is first promoted to sRGB so the 3-band target transform is
-  # valid (N2). Input is declared as the known working space ("sRGB") rather than
-  # embedded: true, because an untagged source has no embedded profile to read (N1).
-  # The working-space image reaching here is 8-bit sRGB-family under the default
-  # tone-map policy, and `colourspace` to sRGB collapses to 8-bit UCHAR, so the
-  # libvips default depth (8) is correct. 16-bit/HDR working-space handling for a
-  # target convert (under `hdr: :preserve` on an HDR-capable format) is deferred
-  # to #121.
+  # Promote greyscale to three-band sRGB before target conversion. Declare sRGB
+  # explicitly because untagged sources have no embedded input profile.
+  # colourspace produces 8-bit UCHAR, matching libvips' default output depth.
+  # Output-policy validation rejects named profile conversion with HDR preservation.
   # Dialyzer can't see through Vix's generated Operation typings, so it reports
   # the icc_transform call as failing; it succeeds at runtime.
   @dialyzer {:no_fail_call, convert_to_target: 3}
@@ -442,10 +410,8 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  # Local PCS sniff (port of imgproxy `vips_icc_get_pcs`, bytes 20–23). Duplicated
-  # here rather than reused from `Transform.InputColorManagement`: the encoder is
-  # in the `Output` boundary, which must not depend on `Transform`. Kept byte-
-  # identical so import and export agree on the connection space.
+  # Read PCS from ICC bytes 20–23. Match Transform.InputColorManagement so import
+  # and export agree, without introducing an Output → Transform dependency.
   defp pcs(p) when is_binary(p) and byte_size(p) >= 128,
     do: if(binary_part(p, 20, 4) == "XYZ ", do: :VIPS_PCS_XYZ, else: :VIPS_PCS_LAB)
 
@@ -456,13 +422,8 @@ defmodule ImagePipe.Output.Encoder do
   defp restore_backup(image, nil), do: {:ok, image}
   defp restore_backup(image, backup), do: {:ok, set_icc(image, backup)}
 
-  # The fields imgproxy's `vips_icc_remove` removes when it drops the profile
-  # (imgproxy `vips/vips.c`). Besides the ICC blob it unconditionally strips three EXIF
-  # color-characterization tags — independent of metadata stripping — so they
-  # must go here too, on the `!keep_profile` path, even when `strip_metadata` is
-  # false. imgproxy's internal `imgproxy-icc-profile` carry has no analogue to
-  # remove: ImagePipe's own private carry fields (`@private_color_fields`) are
-  # stripped separately in `strip_metadata_and_private/2`.
+  # Removing a profile also removes its EXIF color-characterization tags,
+  # even when general metadata stripping is disabled.
   @icc_remove_fields [
     "icc-profile-data",
     "exif-ifd0-WhitePoint",
@@ -473,19 +434,17 @@ defmodule ImagePipe.Output.Encoder do
   defp maybe_drop_profile(image, true), do: {:ok, image}
   defp maybe_drop_profile(image, false), do: {:ok, remove_fields(image, @icc_remove_fields)}
 
-  # Strip EXIF/XMP/IPTC (keeping copyright/artist iff kcr) and remove the two
-  # private carry fields. `minimize_metadata` enumerates and removes ALL metadata
+  # Strip EXIF/XMP/IPTC (keeping copyright/artist iff kcr).
+  # `minimize_metadata` enumerates and removes all metadata
   # header fields — crucially the individual `exif-ifd0-*`/`exif-gps-*` entries,
   # which survive removing just the serialized "exif-data" blob and would otherwise
   # be re-serialized into EXIF on encode (leaking GPS/copyright). It also removes
-  # the ICC profile and the private carry fields, so the color switch above must
+  # the ICC profile, so the color switch above must
   # already have run. If minimize_metadata fails (malformed/absent EXIF), fall back
-  # to blob removal. When strip_metadata is false only the private carry fields are
-  # removed; the color profile decision was already applied.
-  defp strip_metadata_and_private(image, %Resolved{strip_metadata: false}),
-    do: remove_fields(image, @private_color_fields)
+  # to blob removal.
+  defp strip_metadata(image, %Resolved{strip_metadata: false}), do: image
 
-  defp strip_metadata_and_private(image, %Resolved{} = resolved) do
+  defp strip_metadata(image, %Resolved{} = resolved) do
     keep = if resolved.keep_copyright, do: [:copyright, :artist], else: []
 
     icc =
@@ -494,13 +453,13 @@ defmodule ImagePipe.Output.Encoder do
     minimized =
       case Image.minimize_metadata(image, keep: keep) do
         {:ok, stripped} ->
-          remove_fields(stripped, @private_color_fields)
+          stripped
 
         {:error, _} ->
           remove_fields(
             image,
             ["exif-data", "xmp-data", "iptc-data"] ++
-              icc_fields(resolved) ++ @private_color_fields
+              icc_fields(resolved)
           )
       end
 

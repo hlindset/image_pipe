@@ -2,51 +2,32 @@ defmodule ImagePipe.Transform.State do
   @moduledoc """
   Execution state carried through a transform chain.
 
-  State holds the current image and debug flag used by product-neutral
-  operations. Operations return an updated state instead of mutating images in
-  place.
-
-  Injected runtime configuration also rides on the state so operations can reach
-  host-provided collaborators without naming concrete request modules:
+  Holds the current image, debug flag, and runtime configuration. Operations
+  return updated state and access host collaborators without depending on request
+  modules:
 
   - `detector`: host-configured content detector, either a bare `module` or a
     `{module, opts}` pair, or `nil` when no detector is configured.
   - `detector_required`: whether detect-gravity must use the detector instead of
     silently falling back to attention smartcrop.
   - `telemetry_opts`: telemetry metadata threaded through stage spans.
-  - `source_dimensions`: the *exact* original (full-resolution) `{w, h}` the
-    residual resize must size against, set by decode when shrink-on-load has reduced
-    the decoded image; `nil` otherwise. It is exact (not reconstructed from the shrunk
-    dims), so the residual resize lands on the same target as a full-resolution
-    decode. It stays in the storage frame — EXIF/user orientation is carried as a
-    pending rotation on `pending_orientation` and flushed after the resize, so no
-    pre-resize op swaps these dimensions. A preceding crop or quarter-turn rotate no
-    longer declines shrink-on-load (#151); the resize target is expressed against the
-    cropped/displayed axes instead (see `ImagePipe.Transform.DecodePlanner`).
-
-    During pipeline execution the field carries a second meaning: before each
-    operation `ImagePipe.Transform.Executor` overlays the resolver-advanced
-    `ImagePipe.Transform.SourceShape` onto the state, writing the shape's current
-    effective dims here — so every `effective_source_dims/1` read resolves against
-    the shape-tracked frame (value-equal to the live image dims whenever no shrink
-    is outstanding). At the pipeline boundary the driver restores the decode
-    meaning: the stored original extent iff shrink-on-load survived unconsumed,
-    `nil` otherwise — so a stale frame never leaks into a later pipeline.
-  - `decode_shrink`: the *realized* per-axis shrink factor `%{w: float, h: float}`
-    (each `>= 1.0`, original ÷ decoded) actually applied by shrink-on-load, or `nil`
-    when the decode was full-resolution. A crop preceding the resize rescales its
-    absolute pixel dims and pixel/absolute gravity offsets by this factor so the
-    crop selects the same source region on the shrunk image that it would at full
-    resolution; relative (ratio/percent/focus-point) coordinates are untouched.
-    For JPEG block shrink and WebP scale-on-load the factor is uniform across axes.
-    It is a storage-frame factor, so a gravity crop carrying a pending quarter-turn
-    swaps the per-axis factors before rescaling (the display-frame crop dims are
-    swapped into the storage frame after — `ImagePipe.Transform.Executor`).
-  - `source_color_profile` and `color_imported?`: carry the input-color-management
-    result from the preamble (`ImagePipe.Transform.InputColorManagement`) to the
-    delivery-boundary stamp. `source_color_profile` is the raw source ICC bytes
-    (or `nil`), and `color_imported?` indicates whether an actual `icc_import` ran.
-    Transform-domain data; must never be emitted in telemetry metadata.
+  - `source_dimensions`: exact full-resolution `{w, h}` before shrink-on-load,
+    or `nil` for a full-resolution decode. Residual resize uses this extent to
+    match the full-resolution target. Pending orientation maps its axes to the
+    display frame; a physical quarter-turn flush swaps the extent and shrink
+    axes. Resize consumes the extent. Crop, trim, arbitrary rotation, canvas,
+    and padding establish new geometry; the executor clears the extent and
+    decode scale at those boundaries.
+  - `decode_shrink`: realized per-axis factors `%{w: float, h: float}`
+    (original ÷ decoded, each `>= 1.0`), or `nil` for a full-resolution decode.
+    Crops before resize rescale absolute dimensions and gravity offsets to
+    select the same source region; relative coordinates stay unchanged. Integer
+    decode dimensions can yield different factors per axis. Factors follow the
+    current image axes: gravity crops swap them for a pending quarter turn, then
+    map crop dimensions back to the image frame.
+  - `source_color_profile` and `color_imported?`: input-color-management results
+    passed to the encoder. The profile holds raw source ICC bytes or `nil`; the
+    flag records whether `icc_import` ran. Never emit these in telemetry metadata.
   """
 
   defstruct image: nil,
@@ -80,13 +61,11 @@ defmodule ImagePipe.Transform.State do
   end
 
   @doc """
-  Dimensions the residual resize must size against.
+  Returns the dimensions used to calculate the residual resize target.
 
-  When shrink-on-load reduced the decoded image, this returns the exact stored
-  original extent (`source_dimensions`), so the residual resize computes the same
-  target a full-resolution decode would. With no shrink it returns the live image
-  dimensions — which also makes a crop-before-resize correct, since the cropped
-  image's own dimensions are what the following resize should size against.
+  Uses the exact stored `source_dimensions` after shrink-on-load, otherwise the
+  current image dimensions. After a crop clears the stored extent, resize uses
+  the cropped dimensions.
   """
   def effective_source_dims(%__MODULE__{source_dimensions: {w, h}}), do: {w, h}
 

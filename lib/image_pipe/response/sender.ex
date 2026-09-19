@@ -20,7 +20,6 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
   alias ImagePipe.Response.CacheHeaders
-  alias ImagePipe.Response.Json
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Telemetry
 
@@ -31,7 +30,6 @@ defmodule ImagePipe.Response.Sender do
   @type delivery() ::
           {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t(), hit_debug()}
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
-          | {:rendered, String.t(), iodata(), [{String.t(), [String.t()]}], CacheHeaders.t()}
 
   @spec send_result(
           Plug.Conn.t(),
@@ -64,26 +62,6 @@ defmodule ImagePipe.Response.Sender do
         opts
       ) do
     send_prepared_stream(conn, prepared_stream, response, prepared, opts)
-  end
-
-  def send_result(
-        %Plug.Conn{} = conn,
-        {:ok, {:rendered, content_type, body, offers, %CacheHeaders{} = prepared}},
-        _opts
-      ) do
-    {negotiated_type, vary?} = negotiate_render(conn, content_type, offers)
-
-    conn
-    |> apply_render_cache_headers(prepared)
-    |> maybe_put_vary(vary?)
-    |> Json.send(negotiated_type, body)
-  end
-
-  @spec send_redirect(Plug.Conn.t(), 303, String.t()) :: Plug.Conn.t()
-  def send_redirect(%Plug.Conn{} = conn, status, location) when is_binary(location) do
-    conn
-    |> put_resp_header("location", location)
-    |> send_resp(status, "")
   end
 
   @spec send_method_not_allowed(Plug.Conn.t()) :: Plug.Conn.t()
@@ -318,42 +296,11 @@ defmodule ImagePipe.Response.Sender do
     %{prepared_stream | headers: headers}
   end
 
-  defp negotiate_render(_conn, base_type, []), do: {base_type, false}
-
-  defp negotiate_render(%Plug.Conn{} = conn, base_type, offers) do
-    accept = accept_header(conn)
-
-    case Enum.find(offers, fn {_ct, tokens} ->
-           Enum.any?(tokens, &String.contains?(accept, &1))
-         end) do
-      {offered_type, _tokens} -> {offered_type, true}
-      nil -> {base_type, true}
-    end
-  end
-
   defp accept_header(%Plug.Conn{} = conn) do
     case Plug.Conn.get_req_header(conn, "accept") do
       [value | _] -> value
       [] -> ""
     end
-  end
-
-  defp maybe_put_vary(conn, false), do: conn
-
-  # Runs after `apply_render_cache_headers/2` has already put the
-  # representation's own `Vary` on the conn (a mount's configured
-  # `storage_inputs` header names), so the render terminal's `Accept` joins
-  # them rather than replacing them.
-  defp maybe_put_vary(conn, true),
-    do: put_resp_header(conn, "vary", CacheHeaders.merge_vary(conn, ["Accept"]))
-
-  defp apply_render_cache_headers(%Plug.Conn{} = conn, %CacheHeaders{} = prepared) do
-    # Reuse the same delivery-header precedence as image responses: prepared cache /
-    # representation headers are merged, but host headers already set on the conn are
-    # respected (a host plug's stricter cache policy is not silently relaxed).
-    conn
-    |> merge_delivery_headers([], prepared)
-    |> Enum.reduce(conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
   end
 
   defp merge_delivery_headers(%Plug.Conn{} = conn, delivery_headers, %CacheHeaders{} = prepared) do

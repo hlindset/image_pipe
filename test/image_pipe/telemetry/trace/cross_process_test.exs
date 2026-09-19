@@ -6,7 +6,7 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
-  alias ImgproxyWireConformanceTest.CacheProbe
+  alias ImagePipe.Test.PlugFixture.CacheProbe
 
   setup do
     TestExporter.set_receiver(self())
@@ -38,21 +38,17 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
   # [:cache, :write] span fires from the delivery coordinator process (hop A target).
   defp miss_opts do
     [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver:
-        {ImagePipe.Dialect.IIIF.Resolver.Static,
-         map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test",
-           req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
+           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
       ],
       cache: {CacheProbe, result: :miss}
     ]
   end
 
-  defp request_path, do: "/beach/full/!120,90/0/default.jpg"
+  defp request_path, do: "/w=120/h=90/format=jpeg/src/images/beach.jpg"
 
   test "producer-process spans share the request trace_id and parent under it (hop B)" do
     conn = call(request_path(), miss_opts())

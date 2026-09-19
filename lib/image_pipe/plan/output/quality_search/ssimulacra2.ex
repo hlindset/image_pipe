@@ -5,7 +5,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch.Ssimulacra2 do
   `[min_quality, max_quality]` to land within `[target − allowed_error, target +
   allowed_error]` (a symmetric band on the 0–100 scale). `format_min`/`format_max`
   clamp the bracket per output format; `max_resolution` skips the search on
-  oversized results. See `docs/imgproxy_support_matrix.md` (Autoquality).
+  oversized results.
   """
   @enforce_keys [:target, :min_quality, :max_quality]
   defstruct @enforce_keys ++

@@ -66,7 +66,7 @@
       font-family: var(--font-mono);
       font-size: 12px;
       line-height: 16px;
-      /* Long summaries (e.g. g:obj:car:dog:… with many classes) must truncate
+      /* Long summaries (e.g. detection with many classes) must truncate
          rather than push the toggle switch out of bounds. */
       overflow: hidden;
       text-overflow: ellipsis;

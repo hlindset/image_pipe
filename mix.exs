@@ -3,6 +3,40 @@ defmodule ImagePipe.MixProject do
 
   @version "0.1.0"
   @source_url "https://github.com/hlindset/image_pipe"
+  @internal_doc_references [
+    "ImagePipe.Cache.normalize_adapter_options/2",
+    "ImagePipe.Delivery.Producer",
+    "ImagePipe.Error.tag/1",
+    "ImagePipe.Native.Config.validate!/1",
+    "ImagePipe.Output",
+    "ImagePipe.Output.Clamp.clamp_with_telemetry/4",
+    "ImagePipe.Output.Encoder",
+    "ImagePipe.Output.Encoder.stream_output/3",
+    "ImagePipe.Output.Negotiate.negotiate_output/4",
+    "ImagePipe.Output.Policy",
+    "ImagePipe.Plug.Runner",
+    "ImagePipe.Response.CachePolicy",
+    "ImagePipe.Response.ErrorStatus",
+    "ImagePipe.Response.Sender",
+    "ImagePipe.Source.S3.Credentials.fetch/3",
+    "ImagePipe.Source.S3.Credentials.validate/1",
+    "ImagePipe.Source.S3.RefreshCache",
+    "ImagePipe.Source.StreamError",
+    "ImagePipe.Telemetry.Trace.Capture",
+    "ImagePipe.Telemetry.Trace.FinchCapture",
+    "ImagePipe.Telemetry.Trace.Stack.context/0"
+  ]
+  # ExDoc resolves remote typespecs without consulting skip_code_autolink_to.
+  # These exact specs intentionally mention hidden runtime value types.
+  @internal_typespec_references [
+    "t:ImagePipe.Delivery.build_fun/0",
+    "ImagePipe.Delivery.stream/5",
+    "ImagePipe.Native.Identity.material/5",
+    "ImagePipe.Output.EncodeSearch.run/3",
+    "ImagePipe.Output.NativeJxlSearch.run/3",
+    "t:ImagePipe.Transform.SourceGeometry.t/0",
+    "t:ImagePipe.Transform.State.t/0"
+  ]
 
   def project do
     [
@@ -20,6 +54,8 @@ defmodule ImagePipe.MixProject do
         main: "readme",
         source_ref: "v#{@version}",
         source_url: @source_url,
+        skip_code_autolink_to: @internal_doc_references,
+        skip_undefined_reference_warnings_on: @internal_typespec_references,
         assets: %{"docs/assets" => "docs/assets"},
         extras: [
           "README.md",
@@ -30,18 +66,17 @@ defmodule ImagePipe.MixProject do
           "docs/operational_notes.md",
           "docs/telemetry.md",
           "docs/debug_headers.md",
-          {"docs/custom_dialect_guide.md", title: "Writing a Custom Dialect"},
+          {"docs/api_contract.md", title: "API Contract"},
           {"docs/execution_flow.md", title: "Execution Flow"},
+          {"docs/source-network-policy.md", title: "Source Network Policy"},
+          {"docs/content-aware-gravity.md", title: "Content-aware Cropping"},
           {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
-          "docs/imgproxy_path_api.md",
-          "docs/imgproxy_support_matrix.md",
-          "docs/iiif_3_support_matrix.md",
           "docs/transform_operations.md"
         ],
         groups_for_modules: [
           "Package API": [ImagePipe],
           "Plug API": [ImagePipe.Plug],
-          "Dialect API": [ImagePipe.Dialect, ~r/ImagePipe\.Dialect\..*/],
+          API: [ImagePipe.Native, ~r/ImagePipe\.Native\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
           "Cache API": [ImagePipe.Cache, ~r/ImagePipe\.Cache\..*/],
@@ -80,14 +115,7 @@ defmodule ImagePipe.MixProject do
         "autoquality.bench": :test,
         "autoquality.corpus": :test,
         "autoquality.corpus.capture": :test,
-        "imgproxy.diagnose": :test,
-        "imgproxy.gen_report": :test,
-        "imgproxy.reauthor": :test,
-        "imgproxy.gen_sources": :test,
-        "twicpics.gen_fixtures": :test,
-        "twicpics.diagnose": :test,
-        "twicpics.gen_report": :test,
-        "twicpics.reauthor": :test,
+        "fixtures.gen_sources": :test,
         "worktrees.clean": :test
       ]
     ]
@@ -102,7 +130,7 @@ defmodule ImagePipe.MixProject do
   defp extra_compilers(_env), do: [:boundary]
 
   defp description do
-    "A Plug-based image optimization server with mountable URL dialects."
+    "A Plug-based image optimization server with a declarative path API."
   end
 
   defp package do
@@ -112,12 +140,11 @@ defmodule ImagePipe.MixProject do
         "priv",
         "docs/cache.md",
         "docs/cdn-http-cache.md",
-        "docs/custom_dialect_guide.md",
         "docs/execution_flow.md",
+        "docs/api_contract.md",
+        "docs/source-network-policy.md",
+        "docs/content-aware-gravity.md",
         "docs/assets/demo-fiddle-desktop.png",
-        "docs/imgproxy_path_api.md",
-        "docs/imgproxy_support_matrix.md",
-        "docs/iiif_3_support_matrix.md",
         "docs/operational_notes.md",
         "docs/telemetry.md",
         "docs/debug_headers.md",
@@ -148,15 +175,12 @@ defmodule ImagePipe.MixProject do
       {:opentelemetry_api, "~> 1.5", optional: true},
       {:opentelemetry, "~> 1.7", only: :test},
       {:nimble_options, "~> 1.1"},
-      {:image, "~> 0.71"},
+      {:image, "~> 0.72"},
       {:ssimulacra2, "~> 0.1.0"},
       {:butteraugli, "~> 0.1.0"},
-      {:vix,
-       git: "https://github.com/akash-akya/vix.git",
-       ref: "157bcf7ab3405b93241743d0f8c37166547266e5",
-       override: true},
+      {:vix, "~> 0.41"},
       {:color, "~> 0.13"},
-      {:req, "~> 0.5"},
+      {:req, "~> 0.7"},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:boundary, "~> 0.10", runtime: false},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
@@ -165,7 +189,7 @@ defmodule ImagePipe.MixProject do
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:talan, "~> 0.2.1"},
+      {:talan, "~> 1.0"},
       {:bandit, "~> 1.5", only: [:dev, :test]}
     ]
 
@@ -187,14 +211,11 @@ defmodule ImagePipe.MixProject do
         []
       end
 
-    # `testcontainers` provisions Docker for two opt-in lanes: the imgproxy
-    # differential bake (`IMGPROXY_DIFF`) and the AWS credential integration
-    # smoke lane (`AWS_INTEGRATION`). Add it once when either is set so a
-    # both-set run does not double-list the dep.
+    # `testcontainers` provisions Docker for the opt-in AWS credential
+    # integration smoke lane (`AWS_INTEGRATION`).
     testcontainers_deps =
-      if System.get_env("IMGPROXY_DIFF") in ["1", "true"] or
-           System.get_env("AWS_INTEGRATION") in ["1", "true"] do
-        [{:testcontainers, "~> 1.14", only: :test}]
+      if System.get_env("AWS_INTEGRATION") in ["1", "true"] do
+        [{:testcontainers, "~> 2.4", only: :test}]
       else
         []
       end

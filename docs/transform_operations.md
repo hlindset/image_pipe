@@ -1,315 +1,244 @@
-# Transform operations
+# Transform pipeline and operations
 
-## Purpose
+## Overview
 
-This guide is for dialect authors translating external URL syntax into semantic
-operations. It explains where semantic request intent belongs, where executable
-transform work belongs, and how to keep dialect-specific behavior out of
-runtime/cache boundaries.
+ImagePipe's URL parser produces an `ImagePipe.Plan.Request` containing
+ordered groups and an output policy. `ImagePipe.Transform.Executor` executes those
+groups against a decoded image.
 
-A dialect should construct canonical semantic operations under
-`ImagePipe.Plan.Operation.*` through `ImagePipe.Plan.Operation`. The executable
-modules under `ImagePipe.Transform.Operation.*` are local execution targets used
-by Transform Plan execution and `ImagePipe.Transform.Chain`. A dialect shouldn't
-emit executable transform operations.
+`ImagePipe.Plan.Request.Group` holds validated options. The executor resolves
+their source-dependent geometry in fixed stage order and constructs
+`ImagePipe.Transform.Operation.*` structs over `ImagePipe.Transform.State`.
+`ImagePipe.Transform.run/3` runs each operation with telemetry, materialization,
+and error handling. The executor owns stage and group order.
+
+`Plan.Request` describes request intent; operation structs hold the parameters
+resolved for a particular image. For example, crop coordinates change with
+decode shrink and orientation, while resize dimensions are final pixel sizes.
+The executor constructs each operation when its inputs are known and runs it
+immediately.
 
 ## Request flow
 
-A dialect translates external syntax into its own request structs, then into
-semantic operations, then into executable transform work only after the final
-cache lookup boundary.
+For an image response, the Plug lifecycle is:
 
-The request flow is:
+1. Parse and validate the path into an `ImagePipe.Plan.Request`.
+2. Apply expiry and source-translation gates.
+3. Resolve source identity, output negotiation, representation identity, and
+   conditional/cache decisions.
+4. On a cache miss, inspect source geometry and plan shrink-on-load.
+5. Decode the image and condition its input color space.
+6. Execute every group in order through `ImagePipe.Transform.Executor`.
+7. Flush any deferred orientation, clamp output dimensions, materialize, and
+   encode the negotiated format.
 
-1. A dialect reads external syntax and validates its own fields.
-2. Dialect-owned request structs keep syntax and compatibility details
-   isolated.
-3. The dialect translates compatible semantics into canonical
-   `ImagePipe.Plan.Operation.*` structs.
-4. `ImagePipe.Representation.build/3` derives the cache key and the ETag from
-   pre-fetch material only — resolved source identity, the dialect's canonical
-   request material (semantic operation key data, terminal, canonical output
-   plan), the negotiation outcome, and the dialect's behavioral epoch. See
-   [cache keys](cache.md#cache-keys).
-5. On cache miss, `ImagePipe.Transform.execute_plan/3` executes semantic Plan
-   operations in order, converting each one to executable
-   `ImagePipe.Transform.Operation.*` work as an implementation detail.
-6. Runtime observes only the final transform state returned by
-   `ImagePipe.Transform`.
+Parsing and static validation happen before source fetch or cache access.
+Output selection, expiry, source location, and response presentation are not
+transform operations.
 
-Runtime code shouldn't reference concrete operation modules such as
-`ImagePipe.Plan.Operation.Resize` or `ImagePipe.Transform.Operation.Resize`.
-For Plan execution, runtime calls `ImagePipe.Transform.execute_plan/3`.
-Executable structs stay inside Transform execution.
+## Fixed stage order
 
-## Operation ordering
+Options run in this order, regardless of their order in the URL:
 
-ImagePipe orders operation chains once they reach `ImagePipe.Plan`.
+1. `rotate`
+2. `flip`
+3. `trim`
+4. `region` or guided `crop`
+5. resize from `w`, `h`, `fit`, and `enlarge`, including the automatic result
+   crop for cover modes
+6. `blur`
+7. `sharpen`
+8. `pixelate`
+9. `gray`
+10. `bitonal`
+11. `monochrome`
+12. `duotone`
+13. `brightness`
+14. `contrast`
+15. `saturation`
+16. `colorize`
+17. `gradient`
+18. canvas extension
+19. `pad`
+20. `bg`
 
-Imgproxy URLs are declarative. The Imgproxy dialect emits semantic Plan
-operations in Imgproxy canonical order. URL option order doesn't define
-Imgproxy transform order. `docs/imgproxy_path_api.md` documents that order for
-Imgproxy paths, but future dialects may use different ordering rules.
+`then` starts another group. Each group receives the complete result of the
+previous group, while group options themselves do not carry forward. Decode
+happens once, so only the first group can influence shrink-on-load planning.
 
-Other dialects may have order-sensitive semantics. When the ordered semantics
-map cleanly, emit an ordered `ImagePipe.Plan`. Otherwise keep dialect-specific
-quirks isolated inside that dialect's module tree. Don't force ordered command
-semantics into the Imgproxy API or into product-neutral Plan operations.
+The [API contract](api_contract.md#processing-semantics)
+defines the ordering and parameter semantics.
 
-For a stage-by-stage mapping of imgproxy's internal processing pipeline onto
-ImagePipe's execution layers (decode planning, transform chain, output
-boundary) — including stages realized outside the transform chain such as
-`scaleOnLoad` and `fixSize` — see the "Processing pipeline conformance" section
-of [imgproxy_support_matrix.md](imgproxy_support_matrix.md#processing-pipeline-conformance).
+## Coordinate frames
 
-## Request fields that aren't transform operations
+Every operation uses the display frame produced by preceding stages. Crop and
+region percentages therefore resolve after rotation, flip, and trim. A trim
+that reduces an input from 1000 pixels wide to 800 pixels makes a subsequent
+`50pct` crop width resolve to 400 pixels.
 
-These request fields affect source selection, response policy, cache identity,
-or output encoding. Translate them into the appropriate `ImagePipe.Plan` facets
-instead of transform operations:
+Each `then` boundary establishes a new input frame from the previous group's
+final output. Region coordinates in a later group start at that new frame's
+origin; they do not retain a hidden offset into the original source.
 
-- source path, source URL handling, and source identity
-- output format and automatic output negotiation
-- quality and format-specific quality
-- cachebuster
-- expires
-- filename
-- attachment disposition
+EXIF auto-orientation defaults to `orient=auto`; `orient=none` uses stored
+pixels as the initial frame. Pending orientation may be applied late when
+coordinate compensation preserves the logical display result. It is flushed
+before trim, whose automatic background samples the displayed top-left corner.
+EXIF is applied once per request, not once per group.
 
-Keeping these fields out of transform chains matters for cache key data and
-runtime boundaries. Output negotiation, for example, may change the encoded
-format without changing the transform operation sequence.
+## Group options and operation geometry
 
-## Semantic operation catalog
+The parser validates and canonicalizes group fields before execution. The
+executor resolves lengths, placement, and resize targets against the image at
+the corresponding stage.
 
-Dialect code should use these semantic operations:
+### Geometry and composition
 
-- `ImagePipe.Plan.Operation.Resize`: product-neutral resize intent with
-  `mode: :fit`, `:cover`, `:stretch`, or `:auto`. `mode: :auto` is semantic
-  Plan intent. The selected fit/cover branch is post-fetch execution state, not
-  cache key data.
-- `ImagePipe.Plan.Operation.CropGuided`: crop by size plus guide.
-- `ImagePipe.Plan.Operation.CropRegion`: explicit region crop.
-- `ImagePipe.Plan.Operation.Canvas`: place the current image on a target canvas.
-- `ImagePipe.Plan.Operation.Padding`: add edge padding around the current image.
-- `ImagePipe.Plan.Operation.Background`: place an alpha-capable color behind
-  the current image.
-- `ImagePipe.Plan.Operation.AutoOrient`: apply embedded orientation metadata.
-- `ImagePipe.Plan.Operation.Rotate`: right-angle rotation intent.
-- `ImagePipe.Plan.Operation.Flip`: horizontal, vertical, or both-axis flip
-  intent.
-- `ImagePipe.Plan.Operation.Blur`: Gaussian blur with a positive sigma.
-- `ImagePipe.Plan.Operation.Sharpen`: sharpening with a positive sigma.
-- `ImagePipe.Plan.Operation.Pixelate`: pixelation with a block size greater
-  than one pixel.
-- `ImagePipe.Plan.Operation.Brightness`: additive brightness offset, an integer
-  from `-255` to `255` (`0` unchanged).
-- `ImagePipe.Plan.Operation.Contrast`: contrast scale, a positive float
-  (`1` unchanged).
-- `ImagePipe.Plan.Operation.Saturation`: saturation scale, a positive float
-  (`1` unchanged).
-- `ImagePipe.Plan.Color`: canonical product-neutral sRGB color data with alpha.
+- Resize supports contain, cover, stretch, and source-dependent automatic
+  modes, with enlargement policy, guide, offsets, minimums, zoom, and DPR.
+  Cover resize executes a resize followed by a measured result crop.
+- Guided crop resolves a width and height using an anchor, focal point, smart
+  guide, or detector guide, with offsets and optional aspect-ratio correction.
+- Region crop resolves an explicit x/y/width/height rectangle. Partial overlaps
+  clamp to the image; wholly outside regions return 400.
+- Canvas extension places the current image on a target canvas with placement, offsets,
+  and transparent or solid fill.
+- Padding expands the current image by logical top/right/bottom/left sides,
+  scaled by the effective DPR of the preceding resize.
+- `Background` composites an alpha-capable sRGB color behind the current
+  image. An opaque background removes alpha as a consequence of composition.
+- `Trim` removes a uniform border using an automatic or explicit background
+  and supports horizontal or vertical margin equalization.
 
-Plan pipelines should contain semantic Plan operation structs only. Transform
-execution lowers those structs into executable `ImagePipe.Transform.Operation.*`
-work after cache lookup.
+Object and face guides share the displayed crop frame.
 
-## Executable operation catalog
+### Orientation
 
-`ImagePipe.Transform.Operation.*` modules are executable operation targets. They
-describe work over `ImagePipe.Transform.State`, not dialect request syntax:
+- Rotation accepts clockwise angles in `[0, 360]`; parsing folds 360
+  to 0 and canonicalizes whole-number floats. Right angles can use lossless
+  orientation routing, while arbitrary angles use resampling.
+- Flip represents horizontal, vertical, or both-axis reflection.
 
-- `ImagePipe.Transform.Operation.Resize`: executable resize with flattened mode
-  and dimension fields.
-- `ImagePipe.Transform.Operation.Crop`: resolved crop using gravity, offsets,
-  and explicit crop dimensions.
-- `ImagePipe.Transform.Operation.ExtendCanvas`: resolved canvas/letterbox work.
-- `ImagePipe.Transform.Operation.Padding`: resolved edge-padding work.
-- `ImagePipe.Transform.Operation.Background`: resolved background composition.
-- `ImagePipe.Transform.Operation.AutoOrient`: executable EXIF autorotation.
-- `ImagePipe.Transform.Operation.Rotate`: executable right-angle rotation.
-- `ImagePipe.Transform.Operation.Flip`: executable flip.
-- `ImagePipe.Transform.Operation.Blur`: executable Gaussian blur.
-- `ImagePipe.Transform.Operation.Sharpen`: executable sharpening.
-- `ImagePipe.Transform.Operation.Pixelate`: executable pixelation.
-- `ImagePipe.Transform.Operation.Brightness`: executable brightness change.
-- `ImagePipe.Transform.Operation.Contrast`: executable contrast change.
-- `ImagePipe.Transform.Operation.Saturation`: executable saturation change.
+User rotation and flip compose with pending EXIF orientation. The executor
+can defer the composed orientation until a stage needs displayed pixels.
 
-`ImagePipe.Transform.Operation.AdaptiveResize` is obsolete. Resize
-`mode: :auto` belongs in `ImagePipe.Plan.Operation.Resize`. A dialect must not
-emit an executable adaptive-resize operation.
+### Effects
 
-## Choosing resize-like semantic operations
+- `Blur` and `Sharpen` use a positive sigma.
+- `Pixelate` uses a block size greater than one pixel.
+- `Gray` performs true grayscale conversion.
+- `Bitonal` converts to grayscale and thresholds at 128 while preserving alpha.
+- `Monochrome` applies a single-color luminance tint.
+- `Duotone` maps luminance between shadow and highlight colors.
+- `Brightness` is an additive integer adjustment from `-255` to `255`.
+- `Contrast` and `Saturation` are positive factors, with `1` as identity.
+- `Colorize` overlays a color with an opacity and optional alpha preservation.
+- `Gradient` overlays a transparency-to-color gradient with angle and stop
+  positions.
 
-Use `ImagePipe.Plan.Operation.Resize` with `mode: :fit` for aspect-preserving
-fit semantics, `mode: :cover` for cover/fill semantics that require result
-cropping, and `mode: :stretch` for force/stretch semantics.
+The parser removes identity values before constructing operations.
+Sigma and pixelate block size use physical pixels
+without DPR scaling. Pixelate and gradient flush pending orientation so their
+grid and direction use the current display frame. See the
+[effect vocabulary](api_contract.md#pixel-effects) for ranges,
+defaults, color syntax, and alpha behavior.
 
-Use `mode: :auto` only for the product-neutral source-dependent rule (imgproxy
-`rt:auto` parity, owned by the neutral resolver — no custom strategy required):
-orientation match derives cover, orientation mismatch derives fit, and unknown
-target orientation derives fit. The unresolved semantic resize operation
-addresses the cache key. The selected branch resolves after a cache miss.
+### Color values
 
-Don't use `mode: :auto` as a generic conditional resize operation. If a future
-adapter has different source-dependent branch rules, add a new semantic
-operation or adapter policy instead of extending `mode: :auto` implicitly.
+`ImagePipe.Plan.Color` is the canonical sRGB color value used by composition
+and color effects. It carries RGB channels plus alpha and serializes as
+structured representation material. Third-party color structs do not cross
+the planning boundary.
 
-## Crop and gravity
+## Executable transform operations
 
-Use `CropGuided` for visible crop operations expressed as size plus guide. Use
-`CropRegion` for explicit source/current-space region crops. Dialect-specific
-gravity spellings, focal-point tokens, and default inheritance rules should
-translate into explicit Plan guide values before ImagePipe builds cache key
-data.
+Executable modules implement the `ImagePipe.Transform` behaviour:
 
-Current Imgproxy focal-point gravity maps to semantic guide values. The first
-slice doesn't model a separate focus operation. Future dialects can add one if
-they expose focus state independently from visible crop/canvas/cover work.
+- `name/1` returns the stable operation name used in telemetry.
+- `execute/2` updates `ImagePipe.Transform.State`.
+- `requires_materialization?/1` declares whether the operation needs random
+  pixel access; the default is `false`.
 
-`CropGuided` supports an optional aspect-ratio correction field. When present,
-execution adjusts the crop area size to the target ratio before applying the
-guide. The correction has two modes: reduce (default, shrinks the area to the
-ratio) and enlarge with clamp (grows the area then clamps to image bounds).
-`aspect_ratio` zero disables correction. Correction adjusts the crop area
-size only. The guide position and gravity stay fixed.
+Both crop forms use `Transform.Operation.Crop`; canvas extension uses
+`Transform.Operation.ExtendCanvas`. A cover resize uses separate resize and
+crop operations with an image measurement between them.
 
-## Orientation operations
+`Transform.Operation.Flush` applies surviving pending orientation at a safe
+boundary. `AlphaPremultiply` is an internal helper used where an effect needs
+premultiplied alpha. Neither represents independent request syntax.
 
-Use `ImagePipe.Plan.Operation.AutoOrient`, `Rotate`, and `Flip` for orientation
-intent.
+The executor resolves orientation state, flip composition, and resize branches
+before running each operation.
 
-Imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
-should preserve their own semantics in the adapter layer and emit the ordered
-Plan operation chain that matches those semantics.
+`Transform.Executor.Geometry` resolves the resize intent,
+including zoom, minimum dimensions, effective DPR, enlargement, and cover
+dimensions, against the current display frame. The executable `Resize` carries
+only the final pixel width and height; a cover request follows it with a crop.
 
-## Input color management
+## Streaming and materialization
 
-Input working-space conditioning (`ImagePipe.Transform.InputColorManagement`) is
-a fixed pipeline preamble, not a Plan operation. Every profiled/wide-gamut/CMYK
-source is unconditionally imported to a working space before trim, crop, resize,
-and effects. The output profile policy (`Plan.Output.color_profile`) is the only
-dialect-controlled knob; imgproxy `scp` maps to `:strip` (default) or
-`:preserve_source`. The encoder finalize re-embeds or drops the source profile
-per that policy.
+Decode always opens sequentially. `ImagePipe.Transform.DecodePlanner` computes
+only shrink/scale load options; it does not switch the loader to random access.
 
-## Canvas operations
+`ImagePipe.Transform.run/3` checks the operation's
+`requires_materialization?/1` callback. Immediately before the first operation
+that needs random access, it copies the image to memory through
+`ImagePipe.Transform.Materializer` and marks the state as materialized. Smart
+or detector-guided crop and trim require this barrier. Sequential-safe
+operations remain lazy until a later barrier or delivery.
 
-Use semantic `Canvas` when a dialect requests target canvas expansion,
-letterboxing, or aspect-ratio extension around the transformed image. Don't use
-it as a substitute for resize, contain, or cover semantics unless the dialect
-requests a larger canvas around image content.
-
-Aspect-ratio canvas extension (Imgproxy `exar`) derives the target ratio from
-the resolved resize dimensions in the same pipeline group. This is a no-op when
-either resize dimension is auto or zero. Extend gravity for `exar` uses
-directional anchors only (the nine anchor values). Focal-point extend gravity
-isn't supported for this operation.
-
-The `Canvas.fill` value applies only to output from that canvas operation. The
-default is `:transparent`, and callers can also set
-`{:solid, ImagePipe.Plan.Color.t()}`. Don't use canvas fill to model a
-whole-image background flattening request.
-
-Use semantic `Padding` when a dialect requests edge insets around the current
-image. Padding expands relative to current dimensions rather than targeting a
-canvas size. Padding has logical top/right/bottom/left sides, a requested pixel
-ratio, and a fill value. The pixel ratio can be explicit, or it can use the
-resize multiplier produced by a preceding resize for compatibility dialects
-whose padding follows resize DPR semantics. Execution scales sides with
-round-half-to-even semantics.
-
-Use semantic `Background` when a dialect requests a color behind the current
-image. Opaque backgrounds remove alpha as a consequence of composition. Alpha
-backgrounds preserve alpha until output encoding resolves a non-alpha format.
-Background composition applies to source alpha and to transparent areas
-generated by earlier canvas or padding operations, and it doesn't change
-dimensions.
-
-`ImagePipe.Plan.Color` is the canonical Plan color model. It represents sRGB
-RGB channels with alpha and serializes into structured cache key data.
-Third-party color package structs stay behind `ImagePipe.Plan.Color` and must
-not leak into dialect request structs, runtime state, or cache key data.
-
-## Effect operations
-
-Use semantic `Blur`, `Sharpen`, `Pixelate`, `Monochrome`, `Duotone`,
-`Brightness`, `Contrast`, and `Saturation` when a dialect requests full-image
-effects. These operations are product-neutral image effects. Dialect aliases
-such as Imgproxy `bl`, `sh`, `pix`, `mc`, `dt`, `br`, `co`, and `sa` stay in
-dialect code.
-
-Imgproxy effect order is blur, sharpen, pixelate, monochrome, duotone,
-brightness, contrast, saturation, colorize, then gradient. Effects run after result
-cropping and before canvas extension, padding, and background composition.
-
-Imgproxy treats these effect values as no-ops:
-
-- blur and sharpen sigma `0`
-- pixelate sizes of `1` or lower
-- zero-intensity tone effects
-- zero-valued color adjustments
-
-ImagePipe accepts those no-op values in the Imgproxy dialect and emits no
-semantic operation.
+Deferred orientation is data-dependent. Orientations that need random access
+materialize when flushed; identity and horizontal-only cases can retain the
+streaming path. A final delivery materialization ensures encoding owns a stable
+image.
 
 ## Decode planning
 
-Before source metadata is available, decode/open planning must treat semantic
-Plan operations conservatively. After a cache miss, Transform Plan execution may
-discover source metadata and convert semantic intent to executable work.
-`ImagePipe.Transform.DecodePlanner` owns source-open access decisions over
-semantic Plan operations. Executable transform operation modules shouldn't
-define separate decode-access metadata.
+`ImagePipe.Transform.Executor.decode_request/2` derives shrink-on-load information
+from the first group. Resize targets, crop extent, quarter-turn rotation, trim,
+and a reducing terminal can contribute. An arbitrary-angle rotation disables
+shrink-on-load planning because resampling changes the crop frame.
+BlurHash's terminal hint applies only to single-group requests, preserving
+the input scale of later groups that may trim or crop.
 
-## Cache key data
+The selected load shrink is an optimization. `Transform.State` retains source
+dimensions and realized decode scaling so geometry applies the shrink exactly
+once when resolving source-pixel coordinates into decoded pixels.
 
-Final output cache key data captures canonical semantic intent, not resolved
-execution details. It should be stable for matching plans and independent of
-dialect-specific spelling, aliases, and compatibility quirks.
+## Input and output color handling
 
-Dialect-specific quirks must not leak into transform key data. Keep behavior in
-the dialect's own modules when product-neutral Plan operations can't represent it.
-Don't encode dialect syntax into operation cache key data.
+`ImagePipe.Transform.InputColorManagement` inspects the decoded image and imports
+an embedded profile into
+the working space before any group runs. The resulting color-management data
+is recorded on `Transform.State` and passed directly to the encoder after the
+final group.
 
-Some source-aware choices affect executable work after a cache miss. Examples
-include resize `mode: :auto` selecting fit/cover, ratio crop resolution, and DPR
-conversion. They don't enter the normal final output cache key.
+Output format, quality, metadata, profile, copyright, HDR, and automatic
+negotiation policies belong to output planning and encoding.
 
-## Mapping examples
+## Examples
 
-These examples show current Imgproxy URL concepts translated into semantic Plan
-operations. They describe the Imgproxy dialect only. Future dialect docs
-should describe their own URL syntax.
-
-| Imgproxy URL concept | Semantic Plan operations |
+| Path fragment | Transform meaning |
 | --- | --- |
-| `w:300` | `Resize` with `mode: :fit` |
-| `rt:force/w:0/h:200` | `Resize` with `mode: :stretch` and auto width |
-| `rt:auto/w:300/h:200` | `Resize` with `mode: :auto` |
-| `rt:fill/w:300/h:200/g:fp:0.25:0.75` | `Resize` with `mode: :cover` and focal-point guide |
-| `rt:fill/w:300/h:200/g:soea:12:-0.25` | `Resize` with `mode: :cover` and top-level gravity offsets |
-| `c:100:100/g:so` | `CropGuided` inheriting explicit top-level guide |
-| `c:100:100:fp:0.25:0.75` | `CropGuided` with crop-specific focal-point guide |
-| `ar/rot:90/fl:true:false/c:100:100` | `AutoOrient`, `Rotate`, `Flip`, `CropGuided` |
-| `extend:true/w:300/h:200` | `Resize` with `mode: :fit`, `Canvas` |
-| `pd:10/bg:f00` | `Padding`, `Background` |
-| `scp:0` | `Plan.Output.color_profile: :preserve_source` (output policy, not an operation) |
-| `scp:1` (default) | `Plan.Output.color_profile: :strip` (output policy, not an operation) |
-| `bl:2/sh:0.7/pix:8/br:20/co:-10/sa:35` | `Blur`, `Sharpen`, `Pixelate`, `Brightness`, `Contrast`, `Saturation` |
+| `/w=300/format=jpeg/src/images/beach.jpg` | Contain resize to width 300 |
+| `/w=300/h=200/fit=cover/anchor=top/src/images/beach.jpg` | Cover resize and top-guided result crop |
+| `/crop=100,100/focus=0.25,0.75/src/images/beach.jpg` | Guided crop around a focal point |
+| `/region=10,20,100,80/src/images/beach.jpg` | Explicit region crop |
+| `/rotate=90/flip=h/trim=auto/src/images/beach.jpg` | Rotate, flip, then trim regardless of URL option ordering |
+| `/w=500/then/trim=fff/src/images/beach.jpg` | Resize first; trim the smaller intermediate image in group two |
+| `/trim=fff/w=500/src/images/beach.jpg` | Trim first; resize within the same fixed-order group |
+| `/blur=2.5/gray/pad=10/bg=fff/src/images/beach.jpg` | Blur, grayscale, padding, then background composition |
+| `/sharpen=2/pixelate=7/src/images/beach.jpg` | Sharpen before pixelating, without resizing |
+| `/duotone=1,123456,efab89/gradient=0.5,black/src/images/beach.jpg` | Duotone followed by a downward dark gradient |
+| `/contrast=2/then/brightness=30/src/images/beach.jpg` | Use a second group to apply brightness after contrast |
 
 ## Boundary rules
 
-Runtime dispatches through `ImagePipe.Transform` and must not depend on concrete
-Plan or Transform operation modules. Runtime shouldn't depend on dialect-specific
-Imgproxy structs, and dialect-specific request structs must not leak into runtime
-execution.
+The executor owns fixed group ordering and source-dependent geometry.
+Request orchestration calls the transform boundary's concrete entry points
+rather than constructing executable operation modules.
 
-Dialect modules construct exported semantic Plan operation structs
-when they translate syntax into semantic operations. Transform Plan execution may
-reference both semantic Plan operations and executable Transform operations
-because it owns conversion between those boundaries.
-
-Boundary exports should stay narrow: export behaviours and stable
-public/internal entry points, not implementation helpers.
+Transform operations depend on `Transform.State` and product-neutral values.
+They do not parse URLs, resolve sources, read caches, negotiate output, or send
+responses. The executor resolves source-dependent geometry and calls
+`Transform.run/3` for each image operation.

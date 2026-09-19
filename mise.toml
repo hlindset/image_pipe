@@ -1,7 +1,8 @@
 [tools]
-erlang = "29"
-elixir = "1.20.0-otp-29"
-node = "latest"
+erlang = "29.1"
+elixir = "1.20.4-otp-29"
+node = "26.9.0"
+pnpm = "12.4.2"
 rust = "1.91"
 python = "3.14.6"
 uv = "0.11.23"
@@ -20,31 +21,6 @@ run = [
   "pnpm -C fiddle install --frozen-lockfile",
   "pnpm -C fiddle/assets run build",
 ]
-
-# Full imgproxy differential bake (requires Docker). Wraps the whole dance so no
-# manual IMGPROXY_DIFF / Ryuk / recompile juggling is needed:
-#   - IMGPROXY_DIFF=1 gates the testcontainers dep AND the env-gated gen_fixtures task
-#     module; --force is required because toggling the flag doesn't trigger a recompile.
-#   - TESTCONTAINERS_RYUK_DISABLED=true: Ryuk (the testcontainers reaper) fails on some
-#     local Docker setups; the bake tears its own container down, so this is a no-op
-#     where Ryuk works and a fix where it doesn't.
-#   - the trailing flag-less `compile --force` restores the default-lane build so a
-#     plain `mix test` doesn't see the now-stale generator module.
-# `env VAR=val` prefixes keep this shell-agnostic (the run lines are not fish-safe inline).
-[tasks."diff:bake"]
-description = "Regenerate imgproxy differential fixtures + manifest + REPORT against the pinned container (requires Docker)"
-env = { MIX_ENV = "test" }
-run = [
-  "env IMGPROXY_DIFF=1 mix deps.get",
-  "env IMGPROXY_DIFF=1 mix compile --force",
-  "env IMGPROXY_DIFF=1 TESTCONTAINERS_RYUK_DISABLED=true mix imgproxy.gen_fixtures",
-  "mix compile --force",
-]
-
-[tasks."twic:bake"]
-description = "Bake TwicPics differential fixtures from the live hosted API (network)"
-env = { MIX_ENV = "test" }
-run = ["mix twicpics.gen_fixtures"]
 
 [tasks.precommit]
 description = "Elixir library checks: format, compile (warnings as errors), credo, dialyzer, duplication, test"
@@ -93,74 +69,3 @@ exec mix phx.server
 [tasks."fiddle:sidecars"]
 description = "Run the fiddle's local sidecars (Jaeger + s3proxy). Defaults to both; pass a service to run just one, e.g. `mise run fiddle:sidecars s3proxy`."
 run = "docker compose -f fiddle/docker-compose.yml up {{arg(name='service', var=true, required=false)}}"
-
-# IIIF image-validator gate (requires Docker).
-# Builds the iiif-validator Docker image, starts a local IIIF server on port
-# 4001, runs the official iiif-validate.py tool — first the Level 2 suite, then
-# the arbitrary-rotation + mirroring extraFeatures tests by name (#257) — then
-# tears down.
-[tasks.validator]
-description = "Run the IIIF image-validator gate (Level 2 + rotation/mirror extraFeatures) against a live server (requires Docker)"
-run = """
-# `set -eu` (not `-o pipefail`): mise runs tasks under `sh`/dash on Linux runners,
-# which rejects `pipefail`; this task has no pipelines that need it.
-set -eu
-
-docker info >/dev/null 2>&1 || { echo "validator gate needs Docker"; exit 1; }
-
-PORT=4001
-IMAGE_ID="67352ccc-d1b0-11e1-89ae-279075081939"
-SERVER_PID=""
-
-cleanup() {
-  if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill "$SERVER_PID"
-    wait "$SERVER_PID" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT INT TERM
-
-echo "==> Building iiif-validator Docker image..."
-docker build -t iiif-validator validator/
-
-echo "==> Starting IIIF server on port $PORT..."
-PORT=$PORT MIX_ENV=test mix run validator/server.exs &
-SERVER_PID=$!
-
-# Wait for the server to be ready (up to 30 s).
-deadline=$(($(date +%s) + 30))
-until curl -sf "http://localhost:$PORT/iiif/$IMAGE_ID/info.json" >/dev/null 2>&1; do
-  if [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "ERROR: server did not start within 30 s" >&2
-    exit 1
-  fi
-  sleep 1
-done
-echo "    server ready."
-
-echo "==> Running IIIF Level 2 validator..."
-# --add-host maps host.docker.internal to the host gateway so the validator
-# container can reach the host-bound server on Linux runners (it resolves natively
-# on Docker Desktop / OrbStack; the explicit mapping is harmless there).
-docker run --rm --add-host=host.docker.internal:host-gateway iiif-validator \\
-  -s "host.docker.internal:$PORT" \\
-  -p iiif \\
-  -i "$IMAGE_ID" \\
-  --version=3.0 \\
-  --level 2
-
-echo "==> Running IIIF rotation/mirror extraFeatures validator (#257)..."
-# rotationArbitrary + mirroring are IIIF extraFeatures (the validator assigns these
-# tests level 3). `--test` runs tests by name and ignores --level, so we cover them
-# without opting into full Level 3 conformance (which would pull in tests for
-# features we do not implement, e.g. size_up).
-docker run --rm --add-host=host.docker.internal:host-gateway iiif-validator \\
-  -s "host.docker.internal:$PORT" \\
-  -p iiif \\
-  -i "$IMAGE_ID" \\
-  --version=3.0 \\
-  --test rot_full_non90 \\
-  --test rot_region_non90 \\
-  --test rot_mirror \\
-  --test rot_mirror_180
-"""

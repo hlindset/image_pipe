@@ -8,15 +8,8 @@
 import Config
 
 config :image_pipe_fiddle,
-  generators: [timestamp_type: :utc_datetime]
-
-config :image_pipe_fiddle, :imgproxy,
-  signature: [
-    keys: ["736563726574"],
-    salts: ["68656c6c6f"],
-    trusted_signatures: ["_", "unsafe"]
-  ],
-  smart_crop_face_detection: true
+  generators: [timestamp_type: :utc_datetime],
+  loopback_http_source: false
 
 # Connection coordinates for the fiddle's S3 source type, served by the opt-in
 # s3proxy compose service (see fiddle/docker-compose.yml). These mirror the

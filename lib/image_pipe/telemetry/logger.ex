@@ -17,8 +17,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:encode, :search],
       [:encode, :search, :probe],
       [:encode, :classify],
-      [:deliver],
-      [:render]
+      [:deliver]
     ],
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
@@ -31,7 +30,7 @@ defmodule ImagePipe.Telemetry.Logger do
       [:transform, :detect, :model]
     ],
     cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]],
-    output: [[:output, :negotiate]],
+    output: [[:output, :negotiate], [:output, :terminal]],
     http_cache: [],
     debug: []
   }
@@ -177,8 +176,8 @@ defmodule ImagePipe.Telemetry.Logger do
       encode_failure?(suffix, metadata) or
       color_management_failure?(suffix, metadata) or
       detect_fallback_warning?(suffix, metadata) or
-      render_failure?(suffix, metadata) or
-      negotiate_failure?(suffix, metadata)
+      negotiate_failure?(suffix, metadata) or
+      terminal_failure?(suffix, metadata)
   end
 
   # A genuine server-side encode-compute failure (forced evaluation raised/errored
@@ -206,19 +205,17 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp detect_fallback_warning?(_suffix, _meta), do: false
 
-  # A render that failed (decode/source/render error) → escalate to :warning,
-  # analogous to encode_failure?.
-  defp render_failure?([:render | _], meta), do: meta[:result] == :render_error
-  defp render_failure?(_suffix, _meta), do: false
-
   # Output negotiation that could not resolve a deliverable format → escalate to
-  # :warning, analogous to render_failure?. The `:ok` outcome stays at base level.
+  # :warning. The `:ok` outcome stays at base level.
   defp negotiate_failure?([:output, :negotiate | _], meta), do: meta[:result] not in [:ok, nil]
   defp negotiate_failure?(_suffix, _meta), do: false
 
+  defp terminal_failure?([:output, :terminal | _], meta), do: meta[:result] not in [:ok, nil]
+  defp terminal_failure?(_suffix, _meta), do: false
+
   # --- message ---
   defp message([:transform, :operation | _], _m, meta) do
-    "image_pipe transform: #{meta[:operation]} (##{(meta[:index] || 0) + 1})"
+    "image_pipe transform: #{meta[:operation]} #{outcome(meta)}"
   end
 
   defp message([:transform, :execute | _], _m, meta) do
@@ -307,14 +304,13 @@ defmodule ImagePipe.Telemetry.Logger do
     "image_pipe encode: #{outcome(meta)}#{format}"
   end
 
-  defp message([:render | _], _m, meta) do
-    ct = if meta[:content_type], do: " (#{meta[:content_type]})", else: ""
-    "image_pipe render: #{outcome(meta)}#{ct}"
-  end
-
   defp message([:output, :negotiate | _], _m, meta) do
     format = if meta[:output_format], do: " (#{meta[:output_format]})", else: ""
     "image_pipe output negotiate: #{outcome(meta)}#{format}"
+  end
+
+  defp message([:output, :terminal | _], _m, meta) do
+    "image_pipe output terminal: #{outcome(meta)} (#{meta[:terminal]})"
   end
 
   defp message([:transform, :detect, :model | _], _m, meta) do

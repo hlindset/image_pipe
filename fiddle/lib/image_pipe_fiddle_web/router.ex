@@ -14,12 +14,17 @@ defmodule ImagePipeFiddleWeb.Router do
     plug :accepts, ["json"]
   end
 
-  forward "/img", ImagePipeFiddleWeb.Imgproxy
-  forward "/iiif-image", ImagePipeFiddleWeb.IIIF
-  forward "/twic", ImagePipeFiddleWeb.TwicPics
+  forward "/native-image", ImagePipeFiddleWeb.Native
+  forward "/native-signed", ImagePipeFiddleWeb.NativeSigned
+
+  scope "/api", ImagePipeFiddleWeb do
+    pipe_through(:api)
+
+    post "/native-path", NativePathController, :create
+  end
 
   scope "/", ImagePipeFiddleWeb do
-    pipe_through :browser
+    pipe_through(:browser)
 
     get "/*path", PageController, :home
   end

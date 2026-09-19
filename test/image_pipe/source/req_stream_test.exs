@@ -4,6 +4,27 @@ defmodule ImagePipe.Source.ReqStreamTest do
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.StreamError
 
+  test "streams an IPv6 origin with bounded connection and pool timeouts" do
+    origin =
+      start_supervised!(
+        {Bandit,
+         plug: fn conn, _opts -> Plug.Conn.send_resp(conn, 200, "image bytes") end,
+         ip: {0, 0, 0, 0, 0, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_address, port}} = ThousandIsland.listener_info(origin)
+
+    stream =
+      ReqStream.stream(
+        [url: "http://[::1]:#{port}/image.jpg"],
+        connect_timeout: 1_000,
+        pool_timeout: 1_000
+      )
+
+    assert Enum.join(stream) == "image bytes"
+  end
+
   test "runs validate_target before connecting and raises the denial reason" do
     plug = fn _conn -> flunk("must not connect when target is denied") end
 

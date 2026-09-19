@@ -69,6 +69,9 @@ defmodule ImagePipe.FormatTest do
     assert Format.mime_type(:webp) == {:ok, "image/webp"}
     assert Format.mime_type(:jpeg) == {:ok, "image/jpeg"}
     assert Format.mime_type(:png) == {:ok, "image/png"}
+    assert Format.mime_type(:heif) == {:ok, "image/heif"}
+    assert Format.mime_type(:tiff) == {:ok, "image/tiff"}
+    assert Format.mime_type(:jpeg2000) == {:ok, "image/jp2"}
     assert Format.mime_type(:gif) == :error
   end
 

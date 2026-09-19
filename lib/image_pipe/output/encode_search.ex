@@ -9,10 +9,9 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   Two public entry points:
 
-    * `search/3` — the pure core. Encoding and scoring are injected as closures
-      (`:encode_fun`, `:score_fun`), so the loop is fully testable without real
-      images. It owns memoization, the iteration cap, the objective phase, and
-      the `max_bytes` cap phase.
+    * `search/3` — the core, with injected `:encode_fun` and `:score_fun`
+      closures. It owns memoization, the iteration cap, and objective and
+      `max_bytes` phases.
     * `run/3` — the production wrapper. It extracts the objective and budget from
       a `%ImagePipe.Output.Resolved{}`, builds the real encode/score closures
       from `ImagePipe.Output.Encoder` and the metric runtime under
@@ -23,13 +22,10 @@ defmodule ImagePipe.Output.EncodeSearch do
   The binary search assumes encoded byte size is non-decreasing in quality, and
   the perceptual score is monotone in quality in the metric's direction —
   non-decreasing for `:higher_better` (SSIMULACRA2), non-increasing for
-  `:lower_better` (butteraugli distance). The loop branches on direction rather
-  than negating, so each walk arm is audited per polarity. Real encoders can
-  violate this locally. The consequence is bounded — the result may be a step or
-  two off the true optimum — and acceptable for a best-effort search: the winning
-  quality is always one that was actually probed and re-measured, and is always
-  within `[min_quality, max_quality]`. Do not "fix" a real-encoder flake by
-  replacing the search.
+  `:lower_better` (butteraugli distance). The loop branches on the metric's
+  direction. Real encoders can violate monotonicity locally, so the result may
+  miss the true optimum. The winning quality is always probed, re-measured,
+  and within `[min_quality, max_quality]`.
   """
 
   alias ImagePipe.Output.ContentClassifier
@@ -68,7 +64,7 @@ defmodule ImagePipe.Output.EncodeSearch do
           limiting_factor: limiting_factor() | nil
         }
 
-  # Mutable-ish search context threaded through the loop as an immutable struct.
+  # Search context threaded through the loop.
   defmodule Ctx do
     @moduledoc false
     @enforce_keys [:encode_fun]
@@ -93,8 +89,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   end
 
   @doc """
-  Pure search core. See the module doc for `:encode_fun`/`:score_fun`/
-  `:base_quality`/`:max_iterations` semantics.
+  Searches with injected encoding/scoring callbacks and a bounded iteration count.
   """
   @spec search(
           :none | RQS.Size.t() | RQS.Ssimulacra2.t() | RQS.Butteraugli.t(),
@@ -213,7 +208,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
     encode_fun = fn quality -> encode_leg(finalized_image, resolved, quality, telemetry_opts) end
     scorer = Keyword.get(opts, :scorer, :full)
-    max_iterations = Keyword.get(opts, :max_iterations, @default_max_iterations)
+    max_iterations = resolved.quality_search_max_iterations
 
     with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer, telemetry_opts) do
       base_quality = base_quality(resolved)
@@ -302,7 +297,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     do: {:ok, objective_q, objective_outcome, ctx}
 
   defp cap_phase(quality_search, max_bytes, objective_q, objective_outcome, ctx) do
-    floor = cap_floor(quality_search)
+    floor = min(cap_floor(quality_search), objective_q)
     ctx = %{ctx | phase: :cap}
 
     with {:ok, ctx} <- ensure_probed(objective_q, ctx) do

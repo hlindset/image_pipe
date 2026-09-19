@@ -164,14 +164,30 @@ defmodule ImagePipe.Source.ReqStream do
   end
 
   defp request_options(req_options, runtime_opts) do
-    Keyword.merge(req_options,
+    req_options
+    |> Keyword.drop([:pool_timeout, :connect_options])
+    |> Keyword.merge(
       into: :self,
       retry: false,
       redirect: false,
       receive_timeout:
         option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout),
-      pool_timeout: option(req_options, runtime_opts, :pool_timeout, @default_pool_timeout),
-      connect_options: connect_options(req_options, runtime_opts)
+      finch: finch_options(req_options, runtime_opts)
+    )
+  end
+
+  defp finch_options(req_options, runtime_opts) do
+    %{host: host} = URI.parse(Keyword.fetch!(req_options, :url))
+    inet6 = Keyword.get(req_options, :inet6, false) || String.contains?(host, ":")
+
+    req_options
+    |> Map.new()
+    |> Map.put(:connect_options, connect_options(req_options, runtime_opts))
+    |> Map.put(:inet6, inet6)
+    |> Req.Finch.pool_options()
+    |> Keyword.put(
+      :pool_timeout,
+      option(req_options, runtime_opts, :pool_timeout, @default_pool_timeout)
     )
   end
 

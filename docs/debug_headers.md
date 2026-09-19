@@ -14,64 +14,33 @@ Two independent controls must both be satisfied for any header to be emitted:
 
    ```elixir
    plug ImagePipe.Plug,
-     dialect: ImagePipe.Dialect.IIIF,
-     resolver: {MyApp.Resolver, []},
      sources: [...],
      allow_debug_headers: true
    ```
 
-   Debug headers are available on every mount — there is one mount shape, and
-   the flag means the same thing on all of them. Native currently has no
-   per-request trigger in its grammar, so its responses render none until a
-   trigger is chosen
-   ([#471](https://github.com/hlindset/image_pipe/issues/471)).
-
 2. **Per-request trigger** — opts a single request into debug headers. Honored
-   only when `allow_debug_headers: true`; otherwise ignored. The trigger is
-   **dialect-specific**:
-   - **imgproxy**: the `debug:1` processing option inside the signed path,
-     for example `/<signature>/debug:1/rs:fill:400:300/plain/…` (also
-     `debug:true`; `debug:0`/`debug:false` opt out).
-   - **TwicPics**: a `debug=1` segment in the `twic` manipulation chain, e.g.
-     `/images/cat.jpg?twic=v1/resize=400/debug=1`. Order-independent; emits no
-     transform.
-   - **IIIF**: a `?debug=1` query param, e.g.
-     `/iiif/cat/full/400,/0/default.jpg?debug=1`. The IIIF path grammar has no
-     free slot, so the trigger is an out-of-band query param (read leniently — a
-     malformed value is ignored, never a 400).
+   only when `allow_debug_headers: true`; otherwise ignored. Use the bare
+   `debug` option, for example `/w=400/debug/src/cat.jpg`, or `debug=false`
+   to opt out. Like other path flags, `debug=true` and numeric spellings
+   are invalid.
 
-   All triggers accept the boolean spellings `1`/`true`; TwicPics and imgproxy
-   also accept `0`/`false` to explicitly opt out. Only the imgproxy trigger is
-   signature-protected — see below.
-
-A debug trigger does **not** change the produced image bytes: it rides the
-dialect's response metadata (`Plan.Response.debug?` on the declarative tier),
-which contributes to neither the cache key nor the ETag, so a debug request and
-a plain request resolve to the same cache entry. (Facts are collected and stored
-on every generation regardless of the flag, so enabling
-`allow_debug_headers: true` immediately surfaces headers for already-cached
-items, with no cache invalidation.)
+A debug trigger does **not** change the image bytes, cache key, or ETag. ImagePipe
+collects and stores facts on every generation, so enabling
+`allow_debug_headers: true` can expose headers from existing cache entries
+without invalidating them.
 
 ## Security and disclosure
 
-> **Signing.** On the imgproxy stack, `debug:1` is part of the signed
-> processing-options path, so a configured path signature (HMAC) covers it,
-> and covers it as a *disclosing* trigger, which is the point: an attacker
-> cannot append `debug:1` to an otherwise-valid signed URL without
-> invalidating the signature.
->
-> **TwicPics / IIIF** have no request signing at all, so their `debug=1` /
-> `?debug=1` triggers are **always unprotected** — anyone who can reach the mount
-> can add them. Enable `allow_debug_headers: true` on those mounts only if the
-> disclosed facts below are acceptable to expose. (If those dialects gain signing
-> later, the trigger should ride the signed material.)
+> **Signing.** `debug` is part of the signed
+> processing-options path, so a configured path signature (HMAC) covers them.
+> Adding it to an otherwise-valid signed URL invalidates its
+> signature.
 
-When triggered, a response discloses: internal source dimensions and
-format/color/ICC/bit-depth/alpha facts; the negotiated output and its
-dimensions/quality/profile; autoquality scores and search internals; the applied
-pipeline operations; the cache key; and per-stage timings. None of these are
-secrets, but operators who consider any of it sensitive should leave the mount
-flag off.
+When triggered, an image response may disclose source dimensions and
+format/color/ICC/bit-depth/alpha facts, output dimensions and policy,
+autoquality details, applied operations, the cache key, and timings.
+Complete-body terminals expose the narrower set below. Leave the mount flag off
+if this operational data is sensitive in your deployment.
 
 ## Header catalogue
 
@@ -134,11 +103,24 @@ compression ratio from `X-ImagePipe-Source-Size ÷ body length`.
 | `X-ImagePipe-Cache-Key` | `a1b2c3…` | Cache key (64-char sha256 hex) |
 | `X-ImagePipe-Pipeline` | `scale,crop,sharpen` | Applied plan operations, in order |
 
+### Complete-body terminals
+
+`output=info` and `output=blurhash` responses expose the cache status,
+cache key, applied operations, and terminal computation timing. Source and
+encoded-output fact headers are omitted because the shared complete-body
+terminal result does not carry those image facts. `output=info` has no transform
+pipeline; a BlurHash request reports the operations it actually applies.
+
+These facts are collected on every successful generation and stored with the
+complete-body cache entry. A later request with both debug controls enabled can
+therefore render them from a hit even when the request that populated the entry
+did not emit debug headers.
+
 ### Timings — `Server-Timing`
 
-Durations are in **milliseconds**. On a miss, the live per-stage durations plus
-`total` are emitted; on a hit, the stored origin durations are replayed plus a
-live `cache` entry for the cache read.
+Durations are in **milliseconds**. On an image miss, the live per-stage
+durations plus `total` are emitted; on a hit, the stored origin durations are
+replayed plus a live `cache` entry for the cache read.
 
 ```text
 Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, total;dur=181.2
@@ -152,12 +134,13 @@ Server-Timing: decode;dur=8.123, transform;dur=21.0, encode;dur=140.5, cache;dur
 
 (There is no separate `fetch` stage — source fetch is folded into `decode`.)
 
+For a complete-body terminal, `total` measures the terminal computation,
+including its source fetch, decode, transforms, and final info or BlurHash body.
+Those stages are not split into separate timing entries. A cache hit replays the
+stored `total` and appends the live `cache` duration.
+
 ## Demo (fiddle)
 
-The bundled demo (`fiddle/`) configures its imgproxy, TwicPics, and IIIF
-mounts with `allow_debug_headers: true` and injects each stack's debug
-trigger into its preview requests (imgproxy signs a `debug:1`-augmented
-preview path; TwicPics `debug=1`; IIIF `?debug=1`). Its service worker reads
-these headers off the fetched response and surfaces them in a **Debug headers**
-panel under the preview, including the derived output size and compression
-ratio.
+The bundled demo (`fiddle/`) enables debug headers. Its **Debug headers** example
+uses `debug`, and the panel below the preview shows the returned facts plus the
+derived output size and compression ratio.

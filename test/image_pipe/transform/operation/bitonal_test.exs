@@ -25,7 +25,7 @@ defmodule ImagePipe.Transform.Operation.BitonalTest do
     end
   end
 
-  @rgba "test/support/image_pipe/test/imgproxy_differential/sources/alpha.png"
+  @rgba "test/support/image_pipe/test/sources/alpha.png"
 
   test "preserves the alpha band untouched (does not threshold alpha)" do
     {:ok, src} = Image.open(@rgba, access: :random)

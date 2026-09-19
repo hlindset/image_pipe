@@ -49,7 +49,7 @@ defmodule ImagePipe.Cache.Sink do
     end
   end
 
-  # Complete-body sink: a dialect-owned non-image body (e.g. a BlurHash
+  # Complete-body sink: a non-image body (e.g. a BlurHash
   # string) delivered whole, with no encoder output and no `%Resolved{}`.
   # Mirrors the `%Resolved{}` clause above exactly, minus everything that
   # only makes sense for an encoded image (response headers, output format).

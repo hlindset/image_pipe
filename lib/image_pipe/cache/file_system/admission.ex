@@ -10,9 +10,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defmodule State do
     @moduledoc false
-    # Long-lived GenServer state aggregating independent configuration,
-    # ETS table handles, byte counters, and scan lifecycle fields. These
-    # are deliberately flat rather than split into artificial sub-structs.
+    # Configuration, ETS handles, byte counters, and scan lifecycle state.
     # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
     defstruct [
       :registry,
@@ -35,9 +33,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :cleanup_interval_ms,
       :reconcile_interval_ms,
       :state_ttl_ms,
-      # Lifecycle telemetry prefix. Admission is long-lived, so it has no
-      # per-request telemetry opts; events use this prefix (default
-      # `[:image_pipe]`) captured once at init.
+      # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
       path_prefix: "",
       window: nil,
@@ -48,13 +44,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       protected_bytes: 0,
       next_position: 1,
       state_dirty: false,
-      # populated by warm-start (Task 19), consumed by directory scan (Task 21):
+      # Restored at warm-start and consumed by the directory scan.
       persisted_protected_hashes: [],
-      # set by handle_continue (Task 20). `scan_task_ref` is the monitor
-      # ref so an abnormal scan crash is observed and waiters are released
-      # instead of blocking forever. `scan_complete?` flips when the scan
-      # task reports done; `scan_waiters` holds `GenServer.call` `from`
-      # tags queued by `await_scan/2` before completion.
+      # Monitor the scan so a crash releases await_scan/2 callers. scan_waiters
+      # holds their GenServer.call `from` tags until completion or failure.
       scan_task: nil,
       scan_task_ref: nil,
       scan_complete?: false,
@@ -104,8 +97,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       root: Keyword.fetch!(opts, :root),
       node_id: Keyword.fetch!(opts, :node_id),
       state_dir: Keyword.fetch!(opts, :state_dir),
-      # path_prefix mirrors the adapter option so the directory scan (Task 20)
-      # walks the same partition root the adapter writes to. Defaults to "".
+      # Scan the same partition root the adapter writes to.
       path_prefix: Keyword.get(opts, :path_prefix, ""),
       max_size_bytes: max_size,
       window_budget: trunc(max_size * window_ratio),
@@ -114,8 +106,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       aging_sample_size: aging_sample_size,
       doorkeeper_cardinality: doorkeeper_cardinality,
       doorkeeper_fpr: doorkeeper_fpr,
-      # Bounded eviction fan-out per admission (Task 25 config; default 64).
-      # Defaulted here so direct-start unit tests need not pass it.
+      # Bound eviction fan-out, including direct starts without adapter defaults.
       eviction_victim_limit: Keyword.get(opts, :eviction_victim_limit, 64),
       local_cms:
         Sketch.new(depth: sketch_depth, width: sketch_width, sample_size: aging_sample_size),
@@ -128,9 +119,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       reconcile_interval_ms: Keyword.get(opts, :reconcile_interval_ms, 60_000),
       state_ttl_ms: Keyword.get(opts, :state_ttl_ms, 604_800_000),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, Telemetry.default_prefix()),
-      # Tables are :protected: the GenServer is the sole writer, while test
-      # and introspection readers (via :sys.get_state + :ets) can read them
-      # cross-process. A :private table would raise on any non-owner read.
+      # Only the GenServer writes; :protected permits cross-process inspection.
       window: :ets.new(:window, [:ordered_set, :protected]),
       probationary: :ets.new(:probationary, [:ordered_set, :protected]),
       protected: :ets.new(:protected, [:ordered_set, :protected])
@@ -296,22 +285,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
     persisted_protected = Map.get(payload, :protected_hashes, [])
 
-    # Doorkeeper is intentionally not restored — keep the empty one created
-    # at init. protected_hashes restoration into the protected ETS table is
-    # handled by the two-pass directory scan in Task 21.
+    # Rebuild the doorkeeper from traffic. The directory scan restores protected
+    # hashes into ETS.
     %{state | local_cms: sketch, persisted_protected_hashes: persisted_protected}
   end
 
   @impl true
   def handle_continue(:schedule_tickers, state) do
-    # Capture the Admission pid BEFORE spawning. Inside the spawned
-    # process, `self()` is the scan's pid — calls would go to the wrong
-    # process. `spawn_monitor` gives us an UNLINKED, MONITORED worker: a
-    # scan crash does not take Admission down (unlinked), but it delivers
-    # a `:DOWN` so we can release `await_scan` waiters instead of hanging
-    # (monitored). No Task.Supervisor is used because its name would have
-    # to be unique per configured cache root; `spawn_monitor` sidesteps
-    # that and the scan is short-lived.
+    # Capture Admission's pid before spawning. An unlinked, monitored scan can
+    # fail without crashing Admission; its :DOWN releases await_scan waiters.
+    # This short-lived worker needs no per-cache Task.Supervisor registration.
     admission_pid = self()
     {scan_pid, scan_ref} = spawn_monitor(fn -> scan_directory(state, admission_pid) end)
     state = %{state | scan_task: scan_pid, scan_task_ref: scan_ref}
@@ -402,9 +385,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  # `entry` is a descriptor map with a `:mtime` field merged in. The
-  # mtime drove the scan's insertion order (Task 21 Phase B sorts by it);
-  # it is not stored in the queue, so we drop it before inserting.
+  # mtime determines scan insertion order but is not part of queued descriptors.
   defp insert_scan_descriptor(state, entry) do
     descriptor = Map.delete(entry, :mtime)
     {pos, state} = next_position(state)
@@ -426,23 +407,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def handle_info(:reconcile, state) do
-    # Drain soft-cap overshoot accumulated since the last tick. The main
-    # source of overshoot that the synchronous admit path cannot reclaim
-    # is `same_key_replace/2` (Task 16): it swaps a larger body in place
-    # without re-running the main gate. `reconcile_to_cap/2` evicts by LRU
-    # until total usage is back under `max_size_bytes` and deletes the
-    # evicted files (via `emit_reconciliation_evictions/2`).
+    # Reclaim soft-cap overshoot, especially larger same-key replacements that
+    # bypass the main gate. Reconciliation evicts by LRU and deletes victim files
+    # until usage is within max_size_bytes.
     state = reconcile_to_cap(state, [])
     Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
     {:noreply, state}
   end
 
-  # The monitored scan process finished. We only act on the failure case:
-  # if it died abnormally before sending `:scan_complete`, mark the scan
-  # complete anyway and release waiters so `await_scan/2` callers don't
-  # block until timeout. A normal exit after `:scan_complete` is a no-op
-  # (flag already set). `spawn_monitor` sends no result message, only this
-  # `:DOWN`, so there is nothing else to drain.
+  # Release waiters if the scan dies before reporting completion. Normal exit
+  # after :scan_complete needs no action; spawn_monitor sends no result message.
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{scan_task_ref: ref} = state) do
     if reason != :normal and not state.scan_complete? do
       require Logger
@@ -654,7 +628,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp already_tracked?(state, key_hash) do
-    # Search across all queues. Inefficient but correct; optimized later.
+    # Search across all queues.
     in_queue?(state.window, key_hash) or in_queue?(state.probationary, key_hash) or
       in_queue?(state.protected, key_hash)
   end
@@ -910,10 +884,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       else
         {:error, reason} ->
           require Logger
-          # Do NOT log `path` — the state filename embeds the node_id and
-          # the storage root, both path-derived identifiers the project
-          # telemetry/privacy guidelines exclude. Reason is enough to
-          # diagnose (eenospc, eacces, etc.).
+          # Log the reason without exposing the host's storage root and node ID.
           Logger.warning("cache: state flush failed: reason=#{inspect(reason)}")
           # Best-effort cleanup of orphaned tmp file
           _ = File.rm(tmp_path)
@@ -937,9 +908,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp serialize_state(state) do
     protected_hashes = ordered_set_to_list(state.protected) |> Enum.map(& &1.key_hash)
 
-    # Doorkeeper is NOT persisted — see the spec's file format section.
-    # It rebuilds organically from post-restart traffic (one delayed CMS
-    # increment per previously-known key on first post-restart sighting).
+    # Rebuild the doorkeeper from post-restart traffic; each previously known
+    # key's first sighting delays its CMS increment once.
     :erlang.term_to_binary(
       %{
         format_version: 1,

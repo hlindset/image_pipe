@@ -1,5 +1,11 @@
 defmodule ImagePipe.Source.File do
-  @moduledoc false
+  @moduledoc """
+  Built-in adapter for files below a configured root directory.
+
+  Configure it with `:root` and a stable, public `:root_id`. The optional
+  `:stable`, `:internal_cache`, and `:http_cache` settings control whether the
+  source can participate in internal and generated HTTP caching.
+  """
 
   @behaviour ImagePipe.Source
 

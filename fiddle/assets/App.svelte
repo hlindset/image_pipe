@@ -1,35 +1,27 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Collapsible, Popover, RadioGroup } from "bits-ui";
-  import ImgproxyControls from "./ImgproxyControls.svelte";
-  import IiifControls from "./IiifControls.svelte";
-  import TwicPicsControls from "./TwicPicsControls.svelte";
+  import NativeControls from "./NativeControls.svelte";
+  import {
+    nativeFetchPath,
+    NativePathResolution,
+    resolveNativeFetchPath,
+    resetNativeSettings,
+    type Protection,
+  } from "./native-path";
   import {
     appPathForState,
     defaultAppState,
     parseAppPath,
-    providers,
-    resetFiddleSettings,
     type AppState,
   } from "./fiddle-url-state";
-  import { defaultIiifState, iiifFetchPath } from "./iiif-path";
-  import { defaultTwicPicsState, twicFetchPath } from "./twicpics-path";
   import {
-    buildDebugPreviewPath,
-    buildProcessingPath,
     debounce,
-    debugTriggerPath,
+    debouncePreviewPath,
     processedSizeLabel,
-    processingPathFromSignedPath,
-    resetCropPixelsToSource,
-    sampleImages,
-    signProcessingPath,
-    signedPathForState,
-    resolvedOutputLabel,
-    type FiddleState,
     type ProcessedImageMetadata,
-    type SourceImage,
-  } from "./processing-path";
+  } from "./preview-metadata";
+  import { sampleImages, type SourceImage, type SourceType } from "./source";
   import {
     PreviewMetadataTracker,
     registerPreviewWorker,
@@ -37,6 +29,7 @@
   } from "./preview-bridge";
   import DebugInfoPanel from "./DebugInfoPanel.svelte";
   import { parseDebugHeaders } from "./debug-headers";
+  import { isTextPreview, readTextPreview, type TextPreview } from "./text-preview";
   import {
     applyThemeMode,
     persistThemeMode,
@@ -51,29 +44,16 @@
   let requestOpen = $state(true);
   let themeMode: ThemeMode = $state(readStoredThemeMode());
   const initial = initialAppState();
+  const initialPath =
+    initial.native.protection === "unsigned" ? nativeFetchPath(initial.native) : null;
   let appState: AppState = $state(initial);
-  let path = $state(
-    initial.provider === "imgproxy"
-      ? buildProcessingPath(initial.imgproxy)
-      : initial.provider === "iiif"
-        ? iiifFetchPath(initial.iiif)
-        : twicFetchPath(initial.twicpics),
-  );
-  // The preview <img> request carries each dialect's debug trigger, built into
-  // the path/query by the same builder that produces `path` (and signed, for
-  // imgproxy, over the debug-augmented path) — never injected after signing.
-  let previewBasePath = $state(
-    initial.provider === "imgproxy"
-      ? buildDebugPreviewPath(initial.imgproxy)
-      : initial.provider === "iiif"
-        ? iiifFetchPath(initial.iiif, { debug: true })
-        : twicFetchPath(initial.twicpics, { debug: true }),
-  );
+  let path: string | null = $state(initialPath);
+  let previewBasePath: string | null = $state(initialPath);
   let previewImageUrl: string | null = $state(null);
   let previewLoading = $state(true);
   let previewError: string | null = $state(null);
   let processedMetadata: ProcessedImageMetadata | null = $state(null);
-  let signingError: string | null = $state(null);
+  let textPreview: TextPreview | null = $state(null);
   // Element references bound via bind:this.
   let toolsSidebar: HTMLElement | null = $state(null);
   let menuButton: HTMLButtonElement | null = $state(null);
@@ -81,19 +61,15 @@
   // Internal, non-reactive bookkeeping: request-id guards, timers, and the
   // preview-metadata tracker + service-worker handle. Nothing reactive reads these.
   let previewPath = "";
-  let pathRequestId = 0;
   let copyLabelResetTimeout: number | null = null;
   const previewMetadata = new PreviewMetadataTracker();
   let previewWorker: PreviewWorker | null = null;
   let previewWorkerDisposed = false; // guards the register-promise-vs-unmount race
   let currentRequestId = 0;
   let lastPreviewAbsolute: string | null = null; // dedupe on resolved URL, not raw path
-  const updatePreviewPath = debounce((previewRequestPath: string) => {
-    // `previewRequestPath` already carries each dialect's debug trigger, built in
-    // by the provider's path builder (and signed, for imgproxy, over the
-    // debug-augmented path). The trigger is excluded from the cache key / ETag
-    // and changes nothing about the produced image — it rides ONLY the preview
-    // <img> request, while the copyable / "Open" URL (`path`) stays clean.
+  let textPreviewController: AbortController | null = null;
+  const pathResolution = new NativePathResolution();
+  const updatePreviewPath = debouncePreviewPath((previewRequestPath: string) => {
     const absolute = new URL(previewRequestPath, window.location.origin).href;
     // Dedupe on the RESOLVED url (not the raw path): a no-op must never flip
     // previewLoading=true without a following <img> load event, or the spinner
@@ -105,8 +81,32 @@
     previewLoading = true;
     previewError = null;
     processedMetadata = null;
-    previewImageUrl = absolute; // same-origin → <img> triggers the real, SW-intercepted request (with the debug trigger)
+    textPreview = null;
+    textPreviewController?.abort();
+    if (isTextPreview(previewRequestPath)) {
+      previewImageUrl = null;
+      textPreviewController = new AbortController();
+      void loadTextPreview(absolute, currentRequestId, textPreviewController.signal);
+    } else {
+      textPreviewController = null;
+      previewImageUrl = absolute;
+    }
   }, 150);
+
+  async function loadTextPreview(url: string, requestId: number, signal: AbortSignal) {
+    try {
+      const response = await fetch(url, { signal });
+      const result = await readTextPreview(response);
+      if (signal.aborted || requestId !== currentRequestId) return;
+      textPreview = result;
+      previewLoading = false;
+    } catch (error) {
+      if (signal.aborted || requestId !== currentRequestId) return;
+      lastPreviewAbsolute = null;
+      previewError = error instanceof Error ? error.message : "Unable to load preview";
+      previewLoading = false;
+    }
+  }
   const updateFiddleLocation = debounce((nextPath: string) => {
     if (
       typeof window === "undefined" ||
@@ -130,6 +130,7 @@
     restoreStateFromLocation();
 
     void registerPreviewWorker((message) => {
+      if (textPreviewController !== null) return;
       previewMetadata.applyMessage(message, currentRequestId);
       // Reflect late-arriving bytes/contentType (and SW-reported errors) into the UI.
       if (previewMetadata.metadata !== null) processedMetadata = previewMetadata.metadata;
@@ -154,21 +155,28 @@
       window.removeEventListener("popstate", restoreStateFromLocation);
       previewWorkerDisposed = true;
       previewWorker?.unsubscribe();
+      textPreviewController?.abort();
     };
   });
 
   $effect(() => {
-    if (appState.provider === "imgproxy") {
-      updateProcessingPath(appState.imgproxy);
-    } else if (appState.provider === "iiif") {
-      pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
-      path = iiifFetchPath(appState.iiif);
-      previewBasePath = iiifFetchPath(appState.iiif, { debug: true });
-    } else {
-      pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
-      path = twicFetchPath(appState.twicpics);
-      previewBasePath = twicFetchPath(appState.twicpics, { debug: true });
-    }
+    const requestState = { ...appState.native };
+    const pending = pathResolution.begin(requestState);
+    setResolvedPath(pending.path);
+
+    if (pending.path !== null) return;
+
+    void resolveNativeFetchPath(requestState)
+      .then((resolvedPath) => {
+        const currentPath = pathResolution.accept(pending.requestId, resolvedPath);
+        if (currentPath === null) return;
+        setResolvedPath(currentPath);
+      })
+      .catch((error) => {
+        if (!pathResolution.reject(pending.requestId)) return;
+        previewError = error instanceof Error ? error.message : "Unable to protect preview request";
+        previewLoading = false;
+      });
   });
   $effect(() => {
     updatePreviewPath(previewBasePath);
@@ -184,121 +192,38 @@
   });
 
   const previewParameters = $derived(
-    appState.provider === "imgproxy"
-      ? path.replace(/^\/[^/]+\/[^/]+\//, "")
-      : appState.provider === "iiif"
-        ? path.replace(/^\/iiif-image\//, "")
-        : path.replace(/^\/twic\//, ""),
+    path?.replace(/^\/(?:native-image|native-signed)\//, "") ?? "Preparing protected request…",
   );
-  const outputLabel = $derived(
-    appState.provider === "imgproxy"
-      ? resolvedOutputLabel(appState.imgproxy, processedMetadata)
-      : appState.provider === "iiif"
-        ? appState.iiif.format
-        : appState.twicpics.output,
+  const outputLabel = $derived.by(() =>
+    textPreview !== null
+      ? textPreview.contentType
+      : (processedMetadata?.contentType?.split("/")[1] ?? "auto"),
   );
-  const sizeLabel = $derived(previewError ?? processedSizeLabel(processedMetadata));
+  const sizeLabel = $derived.by(
+    () =>
+      previewError ??
+      (textPreview !== null
+        ? `${textPreview.bytes.toLocaleString()} bytes`
+        : processedSizeLabel(processedMetadata)),
+  );
   const debugGroups = $derived.by(() => {
-    const meta = processedMetadata;
+    const meta = textPreview ?? processedMetadata;
     return parseDebugHeaders(meta?.debugHeaders ?? null, meta?.bytes ?? null);
   });
-  const requestSummary = $derived(
-    appState.provider === "imgproxy"
-      ? `${appState.imgproxy.source.replace(/^images\//, "")} / ${requestSignatureLabel(appState.imgproxy, signingError)}`
-      : appState.provider === "iiif"
-        ? appState.iiif.source.replace(/^images\//, "")
-        : appState.twicpics.source.replace(/^images\//, ""),
-  );
-  const currentSource = $derived(
-    appState.provider === "iiif"
-      ? appState.iiif.source
-      : appState.provider === "twicpics"
-        ? appState.twicpics.source
-        : appState.imgproxy.source,
-  );
+  const requestSummary = $derived(appState.native.source.replace(/^images\//, ""));
+  const currentSource = $derived(appState.native.source);
+  const currentSourceType = $derived(appState.native.sourceType);
 
   function initialAppState(): AppState {
     if (typeof window === "undefined") {
       return defaultAppState();
     }
 
-    return parseAppPath(window.location.pathname, window.location.search);
+    return parseAppPath(window.location.pathname);
   }
 
   function restoreStateFromLocation(): void {
-    const parsed = parseAppPath(window.location.pathname, window.location.search);
-
-    switch (parsed.provider) {
-      case "iiif":
-        appState = {
-          provider: "iiif",
-          imgproxy: appState.imgproxy,
-          iiif: parsed.iiif,
-          twicpics: appState.twicpics,
-        };
-        break;
-      case "twicpics":
-        appState = {
-          provider: "twicpics",
-          imgproxy: appState.imgproxy,
-          iiif: appState.iiif,
-          twicpics: parsed.twicpics,
-        };
-        break;
-      default:
-        appState = {
-          provider: "imgproxy",
-          imgproxy: parsed.imgproxy,
-          iiif: appState.iiif,
-          twicpics: appState.twicpics,
-        };
-    }
-  }
-
-  function requestSignatureLabel(
-    currentState: FiddleState,
-    currentSigningError: string | null,
-  ): string {
-    if (currentState.signatureMode === "signed") {
-      return currentSigningError === null ? "signed" : "signed: invalid key";
-    }
-
-    return currentState.signatureMode;
-  }
-
-  function updateProcessingPath(currentState: FiddleState): void {
-    const requestId = ++pathRequestId;
-    const signedPath = signedPathForState(currentState);
-    const debugPath = debugTriggerPath(signedPath);
-
-    if (currentState.signatureMode !== "signed") {
-      signingError = null;
-      path = buildProcessingPath(currentState);
-      previewBasePath = buildDebugPreviewPath(currentState);
-      return;
-    }
-
-    // Sign the clean and debug-augmented paths independently: `debug:1` lives
-    // inside the signed region, so the preview <img> needs its own signature
-    // over the debug-inclusive path — the clean signature would not validate it.
-    Promise.all([
-      signProcessingPath(signedPath, currentState.signatureKey, currentState.signatureSalt),
-      signProcessingPath(debugPath, currentState.signatureKey, currentState.signatureSalt),
-    ])
-      .then(([signature, debugSignature]) => {
-        if (requestId === pathRequestId) {
-          signingError = null;
-          path = processingPathFromSignedPath(signature, signedPath);
-          previewBasePath = buildDebugPreviewPath(currentState, debugSignature);
-        }
-      })
-      .catch((error: unknown) => {
-        if (requestId === pathRequestId) {
-          signingError = error instanceof Error ? error.message : "Unable to sign request";
-          path = processingPathFromSignedPath("invalid-signature", signedPath);
-          previewBasePath = buildDebugPreviewPath(currentState, "invalid-signature");
-        }
-      });
+    appState = parseAppPath(window.location.pathname);
   }
 
   function onPreviewLoaded(image: HTMLImageElement): void {
@@ -320,6 +245,7 @@
   }
 
   async function copyGeneratedUrl(): Promise<void> {
+    if (path === null) return;
     const absoluteUrl = new URL(path, window.location.origin).toString();
 
     await navigator.clipboard.writeText(absoluteUrl);
@@ -352,12 +278,38 @@
     }
 
     const source = select.value as SourceImage;
-    // Source is shared, so update BOTH slices (not just the active one) — switching
-    // provider later then shows the selected image — and reset each provider's
-    // source-dimension-bound pixels (imgproxy crop, IIIF px region).
-    appState.imgproxy = resetCropPixelsToSource({ ...appState.imgproxy, source });
-    appState.iiif = { ...appState.iiif, source, region: { kind: "full" } };
-    appState.twicpics = { ...appState.twicpics, source };
+    appState.native = { ...appState.native, source };
+  }
+
+  function updateSourceType(event: Event): void {
+    const select = event.currentTarget;
+    if (!(select instanceof HTMLSelectElement)) return;
+    const sourceType = select.value as SourceType;
+    appState.native = { ...appState.native, sourceType };
+  }
+
+  function updateProtection(event: Event): void {
+    const select = event.currentTarget;
+    if (!(select instanceof HTMLSelectElement)) return;
+    const protection = select.value as Protection;
+    appState.native = { ...appState.native, protection };
+  }
+
+  function setResolvedPath(resolvedPath: string | null): void {
+    path = resolvedPath;
+    previewBasePath = resolvedPath;
+
+    if (resolvedPath !== null) return;
+
+    previewImageUrl = null;
+    textPreview = null;
+    processedMetadata = null;
+    previewError = null;
+    previewLoading = true;
+    currentRequestId = previewMetadata.begin("");
+    textPreviewController?.abort();
+    textPreviewController = null;
+    lastPreviewAbsolute = null;
   }
 
   function setThemeMode(nextMode: string): void {
@@ -365,13 +317,7 @@
   }
 
   function resetSettings(): void {
-    if (appState.provider === "imgproxy") {
-      appState.imgproxy = resetFiddleSettings(appState.imgproxy);
-    } else if (appState.provider === "iiif") {
-      appState.iiif = { ...defaultIiifState, source: appState.iiif.source };
-    } else {
-      appState.twicpics = { ...defaultTwicPicsState, source: appState.twicpics.source };
-    }
+    appState.native = resetNativeSettings(appState.native);
   }
 
   function closeTools(): void {
@@ -467,11 +413,7 @@
     </div>
 
     <div class="sidebar-header">
-      <select aria-label="Provider" bind:value={appState.provider}>
-        {#each providers as provider}
-          <option value={provider.id}>{provider.label}</option>
-        {/each}
-      </select>
+      <strong>ImagePipe API</strong>
     </div>
 
     <div class="tool-stack">
@@ -498,72 +440,41 @@
               </select>
             </label>
 
-            {#if appState.provider === "imgproxy"}
-              <label class="field">
-                <span>Source type</span>
-                <select bind:value={appState.imgproxy.sourceType}>
-                  <option value="local">Local (filesystem)</option>
-                  <option value="s3">S3 (s3proxy)</option>
-                  <option value="http">HTTP (Plug.Static)</option>
-                </select>
-              </label>
+            <label class="field">
+              <span>Source type</span>
+              <select value={currentSourceType} onchange={updateSourceType}>
+                <option value="local">Local (filesystem)</option>
+                <option value="s3">S3 (s3proxy)</option>
+                <option value="http">HTTP (Plug.Static)</option>
+              </select>
+            </label>
 
-              <label class="field">
-                <span>Signature</span>
-                <select bind:value={appState.imgproxy.signatureMode}>
-                  <option value="unsigned">unsigned</option>
-                  <option value="signed">signed</option>
-                </select>
-              </label>
-
-              {#if appState.imgproxy.signatureMode === "signed"}
-                <div class="signature-secret-grid">
-                  <label class="field">
-                    <span>Key</span>
-                    <input
-                      class="text-input text-input-mono"
-                      bind:value={appState.imgproxy.signatureKey}
-                      spellcheck="false"
-                      autocomplete="off"
-                    />
-                  </label>
-
-                  <label class="field">
-                    <span>Salt</span>
-                    <input
-                      class="text-input text-input-mono"
-                      bind:value={appState.imgproxy.signatureSalt}
-                      spellcheck="false"
-                      autocomplete="off"
-                    />
-                  </label>
-                </div>
-
-                {#if signingError !== null}
-                  <p class="field-error">{signingError}</p>
-                {/if}
-              {/if}
-            {/if}
+            <label class="field">
+              <span>Protection</span>
+              <select value={appState.native.protection} onchange={updateProtection}>
+                <option value="unsigned">Unsigned</option>
+                <option value="signed">Signed</option>
+                <option value="signed-concealed">Signed + concealed source</option>
+              </select>
+            </label>
+            <p class="field-help">
+              Protected previews use fixed demo-only keys held by this server.
+            </p>
           </Collapsible.Content>
         </Collapsible.Root>
       </section>
 
-      {#if appState.provider === "imgproxy"}
-        <ImgproxyControls bind:fiddleState={appState.imgproxy} source={appState.imgproxy.source} />
-      {:else if appState.provider === "iiif"}
-        <IiifControls bind:iiifState={appState.iiif} source={appState.iiif.source} />
-      {:else}
-        <TwicPicsControls
-          bind:twicpicsState={appState.twicpics}
-          source={appState.twicpics.source}
-        />
-      {/if}
+      <NativeControls bind:nativeState={appState.native} />
     </div>
 
     <div class="drawer-actions">
       <button class="quiet-button" type="button" onclick={resetSettings}>Reset</button>
-      <button class="copy-button" type="button" onclick={copyUrl}>{copyLabel}</button>
-      <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+      <button class="copy-button" type="button" onclick={copyUrl} disabled={path === null}
+        >{copyLabel}</button
+      >
+      {#if path !== null}
+        <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+      {/if}
     </div>
   </aside>
 
@@ -636,10 +547,15 @@
         </RadioGroup.Root>
         <div class="desktop-actions">
           <button class="quiet-button" type="button" onclick={resetSettings}>Reset</button>
-          <button class="copy-button copy-button-secondary" type="button" onclick={copyUrl}
-            >{copyLabel}</button
+          <button
+            class="copy-button copy-button-secondary"
+            type="button"
+            onclick={copyUrl}
+            disabled={path === null}>{copyLabel}</button
           >
-          <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+          {#if path !== null}
+            <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+          {/if}
         </div>
       </div>
     </header>
@@ -651,7 +567,9 @@
       </div>
       <div class="image-frame">
         <figure>
-          {#if previewImageUrl !== null}
+          {#if textPreview !== null}
+            <pre class="text-preview">{textPreview.text}</pre>
+          {:else if previewImageUrl !== null}
             <img
               class:is-loading={previewLoading}
               src={previewImageUrl}
@@ -673,6 +591,18 @@
 </main>
 
 <style>
+  .text-preview {
+    max-width: 100%;
+    padding: 1.5rem;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    text-align: left;
+    color: var(--text-primary);
+    background: var(--surface-control);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+  }
+
   .fiddle-shell {
     width: 100%;
     height: 100dvh;
@@ -696,7 +626,7 @@
     display: none;
   }
 
-  /* Fixed provider bar at the top of the sidebar; height matches the preview
+  /* Fixed title bar at the top of the sidebar; height matches the preview
      command bar so the two form one continuous header row. Lives outside
      .tool-stack so it doesn't scroll with the controls. */
   .sidebar-header {
@@ -1044,34 +974,6 @@
     }
   }
 
-  .signature-secret-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .text-input {
-    min-height: 38px;
-    width: 100%;
-    border: 1px solid var(--border-strong);
-    border-radius: 7px;
-    background: var(--surface-control);
-    color: var(--text-primary);
-    padding: 0 12px;
-  }
-
-  .text-input-mono {
-    font-family: var(--font-mono);
-    font-size: 12px;
-  }
-
-  .field-error {
-    margin: 0;
-    color: var(--accent);
-    font-size: 12px;
-    line-height: 16px;
-  }
-
   .fiddle-shell :global(.switch-root) {
     width: 42px;
     height: 24px;
@@ -1110,7 +1012,7 @@
   .fiddle-shell :global(.switch-root:focus-visible),
   .fiddle-shell :global(.accordion-heading:focus-visible),
   .fiddle-shell :global(.theme-toggle-item:focus-visible),
-  :where(.copy-button, .open-link, .quiet-button, .icon-button, select, .text-input):focus-visible {
+  :where(.copy-button, .open-link, .quiet-button, .icon-button, select):focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }

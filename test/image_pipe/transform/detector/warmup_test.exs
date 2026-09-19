@@ -111,9 +111,9 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
   end
 
   test "omitted :detector defaults to :default and terminates cleanly" do
-    # :default resolves to the bundled adapter via the Transform facade; in the
-    # default test lane it is unavailable, so warmup is a clean no-op.
-    pid = start_supervised!({Warmup, classes: ["face"]})
+    # No requested classes means no models to load, including when the optional
+    # detector dependencies are installed.
+    pid = start_supervised!({Warmup, classes: []})
 
     ref = Process.monitor(pid)
     assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]

@@ -13,7 +13,10 @@ defmodule ImagePipe.Transform.DetectorTest do
     @impl true
     def identity(_o), do: {__MODULE__, :v}
     @impl true
-    def warmup(opts), do: send(Keyword.fetch!(opts, :test_pid), {:warmed, opts}) && :ok
+    def warmup(opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:warmed, opts})
+      :ok
+    end
   end
 
   defmodule NoWarmup do

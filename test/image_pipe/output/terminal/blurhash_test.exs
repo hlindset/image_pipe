@@ -4,7 +4,7 @@ defmodule ImagePipe.Output.Terminal.BlurhashTest do
   alias ImagePipe.Output.Terminal.Blurhash
   alias Vix.Vips.Image, as: Vimage
 
-  @sources "test/support/image_pipe/test/imgproxy_differential/sources"
+  @sources "test/support/image_pipe/test/sources"
   @plain_srgb_fixture "#{@sources}/small.png"
   @wide_gamut_fixture "#{@sources}/icc_p3.png"
 
@@ -32,7 +32,7 @@ defmodule ImagePipe.Output.Terminal.BlurhashTest do
   end
 
   describe "to_terminal_pixel_space/1 — pixel-space invariance" do
-    # `icc_p3.png` is generated (mix imgproxy.gen_sources) by building this
+    # `icc_p3.png` is generated (mix fixtures.gen_sources) by building this
     # exact sRGB pattern, untagged, then converting it to Display-P3 via
     # `Image.to_colorspace(icc, :p3, [])` — so this reference IS the sRGB
     # twin of the committed wide-gamut fixture, reconstructed in-test rather

@@ -1,10 +1,10 @@
 defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
   use ExUnit.Case, async: true
 
-  import Plug.Test
-
+  alias ImagePipe.Native.Config
+  alias ImagePipe.Native.Output, as: NativeOutput
+  alias ImagePipe.Native.Parser
   alias ImagePipe.Output.{Encoder, Policy, Resolved}
-  alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
   defp finalized(w \\ 64, h \\ 64) do
@@ -39,16 +39,17 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
     assert :binary.match(bin, <<0xFF, 0xC2>>) != :nomatch
   end
 
-  test "encoder options thread through the real Output -> Policy.resolve path" do
-    # Build from %Output{} and let Policy.resolve/2 produce %Resolved{}, so a
-    # wiring break in the producer chain (not just the hand-built struct) fails.
-    output = %Output{
-      mode: {:explicit, :jpeg},
-      quality: {:quality, 75},
-      encoder_options: %{jpeg: %JpegOptions{interlace: true}}
+  test "native encoder options reach encoding through output policy" do
+    config = Config.validate!([])
+    segments = ["format=jpeg", "q=75", "jpeg-options=progressive"]
+
+    lexed = %{
+      segments: Enum.map(segments, &{&1, {0, byte_size(&1)}}),
+      source: {:src, "test.jpg", {0, 8}}
     }
 
-    policy = Policy.from_output_plan(conn(:get, "/"), output, [])
+    assert {:ok, request} = Parser.parse(lexed, config)
+    assert {:ok, policy} = NativeOutput.resolve(request.output, config, "")
     {:ok, resolved} = Policy.resolve(policy, :jpeg)
     assert resolved.encoder_options == %JpegOptions{interlace: true}
 

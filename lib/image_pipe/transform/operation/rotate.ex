@@ -1,20 +1,13 @@
 defmodule ImagePipe.Transform.Operation.Rotate do
   @moduledoc """
-  Executable rotation. Applies an optional horizontal mirror (IIIF `!`) *before*
-  rotating clockwise by `angle` degrees.
+  Clockwise arbitrary-angle rotation with transparent corners.
 
-  Exact right-angle multiples use the lossless `vips_rot` primitive (no resample,
-  no #211 background seam — even when mirrored). Any other angle uses the affine
-  `vips_rotate` resampler with a transparent background, so the exposed corners
-  are transparent; a non-alpha output format flattens that transparency onto the
-  configured `Plan.Output.flatten_background` at encode time (IIIF defines no
-  per-request fill knob).
+  Uses affine `vips_rotate`. Non-alpha output formats flatten the corners onto
+  `Output.Policy.flatten_background` at encoding.
 
-  Materializing op: rotation reads pixels out of row order, so it cannot run over
-  a sequential decode. As a `requires_materialization?: true` op it is preceded by
-  `Chain`/`Materializer`'s copy-to-memory; when an orientation is pending, the
-  resolver emits an explicit `Operation.Flush` before this op, so it always sees
-  the EXIF-corrected display frame.
+  Rotation reads pixels out of row order, so `requires_materialization?: true`
+  makes `ImagePipe.Transform.run/3` copy the input to RAM first. The executor
+  flushes pending orientation before this operation so it sees display-frame pixels.
   """
 
   use ImagePipe.Transform
@@ -25,9 +18,9 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   alias Vix.Vips.Operation
 
   @enforce_keys [:angle]
-  defstruct [:angle, mirror: false]
+  defstruct [:angle]
 
-  @type t :: %__MODULE__{angle: number(), mirror: boolean()}
+  @type t :: %__MODULE__{angle: number()}
 
   # Float RGBA: vips_rotate's `background` is an array of doubles; a 4-element
   # value fills the exposed corners fully transparent on an alpha image.
@@ -40,37 +33,19 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   def requires_materialization?(%__MODULE__{}), do: true
 
   @impl ImagePipe.Transform
-  def execute(%__MODULE__{angle: angle, mirror: mirror}, %State{} = state) do
-    with {:ok, image} <- maybe_mirror(state.image, mirror),
-         {:ok, image} <- rotate(image, angle) do
-      {:ok, set_image(state, image)}
-    else
+  def execute(%__MODULE__{angle: angle}, %State{} = state) do
+    case rotate(state.image, angle) do
+      {:ok, image} -> {:ok, set_image(state, image)}
       {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 
-  defp maybe_mirror(image, false), do: {:ok, image}
-  defp maybe_mirror(image, true), do: Image.flip(image, :horizontal)
-
-  # Angles arrive pre-normalized to integers for whole numbers (folded by the
-  # Plan.Operation.rotate/2 constructor and the IIIF grammar), so exact right-angle
-  # multiples match this clause and take Image.rotate/3's discrete vips_rot fast
-  # path — lossless, no resample, no #211 background seam, the same primitive
-  # OrientationFlush and imgproxy use. Only genuinely fractional angles reach the
-  # affine clause below.
   # Dialyzer can't see through Vix's generated Operation typings (rotate).
   @dialyzer {:no_fail_call, rotate: 2}
-  defp rotate(image, 0), do: {:ok, image}
-  defp rotate(image, angle) when angle in [90, 180, 270], do: Image.rotate(image, angle)
 
-  # Arbitrary angle: affine resample with transparent corners. Always ensure an
-  # alpha band (even for opaque input) so the exposed corners can be fully
-  # transparent, then rotate over a transparent background. vips_rotate premultiplies
-  # the alpha itself — it is built on vips_affine, which premultiplies before
-  # resampling and unpremultiplies after — so we must NOT premultiply here: doing it
-  # on top of vips_rotate double-premultiplies and inflates the colour of any
-  # semi-transparent pixels. Call Vix directly: the `image` facade's Image.rotate/3
-  # rejects a 4-element RGBA background.
+  # Add alpha for transparent corners. vips_rotate handles premultiplication;
+  # doing it here too would distort semi-transparent colors. Call Vix directly
+  # because Image.rotate/3 rejects a four-component RGBA background.
   defp rotate(image, angle) do
     with {:ok, rgba} <- ensure_alpha(image) do
       Operation.rotate(rgba, angle * 1.0, background: @transparent)

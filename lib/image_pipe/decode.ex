@@ -1,14 +1,11 @@
 defmodule ImagePipe.Decode do
   @moduledoc """
-  Core fetch-through-decode bracket, shared by every dialect.
+  Source fetch and image decode bracket.
 
-  `with_image/4` runs the two-open decode flow (header open for stored dims +
-  EXIF orientation, then a sequential re-open with shrink-on-load options) as a
-  bracket: it fetches through `ImagePipe.Source.with_fetched/3`, builds an
-  `ImagePipe.Transform.SourceGeometry` from the header open, asks the caller for
-  a `DecodePlanner.Request.t()` via `decode_request_fun`, re-opens sequentially
-  with the planned options, seeds a `Transform.State` the same way
-  `ImagePipe.Transform.Executor` does, and hands both to `fun`.
+  `with_image/4` fetches through `ImagePipe.Source.with_fetched/3`, reads stored
+  dimensions and EXIF orientation, then reopens sequentially with planned
+  shrink-on-load options. It passes the resulting `ImagePipe.Transform.State`
+  and `ImagePipe.Transform.SourceGeometry` to the caller.
   """
 
   use Boundary,
@@ -27,9 +24,12 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Decode.SourceFormat
   alias ImagePipe.Error
   alias ImagePipe.Format.Detector
+  alias ImagePipe.Plan.Request
+  alias ImagePipe.Plan.Request.Output
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
   alias ImagePipe.Transform.State
@@ -42,57 +42,47 @@ defmodule ImagePipe.Decode do
   @type error() :: {:source, term()} | {:decode, term()} | {:input_limit, term()}
 
   @doc """
-  Fetch, decode, and run `fun` over the resulting `Transform.State` +
-  `SourceGeometry`.
+  Fetches and decodes a source, then calls `fun` with its `Transform.State`
+  and `SourceGeometry`.
 
-  `opts` MUST include `auto_rotate?: boolean()` — the EXIF auto-orient policy
-  is always the caller's (dialect's) choice, never baked into this core
-  primitive; this bracket owns only the storage/display compensation once
-  that choice is made. `decode_request_fun` receives the `SourceGeometry`
-  built from the header open and must return a `DecodePlanner.Request.t()`
-  describing the caller's decode-time preflight (resize target, crop extent,
-  trim, terminal reduction, required floor) — fed to
-  `DecodePlanner.open_options_for/5` to compute the shrink-on-load options for
-  the sequential re-open.
+  The request owns EXIF orientation and decode-time preflight intent.
+  After the header open, the bracket passes the request and resulting
+  `SourceGeometry` to `ImagePipe.Transform.Executor.decode_request/2`, then
+  feeds that plan to `DecodePlanner.open_options_for/5` to compute the
+  shrink-on-load options for the sequential re-open. The info terminal reads
+  source facts without applying EXIF orientation.
 
-  Errors normalize to `{:source, _}` (fetch failure), `{:decode, _}` (a
-  corrupt/unsupported body or a libvips open failure), or `{:input_limit, _}`
-  (stored header dimensions exceed `opts[:max_input_pixels]`), so a dialect's
-  status mapping can reuse `Response.ErrorStatus`. `fun`'s own return value
-  passes through unchanged (its own errors, e.g. a transform failure, are the
-  caller's to classify).
+  Returns errors tagged `{:source, _}` for fetch failures, `{:decode, _}` for
+  corrupt/unsupported bodies or libvips open failures, and `{:input_limit, _}`
+  when stored dimensions exceed `opts[:max_input_pixels]`. These tags map to
+  HTTP statuses in `Response.ErrorStatus`. `fun`'s return value passes through
+  unchanged, including errors.
 
   ## The `[:source, :fetch_decode]` span
 
-  This bracket emits the `[:source, :fetch_decode]` span, so every dialect gains
-  it from this one seam. The span encloses the fetch AND the decode but NOT the
-  caller's build: it opens before `Source.with_fetched/3` (so `[:source,
-  :fetch]` nests inside it) and closes *inside* the bracket, immediately after
-  the decoded `State`/`SourceGeometry` are built and before `fun` runs — a
-  transform/encode failure in `fun` can never be misattributed to it. That
-  close site is not a function boundary, hence the manual
-  `Telemetry.start_span/3` bracket: a fetch/decode error closes the span with
-  an error `:stop`, and a raise before the decode completed closes it with
-  `:exception` semantics (a raise from `fun`, after the span already stopped,
-  does not re-close it).
+  The span starts before `Source.with_fetched/3`, enclosing its fetch span,
+  and stops after decode, before `fun` runs. This requires a manual
+  `Telemetry.start_span/3` bracket so transform/encode failures are attributed
+  to the caller. Fetch/decode errors emit an error `:stop`; exceptions before
+  decode completes emit `:exception`. Exceptions from `fun` do not close it again.
   """
   @spec with_image(
           Source.Resolved.t(),
+          Request.t(),
           keyword(),
-          (SourceGeometry.t() -> DecodePlanner.Request.t()),
           (State.t(), SourceGeometry.t() -> result)
         ) :: result | {:error, error()}
         when result: var
-  def with_image(%Source.Resolved{} = resolved, opts, decode_request_fun, fun)
-      when is_function(decode_request_fun, 1) and is_function(fun, 2) do
-    auto_rotate? = Keyword.fetch!(opts, :auto_rotate?)
+  def with_image(%Source.Resolved{} = resolved, %Request{} = request, opts, fun)
+      when is_function(fun, 2) do
+    auto_rotate? = auto_rotate?(request)
     span = Telemetry.start_span(Telemetry.telemetry_opts(opts), [:source, :fetch_decode], %{})
     decoded = make_ref()
 
     try do
       resolved
       |> Source.with_fetched(opts, fn %Source.Response{} = response ->
-        case decode(response, opts, auto_rotate?, decode_request_fun) do
+        case decode(response, request, opts, auto_rotate?) do
           {:ok, state, geometry, stop_metadata} ->
             Telemetry.stop_span(span, stop_metadata)
             {decoded, fun.(state, geometry)}
@@ -110,9 +100,8 @@ defmodule ImagePipe.Decode do
     end
   end
 
-  # `fun` ran (the span already stopped `:ok` inside the bracket): pass its
-  # result through untouched. Otherwise the fetch or the decode failed before
-  # the build was reached, and the error closes the span here.
+  # The marker distinguishes `fun`'s result from a fetch/decode error, which
+  # still needs to close the span.
   defp unwrap_decoded({decoded, result}, _span, decoded), do: result
 
   defp unwrap_decoded({:error, reason} = error, span, _decoded) do
@@ -120,7 +109,7 @@ defmodule ImagePipe.Decode do
     error
   end
 
-  defp decode(response, opts, auto_rotate?, decode_request_fun) do
+  defp decode(response, request, opts, auto_rotate?) do
     with {:ok, input} <- seekable_input(response),
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
@@ -143,7 +132,7 @@ defmodule ImagePipe.Decode do
            source_format: source_format,
            debug_facts: debug_facts(input, header_image, opts)
          },
-         decode_request = decode_request_fun.(geometry),
+         decode_request = Executor.decode_request(request, geometry),
          decode_options =
            DecodePlanner.open_options_for(
              decode_request,
@@ -161,6 +150,10 @@ defmodule ImagePipe.Decode do
        ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution)}
     end
   end
+
+  defp auto_rotate?(%Request{output: %Output{terminal: :info}}), do: false
+  defp auto_rotate?(%Request{orient: :auto}), do: true
+  defp auto_rotate?(%Request{orient: :none}), do: false
 
   defp ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution) do
     load_option =
@@ -344,11 +337,9 @@ defmodule ImagePipe.Decode do
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
-  # Best-effort, non-sensitive source facts for the debug headers. Collected on
-  # every generation (rendering is gated elsewhere). A genuinely-absent value
-  # returns nil/false through the helper's own `case`; only a real raise is an
-  # anomaly — surfaced as one `[:debug, :collect, :error]` event, then the whole
-  # fact set degrades to %{} so collection never breaks decoding.
+  # Collect non-sensitive debug facts on every generation; rendering is gated
+  # elsewhere. Missing values return nil/false. Exceptions emit one debug error
+  # event and discard the facts so collection cannot break decoding.
   defp debug_facts(input, header_image, opts) do
     %{
       source_bytes: source_byte_size(input),

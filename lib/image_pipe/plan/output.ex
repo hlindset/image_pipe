@@ -1,30 +1,9 @@
 defmodule ImagePipe.Plan.Output do
   @moduledoc """
-  Requested output intent before runtime format negotiation.
-
-  `strip_metadata`, `keep_copyright`, `color_profile`, `hdr`, and
-  `flatten_background` are resolved values (never `nil`): a parser resolves its
-  config defaults / URL options into concrete values before building a plan (the
-  imgproxy parser does this in `apply_request_defaults/2`). They drive the
-  encoder's metadata finalize and the transform's HDR working-space decision.
-
-  `flatten_background` is the color an alpha-bearing image is composited onto when
-  the resolved output format can't carry alpha (the encoder's format-driven
-  flatten — imgproxy's `flatten` onto `po.Background()`). It defaults to opaque
-  white, matching imgproxy's `color.White`; a per-request background (e.g. the
-  imgproxy `bg`/`bga` option) is a separate transform-chain operation and does not
-  set this field. No parser overrides it today — it is the declarative seam for a
-  future dialect/host default.
-
-  `quality_search` and `max_bytes` are resolved defaults (`:none`/`nil` = off).
-
-  `encoder_options` maps an output `format()` to its libvips-native encoder
-  option struct (`JpegOptions`/`PngOptions`/`WebpOptions`/`AvifOptions`/`JxlOptions`).
-  An absent format means no options, i.e. libvips defaults. A parser resolves host
-  config (and, for imgproxy, URL tokens) into this map before building the plan.
+  Output value types and quality-search defaults shared by request parsing,
+  output policy, and encoding. Per-format encoder options and quality-search
+  parameters live in the nested modules.
   """
-
-  alias ImagePipe.Plan.Color
 
   # The confirm-skipped crop-estimate correction per `{format, content-class}`
   # (#380). Above the 6 MP crop crossover the `:ssim2` search ships the crop verdict
@@ -35,21 +14,6 @@ defmodule ImagePipe.Plan.Output do
   # `flatten_background`): no parser overrides it today.
   @default_quality_search_offsets %{default: 2.4, overrides: %{{:avif, :graphic} => 6.0}}
 
-  @enforce_keys [:mode]
-  defstruct mode: :automatic,
-            quality: :default,
-            format_qualities: %{},
-            default_quality: :default,
-            strip_metadata: true,
-            keep_copyright: true,
-            color_profile: :strip,
-            hdr: :tone_map,
-            flatten_background: Color.white(),
-            quality_search: :none,
-            max_bytes: nil,
-            quality_search_offsets: @default_quality_search_offsets,
-            encoder_options: %{}
-
   @type format :: :avif | :webp | :jpeg | :png | :jpeg_xl
   @type quality :: :default | {:quality, 1..100}
   @type color_profile :: :preserve_source | :strip | {:convert, term()}
@@ -58,25 +22,6 @@ defmodule ImagePipe.Plan.Output do
   @type quality_search_offsets :: %{
           default: number(),
           overrides: %{optional({format(), content_class()}) => number()}
-        }
-  @type t :: %__MODULE__{
-          mode: :automatic | {:explicit, format()},
-          quality: quality(),
-          format_qualities: %{optional(format()) => quality()},
-          default_quality: quality(),
-          strip_metadata: boolean(),
-          keep_copyright: boolean(),
-          color_profile: color_profile(),
-          hdr: hdr(),
-          flatten_background: Color.t(),
-          quality_search:
-            :none
-            | ImagePipe.Plan.Output.QualitySearch.Size.t()
-            | ImagePipe.Plan.Output.QualitySearch.Ssimulacra2.t()
-            | ImagePipe.Plan.Output.QualitySearch.Butteraugli.t(),
-          max_bytes: nil | pos_integer(),
-          quality_search_offsets: quality_search_offsets(),
-          encoder_options: %{optional(format()) => struct()}
         }
 
   @doc "The built-in confirm-skipped crop-offset policy (bench Part M / #380)."

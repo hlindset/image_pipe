@@ -34,12 +34,9 @@ defmodule ImagePipe.Telemetry do
   def default_prefix, do: @default_prefix
 
   @doc """
-  Attach the default `Logger` handler for ImagePipe telemetry. Opt-in and
-  idempotent.
+  Attaches the default `Logger` handler. Opt-in and idempotent.
 
-  Raises `ArgumentError` on invalid options. This is host-startup configuration,
-  so it raises (matching `Oban.Telemetry.attach_default_logger` /
-  `Phoenix.Logger`) rather than returning a tagged error.
+  Raises `ArgumentError` on invalid startup options.
 
   Options:
     * `:level` — base log level (default `:info`); errors/exceptions escalate to `:warning`.
@@ -116,11 +113,10 @@ defmodule ImagePipe.Telemetry do
                  )
 
   @doc """
-  Attach the opt-in span tracer. See `ImagePipe.Telemetry.Trace`.
+  Attaches the opt-in span tracer. See `ImagePipe.Telemetry.Trace`.
 
-  Host-startup configuration, so it raises `ArgumentError` on invalid options
-  (unknown keys, wrong types, or an exporter module that is not loadable or does
-  not export `export/1`) rather than returning a tagged error.
+  Raises `ArgumentError` for unknown keys, wrong types, or an exporter that
+  cannot load, lacks `export/1`, or reports it is not ready.
 
   Options:
     * `:exporter` — required; a module implementing `ImagePipe.Telemetry.Trace.Exporter`.
@@ -179,24 +175,14 @@ defmodule ImagePipe.Telemetry do
   end
 
   @doc """
-  Maps a request outcome to the `:result` telemetry vocabulary shared by every
-  dialect Plug. Callers stamp this on the `[:request]` span's stop metadata
+  Maps a request outcome to the request `:result` telemetry vocabulary. Callers
+  stamp this on the `[:request]` span's stop metadata
   (with `:status`, and `:error` on failures).
   """
   @spec request_result(:ok | :not_modified | {:error, term()}) :: atom()
   def request_result(:ok), do: :ok
   def request_result(:not_modified), do: :not_modified
   def request_result({:error, {:source, _}}), do: :source_error
-  def request_result({:error, {:cache_write, _}}), do: :cache_error
-
-  def request_result({:error, tag}) when tag in [:invalid_output_plan, :invalid_pipeline_plan],
-    do: :plan_error
-
-  def request_result({:error, {tag, _}})
-      when tag in [:invalid_output_plan, :invalid_pipeline_plan],
-      do: :plan_error
-
-  def request_result({:error, :empty_pipeline_plan}), do: :plan_error
   def request_result({:error, _reason}), do: :processing_error
 
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
@@ -216,10 +202,10 @@ defmodule ImagePipe.Telemetry do
           }
 
   @doc """
-  Opens a manual span bracket for the one case `span/4` cannot express: a span
-  whose close site is not a function boundary (`ImagePipe.Decode.with_image/4`'s
-  `[:source, :fetch_decode]` span must close *inside* the source bracket,
-  after decode but before the caller's build continuation runs).
+  Opens a span that closes independently of a function return.
+
+  For example, `ImagePipe.Decode.with_image/4` closes its fetch/decode span
+  inside the source bracket, before running the caller's continuation.
 
   Mirrors `:telemetry.span/3`'s event names, measurement keys (`:monotonic_time`
   + `:system_time` on `:start`; `:duration` + `:monotonic_time` on

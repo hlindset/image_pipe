@@ -40,7 +40,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
   # would place it at (3, 3) — the 1px slip that drove the extend divergences.
   test "center gravity places the inner image at the imgproxy origin" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      rule: {:dimensions, 11, 10},
       gravity: {:anchor, :center, :center},
       background: :transparent
     }
@@ -52,7 +52,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
 
   test "left/top gravity pins the inner image to the origin" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      rule: {:dimensions, 11, 10},
       gravity: {:anchor, :left, :top},
       background: :transparent
     }
@@ -63,7 +63,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
 
   test "right/bottom gravity pins the inner image to the far edge" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      rule: {:dimensions, 11, 10},
       gravity: {:anchor, :right, :bottom},
       background: :transparent
     }
@@ -79,7 +79,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
   # in an 11-wide canvas: base 11-4=7, away from east edge → 7-2=5.
   test "east gravity moves the image away from the right edge by the offset (#200)" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      rule: {:dimensions, 11, 10},
       gravity: {:anchor, :right, :top},
       x_offset: 2.0,
       background: :transparent
@@ -91,7 +91,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
 
   test "south gravity moves the image away from the bottom edge by the offset (#200)" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      rule: {:dimensions, 11, 10},
       gravity: {:anchor, :left, :bottom},
       y_offset: 2.0,
       background: :transparent
@@ -107,7 +107,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
   # negative; it must clamp to 0, not place the image off-canvas.
   test "east offset beyond the base clamps the origin to zero (#200)" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      rule: {:dimensions, 11, 10},
       gravity: {:anchor, :right, :top},
       x_offset: 10.0,
       background: :transparent
@@ -119,7 +119,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
 
   test "west offset beyond the far edge clamps the origin to outer - inner (#200)" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      rule: {:dimensions, 11, 10},
       gravity: {:anchor, :left, :top},
       x_offset: 20.0,
       background: :transparent
@@ -138,7 +138,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
   # max(image, requested)) resolve to the image size, so the canvas never grows.
   test "inert extend (canvas == image dims) is a no-op and adds no band (#220)" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 4}, {:pixels, 4}},
+      rule: {:dimensions, 4, 4},
       gravity: {:anchor, :right, :bottom},
       x_offset: 20.0,
       y_offset: 20.0,
@@ -158,7 +158,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
   # (ShrinkToEven(11-4+1, 2)); +2 → 6, within [0, 7] so the clamp is a no-op.
   test "center gravity still adds the offset (#200 fallthrough preserved)" do
     op = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      rule: {:dimensions, 11, 10},
       gravity: {:anchor, :center, :center},
       x_offset: 2.0,
       background: :transparent
@@ -177,7 +177,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
             {{:anchor, :center, :center}, {10, 6}},
             {{:anchor, :right, :bottom}, {20, 10}}
           ] do
-        op = %ExtendCanvas{rule: {:dimensions, {:pixels, 40}, {:pixels, 30}}, gravity: gravity}
+        op = %ExtendCanvas{rule: {:dimensions, 40, 30}, gravity: gravity}
 
         assert ExtendCanvas.resolved_embed_offset(op, 20, 20, 40, 30) == expected
       end
@@ -185,7 +185,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
 
     test "a far-edge anchor subtracts its offset; the origin clamps into the canvas" do
       op = %ExtendCanvas{
-        rule: {:dimensions, {:pixels, 40}, {:pixels, 30}},
+        rule: {:dimensions, 40, 30},
         gravity: {:anchor, :right, :bottom},
         x_offset: 5.0,
         y_offset: 100.0

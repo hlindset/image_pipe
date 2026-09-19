@@ -2,7 +2,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Transform.Chain
+  alias ImagePipe.Transform
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Bitonal
@@ -32,7 +32,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   # Harness self-check: prove the sequential open GENUINELY streams (does not
   # silently buffer). A 90-degree transpose built directly on the sequential
-  # image — bypassing Chain, which would materialize first — must error when its
+  # image — bypassing Transform.run, which would materialize first — must error when its
   # pixels are pulled, because vips_rot does a non-sequential read. If copy_memory
   # succeeds here, the open is buffering and every equivalence assertion below
   # would be a tautology.
@@ -85,23 +85,23 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     )
   end
 
-  test "fit resize streams" do
+  test "resize to a landscape target streams" do
     assert_sequential_matches_random(
-      [%Resize{mode: :fit, width: {:pixels, 120}, height: :auto}],
+      [%Resize{width: 120, height: 80}],
       File.read!(@dog)
     )
   end
 
-  test "fill resize streams" do
+  test "resize to a portrait target streams" do
     assert_sequential_matches_random(
-      [%Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}],
+      [%Resize{width: 100, height: 200}],
       File.read!(@beach)
     )
   end
 
-  test "force resize streams" do
+  test "resize to a square target streams" do
     assert_sequential_matches_random(
-      [%Resize{mode: :force, width: {:pixels, 100}, height: {:pixels, 100}}],
+      [%Resize{width: 100, height: 100}],
       File.read!(@beach)
     )
   end
@@ -132,7 +132,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     assert_sequential_matches_random(
       [
         %ExtendCanvas{
-          rule: {:dimensions, {:pixels, 400}, {:pixels, 400}},
+          rule: {:dimensions, 400, 400},
           gravity: {:anchor, :center, :center},
           background: :transparent
         }
@@ -193,9 +193,30 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     )
   end
 
-  test "Rotate op is materializing (known-random; cannot stream)" do
-    assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 45})
-    assert ImagePipe.Transform.requires_materialization?(%Rotate{angle: 90, mirror: true})
+  test "duotone streams from a gray input" do
+    assert_sequential_matches_random(
+      [
+        %Gray{},
+        %Duotone{intensity: 0.8, shadow: [0, 0, 0], highlight: [255, 255, 255]}
+      ],
+      File.read!(@beach)
+    )
+  end
+
+  test "rotation materializes a streamed source before reading pixels out of order" do
+    body = File.read!(@beach)
+
+    for angle <- [10, 45] do
+      {:ok, sequential} = Image.open([body], access: :sequential, fail_on: :error)
+      {:ok, random} = Image.open([body], access: :random, fail_on: :error)
+      operation = %Rotate{angle: angle}
+
+      assert {:ok, %State{materialized?: true, image: actual}} =
+               Transform.run(%State{image: sequential}, operation)
+
+      assert {:ok, %State{image: expected}} = Rotate.execute(operation, %State{image: random})
+      assert_sampled_pixels_match(actual, expected)
+    end
   end
 
   defp oriented_jpeg_body(orientation) do
@@ -218,7 +239,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   test "Flush op (quarter-turn user rotation) streams on sequential source" do
     body = oriented_jpeg_body(1)
     pending = %PendingOrientation{user_angle: 90}
-    assert_flush_op_sequential_matches_random(pending, body)
+    assert_orientation_flush_sequential_matches_random(pending, body)
   end
 
   defp alpha_png_body do
@@ -252,12 +273,12 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     end
   end
 
-  property "fit resize streams across varied targets" do
+  property "proportional resize streams across varied targets" do
     body = File.read!(@dog)
 
     check all(w <- integer(16..400), max_runs: 12) do
       assert_sequential_matches_random(
-        [%Resize{mode: :fit, width: {:pixels, w}, height: :auto}],
+        [%Resize{width: w, height: w * 2}],
         body
       )
     end
@@ -310,7 +331,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     end
   end
 
-  property "fill resize streams across varied targets" do
+  property "resize streams across independently varied target axes" do
     body = File.read!(@beach)
 
     check all(
@@ -319,7 +340,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
             max_runs: 12
           ) do
       assert_sequential_matches_random(
-        [%Resize{mode: :fill, width: {:pixels, w}, height: {:pixels, h}}],
+        [%Resize{width: w, height: h}],
         body
       )
     end
@@ -330,6 +351,33 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
     check all(sigma_tenths <- integer(5..40), max_runs: 12) do
       assert_sequential_matches_random([%Blur{sigma: sigma_tenths / 10}], body)
+    end
+  end
+
+  property "duotone streams from gray inputs across dimensions and alpha layouts" do
+    check all(
+            width <- integer(7..64),
+            height <- integer(7..64),
+            alpha? <- boolean(),
+            max_runs: 16
+          ) do
+      {base, marker, bands} =
+        if alpha?,
+          do: {[40, 120, 200, 177], [220, 30, 80, 63], 4},
+          else: {[40, 120, 200], [220, 30, 80], 3}
+
+      body =
+        Image.new!(width, height, color: base, bands: bands)
+        |> Image.Draw.rect!(1, 1, max(1, div(width, 2)), max(1, div(height, 2)), color: marker)
+        |> Image.write!(:memory, suffix: ".png")
+
+      assert_sequential_matches_random(
+        [
+          %Gray{},
+          %Duotone{intensity: 0.8, shadow: [10, 20, 30], highlight: [220, 230, 240]}
+        ],
+        body
+      )
     end
   end
 
@@ -355,17 +403,23 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   defp anchor_to_xy(:top_left), do: {:left, :top}
   defp anchor_to_xy(:bottom_right), do: {:right, :bottom}
 
-  defp run_chain(chain, access, body) when access in [:random, :sequential] do
-    with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
-         {:ok, state} <- Chain.execute(%State{image: image}, chain),
-         {:ok, %State{} = state} <- Materializer.materialize(state) do
-      {:ok, state.image}
-    end
+  defp run_operations(operations, access, body) when access in [:random, :sequential] do
+    {:ok, image} = Image.open([body], access: access, fail_on: :error)
+
+    state =
+      Enum.reduce(operations, %State{image: image}, fn operation, state ->
+        assert {:ok, state} = Transform.run(state, operation)
+        refute state.materialized?
+        state
+      end)
+
+    {:ok, state} = Materializer.materialize(state)
+    {:ok, state.image}
   end
 
-  defp assert_sequential_matches_random(chain, body) do
-    {:ok, random_image} = run_chain(chain, :random, body)
-    {:ok, sequential_image} = run_chain(chain, :sequential, body)
+  defp assert_sequential_matches_random(operations, body) do
+    {:ok, random_image} = run_operations(operations, :random, body)
+    {:ok, sequential_image} = run_operations(operations, :sequential, body)
 
     assert Image.width(sequential_image) == Image.width(random_image)
     assert Image.height(sequential_image) == Image.height(random_image)
@@ -373,18 +427,17 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     assert_sampled_pixels_match(sequential_image, random_image)
   end
 
-  # Runs orientation flush (via Materializer.materialize, which routes through
-  # OrientationFlush.flush) on both a :random and a :sequential open of `body`.
-  # Asserts the output pixels match.  This is the new sequential-safety gate for
-  # EXIF/user orientation: it proves that OrientationFlush produces the same result
-  # whether the image was opened for random access or streamed sequentially —
-  # i.e. that the flush path is safe to call on a sequential source.
+  # Compare the actual orientation flush on random and streamed opens.
   defp assert_orientation_flush_sequential_matches_random(%PendingOrientation{} = pending, body) do
     {:ok, random_image} = run_orientation_flush(pending, :random, body)
     {:ok, sequential_image} = run_orientation_flush(pending, :sequential, body)
+    {:ok, source} = Image.open([body], access: :random, fail_on: :error)
 
-    assert Image.width(sequential_image) == Image.width(random_image)
-    assert Image.height(sequential_image) == Image.height(random_image)
+    expected_dims =
+      PendingOrientation.display_dims({Image.width(source), Image.height(source)}, pending)
+
+    assert {Image.width(random_image), Image.height(random_image)} == expected_dims
+    assert {Image.width(sequential_image), Image.height(sequential_image)} == expected_dims
     assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)
     assert_sampled_pixels_match(sequential_image, random_image)
   end
@@ -393,32 +446,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
        when access in [:random, :sequential] do
     with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
          state = %State{image: image, pending_orientation: pending},
-         {:ok, %State{} = state} <- Chain.execute(state, []),
-         {:ok, %State{} = state} <- Materializer.materialize(state) do
-      {:ok, state.image}
-    end
-  end
-
-  # Runs the Flush op (via a chain containing %Flush{}) on both a :random and
-  # a :sequential open of `body`. Asserts the output pixels match. This proves
-  # that the Flush operation itself is sequentially safe: it can be called
-  # on a sequential source without risking "Failed to memory copy image" errors.
-  defp assert_flush_op_sequential_matches_random(%PendingOrientation{} = pending, body) do
-    {:ok, random_image} = run_flush_op(pending, :random, body)
-    {:ok, sequential_image} = run_flush_op(pending, :sequential, body)
-
-    assert Image.width(sequential_image) == Image.width(random_image)
-    assert Image.height(sequential_image) == Image.height(random_image)
-    assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)
-    assert_sampled_pixels_match(sequential_image, random_image)
-  end
-
-  defp run_flush_op(%PendingOrientation{} = pending, access, body)
-       when access in [:random, :sequential] do
-    with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
-         state = %State{image: image, pending_orientation: pending},
-         {:ok, %State{} = state} <- Chain.execute(state, [%Flush{}]),
-         {:ok, %State{} = state} <- Materializer.materialize(state) do
+         {:ok, %State{} = state} <- Transform.run(state, %Flush{}) do
       {:ok, state.image}
     end
   end

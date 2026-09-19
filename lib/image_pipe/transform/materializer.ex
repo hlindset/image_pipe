@@ -2,24 +2,17 @@ defmodule ImagePipe.Transform.Materializer do
   @moduledoc """
   Materialization boundary for transform execution.
 
-  `materialize/1` copies the current image to a RAM-resident buffer
-  (`copy_memory`) and marks the state `materialized?: true`. It is
-  orientation-agnostic: applying a pending orientation is the explicit
-  `ImagePipe.Transform.Operation.Flush` operation's job (via `flush/1`), emitted
-  by the resolver at every site that needs the display frame — so no operation
-  reaches a materialize with a non-identity pending that a `Flush` hasn't
-  already cleared. Trim deliberately materializes pre-orientation (the storage
-  frame), which is exactly this plain copy.
+  `materialize/1` copies the image to RAM (`copy_memory`) and sets
+  `materialized?: true`. It leaves pending orientation untouched. The executor
+  emits `ImagePipe.Transform.Operation.Flush` (via `flush/1`) before operations
+  that need the display frame, including trim.
 
-  Per-op materialization (`ImagePipe.Transform.Chain`) calls this before the
-  first operation that requires random access, so a sequential decode can stream
-  through earlier ops and only copy when an op genuinely needs arbitrary pixel
-  access. The delivery boundary also calls the arity-2 callback form once
-  before encoding for any chain that never materialized mid-pipeline.
+  `ImagePipe.Transform.run/3` materializes before the first operation requiring
+  random access, allowing earlier operations to stream. Delivery calls the
+  arity-2 callback before encoding if the state has not materialized.
 
-  `materialize/1` and `flush/1` emit a `[:transform, :materialize]` telemetry
-  span, giving honest per-barrier timing regardless of which call site triggered
-  the materialization.
+  Both `materialize/1` and `flush/1` emit `[:transform, :materialize]` spans
+  that measure the pixel work at each boundary.
   """
 
   alias ImagePipe.Telemetry
@@ -29,8 +22,7 @@ defmodule ImagePipe.Transform.Materializer do
   @callback materialize(State.t(), keyword()) ::
               {:ok, State.t()} | {:error, term()}
 
-  # Arity-1 (chain mid-pipeline) and arity-2 (delivery backstop) both route through
-  # here, so a single [:transform, :materialize] span covers both entry points.
+  # Operation and delivery calls share one telemetry span.
   @spec materialize(State.t()) :: {:ok, State.t()} | {:error, term()}
   def materialize(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
@@ -41,23 +33,18 @@ defmodule ImagePipe.Transform.Materializer do
     end)
   end
 
-  # Successful stops also carry the realized post-materialize image dimensions
-  # (an O(1) header read) — non-sensitive, and they surface the display-frame
-  # swap when the materialization flushed a pending quarter turn.
+  # Dimensions are a non-sensitive O(1) header read, including any flushed axis swap.
   defp ok_metadata(%State{image: image}),
     do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
 
-  # Delivery backstop delegates to the wrapped arity-1; it ignores opts (telemetry
-  # metadata rides on the State). Do not add a second span here.
+  # Delivery uses telemetry options from State; delegation avoids a second span.
   @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
   def materialize(%State{} = state, _opts) do
     materialize(state)
   end
 
-  # copy_to_memory returns a BARE {:ok, state} | {:error, reason}. The
-  # {:materialize_error, reason} TUPLE wrapping is owned by callers (Chain); the
-  # :materialize_error SPAN metadata label is set in the wrapper above only to
-  # drive Logger level escalation. Never re-wrap the error tuple here.
+  # Callers wrap errors as {:materialize_error, reason}. The span's matching
+  # result label controls Logger severity without changing the return value.
   defp copy_to_memory(%State{image: image} = state) do
     case VipsImage.copy_memory(image) do
       {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}

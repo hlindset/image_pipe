@@ -17,8 +17,8 @@ defmodule ImagePipe.Delivery.Producer do
   # `pump_loop/1` continues answering later `:next`/`:halt` demand from
   # whichever process sends it (normally the coordinator).
   #
-  # `pump`'s fourth argument is the calling dialect's `%Debug.Info{}` (or
-  # `nil` for a dialect that collects none). The first-chunk reply is the only
+  # `pump`'s fourth argument is the request runner's `%Debug.Info{}` (or
+  # `nil` for the request runner that collects none). The first-chunk reply is the only
   # channel it can take: debug facts are collected here, in the producer, from
   # values only this process sees (decoded dimensions, stage timings, encode
   # search metadata), and they are needed on the far side of the hop by both

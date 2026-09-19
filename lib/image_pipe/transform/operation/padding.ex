@@ -31,7 +31,7 @@ defmodule ImagePipe.Transform.Operation.Padding do
     height = Image.height(state.image) + operation.top + operation.bottom
 
     canvas = %ExtendCanvas{
-      rule: {:dimensions, {:pixels, width}, {:pixels, height}},
+      rule: {:dimensions, width, height},
       gravity: {:anchor, :left, :top},
       x_offset: operation.left,
       y_offset: operation.top,

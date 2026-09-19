@@ -26,6 +26,16 @@ defmodule ImagePipe.Plan.ResponseTest do
               ~s(inline; filename="%E6%9D%B1%E4%BA%AC.png"; filename*=utf-8''%E6%9D%B1%E4%BA%AC.png)}
   end
 
+  test "uses canonical extensions for complete-body terminals" do
+    response = %Response{disposition: :attachment, filename: "report"}
+
+    assert Response.content_disposition(response, "application/json") ==
+             {:ok, ~s(attachment; filename="report.json")}
+
+    assert Response.content_disposition(response, "text/plain") ==
+             {:ok, ~s(attachment; filename="report.txt")}
+  end
+
   test "rejects unsupported cached content type for delivery filename extension" do
     response = %Response{disposition: :inline, filename: "report"}
 

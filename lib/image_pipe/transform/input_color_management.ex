@@ -1,12 +1,10 @@
 defmodule ImagePipe.Transform.InputColorManagement do
   @moduledoc """
-  Fixed, data-determined input-conditioning preamble (NOT a `Plan.Operation`):
-  imports the embedded ICC profile into a working space before any processing
-  step, mirroring imgproxy's `colorspaceToProcessing`. Seeded once per
-  execution — by `ImagePipe.Transform.Executor` behind its
-  `seed_input_color_management` gate, or directly by an ordered dialect's own
-  pipeline. The caller passes `supports_hdr?`, which `ImagePipe.Output.Policy`
-  resolves from `Plan.Output.hdr` and the output format's HDR capability.
+  Converts decoded input to a working color space before transforms.
+
+  Runs once per execution, importing embedded ICC profiles when needed. The
+  caller supplies `supports_hdr?` from `ImagePipe.Output.Policy`, based on the HDR
+  policy and output format's capabilities.
   """
 
   alias ImagePipe.Telemetry
@@ -18,30 +16,20 @@ defmodule ImagePipe.Transform.InputColorManagement do
   @doc """
   Conditions a decoded image into a working space before any processing step.
 
-  Mirrors imgproxy `colorspaceToProcessing` (`processing/colorspace_to_processing.go`)
-  composed with `vips_icc_import_go` (`vips/vips.c`):
+  1. Returns already-imported state (`color_imported?: true`) unchanged.
+  2. Unpacks Radiance-coded HDR input with `rad2float`.
+  3. For linear-light (`:VIPS_INTERPRETATION_scRGB`) input, drops the embedded
+     profile without saving it or setting `color_imported?`.
+  4. For other input with an importable ICC profile, saves the profile bytes on
+     `State`, imports to PCS float, and sets `color_imported?`.
+  5. Converts to the working space, including when no profile was imported.
 
-  1. Idempotent: a state that already imported (`color_imported?: true`) is
-     returned unchanged.
-  2. Best-effort Radiance unpack (`rad2float`) for coded HDR sources.
-  3. Linear-light (`:VIPS_INTERPRETATION_scRGB`) sources drop the embedded
-     profile (no backup recorded, `color_imported?` stays `false`) but are still
-     converted to the working space.
-  4. Otherwise, when the source carries an importable embedded ICC profile, the
-     profile bytes are recorded on `State`, `color_imported?` is set, the profile
-     is imported (landing in PCS float), and the result is converted to the
-     working space. Sources without an importable profile skip the import (no
-     backup, flag stays `false`) but are still converted.
+  Preserves dimensions, `source_dimensions`, and `decode_shrink`. Returns failures
+  as `{:error, {__MODULE__, reason}}`.
 
-  Color conversion preserves dimensions; `source_dimensions`/`decode_shrink` are
-  left untouched. Failures surface as `{:error, {__MODULE__, reason}}`.
-
-  Emits the `[:transform, :input_color_management]` span (via
-  `state.telemetry_opts`) on every real conditioning invocation — once per
-  executed request on every stack, including the no-op case (a profile-less or
-  linear-light source stops with `imported?: false`). The idempotent
-  `color_imported?: true` early return does not re-emit. Stop metadata:
-  `%{result:, working_space:, imported?:}`.
+  Emits `[:transform, :input_color_management]` through `state.telemetry_opts`,
+  with stop metadata `%{result:, working_space:, imported?:}`. Skipped imports
+  report `imported?: false`; the already-imported early return emits no span.
   """
   @spec condition(State.t(), keyword()) :: {:ok, State.t()} | {:error, {__MODULE__, term()}}
   def condition(state, opts \\ [])
@@ -100,18 +88,16 @@ defmodule ImagePipe.Transform.InputColorManagement do
     end
   end
 
-  # Import gating mirrors imgproxy `ImportColourProfile` early-returns: import only
-  # when the source has an embedded profile, is not an already-sRGB-IEC61966
-  # image, and is in a band layout `vips_icc_import` accepts.
+  # Import supported uncoded input with an embedded profile, except sRGB input
+  # already using the canonical IEC61966 profile.
   defp importable?(image, interp, profile) do
     is_binary(profile) and
       not (interp == :VIPS_INTERPRETATION_sRGB and srgb_iec61966?(profile)) and
       coding_none?(image) and band_format_importable?(image)
   end
 
-  # Imports the embedded profile, landing in PCS float. For RGB16/GREY16 sources
-  # carrying an alpha band, mirrors `vips_icc_import_go`: split the alpha off,
-  # import the color bands only, rescale the 16-bit alpha, and rejoin.
+  # Import to PCS float. For RGB16/GREY16, separate alpha before importing color
+  # bands, then rescale and rejoin it (matching imgproxy's vips_icc_import_go).
   defp icc_import(image, interp, profile) do
     pcs = pcs(profile)
 
@@ -153,8 +139,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
     end
   end
 
-  # Mirrors the cast-to-imported-format + linear(1/255) rescale of the 16-bit
-  # alpha in `vips_icc_import_go`. Rescales by 1/255 (mirrors vips_icc_import_go).
+  # Match vips_icc_import_go: cast alpha to the imported format and scale by 1/255.
   defp rescale_alpha(alpha, imported) do
     with {:ok, format} <- VixImage.header_value(imported, "format"),
          {:ok, cast} <- Operation.cast(alpha, format) do
@@ -162,42 +147,9 @@ defmodule ImagePipe.Transform.InputColorManagement do
     end
   end
 
-  @doc """
-  Hands `condition/2`'s two `State` fields to the encoder, as private image
-  metadata, at the delivery boundary.
-
-  The read-side counterpart of `condition/2`: it is the ONLY writer of the
-  `imagepipe-icc-imported` / `imagepipe-icc-backup` headers that
-  `ImagePipe.Output.Encoder`'s colorspace-to-result step reads (mirroring
-  imgproxy `colorspaceToResult`). It lives here, next to `condition/2`, because
-  `condition/2` is the only writer of the `State` fields it carries — the pair
-  is one seam, and every caller that runs the preamble must also run this or the
-  encoder silently takes the "no import ran" branch on an imported image.
-
-  Call it once per request, after the last operation and before encoding.
-
-  A state that never imported (`color_imported?: false`, e.g. a profile-less or
-  linear-light source) is returned unchanged: there is nothing to carry.
-  """
-  @spec stamp_carry(State.t()) :: State.t()
-  def stamp_carry(%State{color_imported?: false} = state), do: state
-
-  def stamp_carry(%State{source_color_profile: profile} = state) when is_binary(profile) do
-    {:ok, image} =
-      VixImage.mutate(state.image, fn mut ->
-        :ok = MutableImage.set(mut, "imagepipe-icc-backup", :VipsBlob, profile)
-        :ok = MutableImage.set(mut, "imagepipe-icc-imported", :gint, 1)
-      end)
-
-    State.set_image(state, image)
-  end
-
-  def stamp_carry(%State{} = state), do: state
-
   defp to_colorspace(image, target), do: Operation.colourspace(image, target)
 
-  # Best-effort: only Radiance-coded sources need unpacking; everything else is a
-  # pass-through.
+  # Only Radiance-coded sources need unpacking.
   defp rad2float(image) do
     case VixImage.header_value(image, "coding") do
       {:ok, :VIPS_CODING_RAD} -> Operation.rad2float(image)
@@ -231,7 +183,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
     end
   end
 
-  @doc "Working-space interpretation for a decoded image (port of guessTargetColorspace)."
+  @doc "Returns the working-space interpretation for the input and output HDR capability."
   @spec working_space(atom(), boolean()) :: atom()
   def working_space(interpretation, supports_hdr?)
 
@@ -273,7 +225,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
   Checks (all must match):
   - offset  8 – version `<<2, 16, 0, 0>>` (profile version 2.1)
   - offset 16 – colorspace `"RGB "`
-  - offset 24 – creation date `<<7, 206, 0, 2, 0, 9>>` (1998-12-01)
+  - offset 24 – creation date prefix `<<7, 206, 0, 2, 0, 9>>`
   - offset 48 – device manufacturer `"IEC "`
   - offset 52 – device model `"sRGB"`
   - offset 80 – profile creator `"HP  "`
@@ -294,7 +246,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
         # offset 16: colorspace "RGB "
         "RGB ",
         _::binary-size(4),
-        # offset 24: date 1998-12-01
+        # offset 24: creation date prefix
         7,
         206,
         0,

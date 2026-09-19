@@ -16,6 +16,7 @@ defmodule ImagePipe.Cache.FileSystem do
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.Key
   alias ImagePipe.Debug.Info
+  alias ImagePipe.Format
 
   @metadata_version 1
   @cache_key_hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
@@ -95,7 +96,7 @@ defmodule ImagePipe.Cache.FileSystem do
                     ]
                   )
 
-  @doc false
+  @doc "Returns the supervision tree required by a bounded filesystem cache."
   def child_spec(opts) do
     if Keyword.has_key?(opts, :max_size_bytes) do
       registry_name = registry_name(Keyword.fetch!(opts, :root))
@@ -531,6 +532,7 @@ defmodule ImagePipe.Cache.FileSystem do
          content_type: metadata.content_type,
          headers: metadata.headers,
          created_at: created_at,
+         representation: metadata.representation,
          debug: metadata.debug
        }, metadata}
     end
@@ -563,7 +565,8 @@ defmodule ImagePipe.Cache.FileSystem do
       body_sha256: body_sha256,
       body_filename: body_filename,
       cost_us: state.metadata.cost_us,
-      debug: state.metadata.debug
+      debug: state.metadata.debug,
+      representation: state.metadata.representation
     }
 
     :erlang.term_to_binary(metadata, [:deterministic])
@@ -589,13 +592,14 @@ defmodule ImagePipe.Cache.FileSystem do
          body_sha256: body_sha256,
          body_filename: body_filename,
          cost_us: cost_us,
-         debug: debug
+         debug: debug,
+         representation: representation
        })
        when is_binary(content_type) and is_list(headers) and is_binary(created_at) and
               is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) and
               is_binary(body_filename) and is_integer(cost_us) and cost_us >= 0 do
     with :ok <- validate_metadata_debug(debug),
-         :ok <- validate_metadata_content_type(content_type),
+         :ok <- validate_metadata_representation(representation, content_type),
          :ok <- validate_metadata_headers(headers) do
       {:ok,
        %{
@@ -606,12 +610,15 @@ defmodule ImagePipe.Cache.FileSystem do
          body_sha256: body_sha256,
          body_filename: body_filename,
          cost_us: cost_us,
-         debug: debug
+         debug: debug,
+         representation: representation
        }}
     end
   end
 
-  defp validate_metadata(%{metadata_version: _version}), do: {:error, :version_mismatch}
+  defp validate_metadata(%{metadata_version: version}) when version != @metadata_version,
+    do: {:error, :version_mismatch}
+
   defp validate_metadata(_metadata), do: {:error, :invalid_shape}
 
   defp validate_metadata_debug(debug) when is_struct(debug, Info) or is_nil(debug), do: :ok
@@ -625,6 +632,33 @@ defmodule ImagePipe.Cache.FileSystem do
       {:error, reason} -> {:error, {:invalid_content_type, reason}}
     end
   end
+
+  defp validate_metadata_representation(nil, content_type),
+    do: validate_metadata_content_type(content_type)
+
+  defp validate_metadata_representation(
+         {:complete_body, tagged_type} = representation,
+         content_type
+       )
+       when is_binary(tagged_type) do
+    case Entry.validate_content_type(content_type, representation) do
+      :ok when tagged_type == content_type -> :ok
+      _invalid_or_mismatched -> {:error, {:invalid_representation, representation}}
+    end
+  end
+
+  defp validate_metadata_representation({:image, format} = representation, content_type)
+       when is_atom(format) do
+    with :ok <- Entry.validate_content_type(content_type, representation),
+         {:ok, ^content_type} <- Format.mime_type(format) do
+      :ok
+    else
+      _invalid_or_mismatched -> {:error, {:invalid_representation, representation}}
+    end
+  end
+
+  defp validate_metadata_representation(representation, _content_type),
+    do: {:error, {:invalid_representation, representation}}
 
   defp validate_metadata_headers(headers) do
     if Enum.all?(headers, &valid_metadata_header?/1) do

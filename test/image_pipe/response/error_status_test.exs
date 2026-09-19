@@ -6,9 +6,6 @@ defmodule ImagePipe.Response.ErrorStatusTest do
   describe "resolve_status/1 — status axis" do
     test "transform bad_request details all map to 400 (open detail)" do
       assert {400, _} =
-               ErrorStatus.resolve_status({:transform_error, {:bad_request, :upscale_required}})
-
-      assert {400, _} =
                ErrorStatus.resolve_status(
                  {:transform_error, {:bad_request, :region_out_of_bounds}}
                )
@@ -17,13 +14,12 @@ defmodule ImagePipe.Response.ErrorStatusTest do
                ErrorStatus.resolve_status({:transform_error, {:bad_request, :some_future_detail}})
     end
 
-    test "generic transform / plan-validation / empty pipeline stay 422" do
+    test "generic transform and detector unavailability stay 422" do
       assert {422, _} = ErrorStatus.resolve_status({:transform_error, {SomeMod, :boom}})
-      assert {422, _} = ErrorStatus.resolve_status({:invalid_pipeline_operation, :x})
-      assert {422, _} = ErrorStatus.resolve_status(:empty_pipeline_plan)
+      assert {422, _} = ErrorStatus.resolve_status({:detector_unavailable, :unavailable})
     end
 
-    test "source transport reasons map imgproxy-shaped" do
+    test "source transport reasons map to stable statuses" do
       assert {404, _} = ErrorStatus.resolve_status({:source, :connect_error})
       assert {404, _} = ErrorStatus.resolve_status({:source, :too_many_redirects})
       assert {502, _} = ErrorStatus.resolve_status({:source, {:bad_status, 503}})
@@ -49,7 +45,6 @@ defmodule ImagePipe.Response.ErrorStatusTest do
 
     test "class-leading custom reason routes by class from any producer" do
       assert {404, _} = ErrorStatus.resolve_status({:source, {:not_found, :my_detail}})
-      assert {504, _} = ErrorStatus.resolve_status({:render, {:source, :receive_timeout}})
     end
 
     test "passthrough echoes the code, clamping an out-of-range value to 502" do
@@ -61,7 +56,6 @@ defmodule ImagePipe.Response.ErrorStatusTest do
   describe "resolve_status/1 — message axis" do
     test "messages are distinct across reasons and never embed a URL" do
       reasons = [
-        {:transform_error, {:bad_request, :upscale_required}},
         {:transform_error, {:bad_request, :region_out_of_bounds}},
         {:transform_error, {SomeMod, :boom}},
         {:source, :connect_error},

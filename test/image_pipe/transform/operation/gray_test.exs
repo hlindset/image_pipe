@@ -21,7 +21,7 @@ defmodule ImagePipe.Transform.Operation.GrayTest do
     end
   end
 
-  @rgba "test/support/image_pipe/test/imgproxy_differential/sources/alpha.png"
+  @rgba "test/support/image_pipe/test/sources/alpha.png"
 
   test "preserves an alpha band (RGBA -> 2-band B_W + alpha)" do
     {:ok, image} = Image.open(@rgba, access: :random)

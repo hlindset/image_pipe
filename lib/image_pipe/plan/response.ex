@@ -40,6 +40,9 @@ defmodule ImagePipe.Plan.Response do
     end
   end
 
+  defp delivery_extension("application/json"), do: {:ok, "json"}
+  defp delivery_extension("text/plain"), do: {:ok, "txt"}
+
   defp delivery_extension(content_type) do
     if content_type in @delivery_content_types do
       content_type

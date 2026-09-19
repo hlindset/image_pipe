@@ -1,10 +1,9 @@
 defmodule ImagePipe.Transform.Operation.Bitonal do
   @moduledoc """
-  Executable bitonal (black-and-white threshold) operation. Converts to grayscale
-  (`:bw` colourspace), then applies a `>= 128` threshold so each luminance value
-  becomes either 0 (black) or 255 (white). Any **alpha band is preserved
-  untouched** (the threshold runs only on the colour band, so soft transparency is
-  not hard-quantized). Per-pixel point op: sequential-safe.
+  Converts to grayscale (`:bw`), then thresholds luminance at 128.
+
+  Values below 128 become black (0); others become white (255). Alpha is preserved,
+  keeping soft transparency. This per-pixel operation is sequential-safe.
   """
 
   use ImagePipe.Transform

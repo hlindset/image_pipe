@@ -21,7 +21,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{LogExporter, OpenTelemetryExporter, OtelReplay, Span}
-  alias ImgproxyWireConformanceTest.CacheProbe
+  alias ImagePipe.Test.PlugFixture.CacheProbe
 
   # Inline plug: serves beach.jpg for any request path (ignores query params).
   # Used by signed_miss_opts so the Req plug-adapter handles the signed fetch URL.
@@ -85,20 +85,13 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
   end
 
-  defp iiif_beach_resolver do
-    {ImagePipe.Dialect.IIIF.Resolver.Static,
-     map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}}
-  end
-
   defp miss_opts do
     [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver: iiif_beach_resolver(),
       sources: [
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test",
-           req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
+           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
       ],
       cache: {CacheProbe, result: :miss}
     ]
@@ -106,8 +99,6 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   defp signed_miss_opts do
     [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver: iiif_beach_resolver(),
       sources: [
         path:
           {SignedRootHTTPAdapter,
@@ -117,7 +108,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     ]
   end
 
-  defp request_path, do: "/beach/full/!120,90/0/default.jpg"
+  defp request_path, do: "/w=120/h=90/format=jpeg/src/images/beach.jpg"
 
   # Drain all {:span, rec} OTel records delivered to this process.
   defp drain_spans(timeout \\ 500) do

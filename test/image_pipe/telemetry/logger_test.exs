@@ -4,6 +4,9 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   import ExUnit.CaptureLog
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.State
 
   setup do
     on_exit(fn -> Telemetry.detach_default_logger() end)
@@ -45,6 +48,37 @@ defmodule ImagePipe.Telemetry.LoggerTest do
       end)
 
     assert log =~ "encode: ok (jpeg)"
+  end
+
+  test "renders an output terminal span with its terminal and outcome" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :output, :terminal, :stop],
+          %{duration: System.convert_time_unit(2, :millisecond, :native)},
+          %{terminal: :info, result: :ok}
+        )
+      end)
+
+    assert log =~ "output terminal: ok (info)"
+  end
+
+  test "escalates an output terminal computation failure" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :output, :terminal, :stop],
+          %{duration: 1_000},
+          %{terminal: :blurhash, result: :processing_error}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "output terminal: processing_error (blurhash)"
   end
 
   test "renders the request span with the :options (OPTIONS) outcome" do
@@ -437,21 +471,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "transform detect: no_regions"
   end
 
-  test "renders a transform operation with name and index" do
-    Telemetry.attach_default_logger(level: :debug)
+  test "renders transform operation success and error outcomes" do
+    prefix = [__MODULE__, :operation_outcome]
+    Telemetry.attach_default_logger(level: :debug, prefix: prefix)
+    state = %State{image: Image.new!(20, 10, color: :white)}
+    resize = %Resize{width: 10, height: 5}
 
     # capture at :debug explicitly so the test does not depend on the ambient
     # Logger level.
     log =
       capture_log([level: :debug], fn ->
+        assert {:ok, %State{}} =
+                 Transform.run(state, resize, telemetry_prefix: prefix)
+
         :telemetry.execute(
-          [:image_pipe, :transform, :operation, :stop],
+          prefix ++ [:transform, :operation, :stop],
           %{duration: 500},
-          %{operation: :resize, index: 0, params: %{}, result: :ok}
+          %{operation: :resize, params: resize, result: :error}
         )
       end)
 
-    assert log =~ "transform: resize (#1)"
+    assert log =~ "transform: resize ok"
+    assert log =~ "transform: resize error"
   end
 
   test "renders the transform execute aggregate with outcome and operation count" do
@@ -548,41 +589,6 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     assert log =~ "[warning]"
     assert log =~ "transform input_color_management: processing_error"
-  end
-
-  test "renders the render span with its content type on success" do
-    Telemetry.attach_default_logger(level: :info)
-
-    log =
-      capture_log(fn ->
-        :telemetry.execute(
-          [:image_pipe, :render, :stop],
-          %{duration: System.convert_time_unit(2, :millisecond, :native)},
-          %{result: :ok, content_type: "application/json"}
-        )
-      end)
-
-    assert log =~ "render"
-    assert log =~ "ok"
-    assert log =~ "application/json"
-    refute log =~ "[warning]"
-  end
-
-  test "escalates a render_error to warning" do
-    Telemetry.attach_default_logger(level: :info)
-
-    log =
-      capture_log(fn ->
-        :telemetry.execute(
-          [:image_pipe, :render, :stop],
-          %{duration: 1000},
-          %{result: :render_error, error: :boom}
-        )
-      end)
-
-    assert log =~ "[warning]"
-    assert log =~ "render"
-    assert log =~ "render_error"
   end
 
   test "renders the detected source format and resolution on the fetch_decode span" do
@@ -770,19 +776,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   end
 
   test ":debug true logs the raw payload including high-cardinality fields" do
-    Telemetry.attach_default_logger(level: :debug, debug: true)
+    prefix = [__MODULE__, :operation_debug]
+    Telemetry.attach_default_logger(level: :debug, debug: true, prefix: prefix)
+    state = %State{image: Image.new!(20, 10, color: :white)}
+    resize = %Resize{width: 12, height: 5}
 
     log =
       capture_log([level: :debug], fn ->
-        :telemetry.execute(
-          [:image_pipe, :transform, :operation, :stop],
-          %{duration: 1},
-          %{operation: :resize, index: 0, params: %{magic: 12_345}, result: :ok}
-        )
+        assert {:ok, %State{}} =
+                 Transform.run(state, resize, telemetry_prefix: prefix)
       end)
 
     assert log =~ "raw:"
-    assert log =~ "12345"
+    assert log =~ "ImagePipe.Transform.Operation.Resize"
+    assert log =~ "width: 12"
+    assert log =~ "height: 5"
   end
 
   test ":prefix attaches under a custom event prefix" do

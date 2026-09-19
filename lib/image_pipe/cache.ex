@@ -81,10 +81,8 @@ defmodule ImagePipe.Cache do
   def shared_option_keys, do: @shared_cache_option_keys
 
   @doc """
-  Looks up the entry stored under `key`, dispatching to the configured adapter
-  and failing open on a read error. A dialect builds its own
-  `%ImagePipe.Cache.Key{}` via `ImagePipe.Representation.build/3` and looks it
-  up directly.
+  Looks up `key` through the configured adapter, treating read errors as misses.
+  The request runner builds the key with `ImagePipe.Representation.build/3`.
   """
   @spec lookup_entry(Key.t(), keyword()) :: entry_lookup_result()
   def lookup_entry(%Key{} = key, opts) when is_list(opts) do

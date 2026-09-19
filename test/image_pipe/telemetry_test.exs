@@ -4,11 +4,6 @@ defmodule ImagePipe.TelemetryTest do
   import ExUnit.CaptureLog
   import Plug.Test
 
-  alias ImagePipe.Dialect.IIIF
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Output
-  alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
   alias ImagePipe.Source.Response, as: SourceResponse
   alias Vix.Vips.Image, as: VipsImage
@@ -43,98 +38,6 @@ defmodule ImagePipe.TelemetryTest do
     def fetch(_resolved, _opts, _runtime_opts) do
       {:ok, %ImagePipe.Source.Response{stream: ["not actually a png"]}}
     end
-  end
-
-  # The plan-shaped doubles below need no options of their own: they read only
-  # the shared runtime keys (`sources`, `cache`, safety limits) and the
-  # declarative base's own keys, so config validation delegates to both.
-  defmodule PlanFixtureConfig do
-    alias ImagePipe.Dialect.Declarative
-    alias ImagePipe.Dialect.SharedConfig
-
-    def validate!(opts) do
-      {shared, rest} = Keyword.split(opts, SharedConfig.keys())
-      {base, unknown} = Keyword.split(rest, Declarative.config_keys())
-
-      if unknown != [] do
-        raise "unknown mount option(s): #{inspect(Keyword.keys(unknown))}"
-      end
-
-      Keyword.merge(SharedConfig.validate_runtime!(shared), Declarative.validate_config!(base))
-    end
-  end
-
-  defmodule EmptyPipelineDialect do
-    use ImagePipe.Dialect.Declarative
-
-    @impl ImagePipe.Dialect
-    def validate_config!(opts), do: PlanFixtureConfig.validate!(opts)
-
-    @impl ImagePipe.Dialect.Declarative
-    def parse_plan(_conn, _config), do: {:ok, ImagePipe.TelemetryTest.plan(pipelines: [])}
-
-    @impl ImagePipe.Dialect
-    def render_error(conn, reason, config),
-      do: IIIF.render_error(conn, reason, config)
-  end
-
-  defmodule RaisingDialect do
-    use ImagePipe.Dialect.Declarative
-
-    @impl ImagePipe.Dialect
-    def validate_config!(opts), do: PlanFixtureConfig.validate!(opts)
-
-    @impl ImagePipe.Dialect.Declarative
-    def parse_plan(_conn, _config), do: raise("forced parse failure")
-
-    @impl ImagePipe.Dialect
-    def render_error(conn, reason, config),
-      do: IIIF.render_error(conn, reason, config)
-  end
-
-  # Automatic output negotiation is a shape the IIIF grammar cannot spell (its
-  # path always names a format), so — like the empty-pipeline case above — the
-  # tests that exercise it drive a plan with `output: :automatic` through a
-  # test-local declarative dialect.
-  defmodule AutomaticBeachDialect do
-    use ImagePipe.Dialect.Declarative
-
-    @impl ImagePipe.Dialect
-    def validate_config!(opts), do: PlanFixtureConfig.validate!(opts)
-
-    @impl ImagePipe.Dialect.Declarative
-    def parse_plan(_conn, _config) do
-      {:ok,
-       ImagePipe.TelemetryTest.plan(
-         pipelines: [%ImagePipe.Plan.Pipeline{operations: []}],
-         output: %ImagePipe.Plan.Output{mode: :automatic}
-       )}
-    end
-
-    @impl ImagePipe.Dialect
-    def render_error(conn, reason, config),
-      do: IIIF.render_error(conn, reason, config)
-  end
-
-  defmodule AutomaticTiffDialect do
-    use ImagePipe.Dialect.Declarative
-
-    @impl ImagePipe.Dialect
-    def validate_config!(opts), do: PlanFixtureConfig.validate!(opts)
-
-    @impl ImagePipe.Dialect.Declarative
-    def parse_plan(_conn, _config) do
-      {:ok,
-       ImagePipe.TelemetryTest.plan(
-         source: %ImagePipe.Plan.Source.Path{segments: ["images", "source.tiff"]},
-         pipelines: [%ImagePipe.Plan.Pipeline{operations: []}],
-         output: %ImagePipe.Plan.Output{mode: :automatic}
-       )}
-    end
-
-    @impl ImagePipe.Dialect
-    def render_error(conn, reason, config),
-      do: IIIF.render_error(conn, reason, config)
   end
 
   defmodule FailOpenCacheReadFailure do
@@ -227,6 +130,19 @@ defmodule ImagePipe.TelemetryTest do
     def fetch(_resolved, _opts, _runtime_opts), do: raise("resolve should fail before fetch")
   end
 
+  defmodule RaisingSourceAdapter do
+    @behaviour ImagePipe.Source
+
+    @impl ImagePipe.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePipe.Source
+    def resolve(_source, _opts, _runtime_opts), do: raise("forced source failure")
+
+    @impl ImagePipe.Source
+    def fetch(_resolved, _opts, _runtime_opts), do: raise("resolve should fail before fetch")
+  end
+
   defmodule RaisingAfterFirstChunkImage do
     def stream!(_image, [{:suffix, ".jpg"} | _]) do
       Stream.resource(
@@ -257,7 +173,7 @@ defmodule ImagePipe.TelemetryTest do
   test "emits request and representative stage spans for successful requests" do
     conn =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -314,7 +230,7 @@ defmodule ImagePipe.TelemetryTest do
   test "an image request emits the complete stage-span set" do
     conn =
       :get
-      |> conn("/beach/full/100,/0/default.jpg")
+      |> conn("/w=100/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts(cache: {WritableCache, []}))
 
     assert conn.status == 200
@@ -335,62 +251,10 @@ defmodule ImagePipe.TelemetryTest do
     ])
   end
 
-  test "an info.json request emits the complete stage-span set, with render a sibling of fetch_decode" do
-    conn =
-      :get
-      |> conn("/beach/info.json")
-      |> ImagePipe.Plug.call(base_opts())
-
-    assert conn.status == 200
-    events = telemetry_events()
-
-    assert_spans(events, [
-      [:request],
-      [:parse],
-      [:source, :resolve],
-      [:source, :fetch],
-      [:source, :fetch_decode],
-      [:render],
-      [:send]
-    ])
-
-    # The render terminal runs after the decode bracket closes, so its span is a
-    # SIBLING of [:source, :fetch_decode] rather than its parent: fetch_decode
-    # has already stopped by the time [:render] starts.
-    names = event_names(events)
-
-    assert index_of(names, @prefix ++ [:source, :fetch_decode, :stop]) <
-             index_of(names, @prefix ++ [:render, :start])
-
-    # No image terminal ran, and info.json takes neither the cache-lookup nor
-    # the output-negotiation branch of the image path.
-    refute_event(events, @prefix ++ [:encode, :start])
-    refute_event(events, @prefix ++ [:deliver, :start])
-    refute_event(events, @prefix ++ [:cache, :lookup, :start])
-    refute_event(events, @prefix ++ [:output, :negotiate, :start])
-  end
-
-  test "a decode failure on info.json emits no render span" do
-    conn =
-      :get
-      |> conn("/beach/info.json")
-      |> ImagePipe.Plug.call(base_opts(sources: [path: {InvalidSourceAdapter, []}]))
-
-    assert conn.status == 415
-    events = telemetry_events()
-
-    assert_event(events, @prefix ++ [:source, :fetch_decode, :stop], fn _measurements, metadata ->
-      assert metadata.result == :processing_error
-    end)
-
-    refute_event(events, @prefix ++ [:render, :start])
-    refute_event(events, @prefix ++ [:render, :stop])
-  end
-
   test "source resolve and fetch spans use safe low-cardinality metadata" do
     conn =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -442,7 +306,7 @@ defmodule ImagePipe.TelemetryTest do
   test "uses configurable telemetry prefix" do
     conn =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts(telemetry_prefix: @custom_prefix))
 
     assert conn.status == 200
@@ -476,7 +340,7 @@ defmodule ImagePipe.TelemetryTest do
     {conn, log} =
       with_log(fn ->
         :get
-        |> conn("/beach/full/max/0/default.jpg")
+        |> conn("/format=jpeg/src/images/beach.jpg")
         |> ImagePipe.Plug.call(base_opts(image_module: RaisingAfterFirstChunkImage))
       end)
 
@@ -516,7 +380,7 @@ defmodule ImagePipe.TelemetryTest do
     {conn, log} =
       with_log(fn ->
         :get
-        |> conn("/beach/full/max/0/default.jpg")
+        |> conn("/format=jpeg/src/images/beach.jpg")
         |> ImagePipe.Plug.call(base_opts(image_module: RaisingBeforeFirstChunkImage))
       end)
 
@@ -551,8 +415,8 @@ defmodule ImagePipe.TelemetryTest do
   test "automatic source format fallback does not emit failed output negotiation telemetry" do
     conn =
       :get
-      |> conn("/automatic")
-      |> ImagePipe.Plug.call(fixture_opts(AutomaticBeachDialect))
+      |> conn("/src/images/beach.jpg")
+      |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
     events = telemetry_events()
@@ -579,12 +443,8 @@ defmodule ImagePipe.TelemetryTest do
 
     conn =
       :get
-      |> conn("/automatic")
-      |> ImagePipe.Plug.call(
-        fixture_opts(AutomaticTiffDialect,
-          sources: [path: {SourceBytes, body: tiff_body(:white)}]
-        )
-      )
+      |> conn("/src/images/source.tiff")
+      |> ImagePipe.Plug.call(base_opts(sources: [path: {SourceBytes, body: tiff_body(:white)}]))
 
     assert conn.status == 200
     events = telemetry_events()
@@ -609,7 +469,7 @@ defmodule ImagePipe.TelemetryTest do
   test "fail-open cache read errors are reported on cache lookup telemetry" do
     conn =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts(cache: {FailOpenCacheReadFailure, []}))
 
     assert conn.status == 200
@@ -630,7 +490,7 @@ defmodule ImagePipe.TelemetryTest do
   test "invalid cache entries are reported on cache lookup telemetry" do
     conn =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts(cache: {InvalidCacheHit, []}))
 
     assert conn.status == 200
@@ -651,7 +511,7 @@ defmodule ImagePipe.TelemetryTest do
   test "fail-open cache staging write errors are reported on cache stage telemetry" do
     conn =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts(cache: {FailOpenCacheWriteFailure, []}))
 
     assert conn.status == 200
@@ -672,25 +532,19 @@ defmodule ImagePipe.TelemetryTest do
   test "emits request stop metadata for failures that return responses" do
     cases = [
       parse: {
-        conn(:get, "/beach/full/max/370/default.jpg"),
+        conn(:get, "/rotate=361/format=jpeg/src/images/beach.jpg"),
         base_opts(),
         :parser_error,
         400
       },
-      plan: {
-        conn(:get, "/any"),
-        fixture_opts(EmptyPipelineDialect),
-        :plan_error,
-        422
-      },
       source: {
-        conn(:get, "/beach/full/max/0/default.jpg"),
+        conn(:get, "/format=jpeg/src/images/beach.jpg"),
         base_opts(sources: []),
         :source_error,
         500
       },
       processing: {
-        conn(:get, "/beach/full/max/0/default.jpg"),
+        conn(:get, "/format=jpeg/src/images/beach.jpg"),
         base_opts(sources: [path: {InvalidSourceAdapter, []}]),
         :processing_error,
         415
@@ -716,10 +570,10 @@ defmodule ImagePipe.TelemetryTest do
     end
   end
 
-  test "parse error stop metadata names the rejected reason" do
+  test "native parse failures identify the invalid request on the request span" do
     conn =
       :get
-      |> conn("/beach/full/max/370/default.jpg")
+      |> conn("/rotate=361/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 400
@@ -727,14 +581,19 @@ defmodule ImagePipe.TelemetryTest do
 
     assert_event(events, @prefix ++ [:parse, :stop], fn _measurements, metadata ->
       assert metadata.result == :error
-      assert metadata.error == :invalid_rotation
+    end)
+
+    assert_event(events, @prefix ++ [:request, :stop], fn _measurements, metadata ->
+      assert metadata.result == :parser_error
+      assert metadata.error == :invalid_request
+      assert metadata.status == 400
     end)
   end
 
-  test "source and plan-validation request errors carry the outer reason tag" do
+  test "source request errors carry the outer reason tag" do
     source =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts(sources: []))
 
     assert source.status == 500
@@ -742,37 +601,29 @@ defmodule ImagePipe.TelemetryTest do
     assert_event(telemetry_events(), @prefix ++ [:request, :stop], fn _measurements, metadata ->
       assert metadata.error == :source
     end)
-
-    plan =
-      :get
-      |> conn("/any")
-      |> ImagePipe.Plug.call(fixture_opts(EmptyPipelineDialect))
-
-    assert plan.status == 422
-
-    assert_event(telemetry_events(), @prefix ++ [:request, :stop], fn _measurements, metadata ->
-      assert metadata.error == :plan_validation
-    end)
   end
 
   test "emits exception events only for real raised exceptions" do
-    assert_raise RuntimeError, "forced parse failure", fn ->
-      ImagePipe.Plug.call(conn(:get, "/any"), fixture_opts(RaisingDialect))
+    assert_raise RuntimeError, "forced source failure", fn ->
+      ImagePipe.Plug.call(
+        conn(:get, "/format=jpeg/src/images/beach.jpg"),
+        base_opts(sources: [path: {RaisingSourceAdapter, []}])
+      )
     end
 
     events = telemetry_events()
 
-    assert_event(events, @prefix ++ [:parse, :exception], fn measurements, metadata ->
+    assert_event(events, @prefix ++ [:source, :resolve, :exception], fn measurements, metadata ->
       assert is_integer(measurements.duration)
       assert metadata.kind == :error
-      assert %RuntimeError{message: "forced parse failure"} = metadata.reason
+      assert %RuntimeError{message: "forced source failure"} = metadata.reason
       assert is_list(metadata.stacktrace)
     end)
 
     assert_event(events, @prefix ++ [:request, :exception], fn measurements, metadata ->
       assert is_integer(measurements.duration)
       assert metadata.kind == :error
-      assert %RuntimeError{message: "forced parse failure"} = metadata.reason
+      assert %RuntimeError{message: "forced source failure"} = metadata.reason
       assert is_list(metadata.stacktrace)
     end)
   end
@@ -785,7 +636,7 @@ defmodule ImagePipe.TelemetryTest do
 
     conn =
       :get
-      |> conn("/beach/full/#{target_w},/0/default.jpg")
+      |> conn("/w=#{target_w}/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -814,7 +665,7 @@ defmodule ImagePipe.TelemetryTest do
   test "transform execute span carries operation count and names" do
     conn =
       :get
-      |> conn("/beach/full/100,/0/default.jpg")
+      |> conn("/w=100/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -839,7 +690,7 @@ defmodule ImagePipe.TelemetryTest do
     # SourceBytes returns `big_body` regardless of this path; the path only has to parse.
     conn =
       :get
-      |> conn("/srctiff/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/source.tiff")
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 422
@@ -856,7 +707,7 @@ defmodule ImagePipe.TelemetryTest do
 
     conn =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 413
@@ -871,7 +722,7 @@ defmodule ImagePipe.TelemetryTest do
   test "input_color_management span fires with working_space and imported? for a standard sRGB image" do
     conn =
       :get
-      |> conn("/beach/full/max/0/default.jpg")
+      |> conn("/format=jpeg/src/images/beach.jpg")
       |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
@@ -902,16 +753,12 @@ defmodule ImagePipe.TelemetryTest do
              @custom_prefix
 
     for prefix <- ["image_pipe", [:image_pipe, "request"], [], [:image_pipe, 1]] do
-      assert_raise ArgumentError,
-                   ~r/invalid ImagePipe shared runtime options: invalid value for :telemetry_prefix option/,
-                   fn -> ImagePipe.Plug.init(opts(telemetry_prefix: prefix)) end
+      assert_raise ArgumentError, fn -> ImagePipe.Plug.init(opts(telemetry_prefix: prefix)) end
     end
   end
 
   describe "request_result/1" do
-    # The shared classifier the dialect Plugs stamp on their [:request] span's
-    # :result. It must exactly mirror the runner's own error classification so
-    # both arms speak the same vocabulary.
+    # The shared classifier stamps the native request span's result.
     test "maps :ok and :not_modified straight through" do
       assert ImagePipe.Telemetry.request_result(:ok) == :ok
       assert ImagePipe.Telemetry.request_result(:not_modified) == :not_modified
@@ -920,23 +767,6 @@ defmodule ImagePipe.TelemetryTest do
     test "maps a source error" do
       assert ImagePipe.Telemetry.request_result({:error, {:source, :connect_error}}) ==
                :source_error
-    end
-
-    test "maps a cache-write error" do
-      assert ImagePipe.Telemetry.request_result({:error, {:cache_write, :boom}}) == :cache_error
-    end
-
-    test "maps output/pipeline plan validation errors, bare and wrapped" do
-      assert ImagePipe.Telemetry.request_result({:error, :invalid_output_plan}) == :plan_error
-      assert ImagePipe.Telemetry.request_result({:error, :invalid_pipeline_plan}) == :plan_error
-
-      assert ImagePipe.Telemetry.request_result({:error, {:invalid_output_plan, :reason}}) ==
-               :plan_error
-
-      assert ImagePipe.Telemetry.request_result({:error, {:invalid_pipeline_plan, :reason}}) ==
-               :plan_error
-
-      assert ImagePipe.Telemetry.request_result({:error, :empty_pipeline_plan}) == :plan_error
     end
 
     test "everything else falls back to processing_error" do
@@ -948,7 +778,7 @@ defmodule ImagePipe.TelemetryTest do
     end
   end
 
-  # `image_module` is a test-injection seam the dialect config rejects as an
+  # `image_module` is a test-injection seam the mount config rejects as an
   # unknown option; it is spliced onto the validated config after init/1.
   @post_init_keys [:image_module]
 
@@ -963,14 +793,7 @@ defmodule ImagePipe.TelemetryTest do
   defp opts(overrides) do
     Keyword.merge(
       [
-        dialect: ImagePipe.Dialect.IIIF,
         telemetry_prefix: @prefix,
-        resolver:
-          {ImagePipe.Dialect.IIIF.Resolver.Static,
-           map: %{
-             "beach" => %Source.Path{segments: ["images", "beach.jpg"]},
-             "srctiff" => %Source.Path{segments: ["images", "source.tiff"]}
-           }},
         sources: [
           path: {ImagePipe.Source.File, root: "priv/static", root_id: "static", stable: :trusted}
         ]
@@ -982,43 +805,6 @@ defmodule ImagePipe.TelemetryTest do
   defp init_opts(overrides) do
     {post_init, known} = overrides |> opts() |> Keyword.split(@post_init_keys)
     Keyword.merge(ImagePipe.Plug.init(known), post_init)
-  end
-
-  # A mount for one of the plan-shaped declarative doubles: no resolver (they
-  # ignore the conn), same source and prefix as the IIIF mounts.
-  defp fixture_opts(dialect, overrides \\ []) do
-    ImagePipe.Plug.init(
-      Keyword.merge(
-        [
-          dialect: dialect,
-          telemetry_prefix: @prefix,
-          sources: [
-            path:
-              {ImagePipe.Source.File, root: "priv/static", root_id: "static", stable: :trusted}
-          ]
-        ],
-        overrides
-      )
-    )
-  end
-
-  def plan(overrides \\ []) do
-    struct!(
-      Plan,
-      Keyword.merge(
-        [
-          source: %Source.Path{segments: ["images", "beach.jpg"]},
-          pipelines: [%Pipeline{operations: [resize_fit_operation()]}],
-          output: %Output{mode: {:explicit, :jpeg}}
-        ],
-        overrides
-      )
-    )
-  end
-
-  defp resize_fit_operation do
-    assert {:ok, operation} = Operation.resize(:fit, {:px, 100}, {:px, 100}, enlargement: :deny)
-    operation
   end
 
   defp require_tiff_support! do
@@ -1126,12 +912,6 @@ defmodule ImagePipe.TelemetryTest do
 
   defp event_names(events),
     do: Enum.map(events, fn {event, _measurements, _metadata} -> event end)
-
-  defp index_of(names, event) do
-    index = Enum.find_index(names, &(&1 == event))
-    assert index, "expected telemetry event #{inspect(event)}, got #{inspect(names)}"
-    index
-  end
 
   # Span metadata always carries `:telemetry_span_context`; drop it so a test
   # can pin the rest of the map exactly.

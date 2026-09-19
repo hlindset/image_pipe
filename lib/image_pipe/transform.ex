@@ -1,72 +1,32 @@
 defmodule ImagePipe.Transform do
   @moduledoc """
-  Behaviour and dispatch facade for transform operations.
+  Operation behaviour and single-operation execution.
 
-  Operation modules implement this behaviour with a stable transform name and
-  execution over `ImagePipe.Transform.State`. Runtime callers dispatch through
-  this module's generic functions so the runtime boundary does not need to know
-  concrete operation modules.
+  Operations provide a stable name and execute over `ImagePipe.Transform.State`.
+  `run/3` handles telemetry, materialization, and errors. The executor owns order.
   """
 
   use Boundary,
     top_level?: true,
     deps: [ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
-      # Runtime execution contract — consumed by the request layer.
+      # Runtime execution contract.
+      Executor,
       State,
-      Chain,
       DecodePlanner,
       DecodePlanner.Request,
       Materializer,
       Detector,
       Detector.Warmup,
-      # Decode-time geometry value produced by `ImagePipe.Decode.with_image/4`'s
-      # header open and consumed by a dialect's decode preflight.
+      # Header geometry used by decode preflight.
       SourceGeometry,
-      # Dialect-pipeline contract — the structs and neutral lowering helpers the
-      # in-tree dialect Pipelines consume directly: the shape value, the neutral
-      # resolver, point/orientation geometry, and the executable operations a
-      # Pipeline emits (including their pure geometry helpers, e.g.
-      # `Crop.resolved_rect/3`).
-      SourceShape,
-      NeutralResolver,
-      Focus,
-      PendingOrientation,
-      Operation.Resize,
-      Operation.Rotate,
-      Operation.ExtendCanvas,
-      Operation.Padding,
-      Operation.Background,
-      Operation.Bitonal,
-      Operation.Crop,
-      Operation.Blur,
-      Operation.Sharpen,
-      Operation.Pixelate,
-      Operation.Monochrome,
-      Operation.Duotone,
-      Operation.Gray,
-      Operation.Brightness,
-      Operation.Contrast,
-      Operation.Saturation,
-      Operation.Colorize,
-      Operation.Gradient,
-      Operation.Trim,
-      Operation.Flush,
-      # Internal lowering seams — exported only for the in-tree dialect
-      # Pipelines; subject to change without notice.
-      Lowering,
-      ResizePlanning,
-      # Input color-management preamble — dialect-callable (spec G4);
-      # `Executor` seeds it internally.
-      InputColorManagement
+      PendingOrientation
     ]
 
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Transform.Executor
+  alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
-  @type attrs() :: keyword()
   @type operation() :: struct()
 
   @callback name(operation()) :: atom()
@@ -84,50 +44,59 @@ defmodule ImagePipe.Transform do
     end
   end
 
-  @spec transform_name(operation()) :: atom()
-  def transform_name(%module{} = operation) do
-    module.name(operation)
+  @doc """
+  Runs one operation, materializing first when it requires random pixel access.
+
+  Emits a `[:transform, :operation]` span with the operation name, parameters,
+  outcome, and resulting dimensions. libvips defers most pixel work, so this
+  span measures pipeline construction plus any materialization it triggers.
+
+  Returns transform failures as `{:error, {:transform, reason}}` and
+  materialization failures as `{:error, {:decode, reason}}`. Programmer errors
+  propagate through the span unchanged.
+  """
+  @spec run(State.t(), operation(), keyword()) ::
+          {:ok, State.t()} | {:error, {:transform, term()} | {:decode, term()}}
+  def run(%State{} = state, %module{} = operation, opts \\ []) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:transform, :operation],
+      %{operation: module.name(operation), params: operation},
+      fn ->
+        result =
+          with {:ok, state} <- prepare(state, operation) do
+            module.execute(operation, state)
+          end
+
+        {operation_result(result), stop_metadata(result)}
+      end
+    )
   end
 
-  @spec requires_materialization?(operation()) :: boolean()
-  def requires_materialization?(%module{} = operation) do
-    module.requires_materialization?(operation)
-  end
+  defp prepare(%State{materialized?: true} = state, _operation), do: {:ok, state}
 
-  @spec validate_prefetch_safe_plan(Plan.t()) ::
-          {:ok, [Pipeline.t()]} | {:error, term()}
-  def validate_prefetch_safe_plan(%Plan{} = plan) do
-    case Plan.validate_shape(plan) do
-      {:ok, %Plan{render: render, pipelines: pipelines}}
-      when render != :image and is_list(pipelines) ->
-        # A non-image render plan legitimately carries an empty pipeline (it has no
-        # transform stage); allow it. Shape validation already ran above. The check
-        # is plan-shape only, so Transform stays ignorant of renderer internals. The
-        # plan is parser-produced (a host-implementable boundary), so the pipeline
-        # shape is validated here rather than trusted.
-        {:ok, pipelines}
-
-      {:ok, %Plan{render: render, pipelines: pipelines}} when render != :image ->
-        {:error, {:invalid_pipeline_plan, pipelines}}
-
-      {:ok, %Plan{}} ->
-        Plan.validated_pipelines(plan)
-
-      {:error, _reason} = error ->
-        error
+  defp prepare(%State{} = state, %module{} = operation) do
+    case module.requires_materialization?(operation) do
+      false -> {:ok, state}
+      true -> materialize(state)
     end
   end
 
-  @spec execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
-  def execute(%module{} = operation, %State{} = state) do
-    module.execute(operation, state)
+  defp materialize(state) do
+    case Materializer.materialize(state) do
+      {:ok, state} -> {:ok, state}
+      {:error, reason} -> {:error, {:materialize_error, reason}}
+    end
   end
 
-  @spec execute_plan(Plan.t(), State.t(), keyword()) ::
-          {:ok, State.t()} | {:error, term()}
-  def execute_plan(%Plan{} = plan, %State{} = state, opts \\ []) do
-    Executor.execute(plan, state, opts)
-  end
+  defp operation_result({:ok, state}), do: {:ok, state}
+  defp operation_result({:error, {:materialize_error, reason}}), do: {:error, {:decode, reason}}
+  defp operation_result({:error, reason}), do: {:error, {:transform, reason}}
+
+  defp stop_metadata({:ok, %State{image: image}}),
+    do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
+
+  defp stop_metadata({:error, _reason}), do: %{result: :error}
 
   @default_detector ImagePipe.Transform.Detector.Composite
 

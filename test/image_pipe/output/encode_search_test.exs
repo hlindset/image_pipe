@@ -181,6 +181,17 @@ defmodule ImagePipe.Output.EncodeSearchTest do
              )
   end
 
+  test "max_bytes alone never raises an explicit quality below the normal floor" do
+    enc = fn q -> {:ok, :binary.copy(<<0>>, q * 1000)} end
+
+    assert {:ok, _bin, %{quality: 5, outcome: :best_effort}} =
+             EncodeSearch.search(:none, 1_000,
+               encode_fun: enc,
+               base_quality: 5,
+               max_iterations: 8
+             )
+  end
+
   # Task 13b
   test "skip?/2 true when megapixels exceed a positive max_resolution" do
     assert EncodeSearch.skip?(%{max_resolution: 2}, 5)
@@ -505,7 +516,7 @@ defmodule ImagePipe.Output.EncodeSearchTest do
       # A high-frequency photo so distance genuinely trades bytes (a flat synthetic
       # image hits libjxl's irreducible floor and can never honor a sub-floor budget).
       {:ok, img} =
-        Image.open("test/support/image_pipe/test/imgproxy_differential/sources/high_freq.jpg")
+        Image.open("test/support/image_pipe/test/sources/high_freq.jpg")
 
       {:ok, big, _} =
         EncodeSearch.run(

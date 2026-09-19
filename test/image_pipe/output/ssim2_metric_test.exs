@@ -4,7 +4,7 @@ defmodule ImagePipe.Output.Ssim2MetricTest do
 
   setup do
     {:ok, img} =
-      Image.open("test/support/image_pipe/test/imgproxy_differential/sources/high_freq.jpg")
+      Image.open("test/support/image_pipe/test/sources/high_freq.jpg")
 
     {:ok, ref} = Image.thumbnail(img, "256")
     %{ref: ref}

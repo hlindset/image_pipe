@@ -1,6 +1,6 @@
 defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
   @moduledoc """
-  Pins that a real cache-miss, streamed `ImagePipe.Dialect.Native` request's
+  Pins that a real cache-miss, streamed `ImagePipe.Native` request's
   stage spans are semantic descendants of the `[:request]` root span — the
   native counterpart of
   `ImagePipe.Telemetry.DeliverySpanParentageBaselineTest`.
@@ -21,13 +21,12 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
 
   import Plug.Test
 
-  alias ImagePipe.Dialect.Native
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.TestExporter
+  alias ImagePipe.Test.PlugFixture.CacheProbe
+  alias ImagePipe.Test.PlugFixture.OriginImage
   alias ImagePipe.Test.Trace.SpanWalk
-  alias ImgproxyWireConformanceTest.CacheProbe
-  alias ImgproxyWireConformanceTest.OriginImage
 
   # No `telemetry_prefix` here (project convention otherwise requires one for
   # telemetry-asserting tests): `TestExporter`/`Capture` attach via a global
@@ -62,7 +61,6 @@ defmodule ImagePipe.Telemetry.NativeDeliverySpanParentageTest do
   test "stage spans of a cache-miss streamed native request are semantic descendants of the request root" do
     config =
       ImagePipe.Plug.init(
-        dialect: Native,
         sources: [
           path:
             {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}

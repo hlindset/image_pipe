@@ -49,21 +49,17 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
 
   defp beach_opts do
     [
-      dialect: ImagePipe.Dialect.IIIF,
-      resolver:
-        {ImagePipe.Dialect.IIIF.Resolver.Static,
-         map: %{"beach" => %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]}}},
       sources: [
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test",
-           req_options: [plug: ImgproxyWireConformanceTest.OriginImage]}
+           req_options: [plug: ImagePipe.Test.PlugFixture.OriginImage]}
       ]
     ]
   end
 
   test "the encode span measures forced encode in the producer, parented to the request root" do
-    conn = call("/beach/full/!120,90/0/default.jpg", beach_opts())
+    conn = call("/w=120/h=90/format=jpeg/src/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()
@@ -87,7 +83,7 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
   end
 
   test "the deliver span measures connection streaming, nested under [:send]" do
-    conn = call("/beach/full/!120,90/0/default.jpg", beach_opts())
+    conn = call("/w=120/h=90/format=jpeg/src/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()
@@ -107,7 +103,7 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
   end
 
   test "encode runs in a different process than deliver" do
-    conn = call("/beach/full/!120,90/0/default.jpg", beach_opts())
+    conn = call("/w=120/h=90/format=jpeg/src/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()

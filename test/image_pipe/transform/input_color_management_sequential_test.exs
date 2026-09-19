@@ -19,7 +19,7 @@ defmodule ImagePipe.Transform.InputColorManagementSequentialTest do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
 
-  @sources "test/support/image_pipe/test/imgproxy_differential/sources"
+  @sources "test/support/image_pipe/test/sources"
   @p3_fixture "#{@sources}/icc_p3.png"
   @cmyk_fixture "#{@sources}/cmyk.jpg"
   @rgb16_fixture "#{@sources}/rgb16.png"
