@@ -12,7 +12,7 @@ defmodule ImagePipe.Cache.Entry do
   @header_value_pattern ~r/^[^\x00-\x1F\x7F]*$/
   @content_type_pattern ~r{^[!#$%&'*+\-.^_`|~0-9A-Za-z]+/[!#$%&'*+\-.^_`|~0-9A-Za-z]+(\s*;.*)?$}
 
-  defstruct @enforce_keys ++ [representation: nil, debug: nil]
+  defstruct @enforce_keys ++ [representation: nil, debug: nil, source_record: nil]
 
   @type header :: {String.t(), String.t()}
   # `representation` tags what an entry's `content_type`/`body` mean:
@@ -23,20 +23,32 @@ defmodule ImagePipe.Cache.Entry do
   # `Format`-based content-type check.
   @type representation :: {:image, atom()} | {:complete_body, String.t()}
   @type t :: %__MODULE__{
-          body: binary(),
+          body: binary() | ImagePipe.Cache.File.t(),
           content_type: String.t(),
           headers: [header()],
           created_at: DateTime.t(),
           representation: representation() | nil,
-          debug: Info.t() | nil
+          debug: Info.t() | nil,
+          source_record: ImagePipe.Source.Record.t() | nil
         }
 
   @spec validate(t()) :: :ok | {:error, term()}
   def validate(%__MODULE__{} = entry) do
     with :ok <- validate_body(entry.body),
+         :ok <- validate_source_record(entry.source_record),
          :ok <- validate_content_type(entry.content_type, entry.representation),
          {:ok, _headers} <- cacheable_headers(entry.headers) do
       :ok
+    end
+  end
+
+  @doc false
+  def validate_source_record(nil), do: :ok
+
+  def validate_source_record(record) do
+    case ImagePipe.Source.Record.valid?(record) do
+      true -> :ok
+      false -> {:error, :invalid_source_record}
     end
   end
 
@@ -82,7 +94,14 @@ defmodule ImagePipe.Cache.Entry do
   def cacheable_headers(headers), do: {:error, {:invalid_headers, headers}}
 
   defp validate_body(body) when is_binary(body), do: :ok
+  defp validate_body(%ImagePipe.Cache.File{}), do: :ok
   defp validate_body(body), do: {:error, {:invalid_body, body}}
+
+  @doc "Closes a file-backed entry after use."
+  def close(%__MODULE__{body: %ImagePipe.Cache.File{} = file}),
+    do: ImagePipe.Cache.File.close(file)
+
+  def close(%__MODULE__{}), do: :ok
 
   defp normalize_header({name, value}, {:ok, normalized_headers}, headers)
        when is_binary(name) and is_binary(value) do

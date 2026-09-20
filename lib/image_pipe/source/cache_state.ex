@@ -16,13 +16,14 @@ defmodule ImagePipe.Source.CacheState do
   alias Plug.Conn.Utils
 
   @enforce_keys [:storable?, :fresh_until, :stale_until]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [revalidation: :none]
 
   @type deadline :: integer() | :infinity | nil
   @type t :: %__MODULE__{
           storable?: boolean(),
           fresh_until: deadline(),
-          stale_until: deadline()
+          stale_until: deadline(),
+          revalidation: :none | :always | :stale
         }
 
   @spec from_headers(map(), CachePolicy.t(), boolean(), {integer(), integer()}, boolean()) :: t()
@@ -38,8 +39,36 @@ defmodule ImagePipe.Source.CacheState do
       storable?:
         storable?(headers, directives, Keyword.get(policy, :storage, :origin), authenticated?),
       fresh_until: fresh_until,
-      stale_until: stale_until
+      stale_until: stale_until,
+      revalidation: revalidation(directives, policy, stable?, age)
     }
+  end
+
+  defp revalidation(_directives, _policy, true, _age), do: :none
+  defp revalidation(_directives, _policy, _stable, :invalid), do: :always
+
+  defp revalidation(directives, policy, false, _age) do
+    forced_fresh? = match?({:force, _}, Keyword.get(policy, :freshness))
+
+    forced_stale? =
+      match?({:force, seconds} when seconds > 0, Keyword.get(policy, :stale_while_revalidate))
+
+    cond do
+      forced_stale? ->
+        :none
+
+      Map.has_key?(directives, "no-cache") and not forced_fresh? ->
+        :always
+
+      Enum.any?(
+        ["no-cache", "must-revalidate", "proxy-revalidate", "s-maxage"],
+        &Map.has_key?(directives, &1)
+      ) ->
+        :stale
+
+      true ->
+        :none
+    end
   end
 
   @spec status(t(), integer()) :: :not_storable | :fresh | :stale | :requires_validation
@@ -49,6 +78,14 @@ defmodule ImagePipe.Source.CacheState do
   def status(%__MODULE__{fresh_until: deadline}, now) when now < deadline, do: :fresh
   def status(%__MODULE__{stale_until: deadline}, now) when now < deadline, do: :stale
   def status(%__MODULE__{}, _now), do: :requires_validation
+
+  @doc false
+  def current_age(headers, {requested_at, received_at}, now) do
+    case age(headers, requested_at, received_at) do
+      :invalid -> 0
+      age -> age + max(0, now - received_at)
+    end
+  end
 
   defp deadlines(true, _age, _received_at, _lifetime, _stale_window),
     do: {:infinity, :infinity}

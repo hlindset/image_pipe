@@ -31,13 +31,13 @@ defmodule ImagePipe.Source.HTTPTest do
     fn conn -> Plug.Conn.send_resp(conn, 200, "image bytes") end
   end
 
-  test "http source defaults to not stable and disables internal cache in auto mode" do
+  test "http source defaults to mutable identity with origin-governed internal caching" do
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"])
     source = %URL{scheme: :https, host: "example.com", path: ["cat.jpg"]}
 
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
-    assert resolved.internal_cache == :disabled
+    assert resolved.internal_cache == :enabled
     assert resolved.cache_semantics.byte_identity == :none
   end
 

@@ -162,6 +162,14 @@ defmodule ImagePipe.Source.S3 do
     end
   end
 
+  @doc false
+  def prepare_cache(%Resolved{} = source, _opts, runtime) do
+    with {:ok, credentials} <-
+           Credentials.fetch(source.fetch[:bucket], source.fetch[:credentials], runtime) do
+      {:ok, %{source | fetch: Keyword.put(source.fetch, :credentials, {:static, credentials})}}
+    end
+  end
+
   defp validate_buckets(nil, default) do
     with :ok <- require_credentials(default) do
       {:ok, nil}
@@ -319,11 +327,11 @@ defmodule ImagePipe.Source.S3 do
       (is_binary(revision) and revision != "")
   end
 
-  defp internal_cache_mode(config, stable?) do
+  defp internal_cache_mode(config, _stable?) do
     case Keyword.fetch!(config, :internal_cache) do
       :enabled -> :enabled
       :disabled -> :disabled
-      :auto -> if stable?, do: :enabled, else: :disabled
+      :auto -> :enabled
     end
   end
 

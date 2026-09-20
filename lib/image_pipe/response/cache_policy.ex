@@ -98,6 +98,76 @@ defmodule ImagePipe.Response.CachePolicy do
     end
   end
 
+  @doc false
+  def limit_to_source(prepared, conn, facts, now, config) do
+    cond do
+      not facts.storable? ->
+        %{
+          prepared
+          | etag: nil,
+            headers: [{"cache-control", "no-store"}],
+            representation_headers: [
+              {"cache-control", "no-store"} | prepared.representation_headers
+            ]
+        }
+
+      facts.fresh_until == :infinity ->
+        prepared
+
+      CacheHeaders.host_cache_control?(get_resp_header(conn, "cache-control")) ->
+        prepared
+
+      prepared.etag == nil ->
+        prepared
+
+      true ->
+        limit_headers(prepared, facts, now, config)
+    end
+  end
+
+  defp limit_headers(prepared, facts, now, config) do
+    visibility = visibility(config)
+    {ttl, stale} = source_lifetimes(facts, now)
+    control = "#{visibility}, max-age=#{ttl}"
+
+    control =
+      case facts.revalidation do
+        :none -> control
+        :always -> control <> ", no-cache"
+        :stale -> control <> ", must-revalidate"
+      end
+
+    control =
+      case stale do
+        0 -> control
+        seconds -> control <> ", stale-while-revalidate=#{seconds}"
+      end
+
+    headers =
+      Enum.reject(prepared.headers, fn {name, _} -> name in ["cache-control", "age"] end)
+
+    %{
+      prepared
+      | headers: headers ++ [{"cache-control", control}, {"age", Integer.to_string(facts.age)}]
+    }
+  end
+
+  defp visibility(config) do
+    visibility = config |> Keyword.get(:http_cache, []) |> Keyword.get(:visibility, :auto)
+    cookie? = Enum.any?(Keyword.get(config, :storage_inputs, []), &match?({:cookie, _}, &1))
+
+    case visibility == :private or (visibility == :auto and cookie?) do
+      true -> "private"
+      false -> "public"
+    end
+  end
+
+  defp source_lifetimes(%{fresh_until: nil}, _now), do: {0, 0}
+
+  defp source_lifetimes(facts, now) do
+    {max(0, facts.fresh_until - now + facts.age), max(0, facts.stale_until - facts.fresh_until)}
+  end
+
   @doc """
   Emits `[:http_cache, :conditional, :match]`. The runner calls this at the
   conditional gate when the policy owns the headers — the policy owns the

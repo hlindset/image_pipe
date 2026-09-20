@@ -19,6 +19,7 @@ defmodule ImagePipe.Source do
       CacheState,
       CacheSemantics,
       Origin,
+      Record,
       Resolved,
       Response,
       StreamError,
@@ -80,6 +81,34 @@ defmodule ImagePipe.Source do
   @spec runtime_opts(keyword()) :: keyword()
   def runtime_opts(config) when is_list(config),
     do: Keyword.take(config, @runtime_option_keys)
+
+  @doc "Freezes dynamic origin credentials before partitioning a cached request."
+  def prepare_cache_context(source, config) do
+    {module, opts} = Map.fetch!(Keyword.fetch!(config, :sources), source.adapter)
+
+    with {:ok, prepared} <- prepare_cache_source(module, source, opts, runtime_opts(config)) do
+      context =
+        {module, Keyword.drop(opts, [:cache_policy, :stable, :internal_cache, :http_cache]),
+         prepared.fetch}
+
+      identity =
+        case prepared.cache_semantics.byte_identity do
+          :none -> :none
+          {:strong, seed} -> {:strong, {seed, ImagePipe.MaterialDigest.of(context)}}
+        end
+
+      {:ok, %{prepared | cache_semantics: %{prepared.cache_semantics | byte_identity: identity}},
+       context}
+    end
+  rescue
+    _exception -> {:error, {:source, :credentials_unavailable}}
+  end
+
+  defp prepare_cache_source(module, source, opts, runtime)
+       when module in [ImagePipe.Source.HTTP, ImagePipe.Source.S3],
+       do: module.prepare_cache(source, opts, runtime)
+
+  defp prepare_cache_source(_module, source, _opts, _runtime), do: {:ok, source}
 
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
   def validate_config(opts) when is_list(opts) do

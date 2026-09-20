@@ -29,7 +29,15 @@ defmodule ImagePipe.Telemetry.Logger do
       [:transform, :detect],
       [:transform, :detect, :model]
     ],
-    cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]],
+    cache: [
+      [:cache, :lookup],
+      [:cache, :write],
+      [:cache, :admission],
+      [:cache, :warm_start],
+      [:cache, :source],
+      [:cache, :input],
+      [:cache, :refresh]
+    ],
     output: [[:output, :negotiate], [:output, :terminal]],
     http_cache: [],
     debug: []
@@ -131,6 +139,12 @@ defmodule ImagePipe.Telemetry.Logger do
         exception_message(suffix, metadata)
       else
         message(suffix, measurements, metadata)
+      end
+
+    message =
+      case metadata[:pool] do
+        nil -> message
+        pool -> message <> " (#{pool} pool)"
       end
 
     Logger.log(level, fn -> message end, log_metadata(event, measurements, metadata))

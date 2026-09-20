@@ -78,7 +78,8 @@ defmodule ImagePipe.Test.PlugFixture.CacheProbe do
           headers: metadata.headers,
           created_at: metadata.created_at,
           representation: metadata.representation,
-          debug: metadata.debug
+          debug: metadata.debug,
+          source_record: metadata.source_record
         }
 
         :ets.insert(table, {key.hash, entry})

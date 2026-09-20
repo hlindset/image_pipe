@@ -34,6 +34,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:transform, :detect],
     [:transform, :detect, :model],
     [:cache, :lookup],
+    [:cache, :source],
+    [:cache, :input],
+    [:cache, :refresh],
     [:cache, :write],
     [:cache, :admission],
     [:cache, :warm_start]
@@ -65,6 +68,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   # secret-bearing data. Keep :params opaque: matching concrete transform structs
   # here would invert the telemetry dependency boundary.
   @safe_keys [
+    :pool,
     :operation,
     :index,
     :operation_count,

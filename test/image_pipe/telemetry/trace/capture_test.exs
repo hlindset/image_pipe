@@ -44,6 +44,20 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
                     }}
   end
 
+  test "captures coordinated cache stages and pool identity" do
+    prefix = [__MODULE__, :coordinated]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    for stage <- [:source, :input, :refresh] do
+      Telemetry.span([telemetry_prefix: prefix], [:cache, stage], %{pool: :input}, fn ->
+        {:ok, %{result: :ok}}
+      end)
+
+      name = "image_pipe.cache.#{stage}"
+      assert_receive {:span, %Span{name: ^name, status: :ok, attributes: %{pool: :input}}}
+    end
+  end
+
   test "captures a nested tree with one trace_id and correct parentage" do
     emit_nested()
 

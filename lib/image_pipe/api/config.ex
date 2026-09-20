@@ -49,6 +49,7 @@ defmodule ImagePipe.API.Config do
 
   @options_schema NimbleOptions.new!(
                     cache: [type: :any],
+                    input_cache: [type: :any],
                     sources: [type: :map],
                     source_cache_policy: [type: :keyword_list],
                     max_body_bytes: [type: :pos_integer, default: @default_max_body_bytes],

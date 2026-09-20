@@ -12,6 +12,7 @@ defmodule ImagePipe.Source.HTTP do
 
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
+  alias ImagePipe.Source.Auth
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.HTTP.AddressPolicy
@@ -148,8 +149,8 @@ defmodule ImagePipe.Source.HTTP do
   @impl Source
   def fetch(%Resolved{fetch: fetch}, opts, runtime_opts) do
     req_options =
-      opts
-      |> Keyword.fetch!(:req_options)
+      fetch
+      |> Keyword.get(:prepared_req_options, Keyword.fetch!(opts, :req_options))
       |> ReqSanitizer.sanitize_req_options(
         @internal_option_keys,
         @host_header_names,
@@ -166,6 +167,12 @@ defmodule ImagePipe.Source.HTTP do
     ReqStream.open(req_options, stream_options)
   end
 
+  @doc false
+  def prepare_cache(%Resolved{} = source, opts, _runtime) do
+    req = Auth.freeze(opts[:req_options], source.fetch[:url])
+    {:ok, %{source | fetch: Keyword.put(source.fetch, :prepared_req_options, req)}}
+  end
+
   defp build_target_guard(opts) do
     allowed_hosts = Keyword.fetch!(opts, :allowed_hosts)
     predicate = AddressPolicy.compile(Keyword.fetch!(opts, :address_policy))
@@ -174,11 +181,11 @@ defmodule ImagePipe.Source.HTTP do
     fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
   end
 
-  defp internal_cache_mode(opts, stable?) do
+  defp internal_cache_mode(opts, _stable?) do
     case Keyword.fetch!(opts, :internal_cache) do
       :enabled -> :enabled
       :disabled -> :disabled
-      :auto -> if stable?, do: :enabled, else: :disabled
+      :auto -> :enabled
     end
   end
 

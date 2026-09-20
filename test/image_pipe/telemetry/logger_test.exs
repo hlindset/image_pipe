@@ -56,6 +56,25 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache lookup: hit"
   end
 
+  test "logs coordinated cache stages and escalates refresh failure" do
+    prefix = [__MODULE__, :coordinated]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        for stage <- [:source, :input, :refresh] do
+          :telemetry.execute(prefix ++ [:cache, stage, :stop], %{duration: 1_000}, %{
+            result: :source_error,
+            pool: :input
+          })
+        end
+      end)
+
+    for stage <- [:source, :input, :refresh], do: assert(log =~ "cache #{stage}: source_error")
+    assert log =~ "(input pool)"
+    assert log =~ "[warning]"
+  end
+
   test "renders the encode span with its output format" do
     Telemetry.attach_default_logger(level: :info)
 

@@ -182,6 +182,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     application = boundary_declaration(ImagePipe.Application)
 
     assert_boundary_deps(application, [
+      ImagePipe.Cache,
       ImagePipe.Output,
       ImagePipe.Source,
       ImagePipe.Telemetry
@@ -211,6 +212,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Source.CachePolicy,
       ImagePipe.Source.CacheState,
       ImagePipe.Source.Origin,
+      ImagePipe.Source.Record,
       ImagePipe.Source.CacheSemantics,
       ImagePipe.Source.Resolved,
       ImagePipe.Source.Response,
@@ -244,6 +246,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Response.CacheHeaders,
       ImagePipe.Response.CachePolicy,
       ImagePipe.Response.Conditional,
+      ImagePipe.Response.Discard,
       ImagePipe.Response.ErrorStatus,
       ImagePipe.Response.PreparedStream,
       ImagePipe.Response.Sender
@@ -408,6 +411,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
+      ImagePipe.Source,
       ImagePipe.Telemetry
     ])
 
@@ -415,6 +419,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(cache, [
       ImagePipe.Cache.Entry,
+      ImagePipe.Cache.File,
+      ImagePipe.Cache.Input,
+      ImagePipe.Cache.Resources,
+      ImagePipe.Cache.Work,
       ImagePipe.Cache.Key,
       ImagePipe.Cache.FileSystem
     ])
