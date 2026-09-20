@@ -1,7 +1,8 @@
 # Elixir API
 
 Use the `ImagePipe` builder API to construct an immutable processing plan with
-typed Elixir values. The resulting `%ImagePipe.Plan{}` is reusable across sources:
+typed Elixir values. The resulting builder is reusable across sources and keeps
+its plan separate from host configuration:
 
 ```elixir
 alias ImagePipe, as: IP
@@ -17,13 +18,61 @@ thumbnail =
 Execute the plan directly with `IP.run/3`, or write its result with
 `IP.write/4`. Generate an equivalent API URL with `IP.url/3` or `IP.url!/3`.
 
+## Shared configuration
+
+Configure sources, caches, processing defaults, limits, and storage partitions
+once for both the Plug mount and direct Elixir calls:
+
+```elixir
+config = IP.config(
+  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "media", stable: :trusted}],
+  cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/output"},
+  input_cache: {ImagePipe.Cache.FileSystem, root: "/var/cache/image-pipe/input"},
+  quality: 82,
+  storage_inputs: [{:header, "x-tenant"}]
+)
+
+ip_client = IP.new(config)
+
+thumbnail =
+  ip_client
+  |> IP.group(resize: [width: 400])
+  |> IP.output(format: :webp)
+
+{:ok, result} =
+  IP.run(thumbnail, {:source, "photos/original-v1.jpg"},
+    request_inputs: [headers: [{"x-tenant", "one"}]]
+  )
+
+mount = IP.Plug.init(config: config, http_cache: [mode: :enabled])
+# Pass mount to IP.Plug.call(conn, mount), or configure the router with:
+# plug ImagePipe.Plug, config: config, http_cache: [mode: :enabled]
+```
+
+`IP.new()` uses default configuration. `IP.new(config, expires: unix_seconds)`
+combines reusable configuration with request controls. Builder calls return
+new values, so `ip_client` stays empty and reusable. Configuration is validated
+when constructed and hidden by `Inspect`; it performs no source or cache I/O.
+Per-call host options remain available and override the builder's settings.
+
+Signing/encryption keys, IV policy, and `base_url` also belong in this shared
+configuration. The builder uses them automatically when generating URLs; the
+Plug uses the same keys to verify and decrypt them. HTTP controls such as CORS,
+presets, and `http_cache` belong on the Plug mount.
+
+The file example assumes immutable source paths: `stable: :trusted` enables
+caching based on that promise. Give changed files a new identifier. With the
+default `stable: :auto`, configured files remain uncached unless caching is
+explicitly enabled. HTTP sources use origin freshness and validators.
+
 ## URL generation
 
 ```elixir
-config = IP.url_config(base_url: "/images")
-url = IP.url!(thumbnail, "photos/original.jpg", config)
+config = IP.config(base_url: "/images")
+thumbnail = IP.new(config) |> IP.group(resize: [width: 400])
+url = IP.url!(thumbnail, "photos/original.jpg")
 
-{:ok, mount_relative_url} = IP.url(thumbnail, "photos/original.jpg")
+{:ok, url} = IP.url(thumbnail, "photos/original.jpg")
 ```
 
 The source is the mount's source identifier, supplied separately from the
@@ -40,16 +89,18 @@ in the base URL. An omitted base produces a mount-relative path.
 
 ### Signed URLs
 
-Use the same independent signing keys as the mount. They are hex strings;
+Configure signing keys once for the builder and mount. They are hex strings;
 the first key signs new URLs and the mount can retain older keys for rotation.
 
 ```elixir
-config = IP.url_config(
+config = IP.config(
   base_url: "https://cdn.example.com/images",
   keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")]
 )
 
-url = IP.url!(thumbnail, "photos/original.jpg", config)
+thumbnail = IP.new(config) |> IP.group(resize: [width: 400])
+url = IP.url!(thumbnail, "photos/original.jpg")
+mount = IP.Plug.init(config: config)
 ```
 
 Only the mount-relative path is signed. The base URL and mount prefix are
@@ -57,12 +108,12 @@ prepended afterward. Configuration inspection excludes credentials. Keep it
 server-side; in a Phoenix template, render only the generated URL:
 
 ```heex
-<img src={ImagePipe.url!(@thumbnail, @photo.source, @image_url_config)} />
+<img src={ImagePipe.url!(@thumbnail, @photo.source)} />
 ```
 
 Equivalent normalized plans, source bytes, and configuration produce the
 same URL. Option order does not affect serialization; explicit groups remain
-separate. Set expiry explicitly with `IP.new(expires: unix_seconds)` when
+separate. Set expiry explicitly with `IP.new(config, expires: unix_seconds)` when
 needed. Reusing that timestamp preserves the URL; calculating a fresh
 `now + duration` changes it. URL generation does not check the current time
 or perform source, cache, or image I/O.
@@ -71,18 +122,18 @@ or perform source, cache, or image I/O.
 `{:error, :invalid_source}`, or `{:error, :too_many_options}`. The last error
 means the plan exceeds the HTTP parser's 64 option/separator limit.
 `url!/3` raises `ArgumentError` on failure without including the source or
-credentials. Malformed URL configuration raises during `url_config/1`.
+credentials. Malformed URL configuration raises during `config/1`.
 
 ### Encrypted sources
 
-Configure the mount and URL builder with the same independent signing and
-source-encryption keys. Encryption keys are raw 32-byte binaries; signing
+Put independent signing and source-encryption keys in shared configuration.
+Encryption keys are raw 32-byte binaries; signing
 keys are hex strings. Generate secrets once and store them in server-side
 configuration. The first encryption key generates tokens; the mount accepts
 older keys in the list during rotation.
 
 ```elixir
-config = IP.url_config(
+config = IP.config(
   base_url: "/images",
   keys: [signing_key_hex],
   source_encryption_keys: [encryption_key],
@@ -90,11 +141,13 @@ config = IP.url_config(
   iv_mode: :deterministic
 )
 
-url = IP.url!(thumbnail, "photos/original.jpg", config)
-random_url = IP.url!(thumbnail, "photos/original.jpg", config, iv: :random)
+thumbnail = IP.new(config) |> IP.group(resize: [width: 400])
+mount = IP.Plug.init(config: config)
+url = IP.url!(thumbnail, "photos/original.jpg")
+random_url = IP.url!(thumbnail, "photos/original.jpg", iv: :random)
 
 iv = :crypto.strong_rand_bytes(16)
-explicit_url = IP.url!(thumbnail, "photos/original.jpg", config, iv: iv)
+explicit_url = IP.url!(thumbnail, "photos/original.jpg", iv: iv)
 ```
 
 `:deterministic` is the default. Identical source bytes and active key produce
@@ -118,9 +171,9 @@ an arbitrary-source encryption endpoint permits guessing by token comparison.
 The [source concealment contract](api_contract.md#source-concealment) specifies
 the authenticated CBC construction, key derivation, and token format.
 
-`url/4` returns `{:error, :invalid_encryption_options}` for malformed or unknown
+`url/3` returns `{:error, :invalid_encryption_options}` for malformed or unknown
 IV options. Passing IV options to a configuration with `encrypt_source: false`
-returns `{:error, :source_encryption_disabled}`. `url!/4` raises without echoing
+returns `{:error, :source_encryption_disabled}`. `url!/3` raises without echoing
 the source or credentials. Enabling encryption requires both key sets.
 
 The mount supplies source adapters, processing defaults, detector, and output
@@ -189,13 +242,36 @@ preferences produce the same processing result through direct execution and
 HTTP. Mount presets apply only when interpreting URLs; incorporate those
 settings into a plan explicitly when comparing the two entry points.
 
-Direct execution fetches and generates on every call. It bypasses input and
-output caches and does not create a representation key, ETag, conditional
-response, signature, or HTTP header. Cache and HTTP mount options are rejected
-as unknown processing options. The Plug retains its existing cache and
-conditional-response behavior. Plan delivery controls (`filename`,
-`attachment`, `cachebuster`, `debug`) have no effect on a direct result;
-`write` uses its explicit destination.
+Configured `{:source, identifier}` inputs participate in the same input and
+output caches as HTTP. Either entry point can warm entries for the other.
+Remote source freshness, revalidation, stale-while-revalidate, storage
+permission, and generation limits apply equally. File-backed configured sources
+use their adapter's identity for output caching. Raw `{:file, path}` and
+`{:binary, bytes}` inputs bypass both caches.
+
+`request_inputs` supplies the values named by `storage_inputs`:
+
+```elixir
+IP.run(thumbnail, {:source, "photos/original.jpg"},
+  accept: "image/webp",
+  request_inputs: [
+    headers: [{"x-tenant", "one"}],
+    cookies: %{"session" => "abc"}
+  ]
+)
+```
+
+Header names are case-insensitive; cookie names are case-sensitive. Missing
+values match an HTTP request that omits them. These inputs partition storage;
+they do not change the ETag or get forwarded to the source. Source credentials
+and outbound headers remain source-adapter configuration. `accept` controls
+output negotiation separately. Supply equivalent values on both entry points
+when they should share a cache entry.
+
+`cachebuster` partitions storage for native calls too. Presentation controls
+(`filename`, `attachment`, `debug`) do not change the direct result; `write`
+uses its explicit destination. Direct calls return data without HTTP headers
+or conditional responses.
 
 ### Results, errors, and resource ownership
 

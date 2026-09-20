@@ -4,6 +4,12 @@ defmodule ImagePipe.Plug do
 
       plug ImagePipe.Plug, sources: [...]
 
+  Reuse host configuration with the Elixir API:
+
+      config = ImagePipe.config(sources: [...], quality: 82)
+      client = ImagePipe.new(config)
+      mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
+
   ImagePipe URLs use options such as `/w=300/format=webp/src/images/photo.jpg`.
   Options within a group have a fixed processing order; `then` starts the
   next group. Configuration is validated at initialization, and invalid
@@ -14,19 +20,14 @@ defmodule ImagePipe.Plug do
     deps: [
       ImagePipe.Cache,
       ImagePipe.Debug,
-      ImagePipe.Decode,
-      ImagePipe.Delivery,
       ImagePipe.API,
       ImagePipe.Error,
-      ImagePipe.Format,
+      ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Plan,
-      ImagePipe.Processing,
-      ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
-      ImagePipe.Telemetry,
-      ImagePipe.Transform
+      ImagePipe.Telemetry
     ],
     exports: []
 

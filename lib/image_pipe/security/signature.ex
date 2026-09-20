@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.Signature do
+defmodule ImagePipe.Security.Signature do
   @moduledoc """
   HMAC signing and verification for ImagePipe URLs.
 

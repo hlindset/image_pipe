@@ -5,8 +5,8 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   import Plug.Test
 
   alias ImagePipe.API
-  alias ImagePipe.API.Signature
-  alias ImagePipe.API.SourceEncryption.{CBC, HKDF}
+  alias ImagePipe.Security.Signature
+  alias ImagePipe.Security.SourceEncryption.{CBC, HKDF}
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.CacheProbe
 

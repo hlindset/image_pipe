@@ -1,7 +1,7 @@
-defmodule ImagePipe.API.SourceEncryption.HKDFTest do
+defmodule ImagePipe.Security.SourceEncryption.HKDFTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.API.SourceEncryption.HKDF
+  alias ImagePipe.Security.SourceEncryption.HKDF
 
   test "matches RFC 5869 SHA-256 test case 1" do
     assert HKDF.derive(

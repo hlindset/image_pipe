@@ -115,53 +115,6 @@ defmodule ImagePipe.Representation do
   def response_headers(%__MODULE__{no_store?: true}), do: [{"cache-control", "no-store"}]
   def response_headers(%__MODULE__{etag: etag}), do: [{"etag", etag}]
 
-  @doc """
-  Splits configured `storage_inputs` (header/cookie names from mount
-  config) against `conn` into `{storage_only, vary_header_names}`:
-
-    * a `{:header, name}` entry contributes its request value to
-      `storage_only` *and* its normalized name to `vary_header_names`;
-    * a `{:cookie, name}` entry contributes only its request value to
-      `storage_only` (cookies never enter `Vary`, which names headers only).
-
-  Header names are normalized case-insensitively (lowercased), deduplicated,
-  and both outputs are deterministically ordered — identity material and Vary
-  must not depend on the configured list's order or spelling.
-  """
-  @spec storage_inputs(Plug.Conn.t(), [{:header, String.t()} | {:cookie, String.t()}]) ::
-          {storage_only :: keyword(), vary_header_names :: [String.t()]}
-  def storage_inputs(%Plug.Conn{} = conn, configured) when is_list(configured) do
-    conn = Plug.Conn.fetch_cookies(conn)
-
-    header_names =
-      configured
-      |> Enum.flat_map(fn
-        {:header, name} -> [String.downcase(name)]
-        {:cookie, _name} -> []
-      end)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    headers = Enum.map(header_names, &{&1, Plug.Conn.get_req_header(conn, &1)})
-
-    cookies =
-      configured
-      |> Enum.flat_map(fn
-        {:cookie, name} -> [name]
-        {:header, _name} -> []
-      end)
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> Enum.flat_map(fn name ->
-        case Map.fetch(conn.req_cookies, name) do
-          {:ok, value} -> [{name, value}]
-          :error -> []
-        end
-      end)
-
-    {[headers: headers, cookies: cookies], header_names}
-  end
-
   defp digest_hex(data), do: data |> MaterialDigest.of() |> Base.encode16(case: :lower)
 
   defp etag(data) do

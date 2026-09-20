@@ -114,17 +114,6 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  def buffer(request, source, policy, config) do
-    build = build_fun(request, source, policy, config)
-
-    build.(fn stream, content_type, output, debug ->
-      StreamPull.translate(fn ->
-        data = stream |> Enum.to_list() |> IO.iodata_to_binary()
-        {:ok, data, content_type, output.format, {debug.output_width, debug.output_height}}
-      end)
-    end)
-  end
-
   defp produce_stream(state, geometry, request, policy, config, pump, decode_us) do
     shrink = state.decode_shrink
 

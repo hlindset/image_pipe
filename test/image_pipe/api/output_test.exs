@@ -319,7 +319,7 @@ defmodule ImagePipe.API.OutputTest do
 
     assert {:ok, _source, output} = API.prepare(request, config, "")
 
-    assert API.response_meta(request) == %Response{
+    assert ImagePipe.Execution.response_meta(request) == %Response{
              filename: "report",
              disposition: :attachment,
              debug?: true

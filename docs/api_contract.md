@@ -14,10 +14,16 @@ extension points.
 
 `ImagePipe.Plug` mounts the API. `ImagePipe.Plug.Runner` owns the
 HTTP request lifecycle. `ImagePipe.run/3` and `ImagePipe.write/4` execute plans
-directly from Elixir. Both entry points use `Processing` for generation and
-`ImagePipe.Transform.Executor` for group execution. Shared processing
-configuration owns limits, source options, detector setup, and output defaults;
-mount configuration adds URL, cache, and HTTP delivery controls.
+directly from Elixir. Both entry points use `ImagePipe.Execution` for source
+freshness and caching, `Processing` for generation, and
+`ImagePipe.Transform.Executor` for group execution. Shared host configuration
+owns limits, source options, detector setup, output defaults, caches, storage
+partitions, signing/encryption keys, and URL defaults. Mount configuration adds
+HTTP delivery controls and parsing presets.
+`ImagePipe.config/1` builds
+configuration for both the Plug mount and `ImagePipe.new(config)`. Configured
+source inputs share cache identity and freshness across native and HTTP calls;
+raw file and binary inputs bypass caches.
 
 Canonical request data lives in `ImagePipe.Plan.Request`, with explicit
 `Plan.Request.Group` transform intent and sparse `Plan.Request.Output` policy.
@@ -320,7 +326,7 @@ Generate complete URLs from the same plans used for direct execution:
 ```elixir
 alias ImagePipe, as: IP
 
-config = IP.url_config(
+config = IP.config(
   base_url: "/images",
   keys: [signing_key_hex],
   source_encryption_keys: [encryption_key],
@@ -328,15 +334,16 @@ config = IP.url_config(
   iv_mode: :deterministic
 )
 
-plan = IP.new() |> IP.group(resize: [width: 400])
-url = IP.url!(plan, "photos/cat.jpg", config)
-random_url = IP.url!(plan, "photos/cat.jpg", config, iv: :random)
-explicit_url = IP.url!(plan, "photos/cat.jpg", config, iv: :crypto.strong_rand_bytes(16))
+plan = IP.new(config) |> IP.group(resize: [width: 400])
+mount = IP.Plug.init(config: config)
+url = IP.url!(plan, "photos/cat.jpg")
+random_url = IP.url!(plan, "photos/cat.jpg", iv: :random)
+explicit_url = IP.url!(plan, "photos/cat.jpg", iv: :crypto.strong_rand_bytes(16))
 ```
 
-The mount uses the same `keys` and `source_encryption_keys`. Its generation
-mode does not restrict decryption. The `/images` prefix is outside the signed
-path. For lower-level integration, `ImagePipe.API.encrypt_source(source,
+The shared configuration supplies the mount's `keys` and `source_encryption_keys`.
+Its generation mode does not restrict decryption. The `/images` prefix is outside
+the signed path. For lower-level integration, `ImagePipe.API.encrypt_source(source,
 validated_mount_config, options)` returns only `{:ok, token}`; the caller must
 place it after `enc/` and sign the complete mount-relative path. Invalid source,
 disabled encryption, and invalid IV overrides return tagged errors without

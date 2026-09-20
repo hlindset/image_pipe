@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.SourceEncryption.HKDF do
+defmodule ImagePipe.Security.SourceEncryption.HKDF do
   @moduledoc false
 
   # HKDF-SHA256, RFC 5869. Only used with fixed protocol parameters.

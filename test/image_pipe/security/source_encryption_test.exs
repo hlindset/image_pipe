@@ -1,11 +1,11 @@
-defmodule ImagePipe.API.SourceEncryptionTest do
+defmodule ImagePipe.Security.SourceEncryptionTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API
   alias ImagePipe.API.Config
   alias ImagePipe.API.Errors
-  alias ImagePipe.API.Signature
-  alias ImagePipe.API.SourceEncryption
+  alias ImagePipe.Security.Signature
+  alias ImagePipe.Security.SourceEncryption
 
   @key_a :binary.list_to_bin(Enum.to_list(0..31))
   @key_b :binary.list_to_bin(Enum.to_list(32..63))

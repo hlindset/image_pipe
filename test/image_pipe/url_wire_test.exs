@@ -29,21 +29,54 @@ defmodule ImagePipe.URLWireTest do
     %{body: body, sources: sources}
   end
 
+  test "one shared config supplies encryption, signing, URL defaults, and processing", %{
+    sources: sources
+  } do
+    config =
+      IP.config(
+        sources: sources,
+        base_url: "https://cdn.test/images",
+        keys: [@key],
+        source_encryption_keys: [@encryption_key],
+        encrypt_source: true,
+        iv_mode: :deterministic,
+        quality: 71
+      )
+
+    client = IP.new(config) |> IP.group(resize: [width: 30]) |> IP.output(format: :png)
+    url = IP.url!(client, "photo.jpg")
+    assert url == IP.url!(client, "photo.jpg")
+    assert String.starts_with?(url, "https://cdn.test/images/sig=")
+    assert url =~ "/enc/"
+    refute url =~ "photo.jpg"
+    refute_received :source_fetch
+
+    response =
+      conn(:get, url)
+      |> Map.put(:script_name, ["images"])
+      |> IP.Plug.call(IP.Plug.init(config: config, allow_debug_headers: true))
+
+    assert response.status == 200
+    assert_receive :source_fetch
+    assert {:ok, native} = IP.run(client, {:source, "photo.jpg"})
+    assert native.data == response.resp_body
+    assert_receive :source_fetch
+    random = IP.url!(client, "photo.jpg", iv: :random)
+    refute random == url
+    assert IP.url!(client, "photo.jpg") == url
+
+    response =
+      conn(:get, random)
+      |> Map.put(:script_name, ["images"])
+      |> IP.Plug.call(IP.Plug.init(config))
+
+    assert response.status == 200
+  end
+
   test "generated signed URLs execute the same plan as direct Elixir", %{
     body: body,
     sources: sources
   } do
-    mount =
-      IP.Plug.init(sources: sources, keys: [@key], source_encryption_keys: [@encryption_key])
-
-    plan =
-      IP.new(expires: 2_000_000_000)
-      |> IP.group(resize: [width: 30, height: 20], brightness: 10)
-      |> IP.group(padding: 2, background: "white")
-      |> IP.output(format: :png)
-
-    assert {:ok, result} = IP.run(plan, {:binary, body})
-
     for {encrypt?, options} <- [
           {false, []},
           {true, []},
@@ -51,14 +84,23 @@ defmodule ImagePipe.URLWireTest do
           {true, [iv: <<7::128>>]}
         ] do
       config =
-        IP.url_config(
+        IP.config(
+          sources: sources,
           base_url: "https://cdn.test/images",
           keys: [@key],
           source_encryption_keys: [@encryption_key],
           encrypt_source: encrypt?
         )
 
-      url = IP.url!(plan, "photo.jpg", config, options)
+      plan =
+        IP.new(config, expires: 2_000_000_000)
+        |> IP.group(resize: [width: 30, height: 20], brightness: 10)
+        |> IP.group(padding: 2, background: "white")
+        |> IP.output(format: :png)
+
+      assert {:ok, result} = IP.run(plan, {:binary, body})
+      mount = IP.Plug.init(config)
+      url = IP.url!(plan, "photo.jpg", options)
       refute_received :source_fetch
       response = conn(:get, url) |> Map.put(:script_name, ["images"]) |> IP.Plug.call(mount)
       assert response.status == 200
@@ -73,22 +115,21 @@ defmodule ImagePipe.URLWireTest do
   end
 
   test "tampering and expiry fail before source or cache access", %{sources: sources} do
-    mount =
-      IP.Plug.init(
+    config =
+      IP.config(
         sources: sources,
         keys: [@key],
         source_encryption_keys: [@encryption_key],
+        encrypt_source: true,
         cache: {CacheProbe, []},
         clock: fn -> 100 end
       )
 
-    config =
-      IP.url_config(keys: [@key], source_encryption_keys: [@encryption_key], encrypt_source: true)
-
-    expired = IP.url!(IP.new(expires: 99), "photo.jpg", config)
+    mount = IP.Plug.init(config)
+    expired = IP.url!(IP.new(config, expires: 99), "photo.jpg")
 
     tampered =
-      IP.url!(IP.new() |> IP.group(gray: true), "photo.jpg", config)
+      IP.url!(IP.new(config) |> IP.group(gray: true), "photo.jpg")
       |> String.replace("/gray/", "/bitonal/")
 
     for {path, status} <- [{expired, 404}, {tampered, 403}] do

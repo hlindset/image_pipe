@@ -16,8 +16,8 @@ defmodule ImagePipe.BuilderTest do
       |> IP.output(format: :webp, quality: 82)
 
     assert :ok = IP.validate(plan)
-    assert {:ok, first} = Plan.to_request(plan, "first.jpg")
-    assert {:ok, second} = Plan.to_request(plan, "second.jpg")
+    assert {:ok, first} = Plan.to_request(plan.plan, "first.jpg")
+    assert {:ok, second} = Plan.to_request(plan.plan, "second.jpg")
     assert first.groups == second.groups
     assert first.source == "first.jpg"
     assert second.source == "second.jpg"
@@ -37,8 +37,8 @@ defmodule ImagePipe.BuilderTest do
   test "output overrides leave the original plan reusable and defaults sparse" do
     base = IP.new() |> IP.output(format: :webp, quality: 80)
     changed = IP.output(base, quality: 60)
-    assert {:ok, original} = Plan.to_request(base, "photo.jpg")
-    assert {:ok, updated} = Plan.to_request(changed, "photo.jpg")
+    assert {:ok, original} = Plan.to_request(base.plan, "photo.jpg")
+    assert {:ok, updated} = Plan.to_request(changed.plan, "photo.jpg")
     assert original.output.quality == 80
     assert updated.output.quality == 60
     assert updated.output.format == :webp
@@ -164,7 +164,7 @@ defmodule ImagePipe.BuilderTest do
       ] do
     test "native and URL #{name} produce the same canonical intent" do
       plan = IP.new() |> IP.group(unquote(Macro.escape(options)))
-      assert {:ok, request} = Plan.to_request(plan, "photo.jpg")
+      assert {:ok, request} = Plan.to_request(plan.plan, "photo.jpg")
       assert {:ok, ^request} = parse(unquote(path))
     end
   end
@@ -222,7 +222,7 @@ defmodule ImagePipe.BuilderTest do
       ] do
     test "native and URL #{name} output settings produce the same sparse policy" do
       plan = IP.new() |> IP.output(unquote(Macro.escape(options)))
-      assert {:ok, request} = Plan.to_request(plan, "photo.jpg")
+      assert {:ok, request} = Plan.to_request(plan.plan, "photo.jpg")
       assert {:ok, ^request} = parse(unquote(path))
     end
   end
@@ -240,7 +240,7 @@ defmodule ImagePipe.BuilderTest do
       |> IP.output(webp_options: [lossless: true, effort: 6])
       |> IP.output(webp_options: [effort: 4])
 
-    assert {:ok, request} = Plan.to_request(plan, "photo.jpg")
+    assert {:ok, request} = Plan.to_request(plan.plan, "photo.jpg")
 
     assert {:ok, ^request} =
              parse(
@@ -278,7 +278,7 @@ defmodule ImagePipe.BuilderTest do
     assert Enum.any?(issues, &(&1.reason == :mutually_exclusive_options))
     assert Enum.any?(issues, &(&1.reason == :inert_option))
     assert Enum.any?(issues, &({:group, 0, :anchor} in &1.locations))
-    assert {:error, ^issues} = Plan.to_request(plan, "photo.jpg")
+    assert {:error, ^issues} = Plan.to_request(plan.plan, "photo.jpg")
   end
 
   test "terminal applicability is checked before no-op normalization" do
@@ -301,7 +301,7 @@ defmodule ImagePipe.BuilderTest do
       options = [resize: [width: width], trim: :auto, blur: sigma]
       left = IP.new() |> IP.group(options)
       right = IP.new() |> IP.group(Enum.reverse(options))
-      assert Plan.to_request(left, "photo.jpg") == Plan.to_request(right, "photo.jpg")
+      assert Plan.to_request(left.plan, "photo.jpg") == Plan.to_request(right.plan, "photo.jpg")
     end
   end
 

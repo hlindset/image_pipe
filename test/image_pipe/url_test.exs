@@ -3,68 +3,70 @@ defmodule ImagePipe.URLTest do
   use ExUnitProperties
 
   alias ImagePipe, as: IP
-  alias ImagePipe.API.{Parser, Path, Signature}
+  alias ImagePipe.API.{Parser, Path}
   alias ImagePipe.Plan
+  alias ImagePipe.Security.Signature
 
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
   @source_key :binary.copy(<<42>>, 32)
 
   test "encrypted URLs are stable across configurations and processes" do
-    plan = IP.new(expires: 2_000_000_000) |> IP.group(gray: true)
+    plan = IP.new(encrypted_config(), expires: 2_000_000_000) |> IP.group(gray: true)
     source = "https://private.test/bucket/猫.jpg?secret=token"
-    expected = IP.url!(plan, source, encrypted_config())
+    expected = IP.url!(plan, source)
     supervisor = start_supervised!(Task.Supervisor)
 
     task =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        IP.url!(plan, source, encrypted_config())
+        IP.new(encrypted_config(), expires: 2_000_000_000)
+        |> IP.group(gray: true)
+        |> IP.url!(source)
       end)
 
     assert Task.await(task) == expected
     refute expected =~ "private.test"
 
     assert encrypted_token(expected) ==
-             encrypted_token(IP.url!(IP.new(), source, encrypted_config()))
+             encrypted_token(IP.url!(IP.new(encrypted_config()), source))
   end
 
   test "random and explicit IVs override the generation default and share decoding" do
     source = "private.jpg"
     config = encrypted_config()
-    first = IP.url!(IP.new(), source, config, iv: :random)
-    second = IP.url!(IP.new(), source, config, iv: :random)
+    client = IP.new(config)
+    first = IP.url!(client, source, iv: :random)
+    second = IP.url!(client, source, iv: :random)
     refute first == second
     iv = :binary.copy(<<7>>, 16)
-    explicit = IP.url!(IP.new(), source, config, iv: iv)
-    assert explicit == IP.url!(IP.new(), source, config, iv: iv)
+    explicit = IP.url!(client, source, iv: iv)
+    assert explicit == IP.url!(client, source, iv: iv)
 
     assert <<1, ^iv::binary-size(16), _rest::binary>> =
              Base.url_decode64!(encrypted_token(explicit), padding: false)
 
-    mount =
-      ImagePipe.API.validate_config!(keys: [@signing_key], source_encryption_keys: [@source_key])
+    mount = IP.Plug.init(config)
 
     for path <- [first, second, explicit] do
       assert {{:ok, %{source: ^source}}, _meta} =
                ImagePipe.API.parse(Plug.Test.conn(:get, path), mount)
     end
 
-    random_config = encrypted_config(iv_mode: :random)
-    refute IP.url!(IP.new(), source, random_config) == IP.url!(IP.new(), source, random_config)
+    random_client = IP.new(encrypted_config(iv_mode: :random))
+    refute IP.url!(random_client, source) == IP.url!(random_client, source)
 
-    assert IP.url!(IP.new(), source, random_config, iv: :deterministic) ==
-             IP.url!(IP.new(), source, config)
+    assert IP.url!(random_client, source, iv: :deterministic) == IP.url!(client, source)
   end
 
   test "encryption configuration and per-call overrides reject mistakes without secrets" do
     for options <- [[iv: <<0::120>>], [iv: <<0::136>>], [iv: nil], [unknown: "private"]] do
-      assert IP.url(IP.new(), "secret-source", encrypted_config(), options) ==
+      assert IP.url(IP.new(encrypted_config()), "secret-source", options) ==
                {:error, :invalid_encryption_options}
     end
 
-    assert IP.url(IP.new(), "secret-source", IP.url_config(), iv: :random) ==
+    assert IP.url(IP.new(), "secret-source", iv: :random) ==
              {:error, :source_encryption_disabled}
 
-    assert_raise ArgumentError, fn -> IP.url_config(encrypt_source: true) end
+    assert_raise ArgumentError, fn -> IP.config(encrypt_source: true) end
     assert_raise ArgumentError, fn -> encrypted_config(iv_mode: <<0::128>>) end
     assert_raise ArgumentError, fn -> encrypted_config(keys: []) end
     assert_raise ArgumentError, fn -> encrypted_config(keys: [Base.encode16(@source_key)]) end
@@ -82,23 +84,20 @@ defmodule ImagePipe.URLTest do
     assert URI.parse(path).fragment == nil
     assert {:ok, lexed} = Path.extract(Plug.Test.conn(:get, path))
     assert {:ok, request} = Parser.parse(lexed, presets: %{})
-    assert {:ok, ^request} = Plan.to_request(plan, source)
+    assert {:ok, ^request} = Plan.to_request(plan.plan, source)
   end
 
   test "signatures cover the mount-relative path with stable explicit expiry" do
-    plan = IP.new(expires: 2_000_000_000) |> IP.group(gray: true)
-
     for base <- ["", "/images", "images", "https://cdn.test/images/"] do
-      config = IP.url_config(base_url: base, keys: [@signing_key])
-      path = IP.url!(plan, "photo.jpg", config)
-
-      assert path ==
-               IP.url!(plan, "photo.jpg", IP.url_config(base_url: base, keys: [@signing_key]))
+      config = IP.config(base_url: base, keys: [@signing_key])
+      plan = IP.new(config, expires: 2_000_000_000) |> IP.group(gray: true)
+      path = IP.url!(plan, "photo.jpg")
+      assert path == IP.url!(plan, "photo.jpg")
 
       prefix = String.trim_trailing(base, "/")
       relative = String.replace_prefix(path, prefix, "")
       {signature, signed_path} = Path.split_signature(Plug.Test.conn(:get, relative))
-      mount = ImagePipe.API.validate_config!(keys: [@signing_key])
+      mount = IP.Plug.init(config)
       assert {:ok, 0} = Signature.verify(signature, signed_path, mount)
       assert signed_path == "/gray/expires=2000000000/src/photo.jpg"
       refute inspect(config) =~ @signing_key
@@ -128,13 +127,13 @@ defmodule ImagePipe.URLTest do
           "/img#fragment",
           "ftp://cdn.test/img"
         ] do
-      error = assert_raise ArgumentError, fn -> IP.url_config(base_url: base) end
+      error = assert_raise ArgumentError, fn -> IP.config(base_url: base) end
       refute Exception.message(error) =~ "secret"
     end
 
-    error = assert_raise ArgumentError, fn -> IP.url_config(keys: ["secret!"]) end
+    error = assert_raise ArgumentError, fn -> IP.config(keys: ["secret!"]) end
     refute Exception.message(error) =~ "secret!"
-    assert_raise ArgumentError, fn -> IP.url_config(unknown: true) end
+    assert_raise ArgumentError, fn -> IP.config(unknown: true) end
   end
 
   test "option count is limited to paths the HTTP parser accepts" do
@@ -162,12 +161,11 @@ defmodule ImagePipe.URLTest do
   property "UTF-8 encrypted sources round trip across CBC block boundaries" do
     config = encrypted_config()
 
-    mount =
-      ImagePipe.API.validate_config!(keys: [@signing_key], source_encryption_keys: [@source_key])
+    mount = IP.Plug.init(config)
 
     check all source <- string(:utf8, min_length: 1, max_length: 100),
               iv <- binary(length: 16) do
-      path = IP.url!(IP.new(), source, config, iv: iv)
+      path = IP.url!(IP.new(config), source, iv: iv)
 
       assert {{:ok, %{source: ^source}}, _meta} =
                ImagePipe.API.parse(Plug.Test.conn(:get, path), mount)
@@ -177,7 +175,7 @@ defmodule ImagePipe.URLTest do
   defp encrypted_config(options \\ []) do
     [keys: [@signing_key], source_encryption_keys: [@source_key], encrypt_source: true]
     |> Keyword.merge(options)
-    |> IP.url_config()
+    |> IP.config()
   end
 
   defp encrypted_token(path), do: path |> String.split("/enc/") |> List.last()

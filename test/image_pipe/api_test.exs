@@ -4,7 +4,7 @@ defmodule ImagePipe.APITest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.API.Signature
+  alias ImagePipe.Security.Signature
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
   describe "init/1" do

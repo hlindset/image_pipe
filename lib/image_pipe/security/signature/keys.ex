@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.Signature.Keys do
+defmodule ImagePipe.Security.Signature.Keys do
   @moduledoc false
 
   @enforce_keys [:values]

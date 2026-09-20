@@ -2,6 +2,9 @@ defmodule ImagePipe.RunTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe, as: IP
+  alias ImagePipe.Execution
+  alias ImagePipe.Execution.Inputs
+  alias ImagePipe.Execution.Output
   alias ImagePipe.Plan
   alias ImagePipe.Processing
   alias ImagePipe.Processing.Config
@@ -90,7 +93,7 @@ defmodule ImagePipe.RunTest do
     assert_closed()
   end
 
-  test "shared buffered generation consumes late encoder failures before closing the source", %{
+  test "buffered delivery consumes late encoder failures before closing the source", %{
     bytes: bytes
   } do
     config =
@@ -99,15 +102,23 @@ defmodule ImagePipe.RunTest do
       |> Config.validate!()
       |> Keyword.put(:image_module, LateFailureEncoder)
 
-    assert {:ok, request} = Plan.to_request(IP.output(IP.new(), format: :jpeg), "")
+    assert {:ok, request} = Plan.to_request(IP.output(IP.new(), format: :jpeg).plan, "")
     assert {:ok, policy} = Processing.prepare(request, config, "")
     assert {:ok, source, config} = Source.from_input({:source, "photo.png"}, config)
+    assert {:ok, context} = Execution.prepare(request, source, policy, Inputs.new!([]), config)
 
-    assert {:error, {:encode, %RuntimeError{}, _stack}} =
-             Processing.buffer(request, source, policy, config)
+    try do
+      assert {:ok, output} = Execution.open(context)
 
-    assert_received :encoder_closed
-    refute_received :encoder_closed
+      try do
+        assert {:error, {:encode, %RuntimeError{}, _stack}} = Output.buffer(output)
+      after
+        Execution.close_output(output)
+      end
+    after
+      Execution.close(context)
+    end
+
     assert_closed()
   end
 

@@ -2,7 +2,7 @@ defmodule ImagePipe do
   @moduledoc """
   The Elixir API for building processing plans, executing them, and generating URLs.
 
-  Use the builder API to construct a reusable `ImagePipe.Plan` with typed options:
+  Use the builder API to construct an immutable builder with typed options:
 
       plan =
         ImagePipe.new()
@@ -12,18 +12,21 @@ defmodule ImagePipe do
       :ok = ImagePipe.validate(plan)
 
   Each group runs in the fixed processing order documented in the API contract.
-  Append another group to process the previous group's result. Plans are pure
-  values, independent of sources and host configuration.
+  Append another group to process the previous group's result. The builder keeps
+  its processing plan separate from reusable host configuration. Pass a config
+  built with `config/1` to `new/1` to share sources and caches with a Plug mount.
   """
 
   use Boundary,
     deps: [
       ImagePipe.Cache,
+      ImagePipe.Config,
       ImagePipe.Debug,
       ImagePipe.Decode,
       ImagePipe.Delivery,
       ImagePipe.API,
       ImagePipe.Error,
+      ImagePipe.Execution,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
@@ -36,12 +39,20 @@ defmodule ImagePipe do
     ],
     exports: [Plug, Result]
 
-  alias ImagePipe.API.URLConfig
+  alias ImagePipe.Config
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Request.Issue
 
+  @enforce_keys [:plan, :config]
+  @derive {Inspect, except: [:config]}
+  defstruct @enforce_keys
+  @type t :: %__MODULE__{plan: Plan.t(), config: Config.t()}
+
   @doc """
-  Builds reusable, redacted URL configuration.
+  Builds reusable, redacted host configuration for the builder and Plug.
+
+  Owns sources, caches, processing defaults, limits, storage partitions, signing,
+  source encryption, and URL generation defaults.
 
   `:base_url` is an optional HTTP(S) URL or path prefix, such as
   `"https://cdn.example.com/images"` or `"/images"`. Mount path segments must
@@ -55,11 +66,11 @@ defmodule ImagePipe do
   `:source_encryption_keys` (ordered raw 32-byte binaries) to conceal the source.
   Signing keys are required. `:iv_mode` is `:deterministic` (default) or `:random`.
   """
-  @spec url_config(keyword()) :: URLConfig.t()
-  def url_config(options \\ []), do: ImagePipe.API.url_config(options)
+  @spec config(keyword()) :: Config.t()
+  def config(options \\ []), do: Config.new!(options)
 
   @doc """
-  Generates a stable URL for the plan and a mount source identifier.
+  Generates a stable URL using the builder's plan and shared configuration.
 
   The source is a UTF-8 string, including any source query parameters. Source
   bytes are escaped once and the signature covers the mount-relative path.
@@ -77,20 +88,20 @@ defmodule ImagePipe do
   deliberately changes the URL. Use the same processing defaults on the mount
   and in direct execution when identical output is required.
   """
-  @spec url(Plan.t(), String.t(), URLConfig.t(), keyword()) ::
+  @spec url(t(), String.t(), keyword()) ::
           {:ok, String.t()}
           | {:error, atom() | {:invalid_request, [Issue.t()]}}
-  def url(plan, source, config \\ url_config(), options \\ []),
-    do: ImagePipe.API.url(plan, source, config, options)
+  def url(%__MODULE__{plan: plan, config: config}, source, options \\ []),
+    do: ImagePipe.API.url(plan, source, config.options, options)
 
   @doc """
-  Like `url/4`, returning the URL or raising `ArgumentError`.
+  Like `url/3`, returning the URL or raising `ArgumentError`.
 
   Errors omit the source and credentials.
   """
-  @spec url!(Plan.t(), String.t(), URLConfig.t(), keyword()) :: String.t()
-  def url!(plan, source, config \\ url_config(), options \\ []) do
-    case url(plan, source, config, options) do
+  @spec url!(t(), String.t(), keyword()) :: String.t()
+  def url!(builder, source, options \\ []) do
+    case url(builder, source, options) do
       {:ok, url} ->
         url
 
@@ -100,14 +111,23 @@ defmodule ImagePipe do
   end
 
   @doc """
-  Starts an empty plan with optional request-wide controls.
+  Starts an empty builder with optional shared configuration or request controls.
+
+  `new(config)` reuses a value from `config/1`. Use `new(config, options)`
+  to supply request controls as well. `new()` uses default configuration.
 
   Accepts `:orient` (`:auto` or `:none`), `:filename`, `:attachment`,
   `:cachebuster`, `:expires` (positive Unix seconds), and `:debug`.
   Unknown, duplicate, or malformed options raise `ArgumentError`.
   """
-  @spec new(keyword()) :: Plan.t()
-  def new(options \\ []), do: Plan.new(options)
+  @spec new(Config.t() | keyword()) :: t()
+  def new(options \\ [])
+  def new(%Config{} = config), do: new(config, [])
+  def new(options) when is_list(options), do: new(config(), options)
+
+  @spec new(Config.t(), keyword()) :: t()
+  def new(%Config{} = config, options),
+    do: %__MODULE__{plan: Plan.new(options), config: config}
 
   @doc """
   Appends a processing group. Options in the group have fixed execution order.
@@ -120,8 +140,9 @@ defmodule ImagePipe do
   Values are checked immediately and malformed options raise `ArgumentError`.
   Use `validate/1` to check dependencies and conflicts across the plan.
   """
-  @spec group(Plan.t(), keyword()) :: Plan.t()
-  defdelegate group(plan, options), to: Plan
+  @spec group(t(), keyword()) :: t()
+  def group(%__MODULE__{} = builder, options),
+    do: %{builder | plan: Plan.group(builder.plan, options)}
 
   @doc """
   Merges explicit output settings into a plan.
@@ -131,8 +152,9 @@ defmodule ImagePipe do
   each supplied option as a whole; omitted options retain their previous value.
   Host-dependent defaults remain unresolved. Malformed values raise `ArgumentError`.
   """
-  @spec output(Plan.t(), keyword()) :: Plan.t()
-  defdelegate output(plan, options), to: Plan
+  @spec output(t(), keyword()) :: t()
+  def output(%__MODULE__{} = builder, options),
+    do: %{builder | plan: Plan.output(builder.plan, options)}
 
   @doc """
   Checks semantic constraints without fetching a source or accessing a cache.
@@ -141,22 +163,27 @@ defmodule ImagePipe do
   locations, a reason, and constraint details. Explicit no-op options are
   checked before normalization, including applicability to the selected output.
   """
-  @spec validate(Plan.t()) :: :ok | {:error, [Issue.t()]}
-  defdelegate validate(plan), to: Plan
+  @spec validate(t()) :: :ok | {:error, [Issue.t()]}
+  def validate(%__MODULE__{plan: plan}), do: Plan.validate(plan)
 
   @doc """
   Executes a plan and returns a fully consumed `ImagePipe.Result`.
 
   Inputs are `{:file, path}`, `{:binary, bytes}`, or `{:source, source_string}`.
-  Configured sources use `sources: [...]`, as in a mount. Processing options
-  share the mount's output defaults, detector, limits, and telemetry settings.
+  Configured sources use the builder's sources, input/output caches, processing
+  defaults, detector, limits, and telemetry. Per-call host options override the
+  reusable configuration. File and binary inputs bypass both caches.
   `accept: "image/webp"` supplies optional format negotiation preferences.
 
+  `request_inputs: [headers: [{"x-tenant", "one"}], cookies: %{"session" => "abc"}]`
+  supplies values named by `storage_inputs`, matching HTTP cache partitions.
+  These values affect storage identity; source adapters use their own settings.
+
   Returns `{:ok, result}` or a tagged runtime error. Invalid configuration
-  raises `ArgumentError`. Direct execution bypasses caches; all lazy pixel and
-  encoding work finishes before source resources are closed.
+  raises `ArgumentError`. All lazy pixel and encoding work finishes before
+  source resources are closed.
   """
-  @spec run(Plan.t(), {:file | :binary | :source, binary()}, keyword()) ::
+  @spec run(t(), {:file | :binary | :source, binary()}, keyword()) ::
           {:ok, ImagePipe.Result.t()} | {:error, term()}
   def run(plan, input, options \\ []), do: ImagePipe.Run.run(plan, input, options)
 
@@ -167,7 +194,7 @@ defmodule ImagePipe do
   An existing file is overwritten. Write failures return
   `{:error, {:destination, reason}}` after all source resources are released.
   """
-  @spec write(Plan.t(), {:file | :binary | :source, binary()}, Path.t(), keyword()) ::
+  @spec write(t(), {:file | :binary | :source, binary()}, Path.t(), keyword()) ::
           {:ok, ImagePipe.Result.t()} | {:error, term()}
   def write(plan, input, path, options \\ []),
     do: ImagePipe.Run.write(plan, input, path, options)

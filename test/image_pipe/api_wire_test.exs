@@ -565,7 +565,7 @@ defmodule ImagePipe.APIWireTest do
 
     test "keys configured, valid sig with the first key: 200" do
       config = opts(keys: [@source_key_a])
-      sig = API.Signature.sign("/w=64/src/images/cat.jpg", config)
+      sig = ImagePipe.Security.sign("/w=64/src/images/cat.jpg", config)
       conn = get("/sig=#{sig}/w=64/src/images/cat.jpg", config)
 
       assert conn.status == 200
@@ -574,7 +574,7 @@ defmodule ImagePipe.APIWireTest do
     test "two keys configured, valid sig matching the second key: 200" do
       config = opts(keys: [@source_key_a, @source_key_b])
       second_key_signs = API.validate_config!(keys: [@source_key_b, @source_key_a])
-      sig = API.Signature.sign("/w=64/src/images/cat.jpg", second_key_signs)
+      sig = ImagePipe.Security.sign("/w=64/src/images/cat.jpg", second_key_signs)
 
       conn = get("/sig=#{sig}/w=64/src/images/cat.jpg", config)
 

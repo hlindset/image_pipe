@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.SourceEncryption.CBC do
+defmodule ImagePipe.Security.SourceEncryption.CBC do
   @moduledoc false
 
   # A256CBC-HS512, RFC 7518 §5.2.5. Authenticate before decrypting/unpadding.

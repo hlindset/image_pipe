@@ -1,7 +1,7 @@
 defmodule ImagePipe.API do
   @moduledoc """
   ImagePipe's URL API, mounted through `plug ImagePipe.Plug,
-  sources: [...]`. Owns parsing (verify → lex → parse), representation identity,
+  sources: [...]`. Owns parsing (verify → lex → parse), configuration,
   and error rendering. Shared processing owns expiry/output preflight, and
   the source boundary translates source strings.
   `ImagePipe.Plug` orchestrates the request lifecycle.
@@ -17,37 +17,29 @@ defmodule ImagePipe.API do
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePipe.Cache,
+      ImagePipe.Config,
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Processing,
-      ImagePipe.Representation,
       ImagePipe.Response,
+      ImagePipe.Security,
       ImagePipe.Source,
-      ImagePipe.Telemetry,
-      ImagePipe.Transform
+      ImagePipe.Telemetry
     ],
-    exports: [URLConfig]
+    exports: []
 
   alias ImagePipe.API.Config
   alias ImagePipe.API.Errors
-  alias ImagePipe.API.Identity
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
-  alias ImagePipe.API.Signature
-  alias ImagePipe.API.SourceEncryption
   alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Processing
+  alias ImagePipe.Security
   alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.Telemetry
-  alias ImagePipe.Transform
 
   def validate_config!(opts), do: Config.validate!(opts)
-
-  @doc false
-  defdelegate url_config(options), to: ImagePipe.API.URLConfig, as: :new!
 
   @doc false
   defdelegate url(plan, source, config, options), to: ImagePipe.API.URL, as: :build
@@ -61,18 +53,18 @@ defmodule ImagePipe.API do
   `:iv` overrides the configured `:iv_mode` with `:deterministic`, `:random`,
   or an explicit 16-byte binary. Explicit IVs must be unpredictable or
   secret-keyed over the complete source and never reused for different sources
-  under the same key. Prefer `ImagePipe.url/4` to generate a complete signed URL.
+  under the same key. Prefer `ImagePipe.url/3` to generate a complete signed URL.
   """
   @spec encrypt_source(term(), keyword(), keyword()) :: {:ok, String.t()} | {:error, atom()}
   def encrypt_source(source, config, options \\ []) do
-    SourceEncryption.encrypt(source, Keyword.fetch!(config, :source_encryption), options)
+    Security.encrypt_source(source, config, options)
   end
 
   def parse(%Plug.Conn{} = conn, config) do
     {sig, signed_path} = Path.split_signature(conn)
 
     result =
-      with {:ok, key_index} <- Signature.verify(sig, signed_path, config),
+      with {:ok, key_index} <- Security.verify(sig, signed_path, config),
            {:ok, lexed} <- Path.extract(conn) |> normalize_lex_error(),
            {:ok, lexed} <- decrypt_source(lexed, config),
            {:ok, request} <- Parser.parse(lexed, config) do
@@ -94,10 +86,6 @@ defmodule ImagePipe.API do
          {:ok, plan_source} <- APISource.translate(request.source, config) do
       {:ok, plan_source, policy}
     end
-  end
-
-  def identity_material(%Request{} = request, policy, conn, config) do
-    Identity.material(request, policy, conn, config, detector_identity(request, config))
   end
 
   def render_error(conn, reason), do: Errors.send(conn, reason)
@@ -133,46 +121,11 @@ defmodule ImagePipe.API do
   defp normalize_lex_error({:ok, _lexed} = ok), do: ok
 
   defp decrypt_source(%{source: {:enc, token, span}} = lexed, config) do
-    case SourceEncryption.decrypt(token, Keyword.fetch!(config, :source_encryption)) do
+    case Security.decrypt_source(token, config) do
       {:ok, source} -> {:ok, %{lexed | source: {:enc, source, span}}}
       {:error, :invalid_concealed_source} = error -> error
     end
   end
 
   defp decrypt_source(lexed, _config), do: {:ok, lexed}
-
-  def response_meta(%Request{} = request) do
-    %PlanResponse{
-      filename: request.filename,
-      disposition: if(request.attachment?, do: :attachment, else: :inline),
-      debug?: request.debug?
-    }
-  end
-
-  defp detector_identity(%Request{} = request, config) do
-    case identity_detector_classes(request) do
-      nil ->
-        nil
-
-      classes ->
-        Transform.detector_identity(
-          Keyword.get(config, :detector, :default),
-          Keyword.put(config, :classes, classes)
-        )
-    end
-  end
-
-  defp identity_detector_classes(%Request{} = request) do
-    case {Processing.explicit_detector_classes(request), face_assist?(request)} do
-      {:all, _face_assist?} -> :all
-      {nil, false} -> nil
-      {nil, true} -> ["face"]
-      {classes, false} -> classes
-      {classes, true} -> Enum.sort(Enum.uniq(["face" | classes]))
-    end
-  end
-
-  defp face_assist?(%Request{groups: groups}) do
-    Enum.any?(groups, &(&1.guide == {:smart, :face_assist}))
-  end
 end

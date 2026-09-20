@@ -152,12 +152,12 @@ defmodule ImagePipe.API.SerializerTest do
   end
 
   defp segments(plan) do
-    {:ok, request} = Plan.to_request(plan, "photo.jpg")
+    {:ok, request} = Plan.to_request(plan.plan, "photo.jpg")
     Serializer.segments(request)
   end
 
   defp assert_round_trip(plan) do
-    assert {:ok, expected} = Plan.to_request(plan, "photo.jpg")
+    assert {:ok, expected} = Plan.to_request(plan.plan, "photo.jpg")
     path = "/" <> Enum.join(Serializer.segments(expected) ++ ["src", "photo.jpg"], "/")
     assert {:ok, lexed} = Path.extract(Plug.Test.conn(:get, path))
     assert {:ok, ^expected} = Parser.parse(lexed, presets: %{}), path

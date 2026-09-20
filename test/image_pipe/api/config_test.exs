@@ -3,8 +3,8 @@ defmodule ImagePipe.API.ConfigTest do
   use ExUnitProperties
 
   alias ImagePipe.API.Config
-  alias ImagePipe.API.SourceEncryption
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Security.SourceEncryption
 
   @source_key :binary.copy(<<42>>, 32)
   @signing_key String.duplicate("a1", 32)

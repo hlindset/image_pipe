@@ -1,16 +1,18 @@
 defmodule ImagePipe.API.URL do
   @moduledoc false
 
-  alias ImagePipe.API.{Path, Serializer, Signature, SourceEncryption, URLConfig}
+  alias ImagePipe.API.{Path, Serializer}
   alias ImagePipe.Plan
+  alias ImagePipe.Security
 
-  def build(plan, source, %URLConfig{} = config, options) do
+  def build(plan, source, config, options) do
     with :ok <- source(source),
          {:ok, request} <- request(plan, source),
          {:ok, segments} <- segments(request),
-         {:ok, source_segments} <- source_segments(source, config, options) do
+         {:ok, source_segments} <-
+           source_segments(source, config, options, config[:encrypt_source]) do
       path = "/" <> Enum.join(segments ++ source_segments, "/")
-      {:ok, config.base_url <> sign(path, config.keys)}
+      {:ok, config[:base_url] <> sign(path, config)}
     end
   end
 
@@ -23,16 +25,16 @@ defmodule ImagePipe.API.URL do
 
   defp source(_source), do: {:error, :invalid_source}
 
-  defp source_segments(source, %URLConfig{encrypt_source: true} = config, options) do
-    with {:ok, token} <- SourceEncryption.encrypt(source, config.source_encryption, options) do
+  defp source_segments(source, config, options, true) do
+    with {:ok, token} <- Security.encrypt_source(source, config, options) do
       {:ok, ["enc", token]}
     end
   end
 
-  defp source_segments(source, %URLConfig{encrypt_source: false}, []),
+  defp source_segments(source, _config, [], false),
     do: {:ok, source_segments(source)}
 
-  defp source_segments(_source, %URLConfig{encrypt_source: false}, _options),
+  defp source_segments(_source, _config, _options, false),
     do: {:error, :source_encryption_disabled}
 
   # Browsers normalize dot path segments even when the dots are percent-encoded.
@@ -57,6 +59,10 @@ defmodule ImagePipe.API.URL do
     end
   end
 
-  defp sign(path, %{values: []}), do: path
-  defp sign(path, keys), do: "/sig=" <> Signature.sign(path, keys: keys) <> path
+  defp sign(path, config) do
+    case Security.sign(path, config) do
+      nil -> path
+      signature -> "/sig=" <> signature <> path
+    end
+  end
 end

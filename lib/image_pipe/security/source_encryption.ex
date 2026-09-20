@@ -1,7 +1,7 @@
-defmodule ImagePipe.API.SourceEncryption do
+defmodule ImagePipe.Security.SourceEncryption do
   @moduledoc false
 
-  alias ImagePipe.API.SourceEncryption.{CBC, HKDF}
+  alias ImagePipe.Security.SourceEncryption.{CBC, HKDF}
 
   @version 1
   @iv_bytes 16

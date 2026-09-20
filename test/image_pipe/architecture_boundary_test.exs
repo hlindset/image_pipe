@@ -2,6 +2,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
   @request_source_response_globs [
+    "lib/image_pipe/execution.ex",
+    "lib/image_pipe/execution/**/*.ex",
     "lib/image_pipe/processing.ex",
     "lib/image_pipe/processing/**/*.ex",
     "lib/image_pipe/plug.ex",
@@ -12,6 +14,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/response/**/*.ex"
   ]
   @detector_forbidden_globs [
+    "lib/image_pipe/execution.ex",
+    "lib/image_pipe/execution/**/*.ex",
     "lib/image_pipe/plug.ex",
     "lib/image_pipe/plug/**/*.ex",
     "lib/image_pipe/source.ex",
@@ -41,6 +45,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/transform/**/*.ex"
   ]
   @core_toolkit_globs [
+    "lib/image_pipe/execution.ex",
+    "lib/image_pipe/execution/**/*.ex",
     "lib/image_pipe/processing.ex",
     "lib/image_pipe/processing/**/*.ex",
     "lib/image_pipe/delivery.ex",
@@ -53,6 +59,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   @parsing_forbidden_globs @core_surface_globs ++ @transform_globs ++ @core_toolkit_globs
   @boundary_files %{
     ImagePipe.Application => "lib/application.ex",
+    ImagePipe.Config => "lib/image_pipe/config.ex",
+    ImagePipe.Execution => "lib/image_pipe/execution.ex",
     ImagePipe.Cache => "lib/image_pipe/cache.ex",
     ImagePipe.Debug => "lib/image_pipe/debug.ex",
     ImagePipe.Decode => "lib/image_pipe/decode.ex",
@@ -66,6 +74,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Plug => "lib/image_pipe/plug.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
+    ImagePipe.Security => "lib/image_pipe/security.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
     ImagePipe.Telemetry => "lib/image_pipe/telemetry.ex",
     ImagePipe.Transform => "lib/image_pipe/transform.ex"
@@ -90,19 +99,14 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(plug, [
       ImagePipe.Cache,
       ImagePipe.Debug,
-      ImagePipe.Decode,
-      ImagePipe.Delivery,
       ImagePipe.API,
       ImagePipe.Error,
-      ImagePipe.Format,
+      ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Plan,
-      ImagePipe.Processing,
-      ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
-      ImagePipe.Telemetry,
-      ImagePipe.Transform
+      ImagePipe.Telemetry
     ])
 
     assert_boundary_exports(plug, [])
@@ -112,8 +116,29 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     api = boundary_declaration(ImagePipe.API)
 
     assert_boundary_deps(api, [
-      ImagePipe.Cache,
+      ImagePipe.Config,
       ImagePipe.Format,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Processing,
+      ImagePipe.Response,
+      ImagePipe.Security,
+      ImagePipe.Source,
+      ImagePipe.Telemetry
+    ])
+
+    refute_boundary_deps(api, [ImagePipe.Decode, ImagePipe.Delivery, ImagePipe.Plug])
+
+    assert_boundary_exports(api, [])
+  end
+
+  test "shared execution owns caching without depending on HTTP adapters" do
+    execution = boundary_declaration(ImagePipe.Execution)
+
+    assert_boundary_deps(execution, [
+      ImagePipe.Cache,
+      ImagePipe.Debug,
+      ImagePipe.Delivery,
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Processing,
@@ -124,9 +149,19 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform
     ])
 
-    refute_boundary_deps(api, [ImagePipe.Decode, ImagePipe.Delivery, ImagePipe.Plug])
+    refute_boundary_deps(execution, [ImagePipe.API, ImagePipe.Plug])
+    config = boundary_declaration(ImagePipe.Config)
 
-    assert_boundary_exports(api, [ImagePipe.API.URLConfig])
+    assert_boundary_deps(config, [
+      ImagePipe.Cache,
+      ImagePipe.Processing,
+      ImagePipe.Security,
+      ImagePipe.Source
+    ])
+
+    security = boundary_declaration(ImagePipe.Security)
+    assert_boundary_deps(security, [])
+    assert_boundary_exports(security, [])
   end
 
   test "processing shares generation without depending on HTTP orchestration" do

@@ -1,7 +1,7 @@
-defmodule ImagePipe.API.SourceEncryption.CBCTest do
+defmodule ImagePipe.Security.SourceEncryption.CBCTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.API.SourceEncryption.CBC
+  alias ImagePipe.Security.SourceEncryption.CBC
 
   # RFC 7518, Appendix B.3 (A256CBC-HS512).
   test "matches the published encryption and authentication vector" do
