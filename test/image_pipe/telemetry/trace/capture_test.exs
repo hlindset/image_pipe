@@ -50,11 +50,27 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
 
     for stage <- [:source, :input, :refresh] do
       Telemetry.span([telemetry_prefix: prefix], [:cache, stage], %{pool: :input}, fn ->
+        Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
+          result: :coalesced,
+          pool: :input,
+          operation: :source
+        })
+
         {:ok, %{result: :ok}}
       end)
 
       name = "image_pipe.cache.#{stage}"
-      assert_receive {:span, %Span{name: ^name, status: :ok, attributes: %{pool: :input}}}
+
+      assert_receive {:span,
+                      %Span{
+                        name: ^name,
+                        status: :ok,
+                        attributes: %{pool: :input},
+                        events: [event]
+                      }}
+
+      assert event.name == "image_pipe.cache.coordination"
+      assert event.attributes.result == :coalesced
     end
   end
 

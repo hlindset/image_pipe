@@ -56,17 +56,22 @@ defmodule ImagePipe.Cache.Input do
 
   def open(key, record, opts) do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :input], %{pool: :input}, fn ->
-      result = do_open(key, record, opts)
-
-      cache =
-        case result do
-          {:ok, _, _} -> :hit
-          :miss -> :miss
-        end
-
-      {result, %{result: :ok, cache: cache}}
+      key |> do_open(record, opts) |> open_result()
     end)
   end
+
+  defp open_result({:ok, path, _lease} = result) do
+    bytes =
+      case File.stat(path) do
+        {:ok, stat} -> stat.size
+        _error -> 0
+      end
+
+    {result, %{result: :ok, cache: :hit, bytes: bytes}}
+  end
+
+  defp open_result(:miss), do: {:miss, %{result: :ok, cache: :miss}}
+  defp open_result({:error, _reason}), do: {:miss, %{result: :cache_error, cache: :read_error}}
 
   defp do_open(key, record, opts) do
     case Keyword.get(opts, :input_cache) do
@@ -74,7 +79,7 @@ defmodule ImagePipe.Cache.Input do
       {_adapter, pool} -> open_pool(key, record, pool)
     end
   rescue
-    _exception -> :miss
+    _exception -> {:error, :cache_read_failed}
   end
 
   defp open_pool(key, record, pool) do
@@ -84,7 +89,10 @@ defmodule ImagePipe.Cache.Input do
 
       {:hit, file, _invalid} ->
         CacheFile.close(file)
-        :miss
+        {:error, :invalid_metadata}
+
+      {:error, reason} ->
+        {:error, reason}
 
       _miss ->
         :miss
@@ -128,17 +136,28 @@ defmodule ImagePipe.Cache.Input do
 
   def put(key, path, record, cost, opts) do
     case Keyword.get(opts, :input_cache) do
-      nil -> :ok
-      {_adapter, pool} -> store(key, path, record, cost, pool)
+      nil ->
+        :ok
+
+      {_adapter, pool} ->
+        Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{pool: :input}, fn ->
+          result = store(key, path, record, cost, pool)
+
+          {result, write_metadata(result)}
+        end)
     end
   rescue
     _exception -> :ok
   end
 
+  defp write_metadata({:error, _reason}), do: %{result: :cache_error, cache: :write_error}
+  defp write_metadata({:ok, :rejected}), do: %{result: :ok, cache: :stage_skipped}
+  defp write_metadata(:ok), do: %{result: :ok, cache: :write}
+
   defp store(key, path, record, cost, pool) do
     case Store.open_sink(key, %{source_record: record, cost_us: cost}, pool) do
       {:ok, sink} -> write(sink, path, pool)
-      {:error, _reason} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -152,8 +171,12 @@ defmodule ImagePipe.Cache.Input do
       end)
 
     case result do
-      {:ok, state} -> Store.commit_sink(state, pool)
-      {:error, _reason, state} -> Store.abort_sink(state, pool)
+      {:ok, state} ->
+        Store.commit_sink(state, pool)
+
+      {:error, reason, state} ->
+        Store.abort_sink(state, pool)
+        {:error, reason}
     end
   after
     Store.abort_sink(sink, pool)

@@ -44,6 +44,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
   # One-shot (terminal) events — folded as annotations onto the current span.
   @oneshot_stages [
+    [:cache, :coordination],
     # Delivered-probe marker: folds onto the enclosing [:encode, :search] span,
     # naming the winning quality/phase that produced the shipped bytes. All keys
     # (quality, bytes, phase, index, score, scorer, tiles_scored) are in @safe_keys.

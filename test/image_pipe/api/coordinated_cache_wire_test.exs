@@ -91,6 +91,30 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert get_resp_header(first, "cache-control") == ["public, max-age=60"]
   end
 
+  test "input telemetry counts reused bytes without counting output-only hits", %{config: config} do
+    prefix = [__MODULE__, :input_bytes]
+    event = prefix ++ [:cache, :input, :stop]
+    handler = make_ref()
+
+    :telemetry.attach(
+      handler,
+      event,
+      fn _, _, metadata, owner ->
+        send(owner, {:input_read, metadata})
+      end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    config = Keyword.put(config, :telemetry_prefix, prefix)
+    assert request(config, 12).status == 200
+    assert request(config, 8).status == 200
+    assert_receive {:input_read, %{cache: :hit, pool: :input, bytes: bytes}}
+    assert bytes > 0
+    assert request(config, 12).status == 200
+    refute_received {:input_read, _}
+  end
+
   test "304 refresh keeps the derived bytes and changed 200 changes pixels and validator", %{
     config: config,
     state: state

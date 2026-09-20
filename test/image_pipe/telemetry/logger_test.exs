@@ -68,10 +68,17 @@ defmodule ImagePipe.Telemetry.LoggerTest do
             pool: :input
           })
         end
+
+        :telemetry.execute(prefix ++ [:cache, :coordination], %{}, %{
+          result: :coalesced,
+          pool: :input,
+          operation: :refresh
+        })
       end)
 
     for stage <- [:source, :input, :refresh], do: assert(log =~ "cache #{stage}: source_error")
     assert log =~ "(input pool)"
+    assert log =~ "cache coordination: coalesced"
     assert log =~ "[warning]"
   end
 

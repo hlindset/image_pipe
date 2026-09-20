@@ -50,6 +50,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # cache one-shot events (already terminal; not spans)
   @cache_oneshot [
+    [:cache, :coordination],
     [:cache, :eviction, :stop],
     [:cache, :flush, :stop],
     [:cache, :cleanup, :stop],
@@ -173,6 +174,8 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp level_for([:debug, :collect, :error | _], _metadata, _base), do: :warning
+
+  defp level_for([:cache, :coordination], %{result: :busy}, _base), do: :warning
 
   defp level_for(suffix, metadata, base) do
     if stage_warning?(suffix, metadata), do: :warning, else: base

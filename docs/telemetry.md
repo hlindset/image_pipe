@@ -755,7 +755,30 @@ with `Telemetry.execute/4`, not a span) with:
 - `cache: :stage_cleanup_error` when abort cleanup fails after the response path
   has already failed open.
 
-Cache sink commits use the existing `[:cache, :write, ...]` span. A
+Coordinated source caching adds three spans (each has `:start`, `:stop`, and
+`:exception` events):
+
+- `[:cache, :input]` measures opening and verifying a cached original. Stop
+  metadata has `pool: :input` and `cache: :hit | :miss | :read_error`. A hit
+  includes `:bytes`, the original bytes reused without downloading a body;
+  read failures report `result: :cache_error` and fall back to origin access.
+- `[:cache, :source]` measures the source fill or conditional revalidation,
+  including complete-body staging and publication. Stop metadata has
+  `pool: :input` and `result: :ok | :source_error`.
+- `[:cache, :refresh]` measures supervised stale-while-revalidate work. It
+  retains the request outcome, so failed refreshes remain visible.
+
+The default Logger and trace Capture subscribe to all three. Trace attributes
+include the safe `:pool` field; credentials, source URLs, and origin headers are
+not included. Output-only hits do not emit an input-pool hit.
+Filesystem admission, warm-start, eviction, flush, and cleanup events carry
+the supervisor's `:pool` label too. The Logger appends `(input pool)` or
+`(output pool)` when a pool label is present.
+The one-shot `[:cache, :coordination]` event reports `operation: :source | :refresh`
+and `result: :acquired | :started | :coalesced | :backoff | :busy`. It exposes
+coalescing and bounded-capacity fallback without including the source key.
+
+Both pools use `[:cache, :write, ...]` with their `:pool` label. A
 successful commit stop event includes `cache: :write`. A commit error after
 successful streamed delivery includes `cache: :write_error` and
 `result: :cache_error`, but the response still fails open because the body was
@@ -863,6 +886,9 @@ defmodule MyApp.ImagePipeTelemetry do
     [:parse],
     [:source, :resolve],
     [:cache, :lookup],
+    [:cache, :input],
+    [:cache, :source],
+    [:cache, :refresh],
     [:output, :negotiate],
     [:output, :terminal],
     [:source, :fetch],

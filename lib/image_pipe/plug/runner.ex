@@ -310,17 +310,21 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp start_refresh(ctx, representation) do
-    Cache.Work.refresh({:output, representation.cache_key.hash}, fn ->
-      Telemetry.span(
-        Telemetry.telemetry_opts(ctx.config),
-        [:cache, :refresh],
-        %{pool: :input},
-        fn ->
-          {_conn, metadata} = result = refresh_remote(ctx)
-          {result, metadata}
-        end
-      )
-    end)
+    Cache.Work.refresh(
+      {:output, representation.cache_key.hash},
+      fn ->
+        Telemetry.span(
+          Telemetry.telemetry_opts(ctx.config),
+          [:cache, :refresh],
+          %{pool: :input},
+          fn ->
+            {_conn, metadata} = result = refresh_remote(ctx)
+            {result, metadata}
+          end
+        )
+      end,
+      Telemetry.telemetry_opts(ctx.config)
+    )
   end
 
   defp refresh_remote(ctx) do

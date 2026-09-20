@@ -38,16 +38,20 @@ defmodule ImagePipe.Plug.SourceCache do
     do: CacheState.status(Record.state(record, source.cache_semantics), now(config))
 
   def acquire(source, key, previous, config, need_body?) do
-    Work.run({:source, key.hash}, fn coordination ->
-      opts =
-        case coordination do
-          false -> Keyword.drop(config, [:cache, :input_cache])
-          ref -> Keyword.put(config, :source_lease, ref)
-        end
+    Work.run(
+      {:source, key.hash},
+      fn coordination ->
+        opts =
+          case coordination do
+            false -> Keyword.drop(config, [:cache, :input_cache])
+            ref -> Keyword.put(config, :source_lease, ref)
+          end
 
-      record = lookup(source, key, opts) || previous
-      acquire_current(source, key, record, opts, need_body?)
-    end)
+        record = lookup(source, key, opts) || previous
+        acquire_current(source, key, record, opts, need_body?)
+      end,
+      Telemetry.telemetry_opts(config)
+    )
   end
 
   def input(source, key, record, config) do
@@ -56,9 +60,13 @@ defmodule ImagePipe.Plug.SourceCache do
         checked_input(record, path, lease, config)
 
       :miss ->
-        Work.run({:source, key.hash}, fn coordination ->
-          open_or_fetch(source, key, record, config, coordination)
-        end)
+        Work.run(
+          {:source, key.hash},
+          fn coordination ->
+            open_or_fetch(source, key, record, config, coordination)
+          end,
+          Telemetry.telemetry_opts(config)
+        )
     end
   end
 

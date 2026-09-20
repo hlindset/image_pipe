@@ -1,6 +1,7 @@
 defmodule ImagePipe.Cache.Work do
   @moduledoc "Node-local bounded coordination for source acquisition and background refresh."
   use GenServer
+  alias ImagePipe.Telemetry
   @max_keys 64
   @max_waiters 1024
   @max_refreshes 16
@@ -9,10 +10,15 @@ defmodule ImagePipe.Cache.Work do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  def run(key, fun) do
+  def run(key, fun, opts \\ []) do
     case call({:lock, key}, :infinity) do
-      {:ok, ref} -> locked(ref, fun)
-      :busy -> fun.(false)
+      {:ok, ref, outcome} ->
+        report(outcome, :source, opts)
+        locked(ref, fun)
+
+      :busy ->
+        report(:busy, :source, opts)
+        fun.(false)
     end
   end
 
@@ -22,7 +28,19 @@ defmodule ImagePipe.Cache.Work do
     call({:unlock, ref}, 5_000)
   end
 
-  def refresh(key, fun), do: call({:refresh, key, fun}, 5_000)
+  def refresh(key, fun, opts \\ []) do
+    result = call({:refresh, key, fun}, 5_000)
+    report(result, :refresh, opts)
+    result
+  end
+
+  defp report(result, operation, opts) do
+    Telemetry.execute(opts, [:cache, :coordination], %{}, %{
+      pool: :input,
+      result: result,
+      operation: operation
+    })
+  end
 
   def current?(ref), do: call({:current, ref}, 5_000) == true
 
@@ -101,7 +119,9 @@ defmodule ImagePipe.Cache.Work do
     case Map.get(state.locks, key) do
       nil ->
         lock = %{owner: ref, waiters: []}
-        {:reply, {:ok, ref}, %{state | locks: Map.put(state.locks, key, lock), refs: refs}}
+
+        {:reply, {:ok, ref, :acquired},
+         %{state | locks: Map.put(state.locks, key, lock), refs: refs}}
 
       lock ->
         lock = %{lock | waiters: lock.waiters ++ [{ref, from}]}
@@ -159,7 +179,7 @@ defmodule ImagePipe.Cache.Work do
         %{state | locks: Map.delete(state.locks, key)}
 
       %{owner: ^ref, waiters: [{next, from} | rest]} ->
-        GenServer.reply(from, {:ok, next})
+        GenServer.reply(from, {:ok, next, :coalesced})
         %{state | locks: Map.put(state.locks, key, %{owner: next, waiters: rest})}
 
       lock ->
