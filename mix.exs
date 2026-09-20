@@ -180,7 +180,7 @@ defmodule ImagePipe.MixProject do
       {:butteraugli, "~> 0.1.0"},
       {:vix, "~> 0.41"},
       {:color, "~> 0.13"},
-      {:req, "~> 0.7"},
+      {:req, "~> 0.8.0-rc.0"},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:boundary, "~> 0.10", runtime: false},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},

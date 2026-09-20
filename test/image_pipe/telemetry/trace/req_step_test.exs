@@ -146,4 +146,21 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
 
     assert {:ok, %Req.Response{status: 200}} = Req.request(req)
   end
+
+  test "streaming preserves the consumer accumulator and traces an early halt" do
+    req =
+      stub_request(fn req ->
+        {req, Req.Response.new(status: 200, body: "chunk")}
+      end)
+      |> ReqStep.attach()
+
+    assert {:ok, %Req.Response{status: 200}, ["chunk"]} =
+             Req.stream(req, [], fn chunk, _response, chunks ->
+               {:halt, [chunk | chunks]}
+             end)
+
+    assert_receive {:span, %Span{name: "image_pipe.http.client", status: :ok} = span}
+    assert span.attributes[:"http.status_code"] == 200
+    refute_received {:span, %Span{name: "image_pipe.http.client"}}
+  end
 end
