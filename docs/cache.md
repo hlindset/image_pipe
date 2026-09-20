@@ -17,54 +17,113 @@ forward "/",
   ]
 ```
 
-Cache lookup follows request parsing, validation, and source resolution. It does
-not fetch, decode, or inspect the source image. Invalid requests return before
-source or cache access; invalid signatures return `403`. Failed processing is
-never cached.
+Cache lookup follows request parsing, validation, and source resolution.
+Invalid requests return before source or cache access; invalid signatures return
+`403`. Failed processing is never cached.
 
 ## Freshness and source stability
 
-The internal cache has no TTL or origin revalidation. A hit serves the stored
-body without fetching the source or checking whether its bytes changed. The
-resolved source identity and byte-version seed must therefore name the same
-bytes across requests and application nodes.
+HTTP and S3 sources use origin freshness for both original bytes and processed
+responses. The default honors `s-maxage`, `max-age`, `Expires`, `Date`, `Age`,
+`no-cache`, `no-store`, `private`, mandatory revalidation and
+`stale-while-revalidate`. Missing freshness requires validation; there is no
+heuristic TTL. Origin ETags and Last-Modified values validate originals; weak
+origin ETags are never promoted to strong response ETags.
+ImagePipe acts as the host's image processor: origin `no-transform` does not
+cancel explicitly requested operations or change storage permission.
 
-That assumption is made explicit per source through the `:stable` option, and
-whether the internal cache is used at all is gated on it through the
-`:internal_cache` option.
+Storage permission is separate from freshness. Set mount defaults with
+`source_cache_policy`, or override individual fields using a source adapter's
+`cache_policy` (including per-bucket S3 settings):
 
-- `:stable` (`:auto` | `:trusted`, default `:auto`) asserts whether the resolved
-  source identity names immutable bytes. `:trusted` means the caller guarantees
-  the bytes at that identity never change in place. `:auto` treats the source as
-  mutable, except for `ImagePipe.Source.S3` objects fetched with a revision,
-  which are stable under `:auto` because the version is part of the fetch.
-- `:internal_cache` (`:auto` | `:enabled` | `:disabled`, default `:auto`)
-  decides whether responses for the source may be read from and written to the
-  configured cache. Under `:auto`, the internal cache is **enabled only when the
-  source is stable**.
+```elixir
+source_cache_policy: [
+  storage: :origin,                 # :origin | :allow | :deny
+  freshness: {:fallback, 300},      # :origin | {:fallback, seconds} | {:force, seconds}
+  stale_while_revalidate: :origin   # :origin | :disabled | {:force, seconds}
+]
+```
 
-With the defaults, mutable sources skip cache lookup and staging and are fetched
-and processed on every request. Forcing `internal_cache: :enabled` on a mutable
-source makes freshness the caller's responsibility through request cachebusters
-or external eviction.
+Fallback freshness applies only when origin freshness is absent. Forced TTL
+does not grant storage permission. Explicit `storage: :allow` overrides origin
+private/no-store/authentication restrictions; `Vary: *` still prevents reuse.
+Request URLs cannot set these host policies. Auth callbacks and S3 credentials
+are resolved before keying and frozen for the fetch; only their digest enters
+cache keys. Hosts implementing custom source adapters must include every
+byte-selecting fetch context in their resolved source data.
 
-These options are independent of client-facing `Cache-Control`, `ETag`, and
-conditional `GET` handling. See [CDN HTTP caching](cdn-http-cache.md). An ETag
-validates request-derived byte identity; it does not revalidate the origin.
+`stable: :trusted` promises the source identity always names the same bytes.
+Trusted sources never expire or revalidate, but remain evictable and still need
+storage permission. Explicit source TTL/SWR settings conflict with this promise;
+mutable mount defaults are ignored for trusted sources. Revision-addressed S3
+objects are automatically stable. `internal_cache: :disabled` disables both
+pools for a source; HTTP/S3 `:auto` uses origin policy. Local file sources retain
+their existing stability rules and are never copied into the input pool.
 
-### Deliberately not implemented
+## Original-byte pool
 
-The following are intentionally out of scope for the current cache and are
-tracked in [issue #44](https://github.com/hlindset/image_pipe/issues/44):
+The repeatable [cache benchmarks](cache-benchmark.md) record origin savings,
+latency, disk use, and memory tradeoffs for multi-variant and large-hit workloads.
 
-- per-entry TTL or bounded staleness independent of source identity;
-- storing and honoring origin `Cache-Control` / `Expires`;
-- storing origin `ETag` / `Last-Modified` validators and revalidating the origin
-  with `If-None-Match` / `If-Modified-Since` (no `304` reuse against the origin).
+Add an independently configured filesystem pool:
+
+```elixir
+input_cache: {ImagePipe.Cache.FileSystem,
+  root: "/var/cache/image_pipe/originals",
+  pool: :input,
+  max_size_bytes: 2_000_000_000,
+  node_id: "node-0"},
+cache: {ImagePipe.Cache.FileSystem,
+  root: "/var/cache/image_pipe/outputs",
+  max_size_bytes: 5_000_000_000,
+  node_id: "node-0"}
+```
+
+Use distinct roots and start `FileSystem.child_spec/1` for each bounded pool.
+Each owns its own byte budget, sketch, recency queues and maintenance. Output
+hits do not count as input demand. Original EXIF/ICC bytes are preserved.
+`pool: :input` labels the input supervisor's admission and maintenance telemetry;
+the default label is `:output`. The validated mount adds the input label automatically.
+The initial input adapter is filesystem storage; existing response-cache
+adapters continue to work and must preserve `Entry.Metadata.source_record`.
+
+Downloads spool completely to a temporary file before libvips opens them.
+Current body/pixel limits apply when generating from input hits, while existing
+successful output hits remain usable after limits are lowered. Active inputs
+are pinned with temporary hard links through lazy decoding and encoding.
+Incomplete transfers are never published; undecodable inputs are invalidated.
+Temporary-file failures fall back to the bounded in-memory decode path.
+Staging and pinned readers can temporarily exceed the retained pool budget;
+their lifetime is bounded by active requests and source limits. Decoding while
+the source is still downloading is tracked separately in `image_plug-yx6`.
+
+Source version/freshness records are also stored as charged entries in the
+output pool. This lets fresh outputs survive eviction of their input blobs.
+These records compete for the existing pool budget; there is no unbounded
+metadata cache. If all evidence is evicted, the next request acquires or
+validates the source before selecting a mutable output.
+
+## Stale-while-revalidate
+
+An eligible stale output returns immediately while supervised work refreshes
+its source and requested variant. An origin `304` retains the output without
+re-encoding; a changed original selects a new byte-version key. Other variants
+rebuild on demand. Output misses wait for source validation. Hits, old-input
+generation, and failed refreshes never extend source deadlines. Once the stale
+window ends, origin failures are returned; SWR is not stale-if-error.
+
+Coordination is node-local. Source operations coalesce by input identity;
+background jobs coalesce by output variant. Coordination allows 64 active source
+keys and 1,024 waiters, with uncached fallback on saturation. Background work is
+limited to 16 jobs, a 60-second deadline and a one-second retry cooldown. Jobs
+survive the initiating response; process monitors release cancelled owners and
+temporary files. Source version keys prevent old output workers from replacing
+newer versions. Downstream headers retain source age and mandatory validation
+rules. See [CDN HTTP caching](cdn-http-cache.md).
 
 ## Cache misses and streaming
 
-Before accepting a hit, ImagePipe requires a binary body, cacheable headers, and
+Before accepting a hit, ImagePipe requires a valid body, cacheable headers, and
 a matching content type: a known output format for an image, or a well-formed
 media type for `{:complete_body, content_type}`. Valid hits bypass source fetch,
 decode, transforms, and encoding.
@@ -95,9 +154,14 @@ cache error, and the entry is not stored.
 
 ## Cache keys
 
-`ImagePipe.Representation.build/3` derives keys entirely from pre-fetch
-material. This allows a conditional `GET` to resolve before fetch, decode, or
-encode.
+`ImagePipe.Representation.build/3` derives keys from canonical request material
+and source byte identity. Mutable remote identities use the digest of a complete
+original; trusted identities use the source's authoritative seed. Fresh source
+evidence allows conditionals before source fetch, decode, or encode.
+
+Input keys include source identity, digested fetch context and storage-only
+partitions, including cachebusters. Transform/format/terminal choices do not
+fragment originals. The input partition also partitions output storage.
 
 Cache keys include:
 
@@ -148,6 +212,15 @@ filename, byte size, and SHA-256 digest. Bodies are content-addressed by digest.
 
 Missing files are misses. Invalid metadata and filesystem read failures are
 logged, emitted as cache-read telemetry, and treated as misses.
+
+Response hits open and pin a descriptor, verify size and SHA-256 in 64 KiB
+chunks before committing headers, then rewind the same descriptor for bounded
+delivery. Eviction cannot invalidate an open reader. This costs two sequential
+disk passes and avoids loading a whole response into BEAM memory. HEAD and 304
+paths close readers too. External in-place modification after verification can
+still cause a delivery failure; published cache bodies must remain immutable.
+`FileSystem.get/2` remains a binary convenience API for direct callers; the Plug
+uses its file-backed read path.
 
 Adapter errors fail open and log a warning. Invalid configuration fails Plug
 initialization. Bodies over cache `:max_body_bytes` are still delivered but not
@@ -213,6 +286,7 @@ seconds.
 | --- | --- | --- |
 | `:max_size_bytes` | — (enables bounded mode) | Soft cap on total stored body bytes. |
 | `:node_id` | — (required) | Stable per-node identity; names the persisted state file. |
+| `:pool` | `:output` | Telemetry label; set `:input` for an input-pool supervisor. |
 | `:state_dir` | `<root>/.cache_state` | Directory holding per-node `<node_id>.state` files. |
 | `:window_ratio` | `0.01` | Fraction of the cap used for the admission window. `0.0` disables the window. |
 | `:sketch_depth` | `4` | Count-Min Sketch hash rows. |
