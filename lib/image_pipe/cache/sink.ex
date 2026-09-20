@@ -138,6 +138,8 @@ defmodule ImagePipe.Cache.Sink do
       {:error, _reason} = error -> error
       unexpected -> {:error, {:invalid_adapter_result, unexpected}}
     end
+  rescue
+    exception -> {:error, exception}
   end
 
   defp build(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts, adapter_state) do
