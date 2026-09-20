@@ -50,6 +50,7 @@ defmodule ImagePipe.API.Config do
   @options_schema NimbleOptions.new!(
                     cache: [type: :any],
                     sources: [type: :map],
+                    source_cache_policy: [type: :keyword_list],
                     max_body_bytes: [type: :pos_integer, default: @default_max_body_bytes],
                     max_input_pixels: [type: :pos_integer, default: @default_max_input_pixels],
                     telemetry_prefix: [
@@ -105,7 +106,10 @@ defmodule ImagePipe.API.Config do
                     ],
                     http_cache: [
                       type: :keyword_list,
-                      keys: [mode: [type: {:in, [:disabled, :enabled]}, default: :disabled]]
+                      keys: [
+                        mode: [type: {:in, [:disabled, :enabled]}, default: :disabled],
+                        visibility: [type: {:in, [:auto, :private, :public]}, default: :auto]
+                      ]
                     ],
                     storage_inputs: [
                       type: {:list, {:custom, __MODULE__, :validate_storage_input, []}},

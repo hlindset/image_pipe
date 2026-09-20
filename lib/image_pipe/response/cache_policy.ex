@@ -33,6 +33,7 @@ defmodule ImagePipe.Response.CachePolicy do
   `ImagePipe.Source`.
   """
   @type source_facts :: %{
+          optional(:storage) => :origin | :allow | :deny,
           http_cache: :inherit | :enabled | :disabled,
           byte_identity: {:strong, term()} | :none,
           stable?: boolean(),
@@ -54,6 +55,8 @@ defmodule ImagePipe.Response.CachePolicy do
         representation_headers
       )
 
+    headers = apply_visibility(headers, config)
+
     Telemetry.execute(
       Telemetry.telemetry_opts(config),
       [:http_cache, :prepare],
@@ -72,6 +75,27 @@ defmodule ImagePipe.Response.CachePolicy do
       headers: headers,
       etag: etag
     }
+  end
+
+  defp apply_visibility(headers, config) do
+    visibility = config |> Keyword.get(:http_cache, []) |> Keyword.get(:visibility, :auto)
+
+    cookie_partition? =
+      Enum.any?(Keyword.get(config, :storage_inputs, []), &match?({:cookie, _}, &1))
+
+    case visibility == :private or (visibility == :auto and cookie_partition?) do
+      true ->
+        Enum.map(headers, fn
+          {"cache-control", @generated_cache_control} ->
+            {"cache-control", "private, max-age=31536000, immutable"}
+
+          header ->
+            header
+        end)
+
+      false ->
+        headers
+    end
   end
 
   @doc """
@@ -141,11 +165,21 @@ defmodule ImagePipe.Response.CachePolicy do
       host_has_no_store?(conn) ->
         {[], nil, nil}
 
+      Map.get(source_facts, :storage) == :deny ->
+        denied_storage_headers(conn)
+
       has_host_cache_control?(conn) ->
         generated_etag_only(conn, representation)
 
       true ->
         generated_cache_control_and_etag(conn, representation, source_facts)
+    end
+  end
+
+  defp denied_storage_headers(conn) do
+    case has_host_cache_control?(conn) do
+      true -> {[], nil, nil}
+      false -> {[{"cache-control", @no_store}], nil, nil}
     end
   end
 

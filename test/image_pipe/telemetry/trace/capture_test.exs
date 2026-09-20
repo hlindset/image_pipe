@@ -28,6 +28,22 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end)
   end
 
+  test "origin not-modified outcome is a successful source span" do
+    prefix = [__MODULE__, :origin_revalidation]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    Telemetry.span([telemetry_prefix: prefix], [:source, :fetch], %{}, fn ->
+      {:unchanged, %{result: :not_modified}}
+    end)
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.source.fetch",
+                      status: :ok,
+                      attributes: %{result: :not_modified}
+                    }}
+  end
+
   test "captures a nested tree with one trace_id and correct parentage" do
     emit_nested()
 

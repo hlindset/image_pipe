@@ -1,6 +1,8 @@
 defmodule ImagePipe.Source.ReqStream do
   @moduledoc false
 
+  alias ImagePipe.Source.Origin
+  alias ImagePipe.Source.Response
   alias ImagePipe.Source.StreamError
   alias ImagePipe.Telemetry.Trace.ReqStep
 
@@ -8,24 +10,39 @@ defmodule ImagePipe.Source.ReqStream do
   @default_pool_timeout 5_000
   @default_connect_timeout 5_000
 
-  @spec stream(keyword(), keyword()) :: Enumerable.t()
-  def stream(req_options, runtime_opts) when is_list(req_options) and is_list(runtime_opts) do
+  @spec open(keyword(), keyword()) ::
+          {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, ImagePipe.Source.error()}
+  def open(req_options, runtime_opts) do
+    case open_response(req_options, runtime_opts) do
+      %{response: response, origin: origin} = state ->
+        {:ok,
+         %Response{
+           stream: body_stream(state),
+           origin: origin,
+           close: fn -> cancel_response(response) end
+         }}
+
+      {:not_modified, origin} ->
+        {:not_modified, origin}
+
+      {:error, {:source, _}} = error ->
+        error
+
+      {:error, reason} ->
+        {:error, {:source, reason}}
+    end
+  end
+
+  defp body_stream(state) do
     Stream.resource(
-      fn -> open_response(req_options, runtime_opts) end,
+      fn -> state end,
       fn
-        %{response: %Req.Response{}} = state ->
-          stream_response(state)
-
-        {:done, %{response: %Req.Response{} = response}} ->
-          {:halt, response}
-
-        {:error, reason} ->
-          raise StreamError, reason: reason
+        {:done, state} -> {:halt, state}
+        state -> stream_response(state)
       end,
       fn
-        %{response: %Req.Response{} = response} -> cancel_response(response)
-        {:done, %{response: %Req.Response{} = response}} -> cancel_response(response)
-        _other -> :ok
+        {:done, state} -> cancel_response(state.response)
+        state -> cancel_response(state.response)
       end
     )
   end
@@ -50,19 +67,30 @@ defmodule ImagePipe.Source.ReqStream do
   end
 
   defp request_and_route(req_options, runtime_opts, validate, redirects_left, redirects_allowed?) do
+    clock = Keyword.get(runtime_opts, :clock, fn -> System.system_time(:second) end)
+    previous = Keyword.get(runtime_opts, :source_validation)
+    request = req_options |> request_options(runtime_opts) |> Req.new()
+    conditional_headers = Origin.conditional_headers(previous, request)
+
     request =
-      req_options
-      |> request_options(runtime_opts)
-      |> Req.new()
+      request
+      |> Req.merge(headers: conditional_headers)
       |> ReqStep.attach()
+
+    requested_at = clock.()
 
     case Req.request(request) do
       {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
         %{
           response: response,
+          origin: Origin.from_response(response, {requested_at, clock.()}),
           receive_timeout:
             option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout)
         }
+
+      {:ok, %Req.Response{status: 304} = response} ->
+        cancel_response(response)
+        revalidated(previous, conditional_headers, response, {requested_at, clock.()})
 
       {:ok, %Req.Response{status: status} = response} when status in 300..399 ->
         route_redirect(
@@ -78,8 +106,25 @@ defmodule ImagePipe.Source.ReqStream do
         cancel_response(response)
         {:error, {:bad_status, status}}
 
+      {:error, %Req.HTTPError{}} ->
+        {:error, :invalid_body}
+
       {:error, _exception} ->
         {:error, :connect_error}
+    end
+  end
+
+  defp revalidated(_previous, [], _response, _timing), do: {:error, :unexpected_not_modified}
+
+  defp revalidated(previous, _headers, response, timing) do
+    current = Origin.from_response(response, timing, previous.headers)
+
+    with true <- Origin.matches?(previous, response.request.headers),
+         {:ok, origin} <- Origin.refreshed(previous, current) do
+      {:not_modified, origin}
+    else
+      false -> {:error, {:source, :invalid_not_modified}}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -112,13 +157,36 @@ defmodule ImagePipe.Source.ReqStream do
           |> URI.to_string()
 
         follow(
-          Keyword.put(req_options, :url, next_url),
+          redirect_options(req_options, next_url),
           runtime_opts,
           validate,
           redirects_left - 1,
           redirects_allowed?
         )
     end
+  end
+
+  defp redirect_options(req_options, next_url) do
+    previous = URI.parse(Keyword.fetch!(req_options, :url))
+    next = URI.parse(next_url)
+    opts = Keyword.put(req_options, :url, next_url)
+
+    case {previous.scheme, String.downcase(previous.host), previous.port} ==
+           {next.scheme, String.downcase(next.host || ""), next.port} do
+      true ->
+        opts
+
+      false ->
+        opts
+        |> Keyword.drop([:auth, :aws_sigv4])
+        |> Keyword.update(:headers, [], &strip_credentials/1)
+    end
+  end
+
+  defp strip_credentials(headers) do
+    Enum.reject(headers, fn {name, _value} ->
+      String.downcase(to_string(name)) in ["authorization", "proxy-authorization", "cookie"]
+    end)
   end
 
   defp location_header(%Req.Response{} = response) do
@@ -157,11 +225,30 @@ defmodule ImagePipe.Source.ReqStream do
   defp parse_message(response, message) do
     case Req.parse_message(response, message) do
       {:ok, chunks} -> {:ok, chunks}
-      {:error, %{reason: :timeout}} -> {:error, :receive_timeout}
-      {:error, _exception} -> {:error, :invalid_body}
+      {:error, exception} -> {:error, stream_error(exception, response)}
       :unknown -> :unknown
     end
   end
+
+  defp stream_error(%{__struct__: module, reason: reason}, response)
+       when module in [Req.TransportError, Finch.TransportError] do
+    transport_error(reason, response)
+  end
+
+  defp stream_error(_exception, _response), do: :invalid_body
+
+  defp transport_error(:timeout, _response), do: :receive_timeout
+  defp transport_error(:econnreset, _response), do: :connection_reset
+
+  defp transport_error(:closed, response) do
+    case Req.Response.get_header(response, "content-length") != [] or
+           Req.Response.get_header(response, "transfer-encoding") != [] do
+      true -> :truncated_body
+      false -> :connection_closed
+    end
+  end
+
+  defp transport_error(_reason, _response), do: :transport_error
 
   defp request_options(req_options, runtime_opts) do
     req_options

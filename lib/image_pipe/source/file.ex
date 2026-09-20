@@ -11,6 +11,7 @@ defmodule ImagePipe.Source.File do
 
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
+  alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -19,6 +20,7 @@ defmodule ImagePipe.Source.File do
                     root: [type: :string, required: true],
                     root_id: [type: :string, required: true],
                     stable: [type: {:in, [:auto, :trusted]}, default: :auto],
+                    cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
                     internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
                     http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit]
                   )
@@ -32,7 +34,7 @@ defmodule ImagePipe.Source.File do
           |> Keyword.update!(:root, &Path.expand/1)
           |> Keyword.put(:telemetry_kind, :file)
 
-        {:ok, validated}
+        CachePolicy.validate_source(validated)
 
       {:error, error} ->
         {:error, {:invalid_source_config, Exception.message(error)}}
@@ -121,7 +123,7 @@ defmodule ImagePipe.Source.File do
     end
   end
 
-  defp cache_semantics(_opts, stable?, identity) do
+  defp cache_semantics(opts, stable?, identity) do
     byte_identity =
       if stable? do
         {:strong, identity}
@@ -129,6 +131,10 @@ defmodule ImagePipe.Source.File do
         :none
       end
 
-    %CacheSemantics{byte_identity: byte_identity, stable?: stable?}
+    %CacheSemantics{
+      byte_identity: byte_identity,
+      stable?: stable?,
+      policy: Keyword.fetch!(opts, :cache_policy)
+    }
   end
 end

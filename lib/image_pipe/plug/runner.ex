@@ -112,7 +112,10 @@ defmodule ImagePipe.Plug.Runner do
     if Keyword.has_key?(config, :http_cache) do
       CachePolicy.generate(conn, representation, source_facts(source), config)
     else
-      CacheHeaders.from_representation(representation)
+      case Keyword.get(source.cache_semantics.policy, :storage, :origin) do
+        :deny -> CacheHeaders.from_representation(%{representation | etag: nil, no_store?: true})
+        _permission -> CacheHeaders.from_representation(representation)
+      end
     end
   end
 
@@ -121,6 +124,7 @@ defmodule ImagePipe.Plug.Runner do
       http_cache: source.http_cache,
       byte_identity: source.cache_semantics.byte_identity,
       stable?: source.cache_semantics.stable?,
+      storage: Keyword.get(source.cache_semantics.policy, :storage, :origin),
       adapter: source.adapter,
       source_kind: source.source_kind
     }

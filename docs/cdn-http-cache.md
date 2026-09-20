@@ -103,6 +103,14 @@ Cookie entries never enter `Vary` — it names headers only. Header names
 normalize to lower case, drop duplicates, and sort deterministically, so the
 header doesn't depend on the configured list's order or spelling.
 
+Configuring any cookie storage input makes generated cache policy `private`
+by default, including on cache hits and `304` responses. Storage partitioning
+does not make a response safe to share through a CDN. A host that guarantees
+public responses can explicitly use
+`http_cache: [mode: :enabled, visibility: :public]`; `visibility: :private`
+forces private generated policy even without cookie inputs. Existing host
+headers and `Set-Cookie` retain precedence.
+
 For CDN configuration:
 
 - honor origin `Cache-Control`, including `no-store`

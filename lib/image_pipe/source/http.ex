@@ -12,13 +12,13 @@ defmodule ImagePipe.Source.HTTP do
 
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
+  alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.HTTP.AddressPolicy
   alias ImagePipe.Source.HTTP.TargetGuard
   alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
-  alias ImagePipe.Source.Response
 
   @internal_option_keys [
     :url,
@@ -44,6 +44,7 @@ defmodule ImagePipe.Source.HTTP do
                     pool_timeout: [type: :non_neg_integer],
                     max_redirects: [type: :non_neg_integer, default: 0],
                     stable: [type: {:in, [:auto, :trusted]}, default: :auto],
+                    cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
                     internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
                     http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit],
                     address_policy: [
@@ -63,7 +64,7 @@ defmodule ImagePipe.Source.HTTP do
           |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
           |> Keyword.put(:telemetry_kind, :http)
 
-        {:ok, normalized}
+        CachePolicy.validate_source(normalized)
 
       {:error, error} ->
         {:error, {:invalid_source_config, Exception.message(error)}}
@@ -162,7 +163,7 @@ defmodule ImagePipe.Source.HTTP do
       |> Keyword.put(:validate_target, build_target_guard(opts))
       |> Keyword.put(:max_redirects, Keyword.fetch!(opts, :max_redirects))
 
-    {:ok, %Response{stream: ReqStream.stream(req_options, stream_options)}}
+    ReqStream.open(req_options, stream_options)
   end
 
   defp build_target_guard(opts) do
@@ -181,7 +182,7 @@ defmodule ImagePipe.Source.HTTP do
     end
   end
 
-  defp cache_semantics(_opts, stable?, identity) do
+  defp cache_semantics(opts, stable?, identity) do
     byte_identity =
       if stable? do
         {:strong, redacted_http_identity(identity)}
@@ -189,7 +190,11 @@ defmodule ImagePipe.Source.HTTP do
         :none
       end
 
-    %CacheSemantics{byte_identity: byte_identity, stable?: stable?}
+    %CacheSemantics{
+      byte_identity: byte_identity,
+      stable?: stable?,
+      policy: Keyword.fetch!(opts, :cache_policy)
+    }
   end
 
   defp redacted_http_identity(identity) do

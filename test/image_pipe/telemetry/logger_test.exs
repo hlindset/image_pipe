@@ -20,6 +20,27 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert {:error, :not_found} = Telemetry.detach_default_logger()
   end
 
+  test "renders successful source revalidation and truncated-source failures" do
+    prefix = [__MODULE__, :origin_revalidation]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(prefix ++ [:source, :fetch, :stop], %{duration: 1000}, %{
+          result: :not_modified
+        })
+
+        :telemetry.execute(prefix ++ [:source, :fetch_decode, :stop], %{duration: 1000}, %{
+          result: :source_error,
+          error: :truncated_body
+        })
+      end)
+
+    assert log =~ "source fetch: not_modified"
+    assert log =~ "source fetch_decode: source_error"
+    assert log =~ "[warning]"
+  end
+
   test "logs a cache lookup hit at the configured level" do
     Telemetry.attach_default_logger(level: :info)
 

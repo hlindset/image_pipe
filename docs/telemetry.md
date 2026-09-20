@@ -134,11 +134,15 @@ Failure stop metadata (one of two shapes, by failure mode):
   `:max_body_bytes`). HTTP fetch failures are classified rather than collapsed
   so an observer can tell them apart: `:connect_error` (DNS/TLS/refused/connect
   or pool timeout), `:receive_timeout` (origin stalled mid-body),
-  `:invalid_body` (unparseable chunked framing), `:redirect_not_followed` /
+  `:truncated_body` (closed before a framed response completed),
+  `:connection_reset`, `:connection_closed`, or `:transport_error` (transport
+  failures after response headers), `:invalid_body` (unparseable HTTP framing),
+  `:redirect_not_followed` /
   `:invalid_redirect` / `:too_many_redirects` (redirect handling), and
   `:bad_status` for a non-success origin status (the underlying error tuple
   carries the numeric status as `{:bad_status, status}`; the metadata atom is
   the `:bad_status` category).
+
 - Decode / input-validation failure — `:result` is `:processing_error`; `:error`
   is a stable category atom (e.g. `:input_limit` when the decoded image exceeds
   `:max_input_pixels`, `:decode` for an undecodable body).
@@ -146,6 +150,11 @@ Failure stop metadata (one of two shapes, by failure mode):
   libvips open): also carries `:detected_source_format` set to the rejected family
   atom (e.g. `:gif`, `:svg`), so an observer can distinguish a format gate from a
   corrupt-body decode failure without parsing `:error`.
+
+An upstream `304` produces `result: :not_modified` on the source fetch span.
+The default Logger renders this outcome, and the trace exporter records it as
+a successful span. Origin validators, URLs, and request credentials are not
+included in the event.
 
 ### Transform execute span (`[:transform, :execute]`)
 

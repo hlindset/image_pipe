@@ -68,6 +68,15 @@ defmodule ImagePipe.Response.ErrorStatus do
   defp source_domain_class(:redirect_not_followed), do: :not_found
   defp source_domain_class(:invalid_redirect), do: :not_found
   defp source_domain_class(:receive_timeout), do: :gateway_timeout
+
+  defp source_domain_class(reason)
+       when reason in [:unexpected_not_modified, :invalid_not_modified],
+       do: :bad_gateway
+
+  defp source_domain_class(reason)
+       when reason in [:truncated_body, :connection_reset, :connection_closed, :transport_error],
+       do: :bad_gateway
+
   defp source_domain_class(:body_too_large), do: :unprocessable
   defp source_domain_class(:invalid_body), do: :unprocessable
   defp source_domain_class(:invalid_stream_chunk), do: :unprocessable
@@ -112,6 +121,17 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:source, :redirect_not_followed}), do: "redirect not followed"
   def message_for({:source, :invalid_redirect}), do: "invalid redirect"
   def message_for({:source, :receive_timeout}), do: "source timeout"
+
+  def message_for({:source, reason})
+      when reason in [:unexpected_not_modified, :invalid_not_modified],
+      do: "invalid source validation response"
+
+  def message_for({:source, :truncated_body}), do: "source response incomplete"
+
+  def message_for({:source, reason})
+      when reason in [:connection_reset, :connection_closed, :transport_error],
+      do: "source connection interrupted"
+
   def message_for({:source, :body_too_large}), do: "source response exceeds the size limit"
 
   def message_for({:source, reason})

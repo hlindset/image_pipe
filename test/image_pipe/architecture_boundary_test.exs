@@ -193,7 +193,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "source boundary owns source identity and fetch context" do
     source = boundary_declaration(ImagePipe.Source)
 
-    assert_boundary_deps(source, [ImagePipe.Error, ImagePipe.Plan, ImagePipe.Telemetry])
+    assert_boundary_deps(source, [
+      ImagePipe.Error,
+      ImagePipe.MaterialDigest,
+      ImagePipe.Plan,
+      ImagePipe.Telemetry
+    ])
 
     refute_boundary_deps(source, [
       ImagePipe.Response,
@@ -203,6 +208,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(source, [
+      ImagePipe.Source.CachePolicy,
+      ImagePipe.Source.CacheState,
+      ImagePipe.Source.Origin,
       ImagePipe.Source.CacheSemantics,
       ImagePipe.Source.Resolved,
       ImagePipe.Source.Response,
