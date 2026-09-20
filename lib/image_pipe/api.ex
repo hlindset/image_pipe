@@ -1,8 +1,9 @@
 defmodule ImagePipe.API do
   @moduledoc """
   ImagePipe's URL API, mounted through `plug ImagePipe.Plug,
-  sources: [...]`. Owns parsing (verify → lex → parse), expiry, source
-  translation, representation identity, and error rendering.
+  sources: [...]`. Owns parsing (verify → lex → parse), representation identity,
+  and error rendering. Shared processing owns expiry/output preflight, and
+  the source boundary translates source strings.
   `ImagePipe.Plug` orchestrates the request lifecycle.
 
   ## Mount prefix caveat
@@ -20,41 +21,51 @@ defmodule ImagePipe.API do
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Processing,
       ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ],
-    exports: [SourceScheme]
+    exports: [URLConfig]
 
   alias ImagePipe.API.Config
   alias ImagePipe.API.Errors
   alias ImagePipe.API.Identity
-  alias ImagePipe.API.Output, as: APIOutput
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
   alias ImagePipe.API.Signature
-  alias ImagePipe.API.Source, as: APISource
   alias ImagePipe.API.SourceEncryption
-  alias ImagePipe.Output.Policy
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Response, as: PlanResponse
+  alias ImagePipe.Processing
+  alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
 
   def validate_config!(opts), do: Config.validate!(opts)
+
+  @doc false
+  defdelegate url_config(options), to: ImagePipe.API.URLConfig, as: :new!
+
+  @doc false
+  defdelegate url(plan, source, config, options), to: ImagePipe.API.URL, as: :build
 
   @doc """
   Encrypts a UTF-8 source using a validated mount configuration.
 
   The returned value is the token only. The host places it after the `enc/`
   source marker and signs the complete request path.
+
+  `:iv` overrides the configured `:iv_mode` with `:deterministic`, `:random`,
+  or an explicit 16-byte binary. Explicit IVs must be unpredictable or
+  secret-keyed over the complete source and never reused for different sources
+  under the same key. Prefer `ImagePipe.url/4` to generate a complete signed URL.
   """
-  @spec encrypt_source(term(), keyword()) ::
-          {:ok, String.t()} | {:error, :invalid_source | :source_encryption_disabled}
-  def encrypt_source(source, config) do
-    SourceEncryption.encrypt(source, Keyword.fetch!(config, :source_encryption))
+  @spec encrypt_source(term(), keyword(), keyword()) :: {:ok, String.t()} | {:error, atom()}
+  def encrypt_source(source, config, options \\ []) do
+    SourceEncryption.encrypt(source, Keyword.fetch!(config, :source_encryption), options)
   end
 
   def parse(%Plug.Conn{} = conn, config) do
@@ -79,17 +90,11 @@ defmodule ImagePipe.API do
   end
 
   def prepare(%Request{} = request, config, accept_header) do
-    with :ok <- check_expires(request, Keyword.fetch!(config, :clock).()),
-         {:ok, policy} <- APIOutput.resolve(request.output, config, accept_header),
-         :ok <- ensure_output_capable(policy, config),
-         :ok <- check_detector(request, config),
+    with {:ok, policy} <- Processing.prepare(request, config, accept_header),
          {:ok, plan_source} <- APISource.translate(request.source, config) do
       {:ok, plan_source, policy}
     end
   end
-
-  defp ensure_output_capable(nil, _config), do: :ok
-  defp ensure_output_capable(policy, config), do: Policy.ensure_capable(policy, config)
 
   def identity_material(%Request{} = request, policy, conn, config) do
     Identity.material(request, policy, conn, config, detector_identity(request, config))
@@ -136,34 +141,12 @@ defmodule ImagePipe.API do
 
   defp decrypt_source(lexed, _config), do: {:ok, lexed}
 
-  defp check_expires(%Request{expires: expires}, now) do
-    if Signature.expired?(expires, now), do: {:error, :expired}, else: :ok
-  end
-
   def response_meta(%Request{} = request) do
     %PlanResponse{
       filename: request.filename,
       disposition: if(request.attachment?, do: :attachment, else: :inline),
       debug?: request.debug?
     }
-  end
-
-  defp check_detector(%Request{} = request, config) do
-    case explicit_detector_classes(request) do
-      nil ->
-        :ok
-
-      classes ->
-        if Keyword.get(config, :detector_required, false) and
-             not Transform.detector_available?(
-               Keyword.get(config, :detector, :default),
-               Keyword.put(config, :classes, classes)
-             ) do
-          {:error, {:detector, :unavailable}}
-        else
-          :ok
-        end
-    end
   end
 
   defp detector_identity(%Request{} = request, config) do
@@ -180,28 +163,12 @@ defmodule ImagePipe.API do
   end
 
   defp identity_detector_classes(%Request{} = request) do
-    case {explicit_detector_classes(request), face_assist?(request)} do
+    case {Processing.explicit_detector_classes(request), face_assist?(request)} do
       {:all, _face_assist?} -> :all
       {nil, false} -> nil
       {nil, true} -> ["face"]
       {classes, false} -> classes
       {classes, true} -> Enum.sort(Enum.uniq(["face" | classes]))
-    end
-  end
-
-  defp explicit_detector_classes(%Request{groups: groups}) do
-    groups
-    |> Enum.reduce_while([], fn group, classes ->
-      case group.guide do
-        {:detect, {:all, _weights}} -> {:halt, :all}
-        {:detect, {requested, _weights}} -> {:cont, requested ++ classes}
-        _other -> {:cont, classes}
-      end
-    end)
-    |> case do
-      :all -> :all
-      [] -> nil
-      classes -> classes |> Enum.uniq() |> Enum.sort()
     end
   end
 

@@ -454,7 +454,8 @@
               <select value={appState.api.protection} onchange={updateProtection}>
                 <option value="unsigned">Unsigned</option>
                 <option value="signed">Signed</option>
-                <option value="signed-concealed">Signed + concealed source</option>
+                <option value="signed-concealed">Signed + concealed source (stable)</option>
+                <option value="signed-concealed-random">Signed + concealed source (random)</option>
               </select>
             </label>
             <p class="field-help">

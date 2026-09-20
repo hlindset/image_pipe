@@ -262,6 +262,7 @@ defmodule ImagePipe.API.ConfigTest do
     assert %SourceEncryption{} = config[:source_encryption]
     refute Keyword.has_key?(config, :source_encryption_keys)
     refute inspect(config) =~ @source_key
+    refute inspect(config) =~ @signing_key
   end
 
   test "defaults source encryption to a disabled redacted keyring" do

@@ -4,10 +4,10 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   use ExUnitProperties
 
   alias ImagePipe.API
-  alias ImagePipe.API.Source, as: APISource
   alias ImagePipe.Decode
   alias ImagePipe.Plan.Request
   alias ImagePipe.Source
+  alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State

@@ -90,6 +90,7 @@ defmodule ImagePipeFiddleWeb.APIWireTest do
   test "concealed helper paths hide the source and refresh after an option edit", %{conn: conn} do
     path_64 = protected_path(conn, "w=64/format=png/src/images/dog.jpg")
     path_65 = protected_path(build_conn(), "w=65/format=png/src/images/dog.jpg")
+    assert path_64 == protected_path(build_conn(), "w=64/format=png/src/images/dog.jpg")
 
     for {path, width} <- [{path_64, 64}, {path_65, 65}] do
       assert String.starts_with?(path, "/image-signed/sig=")
@@ -104,11 +105,23 @@ defmodule ImagePipeFiddleWeb.APIWireTest do
     refute path_64 == path_65
   end
 
-  defp protected_path(conn, tail) do
+  test "random concealed paths change while serving the same image", %{conn: conn} do
+    tail = "w=64/format=png/src/images/dog.jpg"
+    first = protected_path(conn, tail, "signed-concealed-random")
+    second = protected_path(build_conn(), tail, "signed-concealed-random")
+    refute first == second
+    first_response = get(build_conn(), first)
+    second_response = get(build_conn(), second)
+    assert first_response.status == 200
+    assert second_response.status == 200
+    assert first_response.resp_body == second_response.resp_body
+  end
+
+  defp protected_path(conn, tail, protection \\ "signed-concealed") do
     response =
       post(conn, "/api/image-path", %{
         "tail" => tail,
-        "protection" => "signed-concealed"
+        "protection" => protection
       })
 
     assert response.status == 200

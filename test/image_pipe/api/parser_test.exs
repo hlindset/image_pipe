@@ -922,7 +922,9 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "info rejects every image-only output policy as inert" do
-      for spec <- OptionSpec.all(), spec.terminal_applicability == :image do
+      for key <-
+            ~w(format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options jxl-options),
+          spec = OptionSpec.fetch(key) do
         assert {:error, {:invalid_request, diagnostics}} =
                  parse(["output=info", hd(spec.examples)])
 

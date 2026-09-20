@@ -22,6 +22,8 @@ defmodule ImagePipe.Source do
       Record,
       Resolved,
       Response,
+      Parser,
+      Scheme,
       StreamError,
       HTTP,
       File,
@@ -36,11 +38,15 @@ defmodule ImagePipe.Source do
   alias ImagePipe.Plan.Source.Identity
   alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.Input
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.WrappedStream
   alias ImagePipe.Telemetry
+
+  @doc false
+  def from_input(input, config), do: Input.prepare(input, config)
 
   @type error :: {:source, atom() | tuple()}
 

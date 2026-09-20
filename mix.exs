@@ -67,6 +67,7 @@ defmodule ImagePipe.MixProject do
           "docs/telemetry.md",
           "docs/debug_headers.md",
           {"docs/api_contract.md", title: "API Contract"},
+          {"docs/elixir-api.md", title: "Elixir API"},
           {"docs/execution_flow.md", title: "Execution Flow"},
           {"docs/source-network-policy.md", title: "Source Network Policy"},
           {"docs/content-aware-gravity.md", title: "Content-aware Cropping"},

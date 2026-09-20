@@ -2,9 +2,10 @@
 
 ## Direction
 
-ImagePipe has one URL API, one request lifecycle, and one executor.
-The API is path-oriented and declarative: options within a group
-have a fixed processing order, and `then` explicitly sequences groups.
+ImagePipe has one declarative processing model, one request lifecycle, and one
+executor. URL requests and typed Elixir plans share that model: options within
+a group have a fixed processing order, and explicit group boundaries sequence
+processing (`then` in URLs, `ImagePipe.group/2` in Elixir).
 Imgproxy supplies selected test references for shared behavior; ImagePipe semantics
 govern differences. Sources, caches, detectors, and telemetry exporters are host
 extension points.
@@ -12,11 +13,21 @@ extension points.
 ## Current implementation
 
 `ImagePipe.Plug` mounts the API. `ImagePipe.Plug.Runner` owns the
-request lifecycle, and `ImagePipe.Transform.Executor` owns group execution.
+HTTP request lifecycle. `ImagePipe.run/3` and `ImagePipe.write/4` execute plans
+directly from Elixir. Both entry points use `Processing` for generation and
+`ImagePipe.Transform.Executor` for group execution. Shared processing
+configuration owns limits, source options, detector setup, and output defaults;
+mount configuration adds URL, cache, and HTTP delivery controls.
 
 Canonical request data lives in `ImagePipe.Plan.Request`, with explicit
 `Plan.Request.Group` transform intent and sparse `Plan.Request.Output` policy.
-Parsing and execution share these values. `Output.Policy` combines host defaults,
+The parser validates URL grammar and translates it into typed intent.
+The [Elixir builder API](elixir-api.md) constructs processing plans and validates native option values.
+Both use `Plan.Request.Validation` for cross-option rules; its typed issues
+are mapped to URL byte spans and messages by the parser.
+`Plan.Request.build/3` owns canonical construction, group defaults, and identity
+normalization. Both frontends share the resulting values with execution.
+`Output.RequestPolicy` combines host defaults,
 request overrides, and Accept negotiation. `Output.Resolved` selects the concrete
 encoding settings after source-format and final-image inspection.
 
@@ -235,7 +246,7 @@ decoding layer. `src64` avoids this extra layer.
 
 Configure custom schemes with
 `source_schemes: %{"asset" => {MyApp.AssetSource, options}}`. The module implements
-`ImagePipe.API.SourceScheme`. Its
+`ImagePipe.Source.Scheme`. Its
 `translate(source, options)` callback receives the decoded source string and
 returns `{:ok, plan_source}` using `ImagePipe.Plan.Source.Path`, `.URL`,
 `.Object`, or `.Reference`. It may return `{:error, reason}` to reject the
@@ -248,50 +259,88 @@ credentials.
 ### Source concealment
 
 Use `enc/<token>` as an alternative to `src` and `src64`. The token is
-unpadded base64url of a version byte (`1`), a 12-byte random nonce,
-ciphertext, and a 16-byte authentication tag. Encrypt the UTF-8 source
-string with AES-256-GCM and associated data `image-pipe:source:v1`.
-Use the OTP AEAD primitive and the standard AES-256-GCM parameters, rather
-than implementing a cipher or padding scheme.
-See [OTP crypto](https://www.erlang.org/doc/apps/crypto/crypto.html#crypto_one_time_aead/7)
-and [RFC 5116 section 5.2](https://www.rfc-editor.org/rfc/rfc5116.html#section-5.2).
+canonical unpadded base64url of a version byte (`1`), a 16-byte IV,
+PKCS#7-padded AES-256-CBC ciphertext (a positive multiple of 16 bytes), and
+a 32-byte authentication tag. Source plaintext is nonempty UTF-8.
+
+The authenticated encryption construction is **A256CBC-HS512** from
+[RFC 7518 section 5.2.5](https://www.rfc-editor.org/rfc/rfc7518.html#section-5.2.5),
+using OTP AES-CBC and HMAC primitives. For each 32-byte master key,
+[HKDF-SHA256](https://www.rfc-editor.org/rfc/rfc5869.html) derives 96 bytes
+with salt `image-pipe:source:v1` and info `A256CBC-HS512+IV` (literal UTF-8
+bytes). The first 32 bytes are the MAC key, the next 32 the AES key, and
+the last 32 the deterministic-IV key. Associated data is the literal
+`image-pipe:source:v1`. The tag is the first 32 bytes of HMAC-SHA512 over
+`AAD || IV || ciphertext || AL`, where `AL` is the AAD's bit length as an
+unsigned 64-bit big-endian integer. Verify the tag before CBC decryption
+or padding validation. Tests include the RFC's published known-answer vector.
 
 Encryption keys are a separate ordered list of 32-byte keys: encrypt with
 the first, authenticate/decrypt against the configured list during rotation.
 Set `source_encryption_keys: [key, previous_key]` using raw binary keys;
 signing `keys` use hex-encoded strings. An empty encryption list disables
 concealment. Encryption keys must differ from the signing keys.
-The helper generates a fresh nonce; callers do not supply one. Configure
-signing keys whenever encryption is enabled, and verify the full
+Choose generation with `iv_mode: :deterministic` (default) or `:random`.
+Deterministic generation uses the first 16 bytes of HMAC-SHA256 of the
+complete source bytes under the derived IV key. Random generation uses
+`crypto.strong_rand_bytes(16)`. Both modes have the same token framing and
+decoder. Per-call `iv: :deterministic`, `iv: :random`, or `iv: <<16 bytes>>`
+overrides the configured generation mode. Explicit IVs are an advanced
+caller responsibility: use unpredictable random IVs or a secret-keyed
+derivation over the complete source, and do not reuse an IV for different
+sources under the same key. A constant IV or public hash of the source is
+unsuitable. Reusable configuration accepts only a mode, never a fixed IV.
+
+Configure signing keys whenever encryption is enabled, and verify the full
 request signature before decrypting. This binds processing options and
 expiry as well as the source token. Reject wrong token lengths/versions,
 authentication failures, and invalid UTF-8 through the same external 404
-response, before source resolution/fetch or cache access. Check the full
-16-byte tag length before calling OTP. Do not emit plaintext, token, or key
+response, before source resolution/fetch or cache access. Validate the framing
+before calling OTP. Do not emit plaintext, token, or key
 material in diagnostics or telemetry.
 
 After decryption, use the same source validation and identity as plain sources.
-Fresh encryptions of the same source and transform share storage/ETag
-identity. The public helper accepts validated mount configuration and returns
-only the token:
+Every encryption mode shares storage/ETag identity with the same plain source
+and transform. Deterministic encryption also preserves browser/CDN URL identity:
+identical source bytes and active encryption key yield identical tokens across
+calls, processes, and independently built configurations. Transforms and expiry
+do not affect the source token; they are covered by the outer URL signature.
+Changing expiry or the signing key can still change the complete URL.
+
+Deterministic tokens disclose source equality. CBC padding discloses source
+length rounded up to a 16-byte block (including a full padding block when
+already aligned). Neither mode hides this length information. Keep URL
+generation server-side: a public arbitrary-source encryption oracle allows
+guessing source values by comparison. Source hostnames, paths, filenames,
+and query parameters are encrypted. Keys are redacted from configuration
+inspection. Clients receive only the completed signed URL.
+
+Generate complete URLs from the same plans used for direct execution:
 
 ```elixir
-opts = ImagePipe.Plug.init(
-  sources: [path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}],
+alias ImagePipe, as: IP
+
+config = IP.url_config(
+  base_url: "/images",
   keys: [signing_key_hex],
-  source_encryption_keys: [encryption_key]
+  source_encryption_keys: [encryption_key],
+  encrypt_source: true,
+  iv_mode: :deterministic
 )
 
-{:ok, token} = ImagePipe.API.encrypt_source("photos/cat.jpg", opts)
-path = "/w=400/enc/" <> token
-signature = ImagePipe.API.Signature.sign(path, opts)
-url = "/images/sig=" <> signature <> path
+plan = IP.new() |> IP.group(resize: [width: 400])
+url = IP.url!(plan, "photos/cat.jpg", config)
+random_url = IP.url!(plan, "photos/cat.jpg", config, iv: :random)
+explicit_url = IP.url!(plan, "photos/cat.jpg", config, iv: :crypto.strong_rand_bytes(16))
 ```
 
-The `/images` mount prefix is outside the signed path. The helper generates
-a fresh nonce on every call and returns a tagged error for invalid source
-text or disabled encryption. Keep both key sets on the host; clients receive
-the completed signed URL.
+The mount uses the same `keys` and `source_encryption_keys`. Its generation
+mode does not restrict decryption. The `/images` prefix is outside the signed
+path. For lower-level integration, `ImagePipe.API.encrypt_source(source,
+validated_mount_config, options)` returns only `{:ok, token}`; the caller must
+place it after `enc/` and sign the complete mount-relative path. Invalid source,
+disabled encryption, and invalid IV overrides return tagged errors without
+reflecting their values.
 
 ### Pixel effects
 

@@ -6,8 +6,8 @@ defmodule ImagePipe.API.IdentityTest do
   alias ImagePipe.API
   alias ImagePipe.API.Config
   alias ImagePipe.API.Identity
-  alias ImagePipe.API.Output
   alias ImagePipe.API.Parser
+  alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Representation
 

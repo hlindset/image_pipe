@@ -6,6 +6,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
 
   alias ImagePipe.API
   alias ImagePipe.API.Signature
+  alias ImagePipe.API.SourceEncryption.{CBC, HKDF}
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.CacheProbe
 
@@ -24,8 +25,13 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     assert_received {:cache_put, _key, _entry}
     assert [etag] = get_resp_header(plain, "etag")
 
-    tokens = Enum.map(1..2, fn _ -> encrypt_source(@source, config) end)
-    assert length(Enum.uniq(tokens)) == 2
+    tokens =
+      for options <- [[], [iv: :random], [iv: :random], [iv: <<7::128>>]] do
+        assert {:ok, token} = API.encrypt_source(@source, config, options)
+        token
+      end
+
+    assert length(Enum.uniq(tokens)) == 4
 
     tails =
       ["src64/" <> Base.url_encode64(@source, padding: false)] ++
@@ -193,20 +199,15 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   end
 
   defp invalid_utf8_token do
-    nonce = :crypto.strong_rand_bytes(12)
+    aad = "image-pipe:source:v1"
+
+    <<key::binary-size(64), _::binary>> =
+      HKDF.derive(@encryption_key, aad, "A256CBC-HS512+IV", 96)
 
     {ciphertext, tag} =
-      :crypto.crypto_one_time_aead(
-        :aes_256_gcm,
-        @encryption_key,
-        nonce,
-        <<255>>,
-        "image-pipe:source:v1",
-        16,
-        true
-      )
+      CBC.encrypt(<<255>>, key, <<0::128>>, aad)
 
-    Base.url_encode64(<<1, nonce::binary, ciphertext::binary, tag::binary>>, padding: false)
+    Base.url_encode64(<<1, 0::128, ciphertext::binary, tag::binary>>, padding: false)
   end
 
   defp request(path, config), do: conn(:get, signed(path, config)) |> ImagePipe.Plug.call(config)

@@ -1,6 +1,7 @@
 defmodule ImagePipe.API.OutputOptions do
   @moduledoc false
 
+  alias ImagePipe.API.SerializedValue
   alias ImagePipe.API.Value
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Output.QualitySearch.Metric
@@ -57,6 +58,27 @@ defmodule ImagePipe.API.OutputOptions do
     "effort" => {:effort, {:integer, 0..9}}
   }
   @jxl_schema %{"effort" => {:effort, {:integer, 1..9}}}
+
+  @doc false
+  def serialize_encoder(options, format) do
+    format
+    |> encoder_schema()
+    |> Enum.sort()
+    |> Enum.flat_map(fn {name, {field, _parser}} ->
+      case Map.fetch!(options, field) do
+        nil -> []
+        true -> [name]
+        value -> [name <> ":" <> SerializedValue.scalar(value)]
+      end
+    end)
+    |> Enum.join(",")
+  end
+
+  defp encoder_schema(:jpeg), do: @jpeg_schema
+  defp encoder_schema(:png), do: @png_schema
+  defp encoder_schema(:webp), do: @webp_schema
+  defp encoder_schema(:avif), do: @avif_schema
+  defp encoder_schema(:jpeg_xl), do: @jxl_schema
 
   @spec parse_format_qualities(String.t()) :: {:ok, map()} | :error
   def parse_format_qualities(string) do

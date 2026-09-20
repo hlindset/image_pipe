@@ -3,8 +3,9 @@
 ## Request lifecycle
 
 `ImagePipe.Plug` validates mount configuration and delegates the request to
-`ImagePipe.Plug.Runner`, which calls parsing and transform execution
-directly.
+`ImagePipe.Plug.Runner`, which calls parsing and shared processing directly.
+`ImagePipe.run/3` validates a plan and processing options, resolves its input,
+and uses the same generation stages, returning a fully consumed result.
 
 The lifecycle is:
 
@@ -40,7 +41,7 @@ geometry. Only operations that need arbitrary pixel access materialize the
 image, through `ImagePipe.Transform.Materializer`.
 
 `ImagePipe.Transform.Executor.execute/3` imports input color profiles, executes groups,
-flushes pending orientation, and returns image and color state. The runner passes
+flushes pending orientation, and returns image and color state. Processing passes
 the retained source ICC profile directly to the encoder. A group
 applies rotation and flip, flushes pending orientation before trim, measures
 the trimmed image, then resolves crop lengths in the resulting display frame.

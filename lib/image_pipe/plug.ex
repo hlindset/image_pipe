@@ -21,6 +21,7 @@ defmodule ImagePipe.Plug do
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Processing,
       ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,

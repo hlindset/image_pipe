@@ -2,6 +2,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
   @request_source_response_globs [
+    "lib/image_pipe/processing.ex",
+    "lib/image_pipe/processing/**/*.ex",
     "lib/image_pipe/plug.ex",
     "lib/image_pipe/plug/**/*.ex",
     "lib/image_pipe/source.ex",
@@ -18,6 +20,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/response/**/*.ex",
     "lib/image_pipe/cache.ex",
     "lib/image_pipe/cache/**/*.ex",
+    "lib/image_pipe/plan.ex",
     "lib/image_pipe/plan/**/*.ex"
   ]
   @core_surface_globs [
@@ -38,6 +41,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/transform/**/*.ex"
   ]
   @core_toolkit_globs [
+    "lib/image_pipe/processing.ex",
+    "lib/image_pipe/processing/**/*.ex",
     "lib/image_pipe/delivery.ex",
     "lib/image_pipe/delivery/**/*.ex",
     "lib/image_pipe/decode.ex",
@@ -57,6 +62,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Format => "lib/image_pipe/format.ex",
     ImagePipe.Output => "lib/image_pipe/output.ex",
     ImagePipe.Plan => "lib/image_pipe/plan.ex",
+    ImagePipe.Processing => "lib/image_pipe/processing.ex",
     ImagePipe.Plug => "lib/image_pipe/plug.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
@@ -91,6 +97,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Processing,
       ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
@@ -109,6 +116,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Output,
       ImagePipe.Plan,
+      ImagePipe.Processing,
       ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
@@ -118,10 +126,37 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     refute_boundary_deps(api, [ImagePipe.Decode, ImagePipe.Delivery, ImagePipe.Plug])
 
-    # A host implements `SourceScheme` to translate a custom `foo://` source
-    # into the shared Plan.Source model. The API parser and lifecycle remain
-    # concrete internal implementation.
-    assert_boundary_exports(api, [ImagePipe.API.SourceScheme])
+    assert_boundary_exports(api, [ImagePipe.API.URLConfig])
+  end
+
+  test "processing shares generation without depending on HTTP orchestration" do
+    processing = boundary_declaration(ImagePipe.Processing)
+
+    assert_boundary_deps(processing, [
+      ImagePipe.Debug,
+      ImagePipe.Decode,
+      ImagePipe.Delivery,
+      ImagePipe.Error,
+      ImagePipe.Format,
+      ImagePipe.Output,
+      ImagePipe.Plan,
+      ImagePipe.Source,
+      ImagePipe.Telemetry,
+      ImagePipe.Transform
+    ])
+
+    refute_boundary_deps(processing, [
+      ImagePipe.API,
+      ImagePipe.Plug,
+      ImagePipe.Response,
+      ImagePipe.Cache
+    ])
+
+    assert_boundary_exports(processing, [
+      ImagePipe.Processing.Config,
+      ImagePipe.Processing.DebugBuilder,
+      ImagePipe.Processing.Terminal
+    ])
   end
 
   test "decode boundary declaration depends only on the core fetch/decode toolkit" do
@@ -216,6 +251,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Source.CacheSemantics,
       ImagePipe.Source.Resolved,
       ImagePipe.Source.Response,
+      ImagePipe.Source.Parser,
+      ImagePipe.Source.Scheme,
       ImagePipe.Source.StreamError,
       ImagePipe.Source.HTTP,
       ImagePipe.Source.File,
@@ -495,6 +532,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Request,
       ImagePipe.Plan.Request.Group,
       ImagePipe.Plan.Request.Output,
+      ImagePipe.Plan.Request.Issue,
       ImagePipe.Plan.Output,
       ImagePipe.Plan.Output.QualitySearch,
       ImagePipe.Plan.Output.QualitySearch.Metric,
@@ -631,6 +669,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
           "white",
           "rgb",
           "rgb_hex",
+          "rgb_name",
           "rgba",
           "with_alpha",
           "valid?",

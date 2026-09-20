@@ -2,9 +2,8 @@ defmodule ImagePipe.API.OptionSpec do
   @moduledoc """
   Declarative option table for the ImagePipe URL API.
 
-  Each `%OptionSpec{}` defines an option's key, scope, value parser, conflicts,
-  and supported outputs. `ImagePipe.API.Parser` handles resize intent,
-  guide consumers, and group assembly.
+  Each `%OptionSpec{}` defines an option's key, scope, value parser, and
+  documentation. Semantic constraints are owned by `ImagePipe.Plan.Request`.
 
   Tests require complete entries with at least one example each.
   """
@@ -19,9 +18,7 @@ defmodule ImagePipe.API.OptionSpec do
     :stage,
     :default,
     :prerequisites,
-    :conflicts,
     :identity,
-    :terminal_applicability,
     :summary,
     :examples
   ]
@@ -37,11 +34,9 @@ defmodule ImagePipe.API.OptionSpec do
           value: :flag | value_parser(),
           stage: pos_integer() | nil,
           default: term(),
-          # Describes dependencies; Parser.tier2_group_errors/3 validates them.
+          # Documents semantic dependencies validated by Plan.Request.
           prerequisites: [atom()],
-          conflicts: [String.t()],
           identity: :representation | :storage | :gate | :presentation,
-          terminal_applicability: :pixels | :image | :all,
           summary: String.t(),
           examples: [String.t()]
         }
@@ -131,9 +126,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 1,
         default: 0,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Clockwise rotation in degrees from 0 to 360",
         examples: ["rotate=30", "rotate=90"]
       },
@@ -144,9 +137,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 2,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Flip horizontally, vertically, or both after rotation",
         examples: ["flip=h", "flip=v", "flip=hv"]
       },
@@ -157,9 +148,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 10,
         default: false,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Convert to grayscale",
         examples: ["gray"]
       },
@@ -170,9 +159,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 11,
         default: false,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Threshold grayscale at 128 to black and white, preserving alpha",
         examples: ["bitonal"]
       },
@@ -183,9 +170,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 5,
         default: 1.0,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Device pixel ratio multiplier",
         examples: ["dpr=2", "dpr=1.5"]
       },
@@ -196,9 +181,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 5,
         default: :auto,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Resize target width, in px, or auto to preserve aspect",
         examples: ["w=800"]
       },
@@ -209,9 +192,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 5,
         default: :auto,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Resize target height, in px, or auto to preserve aspect",
         examples: ["h=400"]
       },
@@ -222,9 +203,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 5,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Minimum resize width in pixels",
         examples: ["min-w=320"]
       },
@@ -235,9 +214,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 5,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Minimum resize height in pixels",
         examples: ["min-h=240"]
       },
@@ -248,9 +225,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 5,
         default: :contain,
         prerequisites: [:resize_intent],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Resize mode: contain, cover, cover-down, stretch, or auto",
         examples: ["fit=cover"]
       },
@@ -261,9 +236,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 5,
         default: false,
         prerequisites: [:resize_intent],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Allow the resize to upscale past source dimensions",
         examples: ["enlarge"]
       },
@@ -274,9 +247,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 5,
         default: {1.0, 1.0},
         prerequisites: [:resize_intent],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Positive resize multiplier as one scalar or x,y pair",
         examples: ["zoom=2", "zoom=1.25,0.75"]
       },
@@ -287,9 +258,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 19,
         default: false,
         prerequisites: [:concrete_box],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Extend to the requested width and height",
         examples: ["extend"]
       },
@@ -300,9 +269,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 19,
         default: false,
         prerequisites: [:concrete_box],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Extend to the requested width-to-height ratio",
         examples: ["extend-ratio"]
       },
@@ -313,9 +280,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 19,
         default: :center,
         prerequisites: [:canvas],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Canvas placement anchor",
         examples: ["extend-at=bottom-right"]
       },
@@ -326,9 +291,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 19,
         default: {{:px, 0}, {:px, 0}},
         prerequisites: [:canvas],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Signed x,y canvas placement offset",
         examples: ["extend-offset=10,-20pct"]
       },
@@ -339,9 +302,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 4,
         default: nil,
         prerequisites: [],
-        conflicts: ["region"],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Guided crop to w,h (px or pct), guided by anchor/focus",
         examples: ["crop=600,400"]
       },
@@ -352,9 +313,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 4,
         default: nil,
         prerequisites: [:crop],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Crop aspect ratio as a:b or a positive decimal",
         examples: ["crop-ratio=3:2", "crop-ratio=1.5"]
       },
@@ -365,9 +324,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 4,
         default: false,
         prerequisites: [:crop_ratio],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Allow crop ratio correction to enlarge the crop box",
         examples: ["crop-ratio-enlarge"]
       },
@@ -378,9 +335,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 4,
         default: nil,
         prerequisites: [],
-        conflicts: ["crop"],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Explicit-region crop x,y,w,h (px or pct)",
         examples: ["region=0,0,600,400"]
       },
@@ -391,9 +346,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 6,
         default: :center,
         prerequisites: [:guide_consumer],
-        conflicts: ["detect", "focus"],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Crop guide / gravity for a guided crop or cover-family resize",
         examples: ["anchor=smart"]
       },
@@ -404,9 +357,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 6,
         default: nil,
         prerequisites: [:named_anchor],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Signed x,y offset from a named crop anchor",
         examples: ["anchor-offset=10,-20pct"]
       },
@@ -417,9 +368,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 6,
         default: nil,
         prerequisites: [:guide_consumer],
-        conflicts: ["anchor", "detect"],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Focal point as x,y unit-space fractions (0.0-1.0)",
         examples: ["focus=0.25,0.75"]
       },
@@ -430,9 +379,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 6,
         default: nil,
         prerequisites: [:guide_consumer],
-        conflicts: ["anchor", "focus"],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Detector classes with optional positive class weights",
         examples: ["detect=all", "detect=car,face", "detect=all:1,face:3"]
       },
@@ -443,9 +390,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 7,
         default: 0.0,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Gaussian blur sigma; 0 is the Tier-1 identity point",
         examples: ["blur=2.5"]
       },
@@ -456,9 +401,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 8,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Sharpen sigma; 0 is the identity point",
         examples: ["sharpen=1.5"]
       },
@@ -469,9 +412,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 9,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Pixelation block size; 1 is the identity point",
         examples: ["pixelate=8"]
       },
@@ -482,9 +423,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 12,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Monochrome intensity and optional color",
         examples: ["monochrome=0.5", "monochrome=1,red"]
       },
@@ -495,9 +434,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 13,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Duotone intensity with optional shadow and highlight colors",
         examples: ["duotone=0.5", "duotone=1,112233,ffeecc"]
       },
@@ -508,9 +445,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 14,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Additive brightness adjustment from -255 to 255",
         examples: ["brightness=-20"]
       },
@@ -521,9 +456,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 15,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Positive contrast factor; 1 is the identity point",
         examples: ["contrast=1.25"]
       },
@@ -534,9 +467,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 16,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Positive saturation factor; 1 is the identity point",
         examples: ["saturation=0.5"]
       },
@@ -547,9 +478,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 17,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Color overlay with optional alpha preservation",
         examples: ["colorize=0.5,red", "colorize=1,ff0000,keep-alpha"]
       },
@@ -560,9 +489,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 18,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Directional color gradient with unit-space stops",
         examples: ["gradient=1,red,left,0.25,0.75"]
       },
@@ -573,9 +500,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 3,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Trim a surrounding background: auto, or color[,tolerance]",
         examples: ["trim=auto", "trim=fff,10"]
       },
@@ -586,9 +511,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 3,
         default: nil,
         prerequisites: [:trim],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Make trim margins symmetric horizontally, vertically, or on both axes",
         examples: ["trim-symmetry=h", "trim-symmetry=v", "trim-symmetry=hv"]
       },
@@ -599,9 +522,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 20,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "CSS 1-4 value px shorthand padding",
         examples: ["pad=20", "pad=10,20,30,40"]
       },
@@ -612,9 +533,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: 21,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Background color, flattens transparency: color[,alpha]",
         examples: ["bg=f4f4f4"]
       },
@@ -625,9 +544,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: :auto,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :pixels,
         summary: "Apply EXIF orientation automatically, or ignore it",
         examples: ["orient=auto", "orient=none"]
       },
@@ -638,9 +555,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: :image,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :all,
         summary: "Terminal selection: image (default), blurhash, lqip-css, or info",
         examples: ["output=blurhash", "output=lqip-css", "output=info"]
       },
@@ -651,9 +566,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Explicit output image format; absent negotiates via Accept",
         examples: ["format=webp"]
       },
@@ -664,9 +577,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Output quality, 1-100",
         examples: ["q=80"]
       },
@@ -677,9 +588,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: %{},
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Per-format output quality overrides",
         examples: ["format-q=avif:60,webp:70"]
       },
@@ -690,9 +599,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Output metadata retention policy",
         examples: ["meta=strip", "meta=copyright", "meta=keep"]
       },
@@ -703,9 +610,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Output color profile policy",
         examples: ["profile=preserve", "profile=display-p3"]
       },
@@ -716,9 +621,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Output HDR policy",
         examples: ["hdr=tonemap", "hdr=preserve"]
       },
@@ -729,9 +632,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Adaptive quality method with optional named controls",
         examples: ["autoquality=ssimulacra2,target:78,error:2", "autoquality=none"]
       },
@@ -742,9 +643,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Positive encoded byte budget",
         examples: ["max-bytes=12000"]
       },
@@ -755,9 +654,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Sparse JPEG encoder options",
         examples: ["jpeg-options=progressive,quant-table:3"]
       },
@@ -768,9 +665,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Sparse PNG encoder options",
         examples: ["png-options=palette,filter:paeth"]
       },
@@ -781,9 +676,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Sparse WebP encoder options",
         examples: ["webp-options=near-lossless,effort:6"]
       },
@@ -794,9 +687,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Sparse AVIF encoder options",
         examples: ["avif-options=subsample:on,effort:6"]
       },
@@ -807,9 +698,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :representation,
-        terminal_applicability: :image,
         summary: "Sparse JPEG XL encoder options",
         examples: ["jxl-options=effort:4"]
       },
@@ -820,9 +709,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :presentation,
-        terminal_applicability: :all,
         summary: "ASCII filename stem for response delivery",
         examples: ["filename=card-v2"]
       },
@@ -833,9 +720,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: false,
         prerequisites: [],
-        conflicts: [],
         identity: :presentation,
-        terminal_applicability: :all,
         summary: "Deliver the response as an attachment",
         examples: ["attachment"]
       },
@@ -846,9 +731,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :storage,
-        terminal_applicability: :all,
         summary: "ASCII storage cachebuster token",
         examples: ["cb=release-42"]
       },
@@ -859,9 +742,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: false,
         prerequisites: [],
-        conflicts: [],
         identity: :presentation,
-        terminal_applicability: :all,
         summary: "Request debug response headers when the mount allows them",
         examples: ["debug"]
       },
@@ -872,9 +753,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: nil,
         prerequisites: [],
-        conflicts: [],
         identity: :gate,
-        terminal_applicability: :all,
         summary: "Unix timestamp after which the URL is invalid (404)",
         examples: ["expires=1999999999"]
       },
@@ -885,9 +764,7 @@ defmodule ImagePipe.API.OptionSpec do
         stage: nil,
         default: [],
         prerequisites: [],
-        conflicts: [],
         identity: :gate,
-        terminal_applicability: :all,
         summary: "One or more configured preset names to expand",
         examples: ["preset=card"]
       }

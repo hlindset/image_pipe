@@ -17,7 +17,11 @@ export function parseAppPath(pathname: string): AppState {
 
   const [candidate, ...tail] = rest;
   const protection =
-    candidate === "signed" || candidate === "signed-concealed" ? candidate : "unsigned";
+    candidate === "signed" ||
+    candidate === "signed-concealed" ||
+    candidate === "signed-concealed-random"
+      ? candidate
+      : "unsigned";
   const requestTail = protection === "unsigned" ? rest : tail;
   const api = parseApiTail(requestTail.join("/"));
 

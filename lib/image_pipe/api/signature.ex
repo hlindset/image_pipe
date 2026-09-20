@@ -1,6 +1,6 @@
 defmodule ImagePipe.API.Signature do
   @moduledoc """
-  HMAC signing, verification, and expiry checks for ImagePipe URLs.
+  HMAC signing and verification for ImagePipe URLs.
 
   `verify/3` runs before lexing. Its `sig_segment` and `signed_path` come
   directly from `ImagePipe.API.Path.split_signature/1`. The MAC covers
@@ -8,7 +8,7 @@ defmodule ImagePipe.API.Signature do
   path's end, excluding the query. Neither function normalizes the path:
   duplicate slashes affect the signature and may be rejected later by parsing.
 
-  `config[:keys]` is an ordered list of hex-encoded keys. `sign/2` uses the
+  Configuration validation decodes and redacts the ordered signing keys. `sign/2` uses the
   first; verification tries each with `Plug.Crypto.secure_compare/2` and
   returns the matching index, exposed as `:sig_key_index` telemetry for key rotation.
   """
@@ -62,27 +62,10 @@ defmodule ImagePipe.API.Signature do
     |> Base.url_encode64(padding: false)
   end
 
-  @doc """
-  Checks expiry against the supplied Unix timestamp in seconds.
-
-  `expires` remains valid at its own timestamp; only earlier timestamps are
-  expired. The request lifecycle supplies `System.os_time(:second)` by default.
-  """
-  @spec expired?(expires :: pos_integer() | nil, now :: integer()) :: boolean()
-  def expired?(nil, _now), do: false
-  def expired?(expires, now) when is_integer(expires), do: expires < now
-
   # -- key material ---------------------------------------------------------
 
   defp raw_keys(config) do
-    config
-    |> Keyword.fetch!(:keys)
-    |> Enum.map(&hex_decode!/1)
-  end
-
-  defp hex_decode!(hex_key) do
-    {:ok, decoded} = Base.decode16(hex_key, case: :mixed)
-    decoded
+    Keyword.fetch!(config, :keys).values
   end
 
   # -- signature decode/encode -----------------------------------------------

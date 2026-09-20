@@ -77,6 +77,11 @@ For example, the cache lookup stop event with the default prefix is:
 
 The `[:image_pipe, :request]` span wraps the whole request, opened by
 `ImagePipe.Plug.Runner` before parsing. Its **start metadata is empty**.
+Direct `ImagePipe.run/3` calls also emit this span, enclosing plan preflight
+and the shared source/decode/transform/output stages. Their stop metadata has
+the same outcome categories, with no HTTP `:status`. Direct calls emit no
+parse, cache, send, or HTTP delivery stages. `ImagePipe.write/4` performs its
+destination write after the processing request span and source cleanup.
 
 Stop metadata:
 
