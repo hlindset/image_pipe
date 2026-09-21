@@ -28,6 +28,9 @@ defmodule ImagePipe.API.Path do
 
   @max_option_segments 64
 
+  @doc false
+  def max_option_segments, do: @max_option_segments
+
   # Any "%" not followed by exactly two hex digits is a malformed escape.
   @malformed_percent ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/
 

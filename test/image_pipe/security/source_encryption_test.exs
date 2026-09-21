@@ -1,16 +1,17 @@
-defmodule ImagePipe.API.SourceEncryptionTest do
+defmodule ImagePipe.Security.SourceEncryptionTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API
   alias ImagePipe.API.Config
   alias ImagePipe.API.Errors
-  alias ImagePipe.API.Signature
-  alias ImagePipe.API.SourceEncryption
+  alias ImagePipe.Security.Signature
+  alias ImagePipe.Security.SourceEncryption
 
   @key_a :binary.list_to_bin(Enum.to_list(0..31))
   @key_b :binary.list_to_bin(Enum.to_list(32..63))
   @source "https://example.test/a.jpg"
-  @known_token "AQABAgMEBQYHCAkKCy92omu23-006Dn25sGFHUP3s_RA3xpxFkgAhy28U9QXTJ8pFpp70DVSbg"
+  # Independently generated using Python HMAC/HKDF and OpenSSL AES-CBC.
+  @known_token "AZ1fjKX4xjZg9njW30WToe5U7cKt6833f7NiBT7SbOLlwPOyqrXwSHKDr2mx7rg8q7NyIO290mFAYXP7mYnm9b4kx6zFyOrfGZLTr111BmbT"
 
   describe "new/1" do
     test "accepts an ordered list of exact 32-byte raw keys" do
@@ -53,27 +54,43 @@ defmodule ImagePipe.API.SourceEncryptionTest do
 
       assert {:ok, payload} = Base.url_decode64(token, padding: false)
 
-      assert <<1, nonce::binary-size(12), ciphertext::binary-size(byte_size(@source)),
-               tag::binary-size(16)>> =
+      assert <<1, iv::binary-size(16), ciphertext::binary-size(32), tag::binary-size(32)>> =
                payload
 
-      assert byte_size(nonce) == 12
-      assert byte_size(tag) == 16
+      assert byte_size(iv) == 16
+      assert byte_size(tag) == 32
       refute ciphertext == @source
 
       assert SourceEncryption.decrypt(token, keyring) == {:ok, @source}
     end
 
-    test "uses a fresh nonce for every encryption", %{keyring: keyring} do
+    test "derives a stable IV from the complete source", %{keyring: keyring} do
       assert {:ok, first} = SourceEncryption.encrypt(@source, keyring)
       assert {:ok, second} = SourceEncryption.encrypt(@source, keyring)
-      refute first == second
+      assert first == second
+      assert {:ok, changed} = SourceEncryption.encrypt(@source <> "?secret=changed", keyring)
+      refute changed == first
+      <<1, first_iv::binary-size(16), _::binary>> = Base.url_decode64!(first, padding: false)
+      <<1, changed_iv::binary-size(16), _::binary>> = Base.url_decode64!(changed, padding: false)
+      refute first_iv == changed_iv
       assert SourceEncryption.decrypt(first, keyring) == {:ok, @source}
       assert SourceEncryption.decrypt(second, keyring) == {:ok, @source}
     end
 
-    test "decrypts a fixed OTP AES-256-GCM vector", %{keyring: keyring} do
+    test "matches the independently generated protocol vector", %{keyring: keyring} do
+      assert SourceEncryption.encrypt(@source, keyring) == {:ok, @known_token}
       assert SourceEncryption.decrypt(@known_token, keyring) == {:ok, @source}
+    end
+
+    test "supports a random default and per-call explicit IV", %{keyring: keyring} do
+      {:ok, random} = SourceEncryption.new([@key_a], :random)
+      assert {:ok, first} = SourceEncryption.encrypt(@source, random)
+      assert {:ok, second} = SourceEncryption.encrypt(@source, random)
+      refute first == second
+      assert SourceEncryption.decrypt(first, keyring) == {:ok, @source}
+      assert SourceEncryption.decrypt(second, keyring) == {:ok, @source}
+      assert {:ok, explicit} = SourceEncryption.encrypt(@source, keyring, iv: <<7::128>>)
+      assert SourceEncryption.decrypt(explicit, random) == {:ok, @source}
     end
 
     test "encrypts with the first key and decrypts through a rotation keyring" do
@@ -100,19 +117,20 @@ defmodule ImagePipe.API.SourceEncryptionTest do
       assert {:ok, token} = SourceEncryption.encrypt(@source, keyring)
       {:ok, payload} = Base.url_decode64(token, padding: false)
 
-      <<_version, nonce::binary-size(12), ciphertext::binary-size(byte_size(@source)),
-        tag::binary-size(16)>> = payload
+      <<_version, iv::binary-size(16), ciphertext::binary-size(32), tag::binary-size(32)>> =
+        payload
 
       malformed = [
         "",
         "not/base64",
         token <> "=",
-        Base.url_encode64(<<2, nonce::binary, ciphertext::binary, tag::binary>>, padding: false),
+        Base.url_encode64(<<2, iv::binary, ciphertext::binary, tag::binary>>, padding: false),
         Base.url_encode64(
-          <<1, nonce::binary, ciphertext::binary, binary_part(tag, 0, 15)::binary>>,
+          <<1, iv::binary, ciphertext::binary, binary_part(tag, 0, 31)::binary>>,
           padding: false
         ),
-        mutate_payload(token, 13),
+        mutate_payload(token, 1),
+        mutate_payload(token, 17),
         mutate_payload(token, byte_size(payload) - 1)
       ]
 
@@ -122,45 +140,17 @@ defmodule ImagePipe.API.SourceEncryptionTest do
       end
     end
 
-    test "rejects authenticated plaintext that is not UTF-8", %{keyring: keyring} do
-      <<key::binary-size(32)>> = @key_a
-      nonce = <<0::96>>
+    test "rejects authenticated empty and invalid UTF-8 plaintext", %{keyring: keyring} do
+      aad = "image-pipe:source:v1"
 
-      {ciphertext, tag} =
-        :crypto.crypto_one_time_aead(
-          :aes_256_gcm,
-          key,
-          nonce,
-          <<255>>,
-          "image-pipe:source:v1",
-          16,
-          true
-        )
+      <<key::binary-size(64), _::binary>> =
+        SourceEncryption.HKDF.derive(@key_a, aad, "A256CBC-HS512+IV", 96)
 
-      token =
-        Base.url_encode64(<<1, nonce::binary, ciphertext::binary, tag::binary>>, padding: false)
-
-      assert SourceEncryption.decrypt(token, keyring) == {:error, :invalid_concealed_source}
-    end
-
-    test "rejects authenticated empty plaintext", %{keyring: keyring} do
-      nonce = <<0::96>>
-
-      {ciphertext, tag} =
-        :crypto.crypto_one_time_aead(
-          :aes_256_gcm,
-          @key_a,
-          nonce,
-          "",
-          "image-pipe:source:v1",
-          16,
-          true
-        )
-
-      token =
-        Base.url_encode64(<<1, nonce::binary, ciphertext::binary, tag::binary>>, padding: false)
-
-      assert SourceEncryption.decrypt(token, keyring) == {:error, :invalid_concealed_source}
+      for plaintext <- ["", <<255>>] do
+        {ciphertext, tag} = SourceEncryption.CBC.encrypt(plaintext, key, <<0::128>>, aad)
+        token = Base.url_encode64(<<1, 0::128, ciphertext::binary, tag::binary>>, padding: false)
+        assert SourceEncryption.decrypt(token, keyring) == {:error, :invalid_concealed_source}
+      end
     end
   end
 

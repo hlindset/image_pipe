@@ -2,13 +2,13 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.API
-  alias ImagePipe.API.Output, as: APIOutput
-  alias ImagePipe.API.Source, as: APISource
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.Producer
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
+  alias ImagePipe.Output.RequestPolicy, as: APIOutput
   alias ImagePipe.Source
+  alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.Delivery.ProducerClient
   alias ImagePipe.Transform.Executor

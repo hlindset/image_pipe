@@ -6,7 +6,7 @@ import {
   type SourceType,
 } from "./source";
 
-export type Protection = "unsigned" | "signed" | "signed-concealed";
+export type Protection = "unsigned" | "signed" | "signed-concealed" | "signed-concealed-random";
 export type ApiState = {
   source: SourceImage;
   sourceType: SourceType;

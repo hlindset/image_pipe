@@ -13,8 +13,8 @@ defmodule ImagePipe.API.Parser do
        marking every occurrence. Then expand presets.
     4. Check conflicts, inert options, and output applicability using only valid,
        non-duplicate values, to avoid errors caused by earlier failures.
-    5. Build the request, remove identity values (`blur=0` → absent), and resolve
-       omitted fit/guide defaults when an operation uses them.
+    5. Translate into typed intent for `Plan.Request.build/3`, which removes
+       identity values and resolves omitted fit/guide defaults.
 
   Diagnostics are `ImagePipe.API.Diagnostic` structs with stable `reason` atoms.
   """
@@ -24,8 +24,69 @@ defmodule ImagePipe.API.Parser do
   alias ImagePipe.API.Presets
   alias ImagePipe.API.Value
   alias ImagePipe.Plan.Request
-  alias ImagePipe.Plan.Request.Group
-  alias ImagePipe.Plan.Request.Output
+
+  @intent_keys %{
+    "anchor" => :anchor,
+    "anchor-offset" => :anchor_offset,
+    "attachment" => :attachment,
+    "autoquality" => :autoquality,
+    "avif-options" => :avif_options,
+    "bg" => :background,
+    "bitonal" => :bitonal,
+    "blur" => :blur,
+    "brightness" => :brightness,
+    "cb" => :cachebuster,
+    "colorize" => :colorize,
+    "contrast" => :contrast,
+    "crop" => :crop,
+    "crop-ratio" => :crop_ratio,
+    "crop-ratio-enlarge" => :crop_ratio_enlarge,
+    "debug" => :debug,
+    "detect" => :detect,
+    "dpr" => :dpr,
+    "duotone" => :duotone,
+    "enlarge" => :enlarge,
+    "expires" => :expires,
+    "extend" => :extend,
+    "extend-at" => :extend_at,
+    "extend-offset" => :extend_offset,
+    "extend-ratio" => :extend_ratio,
+    "filename" => :filename,
+    "fit" => :fit,
+    "flip" => :flip,
+    "focus" => :focus,
+    "format" => :format,
+    "format-q" => :format_qualities,
+    "gradient" => :gradient,
+    "gray" => :gray,
+    "h" => :height,
+    "hdr" => :hdr,
+    "jpeg-options" => :jpeg_options,
+    "jxl-options" => :jxl_options,
+    "max-bytes" => :max_bytes,
+    "meta" => :metadata,
+    "min-h" => :min_height,
+    "min-w" => :min_width,
+    "monochrome" => :monochrome,
+    "orient" => :orient,
+    "output" => :terminal,
+    "pad" => :padding,
+    "pixelate" => :pixelate,
+    "png-options" => :png_options,
+    "profile" => :color_profile,
+    "q" => :quality,
+    "region" => :region,
+    "rotate" => :rotate,
+    "saturation" => :saturation,
+    "sharpen" => :sharpen,
+    "trim" => :trim,
+    "trim-symmetry" => :trim_symmetry,
+    "w" => :width,
+    "webp-options" => :webp_options,
+    "zoom" => :zoom
+  }
+
+  @url_keys Map.new(@intent_keys, fn {key, name} -> {name, key} end)
 
   @type span :: Diagnostic.span()
   @type lexed :: %{
@@ -52,13 +113,7 @@ defmodule ImagePipe.API.Parser do
     errors = parse_errors ++ preset_errors ++ cross_errors
 
     if errors == [] do
-      {:ok,
-       assemble_request(
-         clean_group_maps,
-         clean_request_map,
-         decoded_source,
-         map_size(clean_group_maps)
-       )}
+      {:ok, build_request(clean_group_maps, clean_request_map, decoded_source)}
     else
       {:error, {:invalid_request, errors}}
     end
@@ -330,677 +385,83 @@ defmodule ImagePipe.API.Parser do
   defp preset_occurrence(index, key, span),
     do: occurrence(index, key, nil, span, span, span, {:ok, :from_preset})
 
-  # -- pass 4: cross-option validation -------------------------------------
+  # -- semantic validation and URL diagnostics -----------------------------
 
-  defp collect_cross_option_errors(clean_group_maps, clean_request_map, occurrences) do
-    group_errors =
-      Enum.flat_map(clean_group_maps, fn {group_index, group_map} ->
-        collect_group_cross_errors(group_map, occurrences, group_index)
-      end)
+  defp collect_cross_option_errors(group_maps, request_map, occurrences) do
+    invalid =
+      for %{group_index: index, key: key, result: {:error, _}} <- occurrences,
+          {:ok, name} <- [Map.fetch(@intent_keys, key)],
+          into: MapSet.new(),
+          do: {:group, index, name}
 
-    group_errors ++
-      collect_terminal_applicability_errors(
-        clean_group_maps,
-        clean_request_map,
-        occurrences
-      ) ++
-      collect_output_cross_errors(clean_request_map, occurrences)
+    group_maps
+    |> typed_groups()
+    |> Request.errors(typed_options(request_map), invalid)
+    |> Enum.map(&semantic_diagnostic(&1, occurrences))
   end
 
-  defp collect_group_cross_errors(group_map, occurrences, group_index) do
-    tier3_exclusive_errors(group_map, occurrences, group_index) ++
-      canvas_exclusive_errors(group_map, occurrences, group_index) ++
-      offset_dpr_errors(group_map, occurrences, group_index) ++
-      tier2_group_errors(group_map, occurrences, group_index)
+  defp semantic_diagnostic(issue, occurrences) do
+    spans = Enum.map(issue.locations, &semantic_span(&1, occurrences))
+    %Diagnostic{reason: issue.reason, message: semantic_message(issue), spans: spans}
   end
 
-  defp canvas_exclusive_errors(group_map, occurrences, group_index) do
-    if Map.get(group_map, "extend", false) and Map.get(group_map, "extend-ratio", false) do
-      [exclusive_diagnostic(occurrences, group_index, "extend", "extend-ratio")]
-    else
-      []
-    end
+  defp semantic_span({:group, index, key}, occurrences),
+    do: occurrence_span(occurrences, index, Map.fetch!(@url_keys, key))
+
+  defp semantic_span({:request, key}, occurrences),
+    do: request_occurrence_span(occurrences, Map.fetch!(@url_keys, key))
+
+  defp semantic_message(%{detail: :exclusive, locations: locations}) do
+    [left, right] = Enum.map(locations, &location_key/1)
+    "#{left} and #{right} are mutually exclusive"
   end
 
-  defp offset_dpr_errors(group_map, occurrences, group_index) do
-    dpr = Map.get(group_map, "dpr", 1.0)
+  defp semantic_message(%{detail: :quality_search}),
+    do: "q and enabled autoquality are mutually exclusive"
 
-    Enum.flat_map(
-      ["anchor-offset", "extend-offset"],
-      &offset_dpr_error(group_map, occurrences, group_index, &1, dpr)
-    )
-  end
+  defp semantic_message(%{detail: :auto_dimension}),
+    do: "auto dimension has no concrete partner"
 
-  defp offset_dpr_error(group_map, occurrences, group_index, key, dpr) do
-    case Map.get(group_map, key) do
-      nil ->
-        []
+  defp semantic_message(%{detail: :invalid_offset}), do: message_for(:invalid_offset)
 
-      offset ->
-        if offset_dpr_safe?(offset, dpr) do
-          []
-        else
-          [diagnostic(:invalid_offset, occurrence_span(occurrences, group_index, key))]
-        end
-    end
-  end
-
-  defp offset_dpr_safe?({x, y}, dpr),
-    do: offset_axis_dpr_safe?(x, dpr) and offset_axis_dpr_safe?(y, dpr)
-
-  defp offset_axis_dpr_safe?({:pct, _value}, _dpr), do: true
-
-  defp offset_axis_dpr_safe?({:px, value}, dpr) do
-    _scaled = value * dpr * 1.0
-    true
-  rescue
-    ArithmeticError -> false
-  end
-
-  # Table-driven Tier-3 exclusivity: any two present keys where one's
-  # `conflicts` list names the other. The
-  # `key < other` guard reports each symmetric pair once.
-  defp tier3_exclusive_errors(group_map, occurrences, group_index) do
-    group_map
-    |> Map.keys()
-    |> Enum.flat_map(fn key ->
-      key
-      |> OptionSpec.fetch()
-      |> Map.fetch!(:conflicts)
-      |> Enum.filter(&(Map.has_key?(group_map, &1) and &1 > key))
-      |> Enum.map(&exclusive_diagnostic(occurrences, group_index, key, &1))
-    end)
-  end
-
-  defp exclusive_diagnostic(occurrences, group_index, key_a, key_b) do
-    spans = [
-      occurrence_span(occurrences, group_index, key_a),
-      occurrence_span(occurrences, group_index, key_b)
-    ]
-
-    %Diagnostic{
-      reason: :mutually_exclusive_options,
-      message: "#{key_a} and #{key_b} are mutually exclusive",
-      spans: spans
-    }
-  end
-
-  # Inertness rules:
-  # resize intent := a concrete (non-auto) w or h, or a minimum dimension;
-  # fit/enlarge/non-unit zoom require it; a
-  # lone or doubled auto dimension without a concrete partner is inert; an
-  # anchor/focus guide requires a consumer (crop, or a cover-family resize
-  # with resize intent).
-  defp tier2_group_errors(group_map, occurrences, group_index) do
-    resize_intent = resize_intent?(group_map)
-    resize_prereq_errored = resize_prereq_errored?(occurrences, group_index)
-    guide_consumer = guide_consumer?(group_map, resize_intent)
-    guide_prereq_errored = guide_prereq_errored?(occurrences, group_index, resize_prereq_errored)
-
-    resize_dependent_errors(
-      group_map,
-      occurrences,
-      group_index,
-      resize_intent,
-      resize_prereq_errored
-    ) ++
-      guide_dependent_errors(
-        group_map,
-        occurrences,
-        group_index,
-        guide_consumer,
-        guide_prereq_errored
-      ) ++
-      crop_ratio_dependent_errors(group_map, occurrences, group_index) ++
-      trim_dependent_errors(group_map, occurrences, group_index) ++
-      canvas_dependent_errors(group_map, occurrences, group_index) ++
-      anchor_offset_errors(group_map, occurrences, group_index) ++
-      lone_auto_dimension_errors(group_map, occurrences, group_index, resize_prereq_errored)
-  end
-
-  defp resize_dependent_errors(group_map, occurrences, group_index, resize_intent, prereq_errored) do
-    resize_requirement = "a concrete (non-auto) w or h, min-w, or min-h"
-
-    inert_if(
-      not resize_intent and not prereq_errored and Map.has_key?(group_map, "fit"),
-      occurrences,
-      group_index,
-      "fit",
-      resize_requirement
-    ) ++
-      inert_if(
-        not resize_intent and not prereq_errored and Map.has_key?(group_map, "enlarge"),
-        occurrences,
-        group_index,
-        "enlarge",
-        resize_requirement
-      ) ++
-      inert_if(
-        not resize_intent and not prereq_errored and nonunit_zoom?(group_map),
-        occurrences,
-        group_index,
-        "zoom",
-        resize_requirement
-      )
-  end
-
-  defp guide_dependent_errors(group_map, occurrences, group_index, guide_consumer, prereq_errored) do
-    guide_requirement = "a consumer: crop, or a cover-family resize with a concrete dimension"
-
-    inert_if(
-      not guide_consumer and not prereq_errored and Map.has_key?(group_map, "anchor"),
-      occurrences,
-      group_index,
-      "anchor",
-      guide_requirement
-    ) ++
-      inert_if(
-        not guide_consumer and not prereq_errored and Map.has_key?(group_map, "focus"),
-        occurrences,
-        group_index,
-        "focus",
-        guide_requirement
-      ) ++
-      inert_if(
-        not guide_consumer and not prereq_errored and Map.has_key?(group_map, "detect"),
-        occurrences,
-        group_index,
-        "detect",
-        guide_requirement
-      )
-  end
-
-  defp crop_ratio_dependent_errors(group_map, occurrences, group_index) do
-    crop_errored = group_key_errored?(occurrences, group_index, "crop")
-    ratio_errored = group_key_errored?(occurrences, group_index, "crop-ratio")
-    ratio_present = Map.has_key?(group_map, "crop-ratio")
-
-    inert_if(
-      ratio_present and not Map.has_key?(group_map, "crop") and not crop_errored,
-      occurrences,
-      group_index,
-      "crop-ratio",
-      "crop"
-    ) ++
-      inert_if(
-        Map.get(group_map, "crop-ratio-enlarge", false) and not ratio_present and
-          not ratio_errored,
-        occurrences,
-        group_index,
-        "crop-ratio-enlarge",
-        "crop-ratio"
-      )
-  end
-
-  defp trim_dependent_errors(group_map, occurrences, group_index) do
-    inert_if(
-      Map.has_key?(group_map, "trim-symmetry") and not Map.has_key?(group_map, "trim") and
-        not group_key_errored?(occurrences, group_index, "trim"),
-      occurrences,
-      group_index,
-      "trim-symmetry",
-      "trim"
-    )
-  end
-
-  defp canvas_dependent_errors(group_map, occurrences, group_index) do
-    canvas_size_errors(group_map, occurrences, group_index) ++
-      canvas_placement_errors(group_map, occurrences, group_index)
-  end
-
-  defp canvas_size_errors(group_map, occurrences, group_index) do
-    dimensions_errored =
-      group_key_errored?(occurrences, group_index, "w") or
-        group_key_errored?(occurrences, group_index, "h")
-
-    concrete_box = is_integer(Map.get(group_map, "w")) and is_integer(Map.get(group_map, "h"))
-    requirement = "concrete (non-auto) w and h"
-
-    inert_if(
-      Map.get(group_map, "extend", false) and not concrete_box and not dimensions_errored,
-      occurrences,
-      group_index,
-      "extend",
-      requirement
-    ) ++
-      inert_if(
-        Map.get(group_map, "extend-ratio", false) and not concrete_box and
-          not dimensions_errored,
-        occurrences,
-        group_index,
-        "extend-ratio",
-        requirement
-      )
-  end
-
-  defp canvas_placement_errors(group_map, occurrences, group_index) do
-    enable_errored =
-      group_key_errored?(occurrences, group_index, "extend") or
-        group_key_errored?(occurrences, group_index, "extend-ratio")
-
-    placement_inert = not canvas_enabled?(group_map) and not enable_errored
-    requirement = "extend or extend-ratio"
-
-    inert_if(
-      placement_inert and Map.has_key?(group_map, "extend-at"),
-      occurrences,
-      group_index,
-      "extend-at",
-      requirement
-    ) ++
-      inert_if(
-        placement_inert and Map.has_key?(group_map, "extend-offset"),
-        occurrences,
-        group_index,
-        "extend-offset",
-        requirement
-      )
-  end
-
-  defp anchor_offset_errors(group_map, occurrences, group_index) do
-    anchor = Map.get(group_map, "anchor")
-
-    inert_if(
-      Map.has_key?(group_map, "anchor-offset") and anchor in [nil, :smart, :smart_face] and
-        not group_key_errored?(occurrences, group_index, "anchor"),
-      occurrences,
-      group_index,
-      "anchor-offset",
-      "an explicit non-smart anchor"
-    )
-  end
-
-  # An invalid prerequisite (e.g. `w=invalid`) already has a value diagnostic.
-  # Check all occurrences, including invalid ones, so dependent inertness errors
-  # appear only when the prerequisite is absent.
-  defp resize_prereq_errored?(occurrences, group_index) do
-    group_key_errored?(occurrences, group_index, "w") or
-      group_key_errored?(occurrences, group_index, "h") or
-      group_key_errored?(occurrences, group_index, "min-w") or
-      group_key_errored?(occurrences, group_index, "min-h")
-  end
-
-  defp guide_prereq_errored?(occurrences, group_index, resize_prereq_errored) do
-    resize_prereq_errored or
-      group_key_errored?(occurrences, group_index, "crop") or
-      group_key_errored?(occurrences, group_index, "fit")
-  end
-
-  defp group_key_errored?(occurrences, group_index, key) do
-    Enum.any?(
-      occurrences,
-      &(&1.group_index == group_index and &1.key == key and match?({:error, _}, &1.result))
-    )
-  end
-
-  defp inert_if(false, _occurrences, _group_index, _key, _requirement), do: []
-
-  defp inert_if(true, occurrences, group_index, key, requirement) do
-    span = occurrence_span(occurrences, group_index, key)
-    [%Diagnostic{reason: :inert_option, message: "#{key} requires #{requirement}", spans: [span]}]
-  end
-
-  defp lone_auto_dimension_errors(group_map, occurrences, group_index, resize_prereq_errored) do
-    w = Map.get(group_map, "w")
-    h = Map.get(group_map, "h")
-
-    if not resize_prereq_errored and not resize_intent?(group_map) and
-         (w == :auto or h == :auto) do
-      keys = Enum.reject([w == :auto && "w", h == :auto && "h"], &(&1 in [false, nil]))
-      spans = Enum.map(keys, &occurrence_span(occurrences, group_index, &1))
-
-      [
-        %Diagnostic{
-          reason: :inert_option,
-          message: "auto dimension has no concrete partner",
-          spans: spans
-        }
-      ]
-    else
-      []
-    end
-  end
-
-  defp collect_terminal_applicability_errors(
-         clean_group_maps,
-         clean_request_map,
-         occurrences
-       ) do
-    terminal = Map.get(clean_request_map, "output", :image)
-
-    group_errors =
-      Enum.flat_map(clean_group_maps, fn {group_index, group_map} ->
-        for {key, _value} <- group_map,
-            not terminal_applicable?(OptionSpec.fetch(key).terminal_applicability, terminal) do
-          terminal_inert_diagnostic(key, terminal, occurrence_span(occurrences, group_index, key))
-        end
-      end)
-
-    request_errors =
-      for {key, _value} <- clean_request_map,
-          not terminal_applicable?(OptionSpec.fetch(key).terminal_applicability, terminal) do
-        terminal_inert_diagnostic(key, terminal, request_occurrence_span(occurrences, key))
-      end
-
-    group_errors ++ request_errors
-  end
-
-  defp terminal_applicable?(:all, _terminal), do: true
-
-  defp terminal_applicable?(:pixels, terminal) when terminal in [:image, :blurhash, :lqip_css],
-    do: true
-
-  defp terminal_applicable?(:image, :image), do: true
-  defp terminal_applicable?(_applicability, _terminal), do: false
-
-  defp terminal_inert_diagnostic(key, terminal, span) do
+  defp semantic_message(%{detail: {:terminal, terminal}, locations: [location]}) do
     terminal = terminal |> Atom.to_string() |> String.replace("_", "-")
-
-    %Diagnostic{
-      reason: :inert_option,
-      message: "#{key} is inert for output=#{terminal}",
-      spans: [span]
-    }
+    "#{location_key(location)} is inert for output=#{terminal}"
   end
 
-  defp collect_output_cross_errors(request_map, occurrences) do
-    quality_autoquality_errors(request_map, occurrences) ++
-      png_search_errors(request_map, occurrences) ++
-      encoder_format_errors(request_map, occurrences)
+  defp semantic_message(%{detail: {:requires, requirement}, locations: [location]}),
+    do: "#{location_key(location)} requires #{requirement_message(requirement)}"
+
+  defp location_key({:group, _index, key}), do: Map.fetch!(@url_keys, key)
+  defp location_key({:request, key}), do: Map.fetch!(@url_keys, key)
+
+  defp requirement_message(:resize), do: "a concrete (non-auto) w or h, min-w, or min-h"
+
+  defp requirement_message(:guide),
+    do: "a consumer: crop, or a cover-family resize with a concrete dimension"
+
+  defp requirement_message(:crop), do: "crop"
+  defp requirement_message(:crop_ratio), do: "crop-ratio"
+  defp requirement_message(:trim), do: "trim"
+  defp requirement_message(:box), do: "concrete (non-auto) w and h"
+  defp requirement_message(:canvas), do: "extend or extend-ratio"
+  defp requirement_message(:named_anchor), do: "an explicit non-smart anchor"
+  defp requirement_message(:quality_format), do: "a quality-bearing output format"
+  defp requirement_message({:format, format}), do: "format=#{format}"
+
+  defp build_request(group_maps, request_map, source),
+    do: Request.build(typed_groups(group_maps), typed_options(request_map), source)
+
+  defp typed_groups(group_maps) do
+    group_maps
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(fn {_index, options} -> typed_options(options) end)
   end
 
-  defp quality_autoquality_errors(request_map, occurrences) do
-    if Map.has_key?(request_map, "q") and enabled_autoquality?(request_map) do
-      [
-        %Diagnostic{
-          reason: :mutually_exclusive_options,
-          message: "q and enabled autoquality are mutually exclusive",
-          spans: [
-            request_occurrence_span(occurrences, "q"),
-            request_occurrence_span(occurrences, "autoquality")
-          ]
-        }
-      ]
-    else
-      []
-    end
-  end
-
-  defp png_search_errors(%{"format" => :png} = request_map, occurrences) do
-    enabled_autoquality_error(request_map, occurrences) ++
-      request_inert_if(
-        Map.has_key?(request_map, "max-bytes"),
-        occurrences,
-        "max-bytes",
-        "a quality-bearing output format"
-      )
-  end
-
-  defp png_search_errors(_request_map, _occurrences), do: []
-
-  defp enabled_autoquality_error(request_map, occurrences) do
-    request_inert_if(
-      enabled_autoquality?(request_map),
-      occurrences,
-      "autoquality",
-      "a quality-bearing output format"
-    )
-  end
-
-  defp enabled_autoquality?(request_map) do
-    match?({_method, _fields}, Map.get(request_map, "autoquality"))
-  end
-
-  defp encoder_format_errors(%{"format" => format} = request_map, occurrences) do
-    encoder_formats = %{
-      "jpeg-options" => :jpeg,
-      "png-options" => :png,
-      "webp-options" => :webp,
-      "avif-options" => :avif,
-      "jxl-options" => :jpeg_xl
-    }
-
-    Enum.flat_map(encoder_formats, fn {key, option_format} ->
-      request_inert_if(
-        Map.has_key?(request_map, key) and option_format != format,
-        occurrences,
-        key,
-        "format=#{format}"
-      )
-    end)
-  end
-
-  defp encoder_format_errors(_request_map, _occurrences), do: []
-
-  defp request_inert_if(false, _occurrences, _key, _requirement), do: []
-
-  defp request_inert_if(true, occurrences, key, requirement) do
-    [
-      %Diagnostic{
-        reason: :inert_option,
-        message: "#{key} requires #{requirement}",
-        spans: [request_occurrence_span(occurrences, key)]
-      }
-    ]
-  end
-
-  defp resize_intent?(group_map) do
-    concrete_dimension?(Map.get(group_map, "w")) or
-      concrete_dimension?(Map.get(group_map, "h")) or
-      concrete_dimension?(Map.get(group_map, "min-w")) or
-      concrete_dimension?(Map.get(group_map, "min-h"))
-  end
-
-  defp concrete_dimension?(n) when is_integer(n), do: true
-  defp concrete_dimension?(_not_concrete), do: false
-
-  defp nonunit_zoom?(group_map) do
-    case Map.get(group_map, "zoom", {1.0, 1.0}) do
-      {1.0, 1.0} -> false
-      {_x, _y} -> true
-    end
-  end
-
-  defp canvas_enabled?(group_map) do
-    Map.get(group_map, "extend", false) or Map.get(group_map, "extend-ratio", false)
-  end
-
-  defp guide_consumer?(group_map, resize_intent?) do
-    Map.has_key?(group_map, "crop") or
-      (resize_intent? and Map.get(group_map, "fit") in [:cover, :cover_down, :auto])
-  end
-
-  # -- pass 5: canonicalization + assembly ---------------------------------
-
-  defp assemble_request(clean_group_maps, clean_request_map, source, group_count) do
-    groups =
-      for group_index <- 0..(group_count - 1), do: assemble_group(clean_group_maps[group_index])
-
-    %Request{
-      groups: groups,
-      output: assemble_output(clean_request_map),
-      source: source,
-      orient: Map.get(clean_request_map, "orient", :auto),
-      filename: Map.get(clean_request_map, "filename"),
-      attachment?: Map.get(clean_request_map, "attachment", false),
-      cachebuster: Map.get(clean_request_map, "cb"),
-      expires: Map.get(clean_request_map, "expires"),
-      debug?: Map.get(clean_request_map, "debug", false)
-    }
-  end
-
-  defp assemble_group(group_map) do
-    resize = assemble_resize(group_map)
-
-    %Group{
-      rotate: assemble_rotation(Map.get(group_map, "rotate", 0)),
-      flip: Map.get(group_map, "flip"),
-      gray: Map.get(group_map, "gray", false),
-      bitonal: Map.get(group_map, "bitonal", false),
-      dpr: Map.get(group_map, "dpr", 1.0),
-      trim: assemble_trim(Map.get(group_map, "trim")),
-      trim_symmetry: Map.get(group_map, "trim-symmetry"),
-      region: Map.get(group_map, "region"),
-      crop: Map.get(group_map, "crop"),
-      crop_ratio: Map.get(group_map, "crop-ratio"),
-      crop_ratio_enlarge: Map.get(group_map, "crop-ratio-enlarge", false),
-      guide: assemble_guide(group_map, resize != nil),
-      anchor_offset: assemble_anchor_offset(Map.get(group_map, "anchor-offset")),
-      resize: resize,
-      canvas: assemble_canvas(group_map),
-      blur: assemble_blur(Map.get(group_map, "blur")),
-      sharpen: assemble_zero_identity(Map.get(group_map, "sharpen")),
-      pixelate: assemble_one_identity(Map.get(group_map, "pixelate")),
-      monochrome: assemble_intensity_effect(Map.get(group_map, "monochrome")),
-      duotone: assemble_intensity_effect(Map.get(group_map, "duotone")),
-      brightness: assemble_zero_identity(Map.get(group_map, "brightness")),
-      contrast: assemble_one_identity(Map.get(group_map, "contrast")),
-      saturation: assemble_one_identity(Map.get(group_map, "saturation")),
-      colorize: assemble_opacity_effect(Map.get(group_map, "colorize")),
-      gradient: assemble_opacity_effect(Map.get(group_map, "gradient")),
-      pad: Map.get(group_map, "pad"),
-      bg: assemble_bg(Map.get(group_map, "bg"))
-    }
-  end
-
-  defp assemble_rotation(0), do: nil
-  defp assemble_rotation(angle), do: angle
-
-  defp assemble_anchor_offset(nil), do: nil
-
-  defp assemble_anchor_offset(offset) do
-    case normalize_offset(offset) do
-      {{:px, 0}, {:px, 0}} -> nil
-      normalized -> normalized
-    end
-  end
-
-  defp assemble_canvas(group_map) do
-    mode =
-      cond do
-        Map.get(group_map, "extend", false) -> :box
-        Map.get(group_map, "extend-ratio", false) -> :ratio
-        true -> nil
-      end
-
-    if mode do
-      %{
-        mode: mode,
-        at: Map.get(group_map, "extend-at", :center),
-        offset:
-          group_map
-          |> Map.get("extend-offset", {{:px, 0}, {:px, 0}})
-          |> normalize_offset()
-      }
-    end
-  end
-
-  defp normalize_offset({x, y}), do: {normalize_zero_length(x), normalize_zero_length(y)}
-  defp normalize_zero_length({_unit, value}) when value == 0, do: {:px, 0}
-  defp normalize_zero_length({unit, value}), do: {unit, value * 1.0}
-
-  defp assemble_resize(group_map) do
-    if resize_intent?(group_map) do
-      %{
-        w: Map.get(group_map, "w", :auto),
-        h: Map.get(group_map, "h", :auto),
-        min_w: Map.get(group_map, "min-w"),
-        min_h: Map.get(group_map, "min-h"),
-        fit: Map.get(group_map, "fit", :contain),
-        enlarge: Map.get(group_map, "enlarge", false),
-        zoom: Map.get(group_map, "zoom", {1.0, 1.0})
-      }
-    end
-  end
-
-  # One anchor/focus guides both explicit crop and cover-family resize crop.
-  # A consumer without a guide receives the canonical default, anchor=center.
-  defp assemble_guide(group_map, resize_intent?) do
-    cond do
-      Map.has_key?(group_map, "anchor") ->
-        case Map.fetch!(group_map, "anchor") do
-          :smart -> {:anchor_smart}
-          :smart_face -> {:smart, :face_assist}
-          anchor -> {:anchor, anchor}
-        end
-
-      Map.has_key?(group_map, "focus") ->
-        {fx, fy} = Map.fetch!(group_map, "focus")
-        {:focus, fx, fy}
-
-      Map.has_key?(group_map, "detect") ->
-        {:detect, Map.fetch!(group_map, "detect")}
-
-      guide_consumer?(group_map, resize_intent?) ->
-        {:anchor, :center}
-
-      true ->
-        nil
-    end
-  end
-
-  defp assemble_trim(nil), do: nil
-  defp assemble_trim(:auto), do: :auto
-  # An omitted tolerance defaults to 10 — matching imgproxy's TrimThreshold
-  # default (and libvips find_trim), and `trim=auto`'s @default_trim_threshold.
-  # Integer 10 (not 10.0) so `trim=fff` canonicalizes identically to the
-  # explicit `trim=fff,10` (Value.number yields an integer), preserving
-  # cache-key transparency across the two spellings.
-  defp assemble_trim({color, nil}), do: {color, 10}
-  defp assemble_trim({color, tolerance}), do: {color, tolerance}
-
-  # Tier-1 identity canonicalization: blur=0 (the identity sigma) is
-  # equivalent to blur being absent.
-  defp assemble_blur(nil), do: nil
-  defp assemble_blur(sigma) when sigma == 0.0, do: nil
-  defp assemble_blur(sigma), do: sigma
-
-  defp assemble_zero_identity(nil), do: nil
-  defp assemble_zero_identity(value) when value == 0, do: nil
-  defp assemble_zero_identity(value), do: value
-
-  defp assemble_one_identity(nil), do: nil
-  defp assemble_one_identity(value) when value == 1, do: nil
-  defp assemble_one_identity(value), do: value
-
-  defp assemble_intensity_effect(nil), do: nil
-  defp assemble_intensity_effect(%{intensity: intensity}) when intensity == 0, do: nil
-  defp assemble_intensity_effect(effect), do: effect
-
-  defp assemble_opacity_effect(nil), do: nil
-  defp assemble_opacity_effect(%{opacity: opacity}) when opacity == 0, do: nil
-  defp assemble_opacity_effect(effect), do: effect
-
-  defp assemble_bg(nil), do: nil
-  defp assemble_bg({{r, g, b}, nil}), do: {r, g, b, 1.0}
-  defp assemble_bg({{r, g, b}, alpha}), do: {r, g, b, alpha}
-
-  defp assemble_output(clean_request_map) do
-    %Output{
-      terminal: Map.get(clean_request_map, "output", :image),
-      format: Map.get(clean_request_map, "format"),
-      quality: Map.get(clean_request_map, "q"),
-      metadata: Map.get(clean_request_map, "meta"),
-      color_profile: Map.get(clean_request_map, "profile"),
-      hdr: Map.get(clean_request_map, "hdr"),
-      format_qualities: Map.get(clean_request_map, "format-q", %{}),
-      autoquality: Map.get(clean_request_map, "autoquality"),
-      max_bytes: Map.get(clean_request_map, "max-bytes"),
-      encoder_options: assemble_encoder_options(clean_request_map)
-    }
-  end
-
-  defp assemble_encoder_options(request_map) do
-    for {key, format} <- [
-          {"jpeg-options", :jpeg},
-          {"png-options", :png},
-          {"webp-options", :webp},
-          {"avif-options", :avif},
-          {"jxl-options", :jpeg_xl}
-        ],
-        Map.has_key?(request_map, key),
-        into: %{},
-        do: {format, Map.fetch!(request_map, key)}
+  defp typed_options(options) do
+    options
+    |> Map.delete("preset")
+    |> Map.new(fn {key, value} -> {Map.fetch!(@intent_keys, key), value} end)
   end
 
   defp fragment_segments(fragment) do

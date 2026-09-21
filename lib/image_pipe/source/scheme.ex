@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.SourceScheme do
+defmodule ImagePipe.Source.Scheme do
   @moduledoc """
   Host extension point for translating custom source schemes.
 
@@ -11,7 +11,7 @@ defmodule ImagePipe.API.SourceScheme do
   the shared source resolver:
 
       defmodule MyApp.AssetSource do
-        @behaviour ImagePipe.API.SourceScheme
+        @behaviour ImagePipe.Source.Scheme
 
         alias ImagePipe.Plan.Source.Reference
 

@@ -2,9 +2,9 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API.Config
-  alias ImagePipe.API.Output, as: APIOutput
   alias ImagePipe.API.Parser
   alias ImagePipe.Output.{Encoder, Policy, Resolved}
+  alias ImagePipe.Output.RequestPolicy, as: APIOutput
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
 
   defp finalized(w \\ 64, h \\ 64) do

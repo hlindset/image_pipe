@@ -13,11 +13,12 @@ defmodule ImagePipeFiddle.APIPath do
     end
   end
 
-  def protect(tail, "signed-concealed", config) when is_binary(tail) do
+  def protect(tail, protection, config)
+      when is_binary(tail) and protection in ["signed-concealed", "signed-concealed-random"] do
     with {:ok, path} <- request_path(tail),
          {:ok, prefix, source} <- split_source(path),
          {:ok, decoded_source} <- decode_source(source),
-         {:ok, token} <- API.encrypt_source(decoded_source, config) do
+         {:ok, token} <- API.encrypt_source(decoded_source, config, iv: iv_mode(protection)) do
       {:ok, signed_url([prefix, "/enc/", token] |> IO.iodata_to_binary(), config)}
     else
       _error -> {:error, :invalid_request}
@@ -25,6 +26,9 @@ defmodule ImagePipeFiddle.APIPath do
   end
 
   def protect(_tail, _protection, _config), do: {:error, :invalid_request}
+
+  defp iv_mode("signed-concealed"), do: :deterministic
+  defp iv_mode("signed-concealed-random"), do: :random
 
   defp request_path(""), do: {:error, :invalid_request}
   defp request_path("/" <> _rest), do: {:error, :invalid_request}

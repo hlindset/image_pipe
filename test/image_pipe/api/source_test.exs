@@ -2,10 +2,10 @@ defmodule ImagePipe.API.SourceTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API.Config
-  alias ImagePipe.API.Source
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.URL
+  alias ImagePipe.Source.Parser, as: Source
 
   @foobar_translator ImagePipe.SourceTest.FoobarTranslator
 
@@ -156,7 +156,7 @@ defmodule ImagePipe.API.SourceTest do
       source = "broken://asset/cat.jpg"
 
       assert Source.translate(source,
-               source_schemes: %{"broken" => {ImagePipe.API.Source, []}}
+               source_schemes: %{"broken" => {ImagePipe.Source.Parser, []}}
              ) == {:error, {:invalid_source, {:source_scheme_error, "broken"}}}
     end
 

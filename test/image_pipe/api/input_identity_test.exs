@@ -15,7 +15,9 @@ defmodule ImagePipe.API.InputIdentityTest do
 
     {{:ok, request}, _metadata} = API.parse(conn, config)
     {:ok, _, policy} = API.prepare(request, config, "image/webp")
-    API.identity_material(request, policy, conn, config)
+    conn = Plug.Conn.fetch_cookies(conn)
+    inputs = %ImagePipe.Execution.Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
+    ImagePipe.Execution.identity_material(request, policy, inputs, config)
   end
 
   test "output operations and content negotiation do not fragment the input key" do

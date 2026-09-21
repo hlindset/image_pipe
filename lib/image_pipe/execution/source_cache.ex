@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plug.SourceCache do
+defmodule ImagePipe.Execution.SourceCache do
   @moduledoc false
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Input

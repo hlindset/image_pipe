@@ -6,21 +6,12 @@ defmodule ImagePipe.Plug.Runner do
   alias ImagePipe.Cache
   alias ImagePipe.Debug
   alias ImagePipe.Debug.Info
-  alias ImagePipe.Debug.Timing
-  alias ImagePipe.Decode
-  alias ImagePipe.Delivery
-  alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Error
-  alias ImagePipe.Output.Clamp
-  alias ImagePipe.Output.Encoder
+  alias ImagePipe.Execution
+  alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.Policy
-  alias ImagePipe.Output.Resolved, as: ResolvedOutput
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Response, as: PlanResponse
-  alias ImagePipe.Plug.DebugBuilder
-  alias ImagePipe.Plug.SourceCache
-  alias ImagePipe.Plug.Terminal
-  alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.CachePolicy
   alias ImagePipe.Response.Conditional
@@ -28,9 +19,6 @@ defmodule ImagePipe.Plug.Runner do
   alias ImagePipe.Response.Sender
   alias ImagePipe.Source, as: ImageSource
   alias ImagePipe.Telemetry
-  alias ImagePipe.Transform.Executor
-  alias ImagePipe.Transform.Materializer
-  alias ImagePipe.Transform.State
 
   @spec run(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def run(%Plug.Conn{} = conn, config) do
@@ -86,266 +74,142 @@ defmodule ImagePipe.Plug.Runner do
   end
 
   defp handle_request(conn, request, config) do
-    accept_header = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
+    accept = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
+    conn = Plug.Conn.fetch_cookies(conn)
+    inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
 
-    with {:ok, plan_source, policy} <- API.prepare(request, config, accept_header),
-         {:ok, %ImageSource.Resolved{} = source} <-
-           ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)) do
-      material = API.identity_material(request, policy, conn, config)
-      serve_resolved(conn, request, source, policy, material, config)
+    with {:ok, plan_source, policy} <- API.prepare(request, config, accept),
+         {:ok, source} <-
+           ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)),
+         {:ok, context} <- Execution.prepare(request, source, policy, inputs, config) do
+      try do
+        serve_context(conn, context)
+      after
+        Execution.close(context)
+      end
     else
       {:error, reason} -> send_error(conn, reason, config)
     end
   end
 
-  defp serve_resolved(conn, request, source, policy, material, config) do
-    case SourceCache.enabled?(source, config) do
+  defp serve_context(conn, context) do
+    headers = context_headers(conn, context)
+
+    case not context.stale? and Conditional.not_modified?(conn, headers.etag) do
       true ->
-        prepare_remote(conn, request, source, policy, material, config)
+        maybe_emit_conditional_match(conn, context.config)
+        send_not_modified(conn, headers, context.config)
 
       false ->
-        representation =
-          Representation.build(source.identity, material, source.cache_semantics.byte_identity)
+        case Execution.open(context) do
+          {:ok, output} ->
+            serve_output(conn, output)
 
-        headers = cache_headers(conn, representation, source, config)
-
-        case Conditional.not_modified?(conn, headers.etag) do
-          true ->
-            maybe_emit_conditional_match(conn, config)
-            send_not_modified(conn, headers, config)
-
-          false ->
-            serve_terminal(conn, request, source, policy, representation, headers, config)
+          {:error, reason} ->
+            send_error(with_policy_headers(conn, context.policy), reason, context.config)
         end
     end
   end
 
-  defp prepare_remote(conn, request, source, policy, material, config) do
-    case ImageSource.prepare_cache_context(source, config) do
-      {:ok, source, context} ->
-        key = Representation.input_key(source.identity, material, context)
+  defp serve_output(conn, output) do
+    context = output.context
+    headers = context_headers(conn, context)
 
-        material = %{
-          material
-          | storage_only: [{:source_partition, key.hash} | material.storage_only]
-        }
-
-        remote_request(%{
-          conn: conn,
-          request: request,
-          source: source,
-          policy: policy,
-          material: material,
-          key: key,
-          config: config
-        })
-
-      {:error, reason} ->
-        send_error(conn, reason, config)
+    case output.cache == :hit and
+           (Conditional.if_none_match_wildcard?(conn) or
+              Conditional.not_modified?(conn, headers.etag)) do
+      true -> send_not_modified(conn, headers, context.config)
+      false -> deliver(conn, output, headers)
     end
-  end
-
-  defp remote_request(ctx) do
-    record =
-      SourceCache.trusted_record(ctx.source, ctx.config) ||
-        SourceCache.lookup(ctx.source, ctx.key, ctx.config)
-
-    case SourceCache.status(record, ctx.source, ctx.config) do
-      :fresh -> remote_current(ctx, record, nil)
-      :stale -> remote_stale(ctx, record)
-      _validate -> remote_validate(ctx, record)
-    end
-  end
-
-  defp remote_validate(ctx, record) do
-    case SourceCache.acquire(ctx.source, ctx.key, record, ctx.config, false) do
-      {:ok, current, response, lease} -> remote_leased(ctx, current, response, lease)
-      {:error, reason} -> send_error(ctx.conn, reason, ctx.config)
-    end
-  end
-
-  defp remote_leased(ctx, record, response, lease) do
-    remote_current(ctx, record, response)
   after
-    SourceCache.release(lease)
+    Execution.close_output(output)
   end
 
-  defp remote_current(ctx, record, response) do
-    {representation, headers} = remote_identity(ctx, record)
-
-    case Conditional.not_modified?(ctx.conn, headers.etag) do
-      true ->
-        maybe_emit_conditional_match(ctx.conn, ctx.config)
-        send_not_modified(ctx.conn, headers, ctx.config)
-
-      false ->
-        case remote_lookup(ctx, record, representation) do
-          {:hit, entry} -> remote_hit(ctx, entry, representation, headers, record)
-          _miss -> remote_input(ctx, record, response)
-        end
-    end
-  end
-
-  defp remote_lookup(ctx, record, representation) do
-    case SourceCache.storable?(record, ctx.source) do
-      true -> Cache.lookup_entry(representation.cache_key, ctx.config)
-      false -> :disabled
-    end
-  end
-
-  defp remote_hit(ctx, entry, representation, headers, record) do
-    case {ctx.request.output.terminal, entry.representation} do
-      {:image, _image} ->
-        deliver_hit(ctx.conn, ctx.request, entry, representation, headers, 0, ctx.config)
-
-      {_terminal, {:complete_body, _type}} ->
-        deliver_render_hit(ctx.conn, ctx.request, entry, representation, headers, 0, ctx.config)
-
-      _invalid ->
-        Cache.Entry.close(entry)
-        remote_input(ctx, record, nil)
-    end
-  end
-
-  defp remote_input(ctx, record, nil) do
-    case SourceCache.input(ctx.source, ctx.key, record, ctx.config) do
-      {:ok, record, response, lease} -> remote_generate_leased(ctx, record, response, lease)
-      {:error, reason} -> send_error(ctx.conn, reason, ctx.config)
-    end
-  end
-
-  defp remote_input(ctx, record, response), do: remote_generate(ctx, record, response)
-
-  defp remote_generate_leased(ctx, record, response, lease) do
-    remote_generate(ctx, record, response)
-  after
-    SourceCache.release(lease)
-  end
-
-  defp remote_generate(ctx, record, response) do
-    {representation, headers} = remote_identity(ctx, record)
-
-    config =
-      ctx.config |> Keyword.put(:prepared_source, response) |> Keyword.put(:source_record, record)
-
-    key =
-      case SourceCache.storable?(record, ctx.source) do
-        true -> representation.cache_key
-        false -> nil
-      end
-
-    result =
-      case ctx.request.output.terminal do
-        :image -> generate(ctx.conn, ctx.request, ctx.source, ctx.policy, headers, key, config)
-        _terminal -> generate_render(ctx.conn, ctx.request, ctx.source, headers, key, config)
-      end
-
-    case result do
-      {%Plug.Conn{status: 415}, _metadata} -> SourceCache.invalidate(ctx.key, ctx.config)
-      _result -> :ok
-    end
-
-    result
-  end
-
-  defp remote_identity(ctx, record) do
-    representation = Representation.build(ctx.source.identity, ctx.material, record.byte_identity)
-
-    source = %{
-      ctx.source
-      | cache_semantics: %{ctx.source.cache_semantics | byte_identity: record.byte_identity}
-    }
-
-    state = ImageSource.Record.state(record, source.cache_semantics)
-    headers = cache_headers(ctx.conn, representation, source, ctx.config)
-    now = SourceCache.now(ctx.config)
-
-    age =
-      case record.origin do
+  defp context_headers(conn, context) do
+    source =
+      case context.record do
         nil ->
-          max(0, now - record.received_at)
+          context.source
 
-        origin ->
-          ImageSource.CacheState.current_age(
-            origin.headers,
-            {origin.requested_at, origin.received_at},
-            now
-          )
+        record ->
+          %{
+            context.source
+            | cache_semantics: %{
+                context.source.cache_semantics
+                | byte_identity: record.byte_identity
+              }
+          }
       end
 
-    headers =
-      CachePolicy.limit_to_source(headers, ctx.conn, Map.put(state, :age, age), now, ctx.config)
+    headers = cache_headers(conn, context.representation, source, context.config)
 
-    {representation, headers}
-  end
-
-  defp remote_stale(ctx, record) do
-    case Keyword.get(ctx.config, :cache_refresh, false) do
-      true ->
-        remote_validate(ctx, record)
-
-      false ->
-        {representation, headers} = remote_identity(ctx, record)
-
-        case remote_lookup(ctx, record, representation) do
-          {:hit, entry} ->
-            start_refresh(ctx, representation)
-            stale_hit(ctx, entry, representation, headers, record)
-
-          _miss ->
-            remote_validate(ctx, record)
-        end
+    case Execution.source_state(context) do
+      nil -> headers
+      {state, now} -> CachePolicy.limit_to_source(headers, conn, state, now, context.config)
     end
   end
 
-  defp stale_hit(ctx, entry, representation, headers, record) do
-    case Conditional.not_modified?(ctx.conn, headers.etag) do
-      true ->
-        Cache.Entry.close(entry)
-        send_not_modified(ctx.conn, headers, ctx.config)
+  defp deliver(
+         conn,
+         %{value: {:entry, %{representation: {:complete_body, type}} = entry}} = output,
+         headers
+       ),
+       do: deliver_body(conn, output, headers, type, entry.body, entry.debug)
 
-      false ->
-        remote_hit(ctx, entry, representation, headers, record)
-    end
-  end
+  defp deliver(conn, %{value: {:body, body, type, debug}} = output, headers),
+    do: deliver_body(conn, output, headers, type, body, debug)
 
-  defp start_refresh(ctx, representation) do
-    Cache.Work.refresh(
-      {:output, representation.cache_key.hash},
-      fn ->
-        Telemetry.span(
-          Telemetry.telemetry_opts(ctx.config),
-          [:cache, :refresh],
-          %{pool: :input},
-          fn ->
-            {_conn, metadata} = result = refresh_remote(ctx)
-            {result, metadata}
-          end
+  defp deliver(conn, output, headers) do
+    context = output.context
+    meta = Execution.response_meta(context.request)
+
+    delivery =
+      case output.value do
+        {:entry, entry} ->
+          debug = %{
+            cache_key: context.representation.cache_key.hash,
+            cache_serve_us: output.cache_us
+          }
+
+          {:cache_entry, entry, meta, headers, debug}
+
+        {:stream, stream} ->
+          {:prepared_stream, stream, meta, headers}
+      end
+
+    conn =
+      send_with_span(conn, context.config, :ok, fn ->
+        Sender.send_result(
+          conn,
+          {:ok, delivery},
+          delivery_config(context.request, context.config)
         )
-      end,
-      Telemetry.telemetry_opts(ctx.config)
-    )
+      end)
+
+    {conn, %{result: :ok}}
   end
 
-  defp refresh_remote(ctx) do
-    conn = %{
-      ctx.conn
-      | adapter: {ImagePipe.Response.Discard, nil},
-        owner: self(),
-        state: :unset,
-        status: nil,
-        resp_body: nil,
-        resp_headers: [],
-        resp_cookies: %{},
-        private: %{},
-        method: "GET",
-        req_headers:
-          Enum.reject(ctx.conn.req_headers, fn {name, _} ->
-            name in ["if-none-match", "if-modified-since"]
-          end)
-    }
+  defp deliver_body(conn, output, headers, type, body, debug) do
+    context = output.context
+    meta = Execution.response_meta(context.request)
 
-    remote_request(%{ctx | conn: conn, config: Keyword.put(ctx.config, :cache_refresh, true)})
+    conn =
+      put_terminal_debug_headers(
+        conn,
+        meta,
+        debug,
+        output.cache,
+        context.representation.cache_key,
+        output.cache_us,
+        context.config
+      )
+
+    conn =
+      send_with_span(conn, context.config, :ok, fn ->
+        send_complete_body(conn, type, body, headers, meta)
+      end)
+
+    {conn, %{result: :ok}}
   end
 
   defp cache_headers(conn, representation, source, config) do
@@ -372,203 +236,6 @@ defmodule ImagePipe.Plug.Runner do
 
   defp maybe_emit_conditional_match(conn, config) do
     if Keyword.has_key?(config, :http_cache), do: CachePolicy.conditional_matched(conn, config)
-    :ok
-  end
-
-  defp serve_terminal(
-         conn,
-         %Request{output: %{terminal: :image}} = request,
-         source,
-         policy,
-         representation,
-         cache_headers,
-         config
-       ),
-       do:
-         serve(
-           conn,
-           request,
-           source,
-           policy,
-           representation,
-           cache_headers,
-           config
-         )
-
-  defp serve_terminal(
-         conn,
-         %Request{} =
-           request,
-         %ImageSource.Resolved{internal_cache: :disabled} = source,
-         _policy,
-         _representation,
-         cache_headers,
-         config
-       ),
-       do:
-         generate_render(
-           conn,
-           request,
-           source,
-           cache_headers,
-           nil,
-           config
-         )
-
-  defp serve_terminal(
-         conn,
-         %Request{} =
-           request,
-         %ImageSource.Resolved{internal_cache: :enabled} = source,
-         _policy,
-         representation,
-         cache_headers,
-         config
-       ) do
-    {lookup_result, cache_serve_us} =
-      Timing.measure(fn -> Cache.lookup_entry(representation.cache_key, config) end)
-
-    case lookup_result do
-      {:hit, %Cache.Entry{representation: {:complete_body, _content_type}} = entry} ->
-        deliver_render_hit(
-          conn,
-          request,
-          entry,
-          representation,
-          cache_headers,
-          cache_serve_us,
-          config
-        )
-
-      miss_or_untagged ->
-        case miss_or_untagged do
-          {:hit, entry} -> Cache.Entry.close(entry)
-          _miss -> :ok
-        end
-
-        generate_render(
-          conn,
-          request,
-          source,
-          cache_headers,
-          representation.cache_key,
-          config
-        )
-    end
-  end
-
-  defp deliver_render_hit(
-         conn,
-         %Request{} = request,
-         %Cache.Entry{representation: {:complete_body, content_type}} = entry,
-         representation,
-         headers,
-         cache_serve_us,
-         config
-       ) do
-    if Conditional.if_none_match_wildcard?(conn) do
-      send_not_modified(conn, headers, config)
-    else
-      conn =
-        put_terminal_debug_headers(
-          conn,
-          API.response_meta(request),
-          entry.debug,
-          :hit,
-          representation.cache_key,
-          cache_serve_us,
-          config
-        )
-
-      conn =
-        send_with_span(conn, config, :ok, fn ->
-          send_complete_body(
-            conn,
-            content_type,
-            entry.body,
-            headers,
-            API.response_meta(request)
-          )
-        end)
-
-      {conn, %{result: :ok}}
-    end
-  after
-    Cache.Entry.close(entry)
-  end
-
-  defp generate_render(
-         conn,
-         %Request{} = request,
-         source,
-         cache_headers,
-         cache_key,
-         config
-       ) do
-    {result, cost_us} = Timing.measure(fn -> Terminal.render(source, request, config) end)
-
-    case result do
-      {:ok, content_type, body} ->
-        debug = DebugBuilder.build_terminal(Executor.operation_names(request), cost_us)
-        write_complete_body_cache(cache_key, content_type, body, cost_us, debug, config)
-
-        conn =
-          put_terminal_debug_headers(
-            conn,
-            API.response_meta(request),
-            debug,
-            :miss,
-            cache_key,
-            nil,
-            config
-          )
-
-        conn =
-          send_with_span(conn, config, :ok, fn ->
-            send_complete_body(
-              conn,
-              content_type,
-              body,
-              cache_headers,
-              API.response_meta(request)
-            )
-          end)
-
-        {conn, %{result: :ok}}
-
-      {:error, reason} ->
-        send_error(conn, reason, config)
-    end
-  end
-
-  defp write_complete_body_cache(
-         nil = _cache_disabled,
-         _content_type,
-         _body,
-         _cost_us,
-         _debug,
-         _config
-       ),
-       do: :ok
-
-  defp write_complete_body_cache(
-         %Cache.Key{} = cache_key,
-         content_type,
-         body,
-         cost_us,
-         %Info{} = debug,
-         config
-       ) do
-    cache_key
-    |> Cache.open_sink(
-      {:complete_body, content_type},
-      config
-      |> Keyword.put(:cost_us, cost_us)
-      |> Keyword.put(:debug_info, debug)
-    )
-    |> Cache.write_chunk(IO.iodata_to_binary(body), config)
-    |> Cache.commit_sink(config)
-
     :ok
   end
 
@@ -638,299 +305,7 @@ defmodule ImagePipe.Plug.Runner do
   defp with_policy_headers(conn, %Policy{headers: headers}),
     do: put_resp_headers(conn, headers)
 
-  defp serve(
-         conn,
-         request,
-         %ImageSource.Resolved{internal_cache: :disabled} = source,
-         policy,
-         _representation,
-         cache_headers,
-         config
-       ) do
-    generate(conn, request, source, policy, cache_headers, nil, config)
-  end
-
-  defp serve(
-         conn,
-         request,
-         %ImageSource.Resolved{internal_cache: :enabled} = source,
-         policy,
-         representation,
-         cache_headers,
-         config
-       ) do
-    start = System.monotonic_time(:microsecond)
-    lookup_result = Cache.lookup_entry(representation.cache_key, config)
-    cache_serve_us = System.monotonic_time(:microsecond) - start
-
-    case lookup_result do
-      {:hit, %Cache.Entry{} = entry} ->
-        deliver_hit(conn, request, entry, representation, cache_headers, cache_serve_us, config)
-
-      _miss_or_disabled ->
-        generate(
-          conn,
-          request,
-          source,
-          policy,
-          cache_headers,
-          representation.cache_key,
-          config
-        )
-    end
-  end
-
-  # A cache hit is the proof that a current representation exists for this
-  # key — the only place `If-None-Match: *` may be honored.
-  defp deliver_hit(conn, request, entry, representation, cache_headers, cache_serve_us, config) do
-    if Conditional.if_none_match_wildcard?(conn) do
-      send_not_modified(conn, cache_headers, config)
-    else
-      deliver_hit_entry(
-        conn,
-        request,
-        entry,
-        representation,
-        cache_headers,
-        cache_serve_us,
-        config
-      )
-    end
-  after
-    Cache.Entry.close(entry)
-  end
-
-  defp deliver_hit_entry(
-         conn,
-         request,
-         entry,
-         representation,
-         cache_headers,
-         cache_serve_us,
-         config
-       ) do
-    hit_debug = %{cache_key: representation.cache_key.hash, cache_serve_us: cache_serve_us}
-
-    conn =
-      send_with_span(conn, config, :ok, fn ->
-        Sender.send_result(
-          conn,
-          {:ok, {:cache_entry, entry, API.response_meta(request), cache_headers, hit_debug}},
-          delivery_config(request, config)
-        )
-      end)
-
-    {conn, %{result: :ok}}
-  end
-
-  # -- image terminal: Delivery.stream over produce_stream ---------------------
-
-  defp generate(
-         conn,
-         %Request{output: %{terminal: :image}} = request,
-         source,
-         policy,
-         cache_headers,
-         cache_key,
-         config
-       ) do
-    build_fun = build_fun(request, source, policy, config)
-
-    case Delivery.stream(self(), build_fun, cache_key, API.response_meta(request), config) do
-      {:ok, prepared} ->
-        conn =
-          send_with_span(conn, config, :ok, fn ->
-            Sender.send_result(
-              conn,
-              {:ok, {:prepared_stream, prepared, API.response_meta(request), cache_headers}},
-              delivery_config(request, config)
-            )
-          end)
-
-        {conn, %{result: :ok}}
-
-      {:error, reason} ->
-        # An Accept-negotiated response must carry the policy's headers
-        # (Vary: Accept) even when delivery fails, or a shared cache may
-        # serve the failure to a client whose Accept would have negotiated
-        # a working outcome. Stamped on the conn — headers survive
-        # send_resp — so render_error needs no headers argument. Only the
-        # post-policy delivery failure carries them (mirroring every
-        # request path): resolve/policy errors stay bare.
-        send_error(with_policy_headers(conn, policy), reason, config)
-    end
-  end
-
-  defp build_fun(%Request{} = request, source, policy, config) do
-    on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
-
-    fn pump ->
-      decode_started_at = System.monotonic_time(:microsecond)
-
-      Decode.with_image(
-        source,
-        request,
-        config,
-        fn state, geometry ->
-          decode_us = System.monotonic_time(:microsecond) - decode_started_at
-
-          try do
-            produce_stream(
-              state,
-              geometry,
-              request,
-              policy,
-              config,
-              pump,
-              decode_us
-            )
-          after
-            on_bracket_exit.()
-          end
-        end
-      )
-    end
-  end
-
-  defp produce_stream(state, geometry, request, policy, config, pump, decode_us) do
-    shrink = state.decode_shrink
-
-    with {{:ok, %State{} = state}, transform_us} <-
-           Timing.measure(fn ->
-             run_transform(state, geometry, request, policy, config)
-           end),
-         {:ok, %ResolvedOutput{} = resolved_output} <-
-           resolve_output(policy, geometry.source_format, state.image, config),
-         {:ok, clamped, _clamp_info} <-
-           Clamp.clamp_with_telemetry(
-             state.image,
-             result_limits(resolved_output.format, config),
-             resolved_output.format,
-             config
-           ),
-         {:ok, %State{image: image}} <-
-           materialize_for_delivery(%State{state | image: clamped}, config),
-         {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
-           Timing.measure(fn ->
-             encode_first_chunk(image, resolved_output, state.source_color_profile, config)
-           end) do
-      debug =
-        DebugBuilder.build(%{
-          geometry: geometry,
-          shrink: shrink,
-          policy: policy,
-          resolved_output: resolved_output,
-          image: image,
-          search_meta: search_meta,
-          operations: Executor.operation_names(request),
-          timings: %{decode: decode_us, transform: transform_us, encode: encode_us}
-        })
-
-      pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, debug)
-    else
-      {:empty, _microseconds} -> {:error, {:encode, :empty_stream}}
-      {{:error, _reason} = error, _microseconds} -> error
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp run_transform(state, geometry, %Request{} = request, policy, config) do
-    operations = Executor.operation_names(request)
-
-    Telemetry.span(
-      Telemetry.telemetry_opts(config),
-      [:transform, :execute],
-      %{operations: operations, operation_count: length(operations)},
-      fn ->
-        result =
-          Executor.execute(
-            state,
-            request,
-            pipeline_opts(policy, geometry, config)
-          )
-
-        {result, transform_stop_metadata(result)}
-      end
-    )
-  end
-
-  defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
-
-  defp transform_stop_metadata({:error, error}),
-    do: %{result: :processing_error, error: Error.tag(error)}
-
-  defp pipeline_opts(%Policy{} = policy, geometry, config) do
-    Keyword.put(
-      config,
-      :supports_hdr?,
-      Policy.supports_hdr?(policy, geometry.source_format)
-    )
-  end
-
-  defp resolve_output(policy, source_format, image, config) do
-    Policy.negotiate(
-      policy,
-      source_format,
-      image,
-      Telemetry.telemetry_opts(config)
-    )
-  end
-
-  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, source_profile, config) do
-    Telemetry.span(
-      Telemetry.telemetry_opts(config),
-      [:encode],
-      %{output_format: resolved_output.format},
-      fn ->
-        result =
-          with {:ok, stream, content_type, search_meta} <-
-                 Encoder.stream_output(image, resolved_output, source_profile, config),
-               {:ok, chunk, stream_state} <- first_chunk(stream) do
-            {:ok, chunk, content_type, stream_state, search_meta}
-          end
-
-        {result, encode_stop_metadata(result, resolved_output.format)}
-      end
-    )
-  end
-
-  defp first_chunk(stream) do
-    StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)
-  end
-
-  defp encode_stop_metadata({:ok, _chunk, _ct, _stream_state, _meta}, format),
-    do: %{result: :ok, output_format: format}
-
-  defp encode_stop_metadata(:empty, format),
-    do: %{result: :processing_error, output_format: format, error: :empty_stream}
-
-  defp encode_stop_metadata({:error, reason}, format),
-    do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
-
-  defp materialize_for_delivery(%State{materialized?: true} = state, _config), do: {:ok, state}
-
-  defp materialize_for_delivery(%State{} = state, config) do
-    materializer = Keyword.get(config, :image_materializer, Materializer)
-
-    case materializer.materialize(state, config) do
-      {:ok, %State{} = materialized} -> {:ok, materialized}
-      {:error, reason} -> {:error, {:decode, reason}}
-    end
-  end
-
-  defp result_limits(format, config) do
-    %{max_dimension: encoder_dimension, max_pixels: encoder_pixels} =
-      Encoder.encoder_limit(format)
-
-    %{
-      max_width: min_limit(Keyword.fetch!(config, :max_result_width), encoder_dimension),
-      max_height: min_limit(Keyword.fetch!(config, :max_result_height), encoder_dimension),
-      max_pixels: min_limit(Keyword.fetch!(config, :max_result_pixels), encoder_pixels)
-    }
-  end
-
-  defp min_limit(host_limit, :infinity), do: host_limit
-  defp min_limit(host_limit, encoder_limit), do: min(host_limit, encoder_limit)
+  defp with_policy_headers(conn, nil), do: conn
 
   defp delivery_config(%Request{} = request, config) do
     Keyword.put(

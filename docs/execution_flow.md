@@ -3,8 +3,10 @@
 ## Request lifecycle
 
 `ImagePipe.Plug` validates mount configuration and delegates the request to
-`ImagePipe.Plug.Runner`, which calls parsing and transform execution
-directly.
+`ImagePipe.Plug.Runner`, which handles parsing, conditional responses, and HTTP
+delivery. `ImagePipe.run/3` validates the builder's plan and host configuration,
+resolves its input, and returns a fully consumed result. Both use
+`ImagePipe.Execution` for source freshness, cache lookup, and generation.
 
 The lifecycle is:
 
@@ -12,9 +14,11 @@ The lifecycle is:
    terminal applicability, and output capabilities. Combine request output
    options, host defaults, and Accept negotiation into `ImagePipe.Output.Policy`.
 2. Resolve the source through the configured host source adapter.
-3. Build the representation identity from the source identity and output policy.
-4. Apply the conditional request gate. A matching ETag can return 304 before
-   source fetch, image decode, or cache access.
+3. Resolve source freshness and build representation identity from the current
+   source byte identity and output policy. Remote sources may need revalidation.
+4. HTTP applies its conditional request gate. Once source freshness is known,
+   a matching ETag can return 304 before image decode or output-cache access.
+   Trusted identities also permit this gate without a source fetch.
 5. Look up a successful encoded response in the cache.
 6. On a miss, fetch and decode the source, execute transforms, negotiate the
    final output against source facts, and encode.
@@ -40,7 +44,7 @@ geometry. Only operations that need arbitrary pixel access materialize the
 image, through `ImagePipe.Transform.Materializer`.
 
 `ImagePipe.Transform.Executor.execute/3` imports input color profiles, executes groups,
-flushes pending orientation, and returns image and color state. The runner passes
+flushes pending orientation, and returns image and color state. Processing passes
 the retained source ICC profile directly to the encoder. A group
 applies rotation and flip, flushes pending orientation before trim, measures
 the trimmed image, then resolves crop lengths in the resulting display frame.
@@ -75,10 +79,13 @@ encoding. Operation span durations measure lazy pipeline construction;
 `ImagePipe.Response.Sender` sends the prepared response and stops production
 when delivery is cancelled. Failed or incomplete streams do not enter cache.
 
-`Plug.Terminal` renders BlurHash, LQIP CSS, and info as complete-body responses.
+`Processing.Terminal` renders BlurHash, LQIP CSS, and info as complete-body responses.
 It owns their decode resources and terminal telemetry. BlurHash and LQIP CSS run the
 executor and terminal reduction; info reports decoded source facts without
 transforming pixels.
+Shared execution stores their encoded representations. Native calls consume
+the same entries and deserialize info into a map. Background stale refresh
+drains output through shared execution, without an HTTP connection.
 Debug headers are request presentation: the mount must permit them, and the
 request must opt in. They do not change image cache identity or the ETag.
 

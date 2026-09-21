@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plug.DebugBuilder do
+defmodule ImagePipe.Processing.DebugBuilder do
   @moduledoc false
   # Builds debug facts on every generation; rendering is gated at delivery.
 

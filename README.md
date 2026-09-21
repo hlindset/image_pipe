@@ -87,12 +87,42 @@ keys are configured.
 
 S3 sources use `s3://bucket/key?revision` and a configured `:s3` adapter.
 Custom `source_schemes` map source names to host translators. To conceal the
-source, configure separate `source_encryption_keys` and use
-`ImagePipe.API.encrypt_source/2` to build a signed `enc/<token>` URL.
+source, set `encrypt_source: true` and separate `source_encryption_keys` in
+`ImagePipe.config/1`, then build a signed `enc/<token>` URL with
+`ImagePipe.url!/2`. Encryption is deterministic by default; choose random IVs
+in configuration or override the IV per call.
 See the [source contract](docs/api_contract.md#sources) for encoding,
 key rotation, and a complete concealment example.
 
-## API
+## Elixir API
+
+Use the builder API to create a reusable processing plan with typed Elixir options:
+
+```elixir
+alias ImagePipe, as: IP
+
+config = IP.config(base_url: "/images")
+plan =
+  IP.new(config)
+  |> IP.group(resize: [width: 400, height: 300, fit: :cover], anchor: :smart)
+  |> IP.output(format: :webp, quality: 82)
+
+:ok = IP.validate(plan)
+{:ok, result} = IP.run(plan, {:file, "photos/original.jpg"})
+File.write!("thumbnail.webp", result.data)
+
+url = IP.url!(plan, "photos/original.jpg")
+```
+
+Use `config = IP.config(...)` with `IP.new(config)` and
+`plug ImagePipe.Plug, config: config` to share sources, processing defaults,
+caches, and signing/encryption settings. Configured source inputs reuse the
+same cache entries across Elixir and HTTP calls. Raw file and binary inputs
+remain uncached.
+
+The [Elixir API guide](docs/elixir-api.md) covers shared configuration, the
+builder API, composition, direct execution, request inputs, URL generation,
+results, and validation.
 
 The API supports orientation, resize and crop, object and face detection,
 pixel effects, canvas and padding, color profiles, HDR, and encoder controls.

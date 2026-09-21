@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.Output do
+defmodule ImagePipe.Output.RequestPolicy do
   @moduledoc false
 
   alias ImagePipe.Format

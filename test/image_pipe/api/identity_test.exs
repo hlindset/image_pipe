@@ -5,9 +5,10 @@ defmodule ImagePipe.API.IdentityTest do
 
   alias ImagePipe.API
   alias ImagePipe.API.Config
-  alias ImagePipe.API.Identity
-  alias ImagePipe.API.Output
   alias ImagePipe.API.Parser
+  alias ImagePipe.Execution.Identity
+  alias ImagePipe.Execution.Inputs
+  alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Representation
 
@@ -58,7 +59,9 @@ defmodule ImagePipe.API.IdentityTest do
          config \\ [],
          detector_identity \\ nil
        ) do
-    Identity.material(request, negotiation, conn, config, detector_identity)
+    conn = Plug.Conn.fetch_cookies(conn)
+    inputs = %Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
+    Identity.material(request, negotiation, inputs, config, detector_identity)
   end
 
   defp source_identity,
@@ -80,7 +83,9 @@ defmodule ImagePipe.API.IdentityTest do
     assert {:ok, _source, policy} = API.prepare(request, config, "")
     conn = conn(:get, "/")
 
-    API.identity_material(request, policy, conn, config)
+    conn = Plug.Conn.fetch_cookies(conn)
+    inputs = %ImagePipe.Execution.Inputs{headers: conn.req_headers, cookies: conn.req_cookies}
+    ImagePipe.Execution.identity_material(request, policy, inputs, config)
   end
 
   describe "canonical request composition" do

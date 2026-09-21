@@ -4,13 +4,14 @@ defmodule ImagePipe.APITest do
   import Plug.Conn
   import Plug.Test
 
+  alias ImagePipe.Security.Signature
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
   describe "init/1" do
     test "returns validated config for an empty option list" do
       opts = ImagePipe.Plug.init([])
 
-      assert Keyword.fetch!(opts, :keys) == []
+      assert Signature.verify(nil, "/src/a.jpg", opts) == {:ok, nil}
       assert Keyword.fetch!(opts, :presets) == %{}
       assert Keyword.fetch!(opts, :storage_inputs) == []
       assert Keyword.fetch!(opts, :max_body_bytes) == 10_000_000
@@ -32,7 +33,9 @@ defmodule ImagePipe.APITest do
     test "accepts valid hex keys" do
       opts = ImagePipe.Plug.init(keys: ["deadbeef"])
 
-      assert Keyword.fetch!(opts, :keys) == ["deadbeef"]
+      signature = Signature.sign("/src/a.jpg", opts)
+      assert Signature.verify(signature, "/src/a.jpg", opts) == {:ok, 0}
+      refute inspect(opts) =~ "deadbeef"
     end
 
     test "compiles preset options at initialization" do

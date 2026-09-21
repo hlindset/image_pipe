@@ -6,7 +6,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch do
   the host configuration. The struct shape and per-metric fallbacks live here.
 
   Per-metric target and `allowed_error` fallbacks come from the config maps
-  (`ImagePipe.API.Config` seeds `autoquality_target`/`autoquality_allowed_error` for
+  (processing configuration seeds `autoquality_target`/`autoquality_allowed_error` for
   the perceptual metrics), so there are no built-in constants here. `:size` has no
   default target — a byte budget must be supplied (URL or config) or `build/3`
   returns a missing-target error.
@@ -30,7 +30,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch do
   Build a search struct for an already-decided metric, URL fields over config.
 
   Requires a `config` carrying the seeded per-metric `autoquality_target` and
-  `autoquality_allowed_error` maps (what `ImagePipe.API.Config.validate!/1` produces) —
+  `autoquality_allowed_error` maps from validated processing configuration —
   for a perceptual metric without them, `allowed_error` would be `nil` and the
   target would be missing. All in-repo callers pass resolved config.
   """

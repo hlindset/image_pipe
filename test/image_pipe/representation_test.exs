@@ -2,8 +2,6 @@ defmodule ImagePipe.RepresentationTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  import Plug.Test
-
   alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
 
@@ -108,63 +106,6 @@ defmodule ImagePipe.RepresentationTest do
       )
 
     assert rep.vary == ["Accept", "Save-Data"]
-  end
-
-  describe "storage_inputs/2" do
-    test "a header contributes its value to storage_only and its name to vary" do
-      conn = :get |> conn("/") |> Plug.Conn.put_req_header("save-data", "on")
-
-      {storage_only, vary} = Representation.storage_inputs(conn, [{:header, "Save-Data"}])
-
-      assert Keyword.fetch!(storage_only, :headers) == [{"save-data", ["on"]}]
-      assert Keyword.fetch!(storage_only, :cookies) == []
-      assert vary == ["save-data"]
-    end
-
-    test "a cookie contributes its value to storage_only and nothing to vary" do
-      conn = :get |> conn("/") |> put_req_cookie("session", "abc")
-
-      {storage_only, vary} = Representation.storage_inputs(conn, [{:cookie, "session"}])
-
-      assert Keyword.fetch!(storage_only, :cookies) == [{"session", "abc"}]
-      assert Keyword.fetch!(storage_only, :headers) == []
-      assert vary == []
-    end
-
-    test "a missing cookie is omitted from storage_only" do
-      conn = conn(:get, "/")
-
-      {storage_only, _vary} = Representation.storage_inputs(conn, [{:cookie, "session"}])
-
-      assert Keyword.fetch!(storage_only, :cookies) == []
-    end
-
-    test "header names are normalized, deduplicated, and deterministically ordered" do
-      conn = :get |> conn("/") |> Plug.Conn.put_req_header("save-data", "on")
-
-      {storage_only_a, vary_a} =
-        Representation.storage_inputs(conn, [{:header, "Save-Data"}, {:header, "save-data"}])
-
-      {storage_only_b, vary_b} =
-        Representation.storage_inputs(conn, [{:header, "save-data"}, {:header, "SAVE-DATA"}])
-
-      assert vary_a == ["save-data"]
-      assert vary_a == vary_b
-      assert storage_only_a == storage_only_b
-    end
-
-    test "output order does not depend on the configured list's order" do
-      conn =
-        :get
-        |> conn("/")
-        |> Plug.Conn.put_req_header("save-data", "on")
-        |> Plug.Conn.put_req_header("dpr", "2")
-
-      forward = Representation.storage_inputs(conn, [{:header, "save-data"}, {:header, "dpr"}])
-      backward = Representation.storage_inputs(conn, [{:header, "dpr"}, {:header, "save-data"}])
-
-      assert forward == backward
-    end
   end
 
   property "ETag never varies with storage_only" do

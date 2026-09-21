@@ -1,13 +1,14 @@
-defmodule ImagePipe.API.SignatureTest do
+defmodule ImagePipe.Security.SignatureTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.API.Signature
+  alias ImagePipe.API.Config
+  alias ImagePipe.Security.Signature
 
   @key_a "00112233445566778899aabbccddeeff00112233445566778899aabbccddee"
   @key_b "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
 
-  defp config(keys), do: [keys: keys]
+  defp config(keys), do: Config.validate!(keys: keys)
 
   describe "verify/3 — no keys configured" do
     test "no sig segment → {:ok, nil} (legitimately unsigned)" do
@@ -159,24 +160,6 @@ defmodule ImagePipe.API.SignatureTest do
       |> StreamData.bind(fn {segments, source} ->
         StreamData.constant("/" <> Enum.join(segments ++ ["src", source], "/"))
       end)
-    end
-  end
-
-  describe "expired?/2 — the `expires` gate" do
-    test "no expires configured (nil) → never expired" do
-      refute Signature.expired?(nil, 1_000)
-    end
-
-    test "expires in the future → not expired" do
-      refute Signature.expired?(2_000, 1_000)
-    end
-
-    test "expires exactly equal to now → not expired (still valid at the boundary)" do
-      refute Signature.expired?(1_000, 1_000)
-    end
-
-    test "expires in the past → expired" do
-      assert Signature.expired?(999, 1_000)
     end
   end
 end

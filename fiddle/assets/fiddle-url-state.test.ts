@@ -19,7 +19,7 @@ describe("API browser state", () => {
     expect(parseAppPath("/edit/w=500").api).toEqual(defaultApiState);
   });
 
-  for (const protection of ["signed", "signed-concealed"] as const) {
+  for (const protection of ["signed", "signed-concealed", "signed-concealed-random"] as const) {
     it(`round trips the ${protection} protection mode without persisting protected bytes`, () => {
       const state = {
         api: { ...defaultApiState, protection },

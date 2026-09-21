@@ -3,10 +3,10 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   use ExUnit.Case, async: false
 
   alias ImagePipe.API
-  alias ImagePipe.API.Source, as: APISource
   alias ImagePipe.Decode
   alias ImagePipe.Plan.Request
   alias ImagePipe.Source
+  alias ImagePipe.Source.Parser, as: APISource
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.State

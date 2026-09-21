@@ -1,10 +1,9 @@
-defmodule ImagePipe.API.Source do
+defmodule ImagePipe.Source.Parser do
   @moduledoc """
   Translates a decoded source string into `ImagePipe.Plan.Source`.
 
-  `translate/2` consumes the already-decoded source string produced by
-  `ImagePipe.API.Path.extract/1` (percent-decoded once for a `src` tail,
-  base64url-decoded for a `src64` tail) and classifies it:
+  `translate/2` consumes a source string, with any outer transport encoding
+  already decoded, and classifies it:
 
     * no `scheme://` prefix — a root-relative `%Plan.Source.Path{}`. The
       decoded string is the source of truth: it is split into segments on

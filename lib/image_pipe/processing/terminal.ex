@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plug.Terminal do
+defmodule ImagePipe.Processing.Terminal do
   @moduledoc false
 
   alias ImagePipe.Decode
@@ -13,7 +13,7 @@ defmodule ImagePipe.Plug.Terminal do
   alias Vix.Vips.Image, as: VipsImage
 
   @spec render(Source.Resolved.t(), Request.t(), keyword()) ::
-          {:ok, String.t(), iodata()} | {:error, term()}
+          {:ok, String.t(), binary() | map()} | {:error, term()}
   def render(source, %Request{} = request, config) do
     Telemetry.span(
       Telemetry.telemetry_opts(config),
@@ -58,7 +58,6 @@ defmodule ImagePipe.Plug.Terminal do
         "orientation" => orientation
       }
       |> put_size(Map.get(geometry.debug_facts, :source_bytes))
-      |> JSON.encode_to_iodata!()
 
     {:ok, "application/json", body}
   end

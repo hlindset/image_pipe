@@ -15,6 +15,7 @@ defmodule ImagePipe.Output do
       Encoder,
       Negotiation,
       Policy,
+      RequestPolicy,
       Resolved,
       Terminal.Blurhash,
       Terminal.LqipCss

@@ -1,4 +1,4 @@
-defmodule ImagePipe.API.Identity do
+defmodule ImagePipe.Execution.Identity do
   @moduledoc """
   Builds representation identity from canonical request data and the
   resolved output policy. Byte-affecting groups, terminal, output selection,
@@ -11,30 +11,30 @@ defmodule ImagePipe.API.Identity do
   source byte identity separately to `ImagePipe.Representation.build/3`.
   """
 
+  alias ImagePipe.Execution.Inputs
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Request
-  alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
 
   @doc """
   Builds the representation identity material for `request`, given the negotiation
-  outcome, the incoming `conn` (consulted only for configured
+  outcome, the normalized request inputs (consulted only for configured
   `storage_inputs`), and mount `config`.
   """
-  @spec material(Request.t(), Policy.t() | nil, Plug.Conn.t(), keyword(), term() | nil) ::
+  @spec material(Request.t(), Policy.t() | nil, Inputs.t(), keyword(), term() | nil) ::
           IdentityMaterial.t()
   def material(
         %Request{} = request,
         policy,
-        %Plug.Conn{} = conn,
+        %Inputs{} = inputs,
         config,
         detector_identity
       )
       when is_list(config) do
     {configured_storage_only, storage_vary_names} =
-      Representation.storage_inputs(conn, Keyword.get(config, :storage_inputs, []))
+      Inputs.storage_material(inputs, Keyword.get(config, :storage_inputs, []))
 
     storage_only = cachebuster_material(request.cachebuster) ++ configured_storage_only
 

@@ -4,7 +4,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.API.Signature
+  alias ImagePipe.Security.Signature
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
   # ---------------------------------------------------------------------------
@@ -208,10 +208,11 @@ defmodule ImagePipe.DebugHeadersWireTest do
 
   test "signatures cover the debug disclosure trigger" do
     opts = base_opts(allow_debug_headers: true, keys: [Base.encode16("debug-signing-key")])
+    config = ImagePipe.Plug.init(opts)
     plain_path = request_path()
     debug_path = with_debug(plain_path)
-    plain_signature = Signature.sign(plain_path, opts)
-    debug_signature = Signature.sign(debug_path, opts)
+    plain_signature = Signature.sign(plain_path, config)
+    debug_signature = Signature.sign(debug_path, config)
 
     valid = call("/sig=#{debug_signature}" <> debug_path, opts)
     assert valid.status == 200

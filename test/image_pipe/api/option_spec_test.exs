@@ -21,9 +21,7 @@ defmodule ImagePipe.API.OptionSpecTest do
         assert spec.value == :flag or is_function(spec.value, 1)
         assert is_nil(spec.stage) or (is_integer(spec.stage) and spec.stage > 0)
         assert is_list(spec.prerequisites)
-        assert is_list(spec.conflicts)
         assert spec.identity in [:representation, :storage, :gate, :presentation]
-        assert spec.terminal_applicability in [:pixels, :image, :all]
         assert is_binary(spec.summary) and spec.summary != ""
 
         assert is_list(spec.examples) and spec.examples != [],
@@ -41,23 +39,6 @@ defmodule ImagePipe.API.OptionSpecTest do
           :group -> assert is_integer(spec.stage)
           :request -> assert is_nil(spec.stage)
         end
-      end
-    end
-
-    test "conflicts reference other declared keys, never the option's own key" do
-      known_keys = MapSet.new(OptionSpec.all(), & &1.key)
-
-      for %OptionSpec{} = spec <- OptionSpec.all(), conflict <- spec.conflicts do
-        assert conflict != spec.key
-        assert MapSet.member?(known_keys, conflict)
-      end
-    end
-
-    test "conflicts are symmetric" do
-      by_key = Map.new(OptionSpec.all(), &{&1.key, &1})
-
-      for %OptionSpec{} = spec <- OptionSpec.all(), conflict <- spec.conflicts do
-        assert spec.key in by_key[conflict].conflicts
       end
     end
   end

@@ -4,9 +4,9 @@ defmodule ImagePipe.API.OutputTest do
   alias ImagePipe.API
   alias ImagePipe.API.Config
   alias ImagePipe.API.Errors
-  alias ImagePipe.API.Output
   alias ImagePipe.API.Parser
   alias ImagePipe.Output.Policy
+  alias ImagePipe.Output.RequestPolicy, as: Output
   alias ImagePipe.Plan.Output, as: PlanOutput
   alias ImagePipe.Plan.Output.{JpegOptions, WebpOptions}
   alias ImagePipe.Plan.Response
@@ -319,7 +319,7 @@ defmodule ImagePipe.API.OutputTest do
 
     assert {:ok, _source, output} = API.prepare(request, config, "")
 
-    assert API.response_meta(request) == %Response{
+    assert ImagePipe.Execution.response_meta(request) == %Response{
              filename: "report",
              disposition: :attachment,
              debug?: true
