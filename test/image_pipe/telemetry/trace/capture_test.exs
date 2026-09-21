@@ -28,6 +28,52 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end)
   end
 
+  test "origin not-modified outcome is a successful source span" do
+    prefix = [__MODULE__, :origin_revalidation]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    Telemetry.span([telemetry_prefix: prefix], [:source, :fetch], %{}, fn ->
+      {:unchanged, %{result: :not_modified}}
+    end)
+
+    assert_receive {:span,
+                    %Span{
+                      name: "image_pipe.source.fetch",
+                      status: :ok,
+                      attributes: %{result: :not_modified}
+                    }}
+  end
+
+  test "captures coordinated cache stages and pool identity" do
+    prefix = [__MODULE__, :coordinated]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    for stage <- [:source, :input, :refresh] do
+      Telemetry.span([telemetry_prefix: prefix], [:cache, stage], %{pool: :input}, fn ->
+        Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
+          result: :coalesced,
+          pool: :input,
+          operation: :source
+        })
+
+        {:ok, %{result: :ok}}
+      end)
+
+      name = "image_pipe.cache.#{stage}"
+
+      assert_receive {:span,
+                      %Span{
+                        name: ^name,
+                        status: :ok,
+                        attributes: %{pool: :input},
+                        events: [event]
+                      }}
+
+      assert event.name == "image_pipe.cache.coordination"
+      assert event.attributes.result == :coalesced
+    end
+  end
+
   test "captures a nested tree with one trace_id and correct parentage" do
     emit_nested()
 

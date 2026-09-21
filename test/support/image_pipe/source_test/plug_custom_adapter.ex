@@ -30,7 +30,10 @@ defmodule ImagePipe.SourceTest.PlugCustomAdapter do
        ],
        internal_cache: Keyword.get(opts, :internal_cache, :enabled),
        http_cache: Keyword.get(opts, :http_cache, :inherit),
-       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+       cache_semantics: %CacheSemantics{
+         byte_identity: if(opts[:stable], do: {:strong, :cat}, else: :none),
+         stable?: Keyword.get(opts, :stable, false)
+       },
        fetch: :cat
      }}
   end

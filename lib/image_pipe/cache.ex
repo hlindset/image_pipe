@@ -10,10 +10,15 @@ defmodule ImagePipe.Cache do
       ImagePipe.Error,
       ImagePipe.Format,
       ImagePipe.Output,
+      ImagePipe.Source,
       ImagePipe.Telemetry
     ],
     exports: [
       Entry,
+      File,
+      Input,
+      Resources,
+      Work,
       Key,
       FileSystem
     ]
@@ -21,6 +26,8 @@ defmodule ImagePipe.Cache do
   require Logger
 
   alias ImagePipe.Cache.Entry
+  alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Error
@@ -65,7 +72,7 @@ defmodule ImagePipe.Cache do
   @doc false
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()} | no_return()
   def validate_config(opts) when is_list(opts) do
-    normalize_config(opts)
+    with {:ok, opts} <- normalize_config(opts), do: Input.validate_config(opts)
   end
 
   @doc false
@@ -79,6 +86,36 @@ defmodule ImagePipe.Cache do
 
   @doc false
   def shared_option_keys, do: @shared_cache_option_keys
+
+  @doc false
+  def source_record(input_key, opts) do
+    case lookup_entry(source_index_key(input_key), opts) do
+      {:hit, entry} ->
+        Entry.close(entry)
+        entry.source_record
+
+      _miss ->
+        nil
+    end
+  end
+
+  @doc false
+  def remember_source(input_key, record, opts) do
+    body = :erlang.term_to_binary(record, [:deterministic])
+
+    source_index_key(input_key)
+    |> open_sink(
+      {:complete_body, "application/vnd.imagepipe.source"},
+      Keyword.put(opts, :source_record, record)
+    )
+    |> write_chunk(body, opts)
+    |> commit_sink(opts)
+  end
+
+  defp source_index_key(%Key{hash: hash}) do
+    digest = :crypto.hash(:sha256, "source-record:" <> hash) |> Base.encode16(case: :lower)
+    %Key{hash: digest, data: []}
+  end
 
   @doc """
   Looks up `key` through the configured adapter, treating read errors as misses.
@@ -167,7 +204,7 @@ defmodule ImagePipe.Cache do
   end
 
   defp fetch_entry(adapter, key, cache_opts) do
-    case adapter.get(key, cache_opts) do
+    case read_adapter(adapter, key, cache_opts) do
       {:hit, %Entry{} = entry} -> validate_fetched_entry(entry)
       :miss -> :miss
       {:error, reason} -> {:error, reason}
@@ -177,10 +214,18 @@ defmodule ImagePipe.Cache do
     exception -> {:error, exception}
   end
 
+  defp read_adapter(FileSystem, key, opts), do: FileSystem.open(key, opts)
+
+  defp read_adapter(adapter, key, opts), do: adapter.get(key, opts)
+
   defp validate_fetched_entry(%Entry{} = entry) do
     case Entry.validate(entry) do
-      :ok -> {:hit, entry}
-      {:error, reason} -> {:error, {:invalid_entry, reason}}
+      :ok ->
+        {:hit, entry}
+
+      {:error, reason} ->
+        Entry.close(entry)
+        {:error, {:invalid_entry, reason}}
     end
   end
 
@@ -273,7 +318,7 @@ defmodule ImagePipe.Cache do
         _cache -> nil
       end
 
-    %{cache: cache}
+    %{cache: cache, pool: :output}
   end
 
   defp entry_lookup_stop_metadata(:disabled), do: %{result: :ok, cache: :disabled}

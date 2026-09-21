@@ -7,6 +7,7 @@ defmodule ImagePipe.CacheTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.Key
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Test.RaisingOpenCache
 
   defmodule MissAdapter do
     @behaviour ImagePipe.Cache
@@ -318,6 +319,27 @@ defmodule ImagePipe.CacheTest do
 
     assert_receive {:telemetry_event, [:image_pipe, :cache, :stage], _measurements,
                     %{cache: :stage_error, error: :open_failed, output_format: :webp}}
+  end
+
+  test "open_sink exceptions disable caching and emit the existing stage error" do
+    prefix = [:cache_open_exception]
+    attach_telemetry([prefix ++ [:cache, :stage]])
+
+    for output <- [resolved_output(), {:complete_body, "application/json"}] do
+      log =
+        capture_log(fn ->
+          assert Cache.open_sink(cache_key(), output,
+                   cache: {RaisingOpenCache, test_pid: self()},
+                   telemetry_prefix: prefix
+                 ) == nil
+        end)
+
+      assert log =~ "cache sink open error"
+      assert_received :cache_open_attempted
+
+      assert_received {:telemetry_event, [:cache_open_exception, :cache, :stage], _,
+                       %{cache: :stage_error, result: :cache_error, error: :error}}
+    end
   end
 
   test "write_chunk drops the sink when max_body_bytes would be crossed" do

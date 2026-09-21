@@ -23,7 +23,7 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Telemetry
 
-  @not_modified_header_allowlist ~w(cache-control date etag expires vary)
+  @not_modified_header_allowlist ~w(age cache-control date etag expires vary)
 
   @type hit_debug() :: %{cache_key: String.t(), cache_serve_us: non_neg_integer()}
 
@@ -139,7 +139,32 @@ defmodule ImagePipe.Response.Sender do
 
     conn
     |> put_resp_content_type(entry.content_type, nil)
-    |> send_resp(200, entry.body)
+    |> send_body(entry.body)
+  end
+
+  @doc false
+  def send_body(%Plug.Conn{method: "HEAD"} = conn, %ImagePipe.Cache.File{size: size}) do
+    conn |> put_resp_header("content-length", Integer.to_string(size)) |> send_resp(200, "")
+  end
+
+  def send_body(conn, %ImagePipe.Cache.File{} = file) do
+    conn =
+      conn |> put_resp_header("content-length", Integer.to_string(file.size)) |> send_chunked(200)
+
+    send_file_chunks(conn, file)
+  end
+
+  def send_body(conn, body), do: send_resp(conn, 200, body)
+
+  defp send_file_chunks(conn, file) do
+    Enum.reduce_while(ImagePipe.Cache.File.stream(file), conn, fn bytes, conn ->
+      case chunk(conn, bytes) do
+        {:ok, conn} -> {:cont, conn}
+        {:error, _reason} -> {:halt, mark_send_processing_error(conn)}
+      end
+    end)
+  rescue
+    _exception -> mark_send_processing_error(conn)
   end
 
   defp send_prepared_stream(

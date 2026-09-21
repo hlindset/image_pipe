@@ -16,26 +16,28 @@ defmodule ImagePipe.Source.HTTPTest do
   end
 
   defp fetch_stream(opts_kw, source) do
+    {:ok, response} = fetch_response(opts_kw, source)
+    response.stream
+  end
+
+  defp fetch_response(opts_kw, source) do
     {:ok, opts} = HTTP.validate_options(opts_kw)
     {:ok, resolved} = HTTP.resolve(source, opts, [])
 
-    {:ok, %Response{} = response} =
-      Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 64)
-
-    response.stream
+    Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 64)
   end
 
   defp ok_plug do
     fn conn -> Plug.Conn.send_resp(conn, 200, "image bytes") end
   end
 
-  test "http source defaults to not stable and disables internal cache in auto mode" do
+  test "http source defaults to mutable identity with origin-governed internal caching" do
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"])
     source = %URL{scheme: :https, host: "example.com", path: ["cat.jpg"]}
 
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
-    assert resolved.internal_cache == :disabled
+    assert resolved.internal_cache == :enabled
     assert resolved.cache_semantics.byte_identity == :none
   end
 
@@ -328,11 +330,8 @@ defmodule ImagePipe.Source.HTTPTest do
 
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
-    assert {:ok, %Response{} = response} =
+    assert {:error, {:source, :redirect_not_followed}} =
              Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
-
-    error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
-    assert error.reason == :redirect_not_followed
   end
 
   test "fetch percent-encodes decoded path segments when building the request URL" do
@@ -397,7 +396,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert_receive {:http_request, "::1", "/cat.jpg", "v=1"}
   end
 
-  test "non-success statuses and transport failures are deferred safe stream errors" do
+  test "non-success status fails during fetch before exposing a body" do
     plug = fn conn -> Plug.Conn.send_resp(conn, 404, "not found") end
 
     source = %URL{
@@ -417,11 +416,8 @@ defmodule ImagePipe.Source.HTTPTest do
 
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
-    assert {:ok, %Response{} = response} =
+    assert {:error, {:source, {:bad_status, 404}}} =
              Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
-
-    error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
-    assert error.reason == {:bad_status, 404}
   end
 
   test "an enabled redirect to an off-allowlist host is denied" do
@@ -453,11 +449,8 @@ defmodule ImagePipe.Source.HTTPTest do
 
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
-    assert {:ok, %Response{} = response} =
+    assert {:error, {:source, :denied_host}} =
              Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
-
-    error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
-    assert error.reason == :denied_host
   end
 
   describe "address_policy validation" do
@@ -504,7 +497,7 @@ defmodule ImagePipe.Source.HTTPTest do
       source = %URL{scheme: :https, host: "assets.example.com", path: ["x.jpg"]}
 
       stream =
-        fetch_stream(
+        fetch_response(
           [
             allowed_hosts: ["assets.example.com"],
             address_resolver: stub_resolver(%{"assets.example.com" => {:ok, [{10, 0, 0, 5}]}}),
@@ -513,34 +506,31 @@ defmodule ImagePipe.Source.HTTPTest do
           source
         )
 
-      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
-      assert error.reason == :denied_address
+      assert stream == {:error, {:source, :denied_address}}
     end
 
     test "origin IP-literal private host is blocked (literal branch, no resolver)" do
       source = %URL{scheme: :https, host: "10.0.0.5", path: ["x.jpg"]}
 
       stream =
-        fetch_stream(
+        fetch_response(
           [allowed_hosts: ["10.0.0.5"], req_options: [plug: ok_plug()]],
           source
         )
 
-      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
-      assert error.reason == :denied_address
+      assert stream == {:error, {:source, :denied_address}}
     end
 
     test "169.254.169.254 cloud metadata literal is blocked" do
       source = %URL{scheme: :https, host: "169.254.169.254", path: ["latest", "meta-data"]}
 
       stream =
-        fetch_stream(
+        fetch_response(
           [allowed_hosts: ["169.254.169.254"], req_options: [plug: ok_plug()]],
           source
         )
 
-      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
-      assert error.reason == :denied_address
+      assert stream == {:error, {:source, :denied_address}}
     end
 
     test "trusted origin redirecting to a loopback target is blocked on the hop" do
@@ -557,7 +547,7 @@ defmodule ImagePipe.Source.HTTPTest do
       source = %URL{scheme: :https, host: "assets.example.com", path: ["redirect.jpg"]}
 
       stream =
-        fetch_stream(
+        fetch_response(
           [
             allowed_hosts: ["assets.example.com", "127.0.0.1"],
             max_redirects: 1,
@@ -567,8 +557,7 @@ defmodule ImagePipe.Source.HTTPTest do
           source
         )
 
-      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
-      assert error.reason == :denied_address
+      assert stream == {:error, {:source, :denied_address}}
     end
 
     test "non-http(s) redirect scheme is rejected" do
@@ -581,7 +570,7 @@ defmodule ImagePipe.Source.HTTPTest do
       source = %URL{scheme: :https, host: "assets.example.com", path: ["redirect.jpg"]}
 
       stream =
-        fetch_stream(
+        fetch_response(
           [
             allowed_hosts: ["assets.example.com"],
             max_redirects: 1,
@@ -591,8 +580,7 @@ defmodule ImagePipe.Source.HTTPTest do
           source
         )
 
-      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
-      assert error.reason == :denied_scheme
+      assert stream == {:error, {:source, :denied_scheme}}
     end
 
     test "allow_private opt-in lets a private origin through" do
@@ -634,7 +622,7 @@ defmodule ImagePipe.Source.HTTPTest do
       assert Enum.join(ok_stream) == "image bytes"
 
       blocked_stream =
-        fetch_stream(
+        fetch_response(
           Keyword.put(
             base,
             :address_resolver,
@@ -643,8 +631,7 @@ defmodule ImagePipe.Source.HTTPTest do
           source
         )
 
-      error = assert_raise Source.StreamError, fn -> Enum.to_list(blocked_stream) end
-      assert error.reason == :denied_address
+      assert blocked_stream == {:error, {:source, :denied_address}}
     end
 
     test "an uppercase redirect host still matches the downcased allowlist and is fetched" do
@@ -678,7 +665,7 @@ defmodule ImagePipe.Source.HTTPTest do
       source = %URL{scheme: :https, host: "assets.example.com", path: ["x.jpg"]}
 
       blocked =
-        fetch_stream(
+        fetch_response(
           [
             allowed_hosts: ["assets.example.com"],
             address_policy: fn _ip, category -> category == :public end,
@@ -688,8 +675,7 @@ defmodule ImagePipe.Source.HTTPTest do
           source
         )
 
-      error = assert_raise Source.StreamError, fn -> Enum.to_list(blocked) end
-      assert error.reason == :denied_address
+      assert blocked == {:error, {:source, :denied_address}}
     end
   end
 end

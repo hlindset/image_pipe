@@ -20,6 +20,27 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert {:error, :not_found} = Telemetry.detach_default_logger()
   end
 
+  test "renders successful source revalidation and truncated-source failures" do
+    prefix = [__MODULE__, :origin_revalidation]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(prefix ++ [:source, :fetch, :stop], %{duration: 1000}, %{
+          result: :not_modified
+        })
+
+        :telemetry.execute(prefix ++ [:source, :fetch_decode, :stop], %{duration: 1000}, %{
+          result: :source_error,
+          error: :truncated_body
+        })
+      end)
+
+    assert log =~ "source fetch: not_modified"
+    assert log =~ "source fetch_decode: source_error"
+    assert log =~ "[warning]"
+  end
+
   test "logs a cache lookup hit at the configured level" do
     Telemetry.attach_default_logger(level: :info)
 
@@ -33,6 +54,32 @@ defmodule ImagePipe.Telemetry.LoggerTest do
       end)
 
     assert log =~ "cache lookup: hit"
+  end
+
+  test "logs coordinated cache stages and escalates refresh failure" do
+    prefix = [__MODULE__, :coordinated]
+    Telemetry.attach_default_logger(prefix: prefix)
+
+    log =
+      capture_log(fn ->
+        for stage <- [:source, :input, :refresh] do
+          :telemetry.execute(prefix ++ [:cache, stage, :stop], %{duration: 1_000}, %{
+            result: :source_error,
+            pool: :input
+          })
+        end
+
+        :telemetry.execute(prefix ++ [:cache, :coordination], %{}, %{
+          result: :coalesced,
+          pool: :input,
+          operation: :refresh
+        })
+      end)
+
+    for stage <- [:source, :input, :refresh], do: assert(log =~ "cache #{stage}: source_error")
+    assert log =~ "(input pool)"
+    assert log =~ "cache coordination: coalesced"
+    assert log =~ "[warning]"
   end
 
   test "renders the encode span with its output format" do

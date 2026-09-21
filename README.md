@@ -174,7 +174,7 @@ covers optional detector setup, weights, fallback, and strict availability check
 - [API contract](docs/api_contract.md): options and semantics.
 - [Content-aware cropping](docs/content-aware-gravity.md): detection setup,
   weights, fallback, warmup, and custom detectors.
-- [Cache](docs/cache.md): response storage, keys, headers, and failure handling.
+- [Cache](docs/cache.md): independent input/output pools, origin freshness, stale-while-revalidate, and failure handling.
 - [CDN HTTP caching](docs/cdn-http-cache.md): `Cache-Control`, ETags,
   `Vary: Accept`, and source stability.
 - [Operational notes](docs/operational_notes.md): request safety, fetching,

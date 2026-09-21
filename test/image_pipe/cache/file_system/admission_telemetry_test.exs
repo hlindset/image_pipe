@@ -28,6 +28,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
         node_id: "tel-node",
         state_dir: Path.join(ctx.tmp_dir, ".cache_state"),
         telemetry_prefix: ctx.prefix,
+        pool: :input,
         max_size_bytes: 1_000_000,
         window_ratio: 0.01,
         sketch_depth: 4,
@@ -70,7 +71,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     assert_receive {:telemetry, ^start_event, _measurements, _meta}
 
     assert_receive {:telemetry, ^stop_event, %{duration: _},
-                    %{own_state_loaded: false, peer_state_files: 0}}
+                    %{own_state_loaded: false, peer_state_files: 0, pool: :input}}
   end
 
   test "emits an admission span with an admitted result", ctx do
@@ -83,7 +84,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
 
     assert_receive {:telemetry, ^stop_event, %{duration: _},
-                    %{result: :admitted, victim_count: 0}}
+                    %{result: :admitted, victim_count: 0, pool: :input}}
   end
 
   test "emits an admission span with a rejected result on over-cap", ctx do
@@ -96,7 +97,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
 
     assert_receive {:telemetry, ^stop_event, _measurements,
-                    %{result: :rejected, reason: :over_cap, victim_count: 0}}
+                    %{result: :rejected, reason: :over_cap, victim_count: 0, pool: :input}}
   end
 
   test "emits an eviction stop event when reconciliation evicts", ctx do

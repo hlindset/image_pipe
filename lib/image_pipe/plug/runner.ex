@@ -18,6 +18,7 @@ defmodule ImagePipe.Plug.Runner do
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Plug.DebugBuilder
+  alias ImagePipe.Plug.SourceCache
   alias ImagePipe.Plug.Terminal
   alias ImagePipe.Representation
   alias ImagePipe.Response.CacheHeaders
@@ -91,28 +92,270 @@ defmodule ImagePipe.Plug.Runner do
          {:ok, %ImageSource.Resolved{} = source} <-
            ImageSource.resolve(plan_source, config, ImageSource.runtime_opts(config)) do
       material = API.identity_material(request, policy, conn, config)
-
-      representation =
-        Representation.build(source.identity, material, source.cache_semantics.byte_identity)
-
-      headers = cache_headers(conn, representation, source, config)
-
-      if Conditional.not_modified?(conn, headers.etag) do
-        maybe_emit_conditional_match(conn, config)
-        send_not_modified(conn, headers, config)
-      else
-        serve_terminal(conn, request, source, policy, representation, headers, config)
-      end
+      serve_resolved(conn, request, source, policy, material, config)
     else
       {:error, reason} -> send_error(conn, reason, config)
     end
+  end
+
+  defp serve_resolved(conn, request, source, policy, material, config) do
+    case SourceCache.enabled?(source, config) do
+      true ->
+        prepare_remote(conn, request, source, policy, material, config)
+
+      false ->
+        representation =
+          Representation.build(source.identity, material, source.cache_semantics.byte_identity)
+
+        headers = cache_headers(conn, representation, source, config)
+
+        case Conditional.not_modified?(conn, headers.etag) do
+          true ->
+            maybe_emit_conditional_match(conn, config)
+            send_not_modified(conn, headers, config)
+
+          false ->
+            serve_terminal(conn, request, source, policy, representation, headers, config)
+        end
+    end
+  end
+
+  defp prepare_remote(conn, request, source, policy, material, config) do
+    case ImageSource.prepare_cache_context(source, config) do
+      {:ok, source, context} ->
+        key = Representation.input_key(source.identity, material, context)
+
+        material = %{
+          material
+          | storage_only: [{:source_partition, key.hash} | material.storage_only]
+        }
+
+        remote_request(%{
+          conn: conn,
+          request: request,
+          source: source,
+          policy: policy,
+          material: material,
+          key: key,
+          config: config
+        })
+
+      {:error, reason} ->
+        send_error(conn, reason, config)
+    end
+  end
+
+  defp remote_request(ctx) do
+    record =
+      SourceCache.trusted_record(ctx.source, ctx.config) ||
+        SourceCache.lookup(ctx.source, ctx.key, ctx.config)
+
+    case SourceCache.status(record, ctx.source, ctx.config) do
+      :fresh -> remote_current(ctx, record, nil)
+      :stale -> remote_stale(ctx, record)
+      _validate -> remote_validate(ctx, record)
+    end
+  end
+
+  defp remote_validate(ctx, record) do
+    case SourceCache.acquire(ctx.source, ctx.key, record, ctx.config, false) do
+      {:ok, current, response, lease} -> remote_leased(ctx, current, response, lease)
+      {:error, reason} -> send_error(ctx.conn, reason, ctx.config)
+    end
+  end
+
+  defp remote_leased(ctx, record, response, lease) do
+    remote_current(ctx, record, response)
+  after
+    SourceCache.release(lease)
+  end
+
+  defp remote_current(ctx, record, response) do
+    {representation, headers} = remote_identity(ctx, record)
+
+    case Conditional.not_modified?(ctx.conn, headers.etag) do
+      true ->
+        maybe_emit_conditional_match(ctx.conn, ctx.config)
+        send_not_modified(ctx.conn, headers, ctx.config)
+
+      false ->
+        case remote_lookup(ctx, record, representation) do
+          {:hit, entry} -> remote_hit(ctx, entry, representation, headers, record)
+          _miss -> remote_input(ctx, record, response)
+        end
+    end
+  end
+
+  defp remote_lookup(ctx, record, representation) do
+    case SourceCache.storable?(record, ctx.source) do
+      true -> Cache.lookup_entry(representation.cache_key, ctx.config)
+      false -> :disabled
+    end
+  end
+
+  defp remote_hit(ctx, entry, representation, headers, record) do
+    case {ctx.request.output.terminal, entry.representation} do
+      {:image, _image} ->
+        deliver_hit(ctx.conn, ctx.request, entry, representation, headers, 0, ctx.config)
+
+      {_terminal, {:complete_body, _type}} ->
+        deliver_render_hit(ctx.conn, ctx.request, entry, representation, headers, 0, ctx.config)
+
+      _invalid ->
+        Cache.Entry.close(entry)
+        remote_input(ctx, record, nil)
+    end
+  end
+
+  defp remote_input(ctx, record, nil) do
+    case SourceCache.input(ctx.source, ctx.key, record, ctx.config) do
+      {:ok, record, response, lease} -> remote_generate_leased(ctx, record, response, lease)
+      {:error, reason} -> send_error(ctx.conn, reason, ctx.config)
+    end
+  end
+
+  defp remote_input(ctx, record, response), do: remote_generate(ctx, record, response)
+
+  defp remote_generate_leased(ctx, record, response, lease) do
+    remote_generate(ctx, record, response)
+  after
+    SourceCache.release(lease)
+  end
+
+  defp remote_generate(ctx, record, response) do
+    {representation, headers} = remote_identity(ctx, record)
+
+    config =
+      ctx.config |> Keyword.put(:prepared_source, response) |> Keyword.put(:source_record, record)
+
+    key =
+      case SourceCache.storable?(record, ctx.source) do
+        true -> representation.cache_key
+        false -> nil
+      end
+
+    result =
+      case ctx.request.output.terminal do
+        :image -> generate(ctx.conn, ctx.request, ctx.source, ctx.policy, headers, key, config)
+        _terminal -> generate_render(ctx.conn, ctx.request, ctx.source, headers, key, config)
+      end
+
+    case result do
+      {%Plug.Conn{status: 415}, _metadata} -> SourceCache.invalidate(ctx.key, ctx.config)
+      _result -> :ok
+    end
+
+    result
+  end
+
+  defp remote_identity(ctx, record) do
+    representation = Representation.build(ctx.source.identity, ctx.material, record.byte_identity)
+
+    source = %{
+      ctx.source
+      | cache_semantics: %{ctx.source.cache_semantics | byte_identity: record.byte_identity}
+    }
+
+    state = ImageSource.Record.state(record, source.cache_semantics)
+    headers = cache_headers(ctx.conn, representation, source, ctx.config)
+    now = SourceCache.now(ctx.config)
+
+    age =
+      case record.origin do
+        nil ->
+          max(0, now - record.received_at)
+
+        origin ->
+          ImageSource.CacheState.current_age(
+            origin.headers,
+            {origin.requested_at, origin.received_at},
+            now
+          )
+      end
+
+    headers =
+      CachePolicy.limit_to_source(headers, ctx.conn, Map.put(state, :age, age), now, ctx.config)
+
+    {representation, headers}
+  end
+
+  defp remote_stale(ctx, record) do
+    case Keyword.get(ctx.config, :cache_refresh, false) do
+      true ->
+        remote_validate(ctx, record)
+
+      false ->
+        {representation, headers} = remote_identity(ctx, record)
+
+        case remote_lookup(ctx, record, representation) do
+          {:hit, entry} ->
+            start_refresh(ctx, representation)
+            stale_hit(ctx, entry, representation, headers, record)
+
+          _miss ->
+            remote_validate(ctx, record)
+        end
+    end
+  end
+
+  defp stale_hit(ctx, entry, representation, headers, record) do
+    case Conditional.not_modified?(ctx.conn, headers.etag) do
+      true ->
+        Cache.Entry.close(entry)
+        send_not_modified(ctx.conn, headers, ctx.config)
+
+      false ->
+        remote_hit(ctx, entry, representation, headers, record)
+    end
+  end
+
+  defp start_refresh(ctx, representation) do
+    Cache.Work.refresh(
+      {:output, representation.cache_key.hash},
+      fn ->
+        Telemetry.span(
+          Telemetry.telemetry_opts(ctx.config),
+          [:cache, :refresh],
+          %{pool: :input},
+          fn ->
+            {_conn, metadata} = result = refresh_remote(ctx)
+            {result, metadata}
+          end
+        )
+      end,
+      Telemetry.telemetry_opts(ctx.config)
+    )
+  end
+
+  defp refresh_remote(ctx) do
+    conn = %{
+      ctx.conn
+      | adapter: {ImagePipe.Response.Discard, nil},
+        owner: self(),
+        state: :unset,
+        status: nil,
+        resp_body: nil,
+        resp_headers: [],
+        resp_cookies: %{},
+        private: %{},
+        method: "GET",
+        req_headers:
+          Enum.reject(ctx.conn.req_headers, fn {name, _} ->
+            name in ["if-none-match", "if-modified-since"]
+          end)
+    }
+
+    remote_request(%{ctx | conn: conn, config: Keyword.put(ctx.config, :cache_refresh, true)})
   end
 
   defp cache_headers(conn, representation, source, config) do
     if Keyword.has_key?(config, :http_cache) do
       CachePolicy.generate(conn, representation, source_facts(source), config)
     else
-      CacheHeaders.from_representation(representation)
+      case Keyword.get(source.cache_semantics.policy, :storage, :origin) do
+        :deny -> CacheHeaders.from_representation(%{representation | etag: nil, no_store?: true})
+        _permission -> CacheHeaders.from_representation(representation)
+      end
     end
   end
 
@@ -121,6 +364,7 @@ defmodule ImagePipe.Plug.Runner do
       http_cache: source.http_cache,
       byte_identity: source.cache_semantics.byte_identity,
       stable?: source.cache_semantics.stable?,
+      storage: Keyword.get(source.cache_semantics.policy, :storage, :origin),
       adapter: source.adapter,
       source_kind: source.source_kind
     }
@@ -196,10 +440,12 @@ defmodule ImagePipe.Plug.Runner do
           config
         )
 
-      # A miss, a disabled cache, or an untagged entry (indistinguishable from
-      # an image entry — sending one here would answer the render terminal
-      # with image bytes) all regenerate.
-      _miss_or_untagged ->
+      miss_or_untagged ->
+        case miss_or_untagged do
+          {:hit, entry} -> Cache.Entry.close(entry)
+          _miss -> :ok
+        end
+
         generate_render(
           conn,
           request,
@@ -247,6 +493,8 @@ defmodule ImagePipe.Plug.Runner do
 
       {conn, %{result: :ok}}
     end
+  after
+    Cache.Entry.close(entry)
   end
 
   defp generate_render(
@@ -371,7 +619,7 @@ defmodule ImagePipe.Plug.Runner do
     |> put_resp_headers(cache_headers.headers)
     |> put_complete_body_disposition(response_meta, content_type)
     |> Plug.Conn.put_resp_content_type(content_type)
-    |> Plug.Conn.send_resp(200, body)
+    |> Sender.send_body(body)
   end
 
   defp put_complete_body_disposition(conn, %PlanResponse{} = response_meta, content_type) do
@@ -448,6 +696,8 @@ defmodule ImagePipe.Plug.Runner do
         config
       )
     end
+  after
+    Cache.Entry.close(entry)
   end
 
   defp deliver_hit_entry(

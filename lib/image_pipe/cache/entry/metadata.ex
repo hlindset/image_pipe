@@ -17,6 +17,7 @@ defmodule ImagePipe.Cache.Entry.Metadata do
     :created_at,
     :output_format,
     representation: nil,
+    source_record: nil,
     cost_us: 0,
     debug: nil
   ]
@@ -31,6 +32,7 @@ defmodule ImagePipe.Cache.Entry.Metadata do
           created_at: DateTime.t(),
           output_format: atom() | nil,
           representation: Entry.representation() | nil,
+          source_record: ImagePipe.Source.Record.t() | nil,
           cost_us: non_neg_integer(),
           debug: Info.t() | nil
         }

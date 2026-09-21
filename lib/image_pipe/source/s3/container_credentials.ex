@@ -109,7 +109,7 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
   defp decode_json(body) when is_map(body), do: {:ok, body}
 
   defp decode_json(body) when is_binary(body) do
-    case Jason.decode(body) do
+    case JSON.decode(body) do
       {:ok, map} -> {:ok, map}
       {:error, _} -> {:error, :container_invalid_credentials}
     end

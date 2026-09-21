@@ -81,7 +81,7 @@ defmodule ImagePipe.Decode do
 
     try do
       resolved
-      |> Source.with_fetched(opts, fn %Source.Response{} = response ->
+      |> with_source_response(opts, fn %Source.Response{} = response ->
         case decode(response, request, opts, auto_rotate?) do
           {:ok, state, geometry, stop_metadata} ->
             Telemetry.stop_span(span, stop_metadata)
@@ -97,6 +97,13 @@ defmodule ImagePipe.Decode do
         stacktrace = __STACKTRACE__
         Telemetry.exception_span(span, kind, reason, stacktrace)
         :erlang.raise(kind, reason, stacktrace)
+    end
+  end
+
+  defp with_source_response(source, opts, fun) do
+    case Keyword.get(opts, :prepared_source) do
+      nil -> Source.with_fetched(source, opts, fun)
+      %Source.Response{} = response -> fun.(response)
     end
   end
 

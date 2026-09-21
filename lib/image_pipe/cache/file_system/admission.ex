@@ -3,9 +3,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   use GenServer
 
-  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
+  alias ImagePipe.Cache.FileSystem.Store, as: FileSystem
   alias ImagePipe.Telemetry
 
   defmodule State do
@@ -35,6 +35,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :state_ttl_ms,
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
+      pool: :output,
       path_prefix: "",
       window: nil,
       probationary: nil,
@@ -119,6 +120,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       reconcile_interval_ms: Keyword.get(opts, :reconcile_interval_ms, 60_000),
       state_ttl_ms: Keyword.get(opts, :state_ttl_ms, 604_800_000),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, Telemetry.default_prefix()),
+      pool: Keyword.get(opts, :pool, :output),
       # Only the GenServer writes; :protected permits cross-process inspection.
       window: :ets.new(:window, [:ordered_set, :protected]),
       probationary: :ets.new(:probationary, [:ordered_set, :protected]),
@@ -126,7 +128,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     }
 
     state =
-      Telemetry.span(tel_opts(state), [:cache, :warm_start], %{}, fn ->
+      Telemetry.span(tel_opts(state), [:cache, :warm_start], %{pool: state.pool}, fn ->
         warmed = warm_start(state)
         {warmed, warm_start_meta(state)}
       end)
@@ -476,7 +478,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     state = sighting(state, descriptor.key_hash)
 
     {result, state} =
-      Telemetry.span(tel_opts(state), [:cache, :admission], %{}, fn ->
+      Telemetry.span(tel_opts(state), [:cache, :admission], %{pool: state.pool}, fn ->
         {result, new_state} = decide_admission(state, descriptor)
         {{result, new_state}, admission_meta(result)}
       end)
@@ -876,7 +878,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
           [:cache, :flush, :stop],
           %{bytes: byte_size(payload)},
           %{
-            result: :ok
+            result: :ok,
+            pool: state.pool
           }
         )
 
@@ -936,7 +939,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
           0
       end
 
-    Telemetry.execute(tel_opts(state), [:cache, :cleanup, :stop], %{removed: removed}, %{})
+    Telemetry.execute(tel_opts(state), [:cache, :cleanup, :stop], %{removed: removed}, %{
+      pool: state.pool
+    })
+
     state
   end
 
@@ -1038,7 +1044,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       tel_opts(state),
       [:cache, :eviction, :stop],
       %{count: length(descriptors), bytes: bytes},
-      %{trigger: :reconcile}
+      %{trigger: :reconcile, pool: state.pool}
     )
 
     :ok

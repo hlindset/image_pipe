@@ -34,6 +34,9 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:transform, :detect],
     [:transform, :detect, :model],
     [:cache, :lookup],
+    [:cache, :source],
+    [:cache, :input],
+    [:cache, :refresh],
     [:cache, :write],
     [:cache, :admission],
     [:cache, :warm_start]
@@ -41,6 +44,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
   # One-shot (terminal) events — folded as annotations onto the current span.
   @oneshot_stages [
+    [:cache, :coordination],
     # Delivered-probe marker: folds onto the enclosing [:encode, :search] span,
     # naming the winning quality/phase that produced the shipped bytes. All keys
     # (quality, bytes, phase, index, score, scorer, tiles_scored) are in @safe_keys.
@@ -65,6 +69,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   # secret-bearing data. Keep :params opaque: matching concrete transform structs
   # here would invert the telemetry dependency boundary.
   @safe_keys [
+    :pool,
     :operation,
     :index,
     :operation_count,
@@ -326,6 +331,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     case meta[:result] do
       :ok -> :ok
       :options -> :ok
+      :not_modified -> :ok
       nil -> :ok
       _other -> :error
     end

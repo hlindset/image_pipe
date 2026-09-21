@@ -4,7 +4,6 @@ defmodule ImagePipe.API.SourceWireTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePipe.Cache.Entry
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.S3
   alias ImagePipe.SourceTest.CredentialProvider
@@ -90,7 +89,7 @@ defmodule ImagePipe.API.SourceWireTest do
     config =
       mount(
         source_schemes: %{"foobar" => {FoobarTranslator, []}},
-        sources: [foobar: {PlugCustomAdapter, adapter: :foobar}],
+        sources: [foobar: {PlugCustomAdapter, adapter: :foobar, stable: true}],
         cache: {CacheProbe, store: store}
       )
 
@@ -100,9 +99,9 @@ defmodule ImagePipe.API.SourceWireTest do
     assert first.status == 200
     assert_receive {:foobar_translate, ^source}
     assert_receive {:custom_resolve, _source}
-    assert_receive {:cache_lookup, first_key}
+    assert_receive {:cache_lookup, _source_key}
     assert_receive {:custom_fetch, :cat}
-    assert_receive {:cache_put, ^first_key, _body}
+    assert_receive {:cache_put, _key, _body}
 
     second = request("w=40/format=jpeg", source, config)
 
@@ -110,12 +109,23 @@ defmodule ImagePipe.API.SourceWireTest do
     assert second.resp_body == first.resp_body
     assert_receive {:foobar_translate, ^source}
     assert_receive {:custom_resolve, _source}
-    assert_receive {:cache_lookup, ^first_key}
+    assert_receive {:cache_lookup, _key}
     refute_receive {:custom_fetch, _fetch}
-    refute_receive {:cache_put, _key, _body}
   end
 
   test "an S3 cache hit does not fetch credentials or object bytes" do
+    store = :ets.new(:api_s3_source_cache, [:set, :public])
+    owner = self()
+
+    origin = fn conn ->
+      send(owner, :object_fetch)
+
+      conn
+      |> put_resp_header("cache-control", "public, max-age=60")
+      |> put_resp_content_type("image/jpeg")
+      |> send_resp(200, @image)
+    end
+
     config =
       mount(
         sources: [
@@ -124,17 +134,24 @@ defmodule ImagePipe.API.SourceWireTest do
              default: [
                endpoint: "https://objects.example.com",
                region: "eu-west-1",
-               credentials: {:provider, CredentialProvider, report_to: self()}
+               credentials: {:provider, CredentialProvider, report_to: self()},
+               req_options: [plug: origin]
              ]}
         ],
-        cache: {CacheProbe, result: {:hit, cache_entry()}}
+        cache: {CacheProbe, store: store}
       )
 
     response = request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config)
 
     assert response.status == 200
+    assert_receive {:fetch_credentials, _, _, _}
+    assert_receive :object_fetch
+    second = request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config)
+    assert second.status == 200
+    assert second.resp_body == response.resp_body
     assert_receive {:cache_lookup, _key}
     refute_receive {:fetch_credentials, _, _, _}
+    refute_receive :object_fetch
   end
 
   test "malformed URL sources reject before source resolution or cache access" do
@@ -185,15 +202,6 @@ defmodule ImagePipe.API.SourceWireTest do
   end
 
   defp public_resolver, do: fn "assets.example.com" -> {:ok, [{93, 184, 216, 34}]} end
-
-  defp cache_entry do
-    %Entry{
-      body: @image,
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-  end
 
   defp mount(overrides) do
     [max_body_bytes: 10_000_000, max_input_pixels: 40_000_000]

@@ -12,12 +12,13 @@ defmodule ImagePipe.Source.CacheSemantics do
   """
 
   @enforce_keys [:byte_identity, :stable?]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [policy: []]
 
   @type byte_identity :: {:strong, term()} | :none
 
   @type t :: %__MODULE__{
           byte_identity: byte_identity(),
-          stable?: boolean()
+          stable?: boolean(),
+          policy: ImagePipe.Source.CachePolicy.t()
         }
 end

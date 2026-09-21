@@ -113,7 +113,7 @@ defmodule ImagePipe.Source.S3.InstanceRole do
   defp decode_json(body) when is_map(body), do: {:ok, body}
 
   defp decode_json(body) when is_binary(body) do
-    case Jason.decode(body) do
+    case JSON.decode(body) do
       {:ok, map} -> {:ok, map}
       {:error, _} -> {:error, :imds_invalid_credentials}
     end

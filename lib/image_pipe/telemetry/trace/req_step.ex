@@ -1,29 +1,28 @@
 defmodule ImagePipe.Telemetry.Trace.ReqStep do
   @moduledoc """
-  Req steps that trace an outbound HTTP call as a logical client span, inject a W3C
-  `traceparent` header, and stamp `finch_private` so `ImagePipe.Telemetry.Trace.FinchCapture`
+  A Req step wrapper that traces an outbound HTTP call as a logical client span, injects a W3C
+  `traceparent` header, and stamps `finch_private` so `ImagePipe.Telemetry.Trace.FinchCapture`
   can attach physical wire spans under the same parent. Apply where the source builds
   its Req client (`req |> ReqStep.attach() |> Req.request(...)`).
 
   ## Active-exporter coupling (not the stack)
 
-  The request step reads `ImagePipe.Telemetry.Trace.Stack.context/0` for its parent, but the
-  response/error steps emit through the *active exporter* (`ImagePipe.Telemetry.Trace.exporter/0`)
-  directly, NOT through the per-process span stack. Req's response/error steps may run in a
-  different process (or with a different active span) than the request step, so the parent
-  identity is carried in the request's private state rather than read back off the stack.
+  The wrapper reads `ImagePipe.Telemetry.Trace.Stack.context/0` for its parent and carries
+  that identity in the request's private state. On completion, it emits through the
+  *active exporter* (`ImagePipe.Telemetry.Trace.exporter/0`) directly, preserving the
+  captured parent regardless of the active span when the HTTP call returns.
 
   ## No-op when no tracer is attached
 
-  When `ImagePipe.Telemetry.Trace.exporter/0` is `nil` (no tracer attached), the steps emit
+  When `ImagePipe.Telemetry.Trace.exporter/0` is `nil` (no tracer attached), the wrapper emits
   nothing. The header injection and `finch_private` stamp are cheap and harmless, so attaching
   `ReqStep` is safe to do unconditionally at the build site — a source fetch behaves identically
   whether or not a tracer is attached.
 
   ## `into: :self` timing caveat
 
-  The source streams the body with `into: :self`, so Req's response step (and thus this span's
-  stop) fires at **status + headers received**, not when the body finishes downloading. The
+  The source streams the body with `into: :self`, so the wrapper returns (and stops this span)
+  at **status + headers received**, not when the body finishes downloading. The
   logical client span's duration therefore covers connect + TTFB, not the full transfer. The
   captured status is correct.
   """
@@ -36,10 +35,14 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
 
   @spec attach(Req.Request.t()) :: Req.Request.t()
   def attach(%Req.Request{} = req) do
-    req
-    |> Req.Request.append_request_steps(image_pipe_trace_start: &start/1)
-    |> Req.Request.prepend_response_steps(image_pipe_trace_stop: &stop/1)
-    |> Req.Request.append_error_steps(image_pipe_trace_error: &error/1)
+    Req.Request.append_request_steps(req, image_pipe_trace: &trace/5)
+  end
+
+  defp trace(req, acc, fun, state, next) do
+    req = start(req)
+    result = next.(req, acc, fun, state)
+    finish(req, result)
+    result
   end
 
   defp start(%Req.Request{} = req) do
@@ -59,14 +62,13 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
     |> Req.merge(finch_private: %{@priv => {trace_id, span_id, flags}})
   end
 
-  defp stop({%Req.Request{} = req, %Req.Response{status: status} = resp}) do
+  defp finish(req, {outcome, %Req.Response{status: status}, _acc, _state})
+       when outcome in [:ok, :halt] do
     emit(req, %{"http.status_code": status}, :ok)
-    {req, resp}
   end
 
-  defp error({%Req.Request{} = req, exception}) do
+  defp finish(req, {{:error, exception}, _resp, _acc, _state}) do
     emit(req, %{"error.type": error_type(exception)}, :error)
-    {req, exception}
   end
 
   defp error_type(%{__struct__: mod}) when is_atom(mod), do: inspect(mod)

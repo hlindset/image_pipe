@@ -40,6 +40,7 @@ defmodule ImagePipe.Cache.Sink do
     debug = Keyword.get(opts, :debug_info)
 
     with {:ok, metadata} <- response_metadata(resolved_output, cost_us, debug),
+         metadata = %{metadata | source_record: Keyword.get(opts, :source_record)},
          {:ok, adapter_state} <- open_adapter_sink(adapter, key, metadata, cache_opts) do
       build(adapter, key, metadata, cache_opts, adapter_state)
     else
@@ -57,7 +58,11 @@ defmodule ImagePipe.Cache.Sink do
       when is_binary(content_type) do
     cost_us = Keyword.get(opts, :cost_us, 0)
     debug = Keyword.get(opts, :debug_info)
-    metadata = complete_body_metadata(content_type, cost_us, debug)
+
+    metadata = %{
+      complete_body_metadata(content_type, cost_us, debug)
+      | source_record: Keyword.get(opts, :source_record)
+    }
 
     case open_adapter_sink(adapter, key, metadata, cache_opts) do
       {:ok, adapter_state} ->
@@ -138,6 +143,8 @@ defmodule ImagePipe.Cache.Sink do
       {:error, _reason} = error -> error
       unexpected -> {:error, {:invalid_adapter_result, unexpected}}
     end
+  rescue
+    exception -> {:error, exception}
   end
 
   defp build(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts, adapter_state) do
@@ -200,7 +207,7 @@ defmodule ImagePipe.Cache.Sink do
   end
 
   defp emit_commit_result(%__MODULE__{} = sink, opts) do
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{pool: :output}, fn ->
       result =
         try do
           sink.adapter.commit_sink(sink.state, sink.adapter_opts)

@@ -11,11 +11,11 @@ defmodule ImagePipe.Source.S3 do
 
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Source
+  alias ImagePipe.Source.CachePolicy
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
-  alias ImagePipe.Source.Response
   alias ImagePipe.Source.S3.Credentials
 
   @internal_option_keys [
@@ -47,6 +47,7 @@ defmodule ImagePipe.Source.S3 do
                    ],
                    req_options: [type: :keyword_list, default: []],
                    stable: [type: {:in, [:auto, :trusted]}, default: :auto],
+                   cache_policy: [type: {:custom, CachePolicy, :validate, []}, default: []],
                    internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
                    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit],
                    receive_timeout: [type: :non_neg_integer],
@@ -65,6 +66,7 @@ defmodule ImagePipe.Source.S3 do
   def validate_options(opts) when is_list(opts) do
     with {:ok, validated} <- validate_options_schema(opts),
          {:ok, default} <- validate_config(Keyword.fetch!(validated, :default)),
+         {:ok, default} <- CachePolicy.validate_source(default),
          {:ok, buckets} <- validate_buckets(Keyword.fetch!(validated, :buckets), default) do
       {:ok, [default: default, buckets: buckets, telemetry_kind: :s3]}
     end
@@ -102,7 +104,10 @@ defmodule ImagePipe.Source.S3 do
          identity: identity,
          internal_cache: internal_cache,
          http_cache: Keyword.fetch!(config, :http_cache),
-         cache_semantics: cache_semantics(stable?, identity),
+         cache_semantics: %{
+           cache_semantics(stable?, identity)
+           | policy: Keyword.fetch!(config, :cache_policy)
+         },
          fetch:
            [
              endpoint: endpoint,
@@ -146,7 +151,7 @@ defmodule ImagePipe.Source.S3 do
         |> Keyword.take(@timeout_keys)
         |> Keyword.merge(runtime_opts)
 
-      {:ok, %Response{stream: ReqStream.stream(req_options, stream_options)}}
+      ReqStream.open(req_options, stream_options)
     end
   end
 
@@ -154,6 +159,14 @@ defmodule ImagePipe.Source.S3 do
     case NimbleOptions.validate(opts, @options_schema) do
       {:ok, validated} -> {:ok, validated}
       {:error, error} -> {:error, {:invalid_source_config, Exception.message(error)}}
+    end
+  end
+
+  @doc false
+  def prepare_cache(%Resolved{} = source, _opts, runtime) do
+    with {:ok, credentials} <-
+           Credentials.fetch(source.fetch[:bucket], source.fetch[:credentials], runtime) do
+      {:ok, %{source | fetch: Keyword.put(source.fetch, :credentials, {:static, credentials})}}
     end
   end
 
@@ -183,8 +196,13 @@ defmodule ImagePipe.Source.S3 do
     merged = Keyword.merge(default, opts)
 
     with {:ok, config} <- validate_config(merged),
+         {:ok, _explicit_policy} <-
+           CachePolicy.validate_source(
+             Keyword.put(config, :cache_policy, Keyword.get(opts, :cache_policy, []))
+           ),
          :ok <- require_credentials(config) do
-      {:ok, config}
+      policy = CachePolicy.merge(default[:cache_policy], config[:cache_policy])
+      {:ok, Keyword.put(config, :cache_policy, policy)}
     end
   end
 
@@ -309,11 +327,11 @@ defmodule ImagePipe.Source.S3 do
       (is_binary(revision) and revision != "")
   end
 
-  defp internal_cache_mode(config, stable?) do
+  defp internal_cache_mode(config, _stable?) do
     case Keyword.fetch!(config, :internal_cache) do
       :enabled -> :enabled
       :disabled -> :disabled
-      :auto -> if stable?, do: :enabled, else: :disabled
+      :auto -> :enabled
     end
   end
 

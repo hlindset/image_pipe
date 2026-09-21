@@ -134,11 +134,15 @@ Failure stop metadata (one of two shapes, by failure mode):
   `:max_body_bytes`). HTTP fetch failures are classified rather than collapsed
   so an observer can tell them apart: `:connect_error` (DNS/TLS/refused/connect
   or pool timeout), `:receive_timeout` (origin stalled mid-body),
-  `:invalid_body` (unparseable chunked framing), `:redirect_not_followed` /
+  `:truncated_body` (closed before a framed response completed),
+  `:connection_reset`, `:connection_closed`, or `:transport_error` (transport
+  failures after response headers), `:invalid_body` (unparseable HTTP framing),
+  `:redirect_not_followed` /
   `:invalid_redirect` / `:too_many_redirects` (redirect handling), and
   `:bad_status` for a non-success origin status (the underlying error tuple
   carries the numeric status as `{:bad_status, status}`; the metadata atom is
   the `:bad_status` category).
+
 - Decode / input-validation failure — `:result` is `:processing_error`; `:error`
   is a stable category atom (e.g. `:input_limit` when the decoded image exceeds
   `:max_input_pixels`, `:decode` for an undecodable body).
@@ -146,6 +150,11 @@ Failure stop metadata (one of two shapes, by failure mode):
   libvips open): also carries `:detected_source_format` set to the rejected family
   atom (e.g. `:gif`, `:svg`), so an observer can distinguish a format gate from a
   corrupt-body decode failure without parsing `:error`.
+
+An upstream `304` produces `result: :not_modified` on the source fetch span.
+The default Logger renders this outcome, and the trace exporter records it as
+a successful span. Origin validators, URLs, and request credentials are not
+included in the event.
 
 ### Transform execute span (`[:transform, :execute]`)
 
@@ -746,7 +755,30 @@ with `Telemetry.execute/4`, not a span) with:
 - `cache: :stage_cleanup_error` when abort cleanup fails after the response path
   has already failed open.
 
-Cache sink commits use the existing `[:cache, :write, ...]` span. A
+Coordinated source caching adds three spans (each has `:start`, `:stop`, and
+`:exception` events):
+
+- `[:cache, :input]` measures opening and verifying a cached original. Stop
+  metadata has `pool: :input` and `cache: :hit | :miss | :read_error`. A hit
+  includes `:bytes`, the original bytes reused without downloading a body;
+  read failures report `result: :cache_error` and fall back to origin access.
+- `[:cache, :source]` measures the source fill or conditional revalidation,
+  including complete-body staging and publication. Stop metadata has
+  `pool: :input` and `result: :ok | :source_error`.
+- `[:cache, :refresh]` measures supervised stale-while-revalidate work. It
+  retains the request outcome, so failed refreshes remain visible.
+
+The default Logger and trace Capture subscribe to all three. Trace attributes
+include the safe `:pool` field; credentials, source URLs, and origin headers are
+not included. Output-only hits do not emit an input-pool hit.
+Filesystem admission, warm-start, eviction, flush, and cleanup events carry
+the supervisor's `:pool` label too. The Logger appends `(input pool)` or
+`(output pool)` when a pool label is present.
+The one-shot `[:cache, :coordination]` event reports `operation: :source | :refresh`
+and `result: :acquired | :started | :coalesced | :backoff | :busy`. It exposes
+coalescing and bounded-capacity fallback without including the source key.
+
+Both pools use `[:cache, :write, ...]` with their `:pool` label. A
 successful commit stop event includes `cache: :write`. A commit error after
 successful streamed delivery includes `cache: :write_error` and
 `result: :cache_error`, but the response still fails open because the body was
@@ -854,6 +886,9 @@ defmodule MyApp.ImagePipeTelemetry do
     [:parse],
     [:source, :resolve],
     [:cache, :lookup],
+    [:cache, :input],
+    [:cache, :source],
+    [:cache, :refresh],
     [:output, :negotiate],
     [:output, :terminal],
     [:source, :fetch],

@@ -4,6 +4,7 @@ defmodule ImagePipe.Application do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePipe.Cache,
       ImagePipe.Output,
       ImagePipe.Source,
       ImagePipe.Telemetry
@@ -20,6 +21,9 @@ defmodule ImagePipe.Application do
     Capabilities.probe()
 
     children = [
+      ImagePipe.Cache.Resources,
+      {Task.Supervisor, name: ImagePipe.Cache.RefreshTasks},
+      ImagePipe.Cache.Work,
       ImagePipe.Telemetry.Trace.OtelReplay,
       ImagePipe.Source.S3.RefreshCache
     ]

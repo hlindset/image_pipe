@@ -182,6 +182,94 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     [opts: mount()]
   end
 
+  test "cookie storage partitions default to private on generated and conditional responses" do
+    opts = mount(storage_inputs: [{:cookie, "session"}])
+    first = get(@image_path, opts, [{"cookie", "session=a"}])
+    assert first.status == 200
+    assert get_resp_header(first, "cache-control") == ["private, max-age=31536000, immutable"]
+    [etag] = get_resp_header(first, "etag")
+    flush_messages()
+
+    conditional = get(@image_path, opts, [{"cookie", "session=a"}, {"if-none-match", etag}])
+    assert conditional.status == 304
+
+    assert get_resp_header(conditional, "cache-control") ==
+             get_resp_header(first, "cache-control")
+
+    refute_received :source_fetch_called
+    refute_received {:cache_get, _}
+  end
+
+  test "a host can explicitly permit public caching for cookie partitions" do
+    opts =
+      mount(
+        storage_inputs: [{:cookie, "session"}],
+        http_cache: [mode: :enabled, visibility: :public]
+      )
+
+    response = get(@image_path, opts, [{"cookie", "session=a"}])
+    assert get_resp_header(response, "cache-control") == ["public, max-age=31536000, immutable"]
+  end
+
+  test "a cookie partition remains private on an output cache hit" do
+    first = get(@image_path, mount(), [])
+    assert first.status == 200
+    assert_received {:cache_put, entry}
+    flush_messages()
+
+    opts =
+      mount(
+        storage_inputs: [{:cookie, "session"}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry}
+      )
+
+    hit = get(@image_path, opts, [{"cookie", "session=a"}])
+    assert hit.status == 200
+    assert hit.resp_body == first.resp_body
+    assert get_resp_header(hit, "cache-control") == ["private, max-age=31536000, immutable"]
+    refute_received :source_fetch_called
+  end
+
+  test "cookie visibility override preserves host policy and Set-Cookie precedence" do
+    opts =
+      mount(
+        storage_inputs: [{:cookie, "session"}],
+        http_cache: [mode: :enabled, visibility: :public]
+      )
+
+    private =
+      conn(:get, @image_path)
+      |> put_resp_header("cache-control", "private, max-age=10")
+      |> ImagePipe.Plug.call(opts)
+
+    assert get_resp_header(private, "cache-control") == ["private, max-age=10"]
+
+    response_cookie =
+      conn(:get, @image_path) |> put_resp_cookie("session", "a") |> ImagePipe.Plug.call(opts)
+
+    assert get_resp_header(response_cookie, "cache-control") == [
+             "max-age=0, private, must-revalidate"
+           ]
+
+    assert get_resp_header(response_cookie, "etag") == []
+  end
+
+  test "denied source storage suppresses cache access and conditional reuse" do
+    first = get(@image_path, mount(), [])
+    [etag] = get_resp_header(first, "etag")
+    flush_messages()
+
+    response =
+      get(@image_path, mount(source_cache_policy: [storage: :deny]), [{"if-none-match", etag}])
+
+    assert response.status == 200
+    assert get_resp_header(response, "cache-control") == ["no-store"]
+    assert get_resp_header(response, "etag") == []
+    assert_received :source_fetch_called
+    refute_received {:cache_get, _}
+    refute_received {:cache_put, _}
+  end
+
   test "stable public route emits cache-control and a stable etag", %{opts: opts} do
     conn = ImagePipe.Plug.call(conn(:get, @image_path), opts)
 
