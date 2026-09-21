@@ -85,7 +85,7 @@ cache: {ImagePipe.Cache.FileSystem,
   node_id: "node-0"}
 ```
 
-Use distinct roots and start `FileSystem.child_spec/1` for each bounded pool.
+Use distinct roots and start `ImagePipe.Cache.FileSystem.child_spec/1` for each bounded pool.
 Each owns its own byte budget, sketch, recency queues and maintenance. Output
 hits do not count as input demand. Original EXIF/ICC bytes are preserved.
 `pool: :input` labels the input supervisor's admission and maintenance telemetry;
@@ -225,8 +225,8 @@ delivery. Eviction cannot invalidate an open reader. This costs two sequential
 disk passes and avoids loading a whole response into BEAM memory. HEAD and 304
 paths close readers too. External in-place modification after verification can
 still cause a delivery failure; published cache bodies must remain immutable.
-`FileSystem.get/2` remains a binary convenience API for direct callers; the Plug
-uses its file-backed read path.
+`ImagePipe.Cache.FileSystem.get/2` returns a binary body for direct callers;
+the Plug uses its file-backed read path.
 
 Adapter errors fail open and log a warning. Invalid configuration fails Plug
 initialization. Bodies over cache `:max_body_bytes` are still delivered but not
