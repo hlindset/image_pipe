@@ -9,6 +9,7 @@ defmodule ImagePipe.Execution do
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Processing,
+      ImagePipe.ProcessingPool,
       ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
@@ -26,6 +27,7 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Processing
   alias ImagePipe.Processing.DebugBuilder
   alias ImagePipe.Processing.Terminal
+  alias ImagePipe.ProcessingPool
   alias ImagePipe.Representation
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
@@ -206,7 +208,51 @@ defmodule ImagePipe.Execution do
   end
 
   defp generate(context) do
+    case {Keyword.get(context.config, :cache), storable?(context)} do
+      {nil, _} -> generate_uncoalesced(context)
+      {_, false} -> generate_uncoalesced(context)
+      {cache, true} -> coalesce(context, cache)
+    end
+  end
+
+  defp coalesce(context, cache) do
+    case Cache.OutputWork.join(cache, context.representation.cache_key.hash, context.config) do
+      {:leader, lease} -> generate_leader(context, lease)
+      :ready -> cached_or_generate(context)
+      :bypass -> generate_uncoalesced(context)
+    end
+  end
+
+  defp cached_or_generate(context) do
+    case lookup(context) do
+      {:hit, output} -> {:ok, output}
+      :miss -> generate_uncoalesced(context)
+    end
+  end
+
+  defp generate_leader(context, lease) do
+    result =
+      case lookup(context) do
+        {:hit, output} -> {:ok, output}
+        :miss -> generate_uncoalesced(context, lease)
+      end
+
+    case result do
+      {:ok, %Output{value: {:stream, _}}} -> :ok
+      {:ok, _output} -> Cache.OutputWork.complete(lease, :ready)
+      {:error, _reason} -> Cache.OutputWork.complete(lease, :bypass)
+    end
+
+    result
+  catch
+    kind, reason ->
+      Cache.OutputWork.complete(lease, :bypass)
+      :erlang.raise(kind, reason, __STACKTRACE__)
+  end
+
+  defp generate_uncoalesced(context, lease \\ nil) do
     config = prepared_config(context)
+    config = Keyword.put(config, :output_lease, lease)
     key = if storable?(context), do: context.representation.cache_key
     result = generate(context, config, key)
     finish(context, result)
@@ -225,7 +271,13 @@ defmodule ImagePipe.Execution do
 
   defp generate(context, config, key) do
     {result, cost} =
-      Timing.measure(fn -> Terminal.render(context.source, context.request, config) end)
+      Timing.measure(fn ->
+        ProcessingPool.run(
+          Keyword.get(config, :processing_pool),
+          fn -> Terminal.render(context.source, context.request, config) end,
+          config
+        )
+      end)
 
     with {:ok, type, data} <- result do
       body =

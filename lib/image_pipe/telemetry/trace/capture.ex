@@ -7,6 +7,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   # Span stages emitted under the image_pipe prefix.
   @span_stages [
     [:request],
+    [:processing, :admission],
+    [:processing, :execute],
     [:parse],
     [:send],
     [:encode],
@@ -70,6 +72,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   # here would invert the telemetry dependency boundary.
   @safe_keys [
     :pool,
+    :active,
+    :queued,
     :operation,
     :index,
     :operation_count,
@@ -330,6 +334,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   defp status_from(meta) do
     case meta[:result] do
       :ok -> :ok
+      :admitted -> :ok
       :options -> :ok
       :not_modified -> :ok
       nil -> :ok

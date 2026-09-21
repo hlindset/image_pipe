@@ -1,5 +1,6 @@
 defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   use ExUnit.Case, async: false
+  alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Context, Inbound, Span, TestExporter}
   alias ImagePipe.Transform
@@ -44,6 +45,52 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
                     }}
   end
 
+  test "processing pool spans retain request parentage and close on timeout" do
+    prefix = [__MODULE__, :processing]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+
+    pool =
+      start_supervised!({ImagePipe.ProcessingPool, max_concurrency: 1, processing_timeout: 40})
+
+    config = [telemetry_prefix: prefix]
+
+    Telemetry.span(config, [:request], %{}, fn ->
+      result =
+        ImagePipe.ProcessingPool.run(
+          pool,
+          fn ->
+            Telemetry.span(config, [:output, :terminal], %{terminal: :info}, fn ->
+              {:ok, %{result: :ok}}
+            end)
+
+            receive do
+              :finish -> :ok
+            end
+          end,
+          config
+        )
+
+      assert result == {:error, {:processing, :timeout}}
+      {result, %{result: :processing_error}}
+    end)
+
+    assert_receive {:span,
+                    %Span{name: "image_pipe.processing.admission", status: :ok} = admission}
+
+    assert_receive {:span,
+                    %Span{name: "image_pipe.processing.execute", status: :error} = execution}
+
+    assert_receive {:span, %Span{name: "image_pipe.output.terminal"} = terminal}
+    assert_receive {:span, %Span{name: "image_pipe.request"} = request}
+    assert admission.parent_span_id == request.span_id
+    assert execution.parent_span_id == request.span_id
+    assert terminal.parent_span_id == execution.span_id
+    assert execution.attributes.result == :timeout
+    assert admission.attributes.active == 0
+    assert admission.attributes.queued == 0
+    assert execution.trace_id == request.trace_id
+  end
+
   test "captures coordinated cache stages and pool identity" do
     prefix = [__MODULE__, :coordinated]
     :ok = TestExporter.attach(self(), prefix: prefix)
@@ -72,6 +119,24 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
       assert event.name == "image_pipe.cache.coordination"
       assert event.attributes.result == :coalesced
     end
+  end
+
+  test "output coordination carries its request trace across the process hop" do
+    prefix = [__MODULE__, :output_coordination]
+    :ok = TestExporter.attach(self(), prefix: prefix)
+    opts = [telemetry_prefix: prefix]
+
+    Telemetry.span(opts, [:request], %{}, fn ->
+      {:leader, lease} =
+        OutputWork.join({__MODULE__, secret: "private"}, "key", opts)
+
+      OutputWork.complete(lease, :ready)
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.request", events: [event]}}
+    assert event.name == "image_pipe.cache.coordination"
+    assert event.attributes == %{pool: :output, operation: :output, result: :acquired}
   end
 
   test "captures a nested tree with one trace_id and correct parentage" do

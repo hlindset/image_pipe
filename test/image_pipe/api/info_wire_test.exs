@@ -148,7 +148,7 @@ defmodule ImagePipe.API.InfoWireTest do
     first = request("output=info", config, "image/webp")
     assert first.status == 200
     assert_received :origin_fetch
-    assert_received {:cache_lookup, key}
+    assert [key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_received {:cache_put, ^key, _}
     [etag] = get_resp_header(first, "etag")
 
@@ -156,7 +156,7 @@ defmodule ImagePipe.API.InfoWireTest do
     assert second.status == 200
     assert second.resp_body == first.resp_body
     assert get_resp_header(second, "etag") == [etag]
-    assert_received {:cache_lookup, ^key}
+    assert [^key] = Enum.uniq(CacheProbe.lookup_keys())
     refute_received :origin_fetch
     refute_received {:cache_put, _, _}
 

@@ -40,6 +40,7 @@ defmodule ImagePipe.Processing.Config do
   @options_schema NimbleOptions.new!(
                     sources: [type: :map],
                     source_cache_policy: [type: :keyword_list],
+                    processing_pool: [type: {:or, [:atom, :pid]}],
                     max_body_bytes: [type: :pos_integer, default: @default_max_body_bytes],
                     max_input_pixels: [type: :pos_integer, default: @default_max_input_pixels],
                     telemetry_prefix: [

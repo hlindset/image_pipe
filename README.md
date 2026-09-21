@@ -120,6 +120,11 @@ caches, and signing/encryption settings. Configured source inputs reuse the
 same cache entries across Elixir and HTTP calls. Raw file and binary inputs
 remain uncached.
 
+To bound concurrent generation across mounts and Elixir calls, supervise an
+`ImagePipe.ProcessingPool` and select it with `processing_pool: MyApp.Images`.
+See [processing controls](docs/processing-controls.md) for concurrency limits,
+bounded queues, deadlines, and cancellation.
+
 The [Elixir API guide](docs/elixir-api.md) covers shared configuration, the
 builder API, composition, direct execution, request inputs, URL generation,
 results, and validation.

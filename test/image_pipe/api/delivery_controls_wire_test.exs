@@ -17,7 +17,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
     assert get_resp_header(attached, "content-disposition") == [attachment("first.jpg")]
     assert [etag] = get_resp_header(attached, "etag")
     assert_receive :origin_fetch
-    assert_receive {:cache_lookup, first_key}
+    assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, stored_key, _body}
     assert stored_key.hash == first_key.hash
 
@@ -26,7 +26,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
     assert inline.resp_body == attached.resp_body
     assert get_resp_header(inline, "content-disposition") == [inline("second.jpg")]
     assert get_resp_header(inline, "etag") == [etag]
-    assert_receive {:cache_lookup, second_key}
+    assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert second_key.hash == first_key.hash
     refute_receive :origin_fetch
     refute_receive {:cache_put, _key, _body}
@@ -53,7 +53,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
 
       assert [etag] = get_resp_header(attached, "etag")
       assert_receive :origin_fetch
-      assert_receive {:cache_lookup, first_key}
+      assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
       assert_receive {:cache_put, stored_key, _body}
       assert stored_key.hash == first_key.hash
 
@@ -63,7 +63,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
       assert get_resp_header(inline, "content-type") == [content_type]
       assert get_resp_header(inline, "content-disposition") == [inline("second.#{extension}")]
       assert get_resp_header(inline, "etag") == [etag]
-      assert_receive {:cache_lookup, second_key}
+      assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
       assert second_key.hash == first_key.hash
       refute_receive :origin_fetch
       refute_receive {:cache_put, _key, _body}
@@ -77,7 +77,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
     assert first.status == 200
     assert [etag] = get_resp_header(first, "etag")
     assert_receive :origin_fetch
-    assert_receive {:cache_lookup, first_key}
+    assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, _, _body}
 
     second = request(:get, "w=64/format=jpeg/cb=deploy-b", config)
@@ -85,7 +85,7 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
     assert second.resp_body == first.resp_body
     assert get_resp_header(second, "etag") == [etag]
     assert_receive :origin_fetch
-    assert_receive {:cache_lookup, second_key}
+    assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, _, _body}
     refute second_key.hash == first_key.hash
   end
@@ -96,18 +96,18 @@ defmodule ImagePipe.API.DeliveryControlsWireTest do
 
     assert request(:get, options, config).status == 200
     assert_receive :origin_fetch
-    assert_receive {:cache_lookup, key}
+    assert [key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, _, _body}
 
     get = request(:get, options, config)
     assert get.status == 200
-    assert_receive {:cache_lookup, get_key}
+    assert [get_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert get_key.hash == key.hash
 
     head = request(:head, options, config)
     assert head.status == 200
     assert head.resp_body == ""
-    assert_receive {:cache_lookup, head_key}
+    assert [head_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert head_key.hash == key.hash
 
     for header <- [

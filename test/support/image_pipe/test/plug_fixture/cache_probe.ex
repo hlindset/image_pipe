@@ -17,6 +17,14 @@ defmodule ImagePipe.Test.PlugFixture.CacheProbe do
 
   @behaviour ImagePipe.Cache
 
+  def lookup_keys do
+    receive do
+      {:cache_lookup, key} -> [key | lookup_keys()]
+    after
+      0 -> []
+    end
+  end
+
   @impl true
   def get(key, opts) do
     target = message_target()

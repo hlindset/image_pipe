@@ -134,7 +134,7 @@ defmodule ImagePipe.API.CacheContractTest do
       results =
         for path <- paths do
           conn = ImagePipe.Plug.call(conn(:get, path), config)
-          assert_receive {:cache_lookup, key}
+          assert [key] = Enum.uniq(CacheProbe.lookup_keys())
           assert conn.status == 200, "expected #{path} to return 200, got #{conn.status}"
           {key.hash, get_resp_header(conn, "etag")}
         end
@@ -150,9 +150,9 @@ defmodule ImagePipe.API.CacheContractTest do
 
     for {path, accept_a, accept_b} <- cases do
       conn_a = request(path, config, accept_a)
-      assert_receive {:cache_lookup, key_a}
+      assert [key_a] = Enum.uniq(CacheProbe.lookup_keys())
       conn_b = request(path, config, accept_b)
-      assert_receive {:cache_lookup, key_b}
+      assert [key_b] = Enum.uniq(CacheProbe.lookup_keys())
 
       assert conn_a.status == 200
       assert conn_b.status == 200
@@ -171,9 +171,9 @@ defmodule ImagePipe.API.CacheContractTest do
 
     for {path, accept_a, accept_b} <- cases do
       conn_a = request(path, config, accept_a)
-      assert_receive {:cache_lookup, key_a}
+      assert [key_a] = Enum.uniq(CacheProbe.lookup_keys())
       conn_b = request(path, config, accept_b)
-      assert_receive {:cache_lookup, key_b}
+      assert [key_b] = Enum.uniq(CacheProbe.lookup_keys())
 
       assert conn_a.status == 200
       assert conn_b.status == 200
@@ -188,9 +188,9 @@ defmodule ImagePipe.API.CacheContractTest do
 
     for {path, accept} <- cases do
       conn_with = request(path, config, accept)
-      assert_receive {:cache_lookup, key_with}
+      assert [key_with] = Enum.uniq(CacheProbe.lookup_keys())
       conn_without = request(path, config, nil)
-      assert_receive {:cache_lookup, key_without}
+      assert [key_without] = Enum.uniq(CacheProbe.lookup_keys())
 
       assert conn_with.status == 200
       assert conn_without.status == 200
@@ -227,7 +227,7 @@ defmodule ImagePipe.API.CacheContractTest do
     results =
       for variant <- variants do
         conn = request_with_variant(path, config, variant)
-        assert_receive {:cache_lookup, key}
+        assert [key] = Enum.uniq(CacheProbe.lookup_keys())
         assert conn.status == 200
         assert_storage_vary(variant, get_resp_header(conn, "vary"))
         {key.hash, get_resp_header(conn, "etag")}

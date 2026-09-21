@@ -19,6 +19,7 @@ defmodule ImagePipe.Cache do
       Input,
       Resources,
       Work,
+      OutputWork,
       Key,
       FileSystem
     ]

@@ -26,6 +26,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   alias ImagePipe.Cache
   alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery.Producer
+  alias ImagePipe.ProcessingPool
   alias ImagePipe.Telemetry.Trace
 
   @call_timeout 60_000
@@ -47,6 +48,7 @@ defmodule ImagePipe.Delivery.Coordinator do
     :resolved_output,
     :content_type,
     :fetch_started_at,
+    :failure,
     phase: :new
   ]
 
@@ -89,6 +91,7 @@ defmodule ImagePipe.Delivery.Coordinator do
     # Hop A: adopt the request's trace context so spans emitted from THIS
     # process (e.g. [:cache, :write] at commit) nest under the request root.
     Trace.Stack.adopt(trace_context)
+    Cache.OutputWork.transfer(Keyword.get(config, :output_lease))
 
     {:ok,
      %__MODULE__{
@@ -106,7 +109,14 @@ defmodule ImagePipe.Delivery.Coordinator do
   @impl GenServer
   def handle_call(:prepare, from, %{phase: :new} = state) do
     fetch_started_at = System.monotonic_time(:microsecond)
-    {:ok, producer} = Producer.start_link(state.build_fun, state.trace_context)
+    coordinator = self()
+    pool = Keyword.get(state.config, :processing_pool)
+
+    build = fn pump ->
+      ProcessingPool.within(pool, coordinator, state.config, fn -> state.build_fun.(pump) end)
+    end
+
+    {:ok, producer} = Producer.start_link(build, state.trace_context)
     ref = Process.monitor(producer)
     producer_ref = Producer.request_next(producer, self())
 
@@ -126,6 +136,10 @@ defmodule ImagePipe.Delivery.Coordinator do
       when phase in [:prepared, :streaming] and is_pid(producer) do
     ref = Producer.request_next(producer, self())
     {:noreply, %{state | phase: :streaming, pending: {:next, from}, producer_request_ref: ref}}
+  end
+
+  def handle_call(:next, _from, %{phase: :failed, failure: failure} = state) do
+    {:stop, :normal, {:error, failure}, state}
   end
 
   def handle_call(:cancel, from, %{pending: nil} = state) do
@@ -175,13 +189,22 @@ defmodule ImagePipe.Delivery.Coordinator do
         {:DOWN, ref, :process, producer, reason},
         %{producer: producer, producer_monitor: ref} = state
       ) do
+    pending = state.pending
+    failure = producer_down_reason(reason)
+
     state =
       state
-      |> reply_pending({:error, producer_down_reason(reason)})
+      |> reply_pending({:error, failure})
       |> abort_cache_sink(:stream_error)
       |> clear_producer()
 
-    {:stop, :normal, mark_failed(%{state | pending: nil})}
+    state = mark_failed(%{state | pending: nil, failure: failure})
+    Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :bypass)
+
+    case pending do
+      nil -> {:noreply, state}
+      _pending_call -> {:stop, :normal, state}
+    end
   end
 
   def handle_info({ref, result}, %{producer_request_ref: ref} = state) when is_reference(ref) do
@@ -304,6 +327,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp handle_producer_result({:ok, :done}, %{pending: {:next, from}} = state) do
     with_owner_check(state, fn state ->
       Cache.commit_sink(state.cache_sink, state.config)
+      Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :ready)
       GenServer.reply(from, :done)
 
       state =
@@ -336,6 +360,7 @@ defmodule ImagePipe.Delivery.Coordinator do
       |> clear_producer()
 
     GenServer.reply(from, {:error, reason})
+    Cache.OutputWork.complete(Keyword.get(state.config, :output_lease), :bypass)
     {:stop, :normal, mark_failed(%{state | pending: nil})}
   end
 
@@ -423,6 +448,7 @@ defmodule ImagePipe.Delivery.Coordinator do
     |> abort_cache_sink(cache_reason)
   end
 
+  defp producer_down_reason({:shutdown, {:processing, _} = reason}), do: reason
   defp producer_down_reason(reason), do: {:session, {:producer_down, reason}}
 
   defp mark_failed(state), do: %{state | phase: :failed}

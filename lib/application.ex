@@ -21,9 +21,11 @@ defmodule ImagePipe.Application do
     Capabilities.probe()
 
     children = [
+      {Task.Supervisor, name: ImagePipe.ProcessingPool.Tasks},
       ImagePipe.Cache.Resources,
       {Task.Supervisor, name: ImagePipe.Cache.RefreshTasks},
       ImagePipe.Cache.Work,
+      ImagePipe.Cache.OutputWork,
       ImagePipe.Telemetry.Trace.OtelReplay,
       ImagePipe.Source.S3.RefreshCache
     ]

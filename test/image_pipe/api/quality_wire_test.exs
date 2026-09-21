@@ -221,11 +221,11 @@ defmodule ImagePipe.API.QualityWireTest do
     config = [cache: {CacheProbe, []}]
     first = response(options, mount([autoquality_max_iterations: 1] ++ config))
     assert first.status == 200
-    assert_receive {:cache_lookup, first_key}
+    assert [first_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, _key, _body}
     second = response(options, mount([autoquality_max_iterations: 12] ++ config))
     assert second.status == 200
-    assert_receive {:cache_lookup, second_key}
+    assert [second_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, _key, _body}
     refute first_key.hash == second_key.hash
     refute etag(first) == etag(second)

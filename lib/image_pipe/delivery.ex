@@ -34,6 +34,7 @@ defmodule ImagePipe.Delivery do
       ImagePipe.Cache,
       ImagePipe.Debug,
       ImagePipe.Plan,
+      ImagePipe.ProcessingPool,
       ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry

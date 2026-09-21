@@ -226,12 +226,12 @@ defmodule ImagePipe.APIWireTest do
       config = opts(cache: {CacheProbe, []})
 
       conn_a = get("/w=64/src/images/cat.jpg", config, [{"accept", "image/avif"}])
-      assert_receive {:cache_lookup, key_a}
+      assert [key_a] = Enum.uniq(CacheProbe.lookup_keys())
 
       conn_b =
         get("/w=64/src/images/cat.jpg", config, [{"accept", "image/avif,image/webp"}])
 
-      assert_receive {:cache_lookup, key_b}
+      assert [key_b] = Enum.uniq(CacheProbe.lookup_keys())
 
       assert get_resp_header(conn_a, "content-type") == ["image/avif"]
       assert get_resp_header(conn_b, "content-type") == ["image/avif"]
@@ -287,11 +287,11 @@ defmodule ImagePipe.APIWireTest do
       config = opts(cache: {CacheProbe, []})
 
       conn_a = get("/w=64/fit=contain/src/images/cat.jpg", config)
-      assert_receive {:cache_lookup, key_a}
+      assert [key_a] = Enum.uniq(CacheProbe.lookup_keys())
       assert conn_a.status == 200
 
       conn_b = get("/fit=contain/w=64/src/images/cat.jpg", config)
-      assert_receive {:cache_lookup, key_b}
+      assert [key_b] = Enum.uniq(CacheProbe.lookup_keys())
       assert conn_b.status == 200
 
       assert key_a.hash == key_b.hash

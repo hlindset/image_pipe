@@ -154,7 +154,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
     response = response(options, mount(detector: detector, cache: {CacheProbe, []}))
     assert response.status == 200
     assert [etag] = get_resp_header(response, "etag")
-    assert_receive {:cache_lookup, key}
+    assert [key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, _key, _body}
     {key.hash, etag}
   end
