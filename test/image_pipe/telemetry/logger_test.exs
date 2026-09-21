@@ -20,6 +20,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert {:error, :not_found} = Telemetry.detach_default_logger()
   end
 
+  test "logs processing admission and deadline outcomes at warning level" do
+    prefix = [__MODULE__, :processing]
+    Telemetry.attach_default_logger(prefix: prefix, events: [:request], level: :debug)
+
+    log =
+      capture_log([level: :warning], fn ->
+        for {stage, result} <- [
+              {:admission, :overloaded},
+              {:admission, :queue_timeout},
+              {:execute, :timeout}
+            ] do
+          Telemetry.span([telemetry_prefix: prefix], [:processing, stage], %{}, fn ->
+            {:ok, %{result: result}}
+          end)
+        end
+      end)
+
+    assert log =~ "processing admission: overloaded"
+    assert log =~ "processing admission: queue_timeout"
+    assert log =~ "processing execute: timeout"
+  end
+
   test "renders successful source revalidation and truncated-source failures" do
     prefix = [__MODULE__, :origin_revalidation]
     Telemetry.attach_default_logger(prefix: prefix)
@@ -80,6 +102,26 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "(input pool)"
     assert log =~ "cache coordination: coalesced"
     assert log =~ "[warning]"
+  end
+
+  test "output coalescing retains outcomes and warns on bypass" do
+    prefix = [__MODULE__, :output_coordination]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+
+    log =
+      capture_log(fn ->
+        for result <- [:waiting, :ready, :bypass] do
+          Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
+            pool: :output,
+            operation: :output,
+            result: result
+          })
+        end
+      end)
+
+    assert log =~ "cache coordination: waiting (output pool)"
+    assert log =~ "cache coordination: ready (output pool)"
+    assert log =~ "[warning] image_pipe cache coordination: bypass (output pool)"
   end
 
   test "renders the encode span with its output format" do

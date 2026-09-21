@@ -71,6 +71,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Output => "lib/image_pipe/output.ex",
     ImagePipe.Plan => "lib/image_pipe/plan.ex",
     ImagePipe.Processing => "lib/image_pipe/processing.ex",
+    ImagePipe.ProcessingPool => "lib/image_pipe/processing_pool.ex",
     ImagePipe.Plug => "lib/image_pipe/plug.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
@@ -142,6 +143,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Output,
       ImagePipe.Plan,
       ImagePipe.Processing,
+      ImagePipe.ProcessingPool,
       ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Source,
@@ -224,12 +226,19 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Debug,
       ImagePipe.Plan,
+      ImagePipe.ProcessingPool,
       ImagePipe.Response,
       ImagePipe.Source,
       ImagePipe.Telemetry
     ])
 
     assert_boundary_exports(delivery, [ImagePipe.Delivery.StreamPull])
+  end
+
+  test "processing admission is independent of image and HTTP implementation" do
+    pool = boundary_declaration(ImagePipe.ProcessingPool)
+    assert_boundary_deps(pool, [ImagePipe.Telemetry])
+    assert_boundary_exports(pool, [])
   end
 
   test "core and transform code do not depend on API request parsing" do
@@ -495,6 +504,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.Input,
       ImagePipe.Cache.Resources,
       ImagePipe.Cache.Work,
+      ImagePipe.Cache.OutputWork,
       ImagePipe.Cache.Key,
       ImagePipe.Cache.FileSystem
     ])

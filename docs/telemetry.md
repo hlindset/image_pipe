@@ -51,6 +51,8 @@ paths still emit the send span; streamed generation also emits delivery spans.
 [:image_pipe, :parse, ...]
 [:image_pipe, :source, :resolve, ...]
 [:image_pipe, :cache, :lookup, ...]
+[:image_pipe, :processing, :admission, ...]
+[:image_pipe, :processing, :execute, ...]
 [:image_pipe, :output, :negotiate, ...]
 [:image_pipe, :output, :terminal, ...]
 [:image_pipe, :source, :fetch, ...]
@@ -72,6 +74,27 @@ For example, the cache lookup stop event with the default prefix is:
 ```text
 [:image_pipe, :cache, :lookup, :stop]
 ```
+
+### Processing admission and execution
+
+With a configured [processing pool](processing-controls.md), generation misses
+emit `[:processing, :admission]` and `[:processing, :execute]` spans. Admission
+measures queue wait and reports `:admitted`, `:overloaded`, `:queue_timeout`,
+`:cancelled`, `:worker_down`, or `:unavailable`. Execution measures the admitted
+lifetime, including streamed demand pauses and cleanup, and reports `:ok`,
+`:processing_error`, `:timeout`, `:cancelled`, `:worker_down`, or `:unavailable`.
+The pool emits the stop event on worker death as well as ordinary completion.
+
+Start metadata includes `:active` and `:queued` counts before this admission or
+execution transition. No source, request, or pool-configuration values are emitted.
+Cache hits and conditional responses skip both spans. These are safe metadata
+keys in Trace Capture, and both spans reach the optional OpenTelemetry exporter.
+Execution inherits the request trace and parents the generated stage spans.
+Successful admission has trace status `:ok`; rejection and timeout have `:error`.
+
+The default Logger subscribes to both under its `:request` group, renders the
+result, and escalates overload, queue/processing timeout, unavailability, worker
+failure, and processing errors to `:warning`.
 
 ### Request span (`[:request]`)
 
@@ -779,9 +802,16 @@ not included. Output-only hits do not emit an input-pool hit.
 Filesystem admission, warm-start, eviction, flush, and cleanup events carry
 the supervisor's `:pool` label too. The Logger appends `(input pool)` or
 `(output pool)` when a pool label is present.
-The one-shot `[:cache, :coordination]` event reports `operation: :source | :refresh`
-and `result: :acquired | :started | :coalesced | :backoff | :busy`. It exposes
-coalescing and bounded-capacity fallback without including the source key.
+The one-shot `[:cache, :coordination]` event reports `operation: :source | :refresh | :output`.
+Source acquisition and refresh report
+`result: :acquired | :started | :coalesced | :backoff | :busy`.
+Output coalescing carries `pool: :output` and reports `:acquired` for the leader,
+`:waiting` for a follower, `:ready` when it can recheck the cache, `:bypass` when
+it must generate independently, and `:busy` when coordinator capacity is full.
+The Logger preserves the outcome and pool label, warning on `:busy` and `:bypass`.
+Trace Capture records these events under the requesting span, including across
+the output coordinator process hop. Cache keys and cache configuration are not
+included in coordination events.
 
 Both pools use `[:cache, :write, ...]` with their `:pool` label. A
 successful commit stop event includes `cache: :write`. A commit error after

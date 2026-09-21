@@ -29,7 +29,7 @@ defmodule ImagePipe.Delivery.Producer do
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Telemetry.Trace
 
-  @type pump_result :: :done | :halted | :empty
+  @type pump_result :: {:reply, pid(), reference(), term()}
   @type pump :: (Enumerable.t(), String.t(), term(), Info.t() | nil -> pump_result())
   @type build_fun :: (pump() -> pump_result() | {:error, term()})
 
@@ -85,8 +85,10 @@ defmodule ImagePipe.Delivery.Producer do
 
   # `build_fun` returning an {:error, _} means it never reached `pump` (a
   # fetch/decode/transform/encode failure) — nobody has been replied to yet.
-  # Any other return means `pump`/`pump_loop` already sent their own reply.
+  # Terminal replies wait for build_fun's resource brackets and processing
+  # admission to close before the coordinator commits the cache entry.
   defp finish({:error, _reason} = result, caller, ref), do: send(caller, {ref, result})
+  defp finish({:reply, caller, ref, result}, _caller, _ref), do: send(caller, {ref, result})
   defp finish(_pump_terminal, _caller, _ref), do: :ok
 
   defp pump(stream, content_type, resolved_output, debug, caller, ref) do
@@ -96,12 +98,10 @@ defmodule ImagePipe.Delivery.Producer do
         pump_loop(stream_state)
 
       :empty ->
-        send(caller, {ref, {:error, {:encode, :empty_stream}}})
-        :empty
+        {:reply, caller, ref, {:error, {:encode, :empty_stream}}}
 
       {:error, reason} ->
-        send(caller, {ref, {:error, reason}})
-        :empty
+        {:reply, caller, ref, {:error, reason}}
     end
   end
 
@@ -114,18 +114,15 @@ defmodule ImagePipe.Delivery.Producer do
             pump_loop(new_state)
 
           :done ->
-            send(caller, {ref, {:ok, :done}})
-            :done
+            {:reply, caller, ref, {:ok, :done}}
 
           {:error, reason} ->
-            send(caller, {ref, {:error, reason}})
-            :done
+            {:reply, caller, ref, {:error, reason}}
         end
 
       {:halt, caller, ref} ->
         halt_stream(stream_state)
-        send(caller, {ref, :ok})
-        :halted
+        {:reply, caller, ref, :ok}
     end
   end
 

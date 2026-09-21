@@ -33,8 +33,8 @@ rather than trusted HTTP headers. `:max_body_bytes` defaults to `10_000_000`
 bytes. `:max_input_pixels` defaults to `40_000_000` pixels after decode. Override
 both in `ImagePipe.Plug` init options.
 
-ImagePipe bounds source fetches per chunk and by total bytes, not by total
-wall-clock time. `:receive_timeout` limits waits between chunks;
+Source adapter limits bound fetches per chunk and by total bytes.
+`:receive_timeout` limits waits between chunks;
 `:connect_timeout` and `:pool_timeout` bound connection setup and checkout.
 `:max_body_bytes` limits total size. Use a front proxy or CDN to bound waits
 for ImagePipe's response and handle slow clients:
@@ -49,6 +49,13 @@ for ImagePipe's response and handle slow clients:
   buffering lets a proxy drain ImagePipe promptly and feed the client itself;
   the proxy's send timeout then bounds the client. Without a proxy, configure
   the server's outbound write or idle timeout.
+
+An optional [processing pool](processing-controls.md) caps concurrent generation
+and queued jobs across Plug and Elixir callers. Its processing deadline covers
+admitted generation through stream cleanup, including source consumption and
+downstream demand pauses. Source-cache acquisition and revalidation before the
+output-cache lookup retain their independent source limits. Output-cache hits
+and conditional responses bypass processing admission.
 
 Static result limits run after transforms and before output resolution or
 encoding. `:max_result_width` and `:max_result_height` default to `8_192`;

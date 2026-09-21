@@ -17,6 +17,7 @@ defmodule ImagePipe.Response.ErrorStatus do
           | :unsupported_media
           | :unsupported_output
           | :server_error
+          | :unavailable
           | {:passthrough, integer()}
 
   # Classes a producer may assert as the lead atom of a reason. Deliberately
@@ -54,6 +55,11 @@ defmodule ImagePipe.Response.ErrorStatus do
   def classify({:encode, _}), do: :server_error
   def classify({:encode, _, _}), do: :server_error
   def classify({:detector_unavailable, _}), do: :unprocessable
+  def classify({:processing, :timeout}), do: :gateway_timeout
+
+  def classify({:processing, reason}) when reason in [:overloaded, :queue_timeout, :unavailable],
+    do: :unavailable
+
   def classify(_other), do: :server_error
 
   # Step 1: a reason that leads with a known class atom routes by that class.
@@ -101,6 +107,7 @@ defmodule ImagePipe.Response.ErrorStatus do
   defp default_status_code(:unsupported_media), do: 415
   defp default_status_code(:unsupported_output), do: 501
   defp default_status_code(:server_error), do: 500
+  defp default_status_code(:unavailable), do: 503
 
   defp default_status_code({:passthrough, code}) when is_integer(code) and code in 100..599,
     do: code
@@ -157,6 +164,10 @@ defmodule ImagePipe.Response.ErrorStatus do
   def message_for({:encode, _, _}), do: "error encoding image"
 
   def message_for({:detector_unavailable, _}), do: "invalid image transform"
+  def message_for({:processing, :timeout}), do: "image processing timeout"
+  def message_for({:processing, :queue_timeout}), do: "image processing queue timeout"
+  def message_for({:processing, :overloaded}), do: "image processing overloaded"
+  def message_for({:processing, :unavailable}), do: "image processing unavailable"
 
   # Any reason not matched above is an unrecognized/unknown failure, which
   # classify/1 maps to :server_error (500).

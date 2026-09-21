@@ -12,6 +12,8 @@ defmodule ImagePipe.Telemetry.Logger do
   @group_span_events %{
     request: [
       [:request],
+      [:processing, :admission],
+      [:processing, :execute],
       [:send],
       [:encode],
       [:encode, :search],
@@ -175,7 +177,19 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp level_for([:debug, :collect, :error | _], _metadata, _base), do: :warning
 
-  defp level_for([:cache, :coordination], %{result: :busy}, _base), do: :warning
+  defp level_for([:cache, :coordination], %{result: result}, _base)
+       when result in [:busy, :bypass], do: :warning
+
+  defp level_for([:processing | _], %{result: result}, _base)
+       when result in [
+              :overloaded,
+              :queue_timeout,
+              :timeout,
+              :unavailable,
+              :worker_down,
+              :processing_error
+            ],
+       do: :warning
 
   defp level_for(suffix, metadata, base) do
     if stage_warning?(suffix, metadata), do: :warning, else: base

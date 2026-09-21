@@ -42,13 +42,13 @@ defmodule ImagePipe.API.MetadataWireTest do
     implicit = response("format=jpeg", config)
     assert implicit.status == 200
     assert_receive :origin_fetch
-    assert_receive {:cache_lookup, implicit_key}
+    assert [implicit_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, put_key, _body}
     assert put_key.hash == implicit_key.hash
 
     explicit = response("format=jpeg/meta=copyright", config)
     assert explicit.status == 200
-    assert_receive {:cache_lookup, explicit_key}
+    assert [explicit_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert explicit_key.hash == implicit_key.hash
     refute_receive :origin_fetch
     refute_receive {:cache_put, _key, _body}
@@ -58,7 +58,7 @@ defmodule ImagePipe.API.MetadataWireTest do
     stripped = response("format=jpeg/meta=strip", config)
     assert stripped.status == 200
     assert_receive :origin_fetch
-    assert_receive {:cache_lookup, stripped_key}
+    assert [stripped_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, stripped_put_key, _body}
     assert stripped_put_key.hash == stripped_key.hash
     refute stripped_key.hash == implicit_key.hash
@@ -68,7 +68,7 @@ defmodule ImagePipe.API.MetadataWireTest do
     kept = response("format=jpeg/meta=keep", config)
     assert kept.status == 200
     assert_receive :origin_fetch
-    assert_receive {:cache_lookup, kept_key}
+    assert [kept_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_receive {:cache_put, kept_put_key, _body}
     assert kept_put_key.hash == kept_key.hash
     refute kept_key.hash in [implicit_key.hash, stripped_key.hash]
@@ -76,7 +76,7 @@ defmodule ImagePipe.API.MetadataWireTest do
 
     cached = response("format=jpeg/meta=keep", config)
     assert cached.status == 200
-    assert_receive {:cache_lookup, cached_key}
+    assert [cached_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert cached_key.hash == kept_key.hash
     refute_receive :origin_fetch
     refute_receive {:cache_put, _key, _body}

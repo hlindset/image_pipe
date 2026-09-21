@@ -149,7 +149,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
     first = request("gray/output=lqip-css", config, "image/webp")
     assert first.status == 200
     assert_received :origin_fetch
-    assert_received {:cache_lookup, key}
+    assert [key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_received {:cache_put, ^key, _}
     [etag] = get_resp_header(first, "etag")
 
@@ -160,7 +160,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
     assert [disposition] = get_resp_header(second, "content-disposition")
     assert disposition =~ "attachment"
     assert disposition =~ "placeholder.txt"
-    assert_received {:cache_lookup, ^key}
+    assert [^key] = Enum.uniq(CacheProbe.lookup_keys())
     refute_received :origin_fetch
 
     conditional =
@@ -177,7 +177,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
       response = request(options, config)
       assert response.status == 200
       refute get_resp_header(response, "etag") == [etag]
-      assert_received {:cache_lookup, other_key}
+      assert [other_key] = Enum.uniq(CacheProbe.lookup_keys())
       refute other_key == key
     end
   end

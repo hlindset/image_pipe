@@ -21,7 +21,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
     plain = request("/w=12/format=png/src/#{@source}", config)
     assert plain.status == 200
     assert_received :origin_fetch
-    assert_received {:cache_lookup, plain_key}
+    assert [plain_key] = Enum.uniq(CacheProbe.lookup_keys())
     assert_received {:cache_put, _key, _entry}
     assert [etag] = get_resp_header(plain, "etag")
 
@@ -42,7 +42,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
       assert response.status == 200
       assert response.resp_body == plain.resp_body
       assert get_resp_header(response, "etag") == [etag]
-      assert_received {:cache_lookup, key}
+      assert [key] = Enum.uniq(CacheProbe.lookup_keys())
       assert key.hash == plain_key.hash
       refute_received :origin_fetch
       refute_received {:cache_put, _key, _entry}
