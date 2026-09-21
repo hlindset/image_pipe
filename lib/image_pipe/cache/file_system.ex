@@ -9,11 +9,24 @@ defmodule ImagePipe.Cache.FileSystem do
   alias ImagePipe.Format
   @metadata_version 1
 
+  @doc """
+  Returns the supervision tree required by a bounded filesystem cache.
+
+  With `:max_size_bytes`, returns a supervisor child specification for the
+  cache's registry and admission process. Otherwise returns `:ignore`.
+  Use the same options as the cache adapter and start it before serving requests.
+  """
+  @spec child_spec(keyword()) :: Supervisor.child_spec() | :ignore
   defdelegate child_spec(opts), to: Store
+  @doc false
   defdelegate registry_name(root), to: Store
+  @doc false
   defdelegate paths(key, opts), to: Store
+  @doc false
   defdelegate paths_from_hash(hash, opts), to: Store
+  @doc false
   defdelegate read_descriptor(path), to: Store
+  @doc false
   defdelegate delete_victims(victims, opts), to: Store
   @impl true
   defdelegate validate_options(opts), to: Store
@@ -30,6 +43,12 @@ defmodule ImagePipe.Cache.FileSystem do
     Store.open_sink(key, payload, opts)
   end
 
+  @doc """
+  Reads a cached response and materializes its complete body as a binary.
+
+  Returns `{:hit, entry}`, `:miss`, or `{:error, reason}`. The cached file is
+  verified before reading, and its descriptor is closed before returning.
+  """
   @impl true
   def get(key, opts) do
     case open(key, opts) do
