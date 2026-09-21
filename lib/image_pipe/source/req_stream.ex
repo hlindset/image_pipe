@@ -1,6 +1,7 @@
 defmodule ImagePipe.Source.ReqStream do
   @moduledoc false
 
+  alias ImagePipe.Source.HTTP.PinnedTarget
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.StreamError
@@ -61,21 +62,42 @@ defmodule ImagePipe.Source.ReqStream do
       :ok ->
         request_and_route(req_options, runtime_opts, validate, redirects_left, redirects_allowed?)
 
+      {:ok, addresses} ->
+        request_and_route(
+          req_options,
+          runtime_opts,
+          validate,
+          redirects_left,
+          redirects_allowed?,
+          addresses
+        )
+
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp request_and_route(req_options, runtime_opts, validate, redirects_left, redirects_allowed?) do
+  defp request_and_route(
+         req_options,
+         runtime_opts,
+         validate,
+         redirects_left,
+         redirects_allowed?,
+         addresses \\ nil
+       ) do
     clock = Keyword.get(runtime_opts, :clock, fn -> System.system_time(:second) end)
     previous = Keyword.get(runtime_opts, :source_validation)
-    request = req_options |> request_options(runtime_opts) |> Req.new()
-    conditional_headers = Origin.conditional_headers(previous, request)
 
     request =
-      request
-      |> Req.merge(headers: conditional_headers)
+      req_options
+      |> request_options(runtime_opts)
+      |> Req.new()
       |> ReqStep.attach()
+      |> PinnedTarget.attach(addresses)
+
+    conditional_headers = Origin.conditional_headers(previous, request)
+
+    request = Req.merge(request, headers: conditional_headers)
 
     requested_at = clock.()
 
