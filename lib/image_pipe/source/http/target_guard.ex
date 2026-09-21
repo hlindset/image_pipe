@@ -6,7 +6,7 @@ defmodule ImagePipe.Source.HTTP.TargetGuard do
   @type resolver :: (String.t() -> {:ok, [:inet.ip_address()]} | {:error, term()})
 
   @spec validate(String.t(), [String.t()], AddressPolicy.predicate(), resolver()) ::
-          :ok | {:error, :denied_scheme | :denied_host | :denied_address}
+          {:ok, [:inet.ip_address()]} | {:error, :denied_scheme | :denied_host | :denied_address}
   def validate(url, allowed_hosts, predicate, resolver) when is_binary(url) do
     uri = URI.parse(url)
 
@@ -14,7 +14,11 @@ defmodule ImagePipe.Source.HTTP.TargetGuard do
          host = String.downcase(uri.host || ""),
          :ok <- check_host(host, allowed_hosts),
          {:ok, addresses} <- resolve(host, resolver) do
-      if AddressPolicy.allow?(predicate, addresses), do: :ok, else: {:error, :denied_address}
+      case Enum.all?(addresses, &:inet.is_ip_address/1) and
+             AddressPolicy.allow?(predicate, addresses) do
+        true -> {:ok, Enum.uniq(addresses)}
+        false -> {:error, :denied_address}
+      end
     end
   end
 

@@ -214,7 +214,7 @@ covers optional detector setup, weights, fallback, and strict availability check
   operations, and materialization.
 - [Execution flow](docs/execution_flow.md): the request lifecycle.
 - [Source network policy](docs/source-network-policy.md): SSRF protection,
-  private origins, DNS resolution, and the DNS-rebinding limitation.
+  private origins, DNS resolution, and connection pinning.
 
 ## Demo
 

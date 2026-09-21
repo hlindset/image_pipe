@@ -4,6 +4,8 @@ defmodule ImagePipe.Source.HTTP do
 
   `:allowed_hosts` is required. Redirects are disabled by default and every
   redirect target is checked against the same host and network-address policy.
+  The default transport connects to validated addresses while preserving the
+  original hostname for HTTP and TLS.
   Transport settings may be supplied through the documented timeout and
   `:req_options` fields in the mount configuration.
   """

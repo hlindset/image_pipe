@@ -17,7 +17,7 @@ defmodule ImagePipe.Source.HTTP.TargetGuardTest do
              ["assets.example.com"],
              default_policy(),
              res
-           ) == :ok
+           ) == {:ok, [{93, 184, 216, 34}]}
   end
 
   test "denies non-http(s) scheme before host checks" do
@@ -38,7 +38,7 @@ defmodule ImagePipe.Source.HTTP.TargetGuardTest do
              ["assets.example.com"],
              default_policy(),
              res
-           ) == :ok
+           ) == {:ok, [{93, 184, 216, 34}]}
 
     assert TargetGuard.validate(
              "https://evil.example/x",
@@ -72,7 +72,7 @@ defmodule ImagePipe.Source.HTTP.TargetGuardTest do
              ["93.184.216.34"],
              default_policy(),
              res
-           ) == :ok
+           ) == {:ok, [{93, 184, 216, 34}]}
   end
 
   test "classifies bracketed IPv6 literal hosts" do
@@ -103,5 +103,17 @@ defmodule ImagePipe.Source.HTTP.TargetGuardTest do
 
     assert TargetGuard.validate("https://h/x", ["h"], default_policy(), raise_res) ==
              {:error, :denied_address}
+  end
+
+  test "denies malformed addresses returned by a host resolver" do
+    for ip <- [{256, 0, 0, 1}, {-1, 0, 0, 1}, {:bad, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 65_536}] do
+      assert {:error, :denied_address} =
+               TargetGuard.validate(
+                 "https://h/x",
+                 ["h"],
+                 default_policy(),
+                 fn _ -> {:ok, [ip]} end
+               )
+    end
   end
 end

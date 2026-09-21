@@ -13,6 +13,18 @@ For each request, and again for each redirect, the adapter:
 3. Resolves the host and **denies the fetch if any resolved address is not
    public** (loopback, unspecified, link-local, private, CGNAT, unique-local,
    multicast, broadcast, or otherwise reserved).
+4. Connects directly to a validated IP, preserving the original HTTP Host,
+   TLS server name and certificate hostname verification. A failed connection
+   may try the next validated address; HTTP responses and body failures do not
+   trigger address failover.
+
+Each redirect is resolved, validated and pinned separately. Connection pools
+are separated by the logical hostname and selected address, so a previously
+opened connection cannot bypass a new address decision. The logical URL is
+retained for request signing, redirect resolution and origin cache validators.
+With a configured forward proxy, plain HTTP request targets use the validated
+IP and HTTPS CONNECT targets use that IP; the origin hostname is retained for
+HTTP Host and TLS identity.
 
 IPv4 literal encodings (decimal, octal, hex) and IPv4-mapped / NAT64 / 6to4 IPv6
 forms are canonicalized before classification, so they cannot be used to smuggle
@@ -68,11 +80,9 @@ address_resolver: fn host -> {:ok, [{93, 184, 216, 34}]} end
 ```
 
 It returns `{:ok, [ip_tuple]}` or `{:error, term}`. Errors, empty results, and
-exceptions deny the fetch.
+exceptions deny the fetch. Addresses are tried in resolver order, with duplicates
+removed. The default resolver lists IPv4 addresses before IPv6 addresses.
 
-## Known limitation: DNS rebinding
-
-This policy resolves and validates but does not pin the connection. The HTTP
-client resolves the hostname again when it connects, so a DNS-rebinding attacker
-could return a public address during validation and a private address during the
-connection. Preventing that requires connecting to the validated IP.
+Pinning applies to the built-in Req/Finch network transport. Host-supplied Req
+adapters own their transport behavior; `Req.Plug` runs locally without opening
+a network connection.
