@@ -53,7 +53,7 @@ defmodule ImagePipe.ProcessingPoolTest do
   end
 
   test "queue expiry does not run the callback or leak capacity", %{tasks: tasks} do
-    pool = pool(max_concurrency: 1, max_queue: 1, queue_timeout: 30)
+    pool = pool(max_concurrency: 1, max_queue: 1, queue_timeout: 1_000)
     first = blocked(tasks, pool, :first)
     assert_receive {:started, :first, worker}
     assert {:error, {:processing, :queue_timeout}} = ProcessingPool.run(pool, fn -> flunk() end)
