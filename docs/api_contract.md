@@ -1,5 +1,9 @@
 # API contract
 
+For setup and everyday usage, start with the [documentation overview](index.md).
+The [processing reference](processing.md) organizes options by task with URL and
+Elixir examples. This contract specifies exact semantics and implementation invariants.
+
 ## Direction
 
 ImagePipe has one declarative processing model, one request lifecycle, and one

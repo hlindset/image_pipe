@@ -3,6 +3,48 @@ defmodule ImagePipe.MixProject do
 
   @version "0.1.0"
   @source_url "https://github.com/hlindset/image_pipe"
+  @guide_groups [
+    "Getting started": [
+      "docs/index.md",
+      "docs/installation.md",
+      "docs/plug-usage.md",
+      "docs/elixir-api.md",
+      "docs/combined-usage.md",
+      "docs/fiddle.md"
+    ],
+    Configuration: [
+      "docs/configuration.md",
+      "docs/sources.md",
+      "docs/urls.md"
+    ],
+    "Processing options": [
+      "docs/processing.md",
+      "docs/processing/resize.md",
+      "docs/processing/crop.md",
+      "docs/processing/effects.md",
+      "docs/processing/output.md",
+      "docs/processing/request.md",
+      "docs/content-aware-gravity.md"
+    ],
+    Operations: [
+      "docs/cache.md",
+      "docs/cdn-http-cache.md",
+      "docs/processing-controls.md",
+      "docs/source-network-policy.md",
+      "docs/telemetry.md",
+      "docs/debug_headers.md",
+      "docs/cookbook/opentelemetry-jaeger.md",
+      "docs/operational_notes.md"
+    ],
+    Internals: [
+      "docs/api_contract.md",
+      "docs/execution_flow.md",
+      "docs/transform_operations.md",
+      "docs/cache-benchmark.md"
+    ],
+    Project: ["README.md", "CHANGELOG.md", "LICENSE.md"]
+  ]
+  @guide_paths Enum.flat_map(@guide_groups, fn {_group, paths} -> paths end)
   @internal_doc_references [
     "ImagePipe.Cache.normalize_adapter_options/2",
     "ImagePipe.Delivery.Producer",
@@ -53,44 +95,31 @@ defmodule ImagePipe.MixProject do
       aliases: aliases(),
       deps: deps(),
       docs: [
-        main: "readme",
+        main: "overview",
         source_ref: "v#{@version}",
         source_url: @source_url,
         skip_code_autolink_to: @internal_doc_references,
         skip_undefined_reference_warnings_on: @internal_typespec_references,
         assets: %{"docs/assets" => "docs/assets"},
-        extras: [
-          "README.md",
-          "CHANGELOG.md",
-          "LICENSE.md",
-          "docs/cache.md",
-          {"docs/cache-benchmark.md", title: "Cache Benchmarks"},
-          {"docs/cdn-http-cache.md", title: "CDN HTTP Caching"},
-          "docs/operational_notes.md",
-          {"docs/processing-controls.md", title: "Processing Controls"},
-          "docs/telemetry.md",
-          "docs/debug_headers.md",
-          {"docs/api_contract.md", title: "API Contract"},
-          {"docs/elixir-api.md", title: "Elixir API"},
-          {"docs/execution_flow.md", title: "Execution Flow"},
-          {"docs/source-network-policy.md", title: "Source Network Policy"},
-          {"docs/content-aware-gravity.md", title: "Content-aware Cropping"},
-          {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
-          "docs/transform_operations.md"
-        ],
+        extras:
+          Enum.map(@guide_paths, fn
+            "docs/index.md" -> {"docs/index.md", filename: "overview"}
+            path -> path
+          end),
+        groups_for_extras: @guide_groups,
         groups_for_modules: [
-          "Package API": [ImagePipe],
-          "Plug API": [ImagePipe.Plug],
-          API: [ImagePipe.API, ~r/ImagePipe\.API\..*/],
-          "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
-          "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
+          "Application API": [ImagePipe, ImagePipe.Config, ImagePipe.Result, ImagePipe.Plug],
+          "Source API": [ImagePipe.Source, ~r/ImagePipe\.Source\..*/],
           "Cache API": [ImagePipe.Cache, ~r/ImagePipe\.Cache\..*/],
-          "Runtime Internals": [
-            ~r/ImagePipe\.Source.*/,
-            ~r/ImagePipe\.Output.*/,
-            ~r/ImagePipe\.Response.*/,
-            ImagePipe.Telemetry
-          ]
+          Operations: [
+            ImagePipe.ProcessingPool,
+            ImagePipe.Telemetry,
+            ~r/ImagePipe\.Telemetry\..*/
+          ],
+          "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
+          "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
+          "URL API": [ImagePipe.API, ~r/ImagePipe\.API\..*/],
+          "Runtime internals": [~r/.*/]
         ]
       ],
       test_coverage: [tool: ExCoveralls],
@@ -140,28 +169,14 @@ defmodule ImagePipe.MixProject do
 
   defp package do
     [
-      files: [
-        "lib",
-        "priv",
-        "docs/cache.md",
-        "docs/cache-benchmark.md",
-        "docs/cdn-http-cache.md",
-        "docs/execution_flow.md",
-        "docs/api_contract.md",
-        "docs/source-network-policy.md",
-        "docs/content-aware-gravity.md",
-        "docs/assets/demo-fiddle-desktop.png",
-        "docs/operational_notes.md",
-        "docs/processing-controls.md",
-        "docs/telemetry.md",
-        "docs/debug_headers.md",
-        "docs/cookbook/opentelemetry-jaeger.md",
-        "docs/transform_operations.md",
-        "mix.exs",
-        "README.md",
-        "LICENSE.md",
-        "CHANGELOG.md"
-      ],
+      files:
+        @guide_paths ++
+          [
+            "lib",
+            "priv",
+            "docs/assets/demo-fiddle-desktop.png",
+            "mix.exs"
+          ],
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,

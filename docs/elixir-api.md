@@ -1,5 +1,9 @@
 # Elixir API
 
+Start with [installation](installation.md) if ImagePipe is not in your application.
+For a shared HTTP endpoint and background jobs, see [combined usage](combined-usage.md).
+The [processing reference](processing.md) pairs URL and Elixir options by task.
+
 Use the `ImagePipe` builder API to construct an immutable processing plan with
 typed Elixir values. The resulting builder is reusable across sources and keeps
 its plan separate from host configuration:
@@ -17,6 +21,15 @@ thumbnail =
 
 Execute the plan directly with `IP.run/3`, or write its result with
 `IP.write/4`. Generate an equivalent API URL with `IP.url/3` or `IP.url!/3`.
+
+For a first local result, run:
+
+```elixir
+{:ok, result} = IP.write(thumbnail, {:file, "photos/original.jpg"}, "thumbnail.webp")
+```
+
+The input is an existing file relative to your working directory. The output
+format comes from the plan; `write` overwrites an existing destination.
 
 ## Shared configuration
 
@@ -376,94 +389,38 @@ terminal lifecycle.
 
 ## Group options
 
-Numbers in crop, region, and offset coordinates mean pixels. `{:px, number}`
-is also accepted; `{:pct, 50}` means 50 percent. Crop percentages resolve in
-the display frame after trim. Resize dimensions are positive integers or
-`:auto`; minimum dimensions are positive integers.
+Use the categorized processing reference for accepted values, defaults,
+constraints, and equivalent URL syntax:
 
-Colors accept `{red, green, blue}` integers in `0..255`, CSS color names,
-or three/six-digit hex strings with an optional `#`.
+- [Resize and layout](processing/resize.md): dimensions, fit, DPR, zoom, canvas, padding, background.
+- [Orientation and cropping](processing/crop.md): rotation, trim, regions, guides, and offsets.
+- [Effects](processing/effects.md): filters, color adjustments, and overlays.
 
-| Option | Value |
-| --- | --- |
-| `resize` | Keywords: `width`, `height`, `min_width`, `min_height`, `fit`, `enlarge`, `zoom` |
-| `resize[:fit]` | `:contain`, `:cover`, `:cover_down`, `:stretch`, `:auto` |
-| `resize[:enlarge]` | Boolean |
-| `resize[:zoom]` | Positive number or `{x, y}` positive factors |
-| `dpr` | Positive number |
-| `rotate` | Degrees from 0 through 360 |
-| `flip`, `trim_symmetry` | `:horizontal`, `:vertical`, `:both` |
-| `trim` | `:auto`, color, or `{color, nonnegative_tolerance}` |
-| `crop` | `{width, height}`, positive lengths |
-| `region` | `{x, y, width, height}`, positive width/height |
-| `crop_ratio` | `{positive_integer, positive_integer}`, e.g. `{16, 9}` |
-| `crop_ratio_enlarge` | Boolean |
-| `anchor` | Named anchor, `:smart`, or `:smart_face` |
-| `focus` | `{x, y}`, each in `0..1` |
-| `detect` | `:all` or a nonempty list of class names and `{class, weight}` pairs |
-| `anchor_offset`, `extend_offset` | `{x, y}` signed lengths |
-| `extend`, `extend_ratio` | Boolean; mutually exclusive when enabled |
-| `extend_at` | Named anchor |
-| `padding` | Nonnegative integer or CSS-order tuple of two, three, or four integers |
-| `background` | Color or `{color, alpha}` with alpha in `0..1` |
-
-Named anchors are `:center`, `:top`, `:bottom`, `:left`, `:right`,
-`:top_left`, `:top_right`, `:bottom_left`, and `:bottom_right`.
-Detection names are strings; `:all` can also appear in the list.
-For example, `detect: [{:all, 2}, {"face", 3}]` assigns weight 3 to faces
-and weight 2 to other detections. Weights must be positive and at most 1,000,000.
-
-The same [geometry constraints](api_contract.md) apply as in URLs: guides need
-a crop or cover-family resize, offsets need an explicit named anchor, and
-canvas extension needs concrete width and height.
-
-| Effect | Value |
-| --- | --- |
-| `blur`, `sharpen` | Nonnegative sigma |
-| `pixelate` | Positive integer block size |
-| `gray`, `bitonal` | Boolean |
-| `brightness` | Integer from -255 to 255 |
-| `contrast`, `saturation` | Positive factor; 1 is identity |
-| `monochrome` | `[intensity: fraction, color: color]`; color defaults to `{179, 179, 179}` |
-| `duotone` | `[intensity: fraction, shadow: color, highlight: color]`; colors default to black and white |
-| `colorize` | `[opacity: fraction, color: color, keep_alpha: boolean]`; `keep_alpha` defaults to false |
-| `gradient` | `[opacity: fraction, color: color, angle: degrees, start: fraction, stop: fraction]` |
-
-Fractions are numbers in `0..1`. Gradient angle defaults to 0 degrees (down),
-start to 0, and stop to 1. Angles wrap modulo 360.
+`ImagePipe.group/2` appends a complete group in the fixed processing order.
+Coordinates accept numbers for pixels, `{:px, number}`, or `{:pct, percentage}`.
+Named options use atoms such as `:cover_down` and `:top_left`.
+Colors accept RGB tuples, CSS names, or three/six-digit hex strings.
 
 ## Output options
 
-| Option | Value |
-| --- | --- |
-| `terminal` | `:image` (default), `:info`, `:blurhash`, `:lqip_css` |
-| `format` | `:jpeg`, `:png`, `:webp`, `:avif`, `:jpeg_xl` |
-| `quality` | Integer in `1..100` |
-| `format_qualities` | Format keywords, e.g. `[webp: 80, jpeg: 85]` |
-| `metadata` | `:strip`, `:copyright`, `:keep` |
-| `color_profile` | `:strip`, `:preserve_source`, or `{:convert, profile}` with `:srgb`, `:display_p3`, or `:adobe_rgb` |
-| `hdr` | `:tone_map`, `:preserve` |
-| `autoquality` | `:none` or `{method, keywords}` |
-| `max_bytes` | Positive integer byte limit |
+[Output and encoding](processing/output.md) covers formats, quality/search,
+encoder fields, metadata, profiles, HDR, placeholders, and source information.
 
-Autoquality methods are `:size`, `:ssimulacra2`, and `:butteraugli`.
-All accept optional `target`, `min_quality`, and `max_quality`. Perceptual
-methods also accept nonnegative `allowed_error`. Size targets are positive
-integer bytes; SSIMULACRA2 targets range from 0 to 100 and Butteraugli from
-0 to 25. Omitted settings inherit host policy. Enabled autoquality conflicts
-with explicit `quality`; PNG cannot use quality search or byte limits.
+`ImagePipe.output/2` takes typed keyword options, for example:
 
-Encoder options are keyword lists. Omitted encoder fields remain unspecified.
+```elixir
+IP.new()
+|> IP.group(resize: [width: 400])
+|> IP.output(
+  format: :jpeg,
+  quality: 82,
+  jpeg_options: [interlace: true],
+  metadata: :copyright
+)
+```
 
-| Option | Accepted fields |
-| --- | --- |
-| `jpeg_options` | Boolean `interlace`, `trellis_quant`, `overshoot_deringing`, `optimize_scans`; `subsample_mode: :auto \| :on \| :off`; `quant_table: 0..8` |
-| `png_options` | Boolean `interlace`, `palette`; `bitdepth: 1 \| 2 \| 4 \| 8 \| 16`; `filter: :none \| :sub \| :up \| :avg \| :paeth \| :all` |
-| `webp_options` | Boolean `lossless`, `near_lossless`, `smart_subsample`; `preset: :default \| :photo \| :picture \| :drawing \| :icon \| :text`; `effort: 0..6` |
-| `avif_options` | `subsample_mode: :auto \| :on \| :off`; `effort: 0..9` |
-| `jxl_options` | `effort: 1..9` |
-
-An explicit format rejects options for other encoders. Without an explicit
-format, encoder settings remain available for negotiation. `:info` accepts
-no group transforms or image output policy; `:blurhash` and `:lqip_css`
-accept transforms but no image encoding policy.
+Use `format: :jpeg_xl` for URL `format=jxl`,
+`color_profile: :preserve_source` for `profile=preserve`, and
+`hdr: :tone_map` for `hdr=tonemap`. The reference shows the remaining mappings.
+Host defaults belong in [configuration](configuration.md); request options
+override them.
