@@ -1,20 +1,16 @@
 defmodule ImagePipe.Transform.OrientationFlush do
   @moduledoc false
-  # Applies pending EXIF orientation, user rotation, then user flips; copies the
-  # result to memory and clears pending orientation. Image.autorotate reads the
+  # Applies pending EXIF orientation, user rotation, then user flips over a
+  # sequential image or RAM-backed graph. Image.autorotate reads the
   # live EXIF tag, so call it only when auto_rotate? is true to respect ar:0.
 
-  alias ImagePipe.Transform.{PendingOrientation, State}
-  alias Vix.Vips.Image, as: VipsImage
+  alias ImagePipe.Transform.{Materializer, PendingOrientation, State}
 
   @spec flush(State.t()) :: {:ok, State.t()} | {:error, term()}
-  def flush(%State{pending_orientation: nil} = state), do: materialize(state)
-
   def flush(%State{pending_orientation: %PendingOrientation{} = po} = state) do
-    with {:ok, image} <- prepare_random_access(state.image, po),
-         {:ok, image} <- apply_orientation(image, po),
-         {:ok, image} <- VipsImage.copy_memory(image) do
-      {:ok, %State{state | image: image, materialized?: true, pending_orientation: nil}}
+    with {:ok, %State{} = state} <- prepare_random_access(state, po),
+         {:ok, image} <- apply_orientation(state.image, po) do
+      {:ok, %State{state | image: image, pending_orientation: nil}}
     end
   end
 
@@ -26,24 +22,16 @@ defmodule ImagePipe.Transform.OrientationFlush do
   # even when their net angle is zero. Materialize for EXIF orientations 3–8,
   # any nonzero user rotation, or a vertical flip. Identity and horizontal-only
   # mirrors preserve row order and skip this preliminary copy.
-  defp prepare_random_access(image, %PendingOrientation{} = po) do
-    if needs_random_access?(po) do
-      VipsImage.copy_memory(image)
-    else
-      {:ok, image}
-    end
-  end
+  defp prepare_random_access(%State{materialized?: true} = state, _pending), do: {:ok, state}
 
-  defp needs_random_access?(%PendingOrientation{} = po) do
-    po.exif_angle != 0 or po.user_angle != 0 or po.user_flip_y
-  end
+  defp prepare_random_access(state, %PendingOrientation{
+         exif_angle: 0,
+         user_angle: 0,
+         user_flip_y: false
+       }),
+       do: {:ok, state}
 
-  defp materialize(%State{} = state) do
-    case VipsImage.copy_memory(state.image) do
-      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
-      {:error, _} = error -> error
-    end
-  end
+  defp prepare_random_access(state, %PendingOrientation{}), do: Materializer.materialize(state)
 
   defp apply_orientation(image, %PendingOrientation{} = po) do
     with {:ok, image} <- maybe_autorotate(image, po),

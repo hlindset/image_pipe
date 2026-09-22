@@ -7,6 +7,8 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
 
+  @prefix [__MODULE__, :materialization]
+
   # The [:transform, :materialize] barrier span fires once per materialization,
   # wherever it happens. There are THREE distinct nesting parents in practice, all
   # covered below:
@@ -48,7 +50,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
   setup do
     TestExporter.set_receiver(self())
-    :ok = TestExporter.attach(self())
+    :ok = TestExporter.attach(self(), prefix: @prefix)
 
     on_exit(fn ->
       Telemetry.detach_tracer()
@@ -68,7 +70,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
   defp call(path, opts) do
     conn = conn(:get, path)
-    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(Keyword.put(opts, :telemetry_prefix, @prefix)))
   end
 
   defp parent_of(spans, %Span{parent_span_id: pid}),
@@ -122,14 +124,31 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
     spans = collect_spans()
     assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
+    assert mat.attributes.dims == {40, 80}
 
     parent = parent_of(spans, mat)
     assert parent, "materialize span must have a captured parent"
     assert parent.name == "image_pipe.transform.operation"
+    assert parent.attributes.dims == {80, 40}
 
     grandparent = parent_of(spans, parent)
     assert grandparent, "the Flush operation span must have a captured parent"
     assert grandparent.name == "image_pipe.transform.execute"
+  end
+
+  test "horizontal orientation traces lazy flush and materializes only at delivery" do
+    conn = call("/flip=h/w=120/format=png/src/images/beach.jpg", beach_opts())
+    assert conn.status == 200
+
+    spans = collect_spans()
+    assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
+    assert mat.attributes.dims == {120, 80}
+    assert parent_of(spans, mat).name == "image_pipe.request"
+
+    assert Enum.any?(spans, fn span ->
+             span.name == "image_pipe.transform.operation" and
+               span.attributes[:operation] == :flush
+           end)
   end
 
   test "delivery backstop flush nests the materialize span under the request root" do

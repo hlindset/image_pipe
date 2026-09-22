@@ -11,6 +11,9 @@ defmodule ImagePipe.Transform.State do
   - `detector_required`: whether detect-gravity must use the detector instead of
     silently falling back to attention smartcrop.
   - `telemetry_opts`: telemetry metadata threaded through stage spans.
+  - `materialized?`: the graph has RAM-backed input and can be read out of row
+    order without revisiting the sequential source. Later operations may remain
+    lazy; this does not imply the current result is a contiguous pixel buffer.
   - `source_dimensions`: exact full-resolution `{w, h}` before shrink-on-load,
     or `nil` for a full-resolution decode. Residual resize uses this extent to
     match the full-resolution target. Pending orientation maps its axes to the

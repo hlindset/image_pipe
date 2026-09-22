@@ -5,7 +5,9 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
 
   setup do
@@ -909,19 +911,33 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(debug: :yes) end
   end
 
-  test "successful materialize flush logs at base level, no warning" do
-    Telemetry.attach_default_logger(level: :info)
+  test "orientation logs its allocated storage frame and successful display-frame flush" do
+    prefix = [__MODULE__, :orientation]
+    opts = [telemetry_prefix: prefix]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info, debug: true)
+
+    state = %State{
+      image: Image.new!(40, 20),
+      pending_orientation:
+        PendingOrientation.from_exif(6, false) |> PendingOrientation.fold_rotate(90),
+      telemetry_opts: opts
+    }
 
     log =
-      capture_log(fn ->
-        :telemetry.execute(
-          [:image_pipe, :transform, :materialize, :stop],
-          %{duration: 10},
-          %{result: :ok}
-        )
+      capture_log([level: :debug], fn ->
+        assert {:ok, %State{} = state} = Transform.run(state, %Flush{}, opts)
+
+        pending =
+          PendingOrientation.from_exif(1, false) |> PendingOrientation.fold_flip(:horizontal)
+
+        assert {:ok, _state} =
+                 Transform.run(%State{state | pending_orientation: pending}, %Flush{}, opts)
       end)
 
-    assert log =~ "transform materialize"
+    assert length(Regex.scan(~r/transform materialize: ok/, log)) == 1
+    assert log =~ "transform: flush ok"
+    assert log =~ "dims: {40, 20}"
+    assert log =~ "dims: {20, 40}"
     refute log =~ "[warning]"
   end
 

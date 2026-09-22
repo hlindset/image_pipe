@@ -269,23 +269,23 @@ The default Logger includes the operation name and outcome, for example
 
 Each time the pipeline flushes the lazy libvips state to a RAM-resident buffer it
 emits a `[:image_pipe, :transform, :materialize]` span from
-`ImagePipe.Transform.Materializer` (`materialize/1`, the plain `copy_memory`, or
-`flush/1`, the explicit orientation flush run by the `Flush` operation). This is
+`ImagePipe.Transform.Materializer.materialize/1`, which calls `copy_memory`. This is
 the **honest per-barrier timing the per-operation spans deliberately lack**:
 libvips defers and fuses pixel work until materialization, so a materialize
-span's duration is real flush cost (orientation pixels written, `copy_memory`),
+span's duration is the pixel work forced by that copy,
 not construction time.
 
-The `flush/1` form also applies the deferred EXIF/user orientation before
-copying, so its materialize span marks where the displayed frame changes, not
-only where pixels reach RAM.
+The executor's `Flush` operation prepares RAM backing before orientation that
+reorders rows. Horizontal-only flips stay lazy, and later orientation operations
+reuse existing RAM backing. Their orientation graphs are built within the
+operation span; their pixel work is evaluated when a later consumer demands it.
 
 Stop metadata: `:result` (`:ok` or `:materialize_error`). A successful stop also
-carries `:dims` — the post-materialize image dimensions `{width, height}`, which
-surface the display-frame swap when the flush applied a pending quarter turn. A
-failed flush surfaces
+carries `:dims` — the allocated buffer dimensions `{width, height}`. Orientation
+preparation reports the frame before rotation; the enclosing operation's stop
+reports the oriented frame. A failed copy surfaces
 as a `:stop` carrying `result: :materialize_error` (the callers map it to a decode
-error → `415`); a raise inside the flush surfaces as a `[:transform, :materialize,
+error → `415`); a raise inside the copy surfaces as a `[:transform, :materialize,
 :exception]` event.
 
 Parenting depends on where the materialization happens — there are three cases:
@@ -293,8 +293,8 @@ Parenting depends on where the materialization happens — there are three cases
 - **during execution**, before an operation that needs random access (trim,
   arbitrary-angle rotate, smart/object-detect crop): nested under that
   operation's `[:transform, :operation]` span;
-- **explicit flush**, when a pending EXIF/user orientation is applied by the
-  executor's `Flush` operation during execution or at the final boundary:
+- **orientation preparation**, when the executor's `Flush` operation needs
+  random access and the graph does not already have RAM backing:
   nested under that operation's `[:transform, :operation]` span,
   inside `[:transform, :execute]`;
 - **delivery backstop**, when the pipeline streamed without materializing

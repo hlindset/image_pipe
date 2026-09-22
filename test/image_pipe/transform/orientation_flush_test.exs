@@ -37,7 +37,7 @@ defmodule ImagePipe.Transform.OrientationFlushTest do
 
   defp ok({:ok, v}), do: v
 
-  test "auto_rotate?=true: flush matches autorotate reference for EXIF 1..8, materializes, clears pending" do
+  test "EXIF flush prepares random access only when orientation reorders rows" do
     for orientation <- 1..8 do
       base = marked()
       po = PendingOrientation.from_exif(orientation, true)
@@ -49,7 +49,7 @@ defmodule ImagePipe.Transform.OrientationFlushTest do
       }
 
       assert {:ok, %State{} = result} = OrientationFlush.flush(state)
-      assert result.materialized? == true
+      assert result.materialized? == orientation in 3..8
       assert result.pending_orientation == nil
       assert_pixels_match(result.image, reference(oriented(base, orientation), po))
     end
