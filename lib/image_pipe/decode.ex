@@ -2,8 +2,9 @@ defmodule ImagePipe.Decode do
   @moduledoc """
   Source fetch and image decode bracket.
 
-  `with_image/4` fetches through `ImagePipe.Source.with_fetched/3`, reads stored
-  dimensions and EXIF orientation, then reopens sequentially with planned
+  `with_image/4` fetches through `ImagePipe.Source.with_fetched/3`, checks bounded
+  header dimensions when available, reads stored dimensions and EXIF orientation
+  through libvips, then reopens sequentially with planned
   shrink-on-load options. It passes the resulting `ImagePipe.Transform.State`
   and `ImagePipe.Transform.SourceGeometry` to the caller.
   """
@@ -21,6 +22,7 @@ defmodule ImagePipe.Decode do
     exports: []
 
   alias Image.Options.Open, as: ImageOpenOptions
+  alias ImagePipe.Decode.HeaderDimensions
   alias ImagePipe.Decode.SourceFormat
   alias ImagePipe.Error
   alias ImagePipe.Format.Detector
@@ -121,6 +123,7 @@ defmodule ImagePipe.Decode do
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
          :ok <- gate_detected(detected) |> wrap_decode_error(),
+         :ok <- validate_header_pixels(peek, opts) |> wrap_input_limit_error(),
          {:ok, header_image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
            |> wrap_decode_error(),
@@ -323,6 +326,13 @@ defmodule ImagePipe.Decode do
     case VipsImage.header_value(image, "orientation") do
       {:ok, v} when v in [5, 6, 7, 8] -> true
       _ -> false
+    end
+  end
+
+  defp validate_header_pixels(peek, opts) do
+    case HeaderDimensions.read(peek) do
+      {:ok, dimensions} -> validate_pixels(dimensions, opts)
+      :unknown -> :ok
     end
   end
 

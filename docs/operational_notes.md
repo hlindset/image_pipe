@@ -30,8 +30,12 @@ configuration still fails during Plug initialization.
 HTTP and S3 source fetches use non-bang Req calls with bounded redirects and
 receive timeouts. ImagePipe reads the source format from the decoded image
 rather than trusted HTTP headers. `:max_body_bytes` defaults to `10_000_000`
-bytes. `:max_input_pixels` defaults to `40_000_000` pixels after decode. Override
-both in `ImagePipe.Plug` init options.
+bytes. `:max_input_pixels` defaults to `40_000_000` stored pixels. The existing
+32 KiB format peek also reads PNG IHDR, JPEG SOF, and WebP VP8X/VP8/VP8L
+dimensions to reject oversized inputs before opening the libvips loader.
+Incomplete, malformed, or unfamiliar headers fall back to libvips; its stored
+dimensions are always checked before transforms. Override both limits in
+`ImagePipe.Plug` init options.
 
 Source adapter limits bound fetches per chunk and by total bytes.
 `:receive_timeout` limits waits between chunks;
