@@ -43,7 +43,7 @@ defmodule ImagePipe.Config do
 
     case NimbleOptions.validate(resolved, @schema) do
       {:ok, validated} ->
-        validated = Keyword.put_new(validated, :clock, fn -> System.os_time(:second) end)
+        validated = Keyword.put_new(validated, :clock, &ProcessingConfig.system_time/0)
 
         resolved =
           validated
