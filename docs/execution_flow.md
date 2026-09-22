@@ -33,7 +33,7 @@ headers and delivery.
 ## Request and execution
 
 `ImagePipe.API.Parser` produces `ImagePipe.Plan.Request` data. Presets expand
-before validation, and `then` separates explicitly ordered groups. Option order
+before validation, and `-` separates explicitly ordered groups. Option order
 inside a group does not affect processing order. The
 [API contract](api_contract.md) defines stages, coordinate frames,
 and the capability inventory.

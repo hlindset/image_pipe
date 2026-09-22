@@ -238,32 +238,32 @@ defmodule ImagePipe.API.PresetCompositionTest do
   end
 
   test "pipeline presets expand completely and allow output overrides" do
-    presets = %{"small" => "w=300/then/w=100/pad=5/format=webp"}
+    presets = %{"small" => "w=300/-/w=100/pad=5/format=webp"}
     assert {:ok, request} = parse("/preset=small/format=png", presets)
-    assert {:ok, ^request} = parse("/w=300/then/w=100/pad=5/format=png", %{})
+    assert {:ok, ^request} = parse("/w=300/-/w=100/pad=5/format=png", %{})
   end
 
   test "single-group defaults and presets contribute to the first pipeline group" do
     presets = %{
       "default" => "blur=1",
       "padding" => "pad=5",
-      "small" => "w=300/then/w=100"
+      "small" => "w=300/-/w=100"
     }
 
     assert {:ok, request} = parse("/preset=small,padding", presets)
-    assert {:ok, ^request} = parse("/w=300/blur=1/pad=5/then/w=100", %{})
+    assert {:ok, ^request} = parse("/w=300/blur=1/pad=5/-/w=100", %{})
   end
 
   test "a nested pipeline can be named without repeating its groups" do
-    presets = %{"small" => "w=300/then/w=100", "web" => "preset=small/format=webp"}
+    presets = %{"small" => "w=300/-/w=100", "web" => "preset=small/format=webp"}
     assert {:ok, request} = parse("/preset=web", presets)
-    assert {:ok, ^request} = parse("/w=300/then/w=100/format=webp", %{})
+    assert {:ok, ^request} = parse("/w=300/-/w=100/format=webp", %{})
   end
 
   test "pipeline presets reject ambiguous group composition" do
-    presets = %{"a" => "w=300/then/w=100", "b" => "blur=2/then/pad=5"}
+    presets = %{"a" => "w=300/-/w=100", "b" => "blur=2/-/pad=5"}
 
-    for path <- ["/preset=a/w=200", "/preset=a/blur=0", "/preset=a/then/w=100", "/preset=a,b"] do
+    for path <- ["/preset=a/w=200", "/preset=a/blur=0", "/preset=a/-/w=100", "/preset=a,b"] do
       assert {:error, {:invalid_request, diagnostics}} = parse(path, presets)
       assert Enum.any?(diagnostics, &(&1.reason == :conflicting_preset_pipeline))
     end
@@ -274,11 +274,11 @@ defmodule ImagePipe.API.PresetCompositionTest do
           %{"a" => "preset=missing"},
           %{"a" => "preset=a"},
           %{"a" => "preset=b", "b" => "preset=a"},
-          %{"a" => "w=100/then"},
+          %{"a" => "w=100/-"},
           %{"a" => "w=100/src/secret.jpg"},
           %{"a" => "src64=aHR0cHM6Ly9leGFtcGxlLmNvbQ"},
           %{"a" => "sig=abc/w=100"},
-          %{"a" => "w=200/then/w=100", "b" => "preset=a/w=50"}
+          %{"a" => "w=200/-/w=100", "b" => "preset=a/w=50"}
         ] do
       assert_raise ArgumentError, fn -> ImagePipe.Plug.init(presets: presets) end
     end

@@ -18,7 +18,7 @@ defmodule ImagePipe.RunWireTest do
       |> IP.output(format: :png, color_profile: {:convert, :srgb})
 
     path =
-      "w=40/h=30/fit=cover/anchor=top-left/dpr=2/then/region=5,3,20,15/brightness=20/pad=2/bg=white/format=png/profile=srgb"
+      "w=40/h=30/fit=cover/anchor=top-left/dpr=2/-/region=5,3,20,15/brightness=20/pad=2/bg=white/format=png/profile=srgb"
 
     config = IP.Plug.init(@source_config)
 

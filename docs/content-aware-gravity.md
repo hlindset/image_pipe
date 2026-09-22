@@ -18,7 +18,7 @@ Guides require a crop or a cover-family resize in the same group, for example
 `/w=400/h=400/fit=cover/detect=face/src/portrait.jpg` or
 `/crop=400,400/detect=all,face:3/src/scene.jpg`. A group may specify one of
 `anchor`, `focus`, or `detect`. The guide applies to its source crop and cover
-result crop; it resets at `then`.
+result crop; it resets at `-`.
 
 ## Enabling face and object detection
 
@@ -179,7 +179,7 @@ among all objects. See [Per-class weights](#per-class-weights).
 identities that the requested class set routes to. An object-only request
 (`detect=car`) is unaffected by a face model version change, and vice versa.
 Requests with `anchor=smart-face` include the face detector identity. Across
-`then` groups, identity includes the union of relevant detector classes.
+`-` groups, identity includes the union of relevant detector classes.
 
 ## Detection telemetry
 

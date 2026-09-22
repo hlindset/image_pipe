@@ -319,7 +319,7 @@ No public stream ownership protocol is involved.
 `IP.group/2` appends a complete group. All options in that call follow the
 [fixed stage order](api_contract.md#processing-semantics), regardless of keyword
 order. A second call starts a new group over the first group's result, just
-like `then` in a URL. DPR, zoom, and other group settings start fresh.
+like `-` in a URL. DPR, zoom, and other group settings start fresh.
 An empty plan is valid; an explicitly appended group must contain an option.
 
 ```elixir

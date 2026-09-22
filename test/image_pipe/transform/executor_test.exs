@@ -13,7 +13,7 @@ defmodule ImagePipe.Transform.ExecutorTest do
   alias ImagePipe.Transform.State
 
   test "executes parsed groups against each preceding group's live dimensions" do
-    request = request!("w=50/h=40/fit=stretch/then/region=10,5,20,15")
+    request = request!("w=50/h=40/fit=stretch/-/region=10,5,20,15")
     state = state!(100, 80)
 
     assert {:ok, result} = Executor.execute(state, request, [])

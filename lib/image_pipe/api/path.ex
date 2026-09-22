@@ -69,7 +69,7 @@ defmodule ImagePipe.API.Path do
   end
 
   @doc """
-  Full lexing of the mount-relative raw path into option/flag/then segments
+  Full lexing of the mount-relative raw path into option/flag/separator segments
   plus a terminal source, called only after `Signature.verify/3` has
   succeeded. Skips a leading `sig=` segment internally (without validating
   it) but never returns signature data — `split_signature/1` is the raw

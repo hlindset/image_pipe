@@ -32,7 +32,7 @@ defmodule ImagePipe.API.OperationExecutionWireTest do
 
   test "operations follow stage and group order and expose their parameters", %{config: config} do
     conn =
-      conn(:get, "/gray/blur=1/then/brightness=20/format=png/src/images/beach.jpg")
+      conn(:get, "/gray/blur=1/-/brightness=20/format=png/src/images/beach.jpg")
       |> ImagePipe.Plug.call(config)
 
     assert conn.status == 200
@@ -54,7 +54,7 @@ defmodule ImagePipe.API.OperationExecutionWireTest do
 
   test "an out-of-bounds region returns 400 and stops later operations", %{config: config} do
     conn =
-      conn(:get, "/region=99999,99999,10,10/blur=1/then/gray/src/images/beach.jpg")
+      conn(:get, "/region=99999,99999,10,10/blur=1/-/gray/src/images/beach.jpg")
       |> ImagePipe.Plug.call(config)
 
     assert conn.status == 400

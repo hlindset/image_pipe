@@ -5,7 +5,7 @@
 ImagePipe has one declarative processing model, one request lifecycle, and one
 executor. URL requests and typed Elixir plans share that model: options within
 a group have a fixed processing order, and explicit group boundaries sequence
-processing (`then` in URLs, `ImagePipe.group/2` in Elixir).
+processing (`-` in URLs, `ImagePipe.group/2` in Elixir).
 Imgproxy supplies selected test references for shared behavior; ImagePipe semantics
 govern differences. Sources, caches, detectors, and telemetry exporters are host
 extension points.
@@ -49,8 +49,8 @@ The API accepts these option keys:
 `avif-options`, `jxl-options`, `meta`, `profile`, `hdr`,
 `debug`, `expires`, `preset`, `filename`, `attachment`, `cb`.
 
-It also implements `then`, `src`, `src64`, `enc`, and full-length HMAC signing with
-key rotation. Presets support nested references and complete `then` pipelines.
+It also implements `-`, `src`, `src64`, `enc`, and full-length HMAC signing with
+key rotation. Presets support nested references and complete `-` pipelines.
 Sources are paths, HTTP(S) URLs, S3 objects, or configured custom schemes. Image,
 BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
 
@@ -91,10 +91,10 @@ set their mount defaults.
 The fixed stage order is rotate, flip, trim, source crop, resize/result
 crop, effects, canvas, padding, background. Within effects the order is
 blur, sharpen, pixelate, gray, bitonal, monochrome, duotone, brightness,
-contrast, saturation, colorize, gradient. Units are explicit and `then`
+contrast, saturation, colorize, gradient. Units are explicit and `-`
 groups are ordered. Rotate accepts arbitrary angles; `flip=h`, `flip=v`, and
 `flip=hv` reflect horizontally, vertically, or both after rotation.
-For example, `/w=500/then/trim=fff/src/image.jpg` deliberately trims the
+For example, `/w=500/-/trim=fff/src/image.jpg` deliberately trims the
 smaller intermediate image. It must remain observably different from
 `/w=500/trim=fff/src/image.jpg`, which trims before resizing.
 
@@ -121,7 +121,7 @@ relative to the trimmed image, with no hidden original-image offset.
 Crop and region widths and heights must be positive; invalid sizes fail
 during request parsing before source resolution or cache access.
 
-Each `then` group receives the previous group's complete result, including
+Each `-` group receives the previous group's complete result, including
 canvas, padding, and background. Group parameters do not carry forward:
 guide, rotation, DPR, and effects must be stated again to apply again.
 EXIF is not reapplied. Internal orientation/color/materialization state may
@@ -177,7 +177,7 @@ axis is zoomed. `min-w` and `min-h` accept positive integer logical pixels;
 they uniformly expand the resize target as necessary before the enlargement
 cap. With minimum dimensions alone, the starting target is the current image.
 A non-unit zoom requires a width, height, or minimum dimension. DPR alone
-can scale padding without resizing the source. These options reset at `then`.
+can scale padding without resizing the source. These options reset at `-`.
 
 ### Anchor offsets and canvas placement
 
@@ -199,7 +199,7 @@ uses the same signed-length syntax, with percentages resolved against the
 realized target canvas and pixels scaled by effective DPR. Placement is
 clamped inside the canvas. Canvas placement runs in display coordinates,
 after effects and before padding and background. Added space is transparent
-until a background is requested. Canvas and offset options reset at `then`.
+until a background is requested. Canvas and offset options reset at `-`.
 
 ### Object and face guides
 
@@ -214,7 +214,7 @@ letters, digits, underscores, and hyphens, starting with a letter or digit.
 `anchor=smart-face` combines attention with face detection; `anchor=smart`
 uses attention alone. `anchor`, `focus`, and `detect` are mutually exclusive
 guides and form one preset override family together with `anchor-offset`.
-Detection and smart guides do not accept anchor offsets. Guides reset at `then`.
+Detection and smart guides do not accept anchor offsets. Guides reset at `-`.
 
 Mount options are `detector: :default | nil | module` and
 `detector_required: boolean`. Strict mode checks the requested explicit
@@ -352,8 +352,8 @@ reflecting their values.
 ### Pixel effects
 
 Effects work with or without geometry, and run after resize in the fixed
-order listed above. Each group starts with its effects disabled. Use `then`
-to change their relative order: `contrast=2/then/brightness=30` adjusts
+order listed above. Each group starts with its effects disabled. Use `-`
+to change their relative order: `contrast=2/-/brightness=30` adjusts
 brightness after contrast, while `contrast=2/brightness=30` applies
 brightness first.
 
@@ -507,7 +507,7 @@ Presets expand before validation and canonicalization. Precedence is default
 preset, named presets in listed order, then explicit URL values. Resolve
 nested named presets at initialization and reject cycles/unknown names.
 Single-group presets contribute to the first group. A preset containing
-`then` supplies the complete group sequence and cannot combine with explicit
+`-` supplies the complete group sequence and cannot combine with explicit
 URL group options or another multi-group preset; request-scoped options may
 still override it. Presets cannot supply a source or signature. Their names
 do not participate in representation identity.

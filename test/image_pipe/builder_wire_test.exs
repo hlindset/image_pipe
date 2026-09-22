@@ -46,7 +46,7 @@ defmodule ImagePipe.BuilderWireTest do
 
     for {plan, path, dimensions} <- [
           {effect, "brightness=20/colorize=0.3,red", {60, 40}},
-          {grouped, "w=30/h=20/fit=stretch/dpr=2/then/region=5,3,10,8/pad=2/bg=white", {14, 12}}
+          {grouped, "w=30/h=20/fit=stretch/dpr=2/-/region=5,3,10,8/pad=2/bg=white", {14, 12}}
         ] do
       assert {:ok, request} = Plan.to_request(IP.output(plan, format: :png).plan, "photo.png")
       assert {:ok, state} = Executor.execute(%State{image: context.image}, request, [])

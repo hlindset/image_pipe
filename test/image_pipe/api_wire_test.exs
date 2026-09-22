@@ -71,7 +71,7 @@ defmodule ImagePipe.APIWireTest do
     config =
       opts(
         presets: %{
-          "small" => "w=64/then/pad=4",
+          "small" => "w=64/-/pad=4",
           "card" => "preset=small/format=png"
         },
         sources: counting_sources(),
@@ -82,7 +82,7 @@ defmodule ImagePipe.APIWireTest do
     assert preset.status == 200
     assert_received :origin_fetch
 
-    explicit = get("/w=64/then/pad=4/format=png/src/images/cat.jpg", config)
+    explicit = get("/w=64/-/pad=4/format=png/src/images/cat.jpg", config)
     assert explicit.status == 200
     assert explicit.resp_body == preset.resp_body
     assert get_resp_header(explicit, "etag") == get_resp_header(preset, "etag")
@@ -95,7 +95,7 @@ defmodule ImagePipe.APIWireTest do
       get(
         "/preset=small/w=64/src/images/cat.jpg",
         opts(
-          presets: %{"small" => "w=100/then/pad=4"},
+          presets: %{"small" => "w=100/-/pad=4"},
           sources: should_not_fetch_sources(),
           cache: stateful_cache_probe()
         )
@@ -530,7 +530,7 @@ defmodule ImagePipe.APIWireTest do
     end
 
     test "empty pipeline group", %{config: config} do
-      conn = get("/w=800/then/then/w=900/src/images/cat.jpg", config)
+      conn = get("/w=800/-/-/w=900/src/images/cat.jpg", config)
       assert conn.status == 400
       refute_received :origin_fetch
       refute_received {:cache_lookup, _key}

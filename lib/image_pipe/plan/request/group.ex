@@ -2,7 +2,7 @@ defmodule ImagePipe.Plan.Request.Group do
   @moduledoc """
   One group's transform intent.
 
-  `then` splits a request into ordered groups; each group is one pass of
+  `-` splits a request into ordered groups; each group is one pass of
   the fixed stage order (`rotate → flip → trim → region/crop → resize →
   cover result crop → blur → … → pad → bg`). The executor applies this order
   independently of option order in the URL.

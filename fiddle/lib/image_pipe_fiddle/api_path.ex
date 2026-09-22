@@ -2,7 +2,7 @@ defmodule ImagePipeFiddle.APIPath do
   @moduledoc false
 
   alias ImagePipe.API
-  alias ImagePipe.API.Signature
+  alias ImagePipe.Security
 
   @signed_prefix "/image-signed"
 
@@ -55,7 +55,7 @@ defmodule ImagePipeFiddle.APIPath do
   end
 
   defp signed_url(path, config) do
-    signature = Signature.sign(path, config)
+    signature = Security.sign(path, config)
     IO.iodata_to_binary([@signed_prefix, "/sig=", signature, path])
   end
 end

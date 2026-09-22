@@ -6,7 +6,7 @@ The Fiddle edits and previews ImagePipe's path API. Browser state uses
 The sidebar provides sliders, numeric inputs, toggles, color pickers, and a
 clickable focal-point preview for resize, crop, gravity, orientation, trim,
 canvas, padding, effects, and output settings. Controls generate URLs;
-opening a saved URL fills the controls with its values. Requests with `then`
+opening a saved URL fills the controls with its values. Requests with `-`
 groups have a group selector, while output settings apply to the whole request.
 Examples load into the same controls. The collapsed Advanced section allows
 direct path editing, and control changes preserve other options.

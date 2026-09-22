@@ -118,7 +118,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
           {"crop=80,80/detect=face", true, false},
           {"crop=80,80/detect=all", true, true},
           {"crop=80,80/anchor=smart-face", true, false},
-          {"crop=80,80/detect=car/then/crop=40,40/anchor=smart-face", true, true},
+          {"crop=80,80/detect=car/-/crop=40,40/anchor=smart-face", true, true},
           {"crop=80,80/anchor=smart", false, false}
         ] do
       {key, etag} = identities(options, VerCompositeV1V1)

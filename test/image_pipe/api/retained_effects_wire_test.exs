@@ -64,7 +64,7 @@ defmodule ImagePipe.API.RetainedEffectsWireTest do
   end
 
   test "EXIF orientation is applied once across rotated groups" do
-    output = image("rotate=90/then/rotate=90", 6)
+    output = image("rotate=90/-/rotate=90", 6)
     assert {Image.width(output), Image.height(output)} == {20, 40}
     assert [red, green, _blue] = color_at(output, 10, 30)
     assert red > green * 4
@@ -118,7 +118,7 @@ defmodule ImagePipe.API.RetainedEffectsWireTest do
     for flip <- ["h", "v", "hv"], angle <- [90, 180, 270], orientation <- [1, 6] do
       baseline = image("rotate=90/flip=#{flip}", orientation)
       expected = Image.rotate!(baseline, angle)
-      actual = image("rotate=90/flip=#{flip}/then/rotate=#{angle}", orientation)
+      actual = image("rotate=90/flip=#{flip}/-/rotate=#{angle}", orientation)
 
       assert Vimage.write_to_binary(actual) == Vimage.write_to_binary(expected)
     end

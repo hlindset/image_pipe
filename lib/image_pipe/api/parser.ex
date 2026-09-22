@@ -8,7 +8,7 @@ defmodule ImagePipe.API.Parser do
   Validation accumulates diagnostics in five passes:
 
     1. Parse each option key and value.
-    2. Split groups on `then`; reject leading, trailing, or consecutive separators.
+    2. Split groups on `-`; reject leading, trailing, or consecutive separators.
     3. Reject duplicate group options within a group and request options anywhere,
        marking every occurrence. Then expand presets.
     4. Check conflicts, inert options, and output applicability using only valid,
@@ -154,15 +154,15 @@ defmodule ImagePipe.API.Parser do
   # -- pass 2: group splitting -------------------------------------------
 
   defp split_groups(segments) do
-    {groups_rev, current_rev, errors_rev, last_then_span, saw_then?} =
+    {groups_rev, current_rev, errors_rev, last_separator_span, saw_separator?} =
       Enum.reduce(segments, {[], [], [], nil, false}, &split_groups_reduce/2)
 
     groups = Enum.reverse([Enum.reverse(current_rev) | groups_rev])
     errors = Enum.reverse(errors_rev)
 
     trailing_errors =
-      if saw_then? and current_rev == [] do
-        [diagnostic(:empty_pipeline_group, last_then_span)]
+      if saw_separator? and current_rev == [] do
+        [diagnostic(:empty_pipeline_group, last_separator_span)]
       else
         []
       end
@@ -171,21 +171,21 @@ defmodule ImagePipe.API.Parser do
   end
 
   defp split_groups_reduce(
-         {"then", then_span},
+         {"-", separator_span},
          {groups_rev, current_rev, errors_rev, _last, _saw}
        ) do
     errors_rev =
       if current_rev == [] do
-        [diagnostic(:empty_pipeline_group, then_span) | errors_rev]
+        [diagnostic(:empty_pipeline_group, separator_span) | errors_rev]
       else
         errors_rev
       end
 
-    {[Enum.reverse(current_rev) | groups_rev], [], errors_rev, then_span, true}
+    {[Enum.reverse(current_rev) | groups_rev], [], errors_rev, separator_span, true}
   end
 
-  defp split_groups_reduce(segment, {groups_rev, current_rev, errors_rev, last_then, saw?}) do
-    {groups_rev, [segment | current_rev], errors_rev, last_then, saw?}
+  defp split_groups_reduce(segment, {groups_rev, current_rev, errors_rev, last_separator, saw?}) do
+    {groups_rev, [segment | current_rev], errors_rev, last_separator, saw?}
   end
 
   # -- pass 1: per-segment key lookup + value dispatch --------------------

@@ -13,7 +13,7 @@
   API URLs, support boundaries, cache behavior, and operational
   behavior.
 - Consolidated image processing into one API request lifecycle and executor,
-  with explicit `then` groups and fixed operation order. Added API geometry,
+  with explicit `-` groups and fixed operation order. Added API geometry,
   effects, encoder and color controls, concealed sources, and info/BlurHash output.
 - Retired the imgproxy, IIIF, and TwicPics URL APIs. Selected imgproxy image
   comparisons remain as test references for shared behavior.

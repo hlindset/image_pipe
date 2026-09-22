@@ -11,8 +11,8 @@ import {
 
 describe("API paths", () => {
   it("builds requests with explicit groups and a separate source", () => {
-    const state = { ...defaultApiState, options: "w=500/then/trim=fff" };
-    expect(apiFetchPath(state)).toBe("/image/w=500/then/trim=fff/src/images/dog.jpg");
+    const state = { ...defaultApiState, options: "w=500/-/trim=fff" };
+    expect(apiFetchPath(state)).toBe("/image/w=500/-/trim=fff/src/images/dog.jpg");
     expect(parseApiTail(apiBrowserPath(state).slice("/edit/".length))).toEqual(state);
   });
 

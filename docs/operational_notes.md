@@ -190,7 +190,7 @@ trigger a RAM materialization immediately before that operation. Deferred EXIF
 and user orientation handling manages its own materialization when required.
 Other operations remain sequential when proven safe by the test gate.
 
-Explicit `then` groups share the same transform state; a group boundary alone
+Explicit `-` groups share the same transform state; a group boundary alone
 does not materialize the image. The late delivery barrier materializes any chain
 that reaches output without an earlier barrier. Source byte limits, timeouts,
 decoded pixel limits, and decode error handling apply regardless of the chosen

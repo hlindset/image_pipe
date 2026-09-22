@@ -62,7 +62,7 @@ Options run in this order, regardless of their order in the URL:
 19. `pad`
 20. `bg`
 
-`then` starts another group. Each group receives the complete result of the
+`-` starts another group. Each group receives the complete result of the
 previous group, while group options themselves do not carry forward. Decode
 happens once, so only the first group can influence shrink-on-load planning.
 
@@ -76,7 +76,7 @@ region percentages therefore resolve after rotation, flip, and trim. A trim
 that reduces an input from 1000 pixels wide to 800 pixels makes a subsequent
 `50pct` crop width resolve to 400 pixels.
 
-Each `then` boundary establishes a new input frame from the previous group's
+Each `-` boundary establishes a new input frame from the previous group's
 final output. Region coordinates in a later group start at that new frame's
 origin; they do not retain a hidden offset into the original source.
 
@@ -225,12 +225,12 @@ negotiation policies belong to output planning and encoding.
 | `/crop=100,100/focus=0.25,0.75/src/images/beach.jpg` | Guided crop around a focal point |
 | `/region=10,20,100,80/src/images/beach.jpg` | Explicit region crop |
 | `/rotate=90/flip=h/trim=auto/src/images/beach.jpg` | Rotate, flip, then trim regardless of URL option ordering |
-| `/w=500/then/trim=fff/src/images/beach.jpg` | Resize first; trim the smaller intermediate image in group two |
+| `/w=500/-/trim=fff/src/images/beach.jpg` | Resize first; trim the smaller intermediate image in group two |
 | `/trim=fff/w=500/src/images/beach.jpg` | Trim first; resize within the same fixed-order group |
 | `/blur=2.5/gray/pad=10/bg=fff/src/images/beach.jpg` | Blur, grayscale, padding, then background composition |
 | `/sharpen=2/pixelate=7/src/images/beach.jpg` | Sharpen before pixelating, without resizing |
 | `/duotone=1,123456,efab89/gradient=0.5,black/src/images/beach.jpg` | Duotone followed by a downward dark gradient |
-| `/contrast=2/then/brightness=30/src/images/beach.jpg` | Use a second group to apply brightness after contrast |
+| `/contrast=2/-/brightness=30/src/images/beach.jpg` | Use a second group to apply brightness after contrast |
 
 ## Boundary rules
 

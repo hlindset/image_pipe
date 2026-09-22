@@ -46,7 +46,7 @@ defmodule ImagePipe.API.TerminalShrinkWireTest do
       |> Image.write!(:memory, suffix: ".jpg")
 
     full_pixels = jpeg |> Image.from_binary!() |> Image.write!(:memory, suffix: ".png")
-    path = "/blur=1/then/trim=auto/output=blurhash/src/image"
+    path = "/blur=1/-/trim=auto/output=blurhash/src/image"
 
     actual = request(path, jpeg, "image/jpeg")
     expected = request(path, full_pixels, "image/png")

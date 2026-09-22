@@ -106,7 +106,7 @@ defmodule ImagePipeFiddle.Application do
       allow_debug_headers: true,
       presets: %{
         "card" => "w=400/h=400/fit=cover",
-        "framed" => "preset=card/then/pad=20/bg=fff/format=webp"
+        "framed" => "preset=card/-/pad=20/bg=fff/format=webp"
       },
       sources: source_mounts()
     ]

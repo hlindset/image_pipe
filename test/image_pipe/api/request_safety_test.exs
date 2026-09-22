@@ -29,7 +29,8 @@ defmodule ImagePipe.API.RequestSafetyTest do
       {"/w=invalid/src/images/cat.jpg", 400},
       {"/w=800/w=900/src/images/cat.jpg", 400},
       {"/crop=100,100/region=0,0,10,10/src/images/cat.jpg", 400},
-      {"/w=800/then/then/w=900/src/images/cat.jpg", 400},
+      {"/w=800/-/-/w=900/src/images/cat.jpg", 400},
+      {"/w=800/then/w=400/src/images/cat.jpg", 400},
       {"/w=64/src/images/cat.jpg?x=1", 400},
       # Signature verification (§Signing) runs before any parsing, on a
       # keyed instance: missing sig= and an invalid sig= both reject with

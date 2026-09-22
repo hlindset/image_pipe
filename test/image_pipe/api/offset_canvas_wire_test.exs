@@ -74,7 +74,7 @@ defmodule ImagePipe.API.OffsetCanvasWireTest do
 
     expected =
       image(
-        "region=10,0,120,80/then/w=60/h=40/fit=stretch/then/region=10,0,40,40",
+        "region=10,0,120,80/-/w=60/h=40/fit=stretch/-/region=10,0,40,40",
         origin
       )
 
@@ -201,9 +201,9 @@ defmodule ImagePipe.API.OffsetCanvasWireTest do
     assert Image.get_pixel!(flattened, 5, 5) == [220, 30, 40]
   end
 
-  test "canvas options reset at then" do
+  test "canvas options reset at group boundaries" do
     origin = png_origin(solid_source(20, 10, [220, 30, 40]))
-    output = image("w=20/h=15/enlarge/extend/then/w=10/h=10/enlarge", origin)
+    output = image("w=20/h=15/enlarge/extend/-/w=10/h=10/enlarge", origin)
 
     assert dimensions(output) == {10, 8}
   end
