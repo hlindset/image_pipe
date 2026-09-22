@@ -1,5 +1,6 @@
 ## Project guidelines
 
+- Always commit work in logical chunks as each coherent change is completed and validated; do not wait for a separate request to commit. Keep implementation, its tests, and directly related documentation together, and commit unrelated changes separately. Commit only your own work using GitButler, and push or open pull requests only when asked.
 - `CLAUDE.md` is a symlink to this file — `AGENTS.md` and `CLAUDE.md` are the same file. Edit `AGENTS.md`. (If an editor tool reports `CLAUDE.md` as "not read yet" when you try to edit it after it was loaded as context, that's the symlink — read/edit `AGENTS.md` instead.)
 - Use `mise exec -- ...` to run things in this repo with the correct versions of things
 - Prefer the mise tasks for whole-repo workflows over invoking each tool by hand:
