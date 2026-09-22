@@ -54,6 +54,46 @@ defmodule ImagePipe.APIResultLimitsTest do
     end
   end
 
+  test "explicit host result limits allow an in-bounds upscale without clamping" do
+    body = Image.new!(100, 1, color: :red) |> Image.write!(:memory, suffix: ".png")
+
+    origin = fn conn ->
+      conn |> Plug.Conn.put_resp_content_type("image/png") |> Plug.Conn.send_resp(200, body)
+    end
+
+    prefix = [:api_result_limits_in_bounds_upscale]
+    event = prefix ++ [:output, :clamp]
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn event, _measurements, metadata, pid -> send(pid, {:clamp, event, metadata}) end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    config =
+      opts(
+        sources: [
+          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin]}
+        ],
+        max_result_width: 7000,
+        max_result_height: 100,
+        max_result_pixels: 500_000,
+        telemetry_prefix: prefix
+      )
+
+    conn = get("/w=6000/enlarge/format=png/src/image", config)
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/png"]
+    assert decoded_dims(conn.resp_body) == {6000, 60}
+    refute_received {:clamp, ^event, _}
+  end
+
   describe "the clamp composes the host cap with the format's encoder limit (min wins)" do
     test "a host cap above the WebP hard limit still clamps to 16383, not the host cap" do
       config = opts(max_result_width: 20_000)
