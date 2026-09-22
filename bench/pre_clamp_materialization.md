@@ -202,3 +202,57 @@ dimensions and skipped copies.
 `mise run precommit` passed: formatting, compilation with warnings as errors,
 strict Credo, Dialyzer, duplication checks, and 2533 passing tests/properties
 (68 properties, 2465 tests; 4 integration tests excluded).
+
+## Follow-up experiments after fd8
+
+The completed implementation still has two measurable opportunities. These are
+isolated prototypes loaded with `mix run --no-compile -r`; they are not production
+changes. Measurements use the same worker, fixtures, two libvips threads, disabled
+operation caching, and request-only tracked high-water as above.
+
+### Buffer the smaller input before enlargement (`image_plug-lwl`)
+
+The prototype adds a materialization immediately before the compensated resize
+when pending orientation will need random access, no RAM backing exists, and
+the resize increases pixel area. Resize, cover crop, rotation, and final clamp
+still execute in their original order. Unlike physically orienting before resize,
+this changes the evaluation boundary without moving pixel operations.
+
+| Case | Current peak MiB | Prototype peak MiB |
+|---|---:|---:|
+| Fit, EXIF 3, width 6000, cap 2048 | 97.9 | 34.9 |
+| Fit, EXIF 6, width 6000, cap 2048 | 190.0 | 37.9 |
+| Cover, EXIF 6, width 6000, cap 2048 | 58.6 | 31.6 |
+| Canvas, EXIF 6, width 6000, cap 2048 | 186.7 | 122.1 |
+| Padding, EXIF 6, width 6000, cap 2048 | 333.0 | 180.9 |
+| Groups, EXIF 6, width 6000, cap 2048 | 194.3 | 42.2 |
+| Fit, EXIF 6, width 12000, default caps | 846.9 | 229.6 |
+
+All seven outputs retain exact decoded pixel hashes and dimensions. The prototype
+is intentionally insufficient as a production selection rule: cover can crop to
+a frame smaller than the input even when its intermediate resize enlarges. Compare
+against the buffer actually required after cropping, preserve already-backed and
+sequential-safe paths, and test downsizing, streamed JPEGs, shrink-on-load, user
+orientation, multiple groups, and decode errors. CPU/throughput effects remain
+unmeasured; fewer allocated bytes can mean more repeated lazy pixel work.
+
+### Clean retained orientation metadata after the clamp (`image_plug-0s9`)
+
+`orient=none/meta=keep/w=6000/enlarge/format=png` on the EXIF 6 fixture currently
+materializes 6000×4000 to remove the orientation tag before final clamping to
+2048×1365. Moving that cleanup from the executor to the encoder, after its existing
+checked `copy_memory`, reduced peak memory from **92.9 to 30.2 MiB**, matching the
+`meta=strip` control. The complete encoded PNG, including metadata, was
+byte-identical between baseline and prototype.
+
+Production work needs metadata/ICC/copyright coverage across output formats and
+host defaults, corrupt-tail 415 coverage before delivery, and telemetry checks.
+Keep the checked decode evaluation before Vix mutation: its linked mutable-image
+process still evaluates lazy input when started.
+
+Other inspected copies have a purpose: encoder finalization catches deferred
+decode errors; the classifier buffers a reduced grayscale frame for repeated
+reads; LQIP buffers only 3×3 pixels; info output reads headers without executing
+transforms. Profiled linear input still incurs metadata-triggered evaluation,
+but safely deferring that removal needs explicit color-policy handling. No
+additional measured optimization is claimed for those paths.
