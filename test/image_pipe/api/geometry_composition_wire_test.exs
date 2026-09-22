@@ -12,7 +12,7 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
   test "a later percentage region resolves against the preceding resize" do
     response =
       request(
-        "/w=300/h=200/then/region=10pct,10pct,50pct,50pct/format=png/src/image.png",
+        "/w=300/h=200/-/region=10pct,10pct,50pct,50pct/format=png/src/image.png",
         png_origin(marked(600, 400))
       )
 

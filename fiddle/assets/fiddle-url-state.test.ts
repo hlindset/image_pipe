@@ -9,10 +9,10 @@ describe("API browser state", () => {
   });
 
   it("restores API options and groups from a browser URL", () => {
-    const parsed = parseAppPath("/edit/w=500/then/trim=fff/src/images/dog.jpg");
+    const parsed = parseAppPath("/edit/w=500/-/trim=fff/src/images/dog.jpg");
 
-    expect(parsed.api.options).toBe("w=500/then/trim=fff");
-    expect(appPathForState(parsed)).toBe("/edit/w=500/then/trim=fff/src/images/dog.jpg");
+    expect(parsed.api.options).toBe("w=500/-/trim=fff");
+    expect(appPathForState(parsed)).toBe("/edit/w=500/-/trim=fff/src/images/dog.jpg");
   });
 
   it("falls back when an API URL has no valid source", () => {

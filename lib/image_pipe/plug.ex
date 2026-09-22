@@ -11,7 +11,7 @@ defmodule ImagePipe.Plug do
       mount = ImagePipe.Plug.init(config: config, http_cache: [mode: :enabled])
 
   ImagePipe URLs use options such as `/w=300/format=webp/src/images/photo.jpg`.
-  Options within a group have a fixed processing order; `then` starts the
+  Options within a group have a fixed processing order; `-` starts the
   next group. Configuration is validated at initialization, and invalid
   requests are rejected before source fetching or cache access.
   """

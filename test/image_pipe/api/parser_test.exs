@@ -101,7 +101,7 @@ defmodule ImagePipe.API.ParserTest do
     end
 
     test "cheap trim: resize first, trim the small image" do
-      assert {:ok, request} = parse(["w=500", "then", "trim=fff"])
+      assert {:ok, request} = parse(["w=500", "-", "trim=fff"])
 
       assert request == %Request{
                groups: [
@@ -702,7 +702,7 @@ defmodule ImagePipe.API.ParserTest do
 
     test "request-scoped key twice anywhere in the URL" do
       assert {:error, {:invalid_request, diagnostics}} =
-               parse(["format=webp", "w=800", "then", "format=avif"])
+               parse(["format=webp", "w=800", "-", "format=avif"])
 
       assert Enum.any?(diagnostics, &(&1.reason == :duplicate_option))
     end
@@ -714,14 +714,14 @@ defmodule ImagePipe.API.ParserTest do
             {"cb=first", "cb=second"}
           ] do
         assert {:error, {:invalid_request, diagnostics}} =
-                 parse([first, "w=800", "then", second])
+                 parse([first, "w=800", "-", second])
 
         assert Enum.any?(diagnostics, &(&1.reason == :duplicate_option))
       end
     end
 
     test "the same key in different groups is not a duplicate" do
-      assert {:ok, _request} = parse(["w=800", "then", "w=400"])
+      assert {:ok, _request} = parse(["w=800", "-", "w=400"])
     end
   end
 
@@ -1087,28 +1087,28 @@ defmodule ImagePipe.API.ParserTest do
 
   describe "400s: empty pipeline groups" do
     test "info does not make an explicit empty pipeline group valid" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["output=info", "then"])
+      assert {:error, {:invalid_request, diagnostics}} = parse(["output=info", "-"])
       assert Enum.any?(diagnostics, &(&1.reason == :empty_pipeline_group))
     end
 
-    test "leading then" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["then", "w=800"])
+    test "leading separator" do
+      assert {:error, {:invalid_request, diagnostics}} = parse(["-", "w=800"])
       assert Enum.any?(diagnostics, &(&1.reason == :empty_pipeline_group))
     end
 
-    test "trailing then" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["w=800", "then"])
+    test "trailing separator" do
+      assert {:error, {:invalid_request, diagnostics}} = parse(["w=800", "-"])
       assert Enum.any?(diagnostics, &(&1.reason == :empty_pipeline_group))
     end
 
-    test "doubled then" do
+    test "doubled separator" do
       assert {:error, {:invalid_request, diagnostics}} =
-               parse(["w=800", "then", "then", "h=400"])
+               parse(["w=800", "-", "-", "h=400"])
 
       assert Enum.any?(diagnostics, &(&1.reason == :empty_pipeline_group))
     end
 
-    test "no then at all is a single, legitimately-empty group and is not an error" do
+    test "no separator at all is a single, legitimately-empty group and is not an error" do
       assert {:ok, %Request{groups: [%Group{}]}} = parse([])
     end
   end

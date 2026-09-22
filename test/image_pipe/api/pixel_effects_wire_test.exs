@@ -39,7 +39,7 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     end
   end
 
-  test "effects use fixed order and then explicitly changes that order", %{config: config} do
+  test "groups override the fixed effect order", %{config: config} do
     options = ["w=23", "brightness=40", "contrast=1.8", "colorize=0.3,blue", "gradient=0.5,black"]
     forward = response(Enum.join(options, "/"), config)
     reverse = response(options |> Enum.reverse() |> Enum.join("/"), config)
@@ -48,13 +48,13 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert etag(forward) == etag(reverse)
 
     fixed = image("brightness=40/contrast=1.8", config)
-    separated = image("contrast=1.8/then/brightness=40", config)
+    separated = image("contrast=1.8/-/brightness=40", config)
     refute pixels(fixed) == pixels(separated)
 
     single = image("colorize=0.5,red/w=23", config)
-    later = image("colorize=0.5,red/w=23/then/pad=0", config)
+    later = image("colorize=0.5,red/w=23/-/pad=0", config)
     assert pixels(single) == pixels(later)
-    twice = image("colorize=0.5,red/w=23/then/colorize=0.5,red", config)
+    twice = image("colorize=0.5,red/w=23/-/colorize=0.5,red", config)
     refute pixels(single) == pixels(twice)
   end
 
@@ -68,7 +68,7 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
       assert VipsImage.bands(tinted) == 3
       assert length(Enum.uniq(Image.get_pixel!(tinted, 35, 50))) > 1
       assert pixels(tinted) == pixels(reordered)
-      staged = image("#{first}/then/#{second}", config)
+      staged = image("#{first}/-/#{second}", config)
       assert pixels(tinted) == pixels(staged)
     end
   end

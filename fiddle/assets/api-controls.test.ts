@@ -152,8 +152,8 @@ describe("visual controls serialize API requests", () => {
 });
 
 describe("deep links and edits", () => {
-  it("removes a then group when its last operation is disabled", () => {
-    const options = "w=500/then/trim=fff";
+  it("removes a processing group when its last operation is disabled", () => {
+    const options = "w=500/-/trim=fff";
     const before = controlStateFromOptions(options, source, 1);
     expect(updateControlOptions(options, 1, before, { ...before, trimEnabled: false })).toBe(
       "w=500",
@@ -262,12 +262,12 @@ describe("deep links and edits", () => {
     );
   });
 
-  it("edits the selected then group and request-wide format without duplicates", () => {
-    const options = "w=800/format=jpeg/then/rotate=90/w=300/debug";
+  it("edits the selected processing group and request-wide format without duplicates", () => {
+    const options = "w=800/format=jpeg/-/rotate=90/w=300/debug";
     const before = controlStateFromOptions(options, source, 1);
     expect(before).toMatchObject({ width: 300, rotate: 90, format: "jpeg", formatEnabled: true });
     expect(updateControlOptions(options, 1, before, { ...before, width: 200, format: "png" })).toBe(
-      "w=800/format=png/then/rotate=90/w=200/debug",
+      "w=800/format=png/-/rotate=90/w=200/debug",
     );
   });
 

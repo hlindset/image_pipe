@@ -87,7 +87,7 @@
     { label: "Color overlay", options: "w=600/colorize=0.3,red,keep-alpha" },
     { label: "Gradient", options: "w=600/gradient=0.8,black,down,0.2,0.9" },
     { label: "Padding", options: "w=600/pad=24/bg=fff" },
-    { label: "Resize then trim", options: "w=500/then/trim=fff" },
+    { label: "Resize then trim", options: "w=500/-/trim=fff" },
     { label: "Framed preset", options: "preset=framed" },
     { label: "Rotate", options: "rotate=30/w=600" },
     { label: "Flip", options: "rotate=90/flip=h/w=600" },
@@ -181,7 +181,7 @@
       <span>Processing group</span>
       <select bind:value={groupIndex}>
         {#each groups as _, index}
-          <option value={index}>Group {index + 1}{index > 0 ? " · then" : ""}</option>
+          <option value={index}>Group {index + 1}{index > 0 ? " · -" : ""}</option>
         {/each}
       </select>
     </label>
@@ -201,7 +201,7 @@
       rows="5"
       spellcheck="false"></textarea>
   </label>
-  <p>Separate options with a slash. Use <code>then</code> to start another processing group.</p>
+  <p>Separate options with a slash. Use <code>-</code> to start another processing group.</p>
 </details>
 
 <style>

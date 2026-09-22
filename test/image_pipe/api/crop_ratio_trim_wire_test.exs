@@ -33,7 +33,7 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
     assert {Image.width(rotated), Image.height(rotated)} == {40, 60}
 
     assert_same_pixels(
-      image("trim=fff/trim-symmetry=hv/then/trim=fff", source),
+      image("trim=fff/trim-symmetry=hv/-/trim=fff", source),
       image("trim=fff", source)
     )
   end
@@ -66,7 +66,7 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
   end
 
   test "a later group starts with a fresh crop ratio" do
-    output = image("crop=60,60/crop-ratio=2/then/crop=20,20", source())
+    output = image("crop=60,60/crop-ratio=2/-/crop=20,20", source())
     assert {Image.width(output), Image.height(output)} == {20, 20}
   end
 

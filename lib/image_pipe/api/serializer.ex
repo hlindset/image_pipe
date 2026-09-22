@@ -28,7 +28,7 @@ defmodule ImagePipe.API.Serializer do
         segments -> segments
       end
     end)
-    |> Enum.intersperse(["then"])
+    |> Enum.intersperse(["-"])
     |> List.flatten()
   end
 

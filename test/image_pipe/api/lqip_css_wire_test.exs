@@ -31,7 +31,7 @@ defmodule ImagePipe.API.LqipCssWireTest do
     config = mount(body)
     plain = request("output=lqip-css", config)
     gray = request("gray/output=lqip-css", config)
-    cropped = request("w=45/then/region=30,0,15,30/output=lqip-css", config)
+    cropped = request("w=45/-/region=30,0,15,30/output=lqip-css", config)
 
     assert gray.status == 200
     assert gray.resp_body != plain.resp_body

@@ -6,6 +6,13 @@ defmodule ImagePipe.API.SerializerTest do
   alias ImagePipe.API.{Parser, Path, Serializer}
   alias ImagePipe.Plan
 
+  test "ordered groups serialize with a hyphen separator" do
+    plan = IP.new() |> IP.group(gray: true) |> IP.group(blur: 1)
+
+    assert segments(plan) == ["gray", "-", "blur=1"]
+    assert_round_trip(plan)
+  end
+
   test "canonical requests round trip through every option family" do
     plans = [
       IP.new(),

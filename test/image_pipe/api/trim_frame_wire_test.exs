@@ -40,7 +40,7 @@ defmodule ImagePipe.API.TrimFrameWireTest do
     origin = png_origin(source())
     transformed = image("w=20/rotate=90", origin)
     expected = image("trim=auto", png_origin(Image.write!(transformed, :memory, suffix: ".png")))
-    actual = image("w=20/rotate=90/then/trim=auto", origin)
+    actual = image("w=20/rotate=90/-/trim=auto", origin)
 
     assert_same_pixels(actual, expected)
   end

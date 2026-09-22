@@ -163,8 +163,8 @@ defmodule ImagePipe.API.PipelinePixelTest do
 
   # ── the cheap-trim contract: trim in group 2 runs on group 1's output ────
 
-  test "w=400/then/trim=fff trims the POST-resize image, not the source" do
-    request = request("w=400/then/trim=fff,0")
+  test "w=400/-/trim=fff trims the POST-resize image, not the source" do
+    request = request("w=400/-/trim=fff,0")
 
     assert {:ok, %State{image: image}} = run_api(TrimSourceOrigin, request)
     width = Image.width(image)
@@ -267,7 +267,7 @@ defmodule ImagePipe.API.PipelinePixelTest do
     end
 
     test "a trim in a LATER group does not set trim? (only the first group governs)" do
-      request = request("w=400/then/trim=auto")
+      request = request("w=400/-/trim=auto")
 
       decode_request = Executor.decode_request(request, geometry({1600, 1200}))
 

@@ -220,10 +220,10 @@ defmodule ImagePipe.API.PathTest do
               }} = Path.extract(conn)
     end
 
-    test "flag and then segments pass through as raw segments" do
-      conn = conn_for("/extend/then/w=800/src/x")
+    test "flag and separator segments pass through as raw segments" do
+      conn = conn_for("/extend/-/w=800/src/x")
 
-      assert {:ok, %{segments: [{"extend", _}, {"then", _}, {"w=800", _}]}} = Path.extract(conn)
+      assert {:ok, %{segments: [{"extend", _}, {"-", _}, {"w=800", _}]}} = Path.extract(conn)
     end
 
     test "raises when a script_name segment is not canonical unescaped ASCII" do

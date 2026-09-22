@@ -511,7 +511,7 @@ function keyOf(segment: string): string {
 }
 
 export function optionGroups(options: string): string[][] {
-  return options.split(/(?:^|\/)then(?:\/|$)/).map((group) => group.split("/").filter(Boolean));
+  return options.split(/(?:^|\/)-(?:\/|$)/).map((group) => group.split("/").filter(Boolean));
 }
 
 function dimension(unit: CropDimensionUnit, pixels: number, percent: number): string {
@@ -1046,7 +1046,7 @@ export function normalizeControlEdit(before: ControlState, after: ControlState):
 }
 
 // Apply only user-edited fields, retaining raw spellings and options without a
-// widget. This also keeps then groups and request-wide options intact.
+// widget. This also keeps processing groups and request-wide options intact.
 export function updateControlOptions(
   options: string,
   groupIndex: number,
@@ -1106,5 +1106,5 @@ export function updateControlOptions(
   return groups
     .filter((group) => group.length > 0)
     .map((group) => group.join("/"))
-    .join("/then/");
+    .join("/-/");
 }

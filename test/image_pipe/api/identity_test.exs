@@ -149,7 +149,7 @@ defmodule ImagePipe.API.IdentityTest do
         prepared_material!([
           "crop=100,100",
           "detect=car",
-          "then",
+          "-",
           "crop=50,50",
           "anchor=smart-face"
         ])
@@ -163,7 +163,7 @@ defmodule ImagePipe.API.IdentityTest do
         prepared_material!([
           "crop=100,100",
           "detect=all",
-          "then",
+          "-",
           "crop=50,50",
           "anchor=smart-face"
         ])

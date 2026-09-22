@@ -231,7 +231,7 @@ defmodule ImagePipe.API.OrientationMatrixTest do
 
     test "orient is request-scoped and rejects duplicates across groups" do
       assert {:error, {:invalid_request, diagnostics}} =
-               Parser.parse(lexed(["orient=auto", "then", "orient=none"]), [])
+               Parser.parse(lexed(["orient=auto", "-", "orient=none"]), [])
 
       assert Enum.any?(diagnostics, &(&1.reason == :duplicate_option))
     end
