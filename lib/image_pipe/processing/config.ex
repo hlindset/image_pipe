@@ -98,6 +98,8 @@ defmodule ImagePipe.Processing.Config do
 
   def schema, do: @options_schema.schema
 
+  def system_time, do: System.os_time(:second)
+
   def validate!(opts) do
     opts |> Source.validate_config!() |> validate_known_opts!() |> resolve!()
   end
@@ -180,7 +182,7 @@ defmodule ImagePipe.Processing.Config do
   defp validate_known_opts!(opts) do
     case NimbleOptions.validate(opts, @options_schema) do
       {:ok, validated_opts} ->
-        Keyword.put_new(validated_opts, :clock, fn -> System.os_time(:second) end)
+        Keyword.put_new(validated_opts, :clock, &__MODULE__.system_time/0)
 
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError,
