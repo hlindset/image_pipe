@@ -10,15 +10,13 @@ defmodule ImagePipe.Delivery.StreamPull do
   #   * The runner pulls the first chunk inside its encode span to time libvips'
   #     actual work, then gives pump a resume/2 enumerable that replays it.
   #
-  # first_chunk/1, continue/1, and resume/2 propagate stream failures. translate/2
-  # converts them to shared error tags; callers supply the phase-specific
-  # fallback for failures other than StreamError.
+  # first_chunk/1, continue/1, and resume/2 propagate stream failures. translate/1
+  # converts them to shared error tags.
 
   alias ImagePipe.Source.StreamError
 
   @type stream_state() :: {binary(), (term() -> term())}
   @type tagged_error() :: {:error, term()}
-  @type fallback() :: (Exception.kind(), term() -> tagged_error())
 
   @doc """
   Reduces `stream` until its first non-empty binary chunk, suspending there.
@@ -115,14 +113,10 @@ defmodule ImagePipe.Delivery.StreamPull do
   failure and must keep the source's domain status (422/404/502) rather than
   degrading to the 500 an `{:encode, _}` tag would produce
   (`ImagePipe.Response.ErrorStatus`). Any other throw is a fault in the calling
-  runner's encode/stream; `fallback` builds its tag, so a caller can keep a
-  phase-specific one while defaulting to the encode tag.
+  runner's encode/stream and receives an encode tag.
   """
   @spec translate((-> result)) :: result | tagged_error() when result: term()
-  def translate(fun) when is_function(fun, 0), do: translate(&encode_fallback/2, fun)
-
-  @spec translate(fallback(), (-> result)) :: result | tagged_error() when result: term()
-  def translate(fallback, fun) when is_function(fallback, 2) and is_function(fun, 0) do
+  def translate(fun) when is_function(fun, 0) do
     fun.()
   rescue
     exception in [StreamError] -> {:error, {:source, exception.reason}}
@@ -130,10 +124,8 @@ defmodule ImagePipe.Delivery.StreamPull do
   catch
     :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
     :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
-    kind, reason -> fallback.(kind, reason)
+    kind, reason -> {:error, {:encode, {kind, reason}, []}}
   end
-
-  defp encode_fallback(kind, reason), do: {:error, {:encode, {kind, reason}, []}}
 
   defp reduce_result({:suspended, chunk, continuation}) when is_binary(chunk),
     do: {:ok, chunk, {chunk, continuation}}
