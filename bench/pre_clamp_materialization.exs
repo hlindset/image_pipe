@@ -2,6 +2,8 @@
 # mise exec -- mix run bench/pre_clamp_materialization.exs matrix /tmp/fd8
 # Broader orientation/metadata audit:
 # mise exec -- mix run bench/pre_clamp_materialization.exs audit /tmp/fd8-audit
+# Remaining orientation boundaries, including a full-sized JPEG:
+# mise exec -- mix run bench/pre_clamp_materialization.exs followup /tmp/fd8-followup
 # Optional worker: ... worker /tmp/fd8 fit exif6 12000 8192
 # Sources are lossless TIFFs made from the same decoded photograph. twin3/twin6
 # contain physically oriented pixels, providing an early-orientation comparison.
@@ -59,6 +61,27 @@ defmodule PreClampMaterializationBench do
             do: {scenario, source, 3000, 1024}
 
     run_cases(root, cases)
+  end
+
+  def main(["followup", root]) do
+    prepare(root)
+    File.cp!("priv/static/images/beach.jpg", Path.join(root, "jpeg.jpg"))
+
+    run_cases(root, [
+      {"fit", "plain", 6000, 2048},
+      {"fit", "exif6", 6000, 2048},
+      {"fit", "exif6", 12000, :default},
+      {"cover", "exif6", 6000, 2048},
+      {"thin_cover", "exif6", 6000, 2048},
+      {"canvas", "exif6", 6000, 2048},
+      {"padding", "exif6", 6000, 2048},
+      {"groups", "exif6", 6000, 2048},
+      {"rotated_fit", "jpeg", 2800, 2048},
+      {"rotated_fit", "jpeg", 4500, 2048},
+      {"rotated_fit", "jpeg", 128, 2048},
+      {"orientation_keep", "exif6", 6000, 2048},
+      {"orientation_strip", "exif6", 6000, 2048}
+    ])
   end
 
   def main(["worker", root, scenario, source, target, cap]) do
@@ -133,7 +156,8 @@ defmodule PreClampMaterializationBench do
         ] ++ limits(cap)
       )
 
-    path = "/#{options(scenario, target)}/format=png/src/#{source}.tif"
+    extension = if source == "jpeg", do: "jpg", else: "tif"
+    path = "/#{options(scenario, target)}/format=png/src/#{source}.#{extension}"
     {us, conn} = :timer.tc(fn -> Plug.Test.conn(:get, path) |> ImagePipe.Plug.call(config) end)
     if conn.status != 200, do: raise("#{path}: #{conn.status}: #{conn.resp_body}")
     peak = Vix.Vips.tracked_get_mem_highwater()
@@ -185,6 +209,10 @@ defmodule PreClampMaterializationBench do
     do: [max_result_width: cap, max_result_height: cap, max_result_pixels: 200_000_000]
 
   defp options("fit", size), do: "w=#{size}/enlarge"
+  defp options("rotated_fit", size), do: "rotate=90/w=#{size}/enlarge"
+  defp options("thin_cover", size), do: "w=2/h=#{size}/fit=cover/enlarge"
+  defp options("orientation_keep", size), do: "orient=none/meta=keep/w=#{size}/enlarge"
+  defp options("orientation_strip", size), do: "orient=none/meta=strip/w=#{size}/enlarge"
   defp options("cover", size), do: "w=#{size}/h=#{div(size, 3)}/fit=cover/enlarge"
   defp options("canvas", size), do: "w=#{size}/h=#{size}/enlarge/extend"
   defp options("padding", size), do: "w=#{size}/enlarge/pad=200,300,400,500"

@@ -205,10 +205,11 @@ strict Credo, Dialyzer, duplication checks, and 2533 passing tests/properties
 
 ## Follow-up experiments after fd8
 
-The completed implementation still has two measurable opportunities. These are
-isolated prototypes loaded with `mix run --no-compile -r`; they are not production
-changes. Measurements use the same worker, fixtures, two libvips threads, disabled
-operation caching, and request-only tracked high-water as above.
+Two further candidates reduced memory, but both failed the speed acceptance gate
+below and were rejected. They were evaluated with isolated overrides loaded by
+`mix run --no-compile -r` and temporary implementations. Measurements use the
+same worker, fixtures, two libvips threads, disabled operation caching, and
+request-only tracked high-water as above.
 
 ### Buffer the smaller input before enlargement (`image_plug-lwl`)
 
@@ -228,13 +229,14 @@ this changes the evaluation boundary without moving pixel operations.
 | Groups, EXIF 6, width 6000, cap 2048 | 194.3 | 42.2 |
 | Fit, EXIF 6, width 12000, default caps | 846.9 | 229.6 |
 
-All seven outputs retain exact decoded pixel hashes and dimensions. The prototype
-is intentionally insufficient as a production selection rule: cover can crop to
-a frame smaller than the input even when its intermediate resize enlarges. Compare
-against the buffer actually required after cropping, preserve already-backed and
-sequential-safe paths, and test downsizing, streamed JPEGs, shrink-on-load, user
-orientation, multiple groups, and decode errors. CPU/throughput effects remain
-unmeasured; fewer allocated bytes can mean more repeated lazy pixel work.
+All seven outputs retain exact decoded pixel hashes and dimensions. A subsequent
+implementation compared the input against the buffer actually required after
+cover cropping and left already-backed and sequential-safe paths alone. Narrow
+crops can make buffering the input more expensive than buffering the cropped
+result. A second restriction required at least halving the backing buffer, to
+avoid slowing modest enlargements for negligible memory savings. Streamed JPEG,
+EXIF/rotation/flip property, request, and telemetry tests passed; timing still
+showed material regressions, so neither selection rule is retained.
 
 ### Clean retained orientation metadata after the clamp (`image_plug-0s9`)
 
@@ -245,10 +247,59 @@ checked `copy_memory`, reduced peak memory from **92.9 to 30.2 MiB**, matching t
 `meta=strip` control. The complete encoded PNG, including metadata, was
 byte-identical between baseline and prototype.
 
-Production work needs metadata/ICC/copyright coverage across output formats and
-host defaults, corrupt-tail 415 coverage before delivery, and telemetry checks.
-Keep the checked decode evaluation before Vix mutation: its linked mutable-image
-process still evaluates lazy input when started.
+The temporary implementation passed focused request/trace checks, including
+format-specific metadata and retained ICC in JPEG, PNG, and WebP, explicit and host-default metadata
+retention, and corrupt-tail 415 behavior. It retained checked decode evaluation
+before Vix mutation. Its timing regression also ruled it out.
+
+### Speed acceptance gate
+
+The user explicitly prioritizes speed over lower memory. The following medians
+measure complete Plug request latency, excluding VM startup, fixture generation,
+and verification. Each measurement ran in a fresh VM, alternating baseline and
+candidate order. Early-buffer comparisons used three trials per version; metadata
+comparisons used five. These are serial local timings, not concurrent throughput
+or isolated CPU-time measurements.
+
+| Candidate and case | Baseline ms | Candidate ms | Baseline → candidate peak MiB |
+|---|---:|---:|---:|
+| Early backing, EXIF 6 fit width 6000 | 1093.4 | 1610.9 | 190.0 → 37.9 |
+| Early backing, EXIF 6 canvas width 6000 | 1384.0 | 1906.2 | 186.7 → 122.1 |
+| Early backing, full JPEG rotation width 4500 | 884.4 | 1484.5 | 111.5 → 60.3 |
+| Late metadata cleanup, EXIF 6 width 6000 | 531.5 | 1114.5 | 92.9 → 30.2 |
+| Late metadata cleanup, EXIF 6 width 128 | 42.3 | 48.0 | 2.1 → 2.1 |
+
+The metadata-strip control stayed at 1117.4→1117.2 ms. The bounded early-buffer
+rule kept modest JPEG enlargement at 486.0→487.7 ms and 50.1 MiB, but did not
+avoid the slowdown in larger requests where it activated. Small timing changes
+can be noise; the large-case regressions are sufficient to reject both changes.
+The likely mechanism is repeated work when downstream consumers read a lazy
+resize graph, instead of reading its already-evaluated result.
+
+A resize-only check isolates pixel evaluation from decode, metadata mutation,
+and encoding. Starting from the same RAM-backed 600×400 input, it enlarges to
+6000×4000 and shrinks to 2048×1365. Across three fresh-VM trials, buffering the
+enlarged result took a median 263.1 ms, then evaluating the final shrink took
+23.8 ms (286.9 ms total). Evaluating the two resizes as a lazy chain took 383.4 ms,
+with identical final pixels. This confirms an evaluation cost even without
+metadata or encoding; the exact internal recomputation/cache costs have not been
+profiled. Records: `/tmp/fd8-lwl-implemented/resize-only-timing.json`.
+
+The production implementation preceding these two experiments is retained.
+Issues `image_plug-lwl` and `image_plug-0s9` are closed as rejected approaches,
+rather than completed optimizations. Reconsider only an approach that preserves
+speed and demonstrates that with request latency as well as memory measurements.
+
+Reproduce the workload coverage (13 requests) with:
+
+```sh
+mise exec -- mix run bench/pre_clamp_materialization.exs followup /tmp/fd8-followup
+```
+
+The same worker command accepts individual cases for alternating-version timing
+runs. Local comparison records are in
+`/tmp/fd8-lwl-implemented/timing-comparison.json`, `jpeg-bounded.json`, and
+`metadata-timing.json`.
 
 Other inspected copies have a purpose: encoder finalization catches deferred
 decode errors; the classifier buffers a reduced grayscale frame for repeated
