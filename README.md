@@ -152,7 +152,7 @@ Use `dpr=2` for twice the output density and `zoom=1.5` (or `zoom=2,1`)
 to scale resize targets. Padding follows DPR; source crops keep their physical
 pixel coordinates. `min-w` and `min-h` raise the resize target's minimum size.
 Without `enlarge`, source dimensions cap the resize and padding scales down
-proportionally. Each `then` group starts with DPR and zoom of 1.
+proportionally. Each `-` group starts with DPR and zoom of 1.
 
 Configure reusable presets with option strings:
 
@@ -161,7 +161,7 @@ plug ImagePipe.Plug,
   sources: [...],
   presets: %{
     "card" => "w=400/h=400/fit=cover",
-    "framed" => "preset=card/then/pad=20/bg=fff/format=webp"
+    "framed" => "preset=card/-/pad=20/bg=fff/format=webp"
   }
 ```
 
@@ -182,8 +182,8 @@ settings together. `extend=false` or `extend-ratio=false` disables an inherited
 canvas and clears its placement settings. Conflicting alternatives written
 together in one preset or the explicit URL are still rejected.
 
-Options within a group have a fixed processing order. Use `then` for a second
-pass, for example `/w=500/then/trim=fff/src/images/beach.jpg` to trim after
+Options within a group have a fixed processing order. Use `-` for a second
+pass, for example `/w=500/-/trim=fff/src/images/beach.jpg` to trim after
 resizing.
 
 Use `/output=info/src/images/photo.jpg` for source format, MIME type, display
@@ -236,7 +236,7 @@ mise run fiddle      # boots Phoenix (:4000) + Vite (:5173)
 Open http://localhost:4000. The processing endpoint is `/image`.
 Visual controls cover resize, crop, focal points,
 effects, canvas, padding, orientation, and output settings. Saved URLs
-populate the controls, including a group selector for `then` requests. Examples
+populate the controls, including a group selector for `-` requests. Examples
 and an optional advanced path editor cover the full vocabulary.
 The source selector exercises local files, S3, and the demo's HTTP source.
 The Protection control demonstrates signed URLs and concealed sources using

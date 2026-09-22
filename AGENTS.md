@@ -18,7 +18,7 @@
 ## API guidelines
 
 - ImagePipe has one path-oriented, declarative API. Follow [the API contract](docs/api_contract.md) for capability retention, fixed stage order, coordinate frames, DPR, source concealment, and terminal semantics.
-- Option order within a group must not define processing order. Only an explicit `then` opens a new group. Operations use the display frame produced by preceding stages; crop percentages resolve after trim. Deferred orientation is an implementation optimization and must preserve the logical result.
+- Option order within a group must not define processing order. Only an explicit `-` opens a new group. Operations use the display frame produced by preceding stages; crop percentages resolve after trim. Deferred orientation is an implementation optimization and must preserve the logical result.
 - Use one concrete request lifecycle and one executor. Keep host extension points for sources, caches, detectors, and exporters. Prefer direct calls and data over configurable dialect/parser/renderer behaviours, continuation protocols, and callback wrappers.
 - Preserve useful capabilities identified in the contract before deleting their only entry point. Beads epic `image_plug-a0q` owns migration dependencies and progress.
 - Keep selected imgproxy comparisons as test-only reference evidence for intentionally shared behavior. ImagePipe semantics govern disagreements; exact vendor parity is not required.
