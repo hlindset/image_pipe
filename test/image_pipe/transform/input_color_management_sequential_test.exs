@@ -14,10 +14,12 @@ defmodule ImagePipe.Transform.InputColorManagementSequentialTest do
   is a separate, deferred high-water-mark benchmark).
   """
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Transform.InputColorManagement, as: ICM
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
+  alias Vix.Vips.Operation
 
   @sources "test/support/image_pipe/test/sources"
   @p3_fixture "#{@sources}/icc_p3.png"
@@ -64,6 +66,35 @@ defmodule ImagePipe.Transform.InputColorManagementSequentialTest do
 
     test "16-bit RGB with alpha import then rotate stays pixel-equivalent" do
       assert_condition_then_rotate_matches_random(@rgba16_fixture)
+    end
+  end
+
+  property "unprofiled linear inputs match between sequential and random access" do
+    check all(
+            width <- integer(20..160),
+            height <- integer(20..160),
+            hdr? <- boolean(),
+            max_runs: 16
+          ) do
+      source =
+        Image.new!(width, height, color: [20, 90, 180])
+        |> Image.Draw.rect!(1, 2, div(width, 2), div(height, 3), color: [240, 40, 20])
+
+      {:ok, linear} = Operation.colourspace(source, :VIPS_INTERPRETATION_scRGB)
+      body = Image.write!(linear, :memory, suffix: ".tif")
+
+      pixels =
+        for access <- [:random, :sequential] do
+          {:ok, image} = Image.open([body], access: access, fail_on: :error)
+          assert {:error, _reason} = VixImage.header_value(image, "icc-profile-data")
+
+          assert {:ok, %State{image: conditioned}} =
+                   ICM.condition(%State{image: image}, supports_hdr?: hdr?)
+
+          VixImage.write_to_binary(conditioned)
+        end
+
+      assert [{:ok, pixels}, {:ok, pixels}] = pixels
     end
   end
 
