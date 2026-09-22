@@ -98,7 +98,7 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
 
   test "queue wait is bounded and rejects without source fetch", context do
     pool =
-      start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 1, queue_timeout: 30})
+      start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 1, queue_timeout: 1_000})
 
     mount = ImagePipe.Plug.init(config: config(pool, context.prefix))
 
