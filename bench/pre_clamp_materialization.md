@@ -6,6 +6,11 @@ leaves the oriented result lazy. Input color management skips metadata mutation
 when the ICC field to remove is absent. Operation order and output pixels are
 preserved.
 
+**Speed audit:** repeated request timings found regressions in the retained
+orientation changes. Their memory savings do not satisfy the speed-first
+acceptance criterion. See [the latency audit](#latency-audit-of-retained-fd8-changes)
+for the individual comparisons and the required follow-up.
+
 ## Reproduce
 
 ```sh
@@ -28,8 +33,8 @@ Output PNGs are retained for independent inspection. Request high-water is
 captured **before** decoding output for comparison. Fixture generation and
 cross-image comparisons run outside the measured worker VMs.
 
-These are single-request measurements, not throughput measurements or a
-representative workload distribution. Libvips tracked memory excludes some
+These original memory runs are single-request measurements, not throughput
+measurements or a representative workload distribution. Libvips tracked memory excludes some
 allocations; RSS measurements below include the whole VM. Timings are recorded
 but are not a statistically controlled CPU comparison.
 
@@ -181,7 +186,7 @@ peaks at 15.0 MiB. Wire tests cover both resizing and no-geometry output;
 property coverage compares sequential and random input across sizes and HDR
 conditioning policies.
 
-## Decision
+## Initial implementation decision
 
 The measured orientation and absent-profile optimizations are implemented.
 Universal clamp reordering or resample folding is not justified: moving
@@ -307,3 +312,107 @@ reads; LQIP buffers only 3×3 pixels; info output reads headers without executin
 transforms. Profiled linear input still incurs metadata-triggered evaluation,
 but safely deferring that removal needs explicit color-policy handling. No
 additional measured optimization is claimed for those paths.
+
+## Latency audit of retained fd8 changes
+
+The original fd8 acceptance measured memory and correctness, but did not run a
+repeated before/after speed comparison. This audit adds that missing gate for
+the retained changes, independently of the two rejected follow-up experiments.
+
+```sh
+mise exec -- python3 bench/materialization_latency.py /tmp/fd8-speed --preload
+```
+
+The runner compares the current implementation with the runtime behavior before
+commits `ed4e70d7` (orientation) and `8b50724c` (absent ICC), and with one isolated
+reversal per workload. Source overrides are generated in the output directory
+and loaded into each worker VM; source files and compiled application beams are
+unchanged. The historical orientation baseline restores the original flush
+wrapper and telemetry boundary as well as both copies. Isolated variants keep
+the current wrapper/telemetry behavior:
+
+- `eager_final` restores only the post-orientation copy, including horizontal
+  flips, and marks that result materialized.
+- `no_reuse` removes only the guard that skips preparation for already-backed
+  images. It still skips preparation for row-preserving orientation.
+- `icc_mutation` restores only unconditional ICC-field mutation.
+
+Each case runs five trials of all three versions, reversing their order on
+alternate trials, in fresh VMs. All loaded applications' modules are preloaded
+before timing to avoid bias from compiling the historical overrides. The plain
+request and profiled linear input provide unchanged-path controls. Timings cover
+the complete Plug request, including encoding; VM startup, module preloading,
+fixture generation, output writing, and output verification are excluded.
+Libvips uses two threads and disabled operation caching. Peak tracked memory is
+captured before output verification, and is not process RSS.
+
+An initial pass without module preloading also ran 150 requests. Its large-case
+regressions agree with the preloaded pass, but several small-case differences
+disappear after preloading. Use the preloaded measurements for comparisons;
+cold module-loading differences are not evidence of pixel-processing regressions.
+These are serial local request timings with warm filesystem caches, not a
+concurrent throughput benchmark or an estimate of production workload frequency.
+
+The [committed samples](materialization_latency_samples.json) retain individual
+timing and memory samples, dimensions, pixel hashes, platform, libvips version,
+and hashes of the measured source files. The runner produces this evidence as
+`latency-samples.json`, alongside full records and a summary. Full local
+request/telemetry records are in
+`/tmp/fd8-speed/latency-results.json` and
+`/tmp/fd8-speed-preloaded/latency-results.json`.
+
+### Results
+
+Medians from the preloaded pass; positive latency change means slower. All 300
+comparison requests across both passes have identical decoded pixel hashes and
+dimensions within each workload.
+
+| Workload | Before fd8 ms | Current ms | Latency change | Before → current peak MiB |
+|---|---:|---:|---:|---:|
+| Plain TIFF, width 3000, cap 1024 | 299.7 | 298.3 | −0.5% | 13.7 → 13.7 |
+| EXIF 6, width 6000, cap 2048 | 940.0 | 1057.3 | +12.5% | 309.3 → 190.0 |
+| EXIF 6, width 128 | 8.5 | 8.5 | +0.7% | 2.8 → 2.8 |
+| Full JPEG, rotate 90, width 2800, cap 2048 | 448.9 | 462.0 | +2.9% | 67.6 → 50.1 |
+| Horizontal flip, TIFF width 3000, cap 1024 | 158.7 | 315.8 | +99.0% | 27.3 → 16.2 |
+| Horizontal flip, JPEG width 128 | 51.3 | 50.8 | −0.9% | 2.7 → 2.7 |
+| Two rotation groups, widths 3000/1500, cap 1024 | 269.2 | 297.2 | +10.4% | 77.5 → 61.7 |
+| EXIF 6, resize groups 6000/1500, cap 2048 | 954.7 | 1070.8 | +12.2% | 309.3 → 194.3 |
+| Unprofiled linear TIFF, width/cap 128 | 13.0 | 9.9 | −23.5% | 15.0 → 8.7 |
+| Profiled linear TIFF control, width/cap 128 | 12.4 | 12.1 | −3.0% | 15.0 → 15.0 |
+
+The five-trial timing ranges do not overlap between historical and current
+versions for the large EXIF, JPEG rotation, large horizontal flip, and grouped
+workloads. Small-request and unchanged-path control ranges overlap; do not infer
+speed changes from their small median differences.
+
+The individual reversals identify the costs:
+
+- Restoring only the final orientation copy brings large EXIF to **937.1 ms**,
+  JPEG rotation to **447.3 ms**, and the large horizontal flip to **157.6 ms**.
+  All are near their historical baselines. Small EXIF and small horizontal
+  requests are effectively unchanged.
+- Restoring preparation of already-backed images brings two rotation groups
+  from **297.2 to 285.6 ms**, with peak memory **61.7 to 54.0 MiB**. That isolates
+  a roughly 4% latency penalty from skipping this copy on the current graph.
+  Restoring this preparation does not affect the resize-only second-group
+  control: **1070.8 versus 1068.7 ms**. The complete historical orientation
+  behavior is faster still for the two-rotation case, at **269.2 ms**.
+- Restoring unconditional ICC mutation raises the unprofiled linear request
+  from **9.9 to 11.9 ms** and **8.7 to 15.0 MiB**. Four of five paired trials
+  favor the guard; the remaining trial is effectively tied. This is a modest
+  absolute speed benefit on one fixture, with overlapping ranges, rather than
+  a general 23.5% claim. The profiled-input control remains effectively unchanged.
+
+### Speed-first decision
+
+The orientation changes in `ed4e70d7` fail the user's speed-first criterion.
+Recommend restoring the prior orientation buffering behavior and retaining the
+absent-ICC guard from `8b50724c`. Removing copies reduces peak memory, but the
+remaining lazy graph can cost more to evaluate downstream; the isolated final
+copy reversal demonstrates that tradeoff without changing operation order or
+pixels. Internal libvips recomputation/cache costs have not been profiled.
+
+This audit changes benchmark code and evidence only. Production remains at the
+measured implementation, and `image_plug-fd8` is reopened to track restoration
+of request speed. The benchmark task `image_plug-pt9` is complete. Recheck both
+latency and memory after any restoration or replacement optimization.
