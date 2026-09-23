@@ -6,13 +6,12 @@ defmodule ImagePipe.Processing.Terminal do
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Request
-  alias ImagePipe.Source
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.PendingOrientation
   alias Vix.Vips.Image, as: VipsImage
 
-  @spec render(Source.Resolved.t(), Request.t(), keyword()) ::
+  @spec render(Decode.input(), Request.t(), keyword()) ::
           {:ok, String.t(), binary() | map()} | {:error, term()}
   def render(source, %Request{} = request, config) do
     Telemetry.span(

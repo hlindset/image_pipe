@@ -1,0 +1,887 @@
+{
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "samples": [
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 7.481,
+      "downloaded_ms": 2.45,
+      "total_ms": 12.21,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 258424832,
+      "libvips_peak_bytes": 9239541,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 1.161,
+      "downloaded_ms": 3.092,
+      "total_ms": 6.072,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 263274496,
+      "libvips_peak_bytes": 9239541,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 1.793,
+      "downloaded_ms": 0.711,
+      "total_ms": 6.746,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 258441216,
+      "libvips_peak_bytes": 9239541,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 1.864,
+      "downloaded_ms": 0.824,
+      "total_ms": 6.831,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 260227072,
+      "libvips_peak_bytes": 9239541,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 0.942,
+      "downloaded_ms": 2.948,
+      "total_ms": 5.983,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 259538944,
+      "libvips_peak_bytes": 9239541,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 1.807,
+      "downloaded_ms": 0.802,
+      "total_ms": 6.642,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 259260416,
+      "libvips_peak_bytes": 9239541,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 1.703,
+      "downloaded_ms": 0.721,
+      "total_ms": 6.633,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 266518528,
+      "libvips_peak_bytes": 9239541,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 0.947,
+      "downloaded_ms": 4.031,
+      "total_ms": 5.891,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 257179648,
+      "libvips_peak_bytes": 9239541,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 0,
+      "opened_ms": 1.756,
+      "downloaded_ms": 0.636,
+      "total_ms": 6.728,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 259047424,
+      "libvips_peak_bytes": 9239541,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 1.591,
+      "downloaded_ms": 0.653,
+      "total_ms": 3.518,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 260177920,
+      "libvips_peak_bytes": 350239,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 0.832,
+      "downloaded_ms": 1.972,
+      "total_ms": 2.791,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 230473728,
+      "libvips_peak_bytes": 359318,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 1.701,
+      "downloaded_ms": 0.702,
+      "total_ms": 3.663,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 259276800,
+      "libvips_peak_bytes": 303155,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 1.747,
+      "downloaded_ms": 0.753,
+      "total_ms": 3.833,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 262766592,
+      "libvips_peak_bytes": 281516,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 1.015,
+      "downloaded_ms": 2.185,
+      "total_ms": 3.083,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 258555904,
+      "libvips_peak_bytes": 281516,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 1.841,
+      "downloaded_ms": 0.765,
+      "total_ms": 3.783,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 253329408,
+      "libvips_peak_bytes": 314926,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 2.082,
+      "downloaded_ms": 0.941,
+      "total_ms": 4.121,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 220397568,
+      "libvips_peak_bytes": 290658,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 0.99,
+      "downloaded_ms": 2.077,
+      "total_ms": 2.978,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 257097728,
+      "libvips_peak_bytes": 291384,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 0,
+      "opened_ms": 1.883,
+      "downloaded_ms": 0.811,
+      "total_ms": 3.873,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 258523136,
+      "libvips_peak_bytes": 303155,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 4.769,
+      "downloaded_ms": 3.739,
+      "total_ms": 9.653,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 257032192,
+      "libvips_peak_bytes": 9239541,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 3.509,
+      "downloaded_ms": 5.352,
+      "total_ms": 8.329,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 256294912,
+      "libvips_peak_bytes": 9239541,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 4.151,
+      "downloaded_ms": 3.202,
+      "total_ms": 8.883,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 260046848,
+      "libvips_peak_bytes": 9239541,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 4.441,
+      "downloaded_ms": 3.446,
+      "total_ms": 9.191,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 252936192,
+      "libvips_peak_bytes": 9239541,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 4.285,
+      "downloaded_ms": 6.066,
+      "total_ms": 8.996,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 260276224,
+      "libvips_peak_bytes": 9239541,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 4.37,
+      "downloaded_ms": 3.403,
+      "total_ms": 9.277,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 257048576,
+      "libvips_peak_bytes": 9239541,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 5.834,
+      "downloaded_ms": 4.82,
+      "total_ms": 10.771,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 262389760,
+      "libvips_peak_bytes": 9239541,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 3.65,
+      "downloaded_ms": 5.535,
+      "total_ms": 8.664,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 261636096,
+      "libvips_peak_bytes": 9239541,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 600,
+      "source": "priv/static/images/woman.jpg",
+      "height": 400,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "aed1b0764e0ececc8d21e278c3f653c3ff96927dd5e5e9aa6672495c0f7597bb",
+      "rate_mib_s": 20,
+      "opened_ms": 4.296,
+      "downloaded_ms": 3.266,
+      "total_ms": 9.008,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 259293184,
+      "libvips_peak_bytes": 9239541,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 6.132,
+      "downloaded_ms": 5.047,
+      "total_ms": 8.03,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 260423680,
+      "libvips_peak_bytes": 291384,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 3.231,
+      "downloaded_ms": 5.157,
+      "total_ms": 5.437,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 258637824,
+      "libvips_peak_bytes": 367552,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 4.579,
+      "downloaded_ms": 3.609,
+      "total_ms": 6.48,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 257998848,
+      "libvips_peak_bytes": 320500,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 5.639,
+      "downloaded_ms": 4.64,
+      "total_ms": 7.434,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 255180800,
+      "libvips_peak_bytes": 291384,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 3.337,
+      "downloaded_ms": 4.409,
+      "total_ms": 5.287,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 259833856,
+      "libvips_peak_bytes": 291384,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 6.153,
+      "downloaded_ms": 5.184,
+      "total_ms": 7.979,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 258768896,
+      "libvips_peak_bytes": 290658,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 4.416,
+      "downloaded_ms": 3.375,
+      "total_ms": 6.279,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 257884160,
+      "libvips_peak_bytes": 281516,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 3.788,
+      "downloaded_ms": 4.871,
+      "total_ms": 5.698,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 259489792,
+      "libvips_peak_bytes": 291384,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 83904,
+      "width": 75,
+      "source": "priv/static/images/woman.jpg",
+      "height": 50,
+      "shrink": 8,
+      "source_sha256": "e345fe9bf952a0c62bf99ed3479cd6baf952e896335b896eeab3cfef0a0f893b",
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 83904,
+        "sample_ms": 0.0,
+        "estimated_remaining_ms": 0.0
+      },
+      "pixel_sha256": "9c65b3f2ed1fd68e153d86ce610c6d52059218b1edeb2f79cd7b96b91bec1c96",
+      "rate_mib_s": 20,
+      "opened_ms": 4.934,
+      "downloaded_ms": 3.935,
+      "total_ms": 6.83,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 254132224,
+      "libvips_peak_bytes": 320500,
+      "trial": 2
+    }
+  ],
+  "summaries": [
+    {
+      "rate_mib_s": 0,
+      "shrink": 1,
+      "medians": {
+        "spool": {
+          "total_ms": 6.642,
+          "rss_peak_bytes": 259260416,
+          "libvips_peak_bytes": 9239541
+        },
+        "overlap": {
+          "total_ms": 5.983,
+          "rss_peak_bytes": 259538944,
+          "libvips_peak_bytes": 9239541
+        },
+        "auto": {
+          "total_ms": 6.746,
+          "rss_peak_bytes": 259047424,
+          "libvips_peak_bytes": 9239541
+        }
+      },
+      "speedup_percent": 9.921710328214406
+    },
+    {
+      "rate_mib_s": 0,
+      "shrink": 8,
+      "medians": {
+        "spool": {
+          "total_ms": 3.783,
+          "rss_peak_bytes": 253329408,
+          "libvips_peak_bytes": 314926
+        },
+        "overlap": {
+          "total_ms": 2.978,
+          "rss_peak_bytes": 257097728,
+          "libvips_peak_bytes": 291384
+        },
+        "auto": {
+          "total_ms": 3.833,
+          "rss_peak_bytes": 259276800,
+          "libvips_peak_bytes": 303155
+        }
+      },
+      "speedup_percent": 21.279407877346014
+    },
+    {
+      "rate_mib_s": 20,
+      "shrink": 1,
+      "medians": {
+        "spool": {
+          "total_ms": 9.653,
+          "rss_peak_bytes": 257048576,
+          "libvips_peak_bytes": 9239541
+        },
+        "overlap": {
+          "total_ms": 8.664,
+          "rss_peak_bytes": 260276224,
+          "libvips_peak_bytes": 9239541
+        },
+        "auto": {
+          "total_ms": 9.008,
+          "rss_peak_bytes": 259293184,
+          "libvips_peak_bytes": 9239541
+        }
+      },
+      "speedup_percent": 10.245519527608005
+    },
+    {
+      "rate_mib_s": 20,
+      "shrink": 8,
+      "medians": {
+        "spool": {
+          "total_ms": 7.979,
+          "rss_peak_bytes": 258768896,
+          "libvips_peak_bytes": 290658
+        },
+        "overlap": {
+          "total_ms": 5.437,
+          "rss_peak_bytes": 259489792,
+          "libvips_peak_bytes": 291384
+        },
+        "auto": {
+          "total_ms": 6.83,
+          "rss_peak_bytes": 255180800,
+          "libvips_peak_bytes": 320500
+        }
+      },
+      "speedup_percent": 31.858628900864773
+    }
+  ]
+}

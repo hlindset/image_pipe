@@ -21,7 +21,7 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Cache
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Delivery
-  alias ImagePipe.Execution.{Context, Identity, Output, SourceCache}
+  alias ImagePipe.Execution.{Acquisition, Context, Identity, Output, SourceCache}
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Response, as: PlanResponse
   alias ImagePipe.Processing
@@ -73,35 +73,46 @@ defmodule ImagePipe.Execution do
           SourceCache.lookup(source, key, context.config)
 
       case SourceCache.status(record, source, context.config) do
-        :fresh -> {:ok, current(context, record, nil, nil)}
-        :stale -> {:ok, %{current(context, record, nil, nil) | stale?: true}}
+        :fresh -> {:ok, current(context, %Acquisition{record: record})}
+        :stale -> {:ok, %{current(context, %Acquisition{record: record}) | stale?: true}}
         _ -> acquire(context, record)
       end
     end
   end
 
   defp acquire(context, record) do
-    case SourceCache.acquire(context.source, context.input_key, record, context.config, false) do
-      {:ok, record, response, lease} -> {:ok, current(context, record, response, lease)}
-      {:error, _reason} = error -> error
+    case SourceCache.acquire(
+           context.source,
+           context.input_key,
+           record,
+           {context.request, context.policy},
+           context.config
+         ) do
+      {:ok, acquisition} ->
+        {:ok, current(context, acquisition)}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp current(context, record, response, lease) do
+  defp current(context, acquisition) do
     %{
       context
-      | record: record,
-        response: response,
-        lease: lease,
+      | acquisition: acquisition,
         stale?: false,
         representation:
-          Representation.build(context.source.identity, context.material, record.byte_identity)
+          Representation.build(
+            context.source.identity,
+            context.material,
+            acquisition.record.byte_identity
+          )
     }
   end
 
   # Prepare owns its source lease; callers close it after their conditional gate
   # and output consumption. Output owns leases acquired later by open/1.
-  def close(%Context{lease: lease}), do: SourceCache.release(lease)
+  def close(%Context{acquisition: acquisition}), do: SourceCache.release(acquisition.lease)
 
   def open(%Context{stale?: true} = context) do
     case lookup(context) do
@@ -110,8 +121,8 @@ defmodule ImagePipe.Execution do
         {:ok, output}
 
       :miss ->
-        with {:ok, current} <- acquire(context, context.record) do
-          open_with_lease(current, current.lease)
+        with {:ok, current} <- acquire(context, context.acquisition.record) do
+          open_with_lease(current, current.acquisition.lease)
         end
     end
   end
@@ -160,16 +171,27 @@ defmodule ImagePipe.Execution do
 
   defp checked_hit(_miss, _context, _time), do: :miss
 
-  defp storable?(%Context{record: nil, source: source}), do: source.internal_cache == :enabled
-  defp storable?(context), do: SourceCache.storable?(context.record, context.source)
+  defp storable?(%Context{acquisition: %{record: nil}, source: source}),
+    do: source.internal_cache == :enabled
+
+  defp storable?(context), do: SourceCache.storable?(context.acquisition.record, context.source)
 
   defp input(%Context{input_key: nil} = context), do: generate(context)
-  defp input(%Context{response: %Source.Response{}} = context), do: generate(context)
+
+  defp input(%Context{acquisition: %{response: %Source.Response{}}} = context),
+    do: generate(context)
 
   defp input(context) do
-    case SourceCache.input(context.source, context.input_key, context.record, context.config) do
-      {:ok, record, response, lease} ->
-        context = current(context, record, response, context.lease)
+    case SourceCache.input(
+           context.source,
+           context.input_key,
+           context.acquisition.record,
+           {context.request, context.policy},
+           context.config
+         ) do
+      {:ok, acquisition} ->
+        lease = acquisition.lease
+        context = current(context, %{acquisition | lease: context.acquisition.lease})
         generate_leased(context, lease)
 
       {:error, _reason} = error ->
@@ -251,7 +273,7 @@ defmodule ImagePipe.Execution do
   end
 
   defp generate_uncoalesced(context, lease \\ nil) do
-    config = prepared_config(context)
+    config = Keyword.put(context.config, :source_record, context.acquisition.record)
     config = Keyword.put(config, :output_lease, lease)
     key = if storable?(context), do: context.representation.cache_key
     result = generate(context, config, key)
@@ -260,7 +282,14 @@ defmodule ImagePipe.Execution do
   end
 
   defp generate(%Context{request: %{output: %{terminal: :image}}} = context, config, key) do
-    build = Processing.build_fun(context.request, context.source, context.policy, config)
+    build =
+      case context.acquisition.processing do
+        nil ->
+          Processing.build_fun(context.request, decode_input(context), context.policy, config)
+
+        result ->
+          Processing.resume_fun(result, context.acquisition.source_bytes, config)
+      end
 
     with {:ok, stream} <-
            Delivery.stream(self(), build, key, response_meta(context.request), config) do
@@ -274,7 +303,7 @@ defmodule ImagePipe.Execution do
       Timing.measure(fn ->
         ProcessingPool.run(
           Keyword.get(config, :processing_pool),
-          fn -> Terminal.render(context.source, context.request, config) end,
+          fn -> Terminal.render(decode_input(context), context.request, config) end,
           config
         )
       end)
@@ -296,13 +325,7 @@ defmodule ImagePipe.Execution do
     result
   end
 
-  defp prepared_config(%Context{record: nil, config: config}), do: config
-
-  defp prepared_config(context),
-    do:
-      context.config
-      |> Keyword.put(:prepared_source, context.response)
-      |> Keyword.put(:source_record, context.record)
+  defp decode_input(context), do: context.acquisition.response || context.source
 
   defp store_body(nil, _type, _body, _debug, _cost, _config), do: :ok
 
@@ -341,10 +364,10 @@ defmodule ImagePipe.Execution do
 
   def finish(_context, _result), do: :ok
 
-  def source_state(%Context{record: nil}), do: nil
+  def source_state(%Context{acquisition: %{record: nil}}), do: nil
 
   def source_state(context) do
-    record = context.record
+    record = context.acquisition.record
     now = SourceCache.now(context.config)
 
     age =
@@ -385,7 +408,7 @@ defmodule ImagePipe.Execution do
   defp refresh_result({:error, _} = error), do: Telemetry.request_result(error)
 
   defp refresh_current(context) do
-    with {:ok, current} <- acquire(%{context | stale?: false}, context.record) do
+    with {:ok, current} <- acquire(%{context | stale?: false}, context.acquisition.record) do
       try do
         with {:ok, output} <- open(current) do
           try do

@@ -1,0 +1,293 @@
+{
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "samples": [
+    {
+      "mode": "spool",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 0,
+      "opened_ms": 12.194,
+      "downloaded_ms": 11.752,
+      "total_ms": 48.785,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 281231360,
+      "libvips_peak_bytes": 14730854,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 0,
+      "opened_ms": 1.419,
+      "downloaded_ms": 40.838,
+      "total_ms": 40.838,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 265519104,
+      "libvips_peak_bytes": 14730854,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 0,
+      "opened_ms": 1.435,
+      "downloaded_ms": 39.767,
+      "total_ms": 40.321,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 267288576,
+      "libvips_peak_bytes": 14730854,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 0,
+      "opened_ms": 9.949,
+      "downloaded_ms": 9.425,
+      "total_ms": 46.964,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 264847360,
+      "libvips_peak_bytes": 14730854,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 0,
+      "opened_ms": 11.922,
+      "downloaded_ms": 11.214,
+      "total_ms": 48.314,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 265879552,
+      "libvips_peak_bytes": 14730854,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 0,
+      "opened_ms": 1.404,
+      "downloaded_ms": 39.982,
+      "total_ms": 40.476,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 271581184,
+      "libvips_peak_bytes": 14730854,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 20,
+      "opened_ms": 361.105,
+      "downloaded_ms": 360.437,
+      "total_ms": 398.897,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 270254080,
+      "libvips_peak_bytes": 14730854,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 20,
+      "opened_ms": 3.596,
+      "downloaded_ms": 360.755,
+      "total_ms": 361.21,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 266534912,
+      "libvips_peak_bytes": 14730854,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 20,
+      "opened_ms": 4.18,
+      "downloaded_ms": 360.272,
+      "total_ms": 360.75,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 264404992,
+      "libvips_peak_bytes": 14730854,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 20,
+      "opened_ms": 360.716,
+      "downloaded_ms": 359.862,
+      "total_ms": 402.071,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 271876096,
+      "libvips_peak_bytes": 14730854,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 20,
+      "opened_ms": 361.113,
+      "downloaded_ms": 360.453,
+      "total_ms": 398.182,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 271466496,
+      "libvips_peak_bytes": 14730854,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 7537343,
+      "width": 732,
+      "source": "/tmp/source-overlap-formats/input.png",
+      "height": 1097,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "aac0999effecd04594ea8fc558e07e59c92169512e8f632372919e49ccaa6b1d",
+      "pixel_sha256": "64fe5746ee8173c790a7fee29e912a3592dbdded64f086f2a6395fa2aa0b4444",
+      "rate_mib_s": 20,
+      "opened_ms": 3.53,
+      "downloaded_ms": 360.915,
+      "total_ms": 361.452,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 264814592,
+      "libvips_peak_bytes": 14730854,
+      "trial": 2
+    }
+  ],
+  "summaries": [
+    {
+      "rate_mib_s": 0,
+      "shrink": 1,
+      "medians": {
+        "spool": {
+          "total_ms": 48.314,
+          "rss_peak_bytes": 265879552,
+          "libvips_peak_bytes": 14730854
+        },
+        "overlap": {
+          "total_ms": 40.476,
+          "rss_peak_bytes": 267288576,
+          "libvips_peak_bytes": 14730854
+        }
+      },
+      "speedup_percent": 16.223040940514146
+    },
+    {
+      "rate_mib_s": 20,
+      "shrink": 1,
+      "medians": {
+        "spool": {
+          "total_ms": 398.897,
+          "rss_peak_bytes": 271466496,
+          "libvips_peak_bytes": 14730854
+        },
+        "overlap": {
+          "total_ms": 361.21,
+          "rss_peak_bytes": 264814592,
+          "libvips_peak_bytes": 14730854
+        }
+      },
+      "speedup_percent": 9.44780231488329
+    }
+  ]
+}

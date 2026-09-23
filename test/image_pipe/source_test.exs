@@ -257,6 +257,24 @@ defmodule ImagePipe.SourceTest do
     assert error.reason == :body_too_large
   end
 
+  test "body reduction classifies adapter failures and closes the stream" do
+    stream = StreamWithCleanup.stream(self(), ["chunk"])
+    stream = Stream.map(stream, fn _ -> raise "adapter failed" end)
+    error = assert_raise Source.StreamError, fn -> Source.reduce_body(stream, [], &[&1 | &2]) end
+    assert error.reason == :stream_exception
+    assert_receive :stream_closed
+  end
+
+  test "body reduction preserves consumer failures and closes the stream" do
+    stream = StreamWithCleanup.stream(self(), ["chunk"])
+
+    assert_raise ArgumentError, "staging failed", fn ->
+      Source.reduce_body(stream, [], fn _, _ -> raise ArgumentError, "staging failed" end)
+    end
+
+    assert_receive :stream_closed
+  end
+
   test "wrap_response accepts explicit source body limit override" do
     body = :binary.copy("a", 10_000_001)
     response = %Response{stream: [body]}

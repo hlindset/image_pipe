@@ -4,6 +4,7 @@ defmodule ImagePipe.Execution.SourceCache do
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Resources
   alias ImagePipe.Cache.Work
+  alias ImagePipe.Execution.{Acquisition, Overlap}
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheState
   alias ImagePipe.Source.Record
@@ -37,7 +38,7 @@ defmodule ImagePipe.Execution.SourceCache do
   def status(record, source, config),
     do: CacheState.status(Record.state(record, source.cache_semantics), now(config))
 
-  def acquire(source, key, previous, config, need_body?) do
+  def acquire(source, key, previous, preparation, config) do
     Work.run(
       {:source, key.hash},
       fn coordination ->
@@ -48,13 +49,17 @@ defmodule ImagePipe.Execution.SourceCache do
           end
 
         record = lookup(source, key, opts) || previous
-        acquire_current(source, key, record, opts, need_body?)
+
+        case status(record, source, opts) do
+          :fresh -> {:ok, %Acquisition{record: record}}
+          _validate -> fetch(source, key, record, preparation, opts)
+        end
       end,
       Telemetry.telemetry_opts(config)
     )
   end
 
-  def input(source, key, record, config) do
+  def input(source, key, record, preparation, config) do
     case Input.open(key, record, config) do
       {:ok, path, lease} ->
         checked_input(record, path, lease, config)
@@ -63,47 +68,37 @@ defmodule ImagePipe.Execution.SourceCache do
         Work.run(
           {:source, key.hash},
           fn coordination ->
-            open_or_fetch(source, key, record, config, coordination)
+            open_or_fetch(source, key, record, preparation, config, coordination)
           end,
           Telemetry.telemetry_opts(config)
         )
     end
   end
 
-  defp open_or_fetch(source, key, record, config, ref) when is_reference(ref) do
+  defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
     config = Keyword.put(config, :source_lease, ref)
 
     case Input.open(key, record, config) do
       {:ok, path, lease} -> checked_input(record, path, lease, config)
-      :miss -> fetch(source, key, nil, config)
+      :miss -> fetch(source, key, nil, preparation, config)
     end
   end
 
-  defp open_or_fetch(source, key, _record, config, false),
-    do: fetch(source, key, nil, Keyword.drop(config, [:cache, :input_cache]))
-
-  defp acquire_current(source, key, record, config, need_body?) do
-    case {status(record, source, config), need_body?} do
-      {:fresh, false} ->
-        {:ok, record, nil, nil}
-
-      {:fresh, true} ->
-        case Input.open(key, record, config) do
-          {:ok, path, lease} -> checked_input(record, path, lease, config)
-          :miss -> fetch(source, key, nil, config)
-        end
-
-      _validate ->
-        fetch(source, key, record, config)
-    end
-  end
+  defp open_or_fetch(source, key, _record, preparation, config, false),
+    do: fetch(source, key, nil, preparation, Keyword.drop(config, [:cache, :input_cache]))
 
   defp checked_input(record, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
 
     case File.stat(path) do
       {:ok, %{size: size}} when size <= limit ->
-        {:ok, record, %Response{path: path, origin: record.origin}, lease}
+        {:ok,
+         %Acquisition{
+           record: record,
+           response: %Response{path: path, origin: record.origin},
+           lease: lease,
+           source_bytes: size
+         }}
 
       {:ok, _stat} ->
         Resources.release(lease)
@@ -115,10 +110,11 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  defp fetch(source, key, previous, config) do
+  defp fetch(source, key, previous, preparation, config) do
     Telemetry.span(Telemetry.telemetry_opts(config), [:cache, :source], %{pool: :input}, fn ->
       started = System.monotonic_time(:microsecond)
-      result = fetch_response(source, previous, config, &stage(&1, source, config))
+      preparation = if is_nil(previous), do: preparation
+      result = fetch_response(source, previous, config, &stage(&1, source, preparation, config))
       cost = System.monotonic_time(:microsecond) - started
       result = publish_coordinated(result, source, key, previous, cost, config)
       {result, %{result: outcome(result)}}
@@ -146,10 +142,17 @@ defmodule ImagePipe.Execution.SourceCache do
   defp publish({:not_modified, origin}, source, key, previous, _cost, config) do
     record = Record.refresh(previous, origin)
     remember(source, key, record, config)
-    {:ok, record, nil, nil}
+    {:ok, %Acquisition{record: record}}
   end
 
-  defp publish({:ok, record, response, _lease} = result, source, key, _previous, cost, config) do
+  defp publish(
+         {:ok, %Acquisition{record: record, response: response}} = result,
+         source,
+         key,
+         _previous,
+         cost,
+         config
+       ) do
     case storable?(record, source) do
       true ->
         if response.path, do: Input.put(key, response.path, record, cost, config)
@@ -200,7 +203,7 @@ defmodule ImagePipe.Execution.SourceCache do
   def release(nil), do: :ok
   def release(lease), do: Resources.release(lease)
 
-  defp stage(response, source, config) do
+  defp stage(response, source, preparation, config) do
     path = Input.temporary_path(System.tmp_dir!())
     lease = Resources.track(path)
 
@@ -211,54 +214,73 @@ defmodule ImagePipe.Execution.SourceCache do
           path -> File.stream!(path, 65_536)
         end
 
-      {body, digest} =
+      {body, digest, size, processing} =
         case lease do
           :unavailable -> spool_buffer(stream, config[:max_body_bytes])
-          _ref -> spool(stream, path, config[:max_body_bytes])
+          _ref -> spool(stream, path, response, preparation, config)
         end
 
       record = Record.new(source, digest, response.origin, now(config))
+      prepared = staged_response(body, path, response.origin)
 
-      prepared =
-        case body do
-          :file -> %Response{path: path, origin: response.origin}
-          {:buffer, bytes} -> %Response{stream: [bytes], origin: response.origin}
-        end
-
-      {:ok, record, prepared, lease}
+      {:ok,
+       %Acquisition{
+         record: record,
+         response: prepared,
+         lease: lease,
+         source_bytes: size,
+         processing: processing
+       }}
     rescue
       exception in Source.StreamError ->
         release(lease)
         {:error, {:source, exception.reason}}
-
-      _exception ->
-        release(lease)
-        {:error, {:source, :stream_exception}}
     catch
-      _kind, _reason ->
+      kind, reason ->
         release(lease)
-        {:error, {:source, :stream_exception}}
+        :erlang.raise(kind, reason, __STACKTRACE__)
     end
   end
 
-  defp spool(stream, path, limit) do
+  defp staged_response(:file, path, origin), do: %Response{path: path, origin: origin}
+
+  defp staged_response({:buffer, bytes}, _path, origin),
+    do: %Response{stream: [bytes], origin: origin}
+
+  defp spool(stream, path, response, preparation, config) do
     case File.open(path, [:read, :write, :binary, :exclusive]) do
-      {:ok, io} -> spool_file(stream, io, limit)
-      {:error, _reason} -> spool_buffer(stream, limit)
+      {:ok, io} ->
+        try do
+          Overlap.with_session(response, preparation, config, path, fn overlap ->
+            spool_file(stream, io, config[:max_body_bytes], overlap)
+          end)
+        after
+          File.close(io)
+        end
+
+      {:error, _reason} ->
+        spool_buffer(stream, config[:max_body_bytes])
     end
   end
 
-  defp spool_file(stream, io, limit) do
-    {body, _size, hash} =
-      Enum.reduce(stream, {:file, 0, :crypto.hash_init(:sha256)}, fn bytes, {body, size, hash} ->
-        check_size!(size + byte_size(bytes), limit)
-        {append(body, io, bytes, size), size + byte_size(bytes), :crypto.hash_update(hash, bytes)}
+  defp spool_file(stream, io, limit, overlap) do
+    initial = {:file, 0, :crypto.hash_init(:sha256), overlap}
+
+    {body, size, hash, overlap} =
+      Source.reduce_body(stream, initial, fn bytes, {body, size, hash, overlap} ->
+        next_size = size + byte_size(bytes)
+        check_size!(next_size, limit)
+        body = append(body, io, bytes, size)
+
+        overlap = observe(body, overlap, io, next_size)
+        {body, next_size, :crypto.hash_update(hash, bytes), overlap}
       end)
 
-    {finish_body(body), :crypto.hash_final(hash)}
-  after
-    File.close(io)
+    {finish_body(body), :crypto.hash_final(hash), size, Overlap.finish(overlap)}
   end
+
+  defp observe(:file, overlap, io, size), do: Overlap.observe(overlap, io, size)
+  defp observe({:buffer, _}, overlap, _io, _size), do: Overlap.cancel(overlap)
 
   defp append(:file, io, bytes, size) do
     case :file.write(io, bytes) do
@@ -278,19 +300,21 @@ defmodule ImagePipe.Execution.SourceCache do
     do: {:buffer, reversed |> Enum.reverse() |> IO.iodata_to_binary()}
 
   defp spool_buffer(stream, limit) do
-    {bytes, _size, hash} =
-      Enum.reduce(stream, {[], 0, :crypto.hash_init(:sha256)}, fn bytes, {acc, size, hash} ->
+    {bytes, size, hash} =
+      Source.reduce_body(stream, {[], 0, :crypto.hash_init(:sha256)}, fn bytes,
+                                                                         {acc, size, hash} ->
         check_size!(size + byte_size(bytes), limit)
         {[bytes | acc], size + byte_size(bytes), :crypto.hash_update(hash, bytes)}
       end)
 
-    {{:buffer, bytes |> Enum.reverse() |> IO.iodata_to_binary()}, :crypto.hash_final(hash)}
+    {{:buffer, bytes |> Enum.reverse() |> IO.iodata_to_binary()}, :crypto.hash_final(hash), size,
+     nil}
   end
 
   defp check_size!(size, limit) when size > limit,
     do: raise(Source.StreamError, reason: :body_too_large)
 
   defp check_size!(_size, _limit), do: :ok
-  defp outcome({:ok, _, _, _}), do: :ok
-  defp outcome({:error, _}), do: :source_error
+  defp outcome({:ok, %Acquisition{}}), do: :ok
+  defp outcome({:error, _} = error), do: Telemetry.request_result(error)
 end

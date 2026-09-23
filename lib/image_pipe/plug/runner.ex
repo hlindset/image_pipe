@@ -127,7 +127,7 @@ defmodule ImagePipe.Plug.Runner do
 
   defp context_headers(conn, context) do
     source =
-      case context.record do
+      case context.acquisition.record do
         nil ->
           context.source
 

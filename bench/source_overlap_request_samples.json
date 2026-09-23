@@ -1,0 +1,306 @@
+{
+  "samples": [
+    {
+      "mode": "spool",
+      "rate_mib_s": 0,
+      "total_ms": 403.579,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 435175424,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 0,
+      "total_ms": 403.384,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 444547072,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 0,
+      "total_ms": 395.288,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 430211072,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 0,
+      "total_ms": 404.264,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 437649408,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 0,
+      "total_ms": 405.568,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 431554560,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 0,
+      "total_ms": 405.257,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 443957248,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 20,
+      "total_ms": 917.487,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 429686784,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 20,
+      "total_ms": 565.675,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 428818432,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 20,
+      "total_ms": 568.034,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 426180608,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 20,
+      "total_ms": 918.693,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 429457408,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 20,
+      "total_ms": 919.694,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 430391296,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 20,
+      "total_ms": 565.906,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 422690816,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 80,
+      "total_ms": 524.915,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 431980544,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 80,
+      "total_ms": 417.679,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 428916736,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 80,
+      "total_ms": 413.667,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 420741120,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 80,
+      "total_ms": 527.827,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 437829632,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 80,
+      "total_ms": 525.835,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 441106432,
+      "libvips_peak_bytes": 7584504,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 80,
+      "total_ms": 417.893,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 427573248,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 320,
+      "total_ms": 418.409,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 441057280,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 320,
+      "total_ms": 426.029,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 437207040,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 320,
+      "total_ms": 423.131,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 428998656,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 320,
+      "total_ms": 419.988,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 432439296,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "rate_mib_s": 320,
+      "total_ms": 420.789,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 432046080,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "rate_mib_s": 320,
+      "total_ms": 421.073,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 437338112,
+      "libvips_peak_bytes": 7542695,
+      "pixel_sha256": "431244c058a562dda8192fab42f35c517e03f5f9441dabeaba499a2b4c4c1d8d",
+      "trial": 2
+    }
+  ],
+  "summaries": [
+    {
+      "rate_mib_s": 0,
+      "medians": {
+        "spool": {
+          "total_ms": 404.264,
+          "rss_peak_bytes": 435175424,
+          "libvips_peak_bytes": 7542695
+        },
+        "auto": {
+          "total_ms": 403.384,
+          "rss_peak_bytes": 443957248,
+          "libvips_peak_bytes": 7542695
+        }
+      }
+    },
+    {
+      "rate_mib_s": 20,
+      "medians": {
+        "spool": {
+          "total_ms": 918.693,
+          "rss_peak_bytes": 429686784,
+          "libvips_peak_bytes": 7542695
+        },
+        "auto": {
+          "total_ms": 565.906,
+          "rss_peak_bytes": 426180608,
+          "libvips_peak_bytes": 7542695
+        }
+      }
+    },
+    {
+      "rate_mib_s": 80,
+      "medians": {
+        "spool": {
+          "total_ms": 525.835,
+          "rss_peak_bytes": 437829632,
+          "libvips_peak_bytes": 7542695
+        },
+        "auto": {
+          "total_ms": 417.679,
+          "rss_peak_bytes": 427573248,
+          "libvips_peak_bytes": 7542695
+        }
+      }
+    },
+    {
+      "rate_mib_s": 320,
+      "medians": {
+        "spool": {
+          "total_ms": 419.988,
+          "rss_peak_bytes": 432439296,
+          "libvips_peak_bytes": 7542695
+        },
+        "auto": {
+          "total_ms": 423.131,
+          "rss_peak_bytes": 437207040,
+          "libvips_peak_bytes": 7542695
+        }
+      }
+    }
+  ]
+}

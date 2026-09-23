@@ -27,6 +27,7 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
   alias ImagePipe.Plan.Request
   alias ImagePipe.Processing.DebugBuilder
+  alias ImagePipe.Processing.Prepared
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Executor
@@ -83,6 +84,34 @@ defmodule ImagePipe.Processing do
     end
   end
 
+  def resume_fun({:ok, prepared}, bytes, config), do: build_prepared(prepared, bytes, config)
+  def resume_fun({:error, _} = error, _bytes, _config), do: fn _pump -> error end
+
+  def streamable_source?(prefix), do: Decode.streamable_source?(prefix)
+
+  def prepare_download(request, source, policy, config) do
+    started = System.monotonic_time(:microsecond)
+
+    Decode.with_image(source, request, config, fn state, geometry ->
+      decode_us = System.monotonic_time(:microsecond) - started
+      prepare_pixels(state, geometry, request, policy, config, decode_us)
+    end)
+  end
+
+  defp build_prepared(prepared, bytes, config) do
+    geometry = prepared.geometry
+    geometry = %{geometry | debug_facts: Map.put(geometry.debug_facts, :source_bytes, bytes)}
+    prepared = %{prepared | geometry: geometry}
+
+    fn pump ->
+      try do
+        produce_prepared(prepared, config, pump)
+      after
+        Keyword.get(config, :on_bracket_exit, fn -> :ok end).()
+      end
+    end
+  end
+
   def build_fun(%Request{} = request, source, policy, config) do
     on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
 
@@ -115,6 +144,12 @@ defmodule ImagePipe.Processing do
   end
 
   defp produce_stream(state, geometry, request, policy, config, pump, decode_us) do
+    with {:ok, prepared} <- prepare_pixels(state, geometry, request, policy, config, decode_us) do
+      produce_prepared(prepared, config, pump)
+    end
+  end
+
+  defp prepare_pixels(state, geometry, request, policy, config, decode_us) do
     shrink = state.decode_shrink
 
     with {{:ok, %State{} = state}, transform_us} <-
@@ -130,29 +165,54 @@ defmodule ImagePipe.Processing do
              resolved_output.format,
              config
            ),
-         {:ok, %State{image: image}} <-
-           materialize_for_delivery(%State{state | image: clamped}, config),
-         {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} <-
-           Timing.measure(fn ->
-             encode_first_chunk(image, resolved_output, state.source_color_profile, config)
-           end) do
-      debug =
-        DebugBuilder.build(%{
-          geometry: geometry,
-          shrink: shrink,
-          policy: policy,
-          resolved_output: resolved_output,
-          image: image,
-          search_meta: search_meta,
-          operations: Executor.operation_names(request),
-          timings: %{decode: decode_us, transform: transform_us, encode: encode_us}
-        })
-
-      pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, debug)
+         {:ok, %State{} = state} <-
+           materialize_for_delivery(%State{state | image: clamped}, config) do
+      {:ok,
+       %Prepared{
+         state: state,
+         geometry: geometry,
+         resolved_output: resolved_output,
+         policy: policy,
+         shrink: shrink,
+         operations: Executor.operation_names(request),
+         timings: %{decode: decode_us, transform: transform_us}
+       }}
     else
-      {:empty, _microseconds} -> {:error, {:encode, :empty_stream}}
       {{:error, _reason} = error, _microseconds} -> error
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp produce_prepared(%Prepared{} = prepared, config, pump) do
+    %{state: state, resolved_output: resolved_output} = prepared
+    image = state.image
+
+    result =
+      Timing.measure(fn ->
+        encode_first_chunk(image, resolved_output, state.source_color_profile, config)
+      end)
+
+    case result do
+      {{:ok, chunk, content_type, stream_state, search_meta}, encode_us} ->
+        debug =
+          DebugBuilder.build(%{
+            geometry: prepared.geometry,
+            shrink: prepared.shrink,
+            policy: prepared.policy,
+            resolved_output: resolved_output,
+            image: image,
+            search_meta: search_meta,
+            operations: prepared.operations,
+            timings: Map.put(prepared.timings, :encode, encode_us)
+          })
+
+        pump.(StreamPull.resume(chunk, stream_state), content_type, resolved_output, debug)
+
+      {:empty, _microseconds} ->
+        {:error, {:encode, :empty_stream}}
+
+      {{:error, _reason} = error, _microseconds} ->
+        error
     end
   end
 
