@@ -468,6 +468,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   @spec admit(pid() | GenServer.name(), map()) ::
           {:admit, [map()]}
           | {:reject, :over_cap | :score_too_low | :no_evictable_victims | :victim_limit_exceeded}
+          | {:reject, atom(), [map()]}
   def admit(server, descriptor) do
     GenServer.call(server, {:admit, descriptor})
   end
@@ -546,11 +547,20 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp decide_admission(state, descriptor) do
+    {result, state} =
+      case locate(state, descriptor.key_hash) do
+        nil -> admit_new(state, descriptor)
+        located -> same_key_replace(state, descriptor, located)
+      end
+
+    {result, %{state | state_dirty: true}}
+  end
+
+  defp admit_new(state, descriptor) do
     if descriptor.size_bytes > state.max_size_bytes do
       {{:reject, :over_cap}, state}
     else
-      {result, state} = do_admit(state, descriptor)
-      {result, %{state | state_dirty: true}}
+      do_admit(state, descriptor)
     end
   end
 
@@ -561,18 +571,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp admission_meta({:reject, reason}),
     do: %{result: :rejected, reason: reason, victim_count: 0}
 
-  defp do_admit(state, descriptor) do
-    cond do
-      descriptor.size_bytes > state.window_budget ->
-        run_main_gate(state, descriptor)
+  defp admission_meta({:reject, reason, victims}),
+    do: %{result: :rejected, reason: reason, victim_count: length(victims)}
 
-      already_tracked?(state, descriptor.key_hash) ->
-        same_key_replace(state, descriptor)
+  defp do_admit(state, descriptor) when descriptor.size_bytes > state.window_budget,
+    do: run_main_gate(state, descriptor)
 
-      true ->
-        insert_into_window(state, descriptor)
-    end
-  end
+  defp do_admit(state, descriptor), do: insert_into_window(state, descriptor)
 
   defp insert_into_window(state, descriptor) do
     {position, state} = next_position(state)
@@ -730,19 +735,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end)
   end
 
-  defp same_key_replace(state, descriptor) do
-    {queue, old_position, old_descriptor} = locate(state, descriptor.key_hash)
+  defp same_key_replace(state, descriptor, {queue, old_position, old_descriptor}) do
     table = Map.fetch!(state, queue)
 
     # Remove the old entry's bytes from accounting.
     bytes_field = :"#{queue}_bytes"
     state = Map.update!(state, bytes_field, &(&1 - old_descriptor.size_bytes))
     :ets.delete(table, {old_position, descriptor.key_hash})
-
-    # Insert the new descriptor at MRU in the same queue.
-    {position, state} = next_position(state)
-    :ets.insert(table, {{position, descriptor.key_hash}, descriptor})
-    state = Map.update!(state, bytes_field, &(&1 + descriptor.size_bytes))
 
     # Body-only victim when content changed; otherwise no victim.
     victims =
@@ -760,7 +759,22 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         ]
       end
 
-    {{:admit, victims}, state}
+    {result, state} =
+      case descriptor.size_bytes <= old_descriptor.size_bytes do
+        true ->
+          {position, state} = next_position(state)
+          :ets.insert(table, {{position, descriptor.key_hash}, descriptor})
+          state = Map.update!(state, bytes_field, &(&1 + descriptor.size_bytes))
+          {{:admit, []}, state}
+
+        false ->
+          admit_new(state, descriptor)
+      end
+
+    case result do
+      {:admit, evictions} -> {{:admit, victims ++ evictions}, state}
+      {:reject, reason} -> {{:reject, reason, victims}, state}
+    end
   end
 
   defp sighting(state, key_hash) do

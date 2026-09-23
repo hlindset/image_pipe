@@ -261,6 +261,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         delete_victims(victims, opts)
         :ok
 
+      {:reject, _reason, victims} ->
+        delete_victims([reject_victim(descriptor) | victims], opts)
+        {:ok, :rejected}
+
       {:reject, _reason} ->
         # Admission declined to keep the entry. It was never inserted into the
         # queues (reject mutates nothing), so the only cleanup is the bytes we

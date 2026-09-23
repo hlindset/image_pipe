@@ -210,7 +210,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     {:admit, []} =
       Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sa", cost_us: 1_000})
 
-    assert {:reject, :over_cap} =
+    assert {:reject, :over_cap, [%{body_sha256: "sa", delete_meta?: false}]} =
              Admission.admit(pid, %{
                key_hash: "k",
                size_bytes: 20_000,
@@ -219,8 +219,8 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
              })
 
     state = :sys.get_state(pid)
-    # Old entry still tracked
-    assert in_queue?(state.window, "k") or in_queue?(state.probationary, "k") or
+
+    refute in_queue?(state.window, "k") or in_queue?(state.probationary, "k") or
              in_queue?(state.protected, "k")
   end
 
