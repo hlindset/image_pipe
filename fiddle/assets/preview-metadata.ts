@@ -6,6 +6,12 @@ export type ProcessedImageMetadata = {
   debugHeaders: Record<string, string> | null;
 };
 
+export function imagePreviewUrl(url: string): string {
+  const preview = new URL(url);
+  preview.hash = crypto.getRandomValues(new Uint32Array(4)).join("-");
+  return preview.href;
+}
+
 export function debounce<Arguments extends unknown[]>(
   callback: (...args: Arguments) => void,
   delayMs: number,

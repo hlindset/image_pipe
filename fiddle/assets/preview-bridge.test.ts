@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { imagePreviewUrl } from "./preview-metadata";
 
 import {
   PREVIEW_WORKER_URL,
@@ -21,12 +22,32 @@ const meta = (over: Partial<Parameters<PreviewMetadataTracker["applyMessage"]>[0
 });
 
 describe("PreviewMetadataTracker", () => {
+  it("ignores a delayed error after returning to the same image URL", () => {
+    const tracker = new PreviewMetadataTracker();
+    const canonical = "http://localhost:4000/image/w=10/src/images/dog.jpg";
+    const first = imagePreviewUrl(canonical);
+    tracker.begin(first);
+    tracker.begin(imagePreviewUrl("http://localhost:4000/image/w=20/src/images/dog.jpg"));
+    const current = imagePreviewUrl(canonical);
+    const currentId = tracker.begin(current);
+    tracker.applyDimensions({ width: 10, height: 15 }, currentId);
+    tracker.applyMessage(meta({ url: current, bytes: 123 }));
+
+    tracker.applyMessage(meta({ url: first, ok: false, status: 503, statusText: "Unavailable" }));
+
+    expect(tracker.error).toBeNull();
+    expect(tracker.metadata?.bytes).toBe(123);
+    const serverUrl = new URL(current);
+    serverUrl.hash = "";
+    expect(serverUrl.href).toBe(canonical);
+  });
+
   it("yields null metadata until dimensions arrive, then merges SW bytes/contentType", () => {
     const t = new PreviewMetadataTracker();
     const id = t.begin("http://localhost:4000/image/w=10/src/images/dog.jpg");
 
     // SW message arrives before onload: stashed, not yet renderable (needs dimensions).
-    t.applyMessage(meta(), id);
+    t.applyMessage(meta());
     expect(t.metadata).toBeNull();
     expect(t.error).toBeNull();
 
@@ -58,7 +79,6 @@ describe("PreviewMetadataTracker", () => {
         bytes: 99,
         contentType: "image/avif",
       }),
-      id,
     );
     expect(t.metadata).toEqual({
       width: 5,
@@ -69,30 +89,11 @@ describe("PreviewMetadataTracker", () => {
     });
   });
 
-  it("drops stale messages from a superseded request id", () => {
-    const t = new PreviewMetadataTracker();
-    const stale = t.begin("http://localhost:4000/image/w=10/src/images/dog.jpg");
-    const fresh = t.begin("http://localhost:4000/image/w=20/src/images/dog.jpg");
-
-    t.applyMessage(
-      meta({ url: "http://localhost:4000/image/w=10/src/images/dog.jpg", bytes: 1 }),
-      stale,
-    );
-    t.applyDimensions({ width: 1, height: 1 }, fresh);
-    expect(t.metadata).toEqual({
-      width: 1,
-      height: 1,
-      bytes: null,
-      contentType: null,
-      debugHeaders: null,
-    });
-  });
-
   it("drops a message whose url does not match the in-flight preview", () => {
     const t = new PreviewMetadataTracker();
     const id = t.begin("http://localhost:4000/image/w=10/src/images/dog.jpg");
     t.applyDimensions({ width: 10, height: 10 }, id);
-    t.applyMessage(meta({ url: "http://localhost:4000/image/w=20/src/images/dog.jpg" }), id);
+    t.applyMessage(meta({ url: "http://localhost:4000/image/w=20/src/images/dog.jpg" }));
     expect(t.metadata?.bytes).toBeNull();
   });
 
@@ -106,7 +107,6 @@ describe("PreviewMetadataTracker", () => {
         bytes: null,
         contentType: null,
       }),
-      id,
     );
     expect(t.metadata).toEqual({
       width: 3,
@@ -126,7 +126,6 @@ describe("PreviewMetadataTracker", () => {
         url: "http://localhost:4000/image/src/images/dog.jpg",
         debugHeaders: { "x-imagepipe-cache": "miss" },
       }),
-      id,
     );
     expect(t.metadata).toEqual({
       width: 5,
@@ -149,7 +148,6 @@ describe("PreviewMetadataTracker", () => {
         bytes: null,
         error: null,
       }),
-      id,
     );
     t.applyDimensions({ width: 9, height: 9 }, id); // would normally produce metadata
     expect(t.metadata).toBeNull();
@@ -158,7 +156,7 @@ describe("PreviewMetadataTracker", () => {
 
   it("records an error from a non-ok SW message", () => {
     const t = new PreviewMetadataTracker();
-    const id = t.begin("http://localhost:4000/image/src/images/dog.jpg");
+    t.begin("http://localhost:4000/image/src/images/dog.jpg");
     t.applyMessage(
       meta({
         url: "http://localhost:4000/image/src/images/dog.jpg",
@@ -169,7 +167,6 @@ describe("PreviewMetadataTracker", () => {
         bytes: null,
         error: "invalid image request: bad_option",
       }),
-      id,
     );
     expect(t.error).toBe("422 Unprocessable Entity: invalid image request: bad_option");
     expect(t.metadata).toBeNull();
