@@ -489,7 +489,7 @@ defmodule ImagePipe.API.Parser do
   def message_for(:invalid_cachebuster), do: "invalid value: expected [A-Za-z0-9._-]+"
 
   def message_for(:invalid_format),
-    do: "invalid value: expected avif, webp, jpeg, png, or jxl"
+    do: "invalid value: expected avif, webp, jpeg, or png"
 
   def message_for(:invalid_quality), do: "invalid value: expected an integer 1-100"
   def message_for(:invalid_metadata), do: "invalid value: expected strip, copyright, or keep"

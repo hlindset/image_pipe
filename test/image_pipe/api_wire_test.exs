@@ -62,7 +62,7 @@ defmodule ImagePipe.APIWireTest do
   defp opts(extra) do
     base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
 
-    Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
+    Keyword.merge(base, output_capabilities: %{avif: true, webp: true})
   end
 
   defp opts, do: opts([])

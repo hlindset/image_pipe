@@ -1,7 +1,7 @@
 defmodule ImagePipe.Plan.Output.EncoderOptions do
   @moduledoc """
   Shared `merge/2` + `all_nil?/1` for the per-format encoder-option structs
-  (`JpegOptions`/`PngOptions`/`WebpOptions`/`AvifOptions`/`JxlOptions`). `use` it
+  (`JpegOptions`/`PngOptions`/`WebpOptions`/`AvifOptions`). `use` it
   after the struct's `defstruct`/`@type t` so each module keeps its own typed API
   without duplicating the (identical) sparse-merge logic.
   """

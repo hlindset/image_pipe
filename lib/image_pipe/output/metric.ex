@@ -4,8 +4,6 @@ defmodule ImagePipe.Output.Metric do
   search. One module per metric owns its measurement semantics; the search loop
   reads `direction/0` to orient its band walk and calls `reference/1` + `score/2`.
   `runtime/1` maps a resolved external-measure search struct to its runtime module.
-  API-encoder realization (e.g. JXL `distance`) is a resolve-time *strategy*
-  choice, not a callback here.
   """
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
 

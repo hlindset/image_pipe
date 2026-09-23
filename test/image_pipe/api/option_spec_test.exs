@@ -2,9 +2,9 @@ defmodule ImagePipe.API.OptionSpecTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.API.OptionSpec
-  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
 
-  @api_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options jxl-options filename attachment cb debug expires preset)
+  @api_keys ~w(rotate flip gray bitonal dpr w h min-w min-h fit enlarge zoom extend extend-ratio extend-at extend-offset crop crop-ratio crop-ratio-enlarge region anchor anchor-offset focus detect blur sharpen pixelate monochrome duotone brightness contrast saturation colorize gradient trim trim-symmetry pad bg orient output format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options filename attachment cb debug expires preset)
 
   describe "all/0" do
     test "declares API options, one entry per key" do
@@ -369,12 +369,11 @@ defmodule ImagePipe.API.OptionSpecTest do
       assert OptionSpec.parse_orientation("sideways") == {:error, :invalid_orientation}
     end
 
-    test "parse_format translates jxl to :jpeg_xl" do
+    test "parse_format accepts supported output formats" do
       assert OptionSpec.parse_format("avif") == {:ok, :avif}
       assert OptionSpec.parse_format("webp") == {:ok, :webp}
       assert OptionSpec.parse_format("jpeg") == {:ok, :jpeg}
       assert OptionSpec.parse_format("png") == {:ok, :png}
-      assert OptionSpec.parse_format("jxl") == {:ok, :jpeg_xl}
     end
 
     test "parse_quality accepts 1..100 integers only" do
@@ -416,8 +415,8 @@ defmodule ImagePipe.API.OptionSpecTest do
     end
 
     test "format qualities use canonical formats and reject duplicates" do
-      assert OptionSpec.parse_format_qualities("avif:60,webp:70,jxl:80") ==
-               {:ok, %{avif: {:quality, 60}, webp: {:quality, 70}, jpeg_xl: {:quality, 80}}}
+      assert OptionSpec.parse_format_qualities("avif:60,webp:70") ==
+               {:ok, %{avif: {:quality, 60}, webp: {:quality, 70}}}
 
       for value <- ["", "avif", "gif:60", "avif:0", "avif:101", "avif:60,avif:70"] do
         assert OptionSpec.parse_format_qualities(value) == {:error, :invalid_format_qualities}
@@ -507,8 +506,6 @@ defmodule ImagePipe.API.OptionSpecTest do
 
       assert OptionSpec.parse_avif_options("subsample:auto,effort:9") ==
                {:ok, %AvifOptions{subsample_mode: :auto, effort: 9}}
-
-      assert OptionSpec.parse_jxl_options("effort:1") == {:ok, %JxlOptions{effort: 1}}
     end
 
     test "codec option parsers reject aliases, duplicates, unknowns, empty fields, and ranges" do
@@ -523,8 +520,6 @@ defmodule ImagePipe.API.OptionSpecTest do
         {&OptionSpec.parse_webp_options/1, "preset:portrait"},
         {&OptionSpec.parse_webp_options/1, "effort:7"},
         {&OptionSpec.parse_avif_options/1, "effort:10"},
-        {&OptionSpec.parse_jxl_options/1, "effort:0"},
-        {&OptionSpec.parse_jxl_options/1, "unknown:1"},
         {&OptionSpec.parse_png_options/1, "palette,"},
         {&OptionSpec.parse_webp_options/1, ""}
       ]

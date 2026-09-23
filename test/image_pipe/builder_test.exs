@@ -183,9 +183,9 @@ defmodule ImagePipe.BuilderTest do
            autoquality:
              {:ssimulacra2, target: 85, min_quality: 30, max_quality: 95, allowed_error: 1},
            max_bytes: 12_000,
-           format_qualities: [webp: 75, jpeg_xl: 90]
+           format_qualities: [webp: 75, jpeg: 90]
          ],
-         "autoquality=ssimulacra2,target:85,min:30,max:95,error:1/max-bytes=12000/format-q=webp:75,jxl:90"},
+         "autoquality=ssimulacra2,target:85,min:30,max:95,error:1/max-bytes=12000/format-q=webp:75,jpeg:90"},
         {"JPEG",
          [
            format: :jpeg,
@@ -217,8 +217,7 @@ defmodule ImagePipe.BuilderTest do
          ],
          "format=webp/webp-options=lossless,near-lossless,smart-subsample,preset:photo,effort:6"},
         {"AVIF", [format: :avif, avif_options: [subsample_mode: :on, effort: 8]],
-         "format=avif/avif-options=subsample:on,effort:8"},
-        {"JXL", [format: :jpeg_xl, jxl_options: [effort: 8]], "format=jxl/jxl-options=effort:8"}
+         "format=avif/avif-options=subsample:on,effort:8"}
       ] do
     test "native and URL #{name} output settings produce the same sparse policy" do
       plan = IP.new() |> IP.output(unquote(Macro.escape(options)))
@@ -236,8 +235,7 @@ defmodule ImagePipe.BuilderTest do
           {:webp_options, ImagePipe.Plan.Output.WebpOptions, :effort, 6.0,
            "webp-options=effort:6.0"},
           {:avif_options, ImagePipe.Plan.Output.AvifOptions, :effort, 10,
-           "avif-options=effort:10"},
-          {:jxl_options, ImagePipe.Plan.Output.JxlOptions, :effort, 0, "jxl-options=effort:0"}
+           "avif-options=effort:10"}
         ] do
       assert_raise ArgumentError, fn -> IP.new() |> IP.output([{key, [{field, invalid}]}]) end
 

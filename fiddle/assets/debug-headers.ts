@@ -36,7 +36,6 @@ export function parseDebugHeaders(raw: Raw, outputBytes: number | null): DebugGr
     row("Quality", get("x-imagepipe-output-quality")),
     boolRow("Stripped", get("x-imagepipe-output-stripped")),
     row("Color profile", get("x-imagepipe-output-color-profile")),
-    row("Distance", get("x-imagepipe-output-distance")),
     row("Accept", get("x-imagepipe-output-accept")),
     row("Output size", formatBytes(outputBytes)),
     row("Compression", compressionRatio(sourceBytes, outputBytes)),

@@ -88,7 +88,7 @@ defmodule ImagePipe.API.SerializerTest do
       IP.new() |> IP.group(blur: 0) |> IP.group(rotate: 360) |> IP.group(gray: true),
       IP.new()
       |> IP.output(
-        format: :jpeg_xl,
+        format: :avif,
         quality: 85,
         metadata: :copyright,
         color_profile: {:convert, :display_p3},
@@ -96,7 +96,7 @@ defmodule ImagePipe.API.SerializerTest do
       ),
       IP.new()
       |> IP.output(
-        format_qualities: [jpeg: 70, png: 90, jpeg_xl: 85],
+        format_qualities: [jpeg: 70, png: 90],
         autoquality:
           {:ssimulacra2, [target: 85, min_quality: 20, max_quality: 90, allowed_error: 0.3]},
         max_bytes: 50_000
@@ -123,8 +123,7 @@ defmodule ImagePipe.API.SerializerTest do
           preset: :photo,
           effort: 5
         ],
-        avif_options: [subsample_mode: :on, effort: 7],
-        jxl_options: [effort: 8]
+        avif_options: [subsample_mode: :on, effort: 7]
       ),
       IP.new() |> IP.output(terminal: :info),
       IP.new() |> IP.output(terminal: :blurhash),

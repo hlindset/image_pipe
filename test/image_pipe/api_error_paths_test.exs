@@ -227,7 +227,7 @@ defmodule ImagePipe.APIErrorPathsTest do
 
     Keyword.merge(
       base,
-      Keyword.merge([output_capabilities: %{avif: true, webp: true, jpeg_xl: true}], seams)
+      Keyword.merge([output_capabilities: %{avif: true, webp: true}], seams)
     )
   end
 

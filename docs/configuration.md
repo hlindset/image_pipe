@@ -80,11 +80,11 @@ redirect limits belong on the source adapter.
 
 | Option | Default | Accepted values / purpose |
 | --- | --- | --- |
-| `auto_avif`, `auto_webp`, `auto_jpeg_xl` | `true` | Enable each modern format during Accept negotiation |
-| `format_order` | `[:avif, :jpeg_xl, :webp]` | Nonempty, distinct list of modern format atoms; unlisted formats follow in default order |
+| `auto_avif`, `auto_webp` | `true` | Enable each modern format during Accept negotiation |
+| `format_order` | `[:avif, :webp]` | Nonempty, distinct list of modern format atoms; unlisted formats follow in default order |
 | `output_capabilities` | Detected encoders | Map of format atom to boolean capability override |
 | `quality` | `80` | Global quality, `1..100` |
-| `format_quality` | `%{webp: 79, avif: 63, jpeg_xl: 77}` | Per-format qualities, merged with defaults |
+| `format_quality` | `%{webp: 79, avif: 63}` | Per-format qualities, merged with defaults |
 | `strip_metadata` | `true` | Strip optional source metadata |
 | `keep_copyright` | `true` | Retain copyright and artist attribution when stripping |
 | `strip_color_profile` | `true` | Convert into working space and omit source ICC; `false` preserves source profile |
@@ -102,8 +102,8 @@ profiles require tone-mapped output. See [output and encoding](processing/output
 | `autoquality_target` | `%{ssimulacra2: 78, butteraugli: 1.0}`; provide a positive `:size` byte target for size search |
 | `autoquality_allowed_error` | `%{ssimulacra2: 1.0, butteraugli: 0.1}` |
 | `autoquality_min_quality`, `autoquality_max_quality` | `70`, `80` |
-| `autoquality_format_min_quality` | `%{avif: 60, jpeg_xl: 45}` |
-| `autoquality_format_max_quality` | `%{avif: 65, jpeg_xl: 80}` |
+| `autoquality_format_min_quality` | `%{avif: 60}` |
+| `autoquality_format_max_quality` | `%{avif: 65}` |
 | `autoquality_max_resolution` | `0` (no resolution cutoff) |
 | `autoquality_max_iterations` | `6` |
 
@@ -135,7 +135,6 @@ plan =
 | `png_options` | `ImagePipe.Plan.Output.PngOptions` |
 | `webp_options` | `ImagePipe.Plan.Output.WebpOptions` |
 | `avif_options` | `ImagePipe.Plan.Output.AvifOptions` |
-| `jxl_options` | `ImagePipe.Plan.Output.JxlOptions` |
 
 Unspecified fields use encoder defaults. Sparse request fields override host
 fields. See the [encoder field reference](processing/output.md#encoder-options).

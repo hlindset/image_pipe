@@ -11,18 +11,18 @@ defmodule ImagePipe.Output.NegotiationTest do
              ]
 
       assert Negotiation.modern_candidates("image/jxl,image/avif",
-               output_capabilities: %{jpeg_xl: true}
-             ) == [:avif, :jpeg_xl]
+               output_capabilities: %{avif: true, webp: true}
+             ) == [:avif]
 
       assert Negotiation.modern_candidates("image/jpeg", []) == []
       assert Negotiation.modern_candidates(nil, []) == []
     end
 
-    test "a real Chrome/Firefox Accept negotiates AVIF from the explicit mime, never JXL" do
+    test "a browser Accept header negotiates AVIF and WebP from explicit MIME types" do
       browser_accept = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
 
       assert Negotiation.modern_candidates(browser_accept,
-               output_capabilities: %{jpeg_xl: true}
+               output_capabilities: %{avif: true, webp: true}
              ) == [:avif, :webp]
     end
 
@@ -55,14 +55,16 @@ defmodule ImagePipe.Output.NegotiationTest do
     end
 
     test "the image/* wildcard never matches modern formats; explicit ones still do" do
-      assert Negotiation.modern_candidates("image/*", output_capabilities: %{jpeg_xl: true}) == []
+      assert Negotiation.modern_candidates("image/*",
+               output_capabilities: %{avif: true, webp: true}
+             ) == []
 
       assert Negotiation.modern_candidates("image/webp,*/*", []) == [:webp]
     end
 
     test "image/* does not rescue a format excluded by an exact q=0" do
       assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1",
-               output_capabilities: %{jpeg_xl: true}
+               output_capabilities: %{avif: true, webp: true}
              ) == []
 
       assert Negotiation.modern_candidates("image/avif;q=0,image/avif;q=1,*/*;q=1", []) == []
@@ -76,73 +78,33 @@ defmodule ImagePipe.Output.NegotiationTest do
     end
   end
 
-  describe "modern_candidates/2 JPEG XL" do
-    test "an explicit image/jxl Accept yields jpeg_xl" do
-      assert Negotiation.modern_candidates("image/jxl", output_capabilities: %{jpeg_xl: true}) ==
-               [:jpeg_xl]
-    end
-
-    test "avif outranks jpeg_xl and webp by default when several are accepted" do
-      opts = [output_capabilities: %{jpeg_xl: true, avif: true, webp: true}]
-
-      assert Negotiation.modern_candidates("image/webp,image/avif,image/jxl", opts) ==
-               [:avif, :jpeg_xl, :webp]
-    end
-
-    test "server preference puts avif first even against higher client q-values" do
-      opts = [output_capabilities: %{jpeg_xl: true, avif: true, webp: true}]
-
-      assert Negotiation.modern_candidates("image/jxl;q=1,image/avif;q=0.1", opts) ==
-               [:avif, :jpeg_xl]
-    end
-
-    test "auto_jpeg_xl is enabled by default" do
-      assert Negotiation.modern_candidates("image/jxl", output_capabilities: %{jpeg_xl: true}) ==
-               [:jpeg_xl]
-    end
-
-    test "auto_jpeg_xl: false drops jpeg_xl while leaving avif and webp" do
-      opts = [auto_jpeg_xl: false, output_capabilities: %{jpeg_xl: true}]
-
-      assert Negotiation.modern_candidates("image/jxl,image/avif", opts) == [:avif]
-      assert Negotiation.modern_candidates("image/jxl", opts) == []
-    end
-
-    test "a build that cannot write jpeg_xl drops it from the candidates" do
-      opts = [output_capabilities: %{jpeg_xl: false}]
-
-      assert Negotiation.modern_candidates("image/jxl,image/avif", opts) == [:avif]
-      assert Negotiation.modern_candidates("image/jxl", opts) == []
-    end
-  end
-
   describe "modern_candidates/2 format_order" do
-    @all_caps [output_capabilities: %{jpeg_xl: true, avif: true, webp: true}]
+    @all_caps [output_capabilities: %{avif: true, webp: true}]
 
-    test "defaults to avif > jpeg_xl > webp" do
+    test "defaults to avif > webp" do
       assert Negotiation.modern_candidates("image/webp,image/avif,image/jxl", @all_caps) ==
-               [:avif, :jpeg_xl, :webp]
+               [:avif, :webp]
     end
 
     test "a full permutation reorders the candidates" do
-      opts = [{:format_order, [:jpeg_xl, :webp, :avif]} | @all_caps]
+      opts = [{:format_order, [:webp, :avif]} | @all_caps]
 
       assert Negotiation.modern_candidates("image/webp,image/avif,image/jxl", opts) ==
-               [:jpeg_xl, :webp, :avif]
+               [:webp, :avif]
     end
 
     test "a partial order prioritizes listed formats, then appends the rest in default order" do
-      opts = [{:format_order, [:jpeg_xl]} | @all_caps]
+      opts = [{:format_order, [:webp]} | @all_caps]
 
       assert Negotiation.modern_candidates("image/webp,image/avif,image/jxl", opts) ==
-               [:jpeg_xl, :avif, :webp]
+               [:webp, :avif]
     end
 
     test "ordering composes with capability and feature-flag filtering" do
-      opts = [{:format_order, [:jpeg_xl, :avif, :webp]}, {:auto_avif, false} | @all_caps]
+      opts = [{:format_order, [:webp, :avif]}, {:auto_avif, false} | @all_caps]
 
       assert Negotiation.modern_candidates("image/webp,image/avif,image/jxl", opts) ==
-               [:jpeg_xl, :webp]
+               [:webp]
     end
   end
 

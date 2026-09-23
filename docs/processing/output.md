@@ -13,7 +13,6 @@ this page to `ImagePipe.output/2`.
 | `format=png` | `format: :png` | PNG |
 | `format=webp` | `format: :webp` | WebP |
 | `format=avif` | `format: :avif` | AVIF |
-| `format=jxl` | `format: :jpeg_xl` | JPEG XL |
 
 Omit `format` to negotiate from `Accept`, enabled encoders, and host preferences.
 Without a preferred acceptable modern format, policy considers the source format
@@ -73,7 +72,6 @@ under the corresponding output option.
 | `png-options` | `interlace`, `palette`, `bitdepth:1\|2\|4\|8\|16`, `filter:none\|sub\|up\|avg\|paeth\|all` | `png_options`; same field names, enum values are atoms |
 | `webp-options` | `lossless`, `near-lossless`, `smart-subsample`, `preset:default\|photo\|picture\|drawing\|icon\|text`, `effort:0..6` | `webp_options`; `near_lossless`, `smart_subsample`, preset atom |
 | `avif-options` | `subsample:auto\|on\|off`, `effort:0..9` | `avif_options`; `subsample_mode` atom |
-| `jxl-options` | `effort:1..9` | `jxl_options`; `effort` integer |
 
 ```text
 /format=jpeg/jpeg-options=progressive,quant-table:3/src/photos/beach.jpg

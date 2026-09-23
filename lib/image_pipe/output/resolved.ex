@@ -34,8 +34,7 @@ defmodule ImagePipe.Output.Resolved do
             :none
             | ImagePipe.Output.ResolvedQualitySearch.Size.t()
             | ImagePipe.Output.ResolvedQualitySearch.Ssimulacra2.t()
-            | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t()
-            | ImagePipe.Output.ResolvedQualitySearch.NativeJxlButteraugli.t(),
+            | ImagePipe.Output.ResolvedQualitySearch.Butteraugli.t(),
           quality_search_max_iterations: pos_integer(),
           max_bytes: nil | pos_integer(),
           encoder_options:
@@ -44,17 +43,5 @@ defmodule ImagePipe.Output.Resolved do
             | ImagePipe.Plan.Output.PngOptions.t()
             | ImagePipe.Plan.Output.WebpOptions.t()
             | ImagePipe.Plan.Output.AvifOptions.t()
-            | ImagePipe.Plan.Output.JxlOptions.t()
         }
-
-  @doc """
-  The negotiated JPEG XL encode effort: `JxlOptions.effort`, defaulting to
-  libvips `jxlsave`'s own default (7) when unset. Single source of truth for the
-  lazy-encode and native-search JXL paths.
-  """
-  @spec jxl_effort(t()) :: 1..9
-  def jxl_effort(%__MODULE__{encoder_options: %ImagePipe.Plan.Output.JxlOptions{effort: e}}),
-    do: e || 7
-
-  def jxl_effort(%__MODULE__{}), do: 7
 end

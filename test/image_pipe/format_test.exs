@@ -4,15 +4,15 @@ defmodule ImagePipe.FormatTest do
   alias ImagePipe.Format
 
   test "defines canonical source and output format families" do
-    assert Format.output_formats() == [:jpeg_xl, :avif, :webp, :jpeg, :png]
-    assert Format.source_only_formats() == [:heif, :tiff, :jpeg2000]
+    assert Format.output_formats() == [:avif, :webp, :jpeg, :png]
+    assert Format.source_only_formats() == [:jpeg_xl, :heif, :tiff, :jpeg2000]
 
     assert Format.source_formats() == [
-             :jpeg_xl,
              :avif,
              :webp,
              :jpeg,
              :png,
+             :jpeg_xl,
              :heif,
              :tiff,
              :jpeg2000
@@ -31,17 +31,16 @@ defmodule ImagePipe.FormatTest do
     refute Format.source_format?(:svg)
   end
 
-  test "JPEG XL is a negotiable output format that is still decodable as a source" do
-    assert Format.output_format?(:jpeg_xl)
+  test "JPEG XL is a source-only format" do
+    refute Format.output_format?(:jpeg_xl)
     assert Format.source_format?(:jpeg_xl)
-    refute Format.source_only_format?(:jpeg_xl)
+    assert Format.source_only_format?(:jpeg_xl)
   end
 
   test "output MIME mapping covers the canonical output formats" do
     assert Format.output_mime_types() |> Keyword.keys() == Format.output_formats()
 
     assert Format.output_mime_type_values() == [
-             "image/jxl",
              "image/avif",
              "image/webp",
              "image/jpeg",
@@ -50,7 +49,6 @@ defmodule ImagePipe.FormatTest do
   end
 
   test "maps MIME types to format atoms" do
-    assert Format.format_from_mime_type("image/jxl") == {:ok, :jpeg_xl}
     assert Format.format_from_mime_type("image/avif") == {:ok, :avif}
     assert Format.format_from_mime_type("image/webp") == {:ok, :webp}
     assert Format.format_from_mime_type("image/jpeg") == {:ok, :jpeg}
@@ -80,25 +78,22 @@ defmodule ImagePipe.FormatTest do
     assert Format.supports_color_profile?(:png) == true
     assert Format.supports_color_profile?(:webp) == true
     assert Format.supports_color_profile?(:avif) == true
-    assert Format.supports_color_profile?(:jpeg_xl) == true
   end
 
   describe "supports_hdr?/1" do
-    test "AVIF, PNG, and JPEG XL carry HDR; WebP and JPEG do not" do
+    test "AVIF and PNG carry HDR; WebP and JPEG do not" do
       assert Format.supports_hdr?(:avif)
       assert Format.supports_hdr?(:png)
-      assert Format.supports_hdr?(:jpeg_xl)
       refute Format.supports_hdr?(:webp)
       refute Format.supports_hdr?(:jpeg)
     end
   end
 
   describe "supports_alpha?/1" do
-    test "AVIF, WebP, PNG, and JPEG XL carry alpha; JPEG does not" do
+    test "AVIF, WebP, and PNG carry alpha; JPEG does not" do
       assert Format.supports_alpha?(:avif)
       assert Format.supports_alpha?(:webp)
       assert Format.supports_alpha?(:png)
-      assert Format.supports_alpha?(:jpeg_xl)
       refute Format.supports_alpha?(:jpeg)
     end
   end
@@ -108,13 +103,11 @@ defmodule ImagePipe.FormatTest do
       assert Format.supports_quality?(:jpeg)
       assert Format.supports_quality?(:webp)
       assert Format.supports_quality?(:avif)
-      assert Format.supports_quality?(:jpeg_xl)
       refute Format.supports_quality?(:png)
     end
   end
 
   test "maps MIME types to encoder suffixes" do
-    assert Format.suffix!("image/jxl") == ".jxl"
     assert Format.suffix!("image/avif") == ".avif"
     assert Format.suffix!("image/webp") == ".webp"
     assert Format.suffix!("image/jpeg") == ".jpg"

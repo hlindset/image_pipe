@@ -195,11 +195,11 @@ describe("deep links and edits", () => {
   });
 
   it("does not inject quality search defaults when changing just the target", () => {
-    const options = "format=jxl/autoquality=butteraugli,target:1";
+    const options = "format=webp/autoquality=butteraugli,target:1";
     const before = controlStateFromOptions(options, source);
     expect(
       updateControlOptions(options, 0, before, { ...before, autoqualityButteraugliTarget: 2 }),
-    ).toBe("format=jxl/autoquality=butteraugli,target:2");
+    ).toBe("format=webp/autoquality=butteraugli,target:2");
   });
 
   it("removes an encoder option when its final field is unset", () => {
@@ -307,7 +307,7 @@ describe("deep links and edits", () => {
     "w=400/h=300/enlarge/extend/extend-at=left/pad=2,4/bg=fff,0.5",
     "blur=3/sharpen=2/pixelate=10/monochrome=0.5,red/duotone=1,black,white",
     "brightness=-30/contrast=1.4/saturation=0.5/colorize=0.3,blue,keep-alpha/gradient=0.4,black,left,0.1,0.8",
-    "autoquality=butteraugli,target:1/format=jxl/meta=copyright/profile=preserve/hdr=preserve",
+    "autoquality=butteraugli,target:1/format=webp/meta=copyright/profile=preserve/hdr=preserve",
   ])("opening %s does not rewrite it", (options) => {
     const before = controlStateFromOptions(options, source);
     expect(updateControlOptions(options, 0, before, structuredClone(before))).toBe(options);

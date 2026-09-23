@@ -362,7 +362,7 @@ defmodule ImagePipe.Output.PolicyTest do
       assert rs.quality_search_offsets == %{photo: 2.4, graphic: 2.4}
     end
 
-    test "butteraugli plan resolves to external Butteraugli resolved struct (non-JXL)" do
+    test "butteraugli plan resolves to a Butteraugli resolved struct" do
       search = %QualitySearch.Butteraugli{
         target: 1.0,
         min_quality: 1,
@@ -375,21 +375,6 @@ defmodule ImagePipe.Output.PolicyTest do
                Policy.resolve(policy_with(search, format: :webp), nil)
 
       assert rs.allowed_error == 0.1
-    end
-
-    test "butteraugli + JXL resolves to the native strategy" do
-      search = %QualitySearch.Butteraugli{
-        target: 1.0,
-        min_quality: 1,
-        max_quality: 100,
-        allowed_error: 0.1
-      }
-
-      assert {:ok,
-              %Resolved{
-                quality_search: %ResolvedQualitySearch.NativeJxlButteraugli{target: 1.0}
-              }} =
-               Policy.resolve(policy_with(search, format: :jpeg_xl), nil)
     end
 
     test "butteraugli + webp stays external" do
@@ -567,21 +552,6 @@ defmodule ImagePipe.Output.PolicyTest do
 
       assert %RQS.Ssimulacra2{min_quality: 75, max_quality: 80} =
                resolve_search_for(:jpeg, search)
-    end
-
-    test "jpeg_xl butteraugli native path honors URL override" do
-      search = %QualitySearch.Butteraugli{
-        target: 1.0,
-        min_quality: 70,
-        max_quality: 80,
-        url_min_quality: 50,
-        url_max_quality: 90,
-        format_min: %{jpeg_xl: 45},
-        format_max: %{jpeg_xl: 80}
-      }
-
-      assert %RQS.NativeJxlButteraugli{min_quality: 50, max_quality: 90} =
-               resolve_search_for(:jpeg_xl, search)
     end
   end
 

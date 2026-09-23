@@ -14,7 +14,7 @@ defmodule ImagePipe.Plan.Output do
   # `flatten_background`): no parser overrides it today.
   @default_quality_search_offsets %{default: 2.4, overrides: %{{:avif, :graphic} => 6.0}}
 
-  @type format :: :avif | :webp | :jpeg | :png | :jpeg_xl
+  @type format :: :avif | :webp | :jpeg | :png
   @type quality :: :default | {:quality, 1..100}
   @type color_profile :: :preserve_source | :strip | {:convert, term()}
   @type hdr :: :tone_map | :preserve

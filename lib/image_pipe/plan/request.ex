@@ -240,8 +240,7 @@ defmodule ImagePipe.Plan.Request do
           {:jpeg_options, :jpeg},
           {:png_options, :png},
           {:webp_options, :webp},
-          {:avif_options, :avif},
-          {:jxl_options, :jpeg_xl}
+          {:avif_options, :avif}
         ],
         Map.has_key?(request_map, key),
         options = Map.fetch!(request_map, key),

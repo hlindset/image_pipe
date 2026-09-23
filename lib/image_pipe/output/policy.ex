@@ -247,19 +247,6 @@ defmodule ImagePipe.Output.Policy do
 
   defp resolve_search(
          %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{} = s},
-         :jpeg_xl
-       ) do
-    %RQS.NativeJxlButteraugli{
-      target: s.target,
-      min_quality: s.url_min_quality || Map.get(s.format_min, :jpeg_xl, s.min_quality),
-      max_quality: s.url_max_quality || Map.get(s.format_max, :jpeg_xl, s.max_quality),
-      allowed_error: s.allowed_error,
-      max_resolution: s.max_resolution
-    }
-  end
-
-  defp resolve_search(
-         %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{} = s},
          format
        ) do
     %RQS.Butteraugli{
@@ -312,16 +299,6 @@ defmodule ImagePipe.Output.Policy do
          encoder_options: %{webp: %Output.WebpOptions{lossless: true}}
        }),
        do: nil
-
-  defp search_iteration_identity(
-         %__MODULE__{quality_search: %Output.QualitySearch.Butteraugli{}, max_bytes: nil} = policy
-       ) do
-    case identity_selection(policy) do
-      {:explicit, :jpeg_xl} -> nil
-      {:auto_head, :jpeg_xl} -> nil
-      _iterative -> policy.quality_search_max_iterations
-    end
-  end
 
   defp search_iteration_identity(%__MODULE__{quality_search_max_iterations: iterations}),
     do: iterations

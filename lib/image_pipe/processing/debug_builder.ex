@@ -29,7 +29,6 @@ defmodule ImagePipe.Processing.DebugBuilder do
       output_quality: output_quality(ctx.resolved_output, ctx.search_meta),
       output_stripped?: ctx.resolved_output.strip_metadata,
       output_color_profile: ctx.resolved_output.color_profile,
-      output_distance: output_distance(ctx.resolved_output),
       aq: aq_from_meta(ctx.resolved_output, ctx.search_meta),
       pipeline: ctx.operations,
       timings: ctx.timings
@@ -51,18 +50,6 @@ defmodule ImagePipe.Processing.DebugBuilder do
   defp output_quality(%ResolvedOutput{quality: {:quality, quality}}, _search_meta), do: quality
   defp output_quality(%ResolvedOutput{quality: :default}, _search_meta), do: :default
 
-  defp output_distance(%ResolvedOutput{quality_search: :none}), do: nil
-
-  defp output_distance(%ResolvedOutput{quality_search: %module{target: target}})
-       when is_number(target) do
-    case native_jxl_search?(module) do
-      true -> target
-      false -> nil
-    end
-  end
-
-  defp output_distance(%ResolvedOutput{}), do: nil
-
   defp aq_from_meta(_resolved_output, nil), do: nil
   defp aq_from_meta(%ResolvedOutput{quality_search: :none}, _search_meta), do: nil
 
@@ -71,7 +58,7 @@ defmodule ImagePipe.Processing.DebugBuilder do
 
     %{
       metric: metric,
-      score: quality_search_score(module, metadata),
+      score: Map.get(metadata, :score),
       target: Map.get(search, :target),
       min: Map.get(search, :min_quality),
       max: Map.get(search, :max_quality),
@@ -83,23 +70,12 @@ defmodule ImagePipe.Processing.DebugBuilder do
     }
   end
 
-  defp quality_search_score(module, metadata) do
-    case native_jxl_search?(module) do
-      true -> nil
-      false -> Map.get(metadata, :score)
-    end
-  end
-
   defp quality_search_metric(module) do
     case module |> Module.split() |> List.last() do
       "Ssimulacra2" -> :ssimulacra2
       "Butteraugli" -> :butteraugli
-      "NativeJxlButteraugli" -> :butteraugli
       "Size" -> :size
       _other -> nil
     end
   end
-
-  defp native_jxl_search?(module),
-    do: module |> Module.split() |> List.last() == "NativeJxlButteraugli"
 end

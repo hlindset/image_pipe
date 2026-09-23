@@ -15,7 +15,7 @@ constraints that affect the result.
 | [Crop guides](processing/crop.md#crop-guides) | `anchor`, `focus`, `detect`, `anchor-offset` |
 | [Effects](processing/effects.md) | `blur`, `sharpen`, `pixelate`, `gray`, `bitonal`, `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`, `gradient` |
 | [Formats and quality](processing/output.md) | `output`, `format`, `q`, `format-q`, `autoquality`, `max-bytes` |
-| [Encoders](processing/output.md#encoder-options) | `jpeg-options`, `png-options`, `webp-options`, `avif-options`, `jxl-options` |
+| [Encoders](processing/output.md#encoder-options) | `jpeg-options`, `png-options`, `webp-options`, `avif-options` |
 | [Metadata and color](processing/output.md#metadata-color-profiles-and-hdr) | `meta`, `profile`, `hdr` |
 | [Request controls](processing/request.md) | `filename`, `attachment`, `cb`, `expires`, `debug` |
 | [URL structure and presets](urls.md) | `preset`, `-`, `sig`, `src`, `src64`, `enc` |

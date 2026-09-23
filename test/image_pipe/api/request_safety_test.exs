@@ -62,7 +62,7 @@ defmodule ImagePipe.API.RequestSafetyTest do
     config =
       ImagePipe.Plug.init(Keyword.merge(opts, cache: {CacheProbe, []}))
 
-    Keyword.merge(config, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
+    Keyword.merge(config, output_capabilities: %{avif: true, webp: true})
   end
 
   defp no_fetch_config(opts) do

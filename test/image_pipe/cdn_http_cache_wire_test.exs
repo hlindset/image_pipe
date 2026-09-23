@@ -373,8 +373,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
 
   test "automatic output varies by Accept even with no modern candidates left" do
     for extra <- [
-          [auto_avif: false, auto_webp: false, auto_jpeg_xl: false],
-          [output_capabilities: %{avif: false, webp: false, jpeg_xl: false}]
+          [auto_avif: false, auto_webp: false],
+          [output_capabilities: %{avif: false, webp: false}]
         ] do
       opts = mount(extra)
 

@@ -61,8 +61,7 @@ defmodule ImagePipe.Debug.Headers do
       kv("x-imagepipe-output-height", info.output_height),
       kv("x-imagepipe-output-quality", info.output_quality),
       kv("x-imagepipe-output-stripped", info.output_stripped?),
-      kv("x-imagepipe-output-color-profile", info.output_color_profile),
-      kv("x-imagepipe-output-distance", info.output_distance)
+      kv("x-imagepipe-output-color-profile", info.output_color_profile)
     ]
   end
 

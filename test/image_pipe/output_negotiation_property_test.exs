@@ -6,15 +6,13 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
 
   property "modern candidates match enabled modern formats accepted by the header" do
     check all accept_header <- accept_header(),
-              auto_jpeg_xl? <- boolean(),
               auto_avif? <- boolean(),
               auto_webp? <- boolean(),
               max_runs: 100 do
       opts = [
-        auto_jpeg_xl: auto_jpeg_xl?,
         auto_avif: auto_avif?,
         auto_webp: auto_webp?,
-        output_capabilities: %{jpeg_xl: true, avif: true, webp: true}
+        output_capabilities: %{avif: true, webp: true}
       ]
 
       assert Negotiation.modern_candidates(accept_header, opts) ==
@@ -25,12 +23,11 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
   property "modern candidates are always returned in server-preference order" do
     check all accept_header <- accept_header(),
               opts <-
-                map({boolean(), boolean(), boolean()}, fn {auto_jpeg_xl?, auto_avif?, auto_webp?} ->
+                map({boolean(), boolean()}, fn {auto_avif?, auto_webp?} ->
                   [
-                    auto_jpeg_xl: auto_jpeg_xl?,
                     auto_avif: auto_avif?,
                     auto_webp: auto_webp?,
-                    output_capabilities: %{jpeg_xl: true, avif: true, webp: true}
+                    output_capabilities: %{avif: true, webp: true}
                   ]
                 end),
               max_runs: 100 do
@@ -39,12 +36,8 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
       assert candidates in [
                [],
                [:avif],
-               [:jpeg_xl],
                [:webp],
-               [:avif, :jpeg_xl],
-               [:avif, :webp],
-               [:jpeg_xl, :webp],
-               [:avif, :jpeg_xl, :webp]
+               [:avif, :webp]
              ]
     end
   end
@@ -54,7 +47,6 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
 
     []
     |> maybe_append_modern(Keyword.get(opts, :auto_avif, true), :avif, "image/avif", entries)
-    |> maybe_append_modern(Keyword.get(opts, :auto_jpeg_xl, true), :jpeg_xl, "image/jxl", entries)
     |> maybe_append_modern(Keyword.get(opts, :auto_webp, true), :webp, "image/webp", entries)
   end
 

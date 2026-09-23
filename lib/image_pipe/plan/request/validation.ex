@@ -16,16 +16,14 @@ defmodule ImagePipe.Plan.Request.Validation do
     :jpeg_options,
     :png_options,
     :webp_options,
-    :avif_options,
-    :jxl_options
+    :avif_options
   ]
   @exclusive [[:crop, :region], [:anchor, :detect], [:anchor, :focus], [:detect, :focus]]
   @encoders [
     jpeg_options: :jpeg,
     png_options: :png,
     webp_options: :webp,
-    avif_options: :avif,
-    jxl_options: :jpeg_xl
+    avif_options: :avif
   ]
 
   @spec errors([map()], map(), MapSet.t(Issue.location())) :: [Issue.t()]

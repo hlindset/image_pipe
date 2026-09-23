@@ -56,11 +56,11 @@ defmodule ImagePipe.API.OutputTest do
   end
 
   test "encoder options select the resolved format's settings" do
-    policy = resolve!(["format=jxl", "jxl-options=effort:4"], [])
+    policy = resolve!(["format=avif", "avif-options=effort:4"], [])
 
     assert {:ok, resolved} = Policy.resolve(policy, :jpeg)
-    assert resolved.encoder_options == %PlanOutput.JxlOptions{effort: 4}
-    assert {:ok, resolved} = Policy.resolve(resolve!(["format=jxl"], []), :jpeg)
+    assert resolved.encoder_options == %PlanOutput.AvifOptions{effort: 4}
+    assert {:ok, resolved} = Policy.resolve(resolve!(["format=avif"], []), :jpeg)
     assert resolved.encoder_options == nil
   end
 
@@ -78,8 +78,7 @@ defmodule ImagePipe.API.OutputTest do
     assert output.format_qualities == %{
              jpeg: {:quality, 68},
              webp: {:quality, 79},
-             avif: {:quality, 63},
-             jpeg_xl: {:quality, 77}
+             avif: {:quality, 63}
            }
   end
 

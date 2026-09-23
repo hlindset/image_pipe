@@ -11,7 +11,7 @@ defmodule ImagePipe.Plan.Response do
   plain request resolve to the same cached entry.
   """
 
-  @delivery_content_types ["image/jxl", "image/jpeg", "image/png", "image/webp", "image/avif"]
+  @delivery_content_types ["image/jpeg", "image/png", "image/webp", "image/avif"]
 
   defstruct disposition: :default, filename: nil, debug?: false
 

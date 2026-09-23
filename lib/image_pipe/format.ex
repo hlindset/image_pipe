@@ -2,7 +2,7 @@ defmodule ImagePipe.Format do
   @moduledoc """
   Canonical image format names and capabilities used by output policy.
 
-  Output formats are JPEG XL, AVIF, WebP, JPEG, and PNG. HEIF, TIFF, and JPEG
+  Output formats are AVIF, WebP, JPEG, and PNG. JPEG XL, HEIF, TIFF, and JPEG
   2000 are accepted as source formats but are not output formats.
   """
 
@@ -11,15 +11,15 @@ defmodule ImagePipe.Format do
     deps: [],
     exports: [Detector]
 
-  @output_formats [:jpeg_xl, :avif, :webp, :jpeg, :png]
+  @output_formats [:avif, :webp, :jpeg, :png]
   # The output formats eligible for `Accept`-based negotiation (the modern codecs
   # browsers conditionally support). The negotiation *order* among them is a policy
   # decision owned by Output.Negotiation; this is only the membership set.
-  @modern_formats [:jpeg_xl, :avif, :webp]
-  @color_profile_formats [:jpeg_xl, :avif, :webp, :jpeg, :png]
-  @alpha_formats [:jpeg_xl, :avif, :webp, :png]
-  @hdr_formats [:jpeg_xl, :avif, :png]
-  @source_only_formats [:heif, :tiff, :jpeg2000]
+  @modern_formats [:avif, :webp]
+  @color_profile_formats [:avif, :webp, :jpeg, :png]
+  @alpha_formats [:avif, :webp, :png]
+  @hdr_formats [:avif, :png]
+  @source_only_formats [:jpeg_xl, :heif, :tiff, :jpeg2000]
   @source_formats @output_formats ++ @source_only_formats
   @mime_types %{
     jpeg_xl: "image/jxl",
@@ -33,14 +33,14 @@ defmodule ImagePipe.Format do
   }
   @output_mime_types Enum.map(@output_formats, &{&1, Map.fetch!(@mime_types, &1)})
 
-  @type output_format() :: :jpeg_xl | :avif | :webp | :jpeg | :png
-  @type source_only_format() :: :heif | :tiff | :jpeg2000
+  @type output_format() :: :avif | :webp | :jpeg | :png
+  @type source_only_format() :: :jpeg_xl | :heif | :tiff | :jpeg2000
   @type source_format() :: output_format() | source_only_format()
 
   @spec output_formats() :: [output_format()]
   def output_formats, do: @output_formats
 
-  @doc "The output formats eligible for `Accept`-based negotiation (jpeg_xl/avif/webp)."
+  @doc "The output formats eligible for `Accept`-based negotiation (avif/webp)."
   @spec modern_formats() :: [output_format()]
   def modern_formats, do: @modern_formats
 
@@ -69,17 +69,17 @@ defmodule ImagePipe.Format do
   @spec supports_color_profile?(output_format()) :: boolean()
   def supports_color_profile?(format), do: format in @color_profile_formats
 
-  @doc "Returns whether the output format can carry an alpha channel. Mirrors imgproxy's `SupportsAlpha()` (JPEG XL/AVIF/WebP/PNG true; JPEG false)."
+  @doc "Returns whether the output format can carry an alpha channel. Mirrors imgproxy's `SupportsAlpha()` (AVIF/WebP/PNG true; JPEG false)."
   @spec supports_alpha?(output_format()) :: boolean()
   def supports_alpha?(format), do: format in @alpha_formats
 
-  @doc "Returns whether the output format can carry HDR (16-bit). Mirrors imgproxy's `SupportsHDR()` (JPEG XL/AVIF/PNG true; WebP/JPEG false)."
+  @doc "Returns whether the output format can carry HDR (16-bit). Mirrors imgproxy's `SupportsHDR()` (AVIF/PNG true; WebP/JPEG false)."
   @spec supports_hdr?(output_format()) :: boolean()
   def supports_hdr?(format), do: format in @hdr_formats
 
-  @doc "Returns whether the output format has a lossy encode-quality knob the search can tune (JPEG XL/AVIF/WebP/JPEG true; PNG false)."
+  @doc "Returns whether the output format has a lossy encode-quality knob the search can tune (AVIF/WebP/JPEG true; PNG false)."
   @spec supports_quality?(output_format()) :: boolean()
-  def supports_quality?(format) when format in [:jpeg, :webp, :avif, :jpeg_xl], do: true
+  def supports_quality?(format) when format in [:jpeg, :webp, :avif], do: true
   def supports_quality?(_format), do: false
 
   @spec suffix(String.t()) :: {:ok, String.t()} | {:error, term()}

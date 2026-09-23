@@ -23,7 +23,6 @@ defmodule ImagePipe.Debug.Info do
             output_quality: nil,
             output_stripped?: nil,
             output_color_profile: nil,
-            output_distance: nil,
             aq: nil,
             pipeline: [],
             timings: %{}
@@ -59,7 +58,6 @@ defmodule ImagePipe.Debug.Info do
           output_quality: 1..100 | :default | nil,
           output_stripped?: boolean() | nil,
           output_color_profile: atom() | nil,
-          output_distance: float() | nil,
           aq: aq() | nil,
           pipeline: [String.t()],
           timings: %{optional(atom()) => non_neg_integer()}

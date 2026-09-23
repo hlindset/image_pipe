@@ -25,7 +25,7 @@ export type GravityMode =
 export type ObjSubMode = "simple" | "weighted";
 export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
-export type OutputFormat = "jxl" | "webp" | "avif" | "jpeg" | "png";
+export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type ColorProfile = "none" | "srgb" | "display-p3" | "adobe-rgb";
 export type AutoqualityMethod = "none" | "size" | "ssimulacra2" | "butteraugli";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
@@ -962,7 +962,6 @@ export function controlStateFromOptions(
   const qualityFields =
     segments.find((segment) => keyOf(segment) === "autoquality")?.split("=")[1] ?? "";
   if (!fields(qualityFields).min && s.formatEnabled) {
-    if (s.format === "jxl") s.autoqualityMinQuality = 45;
     if (s.format === "avif") s.autoqualityMinQuality = 60;
   }
   if (!fields(qualityFields).max && s.formatEnabled && s.format === "avif")
