@@ -23,7 +23,7 @@ async function handlePreview(event: FetchEvent, request: Request): Promise<Respo
   // stream still reaches the <img> untouched.
   const accept = request.headers.get("accept");
   const response = await fetch(request);
-  void reportMetadata(event.clientId, request.url, accept, response.clone());
+  event.waitUntil(reportMetadata(event.clientId, request.url, accept, response.clone()));
   return response;
 }
 
