@@ -7,6 +7,8 @@ defmodule ImagePipe.Transform.Executor do
   deferred until a stage needs display-frame pixels or the request boundary.
   """
 
+  import ImagePipe.Transform.Geometry, only: [round_ties_to_even: 1]
+
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Request.Group
@@ -227,7 +229,7 @@ defmodule ImagePipe.Transform.Executor do
   defp execute_crop(%State{} = state, %Group{} = group, opts) do
     crop_dpr = crop_offset_dpr(group, state)
     crop = guided_crop(group, Geometry.display_effective_dims(state), crop_dpr)
-    materializing? = materializing_gravity?(crop.gravity)
+    materializing? = Crop.requires_materialization?(crop)
 
     case {Geometry.pending_class(state), materializing?} do
       {:pending, true} ->
@@ -380,10 +382,10 @@ defmodule ImagePipe.Transform.Executor do
 
   defp execute_padding(state, {top, right, bottom, left}, dpr, opts) do
     operation = %Padding{
-      top: Geometry.round_half_to_even(top * dpr),
-      right: Geometry.round_half_to_even(right * dpr),
-      bottom: Geometry.round_half_to_even(bottom * dpr),
-      left: Geometry.round_half_to_even(left * dpr),
+      top: round_ties_to_even(top * dpr),
+      right: round_ties_to_even(right * dpr),
+      bottom: round_ties_to_even(bottom * dpr),
+      left: round_ties_to_even(left * dpr),
       fill: :transparent
     }
 
@@ -511,11 +513,6 @@ defmodule ImagePipe.Transform.Executor do
   defp guide_gravity({:smart, :face_assist} = guide), do: guide
   defp guide_gravity({:detect, {_classes, _weights}} = guide), do: guide
   defp guide_gravity({:focus, x, y}), do: {:fp, x, y}
-
-  defp materializing_gravity?(:smart), do: true
-  defp materializing_gravity?({:smart, _}), do: true
-  defp materializing_gravity?({:detect, _}), do: true
-  defp materializing_gravity?(_gravity), do: false
 
   defp trim_op(:auto, symmetry), do: build_trim(@default_trim_threshold, :auto, symmetry)
 

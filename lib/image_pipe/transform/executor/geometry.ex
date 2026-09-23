@@ -1,6 +1,8 @@
 defmodule ImagePipe.Transform.Executor.Geometry do
   @moduledoc false
 
+  import ImagePipe.Transform.Geometry, only: [round_ties_to_even: 1]
+
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
@@ -147,8 +149,8 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   end
 
   @spec compensate_crop(Crop.t(), PendingOrientation.t()) :: Crop.t()
-  def compensate_crop(%Crop{crop_from: :gravity, gravity: gravity} = crop, pending) do
-    if materializing_gravity?(gravity) do
+  def compensate_crop(%Crop{crop_from: :gravity} = crop, pending) do
+    if Crop.requires_materialization?(crop) do
       crop
     else
       crop
@@ -161,19 +163,6 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   end
 
   def compensate_crop(%Crop{} = crop, %PendingOrientation{}), do: crop
-
-  @spec round_half_to_even(number()) :: integer()
-  def round_half_to_even(value) do
-    floor = Float.floor(value)
-    fraction = value - floor
-
-    cond do
-      fraction < 0.5 -> trunc(floor)
-      fraction > 0.5 -> trunc(floor) + 1
-      rem(trunc(floor), 2) == 0 -> trunc(floor)
-      true -> trunc(floor) + 1
-    end
-  end
 
   defp shrink_dimension({:pixels, value}, shrink),
     do: {:pixels, max(1, round(value / shrink))}
@@ -197,7 +186,7 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   defp shrink_offset(offset, {:fp, _x, _y}, _shrink), do: offset
 
   defp shrink_offset({:pixels, value}, _gravity, shrink),
-    do: {:pixels, round_half_to_even(value / shrink)}
+    do: {:pixels, round_ties_to_even(value / shrink)}
 
   defp shrink_offset(other, _gravity, _shrink), do: other
 
@@ -233,9 +222,4 @@ defmodule ImagePipe.Transform.Executor.Geometry do
   defp split_offset({:pixels, value}), do: {&{:pixels, &1}, value * 1.0}
   defp split_offset({:scale, value}), do: {&{:scale, &1}, value * 1.0}
   defp split_offset(value) when is_number(value), do: {& &1, value * 1.0}
-
-  defp materializing_gravity?(:smart), do: true
-  defp materializing_gravity?({:smart, _}), do: true
-  defp materializing_gravity?({:detect, _}), do: true
-  defp materializing_gravity?(_gravity), do: false
 end
