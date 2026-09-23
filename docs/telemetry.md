@@ -797,6 +797,9 @@ not included. Output-only hits do not emit an input-pool hit.
 Filesystem admission, warm-start, eviction, flush, and cleanup events carry
 the supervisor's `:pool` label too. The Logger appends `(input pool)` or
 `(output pool)` when a pool label is present.
+The `[:cache, :warm_start, :stop]` metadata reports `own_state_loaded: true`
+only when local state was restored successfully. `peer_state_files` counts
+present peer state files. Trace Capture retains both fields.
 The one-shot `[:cache, :coordination]` event reports `operation: :source | :refresh | :output`.
 Source acquisition and refresh report
 `result: :acquired | :started | :coalesced | :backoff | :busy`.
