@@ -250,6 +250,16 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert stream == {:error, {:source, :connect_error}}
   end
 
+  test "an HTTP2-only pool that is not ready returns a connection error" do
+    {_origin, url} = raw_origin("", :stall)
+    url = String.replace_prefix(url, "http:", "https:")
+
+    assert ReqStream.open(
+             [url: url, connect_options: [protocols: [:http2], timeout: 200]],
+             []
+           ) == {:error, {:source, :connect_error}}
+  end
+
   test "a 3xx without a Location header surfaces as :invalid_redirect" do
     plug = fn conn -> Plug.Conn.send_resp(conn, 302, "") end
 

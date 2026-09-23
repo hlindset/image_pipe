@@ -101,7 +101,7 @@ defmodule ImagePipe.Source.ReqStream do
 
     requested_at = clock.()
 
-    case Req.request(request) do
+    case request(request) do
       {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
         %{
           response: response,
@@ -134,6 +134,12 @@ defmodule ImagePipe.Source.ReqStream do
       {:error, _exception} ->
         {:error, :connect_error}
     end
+  end
+
+  defp request(request) do
+    Req.request(request)
+  rescue
+    exception in Finch.Error -> {:error, exception}
   end
 
   defp revalidated(_previous, [], _response, _timing), do: {:error, :unexpected_not_modified}

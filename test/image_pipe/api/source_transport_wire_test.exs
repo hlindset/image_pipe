@@ -6,6 +6,33 @@ defmodule ImagePipe.API.SourceTransportWireTest do
 
   @moduletag capture_log: true
 
+  test "an unready HTTP2-only pool returns a safe upstream failure" do
+    origin = start_supervised!({RawSourceOrigin, test_pid: self(), response: "", finish: :stall})
+    assert_receive {:origin_ready, ^origin, url}
+    url = String.replace_prefix(url, "http:", "https:")
+    prefix = [__MODULE__, :http2_startup]
+    event = prefix ++ [:source, :fetch, :stop]
+    ref = :telemetry_test.attach_event_handlers(self(), [event])
+    on_exit(fn -> :telemetry.detach(ref) end)
+
+    opts =
+      ImagePipe.Plug.init(
+        telemetry_prefix: prefix,
+        sources: [
+          url:
+            {HTTP,
+             allowed_hosts: ["127.0.0.1"],
+             address_policy: [allow_loopback: true],
+             req_options: [connect_options: [protocols: [:http2], timeout: 200]]}
+        ]
+      )
+
+    conn = Plug.Test.conn(:get, "/format=png/src/#{url}/private.jpg") |> ImagePipe.Plug.call(opts)
+    assert conn.status == 404
+    assert_receive {^event, ^ref, _, %{result: :source_error, error: :connect_error} = metadata}
+    refute inspect(metadata) =~ "private.jpg"
+  end
+
   for {name, response, finish, status, reason} <- [
         {:truncated, "HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\nshort", :close, 502,
          :truncated_body},

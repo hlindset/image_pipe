@@ -161,7 +161,7 @@ Failure stop metadata (one of two shapes, by failure mode):
   category atom (e.g. `:body_too_large` when the source body crosses
   `:max_body_bytes`). HTTP fetch failures are classified rather than collapsed
   so an observer can tell them apart: `:connect_error` (DNS/TLS/refused/connect
-  or pool timeout), `:receive_timeout` (origin stalled mid-body),
+  or pool timeout/startup failure), `:receive_timeout` (origin stalled mid-body),
   `:truncated_body` (closed before a framed response completed),
   `:connection_reset`, `:connection_closed`, or `:transport_error` (transport
   failures after response headers), `:invalid_body` (unparseable HTTP framing),
