@@ -21,7 +21,7 @@ on `ImagePipe.Parser`, `ImagePipe.Request`, `ImagePipe.Resolver`, or
 plans close upstream gaps and perform the one-way retirement.
 
 **Tech Stack:** Elixir, Plug, NimbleOptions, Boundary, ExUnit/StreamData,
-libvips through Vix/Image, Req-backed TwicPics fixture tooling, Vale, ExDNA.
+libvips through Vix/Image, Req-backed TwicPics fixture tooling, ExDNA.
 
 **Spec:**
 `docs/superpowers/specs/2026-07-17-twicpics-dialect-inversion-design.md`.
@@ -322,8 +322,7 @@ core-helper work, not this behavioral gap.
   export PATH="$(mise where elixir)/bin:$PATH" && mix test test/image_pipe/twicpics_differential_conformance_test.exs --include twicpics_triage --only twicpics_triage
   ```
 
-- [ ] **Step 7: Run Vale, precommit, and commit the phase base.** Use the repo's
-  configured Vale command/task discovered from `mise tasks` or config. Then:
+- [ ] **Step 7: Run precommit and commit the phase base.**
 
   ```bash
   mise run precommit
@@ -1201,7 +1200,7 @@ This task records future work only; it performs no retirement.
   framework cases, fiddle mount, bake parse gate, diagnose/report helpers,
   cache-key strategy version pins, and documentation references.
 
-- [ ] **Step 2: Sync the support matrix and run Vale.** Remove stale claims that
+- [ ] **Step 2: Sync the support matrix.** Remove stale claims that
   the only TwicPics implementation is a compatibility parser or that product
   focus state lives in shared Plan vocabulary. Retain the live behavior and
   accepted-divergence descriptions from Task 2.
@@ -1209,7 +1208,7 @@ This task records future work only; it performs no retirement.
 - [ ] **Step 3: Write the exit report.** Check every phase-1 criterion from the
   spec with file/test/commit evidence: dual wire, dual SaaS, exact cross-arm,
   order discrimination, config/cache/source isolation, telemetry isolation,
-  lifecycle representatives, dependency inversion, frozen oracle paths, Vale,
+  lifecycle representatives, dependency inversion, frozen oracle paths,
   and precommit. Resolve and record the actual phase-base hash.
 
 - [ ] **Step 4: Run the full evidence gate.** At minimum:
@@ -1237,7 +1236,7 @@ This task records future work only; it performs no retirement.
   mise run precommit
   ```
 
-  Also run the repository's Vale gate. If JXL fails with
+  If JXL fails with
   `Failed to write VipsImage to buffer`, repair Vix exactly as listed in Global
   constraints and rerun; do not touch fixtures.
 
@@ -1251,7 +1250,7 @@ This task records future work only; it performs no retirement.
      tolerance/quarantine conventions, telemetry isolation, and deletion
      inventory.
 
-  Apply accepted findings, rerun affected focused tests, Vale, and precommit.
+  Apply accepted findings, rerun affected focused tests, and precommit.
 
 - [ ] **Step 6: Commit the phase-1 closeout.**
 

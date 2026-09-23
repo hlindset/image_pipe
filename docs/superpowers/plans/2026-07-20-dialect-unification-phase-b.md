@@ -1010,7 +1010,6 @@ No `fiddle/assets` change: the imgproxy debug-trigger injection (`debugTriggerPa
 - `docs/operational_notes.md:238-241` documents a per-request `_debug=1` **query parameter** trigger that no stack uses (imgproxy replaced it with the signed `debug:1` option in #398). Correct it to the per-dialect triggers while this task is already in the debug surface.
 - `docs/debug_headers.md:82` gives `srgb` as the `X-ImagePipe-Source-Color-Space` example; the emitted value is `VIPS_INTERPRETATION_sRGB` (as delta 2 and the Task 5/7 assertions pin). Fix it in the same pass.
 - `docs/execution_flow.md:120` says `Imgproxy.InfoRenderer` renders `/info` "outside this dispatch point". Still true after the `{:render, %RenderTerminal{}}` move (the runner owns it, not `ImagePipe.Renderer`), but give it a wording pass since this task already opens the file.
-- Run Vale over every changed current Markdown file, not a fixed subset. `git diff --name-only` may produce the list, but inspect it before invoking Vale. No new errors are allowed; if the binary is unavailable, report that explicitly.
 
 - [ ] **Step 4: Fiddle gate**
 

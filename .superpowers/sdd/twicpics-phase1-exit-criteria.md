@@ -190,9 +190,8 @@ Observed result: one phase-base commit and an empty diff.
 
 ## 10. Documentation and retirement inventory
 
-**Criterion:** changed documentation reflects the dialect architecture. Vale
-reports no findings. The inventory classifies future parser and strategy
-retirement.
+**Criterion:** changed documentation reflects the dialect architecture. The
+inventory classifies future parser and strategy retirement.
 
 **Status: passes.** `docs/twicpics_support_matrix.md` now describes the ordered
 Request, local PointFlow, and dialect Pipeline. It labels the framework arm as
@@ -222,18 +221,6 @@ The lexical gate searches the bare `:deferred` marker and qualified strategy
 terms. A syntax-aware root-Plan resolver-field check completes the Phase-2
 gate. That check excludes unrelated IIIF, HTTP address, telemetry, and
 host-option resolvers.
-
-Vale command and observed result:
-
-```shell
-mise exec -- vale \
-  docs/twicpics_support_matrix.md \
-  .superpowers/sdd/twicpics-phase1-test-inventory.md \
-  .superpowers/sdd/twicpics-phase1-exit-criteria.md
-```
-
-Observed result: `0 errors, 0 warnings, 0 suggestions` across all three files.
-The ignored Task 14 report also passes with no findings.
 
 ## 11. Focused evidence gate
 

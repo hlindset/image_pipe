@@ -1936,14 +1936,6 @@ git commit -m "Pin Native internal_cache: :disabled behavior (Phase A task 9, U9
 
 For the architecture test, read the existing deps-pin blocks and update the Native entry to the Task 8 Boundary list; add one pin asserting `lib/image_pipe/plug/dialect_runner.ex` contains no reference matching `~r/Dialect\.(Native|Imgproxy|TwicPics|IIIF)\b/` (the U4 rule, enforced the same way the file already enforces no-concrete-transform-modules).
 
-Run Vale over the changed docs explicitly — `.vale.ini` exists but no mise
-task runs it, so it is not part of `precommit`:
-
-Run: `vale docs/custom_parser_guide.md`
-Expected: no errors (warnings at parity with the file's pre-edit state). If
-the `vale` binary is unavailable locally, note that in the task report
-rather than skipping silently.
-
 - [ ] **Step 2: Full gates**
 
 Run: `mise run precommit && mise run precommit:fiddle`

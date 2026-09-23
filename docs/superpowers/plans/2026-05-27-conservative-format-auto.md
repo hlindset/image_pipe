@@ -46,4 +46,3 @@
 
 - `mise exec -- mix test test/image_pipe/output_negotiation_test.exs test/image_pipe/output_negotiation_property_test.exs test/image_pipe/output_policy_test.exs test/image_pipe/cache/key_test.exs test/image_pipe/request/http_cache_test.exs test/image_pipe/plug_test.exs test/image_pipe/imgproxy_wire_conformance_test.exs`
 - `mise exec -- mix compile --warnings-as-errors`
-- If docs changed: `mise exec -- vale docs README.md`

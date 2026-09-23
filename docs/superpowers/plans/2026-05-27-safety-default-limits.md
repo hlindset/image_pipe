@@ -729,16 +729,6 @@ URL/config compatibility for `max result dimension`.
 
 Don't mark animation rows as supported.
 
-- [ ] **Step 3: Run Vale**
-
-Run:
-
-```bash
-mise exec -- vale docs/operational_notes.md docs/imgproxy_support_matrix.md docs/superpowers/plans/2026-05-27-safety-default-limits.md
-```
-
-Expected: pass or only existing accepted vocabulary warnings. Fix any new issue caused by this plan or doc text.
-
 ## Task 6: Final Verification
 
 **Files:**
@@ -771,16 +761,6 @@ Run:
 
 ```bash
 mise exec -- mix compile --warnings-as-errors
-```
-
-Expected: pass.
-
-- [ ] **Step 4: Run Vale if docs changed**
-
-Run:
-
-```bash
-mise exec -- vale docs/operational_notes.md docs/imgproxy_support_matrix.md
 ```
 
 Expected: pass.

@@ -19,7 +19,6 @@ This records no phase-2 edit. All paths and counts are from
 
 The short acceptance labels below keep the case tables readable.
 
-<!-- vale off -->
 | Label | Required phase-2 evidence |
 | --- | --- |
 | `R-DIALECT` | Replace `ImagePipe.Dialect.TwicPics.call/2` with a deliberate failure at the test seam. The repointed case must fail. |
@@ -30,7 +29,6 @@ The short acceptance labels below keep the case tables readable.
 | `R-HARNESS` | Replace the dialect-only `Harness.plug_opts/0` or render entry point with a deliberate failure. The consumer's focused test or smoke command must fail. |
 | `R-CACHE` | Remove the replacement canonical-material field/absence assertion. The focused cache-key test must fail. |
 | `R-NEUTRAL` | Replace `ImagePipe.Transform.NeutralResolver.resolve_late_bound_guide/2` with a deliberate failure. The repointed neutral geometry case must fail. |
-<!-- vale on -->
 
 ## Legacy parser-owned test trees
 
@@ -42,7 +40,6 @@ Their named ports already survive in
 pre-port `0/25 passed` RED because `RequestBuilder.build/3` didn't exist, then
 `25/25` GREEN. Unique-behavior analysis: **none** for every row.
 
-<!-- vale off -->
 | # | Legacy case | Surviving coverage |
 | --- | --- | --- |
 | 1 | `resize single dim -> fit auto; WxH -> stretch` | `legacy: resize single dim -> fit auto; WxH -> stretch` |
@@ -70,7 +67,6 @@ pre-port `0/25 passed` RED because `RequestBuilder.build/3` didn't exist, then
 | 23 | `relative crop dimensions and zero-based coordinates build a plan` | Same `legacy:` case |
 | 24 | `a region crop requires both axes explicit (omitted axis is rejected)` | Same `legacy:` case |
 | 25 | `an empty pipeline still produces a valid no-op plan when only output is set` | Same `legacy:` case with an empty ordered step list |
-<!-- vale on -->
 
 ### Resolver and PointFlow: 12 cases
 
@@ -82,7 +78,6 @@ surviving destination is
 `test/image_pipe/dialect/twic_pics/point_flow_test.exs`. Unique-behavior
 analysis: **none** for every row.
 
-<!-- vale off -->
 | Legacy file | Case | Surviving coverage |
 | --- | --- | --- |
 | `resolver_test.exs` | `set_focus resolves the operand into the carry with zero ops` | `set_focus resolves the operand into the local carry` |
@@ -97,7 +92,6 @@ analysis: **none** for every row.
 | `point_flow_test.exs` | `raises for a dims-changing op it has no explicit advance rule for` | `raises for an unknown dims-changing operation` |
 | `point_flow_test.exs` | `raises for Trim` | Same-name dialect PointFlow case |
 | `point_flow_test.exs` | `raises for Padding` | Same-name dialect PointFlow case |
-<!-- vale on -->
 
 Three surviving dialect cases still compare with `LegacyResolver`. They use
 `REPOINT` under `R-POINT`. Compare an ordinary op directly with
@@ -114,18 +108,15 @@ five dialect leaf modules existed, followed by `48 passed`. The combined old
 and new leaf gate passed `95` tests. Unique-behavior analysis: **none** for all
 named cases below.
 
-<!-- vale off -->
 | Legacy file | Count | Cases | Surviving coverage |
 | --- | ---: | --- | --- |
 | `test/parser/twic_pics/manipulation_test.exs` | 5 | ordered `v1` segment split; required `v1`; missing `=`; stray slashes; slash inside parenthesized arithmetic | Same five cases in `dialect/twic_pics/manipulation_test.exs` |
 | `test/parser/twic_pics/output_test.exs` | 2 | `auto, explicit formats, and quality`; `parse format and quality strings` | Same two cases in `dialect/twic_pics/output_test.exs` |
 | `test/parser/twic_pics/path_test.exs` | 3 | source path plus chain extraction; missing `twic`; empty source path | Same three cases in `dialect/twic_pics/path_test.exs` |
 | `test/parser/twic_pics/units_test.exs` | 35 | Listed in the next table | Same 35 cases in `dialect/twic_pics/units_test.exs` |
-<!-- vale on -->
 
 The 35 Units cases are:
 
-<!-- vale off -->
 1. pixels, percent, and scale;
 2. reject `px` as a unit;
 3. percent and scale fractions;
@@ -161,7 +152,6 @@ The 35 Units cases are:
 33. reject a non-positive folded ratio side;
 34. map the eight anchors; and
 35. reject `center` as an anchor.
-<!-- vale on -->
 
 `test/image_pipe/dialect/twic_pics/leaf_grammar_parity_test.exs` has two
 phase-1-only cases and uses `DELETE` after the legacy leaf modules disappear.
@@ -174,7 +164,6 @@ Seven cases in `test/parser/twic_pics_test.exs` use `DELETE`. The `autoquality`
 mount-time validation case uses `PORT`. Surviving coverage and unique-behavior
 analysis are:
 
-<!-- vale off -->
 | Legacy case | Disposition | Surviving coverage or port evidence | Unique behavior |
 | --- | --- | --- | --- |
 | valid `parse/2` returns a request | **DELETE** | `dialect/twic_pics/parse_test.exs`: valid path composes one ordered request | none |
@@ -185,7 +174,6 @@ analysis are:
 | neutral quality accepted | **DELETE** | dialect config quality coverage | none |
 | unknown neutral key rejected | **DELETE** | dialect config unknown-key coverage | none |
 | invalid autoquality size combination raises | **PORT** | `dialect/twic_pics/config_test.exs`: `rejects size autoquality without a byte target at mount time`. Pre-port RED: expected `ArgumentError`, but nothing was raised. GREEN: `Config.validate!/1` validates the merged config through `QualitySearch.from_config/1`. Removing that validation produced the same RED (`9/10 passed`). |
-<!-- vale on -->
 
 ## Wire and differential nets
 
@@ -200,7 +188,6 @@ the 49 dialect copies while all 49 framework copies stayed green.
 
 The 49 cases are:
 
-<!-- vale off -->
 1. auto-orientation without geometry;
 2. chained resize uses the upright frame;
 3. single resize reaches the intermediate dimension;
@@ -250,7 +237,6 @@ The 49 cases are:
 47. focus carries through two covers;
 48. nil-point center fallback under EXIF quarter-turn; and
 49. focus carries through an inside canvas embed.
-<!-- vale on -->
 
 ### Added lifecycle and cross-arm wire cases
 
@@ -268,13 +254,11 @@ analysis: **none**. Literal cross-arm comparison has no meaning with one arm.
 
 ### SaaS and exact local comparison
 
-<!-- vale off -->
 | File/cases | Disposition | Destination and evidence |
 | --- | --- | --- |
 | `test/image_pipe/twicpics_differential_conformance_test.exs`: 39 authored constellations × 2 arms, 38 default per arm plus one triage per arm | **REPOINT** | Collapse to one dialect render per authored constellation through `Harness.plug_opts/0`; `R-HARNESS`. Keep all five monitored divergence bands and the quarantined shadow verdict unchanged. |
 | `test/image_pipe/twicpics_cross_arm_conformance_test.exs`: 39 exact cases plus one order self-check | **DELETE** | Surviving dialect SaaS lane, wire order case, RequestBuilder ordering, and Pipeline ordering. Unique behavior: none after transition. |
 | `test/support/image_pipe/test/twicpics_differential/harness.ex` | **REPOINT** | `plug_opts/0` initializes `ImagePipe.Dialect.TwicPics`; remove the arm selector only after dual callers are gone. `R-HARNESS`. |
-<!-- vale on -->
 
 Task 12 proved `78 passed, 2 excluded` in the dual SaaS file and `39` exact
 local cases plus the order self-check. An order mutation made the affected
@@ -290,7 +274,6 @@ references because the matching-`Accept` case mounts the parser twice. They
 test `ImagePipe.Plug`, cache, source, negotiation, materialization, or delivery
 behavior rather than a TwicPics product rule:
 
-<!-- vale off -->
 1. automatic source-format output needs no encoder override;
 2. cache hit without origin fetch;
 3. automatic-output miss stores `Vary` and content type;
@@ -313,7 +296,6 @@ behavior rather than a TwicPics product rule:
 20. sequential materialization failure maps to decode error;
 21. deferred automatic materialization failure maps to decode error; and
 22. automatic cache-write failure fails open and preserves `Vary`.
-<!-- vale on -->
 
 Both parser mounts in the matching-`Accept` case move together under the
 same `R-IIIF` acceptance mutation.
@@ -335,14 +317,12 @@ failures return before source identity, cache lookup, and origin` is
 
 ### Dialect tests with temporary legacy or framework oracles
 
-<!-- vale off -->
 | File/cases | Disposition | Replacement and acceptance |
 | --- | --- | --- |
 | `dialect/twic_pics/pipeline_test.exs`: focus/multiple-consumer pixels; auto-focus then region crop; pending EXIF flush; detector modes | **REPOINT** | Keep the local Pipeline assertions, frozen expected pixels/event sequences, and dialect wire/differential citations; remove `PlanBuilder` and `Transform.execute_plan/3`. `R-PIPELINE`. |
 | `dialect/twic_pics/point_flow_test.exs`: ordinary neutral op; staged cover; pending-orientation cover | **REPOINT** | Direct NeutralResolver or explicit expected operation/shape/point assertions; remove `LegacyResolver`. `R-POINT`. |
 | `dialect/twic_pics/request_builder_test.exs` and `request_test.exs`: forbidden-vocabulary anti-tautology fixtures for `Parser.TwicPics.Resolver`, a `resolver` map field, and `Operation.Directive` traversal | **DELETE** | Keep the positive recursive scan over every produced request. Delete the retiring module atoms, synthetic resolver field, and Directive-only traversal clauses. Unique behavior: none. |
 | `test/image_pipe/transform/focus_test.exs`: seven `plan_cell/1` cases, their explicit `Parser.TwicPics.Resolver` fixture, and the 16-cell pending-orientation matrix | **DELETE** | Dialect PointFlow, Pipeline, wire focus/carry, and EXIF cases survive. Product-neutral rational helper tests remain. Unique behavior: none. |
-<!-- vale on -->
 
 ### Telemetry and architecture
 
@@ -362,7 +342,6 @@ behavior: none.
 
 ### Cache key and strategy-version pins
 
-<!-- vale off -->
 | Current case or source | Disposition | Replacement and acceptance |
 | --- | --- | --- |
 | `cache/key_test.exs`: three `TwicPics carried focus (#321)` cases | **DELETE** | Dialect `Identity.material/5`, contract cache-key tests, and wire storage-identity tests survive. Unique behavior: none. |
@@ -370,7 +349,6 @@ behavior: none.
 | `cache/key_test.exs`: explicit neutral strategy module/version | **REPOINT** | Same absence assertion; the injected strategy surface is removed. `R-CACHE`. |
 | `cache/key_test.exs`: TwicPics resolver module/version | **REPOINT** | Same absence assertion; dialect identity is owned by `Dialect.TwicPics.Identity`. `R-CACHE`. |
 | `lib/image_pipe/cache/key.ex` comment and `resolver_data/1` | **DELETE** | The replacement absence test above is the drift guard. Unique behavior: none after the resolver field and callback retire. |
-<!-- vale on -->
 
 ### Strategy and marker SDK surface
 
@@ -378,7 +356,6 @@ Phase 2 removes the shared strategy SDK and marker vocabulary only after the
 dialect callers retire. These rows prevent tests, types, cache material, or
 comments from surviving as an accidental public contract.
 
-<!-- vale off -->
 | Current file or cases | Disposition | Destination and required evidence |
 | --- | --- | --- |
 | `lib/image_pipe/parser.ex`: `ImagePipe.Resolver` Boundary dependency | **DELETE** | Keep Parser's Config, Format, Plan, Renderer, and Transform dependencies and zero exports. The exact parser Boundary assertion must pin that remaining set. Unique behavior: none after the last compatibility strategy retires. |
@@ -413,8 +390,7 @@ comments from surviving as an accidental public contract.
 | `test/support/image_pipe/ordered_spike/pipeline.ex`: anti-strategy comparison in the probe module documentation | **REPOINT** | Keep the measured left-to-right interpreter contract and probe tests. Remove only the contrast with the retired strategy framework. |
 | `test/image_pipe/plan/vendor_mapping_fixture_test.exs`: two `:strategy_guide` fixtures and notes | **REPOINT** | Use concrete product-neutral smart/guided-crop vocabulary while retaining the vendor identities and classification census. Deliberately corrupt the rewritten fixture and observe the shallow-fixture test fail. |
 | `lib/image_pipe/dialect/imgproxy/config.ex`: Parser.TwicPics widening comment | **DELETE** | `ImagePipe.Config.keys/0` remains covered by direct config tests. Unique behavior: none; this is a stale production comment. |
-| `AGENTS.md`, `docs/custom_parser_guide.md`, and `docs/execution_flow.md`: live strategy, marker, Directive, and behavior-version guidance | **DELETE** or **REPOINT** | Remove TwicPics-specific marker guidance. Rewrite remaining product-neutral guidance for the fixed neutral driver and self-contained dialect Plugs. Documentation Vale must pass. |
-<!-- vale on -->
+| `AGENTS.md`, `docs/custom_parser_guide.md`, and `docs/execution_flow.md`: live strategy, marker, Directive, and behavior-version guidance | **DELETE** or **REPOINT** | Remove TwicPics-specific marker guidance. Rewrite remaining product-neutral guidance for the fixed neutral driver and self-contained dialect Plugs. |
 
 Phase 2 must finish with this qualified live-surface negative gate returning no
 matches:
@@ -439,7 +415,6 @@ contract in the Phase-2 closeout. Historical design records remain excluded.
 
 ## Live consumers and support tools
 
-<!-- vale off -->
 | Consumer | Disposition | Replacement entry point and phase-2 acceptance |
 | --- | --- | --- |
 | `fiddle/lib/image_pipe_fiddle/application.ex` TwicPics mount | **REPOINT** | Mount `ImagePipe.Dialect.TwicPics` directly with flat options; `R-DIALECT` plus `mise run precommit:fiddle`; `fiddle/mix.lock` must remain unchanged. |
@@ -452,14 +427,12 @@ contract in the Phase-2 closeout. Historical design records remain excluded.
 | `gen_fixtures_test.exs` and `source_hosting_test.exs` | **REPOINT** | Retain injected `GenFixtures.run_with/2` and `SourceHosting.resolve!/3`; deliberately fail the selected entry point and observe the focused case fail. The production parse gate is covered separately above. |
 | `manifest_test.exs` | **REPOINT** | Retain `Manifest.load!/1`, `write!/2`, `fresh?/3`, and digest tests; a deliberate `Manifest.load!/1` failure must fail the round-trip case. It has no parser dependency now. |
 | `twicpics_source_inventory_test.exs` | **REPOINT** | Retain `SourceInventory.all/0` and byte-fact drift checks; a deliberate empty inventory must fail the drift census. It has no parser dependency now. |
-<!-- vale on -->
 
 The fixture PNG files, source images, `manifest.exs`, and `REPORT.md` are oracle
 data, not retirement targets. They must remain byte-unchanged.
 
 ## Documentation references
 
-<!-- vale off -->
 | Live document | Disposition | Required result |
 | --- | --- | --- |
 | `docs/twicpics_support_matrix.md` | **REPOINT** | Describe the dialect as the serving stack after wave 2; remove the temporary comparison-arm wording only then. |
@@ -468,7 +441,6 @@ data, not retirement targets. They must remain byte-unchanged.
 | `docs/cdn-http-cache.md` | **REPOINT** | Replace the TwicPics parser mount example with the dialect Plug or use IIIF for framework-only configuration. |
 | `docs/debug_headers.md` | **REPOINT** | Replace the TwicPics parser mount example with the dialect Plug and retain the TwicPics `debug=1` behavior. |
 | `AGENTS.md` marker-accretion example | **DELETE** | Remove the retired live TwicPics marker example cleanly. Any retained general rule must not claim a live marker. Unique behavior: none. |
-<!-- vale on -->
 
 Historical `docs/superpowers/**` files are immutable design/implementation
 records. They contain Parser/Resolver vocabulary but aren't live retirement

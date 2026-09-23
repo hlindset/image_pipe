@@ -6,7 +6,7 @@
 
 **Architecture:** Imgproxy parsing stays declarative: `ImagePipe.Parser.Imgproxy.OptionGrammar` parses URL syntax into parser request fields, `ImagePipe.Parser.Imgproxy.PlanBuilder` emits canonical `ImagePipe.Plan.Operation.*` structs in the existing effect phase, and `ImagePipe.Transform.PlanExecutor` lowers semantic operations into executable transforms after cache lookup. The demo emits the same URL segments and parses them back from `/demo/...` paths.
 
-**Tech Stack:** Elixir, ExUnit, Vix/libvips through the `Image` package, Svelte, TypeScript, the demo test runner, Vale.
+**Tech Stack:** Elixir, ExUnit, Vix/libvips through the `Image` package, Svelte, TypeScript, the demo test runner.
 
 ---
 
@@ -297,12 +297,6 @@ Change `brightness`, `contrast`, and `saturation` from `Missing` to `Supported` 
 
 Document the fixed effect order as `blur`, `sharpen`, `pixelate`, `brightness`, `contrast`, then `saturation` in `docs/imgproxy_path_api.md` and `docs/transform_operations.md`. Avoid broad "color controls" wording unless the sentence names these exact operations.
 
-- [ ] **Step 2: Run Vale and fix wording issues**
-
-Run: `mise exec -- vale docs/imgproxy_support_matrix.md docs/transform_operations.md docs/imgproxy_path_api.md`
-
-Expected: Vale passes with 0 errors.
-
 ### Task 6: Final Verification
 
 **Files:**
@@ -327,8 +321,6 @@ Run: `mise exec -- pnpm demo:test`
 Run: `mise exec -- pnpm demo:check`
 
 Run: `mise exec -- pnpm demo:lint`
-
-Run: `mise exec -- vale docs/imgproxy_support_matrix.md docs/transform_operations.md docs/imgproxy_path_api.md`
 
 Expected: all commands pass.
 
