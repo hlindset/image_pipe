@@ -92,7 +92,8 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
       timed = request(mount, options, "blocked")
       assert timed.status == 504
       assert timed.resp_body == "image processing timeout"
-      assert request(mount, "output=info").status == 200
+      assert %{active: 0, queued: 0} = ProcessingPool.stats(pool)
+      assert ProcessingPool.run(pool, fn -> :recovered end) == :recovered
     end
   end
 
