@@ -2,9 +2,8 @@ defmodule ImagePipe.Output.Metric.ButteraugliTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Output.Metric.Butteraugli
 
-  test "direction and range" do
+  test "distance is lower-better" do
     assert Butteraugli.direction() == :lower_better
-    assert Butteraugli.target_range() == {0.0, 25.0}
   end
 
   test "identical images score near zero distance" do

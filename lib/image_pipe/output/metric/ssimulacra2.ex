@@ -16,9 +16,6 @@ defmodule ImagePipe.Output.Metric.Ssimulacra2 do
   def direction, do: Metric.direction(:ssimulacra2)
 
   @impl true
-  def target_range, do: Metric.target_range(:ssimulacra2)
-
-  @impl true
   def leg_name, do: :ssimulacra2
 
   @impl true
