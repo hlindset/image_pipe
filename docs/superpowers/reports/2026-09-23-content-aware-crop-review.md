@@ -55,16 +55,16 @@ These changes reduce production code and internal surface area. The touched
 telemetry tests use private per-test event prefixes. No cache identity, event,
 public option, buffering, or model behavior changes are intended.
 
-## Needs Discussion / Separate Validation
+## Warmup Error Propagation
 
-### Warmup failures are swallowed (`image_plug-44j`)
+### Preserve model-loading failures (`image_plug-44j`)
 
-Both bundled adapters discard the result of their inference helper during
-`warmup/1` and return `:ok`. The helpers rescue dependency failures into tagged
-errors, so the worker never sees those failures and cannot retry them. Propagate
-the error while mapping successful inference to `:ok`. This is a separate
-behavioral fix requiring the optional ML lane and a failed-initialization
-regression; it is not included in the crop cleanup.
+Both bundled adapters now propagate tagged inference errors from `warmup/1`
+and map successful inference to `:ok`, allowing the worker's existing retry
+logic to handle model-loading failures. The regression uses corrupt ONNX files
+with the real optional dependencies in a fresh VM, isolating model caches from
+concurrent tests. It failed with the swallowed `:ok` before the fix. The adapter
+suite also covers successful warmup and unavailable dependencies.
 
 ## Retained Design
 
@@ -97,6 +97,8 @@ mise exec -- mix test test/image_pipe/transform/crop_operation_test.exs test/ima
 ```
 
 Full validation passed: `mise run precommit` (format, warnings-as-errors
-compilation, Credo, Dialyzer, duplication check, and 2,529 tests/properties;
-four optional ML tests excluded). No performance claim is made;
+compilation, Credo, Dialyzer, duplication check, and 2,530 tests/properties;
+five optional ML tests excluded). The optional adapter suite also passed all
+10 tests with `IMAGE_VISION=1` and `--include image_vision`, including the
+warmup failure regression. No performance claim is made;
 buffering, streaming, inference scheduling, and admission are unchanged.

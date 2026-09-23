@@ -40,8 +40,7 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
   def warmup(opts) do
     if available?(opts) do
       {:ok, blank} = Image.new(64, 64, color: :black)
-      _ = detect_faces(blank)
-      :ok
+      with {:ok, _regions} <- detect_faces(blank), do: :ok
     else
       {:error, {:detector, :unavailable}}
     end

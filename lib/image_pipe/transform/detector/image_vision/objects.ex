@@ -57,8 +57,7 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
   def warmup(opts) do
     if available?(opts) do
       {:ok, blank} = Image.new(64, 64, color: :black)
-      _ = detect_objects(blank, :all)
-      :ok
+      with {:ok, _regions} <- detect_objects(blank, :all), do: :ok
     else
       {:error, {:detector, :unavailable}}
     end
