@@ -2,6 +2,7 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Source.S3.ContainerCredentials
+  alias ImagePipe.Source.S3.Credentials
 
   @creds_json ~s({"AccessKeyId":"AKIAECS","SecretAccessKey":"shh","Token":"sess","Expiration":"2026-06-26T12:00:00Z"})
 
@@ -22,12 +23,20 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
 
   test "joins the relative URI to the ECS base" do
     plug = fn conn ->
+      assert conn.host == "169.254.170.2"
       assert conn.request_path == "/v2/credentials/abc"
       Plug.Conn.send_resp(conn, 200, @creds_json)
     end
 
     opts = [relative_uri: "/v2/credentials/abc", plug: plug]
     assert {:ok, _creds, _expiry} = ContainerCredentials.fetch_credentials("b", opts, [])
+  end
+
+  test "rejects relative URI values that can extend the metadata authority" do
+    for relative_uri <- ["@evil.example/creds", ".evil.example/creds", ":8080/creds", "creds", ""] do
+      assert {:error, _reason} =
+               Credentials.validate({:provider, ContainerCredentials, relative_uri: relative_uri})
+    end
   end
 
   test "errors when no URI is configured" do
@@ -48,6 +57,13 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
              ContainerCredentials.validate_options(full_uri: "http://evil.example/creds")
 
     assert :ok = ContainerCredentials.validate_options(full_uri: "https://creds.example/x")
+
+    assert :ok =
+             ContainerCredentials.validate_options(
+               full_uri: "https://creds.example/x",
+               relative_uri: "ignored"
+             )
+
     assert :ok = ContainerCredentials.validate_options(full_uri: "http://169.254.170.2/creds")
     assert :ok = ContainerCredentials.validate_options(relative_uri: "/v2/credentials/abc")
     assert {:error, _message} = ContainerCredentials.validate_options(bogus: 1)
