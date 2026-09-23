@@ -6,10 +6,8 @@ defmodule ImagePipe.Transform.State do
   return updated state and access host collaborators without depending on request
   modules:
 
-  - `detector`: host-configured content detector, either a bare `module` or a
-    `{module, opts}` pair, or `nil` when no detector is configured.
-  - `detector_required`: whether detect-gravity must use the detector instead of
-    silently falling back to attention smartcrop.
+  - `detector`: host-configured content detector module, or `nil` when no
+    detector is configured.
   - `telemetry_opts`: telemetry metadata threaded through stage spans.
   - `materialized?`: the graph has RAM-backed input and can be read out of row
     order without revisiting the sequential source. Later operations may remain
@@ -36,7 +34,6 @@ defmodule ImagePipe.Transform.State do
   defstruct image: nil,
             debug: false,
             detector: nil,
-            detector_required: false,
             telemetry_opts: [],
             source_dimensions: nil,
             decode_shrink: nil,
@@ -48,8 +45,7 @@ defmodule ImagePipe.Transform.State do
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
           debug: boolean(),
-          detector: module() | {module(), keyword()} | nil,
-          detector_required: boolean(),
+          detector: module() | nil,
           telemetry_opts: keyword(),
           source_dimensions: {pos_integer(), pos_integer()} | nil,
           decode_shrink: %{w: float(), h: float()} | nil,
