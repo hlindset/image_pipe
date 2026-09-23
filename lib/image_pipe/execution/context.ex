@@ -5,10 +5,7 @@ defmodule ImagePipe.Execution.Context do
   defstruct @enforce_keys ++
               [
                 input_key: nil,
-                record: nil,
-                response: nil,
-                lease: nil,
-                prepared_pixels: nil,
+                acquisition: %ImagePipe.Execution.Acquisition{record: nil},
                 stale?: false
               ]
 end

@@ -84,13 +84,8 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  def build_fun(%Request{} = request, source, policy, config) do
-    case Keyword.get(config, :prepared_pixels) do
-      nil -> build_from_source(request, source, policy, config)
-      {{:ok, prepared}, bytes} -> build_prepared(prepared, bytes, config)
-      {{:error, _} = error, _bytes} -> fn _pump -> error end
-    end
-  end
+  def resume_fun({:ok, prepared}, bytes, config), do: build_prepared(prepared, bytes, config)
+  def resume_fun({:error, _} = error, _bytes, _config), do: fn _pump -> error end
 
   def streamable_source?(prefix), do: Decode.streamable_source?(prefix)
 
@@ -117,7 +112,7 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  defp build_from_source(request, source, policy, config) do
+  def build_fun(%Request{} = request, source, policy, config) do
     on_bracket_exit = Keyword.get(config, :on_bracket_exit, fn -> :ok end)
 
     fn pump ->

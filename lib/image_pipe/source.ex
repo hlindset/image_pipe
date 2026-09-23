@@ -49,6 +49,9 @@ defmodule ImagePipe.Source do
   @doc false
   def from_input(input, config), do: Input.prepare(input, config)
 
+  @doc false
+  defdelegate reduce_body(stream, accumulator, consumer), to: WrappedStream, as: :reduce
+
   @type error :: {:source, atom() | tuple()}
 
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}

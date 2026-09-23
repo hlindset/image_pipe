@@ -11,7 +11,7 @@ defmodule ImagePipe.Execution.Overlap do
   @observation_us 5_000
   @remaining_us 30_000
 
-  def with_session(response, source, preparation, config, path, fun) do
+  def with_session(response, preparation, config, path, fun) do
     case candidate(response, preparation, config) do
       {:ok, expected, request, policy} ->
         {:ok, download} = Download.start(path, 0)
@@ -23,7 +23,7 @@ defmodule ImagePipe.Execution.Overlap do
 
             receive do
               {:prepare, prefix} ->
-                prepare(download, prefix, path, response.origin, source, request, policy, config)
+                prepare(download, prefix, request, policy, config)
             end
           end)
 
@@ -38,8 +38,8 @@ defmodule ImagePipe.Execution.Overlap do
             status: :observing
           })
         after
-          Task.shutdown(task, :brutal_kill)
           Download.close(download)
+          Task.ignore(task)
         end
 
       :skip ->
@@ -47,29 +47,29 @@ defmodule ImagePipe.Execution.Overlap do
     end
   end
 
-  def observe(nil, _io, _size), do: {:ok, nil}
-  def observe(%{status: :skip} = state, _io, _size), do: {:ok, state}
-  def observe(%{status: {:ready, _}} = state, _io, _size), do: {:ok, state}
+  def observe(nil, _io, _size), do: nil
+  def observe(%{status: :skip} = state, _io, _size), do: state
+  def observe(%{status: {:ready, _}} = state, _io, _size), do: state
 
   def observe(%{status: :observing, first: nil} = state, _io, size),
-    do: {:ok, %{state | first: {System.monotonic_time(:microsecond), size}}}
+    do: %{state | first: {System.monotonic_time(:microsecond), size}}
 
   def observe(%{status: :observing, first: {first_at, first_size}} = state, io, size) do
     elapsed = System.monotonic_time(:microsecond) - first_at
 
     cond do
       size >= state.expected ->
-        {:ok, %{state | status: :skip}}
+        %{state | status: :skip}
 
       size >= @minimum_prefix and elapsed >= @observation_us ->
         remaining = elapsed * (state.expected - size) / (size - first_size)
         select(state, io, size, remaining)
 
       size >= @maximum_prefix ->
-        {:ok, %{state | status: :skip}}
+        %{state | status: :skip}
 
       true ->
-        {:ok, state}
+        state
     end
   end
 
@@ -78,22 +78,22 @@ defmodule ImagePipe.Execution.Overlap do
     poll(state)
   end
 
-  def finish(nil, _size), do: {:ok, nil}
-  def finish(%{status: status}, _size) when status in [:observing, :skip], do: {:ok, nil}
-  def finish(%{status: {:ready, result}}, size), do: {:ok, {result, size}}
+  def finish(nil), do: nil
+  def finish(%{status: status}) when status in [:observing, :skip], do: nil
+  def finish(%{status: {:ready, result}}), do: result
 
-  def finish(%{status: :running} = state, size) do
+  def finish(%{status: :running} = state) do
     Download.finish(state.download)
 
     state = completed(state, Task.yield(state.task, 60_000))
-    finish(state, size)
+    finish(state)
   end
 
   def cancel(nil), do: nil
 
   def cancel(state) do
-    Task.shutdown(state.task, :brutal_kill)
     Download.close(state.download)
+    Task.ignore(state.task)
     nil
   end
 
@@ -121,19 +121,19 @@ defmodule ImagePipe.Execution.Overlap do
       true ->
         Download.advance(state.download, size)
         send(state.task.pid, {:prepare, prefix})
-        {:ok, %{state | status: :running}}
+        %{state | status: :running}
 
       false ->
-        {:ok, %{state | status: :skip}}
+        %{state | status: :skip}
     end
   end
 
-  defp select(state, _io, _size, _remaining), do: {:ok, %{state | status: :skip}}
+  defp select(state, _io, _size, _remaining), do: %{state | status: :skip}
 
   defp poll(state) do
     case Task.yield(state.task, 0) do
-      nil -> {:ok, state}
-      result -> {:ok, completed(state, result)}
+      nil -> state
+      result -> completed(state, result)
     end
   end
 
@@ -148,14 +148,9 @@ defmodule ImagePipe.Execution.Overlap do
   defp completed(state, nil),
     do: %{state | status: {:ready, {:error, {:session, :timeout}}}}
 
-  defp prepare(download, prefix, path, origin, source, request, policy, config) do
-    config =
-      config
-      |> Keyword.put(:prepared_source, %Response{path: path, origin: origin})
-      |> Keyword.put(:prepared_download, {download, prefix})
-
+  defp prepare(download, prefix, request, policy, config) do
     ProcessingPool.within(Keyword.get(config, :processing_pool), download, config, fn ->
-      Processing.prepare_download(request, source, policy, config)
+      Processing.prepare_download(request, {:download, download, prefix}, policy, config)
     end)
   catch
     :exit, {:shutdown, {:processing, _} = reason} -> {:error, reason}

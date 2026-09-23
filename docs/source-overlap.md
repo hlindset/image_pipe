@@ -141,9 +141,16 @@ and output-cache gates run. Speculative errors are deferred to generation;
 admission rejection falls back to ordinary processing. Source failures prevent
 publication. An early-finished decoder does not stop source hashing/staging.
 
+Acquisition returns one concrete result carrying the source record, response,
+lease, byte count, and optional processing result. Decode receives either a
+resolved source, an acquired response, or the growing-file input explicitly.
+
 The download coordinator monitors the request, processing worker, and feeder.
 Worker completion stops any remaining feeder; request cancellation stops both.
-The source lease owns temporary-file cleanup. Cache publication failures keep
+It owns worker/feeder shutdown; overlap orchestration closes the coordinator
+and discards its task monitor. The source lease owns temporary-file cleanup.
+Source enumeration classifies adapter failures while preserving exceptions
+from the staging consumer. Cache publication failures keep
 the response usable, and staging write failures cancel speculation and retain
 the existing in-memory fallback.
 

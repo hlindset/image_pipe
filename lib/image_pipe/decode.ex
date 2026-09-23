@@ -43,6 +43,7 @@ defmodule ImagePipe.Decode do
   @authoritative_formats [:jpeg, :png, :webp, :tiff, :jpeg2000, :jpeg_xl]
 
   @type error() :: {:source, term()} | {:decode, term()} | {:input_limit, term()}
+  @type input() :: Source.Resolved.t() | Source.Response.t() | {:download, pid(), binary()}
 
   defdelegate streamable_source?(prefix), to: Streaming, as: :eligible?
 
@@ -72,21 +73,21 @@ defmodule ImagePipe.Decode do
   decode completes emit `:exception`. Exceptions from `fun` do not close it again.
   """
   @spec with_image(
-          Source.Resolved.t(),
+          input(),
           Request.t(),
           keyword(),
           (State.t(), SourceGeometry.t() -> result)
         ) :: result | {:error, error()}
         when result: var
-  def with_image(%Source.Resolved{} = resolved, %Request{} = request, opts, fun)
+  def with_image(source, %Request{} = request, opts, fun)
       when is_function(fun, 2) do
     auto_rotate? = auto_rotate?(request)
     span = Telemetry.start_span(Telemetry.telemetry_opts(opts), [:source, :fetch_decode], %{})
     decoded = make_ref()
 
     try do
-      resolved
-      |> with_source_response(opts, fn %Source.Response{} = response ->
+      source
+      |> with_source_response(opts, fn response ->
         case decode(response, request, opts, auto_rotate?) do
           {:ok, state, geometry, stop_metadata} ->
             Telemetry.stop_span(span, stop_metadata)
@@ -105,12 +106,10 @@ defmodule ImagePipe.Decode do
     end
   end
 
-  defp with_source_response(source, opts, fun) do
-    case Keyword.get(opts, :prepared_source) do
-      nil -> Source.with_fetched(source, opts, fun)
-      %Source.Response{} = response -> fun.(response)
-    end
-  end
+  defp with_source_response(%Source.Resolved{} = source, opts, fun),
+    do: Source.with_fetched(source, opts, fun)
+
+  defp with_source_response(input, _opts, fun), do: fun.(input)
 
   # The marker distinguishes `fun`'s result from a fetch/decode error, which
   # still needs to close the span.
@@ -122,7 +121,7 @@ defmodule ImagePipe.Decode do
   end
 
   defp decode(response, request, opts, auto_rotate?) do
-    with {:ok, input} <- input(response, opts),
+    with {:ok, input} <- input(response),
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
          :ok <- gate_detected(detected) |> wrap_decode_error(),
@@ -236,12 +235,8 @@ defmodule ImagePipe.Decode do
     %{w: max(1.0, orig_w / loaded_w), h: max(1.0, orig_h / loaded_h)}
   end
 
-  defp input(response, opts) do
-    case Keyword.get(opts, :prepared_download) do
-      nil -> seekable_input(response)
-      {download, prefix} -> {:ok, {:download, download, prefix}}
-    end
-  end
+  defp input({:download, _pid, _prefix} = input), do: {:ok, input}
+  defp input(%Source.Response{} = response), do: seekable_input(response)
 
   defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
     do: {:ok, {:path, path}}
