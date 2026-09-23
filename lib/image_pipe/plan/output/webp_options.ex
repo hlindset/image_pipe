@@ -11,4 +11,15 @@ defmodule ImagePipe.Plan.Output.WebpOptions do
         }
 
   use ImagePipe.Plan.Output.EncoderOptions
+
+  @doc false
+  def schema do
+    [
+      lossless: [type: :boolean],
+      near_lossless: [type: :boolean],
+      smart_subsample: [type: :boolean],
+      preset: [type: {:in, [:default, :photo, :picture, :drawing, :icon, :text]}],
+      effort: [type: {:in, 0..6}]
+    ]
+  end
 end

@@ -227,6 +227,39 @@ defmodule ImagePipe.BuilderTest do
     end
   end
 
+  test "encoder input boundaries reject malformed fields and preserve sparse false overrides" do
+    for {key, module, field, invalid, url} <- [
+          {:jpeg_options, ImagePipe.Plan.Output.JpegOptions, :interlace, "false",
+           "jpeg-options=progressive:true"},
+          {:png_options, ImagePipe.Plan.Output.PngOptions, :bitdepth, 3,
+           "png-options=bitdepth:3"},
+          {:webp_options, ImagePipe.Plan.Output.WebpOptions, :effort, 6.0,
+           "webp-options=effort:6.0"},
+          {:avif_options, ImagePipe.Plan.Output.AvifOptions, :effort, 10,
+           "avif-options=effort:10"},
+          {:jxl_options, ImagePipe.Plan.Output.JxlOptions, :effort, 0, "jxl-options=effort:0"}
+        ] do
+      assert_raise ArgumentError, fn -> IP.new() |> IP.output([{key, [{field, invalid}]}]) end
+
+      assert_raise ArgumentError, fn ->
+        Config.validate!([{key, struct!(module, [{field, invalid}])}])
+      end
+
+      assert {:error, {:invalid_request, [_ | _]}} = parse(url)
+    end
+
+    plan = IP.new() |> IP.output(jpeg_options: [interlace: false, quant_table: 0])
+    assert {:ok, request} = Plan.to_request(plan.plan, "photo.jpg")
+    assert {:ok, ^request} = parse("jpeg-options=progressive:false,quant-table:00")
+
+    configured =
+      Config.validate!(
+        jpeg_options: %ImagePipe.Plan.Output.JpegOptions{interlace: false, quant_table: 0}
+      )
+
+    assert configured[:jpeg_options] == request.output.encoder_options.jpeg
+  end
+
   test "request controls and output overrides retain their scope" do
     plan =
       IP.new(

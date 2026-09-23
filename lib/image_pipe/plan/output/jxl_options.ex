@@ -8,4 +8,7 @@ defmodule ImagePipe.Plan.Output.JxlOptions do
   @type t :: %__MODULE__{effort: nil | 1..9}
 
   use ImagePipe.Plan.Output.EncoderOptions
+
+  @doc false
+  def schema, do: [effort: [type: {:in, 1..9}]]
 end

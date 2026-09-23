@@ -23,4 +23,16 @@ defmodule ImagePipe.Plan.Output.JpegOptions do
         }
 
   use ImagePipe.Plan.Output.EncoderOptions
+
+  @doc false
+  def schema do
+    [
+      interlace: [type: :boolean],
+      subsample_mode: [type: {:in, [:auto, :on, :off]}],
+      trellis_quant: [type: :boolean],
+      overshoot_deringing: [type: :boolean],
+      optimize_scans: [type: :boolean],
+      quant_table: [type: {:in, 0..8}]
+    ]
+  end
 end
