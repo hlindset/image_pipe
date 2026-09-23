@@ -62,39 +62,12 @@ defmodule ImagePipe.Output.Negotiation do
         {Format.canonical_mime_type(accepted), quality}
       end)
 
-    entries
-    |> matching_qualities(mime_type)
-    |> acceptable_quality?()
+    # Modern formats require an explicit MIME type in Accept.
+    qualities = for {^mime_type, quality} <- entries, do: quality
+    acceptable_quality?(qualities)
   end
 
-  defp matching_qualities(entries, mime_type) do
-    entries
-    |> Enum.group_by(fn {accepted, _quality} -> match_specificity(accepted, mime_type) end)
-    |> qualities_for_best_specificity()
-  end
-
-  defp qualities_for_best_specificity(qualities_by_specificity) do
-    Enum.find_value([:exact], [], fn specificity ->
-      quality_values(qualities_by_specificity, specificity)
-    end)
-  end
-
-  defp quality_values(qualities_by_specificity, specificity) do
-    qualities =
-      qualities_by_specificity
-      |> Map.get(specificity, [])
-      |> Enum.map(fn {_accepted, quality} -> quality end)
-
-    if qualities == [], do: nil, else: qualities
-  end
-
-  # Modern formats require an explicit MIME type in Accept.
-  defp match_specificity(accepted, mime_type) do
-    if accepted == mime_type, do: :exact, else: :none
-  end
-
-  # q=0 at the selected specificity is an explicit exclusion and wins over
-  # duplicate positive entries of the same specificity.
+  # An explicit q=0 wins over duplicate positive entries for the same MIME type.
   defp acceptable_quality?(qualities) do
     Enum.any?(qualities, &(&1 > 0)) and not Enum.any?(qualities, &(&1 == 0))
   end

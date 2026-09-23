@@ -35,8 +35,9 @@ defmodule ImagePipe.Output.Encoder do
           | {:error, {:encode, Exception.t(), list()}}
           | {:error, {:decode, term()}}
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, source_profile, opts) do
-    with {:ok, mime_type, suffix} <- output_format(resolved_output),
-         {:ok, finalized} <- finalize(image, resolved_output, source_profile) do
+    {mime_type, suffix} = output_format(resolved_output)
+
+    with {:ok, finalized} <- finalize(image, resolved_output, source_profile) do
       deliver(finalized, resolved_output, mime_type, suffix, opts)
     end
   rescue
@@ -127,9 +128,8 @@ defmodule ImagePipe.Output.Encoder do
   @spec encode_to_buffer(VixImage.t(), Resolved.t(), 1..100) ::
           {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
   def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
-    with {:ok, _mime_type, suffix} <- output_format(resolved_output) do
-      buffer_for(image, suffix, quality, encoder_tokens(resolved_output.encoder_options))
-    end
+    {_mime_type, suffix} = output_format(resolved_output)
+    buffer_for(image, suffix, quality, encoder_tokens(resolved_output.encoder_options))
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
@@ -439,15 +439,9 @@ defmodule ImagePipe.Output.Encoder do
     image
   end
 
-  defp output_format(%Resolved{format: format}) when is_atom(format) do
-    case Format.mime_type(format) do
-      {:ok, mime_type} -> {:ok, mime_type, Format.suffix!(mime_type)}
-      :error -> {:error, {:encode, unsupported_output_format_error(format), []}}
-    end
-  end
-
-  defp unsupported_output_format_error(format) do
-    ArgumentError.exception("unsupported output format: #{inspect(format)}")
+  defp output_format(%Resolved{format: format}) do
+    mime_type = Format.mime_type!(format)
+    {mime_type, Format.suffix!(mime_type)}
   end
 
   defp output_options(suffix, %Resolved{quality: {:quality, value}}),
