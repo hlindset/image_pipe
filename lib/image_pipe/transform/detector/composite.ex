@@ -98,7 +98,7 @@ defmodule ImagePipe.Transform.Detector.Composite do
 
     Telemetry.span(telemetry_opts, [:transform, :detect, :model], start_meta, fn ->
       result = detect_child(child, child_classes, image, opts)
-      {result, %{regions: region_count(result)}}
+      {result, result_metadata(result)}
     end)
   end
 
@@ -106,8 +106,8 @@ defmodule ImagePipe.Transform.Detector.Composite do
     child.detect(image, Keyword.put(opts, :classes, child_classes))
   end
 
-  defp region_count({:ok, regions}), do: length(regions)
-  defp region_count({:error, _}), do: 0
+  defp result_metadata({:ok, regions}), do: %{result: :ok, regions: length(regions)}
+  defp result_metadata({:error, _}), do: %{result: :error, regions: 0}
 
   @spec available?(t(), keyword()) :: boolean()
   def available?(%__MODULE__{} = composite, opts) do

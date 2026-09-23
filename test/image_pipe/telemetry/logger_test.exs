@@ -4,7 +4,9 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   import ExUnit.CaptureLog
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Test.FakeDetector
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Detector.Composite
   alias ImagePipe.Transform.Operation.Flush
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.PendingOrientation
@@ -728,24 +730,41 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "output negotiate: output_error"
   end
 
-  test "renders the per-model detect span with its region count" do
-    Telemetry.attach_default_logger(level: :info)
+  test "renders the per-model detect span with its region count and outcome" do
+    prefix = [__MODULE__, :model_success]
+    Telemetry.attach_default_logger(level: :info, prefix: prefix)
 
     log =
       capture_log(fn ->
         :telemetry.execute(
-          [:image_pipe, :transform, :detect, :model, :stop],
+          prefix ++ [:transform, :detect, :model, :stop],
           %{duration: System.convert_time_unit(5, :millisecond, :native)},
           %{
             detector: ImagePipe.Transform.Detector.ImageVision.Face,
             classes: ["face"],
-            regions: 2
+            regions: 2,
+            result: :ok
           }
         )
       end)
 
     refute log =~ "[warning]"
-    assert log =~ "transform detect model: 2 regions"
+    assert log =~ "transform detect model: ok (2 regions"
+  end
+
+  test "logs composite child failures at warning level" do
+    prefix = [__MODULE__, :model_failure]
+    Telemetry.attach_default_logger(level: :info, prefix: prefix)
+    detector = FakeDetector.returning({:error, "private detector reason"})
+    composite = Composite.new([detector])
+
+    log =
+      capture_log([level: :warning], fn ->
+        Composite.detect(composite, :image, telemetry_opts: [telemetry_prefix: prefix])
+      end)
+
+    assert log =~ "transform detect model: error (0 regions"
+    refute log =~ "private detector reason"
   end
 
   test "logs the http_cache prepare one-shot at base level with its mode" do

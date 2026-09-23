@@ -3,7 +3,9 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Context, Inbound, Span, TestExporter}
+  alias ImagePipe.Test.FakeDetector
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Detector.Composite
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.State
 
@@ -66,6 +68,28 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
                       status: :ok,
                       attributes: %{result: :not_modified}
                     }}
+  end
+
+  test "composite model failures are error spans without leaking detector reasons" do
+    prefix = [__MODULE__, :model_result]
+    TestExporter.attach(self(), prefix: prefix)
+    composite = Composite.new([FakeDetector])
+
+    for {response, result} <- [{{:ok, []}, :ok}, {{:error, "private detector reason"}, :error}] do
+      FakeDetector.returning(response)
+
+      assert ^response =
+               Composite.detect(composite, :image, telemetry_opts: [telemetry_prefix: prefix])
+
+      assert_received {:span,
+                       %Span{
+                         name: "image_pipe.transform.detect.model",
+                         status: ^result,
+                         attributes: %{result: ^result, regions: 0} = attributes
+                       }}
+
+      refute inspect(attributes) =~ "private detector reason"
+    end
   end
 
   test "processing pool spans retain request parentage and close on timeout" do
