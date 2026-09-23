@@ -36,6 +36,20 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
     assert_received {:fetched, ^bucket_b}
   end
 
+  test "credential cache process names do not expose provider secrets" do
+    secret = "fake-provider-secret-#{System.unique_integer([:positive])}"
+    provider = {:provider, CountingProvider, [test: self(), secret: secret]}
+    scope = "diagnostics-#{System.unique_integer([:positive])}"
+    assert {:ok, _} = Credentials.fetch(scope, provider, [])
+
+    keys =
+      Registry.select(ImagePipe.Source.S3.RefreshCache.Registry, [
+        {{:"$1", :_, :_}, [], [:"$1"]}
+      ])
+
+    refute inspect(keys, limit: :infinity) =~ secret
+  end
+
   test "fails closed as :credentials_unavailable when the provider errors" do
     defmodule FailingProvider do
       @behaviour ImagePipe.Source.S3.CredentialProvider
