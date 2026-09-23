@@ -1016,6 +1016,10 @@ A host implements `ImagePipe.Telemetry.Trace.Exporter`:
   (allowlist only — source URLs, request paths, signatures, and tokens are never
   copied in). Exporters that fan out to third parties remain responsible for
   their own egress policy.
+- Logical HTTP client spans record monotonic elapsed time through receipt of
+  status and headers for streamed source fetches. One-shot trace annotations use
+  their `:monotonic_time` measurement when present, or the synchronous capture
+  time otherwise. OTel replay retains these durations and occurrence times.
 - Attributes carry **both the start metadata and the allowlisted stop
   metadata** — the per-result verdict (e.g. the encode-search `chosen_quality` /
   `final_score` / `scorer`, the HTTP `status`, the classified `error` tag, the

@@ -196,7 +196,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
       {:start, name} -> on_start(name, measurements, meta, config)
       {:stop, _name} -> on_stop(measurements, meta, config)
       {:exception, _name} -> on_exception(measurements, meta, config)
-      {:oneshot, name} -> on_oneshot(name, meta)
+      {:oneshot, name} -> on_oneshot(name, measurements, meta)
     end
   rescue
     # A tracer must never crash the request path; drop the event on any internal error.
@@ -292,13 +292,14 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     end
   end
 
-  defp on_oneshot(name, meta) do
+  defp on_oneshot(name, measurements, meta) do
     case Stack.current() do
       nil ->
         :ok
 
       span ->
-        event = %{name: name, time: meta[:monotonic_time], attributes: safe_attrs(meta)}
+        time = Map.get_lazy(measurements, :monotonic_time, &System.monotonic_time/0)
+        event = %{name: name, time: time, attributes: safe_attrs(meta)}
         Stack.pop()
         Stack.push(%{span | events: [event | span.events]})
     end

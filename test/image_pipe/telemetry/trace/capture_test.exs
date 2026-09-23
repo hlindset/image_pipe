@@ -29,6 +29,29 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     end)
   end
 
+  test "one-shot events retain occurrence times with and without a timestamp measurement" do
+    prefix = [__MODULE__, :event_time]
+    TestExporter.attach(self(), prefix: prefix)
+    opts = [telemetry_prefix: prefix]
+    before = System.monotonic_time()
+
+    Telemetry.span(opts, [:request], %{}, fn ->
+      Telemetry.execute(opts, [:cache, :coordination], %{monotonic_time: before}, %{
+        result: :acquired
+      })
+
+      Telemetry.execute(opts, [:cache, :coordination], %{}, %{result: :coalesced})
+      {:ok, %{result: :ok}}
+    end)
+
+    after_capture = System.monotonic_time()
+    assert_received {:span, %Span{events: [captured, measured]}}
+    assert measured.time == before
+    assert is_integer(captured.time)
+    assert captured.time >= before
+    assert captured.time <= after_capture
+  end
+
   test "origin not-modified outcome is a successful source span" do
     prefix = [__MODULE__, :origin_revalidation]
     :ok = TestExporter.attach(self(), prefix: prefix)
