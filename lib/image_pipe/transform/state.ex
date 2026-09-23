@@ -12,6 +12,9 @@ defmodule ImagePipe.Transform.State do
   - `materialized?`: the graph has RAM-backed input and can be read out of row
     order without revisiting the sequential source. Later operations may remain
     lazy; this does not imply the current result is a contiguous pixel buffer.
+  - `buffer_before_resize?`: an arbitrary rotation remains lazy in the current
+    graph. Resize buffers it before resampling to avoid repeated affine work;
+    materialization and orientation flush clear the flag.
   - `source_dimensions`: exact full-resolution `{w, h}` before shrink-on-load,
     or `nil` for a full-resolution decode. Residual resize uses this extent to
     match the full-resolution target. Pending orientation maps its axes to the
@@ -39,6 +42,7 @@ defmodule ImagePipe.Transform.State do
             decode_shrink: nil,
             pending_orientation: nil,
             materialized?: false,
+            buffer_before_resize?: false,
             source_color_profile: nil,
             color_imported?: false
 
@@ -51,6 +55,7 @@ defmodule ImagePipe.Transform.State do
           decode_shrink: %{w: float(), h: float()} | nil,
           pending_orientation: ImagePipe.Transform.PendingOrientation.t() | nil,
           materialized?: boolean(),
+          buffer_before_resize?: boolean(),
           source_color_profile: binary() | nil,
           color_imported?: boolean()
         }

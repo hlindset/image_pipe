@@ -61,8 +61,11 @@ defmodule ImagePipe.Transform.Materializer do
   # result label controls Logger severity without changing the return value.
   defp copy_to_memory(%State{image: image} = state) do
     case VipsImage.copy_memory(image) do
-      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
-      {:error, _} = error -> error
+      {:ok, image} ->
+        {:ok, %State{state | image: image, materialized?: true, buffer_before_resize?: false}}
+
+      {:error, _} = error ->
+        error
     end
   end
 end

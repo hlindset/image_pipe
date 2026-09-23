@@ -165,6 +165,14 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert_pixels(response, context, rotate: 45)
   end
 
+  test "full-resolution arbitrary rotation can be downscaled in the same group", context do
+    response = complete_request(context, "rotate=45/w=100")
+    image = Image.from_binary!(response.resp_body)
+    assert {Image.width(image), Image.height(image)} == {100, 100}
+    assert Image.has_alpha?(image)
+    assert List.last(Image.get_pixel!(image, 0, 0)) == 0
+  end
+
   @tag broken_cache: true
   test "cache write failures do not prevent an overlapped response", context do
     assert complete_request(context).status == 200

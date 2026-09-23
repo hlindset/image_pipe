@@ -12,7 +12,14 @@ defmodule ImagePipe.Transform.OrientationFlush do
     with {:ok, image} <- prepare_random_access(state.image, po),
          {:ok, image} <- apply_orientation(image, po),
          {:ok, image} <- VipsImage.copy_memory(image) do
-      {:ok, %State{state | image: image, materialized?: true, pending_orientation: nil}}
+      {:ok,
+       %State{
+         state
+         | image: image,
+           materialized?: true,
+           pending_orientation: nil,
+           buffer_before_resize?: false
+       }}
     end
   end
 

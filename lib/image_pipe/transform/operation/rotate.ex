@@ -8,6 +8,8 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   Rotation reads pixels out of row order, so `requires_materialization?: true`
   makes `ImagePipe.Transform.run/3` copy the input to RAM first. The executor
   flushes pending orientation before this operation so it sees display-frame pixels.
+  The result stays lazy until a downstream resize buffers it, avoiding repeated
+  affine evaluation while allowing crop-only requests to evaluate a small region.
   """
 
   use ImagePipe.Transform
@@ -35,8 +37,11 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   @impl ImagePipe.Transform
   def execute(%__MODULE__{angle: angle}, %State{} = state) do
     case rotate(state.image, angle) do
-      {:ok, image} -> {:ok, set_image(state, image)}
-      {:error, error} -> {:error, {__MODULE__, error}}
+      {:ok, image} ->
+        {:ok, %{set_image(state, image) | buffer_before_resize?: true}}
+
+      {:error, error} ->
+        {:error, {__MODULE__, error}}
     end
   end
 
