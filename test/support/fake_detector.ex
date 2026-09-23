@@ -2,6 +2,11 @@ defmodule ImagePipe.Test.FakeDetector do
   @moduledoc "Configurable in-memory Detector for deterministic tests."
   @behaviour ImagePipe.Transform.Detector
 
+  def returning(result) do
+    Process.put({__MODULE__, :result}, result)
+    __MODULE__
+  end
+
   @impl true
   def supported_classes(opts), do: Keyword.get(opts, :supported_classes, ["face"])
 
@@ -16,7 +21,7 @@ defmodule ImagePipe.Test.FakeDetector do
       pid when is_pid(pid) -> send(pid, {:detect_dims, Image.width(image), Image.height(image)})
     end
 
-    Keyword.get(opts, :result, {:ok, []})
+    Process.get({__MODULE__, :result}, {:ok, []})
   end
 
   @impl true

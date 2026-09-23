@@ -4,9 +4,18 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
   import ImagePipe.Test.Telemetry, only: [attach_own_event_handlers: 2]
 
+  alias ImagePipe.Test.FakeDetector
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation, as: VipsOperation
+
+  setup %{test: test} do
+    Process.put(:crop_telemetry_prefix, [__MODULE__, test])
+    :ok
+  end
+
+  defp telemetry_prefix, do: Process.get(:crop_telemetry_prefix)
+  defp telemetry_opts, do: [telemetry_prefix: telemetry_prefix()]
 
   defp state(width, height) do
     {:ok, image} = Image.new(width, height, color: :white)
@@ -158,9 +167,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       state = %State{
         image: image,
+        telemetry_opts: telemetry_opts(),
         detector:
-          {ImagePipe.Test.FakeDetector,
-           [result: {:ok, [%{label: "face", score: 0.9, box: {10, 10, 30, 30}}]}]}
+          FakeDetector.returning({:ok, [%{label: "face", score: 0.9, box: {10, 10, 30, 30}}]})
       }
 
       op = %Crop{
@@ -187,7 +196,8 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       state = %State{
         image: image,
-        detector: {ImagePipe.Test.FakeDetector, [result: {:ok, []}]}
+        telemetry_opts: telemetry_opts(),
+        detector: FakeDetector.returning({:ok, []})
       }
 
       op = %Crop{
@@ -210,9 +220,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
     test "out-of-image box is dropped, falls back to attention", %{image: image} do
       state = %State{
         image: image,
+        telemetry_opts: telemetry_opts(),
         detector:
-          {ImagePipe.Test.FakeDetector,
-           [result: {:ok, [%{label: "face", score: 0.9, box: {-50, -50, 5, 5}}]}]}
+          FakeDetector.returning({:ok, [%{label: "face", score: 0.9, box: {-50, -50, 5, 5}}]})
       }
 
       op = %Crop{
@@ -228,7 +238,8 @@ defmodule ImagePipe.Transform.CropOperationTest do
     test "detector error falls back to attention (graceful)", %{image: image} do
       state = %State{
         image: image,
-        detector: {ImagePipe.Test.FakeDetector, [result: {:error, :boom}]}
+        telemetry_opts: telemetry_opts(),
+        detector: FakeDetector.returning({:error, :boom})
       }
 
       op = %Crop{
@@ -242,7 +253,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
     end
 
     test "nil detector falls back to attention", %{image: image} do
-      state = %State{image: image, detector: nil}
+      state = %State{image: image, telemetry_opts: telemetry_opts(), detector: nil}
 
       op = %Crop{
         width: {:pixels, 100},
@@ -257,9 +268,8 @@ defmodule ImagePipe.Transform.CropOperationTest do
     test "malformed detector return (bad box shape) falls back to attention", %{image: image} do
       state = %State{
         image: image,
-        detector:
-          {ImagePipe.Test.FakeDetector,
-           [result: {:ok, [%{label: "face", score: 0.9, box: :nonsense}]}]}
+        telemetry_opts: telemetry_opts(),
+        detector: FakeDetector.returning({:ok, [%{label: "face", score: 0.9, box: :nonsense}]})
       }
 
       op = %Crop{
@@ -274,13 +284,13 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
     test "the detect span carries the resolved weights", %{image: image} do
       ref =
-        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        attach_own_event_handlers(self(), [telemetry_prefix() ++ [:transform, :detect, :stop]])
 
       state = %State{
         image: image,
+        telemetry_opts: telemetry_opts(),
         detector:
-          {ImagePipe.Test.FakeDetector,
-           [result: {:ok, [%{label: "face", score: 0.9, box: {10, 10, 30, 30}}]}]}
+          FakeDetector.returning({:ok, [%{label: "face", score: 0.9, box: {10, 10, 30, 30}}]})
       }
 
       {:ok, _} =
@@ -294,7 +304,11 @@ defmodule ImagePipe.Transform.CropOperationTest do
           state
         )
 
-      assert_receive {[:image_pipe, :transform, :detect, :stop], ^ref, %{duration: _}, metadata}
+      [test_module, test_ref] = telemetry_prefix()
+
+      assert_receive {[^test_module, ^test_ref, :transform, :detect, :stop], ^ref, %{duration: _},
+                      metadata}
+
       assert metadata.classes == :all
       assert metadata.weights == %{"face" => 3.0}
 
@@ -305,13 +319,13 @@ defmodule ImagePipe.Transform.CropOperationTest do
       image: image
     } do
       ref =
-        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        attach_own_event_handlers(self(), [telemetry_prefix() ++ [:transform, :detect, :stop]])
 
       state = %State{
         image: image,
+        telemetry_opts: telemetry_opts(),
         detector:
-          {ImagePipe.Test.FakeDetector,
-           [result: {:ok, [%{label: "face", score: 0.9, box: {10, 10, 20, 20}}]}]}
+          FakeDetector.returning({:ok, [%{label: "face", score: 0.9, box: {10, 10, 20, 20}}]})
       }
 
       op = %Crop{
@@ -323,7 +337,11 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       {:ok, _} = Crop.execute(op, state)
 
-      assert_receive {[:image_pipe, :transform, :detect, :stop], ^ref, %{duration: _}, metadata}
+      [test_module, test_ref] = telemetry_prefix()
+
+      assert_receive {[^test_module, ^test_ref, :transform, :detect, :stop], ^ref, %{duration: _},
+                      metadata}
+
       refute Map.has_key?(metadata, :source_url)
       assert metadata.classes == ["face"]
       assert metadata.regions == 1
@@ -334,11 +352,12 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
     test "no-detection fallback reports result: :no_regions on the detect span", %{image: image} do
       ref =
-        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        attach_own_event_handlers(self(), [telemetry_prefix() ++ [:transform, :detect, :stop]])
 
       state = %State{
         image: image,
-        detector: {ImagePipe.Test.FakeDetector, [result: {:ok, []}]}
+        telemetry_opts: telemetry_opts(),
+        detector: FakeDetector.returning({:ok, []})
       }
 
       op = %Crop{
@@ -350,7 +369,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       {:ok, _} = Crop.execute(op, state)
 
-      assert_receive {[:image_pipe, :transform, :detect, :stop], ^ref, _m, metadata}
+      [test_module, test_ref] = telemetry_prefix()
+
+      assert_receive {[^test_module, ^test_ref, :transform, :detect, :stop], ^ref, _m, metadata}
       assert metadata.regions == 0
       assert metadata.result == :no_regions
 
@@ -359,11 +380,12 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
     test "detector error reports result: :error on the detect span", %{image: image} do
       ref =
-        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        attach_own_event_handlers(self(), [telemetry_prefix() ++ [:transform, :detect, :stop]])
 
       state = %State{
         image: image,
-        detector: {ImagePipe.Test.FakeDetector, [result: {:error, :boom}]}
+        telemetry_opts: telemetry_opts(),
+        detector: FakeDetector.returning({:error, :boom})
       }
 
       op = %Crop{
@@ -375,7 +397,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       {:ok, _} = Crop.execute(op, state)
 
-      assert_receive {[:image_pipe, :transform, :detect, :stop], ^ref, _m, metadata}
+      [test_module, test_ref] = telemetry_prefix()
+
+      assert_receive {[^test_module, ^test_ref, :transform, :detect, :stop], ^ref, _m, metadata}
       assert metadata.result == :error
 
       :telemetry.detach(ref)
@@ -386,11 +410,11 @@ defmodule ImagePipe.Transform.CropOperationTest do
     } do
       ref =
         attach_own_event_handlers(self(), [
-          [:image_pipe, :transform, :detect, :skipped],
-          [:image_pipe, :transform, :detect, :stop]
+          telemetry_prefix() ++ [:transform, :detect, :skipped],
+          telemetry_prefix() ++ [:transform, :detect, :stop]
         ])
 
-      state = %State{image: image, detector: nil}
+      state = %State{image: image, telemetry_opts: telemetry_opts(), detector: nil}
 
       op = %Crop{
         width: {:pixels, 100},
@@ -401,11 +425,15 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       {:ok, _} = Crop.execute(op, state)
 
-      assert_receive {[:image_pipe, :transform, :detect, :skipped], ^ref, _measurements, metadata}
+      [test_module, test_ref] = telemetry_prefix()
+
+      assert_receive {[^test_module, ^test_ref, :transform, :detect, :skipped], ^ref,
+                      _measurements, metadata}
+
       assert metadata.classes == ["face"]
       assert metadata.result == :no_detector
       # No span fires: nothing ran.
-      refute_received {[:image_pipe, :transform, :detect, :stop], ^ref, _, _}
+      refute_received {[^test_module, ^test_ref, :transform, :detect, :stop], ^ref, _, _}
 
       :telemetry.detach(ref)
     end
@@ -422,10 +450,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
     } do
       # Fake a face in one corner; the blended crop must differ from pure :smart attention.
       fake =
-        {ImagePipe.Test.FakeDetector,
-         [result: {:ok, [%{label: "face", score: 0.9, box: {5, 5, 8, 8}}]}]}
+        FakeDetector.returning({:ok, [%{label: "face", score: 0.9, box: {5, 5, 8, 8}}]})
 
-      state = %State{image: image, detector: fake}
+      state = %State{image: image, telemetry_opts: telemetry_opts(), detector: fake}
 
       base = %Crop{width: {:pixels, 200}, height: {:pixels, 200}, crop_from: :gravity}
 
@@ -441,7 +468,8 @@ defmodule ImagePipe.Transform.CropOperationTest do
     test "face_assist with no faces falls back to pure attention", %{image: image} do
       state = %State{
         image: image,
-        detector: {ImagePipe.Test.FakeDetector, [result: {:ok, []}]}
+        telemetry_opts: telemetry_opts(),
+        detector: FakeDetector.returning({:ok, []})
       }
 
       base = %Crop{width: {:pixels, 200}, height: {:pixels, 200}, crop_from: :gravity}
@@ -456,7 +484,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
     end
 
     test "face_assist with nil detector falls back to pure attention", %{image: image} do
-      state = %State{image: image, detector: nil}
+      state = %State{image: image, telemetry_opts: telemetry_opts(), detector: nil}
 
       op = %Crop{
         width: {:pixels, 200},
@@ -473,13 +501,12 @@ defmodule ImagePipe.Transform.CropOperationTest do
       image: image
     } do
       ref =
-        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :blend]])
+        attach_own_event_handlers(self(), [telemetry_prefix() ++ [:transform, :detect, :blend]])
 
       state = %State{
         image: image,
-        detector:
-          {ImagePipe.Test.FakeDetector,
-           [result: {:ok, [%{label: "face", score: 0.9, box: {5, 5, 8, 8}}]}]}
+        telemetry_opts: telemetry_opts(),
+        detector: FakeDetector.returning({:ok, [%{label: "face", score: 0.9, box: {5, 5, 8, 8}}]})
       }
 
       op = %Crop{
@@ -491,7 +518,11 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       {:ok, _} = Crop.execute(op, state)
 
-      assert_receive {[:image_pipe, :transform, :detect, :blend], ^ref, _measurements, meta}
+      [test_module, test_ref] = telemetry_prefix()
+
+      assert_receive {[^test_module, ^test_ref, :transform, :detect, :blend], ^ref, _measurements,
+                      meta}
+
       assert {ax, ay} = meta.attention
       assert {fx, fy} = meta.face
       assert {bx, by} = meta.blended
@@ -505,11 +536,12 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
     test "no blend one-shot fires when detection finds no face", %{image: image} do
       ref =
-        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :blend]])
+        attach_own_event_handlers(self(), [telemetry_prefix() ++ [:transform, :detect, :blend]])
 
       state = %State{
         image: image,
-        detector: {ImagePipe.Test.FakeDetector, [result: {:ok, []}]}
+        telemetry_opts: telemetry_opts(),
+        detector: FakeDetector.returning({:ok, []})
       }
 
       op = %Crop{
@@ -521,7 +553,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       {:ok, _} = Crop.execute(op, state)
 
-      refute_received {[:image_pipe, :transform, :detect, :blend], ^ref, _, _}
+      [test_module, test_ref] = telemetry_prefix()
+
+      refute_received {[^test_module, ^test_ref, :transform, :detect, :blend], ^ref, _, _}
 
       :telemetry.detach(ref)
     end

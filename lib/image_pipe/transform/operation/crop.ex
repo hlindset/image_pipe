@@ -174,19 +174,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
           {:ok, %{left: integer(), top: integer(), width: pos_integer(), height: pos_integer()}}
           | {:error, term()}
   def resolved_rect(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
-    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         crop_width = resolve_dimension(crop.width, image_width),
-         crop_height = resolve_dimension(crop.height, image_height),
-         {crop_width, crop_height} =
-           correct_aspect_ratio(
-             crop_width,
-             crop_height,
-             params.aspect_ratio,
-             params.enlarge,
-             image_width,
-             image_height
-           ),
-         {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
+    {crop_width, crop_height} = resolved_box_dims(params, image_width, image_height)
+
+    with {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
       x_offset = resolve_offset(params.x_offset, image_width)
       y_offset = resolve_offset(params.y_offset, image_height)
 
@@ -237,13 +227,11 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
-    {module, dopts} = normalize_detector(state.detector)
-
-    if is_nil(module) do
+    if is_nil(state.detector) do
       emit_detect_skipped(["face"], state.telemetry_opts)
       smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
-      face_assist_crop(params, state, module, dopts)
+      face_assist_crop(params, state)
     end
   end
 
@@ -277,29 +265,17 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_width = image_width(state)
     image_height = image_height(state)
 
-    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         crop_width = resolve_dimension(crop.width, image_width),
-         crop_height = resolve_dimension(crop.height, image_height),
-         {crop_width, crop_height} =
-           correct_aspect_ratio(
-             crop_width,
-             crop_height,
-             params.aspect_ratio,
-             params.enlarge,
-             image_width,
-             image_height
-           ),
-         {:ok, {cropped, _attention}} <-
-           Operation.smartcrop(state.image, crop_width, crop_height, interesting: interesting) do
-      {:ok, set_image(state, cropped)}
-    else
+    {crop_width, crop_height} = resolved_box_dims(params, image_width, image_height)
+
+    case Operation.smartcrop(state.image, crop_width, crop_height, interesting: interesting) do
+      {:ok, {cropped, _attention}} -> {:ok, set_image(state, cropped)}
       {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 
-  defp face_assist_crop(%__MODULE__{} = params, %State{} = state, module, dopts) do
+  defp face_assist_crop(%__MODULE__{} = params, %State{} = state) do
     with {:ok, [_ | _] = regions} <-
-           run_detect(module, dopts, state.image, ["face"], %{}, state.telemetry_opts),
+           run_detect(state, ["face"], %{}),
          {:ok, {:fp, fx, fy}} <-
            Focal.weighted_centroid(regions, image_width(state), image_height(state), %{}),
          {:ok, {ax, ay}} <- attention_point(params, state) do
@@ -331,19 +307,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_width = image_width(state)
     image_height = image_height(state)
 
-    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
-         crop_width = resolve_dimension(crop.width, image_width),
-         crop_height = resolve_dimension(crop.height, image_height),
-         {crop_width, crop_height} =
-           correct_aspect_ratio(
-             crop_width,
-             crop_height,
-             params.aspect_ratio,
-             params.enlarge,
-             image_width,
-             image_height
-           ),
-         {:ok, {_cropped, attention}} <-
+    {crop_width, crop_height} = resolved_box_dims(params, image_width, image_height)
+
+    with {:ok, {_cropped, attention}} <-
            Operation.smartcrop(state.image, crop_width, crop_height,
              interesting: :VIPS_INTERESTING_ATTENTION
            ) do
@@ -354,26 +320,22 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   defp detect_crop(%__MODULE__{} = params, %State{} = state, spec, weights) do
-    {module, dopts} = normalize_detector(state.detector)
-
-    if is_nil(module) do
+    if is_nil(state.detector) do
       emit_detect_skipped(spec, state.telemetry_opts)
       smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
-      detect_crop_with_module(params, state, module, dopts, spec, weights)
+      detect_crop_with_module(params, state, spec, weights)
     end
   end
 
   defp detect_crop_with_module(
          %__MODULE__{} = params,
          %State{} = state,
-         module,
-         dopts,
          spec,
          weights
        ) do
     with {:ok, [_ | _] = regions} <-
-           run_detect(module, dopts, state.image, spec, weights, state.telemetry_opts),
+           run_detect(state, spec, weights),
          {:ok, focal} <-
            Focal.weighted_centroid(regions, image_width(state), image_height(state), weights) do
       execute(%{params | gravity: focal}, state)
@@ -382,22 +344,15 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
-  defp normalize_detector(nil), do: {nil, []}
-  defp normalize_detector(module) when is_atom(module), do: {module, []}
-
-  defp normalize_detector({module, opts}) when is_atom(module) and is_list(opts),
-    do: {module, opts}
-
-  defp run_detect(module, opts, image, classes, weights, telemetry_opts) do
+  defp run_detect(state, classes, weights) do
     Telemetry.span(
-      telemetry_opts,
+      state.telemetry_opts,
       [:transform, :detect],
       %{classes: classes, weights: weights},
       fn ->
-        detect_opts =
-          opts |> Keyword.put(:classes, classes) |> Keyword.put(:telemetry_opts, telemetry_opts)
+        detect_opts = [classes: classes, telemetry_opts: state.telemetry_opts]
 
-        result = validate_detect_result(module.detect(image, detect_opts))
+        result = validate_detect_result(state.detector.detect(state.image, detect_opts))
         {result, %{regions: region_count(result), result: detect_reason(result)}}
       end
     )
@@ -442,10 +397,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp default_if_nil(nil, default), do: default
   defp default_if_nil(value, _default), do: value
-
-  defp crop_dimensions(%__MODULE__{} = params, _image_width, _image_height) do
-    {:ok, %{width: params.width, height: params.height}}
-  end
 
   defp gravity_crop_coordinates(
          image_width,
