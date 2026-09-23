@@ -160,7 +160,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.1)
     start_supervised!(FileSystem.child_spec(opts))
     pid = admission_pid(root)
-    Admission.await_scan(pid)
+    FileSystem.Admission.await_scan(pid)
 
     for index <- 1..3 do
       assert :ok = put_entry(distinct_key(index), entry("image"), opts)
