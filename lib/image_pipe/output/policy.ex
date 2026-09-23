@@ -326,10 +326,6 @@ defmodule ImagePipe.Output.Policy do
   defp search_iteration_identity(%__MODULE__{quality_search_max_iterations: iterations}),
     do: iterations
 
-  # Canonicalized quality-search identity: structs must not reach the digest
-  # directly (MaterialDigest.canonicalize/1 maps over maps but structs aren't
-  # Enumerable), and format_min/format_max maps are sorted to plain lists so
-  # equal-meaning searches always digest identically.
   defp quality_search_identity(:none), do: :none
 
   defp quality_search_identity(%Output.QualitySearch.Size{} = s) do
@@ -367,8 +363,6 @@ defmodule ImagePipe.Output.Policy do
     ]
   end
 
-  # Encoder-option structs must be flattened to plain maps before the digest,
-  # for the same reason as quality-search structs above.
   defp encoder_options_identity(map),
     do: Map.new(map, fn {format, struct} -> {format, Map.from_struct(struct)} end)
 end
