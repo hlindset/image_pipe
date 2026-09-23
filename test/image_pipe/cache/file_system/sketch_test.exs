@@ -131,6 +131,25 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
       assert {:error, _} = Sketch.deserialize(<<0, 1, 2>>, depth: 2, width: 4)
     end
 
+    test "rejects invalid persisted counters and aging state" do
+      payload =
+        Sketch.new(depth: 1, width: 1)
+        |> Sketch.serialize()
+        |> :erlang.binary_to_term([:safe])
+
+      for fields <- [
+            %{counters: [:corrupt]},
+            %{counters: [-1]},
+            %{counters: [256]},
+            %{counters: [1.5]},
+            %{aging_epoch: -1},
+            %{increments_since_reset: -1}
+          ] do
+        binary = :erlang.term_to_binary(Map.merge(payload, fields))
+        assert {:error, _} = Sketch.deserialize(binary, depth: 1, width: 1)
+      end
+    end
+
     test "returns error on shape mismatch" do
       sketch = Sketch.new(depth: 2, width: 4)
       binary = Sketch.serialize(sketch)

@@ -420,6 +420,59 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert state.probationary_bytes == 0
   end
 
+  for owner <- ["test-node", "peer"], corruption <- [:encoding, :dimensions, :counter] do
+    @tag capture_log: true
+    test "boot ignores #{owner} sketch with invalid #{corruption}", ctx do
+      opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
+      state_dir = Keyword.fetch!(opts, :state_dir)
+      File.mkdir_p!(state_dir)
+
+      sketch =
+        case unquote(corruption) do
+          :encoding ->
+            <<0, 1, 2>>
+
+          :dimensions ->
+            Sketch.new(depth: 1, width: 1) |> Sketch.serialize()
+
+          :counter ->
+            Sketch.new(depth: 4, width: 256)
+            |> Sketch.serialize()
+            |> :erlang.binary_to_term([:safe])
+            |> Map.put(:counters, List.duplicate(:corrupt, 1024))
+            |> :erlang.term_to_binary()
+        end
+
+      payload = %{
+        format_version: 1,
+        node_id: unquote(owner),
+        written_at: System.system_time(:millisecond),
+        aging_epoch: 0,
+        increments_since_reset: 0,
+        sketch: sketch,
+        protected_hashes: []
+      }
+
+      File.write!(
+        Path.join(state_dir, unquote(owner) <> ".state"),
+        :erlang.term_to_binary(payload)
+      )
+
+      pid = start_supervised!({Admission, opts})
+      state = :sys.get_state(pid)
+      assert Sketch.estimate(state.local_cms, "candidate") == 0
+      assert Sketch.estimate(state.boot_cms, "candidate") == 0
+
+      assert {:admit, []} =
+               Admission.admit(pid, %{
+                 key_hash: "candidate",
+                 body_sha256: "body",
+                 size_bytes: 100,
+                 cost_us: 100
+               })
+    end
+  end
+
   test "window_ratio 0.0 disables the window; admits land in the main gate", %{
     registry: registry,
     tmp_dir: tmp_dir
