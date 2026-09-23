@@ -208,7 +208,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
         legacy_commit(state)
 
       {:ok, pid} ->
-        commit_bounded(state, pid, opts)
+        commit_bounded(state, pid)
 
       :unavailable ->
         # Bounded mode but the Admission process is missing. We cannot account
@@ -234,19 +234,13 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp commit_bounded(state, pid, opts) do
-    # Write to the final location FIRST, then account. admit/2 mutates
-    # Admission's in-memory queues the moment it returns, so calling it before a
-    # successful rename would track a phantom entry and orphan evicted victims.
+  defp commit_bounded(state, pid) do
     case prepare_sink_commit(state) do
       {:ok, prepared, body_filename} ->
-        case commit_sink_files(prepared, body_filename) do
-          :ok ->
-            finish_admission(pid, build_descriptor(prepared, body_filename), opts)
-
-          {:error, reason} ->
-            cleanup_sink_state(prepared)
-            {:error, reason}
+        try do
+          Admission.commit(pid, prepared, body_filename)
+        after
+          cleanup_sink_state(prepared)
         end
 
       {:error, reason, prepared} ->
@@ -255,38 +249,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  defp finish_admission(pid, descriptor, opts) do
-    case Admission.admit(pid, descriptor) do
-      {:admit, victims} ->
-        delete_victims(victims, opts)
-        :ok
-
-      {:reject, _reason, victims} ->
-        delete_victims([reject_victim(descriptor) | victims], opts)
-        {:ok, :rejected}
-
-      {:reject, _reason} ->
-        # Admission declined to keep the entry. It was never inserted into the
-        # queues (reject mutates nothing), so the only cleanup is the bytes we
-        # just wrote. Delete both body and meta so on-disk state stays
-        # consistent with Admission's accounting. Signal rejection so the Sink
-        # records the request-path outcome (`cache: :admission_rejected` on the
-        # `[:cache, :write]` span) instead of a plain successful write.
-        delete_victims([reject_victim(descriptor)], opts)
-        {:ok, :rejected}
+  @doc false
+  def publish_sink(prepared, body_filename) do
+    with :ok <- commit_prepared_sink(prepared, body_filename) do
+      {:ok, build_descriptor(prepared, body_filename)}
     end
-  end
-
-  # Build the full-eviction victim shape delete_victims/2 consumes for a
-  # descriptor whose write must be undone.
-  defp reject_victim(descriptor) do
-    %{
-      key_hash: descriptor.key_hash,
-      body_sha256: descriptor.body_sha256,
-      size_bytes: descriptor.size_bytes,
-      delete_body?: true,
-      delete_meta?: true
-    }
   end
 
   # prepare_sink_commit/1 encodes body_sha256 into body_filename
