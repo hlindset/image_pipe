@@ -87,11 +87,15 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
   test "processing deadlines return 504 before headers and leave the pool usable", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1, processing_timeout: 100})
     mount = ImagePipe.Plug.init(config: config(pool, context.prefix))
+    event = context.prefix ++ [:processing, :execute, :stop]
+    ref = :telemetry_test.attach_event_handlers(self(), [event])
+    on_exit(fn -> :telemetry.detach(ref) end)
 
     for options <- ["w=32", "output=blurhash", "output=lqip-css", "output=info"] do
       timed = request(mount, options, "blocked")
       assert timed.status == 504
       assert timed.resp_body == "image processing timeout"
+      assert_receive {^event, ^ref, _measurements, %{result: :timeout}}, 1_000
       assert %{active: 0, queued: 0} = ProcessingPool.stats(pool)
       assert ProcessingPool.run(pool, fn -> :recovered end) == :recovered
     end
