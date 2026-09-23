@@ -12,7 +12,7 @@ defmodule ImagePipe.Test.ProcessingSource do
     {:ok,
      %Resolved{
        adapter: :path,
-       source_kind: :path,
+       source_kind: Keyword.get(options, :source_kind, :path),
        identity: [path: source.segments],
        internal_cache: :enabled,
        http_cache: :inherit,
@@ -33,6 +33,12 @@ defmodule ImagePipe.Test.ProcessingSource do
     end
 
     bytes = Keyword.fetch!(options, :bytes)
-    {:ok, %Response{stream: [bytes], close: fn -> send(test, {:closed, segments}) end}}
+
+    {:ok,
+     %Response{
+       stream: Keyword.get(options, :stream, [bytes]),
+       origin: Keyword.get(options, :origin),
+       close: fn -> send(test, {:closed, segments}) end
+     }}
   end
 end
