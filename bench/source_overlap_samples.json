@@ -1,0 +1,1767 @@
+{
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "samples": [
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 25.773,
+      "downloaded_ms": 18.837,
+      "total_ms": 484.058,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 432209920,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 2.195,
+      "downloaded_ms": 363.735,
+      "total_ms": 485.617,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 472252416,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.262,
+        "estimated_remaining_ms": 13.871381368001302
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 16.549,
+      "downloaded_ms": 15.393,
+      "total_ms": 473.148,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 479232000,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.265,
+        "estimated_remaining_ms": 14.030213979085287
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 14.549,
+      "downloaded_ms": 13.24,
+      "total_ms": 470.128,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 518520832,
+      "libvips_peak_bytes": 62572691,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 1.851,
+      "downloaded_ms": 365.116,
+      "total_ms": 484.649,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 508035072,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 18.604,
+      "downloaded_ms": 16.323,
+      "total_ms": 472.747,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 511655936,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 17.166,
+      "downloaded_ms": 16.051,
+      "total_ms": 473.545,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 508182528,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 0.777,
+      "downloaded_ms": 367.572,
+      "total_ms": 486.051,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 502382592,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.263,
+        "estimated_remaining_ms": 13.924325571695965
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 0,
+      "opened_ms": 14.547,
+      "downloaded_ms": 11.288,
+      "total_ms": 464.715,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 513032192,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 14.873,
+      "downloaded_ms": 11.641,
+      "total_ms": 362.059,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 430866432,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 0.753,
+      "downloaded_ms": 362.669,
+      "total_ms": 375.446,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 410583040,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.263,
+        "estimated_remaining_ms": 13.924325571695965
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 15.109,
+      "downloaded_ms": 11.544,
+      "total_ms": 362.05,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 422658048,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.317,
+        "estimated_remaining_ms": 16.783312571207684
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 16.632,
+      "downloaded_ms": 13.26,
+      "total_ms": 363.731,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 425705472,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 0.808,
+      "downloaded_ms": 365.747,
+      "total_ms": 378.6,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 415137792,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 13.764,
+      "downloaded_ms": 11.238,
+      "total_ms": 362.564,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 418152448,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 14.769,
+      "downloaded_ms": 11.376,
+      "total_ms": 355.665,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 432717824,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 0.772,
+      "downloaded_ms": 373.184,
+      "total_ms": 386.368,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 421527552,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.356,
+        "estimated_remaining_ms": 18.848136515299476
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 0,
+      "opened_ms": 14.594,
+      "downloaded_ms": 13.772,
+      "total_ms": 366.968,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 417988608,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 511.87,
+      "downloaded_ms": 509.977,
+      "total_ms": 999.391,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 397213696,
+      "libvips_peak_bytes": 62572691,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 3.682,
+      "downloaded_ms": 509.615,
+      "total_ms": 631.066,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 426115072,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 9.632,
+        "estimated_remaining_ms": 509.95856998697917
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 13.533,
+      "downloaded_ms": 509.441,
+      "total_ms": 627.225,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 500695040,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 10.37,
+        "estimated_remaining_ms": 549.0313923136392
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 13.76,
+      "downloaded_ms": 509.391,
+      "total_ms": 631.112,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 427196416,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 3.567,
+      "downloaded_ms": 509.564,
+      "total_ms": 629.073,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 502251520,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 511.612,
+      "downloaded_ms": 509.589,
+      "total_ms": 999.927,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 428244992,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 511.279,
+      "downloaded_ms": 509.339,
+      "total_ms": 986.373,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 447823872,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 3.076,
+      "downloaded_ms": 510.091,
+      "total_ms": 632.708,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 434192384,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 10.51,
+        "estimated_remaining_ms": 556.4435808308918
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 20,
+      "opened_ms": 13.439,
+      "downloaded_ms": 509.865,
+      "total_ms": 630.099,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 503234560,
+      "libvips_peak_bytes": 62572691,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 511.615,
+      "downloaded_ms": 510.0,
+      "total_ms": 871.444,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 385024000,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 3.926,
+      "downloaded_ms": 509.788,
+      "total_ms": 522.148,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 410550272,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 8.302,
+        "estimated_remaining_ms": 439.5427790730794
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 13.162,
+      "downloaded_ms": 510.544,
+      "total_ms": 522.072,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 414547968,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 8.94,
+        "estimated_remaining_ms": 473.3211810302734
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 13.438,
+      "downloaded_ms": 510.119,
+      "total_ms": 522.237,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 415924224,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 2.796,
+      "downloaded_ms": 509.872,
+      "total_ms": 523.604,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 413024256,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 512.529,
+      "downloaded_ms": 510.302,
+      "total_ms": 893.565,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 404979712,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 512.404,
+      "downloaded_ms": 510.882,
+      "total_ms": 898.206,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 418938880,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 3.698,
+      "downloaded_ms": 509.78,
+      "total_ms": 522.182,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 386760704,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 8.723,
+        "estimated_remaining_ms": 461.83228882853194
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 20,
+      "opened_ms": 12.708,
+      "downloaded_ms": 510.034,
+      "total_ms": 522.782,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 406765568,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 128.964,
+      "downloaded_ms": 127.313,
+      "total_ms": 599.723,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 434929664,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 1.065,
+      "downloaded_ms": 364.444,
+      "total_ms": 486.281,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 504545280,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 2.366,
+        "estimated_remaining_ms": 125.26598594156901
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 3.229,
+      "downloaded_ms": 360.595,
+      "total_ms": 482.966,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 469450752,
+      "libvips_peak_bytes": 62572691,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 2.276,
+        "estimated_remaining_ms": 120.50100760904947
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 3.005,
+      "downloaded_ms": 367.818,
+      "total_ms": 490.655,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 461750272,
+      "libvips_peak_bytes": 63977812,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 0.97,
+      "downloaded_ms": 358.089,
+      "total_ms": 478.875,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 501743616,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 129.911,
+      "downloaded_ms": 128.107,
+      "total_ms": 588.273,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 515211264,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 129.697,
+      "downloaded_ms": 128.196,
+      "total_ms": 592.555,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 518078464,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 1.605,
+      "downloaded_ms": 358.459,
+      "total_ms": 478.134,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 503971840,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 1.907,
+        "estimated_remaining_ms": 100.9645964457194
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 80,
+      "opened_ms": 129.989,
+      "downloaded_ms": 128.321,
+      "total_ms": 601.496,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 461733888,
+      "libvips_peak_bytes": 62572691,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 128.092,
+      "downloaded_ms": 126.698,
+      "total_ms": 489.055,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 419364864,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 1.544,
+      "downloaded_ms": 366.041,
+      "total_ms": 379.176,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 413007872,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 2.164,
+        "estimated_remaining_ms": 114.57125679524741
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 2.946,
+      "downloaded_ms": 362.534,
+      "total_ms": 374.748,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 420986880,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 2.036,
+        "estimated_remaining_ms": 107.79439872233074
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 2.925,
+      "downloaded_ms": 367.433,
+      "total_ms": 379.779,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 420577280,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 0.867,
+      "downloaded_ms": 366.372,
+      "total_ms": 378.504,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 412794880,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 129.98,
+      "downloaded_ms": 128.539,
+      "total_ms": 492.973,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 426164224,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 128.815,
+      "downloaded_ms": 127.381,
+      "total_ms": 497.156,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 398786560,
+      "libvips_peak_bytes": 6629287,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "overlap"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 0.912,
+      "downloaded_ms": 366.362,
+      "total_ms": 378.653,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 377192448,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap",
+        "prefix_bytes": 262144,
+        "sample_ms": 2.16,
+        "estimated_remaining_ms": 114.35947998046875
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 80,
+      "opened_ms": 3.755,
+      "downloaded_ms": 369.946,
+      "total_ms": 382.064,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 410222592,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 34.014,
+      "downloaded_ms": 31.553,
+      "total_ms": 497.297,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 451805184,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 1.722,
+      "downloaded_ms": 366.332,
+      "total_ms": 489.045,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 434356224,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.295,
+        "estimated_remaining_ms": 15.618540089925128
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 35.645,
+      "downloaded_ms": 33.395,
+      "total_ms": 492.53,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 462176256,
+      "libvips_peak_bytes": 61167570,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.27,
+        "estimated_remaining_ms": 14.294934997558594
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 32.77,
+      "downloaded_ms": 31.745,
+      "total_ms": 481.12,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 504070144,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 1.483,
+      "downloaded_ms": 366.579,
+      "total_ms": 484.796,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 487817216,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 32.027,
+      "downloaded_ms": 31.183,
+      "total_ms": 486.731,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 508428288,
+      "libvips_peak_bytes": 61167570,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 32.764,
+      "downloaded_ms": 31.965,
+      "total_ms": 485.956,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 512081920,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 0.985,
+      "downloaded_ms": 363.349,
+      "total_ms": 484.09,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 505413632,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 2925,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 4388,
+      "shrink": 1,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.253,
+        "estimated_remaining_ms": 13.394883534749349
+      },
+      "pixel_sha256": "95d2c4c3b06699abd0c22b09856905a41a2647d6b37ae2b1066cae9532f51d7d",
+      "rate_mib_s": 320,
+      "opened_ms": 32.786,
+      "downloaded_ms": 31.423,
+      "total_ms": 485.582,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 514949120,
+      "libvips_peak_bytes": 61167570,
+      "trial": 2
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 33.171,
+      "downloaded_ms": 32.202,
+      "total_ms": 388.274,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 418955264,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 1.509,
+      "downloaded_ms": 363.892,
+      "total_ms": 376.955,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 387072000,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.286,
+        "estimated_remaining_ms": 15.142042256673177
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 32.62,
+      "downloaded_ms": 31.561,
+      "total_ms": 379.644,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 431947776,
+      "libvips_peak_bytes": 6589189,
+      "trial": 0
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.297,
+        "estimated_remaining_ms": 15.724428497314454
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 33.804,
+      "downloaded_ms": 32.544,
+      "total_ms": 380.353,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 421199872,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 1.53,
+      "downloaded_ms": 363.991,
+      "total_ms": 377.536,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 415481856,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 33.111,
+      "downloaded_ms": 32.035,
+      "total_ms": 380.13,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 426590208,
+      "libvips_peak_bytes": 6589189,
+      "trial": 1
+    },
+    {
+      "mode": "spool",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "selection": {
+        "mode": "spool"
+      },
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 32.396,
+      "downloaded_ms": 31.058,
+      "total_ms": 376.173,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 423280640,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "overlap",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "overlap"
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 1.737,
+      "downloaded_ms": 359.011,
+      "total_ms": 371.964,
+      "opened_before_complete": true,
+      "rss_peak_bytes": 417021952,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    },
+    {
+      "mode": "auto",
+      "bytes": 10671398,
+      "width": 366,
+      "source": "priv/static/images/waterfall.jpg",
+      "height": 548,
+      "shrink": 8,
+      "selection": {
+        "mode": "spool",
+        "prefix_bytes": 262144,
+        "sample_ms": 0.266,
+        "estimated_remaining_ms": 14.083158182779949
+      },
+      "source_sha256": "bb535f5a6a2cf9aa7fb74ff4749c3ec5b35e16eeaad5bbfe58501aa67e0b10b7",
+      "pixel_sha256": "bec9f0e8d81895007a1e3af30008d9c08d630e4859653e0c8c51f350dfa628a8",
+      "rate_mib_s": 320,
+      "opened_ms": 33.554,
+      "downloaded_ms": 32.488,
+      "total_ms": 379.235,
+      "opened_before_complete": false,
+      "rss_peak_bytes": 428949504,
+      "libvips_peak_bytes": 6589189,
+      "trial": 2
+    }
+  ],
+  "summaries": [
+    {
+      "rate_mib_s": 0,
+      "shrink": 1,
+      "medians": {
+        "spool": {
+          "total_ms": 473.545,
+          "rss_peak_bytes": 508182528,
+          "libvips_peak_bytes": 61167570
+        },
+        "overlap": {
+          "total_ms": 485.617,
+          "rss_peak_bytes": 502382592,
+          "libvips_peak_bytes": 61167570
+        },
+        "auto": {
+          "total_ms": 470.128,
+          "rss_peak_bytes": 513032192,
+          "libvips_peak_bytes": 61167570
+        }
+      },
+      "speedup_percent": -2.549282539146236
+    },
+    {
+      "rate_mib_s": 0,
+      "shrink": 8,
+      "medians": {
+        "spool": {
+          "total_ms": 362.059,
+          "rss_peak_bytes": 430866432,
+          "libvips_peak_bytes": 6589189
+        },
+        "overlap": {
+          "total_ms": 378.6,
+          "rss_peak_bytes": 415137792,
+          "libvips_peak_bytes": 6589189
+        },
+        "auto": {
+          "total_ms": 363.731,
+          "rss_peak_bytes": 422658048,
+          "libvips_peak_bytes": 6589189
+        }
+      },
+      "speedup_percent": -4.568592411733996
+    },
+    {
+      "rate_mib_s": 20,
+      "shrink": 1,
+      "medians": {
+        "spool": {
+          "total_ms": 999.391,
+          "rss_peak_bytes": 428244992,
+          "libvips_peak_bytes": 61167570
+        },
+        "overlap": {
+          "total_ms": 631.066,
+          "rss_peak_bytes": 434192384,
+          "libvips_peak_bytes": 61167570
+        },
+        "auto": {
+          "total_ms": 630.099,
+          "rss_peak_bytes": 500695040,
+          "libvips_peak_bytes": 61167570
+        }
+      },
+      "speedup_percent": 36.85494466129873
+    },
+    {
+      "rate_mib_s": 20,
+      "shrink": 8,
+      "medians": {
+        "spool": {
+          "total_ms": 893.565,
+          "rss_peak_bytes": 404979712,
+          "libvips_peak_bytes": 6589189
+        },
+        "overlap": {
+          "total_ms": 522.182,
+          "rss_peak_bytes": 410550272,
+          "libvips_peak_bytes": 6589189
+        },
+        "auto": {
+          "total_ms": 522.237,
+          "rss_peak_bytes": 414547968,
+          "libvips_peak_bytes": 6589189
+        }
+      },
+      "speedup_percent": 41.5619456894574
+    },
+    {
+      "rate_mib_s": 80,
+      "shrink": 1,
+      "medians": {
+        "spool": {
+          "total_ms": 592.555,
+          "rss_peak_bytes": 515211264,
+          "libvips_peak_bytes": 61167570
+        },
+        "overlap": {
+          "total_ms": 478.875,
+          "rss_peak_bytes": 503971840,
+          "libvips_peak_bytes": 61167570
+        },
+        "auto": {
+          "total_ms": 490.655,
+          "rss_peak_bytes": 461750272,
+          "libvips_peak_bytes": 62572691
+        }
+      },
+      "speedup_percent": 19.18471703048662
+    },
+    {
+      "rate_mib_s": 80,
+      "shrink": 8,
+      "medians": {
+        "spool": {
+          "total_ms": 492.973,
+          "rss_peak_bytes": 419364864,
+          "libvips_peak_bytes": 6589189
+        },
+        "overlap": {
+          "total_ms": 378.653,
+          "rss_peak_bytes": 412794880,
+          "libvips_peak_bytes": 6589189
+        },
+        "auto": {
+          "total_ms": 379.779,
+          "rss_peak_bytes": 420577280,
+          "libvips_peak_bytes": 6589189
+        }
+      },
+      "speedup_percent": 23.189911009325048
+    },
+    {
+      "rate_mib_s": 320,
+      "shrink": 1,
+      "medians": {
+        "spool": {
+          "total_ms": 486.731,
+          "rss_peak_bytes": 508428288,
+          "libvips_peak_bytes": 61167570
+        },
+        "overlap": {
+          "total_ms": 484.796,
+          "rss_peak_bytes": 487817216,
+          "libvips_peak_bytes": 61167570
+        },
+        "auto": {
+          "total_ms": 485.582,
+          "rss_peak_bytes": 504070144,
+          "libvips_peak_bytes": 61167570
+        }
+      },
+      "speedup_percent": 0.3975501868588638
+    },
+    {
+      "rate_mib_s": 320,
+      "shrink": 8,
+      "medians": {
+        "spool": {
+          "total_ms": 380.13,
+          "rss_peak_bytes": 423280640,
+          "libvips_peak_bytes": 6589189
+        },
+        "overlap": {
+          "total_ms": 376.955,
+          "rss_peak_bytes": 415481856,
+          "libvips_peak_bytes": 6589189
+        },
+        "auto": {
+          "total_ms": 379.644,
+          "rss_peak_bytes": 428949504,
+          "libvips_peak_bytes": 6589189
+        }
+      },
+      "speedup_percent": 0.8352405755925663
+    }
+  ]
+}
