@@ -14,6 +14,24 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
     end
   end
 
+  defmodule ExpiryProvider do
+    @behaviour ImagePipe.Source.S3.CredentialProvider
+    @impl true
+    def fetch_credentials(_scope, opts, _runtime) do
+      {:ok, [access_key_id: "AKIA", secret_access_key: "SECRET"], Keyword.fetch!(opts, :expiry)}
+    end
+  end
+
+  test "fails closed for expired and malformed provider expiry values" do
+    for expiry <- [DateTime.add(DateTime.utc_now(), -60, :second), nil, "tomorrow"] do
+      scope = "invalid-expiry-#{System.unique_integer([:positive])}"
+      provider = {:provider, ExpiryProvider, [expiry: expiry]}
+
+      assert {:error, {:source, :credentials_unavailable}} =
+               Credentials.fetch(scope, provider, [])
+    end
+  end
+
   test "provider results are cached per scope and normalized" do
     opts = [test: self()]
     provider = {:provider, CountingProvider, opts}

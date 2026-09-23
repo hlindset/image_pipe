@@ -60,12 +60,15 @@ defmodule ImagePipe.Source.S3.Credentials do
     end
   end
 
-  defp normalize_with_expiry(credentials, expiry) do
+  defp normalize_with_expiry(credentials, expiry)
+       when expiry == :never or is_struct(expiry, DateTime) do
     case normalize(credentials) do
       {:ok, normalized} -> {:ok, normalized, expiry}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp normalize_with_expiry(_credentials, _expiry), do: {:error, :invalid_credential_expiry}
 
   defp normalize(opts) when is_list(opts) do
     with {:ok, access_key_id} <- fetch_binary(opts, :access_key_id),

@@ -16,6 +16,9 @@ defmodule ImagePipe.Source.S3.CredentialProvider do
   The returned `expiry` is a `DateTime.t()` for temporary credentials (the cache
   refreshes shortly before it) or `:never` for permanent credentials (cached for
   the process lifetime, never refreshed).
+  Invalid expiry values and results that have expired by the time the fetch
+  completes are rejected. A failed refresh can retain previously cached
+  credentials only while those credentials are still unexpired.
   """
 
   @type scope :: String.t()
