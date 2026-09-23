@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.Key
 
@@ -281,6 +282,53 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert total_body_bytes(root) == 90
     assert tracked_bytes(admission_pid(root)) == 90
     assert {:hit, %{body: ^body}} = FileSystem.get(candidate, opts)
+  end
+
+  test "main admission evicts the least recently used entry", %{root: root} do
+    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.0)
+    start_supervised!(FileSystem.child_spec(opts))
+    older = distinct_key(1)
+    newer = distinct_key(2)
+    candidate = distinct_key(3)
+
+    assert :ok = put_entry(older, entry(String.duplicate("a", 40)), opts)
+    assert :ok = put_entry(newer, entry(String.duplicate("b", 40)), opts)
+    assert {:ok, :rejected} = put_entry(candidate, entry(String.duplicate("c", 30)), opts)
+    assert :ok = put_entry(candidate, entry(String.duplicate("c", 30)), opts)
+
+    assert FileSystem.get(older, opts) == :miss
+    assert {:hit, _} = FileSystem.get(newer, opts)
+  end
+
+  for restart? <- [false, true] do
+    test "protected eviction follows LRU order with restart=#{restart?}", %{root: root} do
+      opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.0)
+      start_supervised!(FileSystem.child_spec(opts), id: :cache)
+      older = distinct_key(1)
+      newer = distinct_key(2)
+
+      for cache_key <- [older, newer] do
+        assert :ok = put_entry(cache_key, entry("small"), opts)
+        assert {:hit, _} = FileSystem.get(cache_key, opts)
+      end
+
+      if unquote(restart?) do
+        _ = :sys.get_state(admission_pid(root))
+        stop_supervised!(:cache)
+        start_supervised!(FileSystem.child_spec(opts), id: :cache)
+        Admission.await_scan(admission_pid(root), 5_000)
+      end
+
+      assert :ok = put_entry(distinct_key(3), entry(String.duplicate("c", 90)), opts)
+      candidate = distinct_key(4)
+      body = String.duplicate("d", 95)
+      assert {:ok, :rejected} = put_entry(candidate, entry(body), opts)
+      assert :ok = put_entry(candidate, entry(body), opts)
+
+      assert FileSystem.get(older, opts) == :miss
+      assert {:hit, _} = FileSystem.get(newer, opts)
+      assert total_body_bytes(root) == 100
+    end
   end
 
   property "replacement sequences preserve the disk budget and accounting", %{root: root} do

@@ -698,7 +698,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp ordered_set_to_list(table) do
     :ets.foldr(fn {_pos_and_hash, descriptor}, acc -> [descriptor | acc] end, [], table)
-    |> Enum.reverse()
   end
 
   defp remove_victims(state, victims) do
