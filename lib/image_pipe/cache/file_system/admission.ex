@@ -484,13 +484,19 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def commit(server, prepared, body_filename) do
-    GenServer.call(server, {:commit, prepared, body_filename})
+    call(server, {:commit, prepared, body_filename})
   end
 
-  def delete(server, paths), do: GenServer.call(server, {:delete, paths})
+  def delete(server, paths), do: call(server, {:delete, paths})
 
   def refresh_source_record(server, paths, previous, record),
-    do: GenServer.call(server, {:refresh_source_record, paths, previous, record})
+    do: call(server, {:refresh_source_record, paths, previous, record})
+
+  defp call(server, message) do
+    GenServer.call(server, message)
+  catch
+    :exit, _reason -> {:error, :admission_unavailable}
+  end
 
   defp admit_descriptor(state, descriptor) do
     # Increment sighting first (commit is itself a sighting of the key)

@@ -144,11 +144,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       Task.Supervisor.async_nolink(ctx.tasks, fn ->
         :erlang.trace(self(), true, [:send, {:tracer, parent}])
 
-        try do
-          put_entry(ctx.key, "body", ctx.opts)
-        catch
-          :exit, reason -> {:commit_exit, reason}
-        end
+        put_entry(ctx.key, "body", ctx.opts)
       end)
 
     assert_receive {:trace, _, :send, {:"$gen_call", _, _}, ^admission}, 1000
@@ -157,7 +153,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     ref = Process.monitor(admission)
     Process.exit(admission, :kill)
     assert_receive {:DOWN, ^ref, :process, ^admission, :killed}
-    assert {:commit_exit, _} = Task.await(task)
+    assert {:error, :admission_unavailable} = Task.await(task)
     assert Path.wildcard(temporary_files, match_dot: true) == []
   end
 
