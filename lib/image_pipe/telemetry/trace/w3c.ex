@@ -11,13 +11,12 @@ defmodule ImagePipe.Telemetry.Trace.W3C do
   end
 
   @spec decode(String.t()) :: {:ok, Context.t()} | :error
-  def decode("00-" <> rest) do
-    with [t, s, f] <- String.split(rest, "-"),
-         true <- valid_trace?(t),
-         true <- valid_span?(s),
-         {:ok, flags} <- parse_flags(f) do
-      {:ok,
-       %Context{trace_id: String.downcase(t), span_id: String.downcase(s), trace_flags: flags}}
+  def decode(<<"00-", t::binary-size(32), "-", s::binary-size(16), "-", f::binary-size(2)>>)
+      when t != @all_zero_trace and s != @all_zero_span do
+    with true <- hex?(t),
+         true <- hex?(s),
+         true <- hex?(f) do
+      {:ok, %Context{trace_id: t, span_id: s, trace_flags: String.to_integer(f, 16)}}
     else
       _ -> :error
     end
@@ -25,23 +24,9 @@ defmodule ImagePipe.Telemetry.Trace.W3C do
 
   def decode(_), do: :error
 
-  defp valid_trace?(t),
-    do: byte_size(t) == 32 and hex?(t) and String.downcase(t) != @all_zero_trace
-
-  defp valid_span?(s), do: byte_size(s) == 16 and hex?(s) and String.downcase(s) != @all_zero_span
-
-  defp parse_flags(f) when byte_size(f) == 2 do
-    case Integer.parse(f, 16) do
-      {n, ""} -> {:ok, n}
-      _ -> :error
-    end
-  end
-
-  defp parse_flags(_), do: :error
-
   defp flags_hex(flags) do
     flags |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(2, "0")
   end
 
-  defp hex?(s), do: String.match?(s, ~r/\A[0-9a-fA-F]+\z/)
+  defp hex?(s), do: String.match?(s, ~r/\A[0-9a-f]+\z/)
 end

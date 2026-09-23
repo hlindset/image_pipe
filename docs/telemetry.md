@@ -1048,6 +1048,9 @@ trusting an inbound trace header from an untrusted client lets a caller pin your
 `trace_id`; enable it only behind a gateway you control. When enabled and a valid
 W3C `traceparent` is present, the request root span continues that trace and
 parents to the inbound span; otherwise it mints a fresh root.
+The parser accepts version `00` with exact field widths, lowercase hexadecimal
+IDs and flags, and nonzero trace and parent IDs, following the
+[W3C field syntax](https://www.w3.org/TR/trace-context/#traceparent-header-field-values).
 
 **Sampling is deferred to the host.** ImagePipe propagates `trace_flags` but does
 not implement a sampler. A host that wants head- or tail-based sampling does it in
