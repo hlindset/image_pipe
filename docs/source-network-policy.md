@@ -58,7 +58,8 @@ sources: [
 
 Toggles: `allow_loopback`, `allow_unspecified`, `allow_link_local`,
 `allow_private`, `allow_unique_local`, `allow_multicast`, `allow_broadcast`,
-`allow_cgnat`, `allow_reserved`. `allow:` is a list of CIDR strings. Omitting
+`allow_cgnat`, `allow_reserved`. Each toggle accepts only `true` or `false`;
+other values are rejected during source configuration. `allow:` is a list of CIDR strings. Omitting
 `address_policy` denies everything that is not public.
 
 ### Function

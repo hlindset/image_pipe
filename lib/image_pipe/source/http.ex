@@ -96,6 +96,9 @@ defmodule ImagePipe.Source.HTTP do
       Enum.any?(Keyword.keys(value), &(&1 not in allowed_keys)) ->
         {:error, "unknown address_policy key"}
 
+      Enum.any?(value, fn {key, setting} -> key != :allow and not is_boolean(setting) end) ->
+        {:error, "address_policy category toggles must be booleans"}
+
       not is_list(Keyword.get(value, :allow, [])) ->
         {:error, "address_policy :allow must be a list of CIDR strings"}
 
