@@ -9,7 +9,8 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   #     wait on the one fetch (they queue as waiters),
   #   * warm-on-init: a fetch is kicked in `init/1`, so the process warms as soon
   #     as it is created,
-  #   * background refresh: a timer fires `refresh_margin_ms` before expiry; a
+  #   * background refresh: a timer fires `refresh_margin_ms` before expiry,
+  #     with at least five seconds between successful background fetches; a
   #     refresh that fails while the value is still fresh re-arms a bounded retry,
   #   * fail-closed: an expired value is never served.
   use GenServer
@@ -161,7 +162,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   defp schedule_refresh(%{expires_at: %DateTime{} = expires_at} = state) do
     state = cancel_timer(state)
     diff_ms = DateTime.diff(expires_at, state.now_fun.(), :millisecond)
-    ms = max(0, diff_ms - state.refresh_margin_ms)
+    ms = max(@refresh_retry_ms, diff_ms - state.refresh_margin_ms)
     %{state | refresh_timer: Process.send_after(self(), :refresh, ms)}
   end
 
