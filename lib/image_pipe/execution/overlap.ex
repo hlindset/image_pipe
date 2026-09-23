@@ -54,6 +54,9 @@ defmodule ImagePipe.Execution.Overlap do
   def observe(%{status: :observing, first: nil} = state, _io, size),
     do: %{state | first: {System.monotonic_time(:microsecond), size}}
 
+  def observe(%{status: :observing, first: {_first_at, size}} = state, _io, size),
+    do: state
+
   def observe(%{status: :observing, first: {first_at, first_size}} = state, io, size) do
     elapsed = System.monotonic_time(:microsecond) - first_at
 

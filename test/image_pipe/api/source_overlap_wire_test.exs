@@ -3,7 +3,9 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Source.HTTP
+  alias ImagePipe.Source.Origin
   alias ImagePipe.Test.PacedSourceOrigin
+  alias ImagePipe.Test.ProcessingSource
   alias Vix.Vips.Image, as: VipsImage
 
   setup %{test: test} = tags do
@@ -94,6 +96,52 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
     assert conditional.status == 304
     refute_received {:decoded, _}
+  end
+
+  test "empty source chunks do not break overlap observation", context do
+    <<prefix::binary-size(512 * 1024), tail::binary>> = context.body
+
+    stream =
+      Stream.map([prefix, "", tail], fn
+        "" ->
+          Process.send_after(self(), :empty_chunk, 20)
+          receive do: (:empty_chunk -> "")
+
+        bytes ->
+          bytes
+      end)
+
+    now = System.system_time(:second)
+
+    origin =
+      Origin.from_response(
+        %{
+          status: 200,
+          headers: %{"content-length" => [Integer.to_string(byte_size(context.body))]},
+          request: %{url: "http://source.test/image", headers: %{}}
+        },
+        {now, now}
+      )
+
+    config =
+      ImagePipe.Plug.init(
+        sources: [
+          path:
+            {ProcessingSource,
+             test: self(), bytes: context.body, stream: stream, origin: origin, source_kind: :url}
+        ],
+        cache: {FileSystem, root: Path.join(context.root, "output")},
+        input_cache: {FileSystem, root: Path.join(context.root, "input")},
+        max_body_bytes: 20_000_000,
+        max_input_pixels: 60_000_000
+      )
+
+    response =
+      Plug.Test.conn(:get, "/w=100/format=png/src/empty.jpg") |> ImagePipe.Plug.call(config)
+
+    assert response.status == 200
+    assert_pixels(response, context, [])
+    assert_receive {:closed, ["empty.jpg"]}
   end
 
   test "a truncated source is rejected after speculative decode starts", context do
