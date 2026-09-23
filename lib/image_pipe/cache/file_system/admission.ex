@@ -645,23 +645,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp run_main_gate(state, descriptor) do
-    # Clamp to 0: in-flight commit overshoot or restart reconciliation can
-    # transiently push (probationary + protected) above the main budget, in
-    # which case the raw subtraction goes negative. A negative `available`
-    # must not be treated as "room" by the `>=` comparison below, and it must
-    # not let a zero-byte descriptor slip through the free-space branch and
-    # skip scoring.
-    available =
-      max(
-        0,
-        state.max_size_bytes - state.window_budget - state.probationary_bytes -
-          state.protected_bytes
-      )
+    needed_bytes =
+      state.probationary_bytes + state.protected_bytes + descriptor.size_bytes -
+        (state.max_size_bytes - state.window_budget)
 
-    if available >= descriptor.size_bytes do
-      insert_into_probationary(state, descriptor)
-    else
-      identify_and_score(state, descriptor)
+    case needed_bytes > 0 do
+      true -> identify_and_score(state, descriptor, needed_bytes)
+      false -> insert_into_probationary(state, descriptor)
     end
   end
 
@@ -672,7 +662,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     {{:admit, []}, state}
   end
 
-  defp identify_and_score(state, descriptor) do
+  defp identify_and_score(state, descriptor, needed_bytes) do
     probationary_list = ordered_set_to_list(state.probationary)
     protected_list = ordered_set_to_list(state.protected)
     limit = state.eviction_victim_limit
@@ -680,7 +670,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     case Policy.victim_walk(
            probationary_list,
            protected_list,
-           descriptor.size_bytes,
+           needed_bytes,
            limit
          ) do
       {:error, :no_evictable_victims} ->

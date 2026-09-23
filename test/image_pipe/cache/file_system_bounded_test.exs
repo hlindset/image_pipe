@@ -267,6 +267,22 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert {:hit, %{body: ^replacement}} = FileSystem.get(cache_key, opts)
   end
 
+  test "main admission evicts only enough bytes to cover the free-space deficit", %{root: root} do
+    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.0)
+    start_supervised!(FileSystem.child_spec(opts))
+
+    assert :ok = put_entry(distinct_key(1), entry(String.duplicate("a", 40)), opts)
+    assert :ok = put_entry(distinct_key(2), entry(String.duplicate("b", 40)), opts)
+    candidate = distinct_key(3)
+    body = String.duplicate("c", 50)
+
+    assert {:ok, :rejected} = put_entry(candidate, entry(body), opts)
+    assert :ok = put_entry(candidate, entry(body), opts)
+    assert total_body_bytes(root) == 90
+    assert tracked_bytes(admission_pid(root)) == 90
+    assert {:hit, %{body: ^body}} = FileSystem.get(candidate, opts)
+  end
+
   property "replacement sequences preserve the disk budget and accounting", %{root: root} do
     check all(
             ratio <- member_of([0.0, 0.25, 1.0]),
