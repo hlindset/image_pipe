@@ -9,20 +9,45 @@ type PreviewFetchEvent = {
 
 let dispatch: (event: PreviewFetchEvent) => void;
 const postMessage = vi.fn();
+const findClient = vi.fn();
+const listClients = vi.fn();
 
 beforeEach(async () => {
   vi.resetModules();
   postMessage.mockReset();
+  findClient.mockReset().mockResolvedValue({ postMessage });
+  listClients.mockReset().mockResolvedValue([{ postMessage }]);
   vi.stubGlobal("self", {
     addEventListener: (type: string, listener: (event: PreviewFetchEvent) => void) => {
       if (type === "fetch") dispatch = listener;
     },
-    clients: { get: async () => ({ postMessage }) },
+    clients: { get: findClient, matchAll: listClients },
   });
   await import("./preview-sw");
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+it.each(["", "closed-tab"])(
+  "does not send another window metadata when client %j is unavailable",
+  async (clientId) => {
+    findClient.mockResolvedValue(undefined);
+    const response = new Response("source unavailable", { status: 503 });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    const respondWith = vi.fn();
+    const waitUntil = vi.fn();
+    dispatch({
+      request: new Request("http://localhost:4000/image/src/images/dog.jpg"),
+      clientId,
+      respondWith,
+      waitUntil,
+    });
+
+    expect(await respondWith.mock.calls[0]?.[0]).toBe(response);
+    await waitUntil.mock.calls[0]?.[0];
+    expect(postMessage).not.toHaveBeenCalled();
+  },
+);
 
 it("extends metadata lifetime without delaying the original streamed response", async () => {
   const body = Promise.withResolvers<Uint8Array>();
