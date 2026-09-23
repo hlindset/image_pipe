@@ -82,4 +82,16 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
     assert root.trace_id =~ ~r/\A[0-9a-f]{32}\z/
     assert root.parent_span_id == nil
   end
+
+  test "non-hexadecimal flags are ignored at the request boundary" do
+    prefix = [__MODULE__, :invalid_flags]
+    TestExporter.attach(self(), extract_inbound: true, prefix: prefix)
+    header = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-+1"
+    opts = Keyword.put(build_opts(), :telemetry_prefix, prefix)
+    assert call(valid_request_path(), [{"traceparent", header}], opts).status == 200
+
+    assert_receive {:span, %Span{name: "image_pipe.request"} = root}
+    assert root.trace_id != "0af7651916cd43dd8448eb211c80319c"
+    assert root.parent_span_id == nil
+  end
 end
