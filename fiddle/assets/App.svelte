@@ -156,6 +156,7 @@
       previewWorkerDisposed = true;
       previewWorker?.unsubscribe();
       textPreviewController?.abort();
+      if (copyLabelResetTimeout !== null) window.clearTimeout(copyLabelResetTimeout);
     };
   });
 
@@ -179,10 +180,10 @@
       });
   });
   $effect(() => {
-    updatePreviewPath(previewBasePath);
+    return updatePreviewPath(previewBasePath);
   });
   $effect(() => {
-    updateFiddleLocation(appPathForState(appState));
+    return updateFiddleLocation(appPathForState(appState));
   });
   $effect(() => {
     applyThemeMode(themeMode);
