@@ -115,6 +115,9 @@ defmodule ImagePipe.Telemetry do
   @doc """
   Attaches the opt-in span tracer. See `ImagePipe.Telemetry.Trace`.
 
+  Reattaching replaces the tracer configuration, including whether Finch spans
+  are captured.
+
   Raises `ArgumentError` for unknown keys, wrong types, or an exporter that
   cannot load, lacks `export/1`, or reports it is not ready.
 
@@ -152,8 +155,9 @@ defmodule ImagePipe.Telemetry do
     Trace.set_extract_inbound(opts[:extract_inbound])
     Capture.attach(%{prefix: opts[:prefix], exporter: exporter})
 
-    if opts[:finch_spans] do
-      FinchCapture.attach(%{exporter: exporter})
+    case opts[:finch_spans] do
+      true -> FinchCapture.attach(%{exporter: exporter})
+      false -> FinchCapture.detach()
     end
 
     :ok

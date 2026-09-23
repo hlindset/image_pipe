@@ -994,6 +994,9 @@ ImagePipe.Telemetry.detach_tracer()
 | `:extract_inbound`| boolean         | `false`                   | Extract an inbound W3C `traceparent` header so the root span continues an upstream trace. Off by default — only enable behind a trusted edge. |
 | `:finch_spans`    | boolean         | `true`                    | Also capture physical Finch wire spans for outbound source fetches.     |
 
+Reattaching replaces the tracer configuration. Setting `finch_spans: false`
+removes any previously attached Finch capture handler.
+
 `attach_tracer/1` raises `ArgumentError` when an option is unknown, has the wrong
 type, `:exporter` is missing, or the exporter module is not loaded / does not
 export `export/1`.
