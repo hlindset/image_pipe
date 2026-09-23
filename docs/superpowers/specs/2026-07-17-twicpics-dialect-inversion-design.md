@@ -744,7 +744,6 @@ Phase 1 also:
   compare observable responses.
 - The dependency inversion gate passes.
 - The phase-base frozen-path diff is clean.
-- Vale passes on changed documentation.
 - A full `mise run precommit` passes.
 
 ### Recorded gates
@@ -1037,7 +1036,6 @@ example that no longer exists.
 - The TwicPics dialect-only wire and differential suites pass.
 - Framework tests pass through IIIF where moved.
 - Boundary and ExDNA gates pass.
-- Vale passes on changed documentation.
 - `mise run precommit` passes.
 - `mise run precommit:fiddle` passes.
 - The support matrix describes the dialect as the sole TwicPics stack.
@@ -1162,7 +1160,7 @@ This revision is ready for implementation planning when:
 - a verification reviewer checks the preserved phase-1 evidence, fixture
   freeze, port/delete discipline, dialect-only RED, and one-way gates;
 - accepted review findings are incorporated;
-- Vale and repository documentation checks pass;
+- Repository documentation checks pass;
 - the reviewed revision is committed.
 
 Phase 2 implementation planning starts after explicit user approval of this

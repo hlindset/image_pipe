@@ -2,13 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute this plan task by task. Use superpowers:test-driven-development for every behavior or coverage migration. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-<!-- vale off -->
 
 **Goal:** Delete the framework geometry-strategy SDK — `ImagePipe.Resolver` behaviour/facade, the `Plan.resolver` field and its validation, `Plan.Operation.Directive`, the shared `:deferred` guide marker, cache-key resolver material, and every injected-strategy dispatch path — leaving `ImagePipe.Transform.NeutralResolver` and the fixed neutral driver as the sole runtime-geometry lowering, host `ImagePipe.Parser` returning only product-neutral declarative Plans, and every TwicPics/IIIF observable unchanged.
 
 **Architecture:** The Phase 2A fixed neutral driver (`resolver: nil` Plans → `Executor.run_neutral/4` → `NeutralResolver` directly) is already the only live runtime path. No parser produces a non-`nil` `resolver`; both dialects (`imgproxy`, `native`) and the TwicPics dialect Pipeline call `NeutralResolver.resolve/3`/`continue/4` directly and never touch the `ImagePipe.Resolver` facade. Phase 2C therefore removes dead injected-strategy scaffolding, the marker vocabulary it existed to carry, and the cache/Boundary/doc surface that advertised it — replacing the removed resolver-version cache pin and the removed non-module-resolver rejection with explicit *absence* assertions, not silence.
 
-**Tech Stack:** Elixir/ExUnit/StreamData, Plug, Vix/libvips, Boundary, ExDNA, mise, Vale, Svelte/Phoenix fiddle.
+**Tech Stack:** Elixir/ExUnit/StreamData, Plug, Vix/libvips, Boundary, ExDNA, mise, Svelte/Phoenix fiddle.
 
 **Design records:**
 
@@ -346,10 +345,6 @@ Make the live documentation describe a world where host parsers end at product-n
   `rg -n 'ImagePipe\.Resolver|behavior_version|resolver_data|Operation\.(Directive|directive)|:strategy_required|:deferred|strategy SDK|carried resolver strategy|resolver strategy|Parser\.TwicPics' docs AGENTS.md --glob '!docs/superpowers/**'`
   Must return **no matches**. Also grep `docs/transform_operations.md` for `Directive`/`:deferred` and remove any surviving reference.
 
-- [ ] **Step 6: Run Vale on every changed doc:**
-  `vale docs/custom_parser_guide.md docs/execution_flow.md docs/twicpics_support_matrix.md AGENTS.md`
-  (add `docs/transform_operations.md` if Step 5 edited it). Fix any new findings.
-
 - [ ] **Step 7: Commit:** `docs: describe host parsers ending in neutral Plans and the fixed neutral driver`.
 
 ---
@@ -381,9 +376,6 @@ Make the live documentation describe a world where host parsers end at product-n
   `export PATH="$(mise where elixir)/bin:$PATH" && mix test test/image_pipe/architecture_boundary_test.exs`
   `mise run precommit` (runs `mix credo --strict`, compile `--warnings-as-errors`, format check, full `mix test`, and ExDNA/dialyzer per its definition).
 
-- [ ] **Step 6: Vale on every changed documentation file:**
-  `vale docs/custom_parser_guide.md docs/execution_flow.md docs/twicpics_support_matrix.md AGENTS.md` (plus any other doc touched).
-
 - [ ] **Step 7: Fiddle gate:** `mise run precommit:fiddle`. Phase 2C touches no fiddle source, so this is belt-and-suspenders required by the design's exit gate. If the fiddle `mix test` false-fails on a missing Vite manifest (fresh-worktree trap), run `pnpm -C fiddle/assets run build` first, then re-run. Then `git diff --exit-code origin/main -- fiddle/mix.lock` and `git status --short fiddle/mix.lock` — the lockfile must show no change and never be staged.
 
 - [ ] **Step 8: Immutable-artifact gate + whitespace/diff check:**
@@ -391,10 +383,9 @@ Make the live documentation describe a world where host parsers end at product-n
 
 - [ ] **Step 9: Complete-diff parallel review.** Run a parallel review over the full `origin/main...HEAD` diff with four disjoint lenses (no git mutations in review agents): (1) fixed-driver architecture and preservation of neutral measured stages; (2) SDK deletion inventory completeness, coverage migration, and cache-identity/ETag correctness; (3) host-parser contract, Boundary direction, and public/private API surface; (4) TwicPics/IIIF/operational/documentation/fiddle regression risk (at least one lens confirms TwicPics observables and the support matrix are unchanged against the hosted oracle). Apply accepted findings in focused commits and re-run the affected gates.
 
-- [ ] **Step 10: Push and open a draft PR** summarizing the one-way SDK retirement and the full inversion++ exit evidence (negative gate empty; fixed-driver/IIIF/TwicPics/cache suites green; Boundary + ExDNA + Vale green; `precommit` + `precommit:fiddle` green; immutable artifacts and `fiddle/mix.lock` clean; `git diff --check` clean). Do not add issue-closing keywords unless a specific issue is fully resolved.
+- [ ] **Step 10: Push and open a draft PR** summarizing the one-way SDK retirement and the full inversion++ exit evidence (negative gate empty; fixed-driver/IIIF/TwicPics/cache suites green; Boundary + ExDNA green; `precommit` + `precommit:fiddle` green; immutable artifacts and `fiddle/mix.lock` clean; `git diff --check` clean). Do not add issue-closing keywords unless a specific issue is fully resolved.
 
 ## Execution recommendation
 
 Execute Tasks 1–8 **inline** in order (superpowers:executing-plans), with the final complete-diff review (Task 8 Step 9) fanned out to parallel agents. The tasks form a strict dependency chain in a few shared files (`executor.ex`, `plan.ex`, `operation.ex`, `key.ex`, `architecture_boundary_test.exs`): the injected dispatch must go before the facade, the facade before its Boundary edges, the `:strategy_required`/validation before the `Directive` struct, and every code reference before the negative gate. Incremental TDD with green commit boundaries gives clearer failure attribution than subagent-per-task handoffs, and the compiler (`--warnings-as-errors`) is the load-bearing driver for the dead-code deletions. Only the complete-diff review is genuinely parallelizable.
 
-<!-- vale on -->

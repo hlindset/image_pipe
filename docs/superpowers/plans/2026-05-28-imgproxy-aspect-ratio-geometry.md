@@ -1253,12 +1253,6 @@ In `docs/transform_operations.md`, if it documents canvas/crop operations, note 
 
 Match the existing doc structure and tone in each file; do not invent new sections if an existing option table/row is the right home.
 
-- [ ] **Step 3: Vale doc check**
-
-Vale is configured (`.vale.ini` at repo root) and available via mise. Run:
-`mise exec -- vale docs/imgproxy_support_matrix.md docs/imgproxy_path_api.md docs/transform_operations.md`
-Expected: no new errors introduced by these edits.
-
 - [ ] **Step 4: Commit**
 
 ```bash

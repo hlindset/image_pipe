@@ -2962,22 +2962,6 @@ output-policy behavior.
 
 Don't mention external projects.
 
-- [ ] **Step 2: Run Vale**
-
-Run:
-
-```bash
-mise exec -- vale docs/cdn-http-cache.md README.md
-```
-
-If the doc is only in README, run:
-
-```bash
-mise exec -- vale README.md
-```
-
-Expected: no Vale errors. Fix any flagged prose with concrete wording.
-
 - [ ] **Step 3: Commit documentation**
 
 Run:
@@ -3024,18 +3008,6 @@ VIX_COMPILATION_MODE=PRECOMPILED_LIBVIPS mise exec -- mix test
 ```
 
 Expected: all tests pass.
-
-- [ ] **Step 4: Run Vale on touched docs**
-
-Run:
-
-```bash
-mise exec -- vale docs/superpowers/plans/2026-05-27-cdn-http-cache-implementation.md docs/superpowers/specs/2026-05-25-cdn-http-cache-design.md README.md docs/cdn-http-cache.md
-```
-
-If `docs/cdn-http-cache.md` wasn't created, omit it.
-
-Expected: no Vale errors.
 
 - [ ] **Step 5: Check git diff**
 

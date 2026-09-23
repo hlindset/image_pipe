@@ -2997,7 +2997,7 @@ Mount examples → `plug ImagePipe.Plug, dialect: …`. Document that generated 
 
 State explicitly in the commit message that no imgproxy conformance claim changed, so the compatibility reviewer knows the edit is vocabulary-only.
 
-- [ ] **Step 6: Sweep and Vale**
+- [ ] **Step 6: Sweep**
 
 ```bash
 rg -n "ImagePipe\.(Parser|Request)|parser:|iiif: \[|key_headers|key_cookies|custom_parser_guide" README.md docs fiddle --glob '!docs/superpowers/**'
@@ -3005,8 +3005,6 @@ rg -n "self-contained Plug|owns its whole request chain|two mount modes|framewor
 ```
 
 Both must come back empty of live mount-shape or architecture claims. Historical docs under `docs/superpowers/**` describe past states and stay as-is.
-
-Run Vale over every changed current Markdown file (`git diff --name-only` filtered to `*.md`, inspected before invoking). No new errors; if the binary is unavailable, report that explicitly.
 
 - [ ] **Step 7: Commit**
 

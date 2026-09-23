@@ -6,7 +6,7 @@
 
 **Architecture:** Keep autorotation in imgproxy parser request state, then translate it to `ImagePipe.Plan.Operation.AutoOrient` before crop and resize. Transform execution lowers that semantic Plan operation to `ImagePipe.Transform.Operation.AutoOrient` after cache lookup. Add the default in imgproxy parser/options config so request/source/response code continues to see only `ImagePipe.Plan`.
 
-**Tech Stack:** Elixir, ExUnit, Plug test requests, NimbleOptions, Vale.
+**Tech Stack:** Elixir, ExUnit, Plug test requests, NimbleOptions.
 
 ---
 
@@ -143,8 +143,3 @@ Run: `mise exec -- mix compile --warnings-as-errors`
 
 Expected: pass.
 
-- [ ] **Step 4: Run Vale**
-
-Run: `mise exec -- vale docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md`
-
-Expected: pass.

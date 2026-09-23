@@ -8,7 +8,7 @@
 
 `%ImagePipe.Plan{resolver: nil}` selects the fixed path. Non-`nil` resolver Plans continue through `ImagePipe.Resolver` until Phase 2C. `ImagePipe.Parser.IIIF` remains an `ImagePipe.Plug` parser and becomes the production proof of the fixed framework path. TwicPics remains a self-contained dialect Plug and doesn't enter the fixed driver.
 
-**Tech Stack:** Elixir/ExUnit, Plug, Vix/libvips, Boundary, mise, Vale, Svelte/Phoenix fiddle.
+**Tech Stack:** Elixir/ExUnit, Plug, Vix/libvips, Boundary, mise, Svelte/Phoenix fiddle.
 
 **Design records:**
 
@@ -19,7 +19,6 @@
 - `docs/superpowers/specs/2026-07-16-imgproxy-dialect-phase2-design.md`
 - `docs/superpowers/plans/2026-07-16-imgproxy-dialect-phase2-wave2.md`
 
-<!-- vale off -->
 
 ## Global constraints
 
@@ -314,8 +313,6 @@ Deletion ledger—repeat these citations in the commit body:
 - [ ] **Step 3: Update execution and host-parser docs narrowly.** `execution_flow.md` must show nil-resolver Plans using the fixed neutral driver, explicit resolver Plans retaining the injected path until Phase 2C, IIIF staying on `ImagePipe.Plug`, and TwicPics bypassing parser dispatch through its local Pipeline/PointFlow. `custom_parser_guide.md` must keep host parsers ending in product-neutral Plans and must not advertise private dialect modules. Keep its still-live strategy SDK sections for Phase 2C, but replace all retired `Parser.TwicPics` examples with honest host-parser or IIIF examples.
 - [ ] **Step 4: Update the differential README.** Describe a single local dialect render and change the stale “ImagePipe's TwicPics parser” wording. Replace “current parser,” “both local arms,” and deleted “parser unit/wire tests” references with the surviving dialect coverage and Phase 2B ownership. Keep bake, reauthor, tolerance, quarantine, source-hosting, and fixture procedures unchanged.
 - [ ] **Step 5: Clean the AGENTS example without retiring the rule.** Remove the claim that TwicPics currently carries `:deferred` in a root Plan. Do not delete the marker-accretion test, `:deferred` vocabulary, or the Phase 2C work item.
-- [ ] **Step 6: Run Vale:**
-  `vale docs/twicpics_support_matrix.md docs/cdn-http-cache.md docs/debug_headers.md docs/custom_parser_guide.md docs/execution_flow.md test/support/image_pipe/test/twicpics_differential/README.md AGENTS.md`
 - [ ] **Step 7: Run documentation/live-reference gates:**
   `rg -n 'ImagePipe\.Parser\.TwicPics|Parser\.TwicPics|temporary framework|both temporary local|each local arm' lib test fiddle docs AGENTS.md --glob '!docs/superpowers/**'`
   `rg -n 'both local arms|current parser|parser unit/wire tests' test/support/image_pipe/test/twicpics_differential/README.md`
@@ -349,4 +346,3 @@ Deletion ledger—repeat these citations in the commit body:
 
 Execute Tasks 1–14 inline in order, then use parallel agents only for the final complete-diff review. The fixed-driver activation, framework repoints, consumer migration, harness collapse, and parser deletion form a dependency chain across shared test helpers; incremental TDD and green commit boundaries give clearer failure attribution than subagent-per-task handoffs. The compatibility and operational reviews are independent once the full diff exists.
 
-<!-- vale on -->
