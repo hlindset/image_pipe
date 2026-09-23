@@ -38,7 +38,9 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
 
       assert {:ok, stream} = Delivery.stream(self(), build, nil, %Response{}, config)
       assert %{active: 1} = ProcessingPool.stats(pool)
-      assert {:error, {:processing, :overloaded}} = ProcessingPool.run(pool, fn -> flunk() end)
+
+      assert {:error, {:processing, :overloaded}} =
+               ProcessingPool.run(pool, fn -> flunk() end, [])
 
       case action do
         :eof ->

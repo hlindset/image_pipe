@@ -73,13 +73,6 @@ defmodule ImagePipe.Delivery.Producer do
           end)
 
         finish(result, caller, ref)
-
-      {:halt, caller, ref} ->
-        # Nothing was ever demanded (unreachable via the public Delivery API,
-        # which always demands the first chunk before returning a
-        # %PreparedStream{} to a caller who could then request a halt — kept
-        # as a defensive terminal clause, not a real protocol state).
-        send(caller, {ref, :ok})
     end
   end
 
@@ -89,7 +82,6 @@ defmodule ImagePipe.Delivery.Producer do
   # admission to close before the coordinator commits the cache entry.
   defp finish({:error, _reason} = result, caller, ref), do: send(caller, {ref, result})
   defp finish({:reply, caller, ref, result}, _caller, _ref), do: send(caller, {ref, result})
-  defp finish(_pump_terminal, _caller, _ref), do: :ok
 
   defp pump(stream, content_type, resolved_output, debug, caller, ref) do
     case safe_reduce(stream) do

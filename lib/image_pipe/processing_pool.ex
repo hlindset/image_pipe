@@ -75,9 +75,6 @@ defmodule ImagePipe.ProcessingPool do
     end
   end
 
-  @doc false
-  def run(pool, fun), do: run(pool, fun, [])
-
   defp task_result(pool, owner, config, fun) do
     {:returned, within(pool, owner, config, fun)}
   catch
