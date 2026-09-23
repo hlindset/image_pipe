@@ -199,8 +199,8 @@ defmodule ImagePipe.Cache.Input do
 
       {_adapter, pool} ->
         case metadata(key, opts) do
-          %Record{byte_identity: identity} when identity == record.byte_identity ->
-            Store.update_metadata(key, %{source_record: record}, pool)
+          %Record{byte_identity: identity} = previous when identity == record.byte_identity ->
+            Store.refresh_source_record(key, previous, record, pool)
 
           _missing ->
             :ok

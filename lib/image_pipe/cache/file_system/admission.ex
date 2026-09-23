@@ -489,6 +489,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   def delete(server, paths), do: GenServer.call(server, {:delete, paths})
 
+  def refresh_source_record(server, paths, previous, record),
+    do: GenServer.call(server, {:refresh_source_record, paths, previous, record})
+
   defp admit_descriptor(state, descriptor) do
     # Increment sighting first (commit is itself a sighting of the key)
     state = sighting(state, descriptor.key_hash)
@@ -513,6 +516,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     do: finish_commit({:reject, reason, []}, descriptor, opts)
 
   @impl true
+  def handle_call({:refresh_source_record, paths, previous, record}, _from, state) do
+    {:reply, FileSystem.refresh_entry(paths, previous, record), state}
+  end
+
   def handle_call({:delete, paths}, _from, state) do
     case FileSystem.delete_entry(paths) do
       {:ok, result} -> {:reply, result, forget_entry(state, paths.hash)}

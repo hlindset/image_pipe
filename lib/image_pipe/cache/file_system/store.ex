@@ -483,11 +483,30 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     with {:ok, paths} <- paths(key, opts), do: read_metadata(paths)
   end
 
-  def update_metadata(key, fields, opts) do
-    with {:ok, paths} <- paths(key, opts),
-         {:ok, metadata} <- read_metadata(paths),
-         binary = :erlang.term_to_binary(Map.merge(metadata, fields), [:deterministic]),
-         {:ok, temp} <- write_sink_metadata(paths, binary) do
+  def refresh_source_record(key, previous, record, opts) do
+    with {:ok, paths} <- paths(key, opts) do
+      case lookup_admission(opts) do
+        {:ok, pid} -> Admission.refresh_source_record(pid, paths, previous, record)
+        :unbounded -> refresh_entry(paths, previous, record)
+        :unavailable -> :ok
+      end
+    end
+  end
+
+  def refresh_entry(paths, previous, record) do
+    case read_metadata(paths) do
+      {:ok, %{source_record: ^previous} = metadata} ->
+        write_refreshed_metadata(paths, %{metadata | source_record: record})
+
+      _missing_or_changed ->
+        :ok
+    end
+  end
+
+  defp write_refreshed_metadata(paths, metadata) do
+    binary = :erlang.term_to_binary(metadata, [:deterministic])
+
+    with {:ok, temp} <- write_sink_metadata(paths, binary) do
       result = File.rename(temp, paths.meta_path)
       File.rm(temp)
       result
