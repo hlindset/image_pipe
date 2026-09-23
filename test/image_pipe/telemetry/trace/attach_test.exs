@@ -2,6 +2,7 @@ defmodule ImagePipe.Telemetry.Trace.AttachTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.LogExporter
+  alias ImagePipe.Telemetry.Trace.TestExporter
 
   defmodule NotReadyExporter do
     @behaviour ImagePipe.Telemetry.Trace.Exporter
@@ -18,6 +19,29 @@ defmodule ImagePipe.Telemetry.Trace.AttachTest do
 
   test "attach_tracer succeeds with a valid exporter" do
     assert Telemetry.attach_tracer(exporter: LogExporter) == :ok
+  end
+
+  test "reattaching applies disabled and reenabled Finch capture" do
+    prefix = [:attach_test, :finch_toggle]
+    on_exit(&TestExporter.clear_receiver/0)
+    TestExporter.attach(self(), prefix: prefix)
+
+    metadata = %{
+      request: %{private: %{image_pipe_trace: {"attach-toggle", "parent", 1}}},
+      result: {:ok, %{status: 200}}
+    }
+
+    measurements = %{duration: 10, system_time: System.system_time()}
+    :telemetry.execute([:finch, :request, :stop], measurements, metadata)
+    assert_received {:span, %{name: "finch.request", trace_id: "attach-toggle"}}
+
+    TestExporter.attach(self(), prefix: prefix, finch_spans: false)
+    :telemetry.execute([:finch, :request, :stop], measurements, metadata)
+    refute_received {:span, %{name: "finch.request", trace_id: "attach-toggle"}}
+
+    TestExporter.attach(self(), prefix: prefix, finch_spans: true)
+    :telemetry.execute([:finch, :request, :stop], measurements, metadata)
+    assert_received {:span, %{name: "finch.request", trace_id: "attach-toggle"}}
   end
 
   test "attach_tracer raises on unknown option" do
