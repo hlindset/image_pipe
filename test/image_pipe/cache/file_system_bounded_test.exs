@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   # FileSystem.registry_name/1), so concurrently-booted trees never clash on a
   # process name.
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
@@ -246,6 +247,68 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     tracked = state.window_bytes + state.probationary_bytes + state.protected_bytes
     assert tracked <= cap
     assert tracked == total_body_bytes(root)
+  end
+
+  test "growing a cached body keeps disk usage within the cap", %{root: root} do
+    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 1.0)
+    start_supervised!(FileSystem.child_spec(opts))
+
+    original = String.duplicate("a", 40)
+    replacement = String.duplicate("c", 80)
+    cache_key = key()
+
+    assert :ok = put_entry(cache_key, entry(original), opts)
+    assert :ok = put_entry(distinct_key(2), entry(String.duplicate("b", 40)), opts)
+    assert :ok = put_entry(cache_key, entry(replacement), opts)
+
+    assert total_body_bytes(root) <= 100
+    assert tracked_bytes(admission_pid(root)) == total_body_bytes(root)
+    refute File.exists?(body_path(root, cache_key, original))
+    assert {:hit, %{body: ^replacement}} = FileSystem.get(cache_key, opts)
+  end
+
+  property "replacement sequences preserve the disk budget and accounting", %{root: root} do
+    check all(
+            ratio <- member_of([0.0, 0.25, 1.0]),
+            writes <-
+              list_of(tuple({integer(1..3), integer(1..100)}), min_length: 5, max_length: 20),
+            max_runs: 30
+          ) do
+      cache_root = Path.join(root, Integer.to_string(System.unique_integer([:positive])))
+      opts = bounded_opts(cache_root, max_size_bytes: 100, window_ratio: ratio)
+      start_supervised!(FileSystem.child_spec(opts), id: cache_root)
+
+      for {index, size} <- writes do
+        cache_key = distinct_key(index)
+        body = String.duplicate(Integer.to_string(index), size)
+        result = put_entry(cache_key, entry(body), opts)
+        assert result in [:ok, {:ok, :rejected}]
+        assert total_body_bytes(cache_root) <= 100
+        assert tracked_bytes(admission_pid(cache_root)) == total_body_bytes(cache_root)
+
+        case {result, FileSystem.get(cache_key, opts)} do
+          {:ok, {:hit, hit}} -> assert hit.body == body
+          {{:ok, :rejected}, :miss} -> :ok
+        end
+      end
+
+      stop_supervised!(cache_root)
+    end
+  end
+
+  test "rejected growth removes superseded files and accounting", %{root: root} do
+    opts = bounded_opts(root, max_size_bytes: 100, window_ratio: 0.5)
+    start_supervised!(FileSystem.child_spec(opts))
+    cache_key = key()
+    original = String.duplicate("a", 20)
+    replacement = String.duplicate("b", 80)
+
+    assert :ok = put_entry(cache_key, entry(original), opts)
+    assert {:ok, :rejected} = put_entry(cache_key, entry(replacement), opts)
+    assert FileSystem.get(cache_key, opts) == :miss
+    assert total_body_bytes(root) == 0
+    assert tracked_bytes(admission_pid(root)) == 0
+    refute File.exists?(meta_path(root, cache_key))
   end
 
   test "re-committing the same key with a new body deletes the old body", %{root: root} do
