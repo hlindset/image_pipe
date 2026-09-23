@@ -166,24 +166,24 @@ defmodule ImagePipe.API.OptionSpecTest do
       assert OptionSpec.parse_named_anchor("smart-face") == {:error, :invalid_anchor}
     end
 
-    test "parse_detect canonicalizes classes and sparse weights" do
-      assert OptionSpec.parse_detect("all") == {:ok, {:all, %{}}}
+    test "parse_detect produces typed classes and explicit weights" do
+      assert OptionSpec.parse_detect("all") == {:ok, [{:all, 1.0}]}
 
       assert OptionSpec.parse_detect("face,car") ==
-               {:ok, {["car", "face"], %{}}}
+               {:ok, [{"face", 1.0}, {"car", 1.0}]}
 
       assert OptionSpec.parse_detect("all:1,face:3") ==
-               {:ok, {:all, %{"face" => 3.0}}}
+               {:ok, [{:all, 1.0}, {"face", 3.0}]}
 
       assert OptionSpec.parse_detect("all:3,face:3,car") ==
-               {:ok, {:all, %{"car" => 1.0, default: 3.0}}}
+               {:ok, [{:all, 3.0}, {"face", 3.0}, {"car", 1.0}]}
 
-      assert OptionSpec.parse_detect("car:1.0") == {:ok, {["car"], %{}}}
+      assert OptionSpec.parse_detect("car:1.0") == {:ok, [{"car", 1.0}]}
     end
 
     test "parse_detect accepts custom class tokens and rejects invalid or duplicate items" do
       assert OptionSpec.parse_detect("license_plate,dog-v2") ==
-               {:ok, {["dog-v2", "license_plate"], %{}}}
+               {:ok, [{"license_plate", 1.0}, {"dog-v2", 1.0}]}
 
       for value <- [
             "",
@@ -205,7 +205,7 @@ defmodule ImagePipe.API.OptionSpecTest do
       end
 
       assert OptionSpec.parse_detect("face:1000000") ==
-               {:ok, {["face"], %{"face" => 1_000_000.0}}}
+               {:ok, [{"face", 1_000_000.0}]}
     end
 
     test "parse_offset accepts signed px/pct pairs within pixel arithmetic range" do

@@ -140,7 +140,7 @@ defmodule ImagePipe.Plan.Builder.Values do
          do: {:ok, Map.new(fields)}
   end
 
-  defp normalize(:all, :detect), do: {:ok, {:all, %{}}}
+  defp normalize(:all, :detect), do: {:ok, [{:all, 1.0}]}
   defp normalize(classes, :detect) when is_list(classes) and classes != [], do: detect(classes)
   defp normalize(_value, _kind), do: :error
 
@@ -209,22 +209,7 @@ defmodule ImagePipe.Plan.Builder.Values do
     with {:ok, pairs} <- detect_pairs(classes),
          names = Enum.map(pairs, &elem(&1, 0)),
          true <- Enum.uniq(names) == names do
-      selection =
-        case :all in names do
-          true -> :all
-          false -> Enum.sort(names)
-        end
-
-      raw = Map.new(pairs, fn {name, weight} -> {weight_key(name), weight} end)
-      default = Map.get(raw, :default, 1.0)
-
-      weights =
-        Map.reject(raw, fn
-          {:default, weight} -> weight == 1.0
-          {_name, weight} -> weight == default
-        end)
-
-      {:ok, {selection, weights}}
+      {:ok, pairs}
     end
   end
 
@@ -253,6 +238,4 @@ defmodule ImagePipe.Plan.Builder.Values do
     do: Regex.match?(~r/\A[a-z0-9][a-z0-9_-]*\z/, name)
 
   defp valid_class?(_name), do: false
-  defp weight_key(:all), do: :default
-  defp weight_key(name), do: name
 end

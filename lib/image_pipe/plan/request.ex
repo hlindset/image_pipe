@@ -159,7 +159,7 @@ defmodule ImagePipe.Plan.Request do
         {:focus, fx, fy}
 
       Map.has_key?(group_map, :detect) ->
-        {:detect, Map.fetch!(group_map, :detect)}
+        {:detect, assemble_detection(Map.fetch!(group_map, :detect))}
 
       guide_consumer?(group_map, resize_intent?) ->
         {:anchor, :center}
@@ -167,6 +167,27 @@ defmodule ImagePipe.Plan.Request do
       true ->
         nil
     end
+  end
+
+  defp assemble_detection(pairs) do
+    classes = Enum.map(pairs, &elem(&1, 0))
+    selection = if :all in classes, do: :all, else: Enum.sort(classes)
+
+    raw =
+      Map.new(pairs, fn
+        {:all, weight} -> {:default, weight}
+        pair -> pair
+      end)
+
+    default = Map.get(raw, :default, 1.0)
+
+    weights =
+      Map.reject(raw, fn
+        {:default, weight} -> weight == 1.0
+        {_class, weight} -> weight == default
+      end)
+
+    {selection, weights}
   end
 
   defp assemble_trim(nil), do: nil
