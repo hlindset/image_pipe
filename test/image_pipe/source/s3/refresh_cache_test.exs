@@ -112,15 +112,16 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
 
   test "does not serve an expired value; re-fetches on get" do
     test = self()
-    {:ok, calls} = Agent.start_link(fn -> 0 end)
+    calls = start_supervised!({Agent, fn -> 0 end}, id: :calls)
     past = ~U[2026-06-26 00:00:00Z]
     later = ~U[2026-06-26 02:00:00Z]
-    {:ok, clock} = Agent.start_link(fn -> past end)
+    clock = start_supervised!({Agent, fn -> past end}, id: :clock)
 
     fetch_fun = fn ->
       n = Agent.get_and_update(calls, fn n -> {n, n + 1} end)
       send(test, {:call, n})
-      {:ok, {:creds, n}, ~U[2026-06-26 00:30:00Z]}
+      expiry = DateTime.add(Agent.get(clock, & &1), 1800, :second)
+      {:ok, {:creds, n}, expiry}
     end
 
     pid =
@@ -137,6 +138,12 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     Agent.update(clock, fn _ -> later end)
     assert {:ok, {:creds, 1}} = Entry.get(pid)
     assert_received {:call, 1}
+  end
+
+  test "rejects an expired result even when a caller is waiting for it" do
+    now = ~U[2026-06-26 02:00:00Z]
+    pid = start_entry(fetch_fun: fn -> {:ok, :expired, now} end, now_fun: fn -> now end)
+    assert {:error, :expired_value} = Entry.get(pid)
   end
 
   test "get returns a tagged error instead of exiting the caller on call timeout" do

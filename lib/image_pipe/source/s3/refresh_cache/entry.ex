@@ -124,9 +124,12 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   end
 
   defp handle_result({:ok, value, expires_at}, state) do
-    state = %{state | value: value, expires_at: expires_at}
-    state = reply_waiters({:ok, value}, state)
-    schedule_refresh(state)
+    updated = %{state | value: value, expires_at: expires_at}
+
+    case fresh?(updated) do
+      true -> {:ok, value} |> reply_waiters(updated) |> schedule_refresh()
+      false -> handle_result({:error, :expired_value}, state)
+    end
   end
 
   defp handle_result({:error, reason}, state) do
