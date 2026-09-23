@@ -8,14 +8,16 @@ defmodule ImagePipe.Source.S3.CredentialProvider do
       credentials: {:provider, MyApp.S3.InstanceRole, []}
 
   Results are cached by `ImagePipe.Source.S3.RefreshCache` keyed by
-  `{provider, opts, scope}`, so `fetch_credentials/3` is invoked once per
-  credential lifetime, not per request. Because results are cached across
-  requests, the provider MUST derive its behaviour from `scope` and `opts` only;
+  `{provider, opts, scope}` and reused across requests. Entries are checked
+  every five minutes and retire after a full check interval without a request,
+  once any in-flight fetch completes; a later request fetches credentials again. Because
+  results are cached across requests, the provider MUST derive its behaviour
+  from `scope` and `opts` only;
   `runtime_opts` is reserved and is currently passed as `[]`.
 
   The returned `expiry` is a `DateTime.t()` for temporary credentials (the cache
   refreshes shortly before it) or `:never` for permanent credentials (cached for
-  the process lifetime, never refreshed).
+  the entry lifetime, never refreshed).
   Invalid expiry values and results that have expired by the time the fetch
   completes are rejected. A failed refresh can retain previously cached
   credentials only while those credentials are still unexpired.

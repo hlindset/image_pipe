@@ -53,6 +53,9 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
 
     # ensure the 5 gets have enqueued as waiters before releasing the one fetch
     wait_for_waiters(pid, 5)
+    send(pid, :check_idle)
+    send(pid, :check_idle)
+    _ = :sys.get_state(pid)
     send(fetch_pid, :release)
 
     results = Task.await_many(callers)
@@ -182,6 +185,33 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
   describe "facade" do
     alias ImagePipe.Source.S3.RefreshCache
 
+    test "recreates a retired entry on the next fetch" do
+      key = {:retirement, make_ref()}
+      assert {:ok, :first} = RefreshCache.fetch(key, fn -> {:ok, :first, :never} end)
+      [{pid, _}] = Registry.lookup(RefreshCache.Registry, key)
+      ref = Process.monitor(pid)
+      send(pid, :check_idle)
+      send(pid, :check_idle)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+      assert {:error, :retired} = Entry.get(pid)
+      assert {:ok, :second} = RefreshCache.fetch(key, fn -> {:ok, :second, :never} end)
+    end
+
+    test "retries a get queued behind idle retirement" do
+      key = {:retirement_race, make_ref()}
+      assert {:ok, :first} = RefreshCache.fetch(key, fn -> {:ok, :first, :never} end)
+      [{pid, _}] = Registry.lookup(RefreshCache.Registry, key)
+      :ok = :sys.suspend(pid)
+      send(pid, :check_idle)
+      send(pid, :check_idle)
+
+      caller = Task.async(fn -> RefreshCache.fetch(key, fn -> {:ok, :second, :never} end) end)
+      wait_for_queued_get(pid)
+      :ok = :sys.resume(pid)
+
+      assert {:ok, :second} = Task.await(caller)
+    end
+
     test "fetch/3 lazily starts one entry per key and caches across calls" do
       test = self()
       key = {:unit, make_ref()}
@@ -202,6 +232,36 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
       k2 = {:unit, make_ref()}
       assert {:ok, 1} = RefreshCache.fetch(k1, fn -> {:ok, 1, :never} end)
       assert {:ok, 2} = RefreshCache.fetch(k2, fn -> {:ok, 2, :never} end)
+    end
+  end
+
+  test "retires an unused entry normally" do
+    pid = start_entry(fetch_fun: fn -> {:ok, :creds, :never} end, idle_interval_ms: 20)
+    ref = Process.monitor(pid)
+    assert {:ok, :creds} = Entry.get(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
+  end
+
+  test "requests keep an entry active" do
+    pid = start_entry(fetch_fun: fn -> {:ok, :creds, :never} end)
+
+    for _ <- 1..3 do
+      assert {:ok, :creds} = Entry.get(pid)
+      send(pid, :check_idle)
+    end
+
+    _ = :sys.get_state(pid)
+    ref = Process.monitor(pid)
+    send(pid, :check_idle)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+  end
+
+  defp wait_for_queued_get(pid) do
+    {:messages, messages} = Process.info(pid, :messages)
+
+    case Enum.any?(messages, &match?({:"$gen_call", _, :get}, &1)) do
+      true -> :ok
+      false -> wait_for_queued_get(pid)
     end
   end
 end
