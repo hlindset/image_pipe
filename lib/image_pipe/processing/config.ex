@@ -3,7 +3,6 @@ defmodule ImagePipe.Processing.Config do
   alias ImagePipe.Format
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Output.QualitySearch.Metric
-  alias ImagePipe.Source
   alias ImagePipe.Telemetry
 
   @default_max_body_bytes 10_000_000
@@ -97,10 +96,6 @@ defmodule ImagePipe.Processing.Config do
 
   def system_time, do: System.os_time(:second)
 
-  def validate!(opts) do
-    opts |> Source.validate_config!() |> validate_known_opts!() |> resolve!()
-  end
-
   @doc false
   def validate_clock(clock) when is_function(clock, 0), do: {:ok, clock}
 
@@ -175,17 +170,6 @@ defmodule ImagePipe.Processing.Config do
   end
 
   defp valid_source_scheme_translator?(_translator), do: false
-
-  defp validate_known_opts!(opts) do
-    case NimbleOptions.validate(opts, @options_schema) do
-      {:ok, validated_opts} ->
-        Keyword.put_new(validated_opts, :clock, &__MODULE__.system_time/0)
-
-      {:error, %NimbleOptions.ValidationError{} = error} ->
-        raise ArgumentError,
-              "invalid ImagePipe processing options: #{Exception.message(error)}"
-    end
-  end
 
   @doc false
   def resolve!(opts) do

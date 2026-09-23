@@ -7,7 +7,6 @@ defmodule ImagePipe.RunTest do
   alias ImagePipe.Execution.Output
   alias ImagePipe.Plan
   alias ImagePipe.Processing
-  alias ImagePipe.Processing.Config
   alias ImagePipe.RunTest.LateFailureEncoder
   alias ImagePipe.RunTest.OwnedSource
   alias ImagePipe.Source
@@ -96,11 +95,8 @@ defmodule ImagePipe.RunTest do
   test "buffered delivery consumes late encoder failures before closing the source", %{
     bytes: bytes
   } do
-    config =
-      bytes
-      |> owned_source()
-      |> Config.validate!()
-      |> Keyword.put(:image_module, LateFailureEncoder)
+    shared = IP.config(owned_source(bytes))
+    config = Keyword.put(shared.options, :image_module, LateFailureEncoder)
 
     assert {:ok, request} = Plan.to_request(IP.output(IP.new(), format: :jpeg).plan, "")
     assert {:ok, policy} = Processing.prepare(request, config, "")
