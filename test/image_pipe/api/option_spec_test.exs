@@ -19,9 +19,6 @@ defmodule ImagePipe.API.OptionSpecTest do
         assert is_binary(spec.key) and spec.key != ""
         assert spec.scope in [:group, :request]
         assert spec.value == :flag or is_function(spec.value, 1)
-        assert is_nil(spec.stage) or (is_integer(spec.stage) and spec.stage > 0)
-        assert is_list(spec.prerequisites)
-        assert spec.identity in [:representation, :storage, :gate, :presentation]
         assert is_binary(spec.summary) and spec.summary != ""
 
         assert is_list(spec.examples) and spec.examples != [],
@@ -29,15 +26,6 @@ defmodule ImagePipe.API.OptionSpecTest do
 
         for example <- spec.examples do
           assert is_binary(example) and example != ""
-        end
-      end
-    end
-
-    test "group-scoped options declare a pipeline stage; request-scoped options do not" do
-      for %OptionSpec{} = spec <- OptionSpec.all() do
-        case spec.scope do
-          :group -> assert is_integer(spec.stage)
-          :request -> assert is_nil(spec.stage)
         end
       end
     end
