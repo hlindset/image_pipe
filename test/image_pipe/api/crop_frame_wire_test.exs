@@ -7,6 +7,30 @@ defmodule ImagePipe.API.CropFrameWireTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias Vix.Vips.Image, as: Vimage
 
+  test "out-of-range focus is rejected before fetching a source" do
+    config =
+      ImagePipe.Plug.init(
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: fn _conn -> flunk("invalid focus fetched a source") end]}
+        ]
+      )
+
+    for {x, y} <- [{-0.1, 0.5}, {1.1, 0.5}, {0.5, -0.1}, {0.5, 1.1}] do
+      response =
+        conn(:get, "/crop=20,20/focus=#{x},#{y}/src/image.png")
+        |> ImagePipe.Plug.call(config)
+
+      assert response.status == 400
+
+      assert_raise ArgumentError, fn ->
+        ImagePipe.new() |> ImagePipe.group(crop: {20, 20}, focus: {x, y})
+      end
+    end
+  end
+
   test "percentage crops use the trimmed input and preserve its pixel coordinates" do
     content =
       Image.new!(80, 40, color: [220, 20, 60])

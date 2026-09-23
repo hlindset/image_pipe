@@ -170,22 +170,20 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp resolved_rect(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
     {crop_width, crop_height} = resolved_box_dims(params, image_width, image_height)
 
-    with {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
-      x_offset = resolve_offset(params.x_offset, image_width)
-      y_offset = resolve_offset(params.y_offset, image_height)
+    gravity = params.gravity || @default_gravity
+    x_offset = resolve_offset(params.x_offset, image_width)
+    y_offset = resolve_offset(params.y_offset, image_height)
 
-      {:ok,
-       gravity_crop_coordinates(
-         image_width,
-         image_height,
-         crop_width,
-         crop_height,
-         gravity,
-         x_offset,
-         y_offset,
-         params.center_bias
-       )}
-    end
+    gravity_crop_coordinates(
+      image_width,
+      image_height,
+      crop_width,
+      crop_height,
+      gravity,
+      x_offset,
+      y_offset,
+      params.center_bias
+    )
   end
 
   defp resolved_rect(%__MODULE__{} = params, image_width, image_height) do
@@ -202,7 +200,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     left = max(0, min(image_width - crop_width, round(center_x - crop_width / 2)))
     top = max(0, min(image_height - crop_height, round(center_y - crop_height / 2)))
 
-    {:ok, %{left: left, top: top, width: crop_width, height: crop_height}}
+    %{left: left, top: top, width: crop_width, height: crop_height}
   end
 
   @impl ImagePipe.Transform
@@ -239,16 +237,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
     image_width = image_width(state)
     image_height = image_height(state)
 
-    case resolved_rect(params, image_width, image_height) do
-      {:ok, %{left: left, top: top, width: crop_width, height: crop_height}} ->
-        crop_image(params, state, {left, top, crop_width, crop_height})
+    %{left: left, top: top, width: crop_width, height: crop_height} =
+      resolved_rect(params, image_width, image_height)
 
-      {:error, error} ->
-        {:error, {__MODULE__, error}}
-    end
-  end
-
-  defp crop_image(%__MODULE__{}, %State{} = state, {left, top, crop_width, crop_height}) do
     case Image.crop(state.image, left, top, crop_width, crop_height) do
       {:ok, cropped_image} -> {:ok, set_image(state, cropped_image)}
       {:error, error} -> {:error, {__MODULE__, error}}
@@ -389,9 +380,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp clamp_unit(value), do: value |> max(0.0) |> min(1.0)
 
-  defp default_if_nil(nil, default), do: default
-  defp default_if_nil(value, _default), do: value
-
   defp gravity_crop_coordinates(
          image_width,
          image_height,
@@ -402,9 +390,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
          y_offset,
          center_bias
        ) do
-    crop_width = max(1, min(image_width, crop_width))
-    crop_height = max(1, min(image_height, crop_height))
-
     {left, top} =
       gravity_position(
         gravity,
@@ -464,34 +449,21 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   # Near edge (West/North): pos = 0 + offset (calc_position.go:41,53).
   defp anchor_position(anchor, _bounds, _crop, offset, _bias) when anchor in [:left, :top],
-    do: round_offset_to_even(offset)
+    do: round_ties_to_even(offset)
 
   # Add the rounded offset to the shared center origin. :far reflects that origin
   # across the gap to preserve rounding when the orientation flush reverses an axis.
   defp anchor_position(:center, bounds, crop, offset, :near),
-    do: center_origin(bounds, crop) + round_offset_to_even(offset)
+    do: center_origin(bounds, crop) + round_ties_to_even(offset)
 
   defp anchor_position(:center, bounds, crop, offset, :far),
-    do: bounds - crop - center_origin(bounds, crop) + round_offset_to_even(offset)
+    do: bounds - crop - center_origin(bounds, crop) + round_ties_to_even(offset)
 
   # Far edge (East/South): pos = bounds - crop - offset (calc_position.go:45,49).
   defp anchor_position(anchor, bounds, crop, offset, _bias) when anchor in [:right, :bottom],
-    do: bounds - crop - round_offset_to_even(offset)
-
-  # Offsets already have resolved bounds/scale; round ties-to-even before placement.
-  defp round_offset_to_even(offset), do: round_ties_to_even(offset)
+    do: bounds - crop - round_ties_to_even(offset)
 
   defp clamp_position(value, max_value), do: max(0, min(max_value, value))
-
-  defp crop_gravity({:anchor, x, y} = gravity)
-       when x in [:left, :center, :right] and y in [:top, :center, :bottom],
-       do: {:ok, gravity}
-
-  defp crop_gravity({:fp, x, y} = gravity)
-       when is_number(x) and is_number(y) and x >= 0.0 and x <= 1.0 and y >= 0.0 and y <= 1.0,
-       do: {:ok, gravity}
-
-  defp crop_gravity(value), do: {:error, {:invalid_crop_gravity, value}}
 
   defp correct_aspect_ratio(width, height, nil, _enlarge, _image_width, _image_height),
     do: {width, height}
