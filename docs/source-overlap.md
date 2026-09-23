@@ -1,7 +1,8 @@
 # Source/decode overlap investigation
 
-Beads issue: `image_plug-yx6`. This is a feasibility experiment; the request path
-still spools sources before decoding them.
+Beads issue: `image_plug-yx6`. Cold remote-cache acquisitions can overlap staging
+and decoding for JPEG (including progressive JPEG) and PNG. Automatic selection
+uses observed transfer timing; other requests retain complete-file spooling.
 
 ## Experiment
 
@@ -22,8 +23,8 @@ experiment.
 The source is a local file paced against an absolute byte/time schedule in
 64 KiB chunks. Rate zero means unthrottled. This models source availability,
 not HTTP connection setup, socket buffering, redirects, or Req backpressure.
-The shrink factor is supplied in advance; header inspection and reopening for
-request-dependent shrink planning remain production integration work.
+The shrink factor is supplied in advance. The production path independently
+inspects a bounded prefix and uses the request's normal shrink planner.
 
 Each measurement runs in a fresh VM with modules preloaded and the libvips
 operation cache disabled. Strategy order reverses between repetitions. Timing
@@ -43,7 +44,7 @@ when the first pixels are computed.
 Environment: macOS 27 arm64, Elixir 1.20.4 / OTP 29, Image 0.72.0,
 Vix 0.41.0, and libvips 8.18.6.
 
-The large-input matrix uses `waterfall.jpg` (10,671,398 bytes), three repetitions
+The large-input matrix uses progressive `waterfall.jpg` (10,671,398 bytes), three repetitions
 per strategy/case, and JPEG shrink factors 1 and 8. The table shows median
 elapsed milliseconds; the complete samples and memory figures are in
 [`bench/source_overlap_samples.json`](../bench/source_overlap_samples.json).
@@ -115,51 +116,79 @@ stall. Connection latency must not be included in the estimate. CPU pressure,
 format, progressive encoding, shrink factor, and input size also affect the
 crossover. A single bandwidth threshold cannot establish a universal win.
 
-The next policy experiment should collect more observations when the first
-window is too short, with a fixed upper bound on retained prefix bytes, rather
-than immediately making the 2 ms cutoff decision. It should include bursty
-origins, unknown lengths, and CPU contention over real HTTP. The evidence
-supports continuing with automatic selection, but does not justify enabling
-these particular thresholds in the library.
+## Production path
 
-## Production design constraints
+For image requests acquiring a remote source without an existing record,
+`Execution.SourceCache` stages and hashes the source in its fetching process.
+The selector requires a known Content-Length above 1 MiB, within the body
+limit. It observes at least 256 KiB and 5 ms of transfer, extending observation
+up to 1 MiB. An estimated remaining transfer of at least 30 ms makes JPEG/PNG
+eligible if libvips can open the bounded header prefix. Unknown lengths,
+other formats, small/fast sources, and revalidation retain spooling.
 
-`Execution.prepare/5` currently acquires untrusted remote bytes before choosing
-the final representation. `Source.Record.new/4` uses a full-body SHA-256 when
-the source has no trusted byte identity. An overlapping decoder must preserve
-that identity, the conditional gate, and cache publication ordering. A new
-request option or placeholder digest cannot stand in for completed identity.
+`Source.Download` tracks committed file offsets. The native feeder replays the
+growing file in reads of at most 64 KiB; the coordinator stores positions,
+not a queue of encoded chunks. Slow decoding therefore does not block source
+staging or add an unbounded in-memory tee. The existing Req transport still
+uses asynchronous incoming messages; this change does not establish a new
+bound for the transport mailbox itself.
 
-The natural integration is request-owned speculative processing while the
-complete encoded source is staged. It needs processing admission before any
-speculative pixel work; today source-cache acquisition precedes processing
-admission. Successful processing and final source validation must rendezvous
-before response delivery or publication. An output-cache hit discovered after
-identity resolution must release any speculative image resources.
+The decoder inspects the prefix and reopens the same acquisition sequentially
+with normal shrink planning. Existing transforms and materialization run under
+processing admission. The resulting processing result is used only after the
+full body is staged and hashed and the normal representation, conditional,
+and output-cache gates run. Speculative errors are deferred to generation;
+admission rejection falls back to ordinary processing. Source failures prevent
+publication. An early-finished decoder does not stop source hashing/staging.
 
-Source transport and staging remain under the source/cache owners. Decode
-owns format selection, header inspection, shrink planning, and replay. The
-executor continues to own image operations and their materialization rules.
-Formats requiring seeking retain a completed-file fallback. Header preflight
-and the planned sequential reopen must use the same acquisition, including
-bytes already consumed by the first reader.
+The download coordinator monitors the request, processing worker, and feeder.
+Worker completion stops any remaining feeder; request cancellation stops both.
+The source lease owns temporary-file cleanup. Cache publication failures keep
+the response usable, and staging write failures cancel speculation and retain
+the existing in-memory fallback.
 
-The Vix `new_from_enum/2` implementation in the checked-in dependency starts a
-linked reader and returns the image without an explicit reader cancellation
-handle. It is sufficient for these successful finite experiments, but using
-it directly does not establish the request cancellation/error contract. The
-production bridge needs explicit ownership and cleanup for source failure,
-decode early exit, client cancellation, and native reads waiting for bytes.
+Wire tests hold an actual HTTP origin's tail until header opening is observed.
+They cover JPEG/PNG pixel equivalence, resize followed by arbitrary rotation,
+early crop completion, complete original-byte publication, truncation,
+cancellation, cache failures, pixel limits, warm output hits, and conditional
+304 responses. Full-resolution arbitrary rotation before resizing exposed an
+independent slow buffered case, tracked in `image_plug-dcw`.
 
-The current Req transport uses `into: :self`. Blocking a tee writer alone does
-not prove bounded network buffering: incoming messages can still accumulate.
-Bounded producer/consumer behavior must be demonstrated at the actual HTTP/S3
-transport boundary, including slow decoding and failed cache writes.
+## HTTP request measurements
 
-The issue remains open until real request tests establish lifecycle cleanup,
-limits, format fallback, unchanged warm-cache behavior, and latency benefits
-under realistic HTTP delivery. This microbenchmark does not satisfy those
-acceptance criteria.
+`bench/source_overlap_request.exs` measures a cold real HTTP request including
+source hashing/staging, transform, PNG encoding, and both filesystem caches.
+It resizes the large progressive JPEG to width 366. The spool baseline omits
+Content-Length to force the ordinary path. Each sample uses a fresh preloaded
+VM with native operation caching disabled. Three trials alternate mode order;
+all 24 output pixel digests match. The local origin's in-memory body is included
+in process RSS. Raw results: [request samples](../bench/source_overlap_request_samples.json).
+
+| Source schedule | Spool ms | Automatic ms | Selection |
+| --- | ---: | ---: | --- |
+| Unthrottled | 404.3 | 403.4 | Spool |
+| 20 MiB/s | 918.7 | 565.9 | Overlap |
+| 80 MiB/s | 525.8 | 417.7 | Overlap |
+| 320 MiB/s | 420.0 | 423.1 | Spool |
+
+The paced cases improve 38.4% and 20.6%. Native peak allocation is 7,542,695
+bytes in every sample. Median RSS varies between 426 and 444 MB across cases,
+with differences in both directions; this does not establish a memory win.
+The 320 MiB/s median regression is 0.7%, with only three trials.
+
+## Other formats
+
+The format probe uses `waterfall.jpg` resized by 0.25, then encoded with default
+PNG or WebP settings. Each mode runs three times at zero and 20 MiB/s, with
+matching source and pixel digests. PNG's 20 MiB/s median improves from 398.9
+to 361.2 ms (9.4%), with identical native peak allocation. WebP changes from
+74.25 to 74.07 ms, while native peak allocation increases from 50.9 to 63.8 MB.
+These cases support including PNG and retaining WebP's buffered path. They do
+not prove that every image of either format has the same performance.
+AVIF/HEIF and TIFF remain on the buffered path pending broader measurements.
+
+Raw results: [PNG](../bench/source_overlap_png_samples.json),
+[WebP](../bench/source_overlap_webp_samples.json).
 
 ## Reproduction
 
@@ -169,6 +198,13 @@ mise exec -- python3 bench/source_overlap.py bench/source_overlap_samples.json -
 mise exec -- python3 bench/source_overlap.py bench/source_overlap_small_samples.json --trials 3 --auto --source priv/static/images/woman.jpg
 ```
 
-`--source` selects another JPEG, `--shrink` narrows the shrink factors, and
+`--source` selects another image (`--shrink 1` for non-JPEG), `--shrink` narrows the shrink factors, and
 repeated `--rate` options choose the source-availability sweep. The benchmark
 expects already-built dependencies and library modules.
+
+Run a production-path sample with:
+
+```sh
+mise exec -- mix run --no-compile --preload-modules bench/source_overlap_request.exs auto priv/static/images/waterfall.jpg 20
+mise exec -- mix run --no-compile --preload-modules bench/source_overlap_request.exs spool priv/static/images/waterfall.jpg 20
+```

@@ -81,9 +81,18 @@ defmodule ImagePipe.Execution do
   end
 
   defp acquire(context, record) do
-    case SourceCache.acquire(context.source, context.input_key, record, context.config, false) do
-      {:ok, record, response, lease} -> {:ok, current(context, record, response, lease)}
-      {:error, _reason} = error -> error
+    case SourceCache.acquire(
+           context.source,
+           context.input_key,
+           record,
+           acquisition_config(context),
+           false
+         ) do
+      {:ok, record, response, lease, pixels} ->
+        {:ok, %{current(context, record, response, lease) | prepared_pixels: pixels}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -167,9 +176,14 @@ defmodule ImagePipe.Execution do
   defp input(%Context{response: %Source.Response{}} = context), do: generate(context)
 
   defp input(context) do
-    case SourceCache.input(context.source, context.input_key, context.record, context.config) do
-      {:ok, record, response, lease} ->
-        context = current(context, record, response, context.lease)
+    case SourceCache.input(
+           context.source,
+           context.input_key,
+           context.record,
+           acquisition_config(context)
+         ) do
+      {:ok, record, response, lease, pixels} ->
+        context = %{current(context, record, response, context.lease) | prepared_pixels: pixels}
         generate_leased(context, lease)
 
       {:error, _reason} = error ->
@@ -296,6 +310,9 @@ defmodule ImagePipe.Execution do
     result
   end
 
+  defp acquisition_config(context),
+    do: Keyword.put(context.config, :source_preparation, {context.request, context.policy})
+
   defp prepared_config(%Context{record: nil, config: config}), do: config
 
   defp prepared_config(context),
@@ -303,6 +320,7 @@ defmodule ImagePipe.Execution do
       context.config
       |> Keyword.put(:prepared_source, context.response)
       |> Keyword.put(:source_record, context.record)
+      |> Keyword.put(:prepared_pixels, context.prepared_pixels)
 
   defp store_body(nil, _type, _body, _debug, _cost, _config), do: :ok
 

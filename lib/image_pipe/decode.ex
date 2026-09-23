@@ -24,6 +24,7 @@ defmodule ImagePipe.Decode do
   alias Image.Options.Open, as: ImageOpenOptions
   alias ImagePipe.Decode.HeaderDimensions
   alias ImagePipe.Decode.SourceFormat
+  alias ImagePipe.Decode.Streaming
   alias ImagePipe.Error
   alias ImagePipe.Format.Detector
   alias ImagePipe.Plan.Request
@@ -42,6 +43,8 @@ defmodule ImagePipe.Decode do
   @authoritative_formats [:jpeg, :png, :webp, :tiff, :jpeg2000, :jpeg_xl]
 
   @type error() :: {:source, term()} | {:decode, term()} | {:input_limit, term()}
+
+  defdelegate streamable_source?(prefix), to: Streaming, as: :eligible?
 
   @doc """
   Fetches and decodes a source, then calls `fun` with its `Transform.State`
@@ -119,7 +122,7 @@ defmodule ImagePipe.Decode do
   end
 
   defp decode(response, request, opts, auto_rotate?) do
-    with {:ok, input} <- seekable_input(response),
+    with {:ok, input} <- input(response, opts),
          {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
          :ok <- gate_detected(detected) |> wrap_decode_error(),
@@ -233,6 +236,13 @@ defmodule ImagePipe.Decode do
     %{w: max(1.0, orig_w / loaded_w), h: max(1.0, orig_h / loaded_h)}
   end
 
+  defp input(response, opts) do
+    case Keyword.get(opts, :prepared_download) do
+      nil -> seekable_input(response)
+      {download, prefix} -> {:ok, {:download, download, prefix}}
+    end
+  end
+
   defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
     do: {:ok, {:path, path}}
 
@@ -253,6 +263,8 @@ defmodule ImagePipe.Decode do
 
   defp peek_bytes({:buffer, binary}) when is_binary(binary),
     do: {:ok, binary_part(binary, 0, min(byte_size(binary), @peek_bytes))}
+
+  defp peek_bytes({:download, _download, prefix}), do: {:ok, prefix}
 
   defp peek_bytes({:path, path}) do
     case File.open(path, [:read, :binary, :raw]) do
@@ -304,6 +316,13 @@ defmodule ImagePipe.Decode do
     case Keyword.get(opts, :image_open_module) do
       nil -> open_buffer(binary, decode_options, opts)
       module -> module.open(binary, decode_options)
+    end
+  end
+
+  defp open_seekable_input({:download, download, prefix}, decode_options, opts) do
+    case Keyword.fetch!(decode_options, :access) do
+      :random -> open_buffer(prefix, decode_options, opts)
+      :sequential -> Streaming.open(download, decode_options)
     end
   end
 
@@ -379,6 +398,7 @@ defmodule ImagePipe.Decode do
   end
 
   defp source_byte_size({:buffer, binary}), do: byte_size(binary)
+  defp source_byte_size({:download, _download, _prefix}), do: nil
 
   defp source_byte_size({:path, path}) do
     case File.stat(path, time: :posix) do

@@ -89,8 +89,14 @@ defmodule SourceOverlapBench do
       started = System.monotonic_time(:microsecond)
       stream = source_stream(source, path, rate, events, started)
 
+      {:ok, header} = Image.open(source)
+      {:ok, format} = ImagePipe.Decode.SourceFormat.from_image(header)
+      load_options = if format == :jpeg, do: [shrink: shrink], else: []
+
       {:ok, options} =
-        Image.Options.Open.validate_options(access: :sequential, fail_on: :error, shrink: shrink)
+        Image.Options.Open.validate_options(
+          [access: :sequential, fail_on: :error] ++ load_options
+        )
 
       image = open(mode, stream, path, options, events, File.stat!(source).size)
       opened = System.monotonic_time(:microsecond)

@@ -18,6 +18,7 @@ defmodule ImagePipe.Source do
       CachePolicy,
       CacheState,
       CacheSemantics,
+      Download,
       Origin,
       Record,
       Resolved,
