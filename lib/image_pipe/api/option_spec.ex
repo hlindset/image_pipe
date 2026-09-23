@@ -2,7 +2,7 @@ defmodule ImagePipe.API.OptionSpec do
   @moduledoc """
   Declarative option table for the ImagePipe URL API.
 
-  Each `%OptionSpec{}` defines an option's key, scope, value parser, and
+  Each `%OptionSpec{}` defines an option's URL key, canonical name, scope, value parser, and
   documentation. Semantic constraints are owned by `ImagePipe.Plan.Request`.
 
   Tests require complete entries with at least one example each.
@@ -13,6 +13,7 @@ defmodule ImagePipe.API.OptionSpec do
 
   @enforce_keys [
     :key,
+    :name,
     :scope,
     :value,
     :summary,
@@ -26,6 +27,7 @@ defmodule ImagePipe.API.OptionSpec do
 
   @type t :: %__MODULE__{
           key: String.t(),
+          name: atom() | nil,
           scope: :group | :request,
           value: :flag | value_parser(),
           summary: String.t(),
@@ -112,6 +114,7 @@ defmodule ImagePipe.API.OptionSpec do
     [
       %__MODULE__{
         key: "rotate",
+        name: :rotate,
         scope: :group,
         value: &__MODULE__.parse_rotate/1,
         summary: "Clockwise rotation in degrees from 0 to 360",
@@ -119,6 +122,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "flip",
+        name: :flip,
         scope: :group,
         value: &__MODULE__.parse_flip/1,
         summary: "Flip horizontally, vertically, or both after rotation",
@@ -126,6 +130,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "gray",
+        name: :gray,
         scope: :group,
         value: :flag,
         summary: "Convert to grayscale",
@@ -133,6 +138,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "bitonal",
+        name: :bitonal,
         scope: :group,
         value: :flag,
         summary: "Threshold grayscale at 128 to black and white, preserving alpha",
@@ -140,6 +146,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "dpr",
+        name: :dpr,
         scope: :group,
         value: &__MODULE__.parse_dpr/1,
         summary: "Device pixel ratio multiplier",
@@ -147,6 +154,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "w",
+        name: :width,
         scope: :group,
         value: &__MODULE__.parse_dimension/1,
         summary: "Resize target width, in px, or auto to preserve aspect",
@@ -154,6 +162,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "h",
+        name: :height,
         scope: :group,
         value: &__MODULE__.parse_dimension/1,
         summary: "Resize target height, in px, or auto to preserve aspect",
@@ -161,6 +170,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "min-w",
+        name: :min_width,
         scope: :group,
         value: &__MODULE__.parse_min_dimension/1,
         summary: "Minimum resize width in pixels",
@@ -168,6 +178,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "min-h",
+        name: :min_height,
         scope: :group,
         value: &__MODULE__.parse_min_dimension/1,
         summary: "Minimum resize height in pixels",
@@ -175,6 +186,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "fit",
+        name: :fit,
         scope: :group,
         value: &__MODULE__.parse_fit/1,
         summary: "Resize mode: contain, cover, cover-down, stretch, or auto",
@@ -182,6 +194,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "enlarge",
+        name: :enlarge,
         scope: :group,
         value: :flag,
         summary: "Allow the resize to upscale past source dimensions",
@@ -189,6 +202,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "zoom",
+        name: :zoom,
         scope: :group,
         value: &__MODULE__.parse_zoom/1,
         summary: "Positive resize multiplier as one scalar or x,y pair",
@@ -196,6 +210,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "extend",
+        name: :extend,
         scope: :group,
         value: :flag,
         summary: "Extend to the requested width and height",
@@ -203,6 +218,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "extend-ratio",
+        name: :extend_ratio,
         scope: :group,
         value: :flag,
         summary: "Extend to the requested width-to-height ratio",
@@ -210,6 +226,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "extend-at",
+        name: :extend_at,
         scope: :group,
         value: &__MODULE__.parse_named_anchor/1,
         summary: "Canvas placement anchor",
@@ -217,6 +234,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "extend-offset",
+        name: :extend_offset,
         scope: :group,
         value: &__MODULE__.parse_offset/1,
         summary: "Signed x,y canvas placement offset",
@@ -224,6 +242,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "crop",
+        name: :crop,
         scope: :group,
         value: &__MODULE__.parse_crop/1,
         summary: "Guided crop to w,h (px or pct), guided by anchor/focus",
@@ -231,6 +250,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "crop-ratio",
+        name: :crop_ratio,
         scope: :group,
         value: &__MODULE__.parse_crop_ratio/1,
         summary: "Crop aspect ratio as a:b or a positive decimal",
@@ -238,6 +258,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "crop-ratio-enlarge",
+        name: :crop_ratio_enlarge,
         scope: :group,
         value: :flag,
         summary: "Allow crop ratio correction to enlarge the crop box",
@@ -245,6 +266,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "region",
+        name: :region,
         scope: :group,
         value: &__MODULE__.parse_region/1,
         summary: "Explicit-region crop x,y,w,h (px or pct)",
@@ -252,6 +274,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "anchor",
+        name: :anchor,
         scope: :group,
         value: &__MODULE__.parse_anchor/1,
         summary: "Crop guide / gravity for a guided crop or cover-family resize",
@@ -259,6 +282,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "anchor-offset",
+        name: :anchor_offset,
         scope: :group,
         value: &__MODULE__.parse_offset/1,
         summary: "Signed x,y offset from a named crop anchor",
@@ -266,6 +290,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "focus",
+        name: :focus,
         scope: :group,
         value: &__MODULE__.parse_focus/1,
         summary: "Focal point as x,y unit-space fractions (0.0-1.0)",
@@ -273,6 +298,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "detect",
+        name: :detect,
         scope: :group,
         value: &__MODULE__.parse_detect/1,
         summary: "Detector classes with optional positive class weights",
@@ -280,6 +306,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "blur",
+        name: :blur,
         scope: :group,
         value: &__MODULE__.parse_blur/1,
         summary: "Gaussian blur sigma; 0 is the Tier-1 identity point",
@@ -287,6 +314,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "sharpen",
+        name: :sharpen,
         scope: :group,
         value: &__MODULE__.parse_sharpen/1,
         summary: "Sharpen sigma; 0 is the identity point",
@@ -294,6 +322,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "pixelate",
+        name: :pixelate,
         scope: :group,
         value: &__MODULE__.parse_pixelate/1,
         summary: "Pixelation block size; 1 is the identity point",
@@ -301,6 +330,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "monochrome",
+        name: :monochrome,
         scope: :group,
         value: &__MODULE__.parse_monochrome/1,
         summary: "Monochrome intensity and optional color",
@@ -308,6 +338,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "duotone",
+        name: :duotone,
         scope: :group,
         value: &__MODULE__.parse_duotone/1,
         summary: "Duotone intensity with optional shadow and highlight colors",
@@ -315,6 +346,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "brightness",
+        name: :brightness,
         scope: :group,
         value: &__MODULE__.parse_brightness/1,
         summary: "Additive brightness adjustment from -255 to 255",
@@ -322,6 +354,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "contrast",
+        name: :contrast,
         scope: :group,
         value: &__MODULE__.parse_contrast/1,
         summary: "Positive contrast factor; 1 is the identity point",
@@ -329,6 +362,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "saturation",
+        name: :saturation,
         scope: :group,
         value: &__MODULE__.parse_saturation/1,
         summary: "Positive saturation factor; 1 is the identity point",
@@ -336,6 +370,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "colorize",
+        name: :colorize,
         scope: :group,
         value: &__MODULE__.parse_colorize/1,
         summary: "Color overlay with optional alpha preservation",
@@ -343,6 +378,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "gradient",
+        name: :gradient,
         scope: :group,
         value: &__MODULE__.parse_gradient/1,
         summary: "Directional color gradient with unit-space stops",
@@ -350,6 +386,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "trim",
+        name: :trim,
         scope: :group,
         value: &__MODULE__.parse_trim/1,
         summary: "Trim a surrounding background: auto, or color[,tolerance]",
@@ -357,6 +394,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "trim-symmetry",
+        name: :trim_symmetry,
         scope: :group,
         value: &__MODULE__.parse_trim_symmetry/1,
         summary: "Make trim margins symmetric horizontally, vertically, or on both axes",
@@ -364,6 +402,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "pad",
+        name: :padding,
         scope: :group,
         value: &Value.pad_shorthand/1,
         summary: "CSS 1-4 value px shorthand padding",
@@ -371,6 +410,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "bg",
+        name: :background,
         scope: :group,
         value: &__MODULE__.parse_bg/1,
         summary: "Background color, flattens transparency: color[,alpha]",
@@ -378,6 +418,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "orient",
+        name: :orient,
         scope: :request,
         value: &__MODULE__.parse_orientation/1,
         summary: "Apply EXIF orientation automatically, or ignore it",
@@ -385,6 +426,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "output",
+        name: :terminal,
         scope: :request,
         value: &__MODULE__.parse_output/1,
         summary: "Terminal selection: image (default), blurhash, lqip-css, or info",
@@ -392,6 +434,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "format",
+        name: :format,
         scope: :request,
         value: &__MODULE__.parse_format/1,
         summary: "Explicit output image format; absent negotiates via Accept",
@@ -399,6 +442,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "q",
+        name: :quality,
         scope: :request,
         value: &__MODULE__.parse_quality/1,
         summary: "Output quality, 1-100",
@@ -406,6 +450,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "format-q",
+        name: :format_qualities,
         scope: :request,
         value: &__MODULE__.parse_format_qualities/1,
         summary: "Per-format output quality overrides",
@@ -413,6 +458,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "meta",
+        name: :metadata,
         scope: :request,
         value: &__MODULE__.parse_metadata/1,
         summary: "Output metadata retention policy",
@@ -420,6 +466,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "profile",
+        name: :color_profile,
         scope: :request,
         value: &__MODULE__.parse_color_profile/1,
         summary: "Output color profile policy",
@@ -427,6 +474,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "hdr",
+        name: :hdr,
         scope: :request,
         value: &__MODULE__.parse_hdr/1,
         summary: "Output HDR policy",
@@ -434,6 +482,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "autoquality",
+        name: :autoquality,
         scope: :request,
         value: &__MODULE__.parse_autoquality/1,
         summary: "Adaptive quality method with optional named controls",
@@ -441,6 +490,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "max-bytes",
+        name: :max_bytes,
         scope: :request,
         value: &__MODULE__.parse_max_bytes/1,
         summary: "Positive encoded byte budget",
@@ -448,6 +498,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "jpeg-options",
+        name: :jpeg_options,
         scope: :request,
         value: &__MODULE__.parse_jpeg_options/1,
         summary: "Sparse JPEG encoder options",
@@ -455,6 +506,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "png-options",
+        name: :png_options,
         scope: :request,
         value: &__MODULE__.parse_png_options/1,
         summary: "Sparse PNG encoder options",
@@ -462,6 +514,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "webp-options",
+        name: :webp_options,
         scope: :request,
         value: &__MODULE__.parse_webp_options/1,
         summary: "Sparse WebP encoder options",
@@ -469,6 +522,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "avif-options",
+        name: :avif_options,
         scope: :request,
         value: &__MODULE__.parse_avif_options/1,
         summary: "Sparse AVIF encoder options",
@@ -476,6 +530,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "jxl-options",
+        name: :jxl_options,
         scope: :request,
         value: &__MODULE__.parse_jxl_options/1,
         summary: "Sparse JPEG XL encoder options",
@@ -483,6 +538,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "filename",
+        name: :filename,
         scope: :request,
         value: &__MODULE__.parse_filename/1,
         summary: "ASCII filename stem for response delivery",
@@ -490,6 +546,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "attachment",
+        name: :attachment,
         scope: :request,
         value: :flag,
         summary: "Deliver the response as an attachment",
@@ -497,6 +554,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "cb",
+        name: :cachebuster,
         scope: :request,
         value: &__MODULE__.parse_cachebuster/1,
         summary: "ASCII storage cachebuster token",
@@ -504,6 +562,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "debug",
+        name: :debug,
         scope: :request,
         value: :flag,
         summary: "Request debug response headers when the mount allows them",
@@ -511,6 +570,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "expires",
+        name: :expires,
         scope: :request,
         value: &__MODULE__.parse_expires/1,
         summary: "Unix timestamp after which the URL is invalid (404)",
@@ -518,6 +578,7 @@ defmodule ImagePipe.API.OptionSpec do
       },
       %__MODULE__{
         key: "preset",
+        name: nil,
         scope: :request,
         value: &__MODULE__.parse_preset_names/1,
         summary: "One or more configured preset names to expand",
