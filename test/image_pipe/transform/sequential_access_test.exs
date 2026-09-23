@@ -123,7 +123,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   test "padding streams" do
     assert_sequential_matches_random(
-      [%Padding{top: 10, right: 10, bottom: 10, left: 10, fill: :transparent}],
+      [%Padding{top: 10, right: 10, bottom: 10, left: 10}],
       File.read!(@beach)
     )
   end
@@ -133,8 +133,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
       [
         %ExtendCanvas{
           rule: {:dimensions, 400, 400},
-          gravity: {:anchor, :center, :center},
-          background: :transparent
+          gravity: {:anchor, :center, :center}
         }
       ],
       File.read!(@beach)
