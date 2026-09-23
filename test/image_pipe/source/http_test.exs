@@ -454,6 +454,38 @@ defmodule ImagePipe.Source.HTTPTest do
   end
 
   describe "address_policy validation" do
+    test "rejects nonboolean category toggles before mounting a source" do
+      toggles = [
+        :allow_loopback,
+        :allow_unspecified,
+        :allow_link_local,
+        :allow_private,
+        :allow_unique_local,
+        :allow_multicast,
+        :allow_broadcast,
+        :allow_cgnat,
+        :allow_reserved
+      ]
+
+      for toggle <- toggles, value <- ["false", "true", 0, 1, nil, :enabled, []] do
+        assert {:error, {:invalid_source_config, _}} =
+                 HTTP.validate_options(allowed_hosts: ["x"], address_policy: [{toggle, value}])
+      end
+
+      for toggle <- toggles, value <- [true, false] do
+        assert {:ok, opts} =
+                 HTTP.validate_options(allowed_hosts: ["x"], address_policy: [{toggle, value}])
+
+        assert opts[:address_policy] == [{toggle, value}]
+      end
+
+      assert_raise ArgumentError, fn ->
+        ImagePipe.Plug.init(
+          sources: [url: {HTTP, allowed_hosts: ["x"], address_policy: [allow_private: "false"]}]
+        )
+      end
+    end
+
     test "rejects a non-list :allow without raising" do
       assert {:error, {:invalid_source_config, _}} =
                HTTP.validate_options(allowed_hosts: ["x"], address_policy: [allow: "10.0.0.0/8"])
