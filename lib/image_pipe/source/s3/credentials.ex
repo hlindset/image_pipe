@@ -40,7 +40,12 @@ defmodule ImagePipe.Source.S3.Credentials do
   end
 
   def fetch(scope, {:provider, provider, opts}, _runtime_opts) do
-    key = {:s3_credentials, provider, opts, scope}
+    key =
+      :crypto.hash(
+        :sha256,
+        :erlang.term_to_binary({:s3_credentials, provider, opts, scope}, [:deterministic])
+      )
+
     fetch_fun = fn -> resolve_provider(provider, scope, opts) end
 
     case RefreshCache.fetch(key, fetch_fun) do

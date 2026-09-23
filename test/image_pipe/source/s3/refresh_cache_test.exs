@@ -27,6 +27,26 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     refute_received :fetched
   end
 
+  test "status diagnostics redact keys and values" do
+    secret = "fake-status-secret"
+    pid = start_entry(key: {:credentials, secret}, fetch_fun: fn -> {:ok, secret, :never} end)
+    assert {:ok, ^secret} = Entry.get(pid)
+    refute inspect(:sys.get_status(pid), limit: :infinity) =~ secret
+  end
+
+  test "crash reports redact cached credentials and logged events" do
+    secret = "fake-crash-secret"
+    pid = start_entry(key: {:credentials, secret}, fetch_fun: fn -> {:ok, secret, :never} end)
+    assert {:ok, ^secret} = Entry.get(pid)
+    :ok = :sys.log(pid, true)
+    assert {:ok, ^secret} = Entry.get(pid)
+
+    log = ExUnit.CaptureLog.capture_log(fn -> GenServer.stop(pid, :diagnostic_probe) end)
+
+    assert log =~ "terminating"
+    refute log =~ secret
+  end
+
   test "concurrent gets during an in-flight fetch trigger only one fetch" do
     test = self()
     {:ok, gate} = Agent.start_link(fn -> 0 end)

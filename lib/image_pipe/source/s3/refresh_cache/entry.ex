@@ -110,12 +110,23 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # Redact the cached value from crash reports / observer — it holds credentials.
+  # Fetch results, provider options, and failure reasons can all hold credentials.
   @impl true
-  def format_status(%{state: state} = status),
-    do: %{status | state: %{state | value: :redacted}}
+  def format_status(status) do
+    Map.new(status, fn
+      {:state, state} ->
+        {:state, %{state | value: :redacted, key: :redacted, fetch_fun: :redacted}}
 
-  def format_status(status), do: status
+      {:message, _message} ->
+        {:message, :redacted}
+
+      {:reason, _reason} ->
+        {:reason, :redacted}
+
+      {:log, _log} ->
+        {:log, []}
+    end)
+  end
 
   # --- internals ---
 
