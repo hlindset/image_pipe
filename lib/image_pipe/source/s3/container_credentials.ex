@@ -6,7 +6,8 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
                     relative_uri: System.get_env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")}
 
   Options (the host typically wires these from the AWS-injected env vars):
-    * `:relative_uri` — joined to `:base_url` (default `"http://169.254.170.2"`).
+    * `:relative_uri` — slash-prefixed path appended to `:base_url`
+      (default `"http://169.254.170.2"`).
     * `:full_uri` — absolute URL (takes precedence over `:relative_uri`). Only
       accepted for a loopback host or over `https` (see `validate_options/1`).
     * `:auth_token` — value for the `Authorization` header (optional).
@@ -51,7 +52,7 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
   defp validate_full_uri(opts) do
     case Keyword.get(opts, :full_uri) do
       nil ->
-        :ok
+        validate_relative_uri(Keyword.get(opts, :relative_uri))
 
       url ->
         uri = URI.parse(url)
@@ -63,6 +64,10 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
         end
     end
   end
+
+  defp validate_relative_uri(nil), do: :ok
+  defp validate_relative_uri("/" <> _path), do: :ok
+  defp validate_relative_uri(_uri), do: {:error, "relative_uri must start with /"}
 
   defp loopback_host?(host),
     do: host in ["localhost", "127.0.0.1", "::1", "169.254.170.2", "169.254.170.23"]
