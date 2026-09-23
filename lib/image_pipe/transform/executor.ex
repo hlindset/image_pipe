@@ -367,8 +367,7 @@ defmodule ImagePipe.Transform.Executor do
         rule: rule,
         gravity: {:anchor, anchor_x, anchor_y},
         x_offset: canvas_offset(x, canvas_width, dpr),
-        y_offset: canvas_offset(y, canvas_height, dpr),
-        background: :transparent
+        y_offset: canvas_offset(y, canvas_height, dpr)
       }
 
       with {:ok, state} <- Transform.run(state, operation, opts) do
@@ -385,8 +384,7 @@ defmodule ImagePipe.Transform.Executor do
       top: round_ties_to_even(top * dpr),
       right: round_ties_to_even(right * dpr),
       bottom: round_ties_to_even(bottom * dpr),
-      left: round_ties_to_even(left * dpr),
-      fill: :transparent
+      left: round_ties_to_even(left * dpr)
     }
 
     with {:ok, state} <- flush_display(state, opts),

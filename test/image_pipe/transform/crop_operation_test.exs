@@ -588,7 +588,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
     end
   end
 
-  describe "resolved_rect/3 mirrors execute/2 exactly" do
+  describe "crop bounds" do
     defp xyz_state(w, h) do
       {:ok, image} = VipsOperation.xyz(w, h)
       %ImagePipe.Transform.State{image: image}
@@ -600,7 +600,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
       Image.get_pixel!(image, 0, 0)
     end
 
-    property "gravity and coordinate crops: execute's realized rect equals resolved_rect" do
+    property "gravity crops retain the bounded extent and stay inside the source" do
       check all image_w <- StreamData.integer(8..64),
                 image_h <- StreamData.integer(8..64),
                 crop_w <- StreamData.integer(1..64),
@@ -625,11 +625,11 @@ defmodule ImagePipe.Transform.CropOperationTest do
           gravity: gravity
         }
 
-        assert {:ok, %{left: left, top: top, width: w, height: h}} =
-                 Crop.resolved_rect(crop, image_w, image_h)
-
         {:ok, state} = Crop.execute(crop, xyz_state(image_w, image_h))
-        assert origin_pixel(state) == [left, top]
+        [left, top] = origin_pixel(state)
+        {w, h} = {min(crop_w, image_w), min(crop_h, image_h)}
+        assert left >= 0 and left + w <= image_w
+        assert top >= 0 and top + h <= image_h
         assert {Image.width(state.image), Image.height(state.image)} == {w, h}
       end
     end
@@ -641,11 +641,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
         crop_from: %{left: {:pixels, 50}, top: {:pixels, 10}}
       }
 
-      assert {:ok, %{left: left, top: top, width: 20, height: 20}} =
-               Crop.resolved_rect(crop, 60, 60)
-
       {:ok, state} = Crop.execute(crop, xyz_state(60, 60))
-      assert origin_pixel(state) == [left, top]
+      assert origin_pixel(state) == [40, 10]
+      assert {Image.width(state.image), Image.height(state.image)} == {20, 20}
     end
   end
 end

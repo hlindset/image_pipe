@@ -8,15 +8,14 @@ defmodule ImagePipe.Transform.Operation.Padding do
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.State
 
-  @enforce_keys [:top, :right, :bottom, :left, :fill]
+  @enforce_keys [:top, :right, :bottom, :left]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           top: non_neg_integer(),
           right: non_neg_integer(),
           bottom: non_neg_integer(),
-          left: non_neg_integer(),
-          fill: term()
+          left: non_neg_integer()
         }
 
   @impl ImagePipe.Transform
@@ -34,8 +33,7 @@ defmodule ImagePipe.Transform.Operation.Padding do
       rule: {:dimensions, width, height},
       gravity: {:anchor, :left, :top},
       x_offset: operation.left,
-      y_offset: operation.top,
-      background: operation.fill
+      y_offset: operation.top
     }
 
     ExtendCanvas.execute(canvas, state)

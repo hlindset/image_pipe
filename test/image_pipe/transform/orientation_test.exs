@@ -2,47 +2,58 @@ defmodule ImagePipe.Transform.OrientationTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Transform.Orientation, as: O
 
-  describe "compensate_gravity/4 — directional remap (offsets 0)" do
+  defp compensate_gravity(gravity, angle, flip_x, flip_y) do
+    pending = %ImagePipe.Transform.PendingOrientation{
+      user_angle: angle,
+      user_flip_x: flip_x,
+      user_flip_y: flip_y
+    }
+
+    {gravity, _, _} = O.compensate_gravity_for({gravity, 0.0, 0.0}, pending)
+    gravity
+  end
+
+  describe "gravity compensation — directional remap (offsets 0)" do
     test "anchor types remap under 90/180/270" do
-      assert O.compensate_gravity({:anchor, :center, :top}, 90, false, false) ==
+      assert compensate_gravity({:anchor, :center, :top}, 90, false, false) ==
                {:anchor, :left, :center}
 
-      assert O.compensate_gravity({:anchor, :center, :top}, 180, false, false) ==
+      assert compensate_gravity({:anchor, :center, :top}, 180, false, false) ==
                {:anchor, :center, :bottom}
 
-      assert O.compensate_gravity({:anchor, :center, :top}, 270, false, false) ==
+      assert compensate_gravity({:anchor, :center, :top}, 270, false, false) ==
                {:anchor, :right, :center}
     end
 
     test "corner antipode at 180" do
-      assert O.compensate_gravity({:anchor, :left, :top}, 180, false, false) ==
+      assert compensate_gravity({:anchor, :left, :top}, 180, false, false) ==
                {:anchor, :right, :bottom}
     end
 
     test "flipX swaps left/right; flipY swaps top/bottom" do
-      assert O.compensate_gravity({:anchor, :left, :top}, 0, true, false) ==
+      assert compensate_gravity({:anchor, :left, :top}, 0, true, false) ==
                {:anchor, :right, :top}
 
-      assert O.compensate_gravity({:anchor, :left, :top}, 0, false, true) ==
+      assert compensate_gravity({:anchor, :left, :top}, 0, false, true) ==
                {:anchor, :left, :bottom}
     end
   end
 
-  describe "compensate_gravity/4 — focus point" do
+  describe "gravity compensation — focus point" do
     test "90° maps (x,y) -> (y, 1-x)" do
-      assert O.compensate_gravity({:fp, 0.25, 0.10}, 90, false, false) == {:fp, 0.10, 0.75}
+      assert compensate_gravity({:fp, 0.25, 0.10}, 90, false, false) == {:fp, 0.10, 0.75}
     end
 
     test "flipX maps x -> 1-x" do
-      assert O.compensate_gravity({:fp, 0.25, 0.10}, 0, true, false) == {:fp, 0.75, 0.10}
+      assert compensate_gravity({:fp, 0.25, 0.10}, 0, true, false) == {:fp, 0.75, 0.10}
     end
   end
 
-  describe "compensate_gravity/4 — never-remapped types" do
+  describe "gravity compensation — never-remapped types" do
     test "smart/detect pass through unchanged" do
-      assert O.compensate_gravity(:smart, 90, false, false) == :smart
+      assert compensate_gravity(:smart, 90, false, false) == :smart
 
-      assert O.compensate_gravity({:smart, :face_assist}, 90, false, false) ==
+      assert compensate_gravity({:smart, :face_assist}, 90, false, false) ==
                {:smart, :face_assist}
     end
   end
@@ -139,12 +150,7 @@ defmodule ImagePipe.Transform.OrientationTest do
     end
   end
 
-  describe "swap_dims?/1 and swap_resize/1" do
-    test "swap on quarter-turn only" do
-      assert O.swap_dims?(90) and O.swap_dims?(270)
-      refute O.swap_dims?(0) or O.swap_dims?(180)
-    end
-
+  describe "swap_resize/1" do
     test "swap_resize swaps resolved pixel dimensions" do
       resize = %ImagePipe.Transform.Operation.Resize{
         width: 100,

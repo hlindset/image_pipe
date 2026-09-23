@@ -167,13 +167,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     {resolve_dimension(params.width, image_width), resolve_dimension(params.height, image_height)}
   end
 
-  @doc false
-  # Pure rectangle for anchor, focus-point, and coordinate crops. The executor
-  # uses its origin to translate carried points. Smart/detect crops require pixels.
-  @spec resolved_rect(t(), pos_integer(), pos_integer()) ::
-          {:ok, %{left: integer(), top: integer(), width: pos_integer(), height: pos_integer()}}
-          | {:error, term()}
-  def resolved_rect(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
+  defp resolved_rect(%__MODULE__{crop_from: :gravity} = params, image_width, image_height) do
     {crop_width, crop_height} = resolved_box_dims(params, image_width, image_height)
 
     with {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)) do
@@ -194,7 +188,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
-  def resolved_rect(%__MODULE__{} = params, image_width, image_height) do
+  defp resolved_rect(%__MODULE__{} = params, image_width, image_height) do
     %{left: left_coord, top: top_coord} = params.crop_from
     left_px = resolve_position(left_coord)
     top_px = resolve_position(top_coord)

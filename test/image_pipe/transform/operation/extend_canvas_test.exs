@@ -41,8 +41,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
   test "center gravity places the inner image at the imgproxy origin" do
     op = %ExtendCanvas{
       rule: {:dimensions, 11, 10},
-      gravity: {:anchor, :center, :center},
-      background: :transparent
+      gravity: {:anchor, :center, :center}
     }
 
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
@@ -53,8 +52,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
   test "left/top gravity pins the inner image to the origin" do
     op = %ExtendCanvas{
       rule: {:dimensions, 11, 10},
-      gravity: {:anchor, :left, :top},
-      background: :transparent
+      gravity: {:anchor, :left, :top}
     }
 
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
@@ -64,8 +62,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
   test "right/bottom gravity pins the inner image to the far edge" do
     op = %ExtendCanvas{
       rule: {:dimensions, 11, 10},
-      gravity: {:anchor, :right, :bottom},
-      background: :transparent
+      gravity: {:anchor, :right, :bottom}
     }
 
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
@@ -81,8 +78,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
     op = %ExtendCanvas{
       rule: {:dimensions, 11, 10},
       gravity: {:anchor, :right, :top},
-      x_offset: 2.0,
-      background: :transparent
+      x_offset: 2.0
     }
 
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
@@ -93,8 +89,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
     op = %ExtendCanvas{
       rule: {:dimensions, 11, 10},
       gravity: {:anchor, :left, :bottom},
-      y_offset: 2.0,
-      background: :transparent
+      y_offset: 2.0
     }
 
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
@@ -109,8 +104,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
     op = %ExtendCanvas{
       rule: {:dimensions, 11, 10},
       gravity: {:anchor, :right, :top},
-      x_offset: 10.0,
-      background: :transparent
+      x_offset: 10.0
     }
 
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
@@ -121,8 +115,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
     op = %ExtendCanvas{
       rule: {:dimensions, 11, 10},
       gravity: {:anchor, :left, :top},
-      x_offset: 20.0,
-      background: :transparent
+      x_offset: 20.0
     }
 
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
@@ -141,8 +134,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
       rule: {:dimensions, 4, 4},
       gravity: {:anchor, :right, :bottom},
       x_offset: 20.0,
-      y_offset: 20.0,
-      background: :transparent
+      y_offset: 20.0
     }
 
     image = white(4, 4)
@@ -160,15 +152,14 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
     op = %ExtendCanvas{
       rule: {:dimensions, 11, 10},
       gravity: {:anchor, :center, :center},
-      x_offset: 2.0,
-      background: :transparent
+      x_offset: 2.0
     }
 
     assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
     assert content_origin(out) == {6, 4}
   end
 
-  describe "resolved_embed_offset/5 mirrors execute/2's embed placement" do
+  describe "content placement" do
     test "each anchor places the content at the resolved offset" do
       # centre = Geometry.center_origin/2 = round_ties_to_even((outer − inner + 1) / 2):
       # x = rte(21/2) = 10, y = rte(11/2) = 6.
@@ -179,7 +170,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
           ] do
         op = %ExtendCanvas{rule: {:dimensions, 40, 30}, gravity: gravity}
 
-        assert ExtendCanvas.resolved_embed_offset(op, 20, 20, 40, 30) == expected
+        assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(20, 20)))
+        assert content_origin(out) == expected
       end
     end
 
@@ -191,7 +183,8 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
         y_offset: 100.0
       }
 
-      assert ExtendCanvas.resolved_embed_offset(op, 20, 20, 40, 30) == {15, 0}
+      assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(20, 20)))
+      assert content_origin(out) == {15, 0}
     end
   end
 end

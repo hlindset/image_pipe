@@ -50,21 +50,6 @@ defmodule ImagePipe.Transform.Orientation do
   end
 
   @doc """
-  Type-only (plus focus-point coordinate) gravity remap for a single
-  flipX → flipY → rotate step. Offsets are not considered; this is the directional
-  bijection used to validate the type table independently.
-  """
-  @spec compensate_gravity(gravity(), angle(), boolean(), boolean()) :: gravity()
-  def compensate_gravity(gravity, angle, flip_x, flip_y) do
-    {gravity, _x, _y} = rotate_and_flip({gravity, 0.0, 0.0}, angle, flip_x, flip_y)
-    gravity
-  end
-
-  @doc "True when the rotation is a quarter turn, which swaps the width/height axes."
-  @spec swap_dims?(angle()) :: boolean()
-  def swap_dims?(angle), do: rem(angle, 180) == 90
-
-  @doc """
   Returns center-crop rounding sides for the storage axes under pending orientation.
 
   An odd extent difference requires asymmetric rounding. The default
