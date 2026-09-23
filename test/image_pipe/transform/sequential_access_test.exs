@@ -242,12 +242,12 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     assert_orientation_flush_sequential_matches_random(pending, body)
   end
 
-  test "horizontal flush remains lazy on a genuinely streamed large source" do
+  test "horizontal flush materializes a genuinely streamed large source" do
     body = File.read!(@beach)
     pending = PendingOrientation.from_exif(1, true) |> PendingOrientation.fold_flip(:horizontal)
     {:ok, sequential} = Image.open([body], access: :sequential, fail_on: :error)
 
-    assert {:ok, %State{materialized?: false} = state} =
+    assert {:ok, %State{materialized?: true} = state} =
              Transform.run(%State{image: sequential, pending_orientation: pending}, %Flush{})
 
     expected = Image.from_binary!(body) |> Image.flip!(:horizontal)

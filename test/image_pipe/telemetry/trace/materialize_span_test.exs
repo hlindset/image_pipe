@@ -124,7 +124,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
     spans = collect_spans()
     assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
-    assert mat.attributes.dims == {40, 80}
+    assert mat.attributes.dims == {80, 40}
 
     parent = parent_of(spans, mat)
     assert parent, "materialize span must have a captured parent"
@@ -136,14 +136,15 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     assert grandparent.name == "image_pipe.transform.execute"
   end
 
-  test "horizontal orientation traces lazy flush and materializes only at delivery" do
+  test "horizontal orientation materialization nests under its flush operation" do
     conn = call("/flip=h/w=120/format=png/src/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()
     assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
     assert mat.attributes.dims == {120, 80}
-    assert parent_of(spans, mat).name == "image_pipe.request"
+    assert parent_of(spans, mat).name == "image_pipe.transform.operation"
+    assert parent_of(spans, mat).attributes.operation == :flush
 
     assert Enum.any?(spans, fn span ->
              span.name == "image_pipe.transform.operation" and

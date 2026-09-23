@@ -269,21 +269,20 @@ The default Logger includes the operation name and outcome, for example
 
 Each time the pipeline flushes the lazy libvips state to a RAM-resident buffer it
 emits a `[:image_pipe, :transform, :materialize]` span from
-`ImagePipe.Transform.Materializer.materialize/1`, which calls `copy_memory`. This is
+`ImagePipe.Transform.Materializer` (`materialize/1` for a plain `copy_memory`, or
+`flush/1` for an orientation flush). This is
 the **honest per-barrier timing the per-operation spans deliberately lack**:
 libvips defers and fuses pixel work until materialization, so a materialize
-span's duration is the pixel work forced by that copy,
-not construction time.
+span's duration measures pixel evaluation and copying, not construction time.
 
-The executor's `Flush` operation prepares RAM backing before orientation that
-reorders rows. Horizontal-only flips stay lazy, and later orientation operations
-reuse existing RAM backing. Their orientation graphs are built within the
-operation span; their pixel work is evaluated when a later consumer demands it.
+The executor's `Flush` operation prepares random access before orientation that
+reorders rows, applies the orientation, and buffers its display frame. Each flush
+evaluates its result for downstream consumers, including horizontal-only flips
+and later rotation groups.
 
 Stop metadata: `:result` (`:ok` or `:materialize_error`). A successful stop also
 carries `:dims` — the allocated buffer dimensions `{width, height}`. Orientation
-preparation reports the frame before rotation; the enclosing operation's stop
-reports the oriented frame. A failed copy surfaces
+flushes report the display frame after rotation. A failed copy surfaces
 as a `:stop` carrying `result: :materialize_error` (the callers map it to a decode
 error → `415`); a raise inside the copy surfaces as a `[:transform, :materialize,
 :exception]` event.
@@ -293,8 +292,8 @@ Parenting depends on where the materialization happens — there are three cases
 - **during execution**, before an operation that needs random access (trim,
   arbitrary-angle rotate, smart/object-detect crop): nested under that
   operation's `[:transform, :operation]` span;
-- **orientation preparation**, when the executor's `Flush` operation needs
-  random access and the graph does not already have RAM backing:
+- **orientation flush**, when the executor's `Flush` operation applies pending
+  orientation and buffers the display frame:
   nested under that operation's `[:transform, :operation]` span,
   inside `[:transform, :execute]`;
 - **delivery backstop**, when the pipeline streamed without materializing

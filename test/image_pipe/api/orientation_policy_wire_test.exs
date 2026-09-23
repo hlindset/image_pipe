@@ -156,14 +156,14 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
     refute_received :origin_fetch
   end
 
-  test "horizontal flip stays lazy until the clamped delivery frame" do
+  test "horizontal flip buffers its result before the delivery clamp" do
     body = marked_image()
 
     {response, dimensions} =
       observed_request("/flip=h/w=400/enlarge/format=png/src/image", body, max_result_width: 64)
 
     assert response.status == 200
-    assert dimensions == [{64, 38}]
+    assert dimensions == [{400, 240}]
 
     expected =
       body
@@ -175,7 +175,7 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
     assert_pixels_equal(response, expected)
   end
 
-  test "later rotation groups reuse random access while preserving resample order" do
+  test "rotation groups buffer each display frame while preserving resample order" do
     body = marked_image()
 
     {response, dimensions} =
@@ -185,7 +185,7 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
       )
 
     assert response.status == 200
-    assert dimensions == [{200, 120}]
+    assert dimensions == [{120, 200}, {60, 36}]
 
     expected =
       body
@@ -198,7 +198,7 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
     assert_pixels_equal(response, expected)
   end
 
-  test "lazy horizontal orientation still rejects corrupt pixels before delivery" do
+  test "horizontal orientation rejects corrupt pixels before delivery" do
     body = File.read!("priv/static/images/beach.jpg") |> corrupt_tail()
 
     for options <- ["flip=h", "flip=h/meta=keep", "rotate=90/-/flip=h"] do

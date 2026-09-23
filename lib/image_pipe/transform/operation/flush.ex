@@ -1,16 +1,16 @@
 defmodule ImagePipe.Transform.Operation.Flush do
   @moduledoc """
-  Applies pending orientation, preparing random access when needed.
+  Applies pending orientation and copies the result to RAM.
 
-  Delegates to `ImagePipe.Transform.OrientationFlush.flush/1`, which applies EXIF
+  Delegates to `ImagePipe.Transform.Materializer.flush/1`, which applies EXIF
   orientation, user rotation, and user flips, then clears pending state.
-  The flush manages its own random access from runtime orientation data and
-  preserves sequential execution for horizontal-only flips.
+  The flush prepares its own random access and buffers the display frame for
+  downstream operations.
   """
 
   use ImagePipe.Transform
 
-  alias ImagePipe.Transform.OrientationFlush
+  alias ImagePipe.Transform.Materializer
 
   defstruct []
 
@@ -21,9 +21,6 @@ defmodule ImagePipe.Transform.Operation.Flush do
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{}, state) do
-    case OrientationFlush.flush(state) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, {:materialize_error, reason}}
-    end
+    Materializer.flush(state)
   end
 end

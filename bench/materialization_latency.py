@@ -2,7 +2,8 @@
 mise exec -- python3 bench/materialization_latency.py /tmp/fd8-speed --preload
 
 Fresh VMs, alternating order, request-only timings, exact pixel verification.
-Runtime overrides restore pre-fd8 behavior without changing source or beam files.
+Compare the restored implementation, pre-fd8 behavior, and rejected lazy orientation.
+Runtime overrides do not change source or beam files.
 """
 
 import argparse
@@ -22,61 +23,37 @@ def replace_once(source, before, after):
 
 def overrides(root):
     orientation = Path("lib/image_pipe/transform/orientation_flush.ex").read_text()
-    old = replace_once(
+    lazy = replace_once(
         orientation,
-        "alias ImagePipe.Transform.{Materializer, PendingOrientation, State}",
         "alias ImagePipe.Transform.{PendingOrientation, State}\n"
         "  alias Vix.Vips.Image, as: VipsImage",
+        "alias ImagePipe.Transform.{Materializer, PendingOrientation, State}",
     )
-    start = old.index("  @spec flush")
-    end = old.index("  defp apply_orientation")
-    old = old[:start] + '''  def flush(%State{pending_orientation: nil} = state), do: materialize(state)
-
-  def flush(%State{pending_orientation: %PendingOrientation{} = po} = state) do
-    with {:ok, image} <- prepare_random_access(state.image, po),
-         {:ok, image} <- apply_orientation(image, po),
-         {:ok, image} <- VipsImage.copy_memory(image) do
-      {:ok, %State{state | image: image, materialized?: true, pending_orientation: nil}}
+    start = lazy.index("  @spec flush")
+    end = lazy.index("  defp apply_orientation")
+    lazy = lazy[:start] + '''  def flush(%State{pending_orientation: %PendingOrientation{} = po} = state) do
+    with {:ok, %State{} = state} <- prepare_random_access(state, po),
+         {:ok, image} <- apply_orientation(state.image, po) do
+      {:ok, %State{state | image: image, pending_orientation: nil}}
     end
   end
 
-  defp prepare_random_access(image, %PendingOrientation{} = po) do
-    if po.exif_angle != 0 or po.user_angle != 0 or po.user_flip_y,
-      do: VipsImage.copy_memory(image), else: {:ok, image}
-  end
+  defp prepare_random_access(%State{materialized?: true} = state, _pending), do: {:ok, state}
 
-  defp materialize(%State{image: image} = state) do
-    case VipsImage.copy_memory(image) do
-      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
-      {:error, _} = error -> error
-    end
-  end
+  defp prepare_random_access(state, %PendingOrientation{
+         exif_angle: 0, user_angle: 0, user_flip_y: false
+       }), do: {:ok, state}
 
-''' + old[end:]
-    materializer = Path("lib/image_pipe/transform/materializer.ex").read_text()
-    materializer = replace_once(
-        materializer, "  alias ImagePipe.Transform.State",
-        "  alias ImagePipe.Transform.{OrientationFlush, State}",
-    )
-    position = materializer.rindex("\nend")
-    materializer = materializer[:position] + '''
-  def flush(%State{telemetry_opts: telemetry_opts} = state) do
-    Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
-      case OrientationFlush.flush(state) do
-        {:ok, new_state} -> {{:ok, new_state}, ok_metadata(new_state)}
-        {:error, reason} ->
-          {{:error, {:materialize_error, reason}}, %{result: :materialize_error}}
-      end
-    end)
-  end
-''' + materializer[position:]
+  defp prepare_random_access(state, %PendingOrientation{}), do: Materializer.materialize(state)
+
+''' + lazy[end:]
     flush = Path("lib/image_pipe/transform/operation/flush.ex").read_text()
-    flush = replace_once(flush, "alias ImagePipe.Transform.OrientationFlush",
-                         "alias ImagePipe.Transform.Materializer")
-    flush = replace_once(flush, '''    case OrientationFlush.flush(state) do
+    flush = replace_once(flush, "alias ImagePipe.Transform.Materializer",
+                         "alias ImagePipe.Transform.OrientationFlush")
+    flush = replace_once(flush, "    Materializer.flush(state)", '''    case OrientationFlush.flush(state) do
       {:ok, state} -> {:ok, state}
       {:error, reason} -> {:error, {:materialize_error, reason}}
-    end''', "    Materializer.flush(state)")
+    end''')
     color = Path("lib/image_pipe/transform/input_color_management.ex").read_text()
     start = color.index("  defp remove_profile(image)")
     end = color.index("  defp profile_data(image)")
@@ -88,25 +65,11 @@ def overrides(root):
   end
 
 ''' + color[end:]
-    # Restore only the final copy, keeping current preparation and telemetry.
-    eager = replace_once(
-        orientation,
-        "{:ok, image} <- apply_orientation(state.image, po) do",
-        "{:ok, image} <- apply_orientation(state.image, po),\n"
-        "         {:ok, image} <- Vix.Vips.Image.copy_memory(image) do",
-    )
-    eager = replace_once(eager, "image: image, pending_orientation: nil",
-                         "image: image, materialized?: true, pending_orientation: nil")
-    reuse = replace_once(
-        orientation,
-        "  defp prepare_random_access(%State{materialized?: true} = state, _pending), do: {:ok, state}\n",
-        "",
-    )
+    # Restored orientation has the historical buffering behavior; the ICC guard
+    # is its only remaining performance change relative to the original baseline.
     variants = {
-        "baseline": old + materializer + flush + color,
-        "eager_final": eager,
-        "no_reuse": reuse,
-        "icc_mutation": color,
+        "baseline": color,
+        "lazy": lazy + flush,
     }
     for mode, source in variants.items():
         (root / f"{mode}.ex").write_text(source)
@@ -141,23 +104,23 @@ for {app, _, _} <- Application.loaded_applications(),
     do: Code.ensure_loaded(module)
 ''')
     cases = [
-        ("plain", "fit", "plain", 3000, 1024, "eager_final"),
-        ("exif_large", "fit", "exif6", 6000, 2048, "eager_final"),
-        ("exif_small", "fit", "exif6", 128, 2048, "eager_final"),
-        ("rotate_jpeg", "rotated_fit", "jpeg", 2800, 2048, "eager_final"),
-        ("horizontal_large", "horizontal", "plain", 3000, 1024, "eager_final"),
-        ("horizontal_small", "horizontal", "jpeg", 128, 2048, "eager_final"),
-        ("rotation_groups", "rotation_groups", "plain", 3000, 1024, "no_reuse"),
-        ("groups", "groups", "exif6", 6000, 2048, "no_reuse"),
-        ("icc_absent", "fit", "scrgb_unprofiled", 128, 128, "icc_mutation"),
-        ("icc_present", "fit", "scrgb", 128, 128, "icc_mutation"),
+        ("plain", "fit", "plain", 3000, 1024),
+        ("exif_large", "fit", "exif6", 6000, 2048),
+        ("exif_small", "fit", "exif6", 128, 2048),
+        ("rotate_jpeg", "rotated_fit", "jpeg", 2800, 2048),
+        ("horizontal_large", "horizontal", "plain", 3000, 1024),
+        ("horizontal_small", "horizontal", "jpeg", 128, 2048),
+        ("rotation_groups", "rotation_groups", "plain", 3000, 1024),
+        ("groups", "groups", "exif6", 6000, 2048),
+        ("icc_absent", "fit", "scrgb_unprofiled", 128, 128),
+        ("icc_present", "fit", "scrgb", 128, 128),
     ]
     rows = []
-    for name, scenario, source, target, cap, ablation in cases:
+    for name, scenario, source, target, cap in cases:
         if args.cases and name not in args.cases:
             continue
         for trial in range(args.trials):
-            modes = ["baseline", "current", ablation]
+            modes = ["baseline", "current", "lazy"]
             if trial % 2:
                 modes.reverse()
             for mode in modes:

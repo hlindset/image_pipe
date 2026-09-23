@@ -911,7 +911,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(debug: :yes) end
   end
 
-  test "orientation logs its allocated storage frame and successful display-frame flush" do
+  test "orientation logs materialization of each display frame" do
     prefix = [__MODULE__, :orientation]
     opts = [telemetry_prefix: prefix]
     Telemetry.attach_default_logger(prefix: prefix, level: :info, debug: true)
@@ -934,9 +934,8 @@ defmodule ImagePipe.Telemetry.LoggerTest do
                  Transform.run(%State{state | pending_orientation: pending}, %Flush{}, opts)
       end)
 
-    assert length(Regex.scan(~r/transform materialize: ok/, log)) == 1
+    assert length(Regex.scan(~r/transform materialize: ok/, log)) == 2
     assert log =~ "transform: flush ok"
-    assert log =~ "dims: {40, 20}"
     assert log =~ "dims: {20, 40}"
     refute log =~ "[warning]"
   end

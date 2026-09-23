@@ -1,15 +1,15 @@
 # Image materialization investigation
 
-Implementation and measurements for `image_plug-fd8`, 2026-09-22. Orientation
-now prepares random access only when needed, reuses existing RAM backing, and
-leaves the oriented result lazy. Input color management skips metadata mutation
-when the ICC field to remove is absent. Operation order and output pixels are
-preserved.
+Implementation and measurements for `image_plug-fd8`, 2026-09-22–23. Orientation
+flushes prepare random access when needed and buffer their display frame for
+downstream consumers. Input color management skips metadata mutation when the
+ICC field to remove is absent. Operation order and output pixels are preserved.
 
-**Speed audit:** repeated request timings found regressions in the retained
-orientation changes. Their memory savings do not satisfy the speed-first
-acceptance criterion. See [the latency audit](#latency-audit-of-retained-fd8-changes)
-for the individual comparisons and the required follow-up.
+**Speed decision:** repeated request timings rejected the lazy orientation
+changes despite their memory savings. Orientation buffering is restored and the
+absent-ICC guard is retained. The memory tables below describe the earlier
+implementation in `ed4e70d7`; the [latency audit](#latency-audit-of-retained-fd8-changes)
+and restoration results explain the final decision.
 
 ## Reproduce
 
@@ -188,7 +188,7 @@ conditioning policies.
 
 ## Initial implementation decision
 
-The measured orientation and absent-profile optimizations are implemented.
+The initial implementation contained the orientation and absent-profile optimizations.
 Universal clamp reordering or resample folding is not justified: moving
 orientation before resize changed pixels. Output finalization remains the
 evaluation/error backstop; the metadata audit did not demonstrate savings from
@@ -323,7 +323,7 @@ the retained changes, independently of the two rejected follow-up experiments.
 mise exec -- python3 bench/materialization_latency.py /tmp/fd8-speed --preload
 ```
 
-The runner compares the current implementation with the runtime behavior before
+The audit runner at commit `4c74f7b0` compared the then-current implementation with the runtime behavior before
 commits `ed4e70d7` (orientation) and `8b50724c` (absent ICC), and with one isolated
 reversal per workload. Source overrides are generated in the output directory
 and loaded into each worker VM; source files and compiled application beams are
@@ -412,7 +412,59 @@ remaining lazy graph can cost more to evaluate downstream; the isolated final
 copy reversal demonstrates that tradeoff without changing operation order or
 pixels. Internal libvips recomputation/cache costs have not been profiled.
 
-This audit changes benchmark code and evidence only. Production remains at the
-measured implementation, and `image_plug-fd8` is reopened to track restoration
-of request speed. The benchmark task `image_plug-pt9` is complete. Recheck both
-latency and memory after any restoration or replacement optimization.
+This audit reopened `image_plug-fd8` to restore request speed. The benchmark task
+`image_plug-pt9` recorded the evidence before production changes were made.
+
+## Orientation buffering restored
+
+The final implementation prepares random access for every orientation that
+reorders rows, even when an earlier group has RAM backing, then buffers each
+oriented result. Horizontal flips also buffer their result. Each orientation
+materialization span measures the complete flush and reports display-frame
+dimensions. Pixel, streamed-source, corrupt-tail, Logger, and trace coverage is
+retained.
+
+The runner now compares `baseline` (restored orientation plus unconditional ICC
+mutation), `current` (restored orientation plus the ICC guard), and `lazy`
+(rejected lazy orientation plus the ICC guard). Overrides run only inside the
+benchmark VMs. The original audit samples remain in
+`materialization_latency_samples.json`; restoration samples are separate.
+
+```sh
+mise exec -- python3 -B bench/materialization_latency.py /tmp/fd8-restored --preload \
+  --case plain --case exif_large --case rotate_jpeg --case horizontal_large \
+  --case rotation_groups --case icc_absent
+```
+
+Five alternating trials per version, six workloads, **90 requests**. All outputs
+match each other and the original audit's decoded pixel hashes and dimensions.
+Application modules were preloaded; timing ran after the test suite completed,
+with the same two libvips threads and disabled operation caching.
+
+| Workload | Baseline ms | Rejected lazy ms | Restored ms | Lazy → restored peak MiB |
+|---|---:|---:|---:|---:|
+| Plain TIFF control | 297.8 | 295.0 | 293.4 | 13.7 → 13.7 |
+| Large EXIF 6 | 917.7 | 1054.9 | 926.1 | 190.0 → 342.8 |
+| JPEG rotation | 445.7 | 453.6 | 441.4 | 50.1 → 67.6 |
+| Large horizontal flip | 156.2 | 314.0 | 156.3 | 16.2 → 27.3 |
+| Two rotation groups | 273.7 | 304.7 | 275.5 | 61.7 → 77.5 |
+| Unprofiled linear TIFF | 11.8 | 10.6 | 10.5 | 8.7 → 8.7 |
+
+The restored orientation workloads are within roughly 1% of the contemporaneous
+baseline or faster, with overlapping timing ranges, and recover the clear
+regressions versus lazy orientation. The larger buffers are intentional under
+the speed-first requirement. Baseline and restored orientation peaks match in
+this run; high-water values can vary between runs with allocation lifetimes.
+The retained ICC guard reduces its fixture from **11.8 to 10.5 ms** and
+**15.0 to 8.7 MiB** compared with unconditional mutation.
+
+Individual samples and source hashes are committed in
+[materialization_restoration_samples.json](materialization_restoration_samples.json).
+Full request/telemetry output is in `/tmp/fd8-restored/latency-results.json`.
+
+Validation: the updated buffering and telemetry assertions failed before the
+restoration; 139 focused tests/properties passed afterward. `mise run precommit`
+passed formatting, warnings-as-errors compilation, strict Credo, Dialyzer,
+duplication checks, and **2533 tests/properties**, with four integration tests
+excluded. `image_plug-fd8` is complete with orientation buffering restored and
+the measured absent-ICC optimization retained.
