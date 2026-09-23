@@ -76,7 +76,7 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
 
   test "serves the still-fresh value when a refresh fails" do
     test = self()
-    {:ok, calls} = Agent.start_link(fn -> 0 end)
+    calls = start_supervised!({Agent, fn -> 0 end})
 
     # now is fixed; expiry is in the future so value stays fresh.
     now = ~U[2026-06-26 00:00:00Z]
@@ -92,15 +92,11 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
       end
     end
 
-    pid =
-      start_entry(
-        fetch_fun: fetch_fun,
-        now_fun: fn -> now end,
-        # margin larger than the hour-to-expiry forces an immediate :refresh
-        refresh_margin_ms: 3_600_001
-      )
+    pid = start_entry(fetch_fun: fetch_fun, now_fun: fn -> now end)
 
+    assert {:ok, :good} = Entry.get(pid)
     assert_receive {:call, 0}
+    send(pid, :refresh)
     # background refresh fires (and fails), but value is still fresh:
     assert_receive {:call, 1}
     # force the failed-refresh result to be applied before asserting, so this
@@ -143,6 +139,30 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
   test "rejects an expired result even when a caller is waiting for it" do
     now = ~U[2026-06-26 02:00:00Z]
     pid = start_entry(fetch_fun: fn -> {:ok, :expired, now} end, now_fun: fn -> now end)
+    assert {:error, :expired_value} = Entry.get(pid)
+  end
+
+  test "short-lived credentials do not cause immediate refresh loops" do
+    test = self()
+    now = ~U[2026-06-26 02:00:00Z]
+    expiry = DateTime.add(now, 1, :second)
+    clock = start_supervised!({Agent, fn -> now end})
+
+    fetch_fun = fn ->
+      send(test, :fetched)
+      {:ok, :creds, expiry}
+    end
+
+    pid = start_entry(fetch_fun: fetch_fun, now_fun: fn -> Agent.get(clock, & &1) end)
+
+    assert {:ok, :creds} = Entry.get(pid)
+    assert_received :fetched
+    refute_receive :fetched
+
+    assert_receive :fetched, 6_000
+    refute_receive :fetched
+
+    Agent.update(clock, fn _ -> expiry end)
     assert {:error, :expired_value} = Entry.get(pid)
   end
 
