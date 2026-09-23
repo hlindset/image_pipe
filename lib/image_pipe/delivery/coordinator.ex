@@ -45,8 +45,6 @@ defmodule ImagePipe.Delivery.Coordinator do
     :pending,
     :cancel_reason,
     :cache_sink,
-    :resolved_output,
-    :content_type,
     :fetch_started_at,
     :failure,
     phase: :new
@@ -309,9 +307,7 @@ defmodule ImagePipe.Delivery.Coordinator do
          state
          | pending: nil,
            phase: :prepared,
-           cache_sink: cache_sink,
-           resolved_output: resolved_output,
-           content_type: content_type
+           cache_sink: cache_sink
        }}
     end)
   end
