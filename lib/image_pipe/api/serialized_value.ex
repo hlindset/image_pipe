@@ -11,7 +11,6 @@ defmodule ImagePipe.API.SerializedValue do
   def scalar({:px, value}), do: scalar(value)
   def scalar({:pct, value}), do: scalar(value) <> "pct"
   def scalar({:convert, profile}), do: scalar(profile)
-  def scalar(:jpeg_xl), do: "jxl"
   def scalar(:preserve_source), do: "preserve"
   def scalar(:tone_map), do: "tonemap"
   def scalar(:horizontal), do: "h"

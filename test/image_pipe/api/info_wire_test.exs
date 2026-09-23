@@ -75,6 +75,25 @@ defmodule ImagePipe.API.InfoWireTest do
            }
   end
 
+  test "JPEG XL sources transcode to supported output formats" do
+    image = Image.new!(24, 16, color: :red)
+    assert {:ok, body} = VipsImage.write_to_buffer(image, ".jxl")
+    config = mount(body, [], "image/jxl")
+
+    for {options, accept, mime} <- [
+          {"w=12", "image/jxl", "image/jpeg"},
+          {"w=12", "image/jxl,image/webp", "image/webp"},
+          {"w=12/format=png", "image/jxl", "image/png"}
+        ] do
+      response = request(options, config, accept)
+      assert response.status == 200
+      assert [content_type] = get_resp_header(response, "content-type")
+      assert String.starts_with?(content_type, mime)
+      decoded = Image.from_binary!(response.resp_body)
+      assert {Image.width(decoded), Image.height(decoded)} == {12, 8}
+    end
+  end
+
   test "info computation has a terminal span without pixel processing", %{body: body} do
     events = [
       [:output, :terminal, :stop],

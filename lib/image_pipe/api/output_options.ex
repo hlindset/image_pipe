@@ -3,23 +3,21 @@ defmodule ImagePipe.API.OutputOptions do
 
   alias ImagePipe.API.SerializedValue
   alias ImagePipe.API.Value
-  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Output.QualitySearch.Metric
 
   @formats %{
     "avif" => :avif,
     "webp" => :webp,
     "jpeg" => :jpeg,
-    "png" => :png,
-    "jxl" => :jpeg_xl
+    "png" => :png
   }
 
   @encoder_modules %{
     jpeg: JpegOptions,
     png: PngOptions,
     webp: WebpOptions,
-    avif: AvifOptions,
-    jpeg_xl: JxlOptions
+    avif: AvifOptions
   }
   @encoder_schemas Map.new(@encoder_modules, fn {format, module} ->
                      fields =
@@ -106,9 +104,6 @@ defmodule ImagePipe.API.OutputOptions do
 
   @spec parse_avif_options(String.t()) :: {:ok, AvifOptions.t()} | :error
   def parse_avif_options(string), do: parse_codec(string, :avif)
-
-  @spec parse_jxl_options(String.t()) :: {:ok, JxlOptions.t()} | :error
-  def parse_jxl_options(string), do: parse_codec(string, :jpeg_xl)
 
   defp format_quality_item(item) do
     with [format, quality] <- String.split(item, ":", parts: 3),

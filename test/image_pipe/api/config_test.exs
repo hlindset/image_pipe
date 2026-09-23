@@ -3,7 +3,7 @@ defmodule ImagePipe.API.ConfigTest do
   use ExUnitProperties
 
   alias ImagePipe.API.Config
-  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Security.SourceEncryption
 
   @source_key :binary.copy(<<42>>, 32)
@@ -55,7 +55,7 @@ defmodule ImagePipe.API.ConfigTest do
       )
 
     assert config[:quality] == 72
-    assert config[:format_quality] == %{webp: 79, avif: 63, jpeg_xl: 77, jpeg: 68}
+    assert config[:format_quality] == %{webp: 79, avif: 63, jpeg: 68}
     assert config[:autoquality_method] == :ssimulacra2
     assert config[:autoquality_max_iterations] == 4
     assert config[:jpeg_options].interlace == true
@@ -86,18 +86,16 @@ defmodule ImagePipe.API.ConfigTest do
     assert config[:max_result_pixels] == 40_000_000
     assert config[:auto_avif] == true
     assert config[:auto_webp] == true
-    assert config[:auto_jpeg_xl] == true
     assert config[:allow_debug_headers] == false
     assert config[:quality] == 80
     assert config[:preserve_hdr] == false
-    assert config[:format_quality] == %{webp: 79, avif: 63, jpeg_xl: 77}
+    assert config[:format_quality] == %{webp: 79, avif: 63}
     assert config[:autoquality_method] == :none
-    assert config[:autoquality_format_min_quality] == %{avif: 60, jpeg_xl: 45}
+    assert config[:autoquality_format_min_quality] == %{avif: 60}
     assert config[:jpeg_options] == %JpegOptions{}
     assert config[:png_options] == %PngOptions{}
     assert config[:webp_options] == %WebpOptions{}
     assert config[:avif_options] == %AvifOptions{}
-    assert config[:jxl_options] == %JxlOptions{}
     refute Keyword.has_key?(config, :format_order)
     refute Keyword.has_key?(config, :allow_origin)
   end
@@ -142,14 +140,12 @@ defmodule ImagePipe.API.ConfigTest do
       Config.validate!(
         auto_avif: false,
         auto_webp: false,
-        auto_jpeg_xl: false,
-        format_order: [:jpeg_xl, :avif]
+        format_order: [:avif]
       )
 
     assert config[:auto_avif] == false
     assert config[:auto_webp] == false
-    assert config[:auto_jpeg_xl] == false
-    assert config[:format_order] == [:jpeg_xl, :avif]
+    assert config[:format_order] == [:avif]
 
     for order <- [[:avif, :jpeg], [:avif, :avif], []] do
       assert_raise ArgumentError, ~r/format_order/, fn ->
@@ -211,7 +207,7 @@ defmodule ImagePipe.API.ConfigTest do
         jpeg_options: %JpegOptions{interlace: true}
       )
 
-    assert config[:format_quality] == %{webp: 50, avif: 63, jpeg_xl: 77}
+    assert config[:format_quality] == %{webp: 50, avif: 63}
     assert config[:autoquality_target] == %{ssimulacra2: 90, butteraugli: 1.0}
     assert config[:jpeg_options] == %JpegOptions{interlace: true}
   end
@@ -225,8 +221,6 @@ defmodule ImagePipe.API.ConfigTest do
       [autoquality_target: %{ssimulacra2: 150}],
       [autoquality_allowed_error: %{ssimulacra2: -1}],
       [autoquality_allowed_error: %{size: 1}],
-      [jxl_options: %JxlOptions{effort: 0}],
-      [jxl_options: %JxlOptions{effort: 10}],
       [jpeg_options: %JpegOptions{quant_table: 9}],
       [png_options: %PngOptions{bitdepth: 3}],
       [webp_options: %WebpOptions{preset: :bogus}],

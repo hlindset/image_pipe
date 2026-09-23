@@ -7,7 +7,7 @@ defmodule ImagePipe.API.ParserTest do
   alias ImagePipe.API.DiagnosticRenderer
   alias ImagePipe.API.OptionSpec
   alias ImagePipe.API.Parser
-  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Request
   alias ImagePipe.Plan.Request.Group
   alias ImagePipe.Plan.Request.Output
@@ -495,14 +495,13 @@ defmodule ImagePipe.API.ParserTest do
 
     test "output policy stays sparse and typed" do
       options = [
-        "format-q=webp:70,avif:60,jxl:80",
+        "format-q=webp:70,avif:60",
         "autoquality=ssimulacra2,error:2,target:78,min:40,max:95",
         "max-bytes=12000",
         "jpeg-options=progressive,quant-table:3",
         "png-options=palette:false,filter:paeth",
         "webp-options=near-lossless,effort:6",
-        "avif-options=subsample:on,effort:9",
-        "jxl-options=effort:4"
+        "avif-options=subsample:on,effort:9"
       ]
 
       assert {:ok,
@@ -510,8 +509,7 @@ defmodule ImagePipe.API.ParserTest do
                 output: %Output{
                   format_qualities: %{
                     webp: {:quality, 70},
-                    avif: {:quality, 60},
-                    jpeg_xl: {:quality, 80}
+                    avif: {:quality, 60}
                   },
                   autoquality:
                     {:ssimulacra2,
@@ -521,8 +519,7 @@ defmodule ImagePipe.API.ParserTest do
                     jpeg: %JpegOptions{interlace: true, quant_table: 3},
                     png: %PngOptions{palette: false, filter: :paeth},
                     webp: %WebpOptions{near_lossless: true, effort: 6},
-                    avif: %AvifOptions{subsample_mode: :on, effort: 9},
-                    jpeg_xl: %JxlOptions{effort: 4}
+                    avif: %AvifOptions{subsample_mode: :on, effort: 9}
                   }
                 }
               }} = parse(options)
@@ -893,8 +890,7 @@ defmodule ImagePipe.API.ParserTest do
             "jpeg-options=progressive",
             "png-options=palette",
             "webp-options=lossless",
-            "avif-options=effort:6",
-            "jxl-options=effort:4"
+            "avif-options=effort:6"
           ] do
         assert {:error, {:invalid_request, diagnostics}} =
                  parse(["w=32", "output=blurhash", option])
@@ -923,7 +919,7 @@ defmodule ImagePipe.API.ParserTest do
 
     test "info rejects every image-only output policy as inert" do
       for key <-
-            ~w(format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options jxl-options),
+            ~w(format q format-q meta profile hdr autoquality max-bytes jpeg-options png-options webp-options avif-options),
           spec = OptionSpec.fetch(key) do
         assert {:error, {:invalid_request, diagnostics}} =
                  parse(["output=info", hd(spec.examples)])

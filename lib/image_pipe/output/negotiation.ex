@@ -7,13 +7,10 @@ defmodule ImagePipe.Output.Negotiation do
 
   @modern_mime_types Map.new(Format.output_mime_types()) |> Map.take(Format.modern_formats())
 
-  # Server preference order among the modern formats. AVIF leads because, at the
-  # ssim2 web-delivery quality target, it is both smaller and sharper than JPEG XL
-  # (JXL only pulls ahead near visual-losslessness). A host may override the order
-  # via the `:format_order` option.
-  @default_order [:avif, :jpeg_xl, :webp]
+  # Server preference order; hosts may override it with `:format_order`.
+  @default_order [:avif, :webp]
 
-  @spec modern_candidates(String.t() | nil, keyword()) :: [:jpeg_xl | :avif | :webp]
+  @spec modern_candidates(String.t() | nil, keyword()) :: [:avif | :webp]
   def modern_candidates(accept_header, opts \\ []) do
     case parse_accept(accept_header) do
       [] ->
@@ -50,7 +47,6 @@ defmodule ImagePipe.Output.Negotiation do
     config_enabled?(format, opts) and Capabilities.supports?(format, opts)
   end
 
-  defp config_enabled?(:jpeg_xl, opts), do: Keyword.get(opts, :auto_jpeg_xl, true)
   defp config_enabled?(:avif, opts), do: Keyword.get(opts, :auto_avif, true)
   defp config_enabled?(:webp, opts), do: Keyword.get(opts, :auto_webp, true)
 
@@ -92,10 +88,7 @@ defmodule ImagePipe.Output.Negotiation do
     if qualities == [], do: nil, else: qualities
   end
 
-  # Only an explicit `image/avif` / `image/webp` / `image/jxl` accepts a modern
-  # format. The `image/*` wildcard does not: real Chrome/Firefox `<img>` requests
-  # send `image/*` while being unable to decode JPEG XL, so honoring it would
-  # serve undecodable bytes (imgproxy likewise keys off the explicit mime only).
+  # Modern formats require an explicit MIME type in Accept.
   defp match_specificity(accepted, mime_type) do
     if accepted == mime_type, do: :exact, else: :none
   end

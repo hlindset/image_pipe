@@ -970,7 +970,6 @@
     <label class="field">
       <span>Format</span>
       <select bind:value={controlState.format}>
-        <option value="jxl">jxl</option>
         <option value="webp">webp</option>
         <option value="avif">avif</option>
         <option value="jpeg">jpeg</option>

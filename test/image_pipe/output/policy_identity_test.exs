@@ -38,10 +38,10 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
   end
 
   describe "encode-agreement property" do
-    defp format_gen, do: member_of([:avif, :webp, :jpeg_xl, :jpeg, :png])
+    defp format_gen, do: member_of([:avif, :webp, :jpeg, :png])
 
     defp modern_candidates_gen do
-      map(list_of(member_of([:avif, :webp, :jpeg_xl]), max_length: 3), &Enum.uniq/1)
+      map(list_of(member_of([:avif, :webp]), max_length: 3), &Enum.uniq/1)
     end
 
     defp source_format_gen,
@@ -156,14 +156,14 @@ defmodule ImagePipe.Output.PolicyIdentityTest do
     test "encoder_options structs are flattened so they can safely reach a digest" do
       policy = %{
         base_policy()
-        | encoder_options: %{jpeg_xl: %ImagePipe.Plan.Output.JxlOptions{effort: 4}}
+        | encoder_options: %{avif: %ImagePipe.Plan.Output.AvifOptions{effort: 4}}
       }
 
       material = Policy.identity_material(policy)
       encoder_options_material = Keyword.fetch!(material, :encoder_options)
 
-      refute is_struct(encoder_options_material.jpeg_xl)
-      assert encoder_options_material.jpeg_xl.effort == 4
+      refute is_struct(encoder_options_material.avif)
+      assert encoder_options_material.avif.effort == 4
     end
   end
 end

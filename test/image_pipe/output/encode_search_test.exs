@@ -1,9 +1,7 @@
 defmodule ImagePipe.Output.EncodeSearchTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Output.EncodeSearch
-  alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
-  alias Vix.Vips.Image, as: VixImage
 
   test "size picks the highest quality under the byte target" do
     rs = %RQS.Size{target: 50_000, min_quality: 10, max_quality: 80}
@@ -465,100 +463,5 @@ defmodule ImagePipe.Output.EncodeSearchTest do
       assert meta.outcome == :hit
       assert meta.score < 1.509
     end
-  end
-
-  describe "native jxl butteraugli (run/3)" do
-    @tag :jxl
-    test "no max_bytes → single encode, outcome :native, no NIF" do
-      {:ok, img} = Image.new(128, 128, color: [10, 20, 30])
-
-      resolved =
-        native_resolved(nil, target: 1.0, min_quality: 1, max_quality: 100, allowed_error: 0.1)
-
-      assert {:ok, bin, meta} = EncodeSearch.run(img, resolved, [])
-      assert {:ok, _} = Image.from_binary(bin)
-      assert meta.outcome == :native
-      assert meta.iterations == 0
-      assert meta.score == nil
-    end
-
-    @tag :jxl
-    test "explicit max_quality is never exceeded" do
-      # target 1.0 (= Q90) with max_quality 80 (= dist 1.9) → the Q-bracket clamp
-      # raises the effective distance to dist(Q80)=1.9, never a higher quality
-      # (lower distance) than the bracket ceiling. With max_quality 100 the bracket
-      # does not bite and the target distance 1.0 (= Q90) is used directly.
-      # We assert the clamp by byte-identity to the explicit Q encode (a byte-size
-      # comparison is not a reliable proxy — JXL byte size is non-monotone on a flat
-      # synthetic image), which proves max_quality=80 capped the quality.
-      {:ok, img} = Image.new(256, 256, color: [200, 60, 60])
-
-      clamped =
-        native_resolved(nil, target: 1.0, min_quality: 1, max_quality: 80, allowed_error: 0.1)
-
-      uncapped = put_in(clamped.quality_search.max_quality, 100)
-
-      {:ok, capped_bin, _} = EncodeSearch.run(img, clamped, [])
-      {:ok, free_bin, _} = EncodeSearch.run(img, uncapped, [])
-
-      {:ok, q80} = VixImage.write_to_buffer(img, ".jxl[Q=80]")
-      {:ok, q90} = VixImage.write_to_buffer(img, ".jxl[Q=90]")
-
-      # Capped honors max_quality 80: byte-identical to the explicit Q80 encode,
-      # and distinct from the uncapped Q90 encode.
-      assert capped_bin == q80
-      assert free_bin == q90
-      refute capped_bin == free_bin
-    end
-
-    @tag :jxl
-    test "max_bytes degrades distance and self-caps" do
-      # A high-frequency photo so distance genuinely trades bytes (a flat synthetic
-      # image hits libjxl's irreducible floor and can never honor a sub-floor budget).
-      {:ok, img} =
-        Image.open("test/support/image_pipe/test/sources/high_freq.jpg")
-
-      {:ok, big, _} =
-        EncodeSearch.run(
-          img,
-          native_resolved(nil,
-            target: 0.3,
-            min_quality: 1,
-            max_quality: 100,
-            allowed_error: 0.05
-          ),
-          []
-        )
-
-      budget = div(byte_size(big), 2)
-
-      {:ok, capped, meta} =
-        EncodeSearch.run(
-          img,
-          native_resolved(budget,
-            target: 0.3,
-            min_quality: 1,
-            max_quality: 100,
-            allowed_error: 0.05
-          ),
-          []
-        )
-
-      assert byte_size(capped) <= budget
-      assert meta.outcome in [:native, :best_effort]
-    end
-  end
-
-  defp native_resolved(max_bytes, opts) do
-    %Resolved{
-      format: :jpeg_xl,
-      quality: :default,
-      response_headers: [],
-      strip_metadata: true,
-      keep_copyright: true,
-      color_profile: :strip,
-      max_bytes: max_bytes,
-      quality_search: struct!(RQS.NativeJxlButteraugli, opts)
-    }
   end
 end

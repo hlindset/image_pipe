@@ -4,9 +4,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch.Butteraugli do
   distance (lower = better; ~1.0 is visually lossless; valid range 0.0–25.0,
   validated at resolve). On WebP/AVIF/JPEG the search walks the encoder quality
   knob within `[min_quality, max_quality]` to land within `[target − allowed_error,
-  target + allowed_error]`. On JPEG XL it drives libvips' native `distance` knob
-  directly (resolve picks `Output.ResolvedQualitySearch.NativeJxlButteraugli`),
-  where the bracket clamps the target via the libjxl Q→distance mapping.
+  target + allowed_error]`.
   `max_resolution` skips the search on oversized results.
   """
   @enforce_keys [:target, :min_quality, :max_quality]

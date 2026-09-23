@@ -1,7 +1,7 @@
 defmodule ImagePipe.Plan.Output.EncoderOptionsTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
 
   test "structs default every field to nil" do
     assert %JpegOptions{
@@ -24,7 +24,6 @@ defmodule ImagePipe.Plan.Output.EncoderOptionsTest do
            } = %WebpOptions{}
 
     assert %AvifOptions{subsample_mode: nil, effort: nil} = %AvifOptions{}
-    assert %JxlOptions{effort: nil} = %JxlOptions{}
   end
 
   test "merge/2 lets non-nil override fields win, nil keeps base" do

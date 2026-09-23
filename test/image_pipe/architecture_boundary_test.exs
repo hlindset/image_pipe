@@ -589,7 +589,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Output.PngOptions,
       ImagePipe.Plan.Output.WebpOptions,
       ImagePipe.Plan.Output.AvifOptions,
-      ImagePipe.Plan.Output.JxlOptions,
       ImagePipe.Plan.Response,
       ImagePipe.Plan.Color,
       ImagePipe.Plan.Source,

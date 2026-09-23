@@ -78,7 +78,6 @@ compression ratio from `X-ImagePipe-Source-Size ÷ body length`.
 | `X-ImagePipe-Output-Quality` | `72` | Effective quality (or `default` when the encoder default applied) |
 | `X-ImagePipe-Output-Stripped` | `true` | Metadata stripped |
 | `X-ImagePipe-Output-Color-Profile` | `srgb` | Output color profile |
-| `X-ImagePipe-Output-Distance` | `1.0` | JXL native distance (JXL output only) |
 
 ### Autoquality (present only when a quality search ran)
 

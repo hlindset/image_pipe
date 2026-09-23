@@ -246,7 +246,7 @@ using the same encoder limits as HTTP.
 `accept: "image/webp"` supplies optional format preferences when the plan
 does not specify a format. It defaults to an empty Accept value, following
 the source format and the usual fallback policy. `auto_avif`, `auto_webp`,
-`auto_jpeg_xl`, `format_order`, and `output_capabilities` apply as on a mount.
+`format_order`, and `output_capabilities` apply as on a mount.
 `clock` supplies Unix seconds for the plan's expiry check; a plan remains
 valid at its exact expiry timestamp.
 
@@ -419,8 +419,7 @@ IP.new()
 )
 ```
 
-Use `format: :jpeg_xl` for URL `format=jxl`,
-`color_profile: :preserve_source` for `profile=preserve`, and
+Use `color_profile: :preserve_source` for `profile=preserve`, and
 `hdr: :tone_map` for `hdr=tonemap`. The reference shows the remaining mappings.
 Host defaults belong in [configuration](configuration.md); request options
 override them.

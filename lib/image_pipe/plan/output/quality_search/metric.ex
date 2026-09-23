@@ -5,8 +5,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch.Metric do
   `ImagePipe.Output` runtime one definition of each mathematical property.
 
   - `target_range/1` — the valid `{lo, hi}` band a requested target must fall in:
-    SSIMULACRA2's `0`–`100` score, butteraugli's `0.0`–`25.0` distance (libvips
-    `jxlsave`'s own `distance` bound).
+    SSIMULACRA2's `0`–`100` score, butteraugli's `0.0`–`25.0` distance.
   - `direction/1` — whether a higher score is better (SSIMULACRA2) or a lower
     distance is better (butteraugli), orienting the search loop's band walk.
 

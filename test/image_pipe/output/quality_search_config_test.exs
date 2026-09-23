@@ -37,46 +37,6 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     assert Policy.identity_material(short) == Policy.identity_material(long)
   end
 
-  test "native JPEG XL byte-budget descent respects the configured attempt limit" do
-    image = Image.open!("priv/static/images/beach.jpg") |> Image.thumbnail!(128)
-    opts = [autoquality_method: :butteraugli, jxl_options: %Output.JxlOptions{effort: 1}]
-    {short_policy, short} = resolved_output([autoquality_max_iterations: 1] ++ opts, :jpeg_xl, 1)
-    {long_policy, long} = resolved_output([autoquality_max_iterations: 12] ++ opts, :jpeg_xl, 1)
-    {_policy, baseline} = resolved_output(opts, :jpeg_xl)
-    {:ok, [short_body], "image/jxl", short_meta} = Encoder.stream_output(image, short, nil, [])
-    {:ok, [long_body], "image/jxl", long_meta} = Encoder.stream_output(image, long, nil, [])
-    {:ok, [baseline_body], "image/jxl", _meta} = Encoder.stream_output(image, baseline, nil, [])
-    assert short_body == baseline_body
-    assert byte_size(long_body) < byte_size(short_body)
-    assert short_meta.outcome == :best_effort
-    assert long_meta.outcome == :best_effort
-    refute Policy.identity_material(short_policy) == Policy.identity_material(long_policy)
-  end
-
-  test "native JPEG XL without a byte budget has no iterative limit in identity" do
-    opts = [autoquality_method: :butteraugli]
-    {short, _resolved} = resolved_output([autoquality_max_iterations: 1] ++ opts, :jpeg_xl)
-    {long, _resolved} = resolved_output([autoquality_max_iterations: 12] ++ opts, :jpeg_xl)
-    assert Policy.identity_material(short) == Policy.identity_material(long)
-  end
-
-  test "negotiated native JPEG XL also omits the unused iteration limit" do
-    policies =
-      for iterations <- [1, 12] do
-        config =
-          Config.validate!(
-            autoquality_method: :butteraugli,
-            autoquality_max_iterations: iterations
-          )
-
-        policy = output_policy(config, nil, nil, "image/jxl")
-        assert Policy.identity_selection(policy) == {:auto_head, :jpeg_xl}
-        Policy.identity_material(policy)
-      end
-
-    assert [material, material] = policies
-  end
-
   test "PNG does not search or retain an unused iteration limit in identity" do
     opts = [autoquality_method: :ssimulacra2]
     {short, resolved} = resolved_output([autoquality_max_iterations: 1] ++ opts, :png)
@@ -112,21 +72,6 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
     assert [material, material] = negotiated_materials
   end
 
-  test "lossless WebP encoder configuration does not shadow JPEG XL iteration identity" do
-    opts = [
-      autoquality_method: :butteraugli,
-      webp_options: %Output.WebpOptions{lossless: true}
-    ]
-
-    {short, _resolved} =
-      resolved_output([autoquality_max_iterations: 1] ++ opts, :jpeg_xl)
-
-    {long, _resolved} =
-      resolved_output([autoquality_max_iterations: 12] ++ opts, :jpeg_xl)
-
-    assert Policy.identity_material(short) == Policy.identity_material(long)
-  end
-
   defp resolved_output(opts, format \\ :jpeg, max_bytes \\ nil) do
     config = Config.validate!(opts)
     policy = output_policy(config, format, max_bytes)
@@ -153,7 +98,6 @@ defmodule ImagePipe.Output.QualitySearchConfigTest do
   end
 
   defp maybe_add_format(segments, nil), do: segments
-  defp maybe_add_format(segments, :jpeg_xl), do: segments ++ ["format=jxl"]
   defp maybe_add_format(segments, format), do: segments ++ ["format=#{format}"]
 
   defp maybe_add_max_bytes(segments, nil), do: segments

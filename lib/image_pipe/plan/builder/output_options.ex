@@ -3,10 +3,10 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
 
   alias ImagePipe.Plan.Builder.Options
   alias ImagePipe.Plan.Builder.Values
-  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Output.QualitySearch.Metric
 
-  @formats [:jpeg, :png, :webp, :avif, :jpeg_xl]
+  @formats [:jpeg, :png, :webp, :avif]
   @quality [type: {:in, 1..100}]
 
   def schema do
@@ -33,8 +33,7 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
       jpeg_options: [type: {:custom, __MODULE__, :encoder, [:jpeg]}],
       png_options: [type: {:custom, __MODULE__, :encoder, [:png]}],
       webp_options: [type: {:custom, __MODULE__, :encoder, [:webp]}],
-      avif_options: [type: {:custom, __MODULE__, :encoder, [:avif]}],
-      jxl_options: [type: {:custom, __MODULE__, :encoder, [:jpeg_xl]}]
+      avif_options: [type: {:custom, __MODULE__, :encoder, [:avif]}]
     ]
   end
 
@@ -105,5 +104,4 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
   defp encoder_module(:png), do: PngOptions
   defp encoder_module(:webp), do: WebpOptions
   defp encoder_module(:avif), do: AvifOptions
-  defp encoder_module(:jpeg_xl), do: JxlOptions
 end

@@ -5,7 +5,7 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
   alias ImagePipe.API.Parser
   alias ImagePipe.Output.{Encoder, Policy, Resolved}
   alias ImagePipe.Output.RequestPolicy, as: APIOutput
-  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
 
   defp finalized(w \\ 64, h \\ 64) do
     {:ok, img} = Image.new(w, h, color: [120, 30, 30])
@@ -89,12 +89,6 @@ defmodule ImagePipe.Output.EncoderOptionsEncodeTest do
   test "byte-neutral: empty options == nil options for the same source/quality" do
     a = Encoder.encode_to_buffer(finalized(), resolved(:jpeg, nil), 75)
     b = Encoder.encode_to_buffer(finalized(), resolved(:jpeg, %JpegOptions{}), 75)
-    assert a == b
-  end
-
-  test "JXL effort: unset JxlOptions encodes identically to nil (libvips default 7)" do
-    a = Encoder.encode_to_buffer(finalized(), resolved(:jpeg_xl, nil), 75)
-    b = Encoder.encode_to_buffer(finalized(), resolved(:jpeg_xl, %JxlOptions{}), 75)
     assert a == b
   end
 end

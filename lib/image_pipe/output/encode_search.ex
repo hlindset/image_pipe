@@ -31,7 +31,6 @@ defmodule ImagePipe.Output.EncodeSearch do
   alias ImagePipe.Output.ContentClassifier
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Metric
-  alias ImagePipe.Output.NativeJxlSearch
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
   alias ImagePipe.Output.Ssim2Metric.CropScore
@@ -42,7 +41,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   @max_bytes_alone_floor 10
   @max_bytes_alone_base 90
 
-  @type outcome :: :hit | :best_effort | :skipped | :native
+  @type outcome :: :hit | :best_effort | :skipped
 
   # Why a `:best_effort` result fell short of the objective/budget. `nil` on a
   # `:hit`. `:ceiling`/`:floor` — the objective never cleared its band/target and
@@ -52,7 +51,6 @@ defmodule ImagePipe.Output.EncodeSearch do
   @type limiting_factor :: :ceiling | :floor | :max_bytes | :bump_exhausted
 
   @type meta :: %{
-          # 0 = native distance encode, no Q chosen
           quality: 0..100,
           bytes: non_neg_integer(),
           iterations: non_neg_integer(),
@@ -194,16 +192,6 @@ defmodule ImagePipe.Output.EncodeSearch do
   """
   @spec run(Vix.Vips.Image.t(), Resolved.t(), keyword()) ::
           {:ok, binary(), meta()} | {:error, term()}
-  # Native JPEG XL drives `distance` directly with no band loop — a self-contained
-  # strategy. Route it to its own module; the unified run/3 entry and meta contract
-  # are preserved.
-  def run(
-        finalized_image,
-        %Resolved{quality_search: %RQS.NativeJxlButteraugli{}} = resolved,
-        opts
-      ),
-      do: NativeJxlSearch.run(finalized_image, resolved, opts)
-
   def run(finalized_image, %Resolved{} = resolved, opts) do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
     encode_fun = fn quality -> encode_leg(finalized_image, resolved, quality, telemetry_opts) end
@@ -804,7 +792,7 @@ defmodule ImagePipe.Output.EncodeSearch do
   # Every quality metric measures the full frame the same way — through its runtime
   # (`Output.Metric.runtime/1`). This covers Ssimulacra2 below the crop crossover and
   # butteraugli always (full-frame only this cycle). `:none`/`:size` are matched above
-  # and never reach here, and the native-JXL strategy never calls `score_opts`.
+  # and never reach here.
   defp score_opts(image, %Resolved{quality_search: qs}, _scorer, t) do
     full_frame_opts(Metric.runtime(qs), image, t)
   end

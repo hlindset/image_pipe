@@ -12,8 +12,7 @@ defmodule ImagePipe.Output.RequestPolicy do
     jpeg: :jpeg_options,
     png: :png_options,
     webp: :webp_options,
-    avif: :avif_options,
-    jpeg_xl: :jxl_options
+    avif: :avif_options
   }
 
   @spec resolve(RequestOutput.t(), keyword(), String.t()) ::
@@ -179,9 +178,6 @@ defmodule ImagePipe.Output.RequestPolicy do
   end
 
   defp possible_formats({:explicit, format}, _config), do: [format]
-
-  defp automatic_format_enabled?(:jpeg_xl, config),
-    do: Keyword.get(config, :auto_jpeg_xl, true)
 
   defp automatic_format_enabled?(:avif, config), do: Keyword.get(config, :auto_avif, true)
   defp automatic_format_enabled?(:webp, config), do: Keyword.get(config, :auto_webp, true)

@@ -113,14 +113,6 @@ defmodule ImagePipe.Debug.HeadersTest do
     assert header(headers, "x-imagepipe-aq-tiles") == {"x-imagepipe-aq-tiles", "9"}
   end
 
-  test "renders JXL output distance" do
-    info = %Info{output_format: :jpeg_xl, output_distance: 1.0}
-    headers = Headers.render(info, accept: "", cache: :miss)
-
-    assert header(headers, "x-imagepipe-output-distance") ==
-             {"x-imagepipe-output-distance", "1.0"}
-  end
-
   test "renders the cache key when provided and omits it otherwise" do
     info = %Info{output_format: :avif}
 

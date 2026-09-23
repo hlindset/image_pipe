@@ -395,12 +395,9 @@ result `meta`):
 - `:chosen_bytes` — the encoded byte size of the delivered buffer.
 - `:iterations` — the number of distinct encodes performed.
 - `:outcome` — `:hit` (objective/budget met), `:best_effort` (fell back to the
-  bracket floor/ceiling because the target was unreachable), `:skipped`, or
-  `:native` (the butteraugli + JPEG XL single-encode path drove libvips' `distance`
-  knob directly — `:iterations` is `0`, `:chosen_quality` is `0` since no Q was
-  chosen, and no external metric ran).
-- `:final_score` — the SSIMULACRA2 score of the delivered quality for an
-  `:ssimulacra2` search, otherwise absent (`nil` on the native path).
+  bracket floor/ceiling because the target was unreachable), or `:skipped`.
+- `:final_score` — the perceptual score of the delivered quality for a
+  SSIMULACRA2 or Butteraugli search, otherwise absent.
 - `:scorer` — `:full` (whole-frame SSIMULACRA2) or `:crop` (K p10-tiles above the
   internal ~6 MP crossover, #354).
 - `:tiles_scored` — tiles actually scored on the crop path (sub-sampled, `<= 16`);
@@ -511,8 +508,7 @@ libvips-lazy per-operation transform spans):
 
 The scoring legs carry a **per-metric** segment derived from the metric's
 `leg_name/0` — `:ssimulacra2` or `:butteraugli` — so each metric gets distinct span
-names a backend can group by. (The native-JXL butteraugli path emits no cost legs:
-it is a single `distance`-driven encode with no decode/score loop.)
+names a backend can group by.
 
 All values are product-neutral numbers/atoms (no URLs, secrets, or PII).
 

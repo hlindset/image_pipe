@@ -42,12 +42,8 @@ jobs:
           - elixir: 1.20.4-otp-29
             erlang: "29.1"
 
-    # JPEG XL output is a first-class format, but the precompiled libvips vix
-    # downloads by default (sharp-libvips) ships without libjxl save, while the
-    # newest apt libvips with JXL (Ubuntu noble, 8.15.1) is too old for ops this
-    # codebase uses (clamp/maxpair, libvips >= 8.16). So build a current libvips
-    # with libjxl from source and compile vix against it
-    # (VIX_COMPILATION_MODE=PLATFORM_PROVIDED_LIBVIPS) — JXL runs for real.
+    # Build current libvips for clamp/maxpair, PNG palette quantization, and
+    # JPEG XL source decoding. Compile vix against the same build.
     env:
       MISE_ERLANG_VERSION: ${{ matrix.erlang }}
       MISE_ELIXIR_VERSION: ${{ matrix.elixir }}
@@ -80,7 +76,7 @@ jobs:
         with:
           path: ${{ env.VIPS_PREFIX }}
           key: vips-${{ runner.os }}-${{ env.VIPS_VERSION }}-jxl-exif-quant-v4
-      - name: Build libvips with JPEG XL + PNG quantization
+      - name: Build libvips with JPEG XL decoding + PNG quantization
         if: steps.cache-vips.outputs.cache-hit != 'true'
         run: |
           tarball="vips-${VIPS_VERSION}.tar.xz"
@@ -89,15 +85,15 @@ jobs:
           tar xJf "${tarball}"
           cd "vips-${VIPS_VERSION}"
           # -Dimagequant=enabled: PNG palette quantization (png_options quantize) —
-          # libvips' palette save is a build-time optional, like JXL above.
+          # libvips' palette save is a build-time optional.
           meson setup build --prefix="${VIPS_PREFIX}" --libdir=lib --buildtype=release \
             -Dimagequant=enabled
           meson compile -C build
           meson install -C build
-      - name: Verify libvips can write JPEG XL + quantized PNG
+      - name: Verify libvips can read JPEG XL and write quantized PNG
         run: |
           "${VIPS_PREFIX}/bin/vips" --version
-          "${VIPS_PREFIX}/bin/vips" -l | grep -iq jxlsave || { echo "JXL save missing from build"; exit 1; }
+          "${VIPS_PREFIX}/bin/vips" -l | grep -iq jxlload || { echo "JXL load missing from build"; exit 1; }
           # Functional check: a palette PNG must encode (needs libimagequant).
           "${VIPS_PREFIX}/bin/vips" black /tmp/q.v 16 16
           "${VIPS_PREFIX}/bin/vips" pngsave /tmp/q.v /tmp/q.png[palette=true,bitdepth=4] || {

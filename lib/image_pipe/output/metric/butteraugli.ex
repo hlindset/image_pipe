@@ -4,8 +4,7 @@ defmodule ImagePipe.Output.Metric.Butteraugli do
   `Butteraugli.*`. `reference/1` builds a reusable reference from the finalized
   pre-encode image; the loop calls `score/2` per decoded candidate. The targeted
   value is `Result.score` — the headline max butteraugli distance (lower = better;
-  ~1.0 visually lossless), the same quantity libvips' JXL `distance` knob targets.
-  `target_range` is libvips `jxlsave`'s own `distance` bound (min 0 / max 25).
+  ~1.0 visually lossless). The supported target range is 0 to 25.
   """
   @behaviour ImagePipe.Output.Metric
 

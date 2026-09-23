@@ -19,7 +19,7 @@ defmodule ImagePipe.Plan.Request.Output do
 
   @type t :: %__MODULE__{
           terminal: :image | :blurhash | :lqip_css | :info,
-          format: nil | :avif | :webp | :jpeg | :png | :jpeg_xl,
+          format: nil | :avif | :webp | :jpeg | :png,
           quality: nil | 1..100,
           metadata: nil | :strip | :copyright | :keep,
           color_profile:

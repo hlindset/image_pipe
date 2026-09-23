@@ -24,7 +24,7 @@ defmodule ImagePipe.APIResultLimitsTest do
   # option [mirrors api_wire_test.exs's `opts/1` helper].
   defp opts(extra) do
     base = ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
-    Keyword.merge(base, output_capabilities: %{avif: true, webp: true, jpeg_xl: true})
+    Keyword.merge(base, output_capabilities: %{avif: true, webp: true})
   end
 
   defp get(path, config) do

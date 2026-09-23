@@ -418,7 +418,7 @@ defmodule ImagePipe.PlugTest do
     [
       quality: :default,
       default_quality: {:quality, 80},
-      format_qualities: %{webp: {:quality, 79}, avif: {:quality, 63}, jpeg_xl: {:quality, 77}},
+      format_qualities: %{webp: {:quality, 79}, avif: {:quality, 63}},
       quality_search: :none,
       quality_search_max_iterations: nil,
       quality_search_offsets: %{
@@ -1130,7 +1130,6 @@ defmodule ImagePipe.PlugTest do
         root_url: "http://origin.test",
         auto_avif: false,
         auto_webp: false,
-        auto_jpeg_xl: false,
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1176,7 +1175,6 @@ defmodule ImagePipe.PlugTest do
         root_url: "http://origin.test",
         auto_avif: false,
         auto_webp: false,
-        auto_jpeg_xl: false,
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )

@@ -1,7 +1,7 @@
 defmodule ImagePipe.Processing.Config do
   @moduledoc false
   alias ImagePipe.Format
-  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, JxlOptions, PngOptions, WebpOptions}
+  alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.Plan.Output.QualitySearch.Metric
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
@@ -23,16 +23,15 @@ defmodule ImagePipe.Processing.Config do
   ]
 
   @map_defaults [
-    format_quality: %{webp: 79, avif: 63, jpeg_xl: 77},
+    format_quality: %{webp: 79, avif: 63},
     autoquality_target: %{ssimulacra2: 78, butteraugli: 1.0},
     autoquality_allowed_error: %{ssimulacra2: 1.0, butteraugli: 0.1},
-    autoquality_format_min_quality: %{avif: 60, jpeg_xl: 45},
-    autoquality_format_max_quality: %{avif: 65, jpeg_xl: 80},
+    autoquality_format_min_quality: %{avif: 60},
+    autoquality_format_max_quality: %{avif: 65},
     jpeg_options: %JpegOptions{},
     png_options: %PngOptions{},
     webp_options: %WebpOptions{},
-    avif_options: %AvifOptions{},
-    jxl_options: %JxlOptions{}
+    avif_options: %AvifOptions{}
   ]
 
   @map_keys Keyword.keys(@map_defaults)
@@ -49,7 +48,6 @@ defmodule ImagePipe.Processing.Config do
                     ],
                     auto_avif: [type: :boolean, default: true],
                     auto_webp: [type: :boolean, default: true],
-                    auto_jpeg_xl: [type: :boolean, default: true],
                     format_order: [
                       type: {:custom, __MODULE__, :validate_format_order, []}
                     ],
@@ -78,7 +76,6 @@ defmodule ImagePipe.Processing.Config do
                     png_options: [type: {:struct, PngOptions}],
                     webp_options: [type: {:struct, WebpOptions}],
                     avif_options: [type: {:struct, AvifOptions}],
-                    jxl_options: [type: {:struct, JxlOptions}],
                     clock: [
                       type: {:custom, __MODULE__, :validate_clock, []}
                     ],
@@ -228,7 +225,7 @@ defmodule ImagePipe.Processing.Config do
   end
 
   defp validate_encoder_options!(resolved) do
-    Enum.each([:jpeg_options, :png_options, :webp_options, :avif_options, :jxl_options], fn key ->
+    Enum.each([:jpeg_options, :png_options, :webp_options, :avif_options], fn key ->
       %module{} = options = Keyword.fetch!(resolved, key)
 
       fields =

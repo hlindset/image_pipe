@@ -60,8 +60,7 @@ defmodule ImagePipe.API.OptionSpec do
     "avif" => :avif,
     "webp" => :webp,
     "jpeg" => :jpeg,
-    "png" => :png,
-    "jxl" => :jpeg_xl
+    "png" => :png
   }
 
   @output_map %{
@@ -527,14 +526,6 @@ defmodule ImagePipe.API.OptionSpec do
         value: &__MODULE__.parse_avif_options/1,
         summary: "Sparse AVIF encoder options",
         examples: ["avif-options=subsample:on,effort:6"]
-      },
-      %__MODULE__{
-        key: "jxl-options",
-        name: :jxl_options,
-        scope: :request,
-        value: &__MODULE__.parse_jxl_options/1,
-        summary: "Sparse JPEG XL encoder options",
-        examples: ["jxl-options=effort:4"]
       },
       %__MODULE__{
         key: "filename",
@@ -1199,7 +1190,7 @@ defmodule ImagePipe.API.OptionSpec do
 
   @doc false
   @spec parse_format(String.t()) ::
-          {:ok, :avif | :webp | :jpeg | :png | :jpeg_xl} | {:error, :invalid_format}
+          {:ok, :avif | :webp | :jpeg | :png} | {:error, :invalid_format}
   def parse_format(string) do
     case Map.fetch(@format_map, string) do
       {:ok, format} -> {:ok, format}
@@ -1275,7 +1266,6 @@ defmodule ImagePipe.API.OptionSpec do
   def parse_avif_options(string), do: parse_encoder_options(string, :avif)
 
   @doc false
-  def parse_jxl_options(string), do: parse_encoder_options(string, :jpeg_xl)
 
   defp parse_path_token(string, error) do
     case Regex.match?(@path_token_pattern, string) do
@@ -1298,7 +1288,6 @@ defmodule ImagePipe.API.OptionSpec do
         :png -> &OutputOptions.parse_png_options/1
         :webp -> &OutputOptions.parse_webp_options/1
         :avif -> &OutputOptions.parse_avif_options/1
-        :jpeg_xl -> &OutputOptions.parse_jxl_options/1
       end
 
     case parser.(string) do

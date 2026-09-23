@@ -74,11 +74,9 @@ defmodule ImagePipe.API.QualityWireTest do
     assert pixels(png) == pixels(webp)
   end
 
-  test "AVIF and JPEG XL expose their encoder effort controls" do
-    for {format, mime} <- [{"avif", "image/avif"}, {"jxl", "image/jxl"}] do
-      response = response("w=128/format=#{format}/#{format}-options=effort:1", mount())
-      assert_image(response, mime, {128, 85})
-    end
+  test "AVIF exposes its encoder effort control" do
+    response = response("w=128/format=avif/avif-options=effort:1", mount())
+    assert_image(response, "image/avif", {128, 85})
   end
 
   test "lossless WebP rejects explicit search requests before source or cache access" do
@@ -174,27 +172,17 @@ defmodule ImagePipe.API.QualityWireTest do
     assert score <= 86
   end
 
-  test "Butteraugli searches WebP and uses native JPEG XL distance" do
+  test "Butteraugli searches WebP" do
     config = mount(allow_debug_headers: true)
 
-    for {format, encoder, mime} <- [
-          {"webp", "webp-options=effort:0", "image/webp"},
-          {"jxl", "jxl-options=effort:1", "image/jxl"}
-        ] do
-      response =
-        response(
-          "w=128/format=#{format}/#{encoder}/autoquality=butteraugli,target:1,min:1,max:100,error:0.1/debug",
-          config
-        )
+    response =
+      response(
+        "w=128/format=webp/webp-options=effort:0/autoquality=butteraugli,target:1,min:1,max:100,error:0.1/debug",
+        config
+      )
 
-      assert_image(response, mime, {128, 85})
-      assert get_resp_header(response, "x-imagepipe-aq-metric") == ["butteraugli"]
-
-      if format == "jxl" do
-        assert get_resp_header(response, "x-imagepipe-aq-outcome") == ["native"]
-        assert get_resp_header(response, "x-imagepipe-aq-iterations") == ["0"]
-      end
-    end
+    assert_image(response, "image/webp", {128, 85})
+    assert get_resp_header(response, "x-imagepipe-aq-metric") == ["butteraugli"]
   end
 
   test "explicit q and autoquality none disable inherited quality search" do
@@ -248,7 +236,6 @@ defmodule ImagePipe.API.QualityWireTest do
           "format=png/autoquality=ssimulacra2",
           "format=jpeg/png-options=palette",
           "jpeg-options=progressive:true",
-          "jxl-options=effort:0",
           "output=blurhash/format-q=webp:60",
           "output=blurhash/autoquality=none",
           "output=blurhash/max-bytes=1000",

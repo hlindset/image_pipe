@@ -50,7 +50,7 @@ The API accepts these option keys:
 `monochrome`, `duotone`, `brightness`, `contrast`, `saturation`, `colorize`,
 `gradient`, `trim`, `pad`, `bg`, `output`, `format`, `q`, `format-q`,
 `autoquality`, `max-bytes`, `jpeg-options`, `png-options`, `webp-options`,
-`avif-options`, `jxl-options`, `meta`, `profile`, `hdr`,
+`avif-options`, `meta`, `profile`, `hdr`,
 `debug`, `expires`, `preset`, `filename`, `attachment`, `cb`.
 
 It also implements `-`, `src`, `src64`, `enc`, and full-length HMAC signing with
@@ -68,7 +68,7 @@ BlurHash, LQIP CSS, and source-info JSON are the supported outputs.
 | Crop | Guided and explicit regions, anchors, focal points, attention, face/object detection, offsets, and ratio correction |
 | Geometry | EXIF policy, arbitrary rotation, flips, symmetric trim, canvas placement, padding, and alpha-aware background |
 | Effects | Blur, sharpen, pixelate, grayscale, bitonal, monochrome, duotone, brightness, contrast, saturation, colorize, and gradient |
-| Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2/Butteraugli/size search, and JPEG/PNG/WebP/AVIF/JXL controls |
+| Encoding | Explicit or negotiated formats, quality and per-format quality, byte budgets, SSIMULACRA2/Butteraugli/size search, and JPEG/PNG/WebP/AVIF controls |
 | Color and metadata | Copyright and metadata policy, ICC conversion and preservation, and HDR preservation |
 | Sources | Filesystem, HTTP(S), S3, host adapters, custom schemes, and authenticated source concealment |
 | Delivery | Images, BlurHash, LQIP CSS, source-info JSON, filenames, attachments, cachebusters, opt-in debug headers, and clock injection |
@@ -435,8 +435,8 @@ their fixed pixel space or text responses.
 `q=80` sets one explicit quality from 1 to 100. `format-q=avif:60,webp:70`
 sets per-format qualities, using the same format names as `format`. Explicit
 `q` wins over a matching `format-q`. Duplicate formats are invalid. Host
-`quality` defaults to 80; `format_quality` defaults to WebP 79, AVIF 63, and
-JPEG XL 77. Sparse host and URL format maps preserve other configured formats.
+`quality` defaults to 80; `format_quality` defaults to WebP 79 and AVIF 63.
+Sparse host and URL format maps preserve other configured formats.
 A format-quality table may be shared across requests; only the selected
 format's entry applies.
 PNG ignores the implicit global quality default; an explicit quality can
@@ -454,9 +454,8 @@ request quantization.
 host bounds, which override the global host bounds. `error` is a non-negative
 perceptual tolerance; size search does not accept it. Repeated or unknown
 fields and inverted effective bounds are rejected before source access.
-JPEG XL uses its native distance encoder for Butteraugli; other supported
-formats use iterative search. Large-image SSIMULACRA2 searches use crop scoring
-with a content-dependent correction.
+Supported formats use iterative search. Large-image SSIMULACRA2 searches use
+crop scoring with a content-dependent correction.
 
 `autoquality=none` disables a configured search. An explicit `q` also disables
 inherited host search; combining it with an enabled URL `autoquality` is an
@@ -477,10 +476,8 @@ Host controls include `autoquality_method`, `autoquality_target`,
 `autoquality_max_quality`, per-format `autoquality_format_min_quality` and
 `autoquality_format_max_quality`, `autoquality_max_resolution`, and
 `autoquality_max_iterations`. The iteration budget defaults to 6 and bounds
-the encoder search, including native JXL attempts to meet a byte budget.
-Native JXL Butteraugli without a byte budget uses a single encode. Active
-search settings participate in storage and ETag identity; changing an unused
-iteration budget leaves identity stable.
+the encoder search. Active search settings participate in storage and ETag
+identity; changing an unused iteration budget leaves identity stable.
 
 Each encoder option is a comma-separated list of bare boolean flags and
 `name:value` pairs. Use `flag:false` to override a host-enabled flag. Sparse
@@ -494,11 +491,10 @@ Under negotiation, per-format options are conditionally active.
 | `png-options` | `interlace`, `palette`, `bitdepth:1\|2\|4\|8\|16`, `filter:none\|sub\|up\|avg\|paeth\|all` |
 | `webp-options` | `lossless`, `near-lossless`, `smart-subsample`, `preset:default\|photo\|picture\|drawing\|icon\|text`, `effort:0..6` |
 | `avif-options` | `subsample:auto\|on\|off`, `effort:0..9` |
-| `jxl-options` | `effort:1..9` |
 
 For example, `format=jpeg/jpeg-options=progressive,quant-table:3` requests a
 progressive JPEG. Host keys `jpeg_options`, `png_options`, `webp_options`,
-`avif_options`, and `jxl_options` accept their corresponding
+and `avif_options` accept their corresponding
 `ImagePipe.Plan.Output.*Options` structs. JPEG's host struct calls its
 progressive flag `interlace`.
 

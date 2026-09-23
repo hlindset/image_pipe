@@ -251,7 +251,7 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
 
     test "output option ordering and numeric spellings have identical serialized identity" do
       first = [
-        "format-q=webp:70,avif:60,jxl:80",
+        "format-q=webp:70,avif:60",
         "meta=copyright",
         "profile=display-p3",
         "hdr=tonemap",
@@ -267,7 +267,7 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
         "meta=copyright",
         "jpeg-options=progressive,quant-table:3",
         "autoquality=ssimulacra2,max:95,min:40,target:78.0,error:2.0",
-        "format-q=jxl:80,avif:60,webp:70"
+        "format-q=avif:60,webp:70"
       ]
 
       assert {:ok, first_request} = parse(first)

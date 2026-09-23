@@ -8,7 +8,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch.MetricTest do
       assert Metric.target_range(:ssimulacra2) == {0, 100}
     end
 
-    test "butteraugli is the jxlsave distance bound 0.0-25.0" do
+    test "butteraugli accepts target distances from 0.0 to 25.0" do
       assert Metric.target_range(:butteraugli) == {0.0, 25.0}
     end
   end
