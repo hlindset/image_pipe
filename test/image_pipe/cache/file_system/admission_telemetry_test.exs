@@ -8,12 +8,14 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   alias ImagePipe.Cache.FileSystem.Admission
 
   setup do
-    registry = :"#{__MODULE__}.Registry.#{System.unique_integer([:positive])}"
-    start_supervised!({Registry, keys: :unique, name: registry})
-
     tmp_dir = Path.join(System.tmp_dir!(), "admission_tel_#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp_dir)
     on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+    alias ImagePipe.Cache.FileSystem
+
+    registry = FileSystem.registry_name(tmp_dir)
+    start_supervised!({Registry, keys: :unique, name: registry})
 
     prefix = [:"admission_tel_#{System.unique_integer([:positive])}"]
 
@@ -75,11 +77,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits an admission span with an admitted result", ctx do
-    pid = start_supervised!({Admission, opts(ctx, [])})
+    alias ImagePipe.Test.CacheEntry
+
+    start_supervised!({Admission, opts(ctx, [])})
     attach(ctx.prefix, [[:cache, :admission, :stop]])
 
-    descriptor = %{key_hash: "h1", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
-    assert {:admit, []} = Admission.admit(pid, descriptor)
+    pool = Keyword.drop(opts(ctx, []), [:registry, :telemetry_prefix])
+    assert :ok = CacheEntry.put(pool, String.duplicate("x", 5_000))
 
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
 
@@ -88,11 +92,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits an admission span with a rejected result on over-cap", ctx do
-    pid = start_supervised!({Admission, opts(ctx, max_size_bytes: 4)})
+    alias ImagePipe.Test.CacheEntry
+
+    start_supervised!({Admission, opts(ctx, max_size_bytes: 4)})
     attach(ctx.prefix, [[:cache, :admission, :stop]])
 
-    descriptor = %{key_hash: "big", size_bytes: 100, body_sha256: "s", cost_us: 1}
-    assert {:reject, :over_cap} = Admission.admit(pid, descriptor)
+    pool = Keyword.drop(opts(ctx, max_size_bytes: 4), [:registry, :telemetry_prefix])
+    assert {:ok, :rejected} = CacheEntry.put(pool, String.duplicate("x", 100))
 
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
 
@@ -134,11 +140,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits a flush stop event when dirty state is flushed", ctx do
+    alias ImagePipe.Test.CacheEntry
+
     pid = start_supervised!({Admission, opts(ctx, [])})
     attach(ctx.prefix, [[:cache, :flush, :stop]])
 
-    # An admit marks state dirty; the flush tick then persists it.
-    Admission.admit(pid, %{key_hash: "f1", size_bytes: 1_000, body_sha256: "s", cost_us: 1})
+    pool = Keyword.drop(opts(ctx, []), [:registry, :telemetry_prefix])
+    assert :ok = CacheEntry.put(pool, String.duplicate("x", 1_000))
     send(pid, :flush)
     _ = :sys.get_state(pid)
 
