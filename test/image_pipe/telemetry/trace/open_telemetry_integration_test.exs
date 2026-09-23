@@ -21,6 +21,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{LogExporter, OpenTelemetryExporter, OtelReplay, Span}
+  alias ImagePipe.Telemetry.Trace.ReqStep
   alias ImagePipe.Test.PlugFixture.CacheProbe
 
   # Inline plug: serves beach.jpg for any request path (ignores query params).
@@ -151,6 +152,35 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   defp flatten_value(v) when is_list(v), do: v
   defp flatten_value(v), do: [v]
+
+  test "SDK replay retains logical HTTP duration and one-shot occurrence time" do
+    prefix = [__MODULE__, :timing]
+    Telemetry.attach_tracer(exporter: OpenTelemetryExporter, prefix: prefix, finch_spans: false)
+    on_exit(fn -> Telemetry.detach_tracer() end)
+    opts = [telemetry_prefix: prefix]
+    event_time = System.monotonic_time()
+
+    Telemetry.span(opts, [:request], %{}, fn ->
+      req = Req.new(url: "http://origin.test/image", plug: SignedOriginImage) |> ReqStep.attach()
+      assert {:ok, %{status: 200}} = Req.request(req)
+
+      Telemetry.execute(opts, [:cache, :coordination], %{monotonic_time: event_time}, %{
+        result: :acquired
+      })
+
+      {:ok, %{result: :ok}}
+    end)
+
+    recs = drain_spans()
+    client = Enum.find(recs, &(otel_span(&1, :name) == "image_pipe.http.client"))
+    assert client
+    assert otel_span(client, :end_time) > otel_span(client, :start_time)
+
+    root = Enum.find(recs, &(otel_span(&1, :name) == "image_pipe.request"))
+    [event] = root |> otel_span(:events) |> :otel_events.list()
+    assert otel_event(event, :name) == "image_pipe.cache.coordination"
+    assert otel_event(event, :system_time_native) == event_time
+  end
 
   # ── test 1: correlation — no real request required ────────────────────────────
 

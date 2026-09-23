@@ -58,7 +58,10 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
 
     req
     |> Req.Request.put_header("traceparent", W3C.encode(trace_id, span_id, flags))
-    |> Req.Request.put_private(@priv, {trace_id, span_id, System.system_time(), parent, flags})
+    |> Req.Request.put_private(
+      @priv,
+      {trace_id, span_id, System.system_time(), System.monotonic_time(), parent, flags}
+    )
     |> Req.merge(finch_private: %{@priv => {trace_id, span_id, flags}})
   end
 
@@ -82,7 +85,9 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
       {_exporter, nil} ->
         :ok
 
-      {exporter, {trace_id, span_id, start_time, parent, flags}} ->
+      {exporter, {trace_id, span_id, start_time, monotonic_start, parent, flags}} ->
+        duration = System.monotonic_time() - monotonic_start
+
         exporter.export(%Span{
           trace_id: trace_id,
           span_id: span_id,
@@ -90,7 +95,8 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
           name: "image_pipe.http.client",
           kind: :client,
           start_time: start_time,
-          end_time: System.system_time(),
+          end_time: start_time + duration,
+          duration_native: duration,
           trace_flags: flags,
           status: status,
           attributes: attributes,

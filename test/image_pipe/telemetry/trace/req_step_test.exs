@@ -31,8 +31,10 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   end
 
   test "injects traceparent and emits a logical client span with status" do
+    prefix = [__MODULE__, :duration]
+    TestExporter.attach(self(), prefix: prefix)
     # Open a parent span so the client span has a trace to attach to.
-    Telemetry.span([], [:request], %{}, fn ->
+    Telemetry.span([telemetry_prefix: prefix], [:request], %{}, fn ->
       req =
         stub_request(fn req ->
           assert [tp] = Req.Request.get_header(req, "traceparent")
@@ -48,6 +50,9 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
 
     assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
     assert s.attributes[:"http.status_code"] == 200
+    assert is_integer(s.duration_native)
+    assert s.duration_native > 0
+    assert s.end_time == s.start_time + s.duration_native
   end
 
   test "inbound unsampled flags=0 reaches the outbound traceparent and exported span" do
