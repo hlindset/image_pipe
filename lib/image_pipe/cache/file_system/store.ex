@@ -495,13 +495,24 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   def delete(key, opts) do
-    with {:ok, paths} <- paths(key, opts),
-         {:ok, metadata} <- read_metadata(paths),
-         {:ok, path} <- body_path_from_metadata(paths, metadata) do
-      File.rm(paths.meta_path)
-      File.rm(path)
+    with {:ok, paths} <- paths(key, opts) do
+      case lookup_admission(opts) do
+        {:ok, pid} -> Admission.delete(pid, paths)
+        _unmanaged -> unwrap_delete(delete_entry(paths))
+      end
     end
   end
+
+  def delete_entry(paths) do
+    with {:ok, metadata} <- read_metadata(paths),
+         {:ok, path} <- body_path_from_metadata(paths, metadata),
+         :ok <- File.rm(paths.meta_path) do
+      {:ok, File.rm(path)}
+    end
+  end
+
+  defp unwrap_delete({:ok, result}), do: result
+  defp unwrap_delete(result), do: result
 
   defp read_metadata(paths) do
     with {:ok, binary} <- read_cache_file(paths.meta_path, :metadata), do: decode_metadata(binary)

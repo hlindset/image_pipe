@@ -487,6 +487,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     GenServer.call(server, {:commit, prepared, body_filename})
   end
 
+  def delete(server, paths), do: GenServer.call(server, {:delete, paths})
+
   defp admit_descriptor(state, descriptor) do
     # Increment sighting first (commit is itself a sighting of the key)
     state = sighting(state, descriptor.key_hash)
@@ -511,6 +513,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     do: finish_commit({:reject, reason, []}, descriptor, opts)
 
   @impl true
+  def handle_call({:delete, paths}, _from, state) do
+    case FileSystem.delete_entry(paths) do
+      {:ok, result} -> {:reply, result, forget_entry(state, paths.hash)}
+      :miss -> {:reply, :miss, forget_entry(state, paths.hash)}
+      {:error, _reason} = error -> {:reply, error, state}
+    end
+  end
+
   def handle_call({:commit, prepared, body_filename}, _from, state) do
     # Publication, accounting and eviction share the same serialized owner.
     # Failed publication leaves admission queues unchanged.
@@ -745,6 +755,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     Enum.reduce(victims, state, fn descriptor, acc ->
       remove_descriptor(acc, descriptor)
     end)
+  end
+
+  defp forget_entry(state, key_hash) do
+    case locate(state, key_hash) do
+      nil -> state
+      {_queue, _position, descriptor} -> remove_descriptor(state, descriptor)
+    end
   end
 
   defp remove_descriptor(state, descriptor) do

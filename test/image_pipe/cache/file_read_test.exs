@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.FileReadTest do
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry.Metadata
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.Key
 
   setup do
@@ -33,7 +34,52 @@ defmodule ImagePipe.Cache.FileReadTest do
              Cache.lookup_entry(key, cache: {FileSystem, root: root})
   end
 
-  defp put(root, body) do
+  test "input invalidation releases bounded cache accounting", %{root: root} do
+    opts = [root: root, node_id: "test", max_size_bytes: 100, window_ratio: 1.0]
+    start_supervised!(FileSystem.child_spec(opts))
+    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
+    assert :ok = Admission.await_scan(admission)
+    key = put(root, "image", opts)
+    assert :sys.get_state(admission).window_bytes == 5
+
+    assert :ok = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert FileSystem.get(key, opts) == :miss
+    state = :sys.get_state(admission)
+    assert state.window_bytes + state.probationary_bytes + state.protected_bytes == 0
+  end
+
+  test "invalidation releases accounting even when the body is already missing", %{root: root} do
+    opts = [root: root, node_id: "test", max_size_bytes: 100, window_ratio: 1.0]
+    start_supervised!(FileSystem.child_spec(opts))
+    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
+    assert :ok = Admission.await_scan(admission)
+    key = put(root, "image", opts)
+    [body] = Path.wildcard(Path.join(root, "**/*.body"))
+    File.rm!(body)
+
+    assert {:error, :enoent} = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert :sys.get_state(admission).window_bytes == 0
+    assert FileSystem.get(key, opts) == :miss
+  end
+
+  test "failed metadata invalidation retains the body and accounting", %{root: root} do
+    opts = [root: root, node_id: "test", max_size_bytes: 100, window_ratio: 1.0]
+    start_supervised!(FileSystem.child_spec(opts))
+    [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), {root, "test"})
+    assert :ok = Admission.await_scan(admission)
+    key = put(root, "image", opts)
+    {:ok, paths} = FileSystem.paths(key, opts)
+    File.rm!(paths.meta_path)
+    File.mkdir!(paths.meta_path)
+
+    assert {:error, _} = Cache.Input.discard(key, input_cache: {FileSystem, opts})
+    assert :sys.get_state(admission).window_bytes == 5
+    assert [body] = Path.wildcard(Path.join(root, "**/*.body"))
+    assert File.read!(body) == "image"
+  end
+
+  defp put(root, body, opts \\ nil) do
+    opts = opts || [root: root]
     key = %Key{hash: String.duplicate("a", 64), data: []}
 
     metadata = %Metadata{
@@ -43,9 +89,9 @@ defmodule ImagePipe.Cache.FileReadTest do
       output_format: :jpeg
     }
 
-    {:ok, sink} = FileSystem.open_sink(key, metadata, root: root)
-    {:ok, sink} = FileSystem.write_chunk(sink, body, root: root)
-    :ok = FileSystem.commit_sink(sink, root: root)
+    {:ok, sink} = FileSystem.open_sink(key, metadata, opts)
+    {:ok, sink} = FileSystem.write_chunk(sink, body, opts)
+    :ok = FileSystem.commit_sink(sink, opts)
     key
   end
 
