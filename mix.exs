@@ -172,7 +172,7 @@ defmodule ImagePipe.MixProject do
         @guide_paths ++
           [
             "lib",
-            "priv",
+            "priv/icc",
             "docs/assets/demo-fiddle-desktop.png",
             "mix.exs"
           ],
