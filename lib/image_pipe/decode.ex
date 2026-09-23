@@ -45,6 +45,7 @@ defmodule ImagePipe.Decode do
   @type error() :: {:source, term()} | {:decode, term()} | {:input_limit, term()}
   @type input() :: Source.Resolved.t() | Source.Response.t() | {:download, pid(), binary()}
 
+  @doc "Returns whether a JPEG or PNG prefix opens successfully with the matching decoder."
   defdelegate streamable_source?(prefix), to: Streaming, as: :eligible?
 
   @doc """
