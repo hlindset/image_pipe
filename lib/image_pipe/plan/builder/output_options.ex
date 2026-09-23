@@ -95,48 +95,15 @@ defmodule ImagePipe.Plan.Builder.OutputOptions do
   end
 
   def encoder(options, format) do
-    {module, schema} = encoder_schema(format)
+    module = encoder_module(format)
 
-    with {:ok, values} <- Options.validate(options, schema), do: {:ok, struct!(module, values)}
+    with {:ok, values} <- Options.validate(options, module.schema()),
+         do: {:ok, struct!(module, values)}
   end
 
-  defp encoder_schema(:jpeg) do
-    {JpegOptions,
-     [
-       interlace: [type: :boolean],
-       subsample_mode: [type: {:in, [:auto, :on, :off]}],
-       trellis_quant: [type: :boolean],
-       overshoot_deringing: [type: :boolean],
-       optimize_scans: [type: :boolean],
-       quant_table: [type: {:in, 0..8}]
-     ]}
-  end
-
-  defp encoder_schema(:png) do
-    {PngOptions,
-     [
-       interlace: [type: :boolean],
-       palette: [type: :boolean],
-       bitdepth: [type: {:in, [1, 2, 4, 8, 16]}],
-       filter: [type: {:in, [:none, :sub, :up, :avg, :paeth, :all]}]
-     ]}
-  end
-
-  defp encoder_schema(:webp) do
-    {WebpOptions,
-     [
-       lossless: [type: :boolean],
-       near_lossless: [type: :boolean],
-       smart_subsample: [type: :boolean],
-       preset: [type: {:in, [:default, :photo, :picture, :drawing, :icon, :text]}],
-       effort: [type: {:in, 0..6}]
-     ]}
-  end
-
-  defp encoder_schema(:avif),
-    do:
-      {AvifOptions,
-       [subsample_mode: [type: {:in, [:auto, :on, :off]}], effort: [type: {:in, 0..9}]]}
-
-  defp encoder_schema(:jpeg_xl), do: {JxlOptions, [effort: [type: {:in, 1..9}]]}
+  defp encoder_module(:jpeg), do: JpegOptions
+  defp encoder_module(:png), do: PngOptions
+  defp encoder_module(:webp), do: WebpOptions
+  defp encoder_module(:avif), do: AvifOptions
+  defp encoder_module(:jpeg_xl), do: JxlOptions
 end

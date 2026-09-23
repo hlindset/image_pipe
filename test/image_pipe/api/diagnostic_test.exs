@@ -90,7 +90,8 @@ defmodule ImagePipe.API.DiagnosticTest do
 
   describe "Parser.parse/2 emits %Diagnostic{} structs" do
     test "every error is a %Diagnostic{} with a non-empty message and a non-empty spans list" do
-      assert {:error, {:invalid_request, diagnostics}} = parse(["bogus=10", "w=notanumber"])
+      assert {:error, {:invalid_request, [_ | _] = diagnostics}} =
+               parse(["bogus=10", "w=notanumber"])
 
       for diagnostic <- diagnostics do
         assert %Diagnostic{reason: reason, message: message, spans: spans} = diagnostic

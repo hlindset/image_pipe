@@ -228,71 +228,21 @@ defmodule ImagePipe.Processing.Config do
   end
 
   defp validate_encoder_options!(resolved) do
-    jpeg = Keyword.fetch!(resolved, :jpeg_options)
-    enum!(:jpeg_options, :subsample_mode, jpeg.subsample_mode, [:auto, :on, :off])
-    int_range!(:jpeg_options, :quant_table, jpeg.quant_table, 0..8)
+    Enum.each([:jpeg_options, :png_options, :webp_options, :avif_options, :jxl_options], fn key ->
+      %module{} = options = Keyword.fetch!(resolved, key)
 
-    bools!(:jpeg_options, jpeg, [
-      :interlace,
-      :trellis_quant,
-      :overshoot_deringing,
-      :optimize_scans
-    ])
+      fields =
+        options |> Map.from_struct() |> Enum.reject(fn {_field, value} -> is_nil(value) end)
 
-    png = Keyword.fetch!(resolved, :png_options)
-    enum!(:png_options, :bitdepth, png.bitdepth, [1, 2, 4, 8, 16])
-    enum!(:png_options, :filter, png.filter, [:none, :sub, :up, :avg, :paeth, :all])
-    bools!(:png_options, png, [:interlace, :palette])
+      case NimbleOptions.validate(fields, module.schema()) do
+        {:ok, _fields} ->
+          :ok
 
-    webp = Keyword.fetch!(resolved, :webp_options)
-
-    enum!(:webp_options, :preset, webp.preset, [
-      :default,
-      :photo,
-      :picture,
-      :drawing,
-      :icon,
-      :text
-    ])
-
-    int_range!(:webp_options, :effort, webp.effort, 0..6)
-    bools!(:webp_options, webp, [:lossless, :near_lossless, :smart_subsample])
-
-    avif = Keyword.fetch!(resolved, :avif_options)
-    enum!(:avif_options, :subsample_mode, avif.subsample_mode, [:auto, :on, :off])
-    int_range!(:avif_options, :effort, avif.effort, 0..9)
-
-    int_range!(:jxl_options, :effort, Keyword.fetch!(resolved, :jxl_options).effort, 1..9)
-    :ok
-  end
-
-  defp bools!(key, struct, fields),
-    do: Enum.each(fields, &bool!(key, &1, Map.fetch!(struct, &1)))
-
-  defp bool!(_key, _field, nil), do: :ok
-  defp bool!(_key, _field, value) when is_boolean(value), do: :ok
-
-  defp bool!(key, field, value) do
-    raise ArgumentError,
-          "invalid ImagePipe processing options: #{key} #{field} (#{inspect(value)}) must be a boolean"
-  end
-
-  defp int_range!(_key, _field, nil, _range), do: :ok
-
-  defp int_range!(key, field, value, lo..hi//_) do
-    unless is_integer(value) and value >= lo and value <= hi do
-      raise ArgumentError,
-            "invalid ImagePipe processing options: #{key} #{field} (#{inspect(value)}) must be in #{lo}..#{hi}"
-    end
-  end
-
-  defp enum!(_key, _field, nil, _allowed), do: :ok
-
-  defp enum!(key, field, value, allowed) do
-    unless value in allowed do
-      raise ArgumentError,
-            "invalid ImagePipe processing options: #{key} #{field} (#{inspect(value)}) must be one of #{inspect(allowed)}"
-    end
+        {:error, error} ->
+          raise ArgumentError,
+                "invalid ImagePipe processing options: #{key}: #{Exception.message(error)}"
+      end
+    end)
   end
 
   defp validate_quality_value!(key, value) do

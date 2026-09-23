@@ -14,50 +14,40 @@ defmodule ImagePipe.API.OutputOptions do
     "jxl" => :jpeg_xl
   }
 
-  @subsample %{"auto" => :auto, "on" => :on, "off" => :off}
-  @png_filters %{
-    "none" => :none,
-    "sub" => :sub,
-    "up" => :up,
-    "avg" => :avg,
-    "paeth" => :paeth,
-    "all" => :all
+  @encoder_modules %{
+    jpeg: JpegOptions,
+    png: PngOptions,
+    webp: WebpOptions,
+    avif: AvifOptions,
+    jpeg_xl: JxlOptions
   }
-  @webp_presets %{
-    "default" => :default,
-    "photo" => :photo,
-    "picture" => :picture,
-    "drawing" => :drawing,
-    "icon" => :icon,
-    "text" => :text
-  }
+  @encoder_schemas Map.new(@encoder_modules, fn {format, module} ->
+                     fields =
+                       Map.new(module.schema(), fn {field, options} ->
+                         name =
+                           case {format, field} do
+                             {:jpeg, :interlace} -> "progressive"
+                             {_, :subsample_mode} -> "subsample"
+                             {_, field} -> SerializedValue.scalar(field)
+                           end
 
-  @jpeg_schema %{
-    "progressive" => {:interlace, :boolean},
-    "subsample" => {:subsample_mode, {:enum, @subsample}},
-    "trellis-quant" => {:trellis_quant, :boolean},
-    "overshoot-deringing" => {:overshoot_deringing, :boolean},
-    "optimize-scans" => {:optimize_scans, :boolean},
-    "quant-table" => {:quant_table, {:integer, 0..8}}
-  }
-  @png_schema %{
-    "interlace" => {:interlace, :boolean},
-    "palette" => {:palette, :boolean},
-    "bitdepth" => {:bitdepth, {:integer, [1, 2, 4, 8, 16]}},
-    "filter" => {:filter, {:enum, @png_filters}}
-  }
-  @webp_schema %{
-    "lossless" => {:lossless, :boolean},
-    "near-lossless" => {:near_lossless, :boolean},
-    "smart-subsample" => {:smart_subsample, :boolean},
-    "preset" => {:preset, {:enum, @webp_presets}},
-    "effort" => {:effort, {:integer, 0..6}}
-  }
-  @avif_schema %{
-    "subsample" => {:subsample_mode, {:enum, @subsample}},
-    "effort" => {:effort, {:integer, 0..9}}
-  }
-  @jxl_schema %{"effort" => {:effort, {:integer, 1..9}}}
+                         parser =
+                           case Keyword.fetch!(options, :type) do
+                             :boolean ->
+                               :boolean
+
+                             {:in, [first | _] = values} when is_atom(first) ->
+                               {:enum, Map.new(values, &{Atom.to_string(&1), &1})}
+
+                             {:in, values} ->
+                               {:integer, values}
+                           end
+
+                         {name, {field, parser}}
+                       end)
+
+                     {format, fields}
+                   end)
 
   @doc false
   def serialize_encoder(options, format) do
@@ -74,11 +64,7 @@ defmodule ImagePipe.API.OutputOptions do
     |> Enum.join(",")
   end
 
-  defp encoder_schema(:jpeg), do: @jpeg_schema
-  defp encoder_schema(:png), do: @png_schema
-  defp encoder_schema(:webp), do: @webp_schema
-  defp encoder_schema(:avif), do: @avif_schema
-  defp encoder_schema(:jpeg_xl), do: @jxl_schema
+  defp encoder_schema(format), do: Map.fetch!(@encoder_schemas, format)
 
   @spec parse_format_qualities(String.t()) :: {:ok, map()} | :error
   def parse_format_qualities(string) do
@@ -110,19 +96,19 @@ defmodule ImagePipe.API.OutputOptions do
   def parse_max_bytes(string), do: positive_integer(string)
 
   @spec parse_jpeg_options(String.t()) :: {:ok, JpegOptions.t()} | :error
-  def parse_jpeg_options(string), do: parse_codec(string, JpegOptions, @jpeg_schema)
+  def parse_jpeg_options(string), do: parse_codec(string, :jpeg)
 
   @spec parse_png_options(String.t()) :: {:ok, PngOptions.t()} | :error
-  def parse_png_options(string), do: parse_codec(string, PngOptions, @png_schema)
+  def parse_png_options(string), do: parse_codec(string, :png)
 
   @spec parse_webp_options(String.t()) :: {:ok, WebpOptions.t()} | :error
-  def parse_webp_options(string), do: parse_codec(string, WebpOptions, @webp_schema)
+  def parse_webp_options(string), do: parse_codec(string, :webp)
 
   @spec parse_avif_options(String.t()) :: {:ok, AvifOptions.t()} | :error
-  def parse_avif_options(string), do: parse_codec(string, AvifOptions, @avif_schema)
+  def parse_avif_options(string), do: parse_codec(string, :avif)
 
   @spec parse_jxl_options(String.t()) :: {:ok, JxlOptions.t()} | :error
-  def parse_jxl_options(string), do: parse_codec(string, JxlOptions, @jxl_schema)
+  def parse_jxl_options(string), do: parse_codec(string, :jpeg_xl)
 
   defp format_quality_item(item) do
     with [format, quality] <- String.split(item, ":", parts: 3),
@@ -213,7 +199,10 @@ defmodule ImagePipe.API.OutputOptions do
         do: {key, Map.fetch!(fields, key)}
   end
 
-  defp parse_codec(string, module, schema) do
+  defp parse_codec(string, format) do
+    module = Map.fetch!(@encoder_modules, format)
+    schema = encoder_schema(format)
+
     with {:ok, pairs} <- parse_unique_items(string, &codec_item(&1, schema)) do
       {:ok, struct(module, Map.new(pairs))}
     end

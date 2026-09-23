@@ -8,4 +8,9 @@ defmodule ImagePipe.Plan.Output.AvifOptions do
         }
 
   use ImagePipe.Plan.Output.EncoderOptions
+
+  @doc false
+  def schema do
+    [subsample_mode: [type: {:in, [:auto, :on, :off]}], effort: [type: {:in, 0..9}]]
+  end
 end
