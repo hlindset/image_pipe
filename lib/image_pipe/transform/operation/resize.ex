@@ -22,7 +22,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   @impl ImagePipe.Transform
   def execute(%__MODULE__{width: width, height: height}, %State{} = state) do
     case resize_image(state, width, height) do
-      {:ok, state} ->
+      {:ok, %State{} = state} ->
         # The residual resize completes the downscale. Later groups use this
         # image's dimensions without the initial decode's preshrink factor.
         {:ok, %State{state | source_dimensions: nil, decode_shrink: nil}}
