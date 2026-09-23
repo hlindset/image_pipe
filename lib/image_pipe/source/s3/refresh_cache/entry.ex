@@ -24,6 +24,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   # all future refresh.
   @refresh_retry_ms 5_000
   @default_call_timeout 10_000
+  @default_idle_interval_ms 300_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -45,6 +46,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   def get(server, timeout \\ @default_call_timeout) do
     GenServer.call(server, :get, timeout)
   catch
+    :exit, {reason, _call} when reason in [:normal, :noproc] -> {:error, :retired}
     # A slow/blocked fetch (or a dead entry) must fail closed with a tagged
     # error, never exit the caller — keeping the cache's {:ok,_} | {:error,_}
     # contract honest (e.g. so credential fetches stay fail-closed).
@@ -57,6 +59,8 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       key: Keyword.fetch!(opts, :key),
       fetch_fun: Keyword.fetch!(opts, :fetch_fun),
       refresh_margin_ms: Keyword.get(opts, :refresh_margin_ms, @default_refresh_margin_ms),
+      idle_interval_ms: Keyword.get(opts, :idle_interval_ms, @default_idle_interval_ms),
+      accessed?: false,
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       value: nil,
       expires_at: nil,
@@ -65,11 +69,14 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       refresh_timer: nil
     }
 
+    schedule_idle_check(state)
     {:ok, start_fetch(state)}
   end
 
   @impl true
   def handle_call(:get, from, state) do
+    state = %{state | accessed?: true}
+
     if fresh?(state) do
       {:reply, {:ok, state.value}, state}
     else
@@ -78,6 +85,16 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   end
 
   @impl true
+  def handle_info(:check_idle, %{accessed?: false, task: nil, waiters: []} = state) do
+    Registry.unregister(ImagePipe.Source.S3.RefreshCache.Registry, state.key)
+    {:stop, :normal, state}
+  end
+
+  def handle_info(:check_idle, state) do
+    schedule_idle_check(state)
+    {:noreply, %{state | accessed?: false}}
+  end
+
   def handle_info(:refresh, state) do
     {:noreply, start_fetch(%{state | refresh_timer: nil})}
   end
@@ -101,6 +118,10 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   def format_status(status), do: status
 
   # --- internals ---
+
+  defp schedule_idle_check(state) do
+    Process.send_after(self(), :check_idle, state.idle_interval_ms)
+  end
 
   # single-flight: never run two fetches at once
   defp start_fetch(%{task: %Task{}} = state), do: state

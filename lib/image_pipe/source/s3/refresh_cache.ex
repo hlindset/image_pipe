@@ -35,6 +35,13 @@ defmodule ImagePipe.Source.S3.RefreshCache do
   @spec fetch(term(), (-> {:ok, term(), term()} | {:error, term()}), keyword()) ::
           {:ok, term()} | {:error, term()}
   def fetch(key, fetch_fun, opts \\ []) when is_function(fetch_fun, 0) do
+    case fetch_entry(key, fetch_fun, opts) do
+      {:error, :retired} -> fetch_entry(key, fetch_fun, opts)
+      result -> result
+    end
+  end
+
+  defp fetch_entry(key, fetch_fun, opts) do
     case ensure_entry(key, fetch_fun, opts) do
       {:ok, server} ->
         Entry.get(server, Keyword.get(opts, :call_timeout, @default_call_timeout))
@@ -52,7 +59,7 @@ defmodule ImagePipe.Source.S3.RefreshCache do
       [] ->
         entry_opts =
           opts
-          |> Keyword.take([:refresh_margin_ms, :now_fun, :call_timeout])
+          |> Keyword.take([:refresh_margin_ms, :now_fun, :idle_interval_ms])
           |> Keyword.merge(
             key: key,
             fetch_fun: fetch_fun,
