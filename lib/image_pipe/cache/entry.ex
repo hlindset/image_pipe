@@ -10,7 +10,7 @@ defmodule ImagePipe.Cache.Entry do
   @enforce_keys [:body, :content_type, :headers, :created_at]
   @header_name_pattern ~r/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
   @header_value_pattern ~r/^[^\x00-\x1F\x7F]*$/
-  @content_type_pattern ~r{^[!#$%&'*+\-.^_`|~0-9A-Za-z]+/[!#$%&'*+\-.^_`|~0-9A-Za-z]+(\s*;.*)?$}
+  @content_type_pattern ~r{\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+/[!#$%&'*+\-.^_`|~0-9A-Za-z]+( *;[^\x00-\x1F\x7F]*)?\z}
 
   defstruct @enforce_keys ++ [representation: nil, debug: nil, source_record: nil]
 
@@ -55,28 +55,42 @@ defmodule ImagePipe.Cache.Entry do
   @doc false
   @spec validate_content_type(String.t()) :: :ok | {:error, term()}
   def validate_content_type(content_type) do
-    case Format.format_from_mime_type(content_type) do
-      {:ok, _format} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Representation-aware content-type validation: a `{:complete_body, _}`
-  # entry is validated as a generic MIME-shaped string (it is never an
-  # encoder output format), everything else (including `nil`, the default
-  # for entries that predate this field) keeps the original image-only check.
-  @doc false
-  @spec validate_content_type(String.t(), representation() | nil) :: :ok | {:error, term()}
-  def validate_content_type(content_type, {:complete_body, _content_type}) do
     if valid_generic_content_type?(content_type) do
-      :ok
+      case Format.format_from_mime_type(content_type) do
+        {:ok, _format} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
     else
       {:error, {:invalid_content_type, content_type}}
     end
   end
 
-  def validate_content_type(content_type, _representation),
-    do: validate_content_type(content_type)
+  @doc false
+  @spec validate_content_type(String.t(), representation() | nil) :: :ok | {:error, term()}
+  def validate_content_type(content_type, {:complete_body, content_type} = representation) do
+    if valid_generic_content_type?(content_type) do
+      :ok
+    else
+      {:error, {:invalid_representation, representation}}
+    end
+  end
+
+  def validate_content_type(content_type, {:image, format} = representation) do
+    case Format.mime_type(format) do
+      {:ok, ^content_type} -> :ok
+      _invalid_or_mismatched -> {:error, {:invalid_representation, representation}}
+    end
+  end
+
+  def validate_content_type(content_type, nil) do
+    case validate_content_type(content_type) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:invalid_content_type, reason}}
+    end
+  end
+
+  def validate_content_type(_content_type, representation),
+    do: {:error, {:invalid_representation, representation}}
 
   defp valid_generic_content_type?(content_type) when is_binary(content_type),
     do: Regex.match?(@content_type_pattern, content_type)

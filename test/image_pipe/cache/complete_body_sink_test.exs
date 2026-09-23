@@ -154,7 +154,7 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
     assert log =~ "cache sink open error"
   end
 
-  test "existing image-entry validation is unchanged" do
+  test "image entries reject non-image content types" do
     valid = %Entry{
       body: "encoded image",
       content_type: "image/webp",
@@ -165,13 +165,12 @@ defmodule ImagePipe.Cache.CompleteBodySinkTest do
     assert Entry.validate(valid) == :ok
 
     invalid = %{valid | content_type: "text/plain"}
-    assert {:error, {:unsupported_output_format, "text/plain"}} = Entry.validate(invalid)
+    assert {:error, _} = Entry.validate(invalid)
 
-    # Explicitly tagging {:image, _} keeps the exact same behavior.
     tagged = %{valid | representation: {:image, :webp}}
     assert Entry.validate(tagged) == :ok
 
     tagged_invalid = %{invalid | representation: {:image, :webp}}
-    assert {:error, {:unsupported_output_format, "text/plain"}} = Entry.validate(tagged_invalid)
+    assert {:error, _} = Entry.validate(tagged_invalid)
   end
 end
