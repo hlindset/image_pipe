@@ -3,6 +3,27 @@ defmodule ImagePipe.Cache.EntryTest do
 
   alias ImagePipe.Cache.Entry
 
+  test "adapter representation tags must agree with safe content types" do
+    for {content_type, representation} <- [
+          {"image/png", {:image, :jpeg}},
+          {"image/png", {:image, :unknown}},
+          {"image/png", :unknown},
+          {"image/png;\rcharset=utf-8", nil},
+          {"text/plain\n", {:complete_body, "text/plain\n"}},
+          {"text/plain", {:complete_body, "application/json"}}
+        ] do
+      entry = %Entry{
+        body: "cached bytes",
+        content_type: content_type,
+        representation: representation,
+        headers: [],
+        created_at: DateTime.utc_now()
+      }
+
+      assert {:error, _} = Entry.validate(entry)
+    end
+  end
+
   test "normalizes allowlisted response headers" do
     headers = [
       {"Vary", "Accept"},

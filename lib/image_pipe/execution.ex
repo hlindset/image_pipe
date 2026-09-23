@@ -160,7 +160,10 @@ defmodule ImagePipe.Execution do
       {:image, _} ->
         {:hit, output(context, {:entry, entry}, :hit, time)}
 
-      {_, {:complete_body, _}} ->
+      {:info, {:complete_body, "application/json"}} ->
+        {:hit, output(context, {:entry, entry}, :hit, time)}
+
+      {terminal, {:complete_body, "text/plain"}} when terminal in [:blurhash, :lqip_css] ->
         {:hit, output(context, {:entry, entry}, :hit, time)}
 
       _ ->

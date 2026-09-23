@@ -6,7 +6,6 @@ defmodule ImagePipe.Cache.FileSystem do
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Debug.Info
-  alias ImagePipe.Format
   @metadata_version 1
 
   @doc """
@@ -109,7 +108,7 @@ defmodule ImagePipe.Cache.FileSystem do
               is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) and
               is_binary(body_filename) and is_integer(cost_us) and cost_us >= 0 do
     with :ok <- validate_metadata_debug(debug),
-         :ok <- validate_metadata_representation(representation, content_type),
+         :ok <- Entry.validate_content_type(content_type, representation),
          :ok <- validate_metadata_headers(headers) do
       {:ok,
        %{
@@ -135,40 +134,6 @@ defmodule ImagePipe.Cache.FileSystem do
   defp validate_metadata_debug(_debug), do: {:error, :invalid_debug}
 
   defp handle_invalid_metadata(reason), do: {:error, {:invalid_metadata, reason}}
-
-  defp validate_metadata_content_type(content_type) do
-    case Entry.validate_content_type(content_type) do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:invalid_content_type, reason}}
-    end
-  end
-
-  defp validate_metadata_representation(nil, content_type),
-    do: validate_metadata_content_type(content_type)
-
-  defp validate_metadata_representation(
-         {:complete_body, tagged_type} = representation,
-         content_type
-       )
-       when is_binary(tagged_type) do
-    case Entry.validate_content_type(content_type, representation) do
-      :ok when tagged_type == content_type -> :ok
-      _invalid_or_mismatched -> {:error, {:invalid_representation, representation}}
-    end
-  end
-
-  defp validate_metadata_representation({:image, format} = representation, content_type)
-       when is_atom(format) do
-    with :ok <- Entry.validate_content_type(content_type, representation),
-         {:ok, ^content_type} <- Format.mime_type(format) do
-      :ok
-    else
-      _invalid_or_mismatched -> {:error, {:invalid_representation, representation}}
-    end
-  end
-
-  defp validate_metadata_representation(representation, _content_type),
-    do: {:error, {:invalid_representation, representation}}
 
   defp validate_metadata_headers(headers) do
     if Enum.all?(headers, &valid_metadata_header?/1) do
