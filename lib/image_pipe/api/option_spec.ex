@@ -1005,12 +1005,12 @@ defmodule ImagePipe.API.OptionSpec do
 
   @doc false
   @spec parse_detect(String.t()) ::
-          {:ok, {:all | [String.t()], %{optional(:default | String.t()) => float()}}}
+          {:ok, [{:all | String.t(), float()}]}
           | {:error, :invalid_detect}
   def parse_detect(string) do
     with {:ok, pairs} <- parse_detect_items(String.split(string, ",")),
          true <- unique_detect_classes?(pairs) do
-      {:ok, canonical_detect(pairs)}
+      {:ok, pairs}
     else
       _invalid -> {:error, :invalid_detect}
     end
@@ -1030,14 +1030,14 @@ defmodule ImagePipe.API.OptionSpec do
   end
 
   defp parse_detect_item([class]) do
-    if valid_detect_class?(class), do: {:ok, {class, 1.0}}, else: :error
+    if valid_detect_class?(class), do: {:ok, {detect_class(class), 1.0}}, else: :error
   end
 
   defp parse_detect_item([class, weight]) do
     with true <- valid_detect_class?(class),
          {:ok, weight} <- positive_decimal(weight),
          true <- weight <= @max_detect_weight do
-      {:ok, {class, weight}}
+      {:ok, {detect_class(class), weight}}
     else
       _invalid -> :error
     end
@@ -1052,27 +1052,8 @@ defmodule ImagePipe.API.OptionSpec do
     Enum.uniq(classes) == classes
   end
 
-  defp canonical_detect(pairs) do
-    classes = pairs |> Enum.map(&elem(&1, 0)) |> Enum.sort()
-    spec = if "all" in classes, do: :all, else: classes
-    {spec, canonical_detect_weights(pairs)}
-  end
-
-  defp canonical_detect_weights(pairs) do
-    raw = Map.new(pairs, fn {class, weight} -> {detect_weight_key(class), weight} end)
-    effective_default = Map.get(raw, :default, 1.0)
-
-    raw
-    |> Enum.reject(fn {key, weight} -> key != :default and weight == effective_default end)
-    |> Map.new()
-    |> drop_default_detect_weight()
-  end
-
-  defp detect_weight_key("all"), do: :default
-  defp detect_weight_key(class), do: class
-
-  defp drop_default_detect_weight(%{default: 1.0} = weights), do: Map.delete(weights, :default)
-  defp drop_default_detect_weight(weights), do: weights
+  defp detect_class("all"), do: :all
+  defp detect_class(class), do: class
 
   @doc false
   @spec parse_offset(String.t()) ::

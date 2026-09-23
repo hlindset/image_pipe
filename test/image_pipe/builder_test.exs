@@ -296,6 +296,36 @@ defmodule ImagePipe.BuilderTest do
     assert :ok = plan |> IP.output(autoquality: :none) |> IP.validate()
   end
 
+  property "detection defaults and redundant class weights share canonical intent" do
+    check all default <- integer(1..100), face <- integer(1..100) do
+      selections = [
+        {[{:all, default}, {"face", face}], "all:#{default},face:#{face}"},
+        {[{"car", default}, {"face", face}, {:all, default}],
+         "car:#{default}.0,face:#{face}.0,all:#{default}.0"}
+      ]
+
+      weights =
+        %{}
+        |> then(fn weights ->
+          if default == 1, do: weights, else: Map.put(weights, :default, default * 1.0)
+        end)
+        |> then(fn weights ->
+          if face == default, do: weights, else: Map.put(weights, "face", face * 1.0)
+        end)
+
+      for {selection, url} <- selections do
+        plan = IP.new() |> IP.group(crop: {100, 100}, detect: selection)
+        assert {:ok, native} = Plan.to_request(plan.plan, "photo.jpg")
+        assert {:ok, request} = parse("crop=100,100/detect=" <> url)
+
+        for canonical <- [native, request] do
+          assert [group] = canonical.groups
+          assert group.guide == {:detect, {:all, weights}}
+        end
+      end
+    end
+  end
+
   property "group keyword order does not change processing intent" do
     check all width <- integer(1..4000), sigma <- integer(0..10) do
       options = [resize: [width: width], trim: :auto, blur: sigma]
