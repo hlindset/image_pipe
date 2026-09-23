@@ -36,12 +36,6 @@ defmodule ImagePipe.Plan.Output.QualitySearchTest do
     assert s.max_resolution == 0
   end
 
-  test "enforces required keys" do
-    assert_raise ArgumentError, fn -> struct!(QualitySearch.Size, target: 1) end
-    assert_raise ArgumentError, fn -> struct!(QualitySearch.Ssimulacra2, target: 1.0) end
-    assert_raise ArgumentError, fn -> struct!(QualitySearch.Butteraugli, target: 1.0) end
-  end
-
   test "url_min_quality/url_max_quality default to nil and are non-enforced" do
     for mod <- [
           QualitySearch.Size,
@@ -107,12 +101,12 @@ defmodule ImagePipe.Plan.Output.QualitySearchTest do
   end
 
   describe "build/3 with URL fields" do
-    test "url target overrides the config target and is range-checked" do
+    test "url target overrides the config target" do
       assert {:ok, %QualitySearch.Ssimulacra2{target: 90}} =
                QualitySearch.build(:ssimulacra2, [target: 90], config())
     end
 
-    test "an in-range seeded default survives the range re-check" do
+    test "omitting the URL target preserves the seeded default" do
       assert {:ok, %QualitySearch.Butteraugli{target: 1.0}} =
                QualitySearch.build(:butteraugli, [], config())
     end

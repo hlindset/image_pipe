@@ -14,9 +14,6 @@ defmodule ImagePipe.Output.Metric.Butteraugli do
   def direction, do: Metric.direction(:butteraugli)
 
   @impl true
-  def target_range, do: Metric.target_range(:butteraugli)
-
-  @impl true
   def leg_name, do: :butteraugli
 
   @impl true

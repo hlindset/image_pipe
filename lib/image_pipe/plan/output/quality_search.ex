@@ -12,7 +12,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch do
   returns a missing-target error.
   """
 
-  alias ImagePipe.Plan.Output.QualitySearch.{Butteraugli, Metric, Size, Ssimulacra2}
+  alias ImagePipe.Plan.Output.QualitySearch.{Butteraugli, Size, Ssimulacra2}
 
   @doc """
   Config-only entry point: select the metric from `autoquality_method` and build.
@@ -90,21 +90,7 @@ defmodule ImagePipe.Plan.Output.QualitySearch do
 
     case Keyword.get(fields, :target, config_target) do
       nil -> {:error, {:invalid_option, :autoquality, :missing_target}}
-      target -> validate_target_range(metric, target)
+      target -> {:ok, target}
     end
-  end
-
-  defp validate_target_range(:size, target) when is_integer(target) and target > 0,
-    do: {:ok, target}
-
-  defp validate_target_range(:size, target),
-    do: {:error, {:invalid_option, :autoquality, {:target_out_of_range, target}}}
-
-  defp validate_target_range(metric, target) do
-    {lo, hi} = Metric.target_range(metric)
-
-    if is_number(target) and target >= lo and target <= hi,
-      do: {:ok, target},
-      else: {:error, {:invalid_option, :autoquality, {:target_out_of_range, target}}}
   end
 end

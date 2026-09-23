@@ -8,7 +8,6 @@ defmodule ImagePipe.Output.Metric do
   alias ImagePipe.Output.ResolvedQualitySearch, as: RQS
 
   @callback direction() :: :higher_better | :lower_better
-  @callback target_range() :: {number(), number()}
   @callback reference(Vix.Vips.Image.t()) :: {:ok, term()} | {:error, term()}
   @callback score(reference :: term(), Vix.Vips.Image.t()) :: {:ok, float()} | {:error, term()}
 
