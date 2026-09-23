@@ -3,11 +3,14 @@ defmodule ImagePipe.MaterialDigest do
   Deterministic digest of arbitrary identity material.
 
   Turns a term (the inputs that define an identity — cache key data, ETag
-  material) into a stable SHA-256 digest by recursively sorting maps and keyword
-  lists so incidental ordering cannot change the result, serializing
+  material) into a stable SHA-256 digest by recursively normalizing keyword
+  lists and map values so incidental ordering cannot change the result, serializing
   deterministically, and hashing. Two equal-meaning inputs always produce the
   same digest, so it is a stable identity. Callers own the final encoding (hex
   for storage paths, base64 for ETag headers).
+
+  Maps retain their type and exact keys, including compound keys. Map values
+  and struct fields are normalized recursively; plain list order is preserved.
   """
 
   use Boundary, top_level?: true, deps: [], exports: []
@@ -20,8 +23,8 @@ defmodule ImagePipe.MaterialDigest do
   @spec of(term()) :: binary()
   def of(material), do: :crypto.hash(:sha256, bytes(material))
 
-  # Order-stable serialization: recursively sort maps and keyword lists, then
-  # encode deterministically, so equal-meaning terms encode to equal bytes.
+  # Deterministic serialization preserves map structure and orders map keys;
+  # keyword lists are normalized recursively before encoding.
   defp bytes(material) do
     material
     |> canonicalize()
@@ -34,14 +37,12 @@ defmodule ImagePipe.MaterialDigest do
       |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
       |> Enum.sort_by(fn {key, _item} -> key end)
     else
-      Enum.map(value, &canonicalize/1)
+      canonicalize_list(value)
     end
   end
 
   defp canonicalize(value) when is_map(value) do
-    value
-    |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
-    |> Enum.sort()
+    :maps.map(fn _key, item -> canonicalize(item) end, value)
   end
 
   defp canonicalize(value) when is_tuple(value) do
@@ -52,4 +53,8 @@ defmodule ImagePipe.MaterialDigest do
   end
 
   defp canonicalize(value), do: value
+
+  defp canonicalize_list([]), do: []
+  defp canonicalize_list([head | tail]), do: [canonicalize(head) | canonicalize_list(tail)]
+  defp canonicalize_list(tail), do: canonicalize(tail)
 end

@@ -27,14 +27,30 @@ defmodule ImagePipe.MaterialDigestTest do
       refute MaterialDigest.of(a: 1) == MaterialDigest.of(a: 2)
     end
 
+    test "preserves exact compound map keys" do
+      first = %{[a: 1, b: 2] => :first, [b: 2, a: 1] => :second}
+      second = %{[a: 1, b: 2] => :second, [b: 2, a: 1] => :first}
+      refute MaterialDigest.of(first) == MaterialDigest.of(second)
+    end
+
+    test "accepts deterministic struct seeds" do
+      refute MaterialDigest.of(~D[2026-09-23]) == MaterialDigest.of(~D[2026-09-24])
+    end
+
+    test "preserves improper list tails in term seeds" do
+      refute MaterialDigest.of([1 | :revision]) == MaterialDigest.of([1, :revision])
+      refute MaterialDigest.of([1 | :revision]) == MaterialDigest.of([1 | :other])
+    end
+
     test "returns a 32-byte SHA-256 digest" do
       assert byte_size(MaterialDigest.of(a: 1)) == 32
     end
   end
 
-  property "serialization is deterministic for key-data-shaped material" do
-    check all(material <- key_material(), max_runs: 100) do
-      assert MaterialDigest.of(material) == MaterialDigest.of(material)
+  property "maps and lists remain distinct inside identity material" do
+    check all revision <- integer(), label <- string(:alphanumeric) do
+      map = %{revision: revision, label: label}
+      refute MaterialDigest.of({:strong, map}) == MaterialDigest.of({:strong, Enum.sort(map)})
     end
   end
 
@@ -69,38 +85,6 @@ defmodule ImagePipe.MaterialDigestTest do
       assert MaterialDigest.of(one) == MaterialDigest.of(two)
     end
   end
-
-  defp key_material do
-    gen all(
-          identity <- list_of(path_segment(), min_length: 1, max_length: 4),
-          operations <- list_of(operation_data(), max_length: 3),
-          format <- member_of([:automatic, :webp, :avif, :jpeg, :png])
-        ) do
-      [
-        schema_version: 2,
-        source_identity: [kind: :path, root: "default", path: identity],
-        pipelines: [operations],
-        output: [mode: :explicit, format: format, quality: :default, format_qualities: %{}]
-      ]
-    end
-  end
-
-  defp operation_data do
-    gen all(width <- integer(1..10_000), height <- one_of([constant(:auto), integer(1..10_000)])) do
-      [
-        op: :resize,
-        mode: :fit,
-        width: [unit: :logical_px, value: width],
-        height: dimension_data(height),
-        guide: :center,
-        x_offset: {:pixels, 0.0},
-        y_offset: {:pixels, 0.0}
-      ]
-    end
-  end
-
-  defp dimension_data(:auto), do: [unit: :auto]
-  defp dimension_data(pixels), do: [unit: :logical_px, value: pixels]
 
   defp path_segment, do: string(:alphanumeric, min_length: 1, max_length: 16)
 end
