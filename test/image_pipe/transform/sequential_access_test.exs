@@ -242,6 +242,18 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     assert_orientation_flush_sequential_matches_random(pending, body)
   end
 
+  test "horizontal flush materializes a genuinely streamed large source" do
+    body = File.read!(@beach)
+    pending = PendingOrientation.from_exif(1, true) |> PendingOrientation.fold_flip(:horizontal)
+    {:ok, sequential} = Image.open([body], access: :sequential, fail_on: :error)
+
+    assert {:ok, %State{materialized?: true} = state} =
+             Transform.run(%State{image: sequential, pending_orientation: pending}, %Flush{})
+
+    expected = Image.from_binary!(body) |> Image.flip!(:horizontal)
+    assert VipsImage.write_to_binary(state.image) == VipsImage.write_to_binary(expected)
+  end
+
   defp alpha_png_body do
     {:ok, image} = Image.new(320, 180, color: [0, 255, 0, 255], bands: 4)
     Image.write!(image, :memory, suffix: ".png")
@@ -381,16 +393,26 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     end
   end
 
-  property "orientation flush streams across EXIF orientations and sizes" do
+  property "orientation flush preserves pixels across EXIF, user rotations, flips and sizes" do
     check all(
             orientation <- member_of([1, 2, 3, 4, 5, 6, 7, 8]),
             w <- integer(20..160),
             h <- integer(20..160),
-            max_runs: 24
+            angle <- member_of([0, 90, 180, 270]),
+            flip <- member_of([:horizontal, :vertical, :both]),
+            max_runs: 40
           ) do
-      {:ok, image} = Image.new(w, h, color: :red)
+      image =
+        Image.new!(w, h, color: [20, 90, 180])
+        |> Image.Draw.rect!(1, 2, div(w, 2), div(h, 3), color: [240, 40, 20])
+
       body = image |> Image.set_orientation!(orientation) |> Image.write!(:memory, suffix: ".jpg")
-      pending = PendingOrientation.from_exif(orientation, true)
+
+      pending =
+        PendingOrientation.from_exif(orientation, true)
+        |> PendingOrientation.fold_rotate(angle)
+        |> PendingOrientation.fold_flip(flip)
+
       assert_orientation_flush_sequential_matches_random(pending, body)
     end
   end
@@ -439,7 +461,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     assert {Image.width(random_image), Image.height(random_image)} == expected_dims
     assert {Image.width(sequential_image), Image.height(sequential_image)} == expected_dims
     assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)
-    assert_sampled_pixels_match(sequential_image, random_image)
+    assert VipsImage.write_to_binary(sequential_image) == VipsImage.write_to_binary(random_image)
   end
 
   defp run_orientation_flush(%PendingOrientation{} = pending, access, body)

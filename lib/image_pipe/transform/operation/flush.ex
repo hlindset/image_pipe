@@ -4,8 +4,8 @@ defmodule ImagePipe.Transform.Operation.Flush do
 
   Delegates to `ImagePipe.Transform.Materializer.flush/1`, which applies EXIF
   orientation, user rotation, and user flips, then clears pending state.
-  `requires_materialization?: false` avoids a redundant copy: the flush prepares
-  its own random access and materializes the result.
+  The flush prepares its own random access and buffers the display frame for
+  downstream operations.
   """
 
   use ImagePipe.Transform

@@ -13,6 +13,32 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
   @sources "test/support/image_pipe/test/sources"
 
+  test "unprofiled linear TIFF preserves pixels with and without resize" do
+    image =
+      Image.new!(240, 160, color: [20, 90, 180])
+      |> Image.Draw.rect!(10, 20, 100, 70, color: [240, 40, 20])
+
+    {:ok, linear} = Operation.colourspace(image, :VIPS_INTERPRETATION_scRGB)
+    body = Image.write!(linear, :memory, suffix: ".tif")
+    decoded = Image.from_binary!(body)
+    assert VipsImage.interpretation(decoded) == :VIPS_INTERPRETATION_scRGB
+    assert header(decoded, "icc-profile-data") == nil
+    {:ok, reference} = Operation.colourspace(decoded, :VIPS_INTERPRETATION_sRGB)
+
+    config = body_source(body, "image/tiff") |> ImagePipe.Plug.init()
+
+    for {options, expected} <- [
+          {"", reference},
+          {"w=80/", Image.resize!(reference, 1 / 3, vertical_scale: 53 / 160)}
+        ] do
+      response = conn(:get, "/#{options}format=png/src/linear.tif") |> ImagePipe.Plug.call(config)
+      actual = decoded(response)
+      assert Image.shape(actual) == Image.shape(expected)
+      assert pixels(actual) == pixels(expected)
+      assert header(actual, "icc-profile-data") == nil
+    end
+  end
+
   test "wide-gamut source pixels are converted once before PNG delivery" do
     source = Image.open!(@sources <> "/icc_p3.png", access: :random)
     assert {:ok, profile} = VipsImage.header_value(source, "icc-profile-data")

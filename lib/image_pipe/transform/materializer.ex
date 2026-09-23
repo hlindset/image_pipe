@@ -33,7 +33,7 @@ defmodule ImagePipe.Transform.Materializer do
     end)
   end
 
-  # Dimensions are a non-sensitive O(1) header read, including any flushed axis swap.
+  # Dimensions are a non-sensitive O(1) header read of the allocated buffer.
   defp ok_metadata(%State{image: image}),
     do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
 
@@ -43,27 +43,7 @@ defmodule ImagePipe.Transform.Materializer do
     materialize(state)
   end
 
-  # Callers wrap errors as {:materialize_error, reason}. The span's matching
-  # result label controls Logger severity without changing the return value.
-  defp copy_to_memory(%State{image: image} = state) do
-    case VipsImage.copy_memory(image) do
-      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
-      {:error, _} = error -> error
-    end
-  end
-
-  @doc """
-  Flushes pending orientation as an explicit operation.
-
-  Wraps `OrientationFlush.flush/1` in a `[:transform, :materialize]` telemetry
-  span and tags failures as `{:materialize_error, reason}` to preserve decode-error
-  → 415 response mapping. The operation is self-managing: it performs its own
-  random-access preparation and pixel copy, so callers should mark it
-  `requires_materialization?: false`.
-
-  Returns `{:ok, State.t()}` on success or `{:error, {:materialize_error, term()}}`
-  on failure.
-  """
+  @doc "Applies pending orientation and buffers its display frame, with materialization telemetry."
   @spec flush(State.t()) :: {:ok, State.t()} | {:error, {:materialize_error, term()}}
   def flush(%State{telemetry_opts: telemetry_opts} = state) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
@@ -75,5 +55,14 @@ defmodule ImagePipe.Transform.Materializer do
           {{:error, {:materialize_error, reason}}, %{result: :materialize_error}}
       end
     end)
+  end
+
+  # Callers wrap errors as {:materialize_error, reason}. The span's matching
+  # result label controls Logger severity without changing the return value.
+  defp copy_to_memory(%State{image: image} = state) do
+    case VipsImage.copy_memory(image) do
+      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
+      {:error, _} = error -> error
+    end
   end
 end

@@ -156,6 +156,102 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
     refute_received :origin_fetch
   end
 
+  test "horizontal flip buffers its result before the delivery clamp" do
+    body = marked_image()
+
+    {response, dimensions} =
+      observed_request("/flip=h/w=400/enlarge/format=png/src/image", body, max_result_width: 64)
+
+    assert response.status == 200
+    assert dimensions == [{400, 240}]
+
+    expected =
+      body
+      |> Image.from_binary!()
+      |> Image.resize!(10.0)
+      |> Image.flip!(:horizontal)
+      |> Image.resize!(64 / 400)
+
+    assert_pixels_equal(response, expected)
+  end
+
+  test "rotation groups buffer each display frame while preserving resample order" do
+    body = marked_image()
+
+    {response, dimensions} =
+      observed_request(
+        "/rotate=90/w=120/enlarge/-/rotate=90/w=60/format=png/src/image",
+        body
+      )
+
+    assert response.status == 200
+    assert dimensions == [{120, 200}, {60, 36}]
+
+    expected =
+      body
+      |> Image.from_binary!()
+      |> Image.resize!(5.0)
+      |> Image.rotate!(90)
+      |> Image.resize!(0.3)
+      |> Image.rotate!(90)
+
+    assert_pixels_equal(response, expected)
+  end
+
+  test "horizontal orientation rejects corrupt pixels before delivery" do
+    body = File.read!("priv/static/images/beach.jpg") |> corrupt_tail()
+
+    for options <- ["flip=h", "flip=h/meta=keep", "rotate=90/-/flip=h"] do
+      {response, _dimensions} =
+        observed_request("/#{options}/w=100/format=png/src/image", body)
+
+      assert response.status == 415
+      assert response.state == :sent
+      assert response.resp_body == "source response is not a supported image"
+    end
+  end
+
+  defp observed_request(path, body, extra \\ []) do
+    prefix = [__MODULE__, :materialization]
+    event = prefix ++ [:transform, :materialize, :stop]
+    ref = make_ref()
+    pid = self()
+
+    :ok =
+      :telemetry.attach(
+        ref,
+        event,
+        fn _event, _measurements, metadata, _config ->
+          send(pid, {ref, metadata[:dims]})
+        end,
+        nil
+      )
+
+    origin = fn conn -> Plug.Conn.send_resp(conn, 200, body) end
+    config = api_config(origin) |> Keyword.merge(extra) |> Keyword.put(:telemetry_prefix, prefix)
+
+    try do
+      response = conn(:get, path) |> ImagePipe.Plug.call(config)
+      {response, materialization_dimensions(ref)}
+    after
+      :telemetry.detach(ref)
+    end
+  end
+
+  defp materialization_dimensions(ref) do
+    receive do
+      {^ref, dimensions} -> [dimensions | materialization_dimensions(ref)]
+    after
+      0 -> []
+    end
+  end
+
+  defp assert_pixels_equal(response, expected) do
+    actual = Image.from_binary!(response.resp_body)
+    assert Image.shape(actual) == Image.shape(expected)
+    assert VipsImage.write_to_binary(actual) == VipsImage.write_to_binary(expected)
+  end
+
   defp assert_pixel_close(actual, expected, orientation, policy) do
     assert PixelCompare.same_dims?(actual, expected),
            "EXIF #{orientation} #{policy}: dimensions differ, " <>

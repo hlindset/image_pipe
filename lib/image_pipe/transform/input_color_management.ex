@@ -158,10 +158,16 @@ defmodule ImagePipe.Transform.InputColorManagement do
   end
 
   defp remove_profile(image) do
-    VixImage.mutate(image, fn mutable ->
-      _ = MutableImage.remove(mutable, "icc-profile-data")
-      :ok
-    end)
+    case profile_data(image) do
+      nil ->
+        {:ok, image}
+
+      _profile ->
+        VixImage.mutate(image, fn mutable ->
+          _ = MutableImage.remove(mutable, "icc-profile-data")
+          :ok
+        end)
+    end
   end
 
   defp profile_data(image) do
