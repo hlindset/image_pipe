@@ -40,7 +40,8 @@ defmodule ImagePipe.Telemetry do
 
   Options:
     * `:level` — base log level (default `:info`); errors/exceptions escalate to `:warning`.
-    * `:events` — `:all` (default) or a list of `[:request, :parse, :source, :transform, :cache]`.
+    * `:events` — `:all` (default) or a list drawn from `:request`, `:parse`, `:source`,
+      `:transform`, `:cache`, `:output`, `:http_cache`, and `:debug`.
     * `:prefix` — telemetry event prefix list (default `#{inspect(@default_prefix)}`).
     * `:debug` — when `true`, also log the full raw measurements/metadata (default `false`).
   """

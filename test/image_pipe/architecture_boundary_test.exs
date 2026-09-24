@@ -1,7 +1,7 @@
 defmodule ImagePipe.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
-  @request_source_response_globs [
+  @plug_source_response_globs [
     "lib/image_pipe/execution.ex",
     "lib/image_pipe/execution/**/*.ex",
     "lib/image_pipe/processing.ex",
@@ -465,9 +465,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "request, source, and response code does not depend on concrete transform modules" do
+  test "Plug, source, and response code does not depend on concrete transform modules" do
     violations =
-      for file <- request_source_response_files(),
+      for file <- plug_source_response_files(),
           violation <- concrete_transform_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; use ImagePipe.Transform dispatch instead"
       end
@@ -615,8 +615,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  defp request_source_response_files do
-    @request_source_response_globs
+  defp plug_source_response_files do
+    @plug_source_response_globs
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.sort()
   end
