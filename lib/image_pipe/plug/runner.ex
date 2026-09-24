@@ -313,7 +313,7 @@ defmodule ImagePipe.Plug.Runner do
 
   defp send_error(conn, reason, config) do
     log_encode_failure(reason)
-    metadata = %{result: API.classify_error(reason), error: Error.tag(reason)}
+    metadata = %{result: Telemetry.request_result({:error, reason}), error: Error.tag(reason)}
 
     conn =
       send_with_span(conn, config, metadata.result, fn ->

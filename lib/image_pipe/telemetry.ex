@@ -187,6 +187,20 @@ defmodule ImagePipe.Telemetry do
   @spec request_result(:ok | :not_modified | {:error, term()}) :: atom()
   def request_result(:ok), do: :ok
   def request_result(:not_modified), do: :not_modified
+
+  def request_result({:error, reason})
+      when reason in [
+             :missing_signature,
+             :invalid_signature,
+             :signature_without_keys,
+             :invalid_concealed_source,
+             :expired
+           ],
+      do: :parser_error
+
+  def request_result({:error, {:invalid_request, _}}), do: :parser_error
+  def request_result({:error, {:invalid_output, _}}), do: :plan_error
+  def request_result({:error, {:detector, :unavailable}}), do: :plan_error
   def request_result({:error, {:source, _}}), do: :source_error
   def request_result({:error, _reason}), do: :processing_error
 

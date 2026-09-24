@@ -206,7 +206,9 @@ defmodule ImagePipe.Security.SourceEncryptionTest do
 
       assert conn.status == 404
       assert conn.resp_body == "not found"
-      assert API.classify_error(:invalid_concealed_source) == :parser_error
+
+      assert ImagePipe.Telemetry.request_result({:error, :invalid_concealed_source}) ==
+               :parser_error
     end
   end
 

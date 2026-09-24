@@ -124,8 +124,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Processing,
       ImagePipe.Response,
       ImagePipe.Security,
-      ImagePipe.Source,
-      ImagePipe.Telemetry
+      ImagePipe.Source
     ])
 
     refute_boundary_deps(api, [ImagePipe.Decode, ImagePipe.Delivery, ImagePipe.Plug])

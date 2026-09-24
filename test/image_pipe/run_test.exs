@@ -148,6 +148,43 @@ defmodule ImagePipe.RunTest do
     assert {:ok, _result} = IP.run(IP.new(expires: 1000), {:binary, bytes}, clock: fn -> 1000 end)
   end
 
+  test "request failures retain native telemetry outcomes", %{bytes: bytes} do
+    prefix = [__MODULE__, :failures]
+    event = prefix ++ [:request, :stop]
+    pid = self()
+    id = make_ref()
+
+    :telemetry.attach(
+      id,
+      event,
+      fn _event, _measurements, metadata, _config ->
+        send(pid, {:request_stop, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+
+    cases = [
+      {IP.group(IP.new(), extend: true), {:binary, bytes}, [], %{result: :parser_error}},
+      {IP.new(expires: 999), {:binary, bytes}, [clock: fn -> 1000 end], %{result: :parser_error}},
+      {IP.output(IP.new(), hdr: :preserve, color_profile: {:convert, :srgb}), {:binary, bytes},
+       [], %{result: :plan_error}},
+      {IP.group(IP.new(), crop: {10, 10}, detect: ["face"]), {:binary, bytes},
+       [detector: nil, detector_required: true], %{result: :plan_error}},
+      {IP.new(), {:file, "/missing/image.png"}, [], %{result: :source_error, error: :source}},
+      {IP.new(), {:binary, "invalid image"}, [], %{result: :processing_error, error: :decode}}
+    ]
+
+    for {plan, input, options, expected} <- cases do
+      assert {:error, _reason} =
+               IP.run(plan, input, Keyword.put(options, :telemetry_prefix, prefix))
+
+      assert_receive {:request_stop, metadata}
+      assert Map.take(metadata, [:result, :error]) == expected
+    end
+  end
+
   test "file and input boundaries reject malformed or oversized sources", %{bytes: bytes} do
     assert {:error, {:invalid_source, :invalid_input}} = IP.run(IP.new(), bytes)
     assert {:error, {:invalid_source, :invalid_encoding}} = IP.run(IP.new(), {:source, <<255>>})

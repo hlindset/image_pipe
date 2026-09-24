@@ -70,22 +70,6 @@ defmodule ImagePipe.API.Errors do
     |> send_resp(400, "invalid output")
   end
 
-  def send(%Plug.Conn{} = conn, {:detector, :unavailable}) do
-    {status, message} = ErrorStatus.resolve_status({:detector_unavailable, :unavailable})
-
-    conn
-    |> put_resp_content_type("text/plain")
-    |> send_resp(status, message)
-  end
-
-  def send(%Plug.Conn{} = conn, {:transform, inner}) do
-    {status, message} = ErrorStatus.resolve_status({:transform_error, inner})
-
-    conn
-    |> put_resp_content_type("text/plain")
-    |> send_resp(status, message)
-  end
-
   def send(%Plug.Conn{} = conn, reason) do
     {status, message} = ErrorStatus.resolve_status(reason)
 

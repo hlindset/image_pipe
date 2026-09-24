@@ -368,6 +368,6 @@ defmodule ImagePipe.API.OutputTest do
 
     assert conn.status == 400
     assert conn.resp_body == "invalid output"
-    assert API.classify_error(reason) == :plan_error
+    assert ImagePipe.Telemetry.request_result({:error, reason}) == :plan_error
   end
 end
