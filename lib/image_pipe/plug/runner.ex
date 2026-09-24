@@ -163,27 +163,22 @@ defmodule ImagePipe.Plug.Runner do
     context = output.context
     meta = Execution.response_meta(context.request)
 
-    delivery =
-      case output.value do
-        {:entry, entry} ->
-          debug = %{
-            cache_key: context.representation.cache_key.hash,
-            cache_serve_us: output.cache_us
-          }
-
-          {:cache_entry, entry, meta, headers, debug}
-
-        {:stream, stream} ->
-          {:prepared_stream, stream, meta, headers}
-      end
-
     conn =
       send_with_span(conn, context.config, :ok, fn ->
-        Sender.send_result(
-          conn,
-          {:ok, delivery},
-          delivery_config(context.request, context.config)
-        )
+        config = delivery_config(context.request, context.config)
+
+        case output.value do
+          {:entry, entry} ->
+            debug = %{
+              cache_key: context.representation.cache_key.hash,
+              cache_serve_us: output.cache_us
+            }
+
+            Sender.send_cache_entry(conn, entry, meta, headers, debug, config)
+
+          {:stream, stream} ->
+            Sender.send_prepared_stream(conn, stream, meta, headers, config)
+        end
       end)
 
     {conn, %{result: :ok}}
@@ -310,7 +305,7 @@ defmodule ImagePipe.Plug.Runner do
   defp send_not_modified(conn, %CacheHeaders{} = cache_headers, config) do
     conn =
       send_with_span(conn, config, :not_modified, fn ->
-        Sender.send_result(conn, {:not_modified, cache_headers}, config)
+        Sender.send_not_modified(conn, cache_headers)
       end)
 
     {conn, %{result: :not_modified}}

@@ -27,43 +27,6 @@ defmodule ImagePipe.Response.Sender do
 
   @type hit_debug() :: %{cache_key: String.t(), cache_serve_us: non_neg_integer()}
 
-  @type delivery() ::
-          {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t(), hit_debug()}
-          | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
-
-  @spec send_result(
-          Plug.Conn.t(),
-          {:ok, delivery()} | {:not_modified, CacheHeaders.t()},
-          keyword()
-        ) :: Plug.Conn.t()
-  def send_result(
-        %Plug.Conn{} = conn,
-        {:not_modified, %CacheHeaders{} = prepared},
-        _opts
-      ) do
-    send_not_modified(conn, prepared)
-  end
-
-  def send_result(
-        %Plug.Conn{} = conn,
-        {:ok,
-         {:cache_entry, %Entry{} = entry, %Response{} = response, %CacheHeaders{} = prepared,
-          hit_debug}},
-        opts
-      ) do
-    send_cache_entry(conn, entry, response, prepared, hit_debug, opts)
-  end
-
-  def send_result(
-        %Plug.Conn{} = conn,
-        {:ok,
-         {:prepared_stream, %PreparedStream{} = prepared_stream, %Response{} = response,
-          %CacheHeaders{} = prepared}},
-        opts
-      ) do
-    send_prepared_stream(conn, prepared_stream, response, prepared, opts)
-  end
-
   @spec send_method_not_allowed(Plug.Conn.t()) :: Plug.Conn.t()
   def send_method_not_allowed(%Plug.Conn{} = conn) do
     conn
@@ -82,14 +45,14 @@ defmodule ImagePipe.Response.Sender do
     |> send_resp(304, "")
   end
 
-  defp send_cache_entry(
-         %Plug.Conn{} = conn,
-         %Entry{} = entry,
-         %Response{} = response,
-         %CacheHeaders{} = prepared,
-         hit_debug,
-         opts
-       ) do
+  def send_cache_entry(
+        %Plug.Conn{} = conn,
+        %Entry{} = entry,
+        %Response{} = response,
+        %CacheHeaders{} = prepared,
+        hit_debug,
+        opts
+      ) do
     with {:ok, entry_headers} <- Entry.cacheable_headers(entry.headers),
          {:ok, content_disposition} <- Response.content_disposition(response, entry.content_type) do
       delivery_headers =
@@ -184,13 +147,13 @@ defmodule ImagePipe.Response.Sender do
     _exception -> mark_send_processing_error(conn)
   end
 
-  defp send_prepared_stream(
-         %Plug.Conn{} = conn,
-         %PreparedStream{} = prepared_stream,
-         %Response{},
-         %CacheHeaders{} = prepared,
-         opts
-       ) do
+  def send_prepared_stream(
+        %Plug.Conn{} = conn,
+        %PreparedStream{} = prepared_stream,
+        %Response{},
+        %CacheHeaders{} = prepared,
+        opts
+      ) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
     prepared_stream = maybe_add_debug_headers(prepared_stream, conn, opts)
 

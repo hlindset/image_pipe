@@ -127,11 +127,12 @@ defmodule ImagePipe.Response.SenderTest do
     response = %Response{disposition: :attachment, filename: "report"}
 
     conn =
-      Sender.send_result(
+      Sender.send_cache_entry(
         conn(:get, "/image"),
-        {:ok,
-         {:cache_entry, entry, response, empty_cache_headers(),
-          %{cache_key: "ip-cache-key", cache_serve_us: 0}}},
+        entry,
+        response,
+        empty_cache_headers(),
+        %{cache_key: "ip-cache-key", cache_serve_us: 0},
         []
       )
 
@@ -159,11 +160,12 @@ defmodule ImagePipe.Response.SenderTest do
     }
 
     conn =
-      Sender.send_result(
+      Sender.send_cache_entry(
         conn(:get, "/image"),
-        {:ok,
-         {:cache_entry, entry, %Response{}, prepared,
-          %{cache_key: "ip-cache-key", cache_serve_us: 0}}},
+        entry,
+        %Response{},
+        prepared,
+        %{cache_key: "ip-cache-key", cache_serve_us: 0},
         []
       )
 
@@ -194,10 +196,11 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Plug.Conn.put_resp_header("cache-control", "private, max-age=30")
-      |> Sender.send_result(
-        {:ok,
-         {:cache_entry, entry, %Response{}, prepared,
-          %{cache_key: "ip-cache-key", cache_serve_us: 0}}},
+      |> Sender.send_cache_entry(
+        entry,
+        %Response{},
+        prepared,
+        %{cache_key: "ip-cache-key", cache_serve_us: 0},
         []
       )
 
@@ -215,9 +218,11 @@ defmodule ImagePipe.Response.SenderTest do
     }
 
     conn =
-      Sender.send_result(
+      Sender.send_prepared_stream(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared_stream, %Response{}, prepared}},
+        prepared_stream,
+        %Response{},
+        prepared,
         []
       )
 
@@ -243,11 +248,12 @@ defmodule ImagePipe.Response.SenderTest do
     }
 
     _conn =
-      Sender.send_result(
+      Sender.send_cache_entry(
         conn(:get, "/image"),
-        {:ok,
-         {:cache_entry, entry, %Response{}, prepared,
-          %{cache_key: "ip-cache-key", cache_serve_us: 0}}},
+        entry,
+        %Response{},
+        prepared,
+        %{cache_key: "ip-cache-key", cache_serve_us: 0},
         []
       )
 
@@ -281,9 +287,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(
+      Sender.send_prepared_stream(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        prepared,
+        response,
+        empty_cache_headers(),
         []
       )
 
@@ -314,9 +322,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(
+      Sender.send_prepared_stream(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        prepared,
+        response,
+        empty_cache_headers(),
         []
       )
 
@@ -341,9 +351,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(
+      Sender.send_prepared_stream(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        prepared,
+        response,
+        empty_cache_headers(),
         []
       )
 
@@ -380,8 +392,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {ClosingChunkAdapter, %{chunks: nil}})
-      |> Sender.send_result(
-        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+      |> Sender.send_prepared_stream(
+        prepared,
+        %Response{},
+        empty_cache_headers(),
         []
       )
 
@@ -417,8 +431,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FailingChunkedAdapter, %{}})
-      |> Sender.send_result(
-        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+      |> Sender.send_prepared_stream(
+        prepared,
+        %Response{},
+        empty_cache_headers(),
         []
       )
 
@@ -451,8 +467,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FirstChunkClosedAdapter, %{}})
-      |> Sender.send_result(
-        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+      |> Sender.send_prepared_stream(
+        prepared,
+        %Response{},
+        empty_cache_headers(),
         []
       )
 
@@ -474,9 +492,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(
+      Sender.send_prepared_stream(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+        prepared,
+        %Response{},
+        empty_cache_headers(),
         []
       )
 
