@@ -1,6 +1,7 @@
 # Shared filesystem cache design
 
-Status: proposed. This describes the intended architecture, not current support.
+Status: superseded by [Shared filesystem cache with owned partitions](shared-filesystem-cache-partitions.md).
+This document records the earlier coordinated-source design.
 
 The input/source-state foundation is implemented. The
 [EFS ownership spike](efs-ownership-spike.md) records partial evidence, an

@@ -1,11 +1,13 @@
 # EFS ownership and recovery spike
 
-Status: partial investigation for `image_plug-015.1`, 2026-09-24. **No EFS
+Status: historical investigation for `image_plug-015.1`, 2026-09-24. The
+[partition-based specification](shared-filesystem-cache-partitions.md) replaces
+the ownership-lock requirement. **No EFS
 configuration is qualified.** The available machine is macOS/Darwin 27.0.0;
 there are no supplied EFS clients. Local evidence is four passing subprocess
 tests in `scripts/efs_probe/test_probe.py`. The reusable
 [probe and two-client runbook](../../scripts/efs_probe/README.md) cover the next
-experiments. Task `015.2` remains blocked on the ownership decision and evidence.
+experiments for any future investigation of the coordinated-source design.
 
 ## What the protocol permits
 
